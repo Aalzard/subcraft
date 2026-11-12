@@ -91,6 +91,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     if let Some(view) = show_view {
         let prefs = &mut state.recovery.prefs.viewport;
         prefs.mesh_map = None;
+        prefs.solo = None;
         let mode = view.unwrap_or(ViewMode::Material);
         prefs.view_mode = ViewMode::ALL.iter().position(|m| *m == mode).unwrap_or(0);
     }

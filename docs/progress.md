@@ -5060,8 +5060,158 @@ rotating one slot when a tile is full (helps cyclic stacks, but the 40-layer sta
 * **Tests added:** `crates/app/tests/preset_kinds.rs`, `crates/ui/tests/preset_menus.rs`.
 * **Not done:** Ctrl+drag a smart mask to replace (layers.rs), filter / generator mini-shelves (effects.rs): both files are
   owned by other sessions. No Presets strip for path tools.
+### Parity chunk 33 - Standard filter gaps (2026-11-12, branch `claude/parity-filter-gaps`)
 
-### Session 125 - Painter parity: navigation and mouse gestures (2026-11-11, branch `claude/parity-nav`)
+* **Doc (`crates/doc/src/filter.rs`):** new filters Smoothstep (Minimum, Maximum), Contrast Luminosity, Color Correct
+  (Shadows / Midtones / Highlights, each Contrast, Luminosity, Saturation), Transform (Repeat mode, Flip mode,
+  Scaling, Offset, Rotation, Tile Safe Rotation) and Mirror (Axis X, Axis Y, Corner; offsets, axis inverts, corner
+  type). Threshold gains a comparison Mode, Blur and Histogram Shift a Wrap toggle, HSL a Perceptive / Regular mode;
+  these are separate variants sharing the base filter's name, so existing project files load unchanged.
+* **Math (`crates/materials/src/filter.rs`, `filter/pixelwise.rs`):** Smoothstep is the Hermite `3t² - 2t³`
+  between min and max; HSL Perceptive works in OKLCH; Color Correct weights the three ranges by luminance; Transform
+  samples the source through the inverse UV transform (bilinear, per-axis repeat, empty outside when not
+  repeating); Tile Safe snaps rotation to quarter turns and scale to whole fractions. Wrapped blur fetches across
+  the opposite border in the compositor (`Node::Gaussian { wrap }`); Transform and Mirror read the whole texture.
+* **Not done:** apply-to-alpha toggles (Posterize, Pixelate), Highpass colour space, the Invert filter's toggle,
+  Directional Blur Intensity, Mirror Display Debug, Transform's on-canvas Scaling / Offset manipulators.
+* **Checked:** `cargo check --release --all-targets` of doc, materials, compositor, project, app and ui: no errors.
+  New tests (doc domain/support test, materials `standard_filter_tests` and pixelwise tests, compositor spatial
+  tests for wrapped blur, Transform and Mirror) were not run locally (coordinator rule: CI is the test gate).
+### Parity chunk 8 - Fill projection options (2026-11-12, branch `claude/parity-fill-gen`)
+
+* **Doc (`crates/doc/src/fill.rs`):** `FillFiltering` (Bilinear | HQ default, Bilinear | Sharp, Nearest), `UvWrap`
+  (None, Repeat horizontally, Repeat vertically, Repeat default), `ShapeCrop` (cropped to shape, extends outside
+  shape default) on `Projection`, each skipped in JSON when default so existing project files are unchanged.
+  Tri-planar Hardness 0-1 maps onto the stored blend exponent (`s = 1 / (1 - h)`, 1.0 = `TRIPLANAR_HARD`, a hard cut).
+* **Sampling (`crates/materials/src/sample/bitmap.rs`):** Bilinear | HQ is trilinear over a cached, box-filtered mip
+  chain (built in linear light for colour images), with the level picked from texels per output texel; Sharp is
+  bilinear on the full image; Nearest picks the closest texel. UV Wrap applies per axis to image and procedural
+  fills, in content and in masks. Tri-planar always repeats.
+* **UI:** Filtering, UV Wrap (hidden for tri-planar) and Shape crop (hidden for UV) rows on fill layers, fill
+  effects and mask fills; Hardness replaces Sharpness; Offset is hidden for tri-planar.
+* **Not done:** Shape crop's box is the model's bounding cube until the 3D projection transform (chunk 9) exists,
+  so it clips nothing yet.
+* **Checked:** `cargo check --release --all-targets` of doc, materials, compositor, project, app and ui: no errors.
+  The new unit tests (doc, materials, compositor `mask_image_and_procedural_fill_respect_uv_wrap`) were not run
+  locally (coordinator rule: GitHub CI is the test gate); see the PR's CI result.
+### Parity chunk 16 - Mask Editor generator (2026-11-12, branch `claude/parity-mask-editor`)
+
+* **Doc (`crates/doc/src/mask.rs`):** `GeneratorKind::MaskEditor` with `MaskEditor` settings on `Generator.editor`
+  (skipped in JSON for other kinds): Global Invert / Blur / Balance / Contrast, one opacity per contribution and
+  the groups Texture, Texture 2 (image, Invert, Grayscale Conversion, Blending Mode, Scale, Contrast, Brightness,
+  Triplanar, Triplanar Contrast, Non-Square Tiling), Ambient Occlusion, Curvature (Mode Edges / Cavities / Dual /
+  Unprocessed), World Space Normal and Position Gradient (per-axis amounts, each axis with Invert and Blending
+  Mode) and Thickness. Texture images count as project resources (save, fragments, clipboard).
+* **Compositor (`crates/compositor/src/mask.rs`, `stages.rs`):** contributions blend bottom to top over black with
+  the layer blending modes (`out += (blend(out, v) - out) * opacity`); a Global Blur runs as a Gaussian stage
+  between the raw blend and Balance / Contrast / Invert, with its halo counted in dirty tracking.
+* **UI:** Generator dropdown entry "Mask Editor" and the full Properties layout (`mask_editor_controls`); texture
+  images are picked through the file dialog (`Purpose::GeneratorTexture`).
+* **Not done:** per-map Blur (Ambient Occlusion, World Space Normal, Thickness), the seven curvature scale sliders,
+  Micro Details, anchors as texture sources, an entry in the Layers panel's generator menu.
+* **Checked:** `cargo check --release --all-targets` of doc, compositor, project, app and ui: no errors. New tests
+  (doc mask editor tests, `crates/compositor/tests/mask_editor.rs`) were not run locally (coordinator rule: CI is
+  the test gate).
+## Display Settings dock panel (Painter parity chunk 10, 2026-11-12, branch `claude/parity-display-panel`, PR #161)
+
+* New `subcraft_doc::DisplaySettings` (`crates/doc/src/display.rs`): every display setting in one plain
+  struct with serde defaults. Saved in `ProjectSettings.display` (optional, no schema bump) and embedded in
+  the viewport preferences with `#[serde(flatten)]`, so old preference files load. Enums are written by
+  name; old list indices and unknown names fall back to the default.
+* New optional dock tab: View > Display settings, or `--display-settings [group]` at launch. Its sections
+  follow Painter's order (Environment, Camera, Post effects, Render, Visualization), with jump buttons
+  and the view-mode dropdown. The Render quality window reuses its camera and post-effect sections.
+* `panels::display_settings::sync_project` loads the project's settings when a session opens and writes
+  back only real changes, so opening a project never marks it modified.
+* Section titles and sub-headings go through literal `tr("...")` calls. The Render quality window's old
+  keys were removed from the zh-Hant and Korean tables, and the 47 new texts are translated in both. A
+  first CI run failed `every_translated_key_exists_in_the_english_source...` because of the stale keys.
+* Checked: `cargo check --release --all-targets` for subcraft, doc, project, render, app and ui passes.
+  A Python copy of the i18n test's scan finds no unknown or untranslated keys.
+* NOT verified locally: the test suites (CI is the test gate, per the coordinator) and the panel in the
+  running app (no screenshot yet).
+
+## Environment and camera settings (Painter parity chunk 11, 2026-11-12, branch `claude/parity-display-env`)
+
+* Environment backdrop: `vs_background`/`fs_background` draw the environment behind the model before the
+  mesh (MSAA and single-sample pipelines). Opacity 0-100% (default 0, the old plain background) and blur
+  0-1 (`EnvironmentParams.background_opacity/background_blur`). `Globals` gained `inv_view_proj`, the
+  background colour and opacity, and the blur level.
+* Environment exposure is in EV (-5..5, multiplier 2^EV) and replaces the old intensity slider. Alignment
+  is World (default) or Local; Local adds the camera yaw (`shelf::environment_view`). Environment tiles
+  can be dragged from Assets > Environments onto the 3D view or the Environment map dropdown
+  (`EnvironmentDrag`).
+* Camera: field of view 5-120 degrees with a full-frame focal-length readout (`focal_length_mm`,
+  `fov_from_focal_length`). Changing the FOV dollies the camera so the model keeps its size. Ctrl+MMB
+  or "Pick in 3D view" sets the focus distance. F9 (`Action::PaintingMode`) leaves rendering mode.
+* The map name, rotation and FOV are saved in the project's display settings.
+* zh-Hant and Korean: 16 new texts translated, and 4 replaced texts removed.
+* Tests added: `crates/render/tests/display.rs` (GPU, exact pixel values for backdrop opacity, the
+  linear-light mix, EV, rotation, blur levels and view exposure) and the lens/EV maths in
+  `crates/doc/src/display.rs`.
+* Checked: `cargo check --release --all-targets` for the six affected crates passes, and the i18n scan is
+  clean. NOT verified locally: the test suites (CI is the test gate) and the running app.
+
+## Post-effect stack completion (Painter parity chunk 25, 2026-11-12, branch `claude/parity-display-post`)
+
+* Post effects get a master switch ("Activate Post Effects", on by default) and one collapsible entry per
+  effect with its own on/off switch, in Painter's order. The existing effects keep their current look.
+* Tone mapping: new functions Auto, Linear (saturated), Sensitometric, Reinhard (luminance), Log and Log
+  (luminance), plus Gamma and Mapping Factor. All tone functions now live in a shared
+  `crates/render/src/tonemap.wgsl` (prepended to viewport.wgsl and pathtrace_display.wgsl), with a CPU
+  reference in `crates/render/src/grade.rs`.
+* New passes in post.wgsl: bloom falloff, glare threshold/remap with Painter's 13 glare shapes
+  (`glare_recipe`; Lens Flare, Standard, Cheap Lens and After Image are approximations), lens-flare
+  ghosts, and a final grade pass (`fs_grade`). The grade pass does lateral or achromatic aberration,
+  vignette, sharpen, film grain (gray or colored) and color correction (saturation, contrast,
+  brightness, bias, sepia, white balance).
+* zh-Hant and Korean: 54 new texts translated. The effect and slider helpers take translated text, so
+  every label is a literal `tr("...")`.
+* Tests added:
+  * `crates/render/tests/display.rs` (GPU): every tone function against the CPU reference, and the
+    lens/colour stage against `Grade::apply`. Film grain statistics (strength, size, gray versus
+    colored). Bloom falloff widening the glow, and lens flare mirroring a bright spot.
+  * `crates/render/tests/post.rs`: each glare shape draws its own pattern.
+* Checked: `cargo check --release --all-targets` reached borrow checking in subcraft-ui. It found 3
+  lifetime errors in the `effect`/`slider` helpers, and the i18n change removed those calls; render,
+  doc and app compiled clean. The i18n scan is clean. NOT verified locally: the test suites (CI is the
+  test gate) and the running app.
+* Not done: lens distortion, most lens-flare parameters (only camera, amount, threshold, ghost count and
+  spacing), colour profile/LUT, TAA. Glare comes from emission only.
+
+## Viewport visualisation settings (Painter parity chunk 28, 2026-11-12, branch `claude/parity-display-viz`)
+
+* Solo view: every channel of the texture set can be shown alone, not just a fixed short list. Channels
+  are grouped in the view-mode dropdown (Lighting, Single channel, mesh maps) and can be cycled. The UI
+  uploads a non-shaded solo channel to the renderer (`ViewParams.solo_channel`, `channel_view` in
+  viewport.wgsl).
+* Channel display (enabled only while one channel is shown, as in Painter):
+  * Display solo view without lighting
+  * Scale HDR values
+  * +/- colours for signed grayscale values, with the two colours
+  * Which colour components to show
+* Texture filtering: anisotropic filtering (Disabled, Low, Medium (default), High, Very high; clamped to the
+  GPU's limit) and MipMap bias (`set_texture_filtering`).
+* Grid: plane (X/Y/Z), colour and opacity (`GridParams`, plane-aware fade in grid.wgsl). The grid unit is
+  shown in the bottom-left corner while the viewport hints are hidden.
+* Camera frame with aspect-ratio presets and gate-mask opacity. Stencil display: opacity, and hide
+  while painting. These rows edit the same `state.stencil_display` as Properties > Brush, which landed
+  on main meanwhile; the first draft of this chunk had its own copy, removed in the rebase.
+* zh-Hant and Korean: 35 new texts translated. The stencil tooltip is now two literal `tr()` calls
+  instead of `tr(if ...)`.
+* Tests added:
+  * `crates/render/tests/display.rs` (GPU): any channel shown alone as stored. HDR scale, signed
+    colours and lighting in the solo view. Anisotropy and a sharper mip bias keeping distant detail.
+    The grid in the chosen plane with its colour and opacity.
+  * UI unit tests: camera-frame geometry, cycling every channel, and grid/channel settings reaching
+    the renderer.
+  * `crates/doc`: options and defaults.
+* Checked: `cargo check --release --all-targets` for the six affected crates (see the PR for the run on
+  this exact commit), and the i18n scan is clean. NOT verified locally: the test suites (CI is the test
+  gate) and the running app.
+* Not done: projection preview channel, B/Shift+B mesh-map cycling, shadows, OIT, SSS.
+
+### Parity chunk 3 - Navigation and mouse gestures (2026-11-11, branch `claude/parity-nav`)
 
 * **Done:** orbit around the point under the cursor (issue #115, Preferences switch, on by default); Alt+Shift+LMB
   orbit snapped to 90 degrees; Ctrl+Shift+click straight line snapped to 5 degrees; Ctrl+MMB click sets the depth of

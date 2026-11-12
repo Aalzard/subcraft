@@ -71,12 +71,12 @@ pub enum Action {
     Bake,
     /// Switch the 3D view between the raster viewport and the path-traced Rendering mode.
     TogglePathTracing,
+    /// Leave the Rendering mode: back to the painting viewport.
+    PaintingMode,
     /// Select every layer of the texture set (then Delete, Duplicate... act on all of them).
     SelectAllLayers,
     /// Hide every panel so the view(s) fill the window (Painter's Tab); again to bring them back.
     HideUi,
-    /// Leave the Bake window and the Rendering mode (Painter's Painting mode).
-    PaintingMode,
     /// Close the project: back to the sample model (asks about unsaved changes first).
     CloseProject,
     /// 3D and 2D views side by side / 3D only / 2D only / swap them (Painter's F1..F4).
@@ -100,8 +100,8 @@ impl Action {
         Action::BrushTool, Action::EraserTool, Action::PenTool, Action::PolygonFillTool, Action::SmudgeTool, Action::CloneTool, Action::EyedropperTool,
         Action::BrushSmaller, Action::BrushLarger, Action::ToggleSymmetryX, Action::ToggleLazyMouse, Action::ResetCamera, Action::PerspectiveCamera,
         Action::OrthographicCamera, Action::NextChannel, Action::PrevChannel, Action::DisplayMaterial, Action::NewProject, Action::Quit, Action::Save,
-        Action::SaveAs, Action::OpenProject, Action::Export, Action::Bake, Action::TogglePathTracing, Action::SelectAllLayers,
-        Action::HideUi, Action::PaintingMode, Action::CloseProject, Action::View3dAnd2d, Action::View3dOnly, Action::View2dOnly,
+        Action::SaveAs, Action::OpenProject, Action::Export, Action::Bake, Action::TogglePathTracing, Action::PaintingMode, Action::SelectAllLayers,
+        Action::HideUi, Action::CloseProject, Action::View3dAnd2d, Action::View3dOnly, Action::View2dOnly,
         Action::SwapViews, Action::NextMeshMap, Action::PrevMeshMap, Action::InvertMaskGray, Action::IsolateTextureSet,
     ];
 }
@@ -251,9 +251,9 @@ pub const ACTIONS: &[ActionInfo] = &[
     a(Action::Export, "Export Textures", &[Shortcut::ctrl_shift(Key::E)]),
     a(Action::Bake, "Bake Mesh Maps", &[Shortcut::ctrl(Key::B), Shortcut::key(Key::F8), Shortcut::ctrl_shift(Key::B)]),
     a(Action::TogglePathTracing, "Rendering Mode (path tracing)", &[Shortcut::key(Key::F10)]),
+    a(Action::PaintingMode, "Painting Mode (leave Rendering mode)", &[Shortcut::key(Key::F9)]),
     a(Action::SelectAllLayers, "Select All Layers", &[Shortcut::ctrl(Key::A)]),
     a(Action::HideUi, "Hide UI", &[Shortcut::key(Key::Tab)]),
-    a(Action::PaintingMode, "Painting Mode", &[Shortcut::key(Key::F9)]),
     a(Action::CloseProject, "Close Project", &[Shortcut::ctrl(Key::F4)]),
     a(Action::View3dAnd2d, "Show 3D and 2D Views", &[Shortcut::key(Key::F1)]),
     // F2 renames the selected layer in the SubCraft key set; Painter uses it for the 3D-only layout.
