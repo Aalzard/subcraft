@@ -56,25 +56,25 @@ Layout notes: imported cameras come from the mesh file (FBX / Alembic) at projec
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Import Cameras checkbox | New project window | on (unverified) | missing | - | - |
-| Import cameras on mesh re-import | Edit > Project configuration | off unless toggled | missing | - | - |
-| Imported data: name, transform, FOV, aspect ratio | from FBX / ABC mesh file | - | partial: camera read from a separate glTF/GLB or JSON file; roll and aspect dropped | crates/ui/src/view_extras.rs:186 | - |
-| Camera selection dropdown | 3D view, top right | "Default camera"; hidden if no other camera | partial: camera icon menu listing saved bookmarks, in the top strip | crates/ui/src/view_extras.rs:124 | - |
-| Default camera entry | Camera dropdown | selected, perspective | missing | - | - |
-| Navigating while an imported camera is active switches to Default camera | 3D view | always | partial: a bookmark only moves the orbit camera, so imported views are never altered | crates/ui/src/view_extras.rs:39 | - |
-| Select next camera shortcut | Settings > Shortcuts | keys not documented | missing | - | - |
-| Select previous camera shortcut | Settings > Shortcuts | keys not documented | missing | - | - |
-| Camera Preset dropdown | Display settings > Camera | active camera | missing | - | - |
-| Field of view | Display settings > Camera | degrees; range not documented | missing | - | - |
-| Focal length | Display settings > Camera | mm; range not documented | missing | - | - |
+| Import Cameras checkbox | New project window | on (unverified) | done: New project > Cameras, on by default; glTF, GLB and FBX files carry cameras | crates/ui/src/new_project.rs, crates/app/src/session.rs (import_mesh_cameras) | 217 |
+| Import cameras on mesh re-import | Edit > Project configuration | off unless toggled | done: "Import cameras" in File > Reload mesh, off by default | crates/ui/src/mesh_reload.rs | 217 |
+| Imported data: name, transform, FOV, aspect ratio | from FBX / ABC mesh file | - | done: from glTF / GLB and FBX mesh files (and separate camera files); saved with the project; roll is dropped by the orbit camera | crates/mesh/src/camera.rs (cameras_in_mesh_file), crates/doc/src/camera.rs | 217 |
+| Camera selection dropdown | 3D view, top right | "Default camera"; hidden if no other camera | done: 3D view, top right, hidden when the project has no imported cameras; also Display Settings > Camera | crates/ui/src/view_extras.rs (camera_dropdown) | 217 |
+| Default camera entry | Camera dropdown | selected, perspective | done: first entry; choosing it brings back the view from before | crates/ui/src/view_extras.rs (select_camera) | 217 |
+| Navigating while an imported camera is active switches to Default camera | 3D view | always | done: unless the camera is locked | crates/ui/src/view_extras.rs (follow_camera) | 217 |
+| Select next camera shortcut | Settings > Shortcuts | keys not documented | done: Alt+] (Painter documents no key) | crates/app/src/actions.rs (Action::NextCamera) | 217 |
+| Select previous camera shortcut | Settings > Shortcuts | keys not documented | done: Alt+[ (Painter documents no key) | crates/app/src/actions.rs (Action::PrevCamera) | 217 |
+| Camera Preset dropdown | Display settings > Camera | active camera | done | crates/ui/src/panels/display_settings.rs (camera) | 217 |
+| Field of view | Display settings > Camera | degrees; range not documented | done: 5-120 degrees in Display Settings > Camera | crates/ui/src/panels/display_settings.rs (camera) | 165 |
+| Focal length | Display settings > Camera | mm; range not documented | done: full-frame equivalent readout | crates/ui/src/panels/display_settings.rs (camera) | 165 |
 | Focus distance | Display settings > Camera | disabled unless Post effects + DOF | partial: "Focus" as a multiple of orbit distance, 0.05-4 | crates/ui/src/viewport_bar.rs:137 | - |
 | Aperture | Display settings > Camera | disabled unless Post effects + DOF | partial: DOF amount 0-1 instead of an aperture | crates/ui/src/viewport_bar.rs:136 | - |
-| Display ratio | Display settings > Camera | "Unspecified" when absent | missing | - | - |
-| Lock camera | Display settings > Camera, lock icon | unlocked | missing | - | - |
-| Restore (revert modified attributes) | Display settings > Camera | - | missing | - | - |
-| Modified-camera marker (italic name with *) | Camera dropdown | - | missing | - | - |
-| Camera frame toggle | Display settings > Viewport settings > Camera frame | off (unverified) | missing | - | - |
-| Gate mask opacity | Display settings > Viewport settings > Camera frame | not documented | missing | - | - |
+| Display ratio | Display settings > Camera | "Unspecified" when absent | done: the imported camera's aspect, "Unspecified" when the file has none | crates/ui/src/panels/display_settings.rs (camera) | 217 |
+| Lock camera | Display settings > Camera, lock icon | unlocked | done: checkbox in the 3D view corner and Display Settings > Camera | crates/ui/src/view_extras.rs (follow_camera) | 217 |
+| Restore (revert modified attributes) | Display settings > Camera | - | done: puts the field of view and projection back | crates/ui/src/view_extras.rs (restore_camera) | 217 |
+| Modified-camera marker (italic name with *) | Camera dropdown | - | done | crates/ui/src/view_extras.rs (camera_label) | 217 |
+| Camera frame toggle | Display settings > Viewport settings > Camera frame | off (unverified) | done: Display Settings > Visualization > Camera frame | crates/ui/src/viewport.rs (visualization_overlays) | 181 |
+| Gate mask opacity | Display settings > Viewport settings > Camera frame | not documented | done | crates/ui/src/viewport.rs (visualization_overlays) | 181 |
 
 ## Viewport layouts
 
@@ -84,8 +84,8 @@ Layout notes: imported cameras come from the mesh file (FBX / Alembic) at projec
 | Viewport layout 3D only | Contextual toolbar > Viewport Mode; F2 | - | partial: F2 (Painter key set) and Viewport menu; no contextual-toolbar dropdown | crates/ui/src/app.rs (apply_view_layout) | #164 |
 | Viewport layout 2D only | Contextual toolbar > Viewport Mode; F3 | - | partial: F3 and Viewport menu; no contextual-toolbar dropdown | crates/ui/src/app.rs (apply_view_layout) | #164 |
 | Swap 2D / 3D view | Contextual toolbar > Viewport Mode; F4 | - | partial: F4 and Viewport menu; no contextual-toolbar dropdown | crates/ui/src/app.rs (apply_view_layout) | #164 |
-| Undock 3D view to its own window | View menu (7.4) | docked | missing | - | - |
-| Undock 2D view to its own window | View menu (7.4) | docked | missing | - | - |
+| Undock 3D view to its own window | View menu (7.4) | docked | partial: Window > Undock 3D view floats it in a window inside the main window (not a separate OS window) | crates/ui/src/docks.rs (toggle_undock) | 217 |
+| Undock 2D view to its own window | View menu (7.4) | docked | partial: Window > Undock 2D view floats it inside the main window | crates/ui/src/docks.rs (toggle_undock) | 217 |
 | Swap while one view is undocked | View menu (7.4) | - | missing | - | - |
 | Hide UI (maximise the viewport) | Tab | - | done | crates/ui/src/app.rs (views_only) | #164 |
 

@@ -91,6 +91,9 @@ pub enum Action {
     InvertMaskGray,
     /// Show only the selected texture set's part of the model; again to show everything.
     IsolateTextureSet,
+    /// Look through the next / previous camera imported with the model (Default camera included).
+    NextCamera,
+    PrevCamera,
     /// Hide (again: show) the geometry the selected layer's geometry mask leaves out (Alt+H).
     HideExcludedGeometry,
     /// Quick mask: start editing it / apply it (U), remove it (Y), invert it (I).
@@ -101,7 +104,7 @@ pub enum Action {
 
 impl Action {
     /// Every action, in declaration order (the tests check [`ACTIONS`] against it).
-    pub const ALL: [Action; 49] = [
+    pub const ALL: [Action; 51] = [
         Action::Undo, Action::Redo, Action::NewPaintLayer, Action::NewFillLayer, Action::NewFolder, Action::NewTextLayer, Action::DeleteLayer, Action::DuplicateLayer,
         Action::BrushTool, Action::EraserTool, Action::PenTool, Action::PolygonFillTool, Action::SmudgeTool, Action::CloneTool, Action::EyedropperTool,
         Action::BrushSmaller, Action::BrushLarger, Action::ToggleSymmetryX, Action::ToggleLazyMouse, Action::ResetCamera, Action::PerspectiveCamera,
@@ -109,6 +112,7 @@ impl Action {
         Action::SaveAs, Action::OpenProject, Action::Export, Action::Bake, Action::TogglePathTracing, Action::PaintingMode, Action::SelectAllLayers,
         Action::HideUi, Action::CloseProject, Action::View3dAnd2d, Action::View3dOnly, Action::View2dOnly,
         Action::SwapViews, Action::NextMeshMap, Action::PrevMeshMap, Action::InvertMaskGray, Action::IsolateTextureSet,
+        Action::NextCamera, Action::PrevCamera,
         Action::HideExcludedGeometry, Action::QuickMaskToggle, Action::QuickMaskClear, Action::QuickMaskInvert,
     ];
 }
@@ -267,6 +271,9 @@ pub const ACTIONS: &[ActionInfo] = &[
     ActionInfo { action: Action::View3dOnly, label: "Show 3D View Only", shortcuts: &[], painter: Some(&[Shortcut::key(Key::F2)]) },
     a(Action::View2dOnly, "Show 2D View Only", &[Shortcut::key(Key::F3)]),
     a(Action::SwapViews, "Swap 3D and 2D Views", &[Shortcut::key(Key::F4)]),
+    // Painter has the two actions but documents no default keys for them.
+    a(Action::NextCamera, "Select Next Camera", &[Shortcut::alt(Key::CloseBracket)]),
+    a(Action::PrevCamera, "Select Previous Camera", &[Shortcut::alt(Key::OpenBracket)]),
     ActionInfo { action: Action::NextMeshMap, label: "Display Next Mesh Map", shortcuts: &[], painter: Some(&[Shortcut::key(Key::B)]) },
     a(Action::PrevMeshMap, "Display Previous Mesh Map", &[Shortcut::shift(Key::B)]),
     ActionInfo { action: Action::InvertMaskGray, label: "Invert Mask Brush (white / black)", shortcuts: &[], painter: Some(&[Shortcut::key(Key::X)]) },
