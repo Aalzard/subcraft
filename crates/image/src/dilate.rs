@@ -133,9 +133,121 @@ pub fn dilate_width(
     cov
 }
 
+/// Fill every texel outside `known` with a smooth blend of the known texels around it
+/// (push-pull: average the known values down a pyramid, then interpolate back up). Known texels
+/// are unchanged. This is Painter's "diffusion" padding: gutters fade between neighbouring
+/// islands instead of copying hard island edges outwards.
+pub fn diffuse_fill(width: usize, height: usize, comps: usize, data: &mut [f32], known: &[bool]) {
+    assert_eq!(data.len(), width * height * comps);
+    assert_eq!(known.len(), width * height);
+    if !known.iter().any(|&k| k) || known.iter().all(|&k| k) {
+        return;
+    }
+    // levels[i] = (w, h, values, weights); weights in 0..1.
+    let mut levels: Vec<(usize, usize, Vec<f32>, Vec<f32>)> =
+        vec![(width, height, data.to_vec(), known.iter().map(|&k| if k { 1.0 } else { 0.0 }).collect())];
+    while levels.last().is_some_and(|l| l.0 > 1 || l.1 > 1) {
+        let (fw, fh, fv, fwt) = levels.last().expect("non-empty");
+        let (cw, ch) = (fw.div_ceil(2), fh.div_ceil(2));
+        let mut cv = vec![0.0f32; cw * ch * comps];
+        let mut cwt = vec![0.0f32; cw * ch];
+        for y in 0..ch {
+            for x in 0..cw {
+                let mut sw = 0.0;
+                let mut sv = [0.0f32; 4];
+                for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+                    let (sx, sy) = (2 * x + dx, 2 * y + dy);
+                    if sx >= *fw || sy >= *fh {
+                        continue;
+                    }
+                    let j = sy * fw + sx;
+                    let w = fwt[j];
+                    sw += w;
+                    for c in 0..comps {
+                        sv[c] += fv[j * comps + c] * w;
+                    }
+                }
+                let i = y * cw + x;
+                if sw > 0.0 {
+                    for c in 0..comps {
+                        cv[i * comps + c] = sv[c] / sw;
+                    }
+                }
+                cwt[i] = sw.min(1.0);
+            }
+        }
+        levels.push((cw, ch, cv, cwt));
+    }
+    // Pull: from the coarsest level back down, blend each texel with the interpolated level above.
+    for li in (0..levels.len() - 1).rev() {
+        let (upper, lower) = levels.split_at_mut(li + 1);
+        let (fw, fh, fv, fwt) = &mut upper[li];
+        let (cw, ch, cv, _) = &lower[0];
+        for y in 0..*fh {
+            let cy = ((y as f32 + 0.5) * 0.5 - 0.5).clamp(0.0, (*ch - 1) as f32);
+            let (y0, ty) = (cy.floor() as usize, cy.fract());
+            let y1 = (y0 + 1).min(ch - 1);
+            for x in 0..*fw {
+                let i = y * *fw + x;
+                let w = fwt[i];
+                if w >= 1.0 {
+                    continue;
+                }
+                let cx = ((x as f32 + 0.5) * 0.5 - 0.5).clamp(0.0, (*cw - 1) as f32);
+                let (x0, tx) = (cx.floor() as usize, cx.fract());
+                let x1 = (x0 + 1).min(cw - 1);
+                for c in 0..comps {
+                    let at = |xx: usize, yy: usize| cv[(yy * cw + xx) * comps + c];
+                    let top = at(x0, y0) + (at(x1, y0) - at(x0, y0)) * tx;
+                    let bottom = at(x0, y1) + (at(x1, y1) - at(x0, y1)) * tx;
+                    let up = top + (bottom - top) * ty;
+                    fv[i * comps + c] = fv[i * comps + c] * w + up * (1.0 - w);
+                }
+                fwt[i] = 1.0;
+            }
+        }
+    }
+    for (i, k) in known.iter().enumerate() {
+        if !k {
+            data[i * comps..(i + 1) * comps].copy_from_slice(&levels[0].2[i * comps..(i + 1) * comps]);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn diffusion_blends_between_islands_and_keeps_known_texels() {
+        // 9x1: 0 on the left edge, 1 on the right edge; the gap fades monotonically.
+        let mut data = vec![0.0f32; 9];
+        data[8] = 1.0;
+        let mut known = vec![false; 9];
+        known[0] = true;
+        known[8] = true;
+        diffuse_fill(9, 1, 1, &mut data, &known);
+        assert_eq!((data[0], data[8]), (0.0, 1.0), "known texels unchanged");
+        for w in data.windows(2) {
+            assert!(w[1] >= w[0] - 1e-6, "monotonic: {data:?}");
+        }
+        assert!(data[1] < 0.5 && data[7] > 0.5 && data[1] > 0.0 && data[7] < 1.0, "a gradient, not a copy: {data:?}");
+        // 2D, 3 components: every gap texel stays within the range of the known values.
+        let (w, h) = (16, 16);
+        let mut img = vec![0.0f32; w * h * 3];
+        let mut k = vec![false; w * h];
+        for (i, v) in [(17usize, [1.0, 0.0, 0.0]), (230, [0.0, 0.0, 1.0])] {
+            img[i * 3..i * 3 + 3].copy_from_slice(&v);
+            k[i] = true;
+        }
+        diffuse_fill(w, h, 3, &mut img, &k);
+        assert!(img.iter().all(|v| (-1e-6..=1.0 + 1e-6).contains(v)));
+        assert!(img.chunks_exact(3).all(|p| (p[0] + p[2] - 1.0).abs() < 1e-4 && p[1].abs() < 1e-6), "a blend of the two");
+        // Nothing known, or everything known: untouched.
+        let mut same = vec![0.3f32; 4];
+        diffuse_fill(2, 2, 1, &mut same, &[false; 4]);
+        assert_eq!(same, vec![0.3; 4]);
+    }
 
     #[test]
     fn infinite_fills_from_nearest() {

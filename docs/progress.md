@@ -5500,3 +5500,25 @@ the app kept drawing on the dead device. Safe mode works; 0.3.3's marker only he
   project round trip, filter layer from the shelf, UI unit tests (channel chips, search). Local runs: doc, compositor
   (unit, passthrough_layers, differential, content_effects, compositor), project, app (unit, filters, spp_stack,
   layer_polish_parity), ui (unit, filters, layer_polish, effect_rows).
+
+### Session 131 - Painter parity chunk 21: export file types, bit depth, padding, size (2026-11-12, branch `claude/export-formats`)
+
+* **Asked:** chunk 21 of `parity-gaps-by-area.md` (export.md, Settings tab rows).
+* **Formats (`subcraft_image::io`):** `FileFormat::{Exr16, Bmp8, Hdr32, Webp8}`, `Container::{Bmp, Hdr, Webp}`
+  (`Container::ALL` alphabetical like Painter's menu), `BitDepth::F16`. Half-float EXR goes through the
+  `exr` crate (the version `image` already uses; `image` only writes 32-bit float EXR). HDR is RGB only.
+  WebP needed the `image` crate's `webp` feature (pure Rust, lossless encoder). `encode_image_dithered` /
+  `quantize8`: deterministic triangular dither for 8-bit formats; 0 and 1 stay exact, the mean is kept.
+* **Padding (`subcraft_export::Padding`):** `Background(n)` dilates n texels then fills the rest with
+  `background_value` (the map evaluated on an empty texture set: channel defaults, flat normal, mid height,
+  with the map's own invert / sRGB). `Diffusion(n)` dilates then runs `subcraft_image::dilate::diffuse_fill`
+  (push-pull). Painter preset import maps `color` / `diffusion` to them; `transparent` stays dilation with a
+  warning: transparent padding needs alpha export, which session sc-transparency owns (#145).
+* **Size / dither settings:** `ExportSettings::{size, dither}`, `OutputMap::dither`. Size precedence: map,
+  preset, window, texture set (`output_size`); dither: window, map.
+* **UI:** Export Textures has File type + Bit depth menus, a Size menu and a five-mode Padding menu with the
+  distance; the preset editor's map Format and Padding use the same widgets (`format_combo`, `padding_combo`).
+* **Tests:** `crates/export/src/tests/formats.rs` (background fill values, diffusion ramp vs infinite step,
+  size precedence, dither precedence and mean, BMP / WebP / half EXR / HDR files read back) and io / dilate
+  unit tests. `cargo test --release -p subcraft-export`: 69 passed, 1 ignored (before the dither edge fix);
+  `subcraft-image` lib tests rerun after it. UI, app and the binary pass `cargo check --release --tests`.
