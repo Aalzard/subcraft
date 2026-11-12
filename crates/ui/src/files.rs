@@ -327,9 +327,14 @@ fn handle(state: &mut UiState, purpose: Purpose, paths: &[PathBuf], now: f64) {
                 if let Some(mut e) = current
                     && let subcraft_doc::MaskEffectKind::Generator(g) = &mut e.kind
                 {
-                    let mut editor = g.editor_settings();
-                    if slot == 0 { editor.texture.resource = Some(r) } else { editor.texture2.resource = Some(r) }
-                    g.editor = Some(editor);
+                    if slot == 2 {
+                        // Grayscale Conversion's source image.
+                        g.shape = Some(subcraft_doc::ShapeSettings { texture: Some(r), ..g.shape_settings() });
+                    } else {
+                        let mut editor = g.editor_settings();
+                        if slot == 0 { editor.texture.resource = Some(r) } else { editor.texture2.resource = Some(r) }
+                        g.editor = Some(editor);
+                    }
                     state.run(vec![subcraft_app::Command::SetMaskEffect { layer, effect: e }], now);
                 }
             }
