@@ -1370,7 +1370,8 @@ mod tests {
         assert_eq!((c.eval(0.4, 0.5), c.eval(0.6, 0.5)), (1.0, 0.0));
         c.op = CompareOp::Within;
         c.tolerance = 0.1;
-        assert_eq!((c.eval(0.6, 0.5), c.eval(0.45, 0.5), c.eval(0.7, 0.5)), (1.0, 1.0, 0.0));
+        // Off the exact boundary: |0.6 - 0.5| is a hair above 0.1 in f32.
+        assert_eq!((c.eval(0.58, 0.5), c.eval(0.45, 0.5), c.eval(0.7, 0.5)), (1.0, 1.0, 0.0));
         // Hardness 0.6: a linear edge 0.1 wide, centred on the boundary.
         c.op = CompareOp::Greater;
         c.hardness = 0.6;
