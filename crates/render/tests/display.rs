@@ -247,3 +247,191 @@ fn bloom_falloff_widens_the_glow_and_lens_flare_mirrors_bright_areas() {
     let near = frame(PostParams { flare: 1.0, flare_threshold: 0.5, flare_ghosts: 2, flare_scale: 0.25, ..PostParams::default() });
     assert!(luma_at(&near, 6, 32) - luma_at(&plain, 6, 32) < gain(6).max(1.0), "smaller spacing, less reach");
 }
+
+// ----- viewport visualisation: single-channel display, texture filtering, the grid ---------------
+
+use subcraft_core::ChannelKind;
+use subcraft_image::TiledImage;
+use subcraft_render::{ChannelComponent, ChannelDisplay, GridParams};
+
+/// A cube seen from the front with flat channel values, lit only enough to tell lit from unlit.
+fn cube_scene() -> Option<Scene> {
+    let (_, device, queue) = headless::device()?;
+    let mut renderer = ViewportRenderer::new(&device, &queue);
+    let mesh = subcraft_mesh::primitives::cube(2.0);
+    renderer.set_mesh(&device, &mesh);
+    let view = Mat4::look_at_rh(Vec3::new(0.0, 0.0, 6.0), Vec3::ZERO, Vec3::Y);
+    let mut params = ViewParams::new(view, Mat4::perspective_rh(40f32.to_radians(), 1.0, 0.1, 100.0));
+    params.antialias = false;
+    params.post = PostParams { emission_glow: 0.0, ..PostParams::default() };
+    Some((device, queue, renderer, params))
+}
+
+fn stored(value: f32) -> f32 {
+    (value.clamp(0.0, 1.0) * 255.0).round()
+}
+
+fn assert_stored(got: [f32; 3], want: [f32; 3], what: &str) {
+    for c in 0..3 {
+        assert!((got[c] - stored(want[c])).abs() <= 1.5, "{what}: got {got:?}, expected {:?}", want.map(stored));
+    }
+}
+
+#[test]
+fn any_channel_can_be_shown_alone_as_stored() {
+    let Some((device, queue, mut renderer, mut params)) = cube_scene() else { return };
+    for slot in 0..1 {
+        renderer.upload_channel(&device, &queue, slot, ChannelKind::Opacity, &TiledImage::new(64, 64, 1, [0.25, 0.0, 0.0, 0.0]), None);
+        renderer.upload_channel(&device, &queue, slot, ChannelKind::Height, &TiledImage::new(64, 64, 1, [-0.5, 0.0, 0.0, 0.0]), None);
+        renderer.upload_channel(&device, &queue, slot, ChannelKind::Normal, &TiledImage::new(64, 64, 4, [0.2, 0.6, 0.9, 0.5]), None);
+        renderer.upload_channel(&device, &queue, slot, ChannelKind::Emissive, &TiledImage::new(64, 64, 4, [0.1, 0.5, 0.2, 1.0]), None);
+    }
+    let mut frame = |p: &ViewParams| renderer.render(&device, &queue, [N, N], p).read_rgba8(&device, &queue);
+    let centre = |image: &[u8]| pixel(image, 32, 32);
+    // Opacity is not a channel the shading reads: it still shows, as the stored gray.
+    params.solo_channel = Some(ChannelKind::Opacity);
+    assert_stored(centre(&frame(&params)), [0.25; 3], "Opacity alone");
+    // A channel with no texture uploaded shows its default value (Specular: see ChannelKind).
+    params.solo_channel = Some(ChannelKind::Specular);
+    let default = ChannelKind::Specular.default_value().0[0];
+    assert_stored(centre(&frame(&params)), [default; 3], "Specular without a texture");
+    // Emissive is a color channel: shown as a color (linear light), like Base Color.
+    params.solo_channel = Some(ChannelKind::Emissive);
+    assert_color(centre(&frame(&params)), [0.1, 0.5, 0.2], "Emissive alone");
+    // The three stored components of the normal map, and each one alone as gray.
+    params.solo_channel = Some(ChannelKind::Normal);
+    assert_stored(centre(&frame(&params)), [0.2, 0.6, 0.9], "Normal alone");
+    for (component, value) in [(ChannelComponent::R, 0.2), (ChannelComponent::G, 0.6), (ChannelComponent::B, 0.9), (ChannelComponent::Alpha, 0.5)] {
+        params.channel_display = ChannelDisplay { component, ..ChannelDisplay::default() };
+        assert_stored(centre(&frame(&params)), [value; 3], &format!("Normal {component:?}"));
+    }
+    params.channel_display = ChannelDisplay::default();
+    // Outside the model nothing changes: the corner is the background.
+    assert_eq!(pixel(&frame(&params), 1, 1), pixel(&{ params.solo_channel = None; frame(&params) }, 1, 1));
+}
+
+#[test]
+fn hdr_scale_signed_colors_and_lighting_apply_to_the_solo_view() {
+    let Some((device, queue, mut renderer, mut params)) = cube_scene() else { return };
+    renderer.upload_channel(&device, &queue, 0, ChannelKind::Height, &TiledImage::new(64, 64, 1, [-0.5, 0.0, 0.0, 0.0]), None);
+    renderer.upload_channel(&device, &queue, 0, ChannelKind::Opacity, &TiledImage::new(64, 64, 1, [3.0, 0.0, 0.0, 0.0]), None);
+    let mut frame = |p: &ViewParams| renderer.render(&device, &queue, [N, N], p).read_rgba8(&device, &queue);
+    let centre = |image: &[u8]| pixel(image, 32, 32);
+    let (positive, negative) = ([0.2, 0.8, 0.4], [0.9, 0.1, 0.3]);
+    // A value of 3 clips to white; divided by 4 it is 0.75.
+    params.solo_channel = Some(ChannelKind::Opacity);
+    assert_stored(centre(&frame(&params)), [1.0; 3], "HDR value unscaled");
+    params.channel_display = ChannelDisplay { hdr_scale: 4.0, ..ChannelDisplay::default() };
+    assert_stored(centre(&frame(&params)), [0.75; 3], "HDR value divided by 4");
+    // Two colors for the sign: +0.75 in the positive color, -0.5 in the negative one.
+    params.channel_display = ChannelDisplay { hdr_scale: 4.0, signed_colors: true, positive, negative, ..ChannelDisplay::default() };
+    assert_stored(centre(&frame(&params)), positive.map(|c| c * 0.75), "positive value");
+    params.solo_channel = Some(ChannelKind::Height);
+    params.channel_display = ChannelDisplay { signed_colors: true, positive, negative, ..ChannelDisplay::default() };
+    assert_stored(centre(&frame(&params)), negative.map(|c| c * 0.5), "negative value");
+    params.channel_display = ChannelDisplay::default();
+    assert_stored(centre(&frame(&params)), [0.0; 3], "a negative height is black without the sign colors");
+    // The fixed Height view mode goes through the same display settings.
+    params.solo_channel = None;
+    params.view_mode = subcraft_render::ViewMode::Height;
+    params.channel_display = ChannelDisplay { signed_colors: true, positive, negative, ..ChannelDisplay::default() };
+    assert_stored(centre(&frame(&params)), negative.map(|c| c * 0.5), "Height view mode");
+    // Lit: the front face (normal +Z) under a light from the upper right is 0.35 + 0.65 * n.l.
+    params.solo_channel = Some(ChannelKind::Opacity);
+    params.view_mode = subcraft_render::ViewMode::Material;
+    params.light_dir = Vec3::new(0.0, 0.6, 0.8);
+    params.channel_display = ChannelDisplay { hdr_scale: 4.0, unlit: false, ..ChannelDisplay::default() };
+    assert_stored(centre(&frame(&params)), [0.75 * (0.35 + 0.65 * 0.8); 3], "lit solo view");
+}
+
+/// A large checkered floor seen at a grazing angle: the far part is where filtering shows.
+fn floor_scene() -> Option<Scene> {
+    let (_, device, queue) = headless::device()?;
+    let mut renderer = ViewportRenderer::new(&device, &queue);
+    let mesh = subcraft_mesh::primitives::plane(40.0, 2);
+    renderer.set_mesh(&device, &mesh);
+    let mut tex = TiledImage::new(256, 256, 4, [0.9, 0.9, 0.9, 1.0]);
+    for y in 0..256 {
+        for x in 0..256 {
+            if (x / 2 + y / 2) % 2 == 0 {
+                tex.set(x, y, [0.02, 0.02, 0.02, 1.0]);
+            }
+        }
+    }
+    renderer.upload_channel(&device, &queue, 0, ChannelKind::BaseColor, &tex, None);
+    let view = Mat4::look_at_rh(Vec3::new(0.0, 1.2, 12.0), Vec3::new(0.0, 0.0, 0.0), Vec3::Y);
+    let mut params = ViewParams::new(view, Mat4::perspective_rh(40f32.to_radians(), 1.0, 0.1, 200.0));
+    params.antialias = false;
+    params.view_mode = subcraft_render::ViewMode::BaseColor;
+    params.post = PostParams { emission_glow: 0.0, ..PostParams::default() };
+    Some((device, queue, renderer, params))
+}
+
+/// Contrast of the floor's pattern in a band of rows: mean absolute difference between
+/// horizontal neighbours (0 = the checker has blurred to flat gray).
+fn detail(image: &[u8], rows: std::ops::Range<u32>) -> f32 {
+    let mut sum = 0.0;
+    let mut count = 0.0;
+    for y in rows {
+        for x in 0..N - 1 {
+            sum += (luma_at(image, x, y) - luma_at(image, x + 1, y)).abs();
+            count += 1.0;
+        }
+    }
+    sum / count
+}
+
+#[test]
+fn anisotropic_filtering_and_a_sharper_mip_bias_keep_distant_texture_detail() {
+    let Some((device, queue, mut renderer, mut params)) = floor_scene() else { return };
+    let plain = renderer.render(&device, &queue, [N, N], &params).read_rgba8(&device, &queue);
+    // Find the floor's far band: the rows just below the horizon.
+    let band = 34..40u32;
+    assert_eq!(renderer.texture_filtering(), 1, "off until asked for");
+    renderer.set_texture_filtering(&device, 16);
+    assert_eq!(renderer.texture_filtering(), 16);
+    let aniso = renderer.render(&device, &queue, [N, N], &params).read_rgba8(&device, &queue);
+    assert!(detail(&aniso, band.clone()) > detail(&plain, band.clone()) * 1.3 + 0.5, "16 samples keep the checker visible at a grazing angle: {} vs {}", detail(&aniso, band.clone()), detail(&plain, band.clone()));
+    renderer.set_texture_filtering(&device, 1);
+    let back = renderer.render(&device, &queue, [N, N], &params).read_rgba8(&device, &queue);
+    assert_eq!(back, plain, "switching it off again gives the first picture");
+    // A bias of -3 reads three levels sharper. The single-channel views are not biased, so
+    // compare in the full material view.
+    params.view_mode = subcraft_render::ViewMode::Material;
+    let soft = renderer.render(&device, &queue, [N, N], &params).read_rgba8(&device, &queue);
+    params.mip_bias = -3.0;
+    let sharp = renderer.render(&device, &queue, [N, N], &params).read_rgba8(&device, &queue);
+    assert!(detail(&sharp, band.clone()) > detail(&soft, band.clone()) * 1.3 + 0.5, "a sharper bias keeps more detail: {} vs {}", detail(&sharp, band.clone()), detail(&soft, band));
+    params.mip_bias = 0.0;
+    assert_eq!(renderer.render(&device, &queue, [N, N], &params).read_rgba8(&device, &queue), soft, "bias 0 is the plain sampling");
+}
+
+#[test]
+fn the_grid_draws_in_the_chosen_plane_with_its_color_and_opacity() {
+    let Some((device, queue, mut renderer, mut params)) = cube_scene() else { return };
+    // Look down from above and to the side: the floor (Y) grid covers the lower view.
+    params.view = Mat4::look_at_rh(Vec3::new(3.0, 5.0, 6.0), Vec3::ZERO, Vec3::Y);
+    params.eye = Vec3::new(3.0, 5.0, 6.0);
+    let bounds = subcraft_mesh::primitives::cube(2.0).bounds;
+    let mut frame = |p: &ViewParams| renderer.render(&device, &queue, [N, N], p).read_rgba8(&device, &queue);
+    let none = frame(&params);
+    let changed = |image: &[u8]| image.chunks_exact(4).zip(none.chunks_exact(4)).filter(|(a, b)| a != b).count();
+    let red = |image: &[u8]| image.chunks_exact(4).zip(none.chunks_exact(4)).filter(|(a, b)| a[0] as i32 - b[0] as i32 > 12 && (a[2] as i32 - b[2] as i32).abs() < 6).count();
+    let loud = GridParams { color: [1.0, 0.0, 0.0], opacity: 8.0, axes: [false; 3], ..GridParams::new(bounds) };
+    params.grid = Some(loud);
+    let floor = frame(&params);
+    assert!(red(&floor) > 40, "a red grid at full strength: {} red pixels", red(&floor));
+    // Opacity 0 draws nothing.
+    params.grid = Some(GridParams { opacity: 0.0, ..loud });
+    assert_eq!(changed(&frame(&params)), 0, "an invisible grid changes no pixel");
+    // The default gray at default strength is there but quiet: no red.
+    params.grid = Some(GridParams { axes: [false; 3], ..GridParams::new(bounds) });
+    let quiet = frame(&params);
+    assert!(changed(&quiet) > 0 && red(&quiet) == 0);
+    // Another plane: a different picture, still red lines.
+    for plane in [0, 2] {
+        params.grid = Some(GridParams { plane, ..loud });
+        let other = frame(&params);
+        assert!(red(&other) > 10 && other != floor, "plane {plane}: {} red pixels", red(&other));
+    }
+}

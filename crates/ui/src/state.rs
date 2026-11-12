@@ -228,6 +228,8 @@ pub struct UiState {
     /// Channel lists of the texture sets last uploaded. A change (an import adding Ambient
     /// Occlusion, or undoing it) re-uploads everything so no removed channel stays on the GPU.
     pub uploaded_channels: Vec<(subcraft_core::TextureSetId, Vec<ChannelKind>)>,
+    /// Channel shown alone that the shader does not otherwise read, as last uploaded.
+    pub uploaded_solo: Option<ChannelKind>,
     /// Thumbnails of imported images (resources are immutable, so entries never go stale).
     pub image_thumbs: HashMap<subcraft_core::ResourceId, egui::TextureHandle>,
     /// The user's asset library folder (None if no Documents folder could be found).
@@ -363,6 +365,7 @@ impl UiState {
             env: Default::default(),
             uploaded_maps: HashMap::new(),
             uploaded_channels: Vec::new(),
+            uploaded_solo: None,
             image_thumbs: HashMap::new(),
             user_library: None,
             env_loader: None,
@@ -656,6 +659,21 @@ impl UiState {
                 upload(renderer, u.texture_set, u.material_slot, Some(&u.changed));
             }
         }
+        // A channel shown alone that shading never reads (Opacity, Specular, a user channel):
+        // uploaded whole when it is first shown, then tile by tile like the others.
+        let solo = self.recovery.prefs.viewport.solo.filter(|k| !SHADED_CHANNELS.contains(k));
+        if let Some(k) = solo {
+            let first = full || self.uploaded_solo != solo;
+            for ts in &session.document().texture_sets {
+                let Some(img) = session.composite(ts.id).and_then(|c| c.channel(k)) else { continue };
+                if first {
+                    renderer.upload_channel(&rs.device, &rs.queue, ts.material_slot, k, img, None);
+                } else if let Some(u) = updates.iter().find(|u| u.texture_set == ts.id) {
+                    renderer.upload_channel(&rs.device, &rs.queue, ts.material_slot, k, img, Some(u.changed.get(&k).map_or(&[], Vec::as_slice)));
+                }
+            }
+        }
+        self.uploaded_solo = solo;
         crate::edit_profile::record("  sync: upload", upload_start.elapsed());
         self.uploaded_composite_generation = session.composite_generation();
         // Baked maps: re-upload when a bake replaced them. Baked AO also shades the viewport

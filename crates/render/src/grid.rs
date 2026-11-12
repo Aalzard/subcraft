@@ -13,15 +13,39 @@ pub struct GridParams {
     pub bounds: Aabb,
     /// X red, Y green (up), Z blue. Y is deliberately absent by default.
     pub axes: [bool; 3],
+    /// Axis the grid plane is perpendicular to: 0 X, 1 Y (the floor), 2 Z.
+    pub plane: usize,
+    /// Linear color of the grid lines (the axis lines keep their own colors).
+    pub color: [f32; 3],
+    /// Multiplier on the lines' opacity (1 = the quiet default).
+    pub opacity: f32,
 }
+
+/// The gray the grid lines have by default (linear).
+pub const DEFAULT_GRID_COLOR: [f32; 3] = [0.15, 0.16, 0.18];
 
 impl GridParams {
     pub fn new(bounds: Aabb) -> Self {
         Self {
             bounds,
             axes: [true, false, true],
+            plane: 1,
+            color: DEFAULT_GRID_COLOR,
+            opacity: 1.0,
         }
     }
+}
+
+/// Spacing of the grid lines for a model of these bounds, in scene units (1, 2 or 5 times a
+/// power of ten, about an eighth of the model's largest side).
+pub fn grid_step(bounds: Aabb) -> Option<f32> {
+    if !bounds.is_valid() || !bounds.min.is_finite() || !bounds.max.is_finite() {
+        return None;
+    }
+    let scale = bounds.extent().max_element().max(1e-6);
+    let desired = scale / 8.0;
+    let decade = 10.0f32.powf(desired.log10().floor());
+    Some(decade * if desired / decade >= 5.0 { 5.0 } else if desired / decade >= 2.0 { 2.0 } else { 1.0 })
 }
 
 #[repr(C)]
@@ -47,24 +71,21 @@ struct Geometry {
     radius: f32,
 }
 
-fn geometry(bounds: Aabb) -> Option<Geometry> {
-    if !bounds.is_valid() || !bounds.min.is_finite() || !bounds.max.is_finite() {
-        return None;
-    }
-    let scale = bounds.extent().max_element().max(1e-6);
-    let desired = scale / 8.0;
-    let decade = 10.0f32.powf(desired.log10().floor());
-    let step = decade
-        * if desired / decade >= 5.0 {
-            5.0
-        } else if desired / decade >= 2.0 {
-            2.0
-        } else {
-            1.0
-        };
+fn geometry(params: &GridParams) -> Option<Geometry> {
+    let bounds = params.bounds;
+    let step = grid_step(bounds)?;
     let radius = step * 30.0;
+    // The plane's normal axis `n` and the two axes it spans (for the floor: X and Z).
+    let n = params.plane.min(2);
+    let (u, v) = match n {
+        0 => (1, 2),
+        1 => (0, 2),
+        _ => (0, 1),
+    };
+    let axis = |i: usize| [Vec3::X, Vec3::Y, Vec3::Z][i];
+    const AXIS_COLORS: [[f32; 4]; 3] = [[0.30, 0.055, 0.045, 0.35], [0.055, 0.30, 0.09, 0.35], [0.045, 0.12, 0.32, 0.35]];
     let mut origin = bounds.center();
-    origin.y = bounds.min.y - step * 0.002; // avoid z-fighting with the model's base
+    origin[n] = bounds.min[n] - step * 0.002; // avoid z-fighting with the model's base
     let mut vertices = Vec::with_capacity(246);
     let mut line = |a: Vec3, b: Vec3, color: [f32; 4], kind| {
         vertices.extend([
@@ -80,36 +101,26 @@ fn geometry(bounds: Aabb) -> Option<Geometry> {
             },
         ]);
     };
+    let opacity = params.opacity.clamp(0.0, 8.0);
+    let [r, g, b] = params.color;
     for i in -30i32..=30 {
         let offset = i as f32 * step;
-        let gray = [0.15, 0.16, 0.18, if i % 5 == 0 { 0.09 } else { 0.05 }];
+        let strength: f32 = if i % 5 == 0 { 0.09 } else { 0.05 };
+        let gray = [r, g, b, (strength * opacity).min(1.0)];
         line(
-            origin + Vec3::new(-radius, 0.0, offset),
-            origin + Vec3::new(radius, 0.0, offset),
-            if i == 0 {
-                [0.30, 0.055, 0.045, 0.35]
-            } else {
-                gray
-            },
-            if i == 0 { 1 } else { 0 },
+            origin + axis(u) * -radius + axis(v) * offset,
+            origin + axis(u) * radius + axis(v) * offset,
+            if i == 0 { AXIS_COLORS[u] } else { gray },
+            if i == 0 { u as u32 + 1 } else { 0 },
         );
         line(
-            origin + Vec3::new(offset, 0.0, -radius),
-            origin + Vec3::new(offset, 0.0, radius),
-            if i == 0 {
-                [0.045, 0.12, 0.32, 0.35]
-            } else {
-                gray
-            },
-            if i == 0 { 3 } else { 0 },
+            origin + axis(u) * offset + axis(v) * -radius,
+            origin + axis(u) * offset + axis(v) * radius,
+            if i == 0 { AXIS_COLORS[v] } else { gray },
+            if i == 0 { v as u32 + 1 } else { 0 },
         );
     }
-    line(
-        origin,
-        origin + Vec3::Y * radius * 0.8,
-        [0.055, 0.30, 0.09, 0.35],
-        2,
-    );
+    line(origin, origin + axis(n) * radius * 0.8, AXIS_COLORS[n], n as u32 + 1);
     Some(Geometry {
         vertices,
         origin,
@@ -122,7 +133,8 @@ pub(crate) struct GridPass {
     pipeline_no_aa: wgpu::RenderPipeline,
     uniforms: wgpu::Buffer,
     group: wgpu::BindGroup,
-    cached_bounds: Option<Aabb>,
+    /// What the cached geometry was built for (the axis toggles are a uniform, not geometry).
+    cached: Option<GridParams>,
     vertices: Option<wgpu::Buffer>,
     count: u32,
     origin_radius: [f32; 4],
@@ -221,7 +233,7 @@ impl GridPass {
             pipeline_no_aa: pipeline(1),
             uniforms,
             group,
-            cached_bounds: None,
+            cached: None,
             vertices: None,
             count: 0,
             origin_radius: [0.0; 4],
@@ -236,9 +248,10 @@ impl GridPass {
         eye: Vec3,
         params: GridParams,
     ) {
-        if self.cached_bounds != Some(params.bounds) {
-            self.cached_bounds = Some(params.bounds);
-            self.vertices = geometry(params.bounds).map(|g| {
+        let key = GridParams { axes: [true; 3], ..params };
+        if self.cached != Some(key) {
+            self.cached = Some(key);
+            self.vertices = geometry(&params).map(|g| {
                 self.count = g.vertices.len() as u32;
                 self.origin_radius = g.origin.extend(g.radius).to_array();
                 device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -259,7 +272,7 @@ impl GridPass {
                     f32::from(params.axes[0]),
                     f32::from(params.axes[1]),
                     f32::from(params.axes[2]),
-                    0.0,
+                    params.plane.min(2) as f32,
                 ],
             }),
         );
@@ -303,7 +316,7 @@ mod tests {
             min: Vec3::new(3.0, -2.0, 5.0),
             max: Vec3::new(5.0, 1.0, 7.0),
         };
-        let g = geometry(bounds).unwrap();
+        let g = geometry(&GridParams::new(bounds)).unwrap();
         assert_eq!(g.vertices.len(), 246);
         assert!(g.origin.y < bounds.min.y && g.origin.y > bounds.min.y - 0.01);
         assert_eq!((g.origin.x, g.origin.z), (4.0, 6.0));
@@ -320,6 +333,41 @@ mod tests {
             assert!(direction.distance([Vec3::X, Vec3::Y, Vec3::Z][axis as usize - 1]) < 1e-5);
         }
         assert_eq!(GridParams::new(bounds).axes, [true, false, true]);
-        assert!(geometry(Aabb::EMPTY).is_none());
+        assert!(geometry(&GridParams::new(Aabb::EMPTY)).is_none());
+        assert!(grid_step(Aabb::EMPTY).is_none());
+        // Largest side 3: an eighth is 0.375, so lines every 0.2 units.
+        assert!((grid_step(bounds).unwrap() - 0.2).abs() < 1e-6);
+    }
+
+    #[test]
+    fn the_grid_plane_follows_the_chosen_axis_and_lines_take_the_color_and_opacity() {
+        let bounds = Aabb { min: Vec3::new(3.0, -2.0, 5.0), max: Vec3::new(5.0, 1.0, 7.0) };
+        let floor = geometry(&GridParams::new(bounds)).unwrap();
+        for (plane, base) in [(0usize, 3.0f32), (1, -2.0), (2, 5.0)] {
+            let g = geometry(&GridParams { plane, ..GridParams::new(bounds) }).unwrap();
+            assert_eq!(g.vertices.len(), 246);
+            // Every grid line lies in the plane just under the model's lowest point on that axis.
+            let lines: Vec<_> = g.vertices.iter().filter(|v| v.kind != plane as u32 + 1).collect();
+            assert_eq!(lines.len(), 244);
+            assert!(lines.iter().all(|v| v.position[plane] == g.origin[plane]), "plane {plane}");
+            assert!(g.origin[plane] < base && g.origin[plane] > base - 0.01);
+            // The one line leaving the plane is that axis, from the origin, in its own color.
+            let up: Vec<_> = g.vertices.iter().filter(|v| v.kind == plane as u32 + 1).collect();
+            assert_eq!(up.len(), 2);
+            let direction = (Vec3::from_array(up[1].position) - Vec3::from_array(up[0].position)).normalize();
+            assert!(direction.distance([Vec3::X, Vec3::Y, Vec3::Z][plane]) < 1e-5);
+            assert!(up[0].color[plane] >= 0.30, "axis {plane} keeps its red / green / blue");
+        }
+        // Default color and opacity are the quiet gray the grid always had.
+        let gray = floor.vertices.iter().find(|v| v.kind == 0).unwrap().color;
+        assert_eq!(gray[..3], DEFAULT_GRID_COLOR);
+        assert!(gray[3] == 0.05 || gray[3] == 0.09);
+        let loud = geometry(&GridParams { color: [0.9, 0.1, 0.2], opacity: 4.0, ..GridParams::new(bounds) }).unwrap();
+        let line = loud.vertices.iter().find(|v| v.kind == 0).unwrap().color;
+        assert_eq!(line[..3], [0.9, 0.1, 0.2]);
+        assert!((line[3] - gray[3] * 4.0).abs() < 1e-6, "opacity multiplies the line strength");
+        let axis = loud.vertices.iter().find(|v| v.kind == 1).unwrap().color;
+        assert_eq!(axis, [0.30, 0.055, 0.045, 0.35], "axis lines are not recolored");
+        assert_eq!(geometry(&GridParams { opacity: 0.0, ..GridParams::new(bounds) }).unwrap().vertices.iter().find(|v| v.kind == 0).unwrap().color[3], 0.0);
     }
 }
