@@ -637,7 +637,7 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
                                 // A live reference, linked once every anchor is rebuilt (ADR-0045).
                                 let channel = self.ts.channel_kinds().find(|k| channel_bit(*k).is_some_and(|b| channels & b != 0)).unwrap_or(ChannelKind::Height);
                                 let input = subcraft_doc::AnchorInput::new(EffectId::nil(), channel);
-                                let effect = MaskEffect::new(MaskEffectKind::AnchorRef { input, levels: levels.as_ref().map(levels_of) });
+                                let effect = MaskEffect::new(MaskEffectKind::AnchorRef { input, levels: levels.as_ref().map(|l| levels_of(l, false)) });
                                 self.references.push(PendingRef::Mask { layer: layer.id, effect: effect.id, uid: *anchor });
                                 vec![effect]
                             }
