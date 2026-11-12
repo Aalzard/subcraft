@@ -795,7 +795,7 @@ impl Generator {
     /// Whether the micro effect is on and strong enough to change anything.
     /// The Mask Editor has no Micro controls: a micro effect kept from the kind it was switched
     /// from used to keep changing the layers below, with no way to turn it off.
-    pub fn micro_active(&self) -> bool { self.kind != GeneratorKind::MaskEditor && self.micro.is_some_and(|m| m.height() != 0.0) }
+    pub fn micro_active(&self) -> bool { self.kind != GeneratorKind::MaskEditor && !self.kind.uses_shape() && self.micro.is_some_and(|m| m.height() != 0.0) }
 
     /// Switch the micro effect on or off, keeping tuned values and starting from the per-kind defaults.
     pub fn set_micro_enabled(&mut self, on: bool) {
@@ -977,6 +977,9 @@ mod tests {
         assert!(!g.micro_active());
         g.set_kind(GeneratorKind::Cavity);
         assert!(g.micro_active(), "the tuned micro effect is back with the kind that has it");
+        // The position / UV generators have no Micro controls either.
+        g.set_kind(GeneratorKind::Distance3D);
+        assert!(!g.micro_active());
     }
 
     #[test]

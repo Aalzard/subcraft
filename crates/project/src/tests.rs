@@ -1080,3 +1080,37 @@ fn imported_cameras_are_saved_with_the_project_and_old_projects_have_none() {
     assert_eq!(read.settings.cameras, cameras);
     assert_eq!(read.settings, settings);
 }
+
+/// QA 2026-11: the shape settings of the position / UV generators were never validated on load
+/// (a huge radius reads as infinity and makes the mask NaN), and content generators were not
+/// validated at all.
+#[test]
+fn out_of_range_generator_shape_settings_are_refused_on_load() {
+    use subcraft_doc::{ContentEffect, ContentEffectKind, Generator, GeneratorKind, Mask, MaskEffect, MaskEffectKind};
+    let generator = |radius: f32| {
+        let mut g = Generator::new(GeneratorKind::Cavity);
+        g.set_kind(GeneratorKind::Distance3D);
+        g.shape.as_mut().expect("a 3D Distance generator has shape settings").radius = radius;
+        g
+    };
+    let doc = |radius: f32, content: bool| {
+        let mut ts = TextureSet::new("Body", 0, 128);
+        let tc = ts.clone();
+        let mut layer = Layer::new_fill("Fill", &tc);
+        if content {
+            layer.content_effects.push(std::sync::Arc::new(ContentEffect::new(ContentEffectKind::Generator(generator(radius)), &tc)));
+        } else {
+            let mut mask = Mask::new(128, false);
+            mask.effects.push(std::sync::Arc::new(MaskEffect::new(MaskEffectKind::Generator(generator(radius)))));
+            layer.mask = Some(mask);
+        }
+        ts.insert_above(None, layer);
+        Document { texture_sets: vec![ts] }
+    };
+    let read = |d: &Document| read_project(Cursor::new(write_project(Cursor::new(Vec::new()), &primitives::cube(2.), d, &ResourceStore::default(), &MeshMapSet::new()).unwrap().into_inner()));
+    for content in [false, true] {
+        assert!(read(&doc(0.5, content)).is_ok(), "valid settings load (content effect: {content})");
+        let err = read(&doc(1.0e30, content)).unwrap_err();
+        assert!(matches!(err, ProjectError::Invalid(ref m) if m.contains("shape")), "content effect {content}: {err}");
+    }
+}
