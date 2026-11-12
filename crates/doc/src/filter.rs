@@ -295,10 +295,73 @@ pub enum Filter {
     /// centre). The near side (left / top) is kept unless inverted; `corner` picks the kept
     /// corner in [`MirrorMode::Corner`], the invert flags then swap it per axis.
     Mirror { mode: MirrorMode, offset: [f32; 2], invert_x: bool, invert_y: bool, corner: MirrorCorner },
+    /// [`Filter::Bevel`] with Painter's Corner Type and Smoothing (same panel). Angular corners
+    /// measure the distance to the contour as the larger axis distance (square corners);
+    /// Smoothing 0..=1 eases the ramp from linear toward a smoothstep.
+    BevelShape { radius: f32, amount: f32, threshold: f32, corner: BevelCorner, smoothing: f32 },
+    /// [`Filter::MaskOutline`] with Painter's Start From Black, Blur and Curve Shape (same panel).
+    /// Blur (pixels) fades the band's far edge out over that width; Start From Black ramps the
+    /// band from 0 at the contour to 1 at its far edge; Curve Shape (-1..=1) raises the result to
+    /// the power `4^curve`.
+    MaskOutlineShape { radius: f32, threshold: f32, position: OutlinePosition, start_black: bool, blur: f32, curve: f32 },
+    /// Painter's Height Adjust: optional invert, then `v * multiply + offset`.
+    HeightAdjust { invert: bool, offset: f32, multiply: f32 },
+    /// Painter's FXAA: smooths stair-stepped edges along their direction (luminance contrast
+    /// with the four neighbours). `alpha` also smooths the coverage.
+    Fxaa { alpha: bool },
+    /// Painter's Drop Shadow (colour content): the layer's coverage offset by `distance` pixels
+    /// along `angle_deg` (0 = right, counter-clockwise), blurred over `size` pixels, widened by
+    /// `spread` (0..1), at `opacity`, in `color` (linear), under the content.
+    DropShadow { angle_deg: f32, distance: f32, size: f32, spread: f32, opacity: f32, color: [f32; 3] },
+    /// Painter's Glow: an outer glow around the content's coverage (or, on a mask or a scalar
+    /// channel, around its bright values) `width` pixels wide, widened by `spread`, at `opacity`,
+    /// in `color` (linear; scalar channels use its luminance). `precise` doubles the falloff
+    /// steepness (SubCraft's approximation of Painter's Precise mode).
+    OuterGlow { width: f32, spread: f32, opacity: f32, color: [f32; 3], precise: bool },
+}
+
+/// Corner Type of a Bevel.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BevelCorner {
+    #[default]
+    Rounded,
+    Angular,
+}
+
+impl BevelCorner {
+    pub const ALL: [Self; 2] = [Self::Rounded, Self::Angular];
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Rounded => "Rounded",
+            Self::Angular => "Angular",
+        }
+    }
+}
+
+/// Every Bevel parameter, whichever variant holds it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BevelParts {
+    pub radius: f32,
+    pub amount: f32,
+    pub threshold: f32,
+    pub corner: BevelCorner,
+    pub smoothing: f32,
+}
+
+/// Every Mask Outline parameter, whichever variant holds it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct OutlineParts {
+    pub radius: f32,
+    pub threshold: f32,
+    pub position: OutlinePosition,
+    pub start_black: bool,
+    pub blur: f32,
+    pub curve: f32,
 }
 
 impl Filter {
-    pub const ALL: [Self; 31] = [Self::Contrast { gain: 1.0, pivot: 0.5 },
+    pub const ALL: [Self; 35] = [Self::Contrast { gain: 1.0, pivot: 0.5 },
         Self::Hsl { hue: 0.0, saturation: 1.0, lightness: 0.0 },
         Self::Threshold { cutoff: 0.5 }, Self::Clamp { low: 0.0, high: 1.0 }, Self::Blur { radius: 4.0 }, Self::Sharpen { radius: 2.0, amount: 1.0 }, Self::DirectionalBlur { radius: 8.0, angle_deg: 0.0 }, Self::Highpass { radius: 4.0, amount: 1.0 },
         Self::Bevel {radius:8.0,amount:1.0,threshold:0.5}, Self::MaskOutline {radius:4.0,threshold:0.5,position:OutlinePosition::Both},
@@ -315,7 +378,54 @@ impl Filter {
         Self::Smoothstep { min: 0.0, max: 1.0 }, Self::ContrastLuminosity { contrast: 0.0, luminosity: 0.0 },
         Self::ColorCorrect { shadows: [0.0; 3], midtones: [0.0; 3], highlights: [0.0; 3] },
         Self::Transform { repeat: RepeatMode::Both, flip: FlipMode::None, scale: [1.0; 2], offset: [0.0; 2], rotation_deg: 0.0, tile_safe: false },
-        Self::Mirror { mode: MirrorMode::AxisX, offset: [0.5; 2], invert_x: false, invert_y: false, corner: MirrorCorner::TopLeft }];
+        Self::Mirror { mode: MirrorMode::AxisX, offset: [0.5; 2], invert_x: false, invert_y: false, corner: MirrorCorner::TopLeft },
+        Self::HeightAdjust { invert: false, offset: 0.0, multiply: 1.0 }, Self::Fxaa { alpha: false },
+        Self::DropShadow { angle_deg: -45.0, distance: 4.0, size: 4.0, spread: 0.0, opacity: 0.75, color: [0.0; 3] },
+        Self::OuterGlow { width: 8.0, spread: 0.0, opacity: 0.75, color: [1.0; 3], precise: false }];
+
+    /// A Bevel (the plain variant when Corner Type and Smoothing are at their defaults).
+    pub fn bevel(p: BevelParts) -> Self {
+        if p.corner == BevelCorner::Rounded && p.smoothing == 0.0 {
+            Self::Bevel { radius: p.radius, amount: p.amount, threshold: p.threshold }
+        } else {
+            Self::BevelShape { radius: p.radius, amount: p.amount, threshold: p.threshold, corner: p.corner, smoothing: p.smoothing }
+        }
+    }
+    pub fn bevel_parts(self) -> Option<BevelParts> {
+        match self {
+            Self::Bevel { radius, amount, threshold } => Some(BevelParts { radius, amount, threshold, corner: BevelCorner::Rounded, smoothing: 0.0 }),
+            Self::BevelShape { radius, amount, threshold, corner, smoothing } => Some(BevelParts { radius, amount, threshold, corner, smoothing }),
+            _ => None,
+        }
+    }
+    /// A Mask Outline (the plain variant when the shape options are at their defaults).
+    pub fn mask_outline(p: OutlineParts) -> Self {
+        if !p.start_black && p.blur == 0.0 && p.curve == 0.0 {
+            Self::MaskOutline { radius: p.radius, threshold: p.threshold, position: p.position }
+        } else {
+            Self::MaskOutlineShape { radius: p.radius, threshold: p.threshold, position: p.position, start_black: p.start_black, blur: p.blur, curve: p.curve }
+        }
+    }
+    pub fn outline_parts(self) -> Option<OutlineParts> {
+        match self {
+            Self::MaskOutline { radius, threshold, position } => Some(OutlineParts { radius, threshold, position, start_black: false, blur: 0.0, curve: 0.0 }),
+            Self::MaskOutlineShape { radius, threshold, position, start_black, blur, curve } => {
+                Some(OutlineParts { radius, threshold, position, start_black, blur, curve })
+            }
+            _ => None,
+        }
+    }
+    /// Drop Shadow / Glow: the shadow's offset in pixels (+x right, +y down) and blur radius.
+    pub fn shadow_geometry(self) -> Option<([f32; 2], f32)> {
+        match self {
+            Self::DropShadow { angle_deg, distance, size, .. } => {
+                let a = angle_deg.to_radians();
+                Some(([a.cos() * distance, -a.sin() * distance], size))
+            }
+            Self::OuterGlow { width, .. } => Some(([0.0; 2], width)),
+            _ => None,
+        }
+    }
 
     /// A Threshold filter with `mode` (the greater-or-equal one is the plain [`Filter::Threshold`]).
     pub fn threshold(cutoff: f32, mode: ThresholdMode) -> Self {
@@ -352,11 +462,14 @@ impl Filter {
             Self::Threshold { .. } => "Threshold", Self::Clamp { .. } => "Clamp", Self::Blur { .. } => "Blur", Self::Sharpen { .. } => "Sharpen", Self::DirectionalBlur { .. } => "Directional Blur", Self::Highpass { .. } => "Highpass", Self::Bevel {..} => "Bevel", Self::MaskOutline {..} => "Mask Outline", Self::GradientMap {..} => "Gradient Map", Self::HistogramScan {..} => "Histogram Scan", Self::HistogramRange {..} => "Histogram Range", Self::Median {..} => "Median", Self::Warp {..} => "Warp",
             Self::Grayscale => "Grayscale", Self::Invert => "Invert", Self::Posterize {..} => "Posterize", Self::HistogramShift {..} => "Histogram Shift",
             Self::ColorBalance {..} => "Color Balance", Self::ReplaceColor {..} => "Replace Color", Self::NormalInvert {..} => "Normal Invert",
-            Self::EdgeDetect {..} => "Edge Detect", Self::Glow {..} => "Glow", Self::DirectionalWarp {..} => "Directional Warp", Self::Mosaic {..} => "Mosaic",
+            // SubCraft's bloom of bright values; Painter's (outer) Glow is `OuterGlow`.
+            Self::EdgeDetect {..} => "Edge Detect", Self::Glow {..} => "Bloom", Self::DirectionalWarp {..} => "Directional Warp", Self::Mosaic {..} => "Mosaic",
             // Mode / wrap variants share the panel (and so the name) of their base filter.
             Self::ThresholdCompare {..} => "Threshold", Self::BlurWrap {..} => "Blur", Self::HistogramShiftWrap {..} => "Histogram Shift", Self::HslPerceptive {..} => "HSL",
             Self::Smoothstep {..} => "Smoothstep", Self::ContrastLuminosity {..} => "Contrast Luminosity", Self::ColorCorrect {..} => "Color Correct",
-            Self::Transform {..} => "Transform", Self::Mirror {..} => "Mirror" }
+            Self::Transform {..} => "Transform", Self::Mirror {..} => "Mirror",
+            Self::BevelShape {..} => "Bevel", Self::MaskOutlineShape {..} => "Mask Outline", Self::HeightAdjust {..} => "Height Adjust",
+            Self::Fxaa {..} => "FXAA (Anti-Aliasing)", Self::DropShadow {..} => "Drop Shadow", Self::OuterGlow {..} => "Glow" }
     }
 
     pub fn supports_channel(self, channel: ChannelKind) -> bool {
@@ -366,7 +479,7 @@ impl Filter {
 
     /// Filters that only make sense on RGB colour data.
     fn color_only(self) -> bool {
-        matches!(self, Self::Hsl { .. } | Self::HslPerceptive { .. } | Self::Grayscale | Self::ColorBalance { .. } | Self::ReplaceColor { .. } | Self::ColorCorrect { .. })
+        matches!(self, Self::Hsl { .. } | Self::HslPerceptive { .. } | Self::Grayscale | Self::ColorBalance { .. } | Self::ReplaceColor { .. } | Self::ColorCorrect { .. } | Self::DropShadow { .. })
     }
 
     pub fn supports_mask(self) -> bool { !self.color_only() && !matches!(self, Self::NormalInvert { .. }) }
@@ -385,7 +498,7 @@ impl Filter {
     /// Neighbourhood filters evaluated per texel by the compositor with direct pixel reads
     /// (no Gaussian staging). The node output is the final value.
     pub fn is_pixelwise(self) -> bool {
-        matches!(self, Self::EdgeDetect { .. } | Self::DirectionalWarp { .. } | Self::Mosaic { .. } | Self::Transform { .. } | Self::Mirror { .. })
+        matches!(self, Self::EdgeDetect { .. } | Self::DirectionalWarp { .. } | Self::Mosaic { .. } | Self::Transform { .. } | Self::Mirror { .. } | Self::Fxaa { .. })
     }
 
     /// Filters whose every texel may read any other texel of the texture.
@@ -396,10 +509,16 @@ impl Filter {
     pub fn radius(self) -> Option<f32> {
         match self { Self::Transform { .. } | Self::Mirror { .. } => Some(FULL_SUPPORT as f32),
             Self::Blur { radius } | Self::BlurWrap { radius } | Self::Sharpen { radius, .. } | Self::DirectionalBlur { radius, .. } | Self::Highpass { radius, .. } | Self::Median { radius } | Self::Warp { intensity: radius, .. } | Self::Bevel {radius,..} | Self::MaskOutline {radius,..} | Self::EdgeDetect { radius, .. } | Self::Glow { radius, .. } | Self::DirectionalWarp { intensity: radius, .. } => Some(radius),
-            Self::Mosaic { size } => Some(size as f32), _ => None }
+            Self::Mosaic { size } => Some(size as f32),
+            Self::BevelShape { radius, .. } => Some(radius),
+            Self::MaskOutlineShape { radius, blur, .. } => Some(radius + blur),
+            Self::Fxaa { .. } => Some(1.0),
+            Self::DropShadow { distance, size, .. } => Some(distance + size),
+            Self::OuterGlow { width, .. } => Some(width),
+            _ => None }
     }
 
-    pub fn is_contour(self) -> bool { matches!(self, Self::Bevel {..} | Self::MaskOutline {..}) }
+    pub fn is_contour(self) -> bool { matches!(self, Self::Bevel {..} | Self::MaskOutline {..} | Self::BevelShape {..} | Self::MaskOutlineShape {..}) }
 
     /// Contours need a half-pixel antialias band beyond their nominal radius.
     pub fn support(self) -> u32 {
@@ -407,16 +526,20 @@ impl Filter {
         if self.reads_whole_texture() { return FULL_SUPPORT; }
         // Edge Detect also reads one sample beyond its offset; Directional Warp interpolates.
         (self.radius().unwrap_or(0.0) + if self.is_contour() {0.5} else {0.0}
-            + if matches!(self, Self::DirectionalWarp { .. } | Self::EdgeDetect { .. }) {1.0} else {0.0}).ceil() as u32
+            + if matches!(self, Self::DirectionalWarp { .. } | Self::EdgeDetect { .. } | Self::Fxaa { .. } | Self::DropShadow { .. }) {1.0} else {0.0}).ceil() as u32
     }
 
-    pub fn softens_coverage(self) -> bool { matches!(self, Self::Blur { .. } | Self::BlurWrap { .. } | Self::Transform { .. } | Self::Mirror { .. } | Self::DirectionalBlur { .. } | Self::Warp { .. } | Self::DirectionalWarp { .. } | Self::Mosaic { .. }) }
+    pub fn softens_coverage(self) -> bool {
+        matches!(self, Self::Blur { .. } | Self::BlurWrap { .. } | Self::Transform { .. } | Self::Mirror { .. } | Self::DirectionalBlur { .. } | Self::Warp { .. } | Self::DirectionalWarp { .. } | Self::Mosaic { .. }
+            | Self::Fxaa { alpha: true } | Self::DropShadow { .. } | Self::OuterGlow { .. })
+    }
 
     /// Highpass is deliberately excluded: radius/amount zero gives its neutral value.
     pub fn spatial_identity(self) -> bool {
         matches!(self, Self::Blur {radius:0.0} | Self::BlurWrap {radius:0.0} | Self::DirectionalBlur {radius:0.0,..}
             | Self::Sharpen {radius:0.0,..} | Self::Sharpen {amount:0.0,..} | Self::Warp {intensity:0.0,..}
-            | Self::DirectionalWarp {intensity:0.0,..} | Self::Mosaic {size:1} | Self::Glow {radius:0.0,..} | Self::Glow {amount:0.0,..})
+            | Self::DirectionalWarp {intensity:0.0,..} | Self::Mosaic {size:1} | Self::Glow {radius:0.0,..} | Self::Glow {amount:0.0,..}
+            | Self::DropShadow {opacity:0.0,..} | Self::OuterGlow {opacity:0.0,..} | Self::OuterGlow {width:0.0,..})
             || matches!(self, Self::Median { radius } if radius < 0.5)
     }
 
@@ -458,6 +581,27 @@ impl Filter {
             Self::DirectionalWarp { intensity, angle_deg } => Self::Blur { radius: intensity }.valid() && angle_deg.is_finite() && (-180.0..=180.0).contains(&angle_deg),
             Self::Mosaic { size } => (1..=MAX_MOSAIC_SIZE).contains(&size),
             Self::Clamp { low, high } => low.is_finite() && high.is_finite() && low <= high,
+            Self::BevelShape { radius, amount, threshold, smoothing, .. } => {
+                Self::Bevel { radius, amount, threshold }.valid() && smoothing.is_finite() && (0.0..=1.0).contains(&smoothing)
+            }
+            Self::MaskOutlineShape { radius, threshold, position, blur, curve, .. } => {
+                Self::MaskOutline { radius, threshold, position }.valid() && blur.is_finite() && (0.0..=32.0).contains(&blur) && curve.is_finite() && (-1.0..=1.0).contains(&curve)
+            }
+            Self::HeightAdjust { offset, multiply, .. } => offset.is_finite() && (-1.0..=1.0).contains(&offset) && multiply.is_finite() && (0.0..=4.0).contains(&multiply),
+            Self::Fxaa { .. } => true,
+            Self::DropShadow { angle_deg, distance, size, spread, opacity, color } => {
+                angle_deg.is_finite() && (-180.0..=180.0).contains(&angle_deg)
+                    && [distance, size].iter().all(|v| v.is_finite() && (0.0..=32.0).contains(v))
+                    && spread.is_finite() && (0.0..=0.99).contains(&spread)
+                    && opacity.is_finite() && (0.0..=1.0).contains(&opacity)
+                    && color.iter().all(|c| c.is_finite() && *c >= 0.0)
+            }
+            Self::OuterGlow { width, spread, opacity, color, .. } => {
+                width.is_finite() && (0.0..=32.0).contains(&width)
+                    && spread.is_finite() && (0.0..=0.99).contains(&spread)
+                    && opacity.is_finite() && (0.0..=1.0).contains(&opacity)
+                    && color.iter().all(|c| c.is_finite() && *c >= 0.0)
+            }
         }
     }
 }
@@ -465,6 +609,43 @@ impl Filter {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mask_shape_filters_have_parts_supports_and_checked_domains() {
+        // Default shape options give back the plain variants.
+        let p = Filter::Bevel { radius: 6.0, amount: 0.5, threshold: 0.4 }.bevel_parts().unwrap();
+        assert_eq!(Filter::bevel(p), Filter::Bevel { radius: 6.0, amount: 0.5, threshold: 0.4 });
+        let angular = Filter::bevel(BevelParts { corner: BevelCorner::Angular, smoothing: 0.5, ..p });
+        assert!(matches!(angular, Filter::BevelShape { .. }) && angular.is_contour() && angular.label() == "Bevel" && angular.valid());
+        assert_eq!(angular.support(), 7);
+        let o = Filter::MaskOutline { radius: 3.0, threshold: 0.5, position: OutlinePosition::Both }.outline_parts().unwrap();
+        let soft = Filter::mask_outline(OutlineParts { blur: 2.0, curve: 0.5, start_black: true, ..o });
+        assert_eq!(soft.radius(), Some(5.0));
+        assert_eq!(soft.support(), 6, "radius + blur + the half-pixel band");
+        assert_eq!(Filter::mask_outline(soft.outline_parts().unwrap()), soft);
+        assert!(!Filter::MaskOutlineShape { radius: 3.0, threshold: 0.5, position: OutlinePosition::Both, start_black: false, blur: 2.0, curve: 1.5 }.valid());
+        // Drop Shadow: colour content only, offset along its angle, support covers offset + blur.
+        let shadow = Filter::DropShadow { angle_deg: 90.0, distance: 4.0, size: 3.0, spread: 0.0, opacity: 0.5, color: [0.0; 3] };
+        let ([dx, dy], size) = shadow.shadow_geometry().unwrap();
+        assert!(dx.abs() < 1e-5 && (dy + 4.0).abs() < 1e-5 && size == 3.0, "90 degrees points up");
+        assert_eq!(shadow.support(), 8);
+        assert!(shadow.supports_channel(ChannelKind::BaseColor) && !shadow.supports_channel(ChannelKind::Height) && !shadow.supports_mask());
+        assert!(shadow.softens_coverage() && Filter::DropShadow { opacity: 0.0, ..shadow }.spatial_identity());
+        assert!(!Filter::DropShadow { spread: 1.0, ..shadow }.valid());
+        // Glow works on masks and every channel; FXAA is a per-texel neighbourhood filter.
+        let glow = Filter::OuterGlow { width: 8.0, spread: 0.2, opacity: 1.0, color: [1.0; 3], precise: false };
+        assert!(glow.supports_mask() && glow.supports_channel(ChannelKind::Roughness) && glow.label() == "Glow");
+        assert_eq!(Filter::Glow { radius: 8.0, amount: 1.0, threshold: 0.6 }.label(), "Bloom");
+        assert!(Filter::Fxaa { alpha: false }.is_pixelwise() && Filter::Fxaa { alpha: false }.support() == 2);
+        assert!(Filter::Fxaa { alpha: true }.softens_coverage() && !Filter::Fxaa { alpha: false }.softens_coverage());
+        assert!(Filter::HeightAdjust { invert: true, offset: 0.2, multiply: 2.0 }.valid());
+        assert!(!Filter::HeightAdjust { invert: false, offset: 0.0, multiply: 5.0 }.valid());
+        // Every entry of ALL has its own name.
+        let mut names: Vec<_> = Filter::ALL.iter().map(|f| f.label()).collect();
+        names.sort();
+        names.dedup();
+        assert_eq!(names.len(), Filter::ALL.len());
+    }
     #[test]
     fn filter_parameters_and_domains_are_checked() {
         assert!(!Filter::Bevel {radius:2.0,amount:1.01,threshold:0.5}.valid());
