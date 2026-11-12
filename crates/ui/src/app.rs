@@ -889,7 +889,9 @@ impl SubcraftApp {
             let prefs = &mut state.recovery.prefs.viewport;
             for part in spec.split(',') {
                 let Some((key, value)) = part.split_once('=') else { continue };
-                let number = value.parse::<f32>().ok();
+                // Finite only: `inf` / `nan` parse, and a NaN look setting kept the project "modified"
+                // forever and was saved as `null`.
+                let number = value.parse::<f32>().ok().filter(|v| v.is_finite());
                 match (key.trim(), number) {
                     ("bloom", Some(v)) => prefs.bloom = v,
                     ("threshold", Some(v)) => prefs.bloom_threshold = v,

@@ -975,3 +975,27 @@ fn display_settings_are_saved_with_the_project_and_old_projects_have_none() {
     assert_eq!(read.settings.display, Some(display));
     assert_eq!(read.settings, settings);
 }
+
+/// QA 2026-11: the loader never checked Mask Editor settings; a value out of range (a huge
+/// contrast reads as infinity) loaded and made the whole mask NaN.
+#[test]
+fn out_of_range_mask_editor_settings_are_refused_on_load() {
+    use subcraft_doc::{Generator, GeneratorKind, Mask, MaskEffect, MaskEffectKind};
+    let doc_with = |contrast: f32| {
+        let mut ts = TextureSet::new("Body", 0, 128);
+        let tc = ts.clone();
+        let mut layer = Layer::new_fill("Fill", &tc);
+        let mut g = Generator::new(GeneratorKind::Cavity);
+        g.set_kind(GeneratorKind::MaskEditor);
+        g.editor.as_mut().unwrap().global_contrast = contrast;
+        let mut mask = Mask::new(128, false);
+        mask.effects.push(std::sync::Arc::new(MaskEffect::new(MaskEffectKind::Generator(g))));
+        layer.mask = Some(mask);
+        ts.insert_above(None, layer);
+        Document { texture_sets: vec![ts] }
+    };
+    let bytes = |doc: &Document| write_project(Cursor::new(Vec::new()), &primitives::cube(2.), doc, &ResourceStore::default(), &MeshMapSet::new()).unwrap().into_inner();
+    assert!(read_project(Cursor::new(bytes(&doc_with(0.5)))).is_ok(), "valid settings load");
+    let err = read_project(Cursor::new(bytes(&doc_with(1.0e30)))).unwrap_err();
+    assert!(matches!(err, ProjectError::Invalid(ref m) if m.contains("Mask Editor")), "{err}");
+}
