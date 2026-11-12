@@ -642,7 +642,10 @@ fn id_bake(high: &Mesh, source: IdSource) -> ([f32; 3], [f32; 3], Vec<String>) {
             assert_eq!(*right.get_or_insert(c), c, "right side is one colour");
         }
     }
-    (left.unwrap(), right.unwrap(), progress.warnings())
+    // The gap between the two quads leaves a column of texels without a high surface, which the
+    // bake reports on its own; the tests here look at the warnings about colour sources.
+    let warnings = progress.warnings().into_iter().filter(|w| !w.starts_with("Cage:")).collect();
+    (left.unwrap(), right.unwrap(), warnings)
 }
 
 fn close(a: [f32; 3], b: [f32; 3]) -> bool {
