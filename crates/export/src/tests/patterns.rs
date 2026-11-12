@@ -12,7 +12,7 @@ fn keywords_subfolders_and_optional_parts() {
     assert_eq!(expand_pattern_with("$project_$sceneMaterial_$suffix_$colorSpace", &v), "My_Project_M_Body_BaseColor_sRGB");
     assert_eq!(expand_pattern_with("$textureSet/$mesh_$suffix", &v), "Body/Crate_BaseColor", "/ makes a sub-folder");
     assert_eq!(expand_pattern_with("/../$textureSet//x/", &v), "Body/x", "no empty, leading or .. folders");
-    assert_eq!(expand_pattern_with("a\b", &v), "a_b", "a backslash is not a separator");
+    assert_eq!(expand_pattern_with(r"a\b", &v), "a_b", "a backslash is not a separator");
     // Optional parts: written only when their tokens have values, without the parentheses.
     assert_eq!(expand_pattern_with("$textureSet_$suffix(.$udim)", &v), "Body_BaseColor");
     assert_eq!(expand_pattern_with("$textureSet_$suffix(.$udim)", &vars(Some(1002), "")), "Body_BaseColor.1002");
