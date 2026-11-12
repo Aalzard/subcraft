@@ -216,6 +216,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     }
     let v_down = ui.input(|i| i.key_down(egui::Key::V)) && !typing && !mods.any();
 
+    // Imported cameras: a locked one ignores the navigation above, an unlocked one hands over.
+    crate::view_extras::follow_camera(state);
     let camera = state.camera.paint_camera(size);
 
     if response.secondary_clicked() && !alt && !stencil_edit {
@@ -703,6 +705,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     }
     brush_notice(state, ui, &painter, rect, now);
     rendering_toggle(state, ui, rect, bake_mode);
+    camera_corner(state, ui, rect, bake_mode);
     if state.painting || response.dragged() {
         ui.ctx().request_repaint();
     }
@@ -736,6 +739,26 @@ fn rendering_toggle(state: &mut UiState, ui: &Ui, rect: Rect, bake_mode: bool) {
                 egui::Popup::context_menu(&response)
                     .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
                     .show(|ui| crate::viewport_bar::rendering_settings(ui, prefs));
+            });
+        });
+}
+
+/// Painter's camera dropdown in the 3D view's top-right corner, only when the project has
+/// imported cameras: Default camera or one of them, with a lock beside it.
+fn camera_corner(state: &mut UiState, ui: &Ui, rect: Rect, bake_mode: bool) {
+    if bake_mode || state.session.scene_cameras().is_empty() {
+        return;
+    }
+    egui::Area::new(ui.id().with("camera_corner"))
+        .pivot(egui::Align2::RIGHT_TOP)
+        .fixed_pos(rect.right_top() + egui::vec2(-10.0, 40.0))
+        .constrain_to(rect)
+        .show(ui.ctx(), |ui| {
+            ui.horizontal(|ui| {
+                crate::view_extras::camera_dropdown(ui, state, "viewport_camera");
+                if state.active_camera.is_some() {
+                    ui.checkbox(&mut state.camera_locked, crate::i18n::tr("Lock")).on_hover_text(crate::i18n::tr("Lock the camera: navigation leaves it where it is"));
+                }
             });
         });
 }

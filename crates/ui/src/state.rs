@@ -108,6 +108,12 @@ pub struct UiState {
     uploaded_composite_generation: u64,
     pub session: Session,
     pub camera: OrbitCamera,
+    /// Imported camera looked through (`None` = the Default camera), whether it is locked, the
+    /// orbit camera as it was set from it, and the Default camera's view to come back to.
+    pub active_camera: Option<usize>,
+    pub camera_locked: bool,
+    pub camera_applied: Option<OrbitCamera>,
+    pub default_camera: Option<OrbitCamera>,
     /// Navigation drag in progress (mode + rebased origin; see `nav`).
     pub nav_drag: Option<crate::nav::NavDrag>,
     /// The point the 3D view orbits around: the surface under the cursor when the last orbit
@@ -317,6 +323,10 @@ impl UiState {
             uploaded_view_revision: u64::MAX,
             uploaded_composite_generation: 0,
             camera: OrbitCamera::framing(&session.scene().mesh.bounds),
+            active_camera: None,
+            camera_locked: false,
+            camera_applied: None,
+            default_camera: None,
             nav_drag: None,
             orbit_pivot: None,
             orbit_free: None,
@@ -534,6 +544,11 @@ impl UiState {
         self.asset_preview.cancel_apply();
         self.pen = Default::default();
         self.pen_after = None;
+        // Another project: its own cameras, starting from the Default camera.
+        self.active_camera = None;
+        self.camera_locked = false;
+        self.camera_applied = None;
+        self.default_camera = None;
         if session.selected_layer().is_some_and(|l| l.kind() == subcraft_doc::LayerKind::Path) { self.tool = Tool::Pen; }
         session.brush.material = self.session.brush.material.clone();
         self.camera = OrbitCamera::framing_with(&session.scene().mesh.bounds, self.camera_view.as_ref());

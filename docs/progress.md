@@ -5522,3 +5522,38 @@ the app kept drawing on the dead device. Safe mode works; 0.3.3's marker only he
   size precedence, dither precedence and mean, BMP / WebP / half EXR / HDR files read back) and io / dilate
   unit tests. `cargo test --release -p subcraft-export`: 69 passed, 1 ignored (before the dither edge fix);
   `subcraft-image` lib tests rerun after it. UI, app and the binary pass `cargo check --release --tests`.
+## Cameras and docks (Painter parity chunk 53, 2026-11-12, branch `claude/parity-cameras-docks`)
+
+* Cameras from the mesh file:
+  * `subcraft_mesh::camera::cameras_in_mesh_file` reads glTF / GLB cameras (with aspect) and FBX
+    cameras (`parse_fbx`, ufbx with `target_camera_axes` so FBX's +X-forward cameras come in like
+    glTF's -Z-forward ones).
+  * New project > "Import cameras" (on by default) and File > Reload mesh > "Import cameras" (off)
+    store them in the project (`ProjectSettings.cameras`, optional, no schema bump).
+* Camera dropdown in the 3D view's top-right corner, hidden when the project has no cameras, and
+  in Display Settings > Camera:
+  * Default camera and the imported ones.
+  * Choosing Default camera brings back the earlier view.
+  * Navigating an imported camera hands over to the Default camera unless it is locked.
+  * Lens changes mark it modified (italic name with `*`) until Restore.
+  * Display ratio shows the file's aspect.
+  * Next / previous camera: Alt+] and Alt+[ (Painter documents no keys).
+* Docks toolbar (`crates/ui/src/docks.rs`): a button per closed panel in the header.
+  * A click pops the panel up as a floating window beside the button, and a second click closes
+    it. Dragging its tab docks it.
+  * Every panel but the 3D and 2D views now has a close button. Window > Views reopens a closed
+    panel.
+  * Window > Undock 3D view / 2D view floats a view in a window inside the main window (not a
+    separate OS window).
+* zh-Hant and Korean: 15 new texts translated.
+* Tests added:
+  * The FBX camera convention (an ASCII FBX written in the test) and a mesh file without cameras.
+  * The session import (not marking a new project modified; a missing file changes nothing).
+  * The project round trip.
+  * The camera selection, cycling, lock, hand-over, Restore and modified marker.
+  * The Docks toolbar's float / close / redock and view undocking.
+* Checked: see the PR (gated `cargo check --release --all-targets`). NOT verified locally: the
+  test suites (CI is the test gate) and the running app.
+* Not done: cameras from Alembic and USD files, camera roll (the orbit camera has none), free
+  rotation mode, separate OS windows for undocked views, Shader settings and Log dock buttons
+  (no such panels yet).
