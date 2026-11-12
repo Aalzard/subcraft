@@ -186,11 +186,17 @@ impl BlendMode {
         matches!(self, BlendMode::NormalMapCombine | BlendMode::NormalMapDetail | BlendMode::NormalMapInverseDetail)
     }
 
-    /// Modes offered for a given channel / node kind.
+    /// Modes offered for a layer's channel. Passthrough is offered on every layer (Painter: on a
+    /// paint or fill layer its effects then process the stack below); `is_folder` is kept for
+    /// callers that list modes for something else, such as effects.
     pub fn available(normal_channel: bool, is_folder: bool) -> impl Iterator<Item = BlendMode> {
-        Self::ALL.into_iter().filter(move |m| {
-            (normal_channel || !m.is_normal_only()) && (is_folder || *m != BlendMode::Passthrough)
-        })
+        let _ = is_folder;
+        Self::ALL.into_iter().filter(move |m| normal_channel || !m.is_normal_only())
+    }
+
+    /// Modes offered for an effect row (no Passthrough: an effect already reads what is below).
+    pub fn available_for_effect(normal_channel: bool) -> impl Iterator<Item = BlendMode> {
+        Self::available(normal_channel, false).filter(|m| *m != BlendMode::Passthrough)
     }
 }
 

@@ -12,11 +12,11 @@ Layout notes: A filter is an effect row in a layer's content stack or its mask s
 | Add filter (on layer content) | Layers panel > effects button above the stack | - | partial: Add > Filter submenu picks the type directly; one channel per filter | crates/ui/src/panels/effects.rs:82 | - |
 | Add filter (on a mask) | Layers panel > effects button above the stack | - | partial: Add > Filter submenu picks the type directly | crates/ui/src/panels/effects.rs:94 | - |
 | Add filter | Layers panel > right-click a layer or mask | - | partial: only in the effect stack's Add menu and the mask Properties menu, not the layer right-click menu | crates/ui/src/panels/properties.rs:367 | - |
-| Filter selection button (opens the mini shelf) | Properties > Filter | no filter selected at first | partial: combo box of built-in filters, no mini shelf | crates/ui/src/panels/filter.rs:11 | - |
+| Filter selection button (opens the mini shelf) | Properties > Filter | no filter selected at first | partial: a button opening a searchable list of filters (no thumbnails) | crates/ui/src/panels/filter.rs:23 | - |
 | Mini shelf: thumbnails of filter resources | Properties > Filter | not documented | missing | - | - |
-| Mini shelf: search field | Properties > Filter | not documented | missing | - | - |
+| Mini shelf: search field | Properties > Filter | not documented | done | crates/ui/src/panels/filter.rs:9 | - |
 | Filter parameters (per filter) | Properties > Filter | - | partial: built-in filters only | crates/ui/src/panels/filter.rs:21 | - |
-| Per-channel toggles (which channels the filter affects) | Properties > Filter | all document channels (generic filter) | partial: one Channel dropdown per filter effect | crates/ui/src/panels/effects.rs:430 | - |
+| Per-channel toggles (which channels the filter affects) | Properties > Filter | all document channels (generic filter) | done | crates/ui/src/panels/effects.rs:705 | - |
 | Blending mode per channel on a filter (8.2) | Properties > Filter | Normal (unverified) | done | crates/ui/src/panels/effects.rs:450 | - |
 | Opacity per channel on a filter (8.2) | Properties > Filter | 100; 0-100 (unverified) | done | crates/ui/src/panels/effects.rs:457 | - |
 | Blending mode on a mask filter | Properties > Filter | Normal (unverified) | done | crates/ui/src/panels/properties.rs:506 | - |
@@ -26,9 +26,9 @@ Layout notes: A filter is an effect row in a layer's content stack or its mask s
 | Mesh map inputs connected automatically | Properties > Filter | - | missing: no filter reads mesh maps | - | - |
 | Presets dropdown that sets several parameters (e.g. Oil Paint, Stylization) | Properties > Filter | - | missing | - | - |
 | Colour filters refused on masks, grayscale filters allowed | Properties > Filter | - | done | crates/doc/src/filter.rs:208 | - |
-| Layer with Passthrough blending so a filter processes the stack below | Layer stack | - | partial: Passthrough is folder-only; a filter can sit on a folder and process its children | crates/doc/src/blend.rs:164 | - |
+| Layer with Passthrough blending so a filter processes the stack below | Layer stack | - | done | crates/compositor/src/stages.rs:770 | - |
 | Filters section in the Assets panel | Assets panel | - | done | crates/ui/src/panels/shelf.rs:769 | - |
-| Drag a filter into the layer stack (creates a layer with all channels in Passthrough) | Assets panel | - | partial: click adds it to the selected layer or swaps the selected filter; no drag, no new layer | crates/ui/src/panels/shelf.rs:698 | - |
+| Drag a filter into the layer stack (creates a layer with all channels in Passthrough) | Assets panel | - | done | crates/app/src/filter_shelf.rs:13 | - |
 | Drop an .sbsar on the Assets panel to import a new filter | Assets panel | - | missing | - | - |
 | Painter filter graph templates | Substance 3D Designer | - | n/a: Designer feature | - | - |
 
