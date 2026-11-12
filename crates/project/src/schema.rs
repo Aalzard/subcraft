@@ -86,6 +86,15 @@ pub struct TextureSetV1 {
     /// Baked mesh maps (optional; absent in files written before baking existed).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub mesh_maps: Vec<MeshMapV1>,
+    /// ID color editor changes over the stored ID map (optional; absent = none).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub id_color_edits: Vec<IdColorEditV1>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct IdColorEditV1 {
+    pub from: [f32; 3],
+    pub to: [f32; 3],
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

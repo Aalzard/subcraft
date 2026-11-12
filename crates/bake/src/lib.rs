@@ -18,6 +18,7 @@
 
 pub mod curvature;
 pub mod name_match;
+pub mod normal_curvature;
 pub mod surface;
 
 use std::collections::BTreeMap;
@@ -58,6 +59,10 @@ pub struct BakeSettings {
     pub name_match: subcraft_core::BakeMatch,
     /// Transform put on the loaded high poly before baking (identity = as imported).
     pub placement: subcraft_core::BakePlacement,
+    /// Derive curvature from the tangent-space normal map of this bake (measured along the
+    /// surface, see [`normal_curvature`]) instead of from the detail geometry.
+    pub curvature_from_normal: bool,
+    pub normal_curvature: normal_curvature::NormalCurvatureSettings,
 }
 
 impl Default for BakeSettings {
@@ -75,6 +80,8 @@ impl Default for BakeSettings {
             use_gpu: true,
             name_match: subcraft_core::BakeMatch::default(),
             placement: subcraft_core::BakePlacement::default(),
+            curvature_from_normal: false,
+            normal_curvature: normal_curvature::NormalCurvatureSettings::default(),
         }
     }
 }
@@ -249,7 +256,16 @@ pub fn bake_streamed_with(
     };
 
     let wanted = |k: MeshMapKind| settings.maps.contains(&k);
-    let work_items = settings.maps.len().max(1) * samples.len();
+    // Curvature from the normal map needs the normal map first (baked here even when it was not
+    // asked for; it is then kept internal).
+    let from_normal = settings.curvature_from_normal && wanted(MeshMapKind::Curvature);
+    let mut order = settings.maps.clone();
+    if from_normal {
+        order.retain(|k| *k != MeshMapKind::Normal);
+        let at = order.iter().position(|k| *k == MeshMapKind::Curvature).expect("curvature wanted");
+        order.insert(at, MeshMapKind::Normal);
+    }
+    let work_items = order.len().max(1) * samples.len();
     progress.total.store(work_items, Ordering::Relaxed);
     progress.done.store(0, Ordering::Relaxed);
 
@@ -270,7 +286,7 @@ pub fn bake_streamed_with(
     if settings.use_gpu && matching.is_some() && gpu_backend.is_some() && settings.maps.iter().any(|k| matches!(k, MeshMapKind::AmbientOcclusion | MeshMapKind::Thickness)) {
         progress.warn("Ambient occlusion and thickness run on the CPU because matching parts by name is on (the GPU kernels cannot filter hits by part).".into());
     }
-    let elements = if wanted(MeshMapKind::Id) || wanted(MeshMapKind::Curvature) { Some(topology::mesh_elements(detail_geo.mesh)) } else { None };
+    let elements = if wanted(MeshMapKind::Id) || (wanted(MeshMapKind::Curvature) && !from_normal) { Some(topology::mesh_elements(detail_geo.mesh)) } else { None };
     let bounds = low.bounds;
     let extent = bounds.extent().max(Vec3::splat(1e-6));
 
@@ -283,8 +299,20 @@ pub fn bake_streamed_with(
     let nearest = subcraft_image::dilate::nearest_covered(size as usize, size as usize, &covered);
 
     let mut out = BTreeMap::new();
-    for &kind in &settings.maps {
+    let mut internal_normal: Option<TiledImage> = None;
+    for &kind in &order {
         progress.current_map.store(MeshMapKind::ALL.iter().position(|k| *k == kind).expect("known map") + 1, Ordering::Relaxed);
+        if from_normal && kind == MeshMapKind::Curvature {
+            let started = Instant::now();
+            let normal = out.get(&MeshMapKind::Normal).or(internal_normal.as_ref()).expect("normal baked before curvature");
+            let image = normal_curvature::curvature_from_normal_map(low, input.material_slot, normal, size, &settings.normal_curvature, Some(progress))?;
+            if let Ok(mut r) = progress.reports.lock() {
+                r.push(MapReport { kind, backend: "CPU (from the normal map)".into(), seconds: started.elapsed().as_secs_f32() });
+            }
+            completed(kind, &image);
+            out.insert(kind, image);
+            continue;
+        }
         let comps = kind.components();
         // Per-texel evaluation, chunked for cancellation and progress.
         let eval = |i: usize| -> [f32; 3] {
@@ -418,6 +446,10 @@ pub fn bake_streamed_with(
         fill[..comps].copy_from_slice(&neutral[..comps]);
         let image = TiledImage::from_dense(size, size, comps, fill, &dense);
         if progress.is_cancelled() { return Err(BakeError::Cancelled); }
+        if !wanted(kind) {
+            internal_normal = Some(image);
+            continue;
+        }
         if let Ok(mut r) = progress.reports.lock() {
             r.push(MapReport { kind, backend, seconds: started.elapsed().as_secs_f32() });
         }
@@ -426,6 +458,53 @@ pub fn bake_streamed_with(
     }
     progress.current_map.store(0, Ordering::Relaxed);
     Ok(out)
+}
+
+/// Where the high-poly projection fails, per texel of one texture set: what the Bake window's
+/// ray-miss heatmap shows before baking.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CageMisses {
+    /// One component: 1 = the ray from the cage reached no high-poly surface, 0 = it did (or the
+    /// texel is not covered). Gutters copy the nearest covered texel, so filtering stays clean.
+    pub image: TiledImage,
+    pub covered: usize,
+    pub missed: usize,
+}
+
+/// Cast exactly the projection rays the baker casts (same cage distances, diagonal, normals
+/// and name matching) at `size`² and record which miss the high poly.
+pub fn cage_misses(input: &BakeInput, settings: &BakeSettings, size: u32) -> Result<CageMisses, BakeError> {
+    let low = input.low.mesh;
+    let samples = texels(low, input.material_slot, size);
+    if samples.is_empty() {
+        return Err(BakeError::NoTexels);
+    }
+    let n = (size * size) as usize;
+    let mut covered = vec![false; n];
+    for t in &samples {
+        covered[t.index as usize] = true;
+    }
+    let mut dense = vec![0.0f32; n];
+    let mut missed = 0;
+    if let Some(high) = input.high {
+        let diag = low.bounds.diagonal().max(high.mesh.bounds.diagonal()).max(1e-6);
+        let (front, rear) = (settings.cage_front * diag, settings.cage_rear * diag);
+        let matching = PartMatch::new(low, high.mesh, &settings.name_match);
+        let miss: Vec<bool> = samples.par_iter().map(|t| {
+            let group = matching.as_ref().map_or(NO_GROUP, |m| m.low_group(t.tri));
+            let n = t.normal.normalize_or(t.geometric_normal);
+            high.bvh.intersect_filtered(t.position + n * front, -n, 0.0, front + rear, |tri| matching.as_ref().is_none_or(|m| m.accepts(group, tri))).is_none()
+        }).collect();
+        for (t, m) in samples.iter().zip(miss) {
+            if m {
+                dense[t.index as usize] = 1.0;
+                missed += 1;
+            }
+        }
+    }
+    let nearest = subcraft_image::dilate::nearest_covered(size as usize, size as usize, &covered);
+    subcraft_image::dilate::apply_nearest(1, &mut dense, &covered, &nearest);
+    Ok(CageMisses { image: TiledImage::from_dense(size, size, 1, [0.0; 4], &dense), covered: samples.len(), missed })
 }
 
 /// 3 x 3 binomial blur over covered texels only (uncovered neighbours do not contribute).

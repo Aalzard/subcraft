@@ -561,3 +561,35 @@ fn smoothing_removes_ray_noise_but_not_gradients_and_ignores_uncovered_texels() 
     assert!(dense.iter().enumerate().all(|(i, v)| !covered[i] || *v < 1.0), "garbage leaked");
     assert!((dense[5 * size + 6] - 6.0 / 20.0).abs() < 0.06);
 }
+
+/// The ray-miss heatmap marks exactly the texels the baker reports as cage misses: a high poly
+/// covering only half the plane misses the other half; a bigger cage cannot invent a surface.
+#[test]
+fn cage_misses_mark_texels_without_a_high_poly_surface() {
+    let low = primitives::plane(2.0, 4);
+    // High poly: the x < 0 half of the plane, slightly raised.
+    let mut b = MeshBuilder::new("half");
+    let m = b.material("half");
+    let p = |x: f32, z: f32| Corner { position: Vec3::new(x, 0.005, z), normal: Some(Vec3::Y), uv: None };
+    b.push_triangle(m, [p(-1.0, -1.0), p(0.0, 1.0), p(0.0, -1.0)]);
+    b.push_triangle(m, [p(-1.0, -1.0), p(-1.0, 1.0), p(0.0, 1.0)]);
+    let high = b.build_for_baking().unwrap();
+    let (lb, hb) = (Bvh::build(&low), Bvh::build(&high));
+    let input = BakeInput { low: Geometry { mesh: &low, bvh: &lb }, high: Some(Geometry { mesh: &high, bvh: &hb }), material_slot: 0 };
+    let s = BakeSettings { cage_front: 0.01, cage_rear: 0.01, ..Default::default() };
+    let r = cage_misses(&input, &s, 64).unwrap();
+    let frac = r.missed as f32 / r.covered as f32;
+    assert!((frac - 0.5).abs() < 0.06, "half the texels miss ({frac})");
+    for t in texels(&low, 0, 64) {
+        let v = r.image.get(t.index % 64, t.index / 64)[0];
+        if t.position.x < -0.05 { assert_eq!(v, 0.0, "hit at {}", t.position); }
+        if t.position.x > 0.05 { assert_eq!(v, 1.0, "miss at {}", t.position); }
+    }
+    // A cage too thin to reach the raised surface: everything misses.
+    let thin = BakeSettings { cage_front: 0.0005, cage_rear: 0.0005, ..Default::default() };
+    let r = cage_misses(&input, &thin, 32).unwrap();
+    assert_eq!(r.missed, r.covered);
+    // Without a high poly nothing is reported.
+    let none = BakeInput { high: None, ..input };
+    assert_eq!(cage_misses(&none, &s, 32).unwrap().missed, 0);
+}

@@ -37,4 +37,4 @@ pub use resources::{Resource, ResourceKind, ResourceStore};
 pub use text::TextDecal;
 pub use settings::{NormalFormat, ProjectSettings};
 pub use shader::{MAIN_SHADER, ShaderAssignment, ShaderInstance, ShaderInstanceId, ShaderParams};
-pub use texture_set::{AlphaMode, AlphaSettings, ChannelDef, ChannelFormat, LayerLocation, LayerOpError, RESOLUTIONS, TextureSet};
+pub use texture_set::{AlphaMode, AlphaSettings, ChannelDef, ChannelFormat, IdColorEdit, LayerLocation, LayerOpError, RESOLUTIONS, TextureSet};
