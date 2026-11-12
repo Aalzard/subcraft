@@ -81,9 +81,11 @@ fn editing_a_color_recolors_the_map_and_every_mask_using_it_in_one_undo_step() {
     let (mut s, layer, effect) = setup();
     let ts = s.selection().texture_set;
     let red = s.pick_id_color_uv(layer, effect, Vec2::new(0.25, 0.5)).unwrap().unwrap();
-    // A second layer whose mask also uses RED.
+    // A second layer whose mask also uses RED. It sits on top, so it is green too: the texels
+    // showing green are then exactly the RED region whichever layer covers them.
     s.execute(Command::AddLayer(NewLayer::Fill)).unwrap();
     let other = s.selection().layer.unwrap();
+    s.execute(Command::SetFillChannel { layer: other, channel: ChannelKind::BaseColor, fill: FillChannel::new(FillSource::uniform(ChannelValue::rgb(0.0, 1.0, 0.0))) }).unwrap();
     s.feed_id_color(ts, red).unwrap();
     assert!(matches!(&s.selected_texture_set().find(other).unwrap().mask.as_ref().unwrap().effects[0].kind, MaskEffectKind::IdColor(id) if id.colors.len() == 1));
     s.execute(Command::SelectLayer(Some(layer))).unwrap();
