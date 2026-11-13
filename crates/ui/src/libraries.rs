@@ -51,6 +51,13 @@ pub fn check_new_library(name: &str, path: &str, existing: &[LibraryPath]) -> Op
     None
 }
 
+/// Whether two shelf assets are the same one. Library files are named by file name only, so two
+/// files of the same name in different folders or libraries share an id: they are told apart by
+/// their file (QA 2026-11: one hid the other, and importing a second `dots.png` added nothing).
+pub fn same_asset(a: (subcraft_core::AssetId, Option<&Path>), b: (subcraft_core::AssetId, Option<&Path>)) -> bool {
+    a.0 == b.0 && a.1 == b.1
+}
+
 impl UiState {
     /// The library a file belongs to: built-in content has no file; a file inside a library
     /// folder belongs to that library; any other file was imported for this session only.
@@ -123,7 +130,7 @@ impl UiState {
             log::warn!("library alpha skipped: {e}");
         }
         for a in alphas {
-            if !self.library.alphas.iter().any(|x| x.id == a.id) {
+            if !self.library.alphas.iter().any(|x| same_asset((x.id, x.user_file.as_deref()), (a.id, a.user_file.as_deref()))) {
                 self.library.alphas.push(a);
             }
         }
@@ -174,7 +181,7 @@ impl UiState {
             UserAssetKind::Alpha => {
                 let a = load_alpha(file)?;
                 let name = a.name.clone();
-                if !self.library.alphas.iter().any(|x| x.id == a.id) {
+                if !self.library.alphas.iter().any(|x| same_asset((x.id, x.user_file.as_deref()), (a.id, a.user_file.as_deref()))) {
                     self.library.alphas.push(a);
                 }
                 Ok(name)
@@ -182,7 +189,7 @@ impl UiState {
             UserAssetKind::Environment => {
                 let e = load_environment(file)?;
                 let name = e.name.clone();
-                if !self.library.environments.iter().any(|x| x.id == e.id) {
+                if !self.library.environments.iter().any(|x| same_asset((x.id, x.user_file.as_deref()), (e.id, e.user_file.as_deref()))) {
                     self.library.environments.push(e);
                 }
                 Ok(name)
@@ -387,6 +394,23 @@ mod tests {
         assert!(s.library.alphas.iter().any(|a| a.name == "dots") && s.library.alphas.iter().any(|a| a.name == "new"));
         s.refresh_libraries();
         assert_eq!(s.library.alphas.len(), before + 2, "refreshing twice adds nothing");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// QA 2026-11: alphas are named by file name only, so two `dots.png` in different folders
+    /// hid each other.
+    #[test]
+    fn files_of_the_same_name_in_different_folders_both_show() {
+        let root = temp_root("same-name");
+        let yours = root.join("yours");
+        let mut s = state_with(&yours);
+        let folder = UserLibrary::new(&yours).folder(UserAssetKind::Alpha);
+        png(&folder.join("Grunge").join("dots.png"));
+        png(&folder.join("Splats").join("dots.png"));
+        s.refresh_libraries();
+        assert_eq!(s.library.alphas.iter().filter(|a| a.name == "dots").count(), 2);
+        s.refresh_libraries();
+        assert_eq!(s.library.alphas.iter().filter(|a| a.name == "dots").count(), 2, "still no duplicates of one file");
         std::fs::remove_dir_all(&root).ok();
     }
 }
