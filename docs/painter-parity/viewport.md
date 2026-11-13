@@ -17,8 +17,6 @@ Layout notes: Painter's viewport is one central area with four parts stacked top
 | Colour-profile name text | 3D view, top left | shown when a profile is loaded | missing | - | - |
 | Grid unit read-out | 3D view, bottom left | shown when the grid is on | partial: bottom-left of the 3D view while the viewport hints are hidden (#181) | crates/ui/src/viewport.rs (grid_unit_label) | 181 |
 | Axis indicator (X/Y/Z orientation) | 3D view, bottom right | shown | done: red X, green Y, blue Z above the Render toggle, far axes dimmed; Display Settings > Viewport > Axis indicator | crates/ui/src/viewport.rs (axis_indicator) | 261 |
-| Warning when painting on a non-active Texture Set | 3D view overlay (12.1) | not documented | missing | - | - |
-| Grid unit read-out | 3D view, bottom left | shown when the grid is on | missing | - | - |
 | Warning when painting on a non-active Texture Set | 3D view overlay (12.1) | not documented | done: a status message naming the set the stroke started on, with how to select it | crates/ui/src/viewport.rs | 258 |
 
 ## Camera navigation (mouse)
@@ -107,8 +105,6 @@ Layout notes: the dropdown at the top right of each view switches between Materi
 | Display material | M | - | done | crates/ui/src/app.rs:964 | - |
 | Display next mesh map | B | - | partial: B in the Painter key set; cycles every map kind, baked or not | crates/app/src/actions.rs (Action::NextMeshMap) | #164 |
 | Display previous mesh map | Shift + B | - | done: Shift+B in the Painter key set | crates/ui/src/viewport_bar.rs (cycle_mesh_map_back) | - |
-| Display mask in viewport | Alt + LMB on a mask thumbnail in the layer stack | - | missing | - | - |
-| Display previous mesh map | Shift + B | - | missing | - | - |
 | Display mask in viewport | Alt + LMB on a mask thumbnail in the layer stack | - | done | crates/render/src/lib.rs:658 | - |
 | Baking visualisation mode (low / high poly, cage) | Baking mode viewport panel | - | partial: bake overlay colours shown while the Bake window is open | crates/ui/src/viewport.rs:522 | - |
 | Live preview of the map being baked | Settings > General | off (unverified) | missing | - | - |
