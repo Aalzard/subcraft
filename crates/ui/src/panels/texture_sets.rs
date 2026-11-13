@@ -142,7 +142,7 @@ pub fn settings(state: &mut UiState, ui: &mut Ui) {
     // Icon tab row: jumps to a section (the panel is one scrolling column, like Painter's).
     egui::Frame::new().fill(theme::BG_2).inner_margin(egui::Margin::symmetric(6, 3)).show(ui, |ui| {
         ui.horizontal(|ui| {
-            for (i, (icon, tip)) in [(icons::SLIDERS, "General properties and channels"), (icons::SPARKLE, "Channels"), (icons::CUBE_WIRE, "Mesh maps")].into_iter().enumerate() {
+            for (i, (icon, tip)) in [(icons::SLIDERS, "General properties and channels"), (icons::SPARKLE, "Channels"), (icons::CUBE_WIRE, "Mesh maps"), (icons::SQUARES, "ID colors")].into_iter().enumerate() {
                 if crate::widgets::icon_button(ui, icon, tip).clicked() { ui.data_mut(|d| d.insert_temp(jump_id, i as u8)); ui.ctx().request_repaint(); }
             }
         });
@@ -158,6 +158,9 @@ pub fn settings(state: &mut UiState, ui: &mut Ui) {
             section_rule(ui);
             if jump == Some(2) { ui.scroll_to_cursor(Some(egui::Align::TOP)); }
             mesh_maps(state, ui, &mut cmds);
+            section_rule(ui);
+            if jump == Some(3) { ui.scroll_to_cursor(Some(egui::Align::TOP)); }
+            crate::panels::id_colors::section(state, ui);
         });
     });
     state.run(cmds, now);
@@ -315,6 +318,10 @@ fn mesh_maps(state: &mut UiState, ui: &mut Ui, cmds: &mut Vec<Command>) {
     ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
         if ui.add(egui::Button::new(RichText::new("Bake Mesh Maps").font(theme::font(12.0)).color(TEXT)).min_size(egui::vec2(110.0, 24.0)))
             .on_hover_text(crate::keys::native("Bake mesh maps (Ctrl+B)")).clicked() { state.bake.open = true; }
+        if ui.add(egui::Button::new(RichText::new("Import mesh maps…").font(theme::font(12.0)).color(TEXT)).min_size(egui::vec2(110.0, 24.0)))
+            .on_hover_text("Use maps baked elsewhere (normal, AO, curvature, ID…): matched to texture sets by file name and UDIM tile, no re-bake").clicked() {
+            crate::files::pick(ui.ctx(), crate::files::Purpose::ImportMeshMaps, crate::files::IMAGES, true, Some("Choose baked mesh maps"));
+        }
     });
     if let Some(job) = &state.bake.job { ui.add(egui::ProgressBar::new(job.fraction()).show_percentage().fill(ACCENT)); }
     let (id, set_name) = { let ts = state.session.selected_texture_set(); (ts.id, ts.name.clone()) };
