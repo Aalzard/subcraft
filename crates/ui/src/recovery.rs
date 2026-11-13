@@ -34,6 +34,10 @@ pub struct Preferences {
     /// Display sizes only; independent of source images and document texture resolution.
     pub shelf_preview_size: u32,
     pub layer_preview_size: u32,
+    /// Assets panel in List view (one row per asset) instead of thumbnails.
+    pub shelf_list_view: bool,
+    /// Assets panel saved searches (Painter keeps them in Shelf.ini).
+    pub shelf_saved_searches: Vec<crate::panels::shelf::SavedSearch>,
     /// Minutes between autosaves; 0 turns the timer off.
     pub autosave_minutes: u32,
     /// Recovery copies kept.
@@ -102,6 +106,8 @@ impl Default for Preferences {
             ui_size_percent: DEFAULT_UI_SIZE,
             shelf_preview_size: 88,
             layer_preview_size: 36,
+            shelf_list_view: false,
+            shelf_saved_searches: Vec::new(),
             autosave_minutes: (recovery::DEFAULT_INTERVAL.as_secs() / 60) as u32,
             autosave_keep: recovery::DEFAULT_KEEP,
             show_welcome: true,

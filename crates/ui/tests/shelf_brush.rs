@@ -107,7 +107,8 @@ fn click(state: &mut UiState, ctx: &egui::Context, time: f64, pos: Pos2) {
 #[test]
 fn real_click_selects_and_double_click_opens_the_editor_without_a_second_notice() {
     let mut s = state();
-    s.shelf.tab = ShelfTab::Brushes;
+    // Brush tips are Painter's Alphas type.
+    s.shelf.tab = ShelfTab::Alphas;
     s.tool = Tool::PolygonFill;
     let target = s.session.brush.target;
     let ctx = egui::Context::default();
