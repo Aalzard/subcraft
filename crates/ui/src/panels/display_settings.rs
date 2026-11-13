@@ -699,6 +699,7 @@ pub fn visualization(state: &mut UiState, ui: &mut Ui) {
     sub_header(ui, tr("Guides"));
     ui.checkbox(&mut prefs.symmetry_guides, tr("Symmetry guides"));
     ui.checkbox(&mut prefs.hints, tr("Viewport hints")).on_hover_text(tr("The list of mouse and key actions in the bottom-left corner of the 3D view. While it is hidden the grid unit is shown there."));
+    ui.checkbox(&mut prefs.axis_indicator, tr("Axis indicator")).on_hover_text(tr("The X, Y and Z directions of the scene in the bottom-right corner of the 3D view"));
 }
 
 /// Camera frame aspect ratios offered (name, width / height).
