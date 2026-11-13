@@ -909,4 +909,8 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Zoom speed", "확대/축소 속도"),
     ("Order-independent transparency", "순서 독립 투명도"),
     ("Alpha-blended texture sets look the same whatever order their parts are drawn in: overlapping transparent surfaces are averaged by depth and coverage", "파트를 어떤 순서로 그리든 알파 블렌딩된 텍스처 세트가 똑같이 보입니다: 겹치는 투명 표면을 깊이와 커버리지에 따라 평균합니다"),
+    ("3D projection", "3D 투영"),
+    ("Degrees about X, Y, Z (applied in that order)", "X, Y, Z 축 기준 각도(이 순서로 적용)"),
+    ("Size of the projection box on X, Y, Z; with Shape crop on, a planar projection reaches as deep as its scale along the projection axis", "X, Y, Z 방향의 투영 상자 크기입니다. 모양 자르기를 켜면 평면 투영은 투영 축 방향 스케일만큼의 깊이까지 닿습니다"),
+    ("X, Y, Z in units of the model's bounding box; 0 is centred", "모델 경계 상자 단위의 X, Y, Z 값이며 0이 중앙입니다"),
 ];

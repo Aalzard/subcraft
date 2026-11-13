@@ -216,7 +216,7 @@ fn set_rows(state: &UiState, ui: &mut Ui, cmds: &mut Vec<Command>, shader_ops: &
 
 /// Painter's channel format badge: sRGB8, L8, RGB16F, L16F.
 pub fn format_badge(kind: ChannelKind, format: ChannelFormat) -> String {
-    let prefix = if kind.is_color() && kind.components() >= 3 && matches!(kind, ChannelKind::BaseColor | ChannelKind::Emissive) { "sRGB" }
+    let prefix = if kind.is_color() && kind.components() >= 3 { "sRGB" }
         else if kind.components() >= 3 { "RGB" } else { "L" };
     let suffix = match format { ChannelFormat::Bit8 => "8", ChannelFormat::Bit16 => "16", ChannelFormat::Float16 => "16F", ChannelFormat::Float32 => "32F" };
     format!("{prefix}{suffix}")
@@ -859,6 +859,10 @@ mod tests {
         assert_eq!(groups.iter().map(|(t, _)| *t).collect::<Vec<_>>(), ["Supported channels", "Unsupported channels", "User channels"]);
         assert!(groups[0].1.contains(&ChannelKind::AmbientOcclusion) && !groups[0].1.contains(&ChannelKind::BaseColor));
         assert!(groups[1].1.contains(&ChannelKind::Specular));
+        assert!(ChannelKind::EXTENDED.iter().all(|k| groups[1].1.contains(k)), "coat, sheen... are offered as unsupported channels");
+        assert_eq!(format_badge(ChannelKind::CoatColor, ChannelFormat::Bit8), "sRGB8");
+        assert_eq!(format_badge(ChannelKind::CoatNormal, ChannelFormat::Float16), "RGB16F");
+        assert_eq!(format_badge(ChannelKind::SheenRoughness, ChannelFormat::Bit8), "L8");
         assert_eq!(groups[2].1.len(), 16);
         let all: Vec<_> = groups.iter().flat_map(|(_, k)| k.clone()).collect();
         assert_eq!(all.len() + ChannelKind::METAL_ROUGH.len(), ChannelKind::ALL.len(), "every missing channel is offered once");

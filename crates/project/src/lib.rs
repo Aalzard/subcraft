@@ -159,6 +159,8 @@ impl Writer {
                     anchors: path.anchors.iter().map(|a| PenAnchorV4 { id: a.id.0, position: a.position.to_array(), incoming: a.incoming.to_array(), outgoing: a.outgoing.to_array() }).collect(),
                     closed: path.closed, radius: path.radius, hardness: path.hardness, opacity: path.opacity,
                     values: path.values.iter().map(|(&channel, value)| PenChannelV4 { channel, value: value.0 }).collect(),
+                    kind: path.kind,
+                    stamp: path.stamp,
                 }),
                 text: p.text.as_ref().map(|t| TextLayerV16 {
                     text: t.style.text.clone(), font: t.font.clone(), letter_spacing: t.style.letter_spacing, line_spacing: t.style.line_spacing,
@@ -589,6 +591,8 @@ impl<R: Read + Seek> Loader<'_, R> {
                         anchors: path.anchors.iter().map(|a| subcraft_doc::PenAnchor { id: subcraft_core::AnchorId(a.id), position: a.position.into(), incoming: a.incoming.into(), outgoing: a.outgoing.into() }).collect(),
                         closed: path.closed, radius: path.radius, hardness: path.hardness, opacity: path.opacity,
                         values: path.values.iter().map(|v| (v.channel, subcraft_core::ChannelValue(v.value))).collect(),
+                        kind: path.kind,
+                        stamp: path.stamp,
                     };
                     source.validate().map_err(|e| ProjectError::Invalid(e.into()))?;
                     if source.values.len() != path.values.len() { return Err(ProjectError::Invalid("duplicate pen channels".into())); }
@@ -694,6 +698,17 @@ fn read_project_checked<R: Read + Seek>(r: R, trusted: bool) -> Result<ProjectDa
             mesh_maps.insert(ts.id, maps);
         }
         texture_sets.push(ts);
+    }
+    // An instance's source is a layer of its own set: one in another set bypassed the raster
+    // checks (its rasters are copied in at the other set's size and channels). QA 2026-11.
+    if !trusted {
+        for ts in &texture_sets {
+            let mut foreign = false;
+            ts.walk(|l, _| foreign |= l.instance_of.is_some_and(|s| ts.find(s).is_none() && texture_sets.iter().any(|o| o.find(s).is_some())));
+            if foreign {
+                return Err(ProjectError::Invalid(format!("texture set {}: an instance's source is in another texture set", ts.name)));
+            }
+        }
     }
 
     let resources = unpack_resources(&mut loader, &doc.resources)?;

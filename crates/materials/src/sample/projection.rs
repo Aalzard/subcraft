@@ -68,8 +68,9 @@ pub fn sample_projected_sc(
     normal: [f32; 3],
     mut f: impl FnMut([f32; 2]) -> [f32; 4],
 ) -> [f32; 4] {
-    // Symmetry folds the model position (and normal) before a 3D projection reads it.
-    let (pos, normal) = proj.effective_symmetry().fold(pos, normal);
+    // Symmetry folds the model position (and normal), then the 3D transform brings it into the
+    // projection box's frame, before a 3D projection reads it.
+    let (pos, normal) = proj.local(pos, normal);
     match proj.mode {
         ProjectionMode::Uv => f(proj.transform_2d_sc(sc, uv)),
         ProjectionMode::Planar => f(proj.transform_2d_sc(sc, planar_coords(pos, proj.planar_axis))),
