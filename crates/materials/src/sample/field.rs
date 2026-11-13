@@ -126,7 +126,19 @@ fn projection_extra_bits(p: &Projection) -> u32 {
         FillSymmetry::Mirror { axis, position } => values.extend([1, axis as u32, position.to_bits()]),
         FillSymmetry::Radial { axis, count, flip, center } => values.extend([2, axis as u32, count, flip as u32, center[0].to_bits(), center[1].to_bits(), center[2].to_bits()]),
     }
-    (values.iter().fold(0x811c_9dc5u32, |h, v| (h ^ v).wrapping_mul(0x0100_0193).rotate_left(5)) | 1) << 8
+    // Each value is mixed with a full avalanche step, and the 24 bits kept are the top ones. The
+    // old multiply-and-rotate fold shifted its best-mixed bits out with `<< 8`: cylinder angles
+    // 120 and 144 (and 90 other groups of whole angles) got the same key, so one angle was drawn
+    // with the cached field of the other.
+    let mut h = 0x811c_9dc5u32;
+    for v in values {
+        h ^= v;
+        h = h.wrapping_mul(0x85eb_ca6b);
+        h ^= h >> 13;
+        h = h.wrapping_mul(0xc2b2_ae35);
+        h ^= h >> 16;
+    }
+    ((h >> 8) | 1) << 8
 }
 
 /// Hash of every scratch setting (0 for the defaults, so other kinds share keys).

@@ -884,14 +884,14 @@ Layout notes: Advanced group (11.0). Works on content and masks.
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Bevel Smooth (filter) | Properties > Filter | works on: content and masks | missing | - | - |
+| Bevel Smooth (filter) | Properties > Filter | works on: content and masks | done: a ramp across the contour of the thresholded shape; on layer content it shows where there is paint | crates/doc/src/filter.rs:334 | advanced filters |
 | Distance Map | Properties > Filter > Image inputs | grayscale; texture or anchor | missing | - | - |
-| Direction | Properties > Filter | not documented (dropdown; outward, inward or both) | missing | - | - |
-| Distance | Properties > Filter | not documented | missing | - | - |
-| Smoothing | Properties > Filter | not documented | missing | - | - |
-| Curve Offset | Properties > Filter | not documented | missing | - | - |
-| Curve Shape | Properties > Filter | not documented; pinched / rounded | missing | - | - |
-| Mask Threshold | Properties > Filter | not documented | missing | - | - |
+| Direction | Properties > Filter | not documented (dropdown; outward, inward or both) | done: Inward, Outward, Both | crates/ui/src/panels/filter.rs:207 | advanced filters |
+| Distance | Properties > Filter | not documented | done: pixels, up to 32 | crates/ui/src/panels/filter.rs:207 | advanced filters |
+| Smoothing | Properties > Filter | not documented | done: 0..1, eases the ramp toward a smoothstep | crates/ui/src/panels/filter.rs:207 | advanced filters |
+| Curve Offset | Properties > Filter | not documented | done: -0.9..0.9; above 0 the ramp starts further from the contour, below 0 it ends sooner | crates/ui/src/panels/filter.rs:207 | advanced filters |
+| Curve Shape | Properties > Filter | not documented; pinched / rounded | done: -1 pinched .. 1 rounded | crates/ui/src/panels/filter.rs:207 | advanced filters |
+| Mask Threshold | Properties > Filter | not documented | done | crates/ui/src/panels/filter.rs:207 | advanced filters |
 | Distance Map Multiplier | Properties > Filter | not documented | missing | - | - |
 | Bevel Wrap | Properties > Filter | not documented (toggle) | missing | - | - |
 
@@ -919,11 +919,11 @@ Layout notes: Advanced group (11.0). Content, or a mask for the height channel.
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Directional Distance (filter) | Properties > Filter | works on: content and masks | missing | - | - |
+| Directional Distance (filter) | Properties > Filter | works on: content and masks | done: bright values spread along the angle and fade with the distance; the paint coverage is kept | crates/doc/src/filter.rs:337 | advanced filters |
 | Distance Map | Properties > Filter > Image inputs | grayscale; texture or anchor | missing | - | - |
-| Distance | Properties > Filter | default not documented; normalised, 1 = shorter image side | missing | - | - |
-| Angle | Properties > Filter | default not documented; in turns, 0 points right | missing | - | - |
-| Contrast | Properties > Filter | not documented | missing | - | - |
+| Distance | Properties > Filter | default not documented; normalised, 1 = shorter image side | partial: in pixels, up to 32 (Painter: normalised to the shorter image side) | crates/ui/src/panels/filter.rs:220 | advanced filters |
+| Angle | Properties > Filter | default not documented; in turns, 0 points right | done: in degrees, 0 points right, counter-clockwise | crates/ui/src/panels/filter.rs:220 | advanced filters |
+| Contrast | Properties > Filter | not documented | done: 0..1 | crates/ui/src/panels/filter.rs:220 | advanced filters |
 | Distance Map Multiplier | Properties > Filter | not documented | missing | - | - |
 
 ## Gradient Curve
@@ -932,11 +932,11 @@ Layout notes: Advanced group. Works on content and masks.
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Gradient Curve (filter) | Properties > Filter | works on: content and masks | missing | - | - |
-| Preset | Properties > Filter | not documented (dropdown of curve presets) | missing | - | - |
-| Invert | Properties > Filter | not documented (toggle) | missing | - | - |
-| Balance | Properties > Filter | not documented | missing | - | - |
-| Contrast | Properties > Filter | not documented | missing | - | - |
+| Gradient Curve (filter) | Properties > Filter | works on: content and masks | done: each value goes through the curve, then Invert, Balance and Contrast | crates/doc/src/filter.rs:328 | advanced filters |
+| Preset | Properties > Filter | not documented (dropdown of curve presets) | done: Linear, Ease in, Ease out, S-curve, Bell, Valley (Painter's own preset list is not documented) | crates/ui/src/panels/filter.rs:196 | advanced filters |
+| Invert | Properties > Filter | not documented (toggle) | done | crates/ui/src/panels/filter.rs:196 | advanced filters |
+| Balance | Properties > Filter | not documented | done: 0..1, 0.5 neutral | crates/ui/src/panels/filter.rs:196 | advanced filters |
+| Contrast | Properties > Filter | not documented | done: 0..1, 0 neutral | crates/ui/src/panels/filter.rs:196 | advanced filters |
 
 ## Height Adjust
 

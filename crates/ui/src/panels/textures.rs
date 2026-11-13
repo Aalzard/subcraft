@@ -48,6 +48,12 @@ impl TextureLibrary {
         t
     }
 
+    /// List files that are already where they stay (a library folder, or the original file of a
+    /// session import): nothing is copied.
+    pub fn add_listed(&mut self, paths: &[PathBuf]) {
+        self.push_items(paths);
+    }
+
     fn push_items(&mut self, paths: &[PathBuf]) {
         let mut new = Vec::new();
         for p in paths {

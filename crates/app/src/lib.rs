@@ -33,6 +33,8 @@ pub mod filter_shelf;
 pub mod parts;
 pub mod part_workflow;
 pub mod pen;
+pub mod quick_mask_tint;
+mod region_outline;
 pub mod photocraft;
 pub mod recovery;
 pub mod safe_mode;
@@ -70,7 +72,7 @@ pub use parts::MeshPart;
 pub use part_workflow::{PartAction, PartInfo, PartKey, SurfaceTarget};
 pub use recovery::{AutosaveEvent, Autosaver, CrashedSession, RecoveryStore};
 pub use subcraft_compositor::ChangedTiles;
-pub use session::{BrushState, CloneSourceMode, CompositeUpdate, DEFAULT_RESOLUTION, LayerTarget, Pick, ProjectSnapshot, QuickMask, Scene, Selection, Session};
+pub use session::{BrushState, CloneSourceMode, CompositeUpdate, DEFAULT_RESOLUTION, LayerTarget, Pick, ProjectSnapshot, QuickMask, Scene, Selection, Session, SymmetryGuides};
 
 pub use subcraft_compositor::{Composite, composite_comps};
 pub use subcraft_assets as assets;

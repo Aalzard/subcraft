@@ -768,7 +768,7 @@ fn averaged_normals_tilt_the_rays_at_hard_edges_only_when_asked() {
         assert!((ray.origin - (t.position + t.geometric_normal * ray.front)).length() < 1e-4);
         // Averaged: still from outside towards the surface, tilted towards the edges.
         let ray = averaged.ray(&cube, t);
-        assert!((ray.dir.length() - 1.0).abs() < 1e-4 && ray.dir.dot(t.geometric_normal) < -0.4, "averaged: {:?}", ray.dir);
+        assert!((ray.dir.length() - 1.0).abs() < 1e-4 && ray.dir.dot(t.geometric_normal) < -0.3, "averaged: {:?} on {:?}", ray.dir, t.geometric_normal);
         assert!((ray.origin + ray.dir * ray.front - t.position).length() < 1e-4, "the ray passes through the low-poly point");
         if ray.dir.dot(t.geometric_normal) > -0.95 { tilted += 1; }
     }

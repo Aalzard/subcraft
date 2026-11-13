@@ -502,22 +502,25 @@ impl Cage {
     }
 }
 
-/// One normal per vertex, averaged (area weighted) over every triangle that touches the vertex's
-/// position, whatever its smoothing or UV splits.
+/// One normal per vertex, averaged over every triangle that touches the vertex's position,
+/// whatever its smoothing or UV splits. Each triangle counts by its corner angle there, so the
+/// result does not depend on how faces are triangulated.
 fn averaged_normals(mesh: &Mesh) -> Vec<Vec3> {
     // `+ 0.0` folds -0.0 into 0.0 so both zeros share a key.
     let key = |p: Vec3| (p + Vec3::ZERO).to_array().map(f32::to_bits);
     let mut sums: std::collections::HashMap<[u32; 3], Vec3> = std::collections::HashMap::new();
     for t in 0..mesh.triangle_count() {
-        let [a, b, c] = mesh.tri_positions(t);
-        let mut n = (b - a).cross(c - a);
+        let p = mesh.tri_positions(t);
+        let Some(mut n) = (p[1] - p[0]).cross(p[2] - p[0]).try_normalize() else { continue };
         // Follow the shading normals where the winding disagrees with them.
         let [ia, ib, ic] = mesh.tri(t).map(|i| i as usize);
         if n.dot(mesh.normals[ia] + mesh.normals[ib] + mesh.normals[ic]) < 0.0 {
             n = -n;
         }
-        for p in [a, b, c] {
-            *sums.entry(key(p)).or_default() += n;
+        for i in 0..3 {
+            let (a, b) = ((p[(i + 1) % 3] - p[i]).normalize_or_zero(), (p[(i + 2) % 3] - p[i]).normalize_or_zero());
+            let angle = a.dot(b).clamp(-1.0, 1.0).acos();
+            *sums.entry(key(p[i])).or_default() += n * angle;
         }
     }
     mesh.positions.iter().zip(&mesh.normals).map(|(p, n)| sums.get(&key(*p)).and_then(|s| s.try_normalize()).unwrap_or(*n)).collect()

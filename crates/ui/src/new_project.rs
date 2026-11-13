@@ -48,6 +48,9 @@ pub struct NewProjectUi {
     pub mesh_maps: Vec<subcraft_app::mesh_map_import::MeshMapFile>,
     /// Derive curvature from an imported normal map when no curvature map is given.
     pub derive_curvature: bool,
+    /// The planned texture sets the mesh maps were last matched to: they are re-matched only
+    /// when these change, so a set chosen by hand in the table stays chosen.
+    matched_keys: Vec<subcraft_app::mesh_map_import::SetKey>,
 }
 
 impl Default for NewProjectUi {
@@ -62,6 +65,7 @@ impl Default for NewProjectUi {
             mesh_maps: Vec::new(),
             // On whichever way the window is opened (`show_window` or a launch option).
             derive_curvature: true,
+            matched_keys: Vec::new(),
         }
     }
 }
@@ -75,6 +79,7 @@ impl NewProjectUi {
         self.high = None;
         self.error = None;
         self.mesh_maps.clear();
+        self.matched_keys.clear();
         self.derive_curvature = true;
     }
 
@@ -150,7 +155,12 @@ pub fn window(state: &mut UiState, ctx: &Context) {
                 ui.add_space(8.0);
                 if np.model.is_some() {
                     let keys = np.planned_set_keys();
-                    crate::mesh_map_import::rematch(&mut np.mesh_maps, &keys);
+                    // QA 2026-11: re-matching every frame threw away the set picked in the table
+                    // (a file matching no set name reverted to "Choose a texture set").
+                    if keys != np.matched_keys {
+                        crate::mesh_map_import::rematch(&mut np.mesh_maps, &keys);
+                        np.matched_keys = keys.clone();
+                    }
                     let names: Vec<String> = keys.into_iter().map(|k| k.name).collect();
                     crate::mesh_map_import::new_project_section(ui, &mut np.mesh_maps, &mut np.derive_curvature, &names, &mut pick_maps);
                     ui.add_space(8.0);
@@ -546,6 +556,12 @@ mod tests {
         }
         assert!(state.new_project.open, "the window stays open");
         assert!(state.new_project.mesh_maps.iter().all(|f| f.set == Some(0)), "still matched after the window ran");
+        // A set chosen in the table (here: cleared) is kept while the planned sets stay the same.
+        state.new_project.mesh_maps[2].set = None;
+        let mut out = ctx.run_ui(input(), |ui| window(&mut state, ui.ctx()));
+        out.textures_delta.clear();
+        assert_eq!(state.new_project.mesh_maps[2].set, None, "the window does not re-match every frame");
+        state.new_project.mesh_maps[2].set = Some(0);
         let names = vec!["Plane".to_string()];
         let mut pick = false;
         let mut texts = String::new();
