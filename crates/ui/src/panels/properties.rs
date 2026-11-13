@@ -73,6 +73,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     let mut hovered_part: Option<u32> = None;
 
     egui::ScrollArea::vertical().id_salt("props").auto_shrink([false, false]).show(ui, |ui| panel(ui, |ui| {
+        // Painter's instance list: the source and every instance, each a jump to that layer.
+        cmds.extend(super::layers::instance_section(&state.session, ui, id));
         // Name, with the layer type as an icon.
         ui.horizontal(|ui| {
             let icon = match &layer.content {

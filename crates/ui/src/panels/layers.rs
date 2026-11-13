@@ -725,6 +725,10 @@ Files: {}", ex.dir().display()));
                     instantiate = Some(if in_multi { multi_ids.clone() } else { vec![l.id] });
                     ui.close();
                 }
+                if l.instance_of.is_some() && ui.button("Make instance independent").on_hover_text("Breaks the link: the layer keeps what it shows now and can be edited").clicked() {
+                    cmds.push(Command::BreakInstances(vec![l.id]));
+                    ui.close();
+                }
                 if ui.add(egui::Button::new(format!("Duplicate{suffix}")).shortcut_text(crate::keys::native("Ctrl+D"))).clicked() {
                     cmds.push(if in_multi { Command::DuplicateLayers(multi_ids.clone()) } else { Command::DuplicateLayer(l.id) });
                     ui.close();
@@ -957,6 +961,47 @@ pub fn smart_material_matches<'a>(names: impl Iterator<Item = &'a str>, query: &
         })
         .map(|(i, _)| i)
         .collect()
+}
+
+/// Text of one entry of the instance list.
+pub fn instance_link_label(link: &subcraft_app::instances::InstanceLink) -> String {
+    format!("{}  ·  {}  ({})", if link.source { "Source" } else { "Instance" }, link.name, link.texture_set_name)
+}
+
+/// The commands that go to an entry of the instance list (its texture set, then the layer).
+pub fn instance_jump(link: &subcraft_app::instances::InstanceLink) -> Vec<Command> {
+    vec![Command::SelectTextureSet(link.texture_set), Command::SelectLayer(Some(link.layer))]
+}
+
+/// Painter's instance list in Properties, for a layer that is an instance or a source: the
+/// source, then every instance; a click goes to that layer. Returns the commands to run.
+pub fn instance_section(session: &subcraft_app::Session, ui: &mut Ui, layer: LayerId) -> Vec<Command> {
+    let links = session.instance_links(layer);
+    let mut cmds = Vec::new();
+    if links.is_empty() {
+        return cmds;
+    }
+    let is_instance = links.iter().any(|l| l.layer == layer && !l.source);
+    crate::widgets::section(ui, "instance_links", "Instances", true, |ui| {
+        if is_instance {
+            crate::widgets::hint(ui, "This layer follows its source: content, effects and mask are edited there. Name, visibility, blending and colour are its own.");
+        }
+        for link in &links {
+            if ui.selectable_label(link.layer == layer, instance_link_label(link)).on_hover_text("Go to this layer").clicked() && link.layer != layer {
+                cmds.extend(instance_jump(link));
+            }
+        }
+        ui.horizontal_wrapped(|ui| {
+            if is_instance && ui.button("Make independent").on_hover_text("Breaks the link: this layer keeps what it shows now and can be edited").clicked() {
+                cmds.push(Command::BreakInstances(vec![layer]));
+            }
+            let all: Vec<LayerId> = links.iter().filter(|l| !l.source).map(|l| l.layer).collect();
+            if !is_instance && ui.button(format!("Make all {} independent", all.len())).on_hover_text("Every instance of this layer becomes an ordinary layer that keeps what it shows now").clicked() {
+                cmds.push(Command::BreakInstances(all));
+            }
+        });
+    });
+    cmds
 }
 
 /// Row text of a layer that instances follow.
@@ -1204,5 +1249,14 @@ mod instantiate_dialog_tests {
         assert_eq!(subcraft_doc::instance::counts(s.document()).get(&layer), Some(&1));
         assert_eq!(source_label(1), "Source of 1 instance");
         assert_eq!(source_label(3), "Source of 3 instances");
+        // The instance list: source first, each entry a jump to its texture set and layer.
+        let links = s.instance_links(top.id);
+        assert_eq!(links.len(), 2);
+        assert!(instance_link_label(&links[0]).starts_with("Source  ·  "));
+        assert!(instance_link_label(&links[1]).starts_with("Instance  ·  "));
+        assert!(instance_link_label(&links[1]).ends_with(&format!("({})", links[1].texture_set_name)));
+        for c in instance_jump(&links[1]) { s.execute(c).unwrap(); }
+        assert_eq!(s.selection().texture_set, target);
+        assert_eq!(s.selection().layer, Some(top.id));
     }
 }

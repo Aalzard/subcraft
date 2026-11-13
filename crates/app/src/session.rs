@@ -1800,6 +1800,25 @@ impl Session {
                 self.selection.layer = at;
                 self.commit("Paste as Instance", None);
             }
+            Command::BreakInstances(layers) => {
+                let layers = if layers.is_empty() { self.all_instances() } else { layers };
+                let mut broken = 0;
+                for ts in self.doc.texture_sets.iter_mut() {
+                    for &id in &layers {
+                        // Layers inside an instance belong to its copy: only the instance itself has a link to break.
+                        if subcraft_doc::instance::root_of(ts, id) == Some(id)
+                            && let Some(l) = ts.find_mut(id)
+                        {
+                            l.instance_of = None;
+                            broken += 1;
+                        }
+                    }
+                }
+                if broken == 0 {
+                    return Err(CommandError::Invalid("No instance to make independent".into()));
+                }
+                self.commit(if broken == 1 { "Break Instance Link" } else { "Break Instance Links" }, None);
+            }
             Command::InstantiateAcross { layers, texture_sets } => {
                 let found = self.instance_sources(&layers);
                 if found.is_empty() {
