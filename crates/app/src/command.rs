@@ -72,6 +72,9 @@ pub enum Command {
     /// Add a material channel (Ambient Occlusion, Emissive, Opacity…) to a texture set and
     /// enable it on the brush. No-op when the set already has it.
     AddChannel { texture_set: TextureSetId, kind: ChannelKind },
+    /// Add several channels to a texture set as one undo step (the "Add channels" window).
+    /// Channels the set already has are skipped; no-op when none is new.
+    AddChannels { texture_set: TextureSetId, kinds: Vec<ChannelKind> },
     /// Remove a channel from a texture set (layers keep their data for it, so adding the channel
     /// back, or undo, restores it). A set keeps at least one channel.
     RemoveChannel { texture_set: TextureSetId, kind: ChannelKind },
