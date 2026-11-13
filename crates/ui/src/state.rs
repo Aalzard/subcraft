@@ -267,6 +267,12 @@ pub struct UiState {
     pub dropped_model: Option<std::path::PathBuf>,
     /// Key light rotation around the model (radians), set with Shift+MMB drag (Painter navigation).
     pub light_yaw: f32,
+    /// Tilt of the key light (radians added to its elevation; below the horizon lights the model
+    /// from underneath).
+    pub light_pitch: f32,
+    /// Which view the pointer was over last frame (F frames that one, or both when neither).
+    pub hovered_3d: bool,
+    pub hovered_2d: bool,
     /// Material slot to draw highlighted next frame (the texture set under the cursor with
     /// Ctrl+Alt, or hovered in the Texture Set List); taken by the 3D view each frame.
     pub highlight_slot: Option<u32>,
@@ -449,6 +455,9 @@ impl UiState {
             confirm: None,
             dropped_model: None,
             light_yaw: 0.0,
+            light_pitch: 0.0,
+            hovered_3d: false,
+            hovered_2d: false,
             highlight_slot: None,
             drops_taken: false,
             multi: Default::default(),

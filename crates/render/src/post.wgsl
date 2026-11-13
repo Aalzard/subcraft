@@ -14,6 +14,8 @@ struct Post {
     // [2] sharpen amount, sharpen diameter (px), grain amount, grain size (px)
     // [3] 1 = colored grain, 1 / gamma, sepia ratio, 1 = color correction on
     grade: mat4x4<f32>,
+    // Lens distortion: power (0 = off), zoom, edge roundness, edge smoothness
+    lens: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> p: Post;
@@ -234,9 +236,30 @@ fn grain_hash(cell: vec2<f32>, salt: f32) -> f32 {
     return fract(sin(dot(cell, vec2<f32>(12.9898, 78.233)) + salt) * 43758.5453);
 }
 
+// Lens distortion (CPU reference: `grade::Grade::lens_uv`): where view point `uv` reads the
+// picture (xy) and how much of it shows (z, 0 outside the rounded edge).
+fn lens_uv(uv: vec2<f32>) -> vec3<f32> {
+    let aspect = p.size.x * p.size.w;
+    let d = vec2<f32>((uv.x - 0.5) * aspect, uv.y - 0.5);
+    let r2 = dot(d, d) / ((aspect * aspect + 1.0) * 0.25);
+    let f = (1.0 + p.lens.x * r2) * p.lens.y;
+    let at = vec2<f32>(0.5) + (uv - vec2<f32>(0.5)) * f;
+    let q = abs(at - vec2<f32>(0.5)) * 2.0;
+    let n = 16.0 + (2.0 - 16.0) * clamp(p.lens.z, 0.0, 1.0);
+    let s = pow(pow(q.x, n) + pow(q.y, n), 1.0 / n);
+    let soft = clamp(p.lens.w, 0.0, 1.0) * 0.5;
+    return vec3<f32>(at, 1.0 - smoothstep(1.0 - soft - 1e-4, 1.0, s));
+}
+
 @fragment
 fn fs_grade(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
-    let uv = frag.xy * p.size.zw;
+    var uv = frag.xy * p.size.zw;
+    var mask = 1.0;
+    if (p.lens.x != 0.0) {
+        let l = lens_uv(uv);
+        uv = l.xy;
+        mask = l.z;
+    }
     var c = grade_fetch(uv);
     let sharpen = p.grade[2].x;
     if (sharpen > 0.0) {
@@ -245,6 +268,7 @@ fn fs_grade(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
             + grade_fetch(uv + vec2<f32>(-o.x, o.y)) + grade_fetch(uv + vec2<f32>(o.x, o.y)));
         c = max(c + sharpen * (c - blur), vec3<f32>(0.0));
     }
+    c = c * mask;
     let grain = p.grade[2].z;
     if (grain > 0.0) {
         let cell = floor(frag.xy / p.grade[2].w);

@@ -275,6 +275,12 @@ impl ViewportPrefs {
         if all && d.vignette_on {
             grade.vignette = d.vignette_amount.clamp(0.0, 1.0);
         }
+        if all && d.lens_on && d.lens_power.is_finite() {
+            grade.lens_power = d.lens_power.clamp(-1.0, 1.0);
+            grade.lens_fov = d.lens_fov.clamp(0.0, 1.0);
+            grade.lens_roundness = d.lens_roundness.clamp(0.0, 1.0);
+            grade.lens_smoothness = d.lens_smoothness.clamp(0.0, 1.0);
+        }
         if all && d.sharpen_on {
             grade.sharpen = d.sharpen_amount.clamp(0.0, 4.0);
             grade.sharpen_diameter = d.sharpen_diameter.clamp(0.5, 16.0);

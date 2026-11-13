@@ -291,6 +291,14 @@ pub fn toggle_shader_settings(dock: &mut DockState<Tab>) {
     }
 }
 
+/// Which views F frames: the one under the pointer, or both (3D, 2D) when it is over neither.
+pub fn frame_targets(hovered_3d: bool, hovered_2d: bool) -> (bool, bool) {
+    match (hovered_3d, hovered_2d) {
+        (false, false) => (true, true),
+        other => other,
+    }
+}
+
 /// Whether the 2D view sits beside the 3D view (its own pane) instead of behind it as a tab.
 pub fn is_side_by_side(dock: &DockState<Tab>) -> bool {
     match (dock.find_tab(&Tab::Viewport), dock.find_tab(&Tab::UvView)) {
@@ -415,6 +423,12 @@ pub fn parse_size(text: &str) -> Option<[f32; 2]> {
 #[cfg(test)]
 mod layout_tests {
     use super::*;
+    #[test]
+    fn f_frames_the_view_under_the_pointer_or_both() {
+        assert_eq!(frame_targets(true, false), (true, false));
+        assert_eq!(frame_targets(false, true), (false, true));
+        assert_eq!(frame_targets(false, false), (true, true), "over a panel: both views");
+    }
     #[test]
     fn default_layout_is_valid_and_broken_ones_are_rejected() {
         assert!(layout_is_valid(&default_layout()));
@@ -1231,8 +1245,16 @@ impl SubcraftApp {
                 self.state.multi.select_all(&rows);
             }
             Action::ResetCamera => {
-                self.state.camera = OrbitCamera::framing(&self.state.session.scene().mesh.bounds);
-                self.state.orbit_pivot = None;
+                // Painter's F: frame the view under the cursor, or both when it is over neither.
+                let (three, two) = frame_targets(self.state.hovered_3d, self.state.hovered_2d);
+                if three {
+                    self.state.camera = OrbitCamera::framing(&self.state.session.scene().mesh.bounds);
+                    self.state.orbit_pivot = None;
+                }
+                if two {
+                    self.state.uv.zoom = 1.0;
+                    self.state.uv.offset = egui::Vec2::ZERO;
+                }
             }
             Action::HideUi => self.state.hide_ui = !self.state.hide_ui,
             Action::PaintingMode => {

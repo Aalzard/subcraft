@@ -13,10 +13,10 @@ Layout notes: Painter's viewport is one central area with four parts stacked top
 | 3D view | Viewport, left | shown | done | crates/ui/src/viewport.rs:57 | - |
 | 2D view | Viewport, right | shown | partial: a dock tab behind the 3D view by default, not side by side | crates/ui/src/app.rs:189 | - |
 | Splitter between 3D and 2D views | Viewport, between views | 50/50 (unverified) | partial: only after View > Side-by-side 3D / 2D | crates/ui/src/app.rs:232 | - |
-| Progress bar for engine computations | Viewport, bottom edge | hidden when idle | missing | - | - |
+| Progress bar for engine computations | Viewport, bottom edge | hidden when idle | done: a thin moving bar along the top of the 3D view while layers are computed | crates/ui/src/viewport.rs (computing_bar) | 249 |
 | Colour-profile name text | 3D view, top left | shown when a profile is loaded | missing | - | - |
+| Grid unit read-out | 3D view, bottom left | shown when the grid is on | partial: bottom-left of the 3D view while the viewport hints are hidden (#181) | crates/ui/src/viewport.rs (grid_unit_label) | 181 |
 | Axis indicator (X/Y/Z orientation) | 3D view, bottom right | shown | done: red X, green Y, blue Z above the Render toggle, far axes dimmed; Display Settings > Viewport > Axis indicator | crates/ui/src/viewport.rs (axis_indicator) | 261 |
-| Grid unit read-out | 3D view, bottom left | shown when the grid is on | missing | - | - |
 | Warning when painting on a non-active Texture Set | 3D view overlay (12.1) | not documented | done: a status message naming the set the stroke started on, with how to select it | crates/ui/src/viewport.rs | 258 |
 
 ## Camera navigation (mouse)
@@ -32,7 +32,7 @@ Layout notes: all navigation is a held modifier plus a mouse drag; the same comb
 | Camera zoom (dolly) | Alt + RMB drag | editable shortcut | done | crates/ui/src/nav.rs:80 | - |
 | Camera zoom with the mouse wheel | Wheel over the view | (unverified) | done | crates/ui/src/viewport.rs:105 | - |
 | Rotate environment | Shift + RMB drag (horizontal) | editable shortcut | done | crates/ui/src/nav.rs:76 | - |
-| Auto-focus (depth of field focus point) | Ctrl + MMB click on the mesh | needs Post effects + DOF on | partial: Ctrl+MMB works and turns depth of field on; Post effects is not a separate switch | crates/ui/src/viewport.rs (Painter clicks) | #163 |
+| Auto-focus (depth of field focus point) | Ctrl + MMB click on the mesh | needs Post effects + DOF on | done: Display Settings > Camera > Auto-focus keeps the focus on the centre of the view; Ctrl+MMB picks a point | crates/ui/src/viewport.rs | 249 |
 | Texture set selection | Ctrl + Alt + RMB click on the mesh | editable shortcut | missing | - | - |
 | Texture Set highlight under cursor | Hold Ctrl + Alt over the model (12.2) | hidden while LMB is down or panning | done: while Ctrl+Alt is held, not while painting or navigating; a warm tint | crates/ui/src/viewport.rs, crates/render/src/viewport.wgsl | 258 |
 | Texture Set / UV Tile highlight from the list | Hover a row in the Texture Set list (12.2) | not documented | partial: hovering a Texture Set List row highlights its set; no UV tile highlight | crates/ui/src/panels/texture_sets.rs (set_rows) | 258 |
@@ -42,13 +42,13 @@ Layout notes: all navigation is a held modifier plus a mouse drag; the same comb
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Center the whole mesh | F | focuses only the view under the cursor; both when the cursor is outside | partial: F / Home reset the 3D camera to the default three-quarter framing; 2D view not affected | crates/ui/src/app.rs:950 | - |
+| Center the whole mesh | F | focuses only the view under the cursor; both when the cursor is outside | done: F frames the view under the cursor, both views when it is elsewhere | crates/ui/src/app.rs (frame_targets) | 249 |
 | Focus on the selected path | F while editing a path (11.0) | not documented | missing | - | - |
 | Camera Perspective | F5 | default mode | done | crates/app/src/actions.rs:210 | - |
 | Camera Orthographic | F6 | off | done | crates/app/src/actions.rs:211 | - |
 | Free rotation (roll allowed) | Contextual toolbar > Camera Rotation Mode | off | done: Camera menu or Display Settings > Camera > Camera rotation: Free orbits about the view's own axes (rolls, goes over the top); Constrained levels the horizon again | crates/ui/src/orbit.rs (free_orbit) | 258 |
 | Constrained rotation (no roll) | Contextual toolbar > Camera Rotation Mode | default | done | crates/ui/src/orbit.rs:114 | - |
-| Light the mesh from underneath | Orbit below the horizon (7.x) | not documented | partial: pitch clamped to about +/-89 degrees | crates/ui/src/orbit.rs:116 | - |
+| Light the mesh from underneath | Orbit below the horizon (7.x) | not documented | done: Shift+MMB drag up / down tilts the key light, down to below the horizon | crates/ui/src/viewport.rs (lit_direction) | 249 |
 
 ## Camera management
 
@@ -97,14 +97,14 @@ Layout notes: the dropdown at the top right of each view switches between Materi
 |---|---|---|---|---|---|
 | Display mode dropdown | 3D view, top right | Material | partial: "View" combo sits in the top strip, left side | crates/ui/src/viewport_bar.rs:361 | - |
 | Material (lit) mode | Display mode dropdown | default | done | crates/render/src/lib.rs:138 | - |
-| Single channel (solo) mode, one entry per Texture Set channel | Display mode dropdown | - | partial: fixed list (Base Color, Normal, Roughness, Metallic, Height, AO); no Emissive, Opacity, Specular or user channels | crates/render/src/lib.rs:153 | - |
+| Single channel (solo) mode, one entry per Texture Set channel | Display mode dropdown | - | done: every channel of the texture set (#181) | crates/ui/src/viewport_bar.rs (view_mode) | 181 |
 | Composited normal (normal + height + bake) solo entry | Display mode dropdown | - | partial: Normal view and a "Baked normal" shading mode, no combined entry named as such | crates/render/src/lib.rs:146 | - |
 | Mesh map solo entries | Display mode dropdown | - | done | crates/ui/src/viewport_bar.rs:377 | - |
-| Display next channel | C | - | partial: cycles the fixed view-mode list (includes Material and baked-normal modes) | crates/ui/src/app.rs:959 | - |
-| Display previous channel | Shift + C | - | partial: same fixed list | crates/ui/src/app.rs:959 | - |
+| Display next channel | C | - | done: C cycles the material and each channel of the selected texture set (#181) | crates/ui/src/viewport_bar.rs (cycle_channel) | 181 |
+| Display previous channel | Shift + C | - | done: Shift+C (#181) | crates/ui/src/viewport_bar.rs (cycle_channel) | 181 |
 | Display material | M | - | done | crates/ui/src/app.rs:964 | - |
 | Display next mesh map | B | - | partial: B in the Painter key set; cycles every map kind, baked or not | crates/app/src/actions.rs (Action::NextMeshMap) | #164 |
-| Display previous mesh map | Shift + B | - | missing | - | - |
+| Display previous mesh map | Shift + B | - | done: Shift+B in the Painter key set | crates/ui/src/viewport_bar.rs (cycle_mesh_map_back) | - |
 | Display mask in viewport | Alt + LMB on a mask thumbnail in the layer stack | - | done | crates/render/src/lib.rs:658 | - |
 | Baking visualisation mode (low / high poly, cage) | Baking mode viewport panel | - | partial: bake overlay colours shown while the Bake window is open | crates/ui/src/viewport.rs:522 | - |
 | Live preview of the map being baked | Settings > General | off (unverified) | missing | - | - |

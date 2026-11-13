@@ -286,6 +286,9 @@ pub fn camera(state: &mut UiState, ui: &mut Ui) {
             ui.label(tr("Focus point"));
             pick = ui.add_enabled(prefs.dof, egui::Button::new(tr("Pick in 3D view"))).on_hover_text(tr("Click the model in the 3D view to focus on that spot")).clicked();
             ui.end_row();
+            ui.label(tr("Auto-focus"));
+            ui.add_enabled(prefs.dof, egui::Checkbox::without_text(&mut prefs.display.dof_autofocus)).on_hover_text(tr("Keep the focus on whatever is at the centre of the 3D view"));
+            ui.end_row();
             ui.label(tr("Aperture"));
             ui.add_enabled(prefs.dof, egui::Slider::new(&mut prefs.dof_amount, 0.0..=1.0)).on_hover_text(tr("Strength of the depth-of-field blur. Needs Depth of field (Post effects)."));
             ui.end_row();
@@ -386,6 +389,12 @@ pub fn post_effects(state: &mut UiState, ui: &mut Ui) {
     });
     effect(ui, "display_vignette", tr("Vignette"), &mut d.vignette_on, all, false, |ui| {
         slider(ui, tr("Amount"), &mut d.vignette_amount, 0.0..=1.0, tr("How dark the corners get"));
+    });
+    effect(ui, "display_lens", tr("Lens distortion"), &mut d.lens_on, all, false, |ui| {
+        slider(ui, tr("Power"), &mut d.lens_power, -1.0..=1.0, tr("Positive bends the picture like a wide lens, negative like a telephoto"));
+        slider(ui, tr("FOV"), &mut d.lens_fov, 0.0..=1.0, tr("How far a wide-lens distortion zooms in to hide the stretched border"));
+        slider(ui, tr("Edge roundness"), &mut d.lens_roundness, 0.0..=1.0, tr("Shape of the picture's edge: 0 a rectangle, 1 an oval"));
+        slider(ui, tr("Edge smoothness"), &mut d.lens_smoothness, 0.0..=1.0, tr("Softness of that edge"));
     });
     effect(ui, "display_sharpen", tr("Sharpen"), &mut d.sharpen_on, all, false, |ui| {
         slider(ui, tr("Amount"), &mut d.sharpen_amount, 0.0..=2.0, tr("Strength of the sharpening"));
