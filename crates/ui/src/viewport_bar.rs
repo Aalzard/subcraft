@@ -50,6 +50,8 @@ pub struct ViewportPrefs {
     pub symmetry_cursor: bool,
     /// Painter's "Hide While Painting" for the symmetry cursors.
     pub symmetry_cursor_hide_painting: bool,
+    /// Painter's symmetry "Show Plane": the active mirror planes as translucent sheets.
+    pub symmetry_plane: bool,
     /// Bottom-left list of the mouse / key actions that apply now.
     pub hints: bool,
     /// X / Y / Z orientation indicator in the 3D view's bottom-right corner.
@@ -107,6 +109,7 @@ impl Default for ViewportPrefs {
             symmetry_guides: true,
             symmetry_cursor: true,
             symmetry_cursor_hide_painting: false,
+            symmetry_plane: true,
             hints: true,
             axis_indicator: true,
             display: Default::default(),

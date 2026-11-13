@@ -731,4 +731,6 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Symmetry cursors", "對稱游標"),
     ("A second brush cursor where each symmetry copy of the stroke paints", "在筆觸的每個對稱副本繪製處顯示第二個筆刷游標"),
     ("Hide while painting", "繪製時隱藏"),
+    ("Mirror planes", "鏡像平面"),
+    ("Each active mirror plane as a translucent sheet in its axis colour", "以座標軸顏色將每個啟用的鏡像平面顯示為半透明平面"),
 ];
