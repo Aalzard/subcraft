@@ -2671,7 +2671,11 @@ impl Session {
             Some(q) if q.editing => {
                 q.editing = false;
                 q.revision += 1;
-                let empty = q.image.allocated_tiles() == 0 && q.image.fill()[0] <= 0.0;
+                // Erased texels keep their tile: a mask painted and erased again, or only erased,
+                // has tiles and selects nothing. Counted as painted, it was applied and every
+                // stroke after it painted nothing, with no message.
+                let painted = (0..q.image.tile_count()).any(|i| q.image.tile(i).is_some_and(|t| t.data.iter().any(|v| v.to_f32() > 0.0)));
+                let empty = !painted && q.image.fill()[0] <= 0.0;
                 if empty {
                     self.quick_mask = None;
                 }
