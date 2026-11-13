@@ -243,6 +243,27 @@ fn a_layer_copied_in_one_texture_set_pastes_as_an_instance_in_another() {
     assert!(s.execute(Command::PasteAsInstance(vec![LayerId::new()])).is_err());
 }
 
+/// QA 2026-11: with a texture set in the list that no longer exists, the command failed after
+/// it had already added instances to the sets before it: a change outside any undo step.
+#[test]
+fn instantiating_across_a_missing_texture_set_changes_nothing() {
+    let mut s = two_sets();
+    let (body, trim) = (s.document().texture_sets[0].id, s.document().texture_sets[1].id);
+    s.execute(Command::SelectTextureSet(body)).unwrap();
+    s.execute(Command::AddLayer(NewLayer::Fill)).unwrap();
+    let source = s.selection().layer.unwrap();
+    let before = s.document().clone();
+    let steps = s.history().entries().len();
+    let gone = subcraft_core::TextureSetId::new();
+    assert!(s.execute(Command::InstantiateAcross { layers: vec![source], texture_sets: vec![trim, gone] }).is_err());
+    assert!(s.document() == &before, "nothing was added");
+    assert_eq!(s.history().entries().len(), steps);
+    // A set listed twice gets one instance.
+    let layers = s.document().texture_set(trim).unwrap().layers.len();
+    s.execute(Command::InstantiateAcross { layers: vec![source], texture_sets: vec![trim, trim] }).unwrap();
+    assert_eq!(s.document().texture_set(trim).unwrap().layers.len(), layers + 1);
+}
+
 /// QA 2026-11: with several layers copied, Paste as instance inserted the first instances and
 /// then refused a later one: the error came back with the document already changed, outside
 /// any undo step.
@@ -262,4 +283,32 @@ fn a_refused_paste_as_instance_changes_nothing() {
         assert!(s.document() == &before, "nothing was inserted");
         assert_eq!(s.history().entries().len(), steps);
     }
+}
+
+/// QA 2026-11: a layer added, pasted or dropped into an instance folder was wiped by the next
+/// sync with the source (an empty undo step); dropping the source itself in deleted both.
+#[test]
+fn nothing_lands_inside_an_instance_folder() {
+    use subcraft_app::layer_tree::DropTarget;
+    let mut s = Session::new(subcraft_mesh::primitives::plane(2.0, 2), 128);
+    s.execute(Command::AddLayer(NewLayer::Folder)).unwrap();
+    let folder = s.selection().layer.unwrap();
+    s.execute(Command::PasteAsInstance(vec![folder])).unwrap();
+    let instance = s.selection().layer.unwrap();
+    let children = |s: &Session| s.selected_texture_set().find(instance).unwrap().children().len();
+    // A new layer with the (empty) instance selected goes above it, and stays.
+    s.execute(Command::AddLayer(NewLayer::Paint)).unwrap();
+    let added = s.selection().layer.unwrap();
+    assert!(s.selected_texture_set().find(added).is_some(), "the new layer exists");
+    assert_eq!(children(&s), 0);
+    assert_eq!(s.selected_texture_set().location(added).unwrap().parent, None, "above the instance, not inside");
+    // Dropping a layer, or the source, into the instance is refused and changes nothing.
+    let ts = s.selection().texture_set;
+    let doc = s.document().clone();
+    for layer in [added, folder] {
+        assert!(s.execute(Command::DropLayer { texture_set: ts, layer, target: DropTarget::Inside(instance) }).is_err());
+        assert!(s.execute(Command::DropLayers { texture_set: ts, layers: vec![layer], target: DropTarget::Inside(instance), copy: false }).is_err());
+    }
+    assert_eq!(s.document(), &doc);
+    assert!(s.selected_texture_set().find(folder).is_some() && s.selected_texture_set().find(instance).is_some());
 }

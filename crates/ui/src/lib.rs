@@ -19,6 +19,7 @@ pub mod dialogs;
 pub mod docks;
 pub mod export_mesh;
 pub mod export_presets;
+pub mod layer_export;
 pub mod files;
 pub mod graphics;
 pub mod gpu_probe;

@@ -109,12 +109,8 @@ pub struct UiState {
     pub layer_previews: crate::layer_previews::PreviewUi,
     /// A layer's mask shown alone in the 3D view (Alt+click on its mask thumbnail).
     pub mask_view: Option<crate::mask_view::MaskView>,
-    /// Layers waiting in the "Export flattened" window, and the file name pattern (kept for
-    /// the next export in this session).
-    pub flatten_export: Option<Vec<subcraft_core::LayerId>>,
     /// The open "Instantiate across texture sets" window.
     pub instantiate: Option<crate::panels::layers::InstantiateDialog>,
-    pub flatten_pattern: String,
     pub graphics: crate::graphics::GraphicsUi,
     pub asset_preview: crate::asset_preview::AssetPreviewUi,
     pub welcome: crate::welcome::WelcomeUi,
@@ -270,6 +266,8 @@ pub struct UiState {
     /// Viewport height-to-bump strength.
     pub height_scale: f32,
     pub export: crate::dialogs::ExportUi,
+    /// Layer stack > Export flattened / Export mask window.
+    pub layer_export: crate::layer_export::LayerExportUi,
     /// File > Export mesh window.
     pub export_mesh: crate::export_mesh::ExportMeshUi,
     pub new_project: crate::new_project::NewProjectUi,
@@ -403,9 +401,7 @@ impl UiState {
             taa: Default::default(),
             layer_previews: Default::default(),
             mask_view: None,
-            flatten_export: None,
             instantiate: None,
-            flatten_pattern: subcraft_app::flatten::DEFAULT_PATTERN.to_string(),
             graphics,
             asset_preview: Default::default(),
             welcome: Default::default(),
@@ -498,6 +494,7 @@ impl UiState {
             pt_capture_samples: None,
             height_scale: 0.02,
             export: Default::default(),
+            layer_export: Default::default(),
             export_mesh: Default::default(),
             confirm: None,
             dropped_model: None,

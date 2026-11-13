@@ -103,12 +103,20 @@ fn sample(img: &TiledImage, uv: Vec2) -> f32 {
     top + (bottom - top) * ty
 }
 
-/// The Height composite for a vertex of material `slot` at `uv`: the slot's set, or the UDIM
-/// tile containing `uv`.
+/// The Height composite for a vertex of material `slot` at `uv`: the slot's set. A UDIM project
+/// gives every tile its own slot with UVs moved into 0..1, so the slot alone names the set
+/// (QA 2026-11: the tile was worked out from the UVs, always 1001 there, and every other tile
+/// stayed flat). Only a slot shared by several sets falls back to the tile under `uv`.
 fn height_image<'a>(sets: &'a [ExportTextureSet], slot: u32, uv: Vec2) -> Option<&'a TiledImage> {
-    let tile = 1001 + uv.x.floor().max(0.0) as u32 + 10 * uv.y.floor().max(0.0) as u32;
-    let mut of_slot = sets.iter().filter(|s| s.material_slot == slot);
-    let set = of_slot.clone().find(|s| s.udim == Some(tile)).or_else(|| of_slot.find(|s| s.udim.is_none() || s.udim == Some(1001)))?;
+    let of_slot: Vec<&ExportTextureSet> = sets.iter().filter(|s| s.material_slot == slot).collect();
+    let set = match of_slot.as_slice() {
+        [] => return None,
+        [one] => *one,
+        several => {
+            let tile = subcraft_mesh::regroup::udim_number([uv.x.floor() as i32, uv.y.floor() as i32]);
+            several.iter().find(|s| s.udim == Some(tile)).or_else(|| several.iter().find(|s| s.udim.is_none() || s.udim == Some(1001))).copied()?
+        }
+    };
     set.channels.get(&ChannelKind::Height)
 }
 
@@ -244,6 +252,10 @@ mod tests {
             assert!((n.dot(base) - 1.0).abs() < 1e-5, "recomputed normals stay flat");
         }
         assert!((out.bounds.min.dot(mesh.normals[0]) - 0.1).abs() < 1e-5 || (out.bounds.max.dot(mesh.normals[0]) - 0.1).abs() < 1e-5);
+        // QA 2026-11: a UDIM tile other than 1001 (its own slot, UVs in 0..1) is displaced too.
+        let tile = [ExportTextureSet { name: "P.1002", material_slot: 0, udim: Some(1002), channels: &ch, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY }];
+        let moved = displaced(&mesh, &tile, &Displacement { subdivisions: 0, ..d });
+        assert!(moved.positions.iter().all(|p| (p.dot(mesh.normals[0]) - 0.1).abs() < 1e-5), "tile 1002 displaced");
         // QA 2026-11: on a slope the recomputed normals tilt; the tangents follow them.
         let mut ramp = TiledImage::new(16, 16, 1, [0.0; 4]);
         for y in 0..16 {

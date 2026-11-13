@@ -15,7 +15,7 @@ use glam::Vec2;
 use subcraft_doc::{FillSource, ProceduralParams, Projection, ResourceStore};
 use subcraft_image::TILE_TEXELS;
 
-pub use bitmap::{BitmapSampler, MipChain, bitmap_tile, coverage_tile, mip_chain, projection_covers};
+pub use bitmap::{BitmapSampler, MipChain, bitmap_tile, coverage_tile, mip_chain, projection_coverage, projection_covers};
 pub use geometry::{GeometryCache, TextureSetGeometry, TileGeometry};
 pub use mesh_maps::MeshMaps;
 pub use projection::{planar_coords, sample_projected, sample_projected_sc, triplanar_weights};

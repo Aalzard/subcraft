@@ -40,6 +40,9 @@ pub enum Tab {
     /// Painter's SHADER SETTINGS panel. Optional: closed until the Window menu or a texture
     /// set's shader menu opens it.
     ShaderSettings,
+    /// Painter's LOG panel (General / Assets messages). Optional: closed until Window > Views
+    /// opens it.
+    Log,
 }
 
 impl Tab {
@@ -58,6 +61,7 @@ impl Tab {
             Tab::DisplaySettings => tr("Display Settings"),
             Tab::SubLibrary(_) => tr("Assets"),
             Tab::ShaderSettings => tr("Shader Settings"),
+            Tab::Log => tr("Log"),
         }
     }
 
@@ -74,6 +78,7 @@ impl Tab {
             Tab::Shelf | Tab::SubLibrary(_) => icons::SQUARES,
             Tab::DisplaySettings => icons::SUN,
             Tab::ShaderSettings => icons::SPARKLE,
+            Tab::Log => icons::INFO,
         }
     }
 }
@@ -429,13 +434,13 @@ pub fn apply_view_layout(dock: &mut DockState<Tab>, layout: ViewLayout) {
                 front_tab(dock, if is_front(dock, Tab::Viewport) { Tab::UvView } else { Tab::Viewport });
                 return;
             }
-            // Exchange what the two panes hold; the split and its ratio stay.
-            let take = |dock: &mut DockState<Tab>, path: egui_dock::TabPath| {
-                dock[path.surface][path.node].get_leaf_mut().map(|leaf| (std::mem::take(&mut leaf.tabs), leaf.active))
-            };
-            let (Some(a), Some(b)) = (take(dock, view), take(dock, uv)) else { return };
-            for (path, (tabs, active)) in [(view, b), (uv, a)] {
-                if let Some(leaf) = dock[path.surface][path.node].get_leaf_mut() { leaf.tabs = tabs; leaf.active = active; }
+            // Exchange the two views where they are: side by side the split and its ratio stay;
+            // with one undocked (Painter 7.4) the floating window now shows the other view.
+            // Any other tab sharing a pane with a view stays where it was.
+            for (path, tab) in [(view, Tab::UvView), (uv, Tab::Viewport)] {
+                if let Some(slot) = dock[path.surface][path.node].get_leaf_mut().and_then(|leaf| leaf.tabs.get_mut(path.tab.0)) {
+                    *slot = tab;
+                }
             }
         }
     }
@@ -506,6 +511,29 @@ mod layout_tests {
         apply_view_layout(&mut dock, ViewLayout::Swap);
         assert_eq!(current_view_layout(&dock), ViewLayout::Only3d, "swapping tabbed views brings the 3D view to the front");
         assert_eq!(ViewLayout::MENU.len(), 4);
+    }
+
+    #[test]
+    fn swap_exchanges_a_floating_view_with_the_docked_one() {
+        let mut dock = default_layout();
+        crate::docks::toggle_undock(&mut dock, Tab::UvView, egui::pos2(40.0, 40.0));
+        assert!(crate::docks::is_floating(&dock, Tab::UvView) && !crate::docks::is_floating(&dock, Tab::Viewport));
+        let docked_at = dock.find_tab(&Tab::Viewport).unwrap();
+        let others: Vec<Tab> = dock.iter_all_tabs().map(|(_, t)| *t).filter(|t| !matches!(t, Tab::Viewport | Tab::UvView)).collect();
+        apply_view_layout(&mut dock, ViewLayout::Swap);
+        assert!(crate::docks::is_floating(&dock, Tab::Viewport), "the 3D view now floats");
+        assert_eq!(dock.find_tab(&Tab::UvView), Some(docked_at), "the 2D view takes the 3D view's place");
+        let after: Vec<Tab> = dock.iter_all_tabs().map(|(_, t)| *t).filter(|t| !matches!(t, Tab::Viewport | Tab::UvView)).collect();
+        assert_eq!(others, after, "every other panel stays where it was");
+        apply_view_layout(&mut dock, ViewLayout::Swap);
+        assert!(crate::docks::is_floating(&dock, Tab::UvView));
+        assert_eq!(dock.find_tab(&Tab::Viewport), Some(docked_at), "swapping twice restores the layout");
+        // Side by side, the swap still exchanges the panes.
+        let mut side = DockState::new(vec![Tab::Viewport, Tab::UvView]);
+        apply_view_layout(&mut side, ViewLayout::Both);
+        let (v, u) = (side.find_tab(&Tab::Viewport).unwrap(), side.find_tab(&Tab::UvView).unwrap());
+        apply_view_layout(&mut side, ViewLayout::Swap);
+        assert_eq!((side.find_tab(&Tab::Viewport), side.find_tab(&Tab::UvView)), (Some(u), Some(v)));
         assert_eq!(frame_targets(false, true), (false, true));
         assert_eq!(frame_targets(false, false), (true, true), "over a panel: both views");
         // QA 2026-11: a view no longer drawn kept its last hover, and F framed it instead of the
@@ -1824,7 +1852,7 @@ impl SubcraftApp {
                 ui.set_min_width(240.0);
                 ui.menu_button(format!("{}   {}", icons::SQUARES, tr("Views")), |ui| {
                     ui.set_min_width(220.0);
-                    for tab in [Tab::Shelf, Tab::Layers, Tab::Properties, Tab::TextureSetList, Tab::TextureSetSettings, Tab::History, Tab::Parts, Tab::Viewport, Tab::UvView] {
+                    for tab in [Tab::Shelf, Tab::Layers, Tab::Properties, Tab::TextureSetList, Tab::TextureSetSettings, Tab::History, Tab::Log, Tab::Parts, Tab::Viewport, Tab::UvView] {
                         if ui.add(egui::Button::new(format!("{}   {}", tab.icon(), tab.title())).selected(is_front(&self.dock, tab))).clicked() {
                             crate::docks::open(&mut self.dock, tab);
                             self.state.hide_ui = false;
@@ -1941,6 +1969,10 @@ impl SubcraftApp {
                     && item(ui, icons::FOLDER_OPEN, tr("Show log files"), "")
                 {
                     crate::panels::shelf::show_in_folder(&log);
+                    ui.close();
+                }
+                if item(ui, icons::DOWNLOAD, tr("Export log…"), "") {
+                    crate::panels::log::export_log(&mut self.state, now);
                     ui.close();
                 }
             });
@@ -2220,6 +2252,7 @@ impl egui_dock::TabViewer for Viewer<'_> {
             Tab::DisplaySettings => crate::edit_profile::time_tab("  tab Display settings", || panels::display_settings::show(self.state, ui)),
             Tab::SubLibrary(id) => crate::edit_profile::time_tab("  tab Sub-library", || panels::shelf::show_sub_library(self.state, ui, *id)),
             Tab::ShaderSettings => crate::edit_profile::time_tab("  tab Shader settings", || panels::shader_settings::show(self.state, ui)),
+            Tab::Log => crate::edit_profile::time_tab("  tab Log", || panels::log::show(self.state, ui)),
         }
     }
 
@@ -2455,6 +2488,7 @@ impl eframe::App for SubcraftApp {
             panic!("test crash requested with --test-crash");
         }
         dialogs::export_window(&mut self.state, &ctx, now);
+        crate::layer_export::layer_export_window(&mut self.state, &ctx, now);
         crate::export_mesh::export_mesh_window(&mut self.state, &ctx, now);
         crate::mesh_reload::window(&mut self.state, &ctx, now);
         crate::auto_uv::window(&mut self.state, &ctx, now);

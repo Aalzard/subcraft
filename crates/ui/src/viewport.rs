@@ -189,10 +189,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         if middle_pressed && ctrl && !mods.alt && !mods.shift {
             match state.session.pick(&state.camera.paint_camera(size), to_screen(p)) {
                 Some(hit) => {
-                    let orbit = state.camera.eye_distance().max(1e-4);
                     let view = &mut state.recovery.prefs.viewport;
                     view.dof = true;
-                    view.dof_focus = (hit.depth / orbit).clamp(0.2, 3.0);
+                    view.dof_focus_distance = Some(hit.depth.max(1e-4));
                     state.set_status(crate::i18n::tr("Focus set"), now);
                 }
                 None => state.set_status(crate::i18n::tr("Click the model to set the focus"), now),
@@ -221,8 +220,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     if !(state.bake.open || state.bake.job.is_some()) && state.recovery.prefs.viewport.dof && state.recovery.prefs.viewport.dof_autofocus
         && let Some(hit) = state.session.pick(&camera, glam::Vec2::new(size[0] as f32 * 0.5, size[1] as f32 * 0.5))
     {
-        let orbit = state.camera.eye_distance().max(1e-4);
-        state.recovery.prefs.viewport.dof_focus = (hit.depth / orbit).clamp(0.2, 3.0);
+        state.recovery.prefs.viewport.dof_focus_distance = Some(hit.depth.max(1e-4));
     }
 
     // Right-click (no drag): the Properties popup at the cursor, part actions in its header.
@@ -349,15 +347,13 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         && let Some(p) = pointer
         && let Some(hit) = state.session.pick(&camera, to_screen(p))
     {
-        let orbit = state.camera.eye_distance().max(1e-4);
-        state.recovery.prefs.viewport.dof_focus = (hit.depth / orbit).clamp(0.2, 3.0);
+        state.recovery.prefs.viewport.dof_focus_distance = Some(hit.depth.max(1e-4));
         state.set_status(crate::i18n::tr("Focus set"), now);
     }
     let focus_picking = !bake_mode && !state.painting && state.picking_focus && state.recovery.prefs.viewport.dof;
     if focus_picking && primary_pressed && response.hovered() && let Some(p) = pointer {
         if let Some(hit) = state.session.pick(&camera, to_screen(p)) {
-            let orbit = state.camera.eye_distance().max(1e-4);
-            state.recovery.prefs.viewport.dof_focus = (hit.depth / orbit).clamp(0.2, 3.0);
+            state.recovery.prefs.viewport.dof_focus_distance = Some(hit.depth.max(1e-4));
             state.set_status(crate::i18n::tr("Focus set"), now);
         } else {
             state.set_status(crate::i18n::tr("Click the model to set the focus"), now);
@@ -529,6 +525,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             params.background_top = Some(state.recovery.prefs.background_top);
             let view = &state.recovery.prefs.viewport;
             params.antialias = view.antialias;
+            params.oit = view.oit;
             params.exposure = view.exposure_value();
             params.post = view.post_params_at(state.session.scene().mesh.bounds.diagonal(), state.camera.eye_distance());
             params.view_mode = view.view_mode();

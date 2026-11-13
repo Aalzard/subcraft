@@ -482,12 +482,18 @@ pub struct DisplaySettings {
     /// averaged until `taa_accumulations` of them have been drawn.
     pub taa: bool,
     pub taa_accumulations: u32,
+    /// Order-independent transparency for alpha-blended texture sets (off by default).
+    pub oit: bool,
     /// Depth of field (off by default): blur amount 0..1, focus distance as a multiple of the
     /// orbit distance (1 = the point the camera orbits), sharp band in percent of the model size.
     pub dof: bool,
     pub dof_amount: f32,
     pub dof_focus: f32,
     pub dof_range: f32,
+    /// Painter's Focus distance: from the camera, in scene units, where the depth of field is
+    /// sharp. Once set (focus picking, auto-focus, the slider) it stays put while zooming and wins
+    /// over the relative `dof_focus`, which only settings saved before it existed still use.
+    pub dof_focus_distance: Option<f32>,
     /// Focus on whatever is at the centre of the view, every frame (Painter's auto-focus).
     pub dof_autofocus: bool,
 
@@ -631,9 +637,11 @@ impl Default for DisplaySettings {
             antialias: true,
             taa: false,
             taa_accumulations: 16,
+            oit: false,
             dof: false,
             dof_amount: 0.5,
             dof_focus: 1.0,
+            dof_focus_distance: None,
             dof_range: 10.0,
             dof_autofocus: false,
             post_effects: true,
@@ -717,6 +725,15 @@ impl Default for DisplaySettings {
 }
 
 impl DisplaySettings {
+    /// Where the depth of field is sharp, in scene units from the camera: the absolute focus
+    /// distance once set, else the older multiple of the orbit distance.
+    pub fn focus_distance(&self, orbit_distance: f32) -> f32 {
+        match self.dof_focus_distance {
+            Some(d) if d.is_finite() && d > 0.0 => d.max(1e-4),
+            _ => (self.dof_focus.clamp(0.05, 4.0) * orbit_distance).max(1e-4),
+        }
+    }
+
     /// Put the post effects back to their defaults (the panel's "Reset" of that group); camera
     /// and visualisation settings are kept.
     pub fn reset_post_effects(&mut self) {
@@ -726,7 +743,7 @@ impl DisplaySettings {
             ($($field:ident),* $(,)?) => { $( d.$field = std::mem::take(&mut self.$field); )* };
         }
         keep!(
-            env_map, env_opacity, env_exposure, env_rotation, env_blur, env_alignment, shadows, shadow_opacity, shadow_mode, fov, antialias, taa, taa_accumulations, wireframe, wire_color, wire_opacity,
+            env_map, env_opacity, env_exposure, env_rotation, env_blur, env_alignment, shadows, shadow_opacity, shadow_mode, fov, antialias, taa, taa_accumulations, oit, wireframe, wire_color, wire_opacity,
             wire_angle, grid, grid_axes, grid_plane, grid_color, grid_opacity, solo_unlit, hdr_scale, hdr_signed_colors, hdr_positive,
             hdr_negative, channel_component, anisotropy, mip_bias, camera_frame, camera_frame_ratio, gate_opacity,
         );
@@ -737,6 +754,25 @@ impl DisplaySettings {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_focus_distance_is_absolute_once_set_and_relative_before() {
+        let mut d = DisplaySettings { dof_focus: 1.5, ..Default::default() };
+        // Older settings: a multiple of the orbit distance, following zooming.
+        assert_eq!(d.focus_distance(4.0), 6.0);
+        assert_eq!(d.focus_distance(2.0), 3.0);
+        // Set: the same distance whatever the zoom.
+        d.dof_focus_distance = Some(7.5);
+        assert_eq!((d.focus_distance(4.0), d.focus_distance(0.5)), (7.5, 7.5));
+        // Broken values fall back to the relative one.
+        for bad in [0.0, -2.0, f32::NAN, f32::INFINITY] {
+            d.dof_focus_distance = Some(bad);
+            assert_eq!(d.focus_distance(4.0), 6.0, "{bad}");
+        }
+        // Files without the field load as unset.
+        let old: DisplaySettings = serde_json::from_str(r#"{"dof_focus": 2.0}"#).unwrap();
+        assert_eq!((old.dof_focus_distance, old.focus_distance(3.0)), (None, 6.0));
+    }
 
     #[test]
     fn an_empty_object_is_the_default_and_values_round_trip() {
