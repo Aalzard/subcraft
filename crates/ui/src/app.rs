@@ -2236,6 +2236,9 @@ impl eframe::App for SubcraftApp {
         if self.state.session.composites_pending() {
             ctx.request_repaint();
         }
+        if let Some(due) = crate::mask_view::refresh_due(&self.state) {
+            ctx.request_repaint_after(due);
+        }
         if self.profile.as_mut().is_some_and(|p| p.after_sync(&self.state)) {
             self.profile = None;
             self.state.allow_close = true;
