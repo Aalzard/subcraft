@@ -47,7 +47,7 @@ Layout notes: a resizable left column. First entry is Global settings; below it 
 |---|---|---|---|---|---|
 | Output directory | Path field + browse button | last used / project folder (unverified) | done (Folder field + Browse) | crates/ui/src/dialogs.rs:177 | - |
 | Output template | Dropdown: predefined templates first, then default and custom ones | PBR Metallic Roughness (unverified) | partial: built-in list only, no custom templates | crates/ui/src/dialogs.rs:193 | #124 |
-| File type | Dropdown: container format | Based on output template (unverified) | partial: 8 of Painter's types (bmp, exr, hdr, jpeg, png, targa, tiff, webp), alphabetical, plus Based on output template | crates/ui/src/export_presets.rs format_combo | chunk 21 |
+| File type | Dropdown: container format | Based on output template (unverified) | partial: 12 of Painter's types (bmp, exr, hdr, jpeg, pbm, pfm, pgm, png, ppm, targa, tiff, webp), alphabetical, plus Based on output template | crates/ui/src/export_presets.rs format_combo, crates/image/src/io.rs Container | chunk 21, netpbm |
 | File type: Based on output template | First entry of File type | - | done (Template default) | crates/ui/src/dialogs.rs:203 | - |
 | Bit depth | Second dropdown beside File type; choices depend on format | 8 bits (unverified) | done (second dropdown; only the depths the file type stores, plus 8-bit + dithering) | crates/ui/src/export_presets.rs format_combo | chunk 21 |
 | Size | Dropdown | Based on each Texture Set's size | done (Based on each texture set's size, or 128 to 8192; a preset or map size wins) | crates/export/src/lib.rs output_size | chunk 21 |
@@ -88,11 +88,11 @@ Layout notes: Painter lists the formats alphabetically by extension in the File 
 | jp2 (JPEG 2000) | File type | 8, 8 + dithering, 16 | missing | - | - |
 | jpeg | File type | 8, 8 + dithering | done (8, 8 + dithering) | crates/image/src/io.rs | chunk 21 |
 | jpeg-xr | File type | 8, 8 + dithering, 16, 32f | missing | - | - |
-| pbm | File type | 8, 8 + dithering, 16 | missing | - | - |
-| pfm | File type | 32f | missing | - | - |
-| pgm | File type | 8, 8 + dithering, 16 | missing | - | - |
+| pbm | File type | 8, 8 + dithering, 16 | done (1-bit, black below one half; a PBM file can't store Painter's 8 / 16-bit depths) | crates/image/src/netpbm.rs | netpbm |
+| pfm | File type | 32f | done (gray or RGB float, alpha dropped) | crates/image/src/netpbm.rs | netpbm |
+| pgm | File type | 8, 8 + dithering, 16 | done (8, 8 + dithering, 16; colour written as Rec. 709 luma) | crates/image/src/netpbm.rs | netpbm |
 | png | File type | 8, 8 + dithering, 16 | done (8, 8 + dithering, 16) | crates/image/src/io.rs | chunk 21 |
-| ppm | File type | 8, 8 + dithering, 16 | missing | - | - |
+| ppm | File type | 8, 8 + dithering, 16 | done (8, 8 + dithering, 16; alpha dropped) | crates/image/src/netpbm.rs | netpbm |
 | psd (container: all maps of a set in one file, folders become groups) | File type | 8, 8 + dithering, 16 | missing (layered PSD exists only for the per-channel PhotoCraft exchange, crates/export/src/psd.rs:212) | - | - |
 | targa | File type | 8, 8 + dithering | done (8, 8 + dithering) | crates/image/src/io.rs | chunk 21 |
 | tiff | File type | 8, 8 + dithering, 16, 32f | done (8, 8 + dithering, 16, 32f) | crates/image/src/io.rs | #124, chunk 21 |

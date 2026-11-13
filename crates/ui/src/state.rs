@@ -104,6 +104,8 @@ pub struct UiState {
     pub layer_previews: crate::layer_previews::PreviewUi,
     /// A layer's mask shown alone in the 3D view (Alt+click on its mask thumbnail).
     pub mask_view: Option<crate::mask_view::MaskView>,
+    /// The open "Instantiate across texture sets" window.
+    pub instantiate: Option<crate::panels::layers::InstantiateDialog>,
     pub graphics: crate::graphics::GraphicsUi,
     pub asset_preview: crate::asset_preview::AssetPreviewUi,
     pub welcome: crate::welcome::WelcomeUi,
@@ -218,6 +220,8 @@ pub struct UiState {
     pub parts_box: Option<egui::Pos2>,
     /// Geometry mask copied from a layer row's menu.
     pub parts_clipboard: Option<subcraft_doc::PartMask>,
+    /// Geometry mask overlay of the 2D view (excluded islands, hovered part).
+    pub uv_parts: crate::panels::uv_view::PartsOverlay,
     /// Quick mask overlay of the 2D view: (quick mask revision, texture).
     pub quick_mask_tex: Option<(u64, egui::TextureHandle)>,
     /// Texture Set List > Settings: which description lines the rows show.
@@ -386,6 +390,7 @@ impl UiState {
             taa: Default::default(),
             layer_previews: Default::default(),
             mask_view: None,
+            instantiate: None,
             graphics,
             asset_preview: Default::default(),
             welcome: Default::default(),
@@ -453,6 +458,7 @@ impl UiState {
             warp: Default::default(),
             parts_box: None,
             parts_clipboard: None,
+            uv_parts: Default::default(),
             quick_mask_tex: None,
             set_descriptions: Default::default(),
             picking_focus: false,

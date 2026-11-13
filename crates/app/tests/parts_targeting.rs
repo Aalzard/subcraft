@@ -239,3 +239,74 @@ fn leaving_an_empty_quick_mask_removes_it_and_polygon_fill_paints_the_quick_mask
     assert_eq!(s.document(), &doc, "the fill layer gets no mask while the quick mask is edited");
     assert!(s.quick_mask().unwrap().image.allocated_tiles() > 0);
 }
+
+#[test]
+fn a_mask_started_by_kind_includes_everything_and_2d_clicks_default_to_uv_islands() {
+    let mut s = session();
+    s.execute(Command::AddLayer(NewLayer::Fill)).unwrap();
+    let layer = s.selection().layer.unwrap();
+    // Picked in the 2D view: a layer without a mask is masked to the island under the click.
+    s.set_new_mask_kind(PartKind::UvIsland);
+    let a = island_uv(&s, 4);
+    let part = s.part_at_uv(a).unwrap();
+    assert_eq!(part, 4, "the click is read as a UV island, not a connected piece");
+    s.toggle_layer_part(layer, part).unwrap();
+    let p = s.selected_layer().unwrap().parts.clone().unwrap();
+    assert_eq!((p.kind, p.parts.len()), (PartKind::UvIsland, 1));
+    // Started from the bar: every part of the kind is included, in one undo step.
+    let entries = s.history().entries().len();
+    s.begin_layer_parts(layer, PartKind::Connected).unwrap();
+    assert_eq!(s.history().entries().len(), entries + 1);
+    let p = s.selected_layer().unwrap().parts.clone().unwrap();
+    assert_eq!(p.kind, PartKind::Connected);
+    assert_eq!(p.parts.len(), s.parts(PartKind::Connected).len(), "everything included");
+    s.begin_layer_parts(layer, PartKind::UvIsland).unwrap();
+    assert_eq!(s.selected_layer().unwrap().parts.as_ref().unwrap().parts.len(), 6);
+}
+
+#[test]
+fn the_2d_overlay_gets_the_excluded_geometry_and_the_part_under_the_cursor() {
+    let mut s = session();
+    s.execute(Command::AddLayer(NewLayer::Fill)).unwrap();
+    let layer = s.selection().layer.unwrap();
+    assert!(s.excluded_uv_triangles().is_empty(), "no geometry mask: nothing is left out");
+    s.set_new_mask_kind(PartKind::UvIsland);
+    s.toggle_layer_part(layer, 4).unwrap();
+    let shown = s.part_uv_triangles(4);
+    let excluded = s.excluded_uv_triangles();
+    assert!(!shown.is_empty());
+    assert_eq!(shown.len() + excluded.len(), s.scene().mesh.triangle_count(), "every triangle is shown or left out");
+    let inside = |uv: Vec2| move |t: &[Vec2; 3]| {
+        let d = |a: Vec2, b: Vec2| (b - a).perp_dot(uv - a);
+        let (x, y, z) = (d(t[0], t[1]), d(t[1], t[2]), d(t[2], t[0]));
+        (x >= 0.0 && y >= 0.0 && z >= 0.0) || (x <= 0.0 && y <= 0.0 && z <= 0.0)
+    };
+    let (kept, other) = (island_uv(&s, 4), island_uv(&s, 1));
+    assert!(shown.iter().any(inside(kept)) && !excluded.iter().any(inside(kept)), "the included island is not greyed");
+    assert!(excluded.iter().any(inside(other)), "an island the mask leaves out is greyed");
+    // Ignored temporarily: nothing is greyed.
+    let p = s.selected_layer().unwrap().parts.clone().unwrap();
+    s.execute(Command::SetParts { layer, parts: Some(PartMask { enabled: false, ..p }) }).unwrap();
+    assert!(s.excluded_uv_triangles().is_empty());
+}
+
+#[test]
+fn the_2d_fill_preview_is_the_element_a_click_would_fill() {
+    let mut s = session();
+    let uv = island_uv(&s, 2);
+    let t = s.triangle_at_uv(uv).expect("inside an island");
+    assert!(s.triangle_at_uv(Vec2::new(-1.0, -1.0)).is_none(), "outside every island");
+    let one = s.polygon_fill_preview_uv(t, PolygonFillMode::Triangle);
+    assert_eq!(one.len(), 1);
+    let island = s.polygon_fill_preview_uv(t, PolygonFillMode::UvIsland);
+    assert!(island.contains(&one[0]), "the island holds the triangle under the cursor");
+    assert!(island.len() < s.scene().mesh.triangle_count(), "one island, not the whole cube");
+    assert_eq!(s.polygon_fill_preview_uv(t, PolygonFillMode::Object).len(), s.scene().mesh.triangle_count());
+    // The preview covers the same number of triangles as the fill touches texels in: filling the
+    // island paints the previewed position and leaves another island alone.
+    s.execute(Command::AddLayer(NewLayer::Paint)).unwrap();
+    fill(&mut s, uv);
+    assert!(paint_alpha(&s, uv) > 0.9);
+    assert_eq!(paint_alpha(&s, island_uv(&s, 0)), 0.0);
+}
+
