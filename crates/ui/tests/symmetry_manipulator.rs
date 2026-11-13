@@ -76,3 +76,17 @@ fn dragging_the_mirror_handle_moves_the_plane_without_painting() {
     assert!(painted_tiles(&state) > 0);
     assert!((state.session.brush.options.mirror_offset[0] - offset[0]).abs() < 1e-6);
 }
+
+/// QA 2026-11: the Pen tool hides the symmetry handles, but a press where one would be still
+/// grabbed it and moved the mirror plane.
+#[test]
+fn the_hidden_handle_is_not_grabbed_in_the_pen_tool() {
+    let (mut state, ctx) = setup();
+    state.tool = Tool::Pen;
+    for _ in 0..3 {
+        frame(&mut state, &ctx, vec![]);
+    }
+    let (from, to) = (screen_of(&state, Vec3::ZERO), screen_of(&state, Vec3::new(0.5, 0.0, 0.0)));
+    drag(&mut state, &ctx, from, to);
+    assert_eq!(state.session.brush.options.mirror_offset, [0.0, 0.0, 0.0]);
+}

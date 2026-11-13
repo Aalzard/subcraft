@@ -278,7 +278,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     // ----- part picking: clicks show / hide the selected layer on mesh parts ----------------------
     let bake_mode = state.bake.open || state.bake.job.is_some();
     // Symmetry manipulator: a press on a handle moves the mirror plane / radial axis instead of painting.
-    let symmetry_grab = !bake_mode && !alt && !stencil_edit
+    // Not in the Pen tool, where the handles are not drawn: a click near one moved the plane.
+    let symmetry_grab = !bake_mode && !alt && !stencil_edit && state.tool != Tool::Pen
         && crate::symmetry_view::manipulate(state, ui, &response, rect, pixel_scale, &camera, primary_pressed, primary_down, pointer);
     let primary_pressed = primary_pressed && !symmetry_grab;
     // Warp projection grid of the selected fill layer: presses on it edit the grid, not paint.
