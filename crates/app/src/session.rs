@@ -1721,8 +1721,20 @@ impl Session {
                 if found.is_empty() {
                     return Err(CommandError::LayerNotFound);
                 }
+                // Checked before anything is added: a texture set that is gone (the dialog stays
+                // open over a mesh reload) used to stop the command after instances had already
+                // been put into the sets before it, outside any undo step.
+                if texture_sets.iter().any(|&t| self.doc.texture_set(t).is_none()) {
+                    return Err(CommandError::TextureSetNotFound);
+                }
                 let mut made = false;
+                let mut done = Vec::new();
                 for target in texture_sets {
+                    // A set listed twice gets one instance.
+                    if done.contains(&target) {
+                        continue;
+                    }
+                    done.push(target);
                     let ts = self.doc.texture_set_mut(target).ok_or(CommandError::TextureSetNotFound)?;
                     for (set, source) in &found {
                         if *set == target {
