@@ -38,9 +38,32 @@ macro_rules! on_stack {
 /// Default texture-set resolution for new sessions.
 pub const DEFAULT_RESOLUTION: u32 = 2048;
 
+/// Guide geometry of the active symmetry, in object space (see [`Session::symmetry_guides`]).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SymmetryGuides {
+    /// Where each enabled mirror plane cuts the surface.
+    pub intersections: Vec<[Vec3; 2]>,
+    /// Corners of each enabled mirror plane's rectangle (a little larger than the mesh).
+    pub planes: Vec<[Vec3; 4]>,
+    /// Radial axis line, then one spoke per copy.
+    pub axis: Vec<[Vec3; 2]>,
+}
+
+impl SymmetryGuides {
+    /// The guide lines to draw: the chosen kinds, plane rectangles as their outlines.
+    pub fn segments(&self, intersections: bool, planes: bool, axis: bool) -> Vec<[Vec3; 2]> {
+        let mut lines = Vec::new();
+        if intersections { lines.extend(self.intersections.iter().copied()); }
+        if planes { lines.extend(self.planes.iter().flat_map(crate::guides::outline)); }
+        if axis { lines.extend(self.axis.iter().copied()); }
+        lines
+    }
+}
+
 /// Immutable geometry of the session and everything derived from it.
 pub struct Scene {
-    symmetry_sections: std::sync::OnceLock<[Vec<[Vec3; 2]>; 3]>,
+    /// Mirror guides for the last plane positions (bits of the three plane coordinates).
+    symmetry_sections: std::sync::Mutex<Option<([u32; 3], Arc<[crate::guides::MirrorGuide; 3]>)>>,
     pub mesh: Arc<Mesh>,
     pub bvh: Bvh,
     pub geometry: GeometryCache,
@@ -751,19 +774,49 @@ impl Session {
         &self.scene
     }
 
-    /// Guide lines for the active symmetry: mirror-plane sections, then the radial axis with
-    /// one spoke per copy (same center and copy count the stroke paints with).
-    pub fn symmetry_guide_segments(&self) -> Vec<[Vec3; 2]> {
+    /// Guides of the active symmetry, at the planes and axis the stroke paints with: where each
+    /// enabled mirror plane cuts the surface, each plane's rectangle, and the radial axis with
+    /// one spoke per copy.
+    pub fn symmetry_guides(&self) -> SymmetryGuides {
         let options = &self.brush.options;
-        if !options.has_symmetry() { return Vec::new(); }
-        let mut lines: Vec<[Vec3; 2]> = Vec::new();
+        let mut guides = SymmetryGuides::default();
+        if !options.has_symmetry() { return guides; }
         if options.symmetry.contains(&true) {
-            let sections = self.scene.symmetry_sections.get_or_init(|| crate::guides::symmetry_sections(&self.scene.mesh));
-            lines.extend(sections.iter().zip(options.symmetry).filter(|(_, enabled)| *enabled).flat_map(|(lines, _)| lines.iter().copied()));
+            let center = self.scene.mesh.bounds.center();
+            let planes: [f32; 3] = std::array::from_fn(|axis| options.mirror_plane(axis, center));
+            let key = planes.map(f32::to_bits);
+            let sections = {
+                let mut cache = self.scene.symmetry_sections.lock().unwrap_or_else(|e| e.into_inner());
+                match &*cache {
+                    Some((k, s)) if *k == key => s.clone(),
+                    _ => {
+                        let s = Arc::new(crate::guides::symmetry_sections(&self.scene.mesh, planes));
+                        *cache = Some((key, s.clone()));
+                        s
+                    }
+                }
+            };
+            for (guide, _) in sections.iter().zip(options.symmetry).filter(|(_, enabled)| *enabled) {
+                guides.intersections.extend(guide.intersection.iter().copied());
+                guides.planes.push(guide.plane);
+            }
         }
         let mirrors = options.symmetry.iter().filter(|&&m| m).count();
-        lines.extend(crate::guides::radial_guides(&self.scene.mesh, &options.radial, options.radial.effective_count(mirrors)));
-        lines
+        guides.axis = crate::guides::radial_guides(&self.scene.mesh, &options.radial, options.radial.effective_count(mirrors));
+        guides
+    }
+
+    /// Every guide line of the active symmetry: plane intersections, plane outlines, radial axis.
+    pub fn symmetry_guide_segments(&self) -> Vec<[Vec3; 2]> {
+        self.symmetry_guides().segments(true, true, true)
+    }
+
+    /// Where the active symmetry also paints a stroke point `p` (object space), one point per
+    /// copy, without `p` itself.
+    pub fn symmetry_copies(&self, p: Vec3) -> Vec<Vec3> {
+        let options = &self.brush.options;
+        if !options.has_symmetry() { return Vec::new(); }
+        options.copy_transforms(self.scene.mesh.bounds.center()).iter().skip(1).map(|t| t.transform_point3(p)).collect()
     }
     pub fn document(&self) -> &Document {
         &self.doc
@@ -1032,6 +1085,7 @@ impl Session {
     fn sync_after_history_move(&mut self) {
         self.doc = self.history.current().clone();
         self.sync_id_maps();
+        self.fit_quick_mask();
         if self.doc.texture_set(self.selection.texture_set).is_none() {
             self.selection.texture_set = self.doc.texture_sets[0].id;
         }
@@ -1075,6 +1129,9 @@ impl Session {
                 }
                 if !options.radial.center_offset.iter().all(|v| v.is_finite()) {
                     return Err(CommandError::Invalid("radial symmetry center must be finite".into()));
+                }
+                if !options.mirror_offset.iter().all(|v| v.is_finite()) {
+                    return Err(CommandError::Invalid("mirror plane position must be finite".into()));
                 }
                 if !options.smoothing.is_finite() {
                     return Err(CommandError::Invalid("smoothing must be finite".into()));
@@ -1430,6 +1487,7 @@ impl Session {
                 crate::text::refresh_text_rasters(&mut self.doc, &self.resources, &resized);
                 if changed {
                     self.commit(&format!("Resolution {resolution}"), None);
+                    self.fit_quick_mask();
                 }
             }
             Command::AddChannel { texture_set, kind } => {
@@ -1484,6 +1542,9 @@ impl Session {
                 for kind in channels {
                     if !ts.has_channel(kind) {
                         ts.channels.push(ChannelDef::default_for(kind));
+                        // Like Add Channel: without a blend entry a layer ignores the channel, and a
+                        // folder without one switches it off for everything inside it.
+                        add_blend(&mut ts.layers, kind);
                     }
                 }
                 // InsertLayer commits the document including the new channels: one history entry.
@@ -1496,6 +1557,16 @@ impl Session {
                     let l = Self::layer_mut(ts, layer)?;
                     let mask = l.mask.get_or_insert_with(|| Mask::new(res, false));
                     mask.effects.extend(effects.into_iter().map(|k| Arc::new(MaskEffect::new(k))));
+                    Ok(())
+                })?;
+            }
+            Command::ReplaceMaskEffects { layer, effects, label } => {
+                for kind in &effects { Self::check_mask_effect(kind)?; }
+                self.edit_layer_set(layer, &label, None, |ts| {
+                    let res = ts.resolution;
+                    let l = Self::layer_mut(ts, layer)?;
+                    let mask = l.mask.get_or_insert_with(|| Mask::new(res, false));
+                    mask.effects = effects.into_iter().map(|k| Arc::new(MaskEffect::new(k))).collect();
                     Ok(())
                 })?;
             }
@@ -1556,6 +1627,7 @@ impl Session {
                 let ts = self.doc.texture_set_mut(ts_id).ok_or(CommandError::TextureSetNotFound)?;
                 for kind in clip.missing_channels(ts) {
                     ts.channels.push(ChannelDef::default_for(kind));
+                    add_blend(&mut ts.layers, kind);
                 }
                 let mut at = reference;
                 for mut layer in clip.instantiate(ts, mesh) {
@@ -1629,12 +1701,14 @@ impl Session {
                     self.hidden_sets = hidden;
                     self.focus_set = false;
                     self.revision += 1;
+                    self.refresh_part_view();
                 }
             }
             Command::SetTextureSetFocus(on) => {
                 if self.focus_set != on {
                     self.focus_set = on;
                     self.revision += 1;
+                    self.refresh_part_view();
                 }
             }
             Command::SetMixing { texture_set, mixing } => {
@@ -1933,6 +2007,7 @@ impl Session {
                 })?;
             }
             Command::SetFillProjection { layer, projection } => {
+                if !projection.valid() { return Err(CommandError::Invalid("Projection values are invalid".into())); }
                 let key = format!("projection:{layer}");
                 self.edit_layer_set(layer, "Projection", Some(key), |ts| {
                     let LayerContent::Fill(f) = &mut Self::layer_mut(ts, layer)?.content else { return Err(CommandError::NotAFillLayer) };
@@ -2072,10 +2147,15 @@ impl Session {
             }
             Command::EditIdColor { texture_set, from, to } => {
                 if from.iter().chain(&to).any(|v| !v.is_finite()) { return Err(CommandError::Invalid("invalid ID color".into())); }
+                let baked_has_from = self.id_baked.get(&texture_set).is_some_and(|(baked, _)| crate::id_color::image_has_color(baked, from));
                 let ts = self.doc.texture_set_mut(texture_set).ok_or(CommandError::TextureSetNotFound)?;
-                crate::id_color::edit_id_color(ts, from, to);
-                self.commit("Edit ID Color", None);
-                self.sync_id_maps();
+                let before = ts.clone();
+                crate::id_color::edit_id_color(ts, from, to, baked_has_from);
+                // An edit that changes nothing adds no undo step (it used to, and wiped redo).
+                if *ts != before {
+                    self.commit("Edit ID Color", None);
+                    self.sync_id_maps();
+                }
             }
             Command::SetIdColors { layer, effect, colors } => {
                 self.edit_layer_set(layer, "ID Color", None, |ts| {
@@ -2374,6 +2454,29 @@ impl Session {
         self.quick_scratch = Some(scratch);
         self.stroke = Some(ActiveStroke { stroke, texture_set: self.selection.texture_set, label: "Quick Mask Stroke", camera: None, quick: true });
         Ok(())
+    }
+
+    /// Keep the quick mask at its texture set's resolution (resampled), and drop it with its set.
+    /// QA 2026-11: after a resolution change (or an undo across one) an applied quick mask of the
+    /// old size was silently ignored by strokes, so protected areas were painted, and editing it
+    /// failed every stroke with a resolution mismatch.
+    fn fit_quick_mask(&mut self) {
+        let Some(set) = self.quick_mask.as_ref().map(|q| q.texture_set) else { return };
+        match self.doc.texture_set(set).map(|ts| ts.resolution) {
+            None => {
+                self.quick_mask = None;
+                self.revision += 1;
+            }
+            Some(res) => {
+                if let Some(q) = self.quick_mask.as_mut()
+                    && (q.image.width() != res || q.image.height() != res)
+                {
+                    q.image = q.image.resampled(res, res);
+                    q.revision += 1;
+                    self.revision += 1;
+                }
+            }
+        }
     }
 
     /// The quick mask, when one exists for the selected texture set.
@@ -3092,11 +3195,17 @@ impl Session {
 
     /// Apply a smart mask to the selected layer.
     pub fn apply_smart_mask(&mut self, mask: &subcraft_assets::SmartMask) -> Result<(), CommandError> {
+        self.apply_smart_mask_with(mask, false)
+    }
+
+    /// `apply_smart_mask`; with `replace` the mask's previous effects are removed first.
+    pub fn apply_smart_mask_with(&mut self, mask: &subcraft_assets::SmartMask, replace: bool) -> Result<(), CommandError> {
         let layer = self.selection.layer.ok_or(CommandError::LayerNotFound)?;
         for r in &mask.resources {
             self.resources.insert_shared(r.clone());
         }
-        self.execute(Command::ApplyMaskEffects { layer, effects: mask.effects.clone(), label: format!("Smart Mask: {}", mask.name) })
+        let (effects, label) = (mask.effects.clone(), format!("Smart Mask: {}", mask.name));
+        self.execute(if replace { Command::ReplaceMaskEffects { layer, effects, label } } else { Command::ApplyMaskEffects { layer, effects, label } })
     }
 
     /// Use a brush alpha for the next strokes.

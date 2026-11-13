@@ -168,3 +168,60 @@ fn light_attenuation_fades_toward_the_far_side() {
         assert!((faded[i] - flat[i] * t).abs() < 3e-3, "texel {i}: {} vs {}", faded[i], flat[i] * t);
     }
 }
+
+/// Base Color of a fill layer whose content stack holds `g` (Normal blending, so the generator's
+/// colour replaces the fill's).
+fn content_color(fx: &Fx, g: Generator) -> subcraft_compositor::Composite {
+    use subcraft_doc::{ContentEffect, ContentEffectKind};
+    let mut ts = TextureSet::new("T", 0, RES);
+    let tc = ts.clone();
+    let mut l = Layer::new_fill("Fill", &tc);
+    let LayerContent::Fill(f) = &mut l.content else { unreachable!() };
+    for (k, ch) in f.channels.iter_mut() {
+        ch.enabled = *k == ChannelKind::BaseColor;
+    }
+    l.content_effects.push(Arc::new(ContentEffect::new(ContentEffectKind::Generator(g), &tc)));
+    ts.insert_above(None, l);
+    composite_full(&ts, &fx.ctx())
+}
+
+#[test]
+fn uv_border_distance_ramps_in_from_the_island_borders() {
+    let fx = Fx::plane();
+    // The plane is one island filling the texture: its borders are the texture's edges.
+    let m = fx.mask(shaped(GeneratorKind::UvBorderDistance, ShapeSettings { distance: 16.0, ..ShapeSettings::default() }));
+    let at = |x: u32, y: u32| m[(y * RES + x) as usize];
+    assert!(at(0, 64).abs() < 3e-3 && at(64, 0).abs() < 3e-3 && at(127, 64).abs() < 3e-3);
+    assert!((at(8, 64) - 0.5).abs() < 3e-3 && (at(64, 123) - 0.25).abs() < 3e-3, "{} {}", at(8, 64), at(64, 123));
+    // Past the distance, and across the tile boundary in the middle, it is fully white.
+    assert!((at(16, 64) - 1.0).abs() < 3e-3 && (at(64, 64) - 1.0).abs() < 3e-3 && (at(63, 63) - 1.0).abs() < 3e-3);
+    // The corner reads the nearer edge.
+    assert!((at(4, 12) - 0.25).abs() < 3e-3);
+}
+
+#[test]
+fn uv_checker_and_texel_density_give_colour_on_content() {
+    let fx = Fx::plane();
+    let s = ShapeSettings { checker_color: [0.8, 0.4, 0.2], grid_opacity: 0.0, border_width: 0.0, ..ShapeSettings::default() };
+    let c = content_color(&fx, shaped(GeneratorKind::UvChecker, s));
+    let color = c.channel(ChannelKind::BaseColor).unwrap();
+    let near = |px: [f32; 4], want: [f32; 3]| (0..3).all(|i| (px[i] - want[i]).abs() < 3e-3);
+    // 8 cells of 16 px: the first is the colour, its neighbours half of it.
+    assert!(near(color.get(8, 8), [0.8, 0.4, 0.2]), "{:?}", color.get(8, 8));
+    assert!(near(color.get(24, 8), [0.4, 0.2, 0.1]) && near(color.get(8, 24), [0.4, 0.2, 0.1]) && near(color.get(24, 24), [0.8, 0.4, 0.2]));
+    // With a border width, the island border (the texture edge here) takes the border colour.
+    let c = content_color(&fx, shaped(GeneratorKind::UvChecker, ShapeSettings { border_width: 3.0, ..s }));
+    let color = c.channel(ChannelKind::BaseColor).unwrap();
+    assert!(near(color.get(1, 60), [1.0, 0.0, 0.0]) && near(color.get(8, 8), [0.8, 0.4, 0.2]));
+    // In a mask the checker is its brightness: lighter and darker cells.
+    let m = fx.mask(shaped(GeneratorKind::UvChecker, s));
+    assert!(m[(8 * RES + 8) as usize] > m[(8 * RES + 24) as usize] + 0.1);
+    // Texel density: the plane spans the texture exactly once, the medium colour.
+    let c = content_color(&fx, shaped(GeneratorKind::UvTexelDensity, ShapeSettings::default()));
+    let color = c.channel(ChannelKind::BaseColor).unwrap();
+    assert!(near(color.get(40, 40), [0.0, 1.0, 0.0]) && near(color.get(63, 64), [0.0, 1.0, 0.0]), "{:?}", color.get(40, 40));
+    // UV Random Color on content is the island's colour.
+    let c = content_color(&fx, shaped(GeneratorKind::UvRandomColor, ShapeSettings::default()));
+    let island = fx.texels()[0].unwrap().2.unwrap();
+    assert!(near(c.channel(ChannelKind::BaseColor).unwrap().get(40, 40), ShapeSettings::default().island_color(island)));
+}

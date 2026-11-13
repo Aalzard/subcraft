@@ -2,7 +2,8 @@
 // Color channels are written linear (the sRGB target encodes them); data channels (normals)
 // are pre-linearized so the encoded result equals their stored value.
 
-// x: color channel (1) or data (0); y: single-component source shown as gray (1).
+// x: color channel (1) or data (0); y: single-component source shown as gray (1);
+// z: component shown alone as gray (0 all, 1 red, 2 green, 3 blue, 4 alpha).
 struct Params { flags: vec4<f32> };
 @group(0) @binding(0) var samp: sampler;
 @group(0) @binding(1) var src: texture_2d<f32>;
@@ -27,9 +28,20 @@ fn linear_from_srgb(c: vec3<f32>) -> vec3<f32> {
 
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
-    var c = clamp(textureSample(src, samp, in.uv).rgb, vec3<f32>(0.0), vec3<f32>(1.0));
+    let s = textureSample(src, samp, in.uv);
+    var c = clamp(s.rgb, vec3<f32>(0.0), vec3<f32>(1.0));
     if (p.flags.y > 0.5) {
         c = vec3<f32>(c.r);
+    }
+    let comp = i32(round(p.flags.z));
+    if (comp == 1) {
+        c = vec3<f32>(c.r);
+    } else if (comp == 2) {
+        c = vec3<f32>(c.g);
+    } else if (comp == 3) {
+        c = vec3<f32>(c.b);
+    } else if (comp == 4) {
+        c = vec3<f32>(clamp(s.a, 0.0, 1.0));
     }
     if (p.flags.x > 0.5) {
         return vec4<f32>(c, 1.0);

@@ -193,6 +193,36 @@ pub fn editor(ui: &mut Ui, filter: &mut Filter, channel: Option<ChannelKind>) ->
             changed |= slider_row(ui, "Multiply", egui::Slider::new(multiply, 0.0..=4.0)).changed();
             ui.weak("Invert, then value x Multiply + Offset");
         }
+        Filter::GradientCurve { preset, invert, balance, contrast } => {
+            prop_row(ui, "Preset", |ui| {
+                egui::ComboBox::from_id_salt("gradient_curve_preset").selected_text(preset.label()).show_ui(ui, |ui| {
+                    for p in subcraft_doc::CurvePreset::ALL { changed |= ui.selectable_value(preset, p, p.label()).changed(); }
+                });
+            });
+            prop_row(ui, "Invert", |ui| { changed |= ui.checkbox(invert, "").changed(); });
+            changed |= slider_row(ui, "Balance", egui::Slider::new(balance, 0.0..=1.0)).changed();
+            changed |= slider_row(ui, "Contrast", egui::Slider::new(contrast, 0.0..=1.0)).changed();
+            ui.weak("Sends each value through the curve, then Balance and Contrast");
+        }
+        Filter::BevelSmooth { radius, direction, smoothing, curve_offset, curve_shape, threshold } => {
+            prop_row(ui, "Direction", |ui| {
+                egui::ComboBox::from_id_salt("bevel_smooth_direction").selected_text(direction.label()).show_ui(ui, |ui| {
+                    for d in subcraft_doc::BevelDirection::ALL { changed |= ui.selectable_value(direction, d, d.label()).changed(); }
+                });
+            });
+            changed |= slider_row(ui, "Distance", egui::Slider::new(radius, 0.0..=32.0).suffix(" px")).changed();
+            changed |= slider_row(ui, "Smoothing", egui::Slider::new(smoothing, 0.0..=1.0)).changed();
+            changed |= slider_row(ui, "Curve Offset", egui::Slider::new(curve_offset, -0.9..=0.9)).on_hover_text("Above 0 the ramp starts further from the contour; below 0 it ends sooner").changed();
+            changed |= slider_row(ui, "Curve Shape", egui::Slider::new(curve_shape, -1.0..=1.0)).on_hover_text("Below 0 pinched, above 0 rounded").changed();
+            changed |= slider_row(ui, "Mask Threshold", egui::Slider::new(threshold, 0.0..=1.0)).on_hover_text("Values at or above this are the shape").changed();
+            if channel.is_some() { ui.weak("On layer content the ramp shows where there is paint: use Inward, or put the filter on a mask"); }
+        }
+        Filter::DirectionalDistance { distance, angle_deg, contrast } => {
+            changed |= slider_row(ui, "Distance", egui::Slider::new(distance, 0.0..=32.0).suffix(" px")).changed();
+            changed |= slider_row(ui, "Angle", egui::Slider::new(angle_deg, -180.0..=180.0).suffix("\u{00b0}")).changed();
+            changed |= slider_row(ui, "Contrast", egui::Slider::new(contrast, 0.0..=1.0)).changed();
+            ui.weak("Spreads bright values along the angle, fading with the distance");
+        }
         Filter::Fxaa { alpha } => {
             prop_row(ui, "Affect Alpha Channel", |ui| { changed |= ui.checkbox(alpha, "").on_hover_text("Also smooth the edges of the paint coverage").changed(); });
             ui.weak("Smooths stair-stepped edges along their direction");
@@ -345,7 +375,7 @@ pub fn editor(ui: &mut Ui, filter: &mut Filter, channel: Option<ChannelKind>) ->
             });
         });
     }
-    if filter.is_contour() {
+    if filter.is_contour() && !matches!(filter, Filter::BevelSmooth { .. }) {
         ui.weak("Threshold defines the shape / radius sets border width.");
         if channel.is_some() {ui.weak("Grayscale result / paint coverage is preserved.");}
         if matches!(filter,Filter::Bevel {..}) {ui.weak("Inward relief ramp / use Height for raised detail.");}

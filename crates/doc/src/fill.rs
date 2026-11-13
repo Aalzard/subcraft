@@ -19,6 +19,9 @@ pub enum ProjectionMode {
     /// Wrapped around a cylinder along `planar_axis` through the centre of the bounding cube
     /// (u = angle around it over [`Projection::cylinder_angle`], v = position along it).
     Cylindrical,
+    /// Planar along `planar_axis` through a grid of movable points ([`Projection::warp`]);
+    /// nothing is projected outside the grid.
+    Warp,
 }
 
 /// Symmetry of a 3D projection: the model position is folded before it is projected, so the
@@ -228,6 +231,9 @@ pub struct Projection {
     /// Mirror / radial symmetry of a 3D projection. Not written when off.
     #[serde(default, skip_serializing_if = "FillSymmetry::is_none")]
     pub symmetry: FillSymmetry,
+    /// Warp mode's grid; `None` is the flat grid of [`Projection::warp_grid`]. Not written when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub warp: Option<crate::warp::WarpGrid>,
 }
 
 fn full_turn() -> f32 {
@@ -254,6 +260,7 @@ impl Default for Projection {
             shape_crop: ShapeCrop::default(),
             cylinder_angle: 360.0,
             symmetry: FillSymmetry::None,
+            warp: None,
         }
     }
 }
@@ -277,6 +284,14 @@ impl Projection {
     #[inline]
     pub fn is_3d(&self) -> bool {
         self.mode != ProjectionMode::Uv
+    }
+
+    /// Values a projection computes with are numbers and the symmetry is in range: a NaN angle
+    /// or an infinite mirror position made every texel of the fill NaN, and a huge radial
+    /// count multiplied the work per texel.
+    pub fn valid(&self) -> bool {
+        let floats = [self.scale[0], self.scale[1], self.rotation_deg, self.offset[0], self.offset[1], self.triplanar_sharpness, self.cylinder_angle];
+        floats.iter().all(|v| v.is_finite()) && self.symmetry.valid()
     }
 
     /// The symmetry in effect: 3D projections only.
@@ -318,7 +333,26 @@ impl Projection {
     /// Whether some texels can fall outside the projected texture (UV wrap or shape crop).
     #[inline]
     pub fn clips(&self) -> bool {
-        self.effective_wrap() != UvWrap::Repeat || self.crops_to_shape()
+        self.effective_wrap() != UvWrap::Repeat || self.crops_to_shape() || self.mode == ProjectionMode::Warp
+    }
+
+    /// The warp grid in use: the stored one, or the flat grid of `planar_axis`.
+    pub fn warp_grid(&self) -> crate::warp::WarpGrid {
+        self.warp.unwrap_or_else(|| crate::warp::WarpGrid::planar(self.planar_axis, crate::warp::DEFAULT_WARP_CELLS, crate::warp::DEFAULT_WARP_CELLS))
+    }
+
+    /// Warp mode: unprojected 2D coordinates of a bounding-cube position through the grid, and
+    /// whether the grid covers it.
+    pub fn warp_coords(&self, pos: [f32; 3]) -> ([f32; 2], bool) {
+        let axis = self.planar_axis.min(2);
+        match &self.warp {
+            Some(grid) => grid.coords(axis, pos),
+            // The flat grid is the unit square of the planar projection.
+            None => {
+                let q = crate::warp::plane_coords(pos, axis);
+                (q, q.iter().all(|v| (-1e-5..=1.0 + 1e-5).contains(v)))
+            }
+        }
     }
 
     /// Apply scale/rotation/offset to a 2D coordinate.
@@ -344,6 +378,17 @@ impl Projection {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn projections_with_non_numbers_or_out_of_range_symmetry_are_invalid() {
+        let p = Projection::default();
+        assert!(p.valid());
+        assert!(!Projection { cylinder_angle: f32::NAN, ..p }.valid());
+        assert!(!Projection { offset: [0.0, f32::INFINITY], ..p }.valid());
+        assert!(!Projection { symmetry: FillSymmetry::Mirror { axis: 0, position: f32::INFINITY }, ..p }.valid());
+        assert!(!Projection { symmetry: FillSymmetry::Radial { axis: 1, count: FillSymmetry::MAX_COPIES + 1, flip: false, center: [0.5; 3] }, ..p }.valid());
+        assert!(Projection { symmetry: FillSymmetry::radial(), cylinder_angle: 90.0, ..p }.valid());
+    }
 
     #[test]
     fn spherical_and_cylindrical_coordinates_and_symmetry_folds() {
