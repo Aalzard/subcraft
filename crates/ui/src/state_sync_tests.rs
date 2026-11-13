@@ -78,6 +78,7 @@ fn a_straight_line_does_not_start_from_a_point_seen_through_another_view() {
     assert_eq!(state.line_start(&view(5.0)), Some(p), "same view: the line continues from the stroke's end");
     assert_eq!(state.line_start(&view(6.0)), None, "the camera moved: no stale start");
     assert_eq!(state.line_start(&view(5.0)), None, "and it stays forgotten");
+}
 
 /// QA 2026-11: the mask view (the viewport showing a layer's mask) stayed on after another
 /// project was opened, pointing at a layer of the old one.
