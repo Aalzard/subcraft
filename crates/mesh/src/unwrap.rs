@@ -1311,6 +1311,7 @@ mod tests {
             bounds: Aabb::from_points(positions.iter().copied()),
             positions,
             indices,
+            ..Default::default()
         }
     }
 

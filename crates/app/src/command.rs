@@ -112,8 +112,15 @@ pub enum Command {
     /// Forget one baked mesh map of a texture set (Texture Set Settings > Mesh maps > X). Not an
     /// undo step; bake again to get it back. No-op when the map is not baked.
     ClearMeshMap { texture_set: TextureSetId, kind: subcraft_core::MeshMapKind },
+    /// ID color editor: show ID map color `from` as `to` in this texture set, and switch every
+    /// ID Color mask of the set that uses `from` to `to` (one undo step).
+    EditIdColor { texture_set: TextureSetId, from: [f32; 3], to: [f32; 3] },
     /// Wrap the layer into a new folder.
     GroupLayer(LayerId),
+    /// Painter's flatten (Ctrl+M): each layer or folder (not those inside another of them)
+    /// evaluated into a new paint layer of rasters right above it; the source stays, hidden.
+    /// The new layer becomes the selection. One undo step.
+    FlattenLayers(Vec<LayerId>),
     /// Show only this texture set's part of the model, or everything again when it is already
     /// the only one shown (Painter's Alt+Q). View state only, like `SetTextureSetHidden`.
     IsolateTextureSet(TextureSetId),
@@ -153,6 +160,10 @@ pub enum Command {
     AddFillChannel { layer: LayerId, channel: ChannelKind },
     SetFillProjection { layer: LayerId, projection: Projection },
     AddMask { layer: LayerId, white: bool },
+    /// Painter's "Add mask with height combination": a black mask with a Compare Mask on Height
+    /// (this layer above the layers below), and the layer's Height blending set to Normal. Replaces
+    /// an existing mask, like Add Mask. One undo step.
+    AddHeightCombinationMask(LayerId),
     RemoveMask(LayerId),
     CopyMask(LayerId),
     PasteMask(LayerId),
