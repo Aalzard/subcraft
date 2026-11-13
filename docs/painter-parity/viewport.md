@@ -86,7 +86,7 @@ Layout notes: imported cameras come from the mesh file (FBX / Alembic) at projec
 | Swap 2D / 3D view | Contextual toolbar > Viewport Mode; F4 | - | done: F4, Viewport menu and the Viewport Mode dropdown | crates/ui/src/viewport_bar.rs (viewport_mode) | 365 |
 | Undock 3D view to its own window | View menu (7.4) | docked | partial: Window > Undock 3D view floats it in a window inside the main window (not a separate OS window) | crates/ui/src/docks.rs (toggle_undock) | 217 |
 | Undock 2D view to its own window | View menu (7.4) | docked | partial: Window > Undock 2D view floats it inside the main window | crates/ui/src/docks.rs (toggle_undock) | 217 |
-| Swap while one view is undocked | View menu (7.4) | - | missing | - | - |
+| Swap while one view is undocked | View menu (7.4) | - | done: F4, the Viewport menu or the Viewport Mode dropdown puts the other view in the floating window; other panels stay where they are | crates/ui/src/app.rs (apply_view_layout) | PRNUM |
 | Hide UI (maximise the viewport) | Tab | - | done | crates/ui/src/app.rs (views_only) | #164 |
 
 ## Display modes
