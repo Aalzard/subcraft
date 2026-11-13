@@ -416,6 +416,8 @@ fn temp_path(path: &Path) -> PathBuf {
 struct Loader<'a, R: Read + Seek> {
     zip: &'a mut zip::ZipArchive<R>,
     cache: BTreeMap<String, TiledImage>,
+    /// Rasters already inflated and decoded (see [`decode_rasters`]); the rest is read on demand.
+    decoded: BTreeMap<String, TiledImage>,
     /// Skip the range checks of filter parameters: for files this program wrote itself that
     /// hold what an importer produced (the import cache), which must come back unchanged.
     trusted: bool,
@@ -437,11 +439,19 @@ impl<R: Read + Seek> Loader<'_, R> {
         Ok(v)
     }
 
+    /// The raster entry `name`, decoded.
+    fn decode(&mut self, name: &str) -> Result<TiledImage, ProjectError> {
+        if let Some(img) = self.decoded.remove(name) {
+            return Ok(img);
+        }
+        raster::decode(&self.bytes(name)?).map_err(|e| ProjectError::Invalid(format!("{name}: {e}")))
+    }
+
     fn raster(&mut self, name: &str, resolution: u32) -> Result<TiledImage, ProjectError> {
         if let Some(img) = self.cache.get(name) {
             return Ok(img.clone());
         }
-        let img = raster::decode(&self.bytes(name)?).map_err(|e| ProjectError::Invalid(format!("{name}: {e}")))?;
+        let img = self.decode(name)?;
         if img.width() != resolution || img.height() != resolution {
             return Err(ProjectError::Invalid(format!("{name}: {}x{} does not match resolution {resolution}", img.width(), img.height())));
         }
@@ -632,16 +642,62 @@ impl<R: Read + Seek> Loader<'_, R> {
 
 /// Read a project container.
 pub fn read_project<R: Read + Seek>(r: R) -> Result<ProjectData, ProjectError> {
-    read_project_checked(r, false)
+    read_project_checked(r, false, BTreeMap::new())
+}
+
+/// Rasters above this declared size are left to the sequential reader (bounds what the parallel
+/// pass can hold at once on a file that lies about its sizes).
+const PARALLEL_RASTER_BYTES: u64 = 256 << 20;
+
+/// Inflate and decode the raster entries of the project at `path` on all cores, each thread with
+/// its own handle on the file. Inflating was most of the load time and ran one entry at a time.
+///
+/// Purely an accelerator: an entry that cannot be read or decoded here (or is very large) is
+/// simply left out, and the loader then reads it itself and reports exactly the error it always
+/// did. Decoding is deterministic, so the images are the ones the loader would have produced.
+fn decode_rasters(path: &Path) -> BTreeMap<String, TiledImage> {
+    let open = || zip::ZipArchive::new(std::io::BufReader::new(std::fs::File::open(path).ok()?)).ok();
+    let Some(archive) = open() else { return BTreeMap::new() };
+    let names: Vec<String> = archive.file_names().filter_map(Result::ok).filter(|n| n.starts_with("rasters/")).map(|n| n.to_string()).collect();
+    drop(archive);
+    let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).min(names.len());
+    if threads < 2 {
+        return BTreeMap::new();
+    }
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let done: Vec<std::sync::OnceLock<TiledImage>> = names.iter().map(|_| std::sync::OnceLock::new()).collect();
+    std::thread::scope(|scope| {
+        for _ in 0..threads {
+            scope.spawn(|| {
+                let Some(mut zip) = open() else { return };
+                loop {
+                    let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    let Some(name) = names.get(i) else { break };
+                    let Ok(f) = zip.by_name(name) else { continue };
+                    if f.size() > PARALLEL_RASTER_BYTES {
+                        continue;
+                    }
+                    let mut bytes = Vec::with_capacity(f.size() as usize);
+                    if f.take(PARALLEL_RASTER_BYTES + 1).read_to_end(&mut bytes).is_err() || bytes.len() as u64 > PARALLEL_RASTER_BYTES {
+                        continue;
+                    }
+                    if let Ok(img) = raster::decode(&bytes) {
+                        let _ = done[i].set(img);
+                    }
+                }
+            });
+        }
+    });
+    names.into_iter().zip(done).filter_map(|(name, img)| Some((name, img.into_inner()?))).collect()
 }
 
 /// [`read_project`] for a file this program wrote itself and must get back unchanged, whatever
 /// parameter values it holds (the Painter import cache).
 pub fn load_project_trusted(path: &Path) -> Result<ProjectData, ProjectError> {
-    read_project_checked(std::io::BufReader::new(std::fs::File::open(path)?), true)
+    read_project_checked(std::io::BufReader::new(std::fs::File::open(path)?), true, decode_rasters(path))
 }
 
-fn read_project_checked<R: Read + Seek>(r: R, trusted: bool) -> Result<ProjectData, ProjectError> {
+fn read_project_checked<R: Read + Seek>(r: R, trusted: bool, decoded: BTreeMap<String, TiledImage>) -> Result<ProjectData, ProjectError> {
     let mut zip = zip::ZipArchive::new(r)?;
     let manifest: Manifest = {
         let f = zip.by_name("manifest.json").map_err(|_| ProjectError::NotAProject)?;
@@ -656,7 +712,7 @@ fn read_project_checked<R: Read + Seek>(r: R, trusted: bool) -> Result<ProjectDa
     if manifest.schema_version > SCHEMA_VERSION || manifest.schema_version == 0 {
         return Err(ProjectError::UnsupportedVersion(manifest.schema_version));
     }
-    let mut loader = Loader { zip: &mut zip, cache: BTreeMap::new(), trusted };
+    let mut loader = Loader { zip: &mut zip, cache: BTreeMap::new(), decoded, trusted };
     let mesh = subcraft_mesh::serialize::decode(&loader.bytes(&manifest.mesh)?).map_err(|e| ProjectError::Invalid(format!("mesh: {e}")))?;
     let doc: DocumentV1 = serde_json::from_slice(&loader.bytes(&manifest.document)?).map_err(|e| ProjectError::Invalid(format!("document: {e}")))?;
 
@@ -688,7 +744,7 @@ fn read_project_checked<R: Read + Seek>(r: R, trusted: bool) -> Result<ProjectDa
         ts.layers = layers;
         let mut maps = BTreeMap::new();
         for m in &t.mesh_maps {
-            let img = raster::decode(&loader.bytes(&m.raster)?).map_err(|e| ProjectError::Invalid(format!("{}: {e}", m.raster)))?;
+            let img = loader.decode(&m.raster)?;
             if img.width() != img.height() || img.comps() != m.kind.components() {
                 return Err(ProjectError::Invalid(format!("{}: unexpected layout for {:?}", m.raster, m.kind)));
             }
@@ -716,7 +772,8 @@ fn read_project_checked<R: Read + Seek>(r: R, trusted: bool) -> Result<ProjectDa
 }
 
 pub fn load_project(path: &Path) -> Result<ProjectData, ProjectError> {
-    return read_project(std::io::BufReader::new(std::fs::File::open(path)?));
+    let file = std::io::BufReader::new(std::fs::File::open(path)?);
+    read_project_checked(file, false, decode_rasters(path))
 }
 
 #[cfg(test)]

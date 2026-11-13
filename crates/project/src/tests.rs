@@ -1209,3 +1209,55 @@ fn invalid_content_levels_are_refused_on_load() {
     let err = read(&doc(-1.0)).unwrap_err();
     assert!(matches!(err, ProjectError::Invalid(ref m) if m.contains("levels")), "{err}");
 }
+
+/// Opening a file inflates and decodes its rasters on all cores first; what comes back is
+/// exactly what the sequential reader gives for the same bytes (document, rasters, mesh maps),
+/// and a damaged raster is still reported by the loader, with the same error.
+#[test]
+fn file_load_matches_the_sequential_reader() {
+    let dir = std::env::temp_dir().join(format!("subcraft-load-test-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("rich.subcraft");
+    let mesh = primitives::sample_crate();
+    let doc = rich_document();
+    let mut maps = MeshMapSet::new();
+    let mut ao = TiledImage::new(256, 256, 1, [1.0; 4]);
+    ao.set(10, 10, [0.25; 4]);
+    let mut inner = std::collections::BTreeMap::new();
+    inner.insert(subcraft_core::MeshMapKind::AmbientOcclusion, ao);
+    maps.insert(doc.texture_sets[0].id, inner);
+    save_project(&path, &mesh, &doc, &ResourceStore::default(), &maps).unwrap();
+
+    let bytes = std::fs::read(&path).unwrap();
+    let rasters = decode_rasters(&path);
+    assert!(rasters.len() >= 4, "the parallel pass decoded the rasters ({})", rasters.len());
+    let sequential = read_project(Cursor::new(bytes.clone())).unwrap();
+    for file in [load_project(&path).unwrap(), load_project_trusted(&path).unwrap()] {
+        assert_eq!(file.document, sequential.document);
+        assert_eq!(file.document, doc);
+        assert_eq!(file.mesh_maps, sequential.mesh_maps);
+        assert_eq!(file.mesh_maps, maps);
+        assert_eq!(file.mesh.positions, sequential.mesh.positions);
+    }
+
+    // One raster truncated: the parallel pass skips it, the loader reports it as before.
+    let mut src = zip::ZipArchive::new(Cursor::new(bytes)).unwrap();
+    let mut out = zip::ZipWriter::new(Cursor::new(Vec::new()));
+    for i in 0..src.len() {
+        let mut f = src.by_index(i).unwrap();
+        let name = f.name().unwrap().to_string();
+        let mut data = Vec::new();
+        f.read_to_end(&mut data).unwrap();
+        if name == "rasters/00001.tiles" {
+            data.truncate(data.len() / 2);
+        }
+        out.start_file(name, SimpleFileOptions::default()).unwrap();
+        out.write_all(&data).unwrap();
+    }
+    let damaged = out.finish().unwrap().into_inner();
+    std::fs::write(&path, &damaged).unwrap();
+    let expected = read_project(Cursor::new(damaged)).unwrap_err().to_string();
+    assert!(expected.contains("truncated"), "{expected}");
+    assert_eq!(load_project(&path).unwrap_err().to_string(), expected);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
