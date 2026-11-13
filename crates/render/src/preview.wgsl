@@ -43,7 +43,8 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     } else if (comp == 4) {
         c = vec3<f32>(clamp(s.a, 0.0, 1.0));
     }
-    if (p.flags.x > 0.5) {
+    // Alpha is data even in a color channel: shown as stored, not through the sRGB curve.
+    if (p.flags.x > 0.5 && comp != 4) {
         return vec4<f32>(c, 1.0);
     }
     return vec4<f32>(linear_from_srgb(c), 1.0);
