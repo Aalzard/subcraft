@@ -744,6 +744,8 @@ fn paint_input(state: &mut UiState, ui: &Ui, response: &egui::Response, image: F
         state.gpu_dirty = true;
         state.set_status(format!("Painting on a new paint layer, \"{name}\" (the selected layer was not a paint layer)"), now);
     }
+    // A held: continue the previous stroke (stroke opacity keeps its cap).
+    state.session.set_continue_stroke(ui.input(|i| i.key_down(egui::Key::A)));
     match state.session.begin_uv_stroke(Some(view)) {
         Ok(()) => {
             state.uv.painting = true;

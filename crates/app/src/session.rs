@@ -167,6 +167,31 @@ struct ActiveStroke {
     camera: Option<Camera>,
     /// The stroke paints the quick mask (in [`Session::quick_scratch`]), not the document.
     quick: bool,
+    /// What the stroke was painted with, when a later stroke may continue it (paint and erase
+    /// strokes); `None` for strokes that cannot be continued.
+    key: Option<ContinueKey>,
+}
+
+/// What must stay the same for a stroke to continue the previous one.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct ContinueKey {
+    texture_set: TextureSetId,
+    layer: LayerId,
+    mode: StrokeMode,
+    target: PaintTarget,
+    settings: subcraft_paint::BrushSettings,
+    options: subcraft_paint::StrokeOptions,
+    /// Painted in the 2D view.
+    uv: bool,
+}
+
+/// The last finished stroke, kept so the next one can continue it (Painter's A key).
+struct LastStroke {
+    active: ActiveStroke,
+    /// History position and length right after the stroke's step: any later edit, undo or
+    /// other change means the stroke can no longer be continued.
+    cursor: usize,
+    entries: usize,
 }
 
 /// Painter's quick mask: a temporary selection painted with the usual tools (U), which then
@@ -208,6 +233,10 @@ pub struct Session {
     /// Settings > General > Default UV scale for materials: the UV tiling of new fill layers.
     pub default_uv_scale: f32,
     stroke: Option<ActiveStroke>,
+    /// The last finished paint / erase stroke (see [`Session::set_continue_stroke`]).
+    last_stroke: Option<LastStroke>,
+    /// The next stroke continues the last one (A held when it starts).
+    continue_stroke: bool,
     /// Clone tool: object-space source point, and the screen offset the first stroke fixed.
     clone_source: Option<Vec3>,
     clone_offset: Option<Vec2>,
@@ -333,6 +362,8 @@ impl Session {
                 clone_mode: CloneSourceMode::Relative,
             },
             stroke: None,
+            last_stroke: None,
+            continue_stroke: false,
             clone_source: None,
             clone_offset: None,
             clone_source_uv: None,
@@ -2644,8 +2675,57 @@ impl Session {
         self.begin_stroke_with(Some(view))
     }
 
+    /// Painter's "continue the previous stroke" (A held when a stroke starts): the next stroke,
+    /// when nothing changed since the last one (same layer, brush and settings, no other edit
+    /// or undo), carries on that stroke. Its coverage builds on the old one's, so stroke opacity
+    /// still caps both together instead of each stroke on its own. It is still its own undo step.
+    pub fn set_continue_stroke(&mut self, on: bool) {
+        self.continue_stroke = on;
+    }
+
+    /// Whether a stroke starting now in the 3D view (`uv` false) or the 2D view would continue
+    /// the last one.
+    pub fn can_continue_stroke(&self, uv: bool) -> bool {
+        self.last_stroke.as_ref().is_some_and(|last| self.continuable(last, uv))
+    }
+
+    fn continuable(&self, last: &LastStroke, uv: bool) -> bool {
+        last.active.key.is_some()
+            && last.active.key == self.continue_key(uv)
+            && self.history.cursor() == last.cursor
+            && self.history.entries().len() == last.entries
+            && self.doc == *self.history.current()
+    }
+
+    /// The key of a stroke starting now (`None` when such a stroke cannot be continued later).
+    fn continue_key(&self, uv: bool) -> Option<ContinueKey> {
+        let b = &self.brush;
+        if !matches!(b.mode, StrokeMode::Paint | StrokeMode::Erase) || self.stroke_stamp().is_some() || self.quick_mask_editing() {
+            return None;
+        }
+        Some(ContinueKey {
+            texture_set: self.selection.texture_set,
+            layer: self.selection.layer?,
+            mode: b.mode,
+            target: b.target,
+            settings: b.settings,
+            options: b.options,
+            uv,
+        })
+    }
+
     fn begin_stroke_with(&mut self, uv: Option<Option<subcraft_paint::UvView>>) -> Result<(), PaintError> {
         if self.stroke.is_some() {
+            return Ok(());
+        }
+        if std::mem::take(&mut self.continue_stroke)
+            && let Some(last) = self.last_stroke.take()
+            && self.continuable(&last, uv.is_some())
+        {
+            let mut active = last.active;
+            active.stroke.lift_pen();
+            active.camera = None;
+            self.stroke = Some(active);
             return Ok(());
         }
         if self.quick_mask_editing() {
@@ -2709,7 +2789,9 @@ impl Session {
             (StrokeMode::Erase, PaintTarget::ContentEffect(_)) => "Erase Effect Stroke",
             (_, PaintTarget::MaskBase | PaintTarget::MaskEffect(_)) => "Mask Stroke",
         };
-        self.stroke = Some(ActiveStroke { stroke, texture_set: ts.id, label, camera: None, quick: false });
+        let key = self.continue_key(uv.is_some());
+        let ts_id = self.selected_texture_set().id;
+        self.stroke = Some(ActiveStroke { stroke, texture_set: ts_id, label, camera: None, quick: false, key });
         Ok(())
     }
 
@@ -2733,7 +2815,7 @@ impl Session {
             .with_stencil(if b.stencil_bypass { None } else { b.stencil.clone() })
             .with_uv_view(view);
         self.quick_scratch = Some(scratch);
-        self.stroke = Some(ActiveStroke { stroke, texture_set: self.selection.texture_set, label: "Quick Mask Stroke", camera: None, quick: true });
+        self.stroke = Some(ActiveStroke { stroke, texture_set: self.selection.texture_set, label: "Quick Mask Stroke", camera: None, quick: true, key: None });
         Ok(())
     }
 
@@ -3107,6 +3189,8 @@ impl Session {
             self.history.push(active.label, self.doc.clone());
             self.revision += 1;
         }
+        // Kept so the next stroke can continue it (A); dropped when it cannot be.
+        self.last_stroke = active.key.is_some().then(|| LastStroke { cursor: self.history.cursor(), entries: self.history.entries().len(), active });
     }
 
     /// Abandon the stroke and restore the pre-stroke document.
