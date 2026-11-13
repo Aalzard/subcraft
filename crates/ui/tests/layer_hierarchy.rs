@@ -44,7 +44,7 @@ fn larger_previews_and_compact_effects_fit_sidebar_widths_without_mutating_layer
             let mut thumbs = Vec::new();
             for shape in &out.shapes {
                 if let egui::Shape::Rect(r) = &shape.shape {
-                    if theme::ROW_BANDS.contains(&r.fill) || r.fill == theme::ACCENT_SOFT {
+                    if theme::ROW_BANDS().contains(&r.fill) || r.fill == theme::ACCENT_SOFT() {
                         heights.push(r.rect.height());
                     }
                     if r.stroke.width > 0.0 && (r.rect.width() - theme::LAYER_THUMB_SIZE).abs() < 0.01 && (r.rect.height() - theme::LAYER_THUMB_SIZE).abs() < 0.01 {

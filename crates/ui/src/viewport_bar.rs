@@ -56,6 +56,8 @@ pub struct ViewportPrefs {
     pub brush_cursor: BrushCursor,
     /// Which symmetry guides, cursor copies and handles show (Symmetry settings > display).
     pub symmetry_display: crate::symmetry_view::SymmetryDisplay,
+    /// Painter's pressure curve on the contextual toolbar: how pen pressure maps to size / flow.
+    pub pressure_curve: subcraft_paint::PressureCurve,
     /// Bottom-left list of the mouse / key actions that apply now.
     pub hints: bool,
     /// X / Y / Z orientation indicator in the 3D view's bottom-right corner.
@@ -102,21 +104,24 @@ pub struct ViewportPrefs {
     pub camera_bookmarks: Vec<crate::view_extras::CameraBookmark>,
 }
 
-/// Painter's brush cursor display: the brush outline, or only a crosshair at the brush centre.
+/// Painter's brush cursor display (contextual toolbar brush preview): the brush outline, only a
+/// crosshair at the brush centre, or the outline filled with the tip's falloff.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum BrushCursor {
     #[default]
     Outline,
     Crosshair,
+    Full,
 }
 
 impl BrushCursor {
-    pub const ALL: [BrushCursor; 2] = [BrushCursor::Outline, BrushCursor::Crosshair];
+    pub const ALL: [BrushCursor; 3] = [BrushCursor::Full, BrushCursor::Outline, BrushCursor::Crosshair];
 
     pub fn label(self) -> &'static str {
         match self {
             BrushCursor::Outline => crate::i18n::tr("Brush outline"),
             BrushCursor::Crosshair => crate::i18n::tr("Crosshair"),
+            BrushCursor::Full => crate::i18n::tr("Full preview"),
         }
     }
 }
@@ -135,6 +140,7 @@ impl Default for ViewportPrefs {
             symmetry_plane: true,
             brush_cursor: BrushCursor::Outline,
             symmetry_display: Default::default(),
+            pressure_curve: Default::default(),
             hints: true,
             axis_indicator: true,
             display: Default::default(),
@@ -433,7 +439,7 @@ pub fn show(ui: &mut Ui, state: &mut crate::state::UiState) {
     let original_options = options;
     let painting = crate::brush_bar::active(state.tool);
     let frame = egui::Frame::new()
-        .fill(BG_2)
+        .fill(BG_2())
         .inner_margin(egui::Margin::symmetric(8, 4))
         .show(ui, |ui| {
             // Keep labels/combos aligned with the fixed 26-point tool/grid icons.
@@ -479,12 +485,9 @@ pub fn show(ui: &mut Ui, state: &mut crate::state::UiState) {
                 });
             }
             if painting {
-                // The Alt+H button leads the channel row: that row wraps, so the brush rows keep
-                // the widths the layout constants above were measured with.
-                ui.horizontal(|ui| {
-                    hide_excluded_toggle(ui, state);
-                    crate::brush_bar::channel_switches(ui, state);
-                });
+                // Which channels the brush paints is set in the Brush panel (Material), as in
+                // other painters; the bar keeps the Alt+H toggle.
+                ui.horizontal(|ui| hide_excluded_toggle(ui, state));
             }
             if state.picking_parts {
                 ui.horizontal_wrapped(|ui| crate::panels::parts::mask_bar(ui, state));
@@ -493,7 +496,7 @@ pub fn show(ui: &mut Ui, state: &mut crate::state::UiState) {
     ui.painter().hline(
         frame.response.rect.x_range(),
         frame.response.rect.bottom(),
-        egui::Stroke::new(1.0, crate::theme::BORDER),
+        egui::Stroke::new(1.0, crate::theme::BORDER()),
     );
     if settings != original {
         let now = ui.input(|i| i.time);
@@ -536,7 +539,7 @@ fn view_controls(ui: &mut Ui, state: &mut crate::state::UiState, width: f32) {
 
 /// Rendering mode settings (the 3D view's Render button menu and Preferences).
 pub fn rendering_settings(ui: &mut Ui, prefs: &mut ViewportPrefs) {
-    ui.label(RichText::new(tr("Rendering mode")).color(TEXT_DIM));
+    ui.label(RichText::new(tr("Rendering mode")).color(TEXT_DIM()));
     egui::Grid::new("pt_settings").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
         ui.label(tr("Bounces"));
         ui.add(egui::Slider::new(&mut prefs.pt_bounces, 1..=16)).on_hover_text(tr("Light bounces after the first hit; more is slower and brighter in enclosed areas"));
@@ -581,7 +584,7 @@ pub fn albedo_filter(ui: &mut Ui, state: &mut crate::state::UiState) {
     let (id, original) = (ts.id, ts.albedo_filter);
     let mut filter = original;
     let label_width = 55.0;
-    ui.add_sized([label_width, ui.spacing().interact_size.y], egui::Label::new(RichText::new(tr("Albedo")).color(TEXT_DIM)));
+    ui.add_sized([label_width, ui.spacing().interact_size.y], egui::Label::new(RichText::new(tr("Albedo")).color(TEXT_DIM())));
     egui::ComboBox::from_id_salt("albedo_filter").width(76.0).selected_text(filter.label()).show_ui(ui, |ui| {
         ui.selectable_value(&mut filter, TextureFilter::Bilinear, tr("Bilinear"));
         ui.selectable_value(&mut filter, TextureFilter::Nearest, tr("Nearest"));
@@ -608,7 +611,7 @@ fn grid_control(ui: &mut Ui, prefs: &mut ViewportPrefs) {
     egui::Popup::context_menu(&response)
         .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
         .show(|ui| {
-            ui.label(RichText::new(tr("Grid & axes")).color(TEXT_DIM));
+            ui.label(RichText::new(tr("Grid & axes")).color(TEXT_DIM()));
             ui.checkbox(&mut prefs.grid, tr("Show grid"));
             ui.separator();
             for (index, text, color) in [
@@ -624,13 +627,13 @@ fn grid_control(ui: &mut Ui, prefs: &mut ViewportPrefs) {
             ui.label(
                 RichText::new(tr("Y is hidden by default"))
                     .small()
-                    .color(TEXT_DIM),
+                    .color(TEXT_DIM()),
             );
         });
 }
 
 pub(crate) fn resolution(ui: &mut Ui, prefs: &mut ViewportPrefs) {
-    ui.add_sized([55.0, ui.spacing().interact_size.y], egui::Label::new(RichText::new(tr("Resolution")).color(TEXT_DIM)));
+    ui.add_sized([55.0, ui.spacing().interact_size.y], egui::Label::new(RichText::new(tr("Resolution")).color(TEXT_DIM())));
     egui::ComboBox::from_id_salt("viewport_resolution")
         .selected_text(format!("{}%", prefs.scale_percent))
         .width(76.0)
@@ -678,12 +681,12 @@ pub(crate) fn view_mode(ui: &mut Ui, prefs: &mut ViewportPrefs, channels: &[subc
         .width(if wide { 150.0 } else { 92.0 })
         .selected_text(shown)
         .show_ui(ui, |ui| {
-            ui.label(RichText::new(tr("Lighting")).color(TEXT_DIM));
+            ui.label(RichText::new(tr("Lighting")).color(TEXT_DIM()));
             if ui.selectable_label(prefs.mesh_map.is_none() && shown_channel.is_none() && mode == ViewMode::Material, ViewMode::Material.label()).clicked() {
                 prefs.show_material();
             }
             ui.separator();
-            ui.label(RichText::new(tr("Single channel")).color(TEXT_DIM));
+            ui.label(RichText::new(tr("Single channel")).color(TEXT_DIM()));
             for &k in channels {
                 if ui.selectable_label(shown_channel == Some(k), k.display_name()).clicked() {
                     prefs.show_channel(k);
@@ -697,7 +700,7 @@ pub(crate) fn view_mode(ui: &mut Ui, prefs: &mut ViewportPrefs, channels: &[subc
                 }
             }
             ui.separator();
-            ui.label(RichText::new(tr("Mesh maps (baked)")).color(TEXT_DIM));
+            ui.label(RichText::new(tr("Mesh maps (baked)")).color(TEXT_DIM()));
             for k in subcraft_core::MeshMapKind::ALL {
                 if ui.selectable_label(prefs.mesh_map == Some(k), k.display_name()).clicked() {
                     prefs.mesh_map = Some(k);
@@ -725,7 +728,7 @@ pub fn cycle_mesh_map_back(prefs: &mut ViewportPrefs) {
 }
 
 fn dim(ui: &mut Ui, text: &str) {
-    ui.label(RichText::new(text).color(TEXT_DIM));
+    ui.label(RichText::new(text).color(TEXT_DIM()));
 }
 
 #[cfg(test)]

@@ -76,7 +76,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     let now = ui.input(|i| i.time);
     let mut cmds = Vec::new();
     egui::ScrollArea::vertical().id_salt(("mask_properties", layer.id)).auto_shrink([false, false]).show(ui, |ui| panel(ui, |ui| {
-        ui.label(RichText::new(format!("{} · Mask", layer.name)).font(theme::font_strong(14.0)).color(theme::TEXT));
+        ui.label(RichText::new(format!("{} · Mask", layer.name)).font(theme::font_strong(14.0)).color(theme::TEXT()));
         hint(ui, "White reveals the material. Black hides it. Painting changes this mask's base.");
         section(ui, "mask_controls", "Mask", true, |ui| {
             let mut enabled = mask.enabled;

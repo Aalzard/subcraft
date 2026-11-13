@@ -1,0 +1,34 @@
+[package]
+name = "subcraft-mcp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Model Context Protocol server: drive the SubCraft texturing engine headlessly from an AI agent"
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "subcraft-mcp"
+path = "src/main.rs"
+
+[dependencies]
+subcraft-app.workspace = true
+subcraft-core.workspace = true
+subcraft-image.workspace = true
+subcraft-mesh.workspace = true
+subcraft-doc.workspace = true
+subcraft-paint.workspace = true
+subcraft-bake.workspace = true
+subcraft-export.workspace = true
+subcraft-assets.workspace = true
+subcraft-text.workspace = true
+subcraft-render.workspace = true
+subcraft-ui.workspace = true
+glam.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+image.workspace = true
+mimalloc.workspace = true

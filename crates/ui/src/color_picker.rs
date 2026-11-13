@@ -213,7 +213,7 @@ pub fn color_button(ui: &mut Ui, id_salt: impl std::hash::Hash + std::fmt::Debug
 }
 
 fn paint_swatch(ui: &Ui, rect: Rect, linear: [f32; 3], hovered: bool) {
-    let stroke = if hovered { Stroke::new(1.0, TEXT) } else { Stroke::new(1.0, BORDER_STRONG) };
+    let stroke = if hovered { Stroke::new(1.0, TEXT()) } else { Stroke::new(1.0, BORDER_STRONG()) };
     ui.painter().rect(rect, CornerRadius::same(RADIUS), swatch_color(linear), stroke, egui::StrokeKind::Inside);
 }
 
@@ -269,7 +269,7 @@ fn picker_body(ui: &mut Ui, id: Id, rgb: &mut [f32; 3], st: &mut PickerState, re
     });
 
     if !recent.is_empty() {
-        ui.label(RichText::new("Recent").font(theme::font(11.0)).color(TEXT_DIM));
+        ui.label(RichText::new("Recent").font(theme::font(11.0)).color(TEXT_DIM()));
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing = egui::vec2(3.0, 3.0);
             for &c in recent.iter() {
@@ -289,7 +289,7 @@ fn picker_body(ui: &mut Ui, id: Id, rgb: &mut [f32; 3], st: &mut PickerState, re
 fn channel_slider(ui: &mut Ui, name: &str, v: &mut f32, range: std::ops::RangeInclusive<f32>, suffix: &str) -> Response {
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 6.0;
-        ui.add_sized([12.0, 18.0], egui::Label::new(RichText::new(name).font(theme::font(11.5)).color(TEXT_DIM)));
+        ui.add_sized([12.0, 18.0], egui::Label::new(RichText::new(name).font(theme::font(11.5)).color(TEXT_DIM())));
         ui.add(widgets::typed_slider(egui::Slider::new(v, range).fixed_decimals(0).suffix(suffix)))
     })
     .inner
@@ -368,7 +368,7 @@ fn wheel(ui: &mut Ui, t: &mut Target<'_>) -> bool {
         }
     }
     painter.add(egui::Shape::mesh(mesh));
-    painter.rect_stroke(square, CornerRadius::ZERO, Stroke::new(1.0, BORDER_STRONG), egui::StrokeKind::Outside);
+    painter.rect_stroke(square, CornerRadius::ZERO, Stroke::new(1.0, BORDER_STRONG()), egui::StrokeKind::Outside);
 
     // Markers.
     let ring_pos = center + Vec2::angled(t.st.hsv[0] * TAU) * ((inner + outer) * 0.5);
@@ -391,7 +391,7 @@ fn old_new(ui: &mut Ui, t: &mut Target<'_>) {
     let r = RADIUS;
     painter.rect_filled(left, CornerRadius { nw: r, sw: r, ne: 0, se: 0 }, swatch_color(t.st.old));
     painter.rect_filled(right, CornerRadius { nw: 0, sw: 0, ne: r, se: r }, swatch_color(*t.value));
-    painter.rect_stroke(rect, CornerRadius::same(r), Stroke::new(1.0, BORDER_STRONG), egui::StrokeKind::Inside);
+    painter.rect_stroke(rect, CornerRadius::same(r), Stroke::new(1.0, BORDER_STRONG()), egui::StrokeKind::Inside);
     for (half, text) in [(left, "Old"), (right, "New")] {
         let lum = rgb_to_hsv(linear3_to_srgb(if text == "Old" { t.st.old } else { *t.value }))[2];
         let fg = if lum > 0.6 { Color32::from_black_alpha(170) } else { Color32::from_white_alpha(200) };
@@ -408,7 +408,7 @@ fn old_new(ui: &mut Ui, t: &mut Target<'_>) {
 fn hex_field(ui: &mut Ui, id: Id, t: &mut Target<'_>) -> bool {
     let current = format_hex(to_u8(t.srgb()));
     ui.horizontal(|ui| {
-        ui.label(RichText::new("Hex").font(theme::font(11.5)).color(TEXT_DIM));
+        ui.label(RichText::new("Hex").font(theme::font(11.5)).color(TEXT_DIM()));
         let mut text = if t.st.hex_focused { std::mem::take(&mut t.st.hex_text) } else { current.clone() };
         let r = ui.add(egui::TextEdit::singleline(&mut text).id(id.with("hex")).desired_width(84.0).char_limit(16).font(egui::TextStyle::Monospace));
         let escape = ui.input(|i| i.key_pressed(egui::Key::Escape));
@@ -429,7 +429,7 @@ fn hex_field(ui: &mut Ui, id: Id, t: &mut Target<'_>) -> bool {
         }
         t.st.hex_focused = r.has_focus();
         t.st.hex_text = text;
-        ui.label(RichText::new("#RGB or #RRGGBB").small().color(TEXT_FAINT));
+        ui.label(RichText::new("#RGB or #RRGGBB").small().color(TEXT_FAINT()));
         done
     })
     .inner

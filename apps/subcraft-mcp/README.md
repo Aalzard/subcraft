@@ -1,0 +1,86 @@
+# subcraft-mcp
+
+A [Model Context Protocol](https://modelcontextprotocol.io) server that lets an AI agent
+(Claude Code, Claude Desktop, any MCP client) texture models with SubCraft's engine. There is
+no window: the server runs the same `subcraft-app` session and undoable commands as the desktop
+app. It saves `.subcraft` projects that the app opens, exports textures, and renders PNG
+previews so the agent can see what it made.
+
+It speaks MCP over stdio (one JSON-RPC message per line) and holds one open project at a time.
+
+## Tools (51)
+
+| Area | Tools |
+| --- | --- |
+| Project | `status`, `inspect_model`, `project_new` (FBX/OBJ/glTF/USD/PLY/STL/.spp, or `"sample"`), `project_open`, `project_save`, `project_info`, `texture_set_update`, `undo`, `redo`, `history` |
+| Layers | `layers_list`, `layer_get`, `layer_add` (paint/fill/folder, with fill values and mask in one step), `layer_update` (name, visibility, blend mode, opacity per channel), `layer_delete`, `layer_duplicate`, `layer_move`, `layer_group`, `layer_flatten` (bake layers into a paint layer), `layer_instantiate` (linked instances across texture sets) |
+| Fills | `fill_set`: uniform values (`"#rrggbb"` sRGB or numbers), 15 procedurals with low/high, images, baked mesh maps, projection (UV/tri-planar/planar) |
+| Masks and effects | `mask_add`, `mask_remove`, `mask_add_effect` (generators: edges, cavity, concave, directional, position gradient; fill, levels, 26 filters, invert, image), `content_add_effect`, `effect_update`, `effect_remove` |
+| Parts | `parts_list`, `layer_set_parts` (connected pieces, UV islands, objects, materials) |
+| Shelf | `shelf_list`, `apply_material`, `apply_smart_mask`, `import_textures` (a texture set from files), `save_to_library` (a layer as a smart material or smart mask, shared with the app) |
+| Painting | `brush_set` (paint, erase, smudge, clone), `paint_stroke` (in UV space, or in the pixels of a `render_preview` image), `paint_fill` (triangle / mesh piece / UV island), `pick`, `stencil_set` (paint through an image), `clone_source` |
+| Pen and text | `pen_path` (editable Bezier lines as layers, from points or exact anchors), `text_add`, `text_update` (editable text decals with bundled, installed or embedded `.ttf`/`.otf` fonts), `fonts_list` |
+| Output | `bake_mesh_maps` (9 maps, optional high poly, streams MCP progress notifications), `export_templates`, `export_textures`, `export_scene` (OBJ, glTF, GLB, USDA), `render_preview` (any angle, named views, channel views, environments), `render_texture` (a channel or baked map as a flat image) |
+| Desktop app | `open_in_app`: save and open the project in the SubCraft app for the user to look at or keep working on; `project_open` picks their saved changes up again |
+
+Layers and texture sets can be named by id or by exact name. Every edit is an undo step.
+
+## Typical session
+
+1. `project_new` with a model: one texture set per material.
+2. `bake_mesh_maps`: smart materials and edge/cavity masks need curvature and AO.
+3. `apply_material` "Worn Painted Metal", or `layer_add` with a fill such as
+   `{"base_color": "#8a6f5a", "roughness": 0.6}`, then `mask_add_effect` with an edges generator.
+4. `render_preview` to look at the result, and fix it with `layer_update` / `effect_update`.
+5. Paint details: `render_preview` with `yaw` / `pitch`, then `paint_stroke` with `space: "view"` and
+   the same camera, using pixel positions in that image.
+6. `project_save`, then `export_textures` with a template (Unreal, Unity URP/HDRP, Godot, glTF, ...).
+
+## Build and install
+
+```sh
+cargo build --release -p subcraft-mcp      # binary: target/release/subcraft-mcp(.exe)
+claude mcp add --scope user subcraft -- /path/to/target/release/subcraft-mcp
+```
+
+This works natively on Windows, Linux and macOS. Previews render on the GPU (Vulkan, Metal or DX12)
+through the same renderer as the app.
+
+On **Windows with Smart App Control** (or another Application Control policy), freshly built
+`.exe` files are blocked. Build and run the server inside WSL2 instead:
+
+```sh
+wsl -d Ubuntu -e bash /mnt/d/subcraft/scripts/build-mcp-wsl.sh
+claude mcp add --scope user subcraft -- wsl.exe -d Ubuntu --exec env SUBCRAFT_LIBRARY=/mnt/c/Users/<you>/Documents/SubCraft/Library /usr/local/bin/subcraft-mcp
+```
+
+Ubuntu needs `build-essential pkg-config cmake libvulkan1 mesa-vulkan-drivers` and Rust from
+rustup. Under WSL the server accepts and returns Windows paths (`D:\models\a.fbx` maps to
+`/mnt/d/models/a.fbx`), and previews render with Mesa's software Vulkan (llvmpipe): about half a
+second for a 512 px image. `SUBCRAFT_LIBRARY` points the shelf at the same user library as the
+desktop app, so your saved smart materials, masks, brushes and HDRIs show up.
+
+## Safety
+
+The server talks only over stdio (no network port) and acts with your user's file access: it
+opens the models and images you name and writes projects, exports and `save_path` images where
+you ask. It keeps a few guard rails:
+
+- Unknown argument names are an error that lists the valid ones (nothing is silently ignored).
+- `save_path` images must be `.png` files, and projects are always saved as `.subcraft`.
+- `project_new` / `project_open` refuse to drop unsaved changes unless `discard_unsaved` is set.
+- Tools that write files, delete or start the app carry MCP's `destructiveHint` (and
+  `open_in_app` the `openWorldHint`), so clients can ask before running them.
+
+## Limits
+
+- One project at a time; `project_new` / `project_open` refuse to drop unsaved changes unless
+  `discard_unsaved` is set.
+- No live link to an open app window: the server and the app each work on their own copy and
+  exchange it through the `.subcraft` file (`open_in_app`, `project_open`).
+- Baking runs on the CPU (GPU ray baking is not used headlessly).
+- In WSL, previews render with llvmpipe. That is fast enough (0.2-0.3 s for 1024 px on a 32-thread
+  CPU); the GPU routes WSL offers do not work: Ubuntu's Mesa has no Vulkan-on-D3D12 (dozen) driver,
+  and wgpu's GL backend on Mesa's d3d12 driver rejects SubCraft's shaders ("an image was used with
+  multiple samplers").
+- Not exposed yet: UDIM tile picking, editing ID color masks by picking, path-traced renders.

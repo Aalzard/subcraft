@@ -202,12 +202,12 @@ fn folders_show_icon_count_and_hierarchy_guides() {
     let output = layout(&mut state, &ctx);
     for text in [subcraft_ui::icons::FOLDER_OPEN, "3", "1", "Top", "Middle"] { text_position(&output, text); }
     // Outer: vertical guide + ticks for its folder and Middle; inner folder: vertical + tick for Top.
-    assert_eq!(line_count(&output, subcraft_ui::theme::TREE_LINE), 5);
+    assert_eq!(line_count(&output, subcraft_ui::theme::TREE_LINE()), 5);
     // Collapsed: closed icon, children and guides hidden, count kept.
     state.session.execute(Command::SetFolderExpanded { layer: folder, expanded: false }).unwrap();
     let output = layout(&mut state, &ctx);
     text_position(&output, subcraft_ui::icons::FOLDER); text_position(&output, "3");
-    assert_eq!(line_count(&output, subcraft_ui::theme::TREE_LINE), 0);
+    assert_eq!(line_count(&output, subcraft_ui::theme::TREE_LINE()), 0);
     assert!(!output.shapes.iter().any(|s| matches!(&s.shape, egui::epaint::Shape::Text(t) if t.galley.text() == "Middle")));
 }
 

@@ -38,8 +38,8 @@ pub fn is_box_drag(a: Pos2, b: Pos2) -> bool {
 
 /// The polygon fill box: translucent accent fill, dashed outline (solid when it selects x-ray).
 pub fn draw_fill_box(painter: &egui::Painter, r: Rect, visible_only: bool) {
-    painter.rect_filled(r, 0.0, Color32::from_rgba_unmultiplied(theme::ACCENT.r(), theme::ACCENT.g(), theme::ACCENT.b(), 28));
-    let stroke = Stroke::new(1.0, theme::ACCENT);
+    painter.rect_filled(r, 0.0, Color32::from_rgba_unmultiplied(theme::ACCENT().r(), theme::ACCENT().g(), theme::ACCENT().b(), 28));
+    let stroke = Stroke::new(1.0, theme::ACCENT());
     if visible_only {
         let corners = [r.left_top(), r.right_top(), r.right_bottom(), r.left_bottom(), r.left_top()];
         painter.extend(egui::Shape::dashed_line(&corners, stroke, 5.0, 3.0));
@@ -96,11 +96,11 @@ pub fn show(ctx: &egui::Context, state: &mut UiState) -> bool {
         .order(egui::Order::Foreground)
         .fixed_pos(rect.min)
         .show(ctx, |ui| {
-            egui::Frame::popup(ui.style()).fill(theme::BG_1).inner_margin(egui::Margin::same(6)).show(ui, |ui| {
+            egui::Frame::popup(ui.style()).fill(theme::BG_1()).inner_margin(egui::Margin::same(6)).show(ui, |ui| {
                 let inner = rect.size() - egui::vec2(12.0, 12.0);
                 ui.set_width(inner.x);
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new(crate::i18n::tr("Properties")).font(theme::font_strong(12.5)).color(theme::TEXT));
+                    ui.label(RichText::new(crate::i18n::tr("Properties")).font(theme::font_strong(12.5)).color(theme::TEXT()));
                     if props.view == View::View3d {
                         part_action = part_menu(ui, state);
                     }

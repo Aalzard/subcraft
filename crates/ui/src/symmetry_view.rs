@@ -297,7 +297,7 @@ pub fn overlay(state: &UiState, ui: &Ui, painter: &egui::Painter, rect: Rect, pi
             painter.circle_filled(tip, 3.5 * size.sqrt(), axis_color(*axis));
         }
         let r = 5.0 * size.sqrt();
-        painter.circle_filled(anchor, r, if active { ACCENT } else { Color32::from_gray(235) });
+        painter.circle_filled(anchor, r, if active { ACCENT() } else { Color32::from_gray(235) });
         painter.circle_stroke(anchor, r, Stroke::new(1.5, Color32::from_black_alpha(160)));
     }
     if hovered.is_some() && dragging.is_none() {

@@ -70,7 +70,7 @@ Layout notes: a thumbnail button for the map (opens a mini-shelf filtered to env
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Environment Map (button opening a mini-shelf) | Display Settings > Environment | not documented | partial: a dropdown of the environments (and a drop target), no thumbnail mini-shelf | crates/ui/src/panels/display_settings.rs (environment) | 165 |
+| Environment Map (button opening a mini-shelf) | Display Settings > Environment | not documented | done: the button opens a grid of environment thumbnails (rendered on demand even when the Assets panel shows another type); still a drop target | crates/ui/src/panels/display_settings.rs (environment) | 405 |
 | Drag an environment map onto the 3D view / onto the button | 3D view, Environment Map button | - | done: from Assets > Environments onto the 3D view or the Environment map dropdown | crates/ui/src/panels/shelf.rs (EnvironmentDrag), crates/ui/src/viewport.rs | 165 |
 | Override environment map color space (checkbox + color space list) | Display Settings > Environment (color-managed projects) | off | missing | - | - |
 | Environment Opacity | Display Settings > Environment | not documented | done: 0-100%, default 0 (plain background) | crates/render/src/viewport.wgsl (fs_background), crates/ui/src/panels/display_settings.rs (environment) | 165 |

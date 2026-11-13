@@ -38,10 +38,10 @@ fn quiet_value_field(ui: &mut Ui) {
     ui.spacing_mut().button_padding.x = 4.0;
     let w = &mut ui.visuals_mut().widgets;
     for state in [&mut w.inactive, &mut w.hovered, &mut w.active] {
-        state.weak_bg_fill = RAIL;
+        state.weak_bg_fill = RAIL();
     }
     w.inactive.bg_stroke = Stroke::NONE;
-    w.inactive.fg_stroke = Stroke::new(1.0, TEXT_DIM);
+    w.inactive.fg_stroke = Stroke::new(1.0, TEXT_DIM());
 }
 
 /// Edit a channel value: linear color picker for color channels, encoded RGB for normals,
@@ -74,12 +74,12 @@ pub fn panel<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
 
 /// Small uppercase caption.
 pub fn caption(text: &str) -> RichText {
-    RichText::new(text.to_uppercase()).font(theme::font_strong(10.5)).color(TEXT_FAINT)
+    RichText::new(text.to_uppercase()).font(theme::font_strong(10.5)).color(TEXT_FAINT())
 }
 
 /// Faint helper text, wrapped.
 pub fn hint(ui: &mut Ui, text: &str) {
-    ui.add(egui::Label::new(RichText::new(text).small().color(TEXT_FAINT)).wrap());
+    ui.add(egui::Label::new(RichText::new(text).small().color(TEXT_FAINT())).wrap());
 }
 
 /// Static section header: caption with a hairline under it.
@@ -92,7 +92,7 @@ pub fn header(ui: &mut Ui, text: &str) {
 /// Full-width hairline.
 pub fn divider(ui: &mut Ui) {
     let (r, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 1.0), Sense::hover());
-    ui.painter().hline(r.x_range(), r.center().y, Stroke::new(1.0, BORDER_SOFT));
+    ui.painter().hline(r.x_range(), r.center().y, Stroke::new(1.0, BORDER_SOFT()));
 }
 
 /// Height of a section header row.
@@ -116,14 +116,14 @@ pub fn section_with(ui: &mut Ui, id: &str, title: &str, default_open: bool, righ
     }
     let painter = ui.painter();
     if resp.hovered() {
-        painter.rect_filled(rect, CornerRadius::same(RADIUS), theme::BG_2);
+        painter.rect_filled(rect, CornerRadius::same(RADIUS), theme::BG_2());
     }
-    let fg = if resp.hovered() { TEXT } else { TEXT_DIM };
+    let fg = if resp.hovered() { TEXT() } else { TEXT_DIM() };
     let caret = if open { icons::CARET_DOWN } else { icons::CARET_RIGHT };
-    painter.text(rect.left_center() + egui::vec2(8.0, 0.0), egui::Align2::LEFT_CENTER, caret, theme::font(12.0), TEXT_FAINT);
+    painter.text(rect.left_center() + egui::vec2(8.0, 0.0), egui::Align2::LEFT_CENTER, caret, theme::font(12.0), TEXT_FAINT());
     // Painter-style: bold capitals, no icon.
     painter.text(rect.left_center() + egui::vec2(27.0, 0.0), egui::Align2::LEFT_CENTER, title.to_uppercase(), theme::font_strong(11.5), fg);
-    painter.hline(rect.x_range(), rect.bottom() - 0.5, Stroke::new(1.0, BORDER_SOFT));
+    painter.hline(rect.x_range(), rect.bottom() - 0.5, Stroke::new(1.0, BORDER_SOFT()));
     // The header already owns this rectangle. A layout scope would advance the parent cursor
     // a second time (even when empty), allowing the first body widget to overlap the header.
     let mut actions = ui.new_child(UiBuilder::new().max_rect(rect.shrink2(egui::vec2(4.0, 2.0))).layout(Layout::right_to_left(Align::Center)));
@@ -138,7 +138,7 @@ pub fn section_with(ui: &mut Ui, id: &str, title: &str, default_open: bool, righ
 
 /// Dimmed, small row label.
 pub fn row_label(text: &str) -> RichText {
-    RichText::new(text).font(theme::font(LABEL_SIZE)).color(TEXT_DIM)
+    RichText::new(text).font(theme::font(LABEL_SIZE)).color(TEXT_DIM())
 }
 
 /// Labelled property row: a dimmed label column, then the editor filling the rest at a
@@ -252,19 +252,19 @@ pub fn typed_drag(drag: egui::DragValue<'_>) -> egui::DragValue<'_> {
 
 /// A small outlined toggle chip (channel toggles). `selected` shows the accent outline.
 pub fn chip(ui: &mut Ui, label: &str, selected: bool) -> Response {
-    let galley = ui.painter().layout_no_wrap(label.to_string(), theme::font(12.0), TEXT);
+    let galley = ui.painter().layout_no_wrap(label.to_string(), theme::font(12.0), TEXT());
     let size = egui::vec2((galley.size().x + 18.0).max(36.0), 22.0);
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
     let hovered = resp.hovered() && ui.is_enabled();
     let (fill, stroke, fg) = if selected {
-        (ACCENT_SOFT, ACCENT.gamma_multiply(0.75), TEXT)
+        (ACCENT_SOFT(), ACCENT().gamma_multiply(0.75), TEXT())
     } else if hovered {
-        (BG_3, theme::BORDER_STRONG, TEXT)
+        (BG_3(), theme::BORDER_STRONG(), TEXT())
     } else {
-        (Color32::TRANSPARENT, theme::BORDER_STRONG.gamma_multiply(0.8), TEXT_DIM)
+        (Color32::TRANSPARENT, theme::BORDER_STRONG().gamma_multiply(0.8), TEXT_DIM())
     };
     ui.painter().rect(rect, CornerRadius::same(RADIUS), fill, Stroke::new(1.0, stroke), egui::StrokeKind::Inside);
-    let color = if ui.is_enabled() { fg } else { TEXT_FAINT };
+    let color = if ui.is_enabled() { fg } else { TEXT_FAINT() };
     ui.painter().galley(rect.center() - galley.size() / 2.0, galley, color);
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
@@ -280,11 +280,11 @@ pub fn icon_toggle(ui: &mut Ui, icon: &str, selected: bool, tooltip: &str) -> Re
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
     let enabled = ui.is_enabled();
     let (bg, fg) = if selected {
-        (ACCENT_SOFT, ACCENT)
+        (ACCENT_SOFT(), ACCENT())
     } else if resp.hovered() && enabled {
-        (BG_4, TEXT)
+        (BG_4(), TEXT())
     } else {
-        (Color32::TRANSPARENT, if enabled { TEXT_DIM } else { TEXT_FAINT.gamma_multiply(0.6) })
+        (Color32::TRANSPARENT, if enabled { TEXT_DIM() } else { TEXT_FAINT().gamma_multiply(0.6) })
     };
     ui.painter().rect_filled(rect, CornerRadius::same(RADIUS), bg);
     ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, icon, theme::font(15.0), fg);
@@ -297,12 +297,12 @@ pub fn tool_button(ui: &mut Ui, icon: &str, selected: bool, tooltip: &str) -> Re
     let (rect, resp) = ui.allocate_exact_size(Vec2::splat(40.0), Sense::click());
     let painter = ui.painter();
     if selected {
-        painter.rect_filled(rect, CornerRadius::ZERO, ACCENT_SOFT);
-        painter.rect_filled(Rect::from_min_size(rect.min, egui::vec2(2.0, rect.height())), CornerRadius::ZERO, ACCENT);
+        painter.rect_filled(rect, CornerRadius::ZERO, ACCENT_SOFT());
+        painter.rect_filled(Rect::from_min_size(rect.min, egui::vec2(2.0, rect.height())), CornerRadius::ZERO, ACCENT());
     } else if resp.hovered() {
-        painter.rect_filled(rect, CornerRadius::ZERO, BG_3);
+        painter.rect_filled(rect, CornerRadius::ZERO, BG_3());
     }
-    let fg = if selected { ACCENT } else if resp.hovered() { TEXT } else { TEXT_DIM };
+    let fg = if selected { ACCENT() } else if resp.hovered() { TEXT() } else { TEXT_DIM() };
     painter.text(rect.center(), egui::Align2::CENTER_CENTER, icon, theme::font(19.0), fg);
     resp.on_hover_text(tooltip).on_hover_cursor(egui::CursorIcon::PointingHand)
 }
@@ -310,19 +310,19 @@ pub fn tool_button(ui: &mut Ui, icon: &str, selected: bool, tooltip: &str) -> Re
 /// Filled accent button for the main action of an area.
 pub fn primary_button(ui: &mut Ui, text: impl Into<String>) -> Response {
     let text = RichText::new(text.into()).font(theme::font_strong(13.0)).color(Color32::from_rgb(24, 14, 8));
-    let fill = if ui.is_enabled() { ACCENT } else { BG_3 };
+    let fill = if ui.is_enabled() { ACCENT() } else { BG_3() };
     ui.add(egui::Button::new(text).fill(fill).stroke(Stroke::NONE).corner_radius(RADIUS).min_size(egui::vec2(0.0, 28.0)))
 }
 
 /// Outline button (secondary action).
 pub fn secondary_button(ui: &mut Ui, text: impl Into<String>) -> Response {
-    ui.add(egui::Button::new(RichText::new(text.into()).color(TEXT_DIM)).fill(BG_3).stroke(Stroke::NONE).corner_radius(RADIUS).min_size(egui::vec2(0.0, 28.0)))
+    ui.add(egui::Button::new(RichText::new(text.into()).color(TEXT_DIM())).fill(BG_3()).stroke(Stroke::NONE).corner_radius(RADIUS).min_size(egui::vec2(0.0, 28.0)))
 }
 
 /// Calm secondary action: a compact icon, readable hit target, soft corners and no hard outline.
 pub fn quiet_button(ui: &mut Ui, icon: &str, text: &str) -> Response {
-    ui.add(egui::Button::new(RichText::new(format!("{icon}  {text}")).font(theme::font(12.0)).color(TEXT_DIM))
-        .fill(theme::BG_2).stroke(Stroke::NONE).corner_radius(RADIUS).min_size(egui::vec2(0.0, 28.0)))
+    ui.add(egui::Button::new(RichText::new(format!("{icon}  {text}")).font(theme::font(12.0)).color(TEXT_DIM()))
+        .fill(theme::BG_2()).stroke(Stroke::NONE).corner_radius(RADIUS).min_size(egui::vec2(0.0, 28.0)))
 }
 
 /// Joined segmented control with rounded outer corners; returns true when the value changed.
@@ -333,10 +333,10 @@ pub fn segmented<T: PartialEq + Copy>(ui: &mut Ui, value: &mut T, options: &[(T,
         ui.spacing_mut().item_spacing.x = 1.0;
         for (i, (v, label)) in options.iter().enumerate() {
             let selected = *value == *v;
-            let text = RichText::new(*label).color(if selected { ACCENT } else { TEXT_DIM });
+            let text = RichText::new(*label).color(if selected { ACCENT() } else { TEXT_DIM() });
             let r = RADIUS;
             let radius = CornerRadius { nw: if i == 0 { r } else { 0 }, sw: if i == 0 { r } else { 0 }, ne: if i == last { r } else { 0 }, se: if i == last { r } else { 0 } };
-            let b = egui::Button::new(text).fill(if selected { ACCENT_SOFT } else { BG_3 }).stroke(Stroke::NONE).corner_radius(radius).min_size(egui::vec2(0.0, CONTROL_H));
+            let b = egui::Button::new(text).fill(if selected { ACCENT_SOFT() } else { BG_3() }).stroke(Stroke::NONE).corner_radius(radius).min_size(egui::vec2(0.0, CONTROL_H));
             if ui.add(b).clicked() && !selected {
                 *value = *v;
                 changed = true;
@@ -374,7 +374,7 @@ pub fn striped_list_row(ui: &mut Ui, index: usize, selected: bool, sense: Sense,
 
 /// A shared selection/hover contract with heights suited to material and effect rows.
 pub fn striped_list_row_height(ui: &mut Ui, index: usize, selected: bool, height: f32, sense: Sense, content: impl FnOnce(&mut Ui)) -> Response {
-    list_row_sized(ui, selected, sense, Some(theme::ROW_BANDS[index % 2]), height, content)
+    list_row_sized(ui, selected, sense, Some(theme::ROW_BANDS()[index % 2]), height, content)
 }
 
 /// A list row with its own band color and height (folder rows, compact sub-rows).
@@ -390,16 +390,16 @@ fn list_row_sized(ui: &mut Ui, selected: bool, sense: Sense, band: Option<Color3
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), height), sense);
     let painter = ui.painter();
     if selected {
-        painter.rect_filled(rect, CornerRadius::ZERO, ACCENT_SOFT);
-        painter.rect_filled(Rect::from_min_size(rect.min, egui::vec2(2.0, rect.height())), CornerRadius::ZERO, ACCENT);
+        painter.rect_filled(rect, CornerRadius::ZERO, ACCENT_SOFT());
+        painter.rect_filled(Rect::from_min_size(rect.min, egui::vec2(2.0, rect.height())), CornerRadius::ZERO, ACCENT());
     } else if resp.hovered() {
-        painter.rect_filled(rect, CornerRadius::ZERO, if band.is_some() { BG_3 } else { theme::BG_2 });
+        painter.rect_filled(rect, CornerRadius::ZERO, if band.is_some() { BG_3() } else { theme::BG_2() });
     } else if let Some(color) = band {
         painter.rect_filled(rect, CornerRadius::ZERO, color);
     }
     if band.is_some() {
         // Painter splits stacked rows with a dark hairline instead of striping them.
-        painter.hline(rect.x_range(), rect.bottom() - 0.5, egui::Stroke::new(1.0, theme::ROW_SEPARATOR));
+        painter.hline(rect.x_range(), rect.bottom() - 0.5, egui::Stroke::new(1.0, theme::ROW_SEPARATOR()));
     }
     let inner = rect.shrink2(egui::vec2(8.0, 0.0));
     ui.scope_builder(UiBuilder::new().max_rect(inner).layout(Layout::left_to_right(Align::Center)), |ui| {
@@ -415,10 +415,10 @@ pub fn preview_size_footer(ui: &mut Ui, value: &mut u32, range: std::ops::RangeI
     divider(ui);
     egui::Frame::new().inner_margin(egui::Margin::symmetric(8, 3)).show(ui, |ui| {
         ui.horizontal(|ui| {
-            ui.label(RichText::new("Preview size").font(theme::font(10.5)).color(TEXT_DIM));
+            ui.label(RichText::new("Preview size").font(theme::font(10.5)).color(TEXT_DIM()));
             ui.spacing_mut().slider_width = (ui.available_width() - 36.0).clamp(36.0, 110.0);
             let response = ui.add(egui::Slider::new(value, range).show_value(false));
-            ui.label(RichText::new(format!("{}", *value)).small().color(TEXT_FAINT));
+            ui.label(RichText::new(format!("{}", *value)).small().color(TEXT_FAINT()));
             response.on_hover_text("Preview size in UI points; texture resolution stays unchanged")
         }).inner
     }).inner
@@ -426,16 +426,16 @@ pub fn preview_size_footer(ui: &mut Ui, value: &mut u32, range: std::ops::RangeI
 
 /// Text that is dim unless `strong`.
 pub fn row_text(text: &str, strong: bool) -> RichText {
-    if strong { RichText::new(text).color(TEXT) } else { RichText::new(text).color(TEXT_DIM) }
+    if strong { RichText::new(text).color(TEXT()) } else { RichText::new(text).color(TEXT_DIM()) }
 }
 
 /// Empty-state message centered in the remaining space.
 pub fn empty_state(ui: &mut Ui, icon: &str, text: &str) {
     ui.add_space(24.0);
     ui.vertical_centered(|ui| {
-        ui.label(RichText::new(icon).font(theme::font(28.0)).color(TEXT_FAINT));
+        ui.label(RichText::new(icon).font(theme::font(28.0)).color(TEXT_FAINT()));
         ui.add_space(4.0);
-        ui.label(RichText::new(text).color(TEXT_FAINT));
+        ui.label(RichText::new(text).color(TEXT_FAINT()));
     });
 }
 
@@ -444,8 +444,8 @@ pub fn empty_state(ui: &mut Ui, icon: &str, text: &str) {
 pub fn card<R>(ui: &mut Ui, accent: egui::Color32, add: impl FnOnce(&mut Ui) -> R) -> egui::InnerResponse<R> {
     ui.add_space(SP_S);
     let response = egui::Frame::new()
-        .fill(crate::theme::CARD)
-        .stroke(egui::Stroke::new(1.0, crate::theme::CARD_BORDER))
+        .fill(crate::theme::CARD())
+        .stroke(egui::Stroke::new(1.0, crate::theme::CARD_BORDER()))
         .corner_radius(6)
         .inner_margin(egui::Margin { left: 16, right: 12, top: 10, bottom: 12 })
         .show(ui, add);

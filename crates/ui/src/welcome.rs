@@ -30,7 +30,7 @@ pub fn show(state: &mut UiState, ctx: &egui::Context) -> Option<WelcomeAction> {
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
             ui.set_width(560.0_f32.min((ctx.content_rect().width() - 32.0).max(220.0)));
             ui.heading(tr("Start texturing"));
-            ui.label(RichText::new(tr("Open a model, build materials and export PBR textures.")).color(theme::TEXT_DIM));
+            ui.label(RichText::new(tr("Open a model, build materials and export PBR textures.")).color(theme::TEXT_DIM()));
             ui.add_space(12.0);
             ui.horizontal_wrapped(|ui| {
                 if primary_button(ui, tr("New from a model…")).on_hover_text(tr("OBJ, GLB/glTF, FBX, USD, PLY, STL or Substance Painter .spp with UVs")).clicked() { action = Some(WelcomeAction::Pending(Pending::OpenMesh)); }
@@ -46,7 +46,7 @@ pub fn show(state: &mut UiState, ctx: &egui::Context) -> Option<WelcomeAction> {
             {
                 ui.add_space(14.0); ui.separator(); ui.label(RichText::new(tr("Recent files")).strong());
                 let mut remove = None;
-                if state.welcome.items.is_empty() { ui.label(RichText::new(tr("Projects and models you open or save appear here.")).small().color(theme::TEXT_FAINT)); }
+                if state.welcome.items.is_empty() { ui.label(RichText::new(tr("Projects and models you open or save appear here.")).small().color(theme::TEXT_FAINT())); }
                 egui::ScrollArea::vertical().id_salt("welcome-recents").max_height(160.0).min_scrolled_height(0.0).show(ui, |ui| {
                     for item in &state.welcome.items {
                         ui.horizontal(|ui| {
@@ -62,9 +62,9 @@ pub fn show(state: &mut UiState, ctx: &egui::Context) -> Option<WelcomeAction> {
             }
             ui.add_space(14.0); ui.separator();
             ui.checkbox(&mut state.recovery.prefs.show_welcome, tr("Show this screen on startup"));
-            ui.label(RichText::new(tr("You can reopen it from Help at any time.")).small().color(theme::TEXT_FAINT));
+            ui.label(RichText::new(tr("You can reopen it from Help at any time.")).small().color(theme::TEXT_FAINT()));
             ui.add_space(8.0); ui.separator();
-            ui.label(RichText::new(subcraft_app::launch::INDEPENDENCE_NOTICE).small().color(theme::TEXT_DIM));
+            ui.label(RichText::new(subcraft_app::launch::INDEPENDENCE_NOTICE).small().color(theme::TEXT_DIM()));
         });
         state.welcome.open &= open;
     }
@@ -72,7 +72,7 @@ pub fn show(state: &mut UiState, ctx: &egui::Context) -> Option<WelcomeAction> {
         let index = index.min(QUICK_START.len() - 1); let step = &QUICK_START[index]; let mut open = true;
         crate::widgets::window(ctx, "Quick start").open(&mut open).collapsible(false).resizable(false)
             .default_width(320.0).default_pos(egui::pos2(950.0, 120.0)).show(ctx, |ui| {
-            ui.label(RichText::new(format!("Step {} of {}", index + 1, QUICK_START.len())).small().color(theme::ACCENT));
+            ui.label(RichText::new(format!("Step {} of {}", index + 1, QUICK_START.len())).small().color(theme::ACCENT()));
             ui.heading(step.title); ui.add_space(6.0); ui.label(step.text); ui.add_space(10.0);
             if primary_button(ui, step.button).clicked() { action = Some(WelcomeAction::Guide(step.action)); }
             ui.add_space(10.0); ui.separator();
@@ -93,7 +93,7 @@ pub fn show(state: &mut UiState, ctx: &egui::Context) -> Option<WelcomeAction> {
             ui.add_space(12.0);
             ui.label(subcraft_app::launch::INDEPENDENCE_NOTICE);
             ui.add_space(12.0);
-            ui.label(RichText::new(tr("Licensed under MIT or Apache-2.0.")).color(theme::TEXT_DIM));
+            ui.label(RichText::new(tr("Licensed under MIT or Apache-2.0.")).color(theme::TEXT_DIM()));
             ui.hyperlink_to("SubCraft on GitHub", "https://github.com/Aalzard/subcraft");
         });
     }

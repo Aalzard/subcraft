@@ -37,7 +37,7 @@ fn image(output: &egui::FullOutput) -> Rect {
         .shapes
         .iter()
         .filter_map(|s| match &s.shape {
-            egui::epaint::Shape::Rect(r) if r.stroke.color == theme::BORDER_STRONG && r.rect.width() > 100.0 => Some(r.rect),
+            egui::epaint::Shape::Rect(r) if r.stroke.color == theme::BORDER_STRONG() && r.rect.width() > 100.0 => Some(r.rect),
             _ => None,
         })
         .max_by(|a, b| a.area().total_cmp(&b.area()))
@@ -114,16 +114,14 @@ fn brush_drag_in_the_2d_view_paints_the_layer_as_one_undo_step_without_panning()
 }
 
 #[test]
-fn shift_clicking_a_channel_switch_paints_only_that_channel() {
+fn a_solo_brush_channel_paints_only_that_channel_in_the_2d_view() {
+    // The Brush panel's channel toggles send this (Alt+click "rough").
     let (mut state, ctx) = setup();
-    let output = settle(&mut state, &ctx);
-    let rough = text(&output, "Rough").expect("channel switches in the 2D toolbar");
-    click(&mut state, &ctx, rough, Modifiers::SHIFT);
+    state.session.execute(subcraft_app::Command::ToggleBrushChannel { channel: ChannelKind::Roughness, solo: true }).unwrap();
     let brush = &state.session.brush.material;
     for kind in state.session.channels() {
         assert_eq!(brush.is_enabled(kind), kind == ChannelKind::Roughness, "{kind:?}");
     }
-
     let rect = image(&settle(&mut state, &ctx));
     let uv = island_uv(&state);
     let start = rect.min + egui::vec2(uv.x, uv.y) * rect.width();
@@ -132,15 +130,8 @@ fn shift_clicking_a_channel_switch_paints_only_that_channel() {
     for kind in [ChannelKind::BaseColor, ChannelKind::Metallic, ChannelKind::Height, ChannelKind::Normal] {
         assert_eq!(painted(&state, kind), 0, "{kind:?} must stay untouched");
     }
-
-    // Shift+click again restores every channel; a plain click switches one off.
     let output = settle(&mut state, &ctx);
-    click(&mut state, &ctx, text(&output, "Rough").unwrap(), Modifiers::SHIFT);
-    assert!(state.session.channels().into_iter().all(|k| state.session.brush.material.is_enabled(k)));
-    let output = settle(&mut state, &ctx);
-    click(&mut state, &ctx, text(&output, "Metal").unwrap(), Modifiers::NONE);
-    assert!(!state.session.brush.material.is_enabled(ChannelKind::Metallic));
-    assert!(state.session.brush.material.is_enabled(ChannelKind::BaseColor));
+    assert!(text(&output, "Rough").is_none(), "channel switches live in the Brush panel, not the 2D toolbar");
 }
 
 #[test]

@@ -265,18 +265,18 @@ pub fn settings(ui: &mut egui::Ui, prefs: &mut crate::recovery::Preferences, you
     let mut change = None;
     ui.label(RichText::new(tr("Libraries")).font(theme::font_strong(12.5)));
     ui.add_space(4.0);
-    ui.label(RichText::new(tr("Folders the Assets panel reads. The default library receives new presets and imports.")).color(theme::TEXT_DIM));
+    ui.label(RichText::new(tr("Folders the Assets panel reads. The default library receives new presets and imports.")).color(theme::TEXT_DIM()));
     ui.add_space(6.0);
     let mut remove = None;
     egui::Grid::new("libraries_grid").num_columns(4).spacing([10.0, 6.0]).show(ui, |ui| {
-        ui.label(RichText::new(tr("Default")).color(theme::TEXT_DIM));
-        ui.label(RichText::new(tr("Name")).color(theme::TEXT_DIM));
-        ui.label(RichText::new(tr("Path")).color(theme::TEXT_DIM));
+        ui.label(RichText::new(tr("Default")).color(theme::TEXT_DIM()));
+        ui.label(RichText::new(tr("Name")).color(theme::TEXT_DIM()));
+        ui.label(RichText::new(tr("Path")).color(theme::TEXT_DIM()));
         ui.label("");
         ui.end_row();
         ui.label("");
         ui.label(STARTER);
-        ui.label(RichText::new(tr("built in (read only)")).color(theme::TEXT_FAINT));
+        ui.label(RichText::new(tr("built in (read only)")).color(theme::TEXT_FAINT()));
         ui.label("");
         ui.end_row();
         if let Some(path) = yours {

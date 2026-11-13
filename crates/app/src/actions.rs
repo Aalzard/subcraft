@@ -102,11 +102,13 @@ pub enum Action {
     QuickMaskInvert,
     /// Painter's Symmetry on / off (L): off remembers the axes, on brings them back.
     ToggleSymmetry,
+    /// Painter's Pause engine computation (Shift+Esc): edits wait until it is pressed again.
+    PauseEngine,
 }
 
 impl Action {
     /// Every action, in declaration order (the tests check [`ACTIONS`] against it).
-    pub const ALL: [Action; 52] = [
+    pub const ALL: [Action; 53] = [
         Action::Undo, Action::Redo, Action::NewPaintLayer, Action::NewFillLayer, Action::NewFolder, Action::NewTextLayer, Action::DeleteLayer, Action::DuplicateLayer,
         Action::BrushTool, Action::EraserTool, Action::PenTool, Action::PolygonFillTool, Action::SmudgeTool, Action::CloneTool, Action::EyedropperTool,
         Action::BrushSmaller, Action::BrushLarger, Action::ToggleSymmetryX, Action::ToggleLazyMouse, Action::ResetCamera, Action::PerspectiveCamera,
@@ -116,7 +118,7 @@ impl Action {
         Action::SwapViews, Action::NextMeshMap, Action::PrevMeshMap, Action::InvertMaskGray, Action::IsolateTextureSet,
         Action::NextCamera, Action::PrevCamera,
         Action::HideExcludedGeometry, Action::QuickMaskToggle, Action::QuickMaskClear, Action::QuickMaskInvert,
-        Action::ToggleSymmetry,
+        Action::ToggleSymmetry, Action::PauseEngine,
     ];
 }
 
@@ -252,6 +254,7 @@ pub const ACTIONS: &[ActionInfo] = &[
     // Painter's X inverts the mask brush, so its key set keeps X mirror on Shift+X.
     ActionInfo { action: Action::ToggleSymmetryX, label: "Toggle X Symmetry", shortcuts: &[Shortcut::key(Key::X)], painter: Some(&[Shortcut::shift(Key::X)]) },
     a(Action::ToggleSymmetry, "Toggle Symmetry", &[Shortcut::key(Key::L)]),
+    a(Action::PauseEngine, "Pause Engine Computation", &[Shortcut::shift(Key::Escape)]),
     a(Action::ToggleLazyMouse, "Toggle Lazy Mouse", &[Shortcut::key(Key::D)]),
     a(Action::ResetCamera, "Frame Model / Reset Camera", &[Shortcut::key(Key::Home), Shortcut::key(Key::F)]),
     a(Action::PerspectiveCamera, "Perspective Camera", &[Shortcut::key(Key::F5)]),
@@ -386,7 +389,7 @@ pub const PAINTER_REFERENCE: &[PainterEntry] = &[
     none("Manipulator", "R", "Scale tool", "no manipulator"),
     none("Manipulator", "Shift+W", "Surface tool", "no equivalent"),
     e("Tools", "L", "Symmetry", Support::Added, Action::ToggleSymmetry, Shortcut::key(Key::L), "symmetry on / off; the last axes come back, as with the toolbar button"),
-    none("Tools", "Shift+Esc", "Pause engine computation", "no engine pause"),
+    e("Tools", "Shift+Esc", "Pause engine computation", Support::Added, Action::PauseEngine, Shortcut::shift(Key::Escape), "layer computation waits (the 3D view says so) until Shift+Esc again; export and save still compute"),
     // Tools
     e("Tools", "1", "Paint tool", Support::Added, Action::BrushTool, Shortcut::key(Key::Num1), "B kept as well in the SubCraft key set"),
     none("Tools", "Ctrl+1", "Paint tool + Particles", "no particle tool (scatter lives in brush settings)"),
@@ -619,6 +622,7 @@ mod tests {
             (Shortcut::alt(Key::Q), Action::IsolateTextureSet), (Shortcut::key(Key::Delete), Action::DeleteLayer), (Shortcut::ctrl(Key::D), Action::DuplicateLayer),
             (Shortcut::ctrl(Key::G), Action::NewFolder), (Shortcut::alt(Key::H), Action::HideExcludedGeometry),
             (Shortcut::key(Key::U), Action::QuickMaskToggle), (Shortcut::key(Key::Y), Action::QuickMaskClear), (Shortcut::key(Key::I), Action::QuickMaskInvert),
+            (Shortcut::shift(Key::Escape), Action::PauseEngine),
         ];
         for (s, a) in expect {
             assert_eq!(action_for(pa, s), Some(a), "{}", s.label());

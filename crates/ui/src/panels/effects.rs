@@ -206,7 +206,7 @@ fn row_blend(ui: &mut Ui, layer: &Layer, mask: bool, id: EffectId, active: Chann
     let combo = egui::ComboBox::from_id_salt("effect_row_blend")
         .width(60.0)
         .height(420.0)
-        .selected_text(RichText::new(mode.short_label()).font(theme::font(10.5)).color(TEXT_DIM))
+        .selected_text(RichText::new(mode.short_label()).font(theme::font(10.5)).color(TEXT_DIM()))
         .show_ui(ui, |ui| super::layers::blend_mode_list(ui, modes.iter().copied(), mode));
     let picked = combo.inner.flatten();
     let stepped = super::layers::blend_step(ui, &combo.response, egui::Id::new(("effect_blend_focus", id)), &modes, mode, picked.is_some());
@@ -304,10 +304,10 @@ pub fn rows(
             ui.add_space(indent);
             ui.spacing_mut().item_spacing.x = 4.0;
             let caret = if open { icons::CARET_DOWN } else { icons::CARET_RIGHT };
-            if ui.add(egui::Button::new(RichText::new(caret).small().color(TEXT_FAINT)).frame(false)).clicked() { open = !open; }
+            if ui.add(egui::Button::new(RichText::new(caret).small().color(TEXT_FAINT())).frame(false)).clicked() { open = !open; }
             let title = if mask_domain { "Mask effects" } else { "Content effects" };
-            if ui.add(egui::Button::new(RichText::new(title).small().color(TEXT_DIM)).frame(false)).clicked() { open = !open; }
-            ui.label(RichText::new(rows.len().to_string()).small().color(TEXT_FAINT));
+            if ui.add(egui::Button::new(RichText::new(title).small().color(TEXT_DIM())).frame(false)).clicked() { open = !open; }
+            ui.label(RichText::new(rows.len().to_string()).small().color(TEXT_FAINT()));
             ui.menu_button(RichText::new(format!("{} Add", icons::PLUS)).small(), |ui| {
                 add_effect_menu(ui, layer, mask_domain, channels, active, resolution, session, cmds)
             })
@@ -328,19 +328,19 @@ pub fn rows(
                     ui.add_space(indent);
                     ui.spacing_mut().item_spacing.x = 5.0;
                     let (eye, tip) = if row.visible { (icons::EYE, "Hide effect") } else { (icons::EYE_SLASH, "Show effect") };
-                    let eye = ui.add_sized([20.0, 22.0], egui::Button::new(RichText::new(eye).color(TEXT_FAINT)).frame(false)).on_hover_text(tip);
+                    let eye = ui.add_sized([20.0, 22.0], egui::Button::new(RichText::new(eye).color(TEXT_FAINT())).frame(false)).on_hover_text(tip);
                     if super::layers::eye_slide(ui, &eye, row.visible) {
                         cmds.push(visibility(layer, mask_domain, row.id, !row.visible));
                     }
                     let thumb = previews.image(ui, session, subcraft_app::layer_previews::PreviewKey {
                         layer:layer.id,channel:active,mask:mask_domain,effect:Some(row.id),size:64
                     }, preview_size, is_selected).on_hover_text("Result through this effect, including the steps below it. Click to edit. Hidden effects show the bypassed result.");
-                    if !row.visible {ui.painter().line_segment([thumb.rect.left_bottom(),thumb.rect.right_top()],egui::Stroke::new(1.0,TEXT_FAINT));}
+                    if !row.visible {ui.painter().line_segment([thumb.rect.left_bottom(),thumb.rect.right_top()],egui::Stroke::new(1.0,TEXT_FAINT()));}
                     if thumb.clicked() {
                         multi.clear();
                         cmds.push(Command::SelectEffect {layer:layer.id,target:domain,effect:Some(row.id)});
                     }
-                    let color = if is_selected { ACCENT } else { TEXT_DIM };
+                    let color = if is_selected { ACCENT() } else { TEXT_DIM() };
                     ui.label(RichText::new(row.icon).font(theme::font(13.0)).color(color));
                     // Blend and opacity sit at the right when the row is wide enough for them.
                     // Room for the blend dropdown, the opacity box and their spacing.
@@ -358,7 +358,7 @@ pub fn rows(
                             }
                         } else {
                             let text = row_text(&row.name, is_selected || row.visible).font(theme::font(11.5));
-                            ui.add(egui::Label::new(if row.visible { text } else { text.color(TEXT_FAINT) }).truncate().selectable(false));
+                            ui.add(egui::Label::new(if row.visible { text } else { text.color(TEXT_FAINT()) }).truncate().selectable(false));
                         }
                     });
                     if let Some((mode, opacity)) = controls {
@@ -373,8 +373,8 @@ pub fn rows(
             let x = resp.rect.left() + indent - 2.0;
             let y = resp.rect.center().y;
             let bottom = if index == 0 { y } else { resp.rect.bottom() + 1.0 };
-            ui.painter().line_segment([egui::pos2(x, resp.rect.top() - 1.0), egui::pos2(x, bottom)], egui::Stroke::new(1.0, theme::BORDER_STRONG));
-            ui.painter().line_segment([egui::pos2(x, y), egui::pos2(x + 7.0, y)], egui::Stroke::new(1.0, theme::BORDER_STRONG));
+            ui.painter().line_segment([egui::pos2(x, resp.rect.top() - 1.0), egui::pos2(x, bottom)], egui::Stroke::new(1.0, theme::BORDER_STRONG()));
+            ui.painter().line_segment([egui::pos2(x, y), egui::pos2(x + 7.0, y)], egui::Stroke::new(1.0, theme::BORDER_STRONG()));
             if resp.double_clicked() && !alt {
                 // Double-click renames (Painter); the row ends up selected whatever the first click did.
                 multi.clear();
@@ -413,11 +413,11 @@ pub fn rows(
         if rows.is_empty() {
             ui.horizontal(|ui| {
                 ui.add_space(indent);
-                ui.label(RichText::new("No effects yet").small().color(TEXT_FAINT));
+                ui.label(RichText::new("No effects yet").small().color(TEXT_FAINT()));
             });
         } else {
             let x = header.rect.left() + indent - 2.0;
-            ui.painter().line_segment([egui::pos2(x, header.rect.center().y), egui::pos2(x, header.rect.bottom())], egui::Stroke::new(1.0, theme::BORDER_STRONG));
+            ui.painter().line_segment([egui::pos2(x, header.rect.center().y), egui::pos2(x, header.rect.bottom())], egui::Stroke::new(1.0, theme::BORDER_STRONG()));
         }
     });
     match rename_done {
@@ -453,7 +453,7 @@ fn effect_drop(ui:&Ui, response:&egui::Response, target:EffectAddress, ids:&[Eff
     };
     if let Some(source)=response.dnd_hover_payload::<EffectAddress>() && valid(*source) {
         let y=if side==DropSide::Above {response.rect.top()}else{response.rect.bottom()};
-        ui.painter().line_segment([egui::pos2(response.rect.left()+indent,y),egui::pos2(response.rect.right()-4.0,y)],egui::Stroke::new(2.0,ACCENT));
+        ui.painter().line_segment([egui::pos2(response.rect.left()+indent,y),egui::pos2(response.rect.right()-4.0,y)],egui::Stroke::new(2.0,ACCENT()));
     }
     // A wrong-type release must never consume a layer or shelf payload.
     if egui::DragAndDrop::has_payload_of_type::<EffectAddress>(ui.ctx())
@@ -470,17 +470,17 @@ pub(crate) fn layer_row_drop(ui: &Ui, response: &egui::Response, layer: &Layer, 
     let valid = |source: EffectAddress| source.texture_set == session.selection().texture_set && session.selected_texture_set().find(source.layer).is_some();
     if let Some(source) = response.dnd_hover_payload::<EffectAddress>() && valid(*source) {
         let r = response.rect;
-        ui.painter().rect_stroke(r, 0.0, egui::Stroke::new(1.5, ACCENT), egui::StrokeKind::Inside);
+        ui.painter().rect_stroke(r, 0.0, egui::Stroke::new(1.5, ACCENT()), egui::StrokeKind::Inside);
         let verb = if copy { "Copy" } else { "Move" };
         let place = match (source.domain, source.layer == layer.id) {
             (_, true) => "to the top of the stack".to_string(),
             (LayerTarget::Mask, false) => format!("to the mask of {}", layer.name),
             (LayerTarget::Content, false) => format!("to {}", layer.name),
         };
-        let galley = ui.painter().layout_no_wrap(format!("{verb} {place}"), theme::font(11.0), theme::TEXT);
+        let galley = ui.painter().layout_no_wrap(format!("{verb} {place}"), theme::font(11.0), theme::TEXT());
         let pill = egui::Rect::from_min_size(egui::pos2((r.right() - galley.size().x - 14.0).max(r.left()), r.top() + 2.0), galley.size() + egui::vec2(8.0, 4.0));
-        ui.painter().rect_filled(pill, 3.0, theme::ACCENT_SOFT);
-        ui.painter().galley(pill.min + egui::vec2(4.0, 2.0), galley, theme::TEXT);
+        ui.painter().rect_filled(pill, 3.0, theme::ACCENT_SOFT());
+        ui.painter().galley(pill.min + egui::vec2(4.0, 2.0), galley, theme::TEXT());
     }
     if let Some(source) = response.dnd_release_payload::<EffectAddress>() && valid(*source) {
         let chosen = multi.targets((source.layer, source.domain), session.selected_effect());
@@ -599,7 +599,7 @@ pub fn properties(state: &mut UiState, ui: &mut Ui) -> bool {
 
 fn header(ui: &mut Ui, layer: &Layer, name: &str, target: LayerTarget, cmds: &mut Vec<Command>) {
     let domain = if target == LayerTarget::Mask { "Mask effect" } else { "Effect" };
-    ui.label(RichText::new(format!("{} · {domain}: {name}", layer.name)).font(theme::font_strong(14.0)).color(theme::TEXT));
+    ui.label(RichText::new(format!("{} · {domain}: {name}", layer.name)).font(theme::font_strong(14.0)).color(theme::TEXT()));
     let back = if target == LayerTarget::Mask { "Back to mask" } else { "Back to layer" };
     if secondary_button(ui, back).clicked() {
         cmds.push(Command::SelectEffect { layer: layer.id, target, effect: None });
@@ -632,10 +632,10 @@ fn content_editor(ui: &mut Ui, state: &mut UiState, layer: &Layer, e: &ContentEf
                 hint(ui, "The brush paints into this effect while it is selected, on paint and fill layers alike. Erasing removes only this effect's paint.");
                 ui.horizontal_wrapped(|ui| {
                     if painted.is_empty() {
-                        ui.label(RichText::new("Nothing painted yet.").small().color(TEXT_FAINT));
+                        ui.label(RichText::new("Nothing painted yet.").small().color(TEXT_FAINT()));
                     }
                     for k in painted.keys() {
-                        badge(ui, k.display_name(), TEXT_DIM);
+                        badge(ui, k.display_name(), TEXT_DIM());
                     }
                 });
             }
@@ -652,7 +652,7 @@ fn content_editor(ui: &mut Ui, state: &mut UiState, layer: &Layer, e: &ContentEf
                     if !ch.enabled { continue; }
                     let before = ch.clone();
                     ui.push_id(("effect_fill", *kind), |ui| {
-                        ui.label(RichText::new(kind.display_name()).color(theme::TEXT));
+                        ui.label(RichText::new(kind.display_name()).color(theme::TEXT()));
                         if ch.enabled {
                             let current = match ch.source {
                                 FillSource::Procedural { .. } => 1,
@@ -717,7 +717,7 @@ fn content_editor(ui: &mut Ui, state: &mut UiState, layer: &Layer, e: &ContentEf
                     .filter(|k| filter.supports_channel(**k))
                     .map(|k| (*k, *k == *channel || eff.extra_channels.contains(k)))
                     .collect();
-                ui.label(RichText::new("Channels").small().color(TEXT_DIM));
+                ui.label(RichText::new("Channels").small().color(TEXT_DIM()));
                 if let Some((kind, solo)) = super::properties::channel_toggles(ui, &states) {
                     let on = filter_channels_after_toggle(&states, kind, solo);
                     if !on.contains(channel) {

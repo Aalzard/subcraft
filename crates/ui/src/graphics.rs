@@ -64,10 +64,10 @@ pub fn controls(graphics: &mut GraphicsUi, ui: &mut egui::Ui) {
         });
         if choice != graphics.selected { graphics.select(choice); }
         ui.label(RichText::new(if graphics.restart_required() { "Restart required. Save your project, then restart SubCraft to apply." }
-            else { "Changes apply the next time SubCraft starts." }).color(crate::theme::TEXT_DIM));
+            else { "Changes apply the next time SubCraft starts." }).color(crate::theme::TEXT_DIM()));
         if graphics.environment_override { ui.label("WGPU_BACKEND overrides this preference for this run."); }
     }
-    for message in [graphics.warning.as_ref(), graphics.error.as_ref()].into_iter().flatten() { ui.add(egui::Label::new(RichText::new(message).color(crate::theme::ACCENT)).wrap()); }
+    for message in [graphics.warning.as_ref(), graphics.error.as_ref()].into_iter().flatten() { ui.add(egui::Label::new(RichText::new(message).color(crate::theme::ACCENT())).wrap()); }
     ui.add_space(12.0);
 }
 
@@ -89,7 +89,7 @@ fn gpu_control(graphics: &mut GraphicsUi, ui: &mut egui::Ui) {
         });
     });
     if choice != graphics.gpu { graphics.select_gpu(choice); }
-    ui.label(RichText::new("Automatic and High performance both try the fastest graphics card first and fall back to the next one if it fails.").color(crate::theme::TEXT_DIM));
+    ui.label(RichText::new("Automatic and High performance both try the fastest graphics card first and fall back to the next one if it fails.").color(crate::theme::TEXT_DIM()));
     if let Some(text) = &graphics.gpu_override { ui.label(format!("SUBCRAFT_GPU=\"{text}\" overrides this preference for this run.")); }
 }
 

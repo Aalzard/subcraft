@@ -38,7 +38,7 @@ Layout notes: Painter lists editable shortcuts in Settings > Shortcuts as one lo
 | Scale tool | Settings > Shortcuts | R | missing | - | - |
 | Surface tool | Settings > Shortcuts | Shift+W | missing | - | - |
 | Symmetry | Settings > Shortcuts | L | done: Symmetry on / off in both key sets, the last axes come back (as the toolbar button); X mirror alone stays on X (Shift+X in the Painter key set) | crates/app/src/actions.rs (ToggleSymmetry), paint/src/settings.rs (toggle_symmetry) | #363 |
-| Pause engine computation | Settings > Shortcuts | Shift+Escape | missing | - | - |
+| Pause engine computation | Settings > Shortcuts | Shift+Escape | done: Shift+Esc in both key sets, editable | crates/app/src/actions.rs (Action::PauseEngine) | 395 |
 
 ## Editable shortcuts: tools
 
@@ -99,7 +99,7 @@ Layout notes: these are listed in the same editable list; mouse combinations can
 |---|---|---|---|---|---|
 | Use tool / paint | Viewport | Mouse left | done | crates/ui/src/viewport.rs:318 | - |
 | Draw straight lines | Viewport | Shift+Mouse left | done | crates/ui/src/viewport.rs:326 | - |
-| Straight line preview (dotted line while Shift is held) | Viewport | shown while Shift held | missing | - | - |
+| Straight line preview (dotted line while Shift is held) | Viewport | shown while Shift held | done: from the last stroke point, snapped with Ctrl | crates/ui/src/viewport.rs (straight_line_end) | #274 |
 | Draw straight lines with snapping | Viewport | Ctrl+Shift+Mouse left; 5 degree steps | done | crates/ui/src/nav.rs (snap_line_end) | #163 |
 | Camera rotate | Viewport 3D | Alt+Mouse left | done | crates/ui/src/nav.rs:84 | - |
 | Camera snap rotate | Viewport | Alt+Shift+Mouse left; 90 degree steps | done | crates/ui/src/nav.rs (NavMode::OrbitSnap) | #163 |

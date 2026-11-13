@@ -3944,6 +3944,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "subcraft-mcp"
+version = "0.3.8"
+dependencies = [
+ "glam",
+ "image",
+ "mimalloc",
+ "serde",
+ "serde_json",
+ "subcraft-app",
+ "subcraft-assets",
+ "subcraft-bake",
+ "subcraft-core",
+ "subcraft-doc",
+ "subcraft-export",
+ "subcraft-image",
+ "subcraft-mesh",
+ "subcraft-paint",
+ "subcraft-render",
+ "subcraft-text",
+ "subcraft-ui",
+ "uuid",
+]
+
+[[package]]
 name = "subcraft-mesh"
 version = "0.3.8"
 dependencies = [

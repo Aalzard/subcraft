@@ -14,7 +14,7 @@ use crate::theme::{self, TEXT_DIM};
 use crate::widgets::{caption, divider, hint, primary_button, secondary_button, segmented};
 
 fn dim(text: &str) -> RichText {
-    RichText::new(text).color(TEXT_DIM)
+    RichText::new(text).color(TEXT_DIM())
 }
 
 fn window_title(text: &str) -> RichText {
@@ -54,6 +54,13 @@ pub struct ExportUi {
     /// Settings when the window opened, for Cancel.
     snapshot: Option<Box<ExportSnapshot>>,
     pub folder: String,
+    /// The folder used when a project has none saved: the working folder's `exports`, or
+    /// `--export-path`.
+    pub default_folder: String,
+    /// The project's saved folder and the window's folder when they were last in step (issue
+    /// #322): a different saved folder means another project was opened, a different window
+    /// folder means the user picked one.
+    folder_synced: Option<(Option<String>, String)>,
     /// Template name last stored in / read from the project settings.
     pub known_template: String,
     /// Opened from File > Export 2D view: write only what the 2D panel shows.
@@ -70,7 +77,7 @@ pub struct ExportUi {
 impl Default for ExportUi {
     fn default() -> Self {
         let folder = std::env::current_dir().map(|d| d.join("exports")).unwrap_or_else(|_| PathBuf::from("exports"));
-        Self { open: false, settings: ExportSettings::default(), preset: ExportTemplate::pbr_metal_rough().name, preset_list: None, editor: Default::default(), tab: ExportTab::default(), selected_set: None, set_overrides: BTreeMap::new(), log: Vec::new(), loaded_config: None, snapshot: None, folder: folder.display().to_string(), known_template: String::new(), view_2d_only: false, scene_format: 0, baked: Default::default(), baked_initialized: false, baked_selected_only: false }
+        Self { open: false, settings: ExportSettings::default(), preset: ExportTemplate::pbr_metal_rough().name, preset_list: None, editor: Default::default(), tab: ExportTab::default(), selected_set: None, set_overrides: BTreeMap::new(), log: Vec::new(), loaded_config: None, snapshot: None, folder: folder.display().to_string(), default_folder: folder.display().to_string(), folder_synced: None, known_template: String::new(), view_2d_only: false, scene_format: 0, baked: Default::default(), baked_initialized: false, baked_selected_only: false }
     }
 }
 
@@ -268,6 +275,30 @@ impl ExportUi {
     }
 }
 
+/// Issue #322: the export folder belongs to the project. Another project opened: take its
+/// folder (or the default when it has none). The user picked a folder: save it in the project.
+/// Merely opening the window writes nothing.
+pub fn sync_project_folder(state: &mut UiState) {
+    let s = state.session.settings();
+    let stored = s.export_folder.clone().or_else(|| s.export.as_ref().and_then(|c| c.folder.clone()));
+    let ex = &mut state.export;
+    if ex.folder_synced.as_ref().is_none_or(|(seen, _)| *seen != stored) {
+        // First look: a project without a saved folder keeps the window's folder. Another
+        // project without one: back to the default.
+        let fallback = if ex.folder_synced.is_none() { ex.folder.clone() } else { ex.default_folder.clone() };
+        ex.folder = stored.clone().unwrap_or(fallback);
+        ex.folder_synced = Some((stored, ex.folder.clone()));
+        return;
+    }
+    if ex.folder_synced.as_ref().is_some_and(|(_, seen)| *seen != ex.folder) {
+        let folder = ex.folder.clone();
+        ex.folder_synced = Some((Some(folder.clone()), folder.clone()));
+        let mut project = state.session.settings().clone();
+        project.export_folder = Some(folder);
+        state.session.set_settings(project);
+    }
+}
+
 /// Export-related project settings (what Cancel restores and Reset all clears).
 fn restore_export_settings(project: &mut subcraft_doc::ProjectSettings, from: &subcraft_doc::ProjectSettings) {
     project.normal_format = from.normal_format;
@@ -275,6 +306,7 @@ fn restore_export_settings(project: &mut subcraft_doc::ProjectSettings, from: &s
     project.export_maps_off = from.export_maps_off.clone();
     project.udim_folders = from.udim_folders;
     project.export = from.export.clone();
+    project.export_folder = from.export_folder.clone();
 }
 
 pub fn export_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
@@ -291,6 +323,7 @@ pub fn export_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
         }
         state.export.loaded_config = Some(project_config);
     }
+    sync_project_folder(state);
     if state.export.snapshot.is_none() {
         let ex = &state.export;
         state.export.snapshot = Some(Box::new(ExportSnapshot { settings: ex.settings.clone(), folder: ex.folder.clone(), preset: ex.preset.clone(), set_overrides: ex.set_overrides.clone(), project: state.session.settings().clone() }));
@@ -315,7 +348,7 @@ pub fn export_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
         state.export.selected_set = None;
     }
     let title = if view_only { "Export 2D View" } else { "Export Textures" };
-    let width = if state.export.tab == ExportTab::OutputTemplates && !view_only { 860.0 } else { 640.0 };
+    let width = if state.export.tab == ExportTab::OutputTemplates && !view_only { 1080.0 } else { 640.0 };
     let mut action = None;
     // Opened at a fixed height: a window only grows to its content a step per frame, and the
     // scrolling tab below fills the height it is given, so the button row would sit outside the
@@ -348,10 +381,23 @@ pub fn export_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
                     preset_status = Some(s);
                 }
                 ui.add_space(6.0);
-                let key = ex.preset.clone();
-                if let Some(s) = crate::export_presets::preset_editor(ui, list, &key, &mut ex.editor, &mesh_name) {
-                    preset_status = Some(s);
-                }
+                // Painter's layout: the template list on the left, the selected template's editor
+                // beside it.
+                ui.horizontal_top(|ui| {
+                    ui.allocate_ui_with_layout(egui::vec2(220.0, 420.0), egui::Layout::top_down(egui::Align::Min), |ui| {
+                        ui.set_width(220.0);
+                        if let Some(s) = crate::export_presets::template_list(ui, list, &mut ex.preset, &mut ex.editor) {
+                            preset_status = Some(s);
+                        }
+                    });
+                    ui.separator();
+                    ui.vertical(|ui| {
+                        let key = ex.preset.clone();
+                        if let Some(s) = crate::export_presets::preset_editor(ui, list, &key, &mut ex.editor, &mesh_name) {
+                            preset_status = Some(s);
+                        }
+                    });
+                });
             }
             ExportTab::ListOfExports => export_log(ui, &state.export.log),
         });
@@ -485,13 +531,13 @@ fn export_log(ui: &mut egui::Ui, log: &[ExportLogLine]) {
             }
             ui.horizontal(|ui| {
                 ui.add_space(14.0);
-                ui.add(egui::Label::new(RichText::new(&line.text).monospace().small().color(TEXT_DIM)).truncate()).on_hover_text(&line.text);
+                ui.add(egui::Label::new(RichText::new(&line.text).monospace().small().color(TEXT_DIM())).truncate()).on_hover_text(&line.text);
             });
         }
         ui.add_space(8.0);
         ui.label(caption("Console"));
         for line in log.iter().filter(|l| l.set.is_none()) {
-            ui.label(if line.error { RichText::new(&line.text).color(theme::WARNING) } else { RichText::new(&line.text) });
+            ui.label(if line.error { RichText::new(&line.text).color(theme::WARNING()) } else { RichText::new(&line.text) });
         }
     });
 }
@@ -784,7 +830,7 @@ fn export_map_list(ui: &mut egui::Ui, state: &mut UiState, settings: &ExportSett
             if ui.small_button(tr("Select all")).clicked() { click = Some(MapClick::All); }
         });
     });
-    egui::Frame::new().fill(theme::FIELD).inner_margin(egui::Margin::same(8)).show(ui, |ui| {
+    egui::Frame::new().fill(theme::FIELD()).inner_margin(egui::Margin::same(8)).show(ui, |ui| {
         egui::ScrollArea::vertical().max_height(220.0).show(ui, |ui| {
             ui.set_min_width(ui.available_width());
             let mut current: Option<&str> = None;
@@ -821,7 +867,9 @@ fn export_map_list(ui: &mut egui::Ui, state: &mut UiState, settings: &ExportSett
                             state.export.set_overrides.remove(&id);
                         }
                     }
-                    ui.add(egui::Label::new(RichText::new(&f.path).monospace().small().color(if f.enabled { TEXT_DIM } else { theme::TEXT_DIM.gamma_multiply(0.5) })).truncate()).on_hover_text(&f.path);
+                    // Painter shows each file's colour space (with colour management on).
+                    ui.label(RichText::new(f.color_space).small().color(TEXT_DIM())).on_hover_text(tr("Colour space of the file: sRGB-encoded colour, linear colour (float files) or raw data"));
+                    ui.add(egui::Label::new(RichText::new(&f.path).monospace().small().color(if f.enabled { TEXT_DIM() } else { theme::TEXT_DIM().gamma_multiply(0.5) })).truncate()).on_hover_text(&f.path);
                 });
             }
         });
@@ -913,6 +961,12 @@ pub struct BakeUi {
     pub cage_result: Option<subcraft_app::cage_check::CageCheckResult>,
     /// The current `cage_result` is on the GPU.
     pub miss_uploaded: bool,
+    /// `open` as of the last `poll_bake`, to notice Baking mode being entered.
+    was_open: bool,
+    /// The project's saved bake settings as last read or written (`None` = never synced yet).
+    synced: Option<Option<subcraft_doc::BakeConfig>>,
+    /// What the window showed when the project had no saved bake settings: written only once it differs.
+    baseline: Option<subcraft_doc::BakeConfig>,
 }
 
 impl Default for BakeUi {
@@ -923,7 +977,7 @@ impl Default for BakeUi {
             high_poly: String::new(), extra_high: Vec::new(), cage_file: String::new(), skip_sets: Default::default(), selected_baker: None, log_tab: BakeLogTab::default(), job_maps: Vec::new(), size_chosen: false, job: None, result: None, report: String::new(), notices: Vec::new(), log: Vec::new(), map_rows: Vec::new(),
             preview: true, cage: true, fit_mode: Default::default(), high_opacity: 0.55, vis: Default::default(), vis_selected_only: false, seam_edges: None, seams_uploaded: false, placement_message: None, live_maps: true, displayed_map: None, follow_maps: true, preview_mesh: None,
             preview_job: None, preview_source: None, preview_path: String::new(), preview_scene: None, preview_error: None, preview_uploaded: false, preview_checked_at: 0.,
-            miss_heatmap: false, cage_job: None, cage_result: None, miss_uploaded: false }
+            miss_heatmap: false, cage_job: None, cage_result: None, miss_uploaded: false, was_open: false, synced: None, baseline: None }
     }
 }
 
@@ -931,6 +985,28 @@ impl Default for BakeUi {
 pub const MISS_MAP_SIZE: u32 = 512;
 
 impl BakeUi {
+    /// The window's settings as the project file stores them.
+    pub fn config(&self) -> subcraft_doc::BakeConfig {
+        let files = subcraft_app::bake_config::BakeFilesConfig {
+            high_poly: self.high_poly.trim().to_string(),
+            extra_high: self.extra_high.clone(),
+            cage_file: self.cage_file.trim().to_string(),
+            size: self.size_chosen.then_some(self.settings.size),
+            skip_sets: self.skip_sets.iter().copied().collect(),
+        };
+        subcraft_app::bake_config::to_config(&self.settings, &files)
+    }
+
+    /// Show a saved configuration in the window.
+    pub fn apply_config(&mut self, config: &subcraft_doc::BakeConfig) {
+        let files = subcraft_app::bake_config::apply(config, &mut self.settings);
+        self.high_poly = files.high_poly;
+        self.extra_high = files.extra_high;
+        self.cage_file = files.cage_file;
+        self.size_chosen = files.size.is_some();
+        self.skip_sets = files.skip_sets.into_iter().collect();
+    }
+
     pub fn preview_pending(&self) -> bool { self.preview_job.is_some() }
     /// The heatmap is drawn: toggled on, the overlay is showing, and a check has finished.
     pub fn heatmap_shown(&self) -> bool { self.miss_heatmap && self.overlay_active() && self.cage_result.is_some() }
@@ -965,8 +1041,55 @@ fn poll_cage_check(state: &mut UiState, ctx: &egui::Context) {
 }
 
 /// Apply results of a running bake (call every frame).
-pub fn poll_bake(state: &mut UiState, ctx: &egui::Context, now: f64) {
+/// Keep the Bake window's settings and the project's saved copy in step (issue #320): a project
+/// loaded (or replaced) puts its saved settings into the window, and changes in the window are
+/// written to the project. Opening the window alone changes nothing in the project.
+fn sync_bake_config(state: &mut UiState) {
+    let stored = state.session.settings().bake.clone();
     let b = &mut state.bake;
+    if b.synced.as_ref() != Some(&stored) {
+        let previous = b.synced.take().flatten();
+        b.baseline = None;
+        match (&stored, previous) {
+            (Some(config), _) => b.apply_config(config),
+            // From a project with saved settings to one without: the window's defaults. A high
+            // poly given since then (New Project's) stays, and is saved like any change.
+            (None, Some(old)) => {
+                let fresh = (b.high_poly.trim() != old.high_poly).then(|| b.high_poly.clone());
+                let defaults = BakeUi::default().config();
+                b.apply_config(&defaults);
+                if let Some(high) = fresh {
+                    b.high_poly = high;
+                    b.baseline = Some(defaults);
+                }
+            }
+            (None, None) => {}
+        }
+        if b.baseline.is_none() { b.baseline = Some(b.config()); }
+        b.synced = Some(stored);
+        return;
+    }
+    if !b.open { return; }
+    let current = b.config();
+    let saved = stored.as_ref().or(b.baseline.as_ref());
+    if saved != Some(&current) {
+        let mut project = state.session.settings().clone();
+        project.bake = Some(current.clone());
+        state.session.set_settings(project);
+        state.bake.synced = Some(Some(current));
+    }
+}
+
+pub fn poll_bake(state: &mut UiState, ctx: &egui::Context, now: f64) {
+    sync_bake_config(state);
+    let b = &mut state.bake;
+    // Entering Baking mode again after a bake: show the high / low overlay again (issue #323).
+    // A finished bake hides it so its maps show on the model, until the mode is left.
+    if b.open && !b.was_open && b.job.is_none() {
+        b.result = None;
+        b.displayed_map = None;
+    }
+    b.was_open = b.open;
     let scene = &state.session.scene().mesh;
     let scene_changed = b.preview_scene.as_ref().is_some_and(|m| !std::sync::Arc::ptr_eq(m, scene));
     if b.preview_scene.is_none() { b.preview_scene = Some(scene.clone()); }
@@ -1064,7 +1187,7 @@ impl BakeFrame {
 
 /// Title of a baking panel, in capitals like the docked panels.
 fn panel_title(ui: &mut egui::Ui, text: &str) {
-    ui.label(RichText::new(text.to_uppercase()).font(theme::font_strong(11.5)).color(TEXT_DIM));
+    ui.label(RichText::new(text.to_uppercase()).font(theme::font_strong(11.5)).color(TEXT_DIM()));
     ui.add_space(4.0);
 }
 
@@ -1098,7 +1221,7 @@ pub fn bake_mode(state: &mut UiState, ui: &mut egui::Ui, now: f64) {
     let busy = state.bake.job.is_some();
     let mut select_set = None;
     let mut quick = None;
-    let side = || egui::Frame::new().fill(theme::BG_1).inner_margin(egui::Margin::same(8));
+    let side = || egui::Frame::new().fill(theme::BG_1()).inner_margin(egui::Margin::same(8));
     egui::Panel::left("bake_left").default_size(300.0).size_range(240.0..=420.0).frame(side()).show(ui, |ui| {
         egui::ScrollArea::vertical().id_salt("bake_left_scroll").auto_shrink([false, false]).show(ui, |ui| {
             ui.add_enabled_ui(!busy, |ui| {
@@ -1124,11 +1247,11 @@ pub fn bake_mode(state: &mut UiState, ui: &mut egui::Ui, now: f64) {
     let (mut go, mut leave) = (false, false);
     egui::Area::new(egui::Id::new("bake_actions")).order(egui::Order::Middle).pivot(egui::Align2::CENTER_BOTTOM)
         .fixed_pos(egui::pos2(views.center().x, views.bottom() - 16.0)).show(ui.ctx(), |ui| {
-        egui::Frame::new().fill(theme::BG_2).corner_radius(8).inner_margin(egui::Margin::same(8)).show(ui, |ui| {
+        egui::Frame::new().fill(theme::BG_2()).corner_radius(8).inner_margin(egui::Margin::same(8)).show(ui, |ui| {
             ui.horizontal(|ui| {
                 match &state.bake.job {
                     Some(job) => {
-                        ui.add(egui::ProgressBar::new(job.fraction()).desired_width(220.0).show_percentage().fill(theme::ACCENT));
+                        ui.add(egui::ProgressBar::new(job.fraction()).desired_width(220.0).show_percentage().fill(theme::ACCENT()));
                         if secondary_button(ui, tr("Cancel")).clicked() { job.cancel(); }
                     }
                     None => {
@@ -1329,6 +1452,28 @@ fn map_settings_panel(ui: &mut egui::Ui, b: &mut BakeUi) {
             })
             .response
             .on_hover_text(tr("Where the ID map takes its colors: the model's vertex colors or material colors, or one generated color per mesh element or per object. With a high poly, its colors are used."));
+            if s.id_source == IdSource::VertexColor {
+                // How many sets the loaded high poly has (unknown for low on low).
+                let sets = b.preview_mesh.as_ref().map(|m| m.color_set_count());
+                let s = &mut b.settings;
+                ui.horizontal(|ui| {
+                    ui.label(dim(tr("Vertex color set")));
+                    let max = sets.filter(|n| *n > 0).map_or(7, |n| n as u32 - 1).max(s.vertex_color_set);
+                    egui::ComboBox::from_id_salt("bake_vertex_color_set").selected_text(format!("{}", s.vertex_color_set + 1)).show_ui(ui, |ui| {
+                        for set in 0..=max {
+                            ui.selectable_value(&mut s.vertex_color_set, set, format!("{} (COLOR_{set})", set + 1));
+                        }
+                    });
+                })
+                .response
+                .on_hover_text(tr("Which of the model's vertex color sets the ID map reads (glTF / GLB files can have several)"));
+                match sets {
+                    Some(0) => hint(ui, tr("The high poly has no vertex colors.")),
+                    Some(n) => { ui.label(RichText::new(crate::i18n::trf("The high poly has {} vertex color set(s).", &[&n])).small().color(theme::TEXT_FAINT())); }
+                    None => {}
+                }
+            }
+            let s = &mut b.settings;
             if matches!(s.id_source, IdSource::MeshId | IdSource::Submesh) {
                 option_row(ui, "bake_id_generator", tr("Color generator"), &mut s.id_generator, &IdGenerator::ALL, IdGenerator::label);
             }
@@ -1387,7 +1532,7 @@ fn common_settings(ui: &mut egui::Ui, b: &mut BakeUi, f: &BakeFrame, bake_match:
     // Maps below the texture set's resolution look blocky: default to the largest ticked set.
     let target_res = f.sets.iter().filter(|s| !b.skip_sets.contains(&s.0)).map(|s| s.3).max().unwrap_or(1024).clamp(256, 4096);
     // --- Models -------------------------------------------------------------------
-    card(ui, theme::ACCENT_DIM, |ui| {
+    card(ui, theme::ACCENT_DIM(), |ui| {
         ui.set_width(ui.available_width());
         card_title(ui, icons::CUBE, tr("Models"), |_| {});
         egui::Grid::new("bake_sources").num_columns(2).spacing([16.0, 12.0]).show(ui, |ui| {
@@ -1408,7 +1553,7 @@ fn common_settings(ui: &mut egui::Ui, b: &mut BakeUi, f: &BakeFrame, bake_match:
             if has_high { bake_match_rows(ui, bake_match); }
         });
         if b.preview_pending() { ui.add_space(4.0); ui.label(dim(tr("Loading high-poly preview…"))); }
-        if let Some(error) = &b.preview_error { ui.add_space(4.0); ui.add(egui::Label::new(RichText::new(error).color(theme::WARNING)).wrap()); }
+        if let Some(error) = &b.preview_error { ui.add_space(4.0); ui.add(egui::Label::new(RichText::new(error).color(theme::WARNING())).wrap()); }
         if has_high {
             let mut remove = None;
             for (i, path) in b.extra_high.iter().enumerate() {
@@ -1434,7 +1579,7 @@ fn common_settings(ui: &mut egui::Ui, b: &mut BakeUi, f: &BakeFrame, bake_match:
     });
     // --- Placement ----------------------------------------------------------------
     if has_high {
-        card(ui, theme::ACCENT, |ui| {
+        card(ui, theme::ACCENT(), |ui| {
             ui.set_width(ui.available_width());
             card_title(ui, icons::SELECTION, tr("Placement"), |_| {});
             crate::placement::placement_section(ui, placement, f.low_box, f.high_box, &mut b.fit_mode, &mut b.high_opacity, &mut b.placement_message);
@@ -1499,7 +1644,7 @@ fn common_settings(ui: &mut egui::Ui, b: &mut BakeUi, f: &BakeFrame, bake_match:
         }
     });
     // --- Viewport -----------------------------------------------------------------
-    card(ui, theme::ACCENT_DIM, |ui| {
+    card(ui, theme::ACCENT_DIM(), |ui| {
         ui.set_width(ui.available_width());
         card_title(ui, icons::EYE, tr("Viewport"), |_| {});
         ui.horizontal(|ui| {
@@ -1539,7 +1684,7 @@ fn common_settings(ui: &mut egui::Ui, b: &mut BakeUi, f: &BakeFrame, bake_match:
                 (None, None) => String::new(),
             };
             if !text.is_empty() {
-                let color = if b.cage_result.as_ref().is_some_and(|r| r.missed > 0) && b.cage_job.is_none() { theme::WARNING } else { TEXT_DIM };
+                let color = if b.cage_result.as_ref().is_some_and(|r| r.missed > 0) && b.cage_job.is_none() { theme::WARNING() } else { TEXT_DIM() };
                 ui.add(egui::Label::new(egui::RichText::new(text).color(color)).wrap());
             }
             hint(ui, tr("Gray: rays reach the high poly · Red: rays miss it · Lower the high-poly opacity to see the heatmap underneath."));
@@ -1549,7 +1694,7 @@ fn common_settings(ui: &mut egui::Ui, b: &mut BakeUi, f: &BakeFrame, bake_match:
 
 /// Baking visualization settings: which meshes the overlay draws, and in which colours.
 fn visualization_settings(ui: &mut egui::Ui, b: &mut BakeUi) {
-    egui::CollapsingHeader::new(RichText::new(tr("Visualization settings")).color(TEXT_DIM)).id_salt("bake_vis").default_open(false).show(ui, |ui| {
+    egui::CollapsingHeader::new(RichText::new(tr("Visualization settings")).color(TEXT_DIM())).id_salt("bake_vis").default_open(false).show(ui, |ui| {
         let mut hide = !b.preview;
         if ui.checkbox(&mut hide, tr("Hide baking meshes")).on_hover_text(tr("Show the model as it is painted instead of the high / low overlay")).changed() {
             b.preview = !hide;
@@ -1566,7 +1711,7 @@ fn visualization_settings(ui: &mut egui::Ui, b: &mut BakeUi) {
             };
             color_row(ui, Some(&mut b.vis.show_high), tr("High poly mesh"), &mut b.vis.high_color);
             color_row(ui, Some(&mut b.vis.show_low), tr("Project mesh"), &mut b.vis.low_color);
-            ui.label(RichText::new(tr("The project mesh shows where the high poly does not cover it: its color marks the matching errors.")).small().color(theme::TEXT_FAINT));
+            ui.label(RichText::new(tr("The project mesh shows where the high poly does not cover it: its color marks the matching errors.")).small().color(theme::TEXT_FAINT()));
             color_row(ui, Some(&mut b.cage), tr("Cage wireframe"), &mut b.vis.cage_color);
             crate::widgets::slider_row(ui, tr("Cage wireframe opacity"), egui::Slider::new(&mut b.vis.cage_opacity, 0.0..=1.0));
             color_row(ui, Some(&mut b.vis.show_cage_surface), tr("Cage surface"), &mut b.vis.cage_surface_color);
@@ -1584,7 +1729,7 @@ fn visualization_settings(ui: &mut egui::Ui, b: &mut BakeUi) {
                 };
                 let warn = b.seam_edges.as_ref().is_some_and(|(_, e)| !e.is_empty());
                 if !text.is_empty() {
-                    ui.add(egui::Label::new(RichText::new(text).small().color(if warn { theme::WARNING } else { theme::TEXT_FAINT })).wrap());
+                    ui.add(egui::Label::new(RichText::new(text).small().color(if warn { theme::WARNING() } else { theme::TEXT_FAINT() })).wrap());
                 }
             }
             // The color buttons round a color in its last bits each frame: compare with a tolerance.
@@ -1603,7 +1748,7 @@ fn visualization_settings(ui: &mut egui::Ui, b: &mut BakeUi) {
 fn bake_log_panel(ui: &mut egui::Ui, b: &mut BakeUi, f: &BakeFrame) {
     use crate::icons;
     ui.horizontal_wrapped(|ui| {
-        ui.label(RichText::new(tr("Baking log").to_uppercase()).font(theme::font_strong(11.5)).color(TEXT_DIM));
+        ui.label(RichText::new(tr("Baking log").to_uppercase()).font(theme::font_strong(11.5)).color(TEXT_DIM()));
         ui.add_space(12.0);
         for (tab, label) in [(BakeLogTab::Process, tr("Baking process")), (BakeLogTab::HighPoly, tr("High poly parameters")), (BakeLogTab::Matching, tr("Matching by name"))] {
             if ui.selectable_label(b.log_tab == tab, label).clicked() { b.log_tab = tab; }
@@ -1611,7 +1756,7 @@ fn bake_log_panel(ui: &mut egui::Ui, b: &mut BakeUi, f: &BakeFrame) {
     });
     ui.add_space(4.0);
     let warning = |ui: &mut egui::Ui, text: &str| {
-        ui.add(egui::Label::new(RichText::new(format!("{}  {text}", icons::WARNING)).color(theme::WARNING)).wrap());
+        ui.add(egui::Label::new(RichText::new(format!("{}  {text}", icons::WARNING)).color(theme::WARNING())).wrap());
     };
     egui::ScrollArea::vertical().id_salt("bake_log_tab").auto_shrink([false, false]).show(ui, |ui| match b.log_tab {
         BakeLogTab::Process => {
@@ -1619,8 +1764,8 @@ fn bake_log_panel(ui: &mut egui::Ui, b: &mut BakeUi, f: &BakeFrame) {
                 ui.label(dim(&job.stage()));
             } else if let Some(result) = &b.result {
                 match result {
-                    Ok(n) => { ui.label(RichText::new(format!("{}  {}", icons::CHECK, crate::i18n::trf("Bake complete: {} texture set(s)", &[n]))).color(crate::bake_view::OK_GREEN)); }
-                    Err(e) => { ui.add(egui::Label::new(RichText::new(format!("{}  {}: {e}", icons::WARNING, tr("Bake failed"))).color(theme::WARNING)).wrap()); }
+                    Ok(n) => { ui.label(RichText::new(format!("{}  {}", icons::CHECK, crate::i18n::trf("Bake complete: {} texture set(s)", &[n]))).color(crate::bake_view::OK_GREEN())); }
+                    Err(e) => { ui.add(egui::Label::new(RichText::new(format!("{}  {}: {e}", icons::WARNING, tr("Bake failed"))).color(theme::WARNING())).wrap()); }
                 }
             } else if b.map_rows.is_empty() && b.log.is_empty() {
                 ui.label(dim(tr("Nothing baked yet in this session.")));
@@ -1672,7 +1817,7 @@ fn bake_log_section(ui: &mut egui::Ui, lines: &[subcraft_app::BakeLogLine]) {
     if lines.is_empty() { return; }
     let problems = lines.iter().filter(|l| l.level != BakeLogLevel::Info).count();
     let title = if problems == 0 { tr("Details").to_string() } else { format!("{} ({problems} warning(s) or error(s))", tr("Details")) };
-    egui::CollapsingHeader::new(RichText::new(title).color(TEXT_DIM)).id_salt("bake_log").default_open(false).show(ui, |ui| {
+    egui::CollapsingHeader::new(RichText::new(title).color(TEXT_DIM())).id_salt("bake_log").default_open(false).show(ui, |ui| {
         if ui.small_button(tr("Copy log")).on_hover_text(tr("Copies the whole log as plain text")).clicked() {
             ui.ctx().copy_text(subcraft_app::bake_log_text(lines));
         }
@@ -1680,9 +1825,9 @@ fn bake_log_section(ui: &mut egui::Ui, lines: &[subcraft_app::BakeLogLine]) {
             for line in lines {
                 let text = RichText::new(line.plain()).monospace().size(11.0);
                 let text = match line.level {
-                    BakeLogLevel::Info => text.color(theme::TEXT_DIM),
-                    BakeLogLevel::Warning => text.color(theme::WARNING),
-                    BakeLogLevel::Error => text.color(egui::Color32::from_rgb(235, 100, 100)),
+                    BakeLogLevel::Info => text.color(theme::TEXT_DIM()),
+                    BakeLogLevel::Warning => text.color(theme::WARNING()),
+                    BakeLogLevel::Error => text.color(theme::ERROR()),
                 };
                 ui.add(egui::Label::new(text).wrap());
             }
@@ -1779,6 +1924,70 @@ mod bake_tests {
         poll_bake(&mut state, &ctx, 1.);
         assert!(state.bake.preview_mesh.is_none());
         assert!(state.bake.result.is_none());
+    }
+
+    /// Issue #323: after a bake, leaving Baking mode and entering it again showed the model
+    /// with its maps instead of the high / low overlay, even after picking the high poly again.
+    #[test]
+    fn reentering_baking_mode_after_a_bake_shows_the_overlay_again() {
+        let ctx = egui::Context::default();
+        let mut state = UiState::new(Session::new(subcraft_mesh::primitives::plane(2., 1), 128), None);
+        state.bake.open = true;
+        state.bake.preview_path = "high.obj".into();
+        state.bake.high_poly = "high.obj".into();
+        state.bake.preview_scene = Some(state.session.scene().mesh.clone());
+        state.bake.preview_mesh = Some(std::sync::Arc::new(subcraft_mesh::primitives::cube(2.)));
+        poll_bake(&mut state, &ctx, 0.);
+        assert!(state.bake.overlay_active(), "the overlay before baking");
+        // A bake finished: its maps show on the model while the mode stays open.
+        state.bake.result = Some(Ok(1));
+        poll_bake(&mut state, &ctx, 1.);
+        assert!(!state.bake.overlay_active() && state.bake.result.is_some(), "after the bake, the maps on the model");
+        // Leave and come back.
+        state.bake.open = false;
+        poll_bake(&mut state, &ctx, 2.);
+        state.bake.open = true;
+        poll_bake(&mut state, &ctx, 3.);
+        assert!(state.bake.overlay_active(), "the overlay is back");
+        assert!(state.bake.preview_mesh.is_some(), "the high poly stays loaded, no reload needed");
+    }
+
+    /// Issue #320: the Bake window's settings are saved with the project and come back with it.
+    #[test]
+    fn bake_settings_are_saved_with_the_project_and_restored() {
+        let ctx = egui::Context::default();
+        let mut state = UiState::new(Session::new(subcraft_mesh::primitives::plane(2., 1), 128), None);
+        poll_bake(&mut state, &ctx, 0.);
+        assert!(state.session.settings().bake.is_none(), "nothing is written before a change");
+        state.bake.open = true;
+        poll_bake(&mut state, &ctx, 0.1);
+        assert!(state.session.settings().bake.is_none(), "opening the window changes nothing");
+        // Change what Painter would keep: the files, the size, the maps and per-map options.
+        state.bake.high_poly = "/models/crate_high.glb".into();
+        state.bake.settings.size = 2048;
+        state.bake.size_chosen = true;
+        state.bake.settings.maps = vec![subcraft_core::MeshMapKind::Normal, subcraft_core::MeshMapKind::Id];
+        state.bake.settings.ao_samples = 128;
+        state.bake.settings.id_source = subcraft_bake::IdSource::VertexColor;
+        poll_bake(&mut state, &ctx, 0.2);
+        let saved = state.session.settings().bake.clone().expect("written to the project");
+        assert_eq!(saved.high_poly, "/models/crate_high.glb");
+        assert_eq!((saved.size, saved.ao_samples, saved.id_source.as_str()), (Some(2048), 128, "vertex_color"));
+        // A new window state (the app restarted) and the project loaded again.
+        let settings = state.session.settings().clone();
+        let mut reopened = UiState::new(Session::new(subcraft_mesh::primitives::plane(2., 1), 128), None);
+        reopened.session.set_settings(settings);
+        poll_bake(&mut reopened, &ctx, 0.);
+        let b = &reopened.bake;
+        assert_eq!(b.high_poly, "/models/crate_high.glb");
+        assert!(b.size_chosen && b.settings.size == 2048);
+        assert_eq!(b.settings.maps, vec![subcraft_core::MeshMapKind::Normal, subcraft_core::MeshMapKind::Id]);
+        assert_eq!((b.settings.ao_samples, b.settings.id_source), (128, subcraft_bake::IdSource::VertexColor));
+        // Another project without saved settings: back to the window's defaults.
+        reopened.session.set_settings(Default::default());
+        poll_bake(&mut reopened, &ctx, 1.);
+        assert!(reopened.bake.high_poly.is_empty() && !reopened.bake.size_chosen);
+        assert_eq!(reopened.bake.settings.ao_samples, BakeUi::default().settings.ao_samples);
     }
 
     fn draw(state: &mut UiState, ctx: &egui::Context, events: Vec<egui::Event>) -> egui::FullOutput {

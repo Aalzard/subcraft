@@ -216,3 +216,30 @@ fn tabs_save_settings_cancel_and_texture_set_overrides() {
     let out = frame(&mut state, &ctx, vec![], Default::default());
     assert!(position(&out, "Settings left on Global follow Global settings.").is_some());
 }
+
+/// Issue #322: the export folder is kept with the project. Opening the window saves nothing;
+/// picking a folder saves it; another project's folder is taken when it is opened, and a project
+/// without one gets the default folder.
+#[test]
+fn the_export_folder_is_saved_with_the_project() {
+    let (mut state, ctx) = setup();
+    assert_eq!(state.session.settings().export_folder, None, "opening the window saves nothing");
+    assert!(!state.session.is_modified());
+    state.export.folder = "/work/hero/textures".into();
+    frame(&mut state, &ctx, vec![], Default::default());
+    assert_eq!(state.session.settings().export_folder.as_deref(), Some("/work/hero/textures"));
+    assert!(state.session.is_modified(), "the project has a change to save");
+    // Another project, with its own folder.
+    let mut other = state.session.settings().clone();
+    other.export_folder = Some("/work/robot/out".into());
+    state.session.set_settings(other);
+    frame(&mut state, &ctx, vec![], Default::default());
+    assert_eq!(state.export.folder, "/work/robot/out");
+    // A project without a saved folder: the default (the working folder's exports, or --export-path).
+    let mut none = state.session.settings().clone();
+    none.export_folder = None;
+    state.session.set_settings(none);
+    frame(&mut state, &ctx, vec![], Default::default());
+    assert_eq!(state.export.folder, state.export.default_folder);
+}
+

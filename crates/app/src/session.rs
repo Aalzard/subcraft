@@ -252,6 +252,8 @@ pub struct Session {
     mesh_dirty: bool,
     /// Symmetry axes the L key (Painter's Symmetry on / off) switched off, restored by the next L.
     saved_symmetry: Option<([bool; 3], bool)>,
+    /// Painter's Pause engine computation: the incremental compositing waits while set.
+    engine_paused: bool,
 }
 
 /// Everything a project file holds, captured cheaply (shared tiles and resources) so it can be
@@ -268,6 +270,16 @@ impl ProjectSnapshot {
     pub fn save(&self, path: &Path) -> Result<(), String> {
         subcraft_project::save_project_with(path, &self.mesh, &self.document, &self.resources, &self.mesh_maps, &self.settings).map_err(|e| e.to_string())
     }
+}
+
+/// Whether two project settings differ only in their saved view (which is not an edit).
+fn same_settings_but_view(a: &subcraft_doc::ProjectSettings, b: &subcraft_doc::ProjectSettings) -> bool {
+    if a.view == b.view {
+        return a == b;
+    }
+    let mut a = a.clone();
+    a.view = b.view;
+    a == *b
 }
 
 impl Session {
@@ -342,6 +354,7 @@ impl Session {
             recovered: false,
             mesh_dirty: false,
             saved_symmetry: None,
+            engine_paused: false,
         }
     }
 
@@ -427,7 +440,9 @@ impl Session {
     pub fn is_modified(&self) -> bool {
         crate::unsaved::is_dirty(crate::unsaved::DirtyInputs {
             document_changed: self.doc != self.saved_doc,
-            settings_changed: self.settings != self.saved_settings,
+            // The saved view (camera, 2D pan) travels with the project but moving around is
+            // not an edit.
+            settings_changed: !same_settings_but_view(&self.settings, &self.saved_settings),
             maps_changed: self.maps_dirty,
             mesh_changed: self.mesh_dirty,
             from_recovery: self.recovered,
@@ -437,6 +452,12 @@ impl Session {
     /// Project-wide settings (export choices, normal format), saved with the project.
     pub fn settings(&self) -> &subcraft_doc::ProjectSettings {
         &self.settings
+    }
+
+    /// Store the view (3D camera, 2D pan and zoom) to save with the project. Never marks the
+    /// project as modified.
+    pub fn set_view_state(&mut self, view: Option<subcraft_doc::ViewState>) {
+        self.settings.view = view;
     }
 
     /// Replace the project settings. Not undoable; marks the project as modified.
@@ -646,7 +667,7 @@ impl Session {
     /// edit: does not mark the project modified.
     pub fn set_mesh_source(&mut self, path: &Path) {
         let source = Some(path.display().to_string());
-        let unchanged = self.settings == self.saved_settings;
+        let unchanged = same_settings_but_view(&self.settings, &self.saved_settings);
         self.settings.mesh_source = source.clone();
         if unchanged {
             self.saved_settings.mesh_source = source;
@@ -672,7 +693,7 @@ impl Session {
             .filter(subcraft_doc::SceneCamera::is_valid)
             .collect();
         let count = cameras.len();
-        let unchanged = self.settings == self.saved_settings;
+        let unchanged = same_settings_but_view(&self.settings, &self.saved_settings);
         self.settings.cameras = cameras.clone();
         if unchanged {
             self.saved_settings.cameras = cameras;
@@ -954,7 +975,21 @@ impl Session {
         if layers.iter().any(|&l| self.texture_set_of(l) != Some(set)) {
             return Err(CommandError::Invalid("The selected layers are in different texture sets".into()));
         }
+        // Layers inside an instance are its source's: the next sync undoes any change to them
+        // (QA 2026-11: hiding or deleting several left an empty undo step; grouping one out of
+        // an instance gave two layers with the same id). The instance itself is fine.
+        if layers.iter().any(|&l| self.inside_instance_content(l)) {
+            return Err(CommandError::Invalid(INSTANCE_READ_ONLY.into()));
+        }
         Ok(set)
+    }
+
+    /// Whether `layer` is inside an instance (not the instance layer itself).
+    fn inside_instance_content(&self, layer: LayerId) -> bool {
+        self.texture_set_of(layer)
+            .and_then(|ts| self.doc.texture_set(ts))
+            .and_then(|ts| subcraft_doc::instance::root_of(ts, layer))
+            .is_some_and(|root| root != layer)
     }
     pub fn resources(&self) -> &ResourceStore {
         &self.resources
@@ -1765,6 +1800,25 @@ impl Session {
                 self.selection.layer = at;
                 self.commit("Paste as Instance", None);
             }
+            Command::BreakInstances(layers) => {
+                let layers = if layers.is_empty() { self.all_instances() } else { layers };
+                let mut broken = 0;
+                for ts in self.doc.texture_sets.iter_mut() {
+                    for &id in &layers {
+                        // Layers inside an instance belong to its copy: only the instance itself has a link to break.
+                        if subcraft_doc::instance::root_of(ts, id) == Some(id)
+                            && let Some(l) = ts.find_mut(id)
+                        {
+                            l.instance_of = None;
+                            broken += 1;
+                        }
+                    }
+                }
+                if broken == 0 {
+                    return Err(CommandError::Invalid("No instance to make independent".into()));
+                }
+                self.commit(if broken == 1 { "Break Instance Link" } else { "Break Instance Links" }, None);
+            }
             Command::InstantiateAcross { layers, texture_sets } => {
                 let found = self.instance_sources(&layers);
                 if found.is_empty() {
@@ -1964,6 +2018,10 @@ impl Session {
                 let set = self.texture_set_of(first).ok_or(CommandError::LayerNotFound)?;
                 if ids.iter().any(|&id| self.texture_set_of(id) != Some(set)) {
                     return Err(CommandError::Invalid("the layers to group are in different texture sets".into()));
+                }
+                // The guard below covers `first` only.
+                if ids.iter().any(|&id| self.inside_instance_content(id)) {
+                    return Err(CommandError::Invalid(INSTANCE_READ_ONLY.into()));
                 }
                 let folder = self.edit_layer_set(first, "Group Layers", None, |ts| {
                     // Bottom to top, as stored. A layer inside another selected folder moves with that folder.
@@ -2532,6 +2590,7 @@ impl Session {
             Action::BrushLarger => self.brush.settings.size = (self.brush.settings.size * 1.15).min(100.0),
             Action::ToggleSymmetryX => self.brush.options.symmetry[0] = !self.brush.options.symmetry[0],
             Action::ToggleSymmetry => self.brush.options.toggle_symmetry(&mut self.saved_symmetry),
+            Action::PauseEngine => self.engine_paused = !self.engine_paused,
             Action::ToggleLazyMouse => {
                 let o = &mut self.brush.options;
                 o.lazy_distance_px = if o.lazy_distance_px > 0.0 { 0.0 } else { 20.0 };
@@ -3079,7 +3138,22 @@ impl Session {
     /// worker (started on the first call) and whatever it finished since the last call is
     /// returned; [`Session::composites_pending`] says whether more is coming. Where no worker
     /// thread is running, up to about `budget` worth of tiles is evaluated here instead.
+    /// Whether layer computation is paused (Shift+Esc).
+    pub fn engine_paused(&self) -> bool {
+        self.engine_paused
+    }
+
+    /// Pause or resume the incremental layer computation. While paused,
+    /// [`Session::update_composites_within`] computes and publishes nothing and the pending work
+    /// waits; the full [`Session::update_composites`] (export, save) still computes.
+    pub fn set_engine_paused(&mut self, paused: bool) {
+        self.engine_paused = paused;
+    }
+
     pub fn update_composites_within(&mut self, budget: Option<std::time::Duration>) -> Vec<CompositeUpdate> {
+        if self.engine_paused {
+            return Vec::new();
+        }
         if self.worker.is_none() && !self.inline_only {
             // An exact synchronous composite may already exist (for example after export).
             // Adopting unchanged caches publishes no tiles, so retain their displayed values.

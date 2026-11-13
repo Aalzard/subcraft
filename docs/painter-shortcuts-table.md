@@ -24,7 +24,7 @@
 | Manipulator | `R` | Scale tool |  | no equivalent | no manipulator |
 | Manipulator | `Shift+W` | Surface tool |  | no equivalent | no equivalent |
 | Tools | `L` | Symmetry | ToggleSymmetry | added (key was free) | symmetry on / off; the last axes come back, as with the toolbar button |
-| Tools | `Shift+Esc` | Pause engine computation |  | no equivalent | no engine pause |
+| Tools | `Shift+Esc` | Pause engine computation | PauseEngine | added (key was free) | layer computation waits (the 3D view says so) until Shift+Esc again; export and save still compute |
 | Tools | `1` | Paint tool | BrushTool | added (key was free) | B kept as well in the SubCraft key set |
 | Tools | `Ctrl+1` | Paint tool + Particles |  | no equivalent | no particle tool (scatter lives in brush settings) |
 | Tools | `2` | Eraser tool | EraserTool | added (key was free) | E kept as well |

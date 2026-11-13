@@ -390,6 +390,7 @@ pub fn save_project(path: &Path, mesh: &Mesh, doc: &Document, resources: &Resour
 
 /// Like [`save_project`], with the project settings.
 pub fn save_project_with(path: &Path, mesh: &Mesh, doc: &Document, resources: &ResourceStore, mesh_maps: &MeshMapSet, settings: &subcraft_doc::ProjectSettings) -> Result<(), ProjectError> {
+    let settings = &settings_for_file(settings, path);
     let tmp = temp_path(path);
     let result = (|| -> Result<(), ProjectError> {
         let file = std::fs::File::create(&tmp)?;
@@ -404,6 +405,60 @@ pub fn save_project_with(path: &Path, mesh: &Mesh, doc: &Document, resources: &R
         let _ = std::fs::remove_file(&tmp);
     }
     result
+}
+
+/// Whether `p` is an absolute path on any platform (`/x`, `\\server`, `C:\x`, `C:/x`), so a
+/// project saved on one system doesn't read another system's absolute path as relative.
+fn looks_absolute(p: &str) -> bool {
+    let b = p.as_bytes();
+    p.starts_with('/') || p.starts_with('\\') || (b.len() >= 3 && b[0].is_ascii_alphabetic() && b[1] == b':' && (b[2] == b'/' || b[2] == b'\\'))
+}
+
+/// An export folder as written in the project file at `project`: relative to the project file's
+/// folder (with `/`) when it is inside it, else unchanged.
+pub fn folder_for_file(folder: &str, project: &Path) -> String {
+    let Some(dir) = project.parent().filter(|d| !d.as_os_str().is_empty()) else { return folder.to_string() };
+    match Path::new(folder).strip_prefix(dir) {
+        Ok(rel) if Path::new(folder).is_absolute() => {
+            let parts: Vec<String> = rel.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect();
+            if parts.is_empty() { ".".to_string() } else { parts.join("/") }
+        }
+        _ => folder.to_string(),
+    }
+}
+
+/// An export folder read from the project file at `project`: a relative one is under the project
+/// file's folder.
+pub fn folder_from_file(stored: &str, project: &Path) -> String {
+    if looks_absolute(stored) {
+        return stored.to_string();
+    }
+    let dir = project.parent().unwrap_or(Path::new(""));
+    let mut out = dir.to_path_buf();
+    for part in stored.split(['/', '\\']).filter(|p| !p.is_empty() && *p != ".") {
+        out.push(part);
+    }
+    out.display().to_string()
+}
+
+/// The settings as written in the project file at `path` (export folders made relative).
+fn settings_for_file(settings: &subcraft_doc::ProjectSettings, path: &Path) -> subcraft_doc::ProjectSettings {
+    let mut s = settings.clone();
+    s.export_folder = s.export_folder.map(|f| folder_for_file(&f, path));
+    if let Some(c) = &mut s.export {
+        c.folder = c.folder.take().map(|f| folder_for_file(&f, path));
+    }
+    s
+}
+
+/// The settings read from the project file at `path` (export folders made absolute).
+fn settings_from_file(mut data: ProjectData, path: &Path) -> ProjectData {
+    let s = &mut data.settings;
+    s.export_folder = s.export_folder.take().map(|f| folder_from_file(&f, path));
+    if let Some(c) = &mut s.export {
+        c.folder = c.folder.take().map(|f| folder_from_file(&f, path));
+    }
+    data
 }
 
 fn temp_path(path: &Path) -> PathBuf {
@@ -696,7 +751,7 @@ fn decode_rasters(path: &Path) -> BTreeMap<String, TiledImage> {
 /// [`read_project`] for a file this program wrote itself and must get back unchanged, whatever
 /// parameter values it holds (the Painter import cache).
 pub fn load_project_trusted(path: &Path) -> Result<ProjectData, ProjectError> {
-    read_project_checked(std::io::BufReader::new(std::fs::File::open(path)?), true, decode_rasters(path))
+    read_project_checked(std::io::BufReader::new(std::fs::File::open(path)?), true, decode_rasters(path)).map(|d| settings_from_file(d, path))
 }
 
 fn read_project_checked<R: Read + Seek>(r: R, trusted: bool, decoded: BTreeMap<String, TiledImage>) -> Result<ProjectData, ProjectError> {
@@ -764,7 +819,7 @@ fn read_project_checked<R: Read + Seek>(r: R, trusted: bool, decoded: BTreeMap<S
 
 pub fn load_project(path: &Path) -> Result<ProjectData, ProjectError> {
     let file = std::io::BufReader::new(std::fs::File::open(path)?);
-    read_project_checked(file, false, decode_rasters(path))
+    read_project_checked(file, false, decode_rasters(path)).map(|d| settings_from_file(d, path))
 }
 
 #[cfg(test)]
