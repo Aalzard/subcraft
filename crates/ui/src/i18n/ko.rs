@@ -911,4 +911,5 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Degrees about X, Y, Z (applied in that order)", "X, Y, Z 축 기준 각도(이 순서로 적용)"),
     ("Size of the projection box on X, Y, Z; with Shape crop on, a planar projection reaches as deep as its scale along the projection axis", "X, Y, Z 방향의 투영 상자 크기입니다. 모양 자르기를 켜면 평면 투영은 투영 축 방향 스케일만큼의 깊이까지 닿습니다"),
     ("X, Y, Z in units of the model's bounding box; 0 is centred", "모델 경계 상자 단위의 X, Y, Z 값이며 0이 중앙입니다"),
+    ("Viewport mode: both views, one of them, or swap them (F1 to F4 in the Painter keys)", "뷰포트 모드: 두 뷰 모두, 그중 하나, 또는 서로 바꾸기 (Painter 키에서 F1~F4)"),
 ];

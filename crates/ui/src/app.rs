@@ -383,6 +383,31 @@ pub fn is_front(dock: &DockState<Tab>, tab: Tab) -> bool {
     dock.find_tab(&tab).is_some_and(|path| dock[path.surface][path.node].get_leaf().is_some_and(|leaf| leaf.active == path.tab))
 }
 
+impl ViewLayout {
+    /// The layouts offered by the Viewport Mode dropdown, in Painter's order (F1..F4).
+    pub const MENU: [ViewLayout; 4] = [ViewLayout::Both, ViewLayout::Only3d, ViewLayout::Only2d, ViewLayout::Swap];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            ViewLayout::Both => tr("3D | 2D"),
+            ViewLayout::Only3d => tr("3D only"),
+            ViewLayout::Only2d => tr("2D only"),
+            ViewLayout::Swap => tr("Swap 3D and 2D"),
+        }
+    }
+}
+
+/// The layout the docks show: both views side by side, or the one in front of the other.
+pub fn current_view_layout(dock: &DockState<Tab>) -> ViewLayout {
+    if is_side_by_side(dock) {
+        ViewLayout::Both
+    } else if is_front(dock, Tab::UvView) {
+        ViewLayout::Only2d
+    } else {
+        ViewLayout::Only3d
+    }
+}
+
 pub fn apply_view_layout(dock: &mut DockState<Tab>, layout: ViewLayout) {
     match layout {
         ViewLayout::Both => if !is_side_by_side(dock) { toggle_side_by_side(dock) },
@@ -464,6 +489,15 @@ mod layout_tests {
     #[test]
     fn f_frames_the_view_under_the_pointer_or_both() {
         assert_eq!(frame_targets(true, false), (true, false));
+        // The Viewport Mode dropdown reads the layout back from the docks.
+        let mut dock = DockState::new(vec![Tab::Viewport, Tab::UvView]);
+        apply_view_layout(&mut dock, ViewLayout::Both);
+        assert_eq!(current_view_layout(&dock), ViewLayout::Both);
+        apply_view_layout(&mut dock, ViewLayout::Only2d);
+        assert_eq!(current_view_layout(&dock), ViewLayout::Only2d);
+        apply_view_layout(&mut dock, ViewLayout::Swap);
+        assert_eq!(current_view_layout(&dock), ViewLayout::Only3d, "swapping tabbed views brings the 3D view to the front");
+        assert_eq!(ViewLayout::MENU.len(), 4);
         assert_eq!(frame_targets(false, true), (false, true));
         assert_eq!(frame_targets(false, false), (true, true), "over a panel: both views");
         // QA 2026-11: a view no longer drawn kept its last hover, and F framed it instead of the
@@ -2247,6 +2281,11 @@ impl eframe::App for SubcraftApp {
             p.ui_begin(&mut self.state, &ctx);
         }
         self.state.recovery.prefs.apply_ui_size(&ctx);
+        // The contextual toolbar's Viewport Mode dropdown asks; the docks live here.
+        if let Some(layout) = self.state.view_layout_request.take() {
+            apply_view_layout(&mut self.dock, layout);
+        }
+        self.state.view_layout = current_view_layout(&self.dock);
         // Preferences holds the language picker: its native names need the CJK fonts even in English.
         crate::i18n::sync_fonts(&ctx, self.state.recovery.prefs.language, self.state.recovery.show_prefs);
         self.frames += 1;
