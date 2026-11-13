@@ -38,6 +38,7 @@ use wgpu::util::DeviceExt;
 
 pub use egui_wgpu;
 pub use egui_wgpu::wgpu as wgpu_api;
+pub use bake_preview::BakeVisualization;
 pub use gpu_mesh::GpuMesh;
 pub use grid::{GridParams, grid_step};
 pub use subcraft_doc::display::ChannelComponent;
@@ -167,6 +168,8 @@ pub struct ViewParams {
     /// Placement matrix of the high poly in the overlay, and its opacity (1 = solid).
     pub bake_high_transform: Mat4,
     pub bake_high_opacity: f32,
+    /// What the bake overlay draws and its colours.
+    pub bake_vis: BakeVisualization,
     pub bake_distances: [f32; 2],
     /// Show a raw baked map on the low-poly UVs without changing material textures.
     pub bake_map: Option<MeshMapKind>,
@@ -267,7 +270,7 @@ impl ViewParams {
             taa_frame: 0,
             view_mode: ViewMode::Material,
             grid: None,
-            bake_overlay: false, bake_cage: true, bake_miss_heatmap: false, bake_high_transform: Mat4::IDENTITY, bake_high_opacity: 1.0, bake_distances: [0.01; 2], bake_map: None, symmetry_guides: false, wireframe: false,
+            bake_overlay: false, bake_cage: true, bake_miss_heatmap: false, bake_high_transform: Mat4::IDENTITY, bake_high_opacity: 1.0, bake_vis: BakeVisualization::default(), bake_distances: [0.01; 2], bake_map: None, symmetry_guides: false, wireframe: false,
             post: PostParams::default(),
             solo_channel: None,
             mask_view: false,
@@ -1043,7 +1046,7 @@ impl ViewportRenderer {
         if params.symmetry_guides && let Some(guides) = &self.symmetry { guides.prepare_lines(queue, params.proj * params.view); }
         if params.wireframe && let Some(wire) = &self.wireframe { wire.prepare_lines(queue, params.proj * params.view); }
         if params.bake_overlay {
-            self.bake_preview.prepare(queue, params.proj * params.view, params.bake_distances, params.bake_high_transform, params.bake_high_opacity, params.bake_miss_heatmap);
+            self.bake_preview.prepare(queue, params.proj * params.view, params.bake_distances, params.bake_high_transform, params.bake_high_opacity, params.bake_miss_heatmap, &params.bake_vis);
         }
         if let Some(grid) = params.grid {
             self.grid.prepare(device, queue, params.proj * params.view, params.eye, grid);
@@ -1086,7 +1089,7 @@ impl ViewportRenderer {
                 pass.draw(0..3, 0..1);
             }
             if params.bake_overlay {
-                self.bake_preview.draw(&mut pass, samples > 1, params.bake_cage);
+                self.bake_preview.draw(&mut pass, samples > 1, params.bake_cage, &params.bake_vis);
             } else if let Some(mesh) = &self.mesh {
                 pass.set_bind_group(0, &self.globals_bg, &[]);
                 pass.set_vertex_buffer(0, mesh.vertices.slice(..));

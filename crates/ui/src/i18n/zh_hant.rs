@@ -907,4 +907,12 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Brush outline", "筆刷輪廓"),
     ("Crosshair", "十字準星"),
     ("Shown in the popup over the view (Esc closes it)", "顯示於視圖上方的彈出視窗中 (按 Esc 關閉)"),
+    ("Hide baking meshes", "隱藏烘焙網格"),
+    ("Show the model as it is painted instead of the high / low overlay", "顯示繪製中的模型，而非高模 / 低模疊加"),
+    ("High poly mesh", "高模網格"),
+    ("Project mesh", "專案網格"),
+    ("The project mesh shows where the high poly does not cover it: its color marks the matching errors.", "高模未覆蓋之處會露出專案網格：其顏色標示比對錯誤。"),
+    ("Cage wireframe", "包覆線框"),
+    ("Cage wireframe opacity", "包覆線框不透明度"),
+    ("Reset colors", "重設顏色"),
 ];

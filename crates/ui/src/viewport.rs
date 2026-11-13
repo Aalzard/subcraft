@@ -570,6 +570,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 params.bake_high_transform = state.session.settings().bake_placement.matrix((low.min, low.max), (high.bounds.min, high.bounds.max));
             }
             params.bake_high_opacity = state.bake.high_opacity;
+            params.bake_vis = state.bake.vis;
             params.bake_distances = [state.bake.settings.cage_front, state.bake.settings.cage_rear];
             // The mesh map viewer (View > Mesh maps, B): a baked map raw on the model.
             if !bake_mode { params.bake_map = state.recovery.prefs.viewport.mesh_map; }

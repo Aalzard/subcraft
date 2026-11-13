@@ -1,5 +1,6 @@
 //! Display-only high/low depth comparison. Both meshes use their original object coordinates.
-//! The nearest surface wins: blue high poly, red exposed low poly. Cage lines use the baker's
+//! The nearest surface wins: blue high poly, red exposed low poly (colours and what is drawn
+//! come from [`BakeVisualization`]). Cage lines use the baker's
 //! exact front/rear distances; this is an inspection aid, not a watertight-volume validity test.
 //! With the ray-miss heatmap on, the low poly is drawn from per-texture-set miss maps on its UVs:
 //! gray where the baker's projection ray reaches the high poly, red where it misses.
@@ -17,7 +18,27 @@ use crate::{SAMPLE_COUNT, target};
 struct Vertex { position: [f32; 3], normal: [f32; 3], color: [f32; 4], uv_low: [f32; 3] }
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
-struct Uniforms { view_proj: [[f32; 4]; 4], model: [[f32; 4]; 4], cage: [f32; 4] }
+struct Uniforms { view_proj: [[f32; 4]; 4], model: [[f32; 4]; 4], cage: [f32; 4], tint: [f32; 4], line: [f32; 4] }
+
+/// What the bake overlay shows and in which colours (the Baking visualization settings).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BakeVisualization {
+    /// Draw the high-poly mesh.
+    pub show_high: bool,
+    /// Draw the project (low-poly) mesh.
+    pub show_low: bool,
+    pub high_color: [f32; 3],
+    /// The low poly where it shows through the high poly: the matching error colour.
+    pub low_color: [f32; 3],
+    pub cage_color: [f32; 3],
+    pub cage_opacity: f32,
+}
+
+impl Default for BakeVisualization {
+    fn default() -> Self {
+        Self { show_high: true, show_low: true, high_color: [0.035, 0.23, 0.65], low_color: [0.65, 0.035, 0.025], cage_color: [0.55, 0.65, 0.72], cage_opacity: 0.28 }
+    }
+}
 
 pub(crate) struct BakePreviewPass {
     layout: wgpu::BindGroupLayout,
@@ -149,23 +170,28 @@ impl BakePreviewPass {
         }
     }
 
-    pub fn prepare(&self, queue: &wgpu::Queue, view_proj: Mat4, distances: [f32; 2], high_model: Mat4, high_opacity: f32, heatmap: bool) {
+    pub fn prepare(&self, queue: &wgpu::Queue, view_proj: Mat4, distances: [f32; 2], high_model: Mat4, high_opacity: f32, heatmap: bool, vis: &BakeVisualization) {
         let vp = view_proj.to_cols_array_2d();
+        let rgb = |c: [f32; 3]| [c[0], c[1], c[2], 1.0];
+        let line = [vis.cage_color[0], vis.cage_color[1], vis.cage_color[2], vis.cage_opacity.clamp(0.0, 1.0)];
         queue.write_buffer(&self.uniform, 0, bytemuck::bytes_of(&Uniforms {
             view_proj: vp, model: Mat4::IDENTITY.to_cols_array_2d(),
             cage: [distances[0] * self.diagonal, distances[1] * self.diagonal, 1., if heatmap { 1. } else { 0. }],
+            tint: rgb(vis.low_color), line,
         }));
         queue.write_buffer(&self.uniform_high, 0, bytemuck::bytes_of(&Uniforms {
-            view_proj: vp, model: high_model.to_cols_array_2d(), cage: [0., 0., high_opacity.clamp(0.05, 1.), 0.],
+            view_proj: vp, model: high_model.to_cols_array_2d(), cage: [0., 0., high_opacity.clamp(0.05, 1.), 0.], tint: rgb(vis.high_color), line,
         }));
     }
-    pub fn draw(&self, pass: &mut wgpu::RenderPass<'_>, antialias: bool, show_cage: bool) {
+    pub fn draw(&self, pass: &mut wgpu::RenderPass<'_>, antialias: bool, show_cage: bool, vis: &BakeVisualization) {
         let (Some(vertices), Some(indices)) = (&self.vertices, &self.indices) else { return };
         pass.set_pipeline(&self.surfaces[usize::from(antialias)]);
         pass.set_bind_group(0, &self.group, &[]);
         pass.set_vertex_buffer(0, vertices.slice(..));
         pass.set_index_buffer(indices.slice(..), wgpu::IndexFormat::Uint32);
-        if self.miss_groups.is_empty() {
+        if !vis.show_low {
+            // The project mesh is hidden.
+        } else if self.miss_groups.is_empty() {
             pass.draw_indexed(0..self.low_index_count, 0, 0..1);
         } else {
             for (range, slot) in &self.low_ranges {
@@ -173,8 +199,10 @@ impl BakePreviewPass {
                 pass.draw_indexed(range.clone(), 0, 0..1);
             }
         }
-        pass.set_bind_group(0, &self.group_high, &[]);
-        pass.draw_indexed(self.low_index_count..self.count, 0, 0..1);
+        if vis.show_high {
+            pass.set_bind_group(0, &self.group_high, &[]);
+            pass.draw_indexed(self.low_index_count..self.count, 0, 0..1);
+        }
         if show_cage && let Some(cage) = &self.cage {
             pass.set_pipeline(&self.lines[usize::from(antialias)]);
             pass.set_bind_group(0, &self.group, &[]);

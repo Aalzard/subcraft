@@ -907,4 +907,12 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Crosshair", "십자선"),
     ("Shown in the popup over the view (Esc closes it)", "뷰 위의 팝업에 표시됨 (Esc로 닫기)"),
     ("Zoom speed", "확대/축소 속도"),
+    ("Hide baking meshes", "베이크 메시 숨기기"),
+    ("Show the model as it is painted instead of the high / low overlay", "하이 / 로우 오버레이 대신 칠하는 모델을 표시합니다"),
+    ("High poly mesh", "하이 폴리 메시"),
+    ("Project mesh", "프로젝트 메시"),
+    ("The project mesh shows where the high poly does not cover it: its color marks the matching errors.", "하이 폴리가 덮지 않는 곳에 프로젝트 메시가 보입니다: 그 색상이 매칭 오류를 표시합니다."),
+    ("Cage wireframe", "케이지 와이어프레임"),
+    ("Cage wireframe opacity", "케이지 와이어프레임 불투명도"),
+    ("Reset colors", "색상 재설정"),
 ];
