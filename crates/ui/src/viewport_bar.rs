@@ -424,7 +424,6 @@ pub(crate) const INLINE_MIN_WIDTH: f32 = 1140.0;
 /// beside the 92-wide View combo, and the one that also fits the 150-wide combo that shows
 /// "Baked Normal Map" in full. Measured by the brush_bar test.
 const EXTRAS_MIN_WIDTH: f32 = 600.0;
-const WIDE_VIEW_COMBO_MIN_WIDTH: f32 = 660.0;
 
 /// View and brush settings share the top strip. Narrow docks use a second row, then menus.
 pub fn show(ui: &mut Ui, state: &mut crate::state::UiState) {
@@ -443,7 +442,6 @@ pub fn show(ui: &mut Ui, state: &mut crate::state::UiState) {
             let width = ui.available_width();
             let inline = width >= INLINE_MIN_WIDTH;
             ui.spacing_mut().item_spacing = egui::vec2(7.0, 6.0);
-            let channels: Vec<_> = state.session.selected_texture_set().channel_kinds().collect();
             ui.horizontal(|ui| {
                 if width < 520.0 {
                     ui.menu_button(tr("View"), |ui| {
@@ -451,7 +449,7 @@ pub fn show(ui: &mut Ui, state: &mut crate::state::UiState) {
                         let prefs = &mut state.recovery.prefs.viewport;
                         ui.checkbox(&mut prefs.antialias, tr("Anti-aliasing"));
                         ui.checkbox(&mut prefs.orthographic, tr("Orthographic"));
-                        ui.horizontal(|ui| view_mode(ui, prefs, &channels, false));
+                        viewport_mode(ui, state);
                     });
                     grid_control(ui, &mut state.recovery.prefs.viewport);
                     crate::view_extras::wireframe_control(ui, &mut state.recovery.prefs.viewport);
@@ -526,9 +524,8 @@ fn view_controls(ui: &mut Ui, state: &mut crate::state::UiState, width: f32) {
     ui.checkbox(&mut prefs.orthographic, tr("Ortho"))
         .on_hover_text(tr("Orthographic · no perspective: parallel lines stay parallel"));
     ui.separator();
-    let channels: Vec<_> = state.session.selected_texture_set().channel_kinds().collect();
+    viewport_mode(ui, state);
     let prefs = &mut state.recovery.prefs.viewport;
-    view_mode(ui, prefs, &channels, width >= WIDE_VIEW_COMBO_MIN_WIDTH);
     grid_control(ui, prefs);
     // Wireframe and camera buttons would push the row past a narrow dock's edge.
     if width >= EXTRAS_MIN_WIDTH {
@@ -644,6 +641,26 @@ pub(crate) fn resolution(ui: &mut Ui, prefs: &mut ViewportPrefs) {
         })
         .response
         .on_hover_text(tr("Render the 3D view at a lower resolution to make it faster"));
+}
+
+/// Painter's Viewport Mode dropdown (contextual toolbar): the 3D / 2D layouts of F1..F4. The
+/// app applies the choice on its next frame.
+fn viewport_mode(ui: &mut Ui, state: &mut crate::state::UiState) {
+    // Narrow: the shown labels are short (3D | 2D, 3D only, 2D only) and the row must still fit
+    // a 540-point dock (tests/brush_bar.rs).
+    egui::ComboBox::from_id_salt("viewport_layout_mode")
+        .width(76.0)
+        .selected_text(state.view_layout.label())
+        .show_ui(ui, |ui| {
+            for layout in crate::app::ViewLayout::MENU {
+                let on = layout == state.view_layout;
+                if ui.selectable_label(on, layout.label()).clicked() {
+                    state.view_layout_request = Some(layout);
+                }
+            }
+        })
+        .response
+        .on_hover_text(tr("Viewport mode: both views, one of them, or swap them (F1 to F4 in the Painter keys)"));
 }
 
 /// The view mode dropdown, sectioned like Painter's: Lighting (the material), Single channel (one

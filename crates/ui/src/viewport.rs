@@ -845,6 +845,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         if state.bake.overlay_active() { format!("Blue: high poly · Red: exposed low poly · Pale: cage · {orbit} · Wheel zoom") }
         else { bake_hint.clone().unwrap_or_else(|| format!("Baking mesh maps · {orbit} · Wheel zoom")) }
     } else { String::new() };
+    let mut hint_plate = None;
     if bake_mode {
         pill(&painter, rect.left_bottom() + egui::vec2(10.0, -10.0), egui::Align2::LEFT_BOTTOM, &hint, theme::TEXT_FAINT);
     } else if state.recovery.prefs.viewport.hints {
@@ -862,7 +863,12 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             picking_parts: parts_picking,
             text_armed,
         };
-        crate::viewport_hints::draw(&painter, rect, &crate::viewport_hints::cached(ui.ctx(), c));
+        hint_plate = crate::viewport_hints::draw(&painter, rect, &crate::viewport_hints::cached(ui.ctx(), c));
+    }
+    // The grid's unit, bottom left while the grid is on: just above the hints when they show.
+    let grid_on = state.recovery.prefs.viewport.grid;
+    if !bake_mode && grid_on && let Some(step) = subcraft_render::grid_step(state.session.scene().mesh.bounds) {
+        pill(&painter, grid_readout_anchor(rect, hint_plate), egui::Align2::LEFT_BOTTOM, &grid_unit_label(step), theme::TEXT_FAINT);
     }
     let mut right = rect.right_top() + egui::vec2(-10.0, 10.0);
     if state.tool != Tool::Pen && state.session.brush.options.has_symmetry() {
@@ -926,6 +932,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         state.highlight_slot = Some(hit.material_slot);
         ui.ctx().request_repaint();
     }
+    display_corner(state, ui, rect, bake_mode);
     camera_corner(state, ui, rect, bake_mode);
     if state.painting || response.dragged() {
         ui.ctx().request_repaint();
@@ -966,13 +973,33 @@ fn rendering_toggle(state: &mut UiState, ui: &Ui, rect: Rect, bake_mode: bool) {
 
 /// Painter's camera dropdown in the 3D view's top-right corner, only when the project has
 /// imported cameras: Default camera or one of them, with a lock beside it.
+/// Height taken by the display-mode dropdown at the 3D view's top right (the camera dropdown
+/// sits below it).
+const DISPLAY_CORNER_HEIGHT: f32 = 32.0;
+
+/// Painter's display-mode dropdown at the 3D view's top right: material, each channel of the
+/// selected texture set, the baked-normal views and the mesh maps.
+fn display_corner(state: &mut UiState, ui: &Ui, rect: Rect, bake_mode: bool) {
+    if bake_mode {
+        return;
+    }
+    let channels: Vec<_> = state.session.selected_texture_set().channel_kinds().collect();
+    egui::Area::new(ui.id().with("display_corner"))
+        .pivot(egui::Align2::RIGHT_TOP)
+        .fixed_pos(rect.right_top() + egui::vec2(-10.0, 40.0))
+        .constrain_to(rect)
+        .show(ui.ctx(), |ui| {
+            ui.horizontal(|ui| crate::viewport_bar::view_mode(ui, &mut state.recovery.prefs.viewport, &channels, true));
+        });
+}
+
 fn camera_corner(state: &mut UiState, ui: &Ui, rect: Rect, bake_mode: bool) {
     if bake_mode || state.session.scene_cameras().is_empty() {
         return;
     }
     egui::Area::new(ui.id().with("camera_corner"))
         .pivot(egui::Align2::RIGHT_TOP)
-        .fixed_pos(rect.right_top() + egui::vec2(-10.0, 40.0))
+        .fixed_pos(rect.right_top() + egui::vec2(-10.0, 40.0 + DISPLAY_CORNER_HEIGHT))
         .constrain_to(rect)
         .show(ui.ctx(), |ui| {
             ui.horizontal(|ui| {
@@ -1168,9 +1195,14 @@ fn visualization_overlays(state: &UiState, painter: &egui::Painter, rect: Rect, 
     if prefs.axis_indicator {
         draw_axis_indicator(painter, rect.right_bottom() + egui::vec2(-44.0, -78.0), state.camera.view());
     }
-    // The grid's unit, where the hints are not (they own the bottom-left corner when shown).
-    if prefs.grid && !prefs.hints && let Some(step) = subcraft_render::grid_step(state.session.scene().mesh.bounds) {
-        pill(painter, rect.left_bottom() + egui::vec2(10.0, -10.0), egui::Align2::LEFT_BOTTOM, &grid_unit_label(step), theme::TEXT_FAINT);
+}
+
+/// Bottom-left corner of the grid unit read-out: the view's corner, or just above the hints
+/// plate when the hints show.
+pub fn grid_readout_anchor(view: Rect, hints: Option<Rect>) -> Pos2 {
+    match hints {
+        Some(plate) => egui::pos2(view.left() + 10.0, plate.top() - 6.0),
+        None => view.left_bottom() + egui::vec2(10.0, -10.0),
     }
 }
 
@@ -1424,6 +1456,16 @@ mod tests {
         // Turning it off forgets the average.
         assert_eq!(taa_step(&mut s, &moved, None, (1, false)), Some(0));
         assert_eq!(s, TaaState::default());
+    }
+
+    #[test]
+    fn the_grid_readout_sits_in_the_corner_or_above_the_hints() {
+        let view = Rect::from_min_size(egui::pos2(100.0, 50.0), egui::vec2(800.0, 600.0));
+        assert_eq!(grid_readout_anchor(view, None), egui::pos2(110.0, 640.0));
+        let plate = Rect::from_min_max(egui::pos2(110.0, 560.0), egui::pos2(400.0, 640.0));
+        let above = grid_readout_anchor(view, Some(plate));
+        assert_eq!(above, egui::pos2(110.0, 554.0));
+        assert!(above.y < plate.top(), "never on the hints");
     }
 
     #[test]
