@@ -40,6 +40,16 @@ regex-lite.workspace = true
 web-time.workspace = true
 pollster.workspace = true
 
+# Native pen tablet input (issue #82): the same crates and versions winit already uses.
+[target.'cfg(target_os = "linux")'.dependencies]
+raw-window-handle = "0.6"
+# dlopen: no hard link to libwayland-client, so X11-only systems still start.
+wayland-backend = { version = "0.3", features = ["client_system", "dlopen"] }
+wayland-client = "0.31"
+wayland-protocols = { version = "0.32", features = ["client"] }
+wayland-cursor = "0.31"
+x11rb = { version = "0.13", features = ["xinput"] }
+
 [dev-dependencies]
 subcraft-mesh.workspace = true
 rayon.workspace = true

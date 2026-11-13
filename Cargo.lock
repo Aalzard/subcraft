@@ -4068,6 +4068,7 @@ dependencies = [
  "log",
  "mimalloc",
  "pollster 0.4.0",
+ "raw-window-handle",
  "rayon",
  "regex-lite",
  "rfd",
@@ -4086,8 +4087,13 @@ dependencies = [
  "subcraft-paint",
  "subcraft-render",
  "subcraft-text",
+ "wayland-backend",
+ "wayland-client",
+ "wayland-cursor",
+ "wayland-protocols",
  "web-time",
  "winit",
+ "x11rb",
 ]
 
 [[package]]

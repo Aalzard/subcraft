@@ -37,6 +37,7 @@ pub mod pen;
 pub mod paths_panel;
 pub mod placement;
 pub mod pen_input;
+pub mod tablet;
 pub mod text_panel;
 pub mod panels;
 pub mod recovery;
