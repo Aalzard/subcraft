@@ -70,6 +70,12 @@ pub struct ProjectSettings {
     /// the window's defaults, so no schema bump is needed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub export: Option<ExportConfig>,
+    /// The Export window's output folder for this project (issue #322), kept whenever it is
+    /// changed. Absolute while the project is open; in the file it is relative to the project
+    /// file's folder when inside it (so a moved project folder keeps working), absolute otherwise
+    /// (see `subcraft_project`). `None` = the window's default folder.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub export_folder: Option<String>,
 }
 
 /// One texture set's export settings replacing the Export window's global ones (Painter's

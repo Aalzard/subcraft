@@ -255,6 +255,62 @@ fn file_save_is_atomic_and_overwrites() {
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
+/// Issue #322: the export folder is saved with the project, relative to the project file when it
+/// is inside the project's folder (so moving the whole folder keeps it), absolute otherwise.
+#[test]
+fn export_folder_is_saved_relative_inside_the_project_folder_and_absolute_outside() {
+    let root = std::env::temp_dir().join(format!("subcraft-export-folder-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let (a, b, elsewhere) = (root.join("a"), root.join("b"), root.join("shared").join("out"));
+    std::fs::create_dir_all(&a).unwrap();
+    std::fs::create_dir_all(&b).unwrap();
+    let mesh = primitives::sample_crate();
+    let doc = rich_document();
+    let save = |path: &std::path::Path, folder: &std::path::Path, saved_too: bool| {
+        let mut s = subcraft_doc::ProjectSettings { export_folder: Some(folder.display().to_string()), ..Default::default() };
+        if saved_too {
+            s.export = Some(subcraft_doc::ExportConfig { folder: s.export_folder.clone(), ..Default::default() });
+        }
+        save_project_with(path, &mesh, &doc, &ResourceStore::default(), &MeshMapSet::new(), &s).unwrap();
+    };
+    // Inside: stored relative, read back absolute.
+    let inside = a.join("textures").join("hero");
+    save(&a.join("p.subcraft"), &inside, true);
+    let back = load_project(&a.join("p.subcraft")).unwrap();
+    assert_eq!(back.settings.export_folder.as_deref(), Some(inside.display().to_string().as_str()));
+    assert_eq!(back.settings.export.as_ref().and_then(|c| c.folder.as_deref()), Some(inside.display().to_string().as_str()), "the Save settings copy too");
+    // The project folder moved: the export folder moves with it.
+    std::fs::copy(a.join("p.subcraft"), b.join("p.subcraft")).unwrap();
+    let moved = load_project(&b.join("p.subcraft")).unwrap();
+    assert_eq!(moved.settings.export_folder, Some(b.join("textures").join("hero").display().to_string()));
+    // Outside the project's folder: kept absolute.
+    save(&a.join("q.subcraft"), &elsewhere, false);
+    std::fs::copy(a.join("q.subcraft"), b.join("q.subcraft")).unwrap();
+    assert_eq!(load_project(&b.join("q.subcraft")).unwrap().settings.export_folder, Some(elsewhere.display().to_string()));
+    // No folder saved: none read back.
+    save_project_with(&a.join("r.subcraft"), &mesh, &doc, &ResourceStore::default(), &MeshMapSet::new(), &Default::default()).unwrap();
+    assert_eq!(load_project(&a.join("r.subcraft")).unwrap().settings.export_folder, None);
+    std::fs::remove_dir_all(&root).ok();
+}
+
+#[test]
+fn export_folder_paths_convert_for_the_file() {
+    let project = std::path::Path::new(if cfg!(windows) { r"C:\work\hero\hero.subcraft" } else { "/work/hero/hero.subcraft" });
+    let dir = project.parent().unwrap();
+    let inside = dir.join("out").join("maps").display().to_string();
+    assert_eq!(folder_for_file(&inside, project), "out/maps");
+    assert_eq!(folder_for_file(&dir.display().to_string(), project), ".");
+    assert_eq!(folder_from_file("out/maps", project), inside);
+    assert_eq!(folder_from_file(".", project), dir.display().to_string());
+    // Another system's absolute paths stay as they are.
+    for abs in ["/srv/textures", r"D:\textures", "D:/textures", r"\\nas\textures"] {
+        assert_eq!(folder_from_file(abs, project), abs, "{abs}");
+    }
+    // A sibling folder that only starts with the same letters is not inside.
+    let sibling = dir.parent().unwrap().join("hero-out").display().to_string();
+    assert_eq!(folder_for_file(&sibling, project), sibling);
+}
+
 #[test]
 fn rejects_newer_schema_and_non_projects() {
     let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));

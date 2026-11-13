@@ -54,6 +54,13 @@ pub struct ExportUi {
     /// Settings when the window opened, for Cancel.
     snapshot: Option<Box<ExportSnapshot>>,
     pub folder: String,
+    /// The folder used when a project has none saved: the working folder's `exports`, or
+    /// `--export-path`.
+    pub default_folder: String,
+    /// The project's saved folder and the window's folder when they were last in step (issue
+    /// #322): a different saved folder means another project was opened, a different window
+    /// folder means the user picked one.
+    folder_synced: Option<(Option<String>, String)>,
     /// Template name last stored in / read from the project settings.
     pub known_template: String,
     /// Opened from File > Export 2D view: write only what the 2D panel shows.
@@ -70,7 +77,7 @@ pub struct ExportUi {
 impl Default for ExportUi {
     fn default() -> Self {
         let folder = std::env::current_dir().map(|d| d.join("exports")).unwrap_or_else(|_| PathBuf::from("exports"));
-        Self { open: false, settings: ExportSettings::default(), preset: ExportTemplate::pbr_metal_rough().name, preset_list: None, editor: Default::default(), tab: ExportTab::default(), selected_set: None, set_overrides: BTreeMap::new(), log: Vec::new(), loaded_config: None, snapshot: None, folder: folder.display().to_string(), known_template: String::new(), view_2d_only: false, scene_format: 0, baked: Default::default(), baked_initialized: false, baked_selected_only: false }
+        Self { open: false, settings: ExportSettings::default(), preset: ExportTemplate::pbr_metal_rough().name, preset_list: None, editor: Default::default(), tab: ExportTab::default(), selected_set: None, set_overrides: BTreeMap::new(), log: Vec::new(), loaded_config: None, snapshot: None, folder: folder.display().to_string(), default_folder: folder.display().to_string(), folder_synced: None, known_template: String::new(), view_2d_only: false, scene_format: 0, baked: Default::default(), baked_initialized: false, baked_selected_only: false }
     }
 }
 
@@ -268,6 +275,30 @@ impl ExportUi {
     }
 }
 
+/// Issue #322: the export folder belongs to the project. Another project opened: take its
+/// folder (or the default when it has none). The user picked a folder: save it in the project.
+/// Merely opening the window writes nothing.
+pub fn sync_project_folder(state: &mut UiState) {
+    let s = state.session.settings();
+    let stored = s.export_folder.clone().or_else(|| s.export.as_ref().and_then(|c| c.folder.clone()));
+    let ex = &mut state.export;
+    if ex.folder_synced.as_ref().is_none_or(|(seen, _)| *seen != stored) {
+        // First look: a project without a saved folder keeps the window's folder. Another
+        // project without one: back to the default.
+        let fallback = if ex.folder_synced.is_none() { ex.folder.clone() } else { ex.default_folder.clone() };
+        ex.folder = stored.clone().unwrap_or(fallback);
+        ex.folder_synced = Some((stored, ex.folder.clone()));
+        return;
+    }
+    if ex.folder_synced.as_ref().is_some_and(|(_, seen)| *seen != ex.folder) {
+        let folder = ex.folder.clone();
+        ex.folder_synced = Some((Some(folder.clone()), folder.clone()));
+        let mut project = state.session.settings().clone();
+        project.export_folder = Some(folder);
+        state.session.set_settings(project);
+    }
+}
+
 /// Export-related project settings (what Cancel restores and Reset all clears).
 fn restore_export_settings(project: &mut subcraft_doc::ProjectSettings, from: &subcraft_doc::ProjectSettings) {
     project.normal_format = from.normal_format;
@@ -275,6 +306,7 @@ fn restore_export_settings(project: &mut subcraft_doc::ProjectSettings, from: &s
     project.export_maps_off = from.export_maps_off.clone();
     project.udim_folders = from.udim_folders;
     project.export = from.export.clone();
+    project.export_folder = from.export_folder.clone();
 }
 
 pub fn export_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
@@ -291,6 +323,7 @@ pub fn export_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
         }
         state.export.loaded_config = Some(project_config);
     }
+    sync_project_folder(state);
     if state.export.snapshot.is_none() {
         let ex = &state.export;
         state.export.snapshot = Some(Box::new(ExportSnapshot { settings: ex.settings.clone(), folder: ex.folder.clone(), preset: ex.preset.clone(), set_overrides: ex.set_overrides.clone(), project: state.session.settings().clone() }));
