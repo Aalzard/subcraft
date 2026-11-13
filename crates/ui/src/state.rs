@@ -210,6 +210,8 @@ pub struct UiState {
     /// Clicks in the 3D and 2D views show / hide the selected layer on mesh parts (its geometry
     /// mask, Properties → Parts); a drag boxes several (Ctrl+drag removes them).
     pub picking_parts: bool,
+    /// Warp projection grid editing (mode, selected points, display settings).
+    pub warp: crate::warp_view::WarpEdit,
     /// Geometry mask box started in a view (screen point), while picking parts.
     pub parts_box: Option<egui::Pos2>,
     /// Geometry mask copied from a layer row's menu.
@@ -427,6 +429,7 @@ impl UiState {
             uv: UvView { zoom: 1.0, offset: egui::Vec2::ZERO, source: PreviewSource::Channel(ChannelKind::BaseColor), texture: None, painting: false, last_point: None, fill_box: None, parts_box: None },
             painting: false,
             picking_parts: false,
+            warp: Default::default(),
             parts_box: None,
             parts_clipboard: None,
             quick_mask_tex: None,

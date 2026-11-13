@@ -201,6 +201,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     if fill_properties(ui, &mut proj) {
                         cmds.push(Command::SetFillProjection { layer: id, projection: proj });
                     }
+                    if proj.mode == ProjectionMode::Warp {
+                        crate::warp_view::settings_ui(ui, &mut state.warp);
+                    }
                 }
                 block_header(ui, tr("Material"));
                 {
@@ -1461,6 +1464,54 @@ pub(crate) fn projection_options(ui: &mut Ui, proj: &mut Projection) -> bool {
     changed
 }
 
+/// Warp projection: grid size (while no point was moved, as in Painter), the split tools and
+/// a reset. The points themselves are edited in the 3D view.
+pub(crate) fn warp_rows(ui: &mut Ui, proj: &mut Projection) -> bool {
+    use subcraft_doc::{MAX_WARP_SIDE, WarpGrid};
+    if proj.mode != ProjectionMode::Warp {
+        return false;
+    }
+    let axis = proj.planar_axis.min(2);
+    let mut grid = proj.warp_grid();
+    let before = grid;
+    let max = (MAX_WARP_SIDE - 1) as u8;
+    let flat = grid.is_flat(axis);
+    prop_row(ui, "Grid", |ui| {
+        let (mut cols, mut rows) = (grid.cols(), grid.rows());
+        ui.add_enabled_ui(flat, |ui| {
+            let c = ui.add(egui::DragValue::new(&mut cols).range(1..=max).prefix("columns ")).on_disabled_hover_text("Fixed once a point was moved or the grid was split; Reset grid to change it");
+            let r = ui.add(egui::DragValue::new(&mut rows).range(1..=max).prefix("rows "));
+            if c.changed() || r.changed() {
+                grid = WarpGrid::planar(axis, cols, rows);
+            }
+        });
+    });
+    prop_row(ui, "Split", |ui| {
+        let (mid_c, mid_r) = (grid.cols() as usize / 2, grid.rows() as usize / 2);
+        if ui.small_button("Crosswise").on_hover_text("A row and a column through the middle cells").clicked() {
+            grid.split_column(mid_c);
+            grid.split_row(mid_r);
+        }
+        if ui.small_button("Horizontally").on_hover_text("A row through the middle cells").clicked() {
+            grid.split_row(mid_r);
+        }
+        if ui.small_button("Vertically").on_hover_text("A column through the middle cells").clicked() {
+            grid.split_column(mid_c);
+        }
+    });
+    let mut changed = false;
+    if grid != before {
+        proj.warp = Some(grid);
+        changed = true;
+    }
+    if proj.warp.is_some() && ui.small_button("Reset grid").on_hover_text("Back to the flat grid of the planar projection").clicked() {
+        proj.warp = None;
+        changed = true;
+    }
+    ui.label(RichText::new("Drag the grid points in the 3D view · Shift+V: Transform warp / Edit vertices").small().color(TEXT_DIM));
+    changed
+}
+
 /// Cylindrical projection: the Angle row (how much of the perimeter one tile covers).
 fn wrapped_projection_rows(ui: &mut Ui, proj: &mut Projection) -> bool {
     if proj.mode != ProjectionMode::Cylindrical {
@@ -1536,8 +1587,9 @@ pub(crate) fn fill_properties(ui: &mut Ui, proj: &mut Projection) -> bool {
     let mut changed = false;
     changed |= dropdown_row(ui, "projection", tr("Projection"), &mut proj.mode,
         &[(ProjectionMode::Uv, "UV projection"), (ProjectionMode::Triplanar, "Tri-planar projection"), (ProjectionMode::Planar, "Planar projection"),
-            (ProjectionMode::Spherical, "Spherical projection"), (ProjectionMode::Cylindrical, "Cylindrical projection")], true, "");
+            (ProjectionMode::Spherical, "Spherical projection"), (ProjectionMode::Cylindrical, "Cylindrical projection"), (ProjectionMode::Warp, "Warp projection")], true, "");
     changed |= projection_options(ui, proj);
+    changed |= warp_rows(ui, proj);
     if proj.mode == ProjectionMode::Triplanar {
         changed |= hardness_row(ui, proj);
     }
@@ -1586,7 +1638,7 @@ pub(crate) fn fill_properties(ui: &mut Ui, proj: &mut Projection) -> bool {
                 changed |= ui.add(egui::Slider::new(&mut proj.offset[1], -1.0..=1.0).clamping(egui::SliderClamping::Never).max_decimals(3)).changed();
             });
         }
-        if matches!(proj.mode, ProjectionMode::Planar | ProjectionMode::Spherical | ProjectionMode::Cylindrical) {
+        if matches!(proj.mode, ProjectionMode::Planar | ProjectionMode::Spherical | ProjectionMode::Cylindrical | ProjectionMode::Warp) {
             prop_row(ui, tr("Axis"), |ui| { changed |= segmented(ui, &mut proj.planar_axis, &[(0u8, "X"), (1, "Y"), (2, "Z")]); });
         }
         let default = reset_transform(proj);
@@ -1636,7 +1688,7 @@ pub(crate) fn material_buttons(ui: &mut Ui, states: &[(ChannelKind, bool)], adda
 pub(crate) fn projection_editor(ui: &mut Ui, proj: &mut Projection) -> bool {
     let mut changed = false;
     prop_row(ui, tr("Mode"), |ui| {
-        changed |= segmented(ui, &mut proj.mode, &[(ProjectionMode::Uv, "UV"), (ProjectionMode::Triplanar, "Tri-planar"), (ProjectionMode::Planar, "Planar"), (ProjectionMode::Spherical, "Sphere"), (ProjectionMode::Cylindrical, "Cylinder")]);
+        changed |= segmented(ui, &mut proj.mode, &[(ProjectionMode::Uv, "UV"), (ProjectionMode::Triplanar, "Tri-planar"), (ProjectionMode::Planar, "Planar"), (ProjectionMode::Spherical, "Sphere"), (ProjectionMode::Cylindrical, "Cylinder"), (ProjectionMode::Warp, "Warp")]);
     });
     // Tiling: X and Y linked by default (lock), separate when unlocked. The lock is UI state,
     // remembered per editor; it starts unlocked if the two values already differ.
@@ -1680,7 +1732,7 @@ pub(crate) fn projection_editor(ui: &mut Ui, proj: &mut Projection) -> bool {
     if proj.mode == ProjectionMode::Triplanar {
         changed |= hardness_row(ui, proj);
     }
-    if matches!(proj.mode, ProjectionMode::Planar | ProjectionMode::Spherical | ProjectionMode::Cylindrical) {
+    if matches!(proj.mode, ProjectionMode::Planar | ProjectionMode::Spherical | ProjectionMode::Cylindrical | ProjectionMode::Warp) {
         prop_row(ui, tr("Axis"), |ui| {
             changed |= segmented(ui, &mut proj.planar_axis, &[(0u8, "X"), (1, "Y"), (2, "Z")]);
         });

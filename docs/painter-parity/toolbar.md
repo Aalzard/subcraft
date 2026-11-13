@@ -177,19 +177,19 @@ Layout notes: shown when a fill layer or fill effect uses Tri-planar, Planar, Sp
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Warp edition menu | Contextual toolbar, Warp | - | missing | - | - |
-| Transform warp | Warp edition menu; Shift + V toggles | default | missing | - | - |
-| Edit vertices | Warp edition menu; Shift + V toggles | - | missing | - | - |
-| Split warp crosswise | Warp edition menu | - | missing | - | - |
-| Split warp horizontally | Warp edition menu | - | missing | - | - |
-| Split warp vertically | Warp edition menu | - | missing | - | - |
-| Warp projection settings menu | Contextual toolbar, Warp | - | missing | - | - |
-| Rows and columns | Warp projection settings | editable only before any point is moved | missing | - | - |
-| Handle size | Warp projection settings | not documented | missing | - | - |
-| Grid color | Warp projection settings | not documented | missing | - | - |
+| Warp edition menu | Contextual toolbar, Warp | - | partial: the Edit row in Properties, not on the contextual toolbar | crates/ui/src/warp_view.rs | - |
+| Transform warp | Warp edition menu; Shift + V toggles | default | done: Shift+V toggles | crates/ui/src/warp_view.rs | - |
+| Edit vertices | Warp edition menu; Shift + V toggles | - | done: Shift+V toggles | crates/ui/src/warp_view.rs | - |
+| Split warp crosswise | Warp edition menu | - | partial: through the middle cells, from Properties | crates/ui/src/panels/properties.rs (warp_rows) | - |
+| Split warp horizontally | Warp edition menu | - | partial: through the middle cells, from Properties | crates/ui/src/panels/properties.rs (warp_rows) | - |
+| Split warp vertically | Warp edition menu | - | partial: through the middle cells, from Properties | crates/ui/src/panels/properties.rs (warp_rows) | - |
+| Warp projection settings menu | Contextual toolbar, Warp | - | partial: rows in Properties | crates/ui/src/panels/properties.rs (warp_rows) | - |
+| Rows and columns | Warp projection settings | editable only before any point is moved | done: locked once a point moved | crates/ui/src/panels/properties.rs (warp_rows) | - |
+| Handle size | Warp projection settings | not documented | done | crates/ui/src/warp_view.rs | - |
+| Grid color | Warp projection settings | not documented | done | crates/ui/src/warp_view.rs | - |
 | Automatic tangents | Contextual toolbar, Warp | not documented | missing | - | - |
 | Warp to geometry | Contextual toolbar, Warp (12.0) | not documented | missing | - | - |
-| Reset menu | Contextual toolbar, Warp | - | missing | - | - |
+| Reset menu | Contextual toolbar, Warp | - | partial: Reset grid button in Properties | crates/ui/src/panels/properties.rs (warp_rows) | - |
 | Restore the global transformation | Reset menu | - | missing | - | - |
 | Reset all vertices | Reset menu | - | missing | - | - |
 | Reset selected vertices | Reset menu | - | missing | - | - |

@@ -572,3 +572,36 @@ fn spherical_cylindrical_and_symmetric_projections_sample_folded_coordinates() {
     assert!(crate::sample::projection_covers(&clipped, sc, [0.0; 2], [0.5, 0.5, 1.0]));
     assert!(!crate::sample::projection_covers(&clipped, sc, [0.0; 2], [0.5, 0.5, 0.0]));
 }
+
+/// Warp projection: untouched it is Planar, it projects only inside its grid, and a moved point
+/// changes what a texel reads.
+#[test]
+fn warp_projection_is_planar_until_bent_and_stops_at_its_grid() {
+    let coords = |p: [f32; 2]| [p[0], p[1], 0.0, 1.0];
+    for axis in 0..3u8 {
+        let planar = Projection { mode: ProjectionMode::Planar, planar_axis: axis, scale: [1.0, 1.0], ..Projection::default() };
+        let warp = Projection { mode: ProjectionMode::Warp, ..planar };
+        for pos in [[0.2, 0.3, 0.4], [0.75, 0.1, 0.9], [0.5, 0.5, 0.5]] {
+            let a = sample_projected(&planar, [0.0; 2], pos, [0.0, 0.0, 1.0], coords);
+            let b = sample_projected(&warp, [0.0; 2], pos, [0.0, 0.0, 1.0], coords);
+            assert!((a[0] - b[0]).abs() < 1e-5 && (a[1] - b[1]).abs() < 1e-5, "axis {axis} {pos:?}: {a:?} vs {b:?}");
+        }
+        assert!(warp.clips() && !planar.clips());
+        let sc = warp.rotation_sin_cos();
+        assert!(projection_covers(&warp, sc, [0.0; 2], [0.5, 0.5, 0.5]));
+    }
+    // Seen down Z, x = 1.2 is outside the grid: not covered.
+    let warp = Projection { mode: ProjectionMode::Warp, planar_axis: 2, ..Projection::default() };
+    assert!(!projection_covers(&warp, warp.rotation_sin_cos(), [0.0; 2], [1.2, 0.5, 0.5]));
+    // Pull the point at grid (1/3, 1/3) to the right: the texel that sat at x = 0.4 reads further left.
+    let mut grid = warp.warp_grid();
+    let i = grid.index(1, 1);
+    let p = grid.points()[i];
+    assert!(grid.set_point(i, [p[0] + 0.15, p[1], p[2]]));
+    let bent = Projection { warp: Some(grid), ..warp };
+    let pos = [0.4, 1.0 - 1.0 / 3.0, 0.5];
+    let before = sample_projected(&warp, [0.0; 2], pos, [0.0, 0.0, 1.0], coords);
+    let after = sample_projected(&bent, [0.0; 2], pos, [0.0, 0.0, 1.0], coords);
+    assert!((before[0] - 0.4).abs() < 1e-5 && after[0] < 0.35, "{before:?} -> {after:?}");
+    assert!(projection_covers(&bent, bent.rotation_sin_cos(), [0.0; 2], pos));
+}
