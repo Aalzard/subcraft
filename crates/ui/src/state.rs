@@ -218,6 +218,8 @@ pub struct UiState {
     pub pen_pressure: f32,
     /// Pen / touch contact to primary-button mapping applied to raw input.
     pub pen_input: crate::pen_input::PenInputFixer,
+    /// Native pen tablet input (Wayland tablet protocol / X11 pressure; Linux only).
+    pub tablet: crate::tablet::Tablet,
     /// Clicks in the 3D and 2D views show / hide the selected layer on mesh parts (its geometry
     /// mask, Properties → Parts); a drag boxes several (Ctrl+drag removes them).
     pub picking_parts: bool,
@@ -492,6 +494,7 @@ impl UiState {
             last_stroke_camera: None,
             pen_pressure: 1.0,
             pen_input: Default::default(),
+            tablet: Default::default(),
             uv_edges: HashMap::new(),
             uv_density: HashMap::new(),
             rename: None,

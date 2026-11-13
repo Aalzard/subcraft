@@ -35,6 +35,8 @@ impl PenInputFixer {
             out.push(event.clone());
             match event {
                 Event::PointerButton { button: PointerButton::Primary, pressed, .. } => self.primary_down = *pressed,
+                // Native tablet touches carry pressure only; their pointer events are already there.
+                Event::Touch { device_id, .. } if *device_id == crate::tablet::TABLET_DEVICE => {}
                 Event::Touch { id, phase, pos, force, .. } => match phase {
                     TouchPhase::Start => {
                         let has_press = rest().any(|e| is_primary(e, true));
