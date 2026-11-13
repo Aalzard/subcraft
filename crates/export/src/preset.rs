@@ -374,12 +374,17 @@ mod painter {
             "bmp" => Container::Bmp,
             "hdr" => Container::Hdr,
             "webp" => Container::Webp,
+            "pbm" => Container::Pbm,
+            "pgm" => Container::Pgm,
+            "ppm" => Container::Ppm,
+            "pfm" => Container::Pfm,
             other => {
                 warnings.push(format!("{preset}: file format \"{other}\" is not supported, using PNG"));
                 Container::Png
             }
         };
         let depth = match text("bitDepth").unwrap_or_else(|| "8".into()).to_ascii_lowercase().as_str() {
+            "1" => BitDepth::B1,
             "16" => BitDepth::B16,
             "16f" => BitDepth::F16,
             "32f" | "32" => BitDepth::F32,
