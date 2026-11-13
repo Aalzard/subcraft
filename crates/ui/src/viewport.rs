@@ -607,6 +607,19 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     }
 
     // ----- overlays ------------------------------------------------------------------------------
+    // Symmetry "Show Plane": each active mirror plane as a translucent sheet in its axis colour.
+    if !bake_mode && state.recovery.prefs.viewport.symmetry_plane && state.tool != Tool::Pen {
+        let (mirrors, bounds) = (state.session.brush.options.symmetry, state.session.scene().mesh.bounds);
+        for axis in (0..3).filter(|&a| mirrors[a]) {
+            let corners: Option<Vec<Pos2>> = mirror_plane_corners(&bounds, axis).iter()
+                .map(|&q| camera.project(q).map(|s| rect.min + egui::vec2(s.x / pixel_scale.x, s.y / pixel_scale.y)))
+                .collect();
+            if let Some(corners) = corners {
+                let c = AXIS_COLORS[axis];
+                painter.add(egui::Shape::convex_polygon(corners, c.gamma_multiply(0.12), Stroke::new(1.0, c.gamma_multiply(0.6))));
+            }
+        }
+    }
     if state.tool == Tool::Pen && let Some(path) = state.pen.preview(&state.session) {
         crate::pen::draw(&painter, path, state.pen.selected_anchor(), |uv| pen_position(state, &camera, rect, uv));
     }
@@ -995,14 +1008,31 @@ pub fn axis_indicator(view: glam::Mat4) -> [(usize, egui::Vec2, f32); 3] {
     axes
 }
 
+/// Red X, green Y, blue Z (axis indicator, mirror planes).
+const AXIS_COLORS: [Color32; 3] = [Color32::from_rgb(232, 84, 84), Color32::from_rgb(116, 204, 92), Color32::from_rgb(86, 146, 240)];
+
+/// Corners of the mirror plane of `axis` (0 = X) through the centre of `bounds`, in order around
+/// it, reaching 10 % past the model each way (and never thinner than 5 % of its size, so a flat
+/// model still shows a plane).
+pub fn mirror_plane_corners(bounds: &subcraft_mesh::Aabb, axis: usize) -> [glam::Vec3; 4] {
+    let c = bounds.center();
+    let half = ((bounds.max - bounds.min) * 0.55).max(glam::Vec3::splat(bounds.diagonal() * 0.05));
+    let (u, v) = ((axis + 1) % 3, (axis + 2) % 3);
+    [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)].map(|(a, b): (f32, f32)| {
+        let mut p = c;
+        p[u] += a * half[u];
+        p[v] += b * half[v];
+        p
+    })
+}
+
 /// Painter's orientation indicator: red X, green Y, blue Z from a common centre.
 fn draw_axis_indicator(painter: &egui::Painter, centre: Pos2, view: glam::Mat4) {
-    const COLORS: [Color32; 3] = [Color32::from_rgb(232, 84, 84), Color32::from_rgb(116, 204, 92), Color32::from_rgb(86, 146, 240)];
     painter.circle_filled(centre, 32.0, Color32::from_black_alpha(60));
     for (i, d, depth) in axis_indicator(view) {
         let tip = centre + d * 22.0;
         // Axes pointing away are drawn dimmer.
-        let color = if depth < -0.05 { COLORS[i].gamma_multiply(0.55) } else { COLORS[i] };
+        let color = if depth < -0.05 { AXIS_COLORS[i].gamma_multiply(0.55) } else { AXIS_COLORS[i] };
         painter.line_segment([centre, tip], Stroke::new(2.0, color));
         painter.circle_filled(tip, 7.0, color);
         painter.text(tip, egui::Align2::CENTER_CENTER, ["X", "Y", "Z"][i], egui::FontId::proportional(9.5), Color32::from_gray(20));
@@ -1134,6 +1164,25 @@ pub(crate) fn draw_stencil(state: &mut UiState, ui: &Ui, painter: &egui::Painter
 mod tests {
     use super::*;
     use crate::state::BrushNotice;
+
+    #[test]
+    fn mirror_planes_cut_through_the_centre_and_reach_past_the_model() {
+        let b = subcraft_mesh::Aabb { min: glam::Vec3::new(-1.0, 0.0, -2.0), max: glam::Vec3::new(3.0, 2.0, 2.0) };
+        let x = mirror_plane_corners(&b, 0);
+        assert!(x.iter().all(|p| p.x == 1.0), "the X plane sits at the centre x: {x:?}");
+        assert_eq!((x[0].y, x[2].y, x[0].z, x[2].z), (1.0 - 1.1, 1.0 + 1.1, -2.2, 2.2), "10 % past the model");
+        let y = mirror_plane_corners(&b, 1);
+        assert!(y.iter().all(|p| p.y == 1.0));
+        // Corners go around the rectangle: opposite corners share no coordinate in the plane.
+        for c in [x, y, mirror_plane_corners(&b, 2)] {
+            let (d1, d2) = (c[2] - c[0], c[3] - c[1]);
+            assert!((d1.length() - d2.length()).abs() < 1e-5 && d1.dot(d2).abs() < d1.length_squared(), "{c:?}");
+        }
+        // A flat model (no thickness along Y) still gets a visible Z plane height.
+        let flat = subcraft_mesh::Aabb { min: glam::Vec3::new(-1.0, 0.0, -1.0), max: glam::Vec3::new(1.0, 0.0, 1.0) };
+        let z = mirror_plane_corners(&flat, 2);
+        assert!((z[2].y - z[0].y) > 0.1, "{z:?}");
+    }
 
     #[test]
     fn symmetry_cursors_sit_on_the_mirrored_points_and_know_when_they_are_hidden() {

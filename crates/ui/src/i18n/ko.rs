@@ -731,4 +731,6 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Symmetry cursors", "대칭 커서"),
     ("A second brush cursor where each symmetry copy of the stroke paints", "스트로크의 각 대칭 사본이 칠해지는 위치에 두 번째 브러시 커서를 표시합니다"),
     ("Hide while painting", "칠하는 동안 숨기기"),
+    ("Mirror planes", "미러 평면"),
+    ("Each active mirror plane as a translucent sheet in its axis colour", "활성화된 각 미러 평면을 축 색상의 반투명 면으로 표시합니다"),
 ];

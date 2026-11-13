@@ -677,6 +677,7 @@ pub fn visualization(state: &mut UiState, ui: &mut Ui) {
     ui.checkbox(&mut prefs.symmetry_guides, tr("Symmetry guides"));
     ui.checkbox(&mut prefs.symmetry_cursor, tr("Symmetry cursors")).on_hover_text(tr("A second brush cursor where each symmetry copy of the stroke paints"));
     ui.add_enabled(prefs.symmetry_cursor, egui::Checkbox::new(&mut prefs.symmetry_cursor_hide_painting, tr("Hide while painting")));
+    ui.checkbox(&mut prefs.symmetry_plane, tr("Mirror planes")).on_hover_text(tr("Each active mirror plane as a translucent sheet in its axis colour"));
     ui.checkbox(&mut prefs.hints, tr("Viewport hints")).on_hover_text(tr("The list of mouse and key actions in the bottom-left corner of the 3D view. While it is hidden the grid unit is shown there."));
     ui.checkbox(&mut prefs.axis_indicator, tr("Axis indicator")).on_hover_text(tr("The X, Y and Z directions of the scene in the bottom-right corner of the 3D view"));
 }
