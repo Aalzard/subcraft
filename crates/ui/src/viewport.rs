@@ -67,6 +67,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     state.last_view_size = size;
     state.last_view_rect = rect;
     let now = ui.input(|i| i.time);
+    // Alt+H follows the selected layer's geometry mask.
+    state.session.sync_excluded_view();
     // The render target is rounded to whole physical pixels. Map through that exact size,
     // rather than DPI alone, to keep picking/painting stable at fractional UI zoom factors.
     let pixel_scale = Vec2::new(size[0] as f32 / rect.width(), size[1] as f32 / rect.height());
@@ -125,6 +127,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 Some((mode, d)) => {
                     if mode != NavMode::OrbitSnap { state.orbit_free = None; }
                     match mode {
+                        NavMode::Orbit if state.recovery.prefs.viewport.free_rotation => state.camera.free_orbit_around(pivot, d.x, d.y),
                         NavMode::Orbit => state.camera.orbit_around(pivot, d.x, d.y),
                         NavMode::OrbitSnap => {
                             let (yaw, pitch) = state.orbit_free.unwrap_or((state.camera.yaw, state.camera.pitch));
@@ -201,7 +204,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     }
     if response.hovered() && !typing && !mods.any() {
         let target = pointer.and_then(|p| state.session.surface_target(&camera, to_screen(p), state.parts_kind));
+        // With a quick mask, I inverts it (Painter) instead of isolating the part under the cursor.
+        let quick = state.session.quick_mask().is_some();
         for (key, action) in [(egui::Key::I, subcraft_app::PartAction::Isolate), (egui::Key::H, subcraft_app::PartAction::Hide)] {
+            if quick && key == egui::Key::I { continue; }
             if ui.input(|i| i.key_pressed(key)) && let Some(target) = target { crate::panels::parts::apply(state, target, action, now); }
         }
         if ui.input(|i| i.key_pressed(egui::Key::Escape)) { state.session.show_all_parts(); }
@@ -215,8 +221,21 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         {
             let _ = state.session.execute(subcraft_app::Command::SelectTextureSet(ts));
         }
+        // Ctrl (Painter): the new layer shows only on the part under the cursor (geometry mask).
+        let part = if (mods.command || mods.ctrl) && !mods.alt { pointer.and_then(|p| state.session.surface_target(&camera, to_screen(p), state.parts_kind)) } else { None };
+        let before = state.session.selection().layer;
         // Alt: apply in place to the selected layer (alphas: brush tip unless Alt).
         crate::panels::shelf::apply_shelf_item_with(state, *item, mods.alt, now);
+        let added = state.session.selection().layer.filter(|l| Some(*l) != before);
+        if let (Some(target), Some(layer)) = (part, added)
+            && state.session.selection().texture_set == target.texture_set
+        {
+            let parts = subcraft_doc::PartMask::for_kind(target.part.kind, [target.part.id]);
+            match state.session.execute(subcraft_app::Command::SetParts { layer, parts: Some(parts) }) {
+                Ok(()) => state.set_status(format!("Added on one {} only (its geometry mask)", target.part.kind.label().trim_end_matches('s').to_lowercase()), now),
+                Err(e) => state.set_status(e.to_string(), now),
+            }
+        }
     }
     // An environment tile dropped on the view becomes the environment map.
     if let Some(env) = response.dnd_release_payload::<crate::panels::shelf::EnvironmentDrag>()
@@ -315,15 +334,30 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         state.picking_parts = false;
     }
     let hovered_part = if parts_picking { pointer.and_then(|p| state.session.part_at(&camera, to_screen(p))) } else { None };
-    if parts_picking && primary_pressed && response.hovered() && !alt && !stencil_edit {
-        let layer = state.session.selected_layer().map(|l| l.id);
-        match (layer, hovered_part) {
-            (Some(layer), Some(part)) => {
-                if let Err(e) = state.session.toggle_layer_part(layer, part) {
-                    state.set_status(format!("Parts: {e}"), now);
-                }
+    // Geometry mask editing: a click shows / hides the layer on the part under the cursor, a drag
+    // adds every part the box touches (Ctrl+drag removes them).
+    if parts_picking && primary_pressed && response.hovered() && !alt && !stencil_edit && let Some(p) = pointer {
+        state.parts_box = Some(p);
+    }
+    if let Some(start) = state.parts_box {
+        if !parts_picking || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+            state.parts_box = None;
+        } else if !primary_down {
+            state.parts_box = None;
+            let end = pointer.unwrap_or(start);
+            if let Some(layer) = state.session.selected_layer().map(|l| l.id) {
+                let result = if crate::view_props::is_box_drag(start, end) {
+                    let parts = state.session.parts_in_screen_box(&camera, to_screen(start), to_screen(end));
+                    if parts.is_empty() { Err("the box touched no part of the selected texture set".to_string()) }
+                    else { state.session.set_layer_parts(layer, &parts, !(mods.command || mods.ctrl)).map_err(|e| e.to_string()) }
+                } else {
+                    match state.session.part_at(&camera, to_screen(start)) {
+                        Some(part) => state.session.toggle_layer_part(layer, part).map_err(|e| e.to_string()),
+                        None => Err("click a part of the selected texture set".to_string()),
+                    }
+                };
+                if let Err(e) = result { state.set_status(format!("Parts: {e}"), now); }
             }
-            _ => state.set_status("Click a part of the selected texture set", now),
         }
     }
 
@@ -367,6 +401,13 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     if let Some(name) = state.session.ensure_paint_layer() {
                         state.gpu_dirty = true;
                         state.set_status(format!("Painting on a new paint layer, \"{name}\" (the selected layer was not a paint layer)"), now);
+                    }
+                    // Painter warns when the stroke starts on another texture set's part.
+                    if let Some(hit) = state.session.pick(&camera, sp)
+                        && hit.material_slot != state.session.selected_texture_set().material_slot
+                        && let Some(name) = state.session.document().texture_set_for_slot(hit.material_slot).map(|t| t.name.clone())
+                    {
+                        state.set_status(crate::keys::native_string(format!("This part belongs to texture set \"{name}\": Ctrl+Alt+right-click it to paint there")), now);
                     }
                     match state.session.begin_stroke() {
                         Ok(()) => {
@@ -436,6 +477,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     let painter = ui.painter_at(rect);
     let tracing = state.recovery.prefs.viewport.path_tracing && !bake_mode;
     let mut pt_error = None;
+    let mask_view = crate::mask_view::active(state);
     match (&state.render_state, &mut state.renderer) {
         (Some(rs), Some(renderer)) => {
             let t0 = web_time::Instant::now();
@@ -447,8 +489,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             params.post = view.post_params_at(state.session.scene().mesh.bounds.diagonal(), state.camera.eye_distance());
             params.view_mode = view.view_mode();
             params.solo_channel = view.solo.filter(|_| view.mesh_map.is_none());
+            params.mask_view = mask_view;
             params.channel_display = view.channel_display();
             params.mip_bias = -(view.mip_bias.min(3) as f32);
+            params.highlight_slot = state.highlight_slot.take();
             renderer.set_texture_filtering(&rs.device, view.anisotropy.samples());
             params.symmetry_guides = view.symmetry_guides && state.session.brush.options.has_symmetry() && !bake_mode;
             if params.symmetry_guides {
@@ -592,6 +636,18 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 let color = if state.tool == Tool::Eraser { Color32::from_rgb(120, 190, 255) } else { ACCENT };
                 painter.circle_stroke(p, r_px, Stroke::new(1.5, Color32::from_black_alpha(160)));
                 painter.circle_stroke(p, r_px, Stroke::new(1.0, color));
+                // Symmetry: a second cursor where each copy paints (faint when the copy's point
+                // is hidden behind the model).
+                let prefs = &state.recovery.prefs.viewport;
+                if prefs.symmetry_cursor && !(prefs.symmetry_cursor_hide_painting && state.painting) {
+                    let options = &state.session.brush.options;
+                    let center = state.session.scene().mesh.bounds.center();
+                    for (at, visible) in symmetry_cursors(&camera, options, center, pick.position, |s| state.session.pick(&camera, s).map(|h| h.depth)) {
+                        let at = rect.min + egui::vec2(at.x / pixel_scale.x, at.y / pixel_scale.y);
+                        let c = if visible { color.gamma_multiply(0.8) } else { color.gamma_multiply(0.3) };
+                        painter.circle_stroke(at, r_px, Stroke::new(1.0, c));
+                    }
+                }
             }
             // Lazy mouse: the grey ring the cursor moves in before the brush follows.
             let lazy = state.session.brush.options.lazy_distance_px;
@@ -626,6 +682,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     if let Some(r) = fill_rect.filter(|r| state.fill_box.is_some() && crate::view_props::is_box_drag(r.min, r.max)) {
         crate::view_props::draw_fill_box(&painter, r, state.fill_visible_only);
     }
+    if let (Some(a), Some(b)) = (state.parts_box, pointer) && crate::view_props::is_box_drag(a, b) {
+        crate::view_props::draw_fill_box(&painter, Rect::from_two_pos(a, b), false);
+    }
     draw_stencil(state, ui, &painter, rect, size);
     // Reset button at the top right of the view while S is held.
     if stencil_edit {
@@ -644,8 +703,16 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     if let Some(item) = drop_hover {
         painter.rect_stroke(rect.shrink(1.0), 0.0, Stroke::new(2.0, ACCENT), egui::StrokeKind::Inside);
         let target = state.session.selected_layer().map(|l| l.name.clone());
-        let what = crate::panels::shelf::drop_label(item, mods.alt, target.as_deref().filter(|_| mods.alt), false);
+        let mut what = crate::panels::shelf::drop_label(item, mods.alt, target.as_deref().filter(|_| mods.alt), false);
+        if (mods.command || mods.ctrl) && !mods.alt && !matches!(item, crate::panels::shelf::ShelfDrag::Alpha(_) | crate::panels::shelf::ShelfDrag::SmartMask(_)) {
+            what.push_str(", only on the part under the cursor");
+        }
         pill(&painter, rect.center_top() + egui::vec2(0.0, 14.0), egui::Align2::CENTER_TOP, &format!("Release to: {what}"), theme::TEXT);
+    }
+    // Painter's mask view: say what is shown and how to get back; Esc goes back too.
+    if let Some(text) = crate::mask_view::label(state) {
+        pill(&painter, rect.center_top() + egui::vec2(0.0, 40.0), egui::Align2::CENTER_TOP, &text, theme::TEXT);
+        if response.hovered() && ui.input(|i| i.key_pressed(egui::Key::Escape)) { state.mask_view = None; }
     }
     let bake_hint = state.bake.displayed_map.map(|k| format!("Bake preview · {} · close Bake Mesh Maps to return to material", k.display_name()));
     let orbit = scheme.orbit_hint();
@@ -684,6 +751,15 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         let r = pill(&painter, right, egui::Align2::RIGHT_TOP, &format!("{}  Symmetry {axes}", icons::SYMMETRY), ACCENT);
         right.x = r.left() - 6.0;
     }
+    if let Some(q) = state.session.quick_mask() {
+        let text = if q.editing { "Quick mask · editing · U apply · Y clear" } else { "Quick mask on · U edit · I invert · Y clear" };
+        let r = pill(&painter, right, egui::Align2::RIGHT_TOP, &format!("{}  {text}", icons::SELECTION), ACCENT);
+        right.x = r.left() - 6.0;
+    }
+    if state.session.hide_excluded() {
+        let r = pill(&painter, right, egui::Align2::RIGHT_TOP, &format!("{}  Excluded geometry hidden · Alt+H", icons::EYE_SLASH), ACCENT);
+        right.x = r.left() - 6.0;
+    }
     if tracing && let Some(s) = state.pt_status {
         let progress = if s.max_samples > 0 { format!("{} / {} samples", s.samples, s.max_samples) } else { format!("{} samples", s.samples) };
         let what = if state.pt_paused { "paused".to_string() } else if s.converged() { "done".to_string() } else { format!("{:.0} samples/s", s.samples_per_second) };
@@ -716,6 +792,15 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         ui.ctx().request_repaint();
     }
     rendering_toggle(state, ui, rect, bake_mode);
+    // Texture set highlight under the cursor while Ctrl+Alt (texture set selection) is held, not
+    // while painting or navigating.
+    if !bake_mode && (mods.ctrl || mods.command) && mods.alt && !state.painting && state.nav_drag.is_none()
+        && let Some(p) = response.hover_pos()
+        && let Some(hit) = state.session.pick(&state.camera.paint_camera(size), to_screen(p))
+    {
+        state.highlight_slot = Some(hit.material_slot);
+        ui.ctx().request_repaint();
+    }
     camera_corner(state, ui, rect, bake_mode);
     if state.painting || response.dragged() {
         ui.ctx().request_repaint();
@@ -996,6 +1081,25 @@ fn draw_axis_indicator(painter: &egui::Painter, centre: Pos2, view: glam::Mat4) 
     }
 }
 
+/// Most symmetry cursors drawn (radial symmetry can make up to 64 copies).
+const MAX_SYMMETRY_CURSORS: usize = 16;
+
+/// Screen positions (physical pixels) of the symmetry copies of the brush point `p`, without
+/// the brush itself, and whether each is visible: `depth_at` gives the depth of the model under
+/// a screen point, and a copy farther than that (beyond a small tolerance) is behind it.
+pub fn symmetry_cursors(camera: &subcraft_app::Camera, options: &subcraft_paint::StrokeOptions, center: glam::Vec3, p: glam::Vec3, depth_at: impl Fn(Vec2) -> Option<f32>) -> Vec<(Vec2, bool)> {
+    let tolerance = |d: f32| d * 0.01 + 1e-4;
+    options.symmetry_points(center, p).into_iter().skip(1).take(MAX_SYMMETRY_CURSORS).filter_map(|q| {
+        let s = camera.project(q)?;
+        let at = Vec2::new(s.x, s.y);
+        let inside = at.x >= 0.0 && at.y >= 0.0 && at.x <= camera.viewport[0] as f32 && at.y <= camera.viewport[1] as f32;
+        if !inside { return None; }
+        let depth = camera.view.transform_point3(q).z.abs();
+        let visible = depth_at(at).is_some_and(|d| depth <= d + tolerance(d));
+        Some((at, visible))
+    }).collect()
+}
+
 /// Bottom-left readout of the grid spacing, in scene units.
 pub fn grid_unit_label(step: f32) -> String {
     let digits = if step >= 1.0 { 0 } else { (-step.log10()).ceil().clamp(0.0, 6.0) as usize };
@@ -1102,6 +1206,34 @@ pub(crate) fn draw_stencil(state: &mut UiState, ui: &Ui, painter: &egui::Painter
 mod tests {
     use super::*;
     use crate::state::BrushNotice;
+
+    #[test]
+    fn symmetry_cursors_sit_on_the_mirrored_points_and_know_when_they_are_hidden() {
+        let camera = subcraft_app::Camera {
+            view: glam::Mat4::look_at_rh(glam::Vec3::new(0.0, 0.0, 10.0), glam::Vec3::ZERO, glam::Vec3::Y),
+            proj: glam::Mat4::perspective_rh(40f32.to_radians(), 1.0, 0.1, 100.0),
+            viewport: [400, 400],
+        };
+        let mirror_x = subcraft_paint::StrokeOptions { symmetry: [true, false, false], ..Default::default() };
+        let p = glam::Vec3::new(1.0, 0.5, 0.0);
+        // Nothing in front: the copy is visible, at the mirror image of the brush on screen.
+        let cursors = symmetry_cursors(&camera, &mirror_x, glam::Vec3::ZERO, p, |_| Some(10.0));
+        assert_eq!(cursors.len(), 1);
+        let brush = camera.project(p).unwrap();
+        let (at, visible) = cursors[0];
+        assert!(visible);
+        assert!((at.x - (400.0 - brush.x)).abs() < 1e-2 && (at.y - brush.y).abs() < 1e-2, "{at} vs brush {brush}");
+        // The model is nearer there: the copy is behind it.
+        let hidden = symmetry_cursors(&camera, &mirror_x, glam::Vec3::ZERO, p, |_| Some(5.0));
+        assert!(!hidden[0].1);
+        // No symmetry, no cursors; a copy off screen is left out.
+        assert!(symmetry_cursors(&camera, &Default::default(), glam::Vec3::ZERO, p, |_| Some(10.0)).is_empty());
+        let off = symmetry_cursors(&camera, &mirror_x, glam::Vec3::new(40.0, 0.0, 0.0), p, |_| Some(10.0));
+        assert!(off.is_empty(), "the mirror image at x = 79 is outside the view");
+        // Radial symmetry draws at most MAX_SYMMETRY_CURSORS.
+        let many = subcraft_paint::StrokeOptions { radial: subcraft_paint::RadialSymmetry { enabled: true, axis: 2, count: 64, center_offset: [0.0; 3] }, ..Default::default() };
+        assert_eq!(symmetry_cursors(&camera, &many, glam::Vec3::ZERO, glam::Vec3::new(0.5, 0.0, 0.0), |_| Some(10.0)).len(), MAX_SYMMETRY_CURSORS);
+    }
 
     #[test]
     fn the_axis_indicator_follows_the_camera_and_draws_far_axes_first() {

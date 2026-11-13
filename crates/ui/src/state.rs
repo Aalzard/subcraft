@@ -82,6 +82,8 @@ pub struct UvView {
     pub last_point: Option<Vec2>,
     /// Polygon fill drag started in the 2D view (screen points), as [`UiState::fill_box`].
     pub fill_box: Option<egui::Pos2>,
+    /// Geometry mask box started in the 2D view while picking parts (screen point).
+    pub parts_box: Option<egui::Pos2>,
 }
 
 /// Compositing time spent per frame before the remaining dirty tiles wait for the next frame.
@@ -94,6 +96,8 @@ pub struct UiState {
     /// lists every stale tile; `--profile-edits` uses it to tell a visible update from a slice).
     pub last_sync_tiles: usize,
     pub layer_previews: crate::layer_previews::PreviewUi,
+    /// A layer's mask shown alone in the 3D view (Alt+click on its mask thumbnail).
+    pub mask_view: Option<crate::mask_view::MaskView>,
     /// Layers waiting in the "Export flattened" window, and the file name pattern (kept for
     /// the next export in this session).
     pub flatten_export: Option<Vec<subcraft_core::LayerId>>,
@@ -203,8 +207,15 @@ pub struct UiState {
     pub pen_pressure: f32,
     /// Pen / touch contact to primary-button mapping applied to raw input.
     pub pen_input: crate::pen_input::PenInputFixer,
-    /// Clicks in the 3D view show / hide the selected layer on mesh parts (Properties → Parts).
+    /// Clicks in the 3D and 2D views show / hide the selected layer on mesh parts (its geometry
+    /// mask, Properties → Parts); a drag boxes several (Ctrl+drag removes them).
     pub picking_parts: bool,
+    /// Geometry mask box started in a view (screen point), while picking parts.
+    pub parts_box: Option<egui::Pos2>,
+    /// Geometry mask copied from a layer row's menu.
+    pub parts_clipboard: Option<subcraft_doc::PartMask>,
+    /// Quick mask overlay of the 2D view: (quick mask revision, texture).
+    pub quick_mask_tex: Option<(u64, egui::TextureHandle)>,
     /// Texture Set List > Settings: which description lines the rows show.
     pub set_descriptions: crate::panels::texture_sets::DescriptionDisplay,
     /// Depth of field: the next click on the model sets the focus distance.
@@ -262,6 +273,9 @@ pub struct UiState {
     /// Which view the pointer was over last frame (F frames that one, or both when neither).
     pub hovered_3d: bool,
     pub hovered_2d: bool,
+    /// Material slot to draw highlighted next frame (the texture set under the cursor with
+    /// Ctrl+Alt, or hovered in the Texture Set List); taken by the 3D view each frame.
+    pub highlight_slot: Option<u32>,
     /// The Shelf took this frame's dropped files (the window-wide drop handler skips them).
     pub drops_taken: bool,
     /// The user already agreed to close without saving.
@@ -346,6 +360,7 @@ impl UiState {
             composite_deadline: None,
             last_sync_tiles: 0,
             layer_previews: Default::default(),
+            mask_view: None,
             flatten_export: None,
             flatten_pattern: subcraft_app::flatten::DEFAULT_PATTERN.to_string(),
             graphics,
@@ -409,9 +424,12 @@ impl UiState {
             render_request: None,
             last_view_size: [1280, 720],
             last_view_rect: egui::Rect::NOTHING,
-            uv: UvView { zoom: 1.0, offset: egui::Vec2::ZERO, source: PreviewSource::Channel(ChannelKind::BaseColor), texture: None, painting: false, last_point: None, fill_box: None },
+            uv: UvView { zoom: 1.0, offset: egui::Vec2::ZERO, source: PreviewSource::Channel(ChannelKind::BaseColor), texture: None, painting: false, last_point: None, fill_box: None, parts_box: None },
             painting: false,
             picking_parts: false,
+            parts_box: None,
+            parts_clipboard: None,
+            quick_mask_tex: None,
             set_descriptions: Default::default(),
             picking_focus: false,
             picking_id_color: None,
@@ -440,6 +458,7 @@ impl UiState {
             light_pitch: 0.0,
             hovered_3d: false,
             hovered_2d: false,
+            highlight_slot: None,
             drops_taken: false,
             multi: Default::default(),
             multi_texture_set: None,
@@ -728,6 +747,7 @@ impl UiState {
 
     /// Re-evaluate composites (within the frame budget) and upload changed tiles to the GPU.
     pub fn sync_gpu(&mut self) {
+        crate::mask_view::sync(self);
         let (Some(rs), Some(renderer)) = (&self.render_state, &mut self.renderer) else {
             self.session.update_composites();
             return;

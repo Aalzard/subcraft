@@ -167,10 +167,16 @@ pub struct ViewParams {
     pub post: PostParams,
     /// Any channel shown alone on the model, uploaded or not (overrides `view_mode`).
     pub solo_channel: Option<ChannelKind>,
+    /// Show the mask uploaded with `upload_mask_view` alone, as gray (Painter's Alt+click on a
+    /// mask thumbnail). Overrides `solo_channel` and `view_mode`; slots without one show black.
+    pub mask_view: bool,
     /// How single-channel views are displayed.
     pub channel_display: ChannelDisplay,
     /// Texture level bias of the material textures: 0 (soft) down to -3 (very sharp).
     pub mip_bias: f32,
+    /// Material slot drawn with a highlight tint (the texture set under the cursor or hovered in
+    /// the Texture Set List).
+    pub highlight_slot: Option<u32>,
 }
 
 /// What the 3D view shows on the model.
@@ -250,8 +256,10 @@ impl ViewParams {
             bake_overlay: false, bake_cage: true, bake_miss_heatmap: false, bake_high_transform: Mat4::IDENTITY, bake_high_opacity: 1.0, bake_distances: [0.01; 2], bake_map: None, symmetry_guides: false, wireframe: false,
             post: PostParams::default(),
             solo_channel: None,
+            mask_view: false,
             channel_display: ChannelDisplay::default(),
             mip_bias: 0.0,
+            highlight_slot: None,
         }
     }
 }
@@ -545,7 +553,7 @@ impl ViewportRenderer {
             min_filter: wgpu::FilterMode::Nearest, lod_max_clamp: 0.0, ..Default::default()
         });
         let post = post::PostPass::new(device, &globals_layout, &shader);
-        let opaque_params = material::params_buffer(device, &subcraft_doc::AlphaSettings::default(), &subcraft_doc::ShaderParams::default());
+        let opaque_params = material::params_buffer(device, &subcraft_doc::AlphaSettings::default(), &subcraft_doc::ShaderParams::default(), false);
         Self {
             post,
             pipeline_blend,
@@ -697,6 +705,24 @@ impl ViewportRenderer {
         self.materials.get(&material_slot)?.channels.get(&kind).map(|t| &t.view)
     }
 
+    /// The mask shown by `ViewParams::mask_view` on `material_slot` (`None` forgets it). A
+    /// two-component (value, alpha) image at any resolution.
+    pub fn upload_mask_view(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, material_slot: u32, image: Option<&TiledImage>) {
+        let mat = self.materials.entry(material_slot).or_default();
+        mat.mask_view = image.map(|image| {
+            let tex = ChannelTexture::new(device, image.width(), image.comps(), "mask view");
+            tex.upload(queue, image, &(0..image.tile_count()).collect::<Vec<_>>());
+            tex
+        });
+    }
+
+    /// Forget every uploaded mask view.
+    pub fn clear_mask_views(&mut self) {
+        for mat in self.materials.values_mut() {
+            mat.mask_view = None;
+        }
+    }
+
     /// Upload a baked mesh map (2D view display; replaces any previous one of that kind).
     pub fn upload_mesh_map(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, material_slot: u32, kind: MeshMapKind, image: &TiledImage) {
         let mat = self.materials.entry(material_slot).or_default();
@@ -786,7 +812,7 @@ impl ViewportRenderer {
             if mat.bind_group.is_some() {
                 continue;
             }
-            let params = mat.params.get_or_insert_with(|| material::params_buffer(device, &mat.alpha, &mat.shader));
+            let params = mat.params.get_or_insert_with(|| material::params_buffer(device, &mat.alpha, &mat.shader, mat.highlight));
             let mut entries = vec![wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::Sampler(&self.sampler) }];
             let albedo_sampler = if mat.albedo_filter == subcraft_image::TextureFilter::Nearest { &self.nearest_sampler } else { &self.sampler };
             entries.push(wgpu::BindGroupEntry { binding: 8, resource: wgpu::BindingResource::Sampler(albedo_sampler) });
@@ -811,6 +837,15 @@ impl ViewportRenderer {
         let samples = if params.antialias && caps::get().msaa4 { SAMPLE_COUNT } else { 1 };
         if self.target.as_ref().is_none_or(|t| t.size != size || t.samples != samples) {
             self.target = Some(RenderTarget::new(device, size, samples));
+        }
+        // Texture set highlight: only the slot that changed gets new parameters.
+        for (slot, mat) in self.materials.iter_mut() {
+            let on = params.highlight_slot == Some(*slot);
+            if mat.highlight != on {
+                mat.highlight = on;
+                mat.params = None;
+                mat.bind_group = None;
+            }
         }
         self.ensure_bind_groups(device);
         // "Baked Normal Map" is the bake-map preview of the Normal map.
@@ -839,10 +874,12 @@ impl ViewportRenderer {
         }
         // A channel shown alone: its texture in the Base Color slot, read by the unlit modes.
         // Channels the shader does not otherwise use (Opacity, Specular, User...) work the same.
-        let solo = params.solo_channel.filter(|_| bake_map.is_none());
+        // A mask view reads like a one-component channel (Roughness is one), from its own texture.
+        let mask_view = params.mask_view && bake_map.is_none();
+        let solo = if mask_view { Some(ChannelKind::Roughness) } else { params.solo_channel.filter(|_| bake_map.is_none()) };
         let mut solo_groups: std::collections::HashMap<u32, wgpu::BindGroup> = Default::default();
         if let Some(kind) = solo {
-            let d = kind.default_value().0;
+            let d = if mask_view { [0.0; 3] } else { kind.default_value().0 };
             let neutral = ChannelTexture::constant(device, queue, [d[0], d[1], d[2], 1.0], composite_comps(kind), "solo channel default");
             for (slot, mat) in &self.materials {
                 let nearest = kind == ChannelKind::BaseColor && mat.albedo_filter == subcraft_image::TextureFilter::Nearest;
@@ -851,7 +888,8 @@ impl ViewportRenderer {
                     wgpu::BindGroupEntry { binding: 8, resource: wgpu::BindingResource::Sampler(if nearest { &self.nearest_sampler } else { &self.sampler }) },
                 ];
                 for (i, k) in SHADED_CHANNELS.iter().enumerate() {
-                    let view = if i == 0 { mat.channels.get(&kind).map_or(&neutral.view, |t| &t.view) } else { &self.defaults[k].view };
+                    let shown = if mask_view { mat.mask_view.as_ref() } else { mat.channels.get(&kind) };
+                    let view = if i == 0 { shown.map_or(&neutral.view, |t| &t.view) } else { &self.defaults[k].view };
                     entries.push(wgpu::BindGroupEntry { binding: i as u32 + 1, resource: wgpu::BindingResource::TextureView(view) });
                 }
                 entries.extend(alpha_entries(&self.defaults[&ChannelKind::Opacity].view, &self.opaque_params));

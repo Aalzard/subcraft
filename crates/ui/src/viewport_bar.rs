@@ -46,6 +46,10 @@ pub struct ViewportPrefs {
     #[serde(skip)]
     pub solo: Option<subcraft_core::ChannelKind>,
     pub symmetry_guides: bool,
+    /// Painter's symmetry "Show Cursor": a second brush cursor where each symmetry copy paints.
+    pub symmetry_cursor: bool,
+    /// Painter's "Hide While Painting" for the symmetry cursors.
+    pub symmetry_cursor_hide_painting: bool,
     /// Bottom-left list of the mouse / key actions that apply now.
     pub hints: bool,
     /// X / Y / Z orientation indicator in the 3D view's bottom-right corner.
@@ -85,6 +89,9 @@ pub struct ViewportPrefs {
     pub pt_ground_glossiness: f32,
     pub pt_ground_shadow: f32,
     pub pt_ground_below: bool,
+    /// Painter's Camera Rotation Mode: free (the view can roll and go over the top) instead of
+    /// constrained to the world vertical.
+    pub free_rotation: bool,
     /// Saved and imported camera viewpoints.
     pub camera_bookmarks: Vec<crate::view_extras::CameraBookmark>,
 }
@@ -98,6 +105,8 @@ impl Default for ViewportPrefs {
             mesh_map: None,
             solo: None,
             symmetry_guides: true,
+            symmetry_cursor: true,
+            symmetry_cursor_hide_painting: false,
             hints: true,
             axis_indicator: true,
             display: Default::default(),
@@ -120,6 +129,7 @@ impl Default for ViewportPrefs {
             pt_ground_glossiness: 0.5,
             pt_ground_shadow: 1.0,
             pt_ground_below: true,
+            free_rotation: false,
             camera_bookmarks: Vec::new(),
         }
     }
@@ -413,7 +423,8 @@ pub fn show(ui: &mut Ui, state: &mut crate::state::UiState) {
                     ui.add_space(5.0);
                     crate::brush_bar::show(ui, &mut state.tool, &mut settings, &mut options, &mut state.recovery.prefs.viewport.symmetry_guides, width);
                     if state.tool == crate::state::Tool::PolygonFill {
-                        crate::brush_bar::fill_options(ui, &mut state.fill_mode, Some(&mut state.fill_visible_only), "fill_mode_3d");
+                        let destination = state.session.polygon_fill_destination();
+                        crate::brush_bar::fill_options(ui, &mut state.fill_mode, Some(&mut state.fill_visible_only), destination, "fill_mode_3d");
                     }
                 }
             });
@@ -422,12 +433,18 @@ pub fn show(ui: &mut Ui, state: &mut crate::state::UiState) {
                 ui.horizontal(|ui| {
                     crate::brush_bar::show(ui, &mut state.tool, &mut settings, &mut options, &mut state.recovery.prefs.viewport.symmetry_guides, width);
                     if state.tool == crate::state::Tool::PolygonFill {
-                        crate::brush_bar::fill_options(ui, &mut state.fill_mode, Some(&mut state.fill_visible_only), "fill_mode_3d");
+                        let destination = state.session.polygon_fill_destination();
+                        crate::brush_bar::fill_options(ui, &mut state.fill_mode, Some(&mut state.fill_visible_only), destination, "fill_mode_3d");
                     }
                 });
             }
             if painting {
-                crate::brush_bar::channel_switches(ui, state);
+                // The Alt+H button leads the channel row: that row wraps, so the brush rows keep
+                // the widths the layout constants above were measured with.
+                ui.horizontal(|ui| {
+                    hide_excluded_toggle(ui, state);
+                    crate::brush_bar::channel_switches(ui, state);
+                });
             }
         });
     ui.painter().hline(
@@ -839,5 +856,21 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(p.view_mode(), ViewMode::Normal);
+    }
+}
+
+/// Painter's "hide / ignore excluded geometry" button (Alt+H) of the contextual toolbar: off and
+/// disabled while the selected layer has no geometry mask.
+fn hide_excluded_toggle(ui: &mut egui::Ui, state: &mut crate::state::UiState) {
+    let on = state.session.hide_excluded();
+    let enabled = on || state.session.has_excluded_geometry();
+    let tip = if enabled {
+        "Hide the geometry the selected layer's geometry mask leaves out, so strokes reach what it covered (Alt+H)"
+    } else {
+        "Hide excluded geometry (Alt+H): the selected layer has no geometry mask"
+    };
+    let r = ui.add_enabled_ui(enabled, |ui| crate::widgets::icon_toggle(ui, crate::icons::EYE_SLASH, on, tip)).inner;
+    if r.clicked() {
+        state.session.toggle_hide_excluded();
     }
 }
