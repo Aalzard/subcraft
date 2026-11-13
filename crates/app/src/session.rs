@@ -3300,6 +3300,23 @@ impl Session {
     }
 
     /// Use a brush alpha for the next strokes.
+    /// The current brush tip as an Alpha resource of the project (the same resource again for
+    /// the same tip), so a pen path can stamp it and the project keeps it. `None` for the round tip.
+    pub fn brush_tip_resource(&mut self) -> Option<subcraft_core::ResourceId> {
+        let bitmap = self.brush.alpha.clone()?;
+        if let Some(r) = self.resources.iter().find(|r| Arc::ptr_eq(&r.bitmap, &bitmap)) {
+            return Some(r.id);
+        }
+        Some(self.resources.insert(subcraft_doc::Resource {
+            id: subcraft_core::ResourceId::new(),
+            name: self.brush.alpha_name.clone(),
+            kind: subcraft_doc::ResourceKind::Alpha,
+            bitmap,
+            source_path: None,
+            encoded: None,
+        }))
+    }
+
     pub fn set_brush_alpha(&mut self, alpha: &subcraft_assets::BrushAlpha) {
         self.clear_brush_stamp();
         self.set_brush_tip(alpha);
