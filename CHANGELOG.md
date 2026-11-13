@@ -5,6 +5,26 @@ What changed in SubCraft, newest first. Download the latest build from the
 
 ## Unreleased
 
+### Added
+- **Converted maps** in the preset editor, like Painter's: Diffuse, Specular, Reflection, Glossiness,
+  Glossiness squared, Mixed AO, f0 and 1/ior, computed from the metal / roughness channels. Painter
+  presets that use them import without losing those maps.
+- **Export window tabs**, like Painter: Settings, Output templates (the preset list and editor) and List of
+  exports (files written per texture set, and the messages; Export switches to it). Settings lists Global
+  settings and each texture set: a texture set can have its own file type, bit depth, size and padding.
+  The bottom row has Reset all, Cancel (closes without keeping the changes), Save settings (stores the
+  export settings in the project) and Export.
+- **Template editor like Painter's**: Gray / RGB / R+G+B / RGB+A / R+G+B+A buttons create maps with those
+  channel slots; drag a map from the Input maps, Converted maps or Mesh maps lists onto a slot and pick
+  RGB, R, G, B or Gray. File names take `$project`, `$sceneMaterial` and `$colorSpace` (a `$` button
+  inserts any keyword), `/` makes sub-folders and a part in parentheses such as `(.$udim)` is left out
+  when its keyword is empty. On the Settings tab a texture set's maps can each have their own file type
+  and bit depth.
+- **About 25 more built-in export templates** with Painter's names: Blender, Arnold, Corona, CryEngine 3,
+  Amazon Lumberyard, Keyshot, Lens Studio, Maxwell, Redshift, Renderman, Shade 3D, Spark AR, V-Ray, Unity
+  HDRP / URP Specular, PBR Specular Glossiness (converted), Roblox MaterialVariant, glTF + displacement,
+  Mesh Maps and Document channels + Normal + AO.
+
 ## 0.3.7 - 2026-11-13
 
 ### Added
@@ -29,24 +49,6 @@ What changed in SubCraft, newest first. Download the latest build from the
   each map's default: flat normal, white occlusion...) and Dilation + diffusion (a smooth blend of the
   surrounding islands). The dilation distance defaults to 16 and goes up to 256.
 - **Size menu** in Export Textures: write every map at 128 to 8192, or at each texture set's size.
-- **Converted maps** in the preset editor, like Painter's: Diffuse, Specular, Reflection, Glossiness,
-  Glossiness squared, Mixed AO, f0 and 1/ior, computed from the metal / roughness channels. Painter
-  presets that use them import without losing those maps.
-- **Export window tabs**, like Painter: Settings, Output templates (the preset list and editor) and List of
-  exports (files written per texture set, and the messages; Export switches to it). Settings lists Global
-  settings and each texture set: a texture set can have its own file type, bit depth, size and padding.
-  The bottom row has Reset all, Cancel (closes without keeping the changes), Save settings (stores the
-  export settings in the project) and Export.
-- **Template editor like Painter's**: Gray / RGB / R+G+B / RGB+A / R+G+B+A buttons create maps with those
-  channel slots; drag a map from the Input maps, Converted maps or Mesh maps lists onto a slot and pick
-  RGB, R, G, B or Gray. File names take `$project`, `$sceneMaterial` and `$colorSpace` (a `$` button
-  inserts any keyword), `/` makes sub-folders and a part in parentheses such as `(.$udim)` is left out
-  when its keyword is empty. On the Settings tab a texture set's maps can each have their own file type
-  and bit depth.
-- **About 25 more built-in export templates** with Painter's names: Blender, Arnold, Corona, CryEngine 3,
-  Amazon Lumberyard, Keyshot, Lens Studio, Maxwell, Redshift, Renderman, Shade 3D, Spark AR, V-Ray, Unity
-  HDRP / URP Specular, PBR Specular Glossiness (converted), Roblox MaterialVariant, glTF + displacement,
-  Mesh Maps and Document channels + Normal + AO.
 
 ### Changed
 - **Faster painting on big projects**: brush stamping runs on its own pool (4-5x faster on a 4K project with a 300 px brush, stalls gone) (#256); catching up after a stroke is about 2x faster (#259).
