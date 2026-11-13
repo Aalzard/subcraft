@@ -356,7 +356,8 @@ impl ViewportPrefs {
 /// 1228.3 wide incl. 16 of frame margin (view combo 150, wireframe + camera buttons, five tool icons); the brush_bar test
 /// fails if this drifts below the real content width.
 // The tool icons left this row (they live in the tool rail), so it fits about 140 points sooner.
-const INLINE_MIN_WIDTH: f32 = 1075.0;
+// The symmetry settings button and the lazy mouse button added 48 points (65 with margin for rounding).
+pub(crate) const INLINE_MIN_WIDTH: f32 = 1140.0;
 
 /// Narrowest dock width (inside the bar's margins) that fits the wireframe and camera buttons
 /// beside the 92-wide View combo, and the one that also fits the 150-wide combo that shows
