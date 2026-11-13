@@ -339,6 +339,22 @@ pub struct ShapeSettings {
     pub safe_rotation: bool,
     /// Light: 0 lights the whole model alike; 1 fades it out completely toward the far side.
     pub attenuation: f32,
+    /// UV Border Distance: how far from an island border the falloff reaches, in texture
+    /// pixels (at most one tile, 64), and how much its ramp is eased (0 = linear).
+    pub distance: f32,
+    pub smoothness: f32,
+    /// UV Checker: cells across the texture, the colour (or one random colour per island), the
+    /// opacity of the cell grid lines, and the island border colour and width in pixels.
+    pub checker_tile: f32,
+    pub checker_random: bool,
+    pub checker_color: [f32; 3],
+    pub grid_opacity: f32,
+    pub border_color: [f32; 3],
+    pub border_width: f32,
+    /// UV Texel Density: the colours of low, medium and high density.
+    pub density_low: [f32; 3],
+    pub density_medium: [f32; 3],
+    pub density_high: [f32; 3],
 }
 
 impl Default for ShapeSettings {
@@ -358,6 +374,17 @@ impl Default for ShapeSettings {
             rotation: 0.0,
             safe_rotation: false,
             attenuation: 0.0,
+            distance: 16.0,
+            smoothness: 0.0,
+            checker_tile: 8.0,
+            checker_random: false,
+            checker_color: [0.5; 3],
+            grid_opacity: 0.5,
+            border_color: [1.0, 0.0, 0.0],
+            border_width: 2.0,
+            density_low: [0.0, 0.0, 1.0],
+            density_medium: [0.0, 1.0, 0.0],
+            density_high: [1.0, 0.0, 0.0],
         }
     }
 }
@@ -371,6 +398,65 @@ impl ShapeSettings {
             && unit(self.balance) && unit(self.contrast) && unit(self.attenuation)
             && self.tile.is_finite() && (0.01..=256.0).contains(&self.tile)
             && self.rotation.is_finite() && (-360.0..=360.0).contains(&self.rotation)
+            && self.distance.is_finite() && (0.0..=Self::MAX_BORDER_DISTANCE).contains(&self.distance)
+            && unit(self.smoothness) && unit(self.grid_opacity)
+            && self.checker_tile.is_finite() && (1.0..=256.0).contains(&self.checker_tile)
+            && self.border_width.is_finite() && (0.0..=Self::MAX_BORDER_DISTANCE).contains(&self.border_width)
+            && [self.checker_color, self.border_color, self.density_low, self.density_medium, self.density_high].iter().flatten().all(|c| c.is_finite() && *c >= 0.0)
+    }
+
+    /// Longest distance the UV Border Distance reaches (one tile of texels).
+    pub const MAX_BORDER_DISTANCE: f32 = 64.0;
+
+    /// UV Border Distance before Balance / Contrast: 0 at an island border, 1 from `distance`
+    /// pixels inside it on, eased toward a smoothstep by `smoothness`.
+    pub fn border_value(&self, pixels: f32) -> f32 {
+        let d = self.distance.clamp(0.0, Self::MAX_BORDER_DISTANCE);
+        let t = if d <= 1e-6 { 1.0 } else { (pixels / d).clamp(0.0, 1.0) };
+        t + (t * t * (3.0 - 2.0 * t) - t) * self.smoothness.clamp(0.0, 1.0)
+    }
+
+    /// UV Checker colour at `uv`: `base` in the light cells and half of it in the dark ones, the
+    /// cell grid drawn over it at `grid_opacity` (white lines 4% of a cell wide), and
+    /// `border_color` within `border_width` pixels of an island border (`border_pixels` away).
+    pub fn checker_color_at(&self, uv: [f32; 2], base: [f32; 3], border_pixels: f32) -> [f32; 3] {
+        if border_pixels < self.border_width {
+            return self.border_color;
+        }
+        let n = self.checker_tile.max(1.0);
+        let (x, y) = (uv[0] * n, uv[1] * n);
+        let dark = ((x.floor() + y.floor()) as i64).rem_euclid(2) == 1;
+        let mut c = if dark { base.map(|v| v * 0.5) } else { base };
+        let edge = |v: f32| { let f = v - v.floor(); f.min(1.0 - f) };
+        if edge(x).min(edge(y)) < 0.02 {
+            let o = self.grid_opacity.clamp(0.0, 1.0);
+            c = c.map(|v| v + (1.0 - v) * o);
+        }
+        c
+    }
+
+    /// A saturated colour per UV island (UV Random Color in colour, UV Checker's Random mode):
+    /// the island's random value as a hue.
+    pub fn island_color(&self, island: u32) -> [f32; 3] {
+        let h = self.island_value(island) * 6.0;
+        let x = 1.0 - (h.rem_euclid(2.0) - 1.0).abs();
+        let rgb = match h as u32 { 0 => [1.0, x, 0.0], 1 => [x, 1.0, 0.0], 2 => [0.0, 1.0, x], 3 => [0.0, x, 1.0], 4 => [x, 0.0, 1.0], _ => [1.0, 0.0, x] };
+        // Saturation 0.65, value 0.9.
+        rgb.map(|v| 0.9 * (1.0 - 0.65 * (1.0 - v)))
+    }
+
+    /// UV Texel Density position 0..=1 of a relative density (1 = the model's longest side
+    /// spans the texture once): two octaves below is 0, equal 0.5, two octaves above 1.
+    pub fn density_position(relative: f32) -> f32 {
+        if relative <= 0.0 || !relative.is_finite() { return 0.0; }
+        (relative.log2() / 4.0 + 0.5).clamp(0.0, 1.0)
+    }
+
+    /// UV Texel Density colour at a position 0..=1: low to medium to high.
+    pub fn density_color(&self, t: f32) -> [f32; 3] {
+        let t = t.clamp(0.0, 1.0);
+        let (a, b, f) = if t < 0.5 { (self.density_low, self.density_medium, t * 2.0) } else { (self.density_medium, self.density_high, t * 2.0 - 1.0) };
+        std::array::from_fn(|i| a[i] + (b[i] - a[i]) * f)
     }
 
     /// The rotation in effect: snapped to 45 degree steps with Safe Rotation.
@@ -948,6 +1034,13 @@ pub enum GeneratorKind {
     UvRandomColor,
     /// Painter's Grayscale Conversion: an image turned gray.
     GrayscaleConversion,
+    /// Painter's UV Border Distance: a falloff from the borders of the UV islands.
+    UvBorderDistance,
+    /// Painter's UV Checker: a checker in UV space with island borders marked (colour on a
+    /// layer's content, its brightness in a mask).
+    UvChecker,
+    /// Painter's UV Texel Density: a colour from low to high texel density.
+    UvTexelDensity,
 }
 
 impl GeneratorKind {
@@ -965,13 +1058,21 @@ impl GeneratorKind {
             GeneratorKind::LinearGradient3D => "3D Linear Gradient".into(),
             GeneratorKind::UvRandomColor => "UV Random Color".into(),
             GeneratorKind::GrayscaleConversion => "Grayscale Conversion".into(),
+            GeneratorKind::UvBorderDistance => "UV Border Distance".into(),
+            GeneratorKind::UvChecker => "UV Checker".into(),
+            GeneratorKind::UvTexelDensity => "UV Texel Density".into(),
         }
+    }
+
+    /// Kinds that produce a colour when used on a layer's content (gray in a mask).
+    pub fn has_color(self) -> bool {
+        matches!(self, GeneratorKind::UvRandomColor | GeneratorKind::UvChecker | GeneratorKind::UvTexelDensity)
     }
 
     /// Kinds whose settings live in [`Generator::shape`] (Light keeps Level / Softness and only
     /// reads its attenuation there).
     pub fn uses_shape(self) -> bool {
-        matches!(self, GeneratorKind::Distance3D | GeneratorKind::LinearGradient3D | GeneratorKind::UvRandomColor | GeneratorKind::GrayscaleConversion)
+        matches!(self, GeneratorKind::Distance3D | GeneratorKind::LinearGradient3D | GeneratorKind::UvRandomColor | GeneratorKind::GrayscaleConversion | GeneratorKind::UvBorderDistance | GeneratorKind::UvChecker | GeneratorKind::UvTexelDensity)
     }
 
     /// Painter-style kinds whose Level / Softness the editor shows as Painter's own controls
@@ -1005,7 +1106,7 @@ impl Generator {
             GeneratorKind::Directional | GeneratorKind::PositionGradient => (0.5, 0.15, 0.0),
             // Unused by the Mask Editor (its own settings are in `editor`) and the shape kinds
             // (theirs are in `shape`).
-            GeneratorKind::MaskEditor | GeneratorKind::Distance3D | GeneratorKind::LinearGradient3D | GeneratorKind::UvRandomColor | GeneratorKind::GrayscaleConversion => (0.5, 1.0, 0.0),
+            GeneratorKind::MaskEditor | GeneratorKind::Distance3D | GeneratorKind::LinearGradient3D | GeneratorKind::UvRandomColor | GeneratorKind::GrayscaleConversion | GeneratorKind::UvBorderDistance | GeneratorKind::UvChecker | GeneratorKind::UvTexelDensity => (0.5, 1.0, 0.0),
         };
         Self {
             kind,
@@ -1312,6 +1413,42 @@ impl Mask {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn uv_generators_have_their_math() {
+        let s = ShapeSettings::default();
+        assert!(s.valid());
+        // Border distance: linear over `distance` pixels, eased by smoothness.
+        let b = ShapeSettings { distance: 8.0, ..s };
+        assert_eq!((b.border_value(0.0), b.border_value(4.0), b.border_value(20.0)), (0.0, 0.5, 1.0));
+        let eased = ShapeSettings { smoothness: 1.0, ..b };
+        assert!((eased.border_value(2.0) - 0.15625).abs() < 1e-6, "smoothstep(0.25)");
+        // Checker: 8 cells; neighbouring cells alternate full and half colour; the border wins.
+        let base = [0.8, 0.4, 0.2];
+        let plain = ShapeSettings { grid_opacity: 0.0, ..s };
+        assert_eq!(plain.checker_color_at([0.0625, 0.0625], base, 100.0), base);
+        assert_eq!(plain.checker_color_at([0.1875, 0.0625], base, 100.0), [0.4, 0.2, 0.1]);
+        assert_eq!(plain.checker_color_at([0.0625, 0.0625], base, 1.0), [1.0, 0.0, 0.0]);
+        // Grid lines at full opacity are white, right at a cell edge.
+        let lines = ShapeSettings { grid_opacity: 1.0, ..s };
+        assert!(lines.checker_color_at([0.126, 0.0625], base, 100.0).iter().all(|v| (v - 1.0).abs() < 1e-6));
+        // Island colours are stable, in range and differ between islands.
+        let (c0, c1) = (s.island_color(0), s.island_color(1));
+        assert!(c0 != c1 && c0 == s.island_color(0) && c0.iter().chain(&c1).all(|v| (0.0..=1.0).contains(v)));
+        // Texel density: equal density is the middle colour, two octaves either way the ends.
+        assert_eq!(ShapeSettings::density_position(1.0), 0.5);
+        assert_eq!((ShapeSettings::density_position(0.25), ShapeSettings::density_position(4.0)), (0.0, 1.0));
+        assert_eq!((s.density_color(0.0), s.density_color(0.5), s.density_color(1.0)), ([0.0, 0.0, 1.0], [0.0, 1.0, 0.0], [1.0, 0.0, 0.0]));
+        assert_eq!(s.density_color(0.25), [0.0, 0.5, 0.5]);
+        for kind in [GeneratorKind::UvBorderDistance, GeneratorKind::UvChecker, GeneratorKind::UvTexelDensity] {
+            assert!(kind.uses_shape() && Generator::new(kind).shape.is_some());
+        }
+        assert!(GeneratorKind::UvChecker.has_color() && !GeneratorKind::UvBorderDistance.has_color());
+        assert_eq!(serde_json::to_string(&GeneratorKind::UvTexelDensity).unwrap(), "\"uv_texel_density\"");
+        // Settings saved before these fields existed read with the defaults.
+        let old: ShapeSettings = serde_json::from_str("{\"radius\":0.25}").unwrap();
+        assert_eq!((old.radius, old.checker_tile, old.distance), (0.25, 8.0, 16.0));
+    }
 
     /// QA 2026-11: switching a generator with a micro effect to Mask Editor (which has no Micro
     /// controls) kept the effect active on the layers below with no way to turn it off.
