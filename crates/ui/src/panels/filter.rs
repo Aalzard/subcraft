@@ -284,6 +284,13 @@ pub fn editor(ui: &mut Ui, filter: &mut Filter, channel: Option<ChannelKind>) ->
             changed |= slider_row(ui, "Radius", egui::Slider::new(radius, 0.0..=subcraft_doc::MAX_MEDIAN_RADIUS).integer().suffix(" px")).changed();
             ui.weak("Exact median over the square window / removes speckle, keeps edges");
         }
+        Filter::BlurSlope { intensity, scale, seed, samples } => {
+            changed |= slider_row(ui, "Intensity", egui::Slider::new(intensity, 0.0..=32.0).suffix(" px")).changed();
+            changed |= slider_row(ui, "Source Tiling", egui::Slider::new(scale, 1..=subcraft_doc::MAX_WARP_SCALE)).on_hover_text("Noise cells across the texture").changed();
+            changed |= slider_row(ui, "Seed", egui::Slider::new(seed, 0..=9999)).changed();
+            changed |= slider_row(ui, "Quality", egui::Slider::new(samples, 2..=subcraft_doc::MAX_SLOPE_SAMPLES)).on_hover_text("Reads per texel along the slope").changed();
+            ui.weak("Blurs each texel along the direction a noise gives it");
+        }
         Filter::Warp { intensity, scale, seed } => {
             changed |= slider_row(ui, "Intensity", egui::Slider::new(intensity, 0.0..=32.0).suffix(" px")).changed();
             changed |= slider_row(ui, "Scale", egui::Slider::new(scale, 1..=subcraft_doc::MAX_WARP_SCALE)).changed();

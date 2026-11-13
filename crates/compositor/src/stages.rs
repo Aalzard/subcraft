@@ -156,6 +156,9 @@ enum Node<'a> {
         scale: u32,
         seed: u32,
         support: u32,
+        /// Reads per texel along the offset: 1 is the Warp filter (the far end only), more is
+        /// Blur Slope (the average from the texel to the far end).
+        samples: u32,
     },
     /// Edge Detect / Directional Warp / Mosaic: direct per-texel pixel reads (filter already
     /// scaled to this texture's resolution).
@@ -573,7 +576,7 @@ impl<'a> Graph<'a> {
             }
             Node::Directional { input, taps: _, support: _ }
             | Node::Median { input, radius: _ }
-            | Node::Warp { input, intensity: _, scale: _, seed: _, support: _ }
+            | Node::Warp { input, intensity: _, scale: _, seed: _, support: _, samples: _ }
             | Node::Pixelwise { input, filter: _, kind: _, support: _ }
             | Node::Contour { input, filter: _, kind: _, radius: _ }
             | Node::Gaussian { input, weights: _, horizontal: _, wrap: _ } => vec![*input],
@@ -768,6 +771,18 @@ impl<'a> Graph<'a> {
                 scale,
                 seed,
                 support: intensity.ceil() as u32 + 1,
+                samples: 1,
+            }));
+        }
+        if let Filter::BlurSlope { scale, seed, samples, .. } = filter {
+            let intensity = radius * self.radius_scale;
+            return Some(self.push(Node::Warp {
+                input,
+                intensity,
+                scale,
+                seed,
+                support: intensity.ceil() as u32 + 1,
+                samples: samples.clamp(2, subcraft_doc::MAX_SLOPE_SAMPLES),
             }));
         }
         if matches!(filter, Filter::Median { .. }) {
@@ -1521,8 +1536,10 @@ impl<'a> Graph<'a> {
                 scale,
                 seed,
                 support,
+                samples,
             } => {
                 let grid = Neighborhood::new(self, *input, &geo, *support);
+                let count = (*samples).max(1);
                 let res = self.ctx.geometry.resolution;
                 let mut out = vec![[0.0; 4]; TILE_TEXELS];
                 for (i, dst) in out.iter_mut().enumerate() {
@@ -1533,7 +1550,15 @@ impl<'a> Graph<'a> {
                     let [dx, dy] = subcraft_materials::filter::warp::offset(
                         x, y, res, *intensity, *scale, *seed,
                     );
-                    let src = grid.premultiplied(x as f32 + dx, y as f32 + dy);
+                    let mut src = [0.0f32; 4];
+                    for k in 0..count {
+                        // One read: the far end (Warp). Several: evenly from the texel to it.
+                        let t = if count == 1 { 1.0 } else { k as f32 / (count - 1) as f32 };
+                        let s = grid.premultiplied(x as f32 + dx * t, y as f32 + dy * t);
+                        for c in 0..4 {
+                            src[c] += s[c] / count as f32;
+                        }
+                    }
                     *dst = src;
                     if dst[3] > 1e-12 {
                         let a = dst[3];
@@ -1906,7 +1931,7 @@ fn spatial_value(
         | Filter::Sharpen { amount: 0.0, .. }
         | Filter::DirectionalBlur { radius: 0.0, .. } => source,
         Filter::Blur { .. } | Filter::BlurWrap { .. } | Filter::Transform { .. } | Filter::Mirror { .. }
-        | Filter::DirectionalBlur { .. } | Filter::Warp { .. }
+        | Filter::DirectionalBlur { .. } | Filter::Warp { .. } | Filter::BlurSlope { .. }
         | Filter::EdgeDetect { .. } | Filter::DirectionalWarp { .. } | Filter::Mosaic { .. } => blurred,
         Filter::Glow { radius: 0.0, .. } | Filter::Glow { amount: 0.0, .. } => source,
         Filter::Glow { amount, threshold, .. } => {
