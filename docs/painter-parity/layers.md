@@ -50,7 +50,7 @@ Layout notes: left to right a Painter row has the visibility eye, the content th
 | Folder disclosure arrow (open/close group) | Folder row | open | done | crates/ui/src/panels/layers.rs:286 | - |
 | Folder closes when moved in or out of another folder (fixed in recent versions: state kept) | Folder row | state kept | done | crates/app/src/layer_tree.rs:17 | - |
 | Instance icon (none / source / target; click opens the instance list) | Layer row, right | hidden when not instanced | missing | - | - |
-| Geometry mask icon (click to edit, shows count of included items) | Layer row, far right | all geometry included | partial: no row icon; the "Parts" section in Properties plays this role | crates/ui/src/panels/properties.rs:88 | - |
+| Geometry mask icon (click to edit, shows count of included items) | Layer row, far right | all geometry included | done: polygon icon with included/total, click to pick parts in the 3D / 2D view, right-click menu | crates/ui/src/panels/layers.rs | - |
 | Gamma-corrected alpha "i" icon | Layer row | off | missing | - | - |
 | Layer colour stripe (from Set color) | Layer row | none | done (at the right edge of the row; dimmed inside a tagged folder) | crates/ui/src/panels/layers.rs:559 | - |
 | Broken instance / cycle indicator | Layer row | n/a | missing | - | - |
@@ -164,10 +164,10 @@ Layout notes: these are Painter's non-editable shortcuts; copy/paste only fire w
 | Paste as instance | Layer stack | Ctrl+Shift+V (per instancing page) | missing | - | - |
 | Instantiate across texture sets | Layer stack | Ctrl+Shift+D (2017.4 release notes) | missing | - | - |
 | Merge / flatten the selected group | Layer stack | Ctrl+M | done | crates/ui/src/panels/layers.rs:797 | - |
-| Display mask in viewport | Mask thumbnail | Alt + left click | partial: opens a floating UV preview window of the mask, viewport unchanged | crates/ui/src/panels/layers.rs:312 | - |
+| Display mask in viewport | Mask thumbnail | Alt + left click | done | crates/ui/src/panels/layers.rs:481 | - |
 | Disable / enable mask | Mask thumbnail | Shift + left click | done | crates/ui/src/panels/layers.rs:308 | - |
 | Move effect up / down | Effect row | Alt + Arrow Up / Arrow Down | done | crates/ui/src/panels/effects.rs:290 | - |
-| Hide / ignore excluded geometry | Viewport contextual toolbar | Alt+H | missing | - | - |
+| Hide / ignore excluded geometry | Viewport contextual toolbar | Alt+H | done | crates/app/src/part_workflow.rs | - |
 | Copy/paste limited to pointer over the layer stack | Layer stack | n/a | partial: fires whenever no text field has focus | crates/ui/src/clipboard.rs:40 | - |
 
 ## Layer context menu (right-click on a layer)
@@ -301,11 +301,11 @@ Layout notes: the geometry mask is a second, list-based mask on every layer and 
 | Click geometry in the 3D or 2D view to toggle it | Viewport (edit mode) | n/a | partial: 3D view picking only | crates/ui/src/panels/properties.rs:105 | - |
 | Rectangle selection in both viewports | Viewport (edit mode) | n/a | missing | - | - |
 | Excluded geometry drawn grey with diagonal lines while editing | Viewport (edit mode) | n/a | missing | - | - |
-| Right-click icon > Copy geometry mask | Layer row icon menu | n/a | missing | - | - |
-| Right-click icon > Paste into geometry mask | Layer row icon menu | n/a | missing | - | - |
+| Right-click icon > Copy geometry mask | Layer row icon menu | n/a | done | crates/ui/src/panels/layers.rs | - |
+| Right-click icon > Paste into geometry mask | Layer row icon menu | n/a | done | crates/ui/src/panels/layers.rs | - |
 | Right-click icon > Include all | Layer row icon menu | n/a | partial: "All" button in Properties | crates/ui/src/panels/properties.rs:118 | - |
 | Right-click icon > Exclude all | Layer row icon menu | n/a | partial: "None" button in Properties | crates/ui/src/panels/properties.rs:121 | - |
-| Hide/ignore excluded geometry button (paint through hidden parts) | Viewport contextual toolbar | off; Alt+H | partial: parts can be hidden or isolated per part (H / I under the cursor), not tied to the layer's mask | crates/ui/src/viewport.rs:183 | - |
+| Hide/ignore excluded geometry button (paint through hidden parts) | Viewport contextual toolbar | off; Alt+H | done: hides what the selected layer's geometry mask leaves out and follows the selection | crates/ui/src/viewport_bar.rs | - |
 | Mask is dynamic: strokes are recomputed when the include list changes | Engine | n/a | partial: the part mask multiplies the layer result; strokes are not reprojected | crates/doc/src/layer.rs:134 | - |
 | Survives mesh re-import by name / tile number | Engine | n/a | partial: part ids are stable for a stored mesh only | crates/doc/src/layer.rs:137 | - |
 | Excluded UV tiles are skipped by the engine (performance) | Engine | n/a | missing | - | - |

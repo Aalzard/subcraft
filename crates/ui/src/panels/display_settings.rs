@@ -290,6 +290,12 @@ pub fn camera(state: &mut UiState, ui: &mut Ui) {
                 ui.selectable_value(&mut prefs.orthographic, true, tr("Orthographic"));
             });
             ui.end_row();
+            ui.label(tr("Camera rotation"));
+            ui.horizontal(|ui| {
+                ui.selectable_value(&mut prefs.free_rotation, false, tr("Constrained")).on_hover_text(tr("Orbit around the world vertical; the horizon stays level"));
+                ui.selectable_value(&mut prefs.free_rotation, true, tr("Free")).on_hover_text(tr("Orbit around the view's own axes: the camera can roll and go over the top"));
+            });
+            ui.end_row();
             ui.label(tr("Field of view"));
             let mut fov = camera.fov_y_deg;
             if ui.add_enabled(!prefs.orthographic, egui::Slider::new(&mut fov, subcraft_doc::display::FOV_RANGE).suffix("°").fixed_decimals(1)).on_hover_text(tr("Vertical field of view. The camera moves so the model keeps its size.")).changed() {
@@ -698,6 +704,8 @@ pub fn visualization(state: &mut UiState, ui: &mut Ui) {
     });
     sub_header(ui, tr("Guides"));
     ui.checkbox(&mut prefs.symmetry_guides, tr("Symmetry guides"));
+    ui.checkbox(&mut prefs.symmetry_cursor, tr("Symmetry cursors")).on_hover_text(tr("A second brush cursor where each symmetry copy of the stroke paints"));
+    ui.add_enabled(prefs.symmetry_cursor, egui::Checkbox::new(&mut prefs.symmetry_cursor_hide_painting, tr("Hide while painting")));
     ui.checkbox(&mut prefs.hints, tr("Viewport hints")).on_hover_text(tr("The list of mouse and key actions in the bottom-left corner of the 3D view. While it is hidden the grid unit is shown there."));
     ui.checkbox(&mut prefs.axis_indicator, tr("Axis indicator")).on_hover_text(tr("The X, Y and Z directions of the scene in the bottom-right corner of the 3D view"));
 }

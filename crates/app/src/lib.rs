@@ -25,6 +25,7 @@ pub mod cage_check;
 pub mod launch;
 pub mod layer_tree;
 pub mod flatten;
+pub mod mask_tools;
 pub mod new_project;
 pub mod effect_stack;
 pub mod export_presets;
@@ -69,7 +70,7 @@ pub use parts::MeshPart;
 pub use part_workflow::{PartAction, PartInfo, PartKey, SurfaceTarget};
 pub use recovery::{AutosaveEvent, Autosaver, CrashedSession, RecoveryStore};
 pub use subcraft_compositor::ChangedTiles;
-pub use session::{BrushState, CloneSourceMode, CompositeUpdate, DEFAULT_RESOLUTION, LayerTarget, Pick, ProjectSnapshot, Scene, Selection, Session};
+pub use session::{BrushState, CloneSourceMode, CompositeUpdate, DEFAULT_RESOLUTION, LayerTarget, Pick, ProjectSnapshot, QuickMask, Scene, Selection, Session};
 
 pub use subcraft_compositor::{Composite, composite_comps};
 pub use subcraft_assets as assets;

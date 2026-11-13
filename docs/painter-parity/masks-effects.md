@@ -27,9 +27,9 @@ Layout notes: a mask is added from the Create Mask button in the Layers header o
 |---|---|---|---|---|---|
 | Click the mask thumbnail to edit the mask and show its effect stack | Layer row | n/a | done | crates/ui/src/panels/layers.rs:310 | - |
 | Click the content thumbnail to return to the layer content | Layer row | n/a | done | crates/ui/src/panels/layers.rs:296 | - |
-| Alt + left click: show the mask alone in the viewport | Mask thumbnail | off | partial: opens a floating UV preview window; the 3D viewport is not switched | crates/ui/src/panels/layers.rs:312 | - |
+| Alt + left click: show the mask alone in the viewport | Mask thumbnail | off | done | crates/ui/src/panels/layers.rs:481 | - |
 | Mask display also reachable from the viewport display dropdown | Viewport display mode | n/a | missing | - | - |
-| Alt + click again deselects effects / leaves mask view | Mask thumbnail | n/a | partial: the preview window is closed by its own button | crates/ui/src/layer_previews.rs:138 | - |
+| Alt + click again deselects effects / leaves mask view | Mask thumbnail | n/a | done (also Esc over the viewport) | crates/ui/src/mask_view.rs:20 | - |
 | Shift + left click: disable or re-enable the mask | Mask thumbnail | enabled | done | crates/ui/src/panels/layers.rs:308 | - |
 | Disabled mask is marked on the thumbnail | Mask thumbnail | n/a | done | crates/ui/src/panels/layers.rs:306 | - |
 | Red line under the mask thumbnail when the mask has effects | Mask thumbnail | grey | partial: "N fx" text under the layer name | crates/ui/src/panels/layers.rs:339 | - |
@@ -54,11 +54,11 @@ Layout notes: Adobe documents the entries Toggle mask, Copy mask content, Paste 
 | Toggle mask | Mask context menu | Shift + click | done ("Disable mask" / "Enable mask") | crates/ui/src/panels/mask.rs:19 | - |
 | Remove mask | Mask context menu | (unverified) | done | crates/ui/src/panels/mask.rs:49 | - |
 | Invert mask (inverts the painted content) | Mask context menu | (unverified) | partial: appends an Invert effect instead of inverting the pixels | crates/ui/src/panels/mask.rs:33 | - |
-| Invert mask background (flips white/black base, keeps effects) | Mask context menu | n/a | missing | - | - |
-| Clear mask | Mask context menu | (unverified) | missing | - | - |
+| Invert mask background (flips white/black base, keeps effects) | Mask context menu | n/a | partial: inverts the painted base, strokes included (the base does not keep background and paint apart); effects stay | crates/app/src/session.rs:1787 | - |
+| Clear mask | Mask context menu | (unverified) | done (removes the painting; effects stay) | crates/app/src/session.rs:1807 | - |
 | Copy mask content | Mask context menu | n/a | done ("Copy mask") | crates/ui/src/panels/mask.rs:37 | - |
 | Paste into mask | Mask context menu | n/a | done ("Paste mask"; also offered on mask-less layers) | crates/ui/src/panels/mask.rs:41 | - |
-| Export mask to file | Mask context menu | (unverified) | missing | - | - |
+| Export mask to file | Mask context menu | (unverified) | done (PNG / TGA / EXR / TIFF at the set's resolution, effects included) | crates/app/src/mask_tools.rs:37 | - |
 | Create smart mask | Mask context menu | n/a | partial: on the layer row menu, only when the mask has effects | crates/ui/src/panels/layers.rs:480 | - |
 | Preview mask (SubCraft extra, same as Alt + click) | n/a | n/a | done | crates/ui/src/panels/mask.rs:14 | - |
 

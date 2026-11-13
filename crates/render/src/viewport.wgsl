@@ -378,7 +378,9 @@ fn fs_main(in: VsOut, @builtin(front_facing) front: bool) -> @location(0) vec4<f
 
     let color = (direct + ambient + emissive) * g.params.x;
     let alpha = surface_alpha(in.uv, in.clip.xy);
-    return vec4<f32>(tonemap(color, i32(round(g.post.x)), g.post.y), alpha);
+    // The highlighted texture set (under the cursor or hovered in the list) is tinted warm.
+    let shown = mix(tonemap(color, i32(round(g.post.x)), g.post.y), vec3<f32>(1.0, 0.62, 0.22), 0.3 * mat.shader.w);
+    return vec4<f32>(shown, alpha);
 }
 
 // ---- environment behind the model --------------------------------------------------------------
