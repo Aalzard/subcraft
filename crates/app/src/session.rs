@@ -2257,6 +2257,9 @@ impl Session {
         if matches!(kind, ContentEffectKind::Levels { channel: subcraft_core::ChannelKind::Normal, .. }) {
             return Err(CommandError::Invalid("Levels cannot adjust the Normal channel".into()));
         }
+        if let ContentEffectKind::Levels { levels, .. } = kind && !levels.valid() {
+            return Err(CommandError::Invalid("Levels parameters are invalid".into()));
+        }
         Ok(())
     }
 
@@ -2271,7 +2274,7 @@ impl Session {
         if let subcraft_doc::MaskEffectKind::Compare(c) = kind && !c.valid() {
             return Err(CommandError::Invalid("Compare Mask parameters are invalid".into()));
         }
-        if let subcraft_doc::MaskEffectKind::Levels(l) = kind && !l.valid() {
+        if let subcraft_doc::MaskEffectKind::Levels(l) | subcraft_doc::MaskEffectKind::AnchorRef { levels: Some(l), .. } = kind && !l.valid() {
             return Err(CommandError::Invalid("Levels parameters are invalid".into()));
         }
         Ok(())
