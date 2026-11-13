@@ -26,9 +26,9 @@ Layout notes: Edit > Settings opens one window with three sections chosen on the
 | Language value: Japanese | Settings > General > Interface | - | missing | - | - |
 | Language value: Chinese (simplified) | Settings > General > Interface | - | partial: Traditional Chinese only | crates/ui/src/i18n.rs:38 | - |
 | Show keyboard helper | Settings > General > Interface | not documented | partial: toggle is View > Viewport hints, not in Preferences | crates/ui/src/app.rs:1263 | - |
-| Show world axes | Settings > General > Interface | not documented | partial: floor-grid axis lines from the grid button, no corner axis widget | crates/ui/src/viewport_bar.rs:310 | - |
-| Background color (first gradient colour) | Settings > General > Interface | not documented | missing | - | - |
-| Background color (second gradient colour) | Settings > General > Interface | not documented | missing | - | - |
+| Show world axes | Settings > General > Interface | not documented | done: the axis indicator in the 3D view corner (#261), switched in Display Settings > Viewport > Axis indicator | crates/ui/src/viewport.rs (axis_indicator) | 261 |
+| Background color (first gradient colour) | Settings > General > Interface | not documented | done: "Background colors" with a Bottom color; off keeps the flat default | crates/ui/src/recovery.rs (background_colors) | PRNUM |
+| Background color (second gradient colour) | Settings > General > Interface | not documented | done: the Top color of the vertical gradient | crates/render/src/viewport.wgsl (fs_background) | PRNUM |
 | Only display the selected material when painting | Settings > General > Interface | off recommended | missing | - | - |
 | Viewport Scaling | Settings > General > Interface | None or Auto | partial: render resolution 100 / 75 / 50 / 25 % in the 3D view toolbar | crates/ui/src/viewport_bar.rs:347 | - |
 | Viewport Scaling value: None | Settings > General > Interface | native resolution | partial: 100 % | crates/ui/src/viewport_bar.rs:12 | - |

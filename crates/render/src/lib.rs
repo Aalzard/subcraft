@@ -143,8 +143,11 @@ pub struct ViewParams {
     pub exposure: f32,
     /// Height-to-bump strength (UV units of slope per height unit; 0 disables bumps).
     pub height_scale: f32,
-    /// Linear background color.
+    /// Linear background color (the bottom of the gradient when `background_top` is set).
     pub background: [f32; 3],
+    /// Linear color at the top of a vertical background gradient (Painter's two background
+    /// colors); `None` keeps the background flat.
+    pub background_top: Option<[f32; 3]>,
     /// 4x MSAA when true, no anti-aliasing (faster) when false.
     pub antialias: bool,
     /// Temporal anti-aliasing: this frame's number (from 1) in the running average of jittered
@@ -258,6 +261,7 @@ impl ViewParams {
             exposure: 1.0,
             height_scale: 0.02,
             background: [0.018, 0.019, 0.022],
+            background_top: None,
             antialias: true,
             taa_frame: 0,
             view_mode: ViewMode::Material,
@@ -307,6 +311,8 @@ struct Globals {
     shadow: [f32; 4],
     /// x: filter radius in texels.
     shadow_filter: [f32; 4],
+    /// rgb: top color of the background gradient, a: 1 = gradient on.
+    background_top: [f32; 4],
 }
 
 pub const SAMPLE_COUNT: u32 = 4;
@@ -1030,6 +1036,10 @@ impl ViewportRenderer {
                 None => [0.0; 4],
             },
             shadow_filter: [params.shadows.quality.filter_radius() as f32, 0.0, 0.0, 0.0],
+            background_top: match params.background_top {
+                Some(c) => [c[0], c[1], c[2], 1.0],
+                None => [0.0; 4],
+            },
         };
         queue.write_buffer(&self.globals, 0, bytemuck::bytes_of(&globals));
         if params.symmetry_guides && let Some(guides) = &self.symmetry { guides.prepare_lines(queue, params.proj * params.view); }
@@ -1069,7 +1079,9 @@ impl ViewportRenderer {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
-            if e.background_opacity > 0.0 {
+            // The background pass draws the environment and the gradient; a flat color with no
+            // environment is the clear color alone.
+            if e.background_opacity > 0.0 || params.background_top.is_some() {
                 pass.set_pipeline(&self.pipeline_background[if samples > 1 { 0 } else { 1 }]);
                 pass.set_bind_group(0, &self.globals_bg, &[]);
                 pass.draw(0..3, 0..1);

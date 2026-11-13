@@ -26,6 +26,15 @@ pub enum SettingsTab {
     Libraries,
 }
 
+/// Default background gradient colors (sRGB): a dark grey getting slightly lighter upwards.
+pub const DEFAULT_BACKGROUND_BOTTOM: [f32; 3] = [0.14, 0.145, 0.16];
+pub const DEFAULT_BACKGROUND_TOP: [f32; 3] = [0.3, 0.31, 0.33];
+
+/// The 3D view's background in linear color: the flat default unless the preferences set colors.
+pub fn background_colors(prefs: &Preferences) -> Option<([f32; 3], [f32; 3])> {
+    prefs.custom_background.then(|| (subcraft_core::color::srgb3_to_linear(prefs.background_bottom), subcraft_core::color::srgb3_to_linear(prefs.background_top)))
+}
+
 /// User settings kept between runs.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -61,6 +70,11 @@ pub struct Preferences {
     pub orbit_around_cursor: bool,
     /// Settings > General > Camera: rotation, zoom and wheel speeds and directions.
     pub camera_speed: crate::nav::CameraSpeed,
+    /// Settings > General > Interface: the 3D view's background colors (sRGB), a vertical
+    /// gradient from `bottom` to `top`, used when `custom_background` is on.
+    pub custom_background: bool,
+    pub background_bottom: [f32; 3],
+    pub background_top: [f32; 3],
     /// Window > Toolbars: the tool rail and the status bar.
     pub show_tools_toolbar: bool,
     pub show_status_bar: bool,
@@ -125,6 +139,9 @@ impl Default for Preferences {
             nav_scheme: Default::default(),
             orbit_around_cursor: true,
             camera_speed: Default::default(),
+            custom_background: false,
+            background_bottom: DEFAULT_BACKGROUND_BOTTOM,
+            background_top: DEFAULT_BACKGROUND_TOP,
             show_tools_toolbar: true,
             show_status_bar: true,
             keymap: Default::default(),
@@ -393,6 +410,16 @@ pub fn preferences_window(state: &mut UiState, ctx: &egui::Context) {
         }
         ui.checkbox(&mut rec.prefs.orbit_around_cursor, "Orbit around the point under the cursor")
             .on_hover_text("Starting an orbit over the model turns the view around that point of the surface, as Substance Painter does. Over the background the last point is kept. Off: the view always turns around its centre. F frames the model and forgets the point.");
+        ui.horizontal(|ui| {
+            ui.checkbox(&mut rec.prefs.custom_background, tr("Background colors"))
+                .on_hover_text(tr("The 3D view's background behind the model: a gradient from the bottom color to the top one"));
+            ui.add_enabled_ui(rec.prefs.custom_background, |ui| {
+                ui.label(tr("Bottom"));
+                ui.color_edit_button_rgb(&mut rec.prefs.background_bottom);
+                ui.label(tr("Top"));
+                ui.color_edit_button_rgb(&mut rec.prefs.background_top);
+            });
+        });
         let speed = &mut rec.prefs.camera_speed;
         egui::Grid::new("camera_speed").num_columns(3).spacing([8.0, 4.0]).show(ui, |ui| {
             ui.label(tr("Rotation speed"));
@@ -508,6 +535,21 @@ fn shortcuts_page(state: &mut UiState, ctx: &egui::Context) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn background_colors_apply_only_when_chosen_and_in_linear() {
+        let mut p = Preferences::default();
+        assert_eq!(background_colors(&p), None, "the default flat background");
+        p.custom_background = true;
+        p.background_bottom = [0.5, 0.0, 1.0];
+        p.background_top = [1.0, 1.0, 1.0];
+        let (bottom, top) = background_colors(&p).unwrap();
+        assert!((bottom[0] - 0.214).abs() < 1e-3 && bottom[1] == 0.0 && (bottom[2] - 1.0).abs() < 1e-6, "{bottom:?}");
+        assert!(top.iter().all(|c| (c - 1.0).abs() < 1e-6));
+        // Older preference files load the flat default.
+        let old = Preferences::from_json_lenient(r#"{"ui_size_percent":110}"#);
+        assert_eq!((old.custom_background, old.background_bottom), (false, DEFAULT_BACKGROUND_BOTTOM));
+    }
 
     /// QA 2026-11: one value this build does not know reset every preference to its default.
     #[test]

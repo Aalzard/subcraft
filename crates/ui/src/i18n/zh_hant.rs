@@ -828,4 +828,8 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Zoom speed", "縮放速度"),
     ("Wheel speed", "滾輪速度"),
     ("Inverse direction", "反轉方向"),
+    ("Background colors", "背景顏色"),
+    ("The 3D view's background behind the model: a gradient from the bottom color to the top one", "3D 檢視中模型後方的背景：由底部顏色漸變到頂部顏色"),
+    ("Bottom", "底部"),
+    ("Top", "頂部"),
 ];

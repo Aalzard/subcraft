@@ -37,6 +37,7 @@ struct Globals {
     shadow: vec4<f32>,
     // x: filter radius in texels
     shadow_filter: vec4<f32>,
+    background_top: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> g: Globals;
@@ -417,7 +418,12 @@ fn fs_background(in: BgOut) -> @location(0) vec4<f32> {
     let far = g.inv_view_proj * vec4<f32>(in.ndc, 1.0, 1.0);
     let d = normalize(far.xyz / far.w - near.xyz / near.w);
     let env = tonemap(background_radiance(d, g.env_view.x) * g.params.x, i32(round(g.post.x)), g.post.y);
-    return vec4<f32>(mix(g.background.rgb, env, g.background.a), 1.0);
+    // Background color: flat, or a vertical gradient from the bottom color up to the top one.
+    var base = g.background.rgb;
+    if (g.background_top.w > 0.5) {
+        base = mix(g.background.rgb, g.background_top.rgb, clamp(in.ndc.y * 0.5 + 0.5, 0.0, 1.0));
+    }
+    return vec4<f32>(mix(base, env, g.background.a), 1.0);
 }
 
 // Emission only, in linear HDR: feeds the glow and glare passes of the viewport.

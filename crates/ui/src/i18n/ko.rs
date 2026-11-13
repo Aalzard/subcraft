@@ -828,4 +828,8 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Zoom speed", "확대/축소 속도"),
     ("Wheel speed", "휠 속도"),
     ("Inverse direction", "방향 반전"),
+    ("Background colors", "배경 색상"),
+    ("The 3D view's background behind the model: a gradient from the bottom color to the top one", "3D 뷰에서 모델 뒤의 배경: 아래쪽 색상에서 위쪽 색상으로 이어지는 그라데이션"),
+    ("Bottom", "아래쪽"),
+    ("Top", "위쪽"),
 ];
