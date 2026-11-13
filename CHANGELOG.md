@@ -6,6 +6,8 @@ What changed in SubCraft, newest first. Download the latest build from the
 ## Unreleased
 
 ### Added
+- **`--export-path <folder>`** launch argument, like Painter's: the Export window's default output folder
+  (a project's own saved export folder still wins).
 - **Export flattened / Export mask** from the layer stack, like Painter: right-click a layer or folder (or a
   multi-selection) to write it on its own, one file per channel (`$textureSet_$layerName_$srcMap`, height and
   normal as EXR, 1 texel of padding), or its mask as a gray image.

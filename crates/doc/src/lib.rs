@@ -36,7 +36,7 @@ pub use history::{History, HistoryEntry};
 pub use instance::{InstanceCache, InstanceState};
 pub use layer::{ChannelBlend, FillChannel, FillContent, GroupContent, Layer, LayerColor, LayerContent, LayerKind, PaintContent, PartMask, changed_paint_tiles, duplicate_layers_with_new_ids, empty_paint_image, same_paint_layout};
 pub use mask::{CompareMask, CompareOp, CompareOperand, LevelsRange, SelectionBackground, ShapeSettings, light_angles, light_direction, CurvatureDetail, CurvatureDetailMode, CurvatureMode, EditorCurvature, EditorDirection, EditorDirections, EditorOcclusion, EditorTexture, EditorThickness, GrayscaleType, MaskEditor, EdgeSpread, Generator, MicroDirection, MicroEffect, PainterControls, GeneratorKind, GradientAxis, IdColorMask, Levels, Mask, MaskEffect, MaskEffectKind};
-pub use pen::{PathKind, PathStamp, PenAnchor, PenPath};
+pub use pen::{PathKind, PathRibbon, PathStamp, PenAnchor, PenPath, RibbonMode};
 pub use resources::{Resource, ResourceKind, ResourceStore};
 pub use text::TextDecal;
 pub use settings::{ExportConfig, ExportOverrides, MapFormat, NormalFormat, ProjectSettings};

@@ -74,6 +74,10 @@ impl BrushNotice {
 pub struct UvView {
     pub zoom: f32,
     pub offset: egui::Vec2,
+    /// The texture is turned by this angle (radians, clockwise on screen) about its centre.
+    pub rotation: f32,
+    /// The angle an Alt+drag has reached before Shift snaps it to quarter turns.
+    pub rotation_raw: f32,
     pub source: PreviewSource,
     pub texture: Option<egui::TextureId>,
     /// A stroke started in the 2D view is in progress.
@@ -289,6 +293,10 @@ pub struct UiState {
     /// Which view the pointer was over last frame (F frames that one, or both when neither).
     pub hovered_3d: bool,
     pub hovered_2d: bool,
+    /// The 3D / 2D view layout shown now (set by the app each frame) and one asked for by the
+    /// contextual toolbar's Viewport Mode dropdown (applied by the app, which owns the docks).
+    pub view_layout: crate::app::ViewLayout,
+    pub view_layout_request: Option<crate::app::ViewLayout>,
     /// Material slot to draw highlighted next frame (the texture set under the cursor with
     /// Ctrl+Alt, or hovered in the Texture Set List); taken by the 3D view each frame.
     pub highlight_slot: Option<u32>,
@@ -455,7 +463,7 @@ impl UiState {
             render_request: None,
             last_view_size: [1280, 720],
             last_view_rect: egui::Rect::NOTHING,
-            uv: UvView { zoom: 1.0, offset: egui::Vec2::ZERO, source: PreviewSource::Channel(ChannelKind::BaseColor), texture: None, painting: false, last_point: None, fill_box: None, parts_box: None, frame: None },
+            uv: UvView { zoom: 1.0, offset: egui::Vec2::ZERO, rotation: 0.0, rotation_raw: 0.0, source: PreviewSource::Channel(ChannelKind::BaseColor), texture: None, painting: false, last_point: None, fill_box: None, parts_box: None, frame: None },
             painting: false,
             picking_parts: false,
             warp: Default::default(),
@@ -494,6 +502,8 @@ impl UiState {
             light_pitch: 0.0,
             hovered_3d: false,
             hovered_2d: false,
+            view_layout: crate::app::ViewLayout::Only3d,
+            view_layout_request: None,
             highlight_slot: None,
             drops_taken: false,
             multi: Default::default(),
@@ -814,6 +824,12 @@ impl UiState {
         if self.multi_texture_set != Some(ts) {
             if self.multi_texture_set.is_some() { self.multi.clear(); }
             self.multi_texture_set = Some(ts);
+        }
+        // A layer selected from outside the layer list (the Paths panel, a new pen path) is not
+        // in the multi-selection: kept, Delete / Ctrl+D / Ctrl+G acted on the old rows instead of
+        // the layer that is highlighted.
+        if self.multi.is_multi() && self.session.selection().layer.is_some_and(|l| !self.multi.contains(l)) {
+            self.multi.clear();
         }
     }
 

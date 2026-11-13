@@ -136,7 +136,7 @@ impl Source {
         let comp = |c: u8| C[(c as usize).min(3)];
         let inv = |inv: bool, s: String| if inv { format!("1 - {s}") } else { s };
         match *self {
-            Source::Channel { kind, component, invert } => inv(invert, if kind.is_color() || kind == ChannelKind::Normal { format!("{}.{}", kind.display_name(), comp(component)) } else { kind.display_name().to_string() }),
+            Source::Channel { kind, component, invert } => inv(invert, if kind.components() > 1 { format!("{}.{}", kind.display_name(), comp(component)) } else { kind.display_name().to_string() }),
             Source::Normal { component, directx } => format!("Normal {}.{}", if directx { "DX" } else { "GL" }, comp(component)),
             Source::Height => "Height".into(),
             Source::Constant { value } => format!("{value:.2}"),
@@ -528,5 +528,20 @@ impl ExportTemplate {
         ];
         all.extend(crate::builtin_presets::painter());
         all
+    }
+}
+
+#[cfg(test)]
+mod source_label_tests {
+    use super::*;
+
+    /// QA 2026-11: Coat Normal has three components like Normal, but its label dropped the
+    /// component, so the three sources of a coat normal map all read "Coat Normal".
+    #[test]
+    fn every_multi_component_channel_names_its_component() {
+        assert_eq!(Source::ch(ChannelKind::CoatNormal, 1).label(), "Coat Normal.G");
+        assert_eq!(Source::ch(ChannelKind::Normal, 2).label(), "Normal.B");
+        assert_eq!(Source::ch(ChannelKind::BaseColor, 0).label(), "Base Color.R");
+        assert_eq!(Source::ch(ChannelKind::Roughness, 0).label(), "Roughness");
     }
 }

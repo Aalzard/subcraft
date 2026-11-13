@@ -135,6 +135,9 @@ pub struct LaunchOptions {
     pub export_template: Option<usize>,
     /// Export preset to select by name or id (built-in or from the user library).
     pub export_preset: Option<String>,
+    /// Painter's `--export-path`: the Export window's default output folder (a project's own
+    /// saved export folder still wins when it has one).
+    pub export_path: Option<PathBuf>,
     /// Open the Render quality window (scripted captures).
     pub render_window: bool,
     /// Render a still or a turntable from the loaded project, then quit (scripted export).
@@ -208,6 +211,11 @@ pub struct LaunchOptions {
 }
 
 impl LaunchOptions {
+    /// The Export window's folder at launch: `--export-path` when given, else `default`.
+    pub fn export_folder(&self, default: &str) -> String {
+        self.export_path.as_ref().map_or_else(|| default.to_string(), |p| p.display().to_string())
+    }
+
     fn shows_welcome(&self, enabled: bool, recovered: bool) -> bool {
         self.resume_update.is_none() && (self.welcome || (enabled && self.mesh.is_none()
             && !self.demo && self.screenshot.is_none() && !recovered))
@@ -383,6 +391,31 @@ pub fn is_front(dock: &DockState<Tab>, tab: Tab) -> bool {
     dock.find_tab(&tab).is_some_and(|path| dock[path.surface][path.node].get_leaf().is_some_and(|leaf| leaf.active == path.tab))
 }
 
+impl ViewLayout {
+    /// The layouts offered by the Viewport Mode dropdown, in Painter's order (F1..F4).
+    pub const MENU: [ViewLayout; 4] = [ViewLayout::Both, ViewLayout::Only3d, ViewLayout::Only2d, ViewLayout::Swap];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            ViewLayout::Both => tr("3D | 2D"),
+            ViewLayout::Only3d => tr("3D only"),
+            ViewLayout::Only2d => tr("2D only"),
+            ViewLayout::Swap => tr("Swap 3D and 2D"),
+        }
+    }
+}
+
+/// The layout the docks show: both views side by side, or the one in front of the other.
+pub fn current_view_layout(dock: &DockState<Tab>) -> ViewLayout {
+    if is_side_by_side(dock) {
+        ViewLayout::Both
+    } else if is_front(dock, Tab::UvView) {
+        ViewLayout::Only2d
+    } else {
+        ViewLayout::Only3d
+    }
+}
+
 pub fn apply_view_layout(dock: &mut DockState<Tab>, layout: ViewLayout) {
     match layout {
         ViewLayout::Both => if !is_side_by_side(dock) { toggle_side_by_side(dock) },
@@ -464,6 +497,15 @@ mod layout_tests {
     #[test]
     fn f_frames_the_view_under_the_pointer_or_both() {
         assert_eq!(frame_targets(true, false), (true, false));
+        // The Viewport Mode dropdown reads the layout back from the docks.
+        let mut dock = DockState::new(vec![Tab::Viewport, Tab::UvView]);
+        apply_view_layout(&mut dock, ViewLayout::Both);
+        assert_eq!(current_view_layout(&dock), ViewLayout::Both);
+        apply_view_layout(&mut dock, ViewLayout::Only2d);
+        assert_eq!(current_view_layout(&dock), ViewLayout::Only2d);
+        apply_view_layout(&mut dock, ViewLayout::Swap);
+        assert_eq!(current_view_layout(&dock), ViewLayout::Only3d, "swapping tabbed views brings the 3D view to the front");
+        assert_eq!(ViewLayout::MENU.len(), 4);
         assert_eq!(frame_targets(false, true), (false, true));
         assert_eq!(frame_targets(false, false), (true, true), "over a panel: both views");
         // QA 2026-11: a view no longer drawn kept its last hover, and F framed it instead of the
@@ -1082,6 +1124,7 @@ impl SubcraftApp {
             state.mesh_map_import.start(&options.mesh_map_files, &sets);
             state.welcome.open = false;
         }
+        state.export.folder = options.export_folder(&state.export.folder);
         state.export.open = options.export_window || options.export_template.is_some() || options.export_preset.is_some();
         if let Some(i) = options.export_template { let all = subcraft_export::ExportTemplate::builtin(); state.export.preset = all[i.min(all.len() - 1)].name.clone(); }
         if let Some(name) = &options.export_preset {
@@ -1324,6 +1367,7 @@ impl SubcraftApp {
                         Some((uv_box, _)) => self.state.uv.frame = Some(uv_box),
                         None => {
                             self.state.uv.zoom = 1.0;
+                            self.state.uv.rotation = 0.0;
                             self.state.uv.offset = egui::Vec2::ZERO;
                         }
                     }
@@ -2254,6 +2298,11 @@ impl eframe::App for SubcraftApp {
             p.ui_begin(&mut self.state, &ctx);
         }
         self.state.recovery.prefs.apply_ui_size(&ctx);
+        // The contextual toolbar's Viewport Mode dropdown asks; the docks live here.
+        if let Some(layout) = self.state.view_layout_request.take() {
+            apply_view_layout(&mut self.dock, layout);
+        }
+        self.state.view_layout = current_view_layout(&self.dock);
         // Preferences holds the language picker: its native names need the CJK fonts even in English.
         crate::i18n::sync_fonts(&ctx, self.state.recovery.prefs.language, self.state.recovery.show_prefs);
         self.frames += 1;
@@ -2826,6 +2875,19 @@ fn build_demo(state: &mut UiState) {
         assert!(!app.state.asset_preview.is_applying());assert!(app.state.pen_after.is_none());assert!(!app.state.session.is_modified());
         let reopened=Session::open_project(&file).unwrap();assert_eq!(reopened.document(),app.state.session.document());assert!(reopened.resources().iter().any(|r|r.name.starts_with("Starter: ")));std::fs::remove_file(file).unwrap();
     }
+
+#[cfg(test)]
+mod export_path_tests {
+    use super::*;
+
+    #[test]
+    fn export_path_sets_the_export_folder() {
+        let default = "/home/me/exports";
+        assert_eq!(LaunchOptions::default().export_folder(default), default);
+        let options = LaunchOptions { export_path: Some(PathBuf::from("/work/hero/textures")), ..Default::default() };
+        assert_eq!(options.export_folder(default), PathBuf::from("/work/hero/textures").display().to_string());
+    }
+}
 
 #[cfg(test)]
 mod seal_tests {

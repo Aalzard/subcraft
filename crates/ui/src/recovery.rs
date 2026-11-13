@@ -419,7 +419,8 @@ pub fn preferences_window(state: &mut UiState, ctx: &egui::Context) {
             ui.end_row();
             ui.label(tr("Wheel speed"));
             ui.add(egui::Slider::new(&mut speed.wheel, crate::nav::CAMERA_SPEED_RANGE).logarithmic(true));
-            ui.checkbox(&mut speed.wheel_invert, tr("Inverse direction"));
+            ui.checkbox(&mut speed.wheel_invert, tr("Invert zoom"))
+                .on_hover_text(tr("Off: turning the wheel forward zooms in, as in Painter. On: forward zooms out. Applies to the 3D and 2D views."));
             ui.end_row();
         });
         ui.horizontal(|ui| {
