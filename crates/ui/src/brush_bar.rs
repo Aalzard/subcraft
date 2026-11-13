@@ -25,13 +25,13 @@ pub(crate) fn show(
     // Tool selection lives in the left tool rail only (as in Painter); this row holds the
     // stroke options and the brush values of the active tool.
     ui.spacing_mut().item_spacing.x = 9.0;
-    stroke_options(ui, options, guides, settings);
+    stroke_options(ui, options, guides);
     let brush = *tool != Tool::PolygonFill;
-    if width < 575.0 {
+    if width < FULL_MIN_WIDTH {
         let response = widgets::icon_button(ui, icons::SLIDERS, "Brush settings");
         egui::Popup::menu(&response)
             .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
-            .show(|ui| menu_controls(ui, settings, brush));
+            .show(|ui| menu_controls(ui, settings, options, brush));
         if width >= 250.0 {
             ui.add_enabled_ui(brush, |ui| size(ui, &mut settings.size));
         }
@@ -44,6 +44,10 @@ pub(crate) fn show(
             popup_percent(ui, "Flow", &mut settings.flow, "Paint per stamp", false)
         });
         percent(ui, "Opacity", &mut settings.stroke_opacity);
+        if shows_spacing_and_distance(width) {
+            ui.add_enabled_ui(brush, |ui| spacing(ui, &mut settings.spacing));
+            ui.add_enabled_ui(options.lazy_distance_px > 0.0, |ui| distance(ui, &mut options.lazy_distance_px));
+        }
         ui.add_enabled_ui(brush, |ui| {
             popup_percent(ui, "Hardness", &mut settings.hardness, "Tip edge", true)
         });
@@ -84,18 +88,71 @@ pub(crate) fn fill_options(ui: &mut Ui, mode: &mut subcraft_paint::PolygonFillMo
     }
 }
 
-fn stroke_options(ui: &mut Ui, options: &mut StrokeOptions, guides: &mut bool, settings: &mut BrushSettings) {
-    let on = options.has_symmetry() || options.lazy_distance_px > 0.0 || options.smoothing > 0.0;
-    let response = widgets::icon_toggle(
-        ui,
-        icons::SYMMETRY,
-        on,
-        "Symmetry & Lazy Mouse · click for stroke options",
-    );
-    response.widget_info(|| {
-        egui::WidgetInfo::selected(egui::WidgetType::Button, true, on, "Symmetry & Lazy Mouse")
-    });
-    egui::Popup::menu(&response)
+/// Narrowest strip that shows every brush value instead of the "Brush settings" menu.
+pub(crate) const FULL_MIN_WIDTH: f32 = 640.0;
+
+/// Spacing and the lazy mouse Distance sit on the bar where there is room for them: on the
+/// brush bar's own row from 900 points, and beside the view controls from 1400. Elsewhere they
+/// are in the Properties (Spacing) and in the symmetry settings menu (Distance).
+pub(crate) fn shows_spacing_and_distance(width: f32) -> bool {
+    (900.0..crate::viewport_bar::INLINE_MIN_WIDTH).contains(&width) || width >= 1400.0
+}
+
+/// Lazy mouse distance the button switches on when none was used before (the D shortcut's value).
+pub(crate) const DEFAULT_LAZY_DISTANCE: f32 = 20.0;
+
+/// Mirror axes and radial symmetry as one on / off state (Painter's Symmetry button).
+pub(crate) fn symmetry_on(options: &StrokeOptions) -> bool {
+    options.symmetry.iter().any(|&m| m) || options.radial.enabled
+}
+
+/// Switch symmetry off, remembering the axes in `saved`, or back on with the remembered axes
+/// (mirror X when there are none).
+pub(crate) fn toggle_symmetry(options: &mut StrokeOptions, saved: &mut Option<([bool; 3], bool)>) {
+    if symmetry_on(options) {
+        *saved = Some((options.symmetry, options.radial.enabled));
+        options.symmetry = [false; 3];
+        options.radial.enabled = false;
+    } else {
+        let (mirror, radial) = saved.filter(|(m, r)| m.iter().any(|&x| x) || *r).unwrap_or(([true, false, false], false));
+        options.symmetry = mirror;
+        options.radial.enabled = radial;
+    }
+}
+
+/// Switch the lazy mouse off, remembering its distance in `saved`, or back on with it.
+pub(crate) fn toggle_lazy(options: &mut StrokeOptions, saved: &mut Option<f32>) {
+    if options.lazy_distance_px > 0.0 {
+        *saved = Some(options.lazy_distance_px);
+        options.lazy_distance_px = 0.0;
+    } else {
+        options.lazy_distance_px = saved.filter(|d| *d > 0.0).unwrap_or(DEFAULT_LAZY_DISTANCE);
+    }
+}
+
+/// Painter's three buttons: Symmetry on / off, its settings menu, and Lazy mouse on / off.
+fn stroke_options(ui: &mut Ui, options: &mut StrokeOptions, guides: &mut bool) {
+    let saved_id = egui::Id::new("brush_bar_saved_stroke_options");
+    let (mut saved_symmetry, mut saved_lazy): (Option<([bool; 3], bool)>, Option<f32>) = ui.data(|d| d.get_temp(saved_id)).unwrap_or((None, None));
+    let on = symmetry_on(options);
+    let lazy = options.lazy_distance_px > 0.0;
+    let settings = ui
+        .horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 1.0;
+            let toggle = widgets::icon_toggle(ui, icons::SYMMETRY, on, if on { "Symmetry is on · click to switch it off (L)" } else { "Symmetry is off · click to switch it on (L)" });
+            toggle.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, on, "Symmetry"));
+            if toggle.clicked() {
+                toggle_symmetry(options, &mut saved_symmetry);
+            }
+            // A narrow button beside the toggle, as in Painter: it opens the settings menu.
+            let (rect, settings) = ui.allocate_exact_size(egui::vec2(12.0, 26.0), egui::Sense::click());
+            let color = if settings.hovered() { TEXT } else { TEXT_DIM };
+            ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, icons::GEAR, theme::font(11.0), color);
+            settings.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Symmetry settings"));
+            settings.on_hover_text("Symmetry settings").on_hover_cursor(egui::CursorIcon::PointingHand)
+        })
+        .inner;
+    egui::Popup::menu(&settings)
         .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
         .show(|ui| {
             ui.set_min_width(220.0);
@@ -119,17 +176,14 @@ fn stroke_options(ui: &mut Ui, options: &mut StrokeOptions, guides: &mut bool, s
             ui.label(RichText::new("Lazy Mouse").color(TEXT_DIM));
             ui.spacing_mut().slider_width = 155.0;
             ui.add(widgets::typed_slider(egui::Slider::new(&mut options.lazy_distance_px, 0.0..=100.0).suffix(" px")));
-            ui.label(
-                RichText::new("0 px = off · X shortcut toggles mirror X")
-                    .small()
-                    .color(TEXT_DIM),
-            );
-            ui.separator();
-            ui.label(RichText::new("Pen pressure").color(TEXT_DIM));
-            ui.horizontal(|ui| percent(ui, "Size", &mut settings.pressure_size));
-            ui.horizontal(|ui| percent(ui, "Flow", &mut settings.pressure_flow));
-            ui.label(RichText::new("Only affects a pen; a mouse is unchanged").small().color(TEXT_DIM));
+            ui.label(RichText::new("Distance the brush trails the cursor · 0 px = off").small().color(TEXT_DIM));
         });
+    let toggle = widgets::icon_toggle(ui, icons::CURVE, lazy, if lazy { "Lazy mouse is on · click to switch it off (D)" } else { "Lazy mouse is off · click to switch it on (D)" });
+    toggle.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, lazy, "Lazy mouse"));
+    if toggle.clicked() {
+        toggle_lazy(options, &mut saved_lazy);
+    }
+    ui.data_mut(|d| d.insert_temp(saved_id, (saved_symmetry, saved_lazy)));
 }
 
 /// Radial symmetry: on/off, axis, copy count and an optional axis offset from the model center.
@@ -179,13 +233,54 @@ fn radial_options(ui: &mut Ui, options: &mut StrokeOptions) {
     }
 }
 
-fn menu_controls(ui: &mut Ui, s: &mut BrushSettings, brush: bool) {
+fn menu_controls(ui: &mut Ui, s: &mut BrushSettings, options: &mut StrokeOptions, brush: bool) {
     ui.add_enabled_ui(brush, |ui| {
         size(ui, &mut s.size);
         ui.horizontal(|ui| percent(ui, "Flow", &mut s.flow));
         ui.horizontal(|ui| percent(ui, "Hardness", &mut s.hardness));
+        spacing(ui, &mut s.spacing);
     });
     ui.horizontal(|ui| percent(ui, "Opacity", &mut s.stroke_opacity));
+    ui.add_enabled_ui(options.lazy_distance_px > 0.0, |ui| distance(ui, &mut options.lazy_distance_px));
+}
+
+/// A frameless drag value like [`scrub`], with its own range and suffix.
+fn value(ui: &mut Ui, text: &str, v: &mut f32, range: std::ops::RangeInclusive<f32>, speed: f32, suffix: &str, help: &str) -> egui::Response {
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 3.0;
+        label(ui, text);
+        ui.scope(|ui| {
+            let widgets = &mut ui.visuals_mut().widgets;
+            for visuals in [&mut widgets.inactive, &mut widgets.hovered, &mut widgets.active] {
+                visuals.weak_bg_fill = egui::Color32::TRANSPARENT;
+                visuals.bg_fill = egui::Color32::TRANSPARENT;
+                visuals.bg_stroke = egui::Stroke::NONE;
+            }
+            ui.visuals_mut().override_text_color = Some(TEXT);
+            ui.spacing_mut().button_padding.x = 1.0;
+            ui.spacing_mut().interact_size.x = 36.0;
+            ui.add(widgets::typed_drag(egui::DragValue::new(v).speed(speed).range(range).suffix(suffix).max_decimals(0)))
+        })
+        .inner
+        .on_hover_text(help)
+    })
+    .inner
+}
+
+/// Spacing between stamps, shown as a percentage of the brush diameter (2-200).
+fn spacing(ui: &mut Ui, v: &mut f32) {
+    let mut display = *v * 100.0;
+    if value(ui, "Spacing", &mut display, 2.0..=200.0, 0.5, "%", "Distance between stamps, as a percentage of the brush diameter").changed() {
+        *v = (display * 0.01).clamp(0.02, 2.0);
+    }
+}
+
+/// Lazy mouse distance in pixels; greyed out while the lazy mouse is off.
+fn distance(ui: &mut Ui, v: &mut f32) {
+    let mut display = if *v > 0.0 { *v } else { DEFAULT_LAZY_DISTANCE };
+    if value(ui, "Distance", &mut display, 1.0..=100.0, 0.5, " px", "Lazy mouse: how far the brush trails the cursor").changed() && *v > 0.0 {
+        *v = display.clamp(1.0, 100.0);
+    }
 }
 
 fn label(ui: &mut Ui, text: &str) {
@@ -394,5 +489,47 @@ pub(crate) fn channel_switches(ui: &mut Ui, state: &mut crate::state::UiState) {
             }
             Err(e) => state.set_status(e.to_string(), now),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn symmetry_button_switches_off_and_restores_the_axes() {
+        let mut o = StrokeOptions::default();
+        let mut saved = None;
+        assert!(!symmetry_on(&o));
+        toggle_symmetry(&mut o, &mut saved);
+        assert_eq!(o.symmetry, [true, false, false], "first click: mirror X");
+        o.symmetry = [false, true, true];
+        o.radial.enabled = true;
+        toggle_symmetry(&mut o, &mut saved);
+        assert!(!symmetry_on(&o) && !o.has_symmetry());
+        toggle_symmetry(&mut o, &mut saved);
+        assert_eq!((o.symmetry, o.radial.enabled), ([false, true, true], true), "the axes come back");
+    }
+
+    #[test]
+    fn lazy_button_switches_off_and_restores_the_distance() {
+        let mut o = StrokeOptions::default();
+        let mut saved = None;
+        o.lazy_distance_px = 0.0;
+        toggle_lazy(&mut o, &mut saved);
+        assert_eq!(o.lazy_distance_px, DEFAULT_LAZY_DISTANCE);
+        o.lazy_distance_px = 55.0;
+        toggle_lazy(&mut o, &mut saved);
+        assert_eq!(o.lazy_distance_px, 0.0);
+        toggle_lazy(&mut o, &mut saved);
+        assert_eq!(o.lazy_distance_px, 55.0);
+    }
+
+    #[test]
+    fn spacing_and_distance_show_only_where_the_row_has_room() {
+        for (width, shown) in [(300.0, false), (700.0, false), (900.0, true), (1100.0, true), (1200.0, false), (1500.0, true)] {
+            assert_eq!(shows_spacing_and_distance(width), shown, "{width}");
+        }
+        assert!(FULL_MIN_WIDTH < 900.0);
     }
 }

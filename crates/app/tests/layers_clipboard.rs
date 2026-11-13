@@ -34,7 +34,13 @@ fn copy_paste_creates_new_ids_keeps_the_original_and_undoes_in_one_step() {
     let before = s.history().entries().len();
     let clip = Arc::new(s.copy_layers(&[a, b]).unwrap());
     s.execute(Command::PasteLayers(clip)).unwrap();
-    assert_eq!(names(&s), ["Layer 1", "A", "B", "A", "B"].map(String::from));
+    // Pasted duplicates are renamed (Painter); a third paste counts up.
+    assert_eq!(names(&s), ["Layer 1", "A", "B", "A copy", "B copy"].map(String::from));
+    {
+        let ts = s.selected_texture_set();
+        assert_eq!(subcraft_app::clipboard::pasted_name(ts, "A"), "A copy 2");
+        assert_eq!(subcraft_app::clipboard::pasted_name(ts, "New"), "New");
+    }
     assert_eq!(s.history().entries().len(), before + 1);
     let ids = top(&s);
     assert_eq!(ids.len(), 5);
