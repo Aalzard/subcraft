@@ -1153,6 +1153,8 @@ impl SubcraftApp {
             state.welcome.open = false;
         }
         state.export.folder = options.export_folder(&state.export.folder);
+        // `--export-path` is only the default: a project's saved folder still wins (#322).
+        state.export.default_folder = state.export.folder.clone();
         state.export.open = options.export_window || options.export_template.is_some() || options.export_preset.is_some();
         if let Some(i) = options.export_template { let all = subcraft_export::ExportTemplate::builtin(); state.export.preset = all[i.min(all.len() - 1)].name.clone(); }
         if let Some(name) = &options.export_preset {
