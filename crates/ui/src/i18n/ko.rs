@@ -369,7 +369,6 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Painting", "페인팅"),
     ("Perspective", "원근"),
     ("Plugins", "플러그인"),
-    ("Project configuration (reload mesh)…", "프로젝트 구성 (메시 다시 불러오기)…"),
     ("Rendering (path tracing)", "렌더링 (경로 추적)"),
     ("Reset UI", "UI 초기화"),
     ("Send to", "보내기"),
@@ -993,4 +992,6 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Light", "밝게"),
     ("Painter-style", "Painter 스타일"),
     ("Colours of the panels and controls. The 3D view background is set under Background color.", "패널과 컨트롤의 색입니다. 3D 뷰 배경은 배경색에서 설정합니다."),
+    ("Project configuration…", "프로젝트 구성…"),
+    ("Reimport mesh…", "메시 다시 가져오기…"),
 ];

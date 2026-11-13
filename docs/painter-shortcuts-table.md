@@ -14,6 +14,7 @@
 | General | `Alt+F4` | Quit application | Quit | added (key was free) | also Ctrl+Q; Windows may close the window itself first |
 | General | `Ctrl+Shift+E` | Export textures | Export | already the same |  |
 | General | `Ctrl+Shift+B` | Bake mesh maps | Bake | added (key was free) | Ctrl+B kept as well |
+| General | `Ctrl+Shift+R` | Reimport mesh | ReimportMesh | added (key was free) | opens Project configuration with Reimport mesh ticked and the model file checked |
 | Manipulator | `Q` | Show/hide manipulator |  | no equivalent | no layer transform manipulator |
 | Manipulator | `+` | Increase manipulator size |  | no equivalent | no manipulator |
 | Manipulator | `-` | Decrease manipulator size |  | no equivalent | no manipulator |

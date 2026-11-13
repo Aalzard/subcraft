@@ -369,7 +369,6 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Painting", "繪製"),
     ("Perspective", "透視"),
     ("Plugins", "外掛程式"),
-    ("Project configuration (reload mesh)…", "專案設定（重新載入網格）…"),
     ("Rendering (path tracing)", "算圖（路徑追蹤）"),
     ("Reset UI", "重設介面"),
     ("Send to", "傳送到"),
@@ -993,4 +992,6 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Light", "淺色"),
     ("Painter-style", "Painter 風格"),
     ("Colours of the panels and controls. The 3D view background is set under Background color.", "面板與控制項的顏色。3D 視圖背景在背景顏色中設定。"),
+    ("Project configuration…", "專案設定…"),
+    ("Reimport mesh…", "重新匯入網格…"),
 ];
