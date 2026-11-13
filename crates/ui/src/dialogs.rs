@@ -317,7 +317,12 @@ pub fn export_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
     let title = if view_only { "Export 2D View" } else { "Export Textures" };
     let width = if state.export.tab == ExportTab::OutputTemplates && !view_only { 860.0 } else { 640.0 };
     let mut action = None;
-    crate::widgets::window(ctx, window_title(title)).open(&mut open).collapsible(false).default_width(width).show(ctx, |ui| {
+    // Opened at a fixed height: a window only grows to its content a step per frame, and the
+    // scrolling tab below fills the height it is given, so the button row would sit outside the
+    // window until it reached full size.
+    // The short 2D View body keeps egui's default (128).
+    let height = if view_only { 128.0 } else { (ctx.content_rect().height() - 96.0).clamp(320.0, 900.0) };
+    crate::widgets::window(ctx, window_title(title)).open(&mut open).collapsible(false).default_width(width).default_height(height).show(ctx, |ui| {
         if view_only {
             view_2d_body(ui, state, &lib, view, now);
             return;
@@ -331,10 +336,9 @@ pub fn export_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
         ui.add_space(4.0);
         divider(ui);
         ui.add_space(6.0);
-        // The tab scrolls on its own so the button row stays on screen. The window is at most
-        // the screen height minus 48 (`widgets::window`); the title bar, tabs, dividers and button
-        // row below take about 200 more, so leave 320 with some margin.
-        let max_h = (ui.ctx().content_rect().height() - 320.0).max(240.0);
+        // The tab scrolls in what is left of the window above the button row (divider, spacing
+        // and a 28 px button row: about 50 px, 64 with margin).
+        let max_h = (ui.available_height() - 64.0).max(120.0);
         egui::ScrollArea::vertical().id_salt(("export_tab", state.export.tab as u8)).max_height(max_h).show(ui, |ui| match state.export.tab {
             ExportTab::Settings => settings_tab(ui, state, &lib, &sets, &mut preset_status, now),
             ExportTab::OutputTemplates => {
