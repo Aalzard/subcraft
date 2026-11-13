@@ -454,6 +454,13 @@ mod layout_tests {
         assert_eq!(frame_targets(true, false), (true, false));
         assert_eq!(frame_targets(false, true), (false, true));
         assert_eq!(frame_targets(false, false), (true, true), "over a panel: both views");
+        // QA 2026-11: a view no longer drawn kept its last hover, and F framed it instead of the
+        // visible one. Each frame starts with neither hovered; the drawn views set their own.
+        let mut state = crate::state::UiState::new(subcraft_app::Session::new(subcraft_mesh::primitives::cube(2.0), 64), None);
+        state.hovered_3d = true;
+        state.hovered_2d = true;
+        state.begin_frame();
+        assert!(!state.hovered_3d && !state.hovered_2d);
     }
     #[test]
     fn default_layout_is_valid_and_broken_ones_are_rejected() {
