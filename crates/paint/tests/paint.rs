@@ -1072,3 +1072,35 @@ fn live_preview_thins_stamps_but_the_released_stroke_is_exact() {
         }
     }
 }
+
+/// Stamping runs on its own thread pool (so a busy compositor cannot hold it up). Where the
+/// stroke is driven from must not matter: the caller's thread, or a worker of another pool (which
+/// keeps working for its own pool while it waits), give the same texels.
+#[test]
+fn stamping_is_identical_from_any_thread() {
+    let res = 256;
+    let cam = Camera::perspective(Vec3::new(1.5, 0.6, 3.5), Vec3::ZERO, Vec3::Y, 40.0, 0.1, 100.0, [512, 512]);
+    let run = || {
+        let mut sc = Scene::new(primitives::uv_sphere(1.0, 24, 24), res);
+        let settings = BrushSettings { size: 30.0, hardness: 0.2, ..BrushSettings::default() };
+        let mut s = Stroke::begin(&sc.ts, sc.layer, PaintTarget::Content, StrokeMode::Paint, settings, StrokeOptions::default(), &red()).unwrap();
+        let mut ts = sc.ts.clone();
+        for i in 0..40 {
+            let u = i as f32 / 39.0;
+            s.add_point(&mut ts, &sc.ctx(&cam), Vec2::new(150.0 + 220.0 * u, 256.0 + 70.0 * (u * 9.0).sin())).unwrap();
+        }
+        sc.ts = ts;
+        sc.image(ChannelKind::BaseColor).unwrap()
+    };
+    let direct = run();
+    let other = rayon::ThreadPoolBuilder::new().num_threads(2).build().unwrap();
+    let nested = other.install(run);
+    let mut painted = 0;
+    for y in 0..res {
+        for x in 0..res {
+            assert_eq!(direct.get(x, y), nested.get(x, y), "texel ({x},{y})");
+            painted += (direct.get(x, y)[3] > 0.0) as u32;
+        }
+    }
+    assert!(painted > 500, "the stroke painted something ({painted} texels)");
+}

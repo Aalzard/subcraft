@@ -163,7 +163,7 @@ Layout notes: these are Painter's non-editable shortcuts; copy/paste only fire w
 | Paste layer content | Layer stack | Ctrl+Shift+V | done | crates/app/src/session.rs:1561 | - |
 | Paste as instance | Layer stack | Ctrl+Shift+V (per instancing page) | missing | - | - |
 | Instantiate across texture sets | Layer stack | Ctrl+Shift+D (2017.4 release notes) | missing | - | - |
-| Merge / flatten the selected group | Layer stack | Ctrl+M | missing | - | - |
+| Merge / flatten the selected group | Layer stack | Ctrl+M | done | crates/ui/src/panels/layers.rs:797 | - |
 | Display mask in viewport | Mask thumbnail | Alt + left click | done | crates/ui/src/panels/layers.rs:481 | - |
 | Disable / enable mask | Mask thumbnail | Shift + left click | done | crates/ui/src/panels/layers.rs:308 | - |
 | Move effect up / down | Effect row | Alt + Arrow Up / Arrow Down | missing | - | - |
@@ -198,8 +198,8 @@ Layout notes: Painter's menu is, top to bottom: effect entries (with icons), mas
 | Remove layer(s) | Layer context menu | Delete (unverified label) | done | crates/ui/src/panels/layers.rs:507 | - |
 | Instantiate across texture sets | Layer context menu | Ctrl+Shift+D | missing | - | - |
 | Group layer(s) | Layer context menu | Ctrl+G | done | crates/ui/src/panels/layers.rs:659 | - |
-| Merge / flatten group | Layer context menu | Ctrl+M | missing | - | - |
-| Export flattened group to files | Layer context menu | n/a | missing | - | - |
+| Merge / flatten group | Layer context menu | Ctrl+M | done | crates/ui/src/panels/layers.rs:677 | - |
+| Export flattened group to files | Layer context menu | n/a | done | crates/ui/src/panels/layers.rs:680 | - |
 | Blending options > Copy (blend mode and opacity of all channels) | Layer context menu | n/a | done | crates/ui/src/panels/layers.rs:665 | - |
 | Blending options > Paste | Layer context menu | n/a | done | crates/app/src/session.rs:1535 | - |
 | Copy layer content (unverified entry; shortcut is documented) | Layer context menu | Ctrl+Shift+C | done | crates/ui/src/panels/layers.rs:678 | - |
@@ -257,20 +257,20 @@ Layout notes: colours are set from the context menu. A layer without its own col
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Flatten / merge the selected group into a new fill layer of bitmaps | Layer context menu / Ctrl+M | n/a | missing | - | - |
-| Source group is kept but disabled after flattening | Layer stack | n/a | missing | - | - |
-| One bitmap per enabled channel at the texture set resolution and channel bit depth | Flatten result | n/a | missing | - | - |
-| Mask is flattened separately (flattened fill plus flattened mask) | Flatten result | n/a | missing | - | - |
-| Hidden layers and effects are left out | Flatten | n/a | missing | - | - |
-| Channels set to Disable (or disabled on a fill layer) are skipped | Flatten | n/a | missing | - | - |
-| Empty selection logs an error instead of creating a layer | Flatten | n/a | missing | - | - |
-| Geometry-mask UV tile selection is kept in the flattened layer | Flatten | n/a | missing | - | - |
-| Export flattened group to files (folder picker) | Layer context menu | n/a | missing | - | - |
-| Export filename pattern field | Export flattened dialog | $textureSet_$layerName_$srcMap(.$udim) | missing | - | - |
-| Pattern is remembered for the next export | Export flattened dialog | n/a | missing | - | - |
-| Batch export when several layers or groups are selected | Export flattened dialog | n/a | missing | - | - |
-| Fixed padding of 1 px | Export flattened | 1 px | missing | - | - |
-| Format by channel (EXR for height/normal, PNG otherwise) | Export flattened | n/a | missing | - | - |
+| Flatten / merge the selected group into a new fill layer of bitmaps | Layer context menu / Ctrl+M | n/a | done (a paint layer of rasters: the same result without new resources) | crates/app/src/flatten.rs:153 | - |
+| Source group is kept but disabled after flattening | Layer stack | n/a | done (hidden) | crates/app/src/flatten.rs:168 | - |
+| One bitmap per enabled channel at the texture set resolution and channel bit depth | Flatten result | n/a | partial: the set's resolution; rasters are stored like painted ones (f16), not per channel bit depth | crates/app/src/flatten.rs:44 | - |
+| Mask is flattened separately (flattened fill plus flattened mask) | Flatten result | n/a | done | crates/app/src/flatten.rs:136 | - |
+| Hidden layers and effects are left out | Flatten | n/a | done | crates/app/src/flatten.rs:58 | - |
+| Channels set to Disable (or disabled on a fill layer) are skipped | Flatten | n/a | done | crates/app/src/flatten.rs:59 | - |
+| Empty selection logs an error instead of creating a layer | Flatten | n/a | done (status line) | crates/ui/src/panels/layers.rs:800 | - |
+| Geometry-mask UV tile selection is kept in the flattened layer | Flatten | n/a | done (the part mask is copied) | crates/app/src/flatten.rs:88 | - |
+| Export flattened group to files (folder picker) | Layer context menu | n/a | done | crates/ui/src/panels/layers.rs:866 | - |
+| Export filename pattern field | Export flattened dialog | $textureSet_$layerName_$srcMap(.$udim) | done | crates/app/src/flatten.rs:25 | - |
+| Pattern is remembered for the next export | Export flattened dialog | n/a | partial: for the session, not saved in preferences | crates/ui/src/state.rs:98 | - |
+| Batch export when several layers or groups are selected | Export flattened dialog | n/a | done | crates/ui/src/panels/layers.rs:866 | - |
+| Fixed padding of 1 px | Export flattened | 1 px | done | crates/app/src/flatten.rs:111 | - |
+| Format by channel (EXR for height/normal, PNG otherwise) | Export flattened | n/a | done | crates/app/src/flatten.rs:34 | - |
 | Format choice when only a mask is exported | Export flattened dialog | not documented | missing | - | - |
 | Flattened images tagged "flattened" and listed in the "Flattened layers" saved search | Assets panel | n/a | missing | - | - |
 | File > Remove unused resources cleans flattened images | File menu | n/a | missing | - | - |

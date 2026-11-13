@@ -151,6 +151,9 @@ pub struct ViewParams {
     /// Display-only high/low comparison using meshes supplied by `set_bake_preview`.
     pub bake_overlay: bool,
     pub bake_cage: bool,
+    /// Color the low poly in the bake overlay by the miss maps of `set_bake_miss_maps` (red = the
+    /// projection ray reaches no high-poly surface).
+    pub bake_miss_heatmap: bool,
     /// Placement matrix of the high poly in the overlay, and its opacity (1 = solid).
     pub bake_high_transform: Mat4,
     pub bake_high_opacity: f32,
@@ -247,7 +250,7 @@ impl ViewParams {
             antialias: true,
             view_mode: ViewMode::Material,
             grid: None,
-            bake_overlay: false, bake_cage: true, bake_high_transform: Mat4::IDENTITY, bake_high_opacity: 1.0, bake_distances: [0.01; 2], bake_map: None, symmetry_guides: false, wireframe: false,
+            bake_overlay: false, bake_cage: true, bake_miss_heatmap: false, bake_high_transform: Mat4::IDENTITY, bake_high_opacity: 1.0, bake_distances: [0.01; 2], bake_map: None, symmetry_guides: false, wireframe: false,
             post: PostParams::default(),
             solo_channel: None,
             mask_view: false,
@@ -661,6 +664,12 @@ impl ViewportRenderer {
         self.bake_preview.set_meshes(device, meshes);
     }
 
+    /// Ray-miss maps (1 = miss) per low-poly material slot for the bake overlay's heatmap. Uploading
+    /// new overlay meshes drops them; an empty list removes them.
+    pub fn set_bake_miss_maps(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, maps: &[(u32, &subcraft_image::TiledImage)]) {
+        self.bake_preview.set_miss_maps(device, queue, maps);
+    }
+
     /// Upload `tiles` of a channel's composite (all tiles when `None`, or when the texture had
     /// to be (re)created because size or format changed).
     pub fn upload_channel(
@@ -935,7 +944,7 @@ impl ViewportRenderer {
         if params.symmetry_guides && let Some(guides) = &self.symmetry { guides.prepare_lines(queue, params.proj * params.view); }
         if params.wireframe && let Some(wire) = &self.wireframe { wire.prepare_lines(queue, params.proj * params.view); }
         if params.bake_overlay {
-            self.bake_preview.prepare(queue, params.proj * params.view, params.bake_distances, params.bake_high_transform, params.bake_high_opacity);
+            self.bake_preview.prepare(queue, params.proj * params.view, params.bake_distances, params.bake_high_transform, params.bake_high_opacity, params.bake_miss_heatmap);
         }
         if let Some(grid) = params.grid {
             self.grid.prepare(device, queue, params.proj * params.view, params.eye, grid);

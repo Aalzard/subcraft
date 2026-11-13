@@ -31,12 +31,19 @@ pub fn picker(ui: &mut Ui, current: &str, usable: impl Fn(&Filter) -> bool) -> O
         if button.clicked() { field.request_focus(); }
         let found = search(&query, &usable);
         egui::ScrollArea::vertical().max_height(560.0).show(ui, |ui| {
-            if found.is_empty() { ui.weak("No filter matches"); }
+            // Gradient Dynamic reads an image, so it is not in `Filter::ALL`: it starts without one.
+            let dynamic = Filter::gradient_dynamic();
+            let offer_dynamic = usable(&dynamic) && query.split_whitespace().all(|w| dynamic.label().to_lowercase().contains(&w.to_lowercase()));
+            if found.is_empty() && !offer_dynamic { ui.weak("No filter matches"); }
             for f in found {
                 if ui.selectable_label(f.label() == current, f.label()).clicked() {
                     picked = Some(f);
                     ui.close();
                 }
+            }
+            if offer_dynamic && ui.selectable_label(current == dynamic.label(), dynamic.label()).clicked() {
+                if current != dynamic.label() { picked = Some(dynamic); }
+                ui.close();
             }
         });
         // Enter takes the first match.
@@ -171,6 +178,14 @@ pub fn editor(ui: &mut Ui, filter: &mut Filter, channel: Option<ChannelKind>) ->
             changed |= slider_row(ui, "Width", egui::Slider::new(radius, 0.0..=32.0).suffix(" px")).changed();
             changed |= slider_row(ui, "Strength", egui::Slider::new(strength, 0.0..=8.0)).changed();
             ui.weak("Sobel edges of the brightness / grayscale result");
+        }
+        Filter::GradientDynamic { vertical, position, .. } => {
+            prop_row(ui, "Gradient Orientation", |ui| {
+                changed |= ui.selectable_value(vertical, false, "Horizontal").changed();
+                changed |= ui.selectable_value(vertical, true, "Vertical").changed();
+            });
+            changed |= slider_row(ui, "Gradient Input Position", egui::Slider::new(position, 0.0..=1.0)).changed();
+            ui.weak("Values pick colours along one row (or column) of the Gradient Source image");
         }
         Filter::HeightAdjust { invert, offset, multiply } => {
             prop_row(ui, "Invert", |ui| { changed |= ui.checkbox(invert, "").changed(); });

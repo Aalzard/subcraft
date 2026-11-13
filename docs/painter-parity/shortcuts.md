@@ -155,7 +155,7 @@ Layout notes: these act only while the pointer is over the layer stack.
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Merge selected layers | Layer stack | Ctrl+M | missing | - | - |
+| Merge selected layers | Layer stack | Ctrl+M | done | crates/ui/src/panels/layers.rs:797 | - |
 | Paste as instance | Layer stack | Ctrl+Shift+V after Ctrl+C | missing | - | - |
 | Instantiate across texture sets | Layer stack | Ctrl+Shift+D (release notes) | missing | - | - |
 | Duplicate layers by dragging | Layer stack | Ctrl + drag and drop | done | crates/ui/src/panels/layers.rs:136 | - |
