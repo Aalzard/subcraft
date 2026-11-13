@@ -195,8 +195,8 @@ Layout notes: display options (plane, intersection, cursor, manipulator) are onl
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
 | Symmetry on/off | L | off | partial: L toggles mirror X only | crates/app/src/session.rs:1588 | - |
-| Mirror plane (transparent) | 3D view (Show Plane) | not documented | done: each active mirror plane as a translucent sheet in its axis colour, 10 % past the model; Display Settings > Viewport > Mirror planes, on by default | crates/ui/src/viewport.rs (mirror_plane_corners) | PRNUM |
-| Mirror intersection line on the mesh | 3D view (Show Intersection) | not documented | done: the symmetry guides draw where each mirror plane cuts the mesh (Display Settings > Viewport > Symmetry guides) | crates/app/src/guides.rs (symmetry_sections) | PRNUM |
+| Mirror plane (transparent) | 3D view (Show Plane) | not documented | done: each active mirror plane as a translucent sheet in its axis colour, 10 % past the model; Display Settings > Viewport > Mirror planes, on by default | crates/ui/src/viewport.rs (mirror_plane_corners) | 264 |
+| Mirror intersection line on the mesh | 3D view (Show Intersection) | not documented | done: the symmetry guides draw where each mirror plane cuts the mesh (Display Settings > Viewport > Symmetry guides) | crates/app/src/guides.rs (symmetry_sections) | 264 |
 | Mirrored second cursor | 3D view (Show Cursor) | not documented | done: one per mirror / radial copy (up to 16), faint when the copy is behind the model; Display Settings > Viewport > Symmetry cursors, on by default | crates/ui/src/viewport.rs (symmetry_cursors) | 262 |
 | Hide second cursor while painting | 3D view (Hide While Painting) | not documented | done: Display Settings > Viewport > Hide while painting, off by default | crates/ui/src/viewport_bar.rs (symmetry_cursor_hide_painting) | 262 |
 | Mirror axis-position manipulator (drag handles) | 3D view | off until enabled | missing | - | - |
