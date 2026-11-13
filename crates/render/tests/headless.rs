@@ -486,6 +486,10 @@ fn the_channel_preview_shows_one_component_alone() {
     }
     // The plain preview is the "all" one.
     assert_eq!(r.preview(&device, &queue, 0, PreviewSource::Channel(ChannelKind::Normal)).unwrap().read_rgba8(&device, &queue), all);
+    // QA 2026-11: the alpha of a color channel went through the sRGB curve (0.4 showed as ~170).
+    r.upload_channel(&device, &queue, 0, ChannelKind::BaseColor, &TiledImage::new(64, 64, 4, rgba), None);
+    let img = r.preview_component(&device, &queue, 0, PreviewSource::Channel(ChannelKind::BaseColor), ChannelComponent::Alpha).unwrap().read_rgba8(&device, &queue);
+    assert!(img[..4 * 64].chunks_exact(4).all(|p| near(p[0], 0.4)), "base color alpha shown as stored: {:?}", &img[..4]);
 }
 
 #[test]
