@@ -171,7 +171,7 @@ impl Oit {
     /// with the draw pipeline set. Call [`Self::ensure`] first.
     pub(crate) fn begin<'e>(&self, encoder: &'e mut wgpu::CommandEncoder, depth: &wgpu::TextureView) -> wgpu::RenderPass<'e> {
         let t = self.targets.as_ref().expect("ensure first");
-        let attach = |ms: &Option<wgpu::TextureView>, plain: &wgpu::TextureView, clear: f64| {
+        fn attach<'a>(ms: &'a Option<wgpu::TextureView>, plain: &'a wgpu::TextureView, clear: f64) -> Option<wgpu::RenderPassColorAttachment<'a>> {
             Some(wgpu::RenderPassColorAttachment {
                 view: ms.as_ref().unwrap_or(plain),
                 depth_slice: None,
@@ -181,7 +181,7 @@ impl Oit {
                     store: if ms.is_some() { wgpu::StoreOp::Discard } else { wgpu::StoreOp::Store },
                 },
             })
-        };
+        }
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("oit pass"),
             color_attachments: &[attach(&t.accum_ms, &t.accum, 0.0), attach(&t.reveal_ms, &t.reveal, 1.0)],
