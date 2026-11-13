@@ -7,6 +7,7 @@
 //! EXR. Data channels are never color-transformed.
 
 pub mod builtin_presets;
+pub mod layer_export;
 pub mod mesh_export;
 pub mod preset;
 pub mod psd;
@@ -66,11 +67,18 @@ pub struct ExportSettings {
     /// Per texture set (by name) settings replacing the ones above: Painter's texture set
     /// entries under Global settings.
     pub set_overrides: BTreeMap<String, subcraft_doc::ExportOverrides>,
+    /// Output maps (by suffix) written with their own file type, set by [`Self::for_set`] from
+    /// the texture set's overrides.
+    pub map_formats: BTreeMap<String, subcraft_doc::MapFormat>,
+    /// `$project` in file name patterns; `None` = the mesh name passed to the export.
+    pub project_name: Option<String>,
+    /// `$sceneMaterial` per texture set name: the material's name in the mesh file.
+    pub scene_materials: BTreeMap<String, String>,
 }
 
 impl Default for ExportSettings {
     fn default() -> Self {
-        Self { view_2d: None, template: ExportTemplate::pbr_metal_rough(), padding: Padding::Infinite, height_to_normal: 0.02, format_override: None, selection: MapSelection::default(), normal_directx: None, udim_folders: false, size: None, dither: None, set_overrides: BTreeMap::new() }
+        Self { view_2d: None, template: ExportTemplate::pbr_metal_rough(), padding: Padding::Infinite, height_to_normal: 0.02, format_override: None, selection: MapSelection::default(), normal_directx: None, udim_folders: false, size: None, dither: None, set_overrides: BTreeMap::new(), map_formats: BTreeMap::new(), project_name: None, scene_materials: BTreeMap::new() }
     }
 }
 
@@ -87,6 +95,7 @@ impl ExportSettings {
                 }
                 s.size = o.size.or(s.size);
                 s.padding = o.padding.unwrap_or(s.padding);
+                s.map_formats = o.maps.clone();
                 std::borrow::Cow::Owned(s)
             }
         }
@@ -159,29 +168,124 @@ fn map_applies(map: &OutputMap, set: &ExportTextureSet, settings: &ExportSetting
         || map.components.iter().any(|s| matches!(s, Source::Converted { map, .. } if map.inputs().iter().any(|k| set.source(*k).is_some())))
 }
 
-/// Expand a file name pattern (no extension). Tokens: `$mesh`, `$textureSet` (without its UDIM
-/// tile), `$udim` (tile number; empty outside UDIM sets) and `$suffix` (the map's suffix).
-/// Token values are sanitized like the classic names; other characters outside letters,
-/// digits, `-`, `_` and `.` become `_`. Separators left dangling by an empty `$udim` are trimmed.
+/// Values of the file name pattern tokens for one output file.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct PatternVars<'a> {
+    /// `$mesh`.
+    pub mesh: &'a str,
+    /// `$project`: the project file's name (the mesh name for an unsaved project).
+    pub project: &'a str,
+    /// `$textureSet`, without its UDIM tile.
+    pub texture_set: &'a str,
+    /// `$sceneMaterial`: the material's name in the mesh file.
+    pub scene_material: &'a str,
+    /// `$udim`: the tile number; `None` outside UDIM sets.
+    pub udim: Option<u32>,
+    /// `$suffix`: the map's suffix.
+    pub suffix: &'a str,
+    /// `$colorSpace`: `sRGB`, `Linear` or `Raw` (see [`color_space`]).
+    pub color_space: &'a str,
+    /// `$layerName` (flattened layer export).
+    pub layer_name: &'a str,
+    /// `$srcMap`: the channel written (flattened layer export).
+    pub src_map: &'a str,
+}
+
+/// Output template file name keywords (the editor's `$` menu).
+pub const PATTERN_TOKENS: [&str; 7] = ["$textureSet", "$sceneMaterial", "$colorSpace", "$project", "$suffix", "$mesh", "$udim"];
+
+/// Every keyword the expander knows, longest first where one is a prefix of another.
+const ALL_TOKENS: [&str; 9] = ["$textureSet", "$sceneMaterial", "$colorSpace", "$layerName", "$project", "$suffix", "$srcMap", "$mesh", "$udim"];
+
+/// Expand a file name pattern (no extension) with [`expand_pattern_with`]'s rules, for patterns
+/// that only use `$mesh`, `$textureSet`, `$udim` and `$suffix`.
 pub fn expand_pattern(pattern: &str, mesh: &str, texture_set: &str, udim: Option<u32>, suffix: &str) -> String {
-    const TOKENS: [&str; 4] = ["$textureSet", "$suffix", "$mesh", "$udim"];
+    expand_pattern_with(pattern, &PatternVars { mesh, project: mesh, texture_set, scene_material: texture_set, udim, suffix, ..Default::default() })
+}
+
+/// Expand a file name pattern (no extension). Token values are sanitized like the classic names;
+/// other characters outside letters, digits, `-`, `_` and `.` become `_`. A `/` starts a
+/// sub-folder (empty and `..` folder names are dropped). A part in parentheses, like `(.$udim)`,
+/// is written only when every token in it has a value, without the parentheses. Separators left
+/// dangling by an empty `$udim` are trimmed.
+pub fn expand_pattern_with(pattern: &str, vars: &PatternVars) -> String {
+    pattern.split('/').map(|segment| expand_segment(segment, vars)).filter(|s| !s.is_empty()).collect::<Vec<_>>().join("/")
+}
+
+fn expand_segment(pattern: &str, vars: &PatternVars) -> String {
     let mut out = String::new();
     let mut rest = pattern;
     while !rest.is_empty() {
-        if let Some(tok) = TOKENS.iter().find(|t| rest.starts_with(**t)) {
-            match *tok {
-                "$mesh" => out.push_str(&sanitize(mesh)),
-                "$textureSet" => out.push_str(&sanitize(texture_set)),
-                "$udim" => match udim {
-                    Some(n) => out.push_str(&n.to_string()),
-                    // No tile: drop the separator written for it ("_$udim", ".$udim").
-                    None => {
-                        if out.ends_with(['_', '.', '-']) {
-                            out.pop();
-                        }
+        // Optional part: dropped when a token in it is empty.
+        if rest.starts_with('(')
+            && let Some(close) = rest.find(')')
+        {
+            let inner = &rest[1..close];
+            let has_empty = ALL_TOKENS.iter().any(|t| inner.contains(t) && token_value(t, vars).is_empty_value());
+            if !has_empty {
+                out.push_str(&expand_tokens(inner, vars));
+            }
+            rest = &rest[close + 1..];
+            continue;
+        }
+        let next = rest.find('(').filter(|i| *i > 0).unwrap_or(rest.len());
+        let chunk = &rest[..next];
+        expand_tokens_into(&mut out, chunk, vars);
+        rest = &rest[next..];
+    }
+    while out.contains("..") {
+        out = out.replace("..", ".");
+    }
+    out.trim_matches(|c| c == '.' || c == '_' || c == '-').to_string()
+}
+
+/// A token's value; `None` = `$udim` outside a UDIM set.
+enum TokenValue {
+    Text(String),
+    NoTile,
+}
+
+impl TokenValue {
+    fn is_empty_value(&self) -> bool {
+        match self {
+            TokenValue::Text(t) => t.is_empty(),
+            TokenValue::NoTile => true,
+        }
+    }
+}
+
+fn token_value(tok: &str, vars: &PatternVars) -> TokenValue {
+    match tok {
+        "$mesh" => TokenValue::Text(sanitize(vars.mesh)),
+        "$project" => TokenValue::Text(sanitize(vars.project)),
+        "$textureSet" => TokenValue::Text(sanitize(vars.texture_set)),
+        "$sceneMaterial" => TokenValue::Text(sanitize(vars.scene_material)),
+        "$colorSpace" => TokenValue::Text(if vars.color_space.is_empty() { String::new() } else { sanitize(vars.color_space) }),
+        "$udim" => vars.udim.map_or(TokenValue::NoTile, |n| TokenValue::Text(n.to_string())),
+        "$layerName" => TokenValue::Text(if vars.layer_name.is_empty() { String::new() } else { sanitize(vars.layer_name) }),
+        "$srcMap" => TokenValue::Text(if vars.src_map.is_empty() { String::new() } else { sanitize(vars.src_map) }),
+        _ => TokenValue::Text(sanitize(vars.suffix)),
+    }
+}
+
+fn expand_tokens(pattern: &str, vars: &PatternVars) -> String {
+    let mut out = String::new();
+    expand_tokens_into(&mut out, pattern, vars);
+    out
+}
+
+fn expand_tokens_into(out: &mut String, pattern: &str, vars: &PatternVars) {
+    let mut rest = pattern;
+    while !rest.is_empty() {
+        if let Some(tok) = ALL_TOKENS.iter().find(|t| rest.starts_with(**t)) {
+            match token_value(tok, vars) {
+                TokenValue::Text(t) => out.push_str(&t),
+                // No tile: drop the separator written for it ("_$udim", ".$udim").
+                TokenValue::NoTile => {
+                    if out.ends_with(['_', '.', '-']) {
+                        out.pop();
                     }
-                },
-                _ => out.push_str(&sanitize(suffix)),
+                }
             }
             rest = &rest[tok.len()..];
             continue;
@@ -190,10 +294,23 @@ pub fn expand_pattern(pattern: &str, mesh: &str, texture_set: &str, udim: Option
         out.push(if c.is_alphanumeric() || c == '-' || c == '_' || c == '.' { c } else { '_' });
         rest = &rest[c.len_utf8()..];
     }
-    while out.contains("..") {
-        out = out.replace("..", ".");
+}
+
+/// `$colorSpace` of a map written as `format`: `sRGB` for sRGB-encoded colour in an integer file,
+/// `Linear` for colour in a float file, `Raw` for data (normals, roughness, masks...).
+pub fn color_space(map: &OutputMap, format: FileFormat) -> &'static str {
+    let color = map.srgb
+        && map.components.iter().any(|s| match s {
+            Source::Channel { kind, .. } | Source::Gray { kind, .. } => kind.is_color(),
+            Source::Converted { map, .. } => map.is_color(),
+            Source::View2d { .. } => true,
+            _ => false,
+        });
+    match (color, format.is_float()) {
+        (true, false) => "sRGB",
+        (true, true) => "Linear",
+        _ => "Raw",
     }
-    out.trim_matches(|c| c == '.' || c == '_' || c == '-').to_string()
 }
 
 /// One output file of the template for one texture set, whether or not it is switched on.
@@ -215,9 +332,22 @@ fn base_name<'a>(set: &'a ExportTextureSet) -> &'a str {
 }
 
 pub(crate) fn output_path(mesh_name: &str, set: &ExportTextureSet, suffix: &str, ext: &str, settings: &ExportSettings) -> String {
-    let pattern = settings.template.maps.iter().find(|m| m.suffix == suffix).and_then(|m| m.pattern.as_deref());
-    if let Some(pattern) = pattern {
-        let mut name = expand_pattern(pattern, mesh_name, base_name(set), set.udim, suffix);
+    let map = settings.template.maps.iter().find(|m| m.suffix == suffix);
+    if let Some(map) = map
+        && let Some(pattern) = map.pattern.as_deref()
+    {
+        let base = base_name(set);
+        let vars = PatternVars {
+            mesh: mesh_name,
+            project: settings.project_name.as_deref().unwrap_or(mesh_name),
+            texture_set: base,
+            scene_material: settings.scene_materials.get(set.name).map_or(base, String::as_str),
+            udim: set.udim,
+            suffix,
+            color_space: color_space(map, output_format(map, settings)),
+            ..Default::default()
+        };
+        let mut name = expand_pattern_with(pattern, &vars);
         if name.is_empty() {
             name = format!("{}_{}_{suffix}", sanitize(mesh_name), sanitize(base_name(set)));
         }
@@ -241,6 +371,9 @@ pub(crate) fn output_path(mesh_name: &str, set: &ExportTextureSet, suffix: &str,
 /// no alpha (JPEG, HDR, the Netpbm formats). The override used to drop it (Unity's smoothness in
 /// a mask map, the alpha of a gray + alpha map) without a word.
 pub(crate) fn output_format(map: &OutputMap, settings: &ExportSettings) -> FileFormat {
+    if let Some(m) = settings.map_formats.get(&map.suffix) {
+        return m.format;
+    }
     match settings.format_override {
         Some(f) if !f.has_alpha() && matches!(map.components.len(), 2 | 4) && map.format != f => map.format,
         Some(format) => format,
@@ -796,7 +929,10 @@ pub(crate) fn render_maps(mesh: &Mesh, mesh_name: &str, sets: &[ExportTextureSet
                 data = resample(&data, comps, size, out_size);
             }
             let name = output_path(mesh_name, set, &map.suffix, format.extension(), settings);
-            let dither = settings.dither.or(map.dither).unwrap_or(false);
+            let dither = match settings.map_formats.get(&map.suffix) {
+                Some(m) => m.dither,
+                None => settings.dither.or(map.dither).unwrap_or(false),
+            };
             let bytes=subcraft_image::io::encode_image_dithered(out_size,out_size,comps,&data,format,dither).map_err(|e|ExportError::Write(PathBuf::from(&name),e.to_string()))?;
             write(&name,&bytes)?;count+=1;
         }

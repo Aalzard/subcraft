@@ -29,6 +29,124 @@ pub struct PresetEditor {
     pub error: Option<String>,
     /// Ask before deleting this preset id.
     confirm_delete: Option<String>,
+    /// A source dropped on a slot, waiting for its channel choice: (first component, the slot
+    /// is an RGB slot, the source).
+    pending_drop: Option<(usize, bool, SourceItem)>,
+}
+
+/// A map in the source lists (Input maps, Converted maps, Mesh maps), dragged onto a slot.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum SourceItem {
+    Channel(ChannelKind),
+    Converted(Converted),
+    Normal { directx: bool },
+    Height,
+    MeshMap(MeshMapKind),
+}
+
+impl SourceItem {
+    pub(crate) fn label(self) -> String {
+        match self {
+            SourceItem::Channel(k) => k.display_name().to_string(),
+            SourceItem::Converted(c) => c.label().to_string(),
+            SourceItem::Normal { directx: false } => "Normal OpenGL".into(),
+            SourceItem::Normal { directx: true } => "Normal DirectX".into(),
+            SourceItem::Height => "Height".into(),
+            SourceItem::MeshMap(k) => k.display_name().to_string(),
+        }
+    }
+
+    /// Components the source has (1 = gray).
+    pub(crate) fn components(self) -> usize {
+        match self {
+            SourceItem::Channel(k) => if k.is_color() || k == ChannelKind::Normal { 3 } else { 1 },
+            SourceItem::Converted(c) => c.components(),
+            SourceItem::Normal { .. } => 3,
+            SourceItem::Height => 1,
+            SourceItem::MeshMap(k) => k.components(),
+        }
+    }
+
+    /// Component `c` of the source.
+    pub(crate) fn source(self, c: u8) -> Source {
+        match self {
+            SourceItem::Channel(kind) => Source::Channel { kind, component: c, invert: false },
+            SourceItem::Converted(map) => Source::Converted { map, component: c.min(map.components() as u8 - 1) },
+            SourceItem::Normal { directx } => Source::Normal { component: c.min(2), directx },
+            SourceItem::Height => Source::Height,
+            SourceItem::MeshMap(kind) => Source::MeshMap { kind, component: c.min(kind.components() as u8 - 1), invert: false },
+        }
+    }
+
+    /// The grayscale conversion, for colour channels.
+    pub(crate) fn gray(self) -> Option<Source> {
+        match self {
+            SourceItem::Channel(kind) if kind.is_color() => Some(Source::Gray { kind, invert: false }),
+            _ => None,
+        }
+    }
+
+    /// Whether components 0..3 of a map read this source's R, G and B.
+    fn is_rgb_of(self, c: &[Source]) -> bool {
+        c.len() >= 3 && self.components() >= 3 && (0..3).all(|i| c[i] == self.source(i as u8))
+    }
+
+    /// The source whose R, G, B `c` holds, if any.
+    fn of_rgb(c: &[Source]) -> Option<SourceItem> {
+        let item = match c.first()? {
+            Source::Channel { kind, .. } => SourceItem::Channel(*kind),
+            Source::Converted { map, .. } => SourceItem::Converted(*map),
+            Source::Normal { directx, .. } => SourceItem::Normal { directx: *directx },
+            Source::MeshMap { kind, .. } => SourceItem::MeshMap(*kind),
+            _ => return None,
+        };
+        item.is_rgb_of(c).then_some(item)
+    }
+}
+
+/// The source lists Painter shows beside the output maps: drag an entry onto a slot.
+fn source_lists(ui: &mut Ui) {
+    let item = |ui: &mut Ui, it: SourceItem| {
+        let r = ui.add(egui::Label::new(it.label()).sense(egui::Sense::click_and_drag())).on_hover_text(tr("Drag onto a channel slot of the selected map"));
+        r.dnd_set_drag_payload(it);
+    };
+    egui::CollapsingHeader::new(tr("Input maps")).id_salt("src_input").default_open(true).show(ui, |ui| {
+        for k in ChannelKind::ALL {
+            item(ui, SourceItem::Channel(k));
+        }
+    });
+    egui::CollapsingHeader::new(tr("Converted maps")).id_salt("src_converted").default_open(true).show(ui, |ui| {
+        item(ui, SourceItem::Normal { directx: false });
+        item(ui, SourceItem::Normal { directx: true });
+        item(ui, SourceItem::Height);
+        for c in Converted::ALL {
+            item(ui, SourceItem::Converted(c));
+        }
+    });
+    egui::CollapsingHeader::new(tr("Mesh maps")).id_salt("src_mesh").default_open(false).show(ui, |ui| {
+        for k in MeshMapKind::ALL {
+            item(ui, SourceItem::MeshMap(k));
+        }
+    });
+}
+
+/// Painter's five map types: one gray slot, one RGB slot, three gray slots, RGB + alpha, four
+/// gray slots. Slots start empty (a constant: black, alpha white).
+pub(crate) fn new_map(suffix: &str, kind: usize) -> OutputMap {
+    let (n, rgb_slot) = match kind {
+        0 => (1, None),
+        1 => (3, Some(true)),
+        2 => (3, Some(false)),
+        3 => (4, Some(true)),
+        _ => (4, Some(false)),
+    };
+    let components = (0..n).map(|i| Source::Constant { value: if i == 3 { 1.0 } else { 0.0 } }).collect();
+    OutputMap { pattern: Some("$mesh_$textureSet_$suffix".into()), rgb_slot, ..OutputMap::new(suffix, FileFormat::Png8, components, false) }
+}
+
+/// Whether the map's first three components are drawn as one RGB slot.
+fn shows_rgb_slot(m: &OutputMap) -> bool {
+    m.components.len() >= 3 && m.rgb_slot.unwrap_or_else(|| SourceItem::of_rgb(&m.components).is_some())
 }
 
 fn dim(text: &str) -> RichText {
@@ -186,12 +304,15 @@ pub fn preset_editor(ui: &mut Ui, presets: &mut ExportPresets, key: &str, ed: &m
             });
             ui.add_enabled_ui(editable, |ui| {
                 ui.horizontal_wrapped(|ui| {
-                    if ui.small_button(tr("+ Map")).on_hover_text(tr("Add an RGB map")).clicked() {
-                        let taken: Vec<&str> = draft.maps.iter().map(|m| m.suffix.as_str()).collect();
-                        let suffix = (1..).map(|n| format!("Map{n}")).find(|s| !taken.contains(&s.as_str())).expect("unbounded");
-                        draft.maps.push(OutputMap { pattern: Some("$mesh_$textureSet_$suffix".into()), ..OutputMap::new(&suffix, FileFormat::Png8, vec![Source::ch(ChannelKind::BaseColor, 0), Source::ch(ChannelKind::BaseColor, 1), Source::ch(ChannelKind::BaseColor, 2)], true) });
-                        ed.map = draft.maps.len() - 1;
+                    for (kind, label) in ["Gray", "RGB", "R+G+B", "RGB+A", "R+G+B+A"].into_iter().enumerate() {
+                        if ui.small_button(label).on_hover_text(tr("New output map with these channel slots")).clicked() {
+                            let taken: Vec<&str> = draft.maps.iter().map(|m| m.suffix.as_str()).collect();
+                            let suffix = (1..).map(|n| format!("Map{n}")).find(|s| !taken.contains(&s.as_str())).expect("unbounded");
+                            draft.maps.push(new_map(&suffix, kind));
+                            ed.map = draft.maps.len() - 1;
+                        }
                     }
+                    ui.end_row();
                     let has = ed.map < draft.maps.len();
                     if ui.add_enabled(has, egui::Button::new(tr("Copy")).small()).clicked() {
                         let mut m = draft.maps[ed.map].clone();
@@ -220,11 +341,18 @@ pub fn preset_editor(ui: &mut Ui, presets: &mut ExportPresets, key: &str, ed: &m
         ui.vertical(|ui| {
             ed.map = ed.map.min(draft.maps.len().saturating_sub(1));
             let Some(map) = draft.maps.get_mut(ed.map) else {
-                ui.label(dim("No output maps: add one with + Map."));
+                ui.label(dim("No output maps: add one with the buttons below the list."));
                 return;
             };
-            ui.add_enabled_ui(editable, |ui| map_editor(ui, map, mesh));
+            ui.add_enabled_ui(editable, |ui| map_editor(ui, map, mesh, &mut ed.pending_drop));
         });
+        if editable {
+            ui.separator();
+            ui.vertical(|ui| {
+                ui.set_width(170.0);
+                egui::ScrollArea::vertical().id_salt("preset_sources").max_height(420.0).show(ui, source_lists);
+            });
+        }
     });
     if let Some(e) = &ed.error {
         ui.label(RichText::new(e).color(theme::WARNING));
@@ -254,7 +382,7 @@ fn slot_names(n: usize) -> &'static [&'static str] {
     }
 }
 
-fn map_editor(ui: &mut Ui, map: &mut OutputMap, mesh: &str) {
+fn map_editor(ui: &mut Ui, map: &mut OutputMap, mesh: &str, pending: &mut Option<(usize, bool, SourceItem)>) {
     egui::Grid::new("preset_map").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
         ui.label(dim("Suffix"));
         ui.add(egui::TextEdit::singleline(&mut map.suffix).desired_width(200.0));
@@ -262,10 +390,32 @@ fn map_editor(ui: &mut Ui, map: &mut OutputMap, mesh: &str) {
         ui.label(dim("File name"));
         ui.vertical(|ui| {
             let mut pattern = map.pattern.clone().unwrap_or_else(|| "$mesh_$textureSet_$suffix".into());
-            if ui.add(egui::TextEdit::singleline(&mut pattern).desired_width(260.0).font(egui::TextStyle::Monospace)).on_hover_text(tr("Tokens: $mesh, $textureSet, $udim, $suffix")).changed() {
-                map.pattern = Some(pattern.clone());
-            }
-            let name = subcraft_export::expand_pattern(&pattern, mesh, "TextureSet", None, &map.suffix);
+            ui.horizontal(|ui| {
+                let mut changed = ui.add(egui::TextEdit::singleline(&mut pattern).desired_width(240.0).font(egui::TextStyle::Monospace)).on_hover_text(tr("Tokens start with $. A / makes a sub-folder; a part in parentheses, like (.$udim), is left out when its token is empty")).changed();
+                let _ = ui.menu_button("$", |ui| {
+                    for tok in subcraft_export::PATTERN_TOKENS {
+                        if ui.button(RichText::new(tok).monospace()).clicked() {
+                            pattern.push_str(tok);
+                            changed = true;
+                            ui.close();
+                        }
+                    }
+                }).response.on_hover_text(tr("Insert a keyword"));
+                if changed {
+                    map.pattern = Some(pattern.clone());
+                }
+            });
+            let vars = subcraft_export::PatternVars {
+                mesh,
+                project: mesh,
+                texture_set: "TextureSet",
+                scene_material: "Material",
+                udim: None,
+                suffix: &map.suffix,
+                color_space: subcraft_export::color_space(map, map.format),
+                ..Default::default()
+            };
+            let name = subcraft_export::expand_pattern_with(&pattern, &vars);
             ui.label(RichText::new(format!("{name}.{}", map.format.extension())).monospace().small().color(TEXT_DIM));
         });
         ui.end_row();
@@ -299,15 +449,89 @@ fn map_editor(ui: &mut Ui, map: &mut OutputMap, mesh: &str) {
         ui.end_row();
     });
     ui.add_space(6.0);
-    ui.label(caption("Channel packing"));
-    egui::Grid::new("preset_packing").num_columns(5).spacing([6.0, 4.0]).show(ui, |ui| {
-        let names = slot_names(map.components.len());
-        for (i, src) in map.components.iter_mut().enumerate() {
-            ui.label(RichText::new(names[i]).strong().color(slot_color(names[i])));
-            source_editor(ui, i, src);
-            ui.end_row();
+    ui.horizontal(|ui| {
+        ui.label(caption("Channel packing"));
+        if map.components.len() >= 3 {
+            let rgb = shows_rgb_slot(map);
+            let (text, tip) = if rgb { ("Split RGB", tr("Edit R, G and B as three slots")) } else { ("Merge RGB", tr("One RGB slot reading one source")) };
+            if ui.small_button(text).on_hover_text(tip).clicked() {
+                map.rgb_slot = Some(!rgb);
+            }
         }
     });
+    let rgb = shows_rgb_slot(map);
+    egui::Grid::new("preset_packing").num_columns(5).spacing([6.0, 4.0]).show(ui, |ui| {
+        let names = slot_names(map.components.len());
+        let mut i = 0;
+        while i < map.components.len() {
+            let group = rgb && i == 0;
+            let slot_label = if group { "RGB" } else { names[i] };
+            // The slot name is the drop target for the source lists.
+            let target = egui::Frame::new().fill(theme::FIELD).inner_margin(egui::Margin::symmetric(6, 2)).show(ui, |ui| {
+                ui.label(RichText::new(slot_label).strong().color(slot_color(names[i])));
+            });
+            let r = ui.interact(target.response.rect, ui.id().with(("slot", i)), egui::Sense::hover());
+            if r.dnd_hover_payload::<SourceItem>().is_some() {
+                ui.painter().rect_stroke(target.response.rect, 2.0, egui::Stroke::new(1.5, theme::ACCENT), egui::StrokeKind::Outside);
+            }
+            if let Some(item) = r.dnd_release_payload::<SourceItem>() {
+                let item = *item;
+                if item.components() == 1 {
+                    // One component: nothing to choose.
+                    let end = if group { 3 } else { i + 1 };
+                    map.components[i..end].iter_mut().for_each(|c| *c = item.source(0));
+                    *pending = None;
+                } else {
+                    *pending = Some((i, group, item));
+                }
+            }
+            if group {
+                let label = SourceItem::of_rgb(&map.components[..3]).map_or_else(|| "empty: drag a source here".to_string(), |s| s.label());
+                ui.label(RichText::new(label).color(TEXT_DIM));
+                ui.label("");
+                ui.label("");
+                ui.label("");
+                ui.end_row();
+                i = 3;
+                continue;
+            }
+            source_editor(ui, i, &mut map.components[i]);
+            ui.end_row();
+            i += 1;
+        }
+    });
+    // The channel menu after a drop (Painter's popup).
+    if let Some((slot, group, item)) = *pending {
+        let mut done = false;
+        ui.horizontal_wrapped(|ui| {
+            ui.label(dim(&format!("{}:", item.label())));
+            if group && item.components() >= 3 && ui.button("RGB").clicked() {
+                (0..3).for_each(|c| map.components[slot + c] = item.source(c as u8));
+                done = true;
+            }
+            let end = if group { slot + 3 } else { slot + 1 };
+            for (c, name) in ["R", "G", "B"].into_iter().enumerate().take(item.components()) {
+                if ui.button(name).clicked() {
+                    let n = map.components.len();
+                    map.components[slot..end.min(n)].iter_mut().for_each(|s| *s = item.source(c as u8));
+                    done = true;
+                }
+            }
+            if let Some(gray) = item.gray()
+                && ui.button(tr("Gray")).on_hover_text(tr("Grayscale conversion (luminance)")).clicked()
+            {
+                let n = map.components.len();
+                map.components[slot..end.min(n)].iter_mut().for_each(|s| *s = gray);
+                done = true;
+            }
+            if ui.small_button(tr("Cancel")).clicked() {
+                done = true;
+            }
+        });
+        if done {
+            *pending = None;
+        }
+    }
     if map.format == FileFormat::Jpeg && map.components.len() == 4 {
         ui.label(dim("JPEG has no alpha: A is dropped."));
     }
@@ -658,6 +882,28 @@ mod tests {
         resize_components(&mut c, 2);
         assert_eq!(c[0], r);
         assert_eq!(c[1], Source::Constant { value: 1.0 });
+    }
+
+    #[test]
+    fn the_five_map_types_and_dropped_sources() {
+        let kinds: Vec<(usize, Option<bool>)> = (0..5).map(|k| new_map("M", k)).map(|m| (m.components.len(), m.rgb_slot)).collect();
+        assert_eq!(kinds, [(1, None), (3, Some(true)), (3, Some(false)), (4, Some(true)), (4, Some(false))], "Gray, RGB, R+G+B, RGB+A, R+G+B+A");
+        let rgba = new_map("M", 3);
+        assert_eq!(rgba.components[3], Source::Constant { value: 1.0 }, "empty alpha is white");
+        assert!(shows_rgb_slot(&rgba) && !shows_rgb_slot(&new_map("M", 4)));
+        // A colour channel dropped as RGB fills R, G and B; the slot then reads as that source.
+        let base = SourceItem::Channel(ChannelKind::BaseColor);
+        let mut m = new_map("M", 2);
+        (0..3).for_each(|c| m.components[c] = base.source(c as u8));
+        assert_eq!(SourceItem::of_rgb(&m.components), Some(base));
+        m.rgb_slot = None;
+        assert!(shows_rgb_slot(&m), "R, G, B of one source show as one slot unless split");
+        assert_eq!(base.gray(), Some(Source::Gray { kind: ChannelKind::BaseColor, invert: false }));
+        assert_eq!(SourceItem::Channel(ChannelKind::Roughness).gray(), None, "gray channels need no conversion");
+        assert_eq!(SourceItem::Converted(Converted::Specular).components(), 3);
+        assert_eq!(SourceItem::Converted(Converted::Glossiness).source(2), Source::Converted { map: Converted::Glossiness, component: 0 });
+        assert_eq!(SourceItem::MeshMap(MeshMapKind::Curvature).components(), 1);
+        assert_eq!(SourceItem::Normal { directx: true }.source(1), Source::Normal { component: 1, directx: true });
     }
 
     #[test]

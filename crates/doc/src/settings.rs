@@ -74,7 +74,7 @@ pub struct ProjectSettings {
 
 /// One texture set's export settings replacing the Export window's global ones (Painter's
 /// texture set entries). `None` = the global setting.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ExportOverrides {
     /// File type and bit depth.
@@ -87,12 +87,23 @@ pub struct ExportOverrides {
     pub size: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub padding: Option<subcraft_image::dilate::Padding>,
+    /// Output maps (by suffix) written with their own file type and bit depth.
+    #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub maps: std::collections::BTreeMap<String, MapFormat>,
 }
 
 impl ExportOverrides {
     pub fn is_empty(&self) -> bool {
-        self.format.is_none() && self.size.is_none() && self.padding.is_none()
+        self.format.is_none() && self.size.is_none() && self.padding.is_none() && self.maps.is_empty()
     }
+}
+
+/// One output map's own file type and bit depth (Painter's per-map dropdowns on the Settings tab).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MapFormat {
+    pub format: subcraft_image::FileFormat,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub dither: bool,
 }
 
 /// The Export window's settings saved with the project (Painter's Save settings).

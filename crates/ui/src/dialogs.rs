@@ -238,7 +238,7 @@ impl ExportUi {
             size: s.size,
             padding: Some(s.padding),
             height_to_normal: Some(s.height_to_normal),
-            sets: self.set_overrides.iter().filter(|(_, o)| !o.is_empty()).map(|(k, v)| (*k, *v)).collect(),
+            sets: self.set_overrides.iter().filter(|(_, o)| !o.is_empty()).map(|(k, v)| (*k, v.clone())).collect(),
         }
     }
 
@@ -310,7 +310,7 @@ pub fn export_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
     let view_only = state.export.view_2d_only;
     // Per texture set overrides by name, for the export crate.
     let sets: Vec<(TextureSetId, String)> = state.session.document().texture_sets.iter().map(|ts| (ts.id, ts.name.clone())).collect();
-    state.export.settings.set_overrides = sets.iter().filter_map(|(id, name)| state.export.set_overrides.get(id).filter(|o| !o.is_empty()).map(|o| (name.clone(), *o))).collect();
+    state.export.settings.set_overrides = sets.iter().filter_map(|(id, name)| state.export.set_overrides.get(id).filter(|o| !o.is_empty()).map(|o| (name.clone(), o.clone()))).collect();
     if state.export.selected_set.is_some_and(|id| !sets.iter().any(|(s, _)| *s == id)) {
         state.export.selected_set = None;
     }
@@ -606,7 +606,7 @@ fn settings_tab(ui: &mut egui::Ui, state: &mut UiState, lib: &Option<subcraft_ap
                 set_settings(ui, &mut state.export, id, &name);
                 ui.add_space(6.0);
                 let mine: Vec<subcraft_export::PlannedFile> = choices.iter().filter(|c| c.set == name).cloned().collect();
-                export_map_list(ui, state, &settings, &mine);
+                export_map_list(ui, state, &settings, &mine, Some(id));
             }
         });
     });
@@ -634,7 +634,7 @@ fn global_settings(ui: &mut egui::Ui, state: &mut UiState, lib: &Option<subcraft
     ui.add_space(4.0);
     divider(ui);
     ui.add_space(4.0);
-    export_map_list(ui, state, settings, choices);
+    export_map_list(ui, state, settings, choices, None);
     ui.separator();
     let formats = subcraft_export::scene::SceneFormat::ALL;
     let mut scene_go = false;
@@ -658,7 +658,7 @@ fn set_settings(ui: &mut egui::Ui, ex: &mut ExportUi, id: TextureSetId, name: &s
     ui.label(RichText::new(name).strong());
     ui.label(dim("Settings left on Global follow Global settings."));
     ui.add_space(4.0);
-    let mut o = ex.set_overrides.get(&id).copied().unwrap_or_default();
+    let mut o = ex.set_overrides.get(&id).cloned().unwrap_or_default();
     egui::Grid::new(("export_set", id)).num_columns(2).spacing([16.0, 10.0]).show(ui, |ui| {
         ui.label(dim("File type"));
         ui.horizontal(|ui| {
@@ -773,7 +773,8 @@ enum MapClick {
 }
 
 /// The per-map checklist with Select all / None / Invert. Alt+click solos a map.
-fn export_map_list(ui: &mut egui::Ui, state: &mut UiState, settings: &ExportSettings, choices: &[subcraft_export::PlannedFile]) {
+/// With `set`, each row also has that texture set's own file type for the map.
+fn export_map_list(ui: &mut egui::Ui, state: &mut UiState, settings: &ExportSettings, choices: &[subcraft_export::PlannedFile], set: Option<TextureSetId>) {
     let mut click = None;
     ui.horizontal(|ui| {
         ui.label(caption(&format!("{} of {} files", choices.iter().filter(|f| f.enabled).count(), choices.len())));
@@ -801,6 +802,24 @@ fn export_map_list(ui: &mut egui::Ui, state: &mut UiState, settings: &ExportSett
                     let r = ui.checkbox(&mut on, RichText::new(&f.suffix)).on_hover_text(tr("Alt+click: export only this map (Alt+click again to bring the others back)"));
                     if r.clicked() {
                         click = Some(if ui.input(|i| i.modifiers.alt) { MapClick::Solo(f.set.clone(), f.suffix.clone()) } else { MapClick::Toggle(f.set.clone(), f.suffix.clone(), on) });
+                    }
+                    if let Some(id) = set {
+                        // Painter's per-map file type and bit depth for this texture set.
+                        let o = state.export.set_overrides.entry(id).or_default();
+                        let mut format = o.maps.get(&f.suffix).map(|m| m.format);
+                        let mut dither = o.maps.get(&f.suffix).map(|m| m.dither);
+                        crate::export_presets::format_combo(ui, &format!("row_{}", f.suffix), &mut format, &mut dither, Some(tr("Template")));
+                        match format {
+                            Some(format) => {
+                                o.maps.insert(f.suffix.clone(), subcraft_doc::MapFormat { format, dither: dither == Some(true) });
+                            }
+                            None => {
+                                o.maps.remove(&f.suffix);
+                            }
+                        }
+                        if o.is_empty() {
+                            state.export.set_overrides.remove(&id);
+                        }
                     }
                     ui.add(egui::Label::new(RichText::new(&f.path).monospace().small().color(if f.enabled { TEXT_DIM } else { theme::TEXT_DIM.gamma_multiply(0.5) })).truncate()).on_hover_text(&f.path);
                 });
