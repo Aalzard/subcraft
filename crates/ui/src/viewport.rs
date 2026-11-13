@@ -66,6 +66,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     state.last_view_size = size;
     state.last_view_rect = rect;
     let now = ui.input(|i| i.time);
+    // Alt+H follows the selected layer's geometry mask.
+    state.session.sync_excluded_view();
     // The render target is rounded to whole physical pixels. Map through that exact size,
     // rather than DPI alone, to keep picking/painting stable at fractional UI zoom factors.
     let pixel_scale = Vec2::new(size[0] as f32 / rect.width(), size[1] as f32 / rect.height());
@@ -189,7 +191,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     }
     if response.hovered() && !typing && !mods.any() {
         let target = pointer.and_then(|p| state.session.surface_target(&camera, to_screen(p), state.parts_kind));
+        // With a quick mask, I inverts it (Painter) instead of isolating the part under the cursor.
+        let quick = state.session.quick_mask().is_some();
         for (key, action) in [(egui::Key::I, subcraft_app::PartAction::Isolate), (egui::Key::H, subcraft_app::PartAction::Hide)] {
+            if quick && key == egui::Key::I { continue; }
             if ui.input(|i| i.key_pressed(key)) && let Some(target) = target { crate::panels::parts::apply(state, target, action, now); }
         }
         if ui.input(|i| i.key_pressed(egui::Key::Escape)) { state.session.show_all_parts(); }
@@ -203,8 +208,21 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         {
             let _ = state.session.execute(subcraft_app::Command::SelectTextureSet(ts));
         }
+        // Ctrl (Painter): the new layer shows only on the part under the cursor (geometry mask).
+        let part = if (mods.command || mods.ctrl) && !mods.alt { pointer.and_then(|p| state.session.surface_target(&camera, to_screen(p), state.parts_kind)) } else { None };
+        let before = state.session.selection().layer;
         // Alt: apply in place to the selected layer (alphas: brush tip unless Alt).
         crate::panels::shelf::apply_shelf_item_with(state, *item, mods.alt, now);
+        let added = state.session.selection().layer.filter(|l| Some(*l) != before);
+        if let (Some(target), Some(layer)) = (part, added)
+            && state.session.selection().texture_set == target.texture_set
+        {
+            let parts = subcraft_doc::PartMask::for_kind(target.part.kind, [target.part.id]);
+            match state.session.execute(subcraft_app::Command::SetParts { layer, parts: Some(parts) }) {
+                Ok(()) => state.set_status(format!("Added on one {} only (its geometry mask)", target.part.kind.label().trim_end_matches('s').to_lowercase()), now),
+                Err(e) => state.set_status(e.to_string(), now),
+            }
+        }
     }
     // An environment tile dropped on the view becomes the environment map.
     if let Some(env) = response.dnd_release_payload::<crate::panels::shelf::EnvironmentDrag>()
@@ -303,15 +321,30 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         state.picking_parts = false;
     }
     let hovered_part = if parts_picking { pointer.and_then(|p| state.session.part_at(&camera, to_screen(p))) } else { None };
-    if parts_picking && primary_pressed && response.hovered() && !alt && !stencil_edit {
-        let layer = state.session.selected_layer().map(|l| l.id);
-        match (layer, hovered_part) {
-            (Some(layer), Some(part)) => {
-                if let Err(e) = state.session.toggle_layer_part(layer, part) {
-                    state.set_status(format!("Parts: {e}"), now);
-                }
+    // Geometry mask editing: a click shows / hides the layer on the part under the cursor, a drag
+    // adds every part the box touches (Ctrl+drag removes them).
+    if parts_picking && primary_pressed && response.hovered() && !alt && !stencil_edit && let Some(p) = pointer {
+        state.parts_box = Some(p);
+    }
+    if let Some(start) = state.parts_box {
+        if !parts_picking || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+            state.parts_box = None;
+        } else if !primary_down {
+            state.parts_box = None;
+            let end = pointer.unwrap_or(start);
+            if let Some(layer) = state.session.selected_layer().map(|l| l.id) {
+                let result = if crate::view_props::is_box_drag(start, end) {
+                    let parts = state.session.parts_in_screen_box(&camera, to_screen(start), to_screen(end));
+                    if parts.is_empty() { Err("the box touched no part of the selected texture set".to_string()) }
+                    else { state.session.set_layer_parts(layer, &parts, !(mods.command || mods.ctrl)).map_err(|e| e.to_string()) }
+                } else {
+                    match state.session.part_at(&camera, to_screen(start)) {
+                        Some(part) => state.session.toggle_layer_part(layer, part).map_err(|e| e.to_string()),
+                        None => Err("click a part of the selected texture set".to_string()),
+                    }
+                };
+                if let Err(e) = result { state.set_status(format!("Parts: {e}"), now); }
             }
-            _ => state.set_status("Click a part of the selected texture set", now),
         }
     }
 
@@ -624,6 +657,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     if let Some(r) = fill_rect.filter(|r| state.fill_box.is_some() && crate::view_props::is_box_drag(r.min, r.max)) {
         crate::view_props::draw_fill_box(&painter, r, state.fill_visible_only);
     }
+    if let (Some(a), Some(b)) = (state.parts_box, pointer) && crate::view_props::is_box_drag(a, b) {
+        crate::view_props::draw_fill_box(&painter, Rect::from_two_pos(a, b), false);
+    }
     draw_stencil(state, ui, &painter, rect, size);
     // Reset button at the top right of the view while S is held.
     if stencil_edit {
@@ -642,7 +678,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     if let Some(item) = drop_hover {
         painter.rect_stroke(rect.shrink(1.0), 0.0, Stroke::new(2.0, ACCENT), egui::StrokeKind::Inside);
         let target = state.session.selected_layer().map(|l| l.name.clone());
-        let what = crate::panels::shelf::drop_label(item, mods.alt, target.as_deref().filter(|_| mods.alt), false);
+        let mut what = crate::panels::shelf::drop_label(item, mods.alt, target.as_deref().filter(|_| mods.alt), false);
+        if (mods.command || mods.ctrl) && !mods.alt && !matches!(item, crate::panels::shelf::ShelfDrag::Alpha(_) | crate::panels::shelf::ShelfDrag::SmartMask(_)) {
+            what.push_str(", only on the part under the cursor");
+        }
         pill(&painter, rect.center_top() + egui::vec2(0.0, 14.0), egui::Align2::CENTER_TOP, &format!("Release to: {what}"), theme::TEXT);
     }
     // Painter's mask view: say what is shown and how to get back; Esc goes back too.
@@ -685,6 +724,15 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             axes.push_str(&format!("Radial {}×{n}", ["X", "Y", "Z"][(options.radial.axis as usize).min(2)]));
         }
         let r = pill(&painter, right, egui::Align2::RIGHT_TOP, &format!("{}  Symmetry {axes}", icons::SYMMETRY), ACCENT);
+        right.x = r.left() - 6.0;
+    }
+    if let Some(q) = state.session.quick_mask() {
+        let text = if q.editing { "Quick mask · editing · U apply · Y clear" } else { "Quick mask on · U edit · I invert · Y clear" };
+        let r = pill(&painter, right, egui::Align2::RIGHT_TOP, &format!("{}  {text}", icons::SELECTION), ACCENT);
+        right.x = r.left() - 6.0;
+    }
+    if state.session.hide_excluded() {
+        let r = pill(&painter, right, egui::Align2::RIGHT_TOP, &format!("{}  Excluded geometry hidden · Alt+H", icons::EYE_SLASH), ACCENT);
         right.x = r.left() - 6.0;
     }
     if tracing && let Some(s) = state.pt_status {

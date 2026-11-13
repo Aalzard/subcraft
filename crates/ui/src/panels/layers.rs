@@ -515,6 +515,13 @@ Files: {}", ex.dir().display()));
                     let count = descendants(l);
                     badge(ui, &count.to_string(), color).on_hover_text(format!("{count} layer(s) inside"));
                 }
+                // Painter's geometry mask icon: which meshes / islands the layer covers, with the count.
+                let geo = geometry_mask_icon(ui, &state.session, l, ts.material_slot);
+                if geo.clicked() {
+                    cmds.push(Command::SelectLayer(Some(l.id)));
+                    state.picking_parts = true;
+                }
+                geo.context_menu(|ui| geometry_mask_menu(ui, &state.session, &mut state.parts_clipboard, &mut state.picking_parts, l, ts.material_slot, &mut cmds));
                 let mut text = row_text(&l.name, selected || l.visible);
                 if folder.is_some() { text = text.strong(); }
                 if !l.visible {
@@ -969,6 +976,86 @@ pub fn import_texture_set_dialog(ctx: &egui::Context) {
         true,
         Some("Import texture set: select the maps (base color, roughness, normal, …)"),
     );
+}
+
+/// Parts of `kind` that belong to the texture set of material `slot`.
+fn parts_of(session: &subcraft_app::Session, kind: subcraft_core::PartKind, slot: u32) -> std::collections::BTreeSet<u32> {
+    session.parts(kind).iter().filter(|p| p.materials.contains(&slot)).map(|p| p.id).collect()
+}
+
+/// The geometry mask icon of a layer row: dim when the layer covers the whole model, the included
+/// count over the total when it is restricted, struck through while the mask is ignored.
+fn geometry_mask_icon(ui: &mut Ui, session: &subcraft_app::Session, l: &Layer, slot: u32) -> egui::Response {
+    let (text, color, tip) = match &l.parts {
+        None => (icons::POLYGON.to_string(), TEXT_FAINT, "Geometry mask: the whole model · click to restrict the layer to some meshes or UV islands (click or box them in the 3D / 2D view) · right-click for options".to_string()),
+        Some(p) => {
+            let all = parts_of(session, p.kind, slot);
+            let shown = all.iter().filter(|id| p.parts.contains(id)).count();
+            let what = p.kind.label().to_lowercase();
+            if p.enabled {
+                (format!("{} {shown}/{}", icons::POLYGON, all.len()), ACCENT, format!("Geometry mask: {shown} of {} {what} · click to edit in the views · right-click for options", all.len()))
+            } else {
+                (format!("{} {shown}/{}", icons::POLYGON, all.len()), theme::WARNING, format!("Geometry mask ignored ({shown} of {} {what} chosen) · right-click to use it again", all.len()))
+            }
+        }
+    };
+    ui.add(egui::Button::new(RichText::new(text).font(theme::font(11.0)).color(color)).frame(false).min_size(egui::vec2(18.0, 22.0)))
+        .on_hover_text(tip)
+}
+
+/// Right-click menu of the geometry mask icon (Painter's copy / paste, plus the Properties list's
+/// selection helpers and the kind of part listed).
+fn geometry_mask_menu(ui: &mut Ui, session: &subcraft_app::Session, clipboard: &mut Option<subcraft_doc::PartMask>, picking: &mut bool, l: &Layer, slot: u32, cmds: &mut Vec<Command>) {
+    use subcraft_doc::PartMask;
+    let id = l.id;
+    let kind = l.parts.as_ref().map_or(subcraft_core::PartKind::Connected, |p| p.kind);
+    let all = parts_of(session, kind, slot);
+    ui.label(RichText::new("Geometry mask").color(TEXT_DIM));
+    if ui.button("Edit in the 3D / 2D view").on_hover_text("Click a mesh part or UV island to show or hide the layer on it; drag a box to add several, Ctrl+drag to remove").clicked() {
+        cmds.push(Command::SelectLayer(Some(id)));
+        *picking = true;
+        ui.close();
+    }
+    ui.menu_button("List by", |ui| {
+        for k in subcraft_core::PartKind::ALL {
+            if ui.selectable_label(kind == k && l.parts.is_some(), k.label()).clicked() {
+                cmds.push(Command::SetParts { layer: id, parts: Some(PartMask::for_kind(k, parts_of(session, k, slot))) });
+                ui.close();
+            }
+        }
+    });
+    ui.separator();
+    if ui.button("Include all").clicked() {
+        cmds.push(Command::SetParts { layer: id, parts: Some(PartMask::for_kind(kind, all.clone())) });
+        ui.close();
+    }
+    if ui.button("Exclude all").clicked() {
+        cmds.push(Command::SetParts { layer: id, parts: Some(PartMask::for_kind(kind, [])) });
+        ui.close();
+    }
+    if let Some(p) = &l.parts {
+        if ui.button("Invert").clicked() {
+            cmds.push(Command::SetParts { layer: id, parts: Some(PartMask::for_kind(kind, all.difference(&p.parts).copied())) });
+            ui.close();
+        }
+        if ui.button(if p.enabled { "Ignore temporarily" } else { "Use again" }).clicked() {
+            cmds.push(Command::SetParts { layer: id, parts: Some(PartMask { enabled: !p.enabled, ..p.clone() }) });
+            ui.close();
+        }
+    }
+    ui.separator();
+    if ui.add_enabled(l.parts.is_some(), egui::Button::new("Copy geometry mask")).clicked() {
+        *clipboard = l.parts.clone();
+        ui.close();
+    }
+    if ui.add_enabled(clipboard.is_some(), egui::Button::new("Paste into geometry mask")).clicked() {
+        cmds.push(Command::SetParts { layer: id, parts: clipboard.clone() });
+        ui.close();
+    }
+    if ui.add_enabled(l.parts.is_some(), egui::Button::new("Remove (whole model)")).clicked() {
+        cmds.push(Command::SetParts { layer: id, parts: None });
+        ui.close();
+    }
 }
 
 #[cfg(test)]

@@ -140,7 +140,7 @@ Layout notes: the dropdown at the top right of each view switches between Materi
 | Set Clone tool source location | V + LMB | - | done | crates/ui/src/viewport.rs:300 | - |
 | Pause engine computation | Shift + Escape | - | missing | - | - |
 | Toggle animation (particles) | Space | - | missing | - | - |
-| Polygon Fill: rectangular marquee drag | LMB drag with Polygon Fill | - | missing | - | #131 |
+| Polygon Fill: rectangular marquee drag | LMB drag with Polygon Fill | - | done | crates/ui/src/viewport.rs | #131 |
 | Polygon Fill: extend loop on the other side | Alt while dragging (loop modes) | - | missing | - | - |
 | Polygon Fill: primary loop only | Shift (partial loop mode) | - | missing | - | - |
 | Polygon Fill: temporary Polygon loop fill | Shift + A | - | missing | - | - |
@@ -208,18 +208,18 @@ Layout notes: display options (plane, intersection, cursor, manipulator) are onl
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Toggle quick mask edition | U | off | missing | - | - |
-| Clear quick mask | Y | - | missing | - | - |
-| Invert quick mask | I | - | missing | - | - |
-| Quick mask overlay tint in the view | 3D view while editing | not documented | missing | - | - |
+| Toggle quick mask edition | U | off | done: also the selection button on the tool rail | crates/app/src/session.rs | - |
+| Clear quick mask | Y | - | done | crates/app/src/session.rs | - |
+| Invert quick mask | I | - | done (without a quick mask, I still isolates the part under the cursor) | crates/app/src/session.rs | - |
+| Quick mask overlay tint in the view | 3D view while editing | not documented | partial: red tint in the 2D view; the 3D view shows a status pill only | crates/ui/src/panels/uv_view.rs | - |
 
 ## Geometry hide / isolate
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Hide / ignore excluded geometry | Alt + H; Contextual toolbar button | off; disabled when nothing is excluded | partial: H over the model hides the part under the cursor, not tied to a layer geometry mask | crates/ui/src/viewport.rs:183 | - |
+| Hide / ignore excluded geometry | Alt + H; Contextual toolbar button | off; disabled when nothing is excluded | done | crates/app/src/part_workflow.rs | - |
 | Texture Set isolate | Alt + Q | off | partial: I over the model isolates a part; no Texture Set solo key | crates/ui/src/viewport.rs:183 | - |
-| Geometry mask editing: click mesh parts in the view to include / exclude | 3D view while the geometry mask icon is active | - | partial: "pick parts" mode toggles the layer per mesh part | crates/ui/src/viewport.rs:264 | - |
+| Geometry mask editing: click mesh parts in the view to include / exclude | 3D view while the geometry mask icon is active | - | done: click toggles, a box adds, Ctrl+box removes, in the 3D and 2D views | crates/ui/src/viewport.rs | - |
 | UV Tile hover highlight during geometry mask edit | 3D and 2D views | - | missing | - | - |
 
 ## Drag and drop onto the mesh
@@ -230,7 +230,7 @@ Layout notes: while dragging over the 3D view Painter highlights the Texture Set
 |---|---|---|---|---|---|
 | Drop material from Assets onto the mesh: new fill layer on the Texture Set under the cursor | Assets > 3D view | - | done | crates/ui/src/viewport.rs:190 | - |
 | Drop smart material onto the mesh | Assets > 3D view | - | done | crates/ui/src/panels/shelf.rs:63 | - |
-| Ctrl + drop material: restrict to the mesh part under the cursor (geometry mask) | Assets > 3D view | - | missing | - | - |
+| Ctrl + drop material: restrict to the mesh part under the cursor (geometry mask) | Assets > 3D view | - | done: uses the part kind chosen in Parts | crates/ui/src/viewport.rs | - |
 | Highlight of the target mesh while dragging | 3D view | - | partial: text label of the action and target near the cursor, no mesh highlight | crates/ui/src/viewport.rs:513 | - |
 | Drop alpha / procedural / texture: warp-projected decal layer with channel chooser | Assets > 3D view | menu on release | partial: texture becomes a new UV fill layer; alpha becomes brush tip; no warp decal or channel menu | crates/ui/src/panels/shelf.rs:65 | - |
 | Alt + drop material: decal with warp projection | Assets > 3D view | - | partial: Alt replaces the selected fill layer's material instead | crates/ui/src/panels/shelf.rs:60 | - |

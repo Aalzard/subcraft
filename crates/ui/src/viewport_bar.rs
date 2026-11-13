@@ -411,7 +411,8 @@ pub fn show(ui: &mut Ui, state: &mut crate::state::UiState) {
                     ui.add_space(5.0);
                     crate::brush_bar::show(ui, &mut state.tool, &mut settings, &mut options, &mut state.recovery.prefs.viewport.symmetry_guides, width);
                     if state.tool == crate::state::Tool::PolygonFill {
-                        crate::brush_bar::fill_options(ui, &mut state.fill_mode, Some(&mut state.fill_visible_only), "fill_mode_3d");
+                        let destination = state.session.polygon_fill_destination();
+                        crate::brush_bar::fill_options(ui, &mut state.fill_mode, Some(&mut state.fill_visible_only), destination, "fill_mode_3d");
                     }
                 }
             });
@@ -420,12 +421,18 @@ pub fn show(ui: &mut Ui, state: &mut crate::state::UiState) {
                 ui.horizontal(|ui| {
                     crate::brush_bar::show(ui, &mut state.tool, &mut settings, &mut options, &mut state.recovery.prefs.viewport.symmetry_guides, width);
                     if state.tool == crate::state::Tool::PolygonFill {
-                        crate::brush_bar::fill_options(ui, &mut state.fill_mode, Some(&mut state.fill_visible_only), "fill_mode_3d");
+                        let destination = state.session.polygon_fill_destination();
+                        crate::brush_bar::fill_options(ui, &mut state.fill_mode, Some(&mut state.fill_visible_only), destination, "fill_mode_3d");
                     }
                 });
             }
             if painting {
-                crate::brush_bar::channel_switches(ui, state);
+                // The Alt+H button leads the channel row: that row wraps, so the brush rows keep
+                // the widths the layout constants above were measured with.
+                ui.horizontal(|ui| {
+                    hide_excluded_toggle(ui, state);
+                    crate::brush_bar::channel_switches(ui, state);
+                });
             }
         });
     ui.painter().hline(
@@ -837,5 +844,21 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(p.view_mode(), ViewMode::Normal);
+    }
+}
+
+/// Painter's "hide / ignore excluded geometry" button (Alt+H) of the contextual toolbar: off and
+/// disabled while the selected layer has no geometry mask.
+fn hide_excluded_toggle(ui: &mut egui::Ui, state: &mut crate::state::UiState) {
+    let on = state.session.hide_excluded();
+    let enabled = on || state.session.has_excluded_geometry();
+    let tip = if enabled {
+        "Hide the geometry the selected layer's geometry mask leaves out, so strokes reach what it covered (Alt+H)"
+    } else {
+        "Hide excluded geometry (Alt+H): the selected layer has no geometry mask"
+    };
+    let r = ui.add_enabled_ui(enabled, |ui| crate::widgets::icon_toggle(ui, crate::icons::EYE_SLASH, on, tip)).inner;
+    if r.clicked() {
+        state.session.toggle_hide_excluded();
     }
 }
