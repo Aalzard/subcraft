@@ -2826,7 +2826,7 @@ fn build_demo(state: &mut UiState) {
     }
 
 #[cfg(test)]
-mod launch_tests {
+mod export_path_tests {
     use super::*;
 
     #[test]
