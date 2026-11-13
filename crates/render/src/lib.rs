@@ -208,10 +208,14 @@ pub enum ViewMode {
     BakedNormal,
     /// The baked tangent-space normal map itself, unlit, on the model.
     BakedNormalMap,
+    /// The tangent-space normal the shading uses: the Normal channel combined with the Height
+    /// channel's bump (Painter's "Normal + Height + Mesh"; SubCraft's material shading does not
+    /// layer the baked mesh normal, so neither does this view).
+    NormalHeight,
 }
 
 impl ViewMode {
-    pub const ALL: [ViewMode; 9] = [
+    pub const ALL: [ViewMode; 10] = [
         ViewMode::Material,
         ViewMode::BaseColor,
         ViewMode::Normal,
@@ -221,6 +225,7 @@ impl ViewMode {
         ViewMode::AmbientOcclusion,
         ViewMode::BakedNormal,
         ViewMode::BakedNormalMap,
+        ViewMode::NormalHeight,
     ];
 
     /// Value of the shader's view-mode switch (0 = full shading). The baked-normal modes are
@@ -229,6 +234,8 @@ impl ViewMode {
     fn shader_mode(self) -> u32 {
         match self {
             ViewMode::BakedNormal | ViewMode::BakedNormalMap => 0,
+            // 7 and 8 are the solo channel modes; the combined normal is 9.
+            ViewMode::NormalHeight => 9,
             m => m as u32,
         }
     }
@@ -244,6 +251,7 @@ impl ViewMode {
             ViewMode::AmbientOcclusion => "Ambient Occlusion",
             ViewMode::BakedNormal => "Baked Normal (shaded)",
             ViewMode::BakedNormalMap => "Baked Normal Map",
+            ViewMode::NormalHeight => "Normal + Height",
         }
     }
 }
