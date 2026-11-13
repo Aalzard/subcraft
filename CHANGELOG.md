@@ -6,6 +6,12 @@ What changed in SubCraft, newest first. Download the latest build from the
 ## Unreleased
 
 ### Added
+- **Colour space per file** in the Export window's list of maps, like Painter's: sRGB, Linear (float files)
+  or Raw (data such as normals and roughness).
+
+## 0.3.8 - 2026-11-13
+
+### Added
 - **`--export-path <folder>`** launch argument, like Painter's: the Export window's default output folder
   (a project's own saved export folder still wins).
 - **Export flattened / Export mask** from the layer stack, like Painter: right-click a layer or folder (or a
@@ -35,6 +41,26 @@ What changed in SubCraft, newest first. Download the latest build from the
 - **File > Export mesh**, like Painter's: the mesh alone as OBJ, glTF, GLB or USDA, either as modelled or
   with displacement: subdivide 0 to 4 times, push the vertices out by the Height channel and optionally
   recompute the normals.
+- **Invert zoom** (Settings > General): one wheel direction for the 3D and 2D views (#223). Settings > General also has camera rotation, zoom and wheel speeds, a background gradient, world axes and the UV scale (#210, #306).
+- **Path tools** like Painter's: filled paths, the brush tip along a path, ribbon paths, and a Paths panel (#300, #375, #324).
+- **Warp projection** with an editable grid (#293).
+- **Layer instancing**: instance layers, Paste as instance, and instances across texture sets with an Instantiate dialog (#316, #327).
+- **22 more channel types**: coat, sheen, anisotropy, scattering and more (#326); add several channels at once (#368).
+- **Symmetry**: display and manipulator, mirror planes, cursors, and L to switch it on and off (#247, #264, #262, #363).
+- **Viewport**: order-independent transparency (#334), temporal anti-aliasing (#294), raster shadows and the Specular level channel (#234), display-mode and viewport-mode dropdowns (#365), Normal + Height display (#374), lens distortion, auto-focus and more viewer extras (#249), grid unit read-out (#391), swapping views while one is undocked (#392).
+- **2D view**: zoom on the cursor, Alt+RMB zoom, rotate the texture with Alt+LMB (#273, #376); Polygon Fill highlights the element under the cursor (#310); overlays follow the channel component (#305).
+- **Fill projections**: 3D offset, rotation and scale with Shape crop, and backface culling (#312, #371).
+- **Masks**: mask menu entries and smart masks (#304), quick mask tint in 3D (#260).
+- **Baking**: per-map baker settings (#298), and bake overlays for the cage surface and missing UV seams (#367, #362).
+- **Assets and libraries**: Import resources window and libraries (#213), Assets panel query syntax, breadcrumbs and saved searches (#211); mesh-map slots (#271).
+- **Filters and generators**: Gradient Curve, Bevel Smooth, Directional Distance (#272); UV Border Distance, UV Checker, UV Texel Density (#235); brush Position Jitter Axis (#308).
+- **Log window** with General and Assets messages and Help > Export log (#377).
+
+### Changed
+- **Faster**: single-channel edits only recompute that channel (2-3.6x faster at 4K, #318, #360); each layer's content and mask are cached (1.4-2x faster edits in deep stacks, #296); projects open faster by decoding on all cores (1.8 s to 0.5 s on a 4K project, #378); the Scratches pattern is 1.6-3.5x faster (#379).
+
+### Fixed
+- About 60 fixes from two review and testing rounds: undo steps, instances and geometry masks, export formats and sizes, TAA restarts, 2D smudge with symmetry, quick mask, pen paths, the Assets panel and libraries, and settings that were not checked when a project loads.
 
 ## 0.3.7 - 2026-11-13
 

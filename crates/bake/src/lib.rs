@@ -305,6 +305,8 @@ pub struct BakeSettings {
     pub position: PositionOptions,
     pub height: HeightNormalization,
     pub id_generator: IdGenerator,
+    /// The vertex colour set the ID map reads with [`IdSource::VertexColor`] (0 = the first).
+    pub vertex_color_set: u32,
 }
 
 impl Default for BakeSettings {
@@ -335,6 +337,7 @@ impl Default for BakeSettings {
             position: PositionOptions::default(),
             height: HeightNormalization::default(),
             id_generator: IdGenerator::default(),
+            vertex_color_set: 0,
         }
     }
 }
@@ -724,8 +727,11 @@ fn bake_core(
     // The ID source the mesh can actually serve: a file without the asked colours falls back to
     // generated ones, and says so.
     let id_source = match settings.id_source {
-        IdSource::VertexColor if wanted(MeshMapKind::Id) && detail_geo.mesh.corner_colors.len() != 3 * detail_geo.mesh.triangle_count() => {
-            progress.warn("ID map: the model has no vertex colours, so one colour per mesh element was used instead".into());
+        IdSource::VertexColor if wanted(MeshMapKind::Id) && detail_geo.mesh.color_set(settings.vertex_color_set as usize).is_none() => {
+            match detail_geo.mesh.color_set_count() {
+                0 => progress.warn("ID map: the model has no vertex colours, so one colour per mesh element was used instead".into()),
+                n => progress.warn(format!("ID map: the model has {n} vertex colour set(s), not set {}, so one colour per mesh element was used instead", settings.vertex_color_set + 1)),
+            }
             IdSource::MeshId
         }
         IdSource::MaterialColor if wanted(MeshMapKind::Id) && detail_geo.mesh.material_colors.iter().all(Option::is_none) => {
@@ -814,7 +820,7 @@ fn bake_core(
                         IdSource::VertexColor => {
                             let [a, b, c] = mesh.tri_positions(tri);
                             let l = normal_curvature::barycentric(d.position, a, b, c);
-                            match mesh.corner_color(tri, l[1], l[2]) {
+                            match mesh.corner_color_in(settings.vertex_color_set as usize, tri, l[1], l[2]) {
                                 Some(c) => [c[0].clamp(0.0, 1.0), c[1].clamp(0.0, 1.0), c[2].clamp(0.0, 1.0)],
                                 None => generated(elements.as_ref().map_or(0, |e| e[tri])),
                             }

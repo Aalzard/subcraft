@@ -204,9 +204,6 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             }
         });
         ui.horizontal_wrapped(|ui| brush_controls(state, ui));
-        if painting_tool {
-            crate::brush_bar::channel_switches(ui, state);
-        }
         if state.picking_parts {
             ui.horizontal_wrapped(|ui| crate::panels::parts::mask_bar(ui, state));
         }
@@ -672,6 +669,7 @@ fn paint_input(state: &mut UiState, ui: &Ui, response: &egui::Response, image: F
     // Pen pressure, as in the 3D view (a mouse reports none: 1).
     let (pressure, carried) = crate::viewport::pen_pressure(&ui.input(|i| i.events.clone()), state.pen_pressure);
     state.pen_pressure = carried;
+    let pressure = state.recovery.prefs.viewport.pressure_curve.apply(pressure);
     // Polygon fill: a click fills the element under the cursor, a drag every element the UV box touches.
     if let Some(start) = state.uv.fill_box {
         if state.tool != Tool::PolygonFill || ui.input(|i| i.key_pressed(egui::Key::Escape)) {

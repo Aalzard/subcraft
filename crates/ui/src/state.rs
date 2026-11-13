@@ -238,6 +238,9 @@ pub struct UiState {
     /// ID color editor eyedropper: clicks in the 3D or 2D view pick an ID map color, select it in
     /// the editor and feed it to the selected layer's ID Color mask.
     pub picking_id_palette: bool,
+    /// While an ID eyedropper is armed, the 3D view shows the ID map; this is the view mode to
+    /// go back to (the mesh map shown before, or none) when the pick ends.
+    pub id_pick_view: Option<Option<subcraft_core::MeshMapKind>>,
     /// Color selected in the ID color editor (as shown in the ID map).
     pub id_palette_selected: Option<[f32; 3]>,
     /// The editor's palette, keyed by (texture set, maps generation, document revision).
@@ -255,6 +258,8 @@ pub struct UiState {
     pub uv_density: HashMap<u32, f32>,
     pub rename: Option<(subcraft_core::LayerId, String)>,
     pub show_shortcuts: bool,
+    /// Startup logo overlay (launches only, not scripted screenshots or tests).
+    pub intro: Option<crate::intro::Intro>,
     pub frame_time_ms: f32,
     /// Rendering mode: sampling paused, last frame's progress, and whether the path tracer
     /// was used last frame (its GPU memory is released when the mode turns off).
@@ -475,6 +480,7 @@ impl UiState {
             picking_focus: false,
             picking_id_color: None,
             picking_id_palette: false,
+            id_pick_view: None,
             id_palette_selected: None,
             id_palette_cache: None,
             id_palette_new: [1.0, 1.0, 1.0],
@@ -487,6 +493,7 @@ impl UiState {
             uv_density: HashMap::new(),
             rename: None,
             show_shortcuts: false,
+            intro: None,
             frame_time_ms: 0.0,
             pt_paused: false,
             pt_status: None,

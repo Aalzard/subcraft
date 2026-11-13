@@ -87,6 +87,9 @@ pub struct Mesh {
     /// in the order of `indices`; empty when the file had none. Read by the baker (ID map from
     /// vertex colours). Not saved with projects and not kept by regrouping or unwrapping.
     pub corner_colors: Vec<[f32; 4]>,
+    /// More vertex colour sets of the file (glTF `COLOR_1`, `COLOR_2`...), laid out like
+    /// `corner_colors`, which is set 0 (issue #366). Empty when the file had one set or none.
+    pub extra_color_sets: Vec<Vec<[f32; 4]>>,
     /// The file's colour of each material slot (diffuse / base colour), parallel to `materials`;
     /// empty when no slot has one. Read by the baker (ID map from material colours).
     pub material_colors: Vec<Option<[f32; 3]>>,
@@ -118,7 +121,23 @@ impl Mesh {
     /// The file's vertex colour at barycentrics `(u, v)` (weights of vertices 1 and 2) of a
     /// triangle; `None` when the mesh has no vertex colours.
     pub fn corner_color(&self, tri: usize, u: f32, v: f32) -> Option<[f32; 4]> {
-        let c = self.corner_colors.get(3 * tri..3 * tri + 3)?;
+        self.corner_color_in(0, tri, u, v)
+    }
+
+    /// Vertex colour set `set` (0 = the first), when the mesh has it for every triangle corner.
+    pub fn color_set(&self, set: usize) -> Option<&[[f32; 4]]> {
+        let colors = if set == 0 { &self.corner_colors } else { self.extra_color_sets.get(set - 1)? };
+        (colors.len() == 3 * self.triangle_count() && !colors.is_empty()).then_some(colors.as_slice())
+    }
+
+    /// How many vertex colour sets the mesh has (0 = none).
+    pub fn color_set_count(&self) -> usize {
+        (0..=self.extra_color_sets.len()).take_while(|&s| self.color_set(s).is_some()).count()
+    }
+
+    /// [`Self::corner_color`] from vertex colour set `set`.
+    pub fn corner_color_in(&self, set: usize, tri: usize, u: f32, v: f32) -> Option<[f32; 4]> {
+        let c = self.color_set(set)?.get(3 * tri..3 * tri + 3)?;
         let w = 1.0 - u - v;
         Some(std::array::from_fn(|i| c[0][i] * w + c[1][i] * u + c[2][i] * v))
     }
@@ -135,6 +154,8 @@ impl Mesh {
         let mut out = Mesh { name: parts.first().map(|m| m.name.clone()).unwrap_or_default(), ..Default::default() };
         let any_objects = parts.iter().any(|m| !m.tri_object.is_empty());
         let any_colors = parts.iter().any(|m| !m.corner_colors.is_empty());
+        let extra_sets = parts.iter().map(|m| m.extra_color_sets.len()).max().unwrap_or(0);
+        out.extra_color_sets = vec![Vec::new(); extra_sets];
         let any_material_colors = parts.iter().any(|m| !m.material_colors.is_empty());
         for m in parts {
             let (v0, t0) = (out.positions.len() as u32, out.triangle_count() as u32);
@@ -155,6 +176,12 @@ impl Mesh {
             out.objects.extend(m.objects.iter().cloned());
             out.materials.extend(m.materials.iter().cloned());
             out.submeshes.extend(m.submeshes.iter().map(|s| Submesh { material: s.material + m0, first_triangle: s.first_triangle + t0, triangle_count: s.triangle_count }));
+            for (i, set) in out.extra_color_sets.iter_mut().enumerate() {
+                match m.extra_color_sets.get(i).filter(|c| c.len() == 3 * m.triangle_count()) {
+                    Some(colors) => set.extend_from_slice(colors),
+                    None => set.extend(std::iter::repeat_n([1.0; 4], 3 * m.triangle_count())),
+                }
+            }
             if any_colors {
                 if m.corner_colors.is_empty() {
                     out.corner_colors.extend(std::iter::repeat_n([1.0; 4], 3 * m.triangle_count()));
@@ -184,6 +211,9 @@ impl Mesh {
         if det < 0. {
             for tri in out.indices.chunks_exact_mut(3) { tri.swap(1, 2); }
             for tri in out.corner_colors.chunks_exact_mut(3) { tri.swap(1, 2); }
+            for set in &mut out.extra_color_sets {
+                for tri in set.chunks_exact_mut(3) { tri.swap(1, 2); }
+            }
         }
         out.bounds = Aabb::from_points(out.positions.iter().copied());
         out
@@ -323,6 +353,8 @@ pub struct MeshBuilder {
     corner_colors: Vec<[f32; 4]>,
     /// Whether any triangle came with vertex colours.
     any_corner_color: bool,
+    /// Vertex colour sets after the first, each padded lazily to `corners` (white where a triangle had none).
+    extra_colors: Vec<Vec<[f32; 4]>>,
     /// File colour per material slot, parallel to `materials`.
     material_colors: Vec<Option<[f32; 3]>>,
     pub stats: BuildStats,
@@ -335,6 +367,7 @@ impl MeshBuilder {
         self.tri_object.clear();
         self.corner_colors.clear();
         self.any_corner_color = false;
+        self.extra_colors.clear();
         std::mem::take(&mut self.corners)
     }
 }
@@ -384,6 +417,25 @@ impl MeshBuilder {
                 *slot = color.map(|v| if v.is_finite() { v.clamp(0.0, 1.0) } else { 1.0 });
             }
             self.any_corner_color = true;
+        }
+    }
+
+    /// [`Self::push_triangle`] with several vertex colour sets (RGBA per corner); the first is
+    /// set 0. No sets is a triangle without vertex colours.
+    pub fn push_triangle_color_sets(&mut self, material: u32, c: [Corner; 3], sets: &[[[f32; 4]; 3]]) {
+        let Some((first, rest)) = sets.split_first() else { return self.push_triangle(material, c) };
+        let before = self.corners.len();
+        self.push_triangle_colored(material, c, *first);
+        if self.corners.len() == before {
+            return;
+        }
+        for (i, colors) in rest.iter().enumerate() {
+            if self.extra_colors.len() <= i {
+                self.extra_colors.push(Vec::new());
+            }
+            let set = &mut self.extra_colors[i];
+            set.resize(before, [1.0; 4]);
+            set.extend(colors.map(|c| c.map(|v| if v.is_finite() { v.clamp(0.0, 1.0) } else { 1.0 })));
         }
     }
 
@@ -448,7 +500,14 @@ impl MeshBuilder {
         let mut tri_material = Vec::with_capacity(tri_count);
         let mut tri_object = Vec::with_capacity(tri_count);
         let mut corner_colors = Vec::new();
+        for set in &mut self.extra_colors {
+            set.resize(self.corners.len(), [1.0; 4]);
+        }
+        let mut extra_color_sets: Vec<Vec<[f32; 4]>> = vec![Vec::with_capacity(self.corners.len()); self.extra_colors.len()];
         for &t in &order {
+            for (out, set) in extra_color_sets.iter_mut().zip(&self.extra_colors) {
+                out.extend_from_slice(&set[3 * t..3 * t + 3]);
+            }
             corners.extend_from_slice(&self.corners[3 * t..3 * t + 3]);
             if self.any_corner_color {
                 corner_colors.extend_from_slice(&self.corner_colors[3 * t..3 * t + 3]);
@@ -510,6 +569,7 @@ impl MeshBuilder {
         mesh.tri_material = tri_material;
         mesh.tri_object = tri_object;
         mesh.corner_colors = corner_colors;
+        mesh.extra_color_sets = extra_color_sets;
         mesh.bounds = Aabb::from_points(mesh.positions.iter().copied());
 
         // Submesh ranges.
