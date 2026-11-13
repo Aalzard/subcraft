@@ -490,7 +490,10 @@ impl<R: Read + Seek> Loader<'_, R> {
                 MaskEffectKind::IdColor(id_color.clone())
             }
             MaskEffectKindV1::Anchor => MaskEffectKind::Anchor,
-            MaskEffectKindV1::AnchorRef { input, levels } => MaskEffectKind::AnchorRef { input: *input, levels: *levels },
+            MaskEffectKindV1::AnchorRef { input, levels } => {
+                if !self.trusted && levels.as_ref().is_some_and(|l| !l.valid()) { return Err(ProjectError::Invalid("invalid levels".into())); }
+                MaskEffectKind::AnchorRef { input: *input, levels: *levels }
+            }
             MaskEffectKindV1::Compare { compare } => {
                 if !compare.valid() { return Err(ProjectError::Invalid("invalid compare mask".into())); }
                 MaskEffectKind::Compare(*compare)
@@ -523,6 +526,8 @@ impl<R: Read + Seek> Loader<'_, R> {
                 if *channel == subcraft_core::ChannelKind::Normal {
                     return Err(ProjectError::Invalid("levels effect on the normal channel".into()));
                 }
+                // Checked like mask Levels: an infinite handle made every texel of the channel NaN.
+                if !self.trusted && !levels.valid() { return Err(ProjectError::Invalid("invalid levels".into())); }
                 ContentEffectKind::Levels { channel: *channel, levels: *levels }
             }
             ContentEffectKindV5::Anchor => ContentEffectKind::Anchor,
