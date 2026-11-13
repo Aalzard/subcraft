@@ -428,8 +428,11 @@ impl<'a> Dense<'a> {
                 }).collect()
             }
             Converted::MixedAo => {
-                // The AO channel alone (not the baked fallback `channel` uses), times the bake.
-                let painted = self.set.channels.contains_key(&AmbientOcclusion).then(|| self.channel(AmbientOcclusion).clone());
+                // The AO channel alone, times the bake. Read directly: `channel` falls back to the
+                // bake and, with AO mixing Multiply (the default), already multiplies by it, so
+                // the bake was applied twice (QA 2026-11).
+                let size = self.size;
+                let painted = self.set.channels.get(&AmbientOcclusion).map(|img| dense_at(img, size));
                 let baked = self.set.mesh_maps.is_some_and(|m| m.contains_key(&MeshMapKind::AmbientOcclusion)).then(|| self.mesh_map(MeshMapKind::AmbientOcclusion).clone());
                 (0..n).map(|i| painted.as_ref().map_or(1.0, |(ac, a)| a[i * ac]) * baked.as_ref().map_or(1.0, |(bc, b)| b[i * bc])).collect()
             }
