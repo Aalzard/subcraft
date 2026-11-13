@@ -390,8 +390,11 @@ impl Layer {
         if let LayerContent::Paint(p) = &self.content && let Some(r) = p.text.as_ref().and_then(|t| t.resource()) {
             add(r);
         }
-        if let LayerContent::Paint(p) = &self.content && let Some(r) = p.path.as_ref().and_then(|path| path.stamp).and_then(|s| s.alpha) {
-            add(r);
+        if let LayerContent::Paint(p) = &self.content && let Some(path) = p.path.as_ref() {
+            // Both images, whatever the type: switching the type back must find them again.
+            for r in [path.stamp.and_then(|s| s.alpha), path.ribbon.and_then(|r| r.image)].into_iter().flatten() {
+                add(r);
+            }
         }
         for e in &self.content_effects {
             if let ContentEffectKind::Filter { filter, .. } = e.kind {

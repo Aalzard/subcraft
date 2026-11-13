@@ -89,6 +89,42 @@ pub fn uv_input(state: &mut UiState, ui: &Ui, response: &egui::Response, image: 
     } else if down && state.pen.is_editing() { state.pen.drag_to(uv, separate); }
 }
 
+/// Ribbon path: its image (the current brush tip), Stretching & Tiling mode, copies or aspect
+/// factor, mirror every second copy, flip across the path, and whether Base Color takes the
+/// image's colour.
+fn ribbon_rows(state: &mut UiState, ui: &mut Ui, path: &mut PenPath) -> bool {
+    use subcraft_doc::{PathRibbon, RibbonMode};
+    let mut changed = false;
+    let ribbon = path.ribbon.get_or_insert_with(PathRibbon::default);
+    let name = ribbon.image.and_then(|id| state.session.resources().get(id)).map_or("none (solid strip)".to_string(), |r| r.name.clone());
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new(format!("Image: {name}")).color(crate::theme::TEXT_DIM));
+        if ui.small_button("Use current brush tip").on_hover_text("Lay the tip chosen in the Brush settings / Shelf along the path").clicked() {
+            ribbon.image = state.session.brush_tip_resource();
+            changed = true;
+        }
+        if ribbon.image.is_some() && ui.small_button("Clear").clicked() {
+            ribbon.image = None;
+            changed = true;
+        }
+    });
+    crate::widgets::prop_row(ui, "Mode", |ui| {
+        egui::ComboBox::from_id_salt("ribbon_mode").selected_text(ribbon.mode.label()).show_ui(ui, |ui| {
+            for mode in RibbonMode::ALL {
+                changed |= ui.selectable_value(&mut ribbon.mode, mode, mode.label()).changed();
+            }
+        });
+    });
+    let label = if ribbon.mode == RibbonMode::Stretch { "Copies" } else { "Aspect factor" };
+    changed |= crate::widgets::slider_row(ui, label, egui::Slider::new(&mut ribbon.tiles, PathRibbon::TILES).logarithmic(true)).changed();
+    ui.horizontal(|ui| {
+        changed |= ui.checkbox(&mut ribbon.mirror, "Mirror every 2nd copy").changed();
+        changed |= ui.checkbox(&mut ribbon.flip, "Flip image").changed();
+    });
+    changed |= ui.checkbox(&mut ribbon.color_from_image, "Base Color from the image").on_hover_text("Otherwise the image only shapes the strip and Base Color is the value below").changed();
+    changed
+}
+
 pub fn properties(state: &mut UiState, ui: &mut Ui, path: &PenPath, now: f64) {
     ui.horizontal_wrapped(|ui| {
         if ui.button("New path").clicked() { state.pen.new_path(); state.tool = Tool::Pen; }
@@ -108,7 +144,13 @@ pub fn properties(state: &mut UiState, ui: &mut Ui, path: &PenPath, now: f64) {
         });
     });
     let filled = path.kind == subcraft_doc::PathKind::Filled;
-    if filled {
+    if path.kind == subcraft_doc::PathKind::Ribbon {
+        changed |= ui.add_enabled(path.anchors.len() > 1, egui::Checkbox::new(&mut path.closed, "Closed path")).changed();
+        let mut width = path.radius * 200.0;
+        changed |= crate::widgets::slider_row(ui, "Width (% UV)", egui::Slider::new(&mut width, 0.01..=100.0).logarithmic(true)).changed();
+        path.radius = width / 200.0;
+        changed |= ribbon_rows(state, ui, &mut path);
+    } else if filled {
         ui.label(egui::RichText::new("The interior is filled; the path closes on its first point").small().color(crate::theme::TEXT_DIM));
     } else {
         changed |= ui.add_enabled(path.anchors.len() > 1, egui::Checkbox::new(&mut path.closed, "Closed path")).changed();
