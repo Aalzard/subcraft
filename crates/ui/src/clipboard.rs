@@ -18,6 +18,8 @@ pub enum Request {
     /// Copy (or cut) the multi-selection, else the selected layer.
     CopyLayers { cut: bool },
     PasteLayers,
+    /// Painter's "Paste as instance": instances of the copied layers above the selection.
+    PasteAsInstance,
     /// Copy (or cut) effects of one of a layer's stacks.
     CopyEffects { layer: LayerId, target: LayerTarget, effects: Vec<EffectId>, cut: bool },
     /// Paste the copied effects into this layer, above its selected effect.
@@ -175,6 +177,13 @@ fn run(state: &mut UiState, r: Request, now: f64) {
         Request::PasteLayers => match state.clips.layers.clone() {
             Some(clip) => {
                 state.run(vec![Command::PasteLayers(clip)], now);
+                state.multi.clear();
+            }
+            None => state.set_status("Nothing copied yet: copy layers first", now),
+        },
+        Request::PasteAsInstance => match state.clips.layers.clone() {
+            Some(clip) => {
+                state.run(vec![Command::PasteAsInstance(clip.layers.iter().map(|l| l.id).collect())], now);
                 state.multi.clear();
             }
             None => state.set_status("Nothing copied yet: copy layers first", now),

@@ -29,15 +29,20 @@ impl Ui {
         out
     }
 
+    /// Texts drawn this frame whose centre is inside their clip rect (the combo list is a
+    /// scroll area: rows scrolled out of it are clipped or not drawn).
     fn texts(&mut self) -> Vec<(String, Pos2)> {
         let out = self.frame(vec![]);
         out.shapes.iter().filter_map(|s| match &s.shape {
-            egui::epaint::Shape::Text(t) => Some((t.galley.text().to_string(), t.pos + t.galley.size() * 0.5)),
+            egui::epaint::Shape::Text(t) => {
+                let c = t.pos + t.galley.size() * 0.5;
+                s.clip_rect.contains(c).then(|| (t.galley.text().to_string(), c))
+            }
             _ => None,
         }).collect()
     }
 
-    /// Centre of the last-drawn text `label` (popups and menus are drawn last).
+    /// Centre of the last-drawn visible text `label` (popups and menus are drawn last).
     fn find(&mut self, label: &str) -> Option<Pos2> {
         self.texts().into_iter().filter(|(t, _)| t == label).map(|(_, p)| p).last()
     }
@@ -62,11 +67,43 @@ impl Ui {
         self.frame(vec![]);
     }
 
-    /// Open the picker and right-click the template `name` in its list.
-    fn menu_on(&mut self, name: &str) {
+    /// Open the template list; returns the picker button's centre.
+    fn open_list(&mut self) -> Pos2 {
         let current = self.presets.find(&self.key).unwrap().name.clone();
-        self.click(&current, PointerButton::Primary);
-        self.click(name, PointerButton::Secondary);
+        let button = self.at(&current);
+        self.press(button, PointerButton::Primary);
+        self.frame(vec![]);
+        assert!(self.find("BUILT-IN (READ-ONLY)").is_some() || self.find("MY PRESETS").is_some(), "the list opens: {:?}", self.texts());
+        button
+    }
+
+    /// Scroll the open list (mouse wheel over it) until the row `name` is visible; its centre.
+    fn reveal(&mut self, button: Pos2, name: &str) -> Pos2 {
+        let over = egui::pos2(button.x, button.y + 80.0);
+        let wheel = |y: f32| Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: egui::vec2(0.0, y), phase: egui::TouchPhase::Move, modifiers: Modifiers::NONE };
+        // Down first, then back up (the list remembers where it was scrolled to).
+        for step in 0..120 {
+            let row = self.texts().into_iter().filter(|(t, p)| t == name && p.y > button.y + 10.0).map(|(_, p)| p).last();
+            if let Some(p) = row {
+                return p;
+            }
+            let dy = if step < 40 { -60.0 } else { 60.0 };
+            self.frame(vec![Event::PointerMoved(over), wheel(dy)]);
+            for _ in 0..3 {
+                self.frame(vec![]);
+            }
+        }
+        panic!("{name:?} never shows in the list: {:?}", self.texts())
+    }
+
+    /// Open the picker and right-click the template `name` in its list; the menu opens.
+    fn menu_on(&mut self, name: &str) {
+        let button = self.open_list();
+        let row = self.reveal(button, name);
+        self.press(row, PointerButton::Secondary);
+        self.frame(vec![]);
+        let texts = self.texts();
+        assert!(texts.iter().filter(|(t, _)| t == "Duplicate").count() >= 2, "the menu opens over the list: {texts:?}");
     }
 
     fn user_names(&self) -> Vec<String> {
@@ -136,10 +173,11 @@ fn right_click_renames_duplicates_and_deletes_templates() {
 fn a_left_click_picks_a_template_and_closes_the_list() {
     let (dir, mut ui) = setup("pick");
     let copy = "Unreal Engine (ORM packed) copy";
-    ui.click(copy, PointerButton::Primary);
-    assert!(ui.find("MY PRESETS").is_some(), "the list is open");
-    ui.click("PBR Metallic Roughness", PointerButton::Primary);
+    let button = ui.open_list();
+    let row = ui.reveal(button, "PBR Metallic Roughness");
+    ui.press(row, PointerButton::Primary);
+    ui.frame(vec![]);
     assert_eq!(ui.presets.find(&ui.key).unwrap().name, "PBR Metallic Roughness");
-    assert!(ui.find("MY PRESETS").is_none(), "picking closes the list");
+    assert!(ui.find("BUILT-IN (READ-ONLY)").is_none() && ui.find("MY PRESETS").is_none(), "picking closes the list");
     std::fs::remove_dir_all(&dir).ok();
 }

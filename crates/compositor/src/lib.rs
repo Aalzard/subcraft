@@ -112,7 +112,8 @@ impl Composite {
         // A tile with a cached layer prefix is cheaper to resume on the CPU than to re-blend whole.
         let (gpu_tiles, mut cpu_tiles): (Vec<usize>, Vec<usize>) = match prefix {
             Some((p, plan)) if !plan.is_empty() => {
-                let kinds: Vec<ChannelKind> = ts.channel_kinds().collect();
+                // Limited to some channels: a boundary holding those is enough to resume from.
+                let kinds: Vec<ChannelKind> = p.only().unwrap_or_else(|| ts.channel_kinds().collect());
                 tiles.iter().partition(|&&t| !p.covers(&kinds, plan, t))
             }
             _ => (tiles.to_vec(), Vec::new()),

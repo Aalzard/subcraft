@@ -26,6 +26,8 @@ pub struct CageCheckKey {
     pub cage: [u32; 2],
     pub placement: subcraft_core::BakePlacement,
     pub name_match: subcraft_core::BakeMatch,
+    /// Average normals, ignore backface.
+    pub rays: [bool; 2],
     pub size: u32,
 }
 
@@ -37,6 +39,7 @@ impl CageCheckKey {
             cage: [settings.cage_front.to_bits(), settings.cage_rear.to_bits()],
             placement: settings.placement.clone(),
             name_match: settings.name_match.clone(),
+            rays: [settings.average_normals, settings.ignore_backface],
             size,
         }
     }

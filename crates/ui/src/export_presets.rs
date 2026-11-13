@@ -8,7 +8,7 @@
 use egui::{RichText, Ui};
 use subcraft_app::export_presets::ExportPresets;
 use subcraft_core::{ChannelKind, MeshMapKind};
-use subcraft_export::{ExportTemplate, OutputMap, Padding, Source};
+use subcraft_export::{Converted, ExportTemplate, OutputMap, Padding, Source};
 use subcraft_image::{BitDepth, Container, FileFormat};
 
 use crate::i18n::tr;
@@ -440,6 +440,7 @@ enum Kind {
     Normal,
     Height,
     Baked,
+    Converted,
     Constant,
     View,
     Alpha,
@@ -453,6 +454,7 @@ impl Kind {
             Source::Normal { .. } => Kind::Normal,
             Source::Height => Kind::Height,
             Source::MeshMap { .. } => Kind::Baked,
+            Source::Converted { .. } => Kind::Converted,
             Source::Constant { .. } => Kind::Constant,
             Source::View2d { .. } => Kind::View,
             Source::Alpha => Kind::Alpha,
@@ -466,6 +468,7 @@ impl Kind {
             Kind::Normal => "Normal",
             Kind::Height => "Height",
             Kind::Baked => "Mesh map",
+            Kind::Converted => "Converted",
             Kind::Constant => "Constant",
             Kind::View => "2D view",
             Kind::Alpha => "Alpha",
@@ -480,6 +483,7 @@ impl Kind {
             Kind::Normal => Source::Normal { component: c, directx: false },
             Kind::Height => Source::Height,
             Kind::Baked => Source::MeshMap { kind: MeshMapKind::AmbientOcclusion, component: 0, invert: false },
+            Kind::Converted => Source::Converted { map: Converted::Glossiness, component: 0 },
             Kind::Constant => Source::Constant { value: if slot == 3 { 1.0 } else { 0.0 } },
             Kind::View => Source::View2d { component: c },
             Kind::Alpha => Source::Alpha,
@@ -504,7 +508,7 @@ fn component_combo(ui: &mut Ui, id: (usize, &str), component: &mut u8, count: us
 fn source_editor(ui: &mut Ui, slot: usize, src: &mut Source) {
     let mut kind = Kind::of(src);
     egui::ComboBox::from_id_salt((slot, "kind")).width(96.0).selected_text(kind.label()).show_ui(ui, |ui| {
-        for k in [Kind::Channel, Kind::Gray, Kind::Normal, Kind::Height, Kind::Baked, Kind::Constant, Kind::View, Kind::Alpha] {
+        for k in [Kind::Channel, Kind::Gray, Kind::Normal, Kind::Height, Kind::Baked, Kind::Converted, Kind::Constant, Kind::View, Kind::Alpha] {
             ui.selectable_value(&mut kind, k, k.label());
         }
     });
@@ -545,6 +549,15 @@ fn source_editor(ui: &mut Ui, slot: usize, src: &mut Source) {
             });
             component_combo(ui, (slot, "comp"), component, kind.components());
             ui.checkbox(invert, "Invert");
+        }
+        Source::Converted { map, component } => {
+            egui::ComboBox::from_id_salt((slot, "conv")).width(140.0).selected_text(map.label()).show_ui(ui, |ui| {
+                for c in Converted::ALL {
+                    ui.selectable_value(map, c, c.label());
+                }
+            });
+            component_combo(ui, (slot, "comp"), component, map.components());
+            ui.label("");
         }
         Source::Constant { value } => {
             ui.add(egui::DragValue::new(value).range(0.0..=1.0).speed(0.01).fixed_decimals(2));

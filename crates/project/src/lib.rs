@@ -171,7 +171,7 @@ impl Writer {
         };
         let parts = l.parts.as_ref().map(|p| PartsV1 { enabled: p.enabled, kind: p.kind, parts: p.parts.iter().copied().collect() });
         let content_effects = l.content_effects.iter().map(|e| self.content_effect(e)).collect();
-        LayerV1 { id: l.id.0, name: l.name.clone(), visible: l.visible, blend, mask, parts, color: l.color, content, content_effects }
+        LayerV1 { id: l.id.0, name: l.name.clone(), visible: l.visible, blend, mask, parts, color: l.color, instance_of: l.instance_of.map(|i| i.0), content, content_effects }
     }
 }
 
@@ -619,6 +619,7 @@ impl<R: Read + Seek> Loader<'_, R> {
             mask,
             parts: l.parts.as_ref().map(|p| PartMask { enabled: p.enabled, kind: p.kind, parts: p.parts.iter().copied().collect() }),
             color: l.color,
+            instance_of: l.instance_of.map(LayerId),
             content,
             content_effects,
         })
