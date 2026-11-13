@@ -49,11 +49,11 @@ Layout notes: left to right a Painter row has the visibility eye, the content th
 | Right-click opacity > Apply to all channels | Layer row, opacity | n/a | done | crates/ui/src/panels/layers.rs:547 | - |
 | Folder disclosure arrow (open/close group) | Folder row | open | done | crates/ui/src/panels/layers.rs:286 | - |
 | Folder closes when moved in or out of another folder (fixed in recent versions: state kept) | Folder row | state kept | done | crates/app/src/layer_tree.rs:17 | - |
-| Instance icon (none / source / target; click opens the instance list) | Layer row, right | hidden when not instanced | missing | - | - |
+| Instance icon (none / source / target; click opens the instance list) | Layer row, right | hidden when not instanced | partial: instances show "Instance" under their name; sources are not marked and there is no instance list | crates/ui/src/panels/layers.rs:967 | - |
 | Geometry mask icon (click to edit, shows count of included items) | Layer row, far right | all geometry included | done: polygon icon with included/total, click to pick parts in the 3D / 2D view, right-click menu | crates/ui/src/panels/layers.rs | - |
 | Gamma-corrected alpha "i" icon | Layer row | off | missing | - | - |
 | Layer colour stripe (from Set color) | Layer row | none | done (at the right edge of the row; dimmed inside a tagged folder) | crates/ui/src/panels/layers.rs:559 | - |
-| Broken instance / cycle indicator | Layer row | n/a | missing | - | - |
+| Broken instance / cycle indicator | Layer row | n/a | done (text under the name) | crates/ui/src/panels/layers.rs:967 | - |
 | Anchor reference broken warning on the row | Layer row | n/a | done | crates/ui/src/panels/layers.rs:342 | - |
 
 ## Layer types
@@ -63,7 +63,7 @@ Layout notes: left to right a Painter row has the visibility eye, the content th
 | Paint layer (brush, particles, polygon fill, smudge, clone) | Layer stack | n/a | done | crates/doc/src/layer.rs:157 | - |
 | Fill layer (material / per-channel sources with projection) | Layer stack | n/a | done | crates/ui/src/panels/properties.rs:193 | - |
 | Folder / group (holds layers, can carry a mask and geometry mask) | Layer stack | n/a | done | crates/ui/src/panels/layers.rs:284 | - |
-| Instance layer (read-only copy driven by a source layer) | Layer stack | n/a | missing | - | - |
+| Instance layer (read-only copy driven by a source layer) | Layer stack | n/a | partial: inside one texture set | crates/doc/src/instance.rs:161 | - |
 | Every layer is multi-channel (one blend mode and opacity per channel) | Layer stack | n/a | done | crates/app/src/command.rs:102 | - |
 | Painting writes to all enabled tool channels whatever the view-mode channel is | Layer stack | n/a | done | crates/app/src/command.rs:109 | - |
 
@@ -161,7 +161,7 @@ Layout notes: these are Painter's non-editable shortcuts; copy/paste only fire w
 | Group layer | Layer stack | Ctrl+G | done | crates/app/src/session.rs:1908 | - |
 | Copy layer content (painting and effects) | Layer stack | Ctrl+Shift+C | done | crates/ui/src/clipboard.rs:140 | - |
 | Paste layer content | Layer stack | Ctrl+Shift+V | done | crates/app/src/session.rs:1561 | - |
-| Paste as instance | Layer stack | Ctrl+Shift+V (per instancing page) | missing | - | - |
+| Paste as instance | Layer stack | Ctrl+Shift+V (per instancing page) | partial: menu entry only (Ctrl+Shift+V is Paste layer content) | crates/ui/src/panels/layers.rs:710 | - |
 | Instantiate across texture sets | Layer stack | Ctrl+Shift+D (2017.4 release notes) | missing | - | - |
 | Merge / flatten the selected group | Layer stack | Ctrl+M | done | crates/ui/src/panels/layers.rs:797 | - |
 | Display mask in viewport | Mask thumbnail | Alt + left click | done | crates/ui/src/panels/layers.rs:481 | - |
@@ -193,7 +193,7 @@ Layout notes: Painter's menu is, top to bottom: effect entries (with icons), mas
 | Cut layer(s) | Layer context menu | Ctrl+X | done | crates/ui/src/panels/layers.rs:493 | - |
 | Copy layer(s) | Layer context menu | Ctrl+C | done | crates/ui/src/panels/layers.rs:490 | - |
 | Paste layer(s) | Layer context menu | Ctrl+V | done | crates/ui/src/panels/layers.rs:496 | - |
-| Paste as instance | Layer context menu | Ctrl+Shift+V | missing | - | - |
+| Paste as instance | Layer context menu | Ctrl+Shift+V | done (inside one texture set) | crates/ui/src/panels/layers.rs:710 | - |
 | Duplicate layer(s) | Layer context menu | Ctrl+D | done | crates/ui/src/panels/layers.rs:499 | - |
 | Remove layer(s) | Layer context menu | Delete (unverified label) | done | crates/ui/src/panels/layers.rs:507 | - |
 | Instantiate across texture sets | Layer context menu | Ctrl+Shift+D | missing | - | - |
@@ -238,18 +238,18 @@ Layout notes: colours are set from the context menu. A layer without its own col
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Paste as instance (copy a layer, paste a linked instance) | Layer context menu / Ctrl+Shift+V | n/a | missing | - | - |
+| Paste as instance (copy a layer, paste a linked instance) | Layer context menu / Ctrl+Shift+V | n/a | partial: inside one texture set; menu entry, no shortcut | crates/app/src/session.rs:1644 | - |
 | Instantiate across texture sets dialog (checkbox per texture set, OK) | Layer context menu | all unchecked (unverified) | missing | - | - |
 | Channel mismatch warning (exclamation mark next to a texture set in the dialog) | Instantiate dialog | n/a | missing | - | - |
-| Instance of a folder (layers added to the source appear in every instance) | Layer stack | n/a | missing | - | - |
-| Only the source layer is editable; instances are read-only | Layer stack | n/a | missing | - | - |
+| Instance of a folder (layers added to the source appear in every instance) | Layer stack | n/a | done | crates/doc/src/instance.rs:130 | - |
+| Only the source layer is editable; instances are read-only | Layer stack | n/a | done (name, visibility, blending, colour tag and geometry mask stay the instance's own) | crates/app/src/session.rs:1102 | - |
 | Paint strokes exist only in the source's texture set | Layer stack | n/a | missing | - | - |
-| Instance icon states: non-instanced, source, target | Layer row | n/a | missing | - | - |
+| Instance icon states: non-instanced, source, target | Layer row | n/a | partial: instances are labelled, sources are not | crates/ui/src/panels/layers.rs:967 | - |
 | Instance properties button: Properties shows the source and all instances as a list | Layer row > Properties | n/a | missing | - | - |
 | Click a list entry to jump to that layer (switches texture set) | Properties > instance list | n/a | missing | - | - |
 | Instanced layers default to Passthrough blending | Layer stack | Passthrough | missing | - | - |
-| Deleting the source deletes its instances | Layer stack | n/a | missing | - | - |
-| Cycle detection: an instance moved inside its own source is disabled and flagged | Layer stack | n/a | missing | - | - |
+| Deleting the source deletes its instances | Layer stack | n/a | done (one undo step) | crates/doc/src/instance.rs:161 | - |
+| Cycle detection: an instance moved inside its own source is disabled and flagged | Layer stack | n/a | partial: such an instance is flagged and no longer updated; it is not disabled | crates/doc/src/instance.rs:50 | - |
 | Anchor references may not cross an instanced folder boundary | Layer stack | n/a | missing | - | - |
 | Flatten all instanced layers across texture sets | Layer stack (11.x) | n/a | missing | - | - |
 

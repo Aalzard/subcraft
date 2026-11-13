@@ -66,6 +66,57 @@ pub struct ProjectSettings {
     /// absent = none, so no schema bump is needed.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub cameras: Vec<crate::camera::SceneCamera>,
+    /// Export window settings stored by its Save settings button. Optional in the file: absent =
+    /// the window's defaults, so no schema bump is needed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub export: Option<ExportConfig>,
+}
+
+/// One texture set's export settings replacing the Export window's global ones (Painter's
+/// texture set entries). `None` = the global setting.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ExportOverrides {
+    /// File type and bit depth.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub format: Option<subcraft_image::FileFormat>,
+    /// 8-bit dithering, with `format`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dither: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub size: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub padding: Option<subcraft_image::dilate::Padding>,
+}
+
+impl ExportOverrides {
+    pub fn is_empty(&self) -> bool {
+        self.format.is_none() && self.size.is_none() && self.padding.is_none()
+    }
+}
+
+/// The Export window's settings saved with the project (Painter's Save settings).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ExportConfig {
+    /// Output folder; `None` = the window's default.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub folder: Option<String>,
+    /// File type and bit depth for every map; `None` = from the output template.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub format: Option<subcraft_image::FileFormat>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dither: Option<bool>,
+    /// Output size; `None` = each texture set's size.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub size: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub padding: Option<subcraft_image::dilate::Padding>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub height_to_normal: Option<f32>,
+    /// Per texture set overrides, by texture set id.
+    #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub sets: std::collections::BTreeMap<subcraft_core::TextureSetId, ExportOverrides>,
 }
 
 fn is_default_match(m: &subcraft_core::BakeMatch) -> bool {
@@ -74,4 +125,26 @@ fn is_default_match(m: &subcraft_core::BakeMatch) -> bool {
 
 fn is_default_placement(p: &subcraft_core::BakePlacement) -> bool {
     p.is_identity()
+}
+
+#[cfg(test)]
+mod export_config_tests {
+    use super::*;
+
+    #[test]
+    fn export_config_round_trips_and_stays_out_of_files_that_have_none() {
+        let id = subcraft_core::TextureSetId::new();
+        let mut config = ExportConfig { folder: Some("out".into()), format: Some(subcraft_image::FileFormat::Exr16), size: Some(1024), padding: Some(subcraft_image::dilate::Padding::Diffusion(8)), ..Default::default() };
+        config.sets.insert(id, ExportOverrides { size: Some(256), ..Default::default() });
+        let settings = ProjectSettings { export: Some(config.clone()), ..Default::default() };
+        let json = serde_json::to_string(&settings).unwrap();
+        let back: ProjectSettings = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.export, Some(config));
+        // Projects without saved export settings don't write the key, and older files read as None.
+        let plain = serde_json::to_string(&ProjectSettings::default()).unwrap();
+        assert!(!plain.contains("\"export\""), "{plain}");
+        let old: ProjectSettings = serde_json::from_str(r#"{"export_template":"Godot 4 (ORM)"}"#).unwrap();
+        assert_eq!(old.export, None);
+        assert!(ExportOverrides::default().is_empty() && !ExportOverrides { size: Some(2), ..Default::default() }.is_empty());
+    }
 }

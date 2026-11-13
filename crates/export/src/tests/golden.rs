@@ -34,7 +34,16 @@ fn gradient_channels() -> BTreeMap<ChannelKind, TiledImage> {
     m
 }
 
-/// `(case, file, fnv)` for every file written by every built-in template in each setting.
+/// The built-in templates of v0.3.0, whose output the recorded table pins.
+const V030: [&str; 8] = ["PBR Metallic Roughness", "Unreal Engine (ORM packed)", "Unity HDRP (Mask Map)", "glTF 2.0", "Unity URP (Metallic + Occlusion)", "Godot 4 (ORM)", "Roblox (SurfaceAppearance)", "Sketchfab (separate maps)"];
+
+fn v030_templates() -> Vec<ExportTemplate> {
+    let all: Vec<ExportTemplate> = ExportTemplate::builtin().into_iter().filter(|t| V030.contains(&t.name.as_str())).collect();
+    assert_eq!(all.len(), V030.len(), "every v0.3.0 template is still built in, under the same name");
+    all
+}
+
+/// `(case, file, fnv)` for every file written by every v0.3.0 built-in template in each setting.
 pub(super) fn golden_hashes() -> Vec<(String, String, u64)> {
     let mesh = primitives::sample_crate();
     let ch = gradient_channels();
@@ -55,8 +64,7 @@ pub(super) fn golden_hashes() -> Vec<(String, String, u64)> {
         ("tga_noh2n", ExportSettings { format_override: Some(FileFormat::Tga8), height_to_normal: 0.0, ..Default::default() }),
     ];
     let mut out = Vec::new();
-    // The nine templates of v0.3.0; the alpha variants (#145) come after them.
-    for t in ExportTemplate::builtin().into_iter().take(9).filter(|t| t.name != "2D View") {
+    for t in v030_templates() {
         for (case, base) in &cases {
             let s = ExportSettings { template: t.clone(), ..base.clone() };
             render_maps(&mesh, "Golden Mesh", &sets, &s, |name, bytes| {
@@ -107,8 +115,7 @@ fn builtins_saved_as_user_presets_still_write_the_same_bytes() {
     let ch = gradient_channels();
     let sets = [ExportTextureSet { name: "Body", material_slot: 0, udim: None, channels: &ch, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY }];
     let then = recorded();
-    // The nine templates of v0.3.0; the alpha variants (#145) come after them.
-    for t in ExportTemplate::builtin().into_iter().take(9).filter(|t| t.name != "2D View") {
+    for t in v030_templates() {
         let copy = preset::duplicate(&t, "Copy");
         let back = preset::from_json(&preset::to_json(&copy), "x").unwrap().presets.remove(0);
         assert_eq!(back, copy);
