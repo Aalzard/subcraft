@@ -1060,6 +1060,42 @@ impl Session {
         }
     }
 
+    /// The layers to instantiate, each with its texture set, in document order; layers inside
+    /// another listed layer come with it.
+    fn instance_sources(&self, ids: &[LayerId]) -> Vec<(TextureSetId, Layer)> {
+        let mut out = Vec::new();
+        for ts in &self.doc.texture_sets {
+            for id in crate::clipboard::top_level_in_order(ts, ids) {
+                if let Some(l) = ts.find(id) {
+                    out.push((ts.id, l.clone()));
+                }
+            }
+        }
+        out
+    }
+
+    /// Channels these layers blend on that `texture_set` does not have: an instance there
+    /// cannot show them (Painter's warning mark in the Instantiate dialog).
+    pub fn instance_channel_gaps(&self, layers: &[LayerId], texture_set: TextureSetId) -> Vec<ChannelKind> {
+        fn walk(l: &Layer, ts: &TextureSet, out: &mut Vec<ChannelKind>) {
+            for (&k, b) in &l.blend {
+                if b.is_active() && !ts.has_channel(k) && !out.contains(&k) {
+                    out.push(k);
+                }
+            }
+            for c in l.children() {
+                walk(c, ts, out);
+            }
+        }
+        let mut out = Vec::new();
+        if let Some(ts) = self.doc.texture_set(texture_set) {
+            for (_, l) in self.instance_sources(layers) {
+                walk(&l, ts, &mut out);
+            }
+        }
+        out
+    }
+
     /// Whether `layer` is an instance or inside one: its content cannot be edited.
     pub fn instance_locked(&self, layer: LayerId) -> bool {
         self.texture_set_of(layer).and_then(|ts| self.doc.texture_set(ts)).is_some_and(|ts| subcraft_doc::instance::root_of(ts, layer).is_some())
@@ -1658,28 +1694,48 @@ impl Session {
             }
             Command::PasteAsInstance(sources) => {
                 let ts_id = self.selection.texture_set;
+                // The copied layers, wherever they are now (another texture set too).
+                let found = self.instance_sources(&sources);
                 let ts = self.doc.texture_set_mut(ts_id).ok_or(CommandError::TextureSetNotFound)?;
                 // Inside an instance nothing can be added: the new layers go above it.
                 let mut at = self.selection.layer.map(|a| subcraft_doc::instance::root_of(ts, a).unwrap_or(a));
-                let mut made = false;
-                for source_id in crate::clipboard::top_level_in_order(ts, &sources) {
-                    let Some(source) = ts.find(source_id).cloned() else { continue };
-                    if at.is_some_and(|a| a != source_id && ts.is_descendant_or_self(a, source_id)) {
+                if found.is_empty() {
+                    return Err(CommandError::Invalid("Paste as instance: the copied layer is no longer in the project".into()));
+                }
+                for (set, source) in found {
+                    let same = set == ts_id;
+                    if same && at.is_some_and(|a| a != source.id && ts.is_descendant_or_self(a, source.id)) {
                         return Err(CommandError::Invalid("An instance cannot go inside its own source: select a layer outside it first".into()));
                     }
-                    let mut instance = source.clone();
-                    instance.id = LayerId::new();
-                    // An instance of an instance follows the same source.
-                    instance.instance_of = Some(source.instance_of.unwrap_or(source_id));
+                    let mut instance = subcraft_doc::instance::new_instance(&source, ts, same);
                     instance.name = crate::clipboard::pasted_name(ts, &format!("{} instance", source.name));
                     at = Some(ts.insert_above(at, instance));
-                    made = true;
-                }
-                if !made {
-                    return Err(CommandError::Invalid("Paste as instance: the copied layer is not in this texture set (instances across texture sets are not available yet)".into()));
                 }
                 self.selection.layer = at;
                 self.commit("Paste as Instance", None);
+            }
+            Command::InstantiateAcross { layers, texture_sets } => {
+                let found = self.instance_sources(&layers);
+                if found.is_empty() {
+                    return Err(CommandError::LayerNotFound);
+                }
+                let mut made = false;
+                for target in texture_sets {
+                    let ts = self.doc.texture_set_mut(target).ok_or(CommandError::TextureSetNotFound)?;
+                    for (set, source) in &found {
+                        if *set == target {
+                            continue;
+                        }
+                        let mut instance = subcraft_doc::instance::new_instance(source, ts, false);
+                        instance.name = crate::clipboard::pasted_name(ts, &source.name);
+                        ts.insert_above(None, instance);
+                        made = true;
+                    }
+                }
+                if !made {
+                    return Err(CommandError::Invalid("Instantiate across texture sets: tick at least one other texture set".into()));
+                }
+                self.commit("Instantiate Across Texture Sets", None);
             }
             Command::DeleteLayers(layers) => {
                 let set = self.common_set(&layers)?;
