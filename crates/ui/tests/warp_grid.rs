@@ -61,6 +61,28 @@ fn warm_up(state: &mut UiState, ctx: &egui::Context) {
     }
 }
 
+/// QA 2026-11: Shift+V and Esc reached the warp tool while a text field had the keyboard.
+#[test]
+fn shift_v_while_typing_leaves_the_warp_mode_alone() {
+    let (mut state, ctx) = setup();
+    warm_up(&mut state, &ctx);
+    let centre = state.last_view_rect.center();
+    frame(&mut state, &ctx, vec![Event::PointerMoved(centre)], Modifiers::NONE);
+    let field = egui::Id::new("some text field");
+    let shift_v = Event::Key { key: Key::V, physical_key: None, pressed: true, repeat: false, modifiers: Modifiers::SHIFT };
+    let input = egui::RawInput { events: vec![Event::ModifiersChanged(Modifiers::SHIFT), shift_v.clone()], screen_rect: Some(Rect::from_min_size(Pos2::ZERO, SCREEN)), ..Default::default() };
+    let mut out = ctx.run_ui(input, |ui| {
+        ui.memory_mut(|m| m.request_focus(field));
+        viewport::show(&mut state, ui);
+    });
+    out.textures_delta.clear();
+    assert!(!state.warp.edit_vertices, "typed into the field, not a warp shortcut");
+    // The field is gone (not drawn): focus drops within a frame or two.
+    warm_up(&mut state, &ctx);
+    frame(&mut state, &ctx, vec![shift_v], Modifiers::SHIFT);
+    assert!(state.warp.edit_vertices, "without a focused field Shift+V still switches");
+}
+
 #[test]
 fn transform_warp_drags_the_whole_grid_in_the_view_plane_as_one_undo_step() {
     let (mut state, ctx) = setup();
