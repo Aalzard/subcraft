@@ -15,7 +15,7 @@ Layout notes: Painter's viewport is one central area with four parts stacked top
 | Splitter between 3D and 2D views | Viewport, between views | 50/50 (unverified) | partial: only after View > Side-by-side 3D / 2D | crates/ui/src/app.rs:232 | - |
 | Progress bar for engine computations | Viewport, bottom edge | hidden when idle | done: a thin moving bar along the top of the 3D view while layers are computed | crates/ui/src/viewport.rs (computing_bar) | 249 |
 | Colour-profile name text | 3D view, top left | shown when a profile is loaded | missing | - | - |
-| Grid unit read-out | 3D view, bottom left | shown when the grid is on | partial: bottom-left of the 3D view while the viewport hints are hidden (#181) | crates/ui/src/viewport.rs (grid_unit_label) | 181 |
+| Grid unit read-out | 3D view, bottom left | shown when the grid is on | done: bottom left whenever the grid is on, just above the viewport hints when they show | crates/ui/src/viewport.rs (grid_readout_anchor) | 391 |
 | Axis indicator (X/Y/Z orientation) | 3D view, bottom right | shown | done: red X, green Y, blue Z above the Render toggle, far axes dimmed; Display Settings > Viewport > Axis indicator | crates/ui/src/viewport.rs (axis_indicator) | 261 |
 | Warning when painting on a non-active Texture Set | 3D view overlay (12.1) | not documented | done: a status message naming the set the stroke started on, with how to select it | crates/ui/src/viewport.rs | 258 |
 
@@ -80,10 +80,10 @@ Layout notes: imported cameras come from the mesh file (FBX / Alembic) at projec
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Viewport layout 3D/2D | Contextual toolbar > Viewport Mode; F1 | default | partial: F1 and Viewport menu; no contextual-toolbar dropdown | crates/ui/src/app.rs (apply_view_layout) | #164 |
-| Viewport layout 3D only | Contextual toolbar > Viewport Mode; F2 | - | partial: F2 (Painter key set) and Viewport menu; no contextual-toolbar dropdown | crates/ui/src/app.rs (apply_view_layout) | #164 |
-| Viewport layout 2D only | Contextual toolbar > Viewport Mode; F3 | - | partial: F3 and Viewport menu; no contextual-toolbar dropdown | crates/ui/src/app.rs (apply_view_layout) | #164 |
-| Swap 2D / 3D view | Contextual toolbar > Viewport Mode; F4 | - | partial: F4 and Viewport menu; no contextual-toolbar dropdown | crates/ui/src/app.rs (apply_view_layout) | #164 |
+| Viewport layout 3D/2D | Contextual toolbar > Viewport Mode; F1 | default | done: F1, Viewport menu and the contextual toolbar's Viewport Mode dropdown | crates/ui/src/viewport_bar.rs (viewport_mode) | 365 |
+| Viewport layout 3D only | Contextual toolbar > Viewport Mode; F2 | - | done: F2 (Painter key set), Viewport menu and the Viewport Mode dropdown | crates/ui/src/viewport_bar.rs (viewport_mode) | 365 |
+| Viewport layout 2D only | Contextual toolbar > Viewport Mode; F3 | - | done: F3, Viewport menu and the Viewport Mode dropdown | crates/ui/src/viewport_bar.rs (viewport_mode) | 365 |
+| Swap 2D / 3D view | Contextual toolbar > Viewport Mode; F4 | - | done: F4, Viewport menu and the Viewport Mode dropdown | crates/ui/src/viewport_bar.rs (viewport_mode) | 365 |
 | Undock 3D view to its own window | View menu (7.4) | docked | partial: Window > Undock 3D view floats it in a window inside the main window (not a separate OS window) | crates/ui/src/docks.rs (toggle_undock) | 217 |
 | Undock 2D view to its own window | View menu (7.4) | docked | partial: Window > Undock 2D view floats it inside the main window | crates/ui/src/docks.rs (toggle_undock) | 217 |
 | Swap while one view is undocked | View menu (7.4) | - | missing | - | - |
@@ -95,10 +95,10 @@ Layout notes: the dropdown at the top right of each view switches between Materi
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Display mode dropdown | 3D view, top right | Material | partial: "View" combo sits in the top strip, left side | crates/ui/src/viewport_bar.rs:361 | - |
+| Display mode dropdown | 3D view, top right | Material | done: at the 3D view top right (above the camera dropdown); also in Display Settings | crates/ui/src/viewport.rs (display_corner) | 365 |
 | Material (lit) mode | Display mode dropdown | default | done | crates/render/src/lib.rs:138 | - |
 | Single channel (solo) mode, one entry per Texture Set channel | Display mode dropdown | - | done: every channel of the texture set (#181) | crates/ui/src/viewport_bar.rs (view_mode) | 181 |
-| Composited normal (normal + height + bake) solo entry | Display mode dropdown | - | partial: Normal view and a "Baked normal" shading mode, no combined entry named as such | crates/render/src/lib.rs:146 | - |
+| Composited normal (normal + height + bake) solo entry | Display mode dropdown | - | partial: "Normal + Height" shows the tangent-space normal the shading uses (Normal channel with the Height bump); the baked mesh normal is not layered in, as SubCraft's material shading does not use it | crates/render/src/viewport.wgsl (combined_normal) | 374 |
 | Mesh map solo entries | Display mode dropdown | - | done | crates/ui/src/viewport_bar.rs:377 | - |
 | Display next channel | C | - | done: C cycles the material and each channel of the selected texture set (#181) | crates/ui/src/viewport_bar.rs (cycle_channel) | 181 |
 | Display previous channel | Shift + C | - | done: Shift+C (#181) | crates/ui/src/viewport_bar.rs (cycle_channel) | 181 |

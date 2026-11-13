@@ -97,10 +97,20 @@ fn brush_drag_in_the_2d_view_paints_the_layer_as_one_undo_step_without_panning()
     assert!(painted(&state, ChannelKind::BaseColor) > 0);
     assert_eq!(state.uv.offset, egui::Vec2::ZERO, "painting must not pan the view");
 
-    // Alt+drag pans instead of painting.
+    // Alt+drag turns the view instead of painting (Painter's 2D view); the texture point under
+    // the cursor at the start of the drag stays there.
     drag(&mut state, &ctx, start, start + egui::vec2(40.0, 0.0), Modifiers::ALT);
     assert_eq!(state.session.history().entries().len(), entries + 1);
-    assert!(state.uv.offset.x > 10.0, "{:?}", state.uv.offset);
+    assert!(state.uv.rotation > 0.1, "{}", state.uv.rotation);
+    // Shift snaps the turn to quarter turns: back to upright from here.
+    drag(&mut state, &ctx, start, start - egui::vec2(20.0, 0.0), Modifiers::ALT | Modifiers::SHIFT);
+    assert_eq!(state.uv.rotation, 0.0, "snapped back upright");
+    // Ctrl+Alt+drag pans.
+    let before = state.uv.offset;
+    drag(&mut state, &ctx, start, start + egui::vec2(40.0, 0.0), Modifiers::ALT | Modifiers::COMMAND);
+    assert_eq!(state.session.history().entries().len(), entries + 1);
+    assert!(state.uv.offset.x > before.x + 10.0, "{:?} from {before:?}", state.uv.offset);
+    assert_eq!(state.uv.rotation, 0.0, "panning does not turn the view");
 }
 
 #[test]
