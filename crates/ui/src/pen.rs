@@ -95,11 +95,24 @@ pub fn properties(state: &mut UiState, ui: &mut Ui, path: &PenPath, now: f64) {
         if ui.add_enabled(selected, egui::Button::new("Delete point")).clicked() && let Err(e) = state.pen.delete_anchor(&state.session) { state.set_status(e.to_string(), now); }
     });
     let mut path = path.clone(); let mut changed = false;
-    changed |= ui.add_enabled(path.anchors.len() > 1, egui::Checkbox::new(&mut path.closed, "Closed path")).changed();
-    let mut width = path.radius * 200.0;
-    changed |= crate::widgets::slider_row(ui, "Width (% UV)", egui::Slider::new(&mut width, 0.01..=100.0).logarithmic(true)).changed();
-    path.radius = width / 200.0;
-    changed |= crate::widgets::slider_row(ui, "Hardness", egui::Slider::new(&mut path.hardness, 0.0..=1.0)).changed();
+    // Painter's path types: a stroke along the curve, or its filled interior.
+    crate::widgets::prop_row(ui, "Path type", |ui| {
+        egui::ComboBox::from_id_salt("pen_path_kind").selected_text(path.kind.label()).show_ui(ui, |ui| {
+            for kind in subcraft_doc::PathKind::ALL {
+                changed |= ui.selectable_value(&mut path.kind, kind, kind.label()).changed();
+            }
+        });
+    });
+    let filled = path.kind == subcraft_doc::PathKind::Filled;
+    if filled {
+        ui.label(egui::RichText::new("The interior is filled; the path closes on its first point").small().color(crate::theme::TEXT_DIM));
+    } else {
+        changed |= ui.add_enabled(path.anchors.len() > 1, egui::Checkbox::new(&mut path.closed, "Closed path")).changed();
+        let mut width = path.radius * 200.0;
+        changed |= crate::widgets::slider_row(ui, "Width (% UV)", egui::Slider::new(&mut width, 0.01..=100.0).logarithmic(true)).changed();
+        path.radius = width / 200.0;
+        changed |= crate::widgets::slider_row(ui, "Hardness", egui::Slider::new(&mut path.hardness, 0.0..=1.0)).changed();
+    }
     changed |= crate::widgets::slider_row(ui, "Opacity", egui::Slider::new(&mut path.opacity, 0.0..=1.0)).changed();
     for kind in state.session.channels() {
         let mut enabled = path.values.contains_key(&kind);

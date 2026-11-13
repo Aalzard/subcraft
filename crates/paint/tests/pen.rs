@@ -4,7 +4,7 @@ use subcraft_doc::{PenAnchor, PenPath};
 use subcraft_paint::pen::PenRasterizer;
 
 fn path() -> PenPath {
-    PenPath { anchors: vec![PenAnchor::new(Vec2::new(0.2, 0.5)), PenAnchor::new(Vec2::new(0.8, 0.5))], closed: false, radius: 0.05, opacity: 0.5, hardness: 1.0, values: [(ChannelKind::BaseColor, ChannelValue::rgb(0.25, 0.5, 1.0)), (ChannelKind::Height, ChannelValue::scalar(-0.2))].into() }
+    PenPath { anchors: vec![PenAnchor::new(Vec2::new(0.2, 0.5)), PenAnchor::new(Vec2::new(0.8, 0.5))], closed: false, radius: 0.05, opacity: 0.5, hardness: 1.0, values: [(ChannelKind::BaseColor, ChannelValue::rgb(0.25, 0.5, 1.0)), (ChannelKind::Height, ChannelValue::scalar(-0.2))].into(), kind: Default::default() }
 }
 
 fn render(path: &PenPath, budget: usize) -> std::collections::BTreeMap<ChannelKind, subcraft_image::TiledImage> {

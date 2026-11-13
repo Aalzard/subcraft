@@ -20,6 +20,28 @@ impl PenAnchor {
     }
 }
 
+/// What a path paints (Painter's path types).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PathKind {
+    /// A stroke of the path's width along the curve.
+    #[default]
+    Paint,
+    /// The interior of the path (always closed), filled with the path's values; width and
+    /// hardness are not used.
+    Filled,
+}
+
+impl PathKind {
+    pub const ALL: [PathKind; 2] = [PathKind::Paint, PathKind::Filled];
+    pub fn label(self) -> &'static str {
+        match self {
+            PathKind::Paint => "Paint along path",
+            PathKind::Filled => "Filled path",
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct PenPath {
     pub anchors: Vec<PenAnchor>,
@@ -30,10 +52,17 @@ pub struct PenPath {
     pub opacity: f32,
     /// Linear color / encoded data-channel values. Absent channels remain transparent.
     pub values: BTreeMap<ChannelKind, ChannelValue>,
+    /// Stroke along the curve, or its filled interior.
+    pub kind: PathKind,
 }
 
 impl PenPath {
     pub const MAX_ANCHORS: usize = 256;
+
+    /// Whether the curve returns to its first anchor (a filled path always does).
+    pub fn is_closed(&self) -> bool {
+        self.closed || self.kind == PathKind::Filled
+    }
 
     pub fn validate(&self) -> Result<(), &'static str> {
         if self.anchors.len() > Self::MAX_ANCHORS { return Err("a path supports at most 256 anchors"); }
@@ -75,7 +104,7 @@ impl PenPath {
             curve([f, e, c, p[3]], tolerance, depth + 1, out)
         }
         let count = self.anchors.len();
-        let segments = count.saturating_sub(1) + usize::from(self.closed && count > 1);
+        let segments = count.saturating_sub(1) + usize::from(self.is_closed() && count > 1);
         for i in 0..segments {
             let a = &self.anchors[i % count]; let b = &self.anchors[(i + 1) % count];
             curve([a.position, a.position + a.outgoing, b.position + b.incoming, b.position], tolerance.max(1e-6), 0, &mut out)?;

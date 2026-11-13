@@ -247,7 +247,7 @@ Layout notes: with a path tool active the Properties panel starts with a Presets
 |---|---|---|---|---|---|
 | Path type: Paint along path | Properties / toolbar menu | default | partial: Pen path draws a solid stroke in UV space with width, hardness, opacity and per-channel values; no brush alpha, spacing or jitter | crates/ui/src/pen.rs:88 | - |
 | Path type: Ribbon path | Properties / toolbar menu | option | missing | - | - |
-| Path type: Filled path | Properties / toolbar menu | option | missing | - | - |
+| Path type: Filled path | Properties / toolbar menu | option | done: Path type dropdown in the pen Properties; the interior is filled (even-odd), anti-aliased, closing on the first point; saved with the project | crates/paint/src/pen.rs (run_filled), crates/ui/src/pen.rs | - |
 | Path type: Erase along path | Properties / toolbar menu | option | missing | - | - |
 | Path type: Smudge along path | Properties / toolbar menu | option | missing | - | - |
 | Brush block applies to the whole path | Properties > Brush | n/a | partial: Width, Hardness, Opacity only | crates/ui/src/pen.rs:100 | - |
@@ -321,8 +321,8 @@ Layout notes: groups in order: Size, Opacity, Stroke, Stretching & Tiling (a mod
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Filled path: interior filled with the uniform Material values | Properties > Material | n/a | missing | - | - |
-| Opacity | Properties > Filled path settings | not documented | missing | - | - |
+| Filled path: interior filled with the uniform Material values | Properties > Material | n/a | done: the path's per-channel values | crates/paint/src/pen.rs (run_filled) | - |
+| Opacity | Properties > Filled path settings | not documented | done: the path Opacity slider | crates/ui/src/pen.rs | - |
 
 ## Quick mask
 

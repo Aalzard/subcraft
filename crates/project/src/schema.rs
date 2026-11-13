@@ -256,6 +256,13 @@ pub struct PenPathV4 {
     pub hardness: f32,
     pub opacity: f32,
     pub values: Vec<PenChannelV4>,
+    /// Paint along path / Filled path; files from before it read as Paint. Not written for Paint.
+    #[serde(default, skip_serializing_if = "is_paint_path")]
+    pub kind: subcraft_doc::PathKind,
+}
+
+fn is_paint_path(kind: &subcraft_doc::PathKind) -> bool {
+    *kind == subcraft_doc::PathKind::Paint
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

@@ -95,7 +95,7 @@ impl PenEditor {
         }
         let ts = session.selected_texture_set(); let brush = &session.brush;
         let values = brush.material.channels.iter().filter(|(k, v)| v.enabled && ts.has_channel(**k)).map(|(&k, v)| (k, v.value)).collect();
-        let path = PenPath { anchors: Vec::new(), closed: false, radius: (brush.settings.size * 0.005).clamp(0.00001, 0.5), hardness: brush.settings.hardness.clamp(0.0, 1.0), opacity: brush.settings.stroke_opacity.clamp(0.0, 1.0), values };
+        let path = PenPath { anchors: Vec::new(), closed: false, radius: (brush.settings.size * 0.005).clamp(0.00001, 0.5), hardness: brush.settings.hardness.clamp(0.0, 1.0), opacity: brush.settings.stroke_opacity.clamp(0.0, 1.0), values, kind: Default::default() };
         path.validate().map_err(error)?;
         let mut layer = Layer::new_paint("Pen path", ts);
         layer.parts = session.selected_layer().and_then(|l| l.parts.clone());
@@ -181,8 +181,8 @@ impl PenEditor {
         let mut path = self.preview(session).ok_or_else(|| error("select a pen path"))?.clone();
         let i = path.anchors.iter().position(|a| a.id == id).ok_or_else(|| error("select a pen point"))?;
         let p = path.anchors[i].position;
-        let before = if i > 0 { path.anchors[i - 1].position } else if path.closed { path.anchors.last().unwrap().position } else { p };
-        let after = path.anchors.get(i + 1).map_or(if path.closed { path.anchors[0].position } else { p }, |a| a.position);
+        let before = if i > 0 { path.anchors[i - 1].position } else if path.is_closed() { path.anchors.last().unwrap().position } else { p };
+        let after = path.anchors.get(i + 1).map_or(if path.is_closed() { path.anchors[0].position } else { p }, |a| a.position);
         let tangent = if smooth { (after - before) / 6.0 } else { Vec2::ZERO };
         path.anchors[i].incoming = -tangent; path.anchors[i].outgoing = tangent;
         self.set_path(session, path)?; self.gesture.as_mut().unwrap().label = "Shape pen point";

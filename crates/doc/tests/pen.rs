@@ -3,7 +3,7 @@ use subcraft_core::{ChannelKind, ChannelValue};
 use subcraft_doc::{Layer, LayerContent, LayerKind, PenAnchor, PenPath, TextureSet};
 
 fn path() -> PenPath {
-    PenPath { anchors: vec![PenAnchor::new(Vec2::new(0.1, 0.5)), PenAnchor::new(Vec2::new(0.9, 0.5))], closed: false, radius: 0.02, opacity: 1.0, hardness: 1.0, values: [(ChannelKind::BaseColor, ChannelValue::rgb(1.0, 0.0, 0.0))].into() }
+    PenPath { anchors: vec![PenAnchor::new(Vec2::new(0.1, 0.5)), PenAnchor::new(Vec2::new(0.9, 0.5))], closed: false, radius: 0.02, opacity: 1.0, hardness: 1.0, values: [(ChannelKind::BaseColor, ChannelValue::rgb(1.0, 0.0, 0.0))].into(), kind: Default::default() }
 }
 
 #[test]
