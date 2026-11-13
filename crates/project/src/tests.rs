@@ -721,7 +721,7 @@ fn the_trusted_loader_keeps_filter_parameters_the_checked_loader_rejects() {
     let doc = Document { texture_sets: vec![ts] };
     let bytes = write_project(Cursor::new(Vec::new()), &mesh, &doc, &ResourceStore::default(), &MeshMapSet::new()).unwrap().into_inner();
     assert!(matches!(read_project(Cursor::new(bytes.clone())), Err(ProjectError::Invalid(_))));
-    assert_eq!(read_project_checked(Cursor::new(bytes), true).unwrap().document, doc);
+    assert_eq!(read_project_checked(Cursor::new(bytes), true, std::collections::BTreeMap::new()).unwrap().document, doc);
 }
 
 #[test]
