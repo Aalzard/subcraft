@@ -256,6 +256,9 @@ pub struct UiState {
     pub dropped_model: Option<std::path::PathBuf>,
     /// Key light rotation around the model (radians), set with Shift+MMB drag (Painter navigation).
     pub light_yaw: f32,
+    /// Material slot to draw highlighted next frame (the texture set under the cursor with
+    /// Ctrl+Alt, or hovered in the Texture Set List); taken by the 3D view each frame.
+    pub highlight_slot: Option<u32>,
     /// The Shelf took this frame's dropped files (the window-wide drop handler skips them).
     pub drops_taken: bool,
     /// The user already agreed to close without saving.
@@ -431,6 +434,7 @@ impl UiState {
             confirm: None,
             dropped_model: None,
             light_yaw: 0.0,
+            highlight_slot: None,
             drops_taken: false,
             multi: Default::default(),
             multi_texture_set: None,

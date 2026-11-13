@@ -85,6 +85,9 @@ pub struct ViewportPrefs {
     pub pt_ground_glossiness: f32,
     pub pt_ground_shadow: f32,
     pub pt_ground_below: bool,
+    /// Painter's Camera Rotation Mode: free (the view can roll and go over the top) instead of
+    /// constrained to the world vertical.
+    pub free_rotation: bool,
     /// Saved and imported camera viewpoints.
     pub camera_bookmarks: Vec<crate::view_extras::CameraBookmark>,
 }
@@ -120,6 +123,7 @@ impl Default for ViewportPrefs {
             pt_ground_glossiness: 0.5,
             pt_ground_shadow: 1.0,
             pt_ground_below: true,
+            free_rotation: false,
             camera_bookmarks: Vec::new(),
         }
     }

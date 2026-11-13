@@ -124,6 +124,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 Some((mode, d)) => {
                     if mode != NavMode::OrbitSnap { state.orbit_free = None; }
                     match mode {
+                        NavMode::Orbit if state.recovery.prefs.viewport.free_rotation => state.camera.free_orbit_around(pivot, d.x, d.y),
                         NavMode::Orbit => state.camera.orbit_around(pivot, d.x, d.y),
                         NavMode::OrbitSnap => {
                             let (yaw, pitch) = state.orbit_free.unwrap_or((state.camera.yaw, state.camera.pitch));
@@ -355,6 +356,13 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         state.gpu_dirty = true;
                         state.set_status(format!("Painting on a new paint layer, \"{name}\" (the selected layer was not a paint layer)"), now);
                     }
+                    // Painter warns when the stroke starts on another texture set's part.
+                    if let Some(hit) = state.session.pick(&camera, sp)
+                        && hit.material_slot != state.session.selected_texture_set().material_slot
+                        && let Some(name) = state.session.document().texture_set_for_slot(hit.material_slot).map(|t| t.name.clone())
+                    {
+                        state.set_status(crate::keys::native_string(format!("This part belongs to texture set \"{name}\": Ctrl+Alt+right-click it to paint there")), now);
+                    }
                     match state.session.begin_stroke() {
                         Ok(()) => {
                             state.painting = true;
@@ -436,6 +444,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             params.solo_channel = view.solo.filter(|_| view.mesh_map.is_none());
             params.channel_display = view.channel_display();
             params.mip_bias = -(view.mip_bias.min(3) as f32);
+            params.highlight_slot = state.highlight_slot.take();
             renderer.set_texture_filtering(&rs.device, view.anisotropy.samples());
             params.symmetry_guides = view.symmetry_guides && state.session.brush.options.has_symmetry() && !bake_mode;
             if params.symmetry_guides {
@@ -698,6 +707,15 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     }
     brush_notice(state, ui, &painter, rect, now);
     rendering_toggle(state, ui, rect, bake_mode);
+    // Texture set highlight under the cursor while Ctrl+Alt (texture set selection) is held, not
+    // while painting or navigating.
+    if !bake_mode && (mods.ctrl || mods.command) && mods.alt && !state.painting && state.nav_drag.is_none()
+        && let Some(p) = response.hover_pos()
+        && let Some(hit) = state.session.pick(&state.camera.paint_camera(size), to_screen(p))
+    {
+        state.highlight_slot = Some(hit.material_slot);
+        ui.ctx().request_repaint();
+    }
     camera_corner(state, ui, rect, bake_mode);
     if state.painting || response.dragged() {
         ui.ctx().request_repaint();
