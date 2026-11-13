@@ -91,6 +91,8 @@ pub struct Preferences {
     /// Last brush colours picked (linear RGB, newest first, at most
     /// [`crate::color_picker::MAX_RECENT`]).
     pub recent_colors: Vec<[f32; 3]>,
+    /// Blender executable for File > Export to Blender (empty = search the usual places).
+    pub blender_path: String,
 }
 
 impl Preferences {
@@ -148,6 +150,7 @@ impl Default for Preferences {
             new_project: Default::default(),
             language: Default::default(),
             recent_colors: Vec::new(),
+            blender_path: String::new(),
         }
     }
 }
@@ -391,6 +394,11 @@ pub fn preferences_window(state: &mut UiState, ctx: &egui::Context) {
         ui.checkbox(&mut rec.prefs.show_welcome, tr("Show welcome screen on startup"));
         ui.checkbox(&mut rec.prefs.check_updates_on_start, tr("Check for updates when SubCraft starts"))
             .on_hover_text(tr("Asks GitHub for the latest release in the background and points at the update button when there is a new one."));
+        ui.horizontal(|ui| {
+            ui.label(tr("Blender"));
+            ui.add(egui::TextEdit::singleline(&mut rec.prefs.blender_path).hint_text(tr("Auto-detect")).desired_width(260.0))
+                .on_hover_text(tr("Blender program used by File > Export to Blender. Empty: SubCraft looks in the usual install folders."));
+        });
         ui.checkbox(&mut rec.prefs.use_gpu_baking, tr("Use GPU for baking"))
             .on_hover_text("Bakes ambient occlusion and thickness on the graphics card, much faster on big meshes. If it is off or fails, the processor bakes them instead. The Bake window shows which one ran.");
         ui.horizontal(|ui| {

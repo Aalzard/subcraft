@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use super::*;
 
 /// Texts that are the same in every language (names, file suffixes).
-const SAME_EVERYWHERE: &[&str] = &["SubCraft", "_high", "_low"];
+const SAME_EVERYWHERE: &[&str] = &["SubCraft", "_high", "_low", "Blender"];
 
 fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
     for entry in std::fs::read_dir(dir).unwrap() {

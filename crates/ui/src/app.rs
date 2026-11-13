@@ -1736,6 +1736,11 @@ impl SubcraftApp {
                     m.folder = self.state.export.folder.clone();
                     m.displacement.scale = self.state.height_scale;
                 }
+                if item(ui, icons::EXPORT, tr("Export to Blender…"), "") {
+                    ui.close();
+                    self.state.blender.open = true;
+                    self.state.blender.rescan();
+                }
                 if item(ui, icons::CAMERA, tr("Render image / turntable…"), "") {
                     ui.close();
                     self.state.render_window = true;
@@ -1751,6 +1756,11 @@ impl SubcraftApp {
                     } else if item(ui, icons::EXPORT, tr("Edit in PhotoCraft…"), "") {
                         self.state.start_photocraft(now);
                         ui.close();
+                    }
+                    if item(ui, icons::EXPORT, tr("Export to Blender…"), "") {
+                        ui.close();
+                        self.state.blender.open = true;
+                        self.state.blender.rescan();
                     }
                 });
                 ui.separator();
@@ -2490,6 +2500,8 @@ impl eframe::App for SubcraftApp {
         dialogs::export_window(&mut self.state, &ctx, now);
         crate::layer_export::layer_export_window(&mut self.state, &ctx, now);
         crate::export_mesh::export_mesh_window(&mut self.state, &ctx, now);
+        crate::blender_bridge::window(&mut self.state, &ctx, now);
+        crate::blender_bridge::poll(&mut self.state, &ctx, now);
         crate::mesh_reload::window(&mut self.state, &ctx, now);
         crate::auto_uv::window(&mut self.state, &ctx, now);
         dialogs::poll_bake(&mut self.state, &ctx, now);
@@ -2585,6 +2597,14 @@ fn scripted_tool_capture(state: &mut UiState, which: &str, now: f64) {
     let line = |x0: f32, y0: f32, x1: f32, y1: f32| (0..=24).map(|i| { let t = i as f32 / 24.0; (x0 + (x1 - x0) * t, y0 + (y1 - y0) * t) }).collect::<Vec<_>>();
     let set = |s: &mut Session, c: [f32; 3]| s.brush.material = subcraft_paint::BrushMaterial::with(&[(ChannelKind::BaseColor, ChannelValue::rgb(c[0], c[1], c[2]))]);
     match which {
+        // File > Export to Blender window (screenshots of the round trip).
+        "blender" => state.blender.open = true,
+        // ... and press its Export button (scripted end-to-end check with a real Blender).
+        "blender-send" | "blender-send-mesh" => {
+            state.blender.open = true;
+            state.blender.auto_send = true;
+            state.blender.include_textures = which == "blender-send";
+        }
         "smudge" => {
             state.tool = Tool::Smudge;
             for (i, c) in [[0.85, 0.1, 0.05], [0.1, 0.25, 0.9], [0.95, 0.8, 0.1]].into_iter().enumerate() {

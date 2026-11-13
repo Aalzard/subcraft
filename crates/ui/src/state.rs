@@ -312,6 +312,10 @@ pub struct UiState {
     pub spp_notice: Option<String>,
     /// Running Edit in PhotoCraft exchange (ADR-0040).
     pub photocraft: Option<subcraft_app::photocraft::Exchange>,
+    /// File > Export to Blender window.
+    pub blender: crate::blender_bridge::BlenderUi,
+    /// Open Blender round trip: a sculpt sent back becomes the bake high poly.
+    pub blender_link: Option<subcraft_app::blender::Link>,
     /// Key of the polygon wireframe currently uploaded to the renderer.
     pub wire_uploaded: Option<crate::view_extras::WireKey>,
     pub symmetry_uploaded: Option<crate::symmetry_view::GuideKey>,
@@ -516,6 +520,8 @@ impl UiState {
             spp_import: None,
             spp_notice: None,
             photocraft: None,
+            blender: Default::default(),
+            blender_link: None,
             wire_uploaded: None,
             symmetry_uploaded: None,
             uv_wireframe: true,

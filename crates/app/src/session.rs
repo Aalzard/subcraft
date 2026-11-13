@@ -3248,7 +3248,7 @@ impl Session {
         self.doc.texture_sets.iter().filter_map(|t| t.udim_number()).collect::<std::collections::BTreeSet<_>>().len()
     }
 
-    fn export_sets(&self) -> Vec<subcraft_export::ExportTextureSet<'_>> {
+    pub(crate) fn export_sets(&self) -> Vec<subcraft_export::ExportTextureSet<'_>> {
         self.doc
             .texture_sets
             .iter()
