@@ -46,22 +46,34 @@ pub struct KernelInput<'a> {
 }
 
 /// Placement of the texture in a 2D view: UV (0..1) maps to `origin + uv * side` pixels of a
-/// view `viewport` pixels large. A stencil laid over that view masks UV strokes.
+/// view `viewport` pixels large, then turns by `rotation` radians (clockwise on screen) about
+/// the centre of that square. A stencil laid over that view masks UV strokes.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct UvView {
     pub origin: Vec2,
     pub side: f32,
     pub viewport: [u32; 2],
+    pub rotation: f32,
 }
 
 impl UvView {
     /// View pixel of texture position `uv`.
     pub fn to_view(&self, uv: Vec2) -> Vec2 {
-        self.origin + uv * self.side
+        self.turn(self.origin + uv * self.side, self.rotation)
+    }
+    /// `px` turned by `angle` about the centre of the texture square.
+    fn turn(&self, px: Vec2, angle: f32) -> Vec2 {
+        if angle == 0.0 {
+            return px;
+        }
+        let center = self.origin + Vec2::splat(self.side * 0.5);
+        let (s, c) = angle.sin_cos();
+        let d = px - center;
+        center + Vec2::new(d.x * c - d.y * s, d.x * s + d.y * c)
     }
     /// Texture position under view pixel `px`.
     pub fn to_uv(&self, px: Vec2) -> Vec2 {
-        (px - self.origin) / self.side.max(1e-6)
+        (self.turn(px, -self.rotation) - self.origin) / self.side.max(1e-6)
     }
 }
 

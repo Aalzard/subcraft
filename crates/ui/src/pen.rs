@@ -76,13 +76,13 @@ pub fn finish_frame(state: &mut UiState, ctx: &egui::Context, now: f64) {
     }
 }
 
-pub fn uv_input(state: &mut UiState, ui: &Ui, response: &egui::Response, image: egui::Rect) {
+pub fn uv_input(state: &mut UiState, ui: &Ui, response: &egui::Response, image: crate::panels::uv_view::Frame) {
     if state.tool != Tool::Pen || ui.ctx().egui_wants_keyboard_input() { return; }
     let (pointer, pressed, down, alt, separate) = ui.input(|i| (i.pointer.interact_pos(), i.pointer.primary_pressed(), i.pointer.primary_down(), i.modifiers.alt, i.modifiers.shift));
     let Some(pointer) = pointer else { return; };
     if alt { return; }
-    let map = |uv: Vec2| Some(image.min + egui::vec2(uv.x, uv.y) * image.width());
-    let uv = Vec2::new((pointer.x - image.left()) / image.width(), (pointer.y - image.top()) / image.height());
+    let map = |uv: Vec2| Some(image.to_px(uv));
+    let uv = image.to_uv(pointer);
     if pressed && response.hovered() {
         let target = state.pen.preview(&state.session).and_then(|p| hit(p, state.pen.selected_anchor(), pointer, map));
         if (target.is_some() || image.contains(pointer)) && let Err(e) = state.pen.begin(&state.session, uv, target) { state.set_status(format!("Pen: {e}"), ui.input(|i| i.time)); }

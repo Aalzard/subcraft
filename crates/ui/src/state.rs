@@ -74,6 +74,10 @@ impl BrushNotice {
 pub struct UvView {
     pub zoom: f32,
     pub offset: egui::Vec2,
+    /// The texture is turned by this angle (radians, clockwise on screen) about its centre.
+    pub rotation: f32,
+    /// The angle an Alt+drag has reached before Shift snaps it to quarter turns.
+    pub rotation_raw: f32,
     pub source: PreviewSource,
     pub texture: Option<egui::TextureId>,
     /// A stroke started in the 2D view is in progress.
@@ -459,7 +463,7 @@ impl UiState {
             render_request: None,
             last_view_size: [1280, 720],
             last_view_rect: egui::Rect::NOTHING,
-            uv: UvView { zoom: 1.0, offset: egui::Vec2::ZERO, source: PreviewSource::Channel(ChannelKind::BaseColor), texture: None, painting: false, last_point: None, fill_box: None, parts_box: None, frame: None },
+            uv: UvView { zoom: 1.0, offset: egui::Vec2::ZERO, rotation: 0.0, rotation_raw: 0.0, source: PreviewSource::Channel(ChannelKind::BaseColor), texture: None, painting: false, last_point: None, fill_box: None, parts_box: None, frame: None },
             painting: false,
             picking_parts: false,
             warp: Default::default(),
