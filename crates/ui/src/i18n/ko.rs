@@ -993,4 +993,5 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Light", "밝게"),
     ("Painter-style", "Painter 스타일"),
     ("Colours of the panels and controls. The 3D view background is set under Background color.", "패널과 컨트롤의 색입니다. 3D 뷰 배경은 배경색에서 설정합니다."),
+    ("Auto-rebake: bake this map again whenever the bake settings change", "자동 다시 베이크: 베이크 설정이 바뀔 때마다 이 맵을 다시 베이크합니다"),
 ];

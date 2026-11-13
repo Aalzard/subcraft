@@ -68,7 +68,7 @@ Layout notes: a "Common settings" entry at the top (with its own sync button), t
 | Drag across check boxes to toggle several | Mesh map bakers | not documented | missing | - | - |
 | Visualize the map in the viewport | Baker row | not documented | partial: eye button per row, only for baked maps | crates/ui/src/dialogs.rs (bakers_panel) | - |
 | Quick bake (only this map) | Baker row | not documented | done | crates/ui/src/dialogs.rs (bakers_panel, start_bake) | - |
-| Auto-rebake for the map | Baker row | off; turned on for Normal when cage or skew painting starts | missing | - | - |
+| Auto-rebake for the map | Baker row | off; turned on for Normal when cage or skew painting starts | partial: per-map toggle; rebakes after any bake setting, placement or matching change (no cage or skew painting yet) | crates/ui/src/dialogs.rs (auto_rebake_due) | - |
 | Synchronize this map's settings across texture sets | Baker row | not documented | missing | - | - |
 | Synchronize common settings (Common settings sync window) | Mesh map bakers, top | not documented | missing | - | - |
 | Per texture set baker selection and common settings | Baking mode | per texture set | missing | - | - |
