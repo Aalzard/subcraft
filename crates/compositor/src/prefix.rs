@@ -12,6 +12,10 @@
 //!   tiles the incremental diff reports dirty.
 //! * Bounded: a byte budget with least-recently-used eviction; which boundaries are stored is
 //!   planned from the budget (evenly spaced, newest first).
+//! * Read wherever it is valid: the planned boundaries move with the layer count and the measured
+//!   entry size, but an entry stored under an earlier plan is still exact, so evaluation resumes
+//!   from any stored boundary. Adding a layer on top used to shift every planned boundary by one:
+//!   nothing hit, and the first stroke on the new layer re-blended the whole stack per tile.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -103,6 +107,10 @@ struct Inner {
     /// Whether the entries came from the neighborhood-graph evaluator (the two evaluators are not
     /// guaranteed to round identically, so entries are never mixed).
     graph: bool,
+    /// Entries per boundary (which boundaries can be resumed from).
+    per_boundary: BTreeMap<u32, usize>,
+    /// Boundaries of the current plan: the only ones written. `None` before any plan: all.
+    store: Option<BTreeSet<u32>>,
 }
 
 impl Inner {
@@ -110,6 +118,17 @@ impl Inner {
         if let Some(e) = self.entries.remove(k) {
             self.order.remove(&e.stamp);
             self.bytes -= e.bytes;
+            self.forget(k.1);
+        }
+    }
+
+    /// One entry of boundary `j` is gone.
+    fn forget(&mut self, j: u32) {
+        if let Some(n) = self.per_boundary.get_mut(&j) {
+            *n -= 1;
+            if *n == 0 {
+                self.per_boundary.remove(&j);
+            }
         }
     }
 
@@ -190,9 +209,23 @@ impl PrefixCache {
         i.layers = layers.to_vec();
     }
 
-    /// Boundaries (top-level layer indices) worth storing: as many as the budget holds, evenly
-    /// spaced, nearest the top first. `n` layers, `tiles` per channel, `kinds` stored.
+    /// Boundaries (top-level layer indices) to resume from and to store. Stored from now on: as
+    /// many as the budget holds, evenly spaced, nearest the top first. Returned as well: every
+    /// boundary that still holds entries from an earlier plan (they stay exact, see the module
+    /// documentation); those are read but no longer written, and age out of the budget.
+    /// `n` layers, `tiles` per channel, `kinds` stored.
     pub(crate) fn plan(&self, n: usize, tiles: usize, kinds: &[ChannelKind]) -> Vec<usize> {
+        let mut plan = self.plan_stored(n, tiles, kinds);
+        let mut i = self.lock();
+        i.store = Some(plan.iter().map(|&j| j as u32).collect());
+        if !plan.is_empty() {
+            let earlier: Vec<usize> = i.per_boundary.keys().map(|&j| j as usize).filter(|j| *j + 1 < n && !plan.contains(j)).collect();
+            plan.extend(earlier);
+        }
+        plan
+    }
+
+    fn plan_stored(&self, n: usize, tiles: usize, kinds: &[ChannelKind]) -> Vec<usize> {
         if n < 2 || self.budget == 0 {
             return Vec::new();
         }
@@ -243,6 +276,9 @@ impl PrefixCache {
     }
 
     pub(crate) fn put(&self, kind: ChannelKind, j: usize, tile: usize, px: &[[f32; 4]]) {
+        if self.lock().store.as_ref().is_some_and(|s| !s.contains(&(j as u32))) {
+            return; // a boundary of an earlier plan: read only
+        }
         let packed = Arc::new(Packed::pack(px));
         let bytes = packed.bytes();
         if bytes > self.budget {
@@ -256,10 +292,12 @@ impl PrefixCache {
         i.entries.insert(k, Entry { packed, stamp, bytes });
         i.order.insert(stamp, k);
         i.bytes += bytes;
+        *i.per_boundary.entry(k.1).or_default() += 1;
         while i.bytes > self.budget {
             let Some((_, oldest)) = i.order.pop_first() else { break };
             if let Some(e) = i.entries.remove(&oldest) {
                 i.bytes -= e.bytes;
+                i.forget(oldest.1);
             }
         }
     }

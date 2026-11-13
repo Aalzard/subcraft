@@ -133,7 +133,7 @@ fn rich_set() -> TextureSet {
     ts.insert_above(None, proc);
     // Content effects: GPU-side (Levels, Contrast, Threshold, HistogramScan) and CPU-side (HSL).
     for (i, kind) in [
-        ContentEffectKind::Levels { channel: ChannelKind::BaseColor, levels: Levels { in_low: 0.1, in_high: 0.8, gamma: 1.4, out_low: 0.05, out_high: 0.95 } },
+        ContentEffectKind::Levels { channel: ChannelKind::BaseColor, levels: Levels { in_low: 0.1, in_high: 0.8, gamma: 1.4, out_low: 0.05, out_high: 0.95, ..Levels::default() } },
         ContentEffectKind::Filter { channel: ChannelKind::BaseColor, filter: Filter::Contrast { gain: 1.6, pivot: 0.5 } },
         ContentEffectKind::Filter { channel: ChannelKind::Roughness, filter: Filter::Threshold { cutoff: 0.5 } },
         ContentEffectKind::Filter { channel: ChannelKind::Roughness, filter: Filter::HistogramScan { position: 0.5, contrast: 0.3, invert: true } },

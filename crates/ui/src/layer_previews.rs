@@ -23,6 +23,10 @@ pub struct PreviewUi {
 }
 
 impl PreviewUi {
+    /// Histogram of what an effect receives (Levels), computed on demand and cached.
+    pub fn histogram(&mut self, session: &Session, key: PreviewKey) -> Option<std::sync::Arc<subcraft_app::layer_previews::Histogram>> {
+        self.cache.input_histogram(session, key)
+    }
     pub fn poll(&mut self, ctx: &egui::Context) {
         self.cache.poll();
         if self.cache.busy() {

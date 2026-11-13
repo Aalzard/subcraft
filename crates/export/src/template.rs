@@ -479,6 +479,9 @@ impl ExportTemplate {
         if self.name.trim().is_empty() {
             out.push("the preset needs a name".to_string());
         }
+        if self.size.is_some_and(|s| !(1..=16384).contains(&s)) {
+            out.push("the preset size must be 1..16384".to_string());
+        }
         let mut seen = std::collections::HashSet::new();
         for m in &self.maps {
             if m.suffix.is_empty() || crate::sanitize(&m.suffix) != m.suffix {
