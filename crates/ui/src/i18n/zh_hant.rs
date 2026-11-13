@@ -775,4 +775,8 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Hide while painting", "繪製時隱藏"),
     ("Mirror planes", "鏡像平面"),
     ("Each active mirror plane as a translucent sheet in its axis colour", "以座標軸顏色將每個啟用的鏡像平面顯示為半透明平面"),
+    ("Temporal anti-aliasing", "時間性反鋸齒"),
+    ("Accumulations", "累積次數"),
+    ("While the view is still, frames drawn with sub-pixel shifts are averaged into a smoother image", "檢視靜止時，以次像素偏移繪製的影格會平均成更平滑的影像"),
+    ("Frames averaged before the image is final: 16 suits most views, 64 very contrasted ones", "影像完成前平均的影格數：16 適合大多數檢視，64 適合對比非常強烈的檢視"),
 ];

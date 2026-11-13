@@ -95,6 +95,10 @@ pub struct UiState {
     /// Most tiles one texture set received in the last [`UiState::sync_gpu`] (a quick preview
     /// lists every stale tile; `--profile-edits` uses it to tell a visible update from a slice).
     pub last_sync_tiles: usize,
+    /// The last [`UiState::sync_gpu`] sent the renderer anything (mesh, textures, materials).
+    pub gpu_changed: bool,
+    /// Temporal anti-aliasing progress of the 3D view.
+    pub taa: crate::viewport::TaaState,
     pub layer_previews: crate::layer_previews::PreviewUi,
     /// A layer's mask shown alone in the 3D view (Alt+click on its mask thumbnail).
     pub mask_view: Option<crate::mask_view::MaskView>,
@@ -359,6 +363,8 @@ impl UiState {
         let mut state = Self {
             composite_deadline: None,
             last_sync_tiles: 0,
+            gpu_changed: false,
+            taa: Default::default(),
             layer_previews: Default::default(),
             mask_view: None,
             flatten_export: None,
@@ -770,6 +776,7 @@ impl UiState {
         let budget = self.composite_deadline.map_or(COMPOSITE_FRAME_BUDGET, |d| d.saturating_duration_since(web_time::Instant::now()));
         let updates = crate::edit_profile::time_tab("  sync: composite", || self.session.update_composites_within(Some(budget)));
         self.last_sync_tiles = updates.iter().map(|u| u.tiles.len()).max().unwrap_or(0);
+        self.gpu_changed = full || self.last_sync_tiles > 0;
         let upload_start = web_time::Instant::now();
         let session = &self.session;
         for ts in &session.document().texture_sets { renderer.set_albedo_filter(ts.material_slot, ts.albedo_filter); renderer.set_alpha(ts.material_slot, ts.alpha); renderer.set_shader(ts.material_slot, session.shader_params_of(ts.id)); }

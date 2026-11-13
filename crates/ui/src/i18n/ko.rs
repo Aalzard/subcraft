@@ -775,4 +775,8 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Hide while painting", "칠하는 동안 숨기기"),
     ("Mirror planes", "미러 평면"),
     ("Each active mirror plane as a translucent sheet in its axis colour", "활성화된 각 미러 평면을 축 색상의 반투명 면으로 표시합니다"),
+    ("Temporal anti-aliasing", "시간적 안티앨리어싱"),
+    ("Accumulations", "누적 횟수"),
+    ("While the view is still, frames drawn with sub-pixel shifts are averaged into a smoother image", "뷰가 정지해 있는 동안 서브픽셀 단위로 이동해 그린 프레임을 평균하여 더 매끄러운 이미지를 만듭니다"),
+    ("Frames averaged before the image is final: 16 suits most views, 64 very contrasted ones", "이미지가 완성되기 전에 평균할 프레임 수: 대부분의 뷰에는 16, 대비가 매우 강한 뷰에는 64가 적합합니다"),
 ];
