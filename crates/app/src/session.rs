@@ -1809,7 +1809,18 @@ impl Session {
                         if subcraft_doc::instance::root_of(ts, id) == Some(id)
                             && let Some(l) = ts.find_mut(id)
                         {
-                            l.instance_of = None;
+                            // The copied layers become plain too: an instance inside the source
+                            // was copied as a live instance, and the next refresh found it as a
+                            // new root, still locked, after "make every instance independent".
+                            fn unlink(l: &mut Layer) {
+                                l.instance_of = None;
+                                if let Some(children) = l.children_mut() {
+                                    for c in children.iter_mut() {
+                                        unlink(Arc::make_mut(c));
+                                    }
+                                }
+                            }
+                            unlink(l);
                             broken += 1;
                         }
                     }
