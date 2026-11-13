@@ -916,8 +916,11 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         subcraft_paint::PaintTarget::Content => {}
     }
     brush_notice(state, ui, &painter, rect, now);
-    // Painter's engine progress bar: a thin moving bar at the top while layers are computed.
-    if state.session.composites_pending() {
+    // Painter's engine progress bar: a thin moving bar at the top while layers are computed;
+    // paused (Shift+Esc), a notice instead and nothing moves.
+    if state.session.engine_paused() {
+        pill(&painter, rect.center_top() + egui::vec2(0.0, 44.0), egui::Align2::CENTER_TOP, crate::i18n::tr("Computation paused · Shift+Esc to resume"), ACCENT);
+    } else if state.session.composites_pending() {
         computing_bar(&painter, rect, now);
         ui.ctx().request_repaint();
     }
