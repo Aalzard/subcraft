@@ -218,3 +218,24 @@ fn a_layer_copied_in_one_texture_set_pastes_as_an_instance_in_another() {
     // A layer that is gone cannot be instantiated.
     assert!(s.execute(Command::PasteAsInstance(vec![LayerId::new()])).is_err());
 }
+
+/// QA 2026-11: with several layers copied, Paste as instance inserted the first instances and
+/// then refused a later one: the error came back with the document already changed, outside
+/// any undo step.
+#[test]
+fn a_refused_paste_as_instance_changes_nothing() {
+    let (mut s, a) = session();
+    s.execute(Command::AddLayer(NewLayer::Fill)).unwrap();
+    let child = s.selection().layer.unwrap();
+    s.execute(Command::GroupLayers(vec![child])).unwrap();
+    let folder = s.selection().layer.unwrap();
+    // With a layer of the folder selected, an instance of the folder would land inside it.
+    s.execute(Command::SelectLayer(Some(child))).unwrap();
+    let before = s.document().clone();
+    let steps = s.history().entries().len();
+    for sources in [vec![a, folder], vec![folder, a]] {
+        assert!(s.execute(Command::PasteAsInstance(sources)).is_err());
+        assert!(s.document() == &before, "nothing was inserted");
+        assert_eq!(s.history().entries().len(), steps);
+    }
+}
