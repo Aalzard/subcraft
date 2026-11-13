@@ -22,8 +22,10 @@ fn setup() -> (UiState, egui::Context) {
     (state, ctx)
 }
 
-fn frame(state: &mut UiState, ctx: &egui::Context, events: Vec<Event>, modifiers: Modifiers) {
-    let input = egui::RawInput { events, modifiers, screen_rect: Some(Rect::from_min_size(Pos2::ZERO, SCREEN)), ..Default::default() };
+fn frame(state: &mut UiState, ctx: &egui::Context, mut events: Vec<Event>, modifiers: Modifiers) {
+    // This egui takes the held modifiers from events.
+    events.insert(0, Event::ModifiersChanged(modifiers));
+    let input = egui::RawInput { events, screen_rect: Some(Rect::from_min_size(Pos2::ZERO, SCREEN)), ..Default::default() };
     let mut output = ctx.run_ui(input, |ui| viewport::show(state, ui));
     output.textures_delta.clear();
 }
@@ -68,7 +70,8 @@ fn transform_warp_drags_the_whole_grid_in_the_view_plane_as_one_undo_step() {
     let cube = CubeFrame::of(&state);
     let p = cube.to_object(before.points()[0]);
     let right = state.camera.paint_camera(state.last_view_size).right();
-    drag(&mut state, &ctx, screen_of(&state, p), screen_of(&state, p + right * 0.3), Modifiers::NONE);
+    let (from, to) = (screen_of(&state, p), screen_of(&state, p + right * 0.3));
+    drag(&mut state, &ctx, from, to, Modifiers::NONE);
     let after = grid(&state);
     let expected = right * 0.3 / cube.extent;
     for (a, b) in before.points().iter().zip(after.points()) {
@@ -94,7 +97,8 @@ fn edit_vertices_moves_one_point_in_the_view_plane_or_onto_the_surface() {
     let p = cube.to_object(before.points()[i]);
     let up = state.camera.paint_camera(state.last_view_size).right().cross(state.camera.paint_camera(state.last_view_size).forward());
     // Ctrl: in the view plane through the point.
-    drag(&mut state, &ctx, screen_of(&state, p), screen_of(&state, p + up * 0.25), Modifiers::CTRL);
+    let (from, to) = (screen_of(&state, p), screen_of(&state, p + up * 0.25));
+    drag(&mut state, &ctx, from, to, Modifiers::CTRL);
     let after = grid(&state);
     let moved = cube.to_object(after.points()[i]);
     assert!(moved.distance(p + up * 0.25) < 0.02, "{moved} vs {}", p + up * 0.25);
@@ -109,7 +113,8 @@ fn edit_vertices_moves_one_point_in_the_view_plane_or_onto_the_surface() {
     let rect = state.last_view_rect;
     let to_paint = glam::Vec2::new((target_screen.x - rect.min.x) * size[0] as f32 / rect.width(), (target_screen.y - rect.min.y) * size[1] as f32 / rect.height());
     let hit = state.session.pick(&state.camera.paint_camera(size), to_paint).expect("the cube under the view centre");
-    drag(&mut state, &ctx, screen_of(&state, moved), target_screen, Modifiers::NONE);
+    let from = screen_of(&state, moved);
+    drag(&mut state, &ctx, from, target_screen, Modifiers::NONE);
     let on_surface = cube.to_object(grid(&state).points()[i]);
     assert!(on_surface.distance(hit.position) < 0.02, "{on_surface} vs {}", hit.position);
 }

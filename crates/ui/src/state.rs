@@ -236,6 +236,9 @@ pub struct UiState {
     /// "Import mesh maps…" from Texture Set Settings.
     pub mesh_map_import: crate::mesh_map_import::MeshMapImportUi,
     pub last_stroke_point: Option<Vec2>,
+    /// The view `last_stroke_point` was painted through. It is a screen position: once the camera
+    /// moves it no longer lies on the stroke's end.
+    pub last_stroke_camera: Option<subcraft_app::Camera>,
     pub uv_edges: HashMap<u32, Vec<[Vec2; 2]>>,
     /// UV units per object unit of each material slot (2D brush cursor size).
     pub uv_density: HashMap<u32, f32>,
@@ -292,7 +295,7 @@ pub struct UiState {
     pub photocraft: Option<subcraft_app::photocraft::Exchange>,
     /// Key of the polygon wireframe currently uploaded to the renderer.
     pub wire_uploaded: Option<crate::view_extras::WireKey>,
-    pub symmetry_uploaded: Option<(usize, [bool; 3], subcraft_paint::RadialSymmetry)>,
+    pub symmetry_uploaded: Option<crate::symmetry_view::GuideKey>,
     pub uv_wireframe: bool,
     pub library: subcraft_app::assets::Library,
     pub shelf: crate::panels::shelf::ShelfUi,
@@ -306,8 +309,17 @@ pub struct UiState {
     pub uploaded_solo: Option<ChannelKind>,
     /// Thumbnails of imported images (resources are immutable, so entries never go stale).
     pub image_thumbs: HashMap<subcraft_core::ResourceId, egui::TextureHandle>,
-    /// The user's asset library folder (None if no Documents folder could be found).
+    /// The library new presets and imports go to (Settings > Libraries default; your_assets
+    /// unless changed; None if no Documents folder could be found).
     pub user_library: Option<UserLibrary>,
+    /// Every library on disk the Assets panel reads: your_assets first, then the extra ones.
+    pub libraries: Vec<crate::libraries::NamedLibrary>,
+    /// Files imported for the current session only (not copied to a library).
+    pub session_files: std::collections::HashSet<std::path::PathBuf>,
+    /// The Import resources window.
+    pub import: crate::import_resources::ImportWindow,
+    /// Name / folder typed in Settings > Libraries.
+    pub libraries_form: crate::libraries::LibrariesUi,
     /// Library HDRIs still being prefiltered on a background thread.
     pub env_loader: Option<std::sync::mpsc::Receiver<Result<subcraft_app::assets::Environment, String>>>,
     /// Brush presets from the user library.
@@ -442,6 +454,7 @@ impl UiState {
             id_palette_new: [1.0, 1.0, 1.0],
             mesh_map_import: Default::default(),
             last_stroke_point: None,
+            last_stroke_camera: None,
             pen_pressure: 1.0,
             pen_input: Default::default(),
             uv_edges: HashMap::new(),
@@ -484,6 +497,10 @@ impl UiState {
             uploaded_solo: None,
             image_thumbs: HashMap::new(),
             user_library: None,
+            libraries: Vec::new(),
+            session_files: Default::default(),
+            import: Default::default(),
+            libraries_form: Default::default(),
             env_loader: None,
             brush_presets: builtin_brush_presets(),
             favorites: Default::default(),
@@ -540,6 +557,7 @@ impl UiState {
             self.env_loader = Some(rx);
         }
         log::info!("asset library: {}", lib.root().display());
+        self.libraries = vec![crate::libraries::NamedLibrary { id: crate::panels::shelf_filter::YOURS.to_string(), lib: lib.clone() }];
         self.user_library = Some(lib);
         self
     }
@@ -719,6 +737,23 @@ impl UiState {
             || !self.recovery.crashed.is_empty()
             || self.new_project.open
             || self.updater.as_ref().is_some_and(|u| matches!(u.phase, subcraft_app::updater::Phase::Preparing | subcraft_app::updater::Phase::Exiting))
+    }
+
+    /// The start of a Shift + click straight line in the 3D view: the end of the last stroke, as
+    /// long as the view has not changed since. After orbiting, zooming or resizing, the remembered
+    /// screen position lies over some other part of the model, and the line started there.
+    pub fn line_start(&mut self, camera: &subcraft_app::Camera) -> Option<Vec2> {
+        if self.last_stroke_camera.as_ref() != Some(camera) {
+            self.last_stroke_point = None;
+            self.last_stroke_camera = None;
+        }
+        self.last_stroke_point
+    }
+
+    /// Remember where a stroke ended, and through which view.
+    pub fn set_line_start(&mut self, point: Vec2, camera: &subcraft_app::Camera) {
+        self.last_stroke_point = Some(point);
+        self.last_stroke_camera = Some(*camera);
     }
 
     pub fn set_status(&mut self, msg: impl Into<String>, now: f64) {

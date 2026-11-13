@@ -249,10 +249,17 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
 
     // ----- part picking: clicks show / hide the selected layer on mesh parts ----------------------
     let bake_mode = state.bake.open || state.bake.job.is_some();
+<<<<<<< HEAD
     // Warp projection grid of the selected fill layer: presses on it edit the grid, not paint.
     let warp_grab = !bake_mode && !alt && !stencil_edit
         && crate::warp_view::manipulate(state, ui, &response, rect, pixel_scale, &camera, primary_pressed, primary_down, pointer);
     let primary_pressed = primary_pressed && !warp_grab;
+=======
+    // Symmetry manipulator: a press on a handle moves the mirror plane / radial axis instead of painting.
+    let symmetry_grab = !bake_mode && !alt && !stencil_edit
+        && crate::symmetry_view::manipulate(state, ui, &response, rect, pixel_scale, &camera, primary_pressed, primary_down, pointer);
+    let primary_pressed = primary_pressed && !symmetry_grab;
+>>>>>>> origin/main
     let parts_picking = !bake_mode && state.picking_parts && state.session.selected_layer().is_some() && !state.painting;
     // ----- ID Color Mask eyedropper: clicks add the ID map color under the cursor ------------
     let id_picking = !bake_mode && !state.painting
@@ -417,7 +424,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         Ok(()) => {
                             state.painting = true;
                             state.session.set_stroke_pressure(stroke_pressure);
-                            let line_from = if mods.shift { state.last_stroke_point } else { None };
+                            let line_from = if mods.shift { state.line_start(&camera) } else { None };
                             // Ctrl+Shift+click: the line snaps to 5 degree steps, as in Painter, and
                             // the next line starts where this one ended (not at the raw click).
                             let end = line_from.map_or(sp, |from| straight_line_end(from, sp, mods.command || mods.ctrl));
@@ -427,7 +434,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                             } else {
                                 let _ = state.session.stroke_to(&camera, sp, false);
                             }
-                            state.last_stroke_point = Some(end);
+                            state.set_line_start(end, &camera);
                         }
                         Err(subcraft_paint::PaintError::NoCloneSource) => state.set_status(crate::keys::native("Ctrl+click the model to set the clone source first"), now),
                         Err(e) => state.set_status(format!("Can't paint here: {e} (select a paint layer)"), now),
@@ -447,7 +454,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             let mut path: Vec<Vec2> = ui.input(|i| i.events.iter().filter_map(|e| if let egui::Event::PointerMoved(q) = e { Some(to_screen(*q)) } else { None }).collect());
             if path.last() != Some(&sp) { path.push(sp); }
             let _ = state.session.stroke_to_many(&camera, &path);
-            state.last_stroke_point = Some(sp);
+            state.set_line_start(sp, &camera);
         }
     } else if state.painting && !primary_down {
         state.session.end_stroke();
@@ -499,11 +506,13 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             params.shadows = view.shadow_params();
             params.highlight_slot = state.highlight_slot.take();
             renderer.set_texture_filtering(&rs.device, view.anisotropy.samples());
-            params.symmetry_guides = view.symmetry_guides && state.session.brush.options.has_symmetry() && !bake_mode;
+            let symmetry_display = view.symmetry_display;
+            params.symmetry_guides = view.symmetry_guides && state.session.brush.options.has_symmetry() && !bake_mode
+                && !(view.symmetry_cursor_hide_painting && state.painting);
             if params.symmetry_guides {
-                let key = (std::sync::Arc::as_ptr(&state.session.scene().mesh) as usize, state.session.brush.options.symmetry, state.session.brush.options.radial);
+                let key = crate::symmetry_view::GuideKey::new(&state.session, &symmetry_display);
                 if state.symmetry_uploaded != Some(key) {
-                    renderer.set_symmetry_guides(&rs.device, &state.session.symmetry_guide_segments());
+                    renderer.set_symmetry_guides(&rs.device, &crate::symmetry_view::guide_lines(&state.session, &symmetry_display));
                     state.symmetry_uploaded = Some(key);
                 }
             }
@@ -627,10 +636,13 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     // ----- overlays ------------------------------------------------------------------------------
     // Symmetry "Show Plane": each active mirror plane as a translucent sheet in its axis colour.
     if !bake_mode && state.recovery.prefs.viewport.symmetry_plane && state.tool != Tool::Pen {
-        let (mirrors, bounds) = (state.session.brush.options.symmetry, state.session.scene().mesh.bounds);
-        for axis in (0..3).filter(|&a| mirrors[a]) {
+        let (options, bounds) = (&state.session.brush.options, state.session.scene().mesh.bounds);
+        for axis in (0..3).filter(|&a| options.symmetry[a]) {
+            // At the plane's axis position (moved with the manipulator or the menu).
+            let plane = options.mirror_plane(axis, bounds.center());
             let corners: Option<Vec<Pos2>> = mirror_plane_corners(&bounds, axis).iter()
-                .map(|&q| camera.project(q).map(|s| rect.min + egui::vec2(s.x / pixel_scale.x, s.y / pixel_scale.y)))
+                .map(|&q| { let mut q = q; q[axis] = plane; q })
+                .map(|q| camera.project(q).map(|s| rect.min + egui::vec2(s.x / pixel_scale.x, s.y / pixel_scale.y)))
                 .collect();
             if let Some(corners) = corners {
                 let c = AXIS_COLORS[axis];
@@ -674,7 +686,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             }
             // Shift: dotted preview of the straight line from the last stroke point (snapped with
             // Ctrl, exactly where the click would draw it).
-            if mods.shift && !state.painting && let Some(from) = state.last_stroke_point {
+            if mods.shift && !state.painting && let Some(from) = state.line_start(&camera) {
                 let to_pos = |s: Vec2| rect.min + egui::vec2(s.x / pixel_scale.x, s.y / pixel_scale.y);
                 let end = straight_line_end(from, to_screen(p), mods.command || mods.ctrl);
                 painter.extend(egui::Shape::dashed_line(&[to_pos(from), to_pos(end)], Stroke::new(1.2, Color32::from_white_alpha(200)), 5.0, 4.0));
@@ -703,9 +715,13 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     if let (Some(a), Some(b)) = (state.parts_box, pointer) && crate::view_props::is_box_drag(a, b) {
         crate::view_props::draw_fill_box(&painter, Rect::from_two_pos(a, b), false);
     }
+<<<<<<< HEAD
     if !bake_mode {
         crate::warp_view::overlay(state, ui, &painter, rect, pixel_scale, &camera);
     }
+=======
+    crate::symmetry_view::overlay(state, ui, &painter, rect, pixel_scale, &camera, !bake_mode && state.tool != Tool::Pen);
+>>>>>>> origin/main
     draw_stencil(state, ui, &painter, rect, size);
     // Reset button at the top right of the view while S is held.
     if stencil_edit {
@@ -1288,7 +1304,7 @@ mod tests {
         let off = symmetry_cursors(&camera, &mirror_x, glam::Vec3::new(40.0, 0.0, 0.0), p, |_| Some(10.0));
         assert!(off.is_empty(), "the mirror image at x = 79 is outside the view");
         // Radial symmetry draws at most MAX_SYMMETRY_CURSORS.
-        let many = subcraft_paint::StrokeOptions { radial: subcraft_paint::RadialSymmetry { enabled: true, axis: 2, count: 64, center_offset: [0.0; 3] }, ..Default::default() };
+        let many = subcraft_paint::StrokeOptions { radial: subcraft_paint::RadialSymmetry { enabled: true, axis: 2, count: 64, center_offset: [0.0; 3], flip: false }, ..Default::default() };
         assert_eq!(symmetry_cursors(&camera, &many, glam::Vec3::ZERO, glam::Vec3::new(0.5, 0.0, 0.0), |_| Some(10.0)).len(), MAX_SYMMETRY_CURSORS);
     }
 

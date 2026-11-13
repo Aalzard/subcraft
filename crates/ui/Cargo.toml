@@ -36,6 +36,7 @@ winit.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 log.workspace = true
+regex-lite.workspace = true
 web-time.workspace = true
 pollster.workspace = true
 

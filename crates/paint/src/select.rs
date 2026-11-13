@@ -15,6 +15,12 @@ const MAX_GRID_RAYS: usize = 160 * 160;
 
 /// Whether the 2D triangle `t` overlaps the rectangle `[min, max]` (separating axis test).
 pub fn triangle_overlaps_rect(t: [Vec2; 3], min: Vec2, max: Vec2) -> bool {
+    // A triangle without area covers nothing. Hidden parts are kept in the mesh as triangles
+    // collapsed onto one vertex: they passed every test below (all three edges are skipped), so a
+    // box drawn over that vertex selected hidden parts and seeded fills with them.
+    if (t[1] - t[0]).perp_dot(t[2] - t[0]).abs() < 1e-12 {
+        return false;
+    }
     let tmin = t[0].min(t[1]).min(t[2]);
     let tmax = t[0].max(t[1]).max(t[2]);
     if tmax.x < min.x || tmin.x > max.x || tmax.y < min.y || tmin.y > max.y {

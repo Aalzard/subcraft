@@ -286,6 +286,14 @@ impl Projection {
         self.mode != ProjectionMode::Uv
     }
 
+    /// Values a projection computes with are numbers and the symmetry is in range: a NaN angle
+    /// or an infinite mirror position made every texel of the fill NaN, and a huge radial
+    /// count multiplied the work per texel.
+    pub fn valid(&self) -> bool {
+        let floats = [self.scale[0], self.scale[1], self.rotation_deg, self.offset[0], self.offset[1], self.triplanar_sharpness, self.cylinder_angle];
+        floats.iter().all(|v| v.is_finite()) && self.symmetry.valid()
+    }
+
     /// The symmetry in effect: 3D projections only.
     #[inline]
     pub fn effective_symmetry(&self) -> FillSymmetry {
@@ -370,6 +378,17 @@ impl Projection {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn projections_with_non_numbers_or_out_of_range_symmetry_are_invalid() {
+        let p = Projection::default();
+        assert!(p.valid());
+        assert!(!Projection { cylinder_angle: f32::NAN, ..p }.valid());
+        assert!(!Projection { offset: [0.0, f32::INFINITY], ..p }.valid());
+        assert!(!Projection { symmetry: FillSymmetry::Mirror { axis: 0, position: f32::INFINITY }, ..p }.valid());
+        assert!(!Projection { symmetry: FillSymmetry::Radial { axis: 1, count: FillSymmetry::MAX_COPIES + 1, flip: false, center: [0.5; 3] }, ..p }.valid());
+        assert!(Projection { symmetry: FillSymmetry::radial(), cylinder_angle: 90.0, ..p }.valid());
+    }
 
     #[test]
     fn spherical_and_cylindrical_coordinates_and_symmetry_folds() {

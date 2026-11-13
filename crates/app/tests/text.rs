@@ -261,7 +261,7 @@ fn projected_text_stamp_follows_mirror_and_radial_symmetry_like_a_brush_stroke()
         s.execute(Command::AddLayer(subcraft_app::NewLayer::Paint)).unwrap();
         s.brush.options.symmetry = symmetry;
         if let Some((axis, count)) = radial {
-            s.brush.options.radial = subcraft_paint::RadialSymmetry { enabled: true, axis, count, center_offset: [0.0; 3] };
+            s.brush.options.radial = subcraft_paint::RadialSymmetry { enabled: true, axis, count, center_offset: [0.0; 3], flip: false };
         }
         let cam = camera();
         // Off the mirror plane (x = 0.5 of the model), facing the camera.

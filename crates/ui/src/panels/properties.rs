@@ -31,6 +31,19 @@ pub fn shows_brush(state: &UiState) -> bool {
     state.brush_pinned || paint_content || paints_effect
 }
 
+/// The docked Properties tab. While the right-click popup over a view shows the same content, it
+/// shows a note instead: drawing the widgets twice in one frame gave them the same ids, so both
+/// copies took a click (QA 2026-11: a pen-pressure toggle clicked in the popup was flipped back
+/// by the panel, and nothing changed).
+pub fn show_docked(state: &mut UiState, ui: &mut Ui) {
+    if state.view_props.is_some() {
+        ui.add_space(8.0);
+        ui.label(RichText::new(tr("Shown in the popup over the view (Esc closes it)")).color(TEXT_DIM));
+        return;
+    }
+    show(state, ui);
+}
+
 pub fn show(state: &mut UiState, ui: &mut Ui) {
     if shows_brush(state) {
         super::brush::show(state, ui);
@@ -480,8 +493,13 @@ pub(crate) fn random_seed() -> u32 {
 
 /// Controls of a generator in a layer's content stack: kind, level and contrast, the breakup
 /// seed and Invert.
-pub(crate) fn content_generator_controls(ui: &mut Ui, g: &mut subcraft_doc::Generator) -> bool {
+pub(crate) fn content_generator_controls(ui: &mut Ui, state: &mut UiState, g: &mut subcraft_doc::Generator) -> bool {
     let mut changed = generator_kind_row(ui, g);
+    if g.kind.uses_shape() {
+        // The position, UV and conversion kinds have their own settings (an image for Grayscale
+        // Conversion is picked on a mask generator; here it shows the one it has).
+        return changed | shape_generator_controls(ui, state, g).0;
+    }
     changed |= level_controls(ui, g);
     changed |= painter_controls(ui, g);
     prop_row(ui, tr("Seed"), |ui| {
@@ -500,7 +518,8 @@ fn generator_kind_row(ui: &mut Ui, g: &mut subcraft_doc::Generator) -> bool {
     let mut picked = None;
     prop_row(ui, tr("Generator"), |ui| egui::ComboBox::from_id_salt("generator_kind").selected_text(g.kind.label()).show_ui(ui, |ui| {
         for kind in [GeneratorKind::Edges, GeneratorKind::Cavity, GeneratorKind::AmbientOcclusion, GeneratorKind::Concave, GeneratorKind::Directional, GeneratorKind::PositionGradient, GeneratorKind::MaskEditor,
-            GeneratorKind::Distance3D, GeneratorKind::LinearGradient3D, GeneratorKind::UvRandomColor, GeneratorKind::GrayscaleConversion]
+            GeneratorKind::Distance3D, GeneratorKind::LinearGradient3D, GeneratorKind::UvRandomColor, GeneratorKind::GrayscaleConversion,
+            GeneratorKind::UvBorderDistance, GeneratorKind::UvChecker, GeneratorKind::UvTexelDensity]
             .into_iter().chain(MeshMapKind::ALL.into_iter().map(GeneratorKind::MeshMap)) {
             if ui.selectable_label(g.kind == kind, kind.label()).clicked() && g.kind != kind { picked = Some(kind); }
         }
@@ -545,6 +564,49 @@ fn shape_generator_controls(ui: &mut Ui, state: &mut UiState, g: &mut subcraft_d
             slider_row(ui, tr("Balance"), egui::Slider::new(&mut s.balance, 0.0..=1.0));
             slider_row(ui, tr("Contrast"), egui::Slider::new(&mut s.contrast, 0.0..=1.0));
             hint(ui, tr("One random gray per UV island."));
+        }
+        GeneratorKind::UvBorderDistance => {
+            slider_row(ui, tr("Balance"), egui::Slider::new(&mut s.balance, 0.0..=1.0));
+            slider_row(ui, tr("Contrast"), egui::Slider::new(&mut s.contrast, 0.0..=1.0));
+            slider_row(ui, tr("Smoothness"), egui::Slider::new(&mut s.smoothness, 0.0..=1.0));
+            slider_row(ui, tr("Distance"), egui::Slider::new(&mut s.distance, 0.0..=subcraft_doc::ShapeSettings::MAX_BORDER_DISTANCE).suffix(" px"))
+                .on_hover_text(tr("How far from a UV island border the falloff reaches"));
+        }
+        GeneratorKind::UvChecker => {
+            let color = |ui: &mut Ui, label: &'static str, c: &mut [f32; 3]| {
+                prop_row(ui, tr(label), |ui| {
+                    let mut srgb = subcraft_core::color::linear3_to_srgb(*c);
+                    if ui.color_edit_button_rgb(&mut srgb).changed() {
+                        *c = subcraft_core::color::srgb3_to_linear(srgb);
+                    }
+                });
+            };
+            prop_row(ui, tr("Seed"), |ui| {
+                ui.add(egui::DragValue::new(&mut s.seed).speed(1.0));
+                if ui.small_button(tr("Random")).clicked() {
+                    s.seed = s.seed.wrapping_mul(747_796_405).wrapping_add(2_891_336_453) >> 8;
+                }
+            });
+            prop_row(ui, tr("Checker Color Mode"), |ui| {
+                ui.selectable_value(&mut s.checker_random, false, tr("Uniform"));
+                ui.selectable_value(&mut s.checker_random, true, tr("Random"));
+            });
+            ui.add_enabled_ui(!s.checker_random, |ui| color(ui, "Checker Color", &mut s.checker_color));
+            slider_row(ui, tr("Checker Grid Tile"), egui::Slider::new(&mut s.checker_tile, 1.0..=64.0).integer());
+            slider_row(ui, tr("Checker Grid Opacity"), egui::Slider::new(&mut s.grid_opacity, 0.0..=1.0));
+            color(ui, "UV Borders Color", &mut s.border_color);
+            slider_row(ui, tr("UV Borders Width"), egui::Slider::new(&mut s.border_width, 0.0..=16.0).suffix(" px"));
+        }
+        GeneratorKind::UvTexelDensity => {
+            for (label, c) in [("Color Low", &mut s.density_low), ("Color Medium", &mut s.density_medium), ("Color High", &mut s.density_high)] {
+                prop_row(ui, tr(label), |ui| {
+                    let mut srgb = subcraft_core::color::linear3_to_srgb(*c);
+                    if ui.color_edit_button_rgb(&mut srgb).changed() {
+                        *c = subcraft_core::color::srgb3_to_linear(srgb);
+                    }
+                });
+            }
+            hint(ui, tr("Medium is where the texture spans the model's longest side once; Low and High are two octaves below and above."));
         }
         GeneratorKind::GrayscaleConversion => {
             match s.texture {

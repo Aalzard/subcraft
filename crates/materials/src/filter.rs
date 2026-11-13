@@ -18,6 +18,8 @@ pub fn apply(filter: Filter, input: [f32; 3], channel: ChannelKind) -> [f32; 3] 
         Filter::GradientDynamic { .. } => input, // Reads an image: evaluated by the compositor.
         Filter::BevelShape { .. } | Filter::MaskOutlineShape { .. } | Filter::Fxaa { .. } | Filter::DropShadow { .. } | Filter::OuterGlow { .. } => input,
         Filter::HeightAdjust { invert, offset, multiply } => input.map(|v| height_adjust(v, invert, offset, multiply, channel)),
+        Filter::BevelSmooth { .. } | Filter::DirectionalDistance { .. } => input, // Staged by the compositor.
+        Filter::GradientCurve { preset, invert, balance, contrast } => input.map(|v| gradient_curve(v, preset, invert, balance, contrast)),
         Filter::Smoothstep { min, max } => input.map(|v| smoothstep(v, min, max)),
         Filter::ThresholdCompare { cutoff, mode } => {
             let value = if channel.is_color() { luminance(input) } else { input[0] };
@@ -224,6 +226,13 @@ pub fn height_adjust(v: f32, invert: bool, offset: f32, multiply: f32, channel: 
     let v = if !invert { v } else if channel.is_signed() { -v } else { 1.0 - v };
     let v = v * multiply + offset;
     if channel.is_signed() { v.clamp(-1.0, 1.0) } else { v.clamp(0.0, 1.0) }
+}
+
+/// Gradient Curve: the preset curve, the optional invert, then Balance and Contrast.
+pub fn gradient_curve(v: f32, preset: subcraft_doc::CurvePreset, invert: bool, balance: f32, contrast: f32) -> f32 {
+    let t = preset.eval(v);
+    let t = if invert { 1.0 - t } else { t };
+    ((t - (1.0 - balance)) / (1.0 - contrast).max(1e-3) + 0.5).clamp(0.0, 1.0)
 }
 
 pub fn apply_mask(filter: Filter, value: f32) -> f32 {
@@ -615,6 +624,22 @@ mod parity_tests {
 #[cfg(test)]
 mod mask_shape_filter_tests {
     use super::*;
+
+    #[test]
+    fn gradient_curve_bends_inverts_and_rebalances() {
+        use subcraft_doc::CurvePreset as P;
+        let f = |preset, invert, balance, contrast| Filter::GradientCurve { preset, invert, balance, contrast };
+        let at = |filter, v: f32| apply(filter, [v; 3], ChannelKind::Roughness)[0];
+        assert!((at(f(P::Linear, false, 0.5, 0.0), 0.3) - 0.3).abs() < 1e-6, "neutral");
+        assert!((at(f(P::EaseIn, false, 0.5, 0.0), 0.5) - 0.25).abs() < 1e-6);
+        assert!((at(f(P::EaseIn, true, 0.5, 0.0), 0.5) - 0.75).abs() < 1e-6);
+        assert!((at(f(P::Bell, false, 0.5, 0.0), 0.5) - 1.0).abs() < 1e-6);
+        // Balance 0.7 lifts by 0.2; Contrast 0.5 doubles the slope about the middle.
+        assert!((at(f(P::Linear, false, 0.7, 0.0), 0.3) - 0.5).abs() < 1e-6);
+        assert!((at(f(P::Linear, false, 0.5, 0.5), 0.6) - 0.7).abs() < 1e-6);
+        assert_eq!(at(f(P::Linear, false, 0.5, 1.0), 0.6), 1.0);
+        assert!((apply_mask(f(P::SCurve, false, 0.5, 0.0), 0.25) - 0.15625).abs() < 1e-6);
+    }
 
     #[test]
     fn height_adjust_inverts_then_scales_then_offsets_within_the_range() {
