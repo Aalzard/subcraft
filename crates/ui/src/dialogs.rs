@@ -331,8 +331,10 @@ pub fn export_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
         ui.add_space(4.0);
         divider(ui);
         ui.add_space(6.0);
-        // The tab scrolls on its own so the button row stays on screen.
-        let max_h = (ui.ctx().content_rect().height() - 200.0).max(260.0);
+        // The tab scrolls on its own so the button row stays on screen. The window is at most
+        // the screen height minus 48 (`widgets::window`); the title bar, tabs, dividers and button
+        // row below take about 200 more, so leave 320 with some margin.
+        let max_h = (ui.ctx().content_rect().height() - 320.0).max(240.0);
         egui::ScrollArea::vertical().id_salt(("export_tab", state.export.tab as u8)).max_height(max_h).show(ui, |ui| match state.export.tab {
             ExportTab::Settings => settings_tab(ui, state, &lib, &sets, &mut preset_status, now),
             ExportTab::OutputTemplates => {
