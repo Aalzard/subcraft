@@ -365,13 +365,12 @@ impl Stroke {
     }
 
     /// Brush radius in UV units: the 3D brush size at the texture set's average texel density,
-    /// so a stroke covers the same texels in both views.
-    /// Texture size space is exact here; Viewport has no meaning in the 2D view (its zoom is
-    /// not a camera) and uses the object size.
+    /// so a stroke covers the same texels in both views. Texture size space is exact here.
+    /// Viewport size space measures against the 2D view (see [`uv_view_radius`]); without a
+    /// known 2D view it falls back to the object size.
     fn uv_radius(&mut self, ctx: &PaintContext) -> f32 {
         let upu = *self.uv_per_unit.get_or_insert_with(|| uv_per_unit(ctx.mesh, ctx.geometry.material_slot));
-        let c = SizeContext { diagonal: ctx.mesh.bounds.diagonal(), pixels_per_unit: 0.0, viewport_height: 0.0, uv_per_unit: upu };
-        self.settings.radius_in(&c) * upu
+        uv_view_radius(&self.settings, ctx.mesh.bounds.diagonal(), upu, self.uv_view)
     }
 
     /// World radius of the brush in its size space, under the current view.
@@ -1254,5 +1253,43 @@ pub mod profile {
     /// Work counts since the last call (see [`COUNT_NAMES`]), resetting them.
     pub fn take_counts() -> [u64; 4] {
         std::array::from_fn(|i| COUNTS[i].swap(0, Ordering::Relaxed))
+    }
+}
+
+/// Brush radius in UV units for a 2D-view stroke. In Viewport size space the size is a percent
+/// of the 2D view's height, so the brush keeps its size on screen when the view zooms: the 2D
+/// view shows `view.side * uv_per_unit` pixels per object unit. The other spaces ignore `view`.
+pub fn uv_view_radius(settings: &BrushSettings, diagonal: f32, uv_per_unit: f32, view: Option<UvView>) -> f32 {
+    let (pixels_per_unit, viewport_height) = match view {
+        Some(v) if settings.size_space == SizeSpace::Viewport && v.side > 0.0 && uv_per_unit > 0.0 => (v.side * uv_per_unit, v.viewport[1] as f32),
+        _ => (0.0, 0.0),
+    };
+    settings.radius_in(&SizeContext { diagonal, pixels_per_unit, viewport_height, uv_per_unit }) * uv_per_unit
+}
+
+#[cfg(test)]
+mod uv_view_radius_tests {
+    use super::*;
+
+    fn view(side: f32, height: u32) -> UvView {
+        UvView { origin: Vec2::ZERO, side, viewport: [800, height], rotation: 0.0 }
+    }
+
+    #[test]
+    fn viewport_size_space_keeps_the_brush_size_on_screen_in_the_2d_view() {
+        let s = BrushSettings { size: 10.0, size_space: SizeSpace::Viewport, ..BrushSettings::default() };
+        let (diag, upu) = (3.0, 0.25);
+        for side in [200.0, 400.0, 1600.0] {
+            let r_uv = uv_view_radius(&s, diag, upu, Some(view(side, 600)));
+            // On screen: 10% of a 600 px high view is a 60 px wide brush, 30 px radius.
+            assert!((r_uv * side - 30.0).abs() < 1e-3, "side {side}: {} px", r_uv * side);
+        }
+        let object = BrushSettings { size_space: SizeSpace::Object, ..s };
+        let a = uv_view_radius(&object, diag, upu, Some(view(200.0, 600)));
+        let b = uv_view_radius(&object, diag, upu, Some(view(1600.0, 600)));
+        assert_eq!(a, b, "object size does not follow the 2D zoom");
+        assert!((a - object.radius(diag) * upu).abs() < 1e-6);
+        // No 2D view known: Viewport falls back to the object size, as before.
+        assert!((uv_view_radius(&s, diag, upu, None) - object.radius(diag) * upu).abs() < 1e-6);
     }
 }
