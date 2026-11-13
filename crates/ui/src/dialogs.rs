@@ -821,6 +821,8 @@ fn export_map_list(ui: &mut egui::Ui, state: &mut UiState, settings: &ExportSett
                             state.export.set_overrides.remove(&id);
                         }
                     }
+                    // Painter shows each file's colour space (with colour management on).
+                    ui.label(RichText::new(f.color_space).small().color(TEXT_DIM)).on_hover_text(tr("Colour space of the file: sRGB-encoded colour, linear colour (float files) or raw data"));
                     ui.add(egui::Label::new(RichText::new(&f.path).monospace().small().color(if f.enabled { TEXT_DIM } else { theme::TEXT_DIM.gamma_multiply(0.5) })).truncate()).on_hover_text(&f.path);
                 });
             }

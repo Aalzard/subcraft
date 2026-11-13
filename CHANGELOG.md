@@ -5,6 +5,10 @@ What changed in SubCraft, newest first. Download the latest build from the
 
 ## Unreleased
 
+### Added
+- **Colour space per file** in the Export window's list of maps, like Painter's: sRGB, Linear (float files)
+  or Raw (data such as normals and roughness).
+
 ## 0.3.8 - 2026-11-13
 
 ### Added

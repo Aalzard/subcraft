@@ -952,6 +952,7 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Degrees about X, Y, Z (applied in that order)", "繞 X、Y、Z 軸的角度（依此順序套用）"),
     ("Size of the projection box on X, Y, Z; with Shape crop on, a planar projection reaches as deep as its scale along the projection axis", "投影方塊在 X、Y、Z 上的大小；開啟形狀裁切時，平面投影的深度等於投影軸上的縮放"),
     ("X, Y, Z in units of the model's bounding box; 0 is centred", "以模型邊界框為單位的 X、Y、Z；0 為置中"),
+    ("Colour space of the file: sRGB-encoded colour, linear colour (float files) or raw data", "檔案的色彩空間：sRGB 編碼的色彩、線性色彩（浮點檔案）或原始資料"),
     ("1 cuts at the angle; lower values fade the projection out before it", "1 會在該角度直接截斷；數值越低，投影會在到達前逐漸淡出"),
     ("Backface culling", "背面剔除"),
     ("Culling angle", "剔除角度"),
