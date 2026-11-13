@@ -222,7 +222,7 @@ Layout notes: these sit at the top of the Output template dropdown on the Settin
 |---|---|---|---|---|---|
 | 2D View | Output template dropdown | - | done | crates/export/src/template.rs:215 | - |
 | Document channels + Normal + AO (No Alpha) | Output template dropdown | - | done (every channel the set has as its own file, plus normal with height and mixed AO; no Opacity file: alpha/opacity export is #145's) | crates/export/src/builtin_presets.rs | chunk 47 |
-| Document channels + Normal + AO (With Alpha) | Output template dropdown | - | missing | - | - |
+| Document channels + Normal + AO (With Alpha) | Output template dropdown | - | done (Base Color RGBA with the effective opacity; Opacity also its own file) | crates/export/src/builtin_presets.rs painter | doc channels alpha |
 | Sketchfab | Output template dropdown (maps plus upload) | - | partial: map set only (upload is Adobe/Sketchfab service) | crates/export/src/template.rs:237 | - |
 | Substance 3D Stager | Output template dropdown | - | n/a | - | - |
 | USDz (Apple AR) | Output template dropdown: JPG maps, PNG normal, .usdc and .usdz | - | partial: USDA with PNG maps through "Export model + textures", no usdc / usdz | crates/export/src/scene.rs:324 | - |
