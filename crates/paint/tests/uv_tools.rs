@@ -182,6 +182,45 @@ fn mirror_symmetry_in_uv_paints_the_mirrored_face_too() {
     assert_eq!(texel(&img, sc.face_uv(Vec3::Y))[3], 0.0);
 }
 
+/// QA 2026-11: 2D smudge with symmetry shared one carried colour between the stroke and its
+/// mirror copy, so paint picked up on one side was laid down on the other.
+#[test]
+fn uv_smudge_with_symmetry_carries_each_sides_own_paint() {
+    let mut sc = Scene::new();
+    // Everything red, the -X face blue.
+    {
+        let (mesh, geo) = (sc.mesh.clone(), &sc.geo);
+        let blue_face = |uv: Vec2| subcraft_paint::stroke::triangle_at_uv(&mesh, geo, uv).is_some_and(|t| mesh.geometric_normal(t as usize).dot(-Vec3::X) > 0.99);
+        let mut colors = Vec::with_capacity((RES * RES) as usize);
+        for y in 0..RES {
+            for x in 0..RES {
+                let uv = (Vec2::new(x as f32, y as f32) + 0.5) / RES as f32;
+                colors.push(if blue_face(uv) { [0.0, 0.0, 1.0, 1.0] } else { [1.0, 0.0, 0.0, 1.0] });
+            }
+        }
+        let LayerContent::Paint(p) = &mut sc.ts.find_mut(sc.layer).unwrap().content else { panic!() };
+        let img = p.channel_mut(ChannelKind::BaseColor, RES);
+        for (i, c) in colors.into_iter().enumerate() {
+            img.set(i as u32 % RES, i as u32 / RES, c);
+        }
+    }
+    let right = sc.face_uv(Vec3::X);
+    let r = small_radius_uv(&sc);
+    let options = StrokeOptions { symmetry: [true, false, false], ..StrokeOptions::default() };
+    let cam = uv_camera();
+    let mirrored = {
+        let ctx = PaintContext { mesh: &sc.mesh, bvh: &sc.bvh, geometry: &sc.geo, camera: &cam, depth: &sc.depth };
+        uv_symmetry_copies(&ctx, &options, right)[0]
+    };
+    let path: Vec<Vec2> = (0..=8).map(|i| right + Vec2::new(0.0, r * i as f32 / 8.0)).collect();
+    sc.stroke(StrokeMode::Smudge, &color([0.0, 1.0, 0.0]), small(), options, &path, |s| s).unwrap();
+    let img = sc.image();
+    let there = texel(&img, mirrored);
+    assert!(there[0] < 0.05 && there[2] > 0.9, "the mirror side keeps its own blue: {there:?}");
+    let here = texel(&img, right);
+    assert!(here[0] > 0.9 && here[2] < 0.05, "and this side its red: {here:?}");
+}
+
 #[test]
 fn without_symmetry_there_are_no_uv_copies() {
     let sc = Scene::new();

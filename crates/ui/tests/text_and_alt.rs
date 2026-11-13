@@ -103,9 +103,10 @@ fn alpha_alt_goes_to_the_mask_and_plain_sets_the_brush_tip() {
 
 #[test]
 fn drop_labels_say_what_will_happen() {
-    assert_eq!(drop_label(ShelfDrag::Material(0), false, Some("Rust"), false), "Add material layer above \"Rust\"");
+    assert_eq!(drop_label(ShelfDrag::Material(0), false, Some("Rust"), false), "Add material layer above \"Rust\" (Ctrl: with a black mask)");
     assert_eq!(drop_label(ShelfDrag::Material(0), true, Some("Rust"), false), "Replace the material of \"Rust\"");
-    assert_eq!(drop_label(ShelfDrag::SmartMask(0), false, Some("Rust"), false), "Apply mask to \"Rust\"");
+    assert_eq!(drop_label(ShelfDrag::SmartMask(0), false, Some("Rust"), false), "Apply mask to \"Rust\" (Ctrl or Alt: replace its effects)");
+    assert_eq!(drop_label(ShelfDrag::SmartMask(0), true, Some("Rust"), true), "Replace the mask effects of \"Rust\"");
     assert_eq!(drop_label(ShelfDrag::Alpha(0), false, Some("Rust"), true), "Use this alpha in the mask of \"Rust\"");
     assert_eq!(drop_label(ShelfDrag::Alpha(0), false, None, false), "Set as brush tip");
 }

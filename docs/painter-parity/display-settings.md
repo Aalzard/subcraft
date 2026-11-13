@@ -84,9 +84,9 @@ Layout notes: a thumbnail button for the map (opens a mini-shelf filtered to env
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Shadows (enable) | Display Settings > Shadows | off (unverified) | missing: raster view has no shadows (only the path-traced mode casts them) | - | - |
-| Computation mode | Display Settings > Shadows | Lightweight; options Intensive, Average, Lightweight | missing | - | - |
-| Shadows opacity | Display Settings > Shadows | not documented | missing | - | - |
+| Shadows (enable) | Display Settings > Shadows | off (unverified) | done: off by default; the key light casts shadows in the raster 3D view (the environment light keeps its AO shading) | crates/render/src/shadow.rs, crates/render/src/viewport.wgsl (shadow_visibility) | - |
+| Computation mode | Display Settings > Shadows | Lightweight; options Intensive, Average, Lightweight | done: Intensive, Average, Lightweight (default): shadow-map size 4096 / 2048 / 1024 and filter width | crates/render/src/shadow.rs (ShadowQuality) | - |
+| Shadows opacity | Display Settings > Shadows | not documented | done: 0-1, default 0.8 (Painter's default is not documented) | crates/ui/src/panels/display_settings.rs (environment) | - |
 
 ## Camera settings: Camera
 
@@ -258,17 +258,17 @@ Layout notes: this page is still in the help but the effect is not in the 12.0 e
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Power | Post effects > Lens Distortion | not documented | missing | - | - |
-| FOV | Post effects > Lens Distortion | not documented | missing | - | - |
-| Edge Roundness | Post effects > Lens Distortion | not documented | missing | - | - |
-| Edge Smoothness | Post effects > Lens Distortion | not documented | missing | - | - |
+| Power | Post effects > Lens Distortion | not documented | done: -1..1 (negative = telephoto / pincushion), 0.3 when turned on; Painter's default is not documented | crates/render/src/grade.rs (lens_uv), post.wgsl (lens_uv) | 249 |
+| FOV | Post effects > Lens Distortion | not documented | done: 0..1, how far a barrel distortion zooms in to hide the stretched border (default 1) | crates/render/src/grade.rs (lens_zoom) | 249 |
+| Edge Roundness | Post effects > Lens Distortion | not documented | done: 0 rectangle .. 1 oval (default 0.5) | crates/render/src/grade.rs (lens_uv) | 249 |
+| Edge Smoothness | Post effects > Lens Distortion | not documented | done: 0 hard .. 1 (default 0.2) | crates/render/src/grade.rs (lens_uv) | 249 |
 
 ## Camera settings: Temporal anti-aliasing
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Temporal Anti-Aliasing (enable) | Display Settings > Camera | not documented | partial: "Anti-aliasing" in Camera settings is 4x MSAA, not temporal accumulation | crates/ui/src/panels/display_settings.rs (camera) | 161 |
-| Accumulations | Display Settings > Temporal anti-aliasing | 16 recommended; 64 for high contrast (full option list not documented) | missing | - | - |
+| Temporal Anti-Aliasing (enable) | Display Settings > Camera | not documented | done: Display Settings > Camera > Temporal anti-aliasing (off by default, on top of the 4x MSAA): Halton-jittered frames averaged while the view is still; any change restarts it and the finished image stays without re-rendering | crates/render/src/taa.rs, crates/ui/src/viewport.rs (taa_step) | 161, 294 |
+| Accumulations | Display Settings > Temporal anti-aliasing | 16 recommended; 64 for high contrast (full option list not documented) | done: 4, 8, 16 (default), 32, 64 | crates/ui/src/panels/display_settings.rs (camera) | 294 |
 
 ## Camera settings: Subsurface scattering
 
@@ -338,7 +338,7 @@ Layout notes: only enabled while a single channel is shown. The selected colour 
 | Positive color | Display Settings > Channel display | not documented | done | crates/ui/src/panels/display_settings.rs (visualization) | - |
 | Negative color | Display Settings > Channel display | not documented | done | crates/ui/src/panels/display_settings.rs (visualization) | - |
 | Color channels | Display Settings > Channel display | RGBA (color) / Grayscale+Alpha (grayscale); options RGBA, Grayscale+Alpha, R, G, B, Alpha | done: RGBA / Grayscale + Alpha, R, G, B, Alpha | crates/doc/src/display.rs (ChannelComponent) | - |
-| Component name overlay in the viewport | 3D / 2D view | - | partial: 3D view only | crates/ui/src/viewport.rs (visualization_overlays) | - |
+| Component name overlay in the viewport | 3D / 2D view | - | done: both views; the 2D view also isolates the component while a single channel is shown | crates/ui/src/viewport.rs (visualization_overlays), crates/ui/src/panels/uv_view.rs (shown_component) | 305 |
 
 ## Viewport settings: Grid
 

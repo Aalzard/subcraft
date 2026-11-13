@@ -75,7 +75,8 @@ fn narrow_shelf_and_layer_footers_fit_the_real_dock_without_outer_scrolling() {
     app.state.shelf.tab = crate::panels::shelf::ShelfTab::NormalMaps;
     let out = settle(&mut app, &ctx);
     let footers: Vec<_> = out.shapes.iter().filter_map(|s| match &s.shape {
-        egui::Shape::Text(t) if t.galley.text() == "Preview size" => Some((s.clip_rect, Rect::from_min_size(t.pos, t.galley.size()))),
+        // Layers: the "Preview size" slider; Assets: Painter's size menu (Medium by default).
+        egui::Shape::Text(t) if t.galley.text() == "Preview size" || t.galley.text().ends_with("  Medium") => Some((s.clip_rect, Rect::from_min_size(t.pos, t.galley.size()))),
         _ => None,
     }).collect();
     assert_eq!(footers.len(), 2);
@@ -462,7 +463,8 @@ fn mask_thumbnail_shortcuts_and_properties_dispatch_undoable_mask_actions() {
             ..Default::default()
         },
     );
-    assert_eq!(app.state.layer_previews.inspect, Some(red));
+    // Alt+click shows the mask alone in the viewport.
+    assert_eq!(app.state.mask_view.as_ref().map(|v| v.layer), Some(red));
     assert_eq!(
         app.state.session.layer_target(),
         subcraft_app::LayerTarget::Mask

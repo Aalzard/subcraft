@@ -34,6 +34,9 @@ pub enum Tab {
     Shelf,
     /// Painter's DISPLAY SETTINGS panel. Optional: closed until View > Display settings opens it.
     DisplaySettings,
+    /// An Assets sub-library: one search in a tab of its own (made from the Assets panel; never
+    /// saved with the layout, Painter makes them again too).
+    SubLibrary(u32),
     /// Painter's SHADER SETTINGS panel. Optional: closed until the Window menu or a texture
     /// set's shader menu opens it.
     ShaderSettings,
@@ -53,6 +56,7 @@ impl Tab {
             Tab::History => tr("History"),
             Tab::Shelf => tr("Assets"),
             Tab::DisplaySettings => tr("Display Settings"),
+            Tab::SubLibrary(_) => tr("Assets"),
             Tab::ShaderSettings => tr("Shader Settings"),
         }
     }
@@ -67,7 +71,7 @@ impl Tab {
             Tab::TextureSetList | Tab::TextureSetSettings => icons::CUBE_WIRE,
             Tab::Parts => icons::CUBE_WIRE,
             Tab::History => icons::HISTORY,
-            Tab::Shelf => icons::SQUARES,
+            Tab::Shelf | Tab::SubLibrary(_) => icons::SQUARES,
             Tab::DisplaySettings => icons::SUN,
             Tab::ShaderSettings => icons::SPARKLE,
         }
@@ -243,6 +247,28 @@ fn migrate_layout(dock: &mut DockState<Tab>) {
     if let Some(path) = dock.find_tab(&Tab::Brush) {
         let _ = dock.remove_tab(path);
     }
+    dock.retain_tabs(|t| !matches!(t, Tab::SubLibrary(_)));
+}
+
+/// Keep the dock's sub-library tabs in step with the Assets panel: dock a new one beside the
+/// Assets tab and bring it forward; drop the tab of one that was closed.
+pub fn sync_sub_libraries(dock: &mut DockState<Tab>, shelf: &mut panels::shelf::ShelfUi) {
+    dock.retain_tabs(|t| match t {
+        Tab::SubLibrary(id) => shelf.sub_library_name(*id).is_some(),
+        _ => true,
+    });
+    if let Some(id) = shelf.open_sub_library.take() {
+        let tab = Tab::SubLibrary(id);
+        if dock.find_tab(&tab).is_none() {
+            match dock.find_tab(&Tab::Shelf) {
+                Some(host) => dock[host.surface][host.node].append_tab(tab),
+                None => dock.push_to_focused_leaf(tab),
+            }
+        }
+        if let Some(path) = dock.find_tab(&tab) {
+            let _ = dock.set_active_tab(path);
+        }
+    }
 }
 
 /// View > Display settings: add the panel as a tab beside Properties and bring it forward, or
@@ -288,6 +314,26 @@ pub fn toggle_shader_settings(dock: &mut DockState<Tab>) {
             let _ = dock.remove_tab(path);
         }
         None => open_shader_settings(dock),
+    }
+}
+
+/// Which views F frames: the one under the pointer, or both (3D, 2D) when it is over neither.
+/// The path being edited: its UV rectangle (centre, size) and the box around its anchors on the
+/// model (None when none of them lands on the surface).
+fn path_bounds(state: &UiState) -> Option<((glam::Vec2, glam::Vec2), Option<subcraft_mesh::Aabb>)> {
+    let path = state.pen.preview(&state.session)?;
+    let uvs: Vec<glam::Vec2> = path.anchors.iter().map(|a| a.position).collect();
+    let (lo, hi) = uvs.iter().fold((glam::Vec2::splat(f32::MAX), glam::Vec2::splat(f32::MIN)), |(lo, hi), &p| (lo.min(p), hi.max(p)));
+    if uvs.is_empty() { return None; }
+    let world: Vec<glam::Vec3> = uvs.iter().filter_map(|&uv| state.session.pen_uv_position(uv)).collect();
+    let world = (!world.is_empty()).then(|| subcraft_mesh::Aabb::from_points(world));
+    Some((((lo + hi) * 0.5, hi - lo), world))
+}
+
+pub fn frame_targets(hovered_3d: bool, hovered_2d: bool) -> (bool, bool) {
+    match (hovered_3d, hovered_2d) {
+        (false, false) => (true, true),
+        other => other,
     }
 }
 
@@ -415,6 +461,19 @@ pub fn parse_size(text: &str) -> Option<[f32; 2]> {
 #[cfg(test)]
 mod layout_tests {
     use super::*;
+    #[test]
+    fn f_frames_the_view_under_the_pointer_or_both() {
+        assert_eq!(frame_targets(true, false), (true, false));
+        assert_eq!(frame_targets(false, true), (false, true));
+        assert_eq!(frame_targets(false, false), (true, true), "over a panel: both views");
+        // QA 2026-11: a view no longer drawn kept its last hover, and F framed it instead of the
+        // visible one. Each frame starts with neither hovered; the drawn views set their own.
+        let mut state = crate::state::UiState::new(subcraft_app::Session::new(subcraft_mesh::primitives::cube(2.0), 64), None);
+        state.hovered_3d = true;
+        state.hovered_2d = true;
+        state.begin_frame();
+        assert!(!state.hovered_3d && !state.hovered_2d);
+    }
     #[test]
     fn default_layout_is_valid_and_broken_ones_are_rejected() {
         assert!(layout_is_valid(&default_layout()));
@@ -829,6 +888,11 @@ impl SubcraftApp {
         let prefs = cc.storage.and_then(|s| s.get_string(crate::recovery::PREFS_KEY)).map(|j| crate::recovery::Preferences::from_json_lenient(&j)).unwrap_or_default();
         crate::recovery::apply_cache_dir(&prefs);
         state.recovery = crate::recovery::RecoveryUi::start(&state.session, prefs, options.autosave_interval);
+        // Settings > Libraries: extra library folders, and which library is the default.
+        let (extra, default) = (state.recovery.prefs.extra_libraries.clone(), state.recovery.prefs.default_library.clone());
+        if !extra.is_empty() || default != crate::panels::shelf_filter::YOURS {
+            state.set_libraries(&extra, &default);
+        }
         if subcraft_app::safe_mode::active() == Some(&subcraft_app::safe_mode::Reason::GpuLostLastRun) {
             // The GPU reset last run: keep the heavy GPU work off from now on (saved with the
             // preferences) so the next normal start does not reset it again (issue #119).
@@ -1037,6 +1101,7 @@ impl SubcraftApp {
                 "smart-masks" => ShelfTab::SmartMasks,
                 "filters" => ShelfTab::Filters,
                 "brushes" => ShelfTab::Brushes,
+                "alphas" => ShelfTab::Alphas,
                 "environments" => ShelfTab::Environments,
                 _ => ShelfTab::Textures,
             };
@@ -1136,6 +1201,7 @@ impl SubcraftApp {
         self.state.properties_hosts_brush = self.dock.find_tab(&Tab::Brush).is_none();
         self.follow_layer_selection();
         self.open_requested_brush_editor();
+        sync_sub_libraries(&mut self.dock, &mut self.state.shelf);
         let style = theme::dock_style(ui.style());
         let hidden = self.state.hide_ui;
         let mut viewer = Viewer { state: &mut self.state, was_active: &self.active_tabs, active: HashSet::new() };
@@ -1157,6 +1223,8 @@ impl SubcraftApp {
         if self.follow_layer_selection() {
             ctx.request_repaint();
         }
+        // The panels' mask requests (Alt+click on a mask thumbnail, the mask menu).
+        crate::mask_view::handle_requests(&mut self.state, &ctx, ctx.input(|i| i.time));
     }
 
     fn shortcuts(&mut self, ctx: &egui::Context) {
@@ -1191,6 +1259,13 @@ impl SubcraftApp {
                 self.perform(a, ctx.input(|i| i.time));
             }
         }
+    }
+
+    /// The 2D view shows what the 3D view was just switched to (C / Shift+C / M / B / Shift+B
+    /// act on both views, as in Painter).
+    fn sync_uv_source(&mut self) {
+        let prefs = &self.state.recovery.prefs.viewport;
+        self.state.uv.source = crate::panels::uv_view::source_for(prefs.mesh_map, prefs.shown_channel());
     }
 
     fn perform(&mut self, action: Action, now: f64) {
@@ -1230,8 +1305,26 @@ impl SubcraftApp {
                 self.state.multi.select_all(&rows);
             }
             Action::ResetCamera => {
-                self.state.camera = OrbitCamera::framing(&self.state.session.scene().mesh.bounds);
-                self.state.orbit_pivot = None;
+                // Painter's F: frame the view under the cursor, or both when it is over neither.
+                let (three, two) = frame_targets(self.state.hovered_3d, self.state.hovered_2d);
+                // While editing a path, F focuses on it instead (Painter 11.0).
+                let path = if self.state.tool == Tool::Pen { path_bounds(&self.state) } else { None };
+                if three {
+                    match path.and_then(|(_, world)| world) {
+                        Some(world) => self.state.camera.focus_on(&world),
+                        None => self.state.camera = OrbitCamera::framing(&self.state.session.scene().mesh.bounds),
+                    }
+                    self.state.orbit_pivot = None;
+                }
+                if two {
+                    match path {
+                        Some((uv_box, _)) => self.state.uv.frame = Some(uv_box),
+                        None => {
+                            self.state.uv.zoom = 1.0;
+                            self.state.uv.offset = egui::Vec2::ZERO;
+                        }
+                    }
+                }
             }
             Action::HideUi => self.state.hide_ui = !self.state.hide_ui,
             Action::PaintingMode => {
@@ -1243,8 +1336,11 @@ impl SubcraftApp {
             Action::View3dOnly => apply_view_layout(&mut self.dock, ViewLayout::Only3d),
             Action::View2dOnly => apply_view_layout(&mut self.dock, ViewLayout::Only2d),
             Action::SwapViews => apply_view_layout(&mut self.dock, ViewLayout::Swap),
-            Action::NextMeshMap => crate::viewport_bar::cycle_mesh_map(&mut self.state.recovery.prefs.viewport),
-            Action::PrevMeshMap => crate::viewport_bar::cycle_mesh_map_back(&mut self.state.recovery.prefs.viewport),
+            Action::NextMeshMap | Action::PrevMeshMap => {
+                let prefs = &mut self.state.recovery.prefs.viewport;
+                if action == Action::NextMeshMap { crate::viewport_bar::cycle_mesh_map(prefs) } else { crate::viewport_bar::cycle_mesh_map_back(prefs) }
+                self.sync_uv_source();
+            }
             Action::InvertMaskGray => {
                 match self.state.session.perform(action) {
                     Ok(_) => {
@@ -1279,8 +1375,12 @@ impl SubcraftApp {
                 // Painter's C / Shift+C: the material, then each channel of the selected texture set.
                 let channels: Vec<_> = self.state.session.selected_texture_set().channel_kinds().collect();
                 self.state.recovery.prefs.viewport.cycle_channel(&channels, action == Action::NextChannel);
+                self.sync_uv_source();
             }
-            Action::DisplayMaterial => self.state.recovery.prefs.viewport.show_material(),
+            Action::DisplayMaterial => {
+                self.state.recovery.prefs.viewport.show_material();
+                self.sync_uv_source();
+            }
             Action::NewProject => self.request(Pending::OpenMesh, now),
             Action::Quit => self.request(Pending::Close, now),
             Action::PenTool => { self.state.tool = Tool::Pen; self.state.picking_parts = false; }
@@ -1301,6 +1401,37 @@ impl SubcraftApp {
                 self.state.export.open = true;
                 self.state.export.view_2d_only = false;
                 self.state.export.settings.height_to_normal = self.state.height_scale;
+            }
+            Action::HideExcludedGeometry => {
+                let session = &mut self.state.session;
+                session.toggle_hide_excluded();
+                let msg = match (session.hide_excluded(), session.has_excluded_geometry()) {
+                    (true, true) => "Hiding the geometry this layer's geometry mask leaves out (Alt+H shows it again)",
+                    (true, false) => "Excluded geometry will be hidden once the layer has a geometry mask (Alt+H turns this off)",
+                    (false, _) => "Showing all geometry",
+                };
+                self.state.set_status(msg, now);
+            }
+            Action::QuickMaskToggle => {
+                self.state.session.toggle_quick_mask();
+                let msg = match self.state.session.quick_mask() {
+                    Some(q) if q.editing => "Quick mask: paint where strokes may land (U applies it, Y clears it)",
+                    Some(_) => "Quick mask applied: strokes land only on its painted areas (U edits, I inverts, Y clears)",
+                    None => "Quick mask removed (nothing was painted)",
+                };
+                self.state.set_status(msg, now);
+            }
+            Action::QuickMaskClear => {
+                if self.state.session.quick_mask().is_some() {
+                    self.state.session.clear_quick_mask();
+                    self.state.set_status("Quick mask cleared: strokes paint everywhere again", now);
+                }
+            }
+            // Without a quick mask, I belongs to the 3D view (isolate the part under the cursor).
+            Action::QuickMaskInvert => {
+                if self.state.session.invert_quick_mask() {
+                    self.state.set_status("Quick mask inverted", now);
+                }
             }
             _ => {
                 if let Err(e) = self.state.session.perform(action) {
@@ -1406,6 +1537,16 @@ impl SubcraftApp {
             if ui.add_enabled_ui(*tool != Tool::Pen, |ui| tool_button(ui, icons::MASK, on_mask, "Paint the layer's mask instead of its content (Brush tool)")).inner.clicked() {
                 *target = if on_mask { subcraft_paint::PaintTarget::Content } else { subcraft_paint::PaintTarget::MaskBase };
             }
+            // Painter's quick mask: a temporary selection painted with the usual tools.
+            let quick = self.state.session.quick_mask().map(|q| q.editing);
+            let quick_tip = match quick {
+                Some(true) => tip(km, "Quick mask: editing (strokes paint the mask; click or press the key to apply it)", Action::QuickMaskToggle),
+                Some(false) => tip(km, "Quick mask: on, strokes land only on its painted areas (click to edit it; I inverts, Y clears)", Action::QuickMaskToggle),
+                None => tip(km, "Quick mask: paint a temporary selection, then paint only inside it", Action::QuickMaskToggle),
+            };
+            if tool_button(ui, icons::SELECTION, quick.is_some(), &quick_tip).clicked() {
+                self.perform(Action::QuickMaskToggle, ui.input(|i| i.time));
+            }
             ui.add_space(6.0);
             rail_divider(ui);
             ui.add_space(6.0);
@@ -1487,6 +1628,10 @@ impl SubcraftApp {
                 ui.separator();
                 ui.menu_button(format!("{}   {}", icons::IMAGE, tr("Import resources")), |ui| {
                     ui.set_min_width(220.0);
+                    if item(ui, icons::PLUS, tr("Import resources…"), "") {
+                        ui.close();
+                        self.state.import.open = true;
+                    }
                     if item(ui, icons::IMAGE, tr("Import texture set…"), "") {
                         ui.close();
                         crate::panels::layers::import_texture_set_dialog(ui.ctx());
@@ -1981,6 +2126,9 @@ impl egui_dock::TabViewer for Viewer<'_> {
         }
         // Painter titles its panels in capitals, without icons; Properties names the layer kind.
         let mut title = tab.title().to_uppercase();
+        if let Tab::SubLibrary(id) = tab {
+            title = self.state.shelf.sub_library_name(*id).unwrap_or(tab.title()).to_uppercase();
+        }
         if *tab == Tab::Properties {
             let kind = self.state.session.selected_layer().map(|l| match l.kind() {
                 subcraft_doc::LayerKind::Paint => "PAINT",
@@ -2008,7 +2156,7 @@ impl egui_dock::TabViewer for Viewer<'_> {
             Tab::Viewport => crate::edit_profile::time_tab("  tab 3D", || crate::viewport::show(self.state, ui)),
             Tab::UvView => crate::edit_profile::time_tab("  tab 2D", || panels::uv_view::show(self.state, ui)),
             Tab::Layers => crate::edit_profile::time_tab("  tab Layers", || panels::layers::show(self.state, ui)),
-            Tab::Properties => crate::edit_profile::time_tab("  tab Properties", || panels::properties::show(self.state, ui)),
+            Tab::Properties => crate::edit_profile::time_tab("  tab Properties", || panels::properties::show_docked(self.state, ui)),
             Tab::Brush => crate::edit_profile::time_tab("  tab Brush", || panels::brush::show(self.state, ui)),
             Tab::TextureSetList => crate::edit_profile::time_tab("  tab Texture set list", || panels::texture_sets::list(self.state, ui)),
             Tab::TextureSetSettings => crate::edit_profile::time_tab("  tab Texture set settings", || panels::texture_sets::settings(self.state, ui)),
@@ -2016,20 +2164,28 @@ impl egui_dock::TabViewer for Viewer<'_> {
             Tab::History => crate::edit_profile::time_tab("  tab History", || panels::history::show(self.state, ui)),
             Tab::Shelf => crate::edit_profile::time_tab("  tab Shelf", || panels::shelf::show(self.state, ui)),
             Tab::DisplaySettings => crate::edit_profile::time_tab("  tab Display settings", || panels::display_settings::show(self.state, ui)),
+            Tab::SubLibrary(id) => crate::edit_profile::time_tab("  tab Sub-library", || panels::shelf::show_sub_library(self.state, ui, *id)),
             Tab::ShaderSettings => crate::edit_profile::time_tab("  tab Shader settings", || panels::shader_settings::show(self.state, ui)),
         }
     }
 
     fn is_closeable(&self, tab: &Tab) -> bool {
         // Every panel but the 3D and 2D views closes with its tab's X and comes back from the
-        // Docks toolbar or Window > Views.
-        crate::docks::closeable(*tab)
+        // Docks toolbar or Window > Views; a sub-library closes for good.
+        crate::docks::closeable(*tab) || matches!(tab, Tab::SubLibrary(_))
+    }
+
+    fn on_close(&mut self, tab: &mut Tab) -> egui_dock::tab_viewer::OnCloseResponse {
+        if let Tab::SubLibrary(id) = tab {
+            self.state.shelf.close_sub_library(*id);
+        }
+        egui_dock::tab_viewer::OnCloseResponse::Close
     }
 
     fn scroll_bars(&self, tab: &Tab) -> [bool; 2] {
         // These panels own bounded vertical lists and pinned preview-size footers. The dock's
         // extra scroll area would let content widen itself and scroll the footer offscreen.
-        if matches!(tab, Tab::Shelf | Tab::Layers | Tab::TextureSetList) { [false, false] } else { [true, true] }
+        if matches!(tab, Tab::Shelf | Tab::SubLibrary(_) | Tab::Layers | Tab::TextureSetList) { [false, false] } else { [true, true] }
     }
 
     fn clear_background(&self, tab: &Tab) -> bool {
@@ -2042,6 +2198,16 @@ impl SubcraftApp {
     fn mark(&mut self, label: &'static str) {
         if let Some(p) = &mut self.profile { p.mark(label); }
         if let Some(p) = &mut self.view_profile { p.mark(label); }
+    }
+}
+
+/// End of the frame: close the undo step of what the widgets did on a pointer release or an Enter
+/// press. The Seal at the top of the frame runs before the widgets, so a click's own command (a
+/// checkbox, a dropdown item, the last value of a slider drag, a typed value) stayed open and
+/// merged with the next drag of the same control: one Undo reverted both.
+pub(crate) fn seal_after_widgets(session: &mut Session, ctx: &egui::Context) {
+    if ctx.input(|i| i.pointer.any_released() || i.key_pressed(egui::Key::Enter)) {
+        let _ = session.execute(Command::Seal);
     }
 }
 
@@ -2133,6 +2299,9 @@ impl eframe::App for SubcraftApp {
         self.state.sync_gpu();
         if self.state.session.composites_pending() {
             ctx.request_repaint();
+        }
+        if let Some(due) = crate::mask_view::refresh_due(&self.state) {
+            ctx.request_repaint_after(due);
         }
         if self.profile.as_mut().is_some_and(|p| p.after_sync(&self.state)) {
             self.profile = None;
@@ -2233,6 +2402,7 @@ impl eframe::App for SubcraftApp {
         crate::spp_import::poll(&mut self.state, &ctx, now);
         crate::files::poll(&mut self.state, now);
         crate::files::import_report_window(&mut self.state, &ctx);
+        crate::import_resources::window(&mut self.state, &ctx);
         crate::clipboard::shortcut_requests(&ctx);
         crate::clipboard::process(&mut self.state, &ctx, now);
         // Files dropped anywhere else on the window (the Shelf handles its own).
@@ -2262,6 +2432,7 @@ impl eframe::App for SubcraftApp {
             }
             dialogs::run_pending(&mut self.state, action, &ctx, now);
         }
+        seal_after_widgets(&mut self.state.session, &ctx);
         let title = dialogs::title(&self.state);
         if title != self.state.last_title {
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
@@ -2284,7 +2455,8 @@ impl eframe::App for SubcraftApp {
         if self.screenshot.is_some() {
             return; // scripted runs never overwrite the user's layout
         }
-        if let Ok(j) = serde_json::to_string(&self.dock) {
+        // Sub-library tabs belong to this session only.
+        if let Ok(j) = serde_json::to_string(&self.dock.filter_tabs(|t| !matches!(t, Tab::SubLibrary(_)))) {
             storage.set_string(DOCK_KEY, j);
         }
         if let Ok(j) = serde_json::to_string(&self.state.recovery.prefs) {
@@ -2642,3 +2814,41 @@ fn build_demo(state: &mut UiState) {
         assert!(!app.state.asset_preview.is_applying());assert!(app.state.pen_after.is_none());assert!(!app.state.session.is_modified());
         let reopened=Session::open_project(&file).unwrap();assert_eq!(reopened.document(),app.state.session.document());assert!(reopened.resources().iter().any(|r|r.name.starts_with("Starter: ")));std::fs::remove_file(file).unwrap();
     }
+
+#[cfg(test)]
+mod seal_tests {
+    use super::*;
+    use subcraft_core::ChannelKind;
+
+    /// QA 2026-11: a click that changed a value and the slider drag after it were one undo step.
+    #[test]
+    fn a_release_closes_the_undo_step_of_what_the_widgets_just_did() {
+        let mut session = Session::sample();
+        session.execute(Command::AddLayer(subcraft_app::NewLayer::Fill)).unwrap();
+        let layer = session.selection().layer.unwrap();
+        let ctx = egui::Context::default();
+        let entries = session.history().entries().len();
+        let frame = |session: &mut Session, events: Vec<egui::Event>, opacity: f32| {
+            let mut out = ctx.run_ui(egui::RawInput { events, ..Default::default() }, |ui| {
+                // A widget dispatches its command during the frame...
+                session.execute(Command::SetBlendOpacity { layer, channel: ChannelKind::BaseColor, opacity }).unwrap();
+                // ...and the frame ends.
+                seal_after_widgets(session, ui.ctx());
+            });
+            out.textures_delta.clear();
+        };
+        let at = egui::pos2(10.0, 10.0);
+        let button = |pressed| egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+        // A drag: three values, released in the last frame.
+        frame(&mut session, vec![egui::Event::PointerMoved(at), button(true)], 0.9);
+        frame(&mut session, vec![], 0.8);
+        frame(&mut session, vec![button(false)], 0.7);
+        assert_eq!(session.history().entries().len(), entries + 1, "one drag is one undo step");
+        // The next drag of the same control is its own step.
+        frame(&mut session, vec![button(true)], 0.5);
+        frame(&mut session, vec![button(false)], 0.4);
+        assert_eq!(session.history().entries().len(), entries + 2);
+        session.execute(Command::Undo).unwrap();
+        assert_eq!(session.selected_layer().unwrap().blend[&ChannelKind::BaseColor].opacity, 0.7, "Undo returns to where the first drag ended");
+    }
+}

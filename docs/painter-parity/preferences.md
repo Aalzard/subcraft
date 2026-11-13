@@ -12,7 +12,7 @@ Layout notes: Edit > Settings opens one window with three sections chosen on the
 | Settings window | Edit > Settings | - | partial: Edit > Settings with General and Shortcuts pages; no Libraries page | crates/ui/src/recovery.rs (preferences_window) | #209 |
 | General section | Settings | first section | partial: Settings > General page; Painter options added here, other SubCraft options share the page | crates/ui/src/recovery.rs (general_view_settings) | #210 |
 | Shortcuts section | Settings | - | done: key set, editable keys, camera mouse gestures, the fixed list | crates/ui/src/shortcut_editor.rs | #209 |
-| Libraries section | Settings | - | missing | - | - |
+| Libraries section | Settings | - | done (Settings > Libraries page) | crates/ui/src/libraries.rs (settings) | - |
 
 ## General: Interface options
 
@@ -26,7 +26,7 @@ Layout notes: Edit > Settings opens one window with three sections chosen on the
 | Language value: Japanese | Settings > General > Interface | - | missing | - | - |
 | Language value: Chinese (simplified) | Settings > General > Interface | - | partial: Traditional Chinese only | crates/ui/src/i18n.rs:38 | - |
 | Show keyboard helper | Settings > General > Interface | not documented | partial: toggle is View > Viewport hints, not in Preferences | crates/ui/src/app.rs:1263 | - |
-| Show world axes | Settings > General > Interface | not documented | done: corner X / Y / Z gizmo, off by default | crates/ui/src/world_axes.rs | #210 |
+| Show world axes | Settings > General > Interface | not documented | done: the bottom-right X / Y / Z axis indicator (the same setting as Display Settings > Axis indicator, on by default) | crates/ui/src/recovery.rs (general_view_settings), viewport.rs (draw_axis_indicator) | #210 |
 | Background color (first gradient colour) | Settings > General > Interface | not documented | done: top colour of the 3D view background | crates/render/src/viewport.wgsl (fs_background) | #210 |
 | Background color (second gradient colour) | Settings > General > Interface | not documented | done: bottom colour; Rendering mode keeps its own background | crates/render/src/viewport.wgsl (fs_background) | #210 |
 | Only display the selected material when painting | Settings > General > Interface | off recommended | missing | - | - |
@@ -45,11 +45,11 @@ Layout notes: Edit > Settings opens one window with three sections chosen on the
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Rotation speed | Settings > General > Camera | multiplier; not documented | done: 0.1 to 5 | crates/ui/src/nav.rs (CameraSpeed) | #210 |
-| Zoom speed | Settings > General > Camera | multiplier; not documented | done: 0.1 to 5 (zoom drag) | crates/ui/src/nav.rs (CameraSpeed) | #210 |
-| Zoom speed: Inverse direction | Settings > General > Camera | not documented | done | crates/ui/src/nav.rs (CameraSpeed) | #210 |
-| Wheel speed | Settings > General > Camera | multiplier; not documented | done: 0.1 to 5 | crates/ui/src/nav.rs (CameraSpeed) | #210 |
-| Wheel speed: Inverse direction | Settings > General > Camera | not documented | done | crates/ui/src/nav.rs (CameraSpeed) | #210 |
+| Rotation speed | Settings > General > Camera | multiplier; not documented | done: 0.1-5x (default 1), every orbit mode | crates/ui/src/nav.rs (CameraSpeed) | 306 |
+| Zoom speed | Settings > General > Camera | multiplier; not documented | done: 0.1-5x (default 1) for the zoom drag | crates/ui/src/nav.rs (CameraSpeed) | 306 |
+| Zoom speed: Inverse direction | Settings > General > Camera | not documented | done | crates/ui/src/nav.rs (CameraSpeed) | 306 |
+| Wheel speed | Settings > General > Camera | multiplier; not documented | done: 0.1-5x (default 1) for the mouse wheel in the 3D view | crates/ui/src/nav.rs (CameraSpeed) | 306 |
+| Wheel speed: Inverse direction | Settings > General > Camera | not documented | done | crates/ui/src/nav.rs (CameraSpeed) | 306 |
 
 ## General: Baking options
 
@@ -83,14 +83,14 @@ Layout notes: a list of resource paths, each with a name, a folder, a "default" 
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| your_assets path (user Documents folder) | Settings > Libraries | present by default | partial: one fixed user library folder, not listed or editable | crates/ui/src/app.rs:601 | - |
-| starter_assets path (install folder) | Settings > Libraries | present by default | partial: built-in library is compiled in, not a listed path | crates/app/src/library.rs | - |
-| default radio button (where new presets are saved) | Settings > Libraries, per path | your_assets | missing | - | - |
-| Name field | Settings > Libraries > add path | empty | missing | - | - |
-| Path field | Settings > Libraries > add path | empty | missing | - | - |
-| Plus button (adds the path, creates sub-folders) | Settings > Libraries > add path | - | missing | - | - |
-| Minus button (removes a path; default paths are only disabled) | Settings > Libraries, per path | - | missing | - | - |
-| Paths editable only with no project open | Settings > Libraries | rule | missing | - | - |
+| your_assets path (user Documents folder) | Settings > Libraries | present by default | done (listed with its path) | crates/ui/src/libraries.rs (settings) | - |
+| starter_assets path (install folder) | Settings > Libraries | present by default | partial: listed as built in; compiled in, not a folder | crates/ui/src/libraries.rs (settings) | - |
+| default radio button (where new presets are saved) | Settings > Libraries, per path | your_assets | done | crates/ui/src/libraries.rs (settings, UiState::set_libraries) | - |
+| Name field | Settings > Libraries > add path | empty | done | crates/ui/src/libraries.rs (settings) | - |
+| Path field | Settings > Libraries > add path | empty | done (with a folder picker) | crates/ui/src/libraries.rs (settings) | - |
+| Plus button (adds the path, creates sub-folders) | Settings > Libraries > add path | - | done (creates the folder; kind sub-folders appear on first import) | crates/ui/src/libraries.rs (settings) | - |
+| Minus button (removes a path; default paths are only disabled) | Settings > Libraries, per path | - | partial: removes an added library; your_assets cannot be removed or disabled | crates/ui/src/libraries.rs (settings) | - |
+| Paths editable only with no project open | Settings > Libraries | rule | partial: editable any time; the panel reloads at once | crates/ui/src/libraries.rs (settings) | - |
 
 ## Automatic resource update (Assets window, double-arrow button)
 

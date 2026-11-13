@@ -542,3 +542,88 @@ fn shape_crop_drops_what_lies_outside_the_projection_box() {
         assert!(coverage_tile(&crop, &g).unwrap().iter().all(|&c| c == 1.0));
     }
 }
+
+#[test]
+fn spherical_cylindrical_and_symmetric_projections_sample_folded_coordinates() {
+    use subcraft_doc::FillSymmetry;
+    // The sampler returns the 2D coordinate it was asked for.
+    let probe = |p: &Projection, pos: [f32; 3]| {
+        let s = sample_projected(p, [0.0; 2], pos, [0.0, 1.0, 0.0], |q| [q[0], q[1], 0.0, 1.0]);
+        [s[0], s[1]]
+    };
+    let near = |a: [f32; 2], b: [f32; 2]| (a[0] - b[0]).abs() < 1e-5 && (a[1] - b[1]).abs() < 1e-5;
+    let sphere = Projection { mode: ProjectionMode::Spherical, planar_axis: 1, ..Projection::default() };
+    assert!(near(probe(&sphere, [1.0, 0.5, 0.5]), [0.75, 0.5]));
+    // Tiling scales the wrapped coordinate like any other projection.
+    assert!(near(probe(&Projection { scale: [4.0, 2.0], ..sphere }, [1.0, 0.5, 0.5]), [3.0, 1.0]));
+    let cylinder = Projection { mode: ProjectionMode::Cylindrical, planar_axis: 1, cylinder_angle: 180.0, ..Projection::default() };
+    assert!(near(probe(&cylinder, [1.0, 0.25, 0.5]), [1.0, 0.75]));
+    // Mirror symmetry: both sides of the plane sample the same coordinate.
+    let mirrored = Projection { mode: ProjectionMode::Planar, planar_axis: 2, symmetry: FillSymmetry::mirror(), ..Projection::default() };
+    assert!(near(probe(&mirrored, [0.2, 0.3, 0.5]), probe(&mirrored, [0.8, 0.3, 0.5])));
+    let plain = Projection { symmetry: FillSymmetry::None, ..mirrored };
+    assert!(!near(probe(&plain, [0.2, 0.3, 0.5]), probe(&plain, [0.8, 0.3, 0.5])));
+    // On a UV projection symmetry is ignored.
+    let uv = Projection { symmetry: FillSymmetry::mirror(), ..Projection::default() };
+    assert!(near(sample_projected(&uv, [0.2, 0.7], [0.2, 0.3, 0.5], [0.0, 1.0, 0.0], |q| [q[0], q[1], 0.0, 1.0])[..2].try_into().unwrap(), [0.2, 0.7]));
+    // UV Wrap None clips a half-perimeter cylinder to the half facing its seam's opposite side.
+    let clipped = Projection { uv_wrap: subcraft_doc::UvWrap::None, ..cylinder };
+    let sc = clipped.rotation_sin_cos();
+    assert!(crate::sample::projection_covers(&clipped, sc, [0.0; 2], [0.5, 0.5, 1.0]));
+    assert!(!crate::sample::projection_covers(&clipped, sc, [0.0; 2], [0.5, 0.5, 0.0]));
+}
+
+/// Warp projection: untouched it is Planar, it projects only inside its grid, and a moved point
+/// changes what a texel reads.
+#[test]
+fn warp_projection_is_planar_until_bent_and_stops_at_its_grid() {
+    let coords = |p: [f32; 2]| [p[0], p[1], 0.0, 1.0];
+    for axis in 0..3u8 {
+        let planar = Projection { mode: ProjectionMode::Planar, planar_axis: axis, scale: [1.0, 1.0], ..Projection::default() };
+        let warp = Projection { mode: ProjectionMode::Warp, ..planar };
+        for pos in [[0.2, 0.3, 0.4], [0.75, 0.1, 0.9], [0.5, 0.5, 0.5]] {
+            let a = sample_projected(&planar, [0.0; 2], pos, [0.0, 0.0, 1.0], coords);
+            let b = sample_projected(&warp, [0.0; 2], pos, [0.0, 0.0, 1.0], coords);
+            assert!((a[0] - b[0]).abs() < 1e-5 && (a[1] - b[1]).abs() < 1e-5, "axis {axis} {pos:?}: {a:?} vs {b:?}");
+        }
+        assert!(warp.clips() && !planar.clips());
+        let sc = warp.rotation_sin_cos();
+        assert!(projection_covers(&warp, sc, [0.0; 2], [0.5, 0.5, 0.5]));
+    }
+    // Seen down Z, x = 1.2 is outside the grid: not covered.
+    let warp = Projection { mode: ProjectionMode::Warp, planar_axis: 2, ..Projection::default() };
+    assert!(!projection_covers(&warp, warp.rotation_sin_cos(), [0.0; 2], [1.2, 0.5, 0.5]));
+    // Pull the point at grid (1/3, 1/3) to the right: the texel that sat at x = 0.4 reads further left.
+    let mut grid = warp.warp_grid();
+    let i = grid.index(1, 1);
+    let p = grid.points()[i];
+    assert!(grid.set_point(i, [p[0] + 0.15, p[1], p[2]]));
+    let bent = Projection { warp: Some(grid), ..warp };
+    let pos = [0.4, 1.0 - 1.0 / 3.0, 0.5];
+    let before = sample_projected(&warp, [0.0; 2], pos, [0.0, 0.0, 1.0], coords);
+    let after = sample_projected(&bent, [0.0; 2], pos, [0.0, 0.0, 1.0], coords);
+    assert!((before[0] - 0.4).abs() < 1e-5 && after[0] < 0.35, "{before:?} -> {after:?}");
+    assert!(projection_covers(&bent, bent.rotation_sin_cos(), [0.0; 2], pos));
+}
+
+/// QA 2026-11: the cache key of a procedural field lost most of the bits of the cylinder angle
+/// and symmetry settings: angle 120 and 144 shared a key, so a fill at one angle was drawn with
+/// the cached field of the other.
+#[test]
+fn field_keys_differ_for_every_cylinder_angle_and_mirror_position() {
+    use subcraft_doc::FillSymmetry;
+    let params = ProceduralParams::new(ProceduralKind::Clouds);
+    let mut seen = std::collections::HashMap::new();
+    for angle in 1..=359 {
+        let p = Projection { mode: ProjectionMode::Cylindrical, cylinder_angle: angle as f32, ..Projection::default() };
+        if let Some(other) = seen.insert(field::FieldKey::new(&params, &p), angle) {
+            panic!("cylinder angles {other} and {angle} share a field key");
+        }
+    }
+    let mirror = |position: f32| field::FieldKey::new(&params, &Projection { mode: ProjectionMode::Triplanar, symmetry: FillSymmetry::Mirror { axis: 0, position }, ..Projection::default() });
+    assert_ne!(mirror(0.4), mirror(0.55));
+    let mut positions = std::collections::HashSet::new();
+    for i in 0..200 {
+        assert!(positions.insert(mirror(i as f32 * 0.005)), "mirror position {} shares a key", i as f32 * 0.005);
+    }
+}

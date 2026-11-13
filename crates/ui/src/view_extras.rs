@@ -44,6 +44,8 @@ impl CameraBookmark {
         camera.target = v;
         camera.yaw = self.yaw;
         camera.pitch = self.pitch.clamp(-1.55, 1.55);
+        // A bookmark stores a level view: a roll left by a free rotation would tilt it.
+        camera.roll = 0.0;
         camera.distance = self.distance.clamp(camera.scene_radius * 0.05, camera.scene_radius * 50.0);
         camera.fov_y_deg = self.fov_y_deg;
         camera.orthographic = self.orthographic;
@@ -266,6 +268,10 @@ pub fn camera_menu(ui: &mut Ui, state: &mut crate::state::UiState) {
             ui.close();
             return Action::Save;
         }
+        ui.separator();
+        let free = &mut state.recovery.prefs.viewport.free_rotation;
+        ui.radio_value(free, false, crate::i18n::tr("Constrained rotation")).on_hover_text(crate::i18n::tr("Orbit around the world vertical; the horizon stays level"));
+        ui.radio_value(free, true, crate::i18n::tr("Free rotation")).on_hover_text(crate::i18n::tr("Orbit around the view's own axes: the camera can roll and go over the top"));
         let mut action = Action::None;
         let bookmarks = &state.recovery.prefs.viewport.camera_bookmarks;
         if !bookmarks.is_empty() {
@@ -442,6 +448,21 @@ mod tests {
         // Looks along the camera's axis even though that points away from the model.
         let fwd = (cam.target - cam.eye()).normalize();
         assert!((fwd - spec.forward()).length() < 1e-4, "{fwd:?} vs {:?}", spec.forward());
+    }
+
+    /// QA 2026-11: a bookmark applied after a free rotation kept the camera's roll, so the saved
+    /// level view came back tilted.
+    #[test]
+    fn a_bookmark_restores_a_level_view_after_a_free_rotation() {
+        let (level, _) = model();
+        let bookmark = CameraBookmark::capture("level", &level);
+        let mut tilted = level;
+        tilted.free_orbit(0.0, 60.0);
+        tilted.free_orbit(120.0, 0.0);
+        bookmark.apply(&mut tilted);
+        assert_eq!(tilted.roll, 0.0);
+        let (a, b) = (tilted.view().to_cols_array(), level.view().to_cols_array());
+        assert!(a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-4), "the bookmarked view is back: {a:?} vs {b:?}");
     }
 
     #[test]

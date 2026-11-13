@@ -374,6 +374,34 @@ fn alignment_compat<'de, D: Deserializer<'de>>(d: D) -> Result<EnvAlignment, D::
     compat(d, &EnvAlignment::ALL)
 }
 
+/// Painter's shadow computation modes: cheaper and softer to finer and slower.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ShadowMode {
+    #[default]
+    Lightweight,
+    Average,
+    Intensive,
+}
+
+impl ShadowMode {
+    /// Storage order (an index in old files); Painter's menu lists them Intensive first.
+    pub const ALL: [ShadowMode; 3] = [ShadowMode::Lightweight, ShadowMode::Average, ShadowMode::Intensive];
+    pub const MENU: [ShadowMode; 3] = [ShadowMode::Intensive, ShadowMode::Average, ShadowMode::Lightweight];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            ShadowMode::Lightweight => "Lightweight",
+            ShadowMode::Average => "Average",
+            ShadowMode::Intensive => "Intensive",
+        }
+    }
+}
+
+fn shadow_mode_compat<'de, D: Deserializer<'de>>(d: D) -> Result<ShadowMode, D::Error> {
+    compat(d, &ShadowMode::ALL)
+}
+
 /// Sensor height (mm) behind the focal-length readout: a full-frame 36 x 24 mm sensor.
 pub const SENSOR_HEIGHT_MM: f32 = 24.0;
 /// Field-of-view range of the camera (vertical, degrees).
@@ -439,18 +467,29 @@ pub struct DisplaySettings {
     pub env_blur: f32,
     #[serde(deserialize_with = "alignment_compat")]
     pub env_alignment: EnvAlignment,
+    /// Raster shadows of the key light: on/off (off, like Painter), opacity and computation mode.
+    pub shadows: bool,
+    pub shadow_opacity: f32,
+    #[serde(deserialize_with = "shadow_mode_compat")]
+    pub shadow_mode: ShadowMode,
 
     // ----- camera ------------------------------------------------------------------------------
     /// Vertical field of view, degrees.
     pub fov: f32,
     /// 4x MSAA.
     pub antialias: bool,
+    /// Temporal anti-aliasing (off by default): while the view is still, jittered frames are
+    /// averaged until `taa_accumulations` of them have been drawn.
+    pub taa: bool,
+    pub taa_accumulations: u32,
     /// Depth of field (off by default): blur amount 0..1, focus distance as a multiple of the
     /// orbit distance (1 = the point the camera orbits), sharp band in percent of the model size.
     pub dof: bool,
     pub dof_amount: f32,
     pub dof_focus: f32,
     pub dof_range: f32,
+    /// Focus on whatever is at the centre of the view, every frame (Painter's auto-focus).
+    pub dof_autofocus: bool,
 
     // ----- post effects ------------------------------------------------------------------------
     /// Master switch ("Activate Post Effects"): off shows the plain render with the default
@@ -513,6 +552,13 @@ pub struct DisplaySettings {
     pub aberration_achromatic: bool,
     pub vignette_on: bool,
     pub vignette_amount: f32,
+    /// Lens distortion (Painter's pre-12.0 effect): power (negative = pincushion), FOV (zoom that
+    /// hides the stretched border), edge roundness and edge smoothness.
+    pub lens_on: bool,
+    pub lens_power: f32,
+    pub lens_fov: f32,
+    pub lens_roundness: f32,
+    pub lens_smoothness: f32,
     pub sharpen_on: bool,
     pub sharpen_amount: f32,
     /// Sharpen diameter in pixels.
@@ -578,12 +624,18 @@ impl Default for DisplaySettings {
             env_rotation: 0.0,
             env_blur: 0.5,
             env_alignment: EnvAlignment::World,
+            shadows: false,
+            shadow_opacity: 0.8,
+            shadow_mode: ShadowMode::Lightweight,
             fov: 40.0,
             antialias: true,
+            taa: false,
+            taa_accumulations: 16,
             dof: false,
             dof_amount: 0.5,
             dof_focus: 1.0,
             dof_range: 10.0,
+            dof_autofocus: false,
             post_effects: true,
             tone_mapping_on: true,
             tone_map: ToneMap::Aces,
@@ -621,6 +673,11 @@ impl Default for DisplaySettings {
             aberration_achromatic: false,
             vignette_on: false,
             vignette_amount: 0.5,
+            lens_on: false,
+            lens_power: 0.3,
+            lens_fov: 1.0,
+            lens_roundness: 0.5,
+            lens_smoothness: 0.2,
             sharpen_on: false,
             sharpen_amount: 0.5,
             sharpen_diameter: 2.0,
@@ -669,7 +726,7 @@ impl DisplaySettings {
             ($($field:ident),* $(,)?) => { $( d.$field = std::mem::take(&mut self.$field); )* };
         }
         keep!(
-            env_map, env_opacity, env_exposure, env_rotation, env_blur, env_alignment, fov, antialias, wireframe, wire_color, wire_opacity,
+            env_map, env_opacity, env_exposure, env_rotation, env_blur, env_alignment, shadows, shadow_opacity, shadow_mode, fov, antialias, taa, taa_accumulations, wireframe, wire_color, wire_opacity,
             wire_angle, grid, grid_axes, grid_plane, grid_color, grid_opacity, solo_unlit, hdr_scale, hdr_signed_colors, hdr_positive,
             hdr_negative, channel_component, anisotropy, mip_bias, camera_frame, camera_frame_ratio, gate_opacity,
         );
@@ -747,6 +804,20 @@ mod tests {
         assert_eq!((read.grid_plane, read.anisotropy, read.channel_component, read.mip_bias), (GridAxis::Z, Anisotropy::VeryHigh, ChannelComponent::Alpha, 3));
         let odd: DisplaySettings = serde_json::from_str(r#"{"grid_plane":"w","anisotropy":77}"#).unwrap();
         assert_eq!((odd.grid_plane, odd.anisotropy), (GridAxis::Y, Anisotropy::Medium));
+    }
+
+    #[test]
+    fn shadows_are_off_by_default_load_from_old_indices_and_survive_reset_look() {
+        let d = DisplaySettings::default();
+        assert_eq!((d.shadows, d.shadow_mode), (false, ShadowMode::Lightweight));
+        let read: DisplaySettings = serde_json::from_str(r#"{"shadows":true,"shadow_mode":2,"shadow_opacity":0.4}"#).unwrap();
+        assert_eq!((read.shadows, read.shadow_mode, read.shadow_opacity), (true, ShadowMode::Intensive, 0.4));
+        let odd: DisplaySettings = serde_json::from_str(r#"{"shadow_mode":"cascaded"}"#).unwrap();
+        assert_eq!(odd.shadow_mode, ShadowMode::Lightweight);
+        let mut kept = DisplaySettings { shadows: true, shadow_mode: ShadowMode::Average, shadow_opacity: 0.3, bloom: 1.0, ..Default::default() };
+        kept.reset_post_effects();
+        assert_eq!((kept.shadows, kept.shadow_mode, kept.shadow_opacity, kept.bloom), (true, ShadowMode::Average, 0.3, 0.0), "shadows are environment settings, not post effects");
+        assert_eq!(ShadowMode::MENU, [ShadowMode::Intensive, ShadowMode::Average, ShadowMode::Lightweight]);
     }
 
     #[test]

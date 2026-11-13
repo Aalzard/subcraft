@@ -9,15 +9,15 @@ Layout notes: the panel has a small header with a visibility menu button, a focu
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Open Menu button (visibility menu) | Texture Set List header | not documented | missing | - | - |
-| Show All | Texture Set List > visibility menu | not documented | missing | - | - |
-| Hide All | Texture Set List > visibility menu | not documented | missing | - | - |
-| Invert Show/Hide | Texture Set List > visibility menu | not documented | missing | - | - |
-| Focus Mode (isolate active set, click again to leave) | Texture Set List header | off | missing | - | - |
-| Settings button (gear menu) | Texture Set List header | not documented | missing | - | - |
-| Hide Empty Descriptions | Texture Set List > Settings | default choice | missing | - | - |
-| Hide All Descriptions | Texture Set List > Settings | off | missing | - | - |
-| Show All Descriptions | Texture Set List > Settings | off | missing | - | - |
+| Open Menu button (visibility menu) | Texture Set List header | not documented | done | crates/ui/src/panels/texture_sets.rs (list_header) | - |
+| Show All | Texture Set List > visibility menu | not documented | done | crates/app/src/session.rs (Command::SetTextureSetsVisibility) | - |
+| Hide All | Texture Set List > visibility menu | not documented | done | crates/app/src/session.rs (Command::SetTextureSetsVisibility) | - |
+| Invert Show/Hide | Texture Set List > visibility menu | not documented | done | crates/app/src/session.rs (Command::SetTextureSetsVisibility) | - |
+| Focus Mode (isolate active set, click again to leave) | Texture Set List header | off | done | crates/app/src/session.rs (Command::SetTextureSetFocus) | - |
+| Settings button (gear menu) | Texture Set List header | not documented | partial: description modes only; no Import Shader Parameters or Reassign | crates/ui/src/panels/texture_sets.rs (list_header) | - |
+| Hide Empty Descriptions | Texture Set List > Settings | default choice | done | crates/ui/src/panels/texture_sets.rs (DescriptionDisplay) | - |
+| Hide All Descriptions | Texture Set List > Settings | off | done | crates/ui/src/panels/texture_sets.rs (DescriptionDisplay) | - |
+| Show All Descriptions | Texture Set List > Settings | off | done | crates/ui/src/panels/texture_sets.rs (DescriptionDisplay) | - |
 | Import Shader Parameters (json) | Texture Set List > Settings | not documented | missing | - | - |
 | Reassign Texture Sets | Texture Set List > Settings | not documented | missing | - | - |
 
@@ -30,7 +30,7 @@ Layout notes: the panel has a small header with a visibility menu button, a focu
 | Visibility eye per row | Texture Set List row | visible | done | crates/ui/src/panels/texture_sets.rs:46 | - |
 | Texture set name | Texture Set List row | mesh material name | done | crates/ui/src/panels/texture_sets.rs:61 | - |
 | Double-click name to rename | Texture Set List row | not documented | done | crates/ui/src/panels/texture_sets.rs:79 | - |
-| Description line under the name (editable in place) | Texture Set List row | hidden when empty | missing | - | - |
+| Description line under the name (editable in place) | Texture Set List row | hidden when empty | done | crates/ui/src/panels/texture_sets.rs (set_rows) | - |
 | Resolution quick dropdown | Texture Set List row | 128 to 4096 (unverified) | done | crates/ui/src/panels/texture_sets.rs:64 | - |
 | Shader instance button (pick an instance) | Texture Set List row, right side | all sets share one instance | partial: static "Main shader" label, no menu | crates/ui/src/panels/texture_sets.rs:76 | - |
 | New shader instance | Texture Set List row > shader button menu | not documented | missing | - | - |
@@ -49,8 +49,8 @@ Layout notes: the panel has a small header with a visibility menu button, a focu
 |---|---|---|---|---|---|
 | Show/Hide texture set | Right-click on a set name | not documented | done | crates/ui/src/panels/texture_sets.rs:82 | - |
 | Edit name | Right-click on a set name | not documented | done | crates/ui/src/panels/texture_sets.rs:81 | - |
-| Reset name to original name | Right-click on a set name | not documented | missing | - | - |
-| Edit Description | Right-click on a set name | not documented | missing | - | - |
+| Reset name to original name | Right-click on a set name | not documented | done | crates/app/src/session.rs (Command::ResetTextureSetName) | - |
+| Edit Description | Right-click on a set name | not documented | done | crates/ui/src/panels/texture_sets.rs (set_rows) | - |
 
 ## Texture Set List: shortcuts
 
@@ -83,7 +83,7 @@ Layout notes: one scrolling column: General properties (Name, Description, Size 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
 | Name | Texture Set Settings > General properties | mesh material name | done | crates/ui/src/panels/texture_sets.rs:172 | - |
-| Description | Texture Set Settings > General properties | empty | missing | - | - |
+| Description | Texture Set Settings > General properties | empty | done | crates/ui/src/panels/texture_sets.rs (general) | - |
 | Size (width) | Texture Set Settings > General properties | up to 4096 in app; list 128 to 4096 (unverified) | done | crates/ui/src/panels/texture_sets.rs:188 | - |
 | Size lock button (unlock for non-square) | Texture Set Settings > General properties | locked | partial: shown but always locked | crates/ui/src/panels/texture_sets.rs:191 | - |
 | Size (height) | Texture Set Settings > General properties | same as width | missing | - | - |
@@ -94,24 +94,24 @@ Layout notes: one scrolling column: General properties (Name, Description, Size 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
 | Add channel button | Texture Set Settings > Channels | not documented | done | crates/ui/src/panels/texture_sets.rs:220 | - |
-| Add menu category: Supported channels | Add channel popup | not documented | partial: one flat list, no shader support grouping | crates/ui/src/panels/texture_sets.rs:223 | - |
-| Add menu category: Unsupported channels | Add channel popup | not documented | missing | - | - |
-| Add menu category: User channels | Add channel popup | not documented | partial: user channels in the same flat list | crates/ui/src/panels/texture_sets.rs:223 | - |
+| Add menu category: Supported channels | Add channel popup | not documented | done | crates/ui/src/panels/texture_sets.rs (add_menu_groups) | - |
+| Add menu category: Unsupported channels | Add channel popup | not documented | done | crates/ui/src/panels/texture_sets.rs (add_menu_groups) | - |
+| Add menu category: User channels | Add channel popup | not documented | done | crates/ui/src/panels/texture_sets.rs (add_menu_groups) | - |
 | Select several channels at once (window) | Add channel | not documented | missing | - | - |
-| Remove channel (paint data kept, can be re-added) | Texture Set Settings > channel row | not documented | partial: command exists, row button disabled | crates/app/src/session.rs:1103 | - |
+| Remove channel (paint data kept, can be re-added) | Texture Set Settings > channel row | not documented | done | crates/ui/src/panels/texture_sets.rs (channels) | - |
 | Channel name | Texture Set Settings > channel row | not documented | done | crates/ui/src/panels/texture_sets.rs:231 | - |
-| Rename a user channel by double-click | Texture Set Settings > channel row | not documented | missing | - | - |
+| Rename a user channel by double-click | Texture Set Settings > channel row | not documented | done | crates/app/src/session.rs (Command::RenameUserChannel) | - |
 | Channel format label | Texture Set Settings > channel row | per channel | done | crates/ui/src/panels/texture_sets.rs:237 | - |
-| Channel Settings button | Texture Set Settings > channel row | not documented | partial: gear shown but disabled | crates/ui/src/panels/texture_sets.rs:235 | - |
-| Format sRGB8 | Channel settings menu | not documented | partial: 8 bit via SetChannelFormat only, no menu | crates/app/src/session.rs:1114 | - |
-| Format L8 | Channel settings menu | not documented | partial: 8 bit via command only; L or RGB fixed per channel | crates/app/src/session.rs:1114 | - |
-| Format RGB8 | Channel settings menu | not documented | partial: 8 bit via command only; L or RGB fixed per channel | crates/app/src/session.rs:1114 | - |
-| Format L16 | Channel settings menu | not documented | partial: 16 bit via command only | crates/app/src/session.rs:1114 | - |
-| Format RGB16 | Channel settings menu | not documented | partial: 16 bit via command only | crates/app/src/session.rs:1114 | - |
-| Format L16F | Channel settings menu | not documented | partial: 16F via command only | crates/app/src/session.rs:1114 | - |
-| Format RGB16F | Channel settings menu | not documented | partial: 16F via command only | crates/app/src/session.rs:1114 | - |
-| Format L32F | Channel settings menu | not documented | partial: 32F via command only | crates/app/src/session.rs:1114 | - |
-| Format RGB32F | Channel settings menu | not documented | partial: 32F via command only | crates/app/src/session.rs:1114 | - |
+| Channel Settings button | Texture Set Settings > channel row | not documented | partial: format menu only, no Color channel toggle | crates/ui/src/panels/texture_sets.rs (channels) | - |
+| Format sRGB8 | Channel settings menu | not documented | partial: menu on the channel gear; L or RGB is fixed per channel | crates/ui/src/panels/texture_sets.rs (CHANNEL_FORMATS) | - |
+| Format L8 | Channel settings menu | not documented | partial: menu on the channel gear; L or RGB is fixed per channel | crates/ui/src/panels/texture_sets.rs (CHANNEL_FORMATS) | - |
+| Format RGB8 | Channel settings menu | not documented | partial: menu on the channel gear; L or RGB is fixed per channel | crates/ui/src/panels/texture_sets.rs (CHANNEL_FORMATS) | - |
+| Format L16 | Channel settings menu | not documented | partial: menu on the channel gear; L or RGB is fixed per channel | crates/ui/src/panels/texture_sets.rs (CHANNEL_FORMATS) | - |
+| Format RGB16 | Channel settings menu | not documented | partial: menu on the channel gear; L or RGB is fixed per channel | crates/ui/src/panels/texture_sets.rs (CHANNEL_FORMATS) | - |
+| Format L16F | Channel settings menu | not documented | partial: menu on the channel gear; L or RGB is fixed per channel | crates/ui/src/panels/texture_sets.rs (CHANNEL_FORMATS) | - |
+| Format RGB16F | Channel settings menu | not documented | partial: menu on the channel gear; L or RGB is fixed per channel | crates/ui/src/panels/texture_sets.rs (CHANNEL_FORMATS) | - |
+| Format L32F | Channel settings menu | not documented | partial: menu on the channel gear; L or RGB is fixed per channel | crates/ui/src/panels/texture_sets.rs (CHANNEL_FORMATS) | - |
+| Format RGB32F | Channel settings menu | not documented | partial: menu on the channel gear; L or RGB is fixed per channel | crates/ui/src/panels/texture_sets.rs (CHANNEL_FORMATS) | - |
 | Color channel toggle (colour managed; editable on user channels only) | Channel settings menu | off for user channels | missing | - | - |
 | Color managed indicator icon | Texture Set Settings > channel row | fixed per channel | missing | - | - |
 
@@ -152,39 +152,39 @@ Layout notes: the names below are the channel types Painter offers (from the col
 | Specular level | Add channel | data | done | crates/core/src/channel.rs:20 | - |
 | Translucency | Add channel | data | missing | - | - |
 | Transmissive | Add channel | colour managed | missing | - | - |
-| User0 to User15 (16 user channels) | Add channel > User channels | data unless Color channel is ticked | partial: 4 user channels (User 0 to User 3) | crates/core/src/channel.rs:21 | - |
+| User0 to User15 (16 user channels) | Add channel > User channels | data unless Color channel is ticked | done | crates/core/src/channel.rs (ChannelKind::USER) | - |
 
 ## Texture Set Settings: mixing settings
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Normal mixing | Texture Set Settings > Channels | Combine (default); Replace | missing | - | - |
-| Height to normal method | Texture Set Settings > Channels | Smooth (Sobel) (default); Sharp | missing | - | - |
-| Ambient occlusion mixing | Texture Set Settings > Channels | Multiply (default); Replace | missing | - | - |
-| UV padding | Texture Set Settings > Channels | 3D Space Neighbor (default); 2D Space Neighbor | missing | - | - |
+| Normal mixing | Texture Set Settings > Channels | Combine (default); Replace | partial: applied at export; the viewport always combines | crates/export/src/lib.rs (Dense); crates/ui/src/panels/texture_sets.rs (mixing_rows) | - |
+| Height to normal method | Texture Set Settings > Channels | Smooth (Sobel) (default); Sharp | partial: applied at export; the viewport uses the sharp method | crates/export/src/lib.rs (Dense); crates/ui/src/panels/texture_sets.rs (mixing_rows) | - |
+| Ambient occlusion mixing | Texture Set Settings > Channels | Multiply (default); Replace | partial: applied at export; the viewport uses the baked map only when there is no AO channel | crates/export/src/lib.rs (Dense); crates/ui/src/panels/texture_sets.rs (mixing_rows) | - |
+| UV padding | Texture Set Settings > Channels | 3D Space Neighbor (default); 2D Space Neighbor | partial: setting stored; 3D Space Neighbor not implemented, export pads from 2D neighbours | crates/ui/src/panels/texture_sets.rs (mixing_rows) | - |
 
 ## Texture Set Settings: Mesh maps
 
-Layout notes: a "Bake Mesh Maps" button, then one slot per mesh map with a thumbnail, the map name and the resource name. The public settings page stops at the section heading, so slot interactions below are marked unverified. SubCraft shows a row only for maps that exist (Height and Bent normals also show an empty "Select ..." slot) and each row has an X to clear it. PR #137 adds an "Import mesh maps..." button and an ID colour list in this section.
+Layout notes: a "Bake Mesh Maps" button, then one slot per mesh map with a thumbnail, the map name and the resource name. The public settings page stops at the section heading, so slot interactions below are marked unverified. SubCraft lists all nine slots; an empty one shows "Select ... map" and takes an image by click or drop, a filled one has an X to clear it. PR #137 adds an "Import mesh maps..." button and an ID colour list in this section.
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
 | Bake Mesh Maps button | Texture Set Settings > Mesh maps | not documented | done | crates/ui/src/panels/texture_sets.rs:246 | - |
-| Slot: Normal | Texture Set Settings > Mesh maps | empty | partial: row appears only once baked | crates/ui/src/panels/texture_sets.rs:111 | #137 |
-| Slot: World space normal | Texture Set Settings > Mesh maps | empty | partial: row appears only once baked | crates/ui/src/panels/texture_sets.rs:112 | #137 |
-| Slot: ID | Texture Set Settings > Mesh maps | empty | partial: row appears only once baked | crates/ui/src/panels/texture_sets.rs:113 | #137 |
-| Slot: Ambient occlusion | Texture Set Settings > Mesh maps | empty | partial: row appears only once baked | crates/ui/src/panels/texture_sets.rs:114 | #137 |
-| Slot: Curvature | Texture Set Settings > Mesh maps | empty | partial: row appears only once baked | crates/ui/src/panels/texture_sets.rs:115 | #137 |
-| Slot: Position | Texture Set Settings > Mesh maps | empty | partial: row appears only once baked | crates/ui/src/panels/texture_sets.rs:116 | #137 |
-| Slot: Thickness | Texture Set Settings > Mesh maps | empty | partial: row appears only once baked | crates/ui/src/panels/texture_sets.rs:117 | #137 |
-| Slot: Height | Texture Set Settings > Mesh maps | empty | partial: empty slot opens the bake window, cannot pick a file | crates/ui/src/panels/texture_sets.rs:260 | #137 |
-| Slot: Bent normals | Texture Set Settings > Mesh maps | empty | partial: empty slot opens the bake window, cannot pick a file | crates/ui/src/panels/texture_sets.rs:260 | #137 |
+| Slot: Normal | Texture Set Settings > Mesh maps | empty | done | crates/ui/src/panels/texture_sets.rs (MESH_MAP_SLOTS, map_slot) | #137 |
+| Slot: World space normal | Texture Set Settings > Mesh maps | empty | done | crates/ui/src/panels/texture_sets.rs (MESH_MAP_SLOTS, map_slot) | #137 |
+| Slot: ID | Texture Set Settings > Mesh maps | empty | done | crates/ui/src/panels/texture_sets.rs (MESH_MAP_SLOTS, map_slot) | #137 |
+| Slot: Ambient occlusion | Texture Set Settings > Mesh maps | empty | done | crates/ui/src/panels/texture_sets.rs (MESH_MAP_SLOTS, map_slot) | #137 |
+| Slot: Curvature | Texture Set Settings > Mesh maps | empty | done | crates/ui/src/panels/texture_sets.rs (MESH_MAP_SLOTS, map_slot) | #137 |
+| Slot: Position | Texture Set Settings > Mesh maps | empty | done | crates/ui/src/panels/texture_sets.rs (MESH_MAP_SLOTS, map_slot) | #137 |
+| Slot: Thickness | Texture Set Settings > Mesh maps | empty | done | crates/ui/src/panels/texture_sets.rs (MESH_MAP_SLOTS, map_slot) | #137 |
+| Slot: Height | Texture Set Settings > Mesh maps | empty | done | crates/ui/src/panels/texture_sets.rs (MESH_MAP_SLOTS, map_slot) | #137 |
+| Slot: Bent normals | Texture Set Settings > Mesh maps | empty | done | crates/ui/src/panels/texture_sets.rs (MESH_MAP_SLOTS, map_slot) | #137 |
 | Slot: Opacity | Texture Set Settings > Mesh maps | empty | missing (the Opacity *channel* is done, see Channels) | - | - |
-| Click a slot to select an image resource | Mesh map slot | (unverified) | missing | - | #137 |
-| Drag a texture from Assets onto a slot | Mesh map slot | (unverified) | missing | - | - |
-| Replace the map in a filled slot | Mesh map slot | (unverified) | missing | - | #137 |
-| Remove (X) the map from a slot | Mesh map slot | (unverified) | done | crates/ui/src/panels/texture_sets.rs:291 | - |
-| Slot context menu | Mesh map slot (right-click) | not documented | missing | - | - |
+| Click a slot to select an image resource | Mesh map slot | (unverified) | partial: opens a file dialog, not a resource picker | crates/ui/src/panels/texture_sets.rs (set_mesh_map_from_file) | #137 |
+| Drag a texture from Assets onto a slot | Mesh map slot | (unverified) | done (also a file from the system file browser) | crates/ui/src/panels/texture_sets.rs (mesh_maps) | - |
+| Replace the map in a filled slot | Mesh map slot | (unverified) | done | crates/ui/src/panels/texture_sets.rs (map_slot) | #137 |
+| Remove (X) the map from a slot | Mesh map slot | (unverified) | done | crates/ui/src/panels/texture_sets.rs (map_slot) | - |
+| Slot context menu | Mesh map slot (right-click) | not documented | partial: Select / Replace image, Bake this map, Remove (Painter's entries are not documented) | crates/ui/src/panels/texture_sets.rs (map_slot) | - |
 | Import baked maps: Add button at project creation | New project > Import baked maps | none | missing | - | #137 |
 | Auto-assign by file name TextureSetName_MeshMapName | New project > Import baked maps | ambient_occlusion, curvature, normal_base, world_space_normals, id, position, thickness | missing | - | #137 |
 | Baked normal follows the project Normal Map Format | Project settings | DirectX or OpenGL | partial: maps are always OpenGL; the setting is an export convention | crates/ui/src/new_project.rs:286 | - |

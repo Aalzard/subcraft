@@ -13,11 +13,11 @@ Layout notes: Painter's viewport is one central area with four parts stacked top
 | 3D view | Viewport, left | shown | done | crates/ui/src/viewport.rs:57 | - |
 | 2D view | Viewport, right | shown | partial: a dock tab behind the 3D view by default, not side by side | crates/ui/src/app.rs:189 | - |
 | Splitter between 3D and 2D views | Viewport, between views | 50/50 (unverified) | partial: only after View > Side-by-side 3D / 2D | crates/ui/src/app.rs:232 | - |
-| Progress bar for engine computations | Viewport, bottom edge | hidden when idle | missing | - | - |
+| Progress bar for engine computations | Viewport, bottom edge | hidden when idle | done: a thin moving bar along the top of the 3D view while layers are computed | crates/ui/src/viewport.rs (computing_bar) | 249 |
 | Colour-profile name text | 3D view, top left | shown when a profile is loaded | missing | - | - |
-| Axis indicator (X/Y/Z orientation) | 3D view, bottom right | shown | missing | - | - |
-| Grid unit read-out | 3D view, bottom left | shown when the grid is on | missing | - | - |
-| Warning when painting on a non-active Texture Set | 3D view overlay (12.1) | not documented | missing | - | - |
+| Grid unit read-out | 3D view, bottom left | shown when the grid is on | partial: bottom-left of the 3D view while the viewport hints are hidden (#181) | crates/ui/src/viewport.rs (grid_unit_label) | 181 |
+| Axis indicator (X/Y/Z orientation) | 3D view, bottom right | shown | done: red X, green Y, blue Z above the Render toggle, far axes dimmed; Display Settings > Viewport > Axis indicator | crates/ui/src/viewport.rs (axis_indicator) | 261 |
+| Warning when painting on a non-active Texture Set | 3D view overlay (12.1) | not documented | done: a status message naming the set the stroke started on, with how to select it | crates/ui/src/viewport.rs | 258 |
 
 ## Camera navigation (mouse)
 
@@ -32,23 +32,23 @@ Layout notes: all navigation is a held modifier plus a mouse drag; the same comb
 | Camera zoom (dolly) | Alt + RMB drag | editable shortcut | done | crates/ui/src/nav.rs:80 | - |
 | Camera zoom with the mouse wheel | Wheel over the view | (unverified) | done | crates/ui/src/viewport.rs:105 | - |
 | Rotate environment | Shift + RMB drag (horizontal) | editable shortcut | done | crates/ui/src/nav.rs:76 | - |
-| Auto-focus (depth of field focus point) | Ctrl + MMB click on the mesh | needs Post effects + DOF on | partial: Ctrl+MMB works and turns depth of field on; Post effects is not a separate switch | crates/ui/src/viewport.rs (Painter clicks) | #163 |
+| Auto-focus (depth of field focus point) | Ctrl + MMB click on the mesh | needs Post effects + DOF on | done: Display Settings > Camera > Auto-focus keeps the focus on the centre of the view; Ctrl+MMB picks a point | crates/ui/src/viewport.rs | 249 |
 | Texture set selection | Ctrl + Alt + RMB click on the mesh | editable shortcut | missing | - | - |
-| Texture Set highlight under cursor | Hold Ctrl + Alt over the model (12.2) | hidden while LMB is down or panning | missing | - | - |
-| Texture Set / UV Tile highlight from the list | Hover a row in the Texture Set list (12.2) | not documented | missing | - | - |
+| Texture Set highlight under cursor | Hold Ctrl + Alt over the model (12.2) | hidden while LMB is down or panning | done: while Ctrl+Alt is held, not while painting or navigating; a warm tint | crates/ui/src/viewport.rs, crates/render/src/viewport.wgsl | 258 |
+| Texture Set / UV Tile highlight from the list | Hover a row in the Texture Set list (12.2) | not documented | partial: hovering a Texture Set List row highlights its set; no UV tile highlight | crates/ui/src/panels/texture_sets.rs (set_rows) | 258 |
 | Tablet scroll | Ctrl + Alt + click drag scrolls panels (2019.3) | not documented | missing | - | - |
 
 ## Camera commands and projection
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Center the whole mesh | F | focuses only the view under the cursor; both when the cursor is outside | partial: F / Home reset the 3D camera to the default three-quarter framing; 2D view not affected | crates/ui/src/app.rs:950 | - |
-| Focus on the selected path | F while editing a path (11.0) | not documented | missing | - | - |
+| Center the whole mesh | F | focuses only the view under the cursor; both when the cursor is outside | done: F frames the view under the cursor, both views when it is elsewhere | crates/ui/src/app.rs (frame_targets) | 249 |
+| Focus on the selected path | F while editing a path (11.0) | not documented | done: with the Pen tool, F centres the 3D view on the path (same direction, closer) and frames its UV rectangle in the 2D view | crates/ui/src/orbit.rs (focus_on), crates/ui/src/panels/uv_view.rs (uv_frame) | 265 |
 | Camera Perspective | F5 | default mode | done | crates/app/src/actions.rs:210 | - |
 | Camera Orthographic | F6 | off | done | crates/app/src/actions.rs:211 | - |
-| Free rotation (roll allowed) | Contextual toolbar > Camera Rotation Mode | off | missing | - | - |
+| Free rotation (roll allowed) | Contextual toolbar > Camera Rotation Mode | off | done: Camera menu or Display Settings > Camera > Camera rotation: Free orbits about the view's own axes (rolls, goes over the top); Constrained levels the horizon again | crates/ui/src/orbit.rs (free_orbit) | 258 |
 | Constrained rotation (no roll) | Contextual toolbar > Camera Rotation Mode | default | done | crates/ui/src/orbit.rs:114 | - |
-| Light the mesh from underneath | Orbit below the horizon (7.x) | not documented | partial: pitch clamped to about +/-89 degrees | crates/ui/src/orbit.rs:116 | - |
+| Light the mesh from underneath | Orbit below the horizon (7.x) | not documented | done: Shift+MMB drag up / down tilts the key light, down to below the horizon | crates/ui/src/viewport.rs (lit_direction) | 249 |
 
 ## Camera management
 
@@ -97,15 +97,15 @@ Layout notes: the dropdown at the top right of each view switches between Materi
 |---|---|---|---|---|---|
 | Display mode dropdown | 3D view, top right | Material | partial: "View" combo sits in the top strip, left side | crates/ui/src/viewport_bar.rs:361 | - |
 | Material (lit) mode | Display mode dropdown | default | done | crates/render/src/lib.rs:138 | - |
-| Single channel (solo) mode, one entry per Texture Set channel | Display mode dropdown | - | partial: fixed list (Base Color, Normal, Roughness, Metallic, Height, AO); no Emissive, Opacity, Specular or user channels | crates/render/src/lib.rs:153 | - |
+| Single channel (solo) mode, one entry per Texture Set channel | Display mode dropdown | - | done: every channel of the texture set (#181) | crates/ui/src/viewport_bar.rs (view_mode) | 181 |
 | Composited normal (normal + height + bake) solo entry | Display mode dropdown | - | partial: Normal view and a "Baked normal" shading mode, no combined entry named as such | crates/render/src/lib.rs:146 | - |
 | Mesh map solo entries | Display mode dropdown | - | done | crates/ui/src/viewport_bar.rs:377 | - |
-| Display next channel | C | - | partial: cycles the fixed view-mode list (includes Material and baked-normal modes) | crates/ui/src/app.rs:959 | - |
-| Display previous channel | Shift + C | - | partial: same fixed list | crates/ui/src/app.rs:959 | - |
+| Display next channel | C | - | done: C cycles the material and each channel of the selected texture set (#181) | crates/ui/src/viewport_bar.rs (cycle_channel) | 181 |
+| Display previous channel | Shift + C | - | done: Shift+C (#181) | crates/ui/src/viewport_bar.rs (cycle_channel) | 181 |
 | Display material | M | - | done | crates/ui/src/app.rs:964 | - |
 | Display next mesh map | B | - | partial: B in the Painter key set; cycles every map kind, baked or not | crates/app/src/actions.rs (Action::NextMeshMap) | #164 |
-| Display previous mesh map | Shift + B | - | missing | - | - |
-| Display mask in viewport | Alt + LMB on a mask thumbnail in the layer stack | - | missing | - | - |
+| Display previous mesh map | Shift + B | - | done: Shift+B in the Painter key set | crates/ui/src/viewport_bar.rs (cycle_mesh_map_back) | - |
+| Display mask in viewport | Alt + LMB on a mask thumbnail in the layer stack | - | done | crates/render/src/lib.rs:658 | - |
 | Baking visualisation mode (low / high poly, cage) | Baking mode viewport panel | - | partial: bake overlay colours shown while the Bake window is open | crates/ui/src/viewport.rs:522 | - |
 | Live preview of the map being baked | Settings > General | off (unverified) | missing | - | - |
 | Rendering (Iray) mode | F10; Contextual toolbar | off | partial: path-traced Rendering mode, toggle button at the 3D view's bottom right | crates/ui/src/viewport.rs:590 | - |
@@ -126,8 +126,8 @@ Layout notes: the dropdown at the top right of each view switches between Materi
 |---|---|---|---|---|---|
 | Use tool / paint | LMB drag | editable shortcut | done | crates/ui/src/viewport.rs:290 | - |
 | Draw straight line from the last stroke point | Shift + LMB click | editable shortcut | done | crates/ui/src/viewport.rs:326 | - |
-| Dotted preview of the straight line while Shift is held | 3D view overlay | - | missing | - | - |
-| Draw straight line with snapping | Ctrl + Shift + LMB | every 5 degrees | partial: snaps every 5 degrees; no dotted preview line yet | crates/ui/src/nav.rs (snap_line_end) | #163 |
+| Dotted preview of the straight line while Shift is held | 3D view overlay | - | done: from the last stroke point, snapped with Ctrl exactly as the click draws it | crates/ui/src/viewport.rs (straight_line_end) | 261 |
+| Draw straight line with snapping | Ctrl + Shift + LMB | every 5 degrees | done: snaps every 5 degrees, with the dotted preview | crates/ui/src/nav.rs (snap_line_end) | #163, 261 |
 | Change tool size (horizontal drag) | Ctrl + RMB drag | editable shortcut | done | crates/ui/src/viewport.rs:147 | - |
 | Change tool hardness (vertical drag) | Ctrl + RMB drag | needs an alpha exposing "hardness" | done | crates/ui/src/viewport.rs:148 | - |
 | Change tool flow (horizontal drag) | Ctrl + LMB drag | editable shortcut | done | crates/ui/src/viewport.rs:150 | - |
@@ -140,7 +140,7 @@ Layout notes: the dropdown at the top right of each view switches between Materi
 | Set Clone tool source location | V + LMB | - | done | crates/ui/src/viewport.rs:300 | - |
 | Pause engine computation | Shift + Escape | - | missing | - | - |
 | Toggle animation (particles) | Space | - | missing | - | - |
-| Polygon Fill: rectangular marquee drag | LMB drag with Polygon Fill | - | missing | - | #131 |
+| Polygon Fill: rectangular marquee drag | LMB drag with Polygon Fill | - | done | crates/ui/src/viewport.rs | #131 |
 | Polygon Fill: extend loop on the other side | Alt while dragging (loop modes) | - | missing | - | - |
 | Polygon Fill: primary loop only | Shift (partial loop mode) | - | missing | - | - |
 | Polygon Fill: temporary Polygon loop fill | Shift + A | - | missing | - | - |
@@ -153,9 +153,9 @@ Layout notes: the dropdown at the top right of each view switches between Materi
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
 | Brush cursor: Full preview (brush alpha / material projected) | 3D view; chosen in Contextual toolbar | default (unverified) | missing | - | - |
-| Brush cursor: Brush outline | 3D view; chosen in Contextual toolbar | - | partial: screen-space circle of the brush radius, the only style | crates/ui/src/viewport.rs:491 | - |
-| Brush cursor: Crosshair | 3D view; chosen in Contextual toolbar | - | missing | - | - |
-| Lazy mouse ring around the cursor | 3D view when Lazy mouse is on | grey circle | missing | - | - |
+| Brush cursor: Brush outline | 3D view; chosen in Contextual toolbar | - | done: screen-space circle of the brush radius (default); Display Settings > Viewport > Brush cursor | crates/ui/src/viewport.rs (brush_mark) | 265 |
+| Brush cursor: Crosshair | 3D view; chosen in Contextual toolbar | - | done: Display Settings > Viewport > Brush cursor > Crosshair (also for the symmetry cursors); not in the top strip | crates/ui/src/viewport.rs (brush_mark) | 265 |
+| Lazy mouse ring around the cursor | 3D view when Lazy mouse is on | grey circle | done: grey ring of the lazy distance around the cursor | crates/ui/src/viewport.rs (overlays) | 261 |
 | Clone source marker | 3D view with the Clone tool | - | done | crates/ui/src/viewport.rs:499 | - |
 | Fill layer cursor (no brush) | 3D view with a fill layer selected | - | missing | - | - |
 | Projection tool: material tiled over the viewport | 3D view with Projection tool | preview channel set in Display settings | missing | - | - |
@@ -195,12 +195,12 @@ Layout notes: display options (plane, intersection, cursor, manipulator) are onl
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
 | Symmetry on/off | L | off | partial: L toggles mirror X only | crates/app/src/session.rs:1588 | - |
-| Mirror plane (transparent) | 3D view (Show Plane) | not documented | partial: guide lines drawn, no translucent plane | crates/ui/src/viewport.rs:375 | - |
-| Mirror intersection line on the mesh | 3D view (Show Intersection) | not documented | missing | - | - |
-| Mirrored second cursor | 3D view (Show Cursor) | not documented | missing | - | - |
-| Hide second cursor while painting | 3D view (Hide While Painting) | not documented | missing | - | - |
-| Mirror axis-position manipulator (drag handles) | 3D view | off until enabled | missing | - | - |
-| Radial axis line | 3D view (Show Axis) | not documented | partial: drawn as part of the symmetry guides | crates/ui/src/viewport.rs:379 | - |
+| Mirror plane (transparent) | 3D view (Show Plane) | not documented | done: each active mirror plane as a translucent sheet in its axis colour, 10 % past the model, at the axis position; Display Settings > Viewport > Mirror planes, on by default | crates/ui/src/viewport.rs (mirror_plane_corners) | 264 |
+| Mirror intersection line on the mesh | 3D view (Show Intersection) | not documented | done: the symmetry guides draw where each mirror plane cuts the mesh, at the axis position (Display Settings > Viewport > Symmetry guides) | crates/app/src/guides.rs (symmetry_sections) | 264 |
+| Mirrored second cursor | 3D view (Show Cursor) | not documented | done: one per mirror / radial copy (up to 16), faint when the copy is behind the model, following moved planes and flipped copies; Display Settings > Viewport > Symmetry cursors, on by default | crates/ui/src/viewport.rs (symmetry_cursors) | 262 |
+| Hide second cursor while painting | 3D view (Hide While Painting) | not documented | done: Display Settings > Viewport > Hide while painting, off by default | crates/ui/src/viewport_bar.rs (symmetry_cursor_hide_painting) | 262 |
+| Mirror axis-position manipulator (drag handles) | 3D view | off until enabled | done: a handle per mirror plane moves it along its axis; the radial pivot moves across its plane | crates/ui/src/symmetry_view.rs (manipulate) | - |
+| Radial axis line | 3D view (Show Axis) | not documented | done: own Show Axis toggle | crates/app/src/guides.rs (radial_guides) | - |
 | Radial axis / mesh intersection point | 3D view (Show Intersection) | not documented | missing | - | - |
 | Radial axis-position manipulator | 3D view (Show Axis position manipulator) | off | missing | - | - |
 
@@ -208,18 +208,18 @@ Layout notes: display options (plane, intersection, cursor, manipulator) are onl
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Toggle quick mask edition | U | off | missing | - | - |
-| Clear quick mask | Y | - | missing | - | - |
-| Invert quick mask | I | - | missing | - | - |
-| Quick mask overlay tint in the view | 3D view while editing | not documented | missing | - | - |
+| Toggle quick mask edition | U | off | done: also the selection button on the tool rail | crates/app/src/session.rs | - |
+| Clear quick mask | Y | - | done | crates/app/src/session.rs | - |
+| Invert quick mask | I | - | done (without a quick mask, I still isolates the part under the cursor) | crates/app/src/session.rs | - |
+| Quick mask overlay tint in the view | 3D view while editing | not documented | done: while editing, Base Color is uploaded tinted red where the mask protects, so the 3D and 2D views both show it (tile by tile); the 2D view keeps its light overlay once applied | crates/app/src/quick_mask_tint.rs, crates/ui/src/state.rs (sync_gpu) | 260 |
 
 ## Geometry hide / isolate
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Hide / ignore excluded geometry | Alt + H; Contextual toolbar button | off; disabled when nothing is excluded | partial: H over the model hides the part under the cursor, not tied to a layer geometry mask | crates/ui/src/viewport.rs:183 | - |
+| Hide / ignore excluded geometry | Alt + H; Contextual toolbar button | off; disabled when nothing is excluded | done | crates/app/src/part_workflow.rs | - |
 | Texture Set isolate | Alt + Q | off | partial: I over the model isolates a part; no Texture Set solo key | crates/ui/src/viewport.rs:183 | - |
-| Geometry mask editing: click mesh parts in the view to include / exclude | 3D view while the geometry mask icon is active | - | partial: "pick parts" mode toggles the layer per mesh part | crates/ui/src/viewport.rs:264 | - |
+| Geometry mask editing: click mesh parts in the view to include / exclude | 3D view while the geometry mask icon is active | - | done: click toggles, a box adds, Ctrl+box removes, in the 3D and 2D views | crates/ui/src/viewport.rs | - |
 | UV Tile hover highlight during geometry mask edit | 3D and 2D views | - | missing | - | - |
 
 ## Drag and drop onto the mesh
@@ -230,8 +230,8 @@ Layout notes: while dragging over the 3D view Painter highlights the Texture Set
 |---|---|---|---|---|---|
 | Drop material from Assets onto the mesh: new fill layer on the Texture Set under the cursor | Assets > 3D view | - | done | crates/ui/src/viewport.rs:190 | - |
 | Drop smart material onto the mesh | Assets > 3D view | - | done | crates/ui/src/panels/shelf.rs:63 | - |
-| Ctrl + drop material: restrict to the mesh part under the cursor (geometry mask) | Assets > 3D view | - | missing | - | - |
-| Highlight of the target mesh while dragging | 3D view | - | partial: text label of the action and target near the cursor, no mesh highlight | crates/ui/src/viewport.rs:513 | - |
+| Ctrl + drop material: restrict to the mesh part under the cursor (geometry mask) | Assets > 3D view | - | done: uses the part kind chosen in Parts | crates/ui/src/viewport.rs | - |
+| Highlight of the target mesh while dragging | 3D view | - | done: the texture set under the cursor is highlighted (renderer slot highlight); with Ctrl, the part is outlined, hidden edges left out | crates/ui/src/viewport.rs (drop_outline), crates/app/src/region_outline.rs | 260 |
 | Drop alpha / procedural / texture: warp-projected decal layer with channel chooser | Assets > 3D view | menu on release | partial: texture becomes a new UV fill layer; alpha becomes brush tip; no warp decal or channel menu | crates/ui/src/panels/shelf.rs:65 | - |
 | Alt + drop material: decal with warp projection | Assets > 3D view | - | partial: Alt replaces the selected fill layer's material instead | crates/ui/src/panels/shelf.rs:60 | - |
 | Drop smart mask onto the mesh | Assets > 3D view | - | partial: applied to the selected layer, not as a new layer | crates/ui/src/panels/shelf.rs:64 | - |
@@ -265,15 +265,15 @@ Layout notes: selecting a fill layer or fill effect with a 3D projection shows a
 | Surface manipulator: drag to snap onto the mesh | LMB drag (Planar, Warp) | - | missing | - | - |
 | Precision mode | Ctrl while dragging a manipulator (10.0) | - | missing | - | - |
 | Projection volume / plane preview in the view | 3D view | - | missing | - | - |
-| Toggle warp edition mode (Transform warp / Edit vertices) | Shift + V | Transform warp | missing | - | - |
-| Warp: select a grid point | LMB click on a point | - | missing | - | - |
-| Warp: add to selection | Shift + LMB click | - | missing | - | - |
-| Warp: remove from selection | Ctrl + LMB click | - | missing | - | - |
-| Warp: rectangle selection | LMB drag on empty space | - | missing | - | - |
-| Warp: rectangle add / remove | Shift / Ctrl + LMB drag | - | missing | - | - |
-| Warp: deselect | LMB click away | - | missing | - | - |
-| Warp: quick-move a point on the surface | LMB drag a point | - | missing | - | - |
-| Warp: quick-move a point in camera space | Ctrl + LMB drag a point | - | missing | - | - |
+| Toggle warp edition mode (Transform warp / Edit vertices) | Shift + V | Transform warp | done: Shift+V over the 3D view | crates/ui/src/warp_view.rs | - |
+| Warp: select a grid point | LMB click on a point | - | done | crates/ui/src/warp_view.rs | - |
+| Warp: add to selection | Shift + LMB click | - | done | crates/ui/src/warp_view.rs | - |
+| Warp: remove from selection | Ctrl + LMB click | - | done | crates/ui/src/warp_view.rs | - |
+| Warp: rectangle selection | LMB drag on empty space | - | done | crates/ui/src/warp_view.rs | - |
+| Warp: rectangle add / remove | Shift / Ctrl + LMB drag | - | done | crates/ui/src/warp_view.rs | - |
+| Warp: deselect | LMB click away | - | done | crates/ui/src/warp_view.rs | - |
+| Warp: quick-move a point on the surface | LMB drag a point | - | done | crates/ui/src/warp_view.rs | - |
+| Warp: quick-move a point in camera space | Ctrl + LMB drag a point | - | done: Ctrl+drag, in the view plane | crates/ui/src/warp_view.rs | - |
 | Warp: edit tangents of selected points | Rotation / Scale manipulator on a point | - | missing | - | - |
 | Warp: projection-depth arrows per grid point | 3D view | green arrows | missing | - | - |
 | Warp: cancel a split tool | Escape | - | missing | - | - |

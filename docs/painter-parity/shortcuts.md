@@ -32,7 +32,7 @@ Layout notes: Painter lists editable shortcuts in Settings > Shortcuts as one lo
 | Increase the manipulator size | Settings > Shortcuts | + | missing | - | - |
 | Decrease the manipulator size | Settings > Shortcuts | - | missing | - | - |
 | Cycle through manipulation spaces | Settings > Shortcuts | T | missing | - | - |
-| Toggle warp edition mode | Settings > Shortcuts | Shift+V | missing | - | - |
+| Toggle warp edition mode | Settings > Shortcuts | Shift+V | done: Shift+V over the 3D view with a Warp fill layer selected | crates/ui/src/warp_view.rs | - |
 | Translate tool | Settings > Shortcuts | W | missing | - | - |
 | Rotate tool | Settings > Shortcuts | E | missing | - | - |
 | Scale tool | Settings > Shortcuts | R | missing | - | - |
@@ -145,7 +145,7 @@ Layout notes: these act only while the pointer is over the layer stack.
 | Group layer | Layer stack | Ctrl+G | done (no selection: adds an empty folder) | crates/app/src/session.rs:1908 | - |
 | Copy layer content | Layer stack | Ctrl+Shift+C (Option+Cmd+C) | done | crates/ui/src/clipboard.rs:66 | - |
 | Paste layer content | Layer stack | Ctrl+Shift+V (Option+Cmd+V) | done | crates/ui/src/clipboard.rs:66 | - |
-| Display mask in viewport | Layer stack, mask thumbnail | Alt+Mouse left | partial: opens a preview inspector window, viewport does not switch to the mask | crates/ui/src/panels/layers.rs:312 | - |
+| Display mask in viewport | Layer stack, mask thumbnail | Alt+Mouse left | done | crates/ui/src/panels/layers.rs:481 | - |
 | Disable/Enable mask | Layer stack, mask thumbnail | Shift+Mouse left | done | crates/ui/src/panels/layers.rs:308 | - |
 | Drag and drop material onto one part of the model | Assets to viewport | Ctrl+Drag and drop | missing | - | - |
 | Manipulator constraint/snapping | Viewport manipulator | Shift | missing | - | - |

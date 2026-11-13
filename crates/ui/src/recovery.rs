@@ -25,6 +25,7 @@ pub enum SettingsTab {
     #[default]
     General,
     Shortcuts,
+    Libraries,
 }
 
 /// User settings kept between runs.
@@ -36,6 +37,14 @@ pub struct Preferences {
     /// Display sizes only; independent of source images and document texture resolution.
     pub shelf_preview_size: u32,
     pub layer_preview_size: u32,
+    /// Assets panel in List view (one row per asset) instead of thumbnails.
+    pub shelf_list_view: bool,
+    /// Assets panel saved searches (Painter keeps them in Shelf.ini).
+    pub shelf_saved_searches: Vec<crate::panels::shelf::SavedSearch>,
+    /// Settings > Libraries: library folders added besides your_assets.
+    pub extra_libraries: Vec<crate::libraries::LibraryPath>,
+    /// The library new presets and imports go to (`your_assets` or an extra library's name).
+    pub default_library: String,
     /// Minutes between autosaves; 0 turns the timer off.
     pub autosave_minutes: u32,
     /// Recovery copies kept.
@@ -52,6 +61,8 @@ pub struct Preferences {
     /// Orbit around the point of the model under the cursor (as Painter does) instead of the
     /// centre of the view.
     pub orbit_around_cursor: bool,
+    /// Settings > General > Camera: rotation, zoom and wheel speeds and directions.
+    pub camera_speed: crate::nav::CameraSpeed,
     /// Window > Toolbars: the tool rail and the status bar.
     pub show_tools_toolbar: bool,
     pub show_status_bar: bool,
@@ -61,13 +72,9 @@ pub struct Preferences {
     pub custom_keys: subcraft_app::CustomKeys,
     /// Camera mouse gestures the user rebound (Painter navigation).
     pub custom_mouse: crate::nav::MouseBindings,
-    /// Settings > General > Camera: speeds and zoom / wheel direction.
-    pub camera: crate::nav::CameraSpeed,
     /// Background of the 3D view, linear RGB: a vertical gradient from bottom to top.
     pub background_bottom: [f32; 3],
     pub background_top: [f32; 3],
-    /// A small X / Y / Z gizmo in the corner of the 3D view.
-    pub show_world_axes: bool,
     /// UV tiling of new fill layers.
     pub default_uv_scale: f32,
     /// Folder for re-creatable files (empty = SubCraft's data folder).
@@ -115,6 +122,10 @@ impl Default for Preferences {
             ui_size_percent: DEFAULT_UI_SIZE,
             shelf_preview_size: 88,
             layer_preview_size: 36,
+            shelf_list_view: false,
+            shelf_saved_searches: Vec::new(),
+            extra_libraries: Vec::new(),
+            default_library: crate::panels::shelf_filter::YOURS.to_string(),
             autosave_minutes: (recovery::DEFAULT_INTERVAL.as_secs() / 60) as u32,
             autosave_keep: recovery::DEFAULT_KEEP,
             show_welcome: true,
@@ -122,15 +133,14 @@ impl Default for Preferences {
             use_gpu_baking: true,
             nav_scheme: Default::default(),
             orbit_around_cursor: true,
+            camera_speed: Default::default(),
             show_tools_toolbar: true,
             show_status_bar: true,
             keymap: Default::default(),
             custom_keys: Default::default(),
             custom_mouse: Default::default(),
-            camera: Default::default(),
             background_bottom: DEFAULT_BACKGROUND,
             background_top: DEFAULT_BACKGROUND,
-            show_world_axes: false,
             default_uv_scale: 1.0,
             cache_dir: String::new(),
             use_gpu_compositing: true,
@@ -339,6 +349,10 @@ pub fn preferences_window(state: &mut UiState, ctx: &egui::Context) {
         shortcuts_page(state, ctx);
         return;
     }
+    if rec.prefs_tab == SettingsTab::Libraries {
+        libraries_page(state, ctx);
+        return;
+    }
     let mut open = true;
     let mut tab = SettingsTab::General;
     crate::widgets::window(ctx, RichText::new(tr("Settings")).font(theme::font_strong(14.0))).id(egui::Id::new("settings_window")).open(&mut open).collapsible(false).resizable(false).default_height(620.0).show(ctx, |ui| {
@@ -393,6 +407,21 @@ pub fn preferences_window(state: &mut UiState, ctx: &egui::Context) {
         general_view_settings(ui, &mut rec.prefs);
         ui.checkbox(&mut rec.prefs.orbit_around_cursor, "Orbit around the point under the cursor")
             .on_hover_text("Starting an orbit over the model turns the view around that point of the surface, as Substance Painter does. Over the background the last point is kept. Off: the view always turns around its centre. F frames the model and forgets the point.");
+        let speed = &mut rec.prefs.camera_speed;
+        egui::Grid::new("camera_speed").num_columns(3).spacing([8.0, 4.0]).show(ui, |ui| {
+            ui.label(tr("Rotation speed"));
+            ui.add(egui::Slider::new(&mut speed.rotation, crate::nav::CAMERA_SPEED_RANGE).logarithmic(true));
+            ui.label("");
+            ui.end_row();
+            ui.label(tr("Zoom speed"));
+            ui.add(egui::Slider::new(&mut speed.zoom, crate::nav::CAMERA_SPEED_RANGE).logarithmic(true));
+            ui.checkbox(&mut speed.zoom_invert, tr("Inverse direction"));
+            ui.end_row();
+            ui.label(tr("Wheel speed"));
+            ui.add(egui::Slider::new(&mut speed.wheel, crate::nav::CAMERA_SPEED_RANGE).logarithmic(true));
+            ui.checkbox(&mut speed.wheel_invert, tr("Inverse direction"));
+            ui.end_row();
+        });
         ui.horizontal(|ui| {
             ui.label(tr("Keyboard shortcuts"));
             ui.label(RichText::new(rec.prefs.keymap.label()).color(theme::ACCENT));
@@ -442,7 +471,8 @@ pub fn preferences_window(state: &mut UiState, ctx: &egui::Context) {
 
 /// Settings > General: interface, layer stack, camera and temporary-files options from Painter's list.
 fn general_view_settings(ui: &mut egui::Ui, p: &mut Preferences) {
-    ui.checkbox(&mut p.show_world_axes, tr("Show world axes")).on_hover_text(tr("A small X / Y / Z gizmo in the bottom-right corner of the 3D view"));
+    // The same setting as Display Settings > Axis indicator.
+    ui.checkbox(&mut p.viewport.axis_indicator, tr("Show world axes")).on_hover_text(tr("The X, Y and Z directions of the scene in the bottom-right corner of the 3D view"));
     ui.horizontal(|ui| {
         ui.label(tr("Background color"));
         ui.color_edit_button_rgb(&mut p.background_top).on_hover_text(tr("Top of the 3D view"));
@@ -457,26 +487,6 @@ fn general_view_settings(ui: &mut egui::Ui, p: &mut Preferences) {
         ui.add(egui::DragValue::new(&mut p.default_uv_scale).range(0.01..=100.0).speed(0.01).max_decimals(2))
             .on_hover_text(tr("UV tiling given to new fill layers"));
     });
-    ui.add_space(6.0);
-    ui.label(RichText::new(tr("Camera")).font(theme::font_strong(12.5)));
-    egui::Grid::new("camera_speed").num_columns(3).spacing([12.0, 4.0]).show(ui, |ui| {
-        let c = &mut p.camera;
-        ui.label(tr("Rotation speed"));
-        ui.add(egui::Slider::new(&mut c.rotation, crate::nav::SPEED_RANGE).logarithmic(true).max_decimals(2));
-        ui.label("");
-        ui.end_row();
-        ui.label(tr("Zoom speed"));
-        ui.add(egui::Slider::new(&mut c.zoom, crate::nav::SPEED_RANGE).logarithmic(true).max_decimals(2));
-        ui.checkbox(&mut c.zoom_invert, tr("Inverse direction"));
-        ui.end_row();
-        ui.label(tr("Wheel speed"));
-        ui.add(egui::Slider::new(&mut c.wheel, crate::nav::SPEED_RANGE).logarithmic(true).max_decimals(2));
-        ui.checkbox(&mut c.wheel_invert, tr("Inverse direction"));
-        ui.end_row();
-    });
-    if p.camera != crate::nav::CameraSpeed::default() && secondary_button(ui, tr("Reset camera speeds")).clicked() {
-        p.camera = crate::nav::CameraSpeed::default();
-    }
     ui.add_space(6.0);
     ui.label(RichText::new(tr("Temporary files")).font(theme::font_strong(12.5)));
     let shown = subcraft_app::recovery::cache_dir().map(|d| d.display().to_string()).unwrap_or_else(|| tr("unavailable").to_string());
@@ -506,11 +516,35 @@ pub fn apply_cache_dir(p: &Preferences) {
 /// The page buttons at the top of the Settings window.
 fn settings_tabs(ui: &mut egui::Ui, tab: &mut SettingsTab) {
     ui.horizontal(|ui| {
-        for (t, name) in [(SettingsTab::General, tr("General")), (SettingsTab::Shortcuts, tr("Shortcuts"))] {
+        for (t, name) in [(SettingsTab::General, tr("General")), (SettingsTab::Shortcuts, tr("Shortcuts")), (SettingsTab::Libraries, tr("Libraries"))] {
             ui.selectable_value(tab, t, RichText::new(name).font(theme::font_strong(12.5)));
         }
     });
     ui.separator();
+}
+
+/// Settings > Libraries: the library folders, the default one and Refresh.
+fn libraries_page(state: &mut UiState, ctx: &egui::Context) {
+    let mut open = true;
+    let mut tab = SettingsTab::Libraries;
+    let yours = state.libraries.iter().find(|l| l.id == crate::panels::shelf_filter::YOURS).map(|l| l.lib.root().to_path_buf());
+    let mut change = None;
+    let (prefs, form) = (&mut state.recovery.prefs, &mut state.libraries_form);
+    crate::widgets::window(ctx, RichText::new(tr("Settings")).font(theme::font_strong(14.0))).id(egui::Id::new("settings_window")).open(&mut open).collapsible(false).resizable(false).show(ctx, |ui| {
+        settings_tabs(ui, &mut tab);
+        ui.set_width(520.0);
+        change = crate::libraries::settings(ui, prefs, yours.as_deref(), form);
+    });
+    state.recovery.prefs_tab = tab;
+    state.recovery.show_prefs = open;
+    match change {
+        Some(crate::libraries::LibrariesChange::Changed) => {
+            let (extra, default) = (state.recovery.prefs.extra_libraries.clone(), state.recovery.prefs.default_library.clone());
+            state.set_libraries(&extra, &default);
+        }
+        Some(crate::libraries::LibrariesChange::Refresh) => state.refresh_libraries(),
+        None => {}
+    }
 }
 
 /// Settings > Shortcuts.
@@ -536,19 +570,19 @@ mod tests {
     #[test]
     fn general_settings_default_to_the_old_behaviour_and_survive_a_save() {
         let d = Preferences::default();
-        assert_eq!(d.camera, crate::nav::CameraSpeed::default());
+        assert_eq!(d.camera_speed, crate::nav::CameraSpeed::default());
         assert_eq!((d.background_top, d.background_bottom), (DEFAULT_BACKGROUND, DEFAULT_BACKGROUND));
         assert_eq!(subcraft_render::ViewParams::new(glam::Mat4::IDENTITY, glam::Mat4::IDENTITY).background, DEFAULT_BACKGROUND, "same plain background as the renderer's default");
-        assert!(!d.show_world_axes && d.default_uv_scale == 1.0 && d.cache_dir.is_empty());
+        assert!(d.viewport.axis_indicator && d.default_uv_scale == 1.0 && d.cache_dir.is_empty());
         let mut p = d.clone();
-        p.camera.wheel_invert = true;
+        p.camera_speed.wheel_invert = true;
         p.background_top = [0.2, 0.3, 0.4];
-        p.show_world_axes = true;
+        p.viewport.axis_indicator = false;
         p.default_uv_scale = 4.0;
         p.cache_dir = "D:/cache".into();
         assert_eq!(Preferences::from_json_lenient(&serde_json::to_string(&p).unwrap()), p);
         let old = Preferences::from_json_lenient(r#"{"ui_size_percent":100}"#);
-        assert_eq!((old.camera, old.background_top, old.show_world_axes), (d.camera, d.background_top, false), "older files get the defaults");
+        assert_eq!((old.camera_speed, old.background_top, old.viewport.axis_indicator), (d.camera_speed, d.background_top, true), "older files get the defaults");
     }
 
     /// QA 2026-11: one value this build does not know reset every preference to its default.

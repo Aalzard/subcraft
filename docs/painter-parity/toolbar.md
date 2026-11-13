@@ -26,7 +26,7 @@ Layout notes: a narrow vertical strip, top left of the main window by default; i
 | Clone (relative source) | Tools toolbar; 6 | source follows after each stroke | partial: one clone mode only | crates/ui/src/app.rs:1066 | - |
 | Clone (absolute source) | Tools toolbar, Clone second mode; Ctrl + 6 | - | missing | - | - |
 | Material picker (temporary tool, returns to the previous tool) | Tools toolbar; P | - | partial: Eyedropper stays selected after the pick; P only in the Painter keymap | crates/ui/src/app.rs:1068 | - |
-| Quick mask | Tool list entry; U | off | missing | - | - |
+| Quick mask | Tool list entry; U | off | done: selection button on the left rail | crates/ui/src/app.rs | - |
 | Tools disabled unless a paint layer / paint effect is selected | Tools toolbar | - | partial: tools stay enabled and a paint layer is created on the first stroke | crates/ui/src/viewport.rs:318 | - |
 | Dock the toolbar on the left or right edge | Drag the toolbar | left | partial: fixed on the left | crates/ui/src/app.rs:1056 | - |
 | Send to (Stager / Photoshop) icon | Tools toolbar, below the tools | - | n/a | - | - |
@@ -66,19 +66,19 @@ Layout notes: the Contextual toolbar is fixed above the viewports and cannot be 
 | Size | Contextual toolbar, painting tools | not documented | partial: percent of the model diagonal, 0.1-100; scrub field without a slider | crates/ui/src/brush_bar.rs:189 | - |
 | Flow | Contextual toolbar, painting tools | not documented | done | crates/ui/src/brush_bar.rs:44 | - |
 | Stroke opacity | Contextual toolbar, painting tools | not documented | partial: labelled "Opacity" | crates/ui/src/brush_bar.rs:46 | - |
-| Spacing | Contextual toolbar, painting tools | not documented | partial: only in the Properties brush section (0.02-2) | crates/ui/src/panels/brush.rs:108 | - |
+| Spacing | Contextual toolbar, painting tools | not documented | partial: on the bar where there is room (own row from 900 pt, beside the view controls from 1400 pt), else in the Brush settings menu and Properties; shown as % of the diameter | crates/ui/src/brush_bar.rs (spacing) | - |
 | Pen-pressure toggle beside a value | Contextual toolbar / Properties | not documented | partial: pressure amounts for Size and Flow inside the stroke-options popup | crates/ui/src/brush_bar.rs:95 | - |
-| Lazy mouse button | Contextual toolbar; D | off | partial: no dedicated button; D toggles a 20 px distance, or set the slider above 0 | crates/app/src/session.rs:1589 | - |
-| Lazy mouse Distance | Contextual toolbar, next to the Lazy mouse button | not documented | partial: slider inside the popup, 0-100 px | crates/ui/src/brush_bar.rs:87 | - |
-| Symmetry button (on / off) | Contextual toolbar; L | off | partial: one button opens the options popup instead of toggling; L toggles mirror X | crates/ui/src/brush_bar.rs:53 | - |
-| Symmetry settings button (opens the settings menu) | Contextual toolbar, next to Symmetry | - | partial: same popup as the symmetry button | crates/ui/src/brush_bar.rs:64 | - |
+| Lazy mouse button | Contextual toolbar; D | off | done | crates/ui/src/brush_bar.rs (stroke_options, toggle_lazy) | - |
+| Lazy mouse Distance | Contextual toolbar, next to the Lazy mouse button | not documented | partial: on the bar where there is room, always in the symmetry settings menu; 1-100 px | crates/ui/src/brush_bar.rs (distance) | - |
+| Symmetry button (on / off) | Contextual toolbar; L | off | partial: toggles and restores the last axes; the L key still toggles mirror X only | crates/ui/src/brush_bar.rs (toggle_symmetry) | - |
+| Symmetry settings button (opens the settings menu) | Contextual toolbar, next to Symmetry | - | done | crates/ui/src/brush_bar.rs (stroke_options) | - |
 | Brush preview: Full preview | Contextual toolbar (2019.3) | not documented | missing | - | - |
 | Brush preview: Brush outline | Contextual toolbar (2019.3) | not documented | partial: the only cursor style, not selectable | crates/ui/src/viewport.rs:491 | - |
 | Brush preview: Crosshair | Contextual toolbar (2019.3) | not documented | missing | - | - |
 | Pressure curve: linear | Contextual toolbar (2019.3) | not documented | missing | - | - |
 | Pressure curve: easy-in | Contextual toolbar (2019.3) | not documented | missing | - | - |
 | Pressure curve: easy-in-out | Contextual toolbar (2019.3) | not documented | missing | - | - |
-| Hide / ignore excluded geometry button | Contextual toolbar; Alt + H | off; disabled when nothing is excluded | missing | - | - |
+| Hide / ignore excluded geometry button | Contextual toolbar; Alt + H | off; disabled when nothing is excluded | done | crates/ui/src/viewport_bar.rs | - |
 | Ignore masked UV Tiles while painting button | Contextual toolbar (UV Tile projects) | not documented | missing | - | - |
 | Clone source behaviour button (source follows / returns) | Clone tool (location not documented) | follows | missing | - | - |
 | Polygon Fill options on the toolbar | Contextual toolbar with Polygon Fill | not documented | partial: "Fill by" (Triangle, Part, UV island) only in Properties | crates/ui/src/panels/brush.rs:23 | #131 |
@@ -90,13 +90,13 @@ Layout notes: the Contextual toolbar is fixed above the viewports and cannot be 
 |---|---|---|---|---|---|
 | Symmetry type: Mirror | Symmetry settings menu | Mirror | done | crates/ui/src/brush_bar.rs:68 | - |
 | Axis | Symmetry settings menu | X (unverified) | partial: X, Y and Z are independent toggles (several at once) | crates/ui/src/brush_bar.rs:70 | - |
-| Axis position | Symmetry settings menu | 0 (unverified) | missing | - | - |
-| Show Plane | Symmetry settings menu > display | not documented | partial: one "Show symmetry guides" checkbox for all guides | crates/ui/src/brush_bar.rs:83 | - |
-| Show Intersection | Symmetry settings menu > display | not documented | missing | - | - |
-| Show Cursor | Symmetry settings menu > display | not documented | missing | - | - |
-| Hide While Painting | Symmetry settings menu > display | not documented | missing | - | - |
-| Enable manipulator | Symmetry settings menu > display | off | missing | - | - |
-| Manipulator Size | Symmetry settings menu > display | not documented | missing | - | - |
+| Axis position | Symmetry settings menu | 0 (unverified) | done: per enabled axis, plus Reset; the manipulator drags it | crates/ui/src/brush_bar.rs (mirror_positions) | - |
+| Show Plane | Symmetry settings menu > display | not documented | done (under the Show symmetry guides switch) | crates/ui/src/brush_bar.rs (symmetry_display) | - |
+| Show Intersection | Symmetry settings menu > display | not documented | done | crates/ui/src/brush_bar.rs (symmetry_display) | - |
+| Show Cursor | Symmetry settings menu > display | not documented | done | crates/ui/src/brush_bar.rs (symmetry_display) | - |
+| Hide While Painting | Symmetry settings menu > display | not documented | done | crates/ui/src/brush_bar.rs (symmetry_display) | - |
+| Enable manipulator | Symmetry settings menu > display | off | done | crates/ui/src/brush_bar.rs (symmetry_display) | - |
+| Manipulator Size | Symmetry settings menu > display | not documented | done: 0.25 to 4 | crates/ui/src/brush_bar.rs (symmetry_display) | - |
 
 ## Contextual toolbar: Symmetry settings menu (Radial)
 
@@ -105,16 +105,16 @@ Layout notes: the Contextual toolbar is fixed above the viewports and cannot be 
 | Symmetry type: Radial | Symmetry settings menu | off | done | crates/ui/src/brush_bar.rs:106 | - |
 | Axis | Symmetry settings menu | not documented | done | crates/ui/src/brush_bar.rs:112 | - |
 | Count (number of copies) | Symmetry settings menu | (unverified) | done | crates/ui/src/brush_bar.rs:124 | - |
-| Flip copy | Symmetry settings menu | off | missing | - | - |
+| Flip copy | Symmetry settings menu | off | done: every other copy mirrored across the plane through the axis and the first copy | crates/paint/src/settings.rs (copy_cameras) | - |
 | Axis position X | Symmetry settings menu | 0 (unverified) | done | crates/ui/src/brush_bar.rs:129 | - |
 | Axis position Y | Symmetry settings menu | 0 (unverified) | done | crates/ui/src/brush_bar.rs:129 | - |
 | Axis position Z | Symmetry settings menu | 0 (unverified) | done | crates/ui/src/brush_bar.rs:129 | - |
-| Show Axis | Symmetry settings menu > display | not documented | partial: shared "Show symmetry guides" checkbox | crates/ui/src/brush_bar.rs:83 | - |
-| Show Intersection | Symmetry settings menu > display | not documented | missing | - | - |
-| Show Cursor (brush tool) | Symmetry settings menu > display | not documented | missing | - | - |
-| Hide While Painting (brush tool) | Symmetry settings menu > display | not documented | missing | - | - |
-| Show Axis position manipulator | Symmetry settings menu > display | off | missing | - | - |
-| Manipulator Size | Symmetry settings menu > display | not documented | missing | - | - |
+| Show Axis | Symmetry settings menu > display | not documented | done | crates/ui/src/brush_bar.rs (symmetry_display) | - |
+| Show Intersection | Symmetry settings menu > display | not documented | partial: the Intersection switch covers mirror planes; the radial axis / mesh point is not drawn | crates/ui/src/brush_bar.rs (symmetry_display) | - |
+| Show Cursor (brush tool) | Symmetry settings menu > display | not documented | done | crates/ui/src/brush_bar.rs (symmetry_display) | - |
+| Hide While Painting (brush tool) | Symmetry settings menu > display | not documented | done | crates/ui/src/brush_bar.rs (symmetry_display) | - |
+| Show Axis position manipulator | Symmetry settings menu > display | off | done: drags the radial pivot | crates/ui/src/brush_bar.rs (symmetry_display) | - |
+| Manipulator Size | Symmetry settings menu > display | not documented | done | crates/ui/src/brush_bar.rs (symmetry_display) | - |
 | Symmetry button greyed out for unsupported fill projections | Contextual toolbar with a fill layer | - | missing | - | - |
 
 ## Contextual toolbar: Path tools
@@ -177,19 +177,19 @@ Layout notes: shown when a fill layer or fill effect uses Tri-planar, Planar, Sp
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Warp edition menu | Contextual toolbar, Warp | - | missing | - | - |
-| Transform warp | Warp edition menu; Shift + V toggles | default | missing | - | - |
-| Edit vertices | Warp edition menu; Shift + V toggles | - | missing | - | - |
-| Split warp crosswise | Warp edition menu | - | missing | - | - |
-| Split warp horizontally | Warp edition menu | - | missing | - | - |
-| Split warp vertically | Warp edition menu | - | missing | - | - |
-| Warp projection settings menu | Contextual toolbar, Warp | - | missing | - | - |
-| Rows and columns | Warp projection settings | editable only before any point is moved | missing | - | - |
-| Handle size | Warp projection settings | not documented | missing | - | - |
-| Grid color | Warp projection settings | not documented | missing | - | - |
+| Warp edition menu | Contextual toolbar, Warp | - | partial: the Edit row in Properties, not on the contextual toolbar | crates/ui/src/warp_view.rs | - |
+| Transform warp | Warp edition menu; Shift + V toggles | default | done: Shift+V toggles | crates/ui/src/warp_view.rs | - |
+| Edit vertices | Warp edition menu; Shift + V toggles | - | done: Shift+V toggles | crates/ui/src/warp_view.rs | - |
+| Split warp crosswise | Warp edition menu | - | partial: through the middle cells, from Properties | crates/ui/src/panels/properties.rs (warp_rows) | - |
+| Split warp horizontally | Warp edition menu | - | partial: through the middle cells, from Properties | crates/ui/src/panels/properties.rs (warp_rows) | - |
+| Split warp vertically | Warp edition menu | - | partial: through the middle cells, from Properties | crates/ui/src/panels/properties.rs (warp_rows) | - |
+| Warp projection settings menu | Contextual toolbar, Warp | - | partial: rows in Properties | crates/ui/src/panels/properties.rs (warp_rows) | - |
+| Rows and columns | Warp projection settings | editable only before any point is moved | done: locked once a point moved | crates/ui/src/panels/properties.rs (warp_rows) | - |
+| Handle size | Warp projection settings | not documented | done | crates/ui/src/warp_view.rs | - |
+| Grid color | Warp projection settings | not documented | done | crates/ui/src/warp_view.rs | - |
 | Automatic tangents | Contextual toolbar, Warp | not documented | missing | - | - |
 | Warp to geometry | Contextual toolbar, Warp (12.0) | not documented | missing | - | - |
-| Reset menu | Contextual toolbar, Warp | - | missing | - | - |
+| Reset menu | Contextual toolbar, Warp | - | partial: Reset grid button in Properties | crates/ui/src/panels/properties.rs (warp_rows) | - |
 | Restore the global transformation | Reset menu | - | missing | - | - |
 | Reset all vertices | Reset menu | - | missing | - | - |
 | Reset selected vertices | Reset menu | - | missing | - | - |
@@ -221,8 +221,8 @@ Layout notes: the right end never changes with the tool. It holds the mode switc
 | Viewport Mode: Swap 3D/2D | Viewport Mode menu; F4 | - | partial: manual dock drag only | crates/ui/src/app.rs:232 | - |
 | Perspective Mode: Perspective view | Contextual toolbar, right; F5 | default | partial: "Ortho" checkbox off, at the left of the strip | crates/ui/src/viewport_bar.rs:264 | - |
 | Perspective Mode: Orthographic view | Contextual toolbar, right; F6 | - | partial: "Ortho" checkbox on, at the left of the strip | crates/ui/src/viewport_bar.rs:264 | - |
-| Camera Rotation Mode: Free rotation | Contextual toolbar, right | - | missing | - | - |
-| Camera Rotation Mode: Constrained rotation | Contextual toolbar, right | default | partial: always constrained, no control | crates/ui/src/orbit.rs:116 | - |
+| Camera Rotation Mode: Free rotation | Contextual toolbar, right | - | done: in the camera menu of the top strip (and Display Settings > Camera) | crates/ui/src/orbit.rs (free_orbit) | 258 |
+| Camera Rotation Mode: Constrained rotation | Contextual toolbar, right | default | done: the default; levels a roll left by free rotation | crates/ui/src/orbit.rs (orbit) | 258 |
 | Rendering Mode (Iray) button | Contextual toolbar, right; F10 | off | partial: "Render" toggle at the 3D view's bottom right (path tracing) | crates/ui/src/viewport.rs:590 | - |
 | Baking mode button | Contextual toolbar, right (8.3); F8 | - | partial: F8 / Ctrl+B open the Bake window, no toolbar button | crates/app/src/actions.rs:221 | - |
 | Painting mode button | Contextual toolbar, right; F9 | active | missing | - | - |

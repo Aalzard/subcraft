@@ -24,9 +24,9 @@ Layout notes: with a fill layer or fill effect selected the panel has two upper-
 | UV projection | Properties > Fill > Projection | option | done | crates/ui/src/panels/properties.rs:965 | - |
 | Tri-planar projection | Properties > Fill > Projection | option | done | crates/ui/src/panels/properties.rs:965 | - |
 | Planar projection | Properties > Fill > Projection | option | partial: projects along a chosen object axis (X/Y/Z) only; no free 3D placement, crop or culling | crates/ui/src/panels/properties.rs:1014 | - |
-| Spherical projection | Properties > Fill > Projection | option | missing | - | - |
-| Cylindrical projection | Properties > Fill > Projection | option | missing | - | - |
-| Warp projection | Properties > Fill > Projection | option | missing | - | - |
+| Spherical projection | Properties > Fill > Projection | option | done: around the centre of the bounding cube, pole on a chosen axis | crates/doc/src/fill.rs:291 | chunk 46 |
+| Cylindrical projection | Properties > Fill > Projection | option | done: around a chosen axis through the centre of the bounding cube | crates/doc/src/fill.rs:291 | chunk 46 |
+| Warp projection | Properties > Fill > Projection | option | done: planar along an axis through a grid of movable points; untouched it equals Planar; nothing projected outside the grid | crates/doc/src/warp.rs, crates/materials/src/sample/projection.rs | - |
 
 ## Fill (match per UV Tile)
 
@@ -127,12 +127,12 @@ Layout notes: Filtering, UV Wrap, then the UV transformations group (Scale mode,
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Filtering (same three options) | Properties > Fill | Bilinear &#124; HQ | missing | - | - |
-| UV Wrap (four options) | Properties > Fill | Repeat | missing | - | - |
-| Shape Crop (two options) | Properties > Fill | Projection extends outside shape | missing | - | - |
-| UV transformation: Scale | Properties > Fill > UV transformations | not documented | missing | - | - |
-| UV transformation: Rotation | Properties > Fill > UV transformations | not documented | missing | - | - |
-| UV transformation: Offset | Properties > Fill > UV transformations | texture centred | missing | - | - |
+| Filtering (same three options) | Properties > Fill | Bilinear &#124; HQ | done | crates/ui/src/panels/properties.rs:1218 | chunk 46 |
+| UV Wrap (four options) | Properties > Fill | Repeat | done | crates/ui/src/panels/properties.rs:1218 | chunk 46 |
+| Shape Crop (two options) | Properties > Fill | Projection extends outside shape | partial: selectable, but the shape is the bounding cube until the 3D projection transform exists | crates/ui/src/panels/properties.rs:1218 | chunk 46 |
+| UV transformation: Scale | Properties > Fill > UV transformations | not documented | done: the shared Tiling / Rotation / Offset rows | crates/ui/src/panels/properties.rs:1302 | chunk 46 |
+| UV transformation: Rotation | Properties > Fill > UV transformations | not documented | done: the shared Tiling / Rotation / Offset rows | crates/ui/src/panels/properties.rs:1302 | chunk 46 |
+| UV transformation: Offset | Properties > Fill > UV transformations | texture centred | done: the shared Tiling / Rotation / Offset rows | crates/ui/src/panels/properties.rs:1302 | chunk 46 |
 | 3D projection: Offset X, Y, Z | Properties > Fill > 3D projection | 0, 0, 0 | missing | - | - |
 | 3D projection: Rotation X, Y, Z | Properties > Fill > 3D projection | not documented | missing | - | - |
 | 3D projection: Scale X, Y, Z | Properties > Fill > 3D projection | not documented | missing | - | - |
@@ -141,10 +141,10 @@ Layout notes: Filtering, UV Wrap, then the UV transformations group (Scale mode,
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Filtering (same three options) | Properties > Fill | Bilinear &#124; HQ | missing | - | - |
-| UV wrap (four options) | Properties > Fill | Repeat | missing | - | - |
-| Shape crop (two options) | Properties > Fill | Projection extends outside shape | missing | - | - |
-| Angle (how much of the perimeter is covered) | Properties > Fill | not documented (360 unverified) | missing | - | - |
+| Filtering (same three options) | Properties > Fill | Bilinear &#124; HQ | done | crates/ui/src/panels/properties.rs:1218 | chunk 46 |
+| UV wrap (four options) | Properties > Fill | Repeat | done | crates/ui/src/panels/properties.rs:1218 | chunk 46 |
+| Shape crop (two options) | Properties > Fill | Projection extends outside shape | partial: selectable, but the shape is the bounding cube until the 3D projection transform exists | crates/ui/src/panels/properties.rs:1218 | chunk 46 |
+| Angle (how much of the perimeter is covered) | Properties > Fill | not documented (360 unverified) | done: 1-360 degrees, default 360 | crates/ui/src/panels/properties.rs:1232 | chunk 46 |
 | Backface Culling (toggle) | Properties > Fill | not documented | missing | - | - |
 | Backface Culling: Hardness | Properties > Fill > Backface Culling | not documented | missing | - | - |
 | 3D projection: Offset X, Y, Z | Properties > Fill > 3D projection | 0, 0, 0 | missing | - | - |
@@ -157,35 +157,35 @@ Layout notes: Filtering, UV Wrap, then the UV transformations group (Scale mode,
 |---|---|---|---|---|---|
 | Quick setup: drop an Alpha / Procedural / Texture from Assets onto the mesh, then choose the channel in a popup menu | Viewport | n/a | missing | - | - |
 | Quick setup with a Material: Alt + drop | Viewport | n/a | missing | - | - |
-| Filtering (same three options) | Properties > Fill | Bilinear &#124; HQ | missing | - | - |
-| UV wrap (four options) | Properties > Fill | Repeat | missing | - | - |
-| Shape crop (two options) | Properties > Fill | Projection extends outside shape | missing | - | - |
+| Filtering (same three options) | Properties > Fill | Bilinear &#124; HQ | done: the shared Filtering row | crates/ui/src/panels/properties.rs (projection_options) | - |
+| UV wrap (four options) | Properties > Fill | Repeat | done: inside the grid | crates/ui/src/panels/properties.rs (projection_options) | - |
+| Shape crop (two options) | Properties > Fill | Projection extends outside shape | done: the shared Shape crop row | crates/ui/src/panels/properties.rs (projection_options) | - |
 | Projection depth | Properties > Fill | not documented | missing | - | - |
 | Depth culling (toggle) | Properties > Fill | not documented | missing | - | - |
 | Depth culling: Hardness | Properties > Fill > Depth culling | not documented | missing | - | - |
 | 3D projection: Offset X, Y, Z | Properties > Fill > 3D projection | 0, 0, 0 | missing | - | - |
 | 3D projection: Rotation X, Y, Z | Properties > Fill > 3D projection | not documented | missing | - | - |
 | 3D projection: Scale X, Y, Z | Properties > Fill > 3D projection | not documented | missing | - | - |
-| Warp edition menu: Transform warp | Contextual toolbar | default (unverified) | missing | - | - |
-| Warp edition menu: Edit vertices | Contextual toolbar | option | missing | - | - |
-| Warp edition menu: Split warp crosswise | Contextual toolbar | action | missing | - | - |
-| Warp edition menu: Split warp horizontally | Contextual toolbar | action | missing | - | - |
-| Warp edition menu: Split warp vertically | Contextual toolbar | action | missing | - | - |
+| Warp edition menu: Transform warp | Contextual toolbar | default (unverified) | done: Properties > Edit row; drag a point to move the whole grid in the view plane | crates/ui/src/warp_view.rs | - |
+| Warp edition menu: Edit vertices | Contextual toolbar | option | done: Properties > Edit row | crates/ui/src/warp_view.rs | - |
+| Warp edition menu: Split warp crosswise | Contextual toolbar | action | partial: splits through the middle cells (no interactive split line) | crates/ui/src/panels/properties.rs (warp_rows) | - |
+| Warp edition menu: Split warp horizontally | Contextual toolbar | action | partial: a row through the middle cells | crates/ui/src/panels/properties.rs (warp_rows) | - |
+| Warp edition menu: Split warp vertically | Contextual toolbar | action | partial: a column through the middle cells | crates/ui/src/panels/properties.rs (warp_rows) | - |
 | Cancel a split tool with Escape | Viewport | n/a | missing | - | - |
-| Toggle warp edition mode shortcut (Transform warp / Edit vertices) | Shortcut (Shift+V per SubCraft's Painter key table) | n/a | missing | - | - |
-| Warp projection settings: Rows and columns (editable only while no point was moved) | Contextual toolbar > settings | not documented | missing | - | - |
-| Warp projection settings: Handle size | Contextual toolbar > settings | not documented | missing | - | - |
-| Warp projection settings: Grid color | Contextual toolbar > settings | not documented | missing | - | - |
+| Toggle warp edition mode shortcut (Transform warp / Edit vertices) | Shortcut (Shift+V per SubCraft's Painter key table) | n/a | done: Shift+V over the 3D view | crates/ui/src/warp_view.rs | - |
+| Warp projection settings: Rows and columns (editable only while no point was moved) | Contextual toolbar > settings | not documented | done: 1-6 each, locked once a point moved or the grid was split | crates/ui/src/panels/properties.rs (warp_rows) | - |
+| Warp projection settings: Handle size | Contextual toolbar > settings | not documented | done: Properties > Handles | crates/ui/src/warp_view.rs | - |
+| Warp projection settings: Grid color | Contextual toolbar > settings | not documented | done: Properties > Handles | crates/ui/src/warp_view.rs | - |
 | Automatic tangents | Contextual toolbar | not documented | missing | - | - |
-| Select a grid point: click | Viewport (Edit vertices) | n/a | missing | - | - |
-| Deselect: click away from points | Viewport (Edit vertices) | n/a | missing | - | - |
-| Add to selection: Shift+click | Viewport (Edit vertices) | n/a | missing | - | - |
-| Remove one point from selection: Ctrl+click | Viewport (Edit vertices) | n/a | missing | - | - |
-| Rectangle selection: drag | Viewport (Edit vertices) | n/a | missing | - | - |
-| Rectangle add: Shift+drag | Viewport (Edit vertices) | n/a | missing | - | - |
-| Rectangle remove: Ctrl+drag | Viewport (Edit vertices) | n/a | missing | - | - |
-| Drag a point directly: moves it along the mesh surface | Viewport (Edit vertices) | n/a | missing | - | - |
-| Ctrl+drag a point: moves it in camera space | Viewport (Edit vertices) | n/a | missing | - | - |
+| Select a grid point: click | Viewport (Edit vertices) | n/a | done | crates/ui/src/warp_view.rs | - |
+| Deselect: click away from points | Viewport (Edit vertices) | n/a | done (also Esc) | crates/ui/src/warp_view.rs | - |
+| Add to selection: Shift+click | Viewport (Edit vertices) | n/a | done | crates/ui/src/warp_view.rs | - |
+| Remove one point from selection: Ctrl+click | Viewport (Edit vertices) | n/a | done: Ctrl+click without moving | crates/ui/src/warp_view.rs | - |
+| Rectangle selection: drag | Viewport (Edit vertices) | n/a | done | crates/ui/src/warp_view.rs | - |
+| Rectangle add: Shift+drag | Viewport (Edit vertices) | n/a | done | crates/ui/src/warp_view.rs | - |
+| Rectangle remove: Ctrl+drag | Viewport (Edit vertices) | n/a | done | crates/ui/src/warp_view.rs | - |
+| Drag a point directly: moves it along the mesh surface | Viewport (Edit vertices) | n/a | done: the dragged point follows the surface under the cursor, the selection moves with it; one undo step per drag | crates/ui/src/warp_view.rs | - |
+| Ctrl+drag a point: moves it in camera space | Viewport (Edit vertices) | n/a | done: in the view plane through the point | crates/ui/src/warp_view.rs | - |
 | Edit a point's tangents with the Rotation / Scale manipulators | Viewport (Edit vertices) | n/a | missing | - | - |
 | Green arrows showing projection direction and depth per grid point | Viewport | n/a | missing | - | - |
 
@@ -226,16 +226,16 @@ Layout notes: a Symmetry sub-group in the FILL block with an "Enable symmetry" t
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Enable symmetry | Properties > Fill > Symmetry | off | missing | - | - |
-| Enable symmetry unavailable for UV projection and Fill (match per UV Tile) | Properties > Fill > Symmetry | n/a | missing | - | - |
-| Symmetry type: Mirror | Properties > Fill > Symmetry | not documented | missing | - | - |
-| Symmetry type: Radial | Properties > Fill > Symmetry | not documented | missing | - | - |
-| Mirror: Axis | Properties > Fill > Symmetry | not documented | missing | - | - |
-| Mirror: Axis position | Properties > Fill > Symmetry | not documented | missing | - | - |
-| Radial: Axis | Properties > Fill > Symmetry | not documented | missing | - | - |
-| Radial: copy count | Properties > Fill > Symmetry | (unverified) | missing | - | - |
-| Radial: Flip copy (alternate copies flipped on U or V) | Properties > Fill > Symmetry | not documented | missing | - | - |
-| Radial: Axis position X, Y, Z | Properties > Fill > Symmetry | not documented | missing | - | - |
+| Enable symmetry | Properties > Fill > Symmetry | off | done | crates/ui/src/panels/properties.rs:1243 | chunk 46 |
+| Enable symmetry unavailable for UV projection and Fill (match per UV Tile) | Properties > Fill > Symmetry | n/a | done: greyed out on UV projection | crates/ui/src/panels/properties.rs:1243 | chunk 46 |
+| Symmetry type: Mirror | Properties > Fill > Symmetry | not documented | done | crates/ui/src/panels/properties.rs:1243 | chunk 46 |
+| Symmetry type: Radial | Properties > Fill > Symmetry | not documented | done | crates/ui/src/panels/properties.rs:1243 | chunk 46 |
+| Mirror: Axis | Properties > Fill > Symmetry | not documented | done | crates/ui/src/panels/properties.rs:1243 | chunk 46 |
+| Mirror: Axis position | Properties > Fill > Symmetry | not documented | done: bounding-cube coordinate, 0.5 = the middle | crates/ui/src/panels/properties.rs:1243 | chunk 46 |
+| Radial: Axis | Properties > Fill > Symmetry | not documented | done | crates/ui/src/panels/properties.rs:1243 | chunk 46 |
+| Radial: copy count | Properties > Fill > Symmetry | (unverified) | done: 1-64, default 4 | crates/ui/src/panels/properties.rs:1243 | chunk 46 |
+| Radial: Flip copy (alternate copies flipped on U or V) | Properties > Fill > Symmetry | not documented | done | crates/ui/src/panels/properties.rs:1243 | chunk 46 |
+| Radial: Axis position X, Y, Z | Properties > Fill > Symmetry | not documented | done | crates/ui/src/panels/properties.rs:1243 | chunk 46 |
 
 ## Material
 

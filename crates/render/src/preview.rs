@@ -21,6 +21,13 @@ pub struct PreviewTarget {
     pub display_view: wgpu::TextureView,
 }
 
+impl PreviewTarget {
+    /// The preview as sRGB-encoded RGBA8 rows (tests and screenshots).
+    pub fn read_rgba8(&self, device: &wgpu::Device, queue: &wgpu::Queue) -> Vec<u8> {
+        crate::target::read_texture_rgba8(device, queue, &self.texture, [self.size, self.size]).expect("GPU readback")
+    }
+}
+
 impl PreviewPass {
     pub fn new(device: &wgpu::Device) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -97,7 +104,7 @@ impl PreviewPass {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: OUTPUT_FORMAT,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_SRC,
             view_formats: crate::display::view_formats(device),
         });
         let render_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
@@ -105,9 +112,10 @@ impl PreviewPass {
         PreviewTarget { size, texture, render_view, display_view, display_copy }
     }
 
-    /// Convert `src` into `dst`. `gray` replicates the first component (scalar channels / maps).
-    pub fn run(&self, device: &wgpu::Device, queue: &wgpu::Queue, src: &wgpu::TextureView, is_color: bool, gray: bool, dst: &PreviewTarget) {
-        let flags = [if is_color { 1.0f32 } else { 0.0 }, if gray { 1.0 } else { 0.0 }, 0.0, 0.0];
+    /// Convert `src` into `dst`. `gray` replicates the first component (scalar channels / maps);
+    /// `component` shows one component alone as gray (Display Settings > Channel component).
+    pub fn run(&self, device: &wgpu::Device, queue: &wgpu::Queue, src: &wgpu::TextureView, is_color: bool, gray: bool, component: subcraft_doc::display::ChannelComponent, dst: &PreviewTarget) {
+        let flags = [if is_color { 1.0f32 } else { 0.0 }, if gray { 1.0 } else { 0.0 }, component as u32 as f32, 0.0];
         queue.write_buffer(&self.flags, 0, bytemuck::cast_slice(&flags));
         let bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("preview"),
