@@ -1543,7 +1543,12 @@ fn visualization_settings(ui: &mut egui::Ui, b: &mut BakeUi) {
             ui.label(RichText::new(tr("The project mesh shows where the high poly does not cover it: its color marks the matching errors.")).small().color(theme::TEXT_FAINT));
             color_row(ui, Some(&mut b.cage), tr("Cage wireframe"), &mut b.vis.cage_color);
             crate::widgets::slider_row(ui, tr("Cage wireframe opacity"), egui::Slider::new(&mut b.vis.cage_opacity, 0.0..=1.0));
-            if b.vis != Default::default() && secondary_button(ui, tr("Reset colors")).clicked() {
+            // The color buttons round a color in its last bits each frame: compare with a tolerance.
+            let d = subcraft_render::BakeVisualization::default();
+            let near = |a: [f32; 3], b: [f32; 3]| a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-3);
+            let changed = !near(b.vis.high_color, d.high_color) || !near(b.vis.low_color, d.low_color) || !near(b.vis.cage_color, d.cage_color)
+                || (b.vis.cage_opacity - d.cage_opacity).abs() > 1e-3 || !b.vis.show_high || !b.vis.show_low;
+            if changed && secondary_button(ui, tr("Reset colors")).clicked() {
                 b.vis = Default::default();
             }
         });
