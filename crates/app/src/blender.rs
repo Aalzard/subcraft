@@ -53,8 +53,54 @@ fn versioned(root: &Path, prefix: &str, exe: &str) -> Vec<PathBuf> {
         .collect()
 }
 
+/// The program a Windows shortcut (`.lnk`) points at when it is a Blender: the shortcut keeps
+/// the target's full path as text (ANSI in its link info, UTF-16 in its strings), so the first
+/// `X:\...\blender.exe` or `blender-launcher.exe` path found is it. The launcher is swapped for
+/// the `blender.exe` beside it (the launcher returns at once and hides Blender's output).
+pub fn shortcut_target(bytes: &[u8]) -> Option<PathBuf> {
+    let ansi: String = bytes.iter().map(|&b| if (0x20..0x7f).contains(&b) { b as char } else { '\0' }).collect();
+    let wide: String = bytes.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).map(|u| char::from_u32(u as u32).filter(|c| !c.is_control()).unwrap_or('\0')).collect();
+    for text in [ansi, wide] {
+        for run in text.split('\0') {
+            // ASCII-only lowering keeps byte offsets valid for `run`.
+            let lower = run.to_ascii_lowercase();
+            let Some(end) = ["blender-launcher.exe", "blender.exe"].iter().find_map(|n| lower.find(n).map(|i| i + n.len())) else { continue };
+            let Some(start) = lower[..end].char_indices().rev().find(|&(i, c)| c == ':' && i > 0 && lower[..i].chars().last().is_some_and(|d| d.is_ascii_alphabetic())).map(|(i, _)| i - 1) else { continue };
+            let path = PathBuf::from(&run[start..end]);
+            return Some(if lower[..end].ends_with("blender-launcher.exe") { path.with_file_name("blender.exe") } else { path });
+        }
+    }
+    None
+}
+
+/// Blenders behind Start menu shortcuts named "Blender…" (installs in any folder, e.g. a zip
+/// unpacked to another drive), newest version first by the shortcut's name.
+fn start_menu_blenders(env: &dyn Fn(&str) -> Option<String>) -> Vec<PathBuf> {
+    fn walk(dir: &Path, depth: u32, out: &mut Vec<(Vec<u32>, PathBuf)>) {
+        let Ok(rd) = std::fs::read_dir(dir) else { return };
+        for e in rd.filter_map(Result::ok) {
+            let path = e.path();
+            if path.is_dir() && depth < 3 {
+                walk(&path, depth + 1, out);
+            } else if path.extension().is_some_and(|x| x.eq_ignore_ascii_case("lnk")) && e.file_name().to_string_lossy().to_lowercase().starts_with("blender")
+                && let Some(target) = std::fs::read(&path).ok().and_then(|b| shortcut_target(&b))
+            {
+                out.push((version_of(&path), target));
+            }
+        }
+    }
+    let mut found = Vec::new();
+    for var in ["APPDATA", "ProgramData"] {
+        if let Some(root) = env(var) {
+            walk(&Path::new(&root).join("Microsoft").join("Windows").join("Start Menu").join("Programs"), 0, &mut found);
+        }
+    }
+    found.sort_by(|a, b| b.0.cmp(&a.0));
+    found.into_iter().map(|(_, p)| p).collect()
+}
+
 /// Places Blender is usually installed, best first. Pure listing; existence is checked by
-/// [`find_blender`]. `home` and `env` are passed in so tests can use a fake file system.
+/// [`find_blender`]. `env` is passed in so tests can use a fake file system.
 pub fn candidates(env: &dyn Fn(&str) -> Option<String>) -> Vec<PathBuf> {
     let mut out: Vec<PathBuf> = Vec::new();
     let exe = format!("blender{}", std::env::consts::EXE_SUFFIX);
@@ -91,6 +137,9 @@ pub fn candidates(env: &dyn Fn(&str) -> Option<String>) -> Vec<PathBuf> {
     installs.sort_by(|a, b| version_of(b).cmp(&version_of(a)));
     if let Some(path) = env("PATH") {
         out.extend(std::env::split_paths(&path).map(|d| d.join(&exe)));
+    }
+    if cfg!(windows) {
+        out.extend(start_menu_blenders(env));
     }
     out.extend(installs);
     out
@@ -249,6 +298,17 @@ mod tests {
         let err = find_blender(&root.join("nope.exe").display().to_string()).unwrap_err();
         assert!(err.contains("not found") && err.contains("nope.exe"), "{err}");
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_start_menu_shortcut_leads_to_blender_beside_its_launcher() {
+        // The bytes a .lnk keeps: binary header, ANSI local path, UTF-16 strings.
+        let mut lnk = vec![0x4c, 0, 0, 0, 1, 0x14, 2, 0];
+        lnk.extend_from_slice(b"\x00\x10junk\x00E:\\Applications\\Blender\\blender-launcher.exe\x00\x00");
+        assert_eq!(shortcut_target(&lnk), Some(PathBuf::from(r"E:\Applications\Blender\blender.exe")));
+        let wide: Vec<u8> = "\0\0D:\\Tools\\Blender 4.2\\blender.exe\0".encode_utf16().flat_map(|u| u.to_le_bytes()).collect();
+        assert_eq!(shortcut_target(&wide), Some(PathBuf::from(r"D:\Tools\Blender 4.2\blender.exe")));
+        assert_eq!(shortcut_target(br"C:\Program Files\Krita\krita.exe"), None);
     }
 
     #[test]

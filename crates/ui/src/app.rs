@@ -2107,7 +2107,7 @@ impl SubcraftApp {
             self.state.session.mesh_maps(ts).and_then(|m| m.get(kind)).is_some_and(|image|
                 self.state.uploaded_maps.get(&(ts, kind)).is_some_and(|gpu| gpu.same_storage(image)))
         });
-        if !self.screenshot_requested && self.frames >= 20 && !self.state.mesh_reload.busy() && (pinned_ready || self.state.bake.job.is_none() && self.state.spp_import.is_none() && !self.state.session.composites_pending())
+        if !self.screenshot_requested && self.frames >= 20 && !self.state.mesh_reload.busy() && !self.state.blender.await_sculpt && (pinned_ready || self.state.bake.job.is_none() && self.state.spp_import.is_none() && !self.state.session.composites_pending())
             && !self.state.bake.preview_pending() && (!self.state.asset_preview.is_applying() || self.state.capture_during_load) && (self.state.bake.preview_mesh.is_none() || self.state.bake.preview_uploaded)
             && self.path_trace_capture_ready()
         {
@@ -2600,10 +2600,12 @@ fn scripted_tool_capture(state: &mut UiState, which: &str, now: f64) {
         // File > Export to Blender window (screenshots of the round trip).
         "blender" => state.blender.open = true,
         // ... and press its Export button (scripted end-to-end check with a real Blender).
-        "blender-send" | "blender-send-mesh" => {
+        "blender-send" | "blender-send-mesh" | "blender-roundtrip" => {
             state.blender.open = true;
             state.blender.auto_send = true;
-            state.blender.include_textures = which == "blender-send";
+            state.blender.include_textures = which != "blender-send-mesh";
+            // Hold the screenshot until a sculpt comes back from Blender (Bake window open on it).
+            state.blender.await_sculpt = which == "blender-roundtrip";
         }
         "smudge" => {
             state.tool = Tool::Smudge;

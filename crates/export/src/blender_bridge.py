@@ -38,14 +38,17 @@ def load_manifest(path):
 # ----- import -----------------------------------------------------------------------------------
 
 def clear_default_scene():
-    """Remove the startup cube when the scene is Blender's untouched default."""
-    names = sorted(o.name for o in bpy.data.objects)
-    if names == ["Camera", "Cube", "Light"]:
-        cube = bpy.data.objects["Cube"]
-        mesh = cube.data
-        bpy.data.objects.remove(cube, do_unlink=True)
-        if mesh is not None and mesh.users == 0:
-            bpy.data.meshes.remove(mesh)
+    """Start from an empty scene when Blender opened its startup file (not a saved .blend):
+    the startup file's objects (often a cube, sometimes the user's own) would sit on top of the
+    model. Preferences, add-ons and the startup file on disk are untouched."""
+    if bpy.data.filepath:
+        return
+    # Data API only: operators that reload files break the context of a startup script.
+    for obj in list(bpy.context.scene.objects):
+        data = obj.data
+        bpy.data.objects.remove(obj, do_unlink=True)
+        if isinstance(data, bpy.types.Mesh) and data.users == 0:
+            bpy.data.meshes.remove(data)
 
 
 def import_obj(path):
@@ -327,6 +330,27 @@ def register():
 
 # ----- main -----------------------------------------------------------------------------------------
 
+def skip_splash_once():
+    """The splash would cover the model. Blender shows it after startup scripts, so switching it
+    off here skips it; the setting (and the preferences' saved / unsaved state) is put back a
+    moment later, so the user's preferences are unchanged."""
+    prefs = bpy.context.preferences
+    if not prefs.view.show_splash:
+        return
+    was_dirty = prefs.is_dirty
+    prefs.view.show_splash = False
+
+    def restore():
+        prefs.view.show_splash = True
+        try:
+            prefs.is_dirty = was_dirty
+        except Exception:
+            pass
+        return None
+
+    bpy.app.timers.register(restore, first_interval=2.0, persistent=True)
+
+
 def main():
     path = manifest_path_from_argv()
     register()
@@ -334,8 +358,9 @@ def main():
         log("no bridge.json given; only the Send to SubCraft panel was added")
         return
     m = load_manifest(path)
-    bpy.context.scene[PROP] = os.path.abspath(path)
+    skip_splash_once()
     clear_default_scene()
+    bpy.context.scene[PROP] = os.path.abspath(path)
     objects = import_obj(m["mesh"])
     if not objects:
         raise RuntimeError("nothing was imported from " + m["mesh"])

@@ -17,13 +17,15 @@ pub struct BlenderUi {
     pub include_textures: bool,
     /// Press Export on the next frame (`--capture-tool blender-send`).
     pub auto_send: bool,
+    /// `--capture-tool blender-roundtrip`: the scripted screenshot waits for the sculpt.
+    pub await_sculpt: bool,
     /// Blender found for the path last checked: (path text, result).
     found: Option<(String, Result<std::path::PathBuf, String>)>,
 }
 
 impl Default for BlenderUi {
     fn default() -> Self {
-        Self { open: false, preset: subcraft_export::blender::template().name, include_textures: true, auto_send: false, found: None }
+        Self { open: false, preset: subcraft_export::blender::template().name, include_textures: true, auto_send: false, await_sculpt: false, found: None }
     }
 }
 
@@ -153,6 +155,7 @@ pub fn poll(state: &mut UiState, ctx: &egui::Context, now: f64) {
 pub fn use_as_high_poly(state: &mut UiState, path: &std::path::Path, now: f64) {
     state.bake.high_poly = path.display().to_string();
     state.bake.open = true;
+    state.blender.await_sculpt = false;
     state.set_status(format!("Sculpt received from Blender: {} is now the bake high poly", path.display()), now);
     log::info!("blender: high poly {}", path.display());
 }

@@ -35,12 +35,17 @@ when the project has them) and wired into a Principled BSDF:
   coming back (`from_blender/sculpt_high.obj`).
 * The low poly is written as one welded object (UV seams don't split it), so it can be sculpted
   without tearing.
+* Blender opens on an empty scene with just your model (objects of your startup file are left out;
+  a saved .blend is never touched) and skips the splash screen this one time.
+* If you restart SubCraft, the link is gone: pick `from_blender/sculpt_high.obj` in the Bake
+  window's High poly field yourself.
 
 ## Finding Blender
 
 SubCraft uses, in order: the path in **Settings > General > Blender** (or typed in the Export to
 Blender window; a folder works too), the `SUBCRAFT_BLENDER` environment variable, `blender` on
-`PATH`, then the usual install folders (Windows: Program Files\Blender Foundation, Steam,
+`PATH`, Blender shortcuts in the Windows Start menu (so an install in any folder is found), then
+the usual install folders (Windows: Program Files\Blender Foundation, Steam,
 %LOCALAPPDATA%\Programs; Linux: snap, flatpak, `~/blender-*`, `/opt/blender*`; macOS:
 /Applications). The newest version found wins. If none is found the window says so and the
 export button stays off. Blender 3.6 or newer is needed.
