@@ -155,6 +155,8 @@ struct Sink {
     path: Option<PathBuf>,
     written: u64,
     recent: VecDeque<String>,
+    /// The Log window's messages.
+    entries: crate::log_buffer::LogBuffer,
 }
 
 struct Logger {
@@ -178,7 +180,9 @@ impl log::Log for Logger {
         if !wanted(r.metadata()) {
             return;
         }
-        let line = format!("{} [{}] {}", timestamp(), r.level(), r.args());
+        let time = timestamp();
+        let text = r.args().to_string();
+        let line = format!("{time} [{}] {text}", r.level());
         if self.stderr {
             eprintln!("[{}] {}", r.level(), r.args());
         }
@@ -187,6 +191,7 @@ impl log::Log for Logger {
             sink.recent.pop_front();
         }
         sink.recent.push_back(line.clone());
+        sink.entries.push(time, crate::log_buffer::LogLevel::from_record(r.level()), r.target(), text);
         if sink.written > MAX_LOG_BYTES
             && let Some(path) = sink.path.clone()
             && let Some(dir) = path.parent()
@@ -225,7 +230,7 @@ pub fn init_logging(dir: Option<&Path>, stderr: bool) -> Option<PathBuf> {
         }
         _ => (None, None),
     };
-    let logger = LOGGER.get_or_init(|| Logger { sink: Mutex::new(Sink { file, path: path.clone(), written: 0, recent: VecDeque::new() }), stderr });
+    let logger = LOGGER.get_or_init(|| Logger { sink: Mutex::new(Sink { file, path: path.clone(), written: 0, recent: VecDeque::new(), entries: Default::default() }), stderr });
     if log::set_logger(logger).is_ok() {
         log::set_max_level(log::LevelFilter::Info);
     }
@@ -242,6 +247,26 @@ pub fn log_file() -> Option<PathBuf> {
 /// The last log lines (newest last). Never blocks: empty if the logger is busy.
 pub fn recent_lines() -> Vec<String> {
     LOGGER.get().and_then(|l| l.sink.try_lock().ok().map(|s| s.recent.iter().cloned().collect())).unwrap_or_default()
+}
+
+/// The Log window's messages (oldest first) and the newest sequence number. Never blocks: `None`
+/// while the logger is busy (the window keeps what it showed last).
+pub fn log_entries() -> Option<(Vec<crate::log_buffer::LogEntry>, u64)> {
+    let logger = LOGGER.get()?;
+    let sink = logger.sink.try_lock().ok()?;
+    Some((sink.entries.entries().cloned().collect(), sink.entries.last_seq()))
+}
+
+/// Sequence number of the newest Log message (cheap: the window refetches only when it changes).
+pub fn log_last_seq() -> Option<u64> {
+    LOGGER.get()?.sink.try_lock().ok().map(|s| s.entries.last_seq())
+}
+
+/// Help > Export log: save a copy of this session's log file at `dest` (or, without a log file,
+/// the lines still in memory).
+pub fn export_log(dest: &Path) -> std::io::Result<()> {
+    log::logger().flush();
+    crate::log_buffer::export(dest, log_file().as_deref(), &recent_lines())
 }
 
 /// "2026-10-14 18:03:07" (UTC; no time-zone database needed).
