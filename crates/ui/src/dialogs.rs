@@ -1397,6 +1397,28 @@ fn map_settings_panel(ui: &mut egui::Ui, b: &mut BakeUi) {
             })
             .response
             .on_hover_text(tr("Where the ID map takes its colors: the model's vertex colors or material colors, or one generated color per mesh element or per object. With a high poly, its colors are used."));
+            if s.id_source == IdSource::VertexColor {
+                // How many sets the loaded high poly has (unknown for low on low).
+                let sets = b.preview_mesh.as_ref().map(|m| m.color_set_count());
+                let s = &mut b.settings;
+                ui.horizontal(|ui| {
+                    ui.label(dim(tr("Vertex color set")));
+                    let max = sets.filter(|n| *n > 0).map_or(7, |n| n as u32 - 1).max(s.vertex_color_set);
+                    egui::ComboBox::from_id_salt("bake_vertex_color_set").selected_text(format!("{}", s.vertex_color_set + 1)).show_ui(ui, |ui| {
+                        for set in 0..=max {
+                            ui.selectable_value(&mut s.vertex_color_set, set, format!("{} (COLOR_{set})", set + 1));
+                        }
+                    });
+                })
+                .response
+                .on_hover_text(tr("Which of the model's vertex color sets the ID map reads (glTF / GLB files can have several)"));
+                match sets {
+                    Some(0) => hint(ui, tr("The high poly has no vertex colors.")),
+                    Some(n) => { ui.label(RichText::new(crate::i18n::trf("The high poly has {} vertex color set(s).", &[&n])).small().color(theme::TEXT_FAINT)); }
+                    None => {}
+                }
+            }
+            let s = &mut b.settings;
             if matches!(s.id_source, IdSource::MeshId | IdSource::Submesh) {
                 option_row(ui, "bake_id_generator", tr("Color generator"), &mut s.id_generator, &IdGenerator::ALL, IdGenerator::label);
             }

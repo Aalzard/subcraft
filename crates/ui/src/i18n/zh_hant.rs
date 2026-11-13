@@ -980,4 +980,8 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Warnings and errors", "警告與錯誤"),
     ("{} warning(s), {} error(s) since the last Clear", "自上次清除以來有 {} 個警告、{} 個錯誤"),
     ("Distance from the camera, in scene units, that is sharp; it stays put while zooming. Ctrl + middle click in the 3D view focuses on the point under the cursor. Needs Depth of field (Post effects).", "與相機的距離（場景單位），此處清晰；縮放時保持不變。在 3D 檢視中按 Ctrl + 滑鼠中鍵可對焦於游標下的點。需要景深（後製效果）。"),
+    ("Vertex color set", "頂點色彩集"),
+    ("Which of the model's vertex color sets the ID map reads (glTF / GLB files can have several)", "ID 貼圖讀取模型的哪一組頂點色彩（glTF / GLB 檔案可有多組）"),
+    ("The high poly has no vertex colors.", "高模沒有頂點色彩。"),
+    ("The high poly has {} vertex color set(s).", "高模有 {} 組頂點色彩。"),
 ];

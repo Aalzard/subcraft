@@ -275,9 +275,13 @@ fn load_gltf(path: &Path, b: &mut MeshBuilder, warnings: &mut Vec<String>) -> Re
                 let nrm: Option<Vec<Vec3>> =
                     reader.read_normals().map(|it| it.map(|n| (normal_m * Vec3::from(n)).normalize_or_zero()).collect());
                 let uv: Option<Vec<Vec2>> = reader.read_tex_coords(0).map(|t| t.into_f32().map(Vec2::from).collect());
-                // COLOR_0, when it covers every vertex.
-                let colors: Option<Vec<[f32; 4]>> =
-                    reader.read_colors(0).map(|c| c.into_rgba_f32().collect::<Vec<_>>()).filter(|c| c.len() >= pos.len());
+                // Every vertex colour set (COLOR_0, COLOR_1...) that covers every vertex, in order
+                // (issue #366: the baker can take its ID map from any of them).
+                let mut color_sets: Vec<Vec<[f32; 4]>> = Vec::new();
+                while let Some(set) = reader.read_colors(color_sets.len() as u32).map(|c| c.into_rgba_f32().collect::<Vec<_>>()).filter(|c| c.len() >= pos.len()) {
+                    color_sets.push(set);
+                    if color_sets.len() == 8 { break; }
+                }
                 let idx: Vec<u32> = match reader.read_indices() {
                     Some(i) => i.into_u32().collect(),
                     None => (0..pos.len() as u32).collect(),
@@ -298,13 +302,11 @@ fn load_gltf(path: &Path, b: &mut MeshBuilder, warnings: &mut Vec<String>) -> Re
                     }
                     let c = [corner(tri[0]), corner(tri[1]), corner(tri[2])];
                     let c = if flip { [c[0], c[2], c[1]] } else { c };
-                    match &colors {
-                        Some(col) => {
-                            let k = [col[tri[0] as usize], col[tri[1] as usize], col[tri[2] as usize]];
-                            b.push_triangle_colored(mat, c, if flip { [k[0], k[2], k[1]] } else { k });
-                        }
-                        None => b.push_triangle(mat, c),
-                    }
+                    let sets: Vec<[[f32; 4]; 3]> = color_sets.iter().map(|col| {
+                        let k = [col[tri[0] as usize], col[tri[1] as usize], col[tri[2] as usize]];
+                        if flip { [k[0], k[2], k[1]] } else { k }
+                    }).collect();
+                    b.push_triangle_color_sets(mat, c, &sets);
                 }
             }
         }
@@ -577,6 +579,45 @@ mod tests {
         assert_eq!(rep.mesh.materials[0].name, "Painted");
         assert!((rep.mesh.bounds.min.z - 1.0).abs() < 1e-6, "node transform applied");
         assert!(rep.mesh.normals.iter().all(|n| (n.z - 1.0).abs() < 1e-5));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn gltf_with_two_vertex_color_sets_imports_both() {
+        // One triangle with COLOR_0 (red, green, blue corners) and COLOR_1 (all yellow).
+        let positions: [f32; 9] = [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0];
+        let uvs: [f32; 6] = [0.0, 1.0, 1.0, 1.0, 0.0, 0.0];
+        let c0: [f32; 12] = [1.0, 0.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0];
+        let c1: [f32; 12] = [1.0, 1.0, 0.0, 1.0, 1.0, 1.0, 0.0, 1.0, 1.0, 1.0, 0.0, 1.0];
+        let mut bytes: Vec<u8> = Vec::new();
+        for v in positions.iter().chain(uvs.iter()).chain(c0.iter()).chain(c1.iter()) {
+            bytes.extend_from_slice(&v.to_le_bytes());
+        }
+        let b64 = base64_encode(&bytes);
+        let json = format!(
+            r#"{{"asset":{{"version":"2.0"}},"scene":0,"scenes":[{{"nodes":[0]}}],"nodes":[{{"mesh":0}}],
+            "meshes":[{{"primitives":[{{"attributes":{{"POSITION":0,"TEXCOORD_0":1,"COLOR_0":2,"COLOR_1":3}}}}]}}],
+            "buffers":[{{"byteLength":{len},"uri":"data:application/octet-stream;base64,{b64}"}}],
+            "bufferViews":[{{"buffer":0,"byteOffset":0,"byteLength":36}},{{"buffer":0,"byteOffset":36,"byteLength":24}},
+                           {{"buffer":0,"byteOffset":60,"byteLength":48}},{{"buffer":0,"byteOffset":108,"byteLength":48}}],
+            "accessors":[{{"bufferView":0,"componentType":5126,"count":3,"type":"VEC3","min":[0,0,0],"max":[1,1,0]}},
+                         {{"bufferView":1,"componentType":5126,"count":3,"type":"VEC2"}},
+                         {{"bufferView":2,"componentType":5126,"count":3,"type":"VEC4"}},
+                         {{"bufferView":3,"componentType":5126,"count":3,"type":"VEC4"}}]}}"#,
+            len = bytes.len()
+        );
+        let dir = tmp("gltf-colors");
+        let path = dir.join("colors.gltf");
+        std::fs::write(&path, json).unwrap();
+        let mesh = import_mesh_for_baking(&path).unwrap().mesh;
+        assert_eq!(mesh.triangle_count(), 1);
+        assert_eq!(mesh.color_set_count(), 2, "both sets are imported");
+        // Set 1 is yellow at every corner; set 0 holds the three primaries.
+        assert_eq!(mesh.corner_color_in(1, 0, 0.3, 0.3), Some([1.0, 1.0, 0.0, 1.0]));
+        let mut primaries: Vec<[f32; 4]> = (0..3).map(|k| mesh.color_set(0).unwrap()[k]).collect();
+        primaries.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        assert_eq!(primaries, [[0.0, 0.0, 1.0, 1.0], [0.0, 1.0, 0.0, 1.0], [1.0, 0.0, 0.0, 1.0]]);
+        assert_eq!(mesh.corner_color_in(2, 0, 0.3, 0.3), None, "no third set");
         std::fs::remove_dir_all(&dir).ok();
     }
 
