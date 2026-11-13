@@ -52,7 +52,7 @@ fn background_padding_dilates_then_fills_with_each_maps_default() {
     }
     ch.insert(ChannelKind::Roughness, rough);
     ch.insert(ChannelKind::Normal, normal);
-    let sets = [ExportTextureSet { name: "C", material_slot: 0, udim: None, channels: &ch, mesh_maps: None }];
+    let sets = [ExportTextureSet { name: "C", material_slot: 0, udim: None, channels: &ch, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY }];
     let maps = vec![
         OutputMap::new("Rough", FileFormat::Png8, vec![Source::ch(ChannelKind::Roughness, 0)], false),
         OutputMap::new("Normal", FileFormat::Png8, (0..3).map(|c| Source::Normal { component: c, directx: false }).collect(), false),
@@ -83,7 +83,7 @@ fn diffusion_padding_blends_islands_into_the_gutter() {
     }
     let mut ch = BTreeMap::new();
     ch.insert(ChannelKind::Roughness, rough);
-    let sets = [ExportTextureSet { name: "C", material_slot: 0, udim: None, channels: &ch, mesh_maps: None }];
+    let sets = [ExportTextureSet { name: "C", material_slot: 0, udim: None, channels: &ch, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY }];
     let map = |suffix: &str, padding| OutputMap { padding: Some(padding), ..OutputMap::new(suffix, FileFormat::Png16, vec![Source::ch(ChannelKind::Roughness, 0)], false) };
     let s = ExportSettings { template: user(vec![map("Diff", Padding::Diffusion(2)), map("Inf", Padding::Infinite)]), ..Default::default() };
     let files = render(&mesh, &sets, &s);
@@ -106,7 +106,7 @@ fn diffusion_padding_blends_islands_into_the_gutter() {
 #[test]
 fn window_size_applies_unless_the_preset_or_map_sets_one() {
     let ch = distinct_channels();
-    let sets = [ExportTextureSet { name: "C", material_slot: 0, udim: None, channels: &ch, mesh_maps: None }];
+    let sets = [ExportTextureSet { name: "C", material_slot: 0, udim: None, channels: &ch, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY }];
     let mesh = primitives::plane(2.0, 1);
     let src = vec![Source::ch(ChannelKind::Roughness, 0)];
     let own = OutputMap { size: Some(32), ..OutputMap::new("Own", FileFormat::Png8, src.clone(), false) };
@@ -126,7 +126,7 @@ fn window_size_applies_unless_the_preset_or_map_sets_one() {
 fn dithering_follows_the_window_then_the_map() {
     let mut ch = BTreeMap::new();
     ch.insert(ChannelKind::Roughness, TiledImage::new(RES, RES, 1, [100.3 / 255.0; 4]));
-    let sets = [ExportTextureSet { name: "C", material_slot: 0, udim: None, channels: &ch, mesh_maps: None }];
+    let sets = [ExportTextureSet { name: "C", material_slot: 0, udim: None, channels: &ch, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY }];
     let mesh = primitives::plane(2.0, 1);
     let src = vec![Source::ch(ChannelKind::Roughness, 0)];
     let plain = OutputMap::new("Plain", FileFormat::Png8, src.clone(), false);
@@ -153,7 +153,7 @@ fn dithering_follows_the_window_then_the_map() {
 #[test]
 fn extra_file_types_export_and_read_back() {
     let ch = distinct_channels();
-    let sets = [ExportTextureSet { name: "C", material_slot: 0, udim: None, channels: &ch, mesh_maps: None }];
+    let sets = [ExportTextureSet { name: "C", material_slot: 0, udim: None, channels: &ch, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY }];
     let mesh = primitives::plane(2.0, 1);
     let rgb = || (0..3).map(|c| Source::ch(ChannelKind::BaseColor, c)).collect::<Vec<_>>();
     let maps = vec![
@@ -180,8 +180,8 @@ fn extra_file_types_export_and_read_back() {
 fn texture_set_overrides_replace_the_global_settings_for_that_set_only() {
     let ch = distinct_channels();
     let sets = [
-        ExportTextureSet { name: "Body", material_slot: 0, udim: None, channels: &ch, mesh_maps: None },
-        ExportTextureSet { name: "Trim", material_slot: 0, udim: None, channels: &ch, mesh_maps: None },
+        ExportTextureSet { name: "Body", material_slot: 0, udim: None, channels: &ch, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY },
+        ExportTextureSet { name: "Trim", material_slot: 0, udim: None, channels: &ch, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY },
     ];
     let mesh = primitives::plane(2.0, 1);
     let map = OutputMap::new("Rough", FileFormat::Png8, vec![Source::ch(ChannelKind::Roughness, 0)], false);

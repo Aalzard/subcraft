@@ -19,6 +19,17 @@ fn position(out: &egui::FullOutput, text: &str) -> Option<egui::Pos2> {
     })
 }
 
+/// Every text on screen with its centre, for failure messages.
+fn texts(out: &egui::FullOutput) -> String {
+    let mut v: Vec<String> = out.shapes.iter().filter_map(|s| match &s.shape {
+        egui::epaint::Shape::Text(t) => Some(format!("{:?} @ ({:.0}, {:.0}) clip {:?}", t.galley.text(), t.pos.x, t.pos.y, s.clip_rect)),
+        _ => None,
+    }).collect();
+    v.dedup();
+    v.join("
+")
+}
+
 fn click(state: &mut UiState, ctx: &egui::Context, text: &str, modifiers: egui::Modifiers) {
     let out = frame(state, ctx, vec![], modifiers);
     let p = position(&out, text).unwrap_or_else(|| panic!("no {text:?}"));
@@ -53,7 +64,8 @@ fn none_then_one_checkbox_exports_only_that_map_and_all_restores() {
     click(&mut state, &ctx, "None", Default::default());
     assert!(enabled(&mut state).is_empty());
     let out = frame(&mut state, &ctx, vec![], Default::default());
-    assert!(position(&out, "Check at least one map to export.").is_some(), "hint shown when nothing is checked");
+    assert!(position(&out, "Check at least one map to export.").is_some(), "hint shown when nothing is checked; on screen:
+{}", texts(&out));
     click(&mut state, &ctx, "Roughness", Default::default());
     assert_eq!(enabled(&mut state), ["Roughness"]);
     click(&mut state, &ctx, "Invert", Default::default());
@@ -160,7 +172,8 @@ fn tabs_save_settings_cancel_and_texture_set_overrides() {
     let (mut state, ctx) = setup();
     let out = frame(&mut state, &ctx, vec![], Default::default());
     for text in ["Settings", "Output templates", "List of exports", "Global settings", "Reset all", "Save settings", "Cancel"] {
-        assert!(position(&out, text).is_some(), "{text}");
+        assert!(position(&out, text).is_some(), "{text}; on screen:
+{}", texts(&out));
     }
     click(&mut state, &ctx, "List of exports", Default::default());
     let out = frame(&mut state, &ctx, vec![], Default::default());
