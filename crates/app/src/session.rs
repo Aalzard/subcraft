@@ -1138,6 +1138,19 @@ impl Session {
         Ok(r)
     }
 
+    /// `reference` for an insertion, moved out of any instance it is in (to the outermost
+    /// instance): a layer added inside one was wiped by the next sync with its source, leaving an
+    /// empty undo step (QA 2026-11).
+    fn outside_instances(ts: &TextureSet, reference: Option<LayerId>) -> Option<LayerId> {
+        reference.map(|r| subcraft_doc::instance::root_of(ts, r).unwrap_or(r))
+    }
+
+    /// Whether a layer moved into `parent` would land in an instance (and be replaced by the
+    /// source's content on the next sync, or, the source itself, take the instance with it).
+    fn inside_instance(ts: &TextureSet, parent: Option<LayerId>) -> bool {
+        parent.is_some_and(|p| subcraft_doc::instance::root_of(ts, p).is_some())
+    }
+
     /// The layers of `ts_id` as they are, when `layer` is an instance or inside one.
     fn instance_guard(&self, ts_id: TextureSetId, layer: LayerId) -> Option<Vec<Arc<Layer>>> {
         let ts = self.doc.texture_set(ts_id)?;
@@ -1531,8 +1544,11 @@ impl Session {
                     }
                     NewLayer::Folder => (Layer::new_folder(format!("Folder {}", self.layer_counter), &tc), "New Folder"),
                 };
+                // Never inside an instance (its content is its source's): above it instead.
+                let locked = reference.and_then(|r| subcraft_doc::instance::root_of(ts, r));
+                let reference = locked.or(reference);
                 // Painter: with an empty folder selected, the new layer goes inside it.
-                let empty_folder = reference.filter(|&r| ts.find(r).is_some_and(|l| l.is_folder() && l.children().is_empty()));
+                let empty_folder = reference.filter(|&r| locked.is_none() && ts.find(r).is_some_and(|l| l.is_folder() && l.children().is_empty()));
                 let id = match empty_folder {
                     Some(folder) => ts.insert(Some(folder), 0, layer).map_err(|_| CommandError::LayerNotFound)?,
                     None => ts.insert_above(reference, layer),
@@ -1548,6 +1564,7 @@ impl Session {
                 if ts.find(layer.id).is_some() {
                     layer = layer.duplicate_with_new_ids();
                 }
+                let reference = Self::outside_instances(ts, reference);
                 let id = ts.insert_above(reference, layer);
                 self.selection.layer = Some(id);
                 self.commit(&label, None);
@@ -1824,7 +1841,7 @@ impl Session {
                     ts.channels.push(ChannelDef::default_for(kind));
                     add_blend(&mut ts.layers, kind);
                 }
-                let mut at = reference;
+                let mut at = Self::outside_instances(ts, reference);
                 for mut layer in clip.instantiate(ts, mesh) {
                     layer.name = crate::clipboard::pasted_name(ts, &layer.name);
                     at = Some(ts.insert_above(at, layer));
@@ -1983,6 +2000,7 @@ impl Session {
                 let ts = self.doc.texture_set(texture_set).ok_or(CommandError::TextureSetNotFound)?;
                 if ts.find(layer).is_none() { return Err(CommandError::LayerNotFound); }
                 if let Some(destination) = crate::layer_tree::drop_destination(ts, layer, target) {
+                    if Self::inside_instance(ts, destination.parent) { return Err(CommandError::Invalid(INSTANCE_READ_ONLY.into())); }
                     self.edit_layer_set(layer, "Move Layer", None, |ts| {
                         ts.move_to(layer, destination.parent, destination.index).map_err(|e| CommandError::Invalid(format!("{e:?}")))?;
                         if let Some(parent) = destination.parent
@@ -2017,6 +2035,7 @@ impl Session {
                     let mut at = target;
                     for &id in &moving {
                         if let Some(destination) = crate::layer_tree::drop_destination(ts, id, at) {
+                            if Self::inside_instance(ts, destination.parent) { return Err(CommandError::Invalid(INSTANCE_READ_ONLY.into())); }
                             ts.move_to(id, destination.parent, destination.index).map_err(|e| CommandError::Invalid(format!("{e:?}")))?;
                         }
                         at = DropTarget::Above(id);
