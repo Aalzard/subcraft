@@ -100,11 +100,13 @@ pub enum Action {
     QuickMaskToggle,
     QuickMaskClear,
     QuickMaskInvert,
+    /// Painter's Symmetry on / off (L): off remembers the axes, on brings them back.
+    ToggleSymmetry,
 }
 
 impl Action {
     /// Every action, in declaration order (the tests check [`ACTIONS`] against it).
-    pub const ALL: [Action; 51] = [
+    pub const ALL: [Action; 52] = [
         Action::Undo, Action::Redo, Action::NewPaintLayer, Action::NewFillLayer, Action::NewFolder, Action::NewTextLayer, Action::DeleteLayer, Action::DuplicateLayer,
         Action::BrushTool, Action::EraserTool, Action::PenTool, Action::PolygonFillTool, Action::SmudgeTool, Action::CloneTool, Action::EyedropperTool,
         Action::BrushSmaller, Action::BrushLarger, Action::ToggleSymmetryX, Action::ToggleLazyMouse, Action::ResetCamera, Action::PerspectiveCamera,
@@ -114,6 +116,7 @@ impl Action {
         Action::SwapViews, Action::NextMeshMap, Action::PrevMeshMap, Action::InvertMaskGray, Action::IsolateTextureSet,
         Action::NextCamera, Action::PrevCamera,
         Action::HideExcludedGeometry, Action::QuickMaskToggle, Action::QuickMaskClear, Action::QuickMaskInvert,
+        Action::ToggleSymmetry,
     ];
 }
 
@@ -246,7 +249,9 @@ pub const ACTIONS: &[ActionInfo] = &[
     ActionInfo { action: Action::EyedropperTool, label: "Eyedropper (pick color / material)", shortcuts: &[], painter: Some(&[Shortcut::key(Key::P)]) },
     a(Action::BrushSmaller, "Brush Smaller", &[Shortcut::key(Key::OpenBracket)]),
     a(Action::BrushLarger, "Brush Larger", &[Shortcut::key(Key::CloseBracket)]),
-    ActionInfo { action: Action::ToggleSymmetryX, label: "Toggle X Symmetry", shortcuts: &[Shortcut::key(Key::X), Shortcut::key(Key::L)], painter: Some(&[Shortcut::key(Key::L)]) },
+    // Painter's X inverts the mask brush, so its key set keeps X mirror on Shift+X.
+    ActionInfo { action: Action::ToggleSymmetryX, label: "Toggle X Symmetry", shortcuts: &[Shortcut::key(Key::X)], painter: Some(&[Shortcut::shift(Key::X)]) },
+    a(Action::ToggleSymmetry, "Toggle Symmetry", &[Shortcut::key(Key::L)]),
     a(Action::ToggleLazyMouse, "Toggle Lazy Mouse", &[Shortcut::key(Key::D)]),
     a(Action::ResetCamera, "Frame Model / Reset Camera", &[Shortcut::key(Key::Home), Shortcut::key(Key::F)]),
     a(Action::PerspectiveCamera, "Perspective Camera", &[Shortcut::key(Key::F5)]),
@@ -380,7 +385,7 @@ pub const PAINTER_REFERENCE: &[PainterEntry] = &[
     none("Manipulator", "E", "Rotate tool", "no manipulator (E stays Eraser)"),
     none("Manipulator", "R", "Scale tool", "no manipulator"),
     none("Manipulator", "Shift+W", "Surface tool", "no equivalent"),
-    e("Tools", "L", "Symmetry", Support::Added, Action::ToggleSymmetryX, Shortcut::key(Key::L), "toggles X mirror"),
+    e("Tools", "L", "Symmetry", Support::Added, Action::ToggleSymmetry, Shortcut::key(Key::L), "symmetry on / off; the last axes come back, as with the toolbar button"),
     none("Tools", "Shift+Esc", "Pause engine computation", "no engine pause"),
     // Tools
     e("Tools", "1", "Paint tool", Support::Added, Action::BrushTool, Shortcut::key(Key::Num1), "B kept as well in the SubCraft key set"),
@@ -573,7 +578,9 @@ mod tests {
         assert_eq!(action_for(pa, Shortcut::key(Key::Num1)), Some(Action::BrushTool));
         // F2: layer rename in SubCraft, 3D-only layout in Painter.
         assert!(!f2_is_bound(sc) && f2_is_bound(pa));
-        assert_eq!(action_for(pa, Shortcut::key(Key::L)), Some(Action::ToggleSymmetryX));
+        assert_eq!(action_for(pa, Shortcut::key(Key::L)), Some(Action::ToggleSymmetry));
+        assert_eq!(action_for(sc, Shortcut::key(Key::L)), Some(Action::ToggleSymmetry));
+        assert_eq!(action_for(pa, Shortcut::shift(Key::X)), Some(Action::ToggleSymmetryX), "X mirror stays reachable in the Painter key set");
         // SubCraft bindings that Painter does not use survive in the Painter preset.
         for s in [Shortcut::key(Key::E), Shortcut::key(Key::Home), Shortcut::ctrl(Key::B), Shortcut::ctrl_shift(Key::Z)] {
             assert_eq!(action_for(pa, s), action_for(sc, s), "{}", s.label());
@@ -600,7 +607,7 @@ mod tests {
             (Shortcut::key(Key::Tab), Action::HideUi), (Shortcut::ctrl(Key::Z), Action::Undo), (Shortcut::ctrl(Key::Y), Action::Redo),
             (Shortcut::key(Key::F8), Action::Bake), (Shortcut::key(Key::F9), Action::PaintingMode), (Shortcut::key(Key::F10), Action::TogglePathTracing),
             (Shortcut::ctrl(Key::O), Action::OpenProject), (Shortcut::ctrl(Key::F4), Action::CloseProject), (Shortcut::ctrl(Key::S), Action::Save),
-            (Shortcut::ctrl(Key::N), Action::NewProject), (Shortcut::alt(Key::F4), Action::Quit), (Shortcut::key(Key::L), Action::ToggleSymmetryX),
+            (Shortcut::ctrl(Key::N), Action::NewProject), (Shortcut::alt(Key::F4), Action::Quit), (Shortcut::key(Key::L), Action::ToggleSymmetry),
             (Shortcut::key(Key::Num1), Action::BrushTool), (Shortcut::key(Key::Num2), Action::EraserTool), (Shortcut::key(Key::Num4), Action::PolygonFillTool),
             (Shortcut::key(Key::Num5), Action::SmudgeTool), (Shortcut::key(Key::Num6), Action::CloneTool), (Shortcut::ctrl_shift(Key::B), Action::Bake),
             (Shortcut::key(Key::CloseBracket), Action::BrushLarger), (Shortcut::key(Key::OpenBracket), Action::BrushSmaller), (Shortcut::key(Key::X), Action::InvertMaskGray),

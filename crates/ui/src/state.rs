@@ -74,6 +74,10 @@ impl BrushNotice {
 pub struct UvView {
     pub zoom: f32,
     pub offset: egui::Vec2,
+    /// The texture is turned by this angle (radians, clockwise on screen) about its centre.
+    pub rotation: f32,
+    /// The angle an Alt+drag has reached before Shift snaps it to quarter turns.
+    pub rotation_raw: f32,
     pub source: PreviewSource,
     pub texture: Option<egui::TextureId>,
     /// A stroke started in the 2D view is in progress.
@@ -97,7 +101,8 @@ pub struct UiState {
     /// Most tiles one texture set received in the last [`UiState::sync_gpu`] (a quick preview
     /// lists every stale tile; `--profile-edits` uses it to tell a visible update from a slice).
     pub last_sync_tiles: usize,
-    /// The last [`UiState::sync_gpu`] sent the renderer anything (mesh, textures, materials).
+    /// A [`UiState::sync_gpu`] of this frame sent the renderer anything (mesh, textures,
+    /// materials). Several panels sync in one frame: each adds to it, and the frame starts it over.
     pub gpu_changed: bool,
     /// Temporal anti-aliasing progress of the 3D view.
     pub taa: crate::viewport::TaaState,
@@ -265,6 +270,8 @@ pub struct UiState {
     /// Viewport height-to-bump strength.
     pub height_scale: f32,
     pub export: crate::dialogs::ExportUi,
+    /// File > Export mesh window.
+    pub export_mesh: crate::export_mesh::ExportMeshUi,
     pub new_project: crate::new_project::NewProjectUi,
     pub mesh_reload: crate::mesh_reload::MeshReloadUi,
     pub auto_uv: crate::auto_uv::AutoUvUi,
@@ -288,6 +295,10 @@ pub struct UiState {
     /// Which view the pointer was over last frame (F frames that one, or both when neither).
     pub hovered_3d: bool,
     pub hovered_2d: bool,
+    /// The 3D / 2D view layout shown now (set by the app each frame) and one asked for by the
+    /// contextual toolbar's Viewport Mode dropdown (applied by the app, which owns the docks).
+    pub view_layout: crate::app::ViewLayout,
+    pub view_layout_request: Option<crate::app::ViewLayout>,
     /// Material slot to draw highlighted next frame (the texture set under the cursor with
     /// Ctrl+Alt, or hovered in the Texture Set List); taken by the 3D view each frame.
     pub highlight_slot: Option<u32>,
@@ -456,7 +467,7 @@ impl UiState {
             render_request: None,
             last_view_size: [1280, 720],
             last_view_rect: egui::Rect::NOTHING,
-            uv: UvView { zoom: 1.0, offset: egui::Vec2::ZERO, source: PreviewSource::Channel(ChannelKind::BaseColor), texture: None, painting: false, last_point: None, fill_box: None, parts_box: None, frame: None },
+            uv: UvView { zoom: 1.0, offset: egui::Vec2::ZERO, rotation: 0.0, rotation_raw: 0.0, source: PreviewSource::Channel(ChannelKind::BaseColor), texture: None, painting: false, last_point: None, fill_box: None, parts_box: None, frame: None },
             painting: false,
             picking_parts: false,
             warp: Default::default(),
@@ -487,12 +498,15 @@ impl UiState {
             pt_capture_samples: None,
             height_scale: 0.02,
             export: Default::default(),
+            export_mesh: Default::default(),
             confirm: None,
             dropped_model: None,
             light_yaw: 0.0,
             light_pitch: 0.0,
             hovered_3d: false,
             hovered_2d: false,
+            view_layout: crate::app::ViewLayout::Only3d,
+            view_layout_request: None,
             highlight_slot: None,
             drops_taken: false,
             multi: Default::default(),
@@ -653,6 +667,9 @@ impl UiState {
         // The mask being shown belongs to the old project: left on, the new model was drawn all
         // black as "Mask of" a layer that does not exist, until the next edit.
         self.mask_view = None;
+        // A copied geometry mask lists parts of the old mesh: pasted on another one it limited
+        // the layer to unrelated parts, usually hiding it.
+        self.parts_clipboard = None;
         self.multi.clear();
         self.layer_previews = Default::default();
         self.asset_preview.cancel_apply();
@@ -803,12 +820,19 @@ impl UiState {
         // that hidden view instead of the visible one (QA 2026-11).
         self.hovered_3d = false;
         self.hovered_2d = false;
+        self.gpu_changed = false;
         // The multi-selection holds layer ids; Delete / Duplicate act on them wherever they live,
         // so ids kept from another texture set would edit layers the user is no longer looking at.
         let ts = self.session.selection().texture_set;
         if self.multi_texture_set != Some(ts) {
             if self.multi_texture_set.is_some() { self.multi.clear(); }
             self.multi_texture_set = Some(ts);
+        }
+        // A layer selected from outside the layer list (the Paths panel, a new pen path) is not
+        // in the multi-selection: kept, Delete / Ctrl+D / Ctrl+G acted on the old rows instead of
+        // the layer that is highlighted.
+        if self.multi.is_multi() && self.session.selection().layer.is_some_and(|l| !self.multi.contains(l)) {
+            self.multi.clear();
         }
     }
 
@@ -837,7 +861,9 @@ impl UiState {
         let budget = self.composite_deadline.map_or(COMPOSITE_FRAME_BUDGET, |d| d.saturating_duration_since(web_time::Instant::now()));
         let updates = crate::edit_profile::time_tab("  sync: composite", || self.session.update_composites_within(Some(budget)));
         self.last_sync_tiles = updates.iter().map(|u| u.tiles.len()).max().unwrap_or(0);
-        self.gpu_changed = full || self.last_sync_tiles > 0;
+        // QA 2026-11: overwritten by every call, the 3D view's own (usually last, with nothing
+        // left to upload) hid the frame's uploads from TAA, which kept a stale image.
+        self.gpu_changed |= full || self.last_sync_tiles > 0;
         let upload_start = web_time::Instant::now();
         let session = &self.session;
         for ts in &session.document().texture_sets { renderer.set_albedo_filter(ts.material_slot, ts.albedo_filter); renderer.set_alpha(ts.material_slot, ts.alpha); renderer.set_shader(ts.material_slot, session.shader_params_of(ts.id)); }

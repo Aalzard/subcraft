@@ -27,6 +27,88 @@ pub fn label(s: PreviewSource) -> String {
     }
 }
 
+/// Where the texture is drawn in the 2D view: the upright square `rect`, turned by `rotation`
+/// radians (clockwise on screen) about its centre.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Frame {
+    pub rect: Rect,
+    pub rotation: f32,
+}
+
+impl Frame {
+    /// Width of the texture on screen, in points.
+    pub fn side(&self) -> f32 {
+        self.rect.width()
+    }
+
+    fn turn(&self, p: Pos2, angle: f32) -> Pos2 {
+        if angle == 0.0 {
+            return p;
+        }
+        let (s, c) = angle.sin_cos();
+        let d = p - self.rect.center();
+        self.rect.center() + egui::vec2(d.x * c - d.y * s, d.x * s + d.y * c)
+    }
+
+    /// Screen position of texture position `uv`.
+    pub fn to_px(&self, uv: Vec2) -> Pos2 {
+        self.turn(self.rect.min + egui::vec2(uv.x, uv.y) * self.side(), self.rotation)
+    }
+
+    /// Texture position under screen position `p`.
+    pub fn to_uv(&self, p: Pos2) -> Vec2 {
+        let q = self.turn(p, -self.rotation);
+        Vec2::new((q.x - self.rect.left()) / self.rect.width(), (q.y - self.rect.top()) / self.rect.height())
+    }
+
+    /// Whether `p` is over the 0..1 texture square.
+    pub fn contains(&self, p: Pos2) -> bool {
+        self.rect.contains(self.turn(p, -self.rotation))
+    }
+
+    /// The texture square's corners on screen: UV (0,0), (1,0), (1,1), (0,1).
+    pub fn corners(&self) -> [Pos2; 4] {
+        [Vec2::new(0.0, 0.0), Vec2::new(1.0, 0.0), Vec2::new(1.0, 1.0), Vec2::new(0.0, 1.0)].map(|uv| self.to_px(uv))
+    }
+
+    /// The box a drag from `a` to `b` selects: aligned to the texture, so it is exactly the UV
+    /// box the tools use, whatever the rotation. Its corners on screen.
+    pub fn drag_box(&self, a: Pos2, b: Pos2) -> [Pos2; 4] {
+        let (p, q) = (self.to_uv(a), self.to_uv(b));
+        [p, Vec2::new(q.x, p.y), q, Vec2::new(p.x, q.y)].map(|uv| self.to_px(uv))
+    }
+}
+
+/// Turn the view from `rotation` to `next` keeping the texture point at `pivot` (a position
+/// relative to the view's centre) where it is. Returns the new rotation and pan offset.
+pub fn rotate_about(rotation: f32, offset: egui::Vec2, pivot: egui::Vec2, next: f32) -> (f32, egui::Vec2) {
+    let (s, c) = (next - rotation).sin_cos();
+    let d = offset - pivot;
+    (next, pivot + egui::vec2(d.x * c - d.y * s, d.x * s + d.y * c))
+}
+
+/// `angle` snapped to the nearest quarter turn (Shift while rotating).
+pub fn snap_quarter(angle: f32) -> f32 {
+    let quarter = std::f32::consts::FRAC_PI_2;
+    (angle / quarter).round() * quarter
+}
+
+/// A texture over the frame: an upright image, or a turned quad.
+fn draw_texture(painter: &egui::Painter, frame: Frame, texture: egui::TextureId, tint: Color32) {
+    if frame.rotation == 0.0 {
+        painter.image(texture, frame.rect, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), tint);
+        return;
+    }
+    let mut mesh = egui::Mesh::with_texture(texture);
+    let uvs = [egui::pos2(0.0, 0.0), egui::pos2(1.0, 0.0), egui::pos2(1.0, 1.0), egui::pos2(0.0, 1.0)];
+    for (pos, uv) in frame.corners().into_iter().zip(uvs) {
+        mesh.vertices.push(egui::epaint::Vertex { pos, uv, color: tint });
+    }
+    mesh.add_triangle(0, 1, 2);
+    mesh.add_triangle(0, 2, 3);
+    painter.add(egui::Shape::mesh(mesh));
+}
+
 /// Zoom limits of the 2D view.
 const ZOOM_RANGE: std::ops::RangeInclusive<f32> = 0.2..=20.0;
 
@@ -116,6 +198,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 ui.label(RichText::new("Shared with the 3D view's mesh wireframe (Display settings)").small().color(crate::theme::TEXT_FAINT));
             });
             if crate::widgets::icon_button(ui, crate::icons::FIT, "Fit to view").clicked() {
+                state.uv.rotation = 0.0;
                 state.uv.zoom = 1.0;
                 state.uv.offset = egui::Vec2::ZERO;
             }
@@ -136,7 +219,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     if response.hovered() {
         let scroll = ui.input(|i| i.smooth_scroll_delta.y);
         if scroll != 0.0 && let Some(cursor) = response.hover_pos() {
-            (state.uv.zoom, state.uv.offset) = zoom_about(state.uv.zoom, state.uv.offset, cursor - rect.center(), (scroll * 0.002).exp());
+            (state.uv.zoom, state.uv.offset) = zoom_about(state.uv.zoom, state.uv.offset, cursor - rect.center(), state.recovery.prefs.camera_speed.wheel_magnify_2d(scroll));
         }
     }
     let zoom_drag = alt && !mods.command && !mods.ctrl && response.dragged_by(egui::PointerButton::Secondary);
@@ -158,36 +241,49 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     if response.secondary_clicked() && !stencil_edit && crate::view_props::opens(state, mods) && let Some(p) = response.interact_pointer_pos() {
         crate::view_props::open(state, p, crate::view_props::View::View2d);
     }
-    if !stencil_edit
-        && (response.dragged_by(egui::PointerButton::Middle)
-            || (response.dragged_by(egui::PointerButton::Primary) && !state.uv.painting && !lmb_adjust && (alt || !clicks)))
-    {
-        state.uv.offset += response.drag_delta();
+    let ctrl = mods.command || mods.ctrl;
+    let lmb_nav = !stencil_edit && response.dragged_by(egui::PointerButton::Primary) && !state.uv.painting && !lmb_adjust;
+    if lmb_nav && alt && !ctrl {
+        // Alt+LMB turns the texture about the point where the drag began; Shift snaps it to
+        // quarter turns (Painter's 2D view).
+        let pivot = ui.input(|i| i.pointer.press_origin()).unwrap_or(rect.center());
+        state.uv.rotation_raw += delta.x * 0.01;
+        let next = if mods.shift { snap_quarter(state.uv.rotation_raw) } else { state.uv.rotation_raw };
+        (state.uv.rotation, state.uv.offset) = rotate_about(state.uv.rotation, state.uv.offset, pivot - rect.center(), next);
+    } else {
+        state.uv.rotation_raw = state.uv.rotation;
+        // MMB and Ctrl+Alt+LMB pan; so does a plain LMB drag with a tool that does not use it.
+        if !stencil_edit && (response.dragged_by(egui::PointerButton::Middle) || (lmb_nav && ((alt && ctrl) || !clicks))) {
+            state.uv.offset += response.drag_delta();
+        }
     }
     if let Some((center, extent)) = state.uv.frame.take() {
         let (zoom, offset) = uv_frame(rect.width().min(rect.height()) * 0.95, center, extent);
         state.uv.zoom = zoom;
-        state.uv.offset = offset;
+        // The offset is measured on screen: turn it with the texture.
+        state.uv.offset = rotate_about(0.0, offset, egui::Vec2::ZERO, state.uv.rotation).1;
     }
     let side = rect.width().min(rect.height()) * 0.95 * state.uv.zoom;
     let img_rect = Rect::from_center_size(rect.center() + state.uv.offset, egui::vec2(side, side));
     let viewport = [rect.width().round().max(1.0) as u32, rect.height().round().max(1.0) as u32];
+    let frame = Frame { rect: img_rect, rotation: state.uv.rotation };
     let view = subcraft_paint::UvView {
         origin: Vec2::new(img_rect.min.x - rect.min.x, img_rect.min.y - rect.min.y),
         side,
         viewport,
+        rotation: frame.rotation,
     };
-    crate::pen::uv_input(state, ui, &response, img_rect);
+    crate::pen::uv_input(state, ui, &response, frame);
     // Picking parts for a geometry mask owns the clicks; otherwise the ID eyedropper, then tools.
-    let id_eyedropper = !picking && id_pick_input(state, ui, &response, img_rect, ts_id);
+    let id_eyedropper = !picking && id_pick_input(state, ui, &response, frame, ts_id);
     if picking {
         // A layer without a geometry mask gets one by UV island when it is picked here.
         if response.hovered() {
             state.session.set_new_mask_kind(subcraft_core::PartKind::UvIsland);
         }
-        parts_input(state, ui, &response, img_rect);
+        parts_input(state, ui, &response, frame);
     } else if !id_eyedropper && !stencil_edit {
-        paint_input(state, ui, &response, img_rect, resolution, ts_id, view, lmb_adjust);
+        paint_input(state, ui, &response, frame, resolution, ts_id, view, lmb_adjust);
     }
     let painter = ui.painter_at(rect);
     let filter = if state.uv.source == PreviewSource::Channel(ChannelKind::BaseColor)
@@ -213,39 +309,50 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 id
             }
         };
-        painter.image(id, img_rect, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
+        draw_texture(&painter, frame, id, Color32::WHITE);
     }
-    painter.rect_stroke(img_rect, 0.0, Stroke::new(1.0, crate::theme::BORDER_STRONG), egui::StrokeKind::Outside);
+    if frame.rotation == 0.0 {
+        painter.rect_stroke(img_rect, 0.0, Stroke::new(1.0, crate::theme::BORDER_STRONG), egui::StrokeKind::Outside);
+    } else {
+        painter.add(egui::Shape::closed_line(frame.corners().to_vec(), Stroke::new(1.0, crate::theme::BORDER_STRONG)));
+    }
     axis_information(&painter, rect);
     // The isolated component's name, as in the 3D view.
     if let Some(name) = shown_component(&state.recovery.prefs.viewport).overlay() {
         crate::viewport::pill(&painter, rect.left_top() + egui::vec2(10.0, 10.0), egui::Align2::LEFT_TOP, crate::i18n::tr(name), crate::theme::TEXT);
     }
-    quick_mask_overlay(state, ui, &painter, img_rect);
-    parts_overlay(state, ui, &painter, img_rect, picking, response.hover_pos());
+    quick_mask_overlay(state, ui, &painter, frame);
+    parts_overlay(state, ui, &painter, frame, picking, response.hover_pos());
     let fill_hover = state.tool == Tool::PolygonFill && paints && !picking && state.uv.fill_box.is_none();
-    fill_hover_overlay(state, &painter, img_rect, fill_hover.then(|| response.hover_pos()).flatten());
+    fill_hover_overlay(state, &painter, frame, fill_hover.then(|| response.hover_pos()).flatten());
 
     if state.uv_wireframe {
         let mesh = state.session.scene().mesh.clone();
         let edges = state.uv_edges.entry(slot).or_insert_with(|| topology::uv_edges(&mesh, mesh.material_triangles(slot)));
-        let to = |p: glam::Vec2| img_rect.min + egui::vec2(p.x * side, p.y * side);
+        let to = |p: glam::Vec2| frame.to_px(p);
         let stroke = Stroke::new(0.6, wire_color(&state.recovery.prefs.viewport));
         for [a, b] in edges.iter() {
             painter.line_segment([to(*a), to(*b)], stroke);
         }
     }
     if state.tool == Tool::Pen && let Some(path) = state.pen.preview(&state.session) {
-        crate::pen::draw(&painter, path, state.pen.selected_anchor(), |uv| Some(img_rect.min + egui::vec2(uv.x, uv.y) * side));
+        crate::pen::draw(&painter, path, state.pen.selected_anchor(), |uv| Some(frame.to_px(uv)));
     }
     for start in [state.uv.fill_box, state.uv.parts_box] {
         if let (Some(a), Some(b)) = (start, response.hover_pos().or(ui.input(|i| i.pointer.latest_pos())))
             && crate::view_props::is_box_drag(a, b)
         {
-            crate::view_props::draw_fill_box(&painter, Rect::from_two_pos(a, b), false);
+            if frame.rotation == 0.0 {
+                crate::view_props::draw_fill_box(&painter, Rect::from_two_pos(a, b), false);
+            } else {
+                // Turned view: the box stays aligned to the texture, as the selection is.
+                let accent = crate::theme::ACCENT;
+                let fill = Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 28);
+                painter.add(egui::Shape::convex_polygon(frame.drag_box(a, b).to_vec(), fill, Stroke::new(1.0, accent)));
+            }
         }
     }
-    let to_px = |uv: Vec2| img_rect.min + egui::vec2(uv.x, uv.y) * side;
+    let to_px = |uv: Vec2| frame.to_px(uv);
     if state.tool == Tool::Clone && let Some(source) = state.session.clone_source_uv() {
         let marker = to_px(source);
         let cross = Color32::from_rgb(120, 220, 255);
@@ -255,7 +362,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         }
         // While an aligned offset exists the copy comes from beside the cursor: show where.
         if let (Some(offset), Some(p)) = (state.session.clone_offset_uv(), response.hover_pos()) {
-            painter.circle_stroke(p + egui::vec2(offset.x, offset.y) * side, 6.0, Stroke::new(1.5, cross));
+            painter.circle_stroke(frame.to_px(frame.to_uv(p) + offset), 6.0, Stroke::new(1.5, cross));
         }
     }
     crate::viewport::draw_stencil(state, ui, &painter, rect, viewport);
@@ -290,9 +397,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
 /// Geometry mask editing in the 2D view (Properties → Parts → pick, or the layer row's geometry
 /// mask icon): a click shows / hides the layer on the part under the cursor, a drag adds every
 /// part the box touches, Ctrl+drag removes them.
-fn parts_input(state: &mut UiState, ui: &Ui, response: &egui::Response, image: Rect) {
+fn parts_input(state: &mut UiState, ui: &Ui, response: &egui::Response, image: Frame) {
     let (pointer, pressed, down, mods) = ui.input(|i| (i.pointer.interact_pos(), i.pointer.primary_pressed(), i.pointer.primary_down(), i.modifiers));
-    let to_uv = |p: Pos2| Vec2::new((p.x - image.left()) / image.width(), (p.y - image.top()) / image.height());
+    let to_uv = |p: Pos2| image.to_uv(p);
     let now = ui.input(|i| i.time);
     if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
         state.uv.parts_box = None;
@@ -379,11 +486,10 @@ fn triangles_mesh(tris: &[[Vec2; 3]], to_px: impl Fn(Vec2) -> Pos2, clip: Rect, 
 
 /// Polygon Fill's preview: the triangle, polygon, mesh, UV island or object under the cursor (what
 /// a click would fill in the current mode) is tinted.
-fn fill_hover_overlay(state: &mut UiState, painter: &egui::Painter, image: Rect, pointer: Option<Pos2>) {
-    let side = image.width();
+fn fill_hover_overlay(state: &mut UiState, painter: &egui::Painter, image: Frame, pointer: Option<Pos2>) {
     let triangle = pointer
         .filter(|p| image.contains(*p))
-        .and_then(|p| state.session.triangle_at_uv(Vec2::new((p.x - image.left()) / side, (p.y - image.top()) / side)));
+        .and_then(|p| state.session.triangle_at_uv(image.to_uv(p)));
     let key = triangle.map(|t| (state.session.selected_texture_set().id, state.fill_mode, t));
     if key != state.uv_parts.fill_key {
         // In every mode but Triangle the element is the same for most cursor moves: skip the
@@ -392,7 +498,7 @@ fn fill_hover_overlay(state: &mut UiState, painter: &egui::Painter, image: Rect,
         state.uv_parts.fill_key = key;
     }
     if !state.uv_parts.fill.is_empty() {
-        let to_px = |uv: Vec2| image.min + egui::vec2(uv.x, uv.y) * side;
+        let to_px = |uv: Vec2| image.to_px(uv);
         let tint = Color32::from_rgba_unmultiplied(crate::theme::ACCENT.r(), crate::theme::ACCENT.g(), crate::theme::ACCENT.b(), 80);
         painter.add(triangles_mesh(&state.uv_parts.fill, to_px, painter.clip_rect(), tint, None));
     }
@@ -401,7 +507,7 @@ fn fill_hover_overlay(state: &mut UiState, painter: &egui::Painter, image: Rect,
 /// The geometry mask over the 2D view, while it is edited or Alt+H hides what it leaves out:
 /// excluded geometry grey with diagonal lines; while editing, the part under the cursor (or under
 /// the cursor in the Properties list) is highlighted.
-fn parts_overlay(state: &mut UiState, ui: &Ui, painter: &egui::Painter, image: Rect, picking: bool, pointer: Option<Pos2>) {
+fn parts_overlay(state: &mut UiState, ui: &Ui, painter: &egui::Painter, image: Frame, picking: bool, pointer: Option<Pos2>) {
     let list_hover = state.uv_parts.list_hover.take();
     if !picking && !state.session.hide_excluded() {
         return;
@@ -412,8 +518,7 @@ fn parts_overlay(state: &mut UiState, ui: &Ui, painter: &egui::Painter, image: R
         state.uv_parts.excluded = if key.is_some() { state.session.excluded_uv_triangles() } else { Vec::new() };
         state.uv_parts.excluded_key = key;
     }
-    let side = image.width();
-    let to_px = |uv: Vec2| image.min + egui::vec2(uv.x, uv.y) * side;
+    let to_px = |uv: Vec2| image.to_px(uv);
     let clip = painter.clip_rect();
     if !state.uv_parts.excluded.is_empty() {
         let options = egui::TextureOptions { wrap_mode: egui::TextureWrapMode::Repeat, ..egui::TextureOptions::NEAREST };
@@ -423,7 +528,7 @@ fn parts_overlay(state: &mut UiState, ui: &Ui, painter: &egui::Painter, image: R
     if !picking {
         return;
     }
-    let under_cursor = pointer.filter(|p| image.contains(*p)).and_then(|p| state.session.part_at_uv(Vec2::new((p.x - image.left()) / side, (p.y - image.top()) / side)));
+    let under_cursor = pointer.filter(|p| image.contains(*p)).and_then(|p| state.session.part_at_uv(image.to_uv(p)));
     let part = list_hover.or(under_cursor);
     let hover_key = part.map(|p| (ts, state.session.mask_kind(), p));
     if hover_key != state.uv_parts.hover_key {
@@ -438,7 +543,7 @@ fn parts_overlay(state: &mut UiState, ui: &Ui, painter: &egui::Painter, image: R
 
 /// The quick mask over the 2D view: its protected areas tinted red (strongly while it is being
 /// edited, lightly once applied).
-fn quick_mask_overlay(state: &mut UiState, ui: &Ui, painter: &egui::Painter, image: Rect) {
+fn quick_mask_overlay(state: &mut UiState, ui: &Ui, painter: &egui::Painter, image: Frame) {
     let Some(q) = state.session.quick_mask() else {
         state.quick_mask_tex = None;
         return;
@@ -464,7 +569,7 @@ fn quick_mask_overlay(state: &mut UiState, ui: &Ui, painter: &egui::Painter, ima
     }
     if let Some((_, tex)) = &state.quick_mask_tex {
         let tint = Color32::from_white_alpha(if editing { 128 } else { 50 });
-        painter.image(tex.id(), image, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), tint);
+        draw_texture(painter, image, tex.id(), tint);
     }
 }
 
@@ -480,11 +585,11 @@ pub fn hint(tool: Tool, paints: bool) -> &'static str {
     if !paints {
         return match tool {
             Tool::Eyedropper => "LMB pick color · Shift+LMB pick material · MMB pan · Wheel zoom",
-            _ => "LMB / MMB pan · RMB properties · Wheel zoom",
+            _ => "LMB / MMB pan · Alt+LMB rotate · RMB properties · Wheel zoom",
         };
     }
     match tool {
-        Tool::PolygonFill => "LMB click fill · LMB drag box fill · RMB properties · Alt+LMB / MMB pan · Wheel zoom",
+        Tool::PolygonFill => "LMB click fill · LMB drag box fill · RMB properties · Alt+LMB rotate · MMB pan · Wheel zoom",
         Tool::Clone => "Ctrl+click or V+click set source · LMB clone · Shift+click line · MMB pan · Wheel zoom",
         Tool::Smudge => "LMB smudge · Shift+click line · Ctrl+drag brush values · MMB pan · Wheel zoom",
         _ => "LMB paint · Shift+click line · Ctrl+drag brush values · hold S stencil · MMB pan · Wheel zoom",
@@ -522,7 +627,7 @@ fn brush_controls(state: &mut UiState, ui: &mut Ui) {
 
 /// The ID eyedroppers in the 2D view (an ID Color mask's, or the ID color editor's): a click picks
 /// the ID map color at that texture UV. Returns whether an eyedropper is active (no painting then).
-fn id_pick_input(state: &mut UiState, ui: &Ui, response: &egui::Response, image: Rect, ts: subcraft_core::TextureSetId) -> bool {
+fn id_pick_input(state: &mut UiState, ui: &Ui, response: &egui::Response, image: Frame, ts: subcraft_core::TextureSetId) -> bool {
     let mask_pick = state.picking_id_color.filter(|(layer, _)| state.session.selected_texture_set().find(*layer).is_some());
     if mask_pick.is_none() && !state.picking_id_palette {
         return false;
@@ -531,7 +636,7 @@ fn id_pick_input(state: &mut UiState, ui: &Ui, response: &egui::Response, image:
     let (pointer, pressed, alt) = ui.input(|i| (i.pointer.interact_pos(), i.pointer.primary_pressed(), i.modifiers.alt));
     if !pressed || alt || !response.hovered() { return true; }
     let Some(p) = pointer else { return true };
-    let uv = Vec2::new((p.x - image.left()) / image.width(), (p.y - image.top()) / image.height());
+    let uv = image.to_uv(p);
     let now = ui.input(|i| i.time);
     if !(0.0..=1.0).contains(&uv.x) || !(0.0..=1.0).contains(&uv.y) { return true; }
     if let Some((layer, effect)) = mask_pick {
@@ -554,15 +659,15 @@ fn id_pick_input(state: &mut UiState, ui: &Ui, response: &egui::Response, image:
 /// clone strokes (Shift+click lines, Ctrl+Shift snapped), polygon fill clicks and boxes, the
 /// eyedropper, and the clone source (Ctrl+click or V+click).
 #[allow(clippy::too_many_arguments)]
-fn paint_input(state: &mut UiState, ui: &Ui, response: &egui::Response, image: Rect, resolution: u32, ts_id: subcraft_core::TextureSetId, view: subcraft_paint::UvView, lmb_adjust: bool) {
+fn paint_input(state: &mut UiState, ui: &Ui, response: &egui::Response, image: Frame, resolution: u32, ts_id: subcraft_core::TextureSetId, view: subcraft_paint::UvView, lmb_adjust: bool) {
     let typing = ui.ctx().egui_wants_keyboard_input();
     let (pointer, pressed, down, mods) = ui.input(|i| (i.pointer.interact_pos(), i.pointer.primary_pressed(), i.pointer.primary_down(), i.modifiers));
     let (alt, shift, ctrl) = (mods.alt, mods.shift, mods.command || mods.ctrl);
     let v_down = ui.input(|i| i.key_down(egui::Key::V)) && !typing && !mods.any();
     let pressed = pressed && !state.view_props_swallow;
-    let to_uv = |p: Pos2| Vec2::new((p.x - image.left()) / image.width(), (p.y - image.top()) / image.height());
-    let to_px = |uv: Vec2| image.min + egui::vec2(uv.x, uv.y) * image.width();
-    let texels_per_px = resolution as f32 / image.width().max(1.0);
+    let to_uv = |p: Pos2| image.to_uv(p);
+    let to_px = |uv: Vec2| image.to_px(uv);
+    let texels_per_px = resolution as f32 / image.side().max(1.0);
     let now = ui.input(|i| i.time);
     // Pen pressure, as in the 3D view (a mouse reports none: 1).
     let (pressure, carried) = crate::viewport::pen_pressure(&ui.input(|i| i.events.clone()), state.pen_pressure);
@@ -747,3 +852,67 @@ mod component_tests {
         assert_eq!(shown_component(&prefs), ChannelComponent::All, "a mesh map is not a channel");
     }
 }
+
+#[cfg(test)]
+mod rotation_tests {
+    use super::*;
+
+    fn frame(view: Rect, offset: egui::Vec2, rotation: f32) -> Frame {
+        Frame { rect: Rect::from_center_size(view.center() + offset, egui::vec2(300.0, 300.0)), rotation }
+    }
+
+    #[test]
+    fn an_upright_frame_is_the_plain_square() {
+        let f = Frame { rect: Rect::from_min_size(egui::pos2(20.0, 40.0), egui::vec2(200.0, 200.0)), rotation: 0.0 };
+        assert_eq!(f.to_px(Vec2::new(0.25, 0.5)), egui::pos2(70.0, 140.0));
+        assert_eq!(f.to_uv(egui::pos2(70.0, 140.0)), Vec2::new(0.25, 0.5));
+        assert!(f.contains(egui::pos2(21.0, 41.0)) && !f.contains(egui::pos2(19.0, 41.0)));
+    }
+
+    #[test]
+    fn a_quarter_turn_points_u_down_the_screen() {
+        let f = Frame { rect: Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(200.0, 200.0)), rotation: std::f32::consts::FRAC_PI_2 };
+        // The middle of the texture's right edge is now at the bottom middle of the square.
+        assert!((f.to_px(Vec2::new(1.0, 0.5)) - egui::pos2(100.0, 200.0)).length() < 1e-3);
+        for uv in [Vec2::new(0.1, 0.2), Vec2::new(0.9, 0.6)] {
+            assert!((f.to_uv(f.to_px(uv)) - uv).length() < 1e-5, "{uv}");
+            assert!(f.contains(f.to_px(uv)));
+        }
+        assert!(!f.contains(f.to_px(Vec2::new(1.2, 0.5))));
+    }
+
+    #[test]
+    fn rotating_keeps_the_texture_point_under_the_pivot() {
+        let view = Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(800.0, 600.0));
+        let (rotation, offset) = (0.3, egui::vec2(35.0, -20.0));
+        let pivot = egui::pos2(520.0, 210.0);
+        let before = frame(view, offset, rotation).to_uv(pivot);
+        for next in [0.9, -1.2, snap_quarter(0.9)] {
+            let (r, o) = rotate_about(rotation, offset, pivot - view.center(), next);
+            assert_eq!(r, next);
+            let after = frame(view, o, r).to_uv(pivot);
+            assert!((before - after).length() < 1e-4, "{before} moved to {after} at {next}");
+        }
+    }
+
+    #[test]
+    fn shift_snaps_to_quarter_turns() {
+        let q = std::f32::consts::FRAC_PI_2;
+        assert_eq!(snap_quarter(0.2), 0.0);
+        assert_eq!(snap_quarter(1.2), q);
+        assert_eq!(snap_quarter(-2.0), -q);
+        assert_eq!(snap_quarter(3.0), 2.0 * q);
+    }
+
+    #[test]
+    fn a_drag_box_in_a_turned_view_is_the_uv_box_of_its_two_corners() {
+        let f = Frame { rect: Rect::from_min_size(egui::pos2(100.0, 50.0), egui::vec2(400.0, 400.0)), rotation: 0.7 };
+        let (a, b) = (f.to_px(Vec2::new(0.2, 0.3)), f.to_px(Vec2::new(0.6, 0.8)));
+        let corners = f.drag_box(a, b).map(|p| f.to_uv(p));
+        let want = [Vec2::new(0.2, 0.3), Vec2::new(0.6, 0.3), Vec2::new(0.6, 0.8), Vec2::new(0.2, 0.8)];
+        for (got, want) in corners.iter().zip(want) {
+            assert!((*got - want).length() < 1e-4, "{got} vs {want}");
+        }
+    }
+}
+

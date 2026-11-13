@@ -1,2 +1,4 @@
 *.sh text eol=lf
 *.desktop text eol=lf
+# Translation tables only ever gain rows at the end; when two branches both add rows, keep both.
+crates/ui/src/i18n/*.rs merge=union
