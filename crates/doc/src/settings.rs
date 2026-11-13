@@ -66,6 +66,11 @@ pub struct ProjectSettings {
     /// absent = none, so no schema bump is needed.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub cameras: Vec<crate::camera::SceneCamera>,
+    /// The 3D view's camera and the 2D view's pan and zoom when the project was saved (issue
+    /// #321). Optional in the file: absent = the default framing, so no schema bump is needed.
+    /// Moving the camera does not count as a change to the project.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub view: Option<crate::camera::ViewState>,
     /// Export window settings stored by its Save settings button. Optional in the file: absent =
     /// the window's defaults, so no schema bump is needed.
     #[serde(skip_serializing_if = "Option::is_none")]

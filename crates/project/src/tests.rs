@@ -1158,6 +1158,20 @@ fn imported_cameras_are_saved_with_the_project_and_old_projects_have_none() {
     assert_eq!(read.settings, settings);
 }
 
+/// Issue #321: the 3D view's camera and the 2D view's pan travel with the project; projects
+/// saved before have none.
+#[test]
+fn the_saved_view_round_trips_and_old_projects_have_none() {
+    let doc = Document { texture_sets: vec![TextureSet::new("Body", 0, 128)] };
+    let mesh = primitives::cube(2.);
+    let plain = write_project(Cursor::new(Vec::new()), &mesh, &doc, &ResourceStore::default(), &MeshMapSet::new()).unwrap().into_inner();
+    assert_eq!(read_project(Cursor::new(plain)).unwrap().settings.view, None);
+    let view = subcraft_doc::ViewState { target: [0.1, 0.2, 0.3], yaw: 1.2, pitch: 0.4, roll: 0.0, distance: 5.5, fov_y_deg: 32.0, orthographic: false, pivot: Some([0.0, 1.0, 0.0]), uv_zoom: 2.0, uv_offset: [10.0, -4.0] };
+    let settings = subcraft_doc::ProjectSettings { view: Some(view), ..Default::default() };
+    let bytes = write_project_with(Cursor::new(Vec::new()), &mesh, &doc, &ResourceStore::default(), &MeshMapSet::new(), &settings).unwrap().into_inner();
+    assert_eq!(read_project(Cursor::new(bytes)).unwrap().settings.view, Some(view));
+}
+
 /// QA 2026-11: the shape settings of the position / UV generators were never validated on load
 /// (a huge radius reads as infinity and makes the mask NaN), and content generators were not
 /// validated at all.

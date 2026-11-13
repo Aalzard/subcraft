@@ -201,6 +201,8 @@ pub struct UiState {
     /// Whether the session's saved display settings were taken over yet, and the values last
     /// seen in step with the project (see `panels::display_settings::sync_project`).
     pub display_loaded: bool,
+    /// The opened project's saved view (camera, 2D pan) was put back (view_state.rs).
+    pub view_loaded: bool,
     pub display_baseline: subcraft_doc::DisplaySettings,
     /// Scripted export waiting for the first finished frame.
     pub pending_render_job: Option<crate::render_export::Job>,
@@ -459,6 +461,7 @@ impl UiState {
             display_jump: None,
             open_shader_settings: false,
             display_loaded: false,
+            view_loaded: false,
             display_baseline: Default::default(),
             pending_render_job: None,
             render_export: Default::default(),
@@ -689,6 +692,7 @@ impl UiState {
         self.camera = OrbitCamera::framing_with(&session.scene().mesh.bounds, self.camera_view.as_ref());
         self.session = session;
         self.display_loaded = false;
+        self.view_loaded = false;
         self.welcome.open = false;
         self.context_part = None;
         self.uploaded_view_revision = u64::MAX;

@@ -270,6 +270,16 @@ impl ProjectSnapshot {
     }
 }
 
+/// Whether two project settings differ only in their saved view (which is not an edit).
+fn same_settings_but_view(a: &subcraft_doc::ProjectSettings, b: &subcraft_doc::ProjectSettings) -> bool {
+    if a.view == b.view {
+        return a == b;
+    }
+    let mut a = a.clone();
+    a.view = b.view;
+    a == *b
+}
+
 impl Session {
     /// One texture set per material slot, each with an empty paint layer selected.
     pub fn new(mesh: Mesh, resolution: u32) -> Self {
@@ -427,7 +437,9 @@ impl Session {
     pub fn is_modified(&self) -> bool {
         crate::unsaved::is_dirty(crate::unsaved::DirtyInputs {
             document_changed: self.doc != self.saved_doc,
-            settings_changed: self.settings != self.saved_settings,
+            // The saved view (camera, 2D pan) travels with the project but moving around is
+            // not an edit.
+            settings_changed: !same_settings_but_view(&self.settings, &self.saved_settings),
             maps_changed: self.maps_dirty,
             mesh_changed: self.mesh_dirty,
             from_recovery: self.recovered,
@@ -437,6 +449,12 @@ impl Session {
     /// Project-wide settings (export choices, normal format), saved with the project.
     pub fn settings(&self) -> &subcraft_doc::ProjectSettings {
         &self.settings
+    }
+
+    /// Store the view (3D camera, 2D pan and zoom) to save with the project. Never marks the
+    /// project as modified.
+    pub fn set_view_state(&mut self, view: Option<subcraft_doc::ViewState>) {
+        self.settings.view = view;
     }
 
     /// Replace the project settings. Not undoable; marks the project as modified.
@@ -646,7 +664,7 @@ impl Session {
     /// edit: does not mark the project modified.
     pub fn set_mesh_source(&mut self, path: &Path) {
         let source = Some(path.display().to_string());
-        let unchanged = self.settings == self.saved_settings;
+        let unchanged = same_settings_but_view(&self.settings, &self.saved_settings);
         self.settings.mesh_source = source.clone();
         if unchanged {
             self.saved_settings.mesh_source = source;
@@ -672,7 +690,7 @@ impl Session {
             .filter(subcraft_doc::SceneCamera::is_valid)
             .collect();
         let count = cameras.len();
-        let unchanged = self.settings == self.saved_settings;
+        let unchanged = same_settings_but_view(&self.settings, &self.saved_settings);
         self.settings.cameras = cameras.clone();
         if unchanged {
             self.saved_settings.cameras = cameras;
