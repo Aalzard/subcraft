@@ -159,10 +159,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         state.uv.source = PreviewSource::Channel(ChannelKind::BaseColor);
     }
     let painting_tool = crate::brush_bar::active(state.tool);
-    egui::Frame::new().fill(crate::theme::BG_1).inner_margin(egui::Margin::symmetric(crate::theme::PAD, 6)).show(ui, |ui| {
+    egui::Frame::new().fill(crate::theme::BG_1()).inner_margin(egui::Margin::symmetric(crate::theme::PAD, 6)).show(ui, |ui| {
         ui.set_min_width(ui.available_width());
         ui.horizontal(|ui| {
-            ui.label(RichText::new("Show").color(crate::theme::TEXT_DIM));
+            ui.label(RichText::new("Show").color(crate::theme::TEXT_DIM()));
             egui::ComboBox::from_id_salt("uv_source").selected_text(label(state.uv.source)).width(200.0).show_ui(ui, |ui| {
                 for s in &sources {
                     ui.selectable_value(&mut state.uv.source, *s, label(*s));
@@ -188,14 +188,14 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             }
             egui::Popup::context_menu(&lines).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
                 let prefs = &mut state.recovery.prefs.viewport;
-                ui.label(RichText::new("UV wireframe").color(crate::theme::TEXT_DIM));
+                ui.label(RichText::new("UV wireframe").color(crate::theme::TEXT_DIM()));
                 ui.checkbox(&mut state.uv_wireframe, "Show UV wireframe");
                 ui.horizontal(|ui| {
                     ui.label("Color");
                     ui.color_edit_button_rgb(&mut prefs.wire_color);
                 });
                 ui.add(egui::Slider::new(&mut prefs.wire_opacity, 0.05..=1.0).text("Opacity"));
-                ui.label(RichText::new("Shared with the 3D view's mesh wireframe (Display settings)").small().color(crate::theme::TEXT_FAINT));
+                ui.label(RichText::new("Shared with the 3D view's mesh wireframe (Display settings)").small().color(crate::theme::TEXT_FAINT()));
             });
             if crate::widgets::icon_button(ui, crate::icons::FIT, "Fit to view").clicked() {
                 state.uv.rotation = 0.0;
@@ -204,9 +204,6 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             }
         });
         ui.horizontal_wrapped(|ui| brush_controls(state, ui));
-        if painting_tool {
-            crate::brush_bar::channel_switches(ui, state);
-        }
         if state.picking_parts {
             ui.horizontal_wrapped(|ui| crate::panels::parts::mask_bar(ui, state));
         }
@@ -290,7 +287,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         && state.session.selected_texture_set().albedo_filter == subcraft_image::TextureFilter::Nearest {
         wgpu::FilterMode::Nearest
     } else { wgpu::FilterMode::Linear };
-    painter.rect_filled(rect, 0.0, crate::theme::BG_0);
+    painter.rect_filled(rect, 0.0, crate::theme::BG_0());
 
     state.sync_gpu();
     if let (Some(rs), Some(renderer)) = (&state.render_state, &mut state.renderer)
@@ -312,14 +309,14 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         draw_texture(&painter, frame, id, Color32::WHITE);
     }
     if frame.rotation == 0.0 {
-        painter.rect_stroke(img_rect, 0.0, Stroke::new(1.0, crate::theme::BORDER_STRONG), egui::StrokeKind::Outside);
+        painter.rect_stroke(img_rect, 0.0, Stroke::new(1.0, crate::theme::BORDER_STRONG()), egui::StrokeKind::Outside);
     } else {
-        painter.add(egui::Shape::closed_line(frame.corners().to_vec(), Stroke::new(1.0, crate::theme::BORDER_STRONG)));
+        painter.add(egui::Shape::closed_line(frame.corners().to_vec(), Stroke::new(1.0, crate::theme::BORDER_STRONG())));
     }
     axis_information(&painter, rect);
     // The isolated component's name, as in the 3D view.
     if let Some(name) = shown_component(&state.recovery.prefs.viewport).overlay() {
-        crate::viewport::pill(&painter, rect.left_top() + egui::vec2(10.0, 10.0), egui::Align2::LEFT_TOP, crate::i18n::tr(name), crate::theme::TEXT);
+        crate::viewport::pill(&painter, rect.left_top() + egui::vec2(10.0, 10.0), egui::Align2::LEFT_TOP, crate::i18n::tr(name), crate::theme::TEXT());
     }
     quick_mask_overlay(state, ui, &painter, frame);
     parts_overlay(state, ui, &painter, frame, picking, response.hover_pos());
@@ -346,7 +343,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 crate::view_props::draw_fill_box(&painter, Rect::from_two_pos(a, b), false);
             } else {
                 // Turned view: the box stays aligned to the texture, as the selection is.
-                let accent = crate::theme::ACCENT;
+                let accent = crate::theme::ACCENT();
                 let fill = Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 28);
                 painter.add(egui::Shape::convex_polygon(frame.drag_box(a, b).to_vec(), fill, Stroke::new(1.0, accent)));
             }
@@ -371,7 +368,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             let mesh = &state.session.scene().mesh;
             let density = *state.uv_density.entry(slot).or_insert_with(|| subcraft_paint::stroke::uv_per_unit(mesh, slot));
             let r_px = state.session.brush_radius_uv(density) * side;
-            let color = if state.tool == Tool::Eraser { Color32::from_rgb(120, 190, 255) } else { crate::theme::ACCENT };
+            let color = if state.tool == Tool::Eraser { Color32::from_rgb(120, 190, 255) } else { crate::theme::ACCENT() };
             painter.circle_stroke(p, r_px, Stroke::new(1.5, Color32::from_black_alpha(160)));
             painter.circle_stroke(p, r_px, Stroke::new(1.0, color));
             // Shift: dotted preview of the straight line from the last stroke point.
@@ -381,14 +378,14 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 painter.extend(egui::Shape::dashed_line(&[to_px(from), to], dash, 5.0, 4.0));
             }
         } else if state.tool == Tool::PolygonFill && paints {
-            painter.circle_filled(p, 3.0, crate::theme::ACCENT);
+            painter.circle_filled(p, 3.0, crate::theme::ACCENT());
         }
         if (clicks && !alt) && !stencil_edit {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
         }
     }
     let hint = if picking { "Geometry mask: click an island to show / hide the layer on it · drag a box to add · Ctrl+drag to remove · Esc done" } else { hint(state.tool, paints) };
-    painter.text(rect.left_bottom() + egui::vec2(10.0, -10.0), egui::Align2::LEFT_BOTTOM, hint, crate::theme::font(11.5), crate::theme::TEXT_FAINT);
+    painter.text(rect.left_bottom() + egui::vec2(10.0, -10.0), egui::Align2::LEFT_BOTTOM, hint, crate::theme::font(11.5), crate::theme::TEXT_FAINT());
     if state.uv.painting {
         ui.ctx().request_repaint();
     }
@@ -499,7 +496,7 @@ fn fill_hover_overlay(state: &mut UiState, painter: &egui::Painter, image: Frame
     }
     if !state.uv_parts.fill.is_empty() {
         let to_px = |uv: Vec2| image.to_px(uv);
-        let tint = Color32::from_rgba_unmultiplied(crate::theme::ACCENT.r(), crate::theme::ACCENT.g(), crate::theme::ACCENT.b(), 80);
+        let tint = Color32::from_rgba_unmultiplied(crate::theme::ACCENT().r(), crate::theme::ACCENT().g(), crate::theme::ACCENT().b(), 80);
         painter.add(triangles_mesh(&state.uv_parts.fill, to_px, painter.clip_rect(), tint, None));
     }
 }
@@ -536,7 +533,7 @@ fn parts_overlay(state: &mut UiState, ui: &Ui, painter: &egui::Painter, image: F
         state.uv_parts.hover_key = hover_key;
     }
     if !state.uv_parts.hover.is_empty() {
-        let tint = Color32::from_rgba_unmultiplied(crate::theme::ACCENT.r(), crate::theme::ACCENT.g(), crate::theme::ACCENT.b(), 70);
+        let tint = Color32::from_rgba_unmultiplied(crate::theme::ACCENT().r(), crate::theme::ACCENT().g(), crate::theme::ACCENT().b(), 70);
         painter.add(triangles_mesh(&state.uv_parts.hover, to_px, clip, tint, None));
     }
 }
@@ -672,6 +669,7 @@ fn paint_input(state: &mut UiState, ui: &Ui, response: &egui::Response, image: F
     // Pen pressure, as in the 3D view (a mouse reports none: 1).
     let (pressure, carried) = crate::viewport::pen_pressure(&ui.input(|i| i.events.clone()), state.pen_pressure);
     state.pen_pressure = carried;
+    let pressure = state.recovery.prefs.viewport.pressure_curve.apply(pressure);
     // Polygon fill: a click fills the element under the cursor, a drag every element the UV box touches.
     if let Some(start) = state.uv.fill_box {
         if state.tool != Tool::PolygonFill || ui.input(|i| i.key_pressed(egui::Key::Escape)) {

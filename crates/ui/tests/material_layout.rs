@@ -62,7 +62,7 @@ fn quiet_actions_have_soft_corners_muted_text_and_a_readable_hit_target() {
     });
     out.textures_delta.clear();
     assert!(bounds.height() >= 28.0);
-    assert!(theme::TEXT.r() <= 210 && theme::TEXT.b() <= 220);
+    assert!(theme::TEXT().r() <= 210 && theme::TEXT().b() <= 220);
     let background = out
         .shapes
         .iter()
@@ -71,7 +71,7 @@ fn quiet_actions_have_soft_corners_muted_text_and_a_readable_hit_target() {
             _ => None,
         })
         .unwrap();
-    assert_eq!(background.fill, theme::BG_2);
+    assert_eq!(background.fill, theme::BG_2());
     assert_eq!(background.stroke.width, 0.0);
     assert_eq!(background.corner_radius.nw, theme::RADIUS, "soft control corners (was 2, now the shared RADIUS token)");
     assert!(out.shapes.iter().any(|s| {
@@ -81,7 +81,7 @@ fn quiet_actions_have_soft_corners_muted_text_and_a_readable_hit_target() {
                 .job
                 .sections
                 .iter()
-                .all(|section| section.format.color == theme::TEXT_DIM),
+                .all(|section| section.format.color == theme::TEXT_DIM()),
             _ => false,
         }
     }));

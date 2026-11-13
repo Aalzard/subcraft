@@ -201,6 +201,8 @@ pub struct UiState {
     /// Whether the session's saved display settings were taken over yet, and the values last
     /// seen in step with the project (see `panels::display_settings::sync_project`).
     pub display_loaded: bool,
+    /// The opened project's saved view (camera, 2D pan) was put back (view_state.rs).
+    pub view_loaded: bool,
     pub display_baseline: subcraft_doc::DisplaySettings,
     /// Scripted export waiting for the first finished frame.
     pub pending_render_job: Option<crate::render_export::Job>,
@@ -216,6 +218,8 @@ pub struct UiState {
     pub pen_pressure: f32,
     /// Pen / touch contact to primary-button mapping applied to raw input.
     pub pen_input: crate::pen_input::PenInputFixer,
+    /// Native pen tablet input (Wayland tablet protocol / X11 pressure; Linux only).
+    pub tablet: crate::tablet::Tablet,
     /// Clicks in the 3D and 2D views show / hide the selected layer on mesh parts (its geometry
     /// mask, Properties → Parts); a drag boxes several (Ctrl+drag removes them).
     pub picking_parts: bool,
@@ -238,6 +242,9 @@ pub struct UiState {
     /// ID color editor eyedropper: clicks in the 3D or 2D view pick an ID map color, select it in
     /// the editor and feed it to the selected layer's ID Color mask.
     pub picking_id_palette: bool,
+    /// While an ID eyedropper is armed, the 3D view shows the ID map; this is the view mode to
+    /// go back to (the mesh map shown before, or none) when the pick ends.
+    pub id_pick_view: Option<Option<subcraft_core::MeshMapKind>>,
     /// Color selected in the ID color editor (as shown in the ID map).
     pub id_palette_selected: Option<[f32; 3]>,
     /// The editor's palette, keyed by (texture set, maps generation, document revision).
@@ -255,6 +262,8 @@ pub struct UiState {
     pub uv_density: HashMap<u32, f32>,
     pub rename: Option<(subcraft_core::LayerId, String)>,
     pub show_shortcuts: bool,
+    /// Startup logo overlay (launches only, not scripted screenshots or tests).
+    pub intro: Option<crate::intro::Intro>,
     pub frame_time_ms: f32,
     /// Rendering mode: sampling paused, last frame's progress, and whether the path tracer
     /// was used last frame (its GPU memory is released when the mode turns off).
@@ -458,6 +467,7 @@ impl UiState {
             display_jump: None,
             open_shader_settings: false,
             display_loaded: false,
+            view_loaded: false,
             display_baseline: Default::default(),
             pending_render_job: None,
             render_export: Default::default(),
@@ -479,6 +489,7 @@ impl UiState {
             picking_focus: false,
             picking_id_color: None,
             picking_id_palette: false,
+            id_pick_view: None,
             id_palette_selected: None,
             id_palette_cache: None,
             id_palette_new: [1.0, 1.0, 1.0],
@@ -487,10 +498,12 @@ impl UiState {
             last_stroke_camera: None,
             pen_pressure: 1.0,
             pen_input: Default::default(),
+            tablet: Default::default(),
             uv_edges: HashMap::new(),
             uv_density: HashMap::new(),
             rename: None,
             show_shortcuts: false,
+            intro: None,
             frame_time_ms: 0.0,
             pt_paused: false,
             pt_status: None,
@@ -688,6 +701,7 @@ impl UiState {
         self.camera = OrbitCamera::framing_with(&session.scene().mesh.bounds, self.camera_view.as_ref());
         self.session = session;
         self.display_loaded = false;
+        self.view_loaded = false;
         self.welcome.open = false;
         self.context_part = None;
         self.uploaded_view_revision = u64::MAX;

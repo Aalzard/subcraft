@@ -14,9 +14,6 @@ use crate::theme::{self, TEXT_DIM, TEXT_FAINT};
 use crate::widgets::striped_list_row;
 use crate::icons;
 
-/// Error messages' colour.
-const ERROR: Color32 = Color32::from_rgb(235, 110, 100);
-
 /// What the window shows, kept between frames.
 #[derive(Clone)]
 struct View {
@@ -52,9 +49,9 @@ fn filter_label(min: LogLevel) -> &'static str {
 
 fn level_color(level: LogLevel) -> Color32 {
     match level {
-        LogLevel::Info => TEXT_DIM,
-        LogLevel::Warning => theme::WARNING,
-        LogLevel::Error => ERROR,
+        LogLevel::Info => TEXT_DIM(),
+        LogLevel::Warning => theme::WARNING(),
+        LogLevel::Error => theme::ERROR(),
     }
 }
 
@@ -77,7 +74,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             if warnings + errors > 0 {
                 text.push_str(&format!("  {} {}", icons::WARNING, warnings + errors));
             }
-            let color = if errors > 0 { ERROR } else if warnings > 0 { theme::WARNING } else { theme::TEXT };
+            let color = if errors > 0 { theme::ERROR() } else if warnings > 0 { theme::WARNING() } else { theme::TEXT() };
             if ui.selectable_label(view.tab == tab, RichText::new(text).color(color))
                 .on_hover_text(trf("{} warning(s), {} error(s) since the last Clear", &[&warnings, &errors]))
                 .clicked()
@@ -107,14 +104,14 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     let shown: Vec<&LogEntry> = log_buffer::visible(&view.entries, view.tab, view.min, view.cleared).collect();
     if shown.is_empty() {
         ui.add_space(8.0);
-        ui.label(RichText::new(tr("No messages")).color(TEXT_FAINT));
+        ui.label(RichText::new(tr("No messages")).color(TEXT_FAINT()));
     }
     egui::ScrollArea::vertical().id_salt("log_rows").auto_shrink([false, false]).stick_to_bottom(true).show_rows(ui, 18.0, shown.len(), |ui, rows| {
         ui.spacing_mut().item_spacing.y = 0.0;
         for i in rows {
             let e = shown[i];
             striped_list_row(ui, i, false, egui::Sense::hover(), |ui| {
-                ui.label(RichText::new(&e.time).font(theme::font(10.5)).color(TEXT_FAINT));
+                ui.label(RichText::new(&e.time).font(theme::font(10.5)).color(TEXT_FAINT()));
                 let icon = match e.level {
                     LogLevel::Info => icons::INFO,
                     LogLevel::Warning | LogLevel::Error => icons::WARNING,

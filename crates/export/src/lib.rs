@@ -322,6 +322,8 @@ pub struct PlannedFile {
     /// Path relative to the export folder (`/`-separated; UDIM folders add a leading `1001/`).
     pub path: String,
     pub enabled: bool,
+    /// The file's colour space ([`color_space`]): `sRGB`, `Linear` or `Raw`.
+    pub color_space: &'static str,
 }
 
 /// The set name without its `.1001` tile suffix.
@@ -420,6 +422,7 @@ pub fn plan_all(mesh_name: &str, sets: &[ExportTextureSet], settings: &ExportSet
                 set: set.name.to_string(),
                 suffix: map.suffix.clone(),
                 path: output_path(mesh_name, set, &map.suffix, fmt.extension(), settings),
+                color_space: color_space(map, fmt),
                 enabled: settings.selection.is_on(set.name, &map.suffix),
             });
         }

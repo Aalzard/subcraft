@@ -20,6 +20,10 @@ pub struct CameraBookmark {
     pub distance: f32,
     pub fov_y_deg: f32,
     pub orthographic: bool,
+    /// Radians about the view axis: an imported camera's roll. Saved bookmarks are level (0);
+    /// files written before it existed read 0.
+    #[serde(default)]
+    pub roll: f32,
 }
 
 impl CameraBookmark {
@@ -32,6 +36,7 @@ impl CameraBookmark {
             distance: camera.distance,
             fov_y_deg: camera.fov_y_deg,
             orthographic: camera.orthographic,
+            roll: 0.0,
         }
     }
 
@@ -44,15 +49,16 @@ impl CameraBookmark {
         camera.target = v;
         camera.yaw = self.yaw;
         camera.pitch = self.pitch.clamp(-1.55, 1.55);
-        // A bookmark stores a level view: a roll left by a free rotation would tilt it.
-        camera.roll = 0.0;
+        // A bookmark stores a level view (a roll left by a free rotation would tilt it); an
+        // imported camera keeps its own roll.
+        camera.roll = if self.roll.is_finite() { self.roll } else { 0.0 };
         camera.distance = self.distance.clamp(camera.scene_radius * 0.05, camera.scene_radius * 50.0);
         camera.fov_y_deg = self.fov_y_deg;
         camera.orthographic = self.orthographic;
     }
 
-    /// The viewpoint of an imported camera, seen from the model's `camera` (for its scene size).
-    /// The orbit camera has no roll, so a rolled camera is imported level. The target is placed
+    /// The viewpoint of an imported camera, seen from the model's `camera` (for its scene size),
+    /// with its roll about the view axis. The target is placed
     /// on the camera's view axis at the model's distance, so the eye is exactly the camera's
     /// position unless that distance is outside the zoom limits.
     pub fn from_spec(spec: &CameraSpec, model_center: Vec3, camera: &OrbitCamera) -> Self {
@@ -61,14 +67,22 @@ impl CameraBookmark {
         let distance = if ahead > camera.scene_radius * 0.05 { ahead } else { (model_center - spec.position).length().max(camera.scene_radius) };
         let distance = distance.clamp(camera.scene_radius * 0.05, camera.scene_radius * 50.0);
         let back = -forward;
+        let yaw = back.x.atan2(back.z);
+        let pitch = back.y.clamp(-1.0, 1.0).asin().clamp(-1.55, 1.55);
+        // Roll: the camera's up seen in the level frame of that yaw and pitch (the orbit camera
+        // turns by yaw, then pitch, then roll about the view axis).
+        let level = glam::Quat::from_rotation_y(yaw) * glam::Quat::from_rotation_x(-pitch);
+        let up = spec.rotation * Vec3::Y;
+        let roll = (-up.dot(level * Vec3::X)).atan2(up.dot(level * Vec3::Y));
         Self {
             name: spec.name.clone(),
             target: (spec.position + forward * distance).to_array(),
-            yaw: back.x.atan2(back.z),
-            pitch: back.y.clamp(-1.0, 1.0).asin().clamp(-1.55, 1.55),
+            yaw,
+            pitch,
             distance,
             fov_y_deg: spec.fov_y_deg.clamp(1.0, 170.0),
             orthographic: spec.orthographic,
+            roll: if roll.is_finite() { roll } else { 0.0 },
         }
     }
 }
@@ -244,7 +258,7 @@ pub fn wireframe_control(ui: &mut Ui, prefs: &mut ViewportPrefs) {
         prefs.wireframe = !prefs.wireframe;
     }
     egui::Popup::context_menu(&response).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
-        ui.label(RichText::new("Polygon wireframe").color(TEXT_DIM));
+        ui.label(RichText::new("Polygon wireframe").color(TEXT_DIM()));
         ui.checkbox(&mut prefs.wireframe, "Show wireframe");
         ui.horizontal(|ui| {
             ui.label("Color");
@@ -436,7 +450,7 @@ mod tests {
     }
 
     #[test]
-    fn camera_looking_away_still_gives_a_usable_view_and_rolls_are_dropped() {
+    fn camera_looking_away_still_gives_a_usable_view_and_keeps_its_roll() {
         let (mut cam, center) = model();
         // Behind the model, looking away from it, and rolled 40 degrees.
         let rot = glam::Quat::from_rotation_y(std::f32::consts::PI) * glam::Quat::from_rotation_z(40f32.to_radians());
@@ -448,6 +462,29 @@ mod tests {
         // Looks along the camera's axis even though that points away from the model.
         let fwd = (cam.target - cam.eye()).normalize();
         assert!((fwd - spec.forward()).length() < 1e-4, "{fwd:?} vs {:?}", spec.forward());
+        // The 40 degree roll comes through: the view's up is the camera's up.
+        assert!((b.roll.abs() - 40f32.to_radians()).abs() < 1e-3, "roll {}", b.roll.to_degrees());
+        let view_up = glam::Mat3::from_mat4(cam.view()).transpose() * Vec3::Y;
+        assert!((view_up - spec.rotation * Vec3::Y).length() < 1e-3, "{view_up:?} vs {:?}", spec.rotation * Vec3::Y);
+    }
+
+    #[test]
+    fn level_and_tilted_imported_cameras_match_their_orientation() {
+        let (mut cam, center) = model();
+        for (pitch_deg, roll_deg) in [(0.0f32, 0.0f32), (-25.0, 15.0), (30.0, -60.0)] {
+            let rot = glam::Quat::from_rotation_y(0.4) * glam::Quat::from_rotation_x(pitch_deg.to_radians()) * glam::Quat::from_rotation_z(roll_deg.to_radians());
+            let spec = CameraSpec { name: "c".into(), position: rot * Vec3::new(0.0, 0.0, 8.0), rotation: rot, fov_y_deg: 45.0, orthographic: false, aspect: None };
+            let b = CameraBookmark::from_spec(&spec, center, &cam);
+            assert!((b.roll - roll_deg.to_radians()).abs() < 1e-3, "{pitch_deg} {roll_deg}: {}", b.roll.to_degrees());
+            b.apply(&mut cam);
+            let basis = glam::Mat3::from_mat4(cam.view()).transpose();
+            assert!((basis * Vec3::NEG_Z - spec.rotation * Vec3::NEG_Z).length() < 1e-3, "forward");
+            assert!((basis * Vec3::Y - spec.rotation * Vec3::Y).length() < 1e-3, "up");
+        }
+        // Saved bookmarks stay level, and older files without the field read level.
+        assert_eq!(CameraBookmark::capture("b", &cam).roll, 0.0);
+        let old: CameraBookmark = serde_json::from_str(r#"{"name":"x","target":[0,0,0],"yaw":0,"pitch":0,"distance":3,"fov_y_deg":40,"orthographic":false}"#).unwrap();
+        assert_eq!(old.roll, 0.0);
     }
 
     /// QA 2026-11: a bookmark applied after a free rotation kept the camera's roll, so the saved

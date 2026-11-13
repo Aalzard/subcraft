@@ -25,7 +25,7 @@ pub mod warp;
 
 pub use anchor::{AnchorDomain, AnchorIndex, AnchorInfo, AnchorInput, AnchorRef, RefSite, RefStatus};
 pub use blend::BlendMode;
-pub use camera::SceneCamera;
+pub use camera::{SceneCamera, ViewState};
 pub use display::{Anisotropy, ChannelComponent, DisplaySettings, EnvAlignment, FlareCamera, GlareShape, GridAxis, GrainType, ShadowMode, ToneMap};
 pub use document::Document;
 pub use effect::{ContentEffect, ContentEffectKind};
@@ -39,6 +39,6 @@ pub use mask::{CompareMask, CompareOp, CompareOperand, LevelsRange, SelectionBac
 pub use pen::{PathKind, PathRibbon, PathStamp, PenAnchor, PenPath, RibbonMode};
 pub use resources::{Resource, ResourceKind, ResourceStore};
 pub use text::TextDecal;
-pub use settings::{ExportConfig, ExportOverrides, MapFormat, NormalFormat, ProjectSettings};
+pub use settings::{BakeConfig, ExportConfig, ExportOverrides, MapFormat, NormalFormat, ProjectSettings};
 pub use shader::{MAIN_SHADER, ShaderAssignment, ShaderInstance, ShaderInstanceId, ShaderParams};
 pub use texture_set::{AlphaMode, AlphaSettings, AoMixing, ChannelDef, ChannelFormat, HeightToNormal, IdColorEdit, LayerLocation, LayerOpError, MixingSettings, NormalMixing, RESOLUTIONS, TextureSet, UvPadding};

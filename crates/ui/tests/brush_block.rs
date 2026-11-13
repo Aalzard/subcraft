@@ -248,3 +248,29 @@ fn position_jitter_axis_dropdown_offers_both_axes_and_one_axis() {
     let old: subcraft_paint::BrushSettings = serde_json::from_str(r#"{"position_jitter":0.5}"#).unwrap();
     assert_eq!(old.position_jitter_axis, JitterAxis::Both);
 }
+
+#[test]
+fn stamps_blending_dropdown_offers_accumulate_and_lighten() {
+    use subcraft_paint::StampBlend;
+    let mut s = state();
+    let ctx = context(&mut s);
+    assert_eq!(s.session.brush.settings.stamps_blending, StampBlend::Accumulate);
+    let out = frame(&mut s, &ctx, vec![]);
+    assert!(text_y(&out, "Stamps Blending").expect("the row") > text_y(&out, "Position Jitter Axis").unwrap(), "under the jitter rows");
+    let pos = out.shapes.iter().find_map(|s| match &s.shape {
+        egui::epaint::Shape::Text(t) if t.galley.text() == "Accumulate" => Some(t.pos + t.galley.size() * 0.5),
+        _ => None,
+    }).expect("the dropdown shows the current mode");
+    click_at(&mut s, &ctx, pos);
+    let out = frame(&mut s, &ctx, vec![]);
+    let lighten = out.shapes.iter().filter_map(|s| match &s.shape {
+        egui::epaint::Shape::Text(t) if t.galley.text() == "Lighten" => Some(t.pos + t.galley.size() * 0.5),
+        _ => None,
+    }).last().expect("the open list offers Lighten");
+    click_at(&mut s, &ctx, lighten);
+    assert_eq!(s.session.brush.settings.stamps_blending, StampBlend::Lighten);
+    let json = serde_json::to_string(&s.session.brush.settings).unwrap();
+    assert!(json.contains(r#""stamps_blending":"lighten""#), "{json}");
+    let old: subcraft_paint::BrushSettings = serde_json::from_str(r#"{"flow":0.5}"#).unwrap();
+    assert_eq!(old.stamps_blending, StampBlend::Accumulate, "brushes from before the setting keep building up");
+}

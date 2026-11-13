@@ -73,9 +73,9 @@ impl PreviewUi {
                     tile,
                     0,
                     if (x + y) % 2 == 0 {
-                        theme::BG_2
+                        theme::BG_2()
                     } else {
-                        theme::BG_4
+                        theme::BG_4()
                     },
                 );
             }
@@ -124,9 +124,9 @@ impl PreviewUi {
             Stroke::new(
                 if selected { 2.0 } else { 1.0 },
                 if selected {
-                    theme::ACCENT
+                    theme::ACCENT()
                 } else {
-                    theme::BORDER_STRONG
+                    theme::BORDER_STRONG()
                 },
             ),
             egui::StrokeKind::Inside,
@@ -156,7 +156,7 @@ pub fn inspection_window(state: &mut crate::state::UiState, ctx: &egui::Context)
     let title = format!("Mask preview · {}", found.name);
     let mut open = true;
     crate::widgets::window(ctx, title).id(egui::Id::new("mask_uv_preview")).open(&mut open).resizable(true).show(ctx, |ui| {
-        ui.label(egui::RichText::new("Evaluated mask · UV space").color(theme::TEXT_DIM));
+        ui.label(egui::RichText::new("Evaluated mask · UV space").color(theme::TEXT_DIM()));
         let side = ui.available_width().clamp(192.0, 512.0);
         state.layer_previews.image(ui, &state.session, PreviewKey { layer, channel: ChannelKind::BaseColor, mask: true, effect: None, size: 256 }, side, false);
         crate::widgets::hint(ui, "Includes painting and effects. A disabled mask still shows its authored result here.");

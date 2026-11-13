@@ -599,6 +599,7 @@ impl Stroke {
             alpha: self.alpha.as_deref(),
             stencil: self.stencil.as_deref().filter(|_| stencil),
             stencil_uv: self.uv_view.filter(|_| alignment == Alignment::Uv),
+            stamp_blend: self.settings.stamps_blending,
         };
         if let Some((st, _)) = &self.stamp
             && st.tiled
@@ -860,6 +861,7 @@ impl Stroke {
         let input = KernelInput {
             mesh: ctx.mesh, bvh: ctx.bvh, geometry: ctx.geometry, alignment, cameras, depth: &depth, backface_cos,
             alpha: self.alpha.as_deref(), stencil: None, stencil_uv: None,
+            stamp_blend: self.settings.stamps_blending,
         };
         let mut changed = std::collections::BTreeSet::new();
         let (carry, strength, material, falloff) = (self.settings.smudge_carry.clamp(0.0, 1.0), self.settings.smudge_strength.clamp(0.0, 1.0),
@@ -1013,6 +1015,7 @@ impl Stroke {
             alpha: None,
             stencil: None,
             stencil_uv: None,
+            stamp_blend: Default::default(),
         };
         let mut bins: std::collections::BTreeMap<usize, Vec<u32>> = std::collections::BTreeMap::new();
         for &t in tris {

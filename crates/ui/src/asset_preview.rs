@@ -222,12 +222,12 @@ impl AssetPreviewUi {
             if self.loader.is_some() {ui.spinner();ui.label("Loading full image…");}
             ui.horizontal(|ui| {
                 ui.label("Tiles");for n in 1..=3 {ui.selectable_value(&mut self.tiles,n,format!("{n}×{n}"));}
-                if self.kind==Some(Kind::Normal) {ui.label(RichText::new("tileable · data map").small().color(crate::theme::ACCENT));}
+                if self.kind==Some(Kind::Normal) {ui.label(RichText::new("tileable · data map").small().color(crate::theme::ACCENT()));}
             });
             ui.horizontal_top(|ui| {
                 ui.vertical(|ui| {
                     let side=ui.available_width().min(320.0);let (rect,_)=ui.allocate_exact_size(egui::vec2(side,side),egui::Sense::hover());
-                    ui.painter().rect_filled(rect,0.0,crate::theme::BG_0);
+                    ui.painter().rect_filled(rect,0.0,crate::theme::BG_0());
                     if let Some(t)=&self.image {
                         let side=side/self.tiles.max(1) as f32;
                         for y in 0..self.tiles.max(1) {for x in 0..self.tiles.max(1) {

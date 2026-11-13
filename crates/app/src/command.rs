@@ -107,6 +107,9 @@ pub enum Command {
     /// Painter's "Instantiate across texture sets": an instance of each of these layers on top
     /// of the stack of each of these texture sets (the layers' own set is skipped).
     InstantiateAcross { layers: Vec<LayerId>, texture_sets: Vec<TextureSetId> },
+    /// Turn these instances into ordinary layers that keep what they show now (Painter's
+    /// "flatten instanced layers"). An empty list means every instance in the project.
+    BreakInstances(Vec<LayerId>),
     DuplicateLayer(LayerId),
     /// Multi-select operations: one undo step each. All layers must be in the same texture set;
     /// a layer inside another selected layer is covered by it.

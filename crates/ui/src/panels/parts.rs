@@ -52,7 +52,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             for kind in PartKind::ALL { ui.selectable_value(&mut state.parts_kind, kind, kind.label()); }
         });
         if state.session.has_hidden_parts() && ui.button(tr("Show all parts")).clicked() { state.session.show_all_parts(); }
-        ui.label(RichText::new(tr("Right-click a part to texture it. I isolates, H hides the part under the cursor.")).small().color(theme::TEXT_FAINT));
+        ui.label(RichText::new(tr("Right-click a part to texture it. I isolates, H hides the part under the cursor.")).small().color(theme::TEXT_FAINT()));
         let parts = state.session.parts(state.parts_kind);
         let mut request = None;
         egui::ScrollArea::vertical().id_salt("model-parts-list").max_height(230.0).min_scrolled_height(0.0).show(ui, |ui| {
@@ -63,8 +63,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 let visible = state.session.part_visible(key);
                 let resp = crate::widgets::striped_list_row(ui, index, false, egui::Sense::click(), |ui| {
                     let icon = if visible { crate::icons::CUBE } else { crate::icons::EYE_SLASH };
-                    ui.label(RichText::new(icon).font(theme::font(14.0)).color(theme::TEXT_FAINT));
-                    ui.add(egui::Label::new(RichText::new(&part.name).color(if visible { theme::TEXT } else { theme::TEXT_FAINT })).truncate().selectable(false));
+                    ui.label(RichText::new(icon).font(theme::font(14.0)).color(theme::TEXT_FAINT()));
+                    ui.add(egui::Label::new(RichText::new(&part.name).color(if visible { theme::TEXT() } else { theme::TEXT_FAINT() })).truncate().selectable(false));
                 });
                 let materials: Vec<_> = part.materials.iter().map(|&m| format!("{} ({m})", state.session.scene().mesh.materials[m as usize].name)).collect();
                 resp.clone().on_hover_text(format!("{} triangles · {}", part.triangles, materials.join(", ")));
@@ -88,7 +88,7 @@ pub fn mask_bar(ui: &mut Ui, state: &mut UiState) {
     let current = parts.as_ref().map(|p| p.kind);
     let mut start = None;
     let mut set = None;
-    ui.label(RichText::new(format!("{}  Geometry mask by", crate::icons::POLYGON)).color(theme::ACCENT));
+    ui.label(RichText::new(format!("{}  Geometry mask by", crate::icons::POLYGON)).color(theme::ACCENT()));
     for kind in PartKind::ALL {
         let tip = match kind {
             PartKind::Connected => "Connected pieces of the mesh",
@@ -105,13 +105,13 @@ pub fn mask_bar(ui: &mut Ui, state: &mut UiState) {
             let all: std::collections::BTreeSet<u32> = state.session.parts(p.kind).iter().filter(|i| i.materials.contains(&slot)).map(|i| i.id).collect();
             let shown = all.iter().filter(|part| p.parts.contains(part)).count();
             ui.separator();
-            ui.label(RichText::new(format!("{shown} / {}", all.len())).color(theme::TEXT_DIM)).on_hover_text("Included parts of this texture set");
+            ui.label(RichText::new(format!("{shown} / {}", all.len())).color(theme::TEXT_DIM())).on_hover_text("Included parts of this texture set");
             if ui.small_button(tr("All")).clicked() { set = Some(PartMask::for_kind(p.kind, all.clone())); }
             if ui.small_button(tr("None")).clicked() { set = Some(PartMask::for_kind(p.kind, [])); }
             if ui.small_button(tr("Invert")).clicked() { set = Some(PartMask::for_kind(p.kind, all.difference(&p.parts).copied())); }
         }
         None => {
-            ui.label(RichText::new("click a part or drag a box in the view").color(theme::TEXT_DIM));
+            ui.label(RichText::new("click a part or drag a box in the view").color(theme::TEXT_DIM()));
         }
     }
     ui.separator();

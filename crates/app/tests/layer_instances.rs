@@ -243,6 +243,60 @@ fn a_layer_copied_in_one_texture_set_pastes_as_an_instance_in_another() {
     assert!(s.execute(Command::PasteAsInstance(vec![LayerId::new()])).is_err());
 }
 
+#[test]
+fn the_instance_list_names_the_source_and_every_instance_across_texture_sets() {
+    let mut s = two_sets();
+    let (body, trim) = (s.document().texture_sets[0].id, s.document().texture_sets[1].id);
+    s.execute(Command::SelectTextureSet(body)).unwrap();
+    s.execute(Command::AddLayer(NewLayer::Fill)).unwrap();
+    let source = s.selection().layer.unwrap();
+    assert!(s.instance_links(source).is_empty(), "an ordinary layer has no list");
+    s.execute(Command::PasteAsInstance(vec![source])).unwrap();
+    let local = s.selection().layer.unwrap();
+    s.execute(Command::InstantiateAcross { layers: vec![source], texture_sets: vec![trim] }).unwrap();
+    let remote = s.document().texture_set(trim).unwrap().layers.last().unwrap().id;
+    // The same list from the source and from either instance: source first.
+    let links = s.instance_links(source);
+    assert_eq!(links.iter().map(|l| (l.layer, l.texture_set, l.source)).collect::<Vec<_>>(), [(source, body, true), (local, body, false), (remote, trim, false)]);
+    assert_eq!(links[2].texture_set_name, "Trim");
+    assert_eq!(s.instance_links(remote), links);
+    assert_eq!(s.instance_links(local), links);
+    assert_eq!(s.all_instances(), [local, remote]);
+}
+
+#[test]
+fn a_broken_link_leaves_an_ordinary_editable_layer_that_keeps_its_content() {
+    let (mut s, source) = session();
+    s.execute(Command::AddMask { layer: source, white: false }).unwrap();
+    s.execute(Command::PasteAsInstance(vec![source])).unwrap();
+    let first = s.selection().layer.unwrap();
+    s.execute(Command::PasteAsInstance(vec![source])).unwrap();
+    let second = s.selection().layer.unwrap();
+    // Nothing to break on an ordinary layer.
+    assert!(s.execute(Command::BreakInstances(vec![source])).is_err());
+    let steps = s.history().entries().len();
+    s.execute(Command::BreakInstances(vec![first])).unwrap();
+    assert_eq!(s.history().entries().len(), steps + 1);
+    let l = s.selected_texture_set().find(first).unwrap().clone();
+    assert_eq!(l.instance_of, None);
+    assert!(l.mask.is_some(), "it keeps what it showed");
+    assert!(!s.instance_locked(first));
+    assert_eq!(s.instance_state(second), Some(InstanceState::Linked), "the other instance still follows");
+    // It no longer follows the source, and can be edited.
+    s.execute(Command::RemoveMask(source)).unwrap();
+    assert!(s.selected_texture_set().find(first).unwrap().mask.is_some());
+    assert!(s.selected_texture_set().find(second).unwrap().mask.is_none());
+    s.execute(Command::RemoveMask(first)).unwrap();
+    // An empty list means every instance in the project.
+    s.execute(Command::BreakInstances(Vec::new())).unwrap();
+    assert_eq!(s.selected_texture_set().find(second).unwrap().instance_of, None);
+    assert!(s.all_instances().is_empty());
+    // Deleting the former source leaves them in place.
+    s.execute(Command::DeleteLayer(source)).unwrap();
+    assert!(s.selected_texture_set().find(first).is_some());
+    assert!(s.selected_texture_set().find(second).is_some());
+}
+
 /// QA 2026-11: with a texture set in the list that no longer exists, the command failed after
 /// it had already added instances to the sets before it: a change outside any undo step.
 #[test]
@@ -283,6 +337,39 @@ fn a_refused_paste_as_instance_changes_nothing() {
         assert!(s.document() == &before, "nothing was inserted");
         assert_eq!(s.history().entries().len(), steps);
     }
+}
+
+/// QA 2026-11: multi-select commands acted on layers inside an instance (the sync undid them:
+/// an empty undo step, or a duplicated layer id after grouping one out of the instance).
+#[test]
+fn multi_select_commands_refuse_layers_inside_an_instance() {
+    let mut s = Session::new(subcraft_mesh::primitives::plane(2.0, 2), 128);
+    s.execute(Command::AddLayer(NewLayer::Folder)).unwrap();
+    let folder = s.selection().layer.unwrap();
+    s.execute(Command::AddLayer(NewLayer::Fill)).unwrap();
+    // The fill went inside the empty folder; with the folder selected, its instance lands above it.
+    s.execute(Command::SelectLayer(Some(folder))).unwrap();
+    s.execute(Command::PasteAsInstance(vec![folder])).unwrap();
+    let instance = s.selection().layer.unwrap();
+    let child = s.selected_texture_set().find(instance).unwrap().children()[0].id;
+    s.execute(Command::AddLayer(NewLayer::Paint)).unwrap();
+    let plain = s.selection().layer.unwrap();
+    let doc = s.document().clone();
+    let steps = s.history().entries().len();
+    for cmd in [
+        Command::SetLayersVisible { layers: vec![plain, child], visible: false },
+        Command::DeleteLayers(vec![plain, child]),
+        Command::DuplicateLayers(vec![child]),
+        Command::GroupLayers(vec![plain, child]),
+    ] {
+        let err = s.execute(cmd).unwrap_err();
+        assert!(err.to_string().contains("instance"), "{err}");
+    }
+    assert_eq!(s.document(), &doc);
+    assert_eq!(s.history().entries().len(), steps);
+    // The instance itself is the user's: hiding it with another layer works.
+    s.execute(Command::SetLayersVisible { layers: vec![plain, instance], visible: false }).unwrap();
+    assert!(!s.selected_texture_set().find(instance).unwrap().visible);
 }
 
 /// QA 2026-11: a layer added, pasted or dropped into an instance folder was wiped by the next

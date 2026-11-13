@@ -58,7 +58,7 @@ Layout notes: imported cameras come from the mesh file (FBX / Alembic) at projec
 |---|---|---|---|---|---|
 | Import Cameras checkbox | New project window | on (unverified) | done: New project > Cameras, on by default; glTF, GLB and FBX files carry cameras | crates/ui/src/new_project.rs, crates/app/src/session.rs (import_mesh_cameras) | 217 |
 | Import cameras on mesh re-import | Edit > Project configuration | off unless toggled | done: "Import cameras" in File > Reload mesh, off by default | crates/ui/src/mesh_reload.rs | 217 |
-| Imported data: name, transform, FOV, aspect ratio | from FBX / ABC mesh file | - | done: from glTF / GLB and FBX mesh files (and separate camera files); saved with the project; roll is dropped by the orbit camera | crates/mesh/src/camera.rs (cameras_in_mesh_file), crates/doc/src/camera.rs | 217 |
+| Imported data: name, transform, FOV, aspect ratio | from FBX / ABC mesh file | - | done: from glTF / GLB and FBX mesh files (and separate camera files); saved with the project; the roll comes through too (#412) | crates/mesh/src/camera.rs (cameras_in_mesh_file), crates/doc/src/camera.rs | 217 |
 | Camera selection dropdown | 3D view, top right | "Default camera"; hidden if no other camera | done: 3D view, top right, hidden when the project has no imported cameras; also Display Settings > Camera | crates/ui/src/view_extras.rs (camera_dropdown) | 217 |
 | Default camera entry | Camera dropdown | selected, perspective | done: first entry; choosing it brings back the view from before | crates/ui/src/view_extras.rs (select_camera) | 217 |
 | Navigating while an imported camera is active switches to Default camera | 3D view | always | done: unless the camera is locked | crates/ui/src/view_extras.rs (follow_camera) | 217 |
@@ -67,7 +67,7 @@ Layout notes: imported cameras come from the mesh file (FBX / Alembic) at projec
 | Camera Preset dropdown | Display settings > Camera | active camera | done | crates/ui/src/panels/display_settings.rs (camera) | 217 |
 | Field of view | Display settings > Camera | degrees; range not documented | done: 5-120 degrees in Display Settings > Camera | crates/ui/src/panels/display_settings.rs (camera) | 165 |
 | Focal length | Display settings > Camera | mm; range not documented | done: full-frame equivalent readout | crates/ui/src/panels/display_settings.rs (camera) | 165 |
-| Focus distance | Display settings > Camera | disabled unless Post effects + DOF | partial: "Focus" as a multiple of orbit distance, 0.05-4 | crates/ui/src/viewport_bar.rs:137 | - |
+| Focus distance | Display settings > Camera | disabled unless Post effects + DOF | done: a distance from the camera in scene units that stays put while zooming; set by the slider, Ctrl + middle click, focus picking and auto-focus | crates/doc/src/display.rs (focus_distance) | 397 |
 | Aperture | Display settings > Camera | disabled unless Post effects + DOF | partial: DOF amount 0-1 instead of an aperture | crates/ui/src/viewport_bar.rs:136 | - |
 | Display ratio | Display settings > Camera | "Unspecified" when absent | done: the imported camera's aspect, "Unspecified" when the file has none | crates/ui/src/panels/display_settings.rs (camera) | 217 |
 | Lock camera | Display settings > Camera, lock icon | unlocked | done: checkbox in the 3D view corner and Display Settings > Camera | crates/ui/src/view_extras.rs (follow_camera) | 217 |
@@ -138,7 +138,7 @@ Layout notes: the dropdown at the top right of each view switches between Materi
 | Invert grayscale tool value (on masks) | X | - | partial: X in the Painter key set | crates/app/src/actions.rs (Action::InvertMaskGray) | #164 |
 | Pick stroke material | P, then click the mesh | returns to the previous tool after picking | partial: P only in the Painter keymap; Eyedropper stays active after the pick; Shift+click picks the material | crates/ui/src/viewport.rs:294 | - |
 | Set Clone tool source location | V + LMB | - | done | crates/ui/src/viewport.rs:300 | - |
-| Pause engine computation | Shift + Escape | - | missing | - | - |
+| Pause engine computation | Shift + Escape | - | done: layer computation waits and the 3D view says so until Shift+Esc again; export and save still compute | crates/app/src/session.rs (set_engine_paused) | 395 |
 | Toggle animation (particles) | Space | - | missing | - | - |
 | Polygon Fill: rectangular marquee drag | LMB drag with Polygon Fill | - | done | crates/ui/src/viewport.rs | #131 |
 | Polygon Fill: extend loop on the other side | Alt while dragging (loop modes) | - | missing | - | - |

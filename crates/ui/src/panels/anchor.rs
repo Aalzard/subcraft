@@ -57,7 +57,7 @@ pub fn picker(
                 }
             }
             if candidates.is_empty() {
-                ui.label(RichText::new("No anchor point below. Add one to a lower layer's content or mask (Add › Anchor Point).").small().color(TEXT_FAINT));
+                ui.label(RichText::new("No anchor point below. Add one to a lower layer's content or mask (Add › Anchor Point).").small().color(TEXT_FAINT()));
             }
         });
     });
@@ -86,7 +86,7 @@ pub fn warning(ui: &mut Ui, status: RefStatus) {
     if status.is_ok() {
         return;
     }
-    ui.label(RichText::new(format!("{}  {}", crate::icons::WARNING, status.message())).font(theme::font(12.0)).color(theme::WARNING));
+    ui.label(RichText::new(format!("{}  {}", crate::icons::WARNING, status.message())).font(theme::font(12.0)).color(theme::WARNING()));
 }
 
 /// An anchor point's own properties: what it captures and who reads it.
@@ -101,10 +101,10 @@ pub fn anchor_info(ui: &mut Ui, index: &AnchorIndex, anchor: subcraft_core::Effe
     );
     let readers = index.dependents(anchor);
     if readers.is_empty() {
-        ui.label(RichText::new("Not read by any layer yet.").small().color(TEXT_FAINT));
+        ui.label(RichText::new("Not read by any layer yet.").small().color(TEXT_FAINT()));
         return;
     }
-    ui.label(RichText::new(format!("Read by {} input(s):", readers.len())).small().color(TEXT_DIM));
+    ui.label(RichText::new(format!("Read by {} input(s):", readers.len())).small().color(TEXT_DIM()));
     for r in readers {
         let place = match r.site {
             RefSite::Fill { channel, .. } => format!("fill channel {}", channel.display_name()),
@@ -112,7 +112,7 @@ pub fn anchor_info(ui: &mut Ui, index: &AnchorIndex, anchor: subcraft_core::Effe
         };
         let who = index.layer_name(r.site.layer()).unwrap_or("a layer");
         let text = RichText::new(format!("• {who}: {place}")).small();
-        ui.label(if r.status.is_ok() { text.color(TEXT_DIM) } else { text.color(theme::WARNING) })
+        ui.label(if r.status.is_ok() { text.color(TEXT_DIM()) } else { text.color(theme::WARNING()) })
             .on_hover_text(r.status.message());
     }
 }

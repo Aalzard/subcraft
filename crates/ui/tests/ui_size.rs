@@ -52,7 +52,7 @@ fn click(state: &mut UiState, ctx: &egui::Context, p: Pos2) {
 #[test]
 fn legacy_preferences_default_to_95_and_invalid_sizes_clamp_before_zooming() {
     let mut prefs: Preferences = serde_json::from_str(r#"{"autosave_minutes":8}"#).unwrap();
-    assert_eq!(prefs.ui_size_percent, 95);
+    assert_eq!(prefs.ui_size_percent, 85);
     let ctx = egui::Context::default();
     for (input, clamped) in [(0, 75), (10000, 150), (95, 95)] {
         prefs.ui_size_percent = input;
@@ -83,7 +83,7 @@ fn first_preference_scales_the_context_live_and_reset_restores_the_smaller_defau
     let ui_size = pos(&out, "UI size");
     let graphics = pos(&out, "Graphics");
     assert!(ui_size.y < graphics.y);
-    assert!((ctx.zoom_factor() - 0.95).abs() < 0.001);
+    assert!((ctx.zoom_factor() - 0.85).abs() < 0.001);
     let rail = out
         .shapes
         .iter()
@@ -117,8 +117,8 @@ fn first_preference_scales_the_context_live_and_reset_restores_the_smaller_defau
     for _ in 0..5 {
         frame(&mut state, &ctx, vec![]);
     }
-    assert_eq!(state.recovery.prefs.ui_size_percent, 95);
-    assert!((ctx.zoom_factor() - 0.95).abs() < 0.001);
+    assert_eq!(state.recovery.prefs.ui_size_percent, 85);
+    assert!((ctx.zoom_factor() - 0.85).abs() < 0.001);
     assert_eq!(state.session.document(), &doc);
     assert_eq!(state.session.brush.settings, settings);
     assert_eq!(state.session.history().entries().len(), history);
@@ -164,7 +164,7 @@ fn scene_dabs_write_the_same_texels_at_small_default_and_large_ui_sizes() {
             .shapes
             .iter()
             .filter_map(|s| match &s.shape {
-                egui::Shape::Rect(r) if r.fill == theme::BG_0 => Some(r.rect),
+                egui::Shape::Rect(r) if r.fill == theme::BG_0() => Some(r.rect),
                 _ => None,
             })
             .max_by(|a, b| a.area().total_cmp(&b.area()))

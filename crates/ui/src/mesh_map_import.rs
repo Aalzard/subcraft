@@ -59,7 +59,7 @@ pub fn file_table(ui: &mut Ui, id: &str, files: &mut Vec<MeshMapFile>, set_names
     egui::Grid::new(id).num_columns(5).spacing([8.0, 4.0]).striped(true).show(ui, |ui| {
         for (i, f) in files.iter_mut().enumerate() {
             let name = f.path.file_name().and_then(|n| n.to_str()).unwrap_or("image").to_string();
-            ui.add_sized([180.0, 18.0], egui::Label::new(RichText::new(&name).color(TEXT)).truncate()).on_hover_text(f.path.display().to_string());
+            ui.add_sized([180.0, 18.0], egui::Label::new(RichText::new(&name).color(TEXT())).truncate()).on_hover_text(f.path.display().to_string());
             egui::ComboBox::from_id_salt((id, "kind", i)).width(120.0)
                 .selected_text(f.kind.map_or("Skip (not a mesh map)", |k| k.display_name()))
                 .show_ui(ui, |ui| {
@@ -69,7 +69,7 @@ pub fn file_table(ui: &mut Ui, id: &str, files: &mut Vec<MeshMapFile>, set_names
                     }
                 });
             let set_text = f.set.and_then(|s| set_names.get(s)).map_or("Choose a texture set", |s| s.as_str()).to_string();
-            egui::ComboBox::from_id_salt((id, "set", i)).width(130.0).selected_text(RichText::new(set_text).color(if f.set.is_some() { TEXT } else { WARNING }))
+            egui::ComboBox::from_id_salt((id, "set", i)).width(130.0).selected_text(RichText::new(set_text).color(if f.set.is_some() { TEXT() } else { WARNING() }))
                 .show_ui(ui, |ui| {
                     for (s, n) in set_names.iter().enumerate() {
                         ui.selectable_value(&mut f.set, Some(s), n);
@@ -104,7 +104,7 @@ pub fn window(state: &mut UiState, ctx: &Context, now: f64) {
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
         .show(ctx, |ui| {
             let w = &mut state.mesh_map_import;
-            ui.add(egui::Label::new(RichText::new("Already-baked maps go straight into the texture sets' mesh-map slots: no re-bake. The map is recognised from the file-name suffix (_normal, _ao, _curvature, _id…), the texture set from its name and UDIM number in the file name.").color(TEXT_DIM)).wrap());
+            ui.add(egui::Label::new(RichText::new("Already-baked maps go straight into the texture sets' mesh-map slots: no re-bake. The map is recognised from the file-name suffix (_normal, _ao, _curvature, _id…), the texture set from its name and UDIM number in the file name.").color(TEXT_DIM())).wrap());
             ui.add_space(6.0);
             egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| file_table(ui, "mm_import", &mut w.files, &set_names));
             ui.add_space(6.0);
@@ -148,13 +148,13 @@ pub fn new_project_section(ui: &mut Ui, files: &mut Vec<MeshMapFile>, derive: &m
             });
         });
         if files.is_empty() {
-            ui.add(egui::Label::new(RichText::new("None: bake later, or pick maps baked elsewhere (matched by suffix: _normal, _ao, _curvature, _id… and by UDIM tile).").color(TEXT_DIM)).wrap());
+            ui.add(egui::Label::new(RichText::new("None: bake later, or pick maps baked elsewhere (matched by suffix: _normal, _ao, _curvature, _id… and by UDIM tile).").color(TEXT_DIM())).wrap());
             return;
         }
         ui.add_space(4.0);
         egui::ScrollArea::vertical().id_salt("np_maps").max_height(150.0).show(ui, |ui| file_table(ui, "np_mesh_maps", files, set_names));
         ui.checkbox(derive, "Derive curvature from imported normal maps (when no curvature map is given)");
         let n = ready_count(files);
-        ui.label(RichText::new(format!("{n} of {} file(s) will go into the new texture sets.", files.len())).color(TEXT_DIM));
+        ui.label(RichText::new(format!("{n} of {} file(s) will go into the new texture sets.", files.len())).color(TEXT_DIM()));
     });
 }

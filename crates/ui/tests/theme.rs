@@ -64,15 +64,15 @@ fn header_logo_is_a_small_square_texture_that_is_cached() {
 fn the_tinted_palette_is_still_dark_and_text_keeps_its_contrast() {
     // HSL lightness (0..1) of a colour.
     let lightness = |c: egui::Color32| (f32::from(c.r().max(c.g()).max(c.b())) + f32::from(c.r().min(c.g()).min(c.b()))) / 510.0;
-    for (name, c) in [("BG_0", theme::BG_0), ("BG_1", theme::BG_1), ("BG_2", theme::BG_2), ("BG_3", theme::BG_3), ("BG_4", theme::BG_4),
-        ("FIELD", theme::FIELD), ("CARD", theme::CARD), ("BORDER", theme::BORDER), ("BORDER_STRONG", theme::BORDER_STRONG),
-        ("ROW_BAND", theme::ROW_BANDS[1]), ("SECTION_BAND", theme::SECTION_BANDS[1])] {
+    for (name, c) in [("BG_0", theme::BG_0()), ("BG_1", theme::BG_1()), ("BG_2", theme::BG_2()), ("BG_3", theme::BG_3()), ("BG_4", theme::BG_4()),
+        ("FIELD", theme::FIELD()), ("CARD", theme::CARD()), ("BORDER", theme::BORDER()), ("BORDER_STRONG", theme::BORDER_STRONG()),
+        ("ROW_BAND", theme::ROW_BANDS()[1]), ("SECTION_BAND", theme::SECTION_BANDS()[1])] {
         assert!(lightness(c) < 0.36, "{name} {c:?} must stay clearly dark");
         let sat = { let (mx, mn) = (f32::from(c.r().max(c.g()).max(c.b())), f32::from(c.r().min(c.g()).min(c.b()))); (mx - mn) / (mx + mn) };
         assert!(sat < 0.12, "{name} {c:?} stays neutral (saturation {sat:.3})");
     }
     // The panel grey the user picked (#2a2a2a to #2b2b2b, lightness ~0.165) is within a few levels of BG_1/BG_2.
-    assert!(lightness(theme::BG_1) > 0.12 && lightness(theme::BG_2) < 0.20);
+    assert!(lightness(theme::BG_1()) > 0.12 && lightness(theme::BG_2()) < 0.20);
 }
 
 #[test]
@@ -85,14 +85,14 @@ fn charcoal_theme_has_readable_muted_text_and_thin_round_sliders() {
         let linear = |v: u8| { let s = f32::from(v) / 255.0; if s <= 0.04045 { s / 12.92 } else { ((s + 0.055) / 1.055).powf(2.4) } };
         0.2126 * linear(c.r()) + 0.7152 * linear(c.g()) + 0.0722 * linear(c.b())
     };
-    for bg in [theme::BG_1, theme::ROW_BANDS[1], theme::ACCENT_SOFT] {
-        for fg in [theme::TEXT, theme::TEXT_DIM] {
+    for bg in [theme::BG_1(), theme::ROW_BANDS()[1], theme::ACCENT_SOFT()] {
+        for fg in [theme::TEXT(), theme::TEXT_DIM()] {
             assert!((luminance(fg) + 0.05) / (luminance(bg) + 0.05) >= 4.5, "small labels remain legible");
         }
     }
     // The charcoal carries a faint warm tint (hue ~25 degrees, ~5% saturation): red leads blue by a
     // few levels, never enough to read as brown or orange.
-    for bg in [theme::BG_0, theme::BG_1, theme::BG_2, theme::BG_3, theme::BG_4] {
+    for bg in [theme::BG_0(), theme::BG_1(), theme::BG_2(), theme::BG_3(), theme::BG_4()] {
         let spread = i16::from(bg.r()) - i16::from(bg.b());
         assert!((1..=8).contains(&spread), "surface {bg:?} is tinted slightly towards orange, got spread {spread}");
     }

@@ -32,10 +32,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     let ts = state.session.selected_texture_set().clone();
     let mut cmds = Vec::new();
     ui.horizontal(|ui| {
-        ui.label(RichText::new(&ts.name).font(theme::font_strong(13.0)).color(theme::TEXT));
-        ui.label(RichText::new(format!("{0} × {0}", ts.resolution)).color(TEXT_DIM));
+        ui.label(RichText::new(&ts.name).font(theme::font_strong(13.0)).color(theme::TEXT()));
+        ui.label(RichText::new(format!("{0} × {0}", ts.resolution)).color(TEXT_DIM()));
     });
-    ui.label(RichText::new("Channels of the selected texture set. Layers paint and fill only the channels listed here; export writes them.").color(TEXT_DIM).font(theme::font(11.0)));
+    ui.label(RichText::new("Channels of the selected texture set. Layers paint and fill only the channels listed here; export writes them.").color(TEXT_DIM()).font(theme::font(11.0)));
     ui.add_space(6.0);
 
     let current_view = {

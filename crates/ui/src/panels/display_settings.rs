@@ -175,12 +175,16 @@ fn jump_buttons(state: &mut UiState, ui: &mut Ui) {
 /// A small heading inside a section; `text` is already translated.
 fn sub_header(ui: &mut Ui, text: &str) {
     ui.add_space(2.0);
-    ui.label(RichText::new(text).color(TEXT_DIM));
+    ui.label(RichText::new(text).color(TEXT_DIM()));
 }
 
 fn grid(ui: &mut Ui, id: &str, body: impl FnOnce(&mut Ui)) {
     egui::Grid::new(id).num_columns(2).spacing([10.0, 6.0]).show(ui, body);
 }
+
+/// Size and columns of the environment mini-shelf's tiles.
+const ENV_TILE: f32 = 72.0;
+const ENV_SHELF_COLUMNS: usize = 4;
 
 /// Environment map and how it lights the model, in Painter's order: map, opacity, exposure,
 /// rotation, blur, alignment.
@@ -188,10 +192,23 @@ pub fn environment(state: &mut UiState, ui: &mut Ui) {
     grid(ui, "display_env", |ui| {
         ui.label(tr("Environment map"));
         let current = state.library.environments.get(state.env.index).map_or_else(|| "-".to_string(), |e| e.name.clone());
-        let combo = egui::ComboBox::from_id_salt("display_env_map").selected_text(current).width(150.0).show_ui(ui, |ui| {
-            for (i, env) in state.library.environments.iter().enumerate() {
-                ui.selectable_value(&mut state.env.index, i, &env.name);
-            }
+        // Painter's mini-shelf: the environments as thumbnails, one click to choose.
+        let combo = ui.menu_button(format!("{current}  {}", crate::icons::CARET_DOWN), |ui| {
+            state.shelf.want_environment_thumbs = true;
+            // Thumbnails render here too: the Assets panel may be hidden or show another type.
+            crate::panels::shelf::generate_one_thumbnail(state, ui.ctx());
+            ui.set_max_width(ENV_SHELF_COLUMNS as f32 * (ENV_TILE + 8.0));
+            egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    for (i, env) in state.library.environments.iter().enumerate() {
+                        let thumb = crate::panels::shelf::thumbnail(&state.shelf, &env.id);
+                        if crate::panels::shelf::tile(ui, ENV_TILE, thumb, &env.name, i == state.env.index, &env.name).clicked() {
+                            state.env.index = i;
+                            ui.close();
+                        }
+                    }
+                });
+            });
         }).response.on_hover_text(tr("The lighting around the model. Drop a map from Assets > Environments here or on the 3D view."));
         if let Some(env) = combo.dnd_release_payload::<crate::panels::shelf::EnvironmentDrag>()
             && env.0 < state.library.environments.len()
@@ -280,6 +297,8 @@ pub fn camera(state: &mut UiState, ui: &mut Ui) {
         });
     }
     let mut pick = false;
+    // Focus distances offered: from very close to well past the model.
+    let scene = state.session.scene().mesh.bounds.diagonal().max(1e-3);
     {
         let camera = &mut state.camera;
         let prefs = &mut state.recovery.prefs.viewport;
@@ -310,7 +329,10 @@ pub fn camera(state: &mut UiState, ui: &mut Ui) {
             }
             ui.end_row();
             ui.label(tr("Focus distance"));
-            ui.add_enabled(prefs.dof, egui::Slider::new(&mut prefs.dof_focus, 0.2..=3.0).logarithmic(true)).on_hover_text(tr("1 is the point the camera orbits around; it follows zooming. Ctrl + middle click in the 3D view focuses on the point under the cursor. Needs Depth of field (Post effects)."));
+            let mut focus = prefs.focus_distance(camera.eye_distance());
+            if ui.add_enabled(prefs.dof, egui::Slider::new(&mut focus, scene * 0.01..=scene * 20.0).logarithmic(true)).on_hover_text(tr("Distance from the camera, in scene units, that is sharp; it stays put while zooming. Ctrl + middle click in the 3D view focuses on the point under the cursor. Needs Depth of field (Post effects).")).changed() {
+                prefs.dof_focus_distance = Some(focus);
+            }
             ui.end_row();
             ui.label(tr("Focus point"));
             pick = ui.add_enabled(prefs.dof, egui::Button::new(tr("Pick in 3D view"))).on_hover_text(tr("Click the model in the 3D view to focus on that spot")).clicked();
@@ -349,7 +371,7 @@ fn effect(ui: &mut Ui, id: &str, name: &str, on: &mut bool, stack_on: bool, defa
     let header_id = ui.make_persistent_id(("display_effect", id));
     egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), header_id, default_open)
         .show_header(ui, |ui| {
-            ui.add_enabled(stack_on, egui::Checkbox::new(on, RichText::new(name).color(theme::TEXT)));
+            ui.add_enabled(stack_on, egui::Checkbox::new(on, RichText::new(name).color(theme::TEXT())));
         })
         .body(|ui| {
             let enabled = *on && stack_on;
@@ -490,7 +512,7 @@ pub fn post_effects(state: &mut UiState, ui: &mut Ui) {
         ui.add(egui::Slider::new(&mut d.glow_radius, 0.25..=8.0).logarithmic(true)).on_hover_text(tr("How far the glow spreads"));
         ui.end_row();
     });
-    ui.label(RichText::new(tr("Post effects are viewport effects: exported textures never contain them.")).small().color(TEXT_DIM));
+    ui.label(RichText::new(tr("Post effects are viewport effects: exported textures never contain them.")).small().color(TEXT_DIM()));
     if pick {
         state.picking_focus = true;
     }

@@ -415,7 +415,7 @@ impl ExportTemplate {
     /// A copy of `self` with alpha (issue #145): Base Color gains the effective opacity as its
     /// fourth component (JPEG maps switch to PNG) and, when `opacity_map`, a separate grey
     /// "Opacity" map follows it. Painter's "... + Opacity" / "with alpha" presets.
-    fn with_alpha(mut self, name: &str, opacity_map: bool) -> Self {
+    pub(crate) fn with_alpha(mut self, name: &str, opacity_map: bool) -> Self {
         self.name = name.into();
         let color = self.maps.iter().position(|m| m.components.len() == 3 && m.components.iter().all(|s| matches!(s, Source::Channel { kind: ChannelKind::BaseColor, .. })));
         if let Some(i) = color {

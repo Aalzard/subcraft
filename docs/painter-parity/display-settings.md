@@ -70,7 +70,7 @@ Layout notes: a thumbnail button for the map (opens a mini-shelf filtered to env
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Environment Map (button opening a mini-shelf) | Display Settings > Environment | not documented | partial: a dropdown of the environments (and a drop target), no thumbnail mini-shelf | crates/ui/src/panels/display_settings.rs (environment) | 165 |
+| Environment Map (button opening a mini-shelf) | Display Settings > Environment | not documented | done: the button opens a grid of environment thumbnails (rendered on demand even when the Assets panel shows another type); still a drop target | crates/ui/src/panels/display_settings.rs (environment) | 405 |
 | Drag an environment map onto the 3D view / onto the button | 3D view, Environment Map button | - | done: from Assets > Environments onto the 3D view or the Environment map dropdown | crates/ui/src/panels/shelf.rs (EnvironmentDrag), crates/ui/src/viewport.rs | 165 |
 | Override environment map color space (checkbox + color space list) | Display Settings > Environment (color-managed projects) | off | missing | - | - |
 | Environment Opacity | Display Settings > Environment | not documented | done: 0-100%, default 0 (plain background) | crates/render/src/viewport.wgsl (fs_background), crates/ui/src/panels/display_settings.rs (environment) | 165 |
@@ -107,7 +107,7 @@ a trailing asterisk.
 | Display ratio (read-only; "Unspecified" when absent) | Display Settings > Camera | Unspecified | missing | - | - |
 | Field of View (degrees) | Display Settings > Camera | not documented | done: 5-120 degrees; the camera dollies to keep the model its size | crates/ui/src/panels/display_settings.rs (camera, set_fov) | 165 |
 | Focal length (mm) | Display Settings > Camera | not documented | done: full-frame (24 mm high) equivalent of the field of view | crates/doc/src/display.rs (focal_length_mm) | 165 |
-| Focus Distance | Display Settings > Camera | not documented | partial: a multiple of the orbit distance (0.2-3), not scene units | crates/ui/src/panels/display_settings.rs (camera) | 161 |
+| Focus Distance | Display Settings > Camera | not documented | done: scene units from the camera (logarithmic, 1 % to 20x the model size); settings saved before keep their relative focus until it is set | crates/doc/src/display.rs (focus_distance) | 397 |
 | Set focus distance by clicking the mesh | 3D view, Ctrl+Middle mouse click | Ctrl+MMB | done: Ctrl+MMB, and the "Pick in 3D view" button | crates/ui/src/viewport.rs | 165 |
 | Aperture | Display Settings > Camera | not documented | partial: blur amount 0-1 (default 0.5), not a physical aperture | crates/ui/src/panels/display_settings.rs (camera) | 161 |
 | Camera Perspective | Shortcut F5 (also viewport projection control) | perspective | done | crates/app/src/actions.rs:210 | - |

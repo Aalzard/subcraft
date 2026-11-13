@@ -345,18 +345,9 @@ fn shade(in: VsOut, front: bool) -> vec4<f32> {
     // AO intensity blends the map toward no occlusion.
     let ao = mix(1.0, clamp(material_sample(t_ao, samp, in.uv).r, 0.0, 1.0), clamp(mat.shader.x, 0.0, 1.0));
 
-    // Height -> tangent-space bump normal (central differences, one texel apart). UV v grows
-    // downward while the bitangent points up the image (OpenGL convention), hence +dh/dv for y.
-    let texel = 1.0 / vec2<f32>(textureDimensions(t_height));
-    let h_l = textureSample(t_height, samp, in.uv - vec2<f32>(texel.x, 0.0)).r;
-    let h_r = textureSample(t_height, samp, in.uv + vec2<f32>(texel.x, 0.0)).r;
-    let h_u = textureSample(t_height, samp, in.uv - vec2<f32>(0.0, texel.y)).r;
-    let h_d = textureSample(t_height, samp, in.uv + vec2<f32>(0.0, texel.y)).r;
-    let dhdu = (h_r - h_l) / (2.0 * texel.x);
-    let dhdv = (h_d - h_u) / (2.0 * texel.y);
-    let bump = normalize(vec3<f32>(-dhdu * g.params.w, dhdv * g.params.w, 1.0));
-    // Combine with the normal map (whiteout).
-    let nts = normalize(vec3<f32>(ntex.xy + bump.xy, max(ntex.z, 1e-3) * bump.z));
+    // Height bump combined with the normal map (whiteout): the same helpers as the "Normal +
+    // Height" view, so that view always shows what the shading uses.
+    let nts = combined_normal(ntex, height_bump(in.uv));
 
     var n0 = normalize(in.normal);
     if (!front) {

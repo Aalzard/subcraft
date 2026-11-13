@@ -117,7 +117,7 @@ Layout notes: shown on the right only when a texture set (not Global settings) i
 | Resolved file name per map | Row text | - | done (path preview) | crates/ui/src/dialogs.rs:418 | - |
 | File format override per map | Row dropdown | from template | done (per texture set, in its output map rows) | crates/doc/src/settings.rs MapFormat | chunk 22 |
 | Bit depth override per map | Row dropdown | from template | done (with the file format) | crates/doc/src/settings.rs MapFormat | chunk 22 |
-| Colour space shown per map | Row text (colour management on) | - | missing | - | - |
+| Colour space shown per map | Row text (colour management on) | - | done (sRGB, Linear or Raw beside each file; shown always, SubCraft has no colour management switch) | crates/ui/src/dialogs.rs export_map_list, crates/export/src/lib.rs PlannedFile::color_space | colour space |
 
 ## Output templates tab: presets list (left column)
 
@@ -125,14 +125,14 @@ Layout notes: three columns. Left: list of templates with three icon buttons abo
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Presets list (default + custom templates) | Left column | - | done (preset menu: built-ins, then My presets) | crates/ui/src/export_presets.rs preset_bar | #124 |
+| Presets list (default + custom templates) | Left column | - | done (the Output templates tab's left column: built-ins, then My presets; also the picker menu) | crates/ui/src/export_presets.rs template_list, preset_bar | #124, template menu |
 | Duplicate button | Above the list | - | done | crates/ui/src/export_presets.rs preset_bar | #124 |
 | Remove button (no undo) | Above the list | - | done (Delete, with a confirmation) | crates/ui/src/export_presets.rs preset_bar | #124 |
 | Add button (new empty template) | Above the list | - | done (New) | crates/ui/src/export_presets.rs preset_bar | #124 |
-| Double-click a template to rename | Presets list | - | partial: renamed in the editor's Name field | crates/ui/src/export_presets.rs preset_editor | #124 |
-| Right-click > Delete | Presets list context menu | - | missing | - | #124 |
-| Right-click > Rename | Presets list context menu | - | missing | - | #124 |
-| Right-click > Duplicate | Presets list context menu | - | missing | - | #124 |
+| Double-click a template to rename | Presets list | - | done (user presets, in the Output templates tab's list) | crates/ui/src/export_presets.rs template_row | template menu |
+| Right-click > Delete | Presets list context menu | - | done (asks first; built-ins can't be deleted) | crates/ui/src/export_presets.rs template_list | template menu |
+| Right-click > Rename | Presets list context menu | - | done (user presets; a name field under the picker) | crates/ui/src/export_presets.rs template_list | template menu |
+| Right-click > Duplicate | Presets list context menu | - | done (any template, the copy is selected) | crates/ui/src/export_presets.rs template_list | template menu |
 | Import a preset file (.spexp) through Import resources or the export-presets folder | File > Import resources / library folder | - | done (Import… in the preset bar; files in the library's export-presets folder load at start) | crates/app/src/export_presets.rs | #124 |
 | Template stored as one shareable file in the library | assets/export-presets folder | - | done (export-presets/<uuid>.json; Export… writes one) | crates/export/src/preset.rs | #124 |
 | Last used template embedded in the project file | Automatic on save after an export | - | partial: only the template name is stored in project settings | crates/ui/src/dialogs.rs:355 | #124 |
@@ -222,7 +222,7 @@ Layout notes: these sit at the top of the Output template dropdown on the Settin
 |---|---|---|---|---|---|
 | 2D View | Output template dropdown | - | done | crates/export/src/template.rs:215 | - |
 | Document channels + Normal + AO (No Alpha) | Output template dropdown | - | done (every channel the set has as its own file, plus normal with height and mixed AO; no Opacity file: alpha/opacity export is #145's) | crates/export/src/builtin_presets.rs | chunk 47 |
-| Document channels + Normal + AO (With Alpha) | Output template dropdown | - | missing | - | - |
+| Document channels + Normal + AO (With Alpha) | Output template dropdown | - | done (Base Color RGBA with the effective opacity; Opacity also its own file) | crates/export/src/builtin_presets.rs painter | doc channels alpha |
 | Sketchfab | Output template dropdown (maps plus upload) | - | partial: map set only (upload is Adobe/Sketchfab service) | crates/export/src/template.rs:237 | - |
 | Substance 3D Stager | Output template dropdown | - | n/a | - | - |
 | USDz (Apple AR) | Output template dropdown: JPG maps, PNG normal, .usdc and .usdz | - | partial: USDA with PNG maps through "Export model + textures", no usdc / usdz | crates/export/src/scene.rs:324 | - |

@@ -16,7 +16,7 @@ Layout notes: a mask is added from the Create Mask button in the Layers header o
 | Add mask with height combination (mask plus Compare Mask on Height; Height blend switched to Normal) | Create Mask menu / layer context menu | n/a | done | crates/ui/src/panels/layers.rs:70 | chunk 43 |
 | Mask on a folder (applies to every layer inside) | Folder row | n/a | done | crates/ui/src/panels/layers.rs:457 | - |
 | Mask created automatically when a material is dropped with Ctrl held | Assets > Layer stack | n/a | done (a black mask, selected for painting) | crates/ui/src/panels/shelf.rs:157 | - |
-| Mask created automatically when a resource is dropped on the ghost mask slot | Layer stack (while dragging) | n/a | missing | - | - |
+| Mask created automatically when a resource is dropped on the ghost mask slot | Layer stack (while dragging) | n/a | done (alphas and images as image effects, mask filters, smart masks) | crates/ui/src/panels/shelf.rs:163 | - |
 | Mask created automatically when mask effects are pasted on a mask-less layer | Layer stack | n/a | done | crates/app/src/session.rs:1238 | - |
 | Re-adding a mask replaces the existing mask and its effects | Create Mask menu | n/a | done | crates/app/src/session.rs:1399 | - |
 | Colours painted or filled into a mask are converted to greyscale | Mask | n/a | done | crates/doc/src/mask.rs:451 | - |

@@ -46,6 +46,45 @@ impl SizeSpace {
     }
 }
 
+/// How the stamps of one stroke combine where they overlap (Painter's Stamps Blending).
+/// Stroke opacity still caps the result.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum StampBlend {
+    /// Overlapping stamps build up: each adds its flow over what is there.
+    #[default]
+    Accumulate,
+    /// A texel keeps the strongest stamp that touched it: overlaps never get darker than one
+    /// stamp, so a low-flow stroke stays even.
+    Lighten,
+}
+
+impl StampBlend {
+    pub const ALL: [StampBlend; 2] = [StampBlend::Accumulate, StampBlend::Lighten];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            StampBlend::Accumulate => "Accumulate",
+            StampBlend::Lighten => "Lighten",
+        }
+    }
+
+    pub fn tip(self) -> &'static str {
+        match self {
+            StampBlend::Accumulate => "Overlapping stamps build up, so a stroke grows stronger where they overlap",
+            StampBlend::Lighten => "Each texel keeps its strongest stamp, so overlaps do not build up",
+        }
+    }
+
+    /// Combine a stamp's coverage `a` (flow included) into the stroke coverage `c`.
+    pub fn combine(self, c: f32, a: f32) -> f32 {
+        match self {
+            StampBlend::Accumulate => c + a * (1.0 - c),
+            StampBlend::Lighten => c.max(a),
+        }
+    }
+}
+
 /// Which way Position Jitter moves a stamp (Painter's Position Jitter Axis).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -126,6 +165,8 @@ pub struct BrushSettings {
     pub position_jitter: f32,
     /// Whether that offset goes any way or only across the stroke.
     pub position_jitter_axis: JitterAxis,
+    /// How the stamps of one stroke combine where they overlap.
+    pub stamps_blending: StampBlend,
     /// Pen pressure scales the size jitter (a light touch jitters less); a mouse is unchanged.
     pub size_jitter_pressure: bool,
     pub flow_jitter_pressure: bool,
@@ -179,6 +220,7 @@ impl Default for BrushSettings {
             angle_jitter_deg: 0.0,
             position_jitter: 0.0,
             position_jitter_axis: JitterAxis::Both,
+            stamps_blending: StampBlend::Accumulate,
             size_jitter_pressure: false,
             flow_jitter_pressure: false,
             angle_jitter_pressure: false,
@@ -430,6 +472,40 @@ impl BrushMaterial {
 
     fn set_enabled(&mut self, kind: ChannelKind, enabled: bool) {
         self.channels.entry(kind).or_insert(BrushChannel { enabled, value: kind.default_paint_value() }).enabled = enabled;
+    }
+}
+
+/// How pen pressure is remapped before it scales size and flow (Painter's contextual toolbar
+/// pressure curve): linear, ease-in (light pressure does less, `p²`) or ease-in-out
+/// (smoothstep: soft at both ends).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PressureCurve {
+    #[default]
+    Linear,
+    EaseIn,
+    EaseInOut,
+}
+
+impl PressureCurve {
+    pub const ALL: [PressureCurve; 3] = [PressureCurve::Linear, PressureCurve::EaseIn, PressureCurve::EaseInOut];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            PressureCurve::Linear => "Linear",
+            PressureCurve::EaseIn => "Ease in",
+            PressureCurve::EaseInOut => "Ease in-out",
+        }
+    }
+
+    /// The remapped pressure (0..1); 0 and 1 stay put and the curve never decreases.
+    pub fn apply(self, pressure: f32) -> f32 {
+        let p = if pressure.is_finite() { pressure.clamp(0.0, 1.0) } else { 1.0 };
+        match self {
+            PressureCurve::Linear => p,
+            PressureCurve::EaseIn => p * p,
+            PressureCurve::EaseInOut => p * p * (3.0 - 2.0 * p),
+        }
     }
 }
 
@@ -688,6 +764,43 @@ impl PolygonFillMode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pressure_curves_keep_the_ends_rise_steadily_and_soften_light_pressure() {
+        for c in PressureCurve::ALL {
+            assert_eq!(c.apply(0.0), 0.0, "{c:?}");
+            assert_eq!(c.apply(1.0), 1.0, "{c:?}");
+            assert_eq!(c.apply(2.0), 1.0, "{c:?} clamps");
+            assert_eq!(c.apply(f32::NAN), 1.0, "{c:?}: a broken reading paints at full pressure");
+            let samples: Vec<f32> = (0..=20).map(|i| c.apply(i as f32 / 20.0)).collect();
+            assert!(samples.windows(2).all(|w| w[1] >= w[0]), "{c:?} never decreases");
+        }
+        assert_eq!(PressureCurve::default(), PressureCurve::Linear);
+        assert_eq!(PressureCurve::Linear.apply(0.3), 0.3);
+        assert!((PressureCurve::EaseIn.apply(0.5) - 0.25).abs() < 1e-6, "ease in: half pressure does a quarter");
+        assert!((PressureCurve::EaseInOut.apply(0.5) - 0.5).abs() < 1e-6, "ease in-out is symmetric");
+        assert!(PressureCurve::EaseInOut.apply(0.2) < 0.2 && PressureCurve::EaseInOut.apply(0.8) > 0.8);
+    }
+
+    #[test]
+    fn stamps_blending_accumulates_or_keeps_the_strongest_stamp() {
+        // Accumulate: the formula strokes always used.
+        let mut c = 0.0;
+        for _ in 0..3 { c = StampBlend::Accumulate.combine(c, 0.5); }
+        assert!((c - 0.875).abs() < 1e-6, "{c}");
+        // Lighten: three overlapping half-strength stamps stay at half strength.
+        let mut c = 0.0;
+        for _ in 0..3 { c = StampBlend::Lighten.combine(c, 0.5); }
+        assert_eq!(c, 0.5);
+        assert_eq!(StampBlend::Lighten.combine(0.3, 0.8), 0.8, "a stronger stamp wins");
+        assert_eq!(StampBlend::Lighten.combine(0.8, 0.3), 0.8, "a weaker one changes nothing");
+        for mode in StampBlend::ALL {
+            assert_eq!(mode.combine(0.4, 0.0), 0.4, "{mode:?}: an empty stamp is a no-op");
+            assert!(mode.combine(1.0, 1.0) <= 1.0);
+        }
+        assert_eq!(BrushSettings::default().stamps_blending, StampBlend::Accumulate);
+        assert_eq!(StampBlend::ALL.map(StampBlend::label), ["Accumulate", "Lighten"]);
+    }
 
     #[test]
     fn position_jitter_fills_a_disc_or_only_the_line_across_the_stroke() {

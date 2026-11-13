@@ -79,15 +79,15 @@ pub fn show(state: &mut UiState, ctx: &Context) {
             });
         });
         ui.add_space(6.0);
-        let key = |t: String| RichText::new(t).monospace().color(theme::ACCENT);
-        let dim = |t: &str| RichText::new(t.to_string()).color(theme::TEXT_DIM);
+        let key = |t: String| RichText::new(t).monospace().color(theme::ACCENT());
+        let dim = |t: &str| RichText::new(t.to_string()).color(theme::TEXT_DIM());
         egui::ScrollArea::vertical().auto_shrink([false, true]).max_height(ui.available_height().min(520.0)).show(ui, |ui| {
             ui.label(RichText::new("Keys").font(theme::font_strong(12.5)));
             egui::Grid::new("shortcuts").num_columns(4).spacing([24.0, 6.0]).striped(true).show(ui, |ui| {
-                ui.label(RichText::new("Action").small().color(theme::TEXT_FAINT));
-                ui.label(RichText::new(format!("Active: {}", preset.label())).small().color(theme::TEXT_FAINT));
-                ui.label(RichText::new("Substance Painter key").small().color(theme::TEXT_FAINT));
-                ui.label(RichText::new("SubCraft default").small().color(theme::TEXT_FAINT));
+                ui.label(RichText::new("Action").small().color(theme::TEXT_FAINT()));
+                ui.label(RichText::new(format!("Active: {}", preset.label())).small().color(theme::TEXT_FAINT()));
+                ui.label(RichText::new("Substance Painter key").small().color(theme::TEXT_FAINT()));
+                ui.label(RichText::new("SubCraft default").small().color(theme::TEXT_FAINT()));
                 ui.end_row();
                 let active_keys = Keymap::new(preset, state.recovery.prefs.custom_keys.clone());
                 for a in ACTIONS {
@@ -128,11 +128,11 @@ pub fn show(state: &mut UiState, ctx: &Context) {
                             ui.label(key(e.keys.to_string()));
                             ui.label(dim(e.what));
                             ui.label(RichText::new(support_label(e.support)).color(match e.support {
-                                Support::None => theme::TEXT_FAINT,
-                                Support::PainterPreset => theme::WARNING,
-                                _ => theme::ACCENT,
+                                Support::None => theme::TEXT_FAINT(),
+                                Support::PainterPreset => theme::WARNING(),
+                                _ => theme::ACCENT(),
                             }));
-                            ui.label(RichText::new(e.note).small().color(theme::TEXT_FAINT));
+                            ui.label(RichText::new(e.note).small().color(theme::TEXT_FAINT()));
                             ui.end_row();
                         }
                     });

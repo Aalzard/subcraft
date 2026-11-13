@@ -3,7 +3,7 @@
 //! panel's actions are layer actions: select, rename (double-click), show / hide, duplicate,
 //! delete, and in the right-click menu copy / paste of a path's properties or of its points.
 
-use egui::{Color32, RichText, Ui};
+use egui::{RichText, Ui};
 use subcraft_app::Command;
 use subcraft_core::LayerId;
 use subcraft_doc::{LayerContent, PenAnchor, PenPath};
@@ -81,13 +81,13 @@ pub fn show(state: &mut UiState, ui: &Ui, rect: egui::Rect, now: f64) {
             egui::Frame::popup(ui.style()).show(ui, |ui| {
                 ui.set_min_width(190.0);
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("Paths").font(theme::font_strong(12.0)).color(theme::TEXT));
+                    ui.label(RichText::new("Paths").font(theme::font_strong(12.0)).color(theme::TEXT()));
                     if ui.small_button(format!("{} New", icons::PLUS)).on_hover_text("Start a new path on the next click").clicked() {
                         state.pen.new_path();
                     }
                 });
                 if layers.is_empty() {
-                    ui.label(RichText::new("No path yet: click the model to start one").small().color(theme::TEXT_DIM));
+                    ui.label(RichText::new("No path yet: click the model to start one").small().color(theme::TEXT_DIM()));
                 }
                 let mut renaming: Option<(LayerId, String)> = ui.data(|d| d.get_temp(rename_id()));
                 let clip: Option<PathClip> = ui.data(|d| d.get_temp(clip_id()));
@@ -121,7 +121,7 @@ pub fn show(state: &mut UiState, ui: &Ui, rect: egui::Rect, now: f64) {
                             }
                         } else {
                             {
-                                let label = ui.selectable_label(selected == Some(*id), RichText::new(name).color(if *visible { theme::TEXT } else { theme::TEXT_DIM }));
+                                let label = ui.selectable_label(selected == Some(*id), RichText::new(name).color(if *visible { theme::TEXT() } else { theme::TEXT_DIM() }));
                                 if label.double_clicked() {
                                     renaming = Some((*id, name.clone()));
                                 } else if label.clicked() {
@@ -137,6 +137,11 @@ pub fn show(state: &mut UiState, ui: &Ui, rect: egui::Rect, now: f64) {
                                     if ui.add_enabled(matches!(clip, Some(PathClip::Properties(_))), egui::Button::new("Paste properties")).clicked() { actions.push((*id, Action::PasteProperties)); ui.close(); }
                                     if ui.button("Copy position").clicked() { actions.push((*id, Action::CopyPosition)); ui.close(); }
                                     if ui.add_enabled(matches!(clip, Some(PathClip::Position(..))), egui::Button::new("Paste position")).clicked() { actions.push((*id, Action::PastePosition)); ui.close(); }
+                                    ui.separator();
+                                    let below = state.session.layer_below_path(*id).is_some();
+                                    let why = "Needs a paint layer below the path";
+                                    if ui.add_enabled(below, egui::Button::new("Erase along path")).on_hover_text("Erase the paint layer below along this path, with the current brush").on_disabled_hover_text(why).clicked() { actions.push((*id, Action::Along(subcraft_paint::StrokeMode::Erase))); ui.close(); }
+                                    if ui.add_enabled(below, egui::Button::new("Smudge along path")).on_hover_text("Smudge the paint layer below along this path, with the current brush").on_disabled_hover_text(why).clicked() { actions.push((*id, Action::Along(subcraft_paint::StrokeMode::Smudge))); ui.close(); }
                                 });
                             }
                         }
@@ -150,7 +155,7 @@ pub fn show(state: &mut UiState, ui: &Ui, rect: egui::Rect, now: f64) {
                         d.remove::<(LayerId, String)>(rename_id());
                     }
                 });
-                ui.label(RichText::new("Double-click to rename · right-click for more").small().color(Color32::from_gray(140)));
+                ui.label(RichText::new("Double-click to rename · right-click for more").small().color(theme::TEXT_FAINT()));
             });
         });
     for (layer, action) in actions {
@@ -169,6 +174,8 @@ enum Action {
     PasteProperties,
     CopyPosition,
     PastePosition,
+    /// Erase / Smudge along the path on the paint layer below it.
+    Along(subcraft_paint::StrokeMode),
 }
 
 fn perform(state: &mut UiState, ui: &Ui, layer: LayerId, action: Action, now: f64) {
@@ -188,6 +195,13 @@ fn perform(state: &mut UiState, ui: &Ui, layer: LayerId, action: Action, now: f6
             if let Some(path) = path_of(state, layer) {
                 let clip = if action == Action::CopyProperties { PathClip::Properties(path) } else { PathClip::Position(path.anchors.clone(), path.closed) };
                 ui.data_mut(|d| d.insert_temp(clip_id(), clip));
+            }
+        }
+        Action::Along(mode) => {
+            let (Some(path), Some(target)) = (path_of(state, layer), state.session.layer_below_path(layer)) else { return };
+            match state.session.stroke_along_path(target, &path, mode) {
+                Ok(()) => state.set_status(if mode == subcraft_paint::StrokeMode::Erase { "Erased along the path on the layer below" } else { "Smudged along the path on the layer below" }, now),
+                Err(e) => state.set_status(format!("{e:?}"), now),
             }
         }
         Action::PasteProperties | Action::PastePosition => {

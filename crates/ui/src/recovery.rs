@@ -14,7 +14,9 @@ use crate::widgets::{primary_button, secondary_button};
 
 /// eframe storage key of [`Preferences`].
 pub const PREFS_KEY: &str = "subcraft_prefs_v1";
-pub const DEFAULT_UI_SIZE: u32 = 95;
+pub const DEFAULT_UI_SIZE: u32 = 85;
+/// The default before 85%: preferences still on it move to the new default once.
+const OLD_DEFAULT_UI_SIZE: u32 = 95;
 pub const UI_SIZE_RANGE: std::ops::RangeInclusive<u32> = 75..=150;
 /// The 3D view's plain background (linear RGB), as before the setting existed.
 pub const DEFAULT_BACKGROUND: [f32; 3] = [0.018, 0.019, 0.022];
@@ -88,11 +90,17 @@ pub struct Preferences {
     pub new_project: subcraft_app::new_project::NewProjectSettings,
     /// Interface language (English when absent from an older settings file).
     pub language: crate::i18n::Language,
+    /// Interface colours (Dark when absent from an older settings file).
+    pub theme: crate::theme::ThemeKind,
     /// Last brush colours picked (linear RGB, newest first, at most
     /// [`crate::color_picker::MAX_RECENT`]).
     pub recent_colors: Vec<[f32; 3]>,
     /// Blender executable for File > Export to Blender (empty = search the usual places).
     pub blender_path: String,
+    /// The 85% default has been applied (settings saved before it were on 95%; they load
+    /// with this false).
+    #[serde(default)]
+    pub ui_size_85: bool,
 }
 
 impl Preferences {
@@ -149,8 +157,10 @@ impl Default for Preferences {
             viewport: Default::default(),
             new_project: Default::default(),
             language: Default::default(),
+            theme: Default::default(),
             recent_colors: Vec::new(),
             blender_path: String::new(),
+            ui_size_85: true,
         }
     }
 }
@@ -161,6 +171,12 @@ impl Preferences {
         subcraft_app::Keymap::new(self.keymap, self.custom_keys.clone())
     }
     pub fn apply_ui_size(&mut self, ctx: &egui::Context) {
+        if !self.ui_size_85 {
+            if self.ui_size_percent == OLD_DEFAULT_UI_SIZE {
+                self.ui_size_percent = DEFAULT_UI_SIZE;
+            }
+            self.ui_size_85 = true;
+        }
         self.ui_size_percent = self.ui_size_percent.clamp(*UI_SIZE_RANGE.start(), *UI_SIZE_RANGE.end());
         let zoom = self.ui_size_percent as f32 / 100.0;
         if (ctx.zoom_factor() - zoom).abs() > 0.0001 {
@@ -278,10 +294,10 @@ pub fn prompt(state: &mut UiState, ctx: &egui::Context, now: f64) {
         ui.set_width(420.0);
         ui.label(RichText::new(tr("SubCraft didn't close properly")).font(theme::font_strong(15.0)));
         ui.add_space(4.0);
-        ui.label(RichText::new(tr("Recover your last session?")).color(TEXT_DIM));
+        ui.label(RichText::new(tr("Recover your last session?")).color(TEXT_DIM()));
         ui.add_space(10.0);
         egui::Grid::new("recover_grid").num_columns(2).spacing([16.0, 6.0]).show(ui, |ui| {
-            let dim = |t: &str| RichText::new(t).color(theme::TEXT_FAINT);
+            let dim = |t: &str| RichText::new(t).color(theme::TEXT_FAINT());
             ui.label(dim("Project"));
             ui.add(egui::Label::new(&crashed.info.name).wrap());
             ui.end_row();
@@ -299,7 +315,7 @@ Saving the recovered project writes back to this file.", p.display()));
         });
         if state.recovery.crashed.len() > 1 {
             ui.add_space(6.0);
-            ui.label(RichText::new(format!("{} more session(s) to recover after this one.", state.recovery.crashed.len() - 1)).color(theme::TEXT_FAINT));
+            ui.label(RichText::new(format!("{} more session(s) to recover after this one.", state.recovery.crashed.len() - 1)).color(theme::TEXT_FAINT()));
         }
         ui.add_space(14.0);
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -376,17 +392,32 @@ pub fn preferences_window(state: &mut UiState, ctx: &egui::Context) {
             }
         });
         if !crate::i18n::font_available(rec.prefs.language) {
-            ui.label(RichText::new(tr("No system font with these characters was found, so text may show as boxes. Set SUBCRAFT_CJK_FONT to a .ttf or .ttc file.")).small().color(theme::WARNING));
+            ui.label(RichText::new(tr("No system font with these characters was found, so text may show as boxes. Set SUBCRAFT_CJK_FONT to a .ttf or .ttc file.")).small().color(theme::WARNING()));
         }
+        ui.horizontal(|ui| {
+            ui.label(tr("Theme"));
+            let name = |kind: crate::theme::ThemeKind| match kind {
+                crate::theme::ThemeKind::Dark => tr("Dark"),
+                crate::theme::ThemeKind::Light => tr("Light"),
+                crate::theme::ThemeKind::Painter => tr("Painter-style"),
+            };
+            egui::ComboBox::from_id_salt("ui_theme").selected_text(name(rec.prefs.theme)).show_ui(ui, |ui| {
+                for kind in crate::theme::ThemeKind::ALL {
+                    ui.selectable_value(&mut rec.prefs.theme, kind, name(kind));
+                }
+            })
+            .response
+            .on_hover_text(tr("Colours of the panels and controls. The 3D view background is set under Background color."));
+        });
         ui.horizontal(|ui| {
             ui.label(tr("UI size"));
             ui.spacing_mut().slider_width = 155.0;
             ui.add(egui::Slider::new(&mut rec.prefs.ui_size_percent, UI_SIZE_RANGE).step_by(5.0).suffix("%"));
-            if secondary_button(ui, tr("Reset")).on_hover_text(tr("Reset UI size to 95%")).clicked() {
+            if secondary_button(ui, tr("Reset")).on_hover_text(tr("Reset UI size to 85%")).clicked() {
                 rec.prefs.ui_size_percent = DEFAULT_UI_SIZE;
             }
         });
-        ui.label(RichText::new(tr("Scale text, icons and controls together. Default: 95%.")).small().color(TEXT_DIM));
+        ui.label(RichText::new(tr("Scale text, icons and controls together. Default: 85%.")).small().color(TEXT_DIM()));
         ui.add_space(12.0);
         ui.separator();
         ui.add_space(8.0);
@@ -410,7 +441,7 @@ pub fn preferences_window(state: &mut UiState, ctx: &egui::Context) {
             });
         });
         for (what, how) in rec.prefs.nav_scheme.help() {
-            ui.label(RichText::new(format!("{what}: {how}")).small().color(TEXT_DIM));
+            ui.label(RichText::new(format!("{what}: {how}")).small().color(TEXT_DIM()));
         }
         general_view_settings(ui, &mut rec.prefs);
         ui.checkbox(&mut rec.prefs.orbit_around_cursor, "Orbit around the point under the cursor")
@@ -433,7 +464,7 @@ pub fn preferences_window(state: &mut UiState, ctx: &egui::Context) {
         });
         ui.horizontal(|ui| {
             ui.label(tr("Keyboard shortcuts"));
-            ui.label(RichText::new(rec.prefs.keymap.label()).color(theme::ACCENT));
+            ui.label(RichText::new(rec.prefs.keymap.label()).color(theme::ACCENT()));
             if ui.button(tr("Edit…")).clicked() {
                 tab = SettingsTab::Shortcuts;
             }
@@ -447,18 +478,18 @@ pub fn preferences_window(state: &mut UiState, ctx: &egui::Context) {
         ui.add_space(10.0);
         ui.label(RichText::new(tr("Rendering mode")).font(theme::font_strong(12.5)));
         ui.add_space(4.0);
-        ui.label(RichText::new(tr("Path-traced preview of the 3D view (F10 or Render in its toolbar).")).color(TEXT_DIM));
+        ui.label(RichText::new(tr("Path-traced preview of the 3D view (F10 or Render in its toolbar).")).color(TEXT_DIM()));
         crate::viewport_bar::rendering_settings(ui, &mut rec.prefs.viewport);
         ui.add_space(10.0);
         ui.label(RichText::new(tr("Autosave")).font(theme::font_strong(12.5)));
         ui.add_space(4.0);
-        ui.label(RichText::new(tr("Recovery copies of the open project are written in the background to SubCraft's data folder, never over your own file.")).color(TEXT_DIM));
+        ui.label(RichText::new(tr("Recovery copies of the open project are written in the background to SubCraft's data folder, never over your own file.")).color(TEXT_DIM()));
         ui.add_space(8.0);
         egui::Grid::new("prefs_grid").num_columns(2).spacing([16.0, 8.0]).show(ui, |ui| {
-            ui.label(RichText::new(tr("Every")).color(TEXT_DIM));
+            ui.label(RichText::new(tr("Every")).color(TEXT_DIM()));
             ui.add(egui::Slider::new(&mut rec.prefs.autosave_minutes, 0..=30).suffix(" min").custom_formatter(|v, _| if v == 0.0 { "off".into() } else { format!("{v}") }));
             ui.end_row();
-            ui.label(RichText::new(tr("Keep")).color(TEXT_DIM));
+            ui.label(RichText::new(tr("Keep")).color(TEXT_DIM()));
             ui.add(egui::Slider::new(&mut rec.prefs.autosave_keep, 1..=10).suffix(" copies"));
             ui.end_row();
         });
@@ -501,7 +532,7 @@ fn general_view_settings(ui: &mut egui::Ui, p: &mut Preferences) {
     let shown = subcraft_app::recovery::cache_dir().map(|d| d.display().to_string()).unwrap_or_else(|| tr("unavailable").to_string());
     ui.horizontal_wrapped(|ui| {
         ui.label(tr("Cache folder"));
-        ui.label(RichText::new(shown).monospace().small().color(TEXT_DIM));
+        ui.label(RichText::new(shown).monospace().small().color(TEXT_DIM()));
     });
     ui.horizontal(|ui| {
         #[cfg(not(target_arch = "wasm32"))]
@@ -576,6 +607,24 @@ fn shortcuts_page(state: &mut UiState, ctx: &egui::Context) {
 mod tests {
     use super::*;
 
+    /// The theme is saved with the other settings; older files and unknown names load as Dark.
+    #[test]
+    fn the_theme_is_a_saved_setting() {
+        let mut p = Preferences::default();
+        assert_eq!(p.theme, crate::theme::ThemeKind::Dark);
+        p.theme = crate::theme::ThemeKind::Light;
+        p.autosave_minutes = 7;
+        let json = serde_json::to_string(&p).unwrap();
+        assert!(json.contains("\"theme\":\"light\""), "{json}");
+        assert_eq!(Preferences::from_json_lenient(&json), p);
+        let old = Preferences::from_json_lenient(r#"{"autosave_minutes":3}"#);
+        assert_eq!((old.theme, old.autosave_minutes), (crate::theme::ThemeKind::Dark, 3));
+        let future = Preferences::from_json_lenient(r#"{"theme":"neon","autosave_minutes":4}"#);
+        assert_eq!((future.theme, future.autosave_minutes), (crate::theme::ThemeKind::Dark, 4), "an unknown theme keeps the rest");
+        let painter = Preferences::from_json_lenient(r#"{"theme":"painter"}"#);
+        assert_eq!(painter.theme, crate::theme::ThemeKind::Painter);
+    }
+
     #[test]
     fn general_settings_default_to_the_old_behaviour_and_survive_a_save() {
         let d = Preferences::default();
@@ -614,5 +663,26 @@ mod tests {
         custom.ui_size_percent = 130;
         custom.language = crate::i18n::Language::Ko;
         assert_eq!(Preferences::from_json_lenient(&serde_json::to_string(&custom).unwrap()), custom, "a valid file round-trips");
+    }
+}
+
+#[cfg(test)]
+mod ui_size_85_tests {
+    use super::*;
+
+    #[test]
+    fn old_default_moves_to_85_once_and_chosen_sizes_stay() {
+        assert_eq!(Preferences::default().ui_size_percent, 85);
+        let ctx = egui::Context::default();
+        let mut old: Preferences = serde_json::from_str(r#"{"ui_size_percent":95}"#).unwrap();
+        assert!(!old.ui_size_85);
+        old.apply_ui_size(&ctx);
+        assert_eq!(old.ui_size_percent, 85, "the old default follows the new one");
+        old.ui_size_percent = 95;
+        old.apply_ui_size(&ctx);
+        assert_eq!(old.ui_size_percent, 95, "a size picked afterwards is kept");
+        let mut chosen: Preferences = serde_json::from_str(r#"{"ui_size_percent":110}"#).unwrap();
+        chosen.apply_ui_size(&ctx);
+        assert_eq!(chosen.ui_size_percent, 110, "a size the user chose is kept");
     }
 }
