@@ -56,6 +56,8 @@ pub struct ViewportPrefs {
     pub brush_cursor: BrushCursor,
     /// Which symmetry guides, cursor copies and handles show (Symmetry settings > display).
     pub symmetry_display: crate::symmetry_view::SymmetryDisplay,
+    /// Painter's pressure curve on the contextual toolbar: how pen pressure maps to size / flow.
+    pub pressure_curve: subcraft_paint::PressureCurve,
     /// Bottom-left list of the mouse / key actions that apply now.
     pub hints: bool,
     /// X / Y / Z orientation indicator in the 3D view's bottom-right corner.
@@ -102,21 +104,24 @@ pub struct ViewportPrefs {
     pub camera_bookmarks: Vec<crate::view_extras::CameraBookmark>,
 }
 
-/// Painter's brush cursor display: the brush outline, or only a crosshair at the brush centre.
+/// Painter's brush cursor display (contextual toolbar brush preview): the brush outline, only a
+/// crosshair at the brush centre, or the outline filled with the tip's falloff.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum BrushCursor {
     #[default]
     Outline,
     Crosshair,
+    Full,
 }
 
 impl BrushCursor {
-    pub const ALL: [BrushCursor; 2] = [BrushCursor::Outline, BrushCursor::Crosshair];
+    pub const ALL: [BrushCursor; 3] = [BrushCursor::Full, BrushCursor::Outline, BrushCursor::Crosshair];
 
     pub fn label(self) -> &'static str {
         match self {
             BrushCursor::Outline => crate::i18n::tr("Brush outline"),
             BrushCursor::Crosshair => crate::i18n::tr("Crosshair"),
+            BrushCursor::Full => crate::i18n::tr("Full preview"),
         }
     }
 }
@@ -135,6 +140,7 @@ impl Default for ViewportPrefs {
             symmetry_plane: true,
             brush_cursor: BrushCursor::Outline,
             symmetry_display: Default::default(),
+            pressure_curve: Default::default(),
             hints: true,
             axis_indicator: true,
             display: Default::default(),

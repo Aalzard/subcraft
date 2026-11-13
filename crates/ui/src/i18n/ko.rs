@@ -968,6 +968,7 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Show for selected Texture Set only", "선택한 텍스처 세트만 표시"),
     ("Draw the project mesh and the cage of the selected texture set only", "선택한 텍스처 세트의 프로젝트 메시와 케이지만 그립니다"),
     ("The list of mouse and key actions in the bottom-left corner of the 3D view. The grid unit is shown just above it.", "3D 뷰 왼쪽 아래 모서리의 마우스 및 키 동작 목록입니다. 그리드 단위는 바로 위에 표시됩니다."),
+    ("Full preview", "전체 미리보기"),
     ("All messages", "모든 메시지"),
     ("Errors only", "오류만"),
     ("Export log…", "로그 내보내기…"),

@@ -968,6 +968,7 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Show for selected Texture Set only", "僅顯示所選貼圖集"),
     ("Draw the project mesh and the cage of the selected texture set only", "僅繪製所選貼圖集的專案網格與包覆"),
     ("The list of mouse and key actions in the bottom-left corner of the 3D view. The grid unit is shown just above it.", "3D 檢視左下角的滑鼠與按鍵操作清單。格線單位顯示在其正上方。"),
+    ("Full preview", "完整預覽"),
     ("All messages", "所有訊息"),
     ("Errors only", "僅錯誤"),
     ("Export log…", "匯出記錄…"),

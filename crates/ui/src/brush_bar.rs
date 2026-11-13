@@ -26,6 +26,10 @@ pub(crate) fn show(
     // stroke options and the brush values of the active tool.
     ui.spacing_mut().item_spacing.x = 9.0;
     stroke_options(ui, options, view);
+    // Its own button where the row has room; always in the symmetry settings menu as well.
+    if shows_display_button(width) {
+        display_menu(ui, view);
+    }
     let brush = *tool != Tool::PolygonFill;
     if width < FULL_MIN_WIDTH {
         let response = widgets::icon_button(ui, icons::SLIDERS, "Brush settings");
@@ -198,6 +202,8 @@ fn stroke_options(ui: &mut Ui, options: &mut StrokeOptions, view: &mut crate::vi
             ui.spacing_mut().slider_width = 155.0;
             ui.add(widgets::typed_slider(egui::Slider::new(&mut options.lazy_distance_px, 0.0..=100.0).suffix(" px")));
             ui.label(RichText::new("Distance the brush trails the cursor · 0 px = off").small().color(TEXT_DIM));
+            ui.separator();
+            display_options(ui, view);
         });
     let toggle = widgets::icon_toggle(ui, icons::CURVE, lazy, if lazy { "Lazy mouse is on · click to switch it off (D)" } else { "Lazy mouse is off · click to switch it on (D)" });
     toggle.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, lazy, "Lazy mouse"));
@@ -205,6 +211,49 @@ fn stroke_options(ui: &mut Ui, options: &mut StrokeOptions, view: &mut crate::vi
         toggle_lazy(options, &mut saved_lazy);
     }
     ui.data_mut(|d| d.insert_temp(saved_id, (saved_symmetry, saved_lazy)));
+}
+
+/// Painter's brush display menu: the brush preview style under the cursor and the pen pressure
+/// curve, both kept with the preferences.
+fn display_menu(ui: &mut Ui, prefs: &mut crate::viewport_bar::ViewportPrefs) {
+    let icon = if prefs.brush_cursor == crate::viewport_bar::BrushCursor::Crosshair { icons::CROSSHAIR } else { icons::CURSOR };
+    let response = widgets::icon_button(ui, icon, "Brush preview and pressure curve");
+    egui::Popup::menu(&response)
+        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+        .show(|ui| {
+            ui.set_min_width(200.0);
+            display_options(ui, prefs);
+        });
+}
+
+/// Brush preview style and pressure curve choices (the display menu and the symmetry settings
+/// menu both show them).
+fn display_options(ui: &mut Ui, prefs: &mut crate::viewport_bar::ViewportPrefs) {
+    ui.label(RichText::new("Brush preview").color(TEXT_DIM));
+    for style in crate::viewport_bar::BrushCursor::ALL {
+        ui.radio_value(&mut prefs.brush_cursor, style, style.label()).on_hover_text(crate::brush_cursor::tip(style));
+    }
+    ui.add_space(4.0);
+    ui.label(RichText::new("Pressure curve").color(TEXT_DIM));
+    for curve in subcraft_paint::PressureCurve::ALL {
+        ui.radio_value(&mut prefs.pressure_curve, curve, curve.label()).on_hover_text(pressure_tip(curve));
+    }
+}
+
+/// The brush display menu gets its own toolbar button from this width (where Spacing and
+/// Distance also sit beside the view controls); narrower rows reach it in the symmetry settings.
+pub(crate) fn shows_display_button(width: f32) -> bool {
+    width >= 1400.0
+}
+
+/// What each pressure curve does, for tooltips.
+pub(crate) fn pressure_tip(curve: subcraft_paint::PressureCurve) -> &'static str {
+    use subcraft_paint::PressureCurve;
+    match curve {
+        PressureCurve::Linear => "Pen pressure as it comes",
+        PressureCurve::EaseIn => "Light pressure does less; full strength needs a firm press",
+        PressureCurve::EaseInOut => "Soft at both ends: light touches stay light, firm presses reach full strength sooner",
+    }
 }
 
 /// Axis position of each enabled mirror plane: its offset from the model center along its axis.
@@ -525,5 +574,18 @@ mod tests {
             assert_eq!(shows_spacing_and_distance(width), shown, "{width}");
         }
         assert!(FULL_MIN_WIDTH < 900.0);
+    }
+
+    #[test]
+    fn the_display_button_shows_only_on_wide_rows() {
+        for (width, shown) in [(300.0, false), (1100.0, false), (1399.0, false), (1400.0, true), (2000.0, true)] {
+            assert_eq!(shows_display_button(width), shown, "{width}");
+        }
+    }
+
+    #[test]
+    fn every_pressure_curve_has_its_own_tooltip() {
+        let tips: std::collections::BTreeSet<_> = subcraft_paint::PressureCurve::ALL.into_iter().map(pressure_tip).collect();
+        assert_eq!(tips.len(), subcraft_paint::PressureCurve::ALL.len());
     }
 }
