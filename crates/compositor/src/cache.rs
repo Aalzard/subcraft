@@ -39,6 +39,9 @@ pub struct CompositeCache {
     prefix: crate::PrefixCache,
     /// Top-level boundaries the prefix cache stores this update.
     plan: Vec<usize>,
+    /// The channels the pending tiles are evaluated for (`None`: all): the edits since the
+    /// composite was last complete only changed what these channels read.
+    only: Option<BTreeSet<subcraft_core::ChannelKind>>,
 }
 
 /// Result of diffing two layer trees.
@@ -71,6 +74,11 @@ impl CompositeCache {
     /// (entries, bytes, hits) of the cache of the layers' own content and masks.
     pub fn content_cache_stats(&self) -> (usize, usize, usize) {
         self.prefix.content.stats()
+    }
+
+    /// The channels the last update was limited to (`None`: every channel was evaluated).
+    pub fn limited_to(&self) -> Option<Vec<subcraft_core::ChannelKind>> {
+        self.only.as_ref().map(|k| k.iter().copied().collect())
     }
 
     /// Statistics of the per-layer result cache.
@@ -125,12 +133,37 @@ impl CompositeCache {
         };
         if !matches!(&dirty,Dirty::Tiles(set) if set.is_empty()) { self.stages.clear(); }
         let graph_path = crate::stages::needs_graph(&ts.layers);
+        let everything = !reusable || self.last.as_ref().is_some_and(|l| l.albedo_filter != ts.albedo_filter);
+        // A parameter change that only some channels read (one channel's blend or fill).
+        let confined = match (&dirty, &self.last) {
+            (Dirty::All, Some(last)) if !everything => confined_kinds(&last.layers, &ts.layers),
+            _ => None,
+        };
         let change = match &dirty {
-            _ if !reusable || self.last.as_ref().is_some_and(|l| l.albedo_filter != ts.albedo_filter) => crate::prefix::Change::Everything,
-            Dirty::All => crate::prefix::Change::Parameters,
+            _ if everything => crate::prefix::Change::Everything,
+            Dirty::All => match &confined {
+                Some(kinds) => crate::prefix::Change::Kinds(kinds),
+                None => crate::prefix::Change::Parameters,
+            },
             Dirty::Tiles(set) => crate::prefix::Change::Tiles(set),
         };
         self.prefix.sync(&ts.layers, graph_path, change);
+        // The pending tiles are evaluated for the union of what the edits since the last complete
+        // composite can have changed; anything that is not confined to channels means all of them.
+        let had_pending = !self.pending.is_empty();
+        self.only = match (&dirty, confined) {
+            (Dirty::All, Some(kinds)) if !had_pending => Some(kinds),
+            (Dirty::All, Some(kinds)) => self.only.take().map(|mut prev| {
+                prev.extend(kinds);
+                prev
+            }),
+            (Dirty::Tiles(set), _) if set.is_empty() && had_pending => self.only.take(),
+            _ => None,
+        };
+        if self.only.as_ref().is_some_and(|only| ts.channel_kinds().all(|k| only.contains(&k))) {
+            self.only = None;
+        }
+        self.prefix.set_only(self.only.as_ref().map(|k| k.iter().copied().collect()));
         self.plan = self.prefix.plan(ts.layers.len(), ts.resolution.div_ceil(subcraft_image::TILE_SIZE).pow(2) as usize, &ts.channel_kinds().collect::<Vec<_>>());
         let composite = match (&mut self.composite, reusable) {
             (Some(c), true) => c,
@@ -205,6 +238,62 @@ impl CompositeCache {
         evaluated.sort_unstable();
         evaluated
     }
+}
+
+/// The channels a parameter change between two layer lists can affect, when it is confined to
+/// per-channel settings: `Some(kinds)` if every changed top-level layer differs from its old self
+/// only in the blend (mode, opacity) of some channels and, for a fill layer, in the fill of some
+/// channels. A channel's composite reads other channels' settings in three cases, all excluded
+/// or widened here: anchor references and Compare Masks (any in the set: `None`), and micro
+/// details, whose height and normal change follows the Base Color opacity.
+fn confined_kinds(old: &[Arc<Layer>], new: &[Arc<Layer>]) -> Option<BTreeSet<subcraft_core::ChannelKind>> {
+    use subcraft_core::ChannelKind;
+    if old.len() != new.len() {
+        return None;
+    }
+    let reads_across = |layers: &[Arc<Layer>]| subcraft_doc::anchor::has_references(layers) || crate::stages::has_compare(layers);
+    if reads_across(old) || reads_across(new) {
+        return None;
+    }
+    let mut kinds = BTreeSet::new();
+    for (o, n) in old.iter().zip(new).filter(|(o, n)| !Arc::ptr_eq(o, n)) {
+        if o.id != n.id {
+            return None;
+        }
+        // The old layer with the new per-channel settings must be the new layer.
+        let mut probe = (**o).clone();
+        let mut changed = BTreeSet::new();
+        let keys: BTreeSet<ChannelKind> = o.blend.keys().chain(n.blend.keys()).copied().collect();
+        for k in keys {
+            if o.blend.get(&k) != n.blend.get(&k) {
+                match n.blend.get(&k) {
+                    Some(b) => probe.blend.insert(k, *b),
+                    None => probe.blend.remove(&k),
+                };
+                changed.insert(k);
+            }
+        }
+        if let (LayerContent::Fill(pf), LayerContent::Fill(nf)) = (&mut probe.content, &n.content) {
+            let keys: BTreeSet<ChannelKind> = pf.channels.keys().chain(nf.channels.keys()).copied().collect();
+            for k in keys {
+                if pf.channels.get(&k) != nf.channels.get(&k) {
+                    match nf.channels.get(&k) {
+                        Some(c) => pf.channels.insert(k, c.clone()),
+                        None => pf.channels.remove(&k),
+                    };
+                    changed.insert(k);
+                }
+            }
+        }
+        if probe != **n {
+            return None;
+        }
+        if changed.contains(&ChannelKind::BaseColor) && (crate::stages::micro_layer(o) || crate::stages::micro_layer(n)) {
+            changed.extend([ChannelKind::Height, ChannelKind::Normal]);
+        }
+        kinds.extend(changed);
+    }
+    (!kinds.is_empty()).then_some(kinds)
 }
 
 fn diff_lists(old: &[Arc<Layer>], new: &[Arc<Layer>], resolution: u32) -> Dirty {

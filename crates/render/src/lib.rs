@@ -143,8 +143,12 @@ pub struct ViewParams {
     pub exposure: f32,
     /// Height-to-bump strength (UV units of slope per height unit; 0 disables bumps).
     pub height_scale: f32,
-    /// Linear background color.
+    /// Linear background color (bottom of the view).
     pub background: [f32; 3],
+    /// Linear background color at the top of the view; the background is a vertical gradient
+    /// from `background` up to it. `None` (the default) = a plain `background`, so callers that
+    /// only set `background` keep a flat colour.
+    pub background_top: Option<[f32; 3]>,
     /// 4x MSAA when true, no anti-aliasing (faster) when false.
     pub antialias: bool,
     /// Temporal anti-aliasing: this frame's number (from 1) in the running average of jittered
@@ -258,6 +262,7 @@ impl ViewParams {
             exposure: 1.0,
             height_scale: 0.02,
             background: [0.018, 0.019, 0.022],
+            background_top: None,
             antialias: true,
             taa_frame: 0,
             view_mode: ViewMode::Material,
@@ -294,7 +299,7 @@ struct Globals {
     inv_view_proj: [[f32; 4]; 4],
     /// rgb: background color (linear), a: environment opacity behind the model.
     background: [f32; 4],
-    /// x: background blur 0..1.
+    /// x: background blur 0..1, yzw: background colour at the top of the view (linear).
     env_view: [f32; 4],
     /// x: 1 / HDR scale, y: 1 = two-color signed display, z: component (0 all, 1 R, 2 G, 3 B, 4 A), w: 1 = lit.
     solo: [f32; 4],
@@ -1015,7 +1020,10 @@ impl ViewportRenderer {
             sh,
             inv_view_proj: (params.proj * params.view).inverse().to_cols_array_2d(),
             background: [params.background[0], params.background[1], params.background[2], e.background_opacity.clamp(0.0, 1.0)],
-            env_view: [e.background_blur.clamp(0.0, 1.0), 0.0, 0.0, 0.0],
+            env_view: {
+                let top = params.background_top.unwrap_or(params.background);
+                [e.background_blur.clamp(0.0, 1.0), top[0], top[1], top[2]]
+            },
             solo: [
                 1.0 / params.channel_display.hdr_scale.max(1e-6),
                 if params.channel_display.signed_colors { 1.0 } else { 0.0 },
@@ -1069,7 +1077,10 @@ impl ViewportRenderer {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
-            if e.background_opacity > 0.0 {
+            // The clear colour is the plain background; the pass is needed for the environment or
+            // for a gradient (a top colour that differs from the bottom one).
+            let gradient = params.background_top.is_some_and(|top| top != params.background);
+            if e.background_opacity > 0.0 || gradient {
                 pass.set_pipeline(&self.pipeline_background[if samples > 1 { 0 } else { 1 }]);
                 pass.set_bind_group(0, &self.globals_bg, &[]);
                 pass.draw(0..3, 0..1);

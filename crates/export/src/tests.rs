@@ -5,6 +5,7 @@ mod view2d;
 mod more;
 mod mixing;
 mod formats;
+mod converted;
 use std::collections::BTreeMap;
 
 use subcraft_core::{ChannelKind, MeshMapKind};
@@ -344,7 +345,7 @@ fn godot_and_gltf_pack_orm_with_opengl_normals() {
 #[test]
 fn builtin_templates_are_listed_once_with_unique_names_and_safe_suffixes() {
     let all = ExportTemplate::builtin();
-    assert_eq!(all.len(), 15, "nine templates plus six alpha variants (#145)");
+    assert_eq!(all.len(), 15 + crate::builtin_presets::painter().len(), "nine templates, six alpha variants (#145), then Painter's");
     let mut names: Vec<_> = all.iter().map(|t| t.name.clone()).collect();
     names.sort();
     names.dedup();
