@@ -67,6 +67,10 @@ fn mask_menu(ui: &mut Ui, layer: &Layer, action: &mut Option<(LayerId, subcraft_
         *action = Some((layer.id, LayerAction::IdColorMask));
         ui.close();
     }
+    if ui.button(tr("Add mask with height combination")).on_hover_text(tr("A mask showing this layer where its height rises above the layers below; its Height blending becomes Normal")).clicked() {
+        *action = Some((layer.id, LayerAction::HeightCombinationMask));
+        ui.close();
+    }
 }
 
 /// Guide x of a tree level: the center of its disclosure caret (rows pad their content by 8).
@@ -671,6 +675,14 @@ Files: {}", ex.dir().display()));
                     grouped = true;
                     ui.close();
                 }
+                // Flatten: each selected layer or folder into a layer of rasters above it.
+                if ui.add(egui::Button::new(format!("Flatten{suffix}")).shortcut_text(crate::keys::native("Ctrl+M")))
+                    .on_hover_text("Evaluates into a new layer of bitmaps above; the original stays, hidden")
+                    .clicked()
+                {
+                    cmds.push(Command::FlattenLayers(if in_multi { multi_ids.clone() } else { vec![l.id] }));
+                    ui.close();
+                }
                 let targets = if in_multi { multi_ids.clone() } else { vec![l.id] };
                 if ui.button(format!("{}  {}", icons::EXPORT, tr("Export flattened…"))).on_hover_text(tr("Writes this layer (a folder with its content) on its own, one file per channel")).clicked() {
                     export_request = Some((targets.clone(), false));
@@ -791,6 +803,12 @@ Files: {}", ex.dir().display()));
     {
         state.clips.blending = Some(l.blend.clone());
         state.set_status("Copied blending options", now);
+    }
+    // Ctrl+M flattens the selection (Painter). Plain M stays Display material.
+    if !ui.ctx().egui_wants_keyboard_input() && ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::M)) {
+        let targets = state.multi.targets(state.session.selection().layer);
+        if targets.is_empty() { state.set_status("Select the layers or folders to flatten", now); }
+        else { cmds.push(Command::FlattenLayers(targets)); }
     }
     state.run(cmds, now);
     // The grouped layers are inside the new folder, which is now the selection.

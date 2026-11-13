@@ -144,7 +144,22 @@ fn polygon_fill_in_the_2d_view_fills_the_clicked_island() {
     assert!(painted(&state, ChannelKind::BaseColor) > 0);
 }
 
+/// Largest base colour alpha painted on the selected layer.
+fn max_alpha(state: &UiState) -> f32 {
+    let LayerContent::Paint(p) = &state.session.selected_layer().unwrap().content else { panic!() };
+    let Some(img) = p.channels.get(&ChannelKind::BaseColor) else { return 0.0 };
+    let mut max = 0.0f32;
+    for y in 0..img.height() {
+        for x in 0..img.width() {
+            max = max.max(img.get(x, y)[img.comps() - 1]);
+        }
+    }
+    max
+}
+
 /// QA 2026-11: the Clone and Smudge tools painted a plain brush-colour stroke in the 2D view.
+/// They now work there like in the 3D view: neither deposits the brush colour on an empty layer,
+/// and Clone needs a source first.
 #[test]
 fn clone_and_smudge_do_not_paint_plain_strokes_in_the_2d_view() {
     for tool in [Tool::Clone, Tool::Smudge] {
@@ -153,10 +168,35 @@ fn clone_and_smudge_do_not_paint_plain_strokes_in_the_2d_view() {
         let rect = image(&settle(&mut state, &ctx));
         let uv = island_uv(&state);
         let start = rect.min + egui::vec2(uv.x, uv.y) * rect.width();
-        let (doc, entries) = (state.session.document().clone(), state.session.history().entries().len());
+        let doc = state.session.document().clone();
         drag(&mut state, &ctx, start, start + egui::vec2(6.0, 3.0), Modifiers::NONE);
-        assert!(!state.session.is_stroking(), "{tool:?}");
-        assert_eq!(state.session.document(), &doc, "{tool:?} changed the document");
-        assert_eq!(state.session.history().entries().len(), entries, "{tool:?}");
+        assert!(!state.uv.painting && !state.session.is_stroking(), "{tool:?}");
+        assert_eq!(max_alpha(&state), 0.0, "{tool:?} painted the brush colour");
+        if tool == Tool::Clone {
+            assert_eq!(state.session.document(), &doc, "Clone without a source changes nothing");
+        }
     }
+}
+
+/// Ctrl+click sets the clone source in the 2D view; the next drag copies the texture from there.
+#[test]
+fn ctrl_click_sets_the_2d_clone_source_and_a_drag_copies_from_it() {
+    let (mut state, ctx) = setup();
+    let rect = image(&settle(&mut state, &ctx));
+    let uv = island_uv(&state);
+    let source = rect.min + egui::vec2(uv.x, uv.y) * rect.width();
+    // Something to copy: a brush dab at the source.
+    drag(&mut state, &ctx, source, source + egui::vec2(2.0, 0.0), Modifiers::NONE);
+    assert!(max_alpha(&state) > 0.0);
+    state.tool = Tool::Clone;
+    settle(&mut state, &ctx);
+    click(&mut state, &ctx, source, Modifiers::COMMAND);
+    let set = state.session.clone_source_uv().expect("Ctrl+click sets the source");
+    assert!((set - uv).length() < 0.01, "{set} vs {uv}");
+    assert!(!state.session.is_stroking() && !state.uv.painting, "setting the source paints nothing");
+    let entries = state.session.history().entries().len();
+    let target = source + egui::vec2(0.0, 30.0);
+    drag(&mut state, &ctx, target, target + egui::vec2(3.0, 0.0), Modifiers::NONE);
+    assert_eq!(state.session.history().undo_label(), Some("Clone Stroke"));
+    assert_eq!(state.session.history().entries().len(), entries + 1);
 }

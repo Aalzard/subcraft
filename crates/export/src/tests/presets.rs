@@ -222,7 +222,7 @@ fn file_name_patterns_expand_tokens() {
     assert_eq!(expand_pattern("T_$textureSet_$udim_D", "m", "Hull", Some(1003), "D"), "T_Hull_1003_D");
     assert_eq!(expand_pattern("T_$textureSet_$udim_D", "m", "Hull", None, "D"), "T_Hull_D", "empty $udim drops its separator");
     assert_eq!(expand_pattern("$textureSet.$udim", "m", "Hull", None, "x"), "Hull");
-    assert_eq!(expand_pattern("a/b\\c:..d", "m", "s", None, "x"), "a_b_c_.d", "no path separators or ..");
+    assert_eq!(expand_pattern("a/b\\c:..d", "m", "s", None, "x"), "a/b_c_.d", "/ is a sub-folder; no backslash, colon or ..");
     assert_eq!(expand_pattern("$unknown", "m", "s", None, "x"), "unknown");
     assert_eq!(expand_pattern("", "m", "s", None, "x"), "");
 }
@@ -268,6 +268,39 @@ fn problems_catch_duplicate_and_unsafe_suffixes() {
     t.maps[0].components.clear();
     t.name = " ".into();
     assert_eq!(t.problems().len(), 3, "{:?}", t.problems());
+}
+
+/// QA 2026-11: presets read from a file were exported unchecked: an unsafe suffix aborted the
+/// export partway (or named a hidden NTFS stream) and a huge size tried to allocate gigabytes.
+#[test]
+fn a_preset_with_problems_writes_nothing() {
+    let ch = distinct_channels();
+    let sets = [set(&ch, None)];
+    let mesh = primitives::plane(2.0, 1);
+    let good = OutputMap::new("Rough", FileFormat::Png8, vec![Source::Height], false);
+    let bad = |edit: &dyn Fn(&mut ExportTemplate)| {
+        let mut t = user(vec![good.clone(), OutputMap::new("Base", FileFormat::Png8, vec![Source::Height], false)]);
+        edit(&mut t);
+        let mut written = 0;
+        let s = ExportSettings { template: t, ..Default::default() };
+        let r = render_maps(&mesh, "M", &sets, &s, |_, _| {
+            written += 1;
+            Ok(())
+        });
+        (r, written)
+    };
+    for edit in [
+        &(|t: &mut ExportTemplate| t.maps[1].suffix = "Base:Color".into()) as &dyn Fn(&mut ExportTemplate),
+        &|t: &mut ExportTemplate| t.maps[1].size = Some(100_000),
+        &|t: &mut ExportTemplate| t.size = Some(100_000),
+        &|t: &mut ExportTemplate| t.maps[1].components = vec![Source::Height; 5],
+    ] {
+        let (r, written) = bad(edit);
+        assert!(matches!(r, Err(ExportError::Template(_))), "{r:?}");
+        assert_eq!(written, 0, "nothing is written, not even the valid map before it");
+    }
+    let (r, written) = bad(&|_| {});
+    assert!(r.is_ok() && written == 2, "a valid preset exports: {r:?}");
 }
 
 #[test]

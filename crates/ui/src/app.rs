@@ -190,6 +190,17 @@ pub struct LaunchOptions {
     pub profile_edits: Option<(PathBuf, Option<u32>)>,
     /// Measure frames while the 3D view is orbited, hovered and painted with scripted input, write stats, quit.
     pub profile_view: Option<PathBuf>,
+    /// Already-baked mesh maps: listed in the New Project window with `new_project_model`,
+    /// otherwise in the "Import mesh maps" window for the open project (scripted captures).
+    pub mesh_map_files: Vec<PathBuf>,
+    /// Bake window: show the ray-miss heatmap.
+    pub bake_misses: bool,
+    /// Bake window: cage front / rear (fractions of the diagonal).
+    pub bake_cage: Option<[f32; 2]>,
+    /// Bake curvature from the normal map.
+    pub curvature_from_normal: bool,
+    /// Show the ID color editor with a color selected and its eyedropper on (scripted captures).
+    pub id_colors: bool,
 }
 
 impl LaunchOptions {
@@ -834,6 +845,10 @@ impl SubcraftApp {
             let texture_sets = state.session.document().texture_sets.iter().map(|t| (t.id, t.material_slot)).collect();
             state.bake.job = Some(state.session.start_bake(subcraft_app::BakeRequest { settings: state.bake.settings.clone(), high_poly: None, texture_sets }));
         }
+        state.bake.miss_heatmap = options.bake_misses;
+        if let Some([front, rear]) = options.bake_cage { state.bake.settings.cage_front = front; state.bake.settings.cage_rear = rear; }
+        state.bake.settings.curvature_from_normal |= options.curvature_from_normal;
+        if options.id_colors { cc.egui_ctx.data_mut(|d| d.insert_temp(egui::Id::new("capture_id_colors"), true)); }
         if let Some(high) = &options.bake_high_poly {
             state.bake.open = true;
             state.bake.high_poly = high.display().to_string();
@@ -993,6 +1008,11 @@ impl SubcraftApp {
             state.new_project.show_window(&state.recovery.prefs.new_project.clone());
             state.new_project.load_model(model);
             if let Some(high) = &options.new_project_high { state.new_project.load_high_poly(high); }
+            if !options.mesh_map_files.is_empty() { state.new_project.add_mesh_maps(&options.mesh_map_files); }
+            state.welcome.open = false;
+        } else if !options.mesh_map_files.is_empty() {
+            let sets = state.session.mesh_map_set_keys();
+            state.mesh_map_import.start(&options.mesh_map_files, &sets);
             state.welcome.open = false;
         }
         state.export.open = options.export_window || options.export_template.is_some() || options.export_preset.is_some();
@@ -1388,6 +1408,12 @@ impl SubcraftApp {
             ui.add_space(6.0);
             rail_divider(ui);
             ui.add_space(6.0);
+            // The 2D view beside the 3D view, or back to the 3D view alone (Painter's F1 / F2).
+            let both = is_side_by_side(&self.dock);
+            let view_tip = if both { tip(km, "Hide the 2D view (3D view only)", Action::View3dOnly) } else { tip(km, "Show the 2D view (UV space) beside the 3D view", Action::View3dAnd2d) };
+            if tool_button(ui, icons::GRID, both, &view_tip).clicked() {
+                self.perform(if both { Action::View3dOnly } else { Action::View3dAnd2d }, ui.input(|i| i.time));
+            }
             if tool_button(ui, icons::CAMERA, false, &tip(km, "Reset camera", Action::ResetCamera)).clicked() {
                 self.perform(Action::ResetCamera, ui.input(|i| i.time));
             }
@@ -2056,6 +2082,17 @@ impl eframe::App for SubcraftApp {
         self.frames += 1;
         if self.frames == 12 && ctx.data(|d| d.get_temp::<bool>(egui::Id::new("capture_jump_maps"))).unwrap_or(false) { ctx.data_mut(|d| d.insert_temp(egui::Id::new("tss_jump"), 2u8)); }
         if self.frames == 5 { subcraft_app::startup_probe::step(subcraft_app::startup_probe::COMPLETE_MARKER); }
+        if self.frames >= 12 && self.state.bake.job.is_none() && ctx.data(|d| d.get_temp::<bool>(egui::Id::new("capture_id_colors"))).unwrap_or(false) {
+            // Scripted capture of the ID color editor: once an ID map exists, select its second
+            // most common color (the first is usually the background) and arm the eyedropper.
+            let ts = self.state.session.selected_texture_set().id;
+            if let Some(p) = self.state.session.id_palette(ts) && let Some(e) = p.get(1).or(p.first()) {
+                self.state.id_palette_selected = Some(e.color);
+                self.state.id_palette_new = [0.95, 0.72, 0.15];
+                self.state.picking_id_palette = true;
+                ctx.data_mut(|d| { d.remove_temp::<bool>(egui::Id::new("capture_id_colors")); d.insert_temp(egui::Id::new("tss_jump"), 3u8); });
+            }
+        }
         if self.frames == 15 && let Some(name) = self.state.capture_select_brush.take() {
             let now = ctx.input(|i| i.time);
             let preset = self.state.brush_presets.iter().find(|p| p.name == name).cloned();
@@ -2079,6 +2116,7 @@ impl eframe::App for SubcraftApp {
                 scripted_tool_capture(&mut self.state, &which, ctx.input(|i| i.time));
             }
         }
+        self.state.view_props_swallow = crate::view_props::show(&ctx, &mut self.state);
         crate::pen::keyboard(&mut self.state, &ctx, ctx.input(|i| i.time));
         self.shortcuts(&ctx);
         if ctx.input(|i| i.pointer.any_released()) {
@@ -2145,6 +2183,7 @@ impl eframe::App for SubcraftApp {
         crate::render_export::window(&mut self.state, &ctx);
         panels::display_settings::sync_project(&mut self.state);
         crate::new_project::window(&mut self.state, &ctx);
+        crate::mesh_map_import::window(&mut self.state, &ctx, now);
         crate::render_export::handle_request(&mut self.state, ctx.input(|i| i.time));
         crate::pen::finish_frame(&mut self.state, &ctx, now);
         self.flush_pen_after(now);
@@ -2374,6 +2413,62 @@ fn scripted_tool_capture(state: &mut UiState, which: &str, now: f64) {
             // A stamped line: spacing 1 repeats the same map along the stroke.
             s.brush.settings.size = 12.0;
             stroke(s, StrokeMode::Paint, &line(330.0, 330.0, 570.0, 330.0));
+        }
+        "fill-box" | "fill-modes" => {
+            // Polygon fill: boxes (visible-only red, x-ray blue) or one click per fill mode.
+            use subcraft_paint::PolygonFillMode as M;
+            state.tool = Tool::PolygonFill;
+            if which == "fill-box" {
+                set(s, [0.85, 0.12, 0.08]);
+                let _ = s.polygon_fill_box(&cam, Vec2::new(300.0, 200.0), Vec2::new(450.0, 470.0), M::Polygon, true);
+                set(s, [0.1, 0.3, 0.95]);
+                let _ = s.polygon_fill_box(&cam, Vec2::new(470.0, 200.0), Vec2::new(620.0, 470.0), M::Polygon, false);
+                // Show the far side: the red box stayed in front, the blue one went through.
+                state.camera.orbit(330.0, 0.0);
+            } else {
+                for (mode, c, at) in [
+                    (M::Triangle, [0.9, 0.15, 0.1], (340.0, 260.0)),
+                    (M::Polygon, [0.95, 0.8, 0.1], (520.0, 250.0)),
+                    (M::MeshElement, [0.15, 0.7, 0.25], (450.0, 420.0)),
+                    (M::UvIsland, [0.15, 0.35, 0.95], (430.0, 330.0)),
+                ] {
+                    set(s, c);
+                    let _ = s.polygon_fill(&cam, Vec2::new(at.0, at.1), mode);
+                }
+            }
+            state.fill_mode = M::Polygon;
+        }
+        "view-props-brush" => {
+            // The right-click Properties popup over the 3D view, brush settings showing.
+            state.tool = Tool::Brush;
+            crate::view_props::open(state, egui::pos2(820.0, 330.0), crate::view_props::View::View3d);
+        }
+        "view-props-uv" => {
+            state.tool = Tool::PolygonFill;
+            crate::view_props::open(state, egui::pos2(900.0, 300.0), crate::view_props::View::View2d);
+        }
+        w if w.starts_with("curvature") => {
+            // Curvature generator on an orange fill: `curvature-both|edges|cavities|sizes[-props]`.
+            use subcraft_doc::{CurvatureDetail, CurvatureDetailMode, FillChannel, FillSource, Generator, GeneratorKind, MaskEffectKind};
+            let ts = s.document().texture_sets[0].clone();
+            let settings = subcraft_bake::BakeSettings { size: 1024, maps: vec![subcraft_core::MeshMapKind::Curvature], ..Default::default() };
+            let mut job = s.start_bake(subcraft_app::BakeRequest { settings, high_poly: None, texture_sets: vec![(ts.id, ts.material_slot)] });
+            while job.poll(s).is_none() { std::thread::sleep(std::time::Duration::from_millis(20)); }
+            let _ = s.execute(Command::AddLayer(NewLayer::Fill));
+            let Some(layer) = s.selection().layer else { return };
+            let _ = s.execute(Command::SetFillChannel { layer, channel: ChannelKind::BaseColor, fill: FillChannel::new(FillSource::uniform(ChannelValue::rgb(1.0, 0.45, 0.05))) });
+            let _ = s.execute(Command::AddMask { layer, white: false });
+            let mut g = Generator::new(GeneratorKind::MeshMap(subcraft_core::MeshMapKind::Curvature));
+            let mode = if w.contains("edges") || w.contains("sizes") { CurvatureDetailMode::Edges } else if w.contains("cavities") { CurvatureDetailMode::Cavities } else { CurvatureDetailMode::Both };
+            let (medium, coarse) = if w.contains("sizes") { (1.5, 1.5) } else { (0.0, 0.0) };
+            g.curvature = (mode != CurvatureDetailMode::Both || medium > 0.0).then_some(CurvatureDetail { mode, fine: if w.contains("sizes") { 0.6 } else { 1.0 }, medium, coarse });
+            let _ = s.execute(Command::AddMaskEffect { layer, kind: MaskEffectKind::Generator(g) });
+            let effect = s.selected_layer().and_then(|l| l.mask.as_ref()).and_then(|m| m.effects.last()).map(|e| e.id);
+            let _ = s.execute(Command::SelectEffect { layer, target: subcraft_app::LayerTarget::Mask, effect });
+            state.tool = Tool::Brush;
+            if w.ends_with("-props") {
+                crate::view_props::open(state, egui::pos2(820.0, 260.0), crate::view_props::View::View3d);
+            }
         }
         "clone" => {
             state.tool = Tool::Clone;
