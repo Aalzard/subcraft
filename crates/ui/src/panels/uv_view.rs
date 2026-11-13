@@ -367,7 +367,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         if matches!(state.tool, Tool::Brush | Tool::Eraser | Tool::Clone | Tool::Smudge) && paints {
             let mesh = &state.session.scene().mesh;
             let density = *state.uv_density.entry(slot).or_insert_with(|| subcraft_paint::stroke::uv_per_unit(mesh, slot));
-            let r_px = state.session.brush_radius_uv(density) * side;
+            let r_px = state.session.brush_radius_uv_in_view(density, side, viewport[1]) * side;
             let color = if state.tool == Tool::Eraser { Color32::from_rgb(120, 190, 255) } else { crate::theme::ACCENT() };
             painter.circle_stroke(p, r_px, Stroke::new(1.5, Color32::from_black_alpha(160)));
             painter.circle_stroke(p, r_px, Stroke::new(1.0, color));

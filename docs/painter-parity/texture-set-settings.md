@@ -56,7 +56,7 @@ Layout notes: the panel has a small header with a visibility menu button, a focu
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Texture Set isolate | Shortcut | Alt+Q | missing | - | - |
+| Texture Set isolate | Shortcut | Alt+Q | done: hides the other texture sets; again shows them | crates/app/src/session.rs (Command::IsolateTextureSet) | - |
 | Texture set selection in the viewport | Shortcut | Ctrl+Alt+Right mouse | missing | - | - |
 
 ## Texture Set Reassignment window

@@ -2948,6 +2948,14 @@ impl Session {
     }
 
     /// Brush radius in UV units for the selected texture set (matches [`Session::stroke_to_uv`]).
+    /// [`Session::brush_radius_uv`] in a 2D view `side` points per UV unit wide and
+    /// `viewport_height` points high: Viewport size space then follows the 2D view's zoom, as
+    /// 2D strokes do.
+    pub fn brush_radius_uv_in_view(&self, uv_per_unit: f32, side: f32, viewport_height: u32) -> f32 {
+        let view = subcraft_paint::UvView { origin: Vec2::ZERO, side, viewport: [viewport_height, viewport_height], rotation: 0.0 };
+        subcraft_paint::stroke::uv_view_radius(&self.brush.settings, self.scene.mesh.bounds.diagonal(), uv_per_unit, Some(view))
+    }
+
     pub fn brush_radius_uv(&self, uv_per_unit: f32) -> f32 {
         self.brush_radius_in(0.0, 0.0, uv_per_unit) * uv_per_unit
     }

@@ -74,7 +74,7 @@ Layout notes: one slider per row, label above. Size, Flow and the jitters carry 
 | Backface Culling angle | Properties > Brush | 90 (unverified); range not documented | partial: range 10-90 degrees | crates/ui/src/panels/brush.rs (show, Brush block) | - |
 | Size Space (dropdown) | Properties > Brush | Object | done | crates/ui/src/panels/brush_rows.rs (size_space) | - |
 | Size Space: Object | Properties > Brush > Size Space | default | done | crates/paint/src/settings.rs (BrushSettings::radius_in) | - |
-| Size Space: Viewport | Properties > Brush > Size Space | option | partial: 3D view only; the 2D view uses the object size | crates/paint/src/stroke.rs (Stroke::base_radius) | - |
+| Size Space: Viewport | Properties > Brush > Size Space | option | done: percent of the view height in the 3D view and the 2D view (follows the 2D zoom); cursor and stroke agree | crates/paint/src/stroke.rs (uv_view_radius); crates/ui/src/panels/uv_view.rs | - |
 | Size Space: Texture | Properties > Brush > Size Space | option | done | crates/paint/src/stroke.rs (Stroke::base_radius) | - |
 | Continue the previous stroke (A) so stroke opacity keeps accumulating | Viewport, described with Stroke Opacity | n/a | missing | - | - |
 
