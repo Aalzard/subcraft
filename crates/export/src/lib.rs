@@ -7,6 +7,7 @@
 //! EXR. Data channels are never color-transformed.
 
 pub mod builtin_presets;
+pub mod mesh_export;
 pub mod preset;
 pub mod psd;
 pub mod scene;
