@@ -190,6 +190,17 @@ pub struct LaunchOptions {
     pub profile_edits: Option<(PathBuf, Option<u32>)>,
     /// Measure frames while the 3D view is orbited, hovered and painted with scripted input, write stats, quit.
     pub profile_view: Option<PathBuf>,
+    /// Already-baked mesh maps: listed in the New Project window with `new_project_model`,
+    /// otherwise in the "Import mesh maps" window for the open project (scripted captures).
+    pub mesh_map_files: Vec<PathBuf>,
+    /// Bake window: show the ray-miss heatmap.
+    pub bake_misses: bool,
+    /// Bake window: cage front / rear (fractions of the diagonal).
+    pub bake_cage: Option<[f32; 2]>,
+    /// Bake curvature from the normal map.
+    pub curvature_from_normal: bool,
+    /// Show the ID color editor with a color selected and its eyedropper on (scripted captures).
+    pub id_colors: bool,
 }
 
 impl LaunchOptions {
@@ -834,6 +845,10 @@ impl SubcraftApp {
             let texture_sets = state.session.document().texture_sets.iter().map(|t| (t.id, t.material_slot)).collect();
             state.bake.job = Some(state.session.start_bake(subcraft_app::BakeRequest { settings: state.bake.settings.clone(), high_poly: None, texture_sets }));
         }
+        state.bake.miss_heatmap = options.bake_misses;
+        if let Some([front, rear]) = options.bake_cage { state.bake.settings.cage_front = front; state.bake.settings.cage_rear = rear; }
+        state.bake.settings.curvature_from_normal |= options.curvature_from_normal;
+        if options.id_colors { cc.egui_ctx.data_mut(|d| d.insert_temp(egui::Id::new("capture_id_colors"), true)); }
         if let Some(high) = &options.bake_high_poly {
             state.bake.open = true;
             state.bake.high_poly = high.display().to_string();
@@ -993,6 +1008,11 @@ impl SubcraftApp {
             state.new_project.show_window(&state.recovery.prefs.new_project.clone());
             state.new_project.load_model(model);
             if let Some(high) = &options.new_project_high { state.new_project.load_high_poly(high); }
+            if !options.mesh_map_files.is_empty() { state.new_project.add_mesh_maps(&options.mesh_map_files); }
+            state.welcome.open = false;
+        } else if !options.mesh_map_files.is_empty() {
+            let sets = state.session.mesh_map_set_keys();
+            state.mesh_map_import.start(&options.mesh_map_files, &sets);
             state.welcome.open = false;
         }
         state.export.open = options.export_window || options.export_template.is_some() || options.export_preset.is_some();
@@ -2103,6 +2123,17 @@ impl eframe::App for SubcraftApp {
         self.frames += 1;
         if self.frames == 12 && ctx.data(|d| d.get_temp::<bool>(egui::Id::new("capture_jump_maps"))).unwrap_or(false) { ctx.data_mut(|d| d.insert_temp(egui::Id::new("tss_jump"), 2u8)); }
         if self.frames == 5 { subcraft_app::startup_probe::step(subcraft_app::startup_probe::COMPLETE_MARKER); }
+        if self.frames >= 12 && self.state.bake.job.is_none() && ctx.data(|d| d.get_temp::<bool>(egui::Id::new("capture_id_colors"))).unwrap_or(false) {
+            // Scripted capture of the ID color editor: once an ID map exists, select its second
+            // most common color (the first is usually the background) and arm the eyedropper.
+            let ts = self.state.session.selected_texture_set().id;
+            if let Some(p) = self.state.session.id_palette(ts) && let Some(e) = p.get(1).or(p.first()) {
+                self.state.id_palette_selected = Some(e.color);
+                self.state.id_palette_new = [0.95, 0.72, 0.15];
+                self.state.picking_id_palette = true;
+                ctx.data_mut(|d| { d.remove_temp::<bool>(egui::Id::new("capture_id_colors")); d.insert_temp(egui::Id::new("tss_jump"), 3u8); });
+            }
+        }
         if self.frames == 15 && let Some(name) = self.state.capture_select_brush.take() {
             let now = ctx.input(|i| i.time);
             let preset = self.state.brush_presets.iter().find(|p| p.name == name).cloned();
@@ -2193,6 +2224,7 @@ impl eframe::App for SubcraftApp {
         crate::render_export::window(&mut self.state, &ctx);
         panels::display_settings::sync_project(&mut self.state);
         crate::new_project::window(&mut self.state, &ctx);
+        crate::mesh_map_import::window(&mut self.state, &ctx, now);
         crate::render_export::handle_request(&mut self.state, ctx.input(|i| i.time));
         crate::pen::finish_frame(&mut self.state, &ctx, now);
         self.flush_pen_after(now);

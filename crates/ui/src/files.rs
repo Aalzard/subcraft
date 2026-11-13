@@ -18,6 +18,10 @@ pub enum Purpose {
     NewProjectModel,
     /// The optional high-poly model of the New Project window.
     NewProjectHighPoly,
+    /// Already-baked mesh maps for the New Project window.
+    NewProjectMeshMaps,
+    /// Already-baked mesh maps for the project's texture sets (Texture Set Settings).
+    ImportMeshMaps,
     OpenProject,
     /// The updated model for File > Reload mesh.
     ReloadMesh,
@@ -218,6 +222,19 @@ fn handle(state: &mut UiState, purpose: Purpose, paths: &[PathBuf], now: f64) {
         },
         Purpose::NewProjectModel => state.new_project.load_model(first),
         Purpose::NewProjectHighPoly => state.new_project.load_high_poly(first),
+        Purpose::NewProjectMeshMaps => state.new_project.add_mesh_maps(paths),
+        Purpose::ImportMeshMaps => {
+            let sets = state.session.mesh_map_set_keys();
+            if state.mesh_map_import.open {
+                crate::mesh_map_import::add_files(&mut state.mesh_map_import.files, paths, &sets);
+            } else {
+                state.mesh_map_import.start(paths, &sets);
+            }
+            let unknown = state.mesh_map_import.files.iter().filter(|f| f.kind.is_none()).count();
+            if unknown > 0 {
+                state.set_status(format!("{unknown} file(s) not recognised as a mesh map by name: choose the map in the list or leave them out"), now);
+            }
+        }
         Purpose::OpenMesh if crate::spp_import::is_spp(first) => crate::spp_import::start(state, first),
         Purpose::OpenMesh => match subcraft_app::Session::open_mesh(first, subcraft_app::DEFAULT_RESOLUTION) {
             Ok((s, warnings)) => {

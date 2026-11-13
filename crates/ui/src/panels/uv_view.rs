@@ -123,9 +123,11 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         viewport,
     };
     crate::pen::uv_input(state, ui, &response, img_rect);
+    // Picking parts for a geometry mask owns the clicks; otherwise the ID eyedropper, then tools.
+    let id_eyedropper = !picking && id_pick_input(state, ui, &response, img_rect, ts_id);
     if picking {
         parts_input(state, ui, &response, img_rect);
-    } else if !stencil_edit {
+    } else if !id_eyedropper && !stencil_edit {
         paint_input(state, ui, &response, img_rect, resolution, ts_id, view, lmb_adjust);
     }
     let painter = ui.painter_at(rect);
@@ -335,6 +337,36 @@ fn brush_controls(state: &mut UiState, ui: &mut Ui) {
     if options != original_options && let Err(e) = state.session.execute(subcraft_app::Command::SetStrokeOptions(options)) {
         state.set_status(e.to_string(), now);
     }
+}
+
+/// The ID eyedroppers in the 2D view (an ID Color mask's, or the ID color editor's): a click picks
+/// the ID map color at that texture UV. Returns whether an eyedropper is active (no painting then).
+fn id_pick_input(state: &mut UiState, ui: &Ui, response: &egui::Response, image: Rect, ts: subcraft_core::TextureSetId) -> bool {
+    let mask_pick = state.picking_id_color.filter(|(layer, _)| state.session.selected_texture_set().find(*layer).is_some());
+    if mask_pick.is_none() && !state.picking_id_palette {
+        return false;
+    }
+    if response.hovered() { ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair); }
+    let (pointer, pressed, alt) = ui.input(|i| (i.pointer.interact_pos(), i.pointer.primary_pressed(), i.modifiers.alt));
+    if !pressed || alt || !response.hovered() { return true; }
+    let Some(p) = pointer else { return true };
+    let uv = Vec2::new((p.x - image.left()) / image.width(), (p.y - image.top()) / image.height());
+    let now = ui.input(|i| i.time);
+    if !(0.0..=1.0).contains(&uv.x) || !(0.0..=1.0).contains(&uv.y) { return true; }
+    if let Some((layer, effect)) = mask_pick {
+        match state.session.pick_id_color_uv(layer, effect, uv) {
+            Ok(Some(_)) => state.set_status("ID color added. Click more islands, Esc when done.", now),
+            Ok(None) if !state.session.has_id_map(ts) => state.set_status("No ID map for this texture set: bake or import one.", now),
+            Ok(None) => state.set_status("Nothing added: that ID color is already picked.", now),
+            Err(e) => state.set_status(format!("ID Color Mask: {e}"), now),
+        }
+    } else {
+        match state.session.id_map_color(ts, uv) {
+            Some(color) => crate::panels::id_colors::picked(state, ts, color, now),
+            None => state.set_status("No ID map for this texture set: bake or import one.", now),
+        }
+    }
+    true
 }
 
 /// Every paint tool at the cursor's texture UV, as in the 3D view: brush, eraser, smudge and

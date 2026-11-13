@@ -67,6 +67,10 @@ fn mask_menu(ui: &mut Ui, layer: &Layer, action: &mut Option<(LayerId, subcraft_
         *action = Some((layer.id, LayerAction::IdColorMask));
         ui.close();
     }
+    if ui.button(tr("Add mask with height combination")).on_hover_text(tr("A mask showing this layer where its height rises above the layers below; its Height blending becomes Normal")).clicked() {
+        *action = Some((layer.id, LayerAction::HeightCombinationMask));
+        ui.close();
+    }
 }
 
 /// Guide x of a tree level: the center of its disclosure caret (rows pad their content by 8).

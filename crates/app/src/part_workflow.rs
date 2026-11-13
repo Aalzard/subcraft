@@ -38,7 +38,7 @@ impl PartAction {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub enum LayerAction { AddPaint, AddFill, WhiteMask, BlackMask, Generator(GeneratorKind), IdColorMask, MaskFill, MaskPaint }
+pub enum LayerAction { AddPaint, AddFill, WhiteMask, BlackMask, Generator(GeneratorKind), IdColorMask, MaskFill, MaskPaint, HeightCombinationMask }
 
 #[derive(Default)]
 pub(crate) struct PartView {
@@ -67,6 +67,7 @@ impl Session {
             LayerAction::AddPaint => self.execute(Command::AddLayer(crate::NewLayer::Paint)),
             LayerAction::AddFill => self.execute(Command::AddLayer(crate::NewLayer::Fill)),
             LayerAction::WhiteMask | LayerAction::BlackMask => self.execute(Command::AddMask { layer, white: matches!(action, LayerAction::WhiteMask) }),
+            LayerAction::HeightCombinationMask => self.execute(Command::AddHeightCombinationMask(layer)),
             _ => {
                 let kind = match action {
                     LayerAction::Generator(kind) => MaskEffectKind::Generator(Generator::new(kind)),

@@ -218,6 +218,17 @@ pub struct UiState {
     pub picking_focus: bool,
     /// Clicks in the 3D view add the ID map color under the cursor to this ID Color Mask effect.
     pub picking_id_color: Option<(subcraft_core::LayerId, subcraft_core::EffectId)>,
+    /// ID color editor eyedropper: clicks in the 3D or 2D view pick an ID map color, select it in
+    /// the editor and feed it to the selected layer's ID Color mask.
+    pub picking_id_palette: bool,
+    /// Color selected in the ID color editor (as shown in the ID map).
+    pub id_palette_selected: Option<[f32; 3]>,
+    /// The editor's palette, keyed by (texture set, maps generation, document revision).
+    pub id_palette_cache: Option<((subcraft_core::TextureSetId, u64, u64), Vec<subcraft_app::id_color::IdPaletteEntry>)>,
+    /// The color being typed / picked as the replacement of `id_palette_selected`.
+    pub id_palette_new: [f32; 3],
+    /// "Import mesh maps…" from Texture Set Settings.
+    pub mesh_map_import: crate::mesh_map_import::MeshMapImportUi,
     pub last_stroke_point: Option<Vec2>,
     pub uv_edges: HashMap<u32, Vec<[Vec2; 2]>>,
     /// UV units per object unit of each material slot (2D brush cursor size).
@@ -407,6 +418,11 @@ impl UiState {
             quick_mask_tex: None,
             picking_focus: false,
             picking_id_color: None,
+            picking_id_palette: false,
+            id_palette_selected: None,
+            id_palette_cache: None,
+            id_palette_new: [1.0, 1.0, 1.0],
+            mesh_map_import: Default::default(),
             last_stroke_point: None,
             pen_pressure: 1.0,
             pen_input: Default::default(),
@@ -620,6 +636,9 @@ impl UiState {
         self.painting = false;
         self.last_stroke_point = None;
         self.orbit_pivot = None;
+        // The reloaded file brings its own cameras: an index into the old list would show the new
+        // camera's name over the old camera's view.
+        self.active_camera = None;
     }
 
     /// One Shelf click makes the brush usable at once: the app applies it, and Fill, Eyedropper
