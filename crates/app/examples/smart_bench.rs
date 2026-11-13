@@ -170,7 +170,7 @@ fn main() {
         s.begin_stroke().unwrap();
         for i in 0..120 {
             let a = i as f32 / 120.0;
-            let p = Vec2::new(640.0 + 360.0 * (a * 6.283).cos() * (1.0 - a * 0.5), 400.0 + 220.0 * (a * 6.283).sin());
+            let p = Vec2::new(640.0 + 360.0 * (a * std::f32::consts::TAU).cos() * (1.0 - a * 0.5), 400.0 + 220.0 * (a * std::f32::consts::TAU).sin());
             let t = Instant::now();
             let touched = s.stroke_to(&cam, p, false).unwrap();
             stamp.push(ms(t));

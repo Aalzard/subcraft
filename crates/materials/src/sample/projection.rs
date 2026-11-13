@@ -2,6 +2,7 @@
 //!
 //! * `Uv` — mesh UV through [`Projection::transform_2d`].
 //! * `Planar` — normalized object position projected along one axis.
+//! * `Warp` — planar through a grid of movable points (`subcraft_doc::WarpGrid`).
 //! * `Triplanar` — the three planar projections weighted by `|n|^sharpness` (normalized).
 //!   Hardness `h` (the panel's 0..1 slider) is the exponent `1 / (1 - h)`; `h = 1` keeps the
 //!   dominant plane only.
@@ -73,6 +74,7 @@ pub fn sample_projected_sc(
         ProjectionMode::Uv => f(proj.transform_2d_sc(sc, uv)),
         ProjectionMode::Planar => f(proj.transform_2d_sc(sc, planar_coords(pos, proj.planar_axis))),
         ProjectionMode::Spherical | ProjectionMode::Cylindrical => f(proj.transform_2d_sc(sc, proj.wrapped_coords(pos))),
+        ProjectionMode::Warp => f(proj.transform_2d_sc(sc, proj.warp_coords(pos).0)),
         ProjectionMode::Triplanar => {
             let w = triplanar_weights(normal, proj.triplanar_sharpness);
             let mut out = [0.0f32; 4];

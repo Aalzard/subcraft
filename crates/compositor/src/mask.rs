@@ -94,7 +94,7 @@ fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]], input: 
         GeneratorKind::Cavity | GeneratorKind::AmbientOcclusion => Some(MeshMapKind::AmbientOcclusion),
         GeneratorKind::MeshMap(k) => Some(k),
         GeneratorKind::Directional | GeneratorKind::PositionGradient | GeneratorKind::MaskEditor => None,
-        GeneratorKind::Distance3D | GeneratorKind::LinearGradient3D | GeneratorKind::UvRandomColor | GeneratorKind::GrayscaleConversion => None,
+        GeneratorKind::Distance3D | GeneratorKind::LinearGradient3D | GeneratorKind::UvRandomColor | GeneratorKind::GrayscaleConversion | GeneratorKind::UvBorderDistance | GeneratorKind::UvChecker | GeneratorKind::UvTexelDensity => None,
     };
     match (input, map_kind) {
         (Some(values), _) => {
@@ -159,7 +159,7 @@ fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]], input: 
             GeneratorKind::Concave => 1.0 - map[i][0],
             GeneratorKind::PositionGradient => (geo.position(i)[axis] * set.max_extent / ext_axis).clamp(0.0, 1.0),
             // Handled above.
-            GeneratorKind::MaskEditor | GeneratorKind::Distance3D | GeneratorKind::LinearGradient3D | GeneratorKind::UvRandomColor | GeneratorKind::GrayscaleConversion => 0.0,
+            GeneratorKind::MaskEditor | GeneratorKind::Distance3D | GeneratorKind::LinearGradient3D | GeneratorKind::UvRandomColor | GeneratorKind::GrayscaleConversion | GeneratorKind::UvBorderDistance | GeneratorKind::UvChecker | GeneratorKind::UvTexelDensity => 0.0,
         };
         let level = if let Some(noise) = &noise {
             g.level + (noise[i] - 0.5) * g.noise_amount
@@ -235,8 +235,110 @@ fn eval_shape_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]]) {
                 *o = [finish(s.grayscale.convert([p[0], p[1], p[2]])), 1.0, 0.0, 0.0];
             }
         }
+        GeneratorKind::UvBorderDistance => {
+            let d = border_distance(tc);
+            for (o, px) in out.iter_mut().zip(&d) {
+                *o = [finish(s.border_value(*px)), 1.0, 0.0, 0.0];
+            }
+        }
+        GeneratorKind::UvChecker | GeneratorKind::UvTexelDensity => {
+            // In a mask: the brightness of the colour the generator gives on content.
+            let colors = generator_color(g, tc).expect("colour generator");
+            for (o, c) in out.iter_mut().zip(&colors) {
+                *o = [finish(0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]), 1.0, 0.0, 0.0];
+            }
+        }
         _ => unreachable!("not a shape generator"),
     }
+}
+
+/// The colour a generator gives on a layer's content, for the kinds that have one
+/// ([`GeneratorKind::has_color`]): UV Random Color, UV Checker and UV Texel Density.
+pub(crate) fn generator_color(g: &Generator, tc: &TileContext) -> Option<Vec<[f32; 3]>> {
+    if !g.kind.has_color() {
+        return None;
+    }
+    let s = g.shape_settings();
+    let geo = tc.geo;
+    let island = |i: usize| geo.region(i, subcraft_core::PartKind::UvIsland);
+    let invert = |c: [f32; 3]| if g.invert { c.map(|v| 1.0 - v) } else { c };
+    Some(match g.kind {
+        GeneratorKind::UvRandomColor => (0..TILE_TEXELS).map(|i| invert(island(i).map_or([0.0; 3], |id| s.island_color(id)))).collect(),
+        GeneratorKind::UvChecker => {
+            let border = border_distance(tc);
+            (0..TILE_TEXELS)
+                .map(|i| {
+                    let base = if s.checker_random { island(i).map_or(s.checker_color, |id| s.island_color(id)) } else { s.checker_color };
+                    invert(s.checker_color_at(geo.uv(i), base, border[i]))
+                })
+                .collect()
+        }
+        _ => {
+            // Texel density: texels per unit of model length, relative to the texture spanning
+            // the model's longest side once (the shorter step to a covered neighbour, so a UV
+            // seam next to the texel does not count).
+            let n = subcraft_image::TILE_SIZE as usize;
+            (0..TILE_TEXELS)
+                .map(|i| {
+                    let (x, y) = (i % n, i / n);
+                    let p = geo.position(i);
+                    let step = |j: usize| (geo.coverage(j) > 0.0).then(|| { let q = geo.position(j); ((q[0] - p[0]).powi(2) + (q[1] - p[1]).powi(2) + (q[2] - p[2]).powi(2)).sqrt() });
+                    let dx = step(if x + 1 < n { i + 1 } else { i - 1 });
+                    let dy = step(if y + 1 < n { i + n } else { i - n });
+                    let d = match (dx, dy) { (Some(a), Some(b)) => a.min(b), (Some(a), None) | (None, Some(a)) => a, (None, None) => 0.0 };
+                    let relative = if d > 0.0 { 1.0 / (d * geo.resolution as f32) } else { 0.0 };
+                    invert(s.density_color(subcraft_doc::ShapeSettings::density_position(relative)))
+                })
+                .collect()
+        }
+    })
+}
+
+/// Distance in pixels from every texel of the tile to the nearest UV island border, measured
+/// over this tile and its eight neighbours (so it saturates one tile away). A border texel is a
+/// covered texel next to another island or to nothing; uncovered texels read 0.
+pub(crate) fn border_distance(tc: &TileContext) -> Vec<f32> {
+    let n = subcraft_image::TILE_SIZE as i64;
+    let set = tc.set_geometry;
+    let (tiles_x, res) = (set.tiles_x as i64, set.resolution as i64);
+    let tiles_y = (res + n - 1) / n;
+    let (tx, ty) = (tc.geo.x0 as i64 / n, tc.geo.y0 as i64 / n);
+    let w = (3 * n) as usize;
+    // Island id + 1 per texel of the 3 x 3 tile window (0: nothing there).
+    let mut ids = vec![0u32; w * w];
+    for dy in -1..=1i64 {
+        for dx in -1..=1i64 {
+            let (nx, ny) = (tx + dx, ty + dy);
+            if nx < 0 || ny < 0 || nx >= tiles_x || ny >= tiles_y {
+                continue;
+            }
+            let tile = if dx == 0 && dy == 0 { None } else { Some(set.tile((ny * tiles_x + nx) as usize)) };
+            let geo: &subcraft_materials::sample::TileGeometry = tile.as_deref().unwrap_or(tc.geo);
+            let (ox, oy) = (((dx + 1) * n) as usize, ((dy + 1) * n) as usize);
+            for i in 0..TILE_TEXELS {
+                let (x, y) = (i % n as usize, i / n as usize);
+                if (nx * n + x as i64) < res && (ny * n + y as i64) < res {
+                    ids[(oy + y) * w + ox + x] = geo.region(i, subcraft_core::PartKind::UvIsland).map_or(0, |id| id + 1);
+                }
+            }
+        }
+    }
+    let at = |x: i64, y: i64| if x < 0 || y < 0 || x >= w as i64 || y >= w as i64 { 0 } else { ids[y as usize * w + x as usize] };
+    let border: Vec<bool> = (0..w * w)
+        .map(|i| {
+            let (x, y) = ((i % w) as i64, (i / w) as i64);
+            let id = ids[i];
+            id != 0 && [(1, 0), (-1, 0), (0, 1), (0, -1)].iter().any(|(dx, dy)| at(x + dx, y + dy) != id)
+        })
+        .collect();
+    let d2 = subcraft_materials::filter::contour::squared_distance(&border, w, w, true);
+    (0..TILE_TEXELS)
+        .map(|i| {
+            let (x, y) = (i % n as usize + n as usize, i / n as usize + n as usize);
+            let at = y * w + x;
+            if ids[at] == 0 { 0.0 } else { d2[at].sqrt().min(subcraft_doc::ShapeSettings::MAX_BORDER_DISTANCE) }
+        })
+        .collect()
 }
 
 /// Grayscale blend of two Mask Editor values with a layer blending mode.

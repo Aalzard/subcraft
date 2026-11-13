@@ -156,3 +156,30 @@ fn levels_per_component_and_unclamped_on_a_colour_channel() {
         assert!((got - want).abs() < 2e-3, "{px:?}");
     }
 }
+
+/// QA 2026-11: a Compare Mask reads the layers below texel by texel, but an edit below it did
+/// not widen the dirty tiles by the filters after it: a blur carried the change into a tile that
+/// stayed stale until a full recomposite.
+#[test]
+fn editing_below_a_compare_mask_refreshes_the_tiles_its_filters_reach() {
+    let fx = Fixture::new();
+    let mut ts = stack(0.5, CompareMask { hardness: 1.0, ..CompareMask::height_combination() });
+    let id = |ts: &TextureSet, name: &str| ts.layers.iter().find(|l| l.name == name).unwrap().id;
+    let top = id(&ts, "Top");
+    let mask = ts.find_mut(top).unwrap().mask.as_mut().unwrap();
+    mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Filter(subcraft_doc::Filter::Blur { radius: 6.0 }))));
+    let mut cache = subcraft_compositor::CompositeCache::new();
+    cache.update(&ts, &fx.ctx());
+    assert_eq!(cache.composite().unwrap(), &composite_full(&ts, &fx.ctx()));
+    // Raise the ramp just above the tile edge at y 64: the blur carries it into the tile below.
+    let bottom = id(&ts, "Ramp");
+    let LayerContent::Paint(p) = &mut ts.find_mut(bottom).unwrap().content else { unreachable!() };
+    let height = p.channel_mut(ChannelKind::Height, RES);
+    for y in 58..64 {
+        for x in 20..30 {
+            height.set(x, y, [1.0, 1.0, 0.0, 0.0]);
+        }
+    }
+    cache.update(&ts, &fx.ctx());
+    assert_eq!(cache.composite().unwrap(), &composite_full(&ts, &fx.ctx()), "incremental == full after editing below the compare");
+}

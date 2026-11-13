@@ -145,3 +145,13 @@ fn box_fill_paints_exactly_the_front_face_and_matches_clicking_its_cells() {
     assert!(s.polygon_fill_box(&mut empty, &sc.ctx(&cam), Vec2::ZERO, Vec2::splat(4.0), PolygonFillMode::Object, true).unwrap().is_empty());
     assert_eq!(painted_texels(&empty, layer), 0);
 }
+
+/// QA 2026-11: hidden parts stay in the mesh as triangles collapsed onto one vertex. Such a
+/// triangle "overlapped" any box containing that vertex, so a box selection picked hidden parts.
+#[test]
+fn a_collapsed_triangle_overlaps_no_box() {
+    let p = Vec2::new(1.0, 1.0);
+    assert!(!triangle_overlaps_rect([p, p, p], Vec2::ZERO, Vec2::splat(2.0)), "a triangle collapsed onto a point");
+    assert!(!triangle_overlaps_rect([p, p, Vec2::new(1.5, 1.5)], Vec2::ZERO, Vec2::splat(2.0)), "a triangle collapsed onto a line");
+    assert!(triangle_overlaps_rect([p, Vec2::new(1.5, 1.0), Vec2::new(1.0, 1.5)], Vec2::ZERO, Vec2::splat(2.0)), "a real triangle still overlaps");
+}
