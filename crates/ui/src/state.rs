@@ -624,6 +624,9 @@ impl UiState {
         self.painting = false;
         self.last_stroke_point = None;
         self.orbit_pivot = None;
+        // The reloaded file brings its own cameras: an index into the old list would show the new
+        // camera's name over the old camera's view.
+        self.active_camera = None;
     }
 
     /// One Shelf click makes the brush usable at once: the app applies it, and Fill, Eyedropper
