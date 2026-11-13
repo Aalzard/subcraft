@@ -958,7 +958,10 @@ impl ViewportRenderer {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
-            if e.background_opacity > 0.0 {
+            // The clear colour is the plain background; the pass is needed for the environment or
+            // for a gradient (a top colour that differs from the bottom one).
+            let gradient = params.background_top.is_some_and(|top| top != params.background);
+            if e.background_opacity > 0.0 || gradient {
                 pass.set_pipeline(&self.pipeline_background[if samples > 1 { 0 } else { 1 }]);
                 pass.set_bind_group(0, &self.globals_bg, &[]);
                 pass.draw(0..3, 0..1);
