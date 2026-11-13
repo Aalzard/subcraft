@@ -236,7 +236,6 @@ fn grain_hash(cell: vec2<f32>, salt: f32) -> f32 {
     return fract(sin(dot(cell, vec2<f32>(12.9898, 78.233)) + salt) * 43758.5453);
 }
 
-@fragment
 // Lens distortion (CPU reference: `grade::Grade::lens_uv`): where view point `uv` reads the
 // picture (xy) and how much of it shows (z, 0 outside the rounded edge).
 fn lens_uv(uv: vec2<f32>) -> vec3<f32> {
@@ -252,6 +251,7 @@ fn lens_uv(uv: vec2<f32>) -> vec3<f32> {
     return vec3<f32>(at, 1.0 - smoothstep(1.0 - soft - 1e-4, 1.0, s));
 }
 
+@fragment
 fn fs_grade(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
     var uv = frag.xy * p.size.zw;
     var mask = 1.0;
