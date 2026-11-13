@@ -199,8 +199,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             let density = *state.uv_density.entry(slot).or_insert_with(|| subcraft_paint::stroke::uv_per_unit(mesh, slot));
             let r_px = state.session.brush_radius_uv(density) * side;
             let color = if state.tool == Tool::Eraser { Color32::from_rgb(120, 190, 255) } else { crate::theme::ACCENT };
-            painter.circle_stroke(p, r_px, Stroke::new(1.5, Color32::from_black_alpha(160)));
-            painter.circle_stroke(p, r_px, Stroke::new(1.0, color));
+            painter.extend(state.recovery.prefs.viewport.brush_cursor.shapes(p, r_px, color, true));
             // Shift: dotted preview of the straight line from the last stroke point.
             if mods.shift && !state.uv.painting && let Some(from) = state.uv.last_point {
                 let to = line_end(to_px(from), p, mods.command || mods.ctrl);
@@ -326,7 +325,7 @@ fn brush_controls(state: &mut UiState, ui: &mut Ui) {
     let mut options = state.session.brush.options;
     let (original, original_options) = (settings, options);
     let width = ui.available_width();
-    crate::brush_bar::show(ui, &mut state.tool, &mut settings, &mut options, &mut state.recovery.prefs.viewport.symmetry_guides, width);
+    crate::brush_bar::show(ui, &mut state.tool, &mut settings, &mut options, &mut state.recovery.prefs.viewport, width);
     if state.tool == Tool::PolygonFill {
         let destination = state.session.polygon_fill_destination();
         crate::brush_bar::fill_options(ui, &mut state.fill_mode, None, destination, "fill_mode_2d");

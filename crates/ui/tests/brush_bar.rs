@@ -440,3 +440,35 @@ fn flow_and_hardness_open_independent_sliders_and_edit_shared_values() {
         assert_eq!(state.session.document(), &doc);
     }
 }
+
+#[test]
+fn symmetry_settings_menu_picks_the_brush_cursor_and_the_symmetry_cursor_display() {
+    use subcraft_ui::viewport_bar::BrushCursor;
+    let (mut state, ctx) = setup();
+    let history = state.session.history().entries().len();
+    assert_eq!(state.recovery.prefs.viewport.brush_cursor, BrushCursor::Outline);
+    assert!(state.recovery.prefs.viewport.symmetry_cursor);
+    for _ in 0..3 {
+        frame(&mut state, &ctx, 1125.0, vec![]);
+    }
+    let (out, _) = frame(&mut state, &ctx, 1125.0, vec![]);
+    click(
+        &mut state,
+        &ctx,
+        position(&out, subcraft_ui::icons::GEAR).expect("symmetry settings button"),
+    );
+    for _ in 0..3 {
+        frame(&mut state, &ctx, 1125.0, vec![]);
+    }
+    let (out, _) = frame(&mut state, &ctx, 1125.0, vec![]);
+    click(&mut state, &ctx, position(&out, "Crosshair").expect("cursor style in the menu"));
+    assert_eq!(state.recovery.prefs.viewport.brush_cursor, BrushCursor::Crosshair);
+    let (out, _) = frame(&mut state, &ctx, 1125.0, vec![]);
+    click(&mut state, &ctx, position(&out, "Outline").unwrap());
+    assert_eq!(state.recovery.prefs.viewport.brush_cursor, BrushCursor::Outline);
+    let (out, _) = frame(&mut state, &ctx, 1125.0, vec![]);
+    assert!(position(&out, "Hide while painting").is_some());
+    click(&mut state, &ctx, position(&out, "Show cursor").expect("symmetry cursor switch"));
+    assert!(!state.recovery.prefs.viewport.symmetry_cursor);
+    assert_eq!(state.session.history().entries().len(), history, "display choices are not undo steps");
+}

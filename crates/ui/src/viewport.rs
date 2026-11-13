@@ -648,8 +648,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 let ppu = camera.pixels_per_unit(pick.depth);
                 let r_px = state.session.brush_radius_in(ppu, size[1] as f32, density) * ppu / pixel_scale.y;
                 let color = if state.tool == Tool::Eraser { Color32::from_rgb(120, 190, 255) } else { ACCENT };
-                painter.circle_stroke(p, r_px, Stroke::new(1.5, Color32::from_black_alpha(160)));
-                painter.circle_stroke(p, r_px, Stroke::new(1.0, color));
+                painter.extend(state.recovery.prefs.viewport.brush_cursor.shapes(p, r_px, color, true));
                 // Symmetry: a second cursor where each copy paints (faint when the copy's point
                 // is hidden behind the model).
                 let prefs = &state.recovery.prefs.viewport;
@@ -659,7 +658,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     for (at, visible) in symmetry_cursors(&camera, options, center, pick.position, |s| state.session.pick(&camera, s).map(|h| h.depth)) {
                         let at = rect.min + egui::vec2(at.x / pixel_scale.x, at.y / pixel_scale.y);
                         let c = if visible { color.gamma_multiply(0.8) } else { color.gamma_multiply(0.3) };
-                        painter.circle_stroke(at, r_px, Stroke::new(1.0, c));
+                        painter.extend(prefs.brush_cursor.shapes(at, r_px, c, false));
                     }
                 }
             }

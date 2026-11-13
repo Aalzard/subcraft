@@ -153,8 +153,8 @@ Layout notes: the dropdown at the top right of each view switches between Materi
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
 | Brush cursor: Full preview (brush alpha / material projected) | 3D view; chosen in Contextual toolbar | default (unverified) | missing | - | - |
-| Brush cursor: Brush outline | 3D view; chosen in Contextual toolbar | - | partial: screen-space circle of the brush radius, the only style | crates/ui/src/viewport.rs:491 | - |
-| Brush cursor: Crosshair | 3D view; chosen in Contextual toolbar | - | missing | - | - |
+| Brush cursor: Brush outline | 3D view; chosen in Contextual toolbar | - | done: screen-space circle of the brush radius, in the 3D and 2D views | crates/ui/src/viewport_bar.rs (BrushCursor) | - |
+| Brush cursor: Crosshair | 3D view; chosen in Contextual toolbar | - | done: a fixed-size cross, in the 3D and 2D views and for the symmetry cursors | crates/ui/src/viewport_bar.rs (BrushCursor) | - |
 | Lazy mouse ring around the cursor | 3D view when Lazy mouse is on | grey circle | done: grey ring of the lazy distance around the cursor | crates/ui/src/viewport.rs (overlays) | 261 |
 | Clone source marker | 3D view with the Clone tool | - | done | crates/ui/src/viewport.rs:499 | - |
 | Fill layer cursor (no brush) | 3D view with a fill layer selected | - | missing | - | - |

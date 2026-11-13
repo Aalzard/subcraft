@@ -73,8 +73,8 @@ Layout notes: the Contextual toolbar is fixed above the viewports and cannot be 
 | Symmetry button (on / off) | Contextual toolbar; L | off | partial: toggles and restores the last axes; the L key still toggles mirror X only | crates/ui/src/brush_bar.rs (toggle_symmetry) | - |
 | Symmetry settings button (opens the settings menu) | Contextual toolbar, next to Symmetry | - | done | crates/ui/src/brush_bar.rs (stroke_options) | - |
 | Brush preview: Full preview | Contextual toolbar (2019.3) | not documented | missing | - | - |
-| Brush preview: Brush outline | Contextual toolbar (2019.3) | not documented | partial: the only cursor style, not selectable | crates/ui/src/viewport.rs:491 | - |
-| Brush preview: Crosshair | Contextual toolbar (2019.3) | not documented | missing | - | - |
+| Brush preview: Brush outline | Contextual toolbar (2019.3) | not documented | partial: chosen in the symmetry settings menu (Brush cursor), not from its own toolbar button; the default | crates/ui/src/viewport_bar.rs (BrushCursor) | - |
+| Brush preview: Crosshair | Contextual toolbar (2019.3) | not documented | partial: chosen in the symmetry settings menu (Brush cursor), not from its own toolbar button | crates/ui/src/viewport_bar.rs (BrushCursor) | - |
 | Pressure curve: linear | Contextual toolbar (2019.3) | not documented | missing | - | - |
 | Pressure curve: easy-in | Contextual toolbar (2019.3) | not documented | missing | - | - |
 | Pressure curve: easy-in-out | Contextual toolbar (2019.3) | not documented | missing | - | - |
@@ -93,8 +93,8 @@ Layout notes: the Contextual toolbar is fixed above the viewports and cannot be 
 | Axis position | Symmetry settings menu | 0 (unverified) | missing | - | - |
 | Show Plane | Symmetry settings menu > display | not documented | partial: one "Show symmetry guides" checkbox for all guides | crates/ui/src/brush_bar.rs:83 | - |
 | Show Intersection | Symmetry settings menu > display | not documented | missing | - | - |
-| Show Cursor | Symmetry settings menu > display | not documented | missing | - | - |
-| Hide While Painting | Symmetry settings menu > display | not documented | missing | - | - |
+| Show Cursor | Symmetry settings menu > display | not documented | done: one switch shared by mirror and radial | crates/ui/src/brush_bar.rs (stroke_options) | - |
+| Hide While Painting | Symmetry settings menu > display | not documented | done: one switch shared by mirror and radial | crates/ui/src/brush_bar.rs (stroke_options) | - |
 | Enable manipulator | Symmetry settings menu > display | off | missing | - | - |
 | Manipulator Size | Symmetry settings menu > display | not documented | missing | - | - |
 
@@ -111,8 +111,8 @@ Layout notes: the Contextual toolbar is fixed above the viewports and cannot be 
 | Axis position Z | Symmetry settings menu | 0 (unverified) | done | crates/ui/src/brush_bar.rs:129 | - |
 | Show Axis | Symmetry settings menu > display | not documented | partial: shared "Show symmetry guides" checkbox | crates/ui/src/brush_bar.rs:83 | - |
 | Show Intersection | Symmetry settings menu > display | not documented | missing | - | - |
-| Show Cursor (brush tool) | Symmetry settings menu > display | not documented | missing | - | - |
-| Hide While Painting (brush tool) | Symmetry settings menu > display | not documented | missing | - | - |
+| Show Cursor (brush tool) | Symmetry settings menu > display | not documented | done: the same switch as the mirror menu | crates/ui/src/brush_bar.rs (stroke_options) | - |
+| Hide While Painting (brush tool) | Symmetry settings menu > display | not documented | done: the same switch as the mirror menu | crates/ui/src/brush_bar.rs (stroke_options) | - |
 | Show Axis position manipulator | Symmetry settings menu > display | off | missing | - | - |
 | Manipulator Size | Symmetry settings menu > display | not documented | missing | - | - |
 | Symmetry button greyed out for unsupported fill projections | Contextual toolbar with a fill layer | - | missing | - | - |

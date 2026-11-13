@@ -26,6 +26,67 @@ pub fn time_unit_label(i: usize) -> &'static str {
 pub const MAX_RENDER_TIME_S: f32 = 86_400.0;
 pub const MAX_TRACE_SIDE: u32 = 8192;
 
+/// How the brush shows at the pointer in the 3D and 2D views (Painter's "Brush preview").
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BrushCursor {
+    /// A circle of the brush's size.
+    #[default]
+    Outline,
+    /// A small cross at the pointer, the same size for every brush.
+    Crosshair,
+}
+
+impl BrushCursor {
+    pub const ALL: [BrushCursor; 2] = [BrushCursor::Outline, BrushCursor::Crosshair];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            BrushCursor::Outline => "Outline",
+            BrushCursor::Crosshair => "Crosshair",
+        }
+    }
+
+    pub fn tip(self) -> &'static str {
+        match self {
+            BrushCursor::Outline => "A circle of the brush's size",
+            BrushCursor::Crosshair => "A small cross that does not cover what is painted",
+        }
+    }
+
+    /// The cursor drawn at `at` for a brush `radius` points wide. `backed` adds the dark
+    /// backing that keeps the main cursor readable on light surfaces.
+    pub fn shapes(self, at: egui::Pos2, radius: f32, color: egui::Color32, backed: bool) -> Vec<egui::Shape> {
+        let dark = egui::Color32::from_black_alpha(160);
+        let mut out = Vec::new();
+        match self {
+            BrushCursor::Outline => {
+                if backed {
+                    out.push(egui::Shape::circle_stroke(at, radius, egui::Stroke::new(1.5, dark)));
+                }
+                out.push(egui::Shape::circle_stroke(at, radius, egui::Stroke::new(1.0, color)));
+            }
+            BrushCursor::Crosshair => {
+                // Four arms that leave the exact point under the pointer visible.
+                let arms = [egui::vec2(1.0, 0.0), egui::vec2(-1.0, 0.0), egui::vec2(0.0, 1.0), egui::vec2(0.0, -1.0)];
+                let (gap, reach) = (Self::CROSS_GAP, Self::CROSS_REACH);
+                if backed {
+                    for d in arms {
+                        out.push(egui::Shape::line_segment([at + d * gap, at + d * reach], egui::Stroke::new(3.0, dark)));
+                    }
+                }
+                for d in arms {
+                    out.push(egui::Shape::line_segment([at + d * gap, at + d * reach], egui::Stroke::new(1.0, color)));
+                }
+            }
+        }
+        out
+    }
+
+    /// Where the crosshair's arms start and end, in points from the pointer.
+    pub const CROSS_GAP: f32 = 3.0;
+    pub const CROSS_REACH: f32 = 10.0;
+}
+
 /// 3D view settings, kept between runs with the other preferences. The display settings (also
 /// saved in each project, see [`crate::panels::display_settings::sync_project`]) are reached
 /// directly: `prefs.bloom` is `prefs.display.bloom`.
@@ -46,6 +107,8 @@ pub struct ViewportPrefs {
     #[serde(skip)]
     pub solo: Option<subcraft_core::ChannelKind>,
     pub symmetry_guides: bool,
+    /// The brush cursor's style in the 3D and 2D views.
+    pub brush_cursor: BrushCursor,
     /// Painter's symmetry "Show Cursor": a second brush cursor where each symmetry copy paints.
     pub symmetry_cursor: bool,
     /// Painter's "Hide While Painting" for the symmetry cursors.
@@ -107,6 +170,7 @@ impl Default for ViewportPrefs {
             mesh_map: None,
             solo: None,
             symmetry_guides: true,
+            brush_cursor: BrushCursor::Outline,
             symmetry_cursor: true,
             symmetry_cursor_hide_painting: false,
             symmetry_plane: true,
@@ -438,7 +502,7 @@ pub fn show(ui: &mut Ui, state: &mut crate::state::UiState) {
                     ui.add_space(5.0);
                     ui.separator();
                     ui.add_space(5.0);
-                    crate::brush_bar::show(ui, &mut state.tool, &mut settings, &mut options, &mut state.recovery.prefs.viewport.symmetry_guides, width);
+                    crate::brush_bar::show(ui, &mut state.tool, &mut settings, &mut options, &mut state.recovery.prefs.viewport, width);
                     if state.tool == crate::state::Tool::PolygonFill {
                         let destination = state.session.polygon_fill_destination();
                         crate::brush_bar::fill_options(ui, &mut state.fill_mode, Some(&mut state.fill_visible_only), destination, "fill_mode_3d");
@@ -448,7 +512,7 @@ pub fn show(ui: &mut Ui, state: &mut crate::state::UiState) {
             if painting && !inline {
                 ui.separator();
                 ui.horizontal(|ui| {
-                    crate::brush_bar::show(ui, &mut state.tool, &mut settings, &mut options, &mut state.recovery.prefs.viewport.symmetry_guides, width);
+                    crate::brush_bar::show(ui, &mut state.tool, &mut settings, &mut options, &mut state.recovery.prefs.viewport, width);
                     if state.tool == crate::state::Tool::PolygonFill {
                         let destination = state.session.polygon_fill_destination();
                         crate::brush_bar::fill_options(ui, &mut state.fill_mode, Some(&mut state.fill_visible_only), destination, "fill_mode_3d");
@@ -686,6 +750,41 @@ fn dim(ui: &mut Ui, text: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn brush_cursor_styles_draw_a_brush_sized_circle_or_a_fixed_cross() {
+        let at = egui::pos2(100.0, 80.0);
+        let color = egui::Color32::WHITE;
+        let circles = |shapes: &[egui::Shape]| shapes.iter().filter_map(|s| if let egui::Shape::Circle(c) = s { Some(c.radius) } else { None }).collect::<Vec<f32>>();
+        let segments = |shapes: &[egui::Shape]| shapes.iter().filter_map(|s| if let egui::Shape::LineSegment { points, .. } = s { Some(*points) } else { None }).collect::<Vec<[egui::Pos2; 2]>>();
+
+        let outline = BrushCursor::Outline.shapes(at, 42.0, color, true);
+        assert_eq!(circles(&outline), vec![42.0, 42.0], "backing and colour, both of the brush's size");
+        assert!(segments(&outline).is_empty());
+        assert_eq!(BrushCursor::Outline.shapes(at, 42.0, color, false).len(), 1, "symmetry copies have no backing");
+
+        for radius in [2.0, 42.0, 400.0] {
+            let cross = BrushCursor::Crosshair.shapes(at, radius, color, true);
+            assert!(circles(&cross).is_empty(), "no circle in crosshair style");
+            let arms = segments(&cross);
+            assert_eq!(arms.len(), 8, "four arms, backed");
+            for [a, b] in arms {
+                assert!((a.distance(at) - BrushCursor::CROSS_GAP).abs() < 1e-4 && (b.distance(at) - BrushCursor::CROSS_REACH).abs() < 1e-4, "the cross does not grow with the brush");
+                assert!(a.x == at.x || a.y == at.y, "arms are horizontal or vertical");
+            }
+        }
+        assert_eq!(BrushCursor::Crosshair.shapes(at, 42.0, color, false).len(), 4);
+    }
+
+    #[test]
+    fn brush_cursor_is_remembered_and_old_preferences_get_the_outline() {
+        let old: ViewportPrefs = serde_json::from_str("{}").unwrap();
+        assert_eq!(old.brush_cursor, BrushCursor::Outline);
+        let p = ViewportPrefs { brush_cursor: BrushCursor::Crosshair, ..Default::default() };
+        let restored: ViewportPrefs = serde_json::from_str(&serde_json::to_string(&p).unwrap()).unwrap();
+        assert_eq!(restored.brush_cursor, BrushCursor::Crosshair);
+        assert_eq!(BrushCursor::ALL.map(BrushCursor::label), ["Outline", "Crosshair"]);
+    }
 
     #[test]
     fn mesh_map_cycle_runs_both_ways_through_the_material_view() {

@@ -19,13 +19,13 @@ pub(crate) fn show(
     tool: &mut Tool,
     settings: &mut BrushSettings,
     options: &mut StrokeOptions,
-    guides: &mut bool,
+    view: &mut crate::viewport_bar::ViewportPrefs,
     width: f32,
 ) {
     // Tool selection lives in the left tool rail only (as in Painter); this row holds the
     // stroke options and the brush values of the active tool.
     ui.spacing_mut().item_spacing.x = 9.0;
-    stroke_options(ui, options, guides);
+    stroke_options(ui, options, view);
     let brush = *tool != Tool::PolygonFill;
     if width < FULL_MIN_WIDTH {
         let response = widgets::icon_button(ui, icons::SLIDERS, "Brush settings");
@@ -159,7 +159,7 @@ pub(crate) fn toggle_lazy(options: &mut StrokeOptions, saved: &mut Option<f32>) 
 }
 
 /// Painter's three buttons: Symmetry on / off, its settings menu, and Lazy mouse on / off.
-fn stroke_options(ui: &mut Ui, options: &mut StrokeOptions, guides: &mut bool) {
+fn stroke_options(ui: &mut Ui, options: &mut StrokeOptions, view: &mut crate::viewport_bar::ViewportPrefs) {
     let saved_id = egui::Id::new("brush_bar_saved_stroke_options");
     let (mut saved_symmetry, mut saved_lazy): (Option<([bool; 3], bool)>, Option<f32>) = ui.data(|d| d.get_temp(saved_id)).unwrap_or((None, None));
     let on = symmetry_on(options);
@@ -199,7 +199,20 @@ fn stroke_options(ui: &mut Ui, options: &mut StrokeOptions, guides: &mut bool) {
             });
             ui.add_space(4.0);
             radial_options(ui, options);
-            ui.checkbox(guides, "Show symmetry guides");
+            ui.checkbox(&mut view.symmetry_guides, "Show symmetry guides");
+            // Painter's Show Cursor / Hide While Painting: the second cursor of each symmetry copy.
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut view.symmetry_cursor, "Show cursor").on_hover_text("A second brush cursor where each symmetry copy of the stroke paints");
+                ui.add_enabled(view.symmetry_cursor, egui::Checkbox::new(&mut view.symmetry_cursor_hide_painting, "Hide while painting"));
+            });
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("Brush cursor").color(TEXT_DIM));
+                for style in crate::viewport_bar::BrushCursor::ALL {
+                    if ui.selectable_label(view.brush_cursor == style, style.label()).on_hover_text(style.tip()).clicked() {
+                        view.brush_cursor = style;
+                    }
+                }
+            });
             ui.separator();
             ui.label(RichText::new("Lazy Mouse").color(TEXT_DIM));
             ui.spacing_mut().slider_width = 155.0;
