@@ -223,7 +223,7 @@ mod tests {
         let mesh = primitives::plane(2.0, 1);
         let mut ch = BTreeMap::new();
         ch.insert(ChannelKind::Height, TiledImage::new(16, 16, 1, [0.5; 4]));
-        let sets = [ExportTextureSet { name: "P", material_slot: 0, udim: None, channels: &ch, mesh_maps: None }];
+        let sets = [ExportTextureSet { name: "P", material_slot: 0, udim: None, channels: &ch, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY }];
         let d = Displacement { scale: 0.2, subdivisions: 2, recompute_normals: true };
         let out = displaced(&mesh, &sets, &d);
         assert_eq!(out.triangle_count(), mesh.triangle_count() * 16);
@@ -236,7 +236,7 @@ mod tests {
         assert!((out.bounds.min.dot(mesh.normals[0]) - 0.1).abs() < 1e-5 || (out.bounds.max.dot(mesh.normals[0]) - 0.1).abs() < 1e-5);
         // No Height channel: nothing moves.
         let empty = BTreeMap::new();
-        let none = [ExportTextureSet { name: "P", material_slot: 0, udim: None, channels: &empty, mesh_maps: None }];
+        let none = [ExportTextureSet { name: "P", material_slot: 0, udim: None, channels: &empty, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY }];
         let flat = displaced(&mesh, &none, &Displacement { subdivisions: 0, ..d });
         assert_eq!(flat.positions, mesh.positions);
     }

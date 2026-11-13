@@ -84,9 +84,9 @@ Layout notes: a thumbnail button for the map (opens a mini-shelf filtered to env
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Shadows (enable) | Display Settings > Shadows | off (unverified) | missing: raster view has no shadows (only the path-traced mode casts them) | - | - |
-| Computation mode | Display Settings > Shadows | Lightweight; options Intensive, Average, Lightweight | missing | - | - |
-| Shadows opacity | Display Settings > Shadows | not documented | missing | - | - |
+| Shadows (enable) | Display Settings > Shadows | off (unverified) | done: off by default; the key light casts shadows in the raster 3D view (the environment light keeps its AO shading) | crates/render/src/shadow.rs, crates/render/src/viewport.wgsl (shadow_visibility) | - |
+| Computation mode | Display Settings > Shadows | Lightweight; options Intensive, Average, Lightweight | done: Intensive, Average, Lightweight (default): shadow-map size 4096 / 2048 / 1024 and filter width | crates/render/src/shadow.rs (ShadowQuality) | - |
+| Shadows opacity | Display Settings > Shadows | not documented | done: 0-1, default 0.8 (Painter's default is not documented) | crates/ui/src/panels/display_settings.rs (environment) | - |
 
 ## Camera settings: Camera
 
@@ -258,10 +258,10 @@ Layout notes: this page is still in the help but the effect is not in the 12.0 e
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Power | Post effects > Lens Distortion | not documented | missing | - | - |
-| FOV | Post effects > Lens Distortion | not documented | missing | - | - |
-| Edge Roundness | Post effects > Lens Distortion | not documented | missing | - | - |
-| Edge Smoothness | Post effects > Lens Distortion | not documented | missing | - | - |
+| Power | Post effects > Lens Distortion | not documented | done: -1..1 (negative = telephoto / pincushion), 0.3 when turned on; Painter's default is not documented | crates/render/src/grade.rs (lens_uv), post.wgsl (lens_uv) | 249 |
+| FOV | Post effects > Lens Distortion | not documented | done: 0..1, how far a barrel distortion zooms in to hide the stretched border (default 1) | crates/render/src/grade.rs (lens_zoom) | 249 |
+| Edge Roundness | Post effects > Lens Distortion | not documented | done: 0 rectangle .. 1 oval (default 0.5) | crates/render/src/grade.rs (lens_uv) | 249 |
+| Edge Smoothness | Post effects > Lens Distortion | not documented | done: 0 hard .. 1 (default 0.2) | crates/render/src/grade.rs (lens_uv) | 249 |
 
 ## Camera settings: Temporal anti-aliasing
 
