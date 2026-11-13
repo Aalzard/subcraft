@@ -438,6 +438,31 @@ fn every_mesh_map_layout_uploads_and_previews() {
 }
 
 #[test]
+fn the_channel_preview_shows_one_component_alone() {
+    let _gpu = gpu_test();
+    let Some((_, device, queue)) = headless::device() else {
+        eprintln!("no wgpu adapter available: skipping");
+        return;
+    };
+    use subcraft_render::{ChannelComponent, PreviewSource};
+    let mut r = ViewportRenderer::new(&device, &queue);
+    r.set_mesh(&device, &primitives::cube(2.0));
+    // A data channel (stored values shown as they are) with distinct components.
+    let rgba = [0.2, 0.5, 0.8, 0.4];
+    r.upload_channel(&device, &queue, 0, ChannelKind::Normal, &TiledImage::new(64, 64, 4, rgba), None);
+    let mut shot = |component| r.preview_component(&device, &queue, 0, PreviewSource::Channel(ChannelKind::Normal), component).unwrap().read_rgba8(&device, &queue);
+    let all = shot(ChannelComponent::All);
+    let near = |a: u8, v: f32| (a as f32 - v * 255.0).abs() <= 2.0;
+    assert!(near(all[0], 0.2) && near(all[1], 0.5) && near(all[2], 0.8), "all components: {:?}", &all[..4]);
+    for (component, v) in [(ChannelComponent::R, 0.2), (ChannelComponent::G, 0.5), (ChannelComponent::B, 0.8), (ChannelComponent::Alpha, 0.4)] {
+        let img = shot(component);
+        assert!(img[..4 * 64].chunks_exact(4).all(|p| near(p[0], v) && p[0] == p[1] && p[1] == p[2]), "{component:?} shown as gray {v}: {:?}", &img[..4]);
+    }
+    // The plain preview is the "all" one.
+    assert_eq!(r.preview(&device, &queue, 0, PreviewSource::Channel(ChannelKind::Normal)).unwrap().read_rgba8(&device, &queue), all);
+}
+
+#[test]
 fn hdri_environment_shows_in_reflections() {
     let _gpu = gpu_test();
     let Some((_, device, queue)) = headless::device() else {

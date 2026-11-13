@@ -123,7 +123,7 @@ Layout notes: one flat dropdown, grouped by separators in this order: Normal / P
 | Drag a Smart Mask onto the stack as a new layer (fill layer with that mask) | Assets > Layer stack | n/a | done (dropped on the top zone; on a row it goes into that row's mask) | crates/ui/src/panels/shelf.rs:154 | - |
 | Drag an external file from the OS into the stack (auto-import and create layer/effect) | OS > Layer stack | n/a | missing | - | - |
 | Ctrl while dropping a resource in the stack: new layer with the resource inside a black mask | Assets > Layer stack | n/a | partial: materials and textures; the new layer gets a black mask, the resource stays the layer's content | crates/ui/src/panels/shelf.rs:154 | - |
-| Alt while dropping on a layer thumbnail: remove the previous effects first | Assets > Layer stack | n/a | partial: Alt means "apply in place" (replace the fill material / set the active channel), a different rule | crates/ui/src/panels/shelf.rs:80 | - |
+| Alt while dropping on a layer thumbnail: remove the previous effects first | Assets > Layer stack | n/a | partial: smart masks replace the mask's effects; for materials and textures Alt means "apply in place" (replace the fill material / set the active channel) | crates/ui/src/panels/shelf.rs:91 | - |
 | Hovering a thumbnail while dragging switches to that stack (content or mask) | Layer stack | n/a | partial: mask thumbnail is a separate drop target, no stack switch | crates/ui/src/panels/layers.rs:300 | - |
 | Ghost mask icon on mask-less layers while dragging (drop creates a black mask plus the resource) | Layer stack | n/a | missing | - | - |
 | Ctrl + drag a material creates the fill layer with a mask immediately | Assets > Layer stack | n/a | done | crates/ui/src/panels/shelf.rs:154 | - |

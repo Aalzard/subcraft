@@ -48,6 +48,9 @@ pub(crate) struct PartView {
     hide_excluded: bool, excluded: Option<(u32, PartMask)>,
     /// The kind of part a new geometry mask lists (the view being picked in chooses it).
     pub(crate) new_mask_kind: PartKind,
+    /// The texture sets hidden when the view was last refreshed: Focus mode hides every set but
+    /// the selected one, so the view must follow a selection change.
+    hidden_sets: BTreeSet<TextureSetId>,
     pub scene: Option<Scene>, revision: u64,
     catalog: [OnceLock<Vec<PartInfo>>; 4],
     visible: [OnceLock<BTreeSet<u32>>; 4],
@@ -153,6 +156,7 @@ impl Session {
     /// Rebuild the picking / painting scene after parts or texture sets were hidden or shown, or
     /// the geometry hidden by Alt+H changed.
     pub(crate) fn refresh_part_view(&mut self) {
+        self.part_view.hidden_sets = self.hidden_set_ids();
         if self.has_hidden_parts() || self.part_view.excluded.is_some() || self.document().texture_sets.iter().any(|ts| self.is_set_hidden(ts.id)) {
             self.rebuild_part_view();
         } else if self.part_view.scene.is_some() {
@@ -184,12 +188,21 @@ impl Session {
 
     /// Keep the Alt+H view on the selected layer's geometry mask (call once per frame; it only
     /// rebuilds the view when the layer or its mask changed).
+    /// Also keeps picking on the texture sets the viewport shows: in Focus mode a selection
+    /// change hides other sets (QA 2026-11: picks and strokes still hit them, or missed the newly
+    /// shown one).
     pub fn sync_excluded_view(&mut self) {
         let want = if self.part_view.hide_excluded { self.excluded_mask() } else { None };
         if want != self.part_view.excluded {
             self.part_view.excluded = want;
             self.refresh_part_view();
+        } else if self.hidden_set_ids() != self.part_view.hidden_sets {
+            self.refresh_part_view();
         }
+    }
+
+    fn hidden_set_ids(&self) -> BTreeSet<TextureSetId> {
+        self.document().texture_sets.iter().map(|ts| ts.id).filter(|&id| self.is_set_hidden(id)).collect()
     }
 
     fn rebuild_part_view(&mut self) {
