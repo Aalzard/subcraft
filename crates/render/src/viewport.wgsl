@@ -417,7 +417,9 @@ fn fs_background(in: BgOut) -> @location(0) vec4<f32> {
     let far = g.inv_view_proj * vec4<f32>(in.ndc, 1.0, 1.0);
     let d = normalize(far.xyz / far.w - near.xyz / near.w);
     let env = tonemap(background_radiance(d, g.env_view.x) * g.params.x, i32(round(g.post.x)), g.post.y);
-    return vec4<f32>(mix(g.background.rgb, env, g.background.a), 1.0);
+    // Vertical gradient from the bottom colour to the top one (equal by default).
+    let plain = mix(g.background.rgb, g.env_view.yzw, clamp(in.ndc.y * 0.5 + 0.5, 0.0, 1.0));
+    return vec4<f32>(mix(plain, env, g.background.a), 1.0);
 }
 
 // Emission only, in linear HDR: feeds the glow and glare passes of the viewport.

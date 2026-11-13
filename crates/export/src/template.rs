@@ -34,6 +34,83 @@ pub enum Source {
     /// Base Color stack's coverage (below 1 only in a transparent texture set). What the
     /// "+ Opacity" presets put in Base Color's alpha and in their separate Opacity map.
     Alpha,
+    /// Component of one of Painter's converted maps (Diffuse, Specular, Glossiness...), computed
+    /// from the metal / roughness channels.
+    Converted { map: Converted, component: u8 },
+}
+
+/// Painter's "converted maps": values derived from the metallic / roughness channels for
+/// renderers and engines that want another workflow. All values are linear; the colour ones
+/// (Diffuse, Specular, Reflection) are sRGB-encoded in 8/16-bit sRGB maps like Base Color.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Converted {
+    /// Base color × (1 − metallic): the diffuse albedo of a specular / glossiness material.
+    Diffuse,
+    /// Reflectance at normal incidence as a colour: f0 for dielectrics, base color for metals,
+    /// blended by metallic.
+    Specular,
+    /// Reflection colour for renderers whose reflection uses Fresnel from an IOR (V-Ray, Corona):
+    /// white for dielectrics, base color for metals, blended by metallic.
+    Reflection,
+    /// 1 − roughness.
+    Glossiness,
+    /// (1 − roughness)².
+    GlossinessSquared,
+    /// Ambient Occlusion channel × baked ambient occlusion (either alone when the other is absent).
+    MixedAo,
+    /// Dielectric reflectance at normal incidence from the Specular level channel: 0.08 × level
+    /// (level 0.5 = 0.04, an IOR of 1.5).
+    F0,
+    /// 1 / IOR for that reflectance: (1 − √f0) / (1 + √f0) (level 0.5 = 0.667).
+    InverseIor,
+}
+
+impl Converted {
+    pub const ALL: [Converted; 8] = [
+        Converted::Diffuse,
+        Converted::Specular,
+        Converted::Reflection,
+        Converted::Glossiness,
+        Converted::GlossinessSquared,
+        Converted::MixedAo,
+        Converted::F0,
+        Converted::InverseIor,
+    ];
+
+    /// Painter's name for the map.
+    pub fn label(self) -> &'static str {
+        match self {
+            Converted::Diffuse => "Diffuse",
+            Converted::Specular => "Specular",
+            Converted::Reflection => "Reflection",
+            Converted::Glossiness => "Glossiness",
+            Converted::GlossinessSquared => "Glossiness squared",
+            Converted::MixedAo => "Mixed AO",
+            Converted::F0 => "f0",
+            Converted::InverseIor => "1/ior",
+        }
+    }
+
+    pub fn components(self) -> usize {
+        if self.is_color() { 3 } else { 1 }
+    }
+
+    pub fn is_color(self) -> bool {
+        matches!(self, Converted::Diffuse | Converted::Specular | Converted::Reflection)
+    }
+
+    /// Channels the map is computed from; it is written for a texture set that has any of them.
+    pub fn inputs(self) -> &'static [ChannelKind] {
+        use ChannelKind::*;
+        match self {
+            Converted::Diffuse | Converted::Reflection => &[BaseColor, Metallic],
+            Converted::Specular => &[BaseColor, Metallic, Specular],
+            Converted::Glossiness | Converted::GlossinessSquared => &[Roughness],
+            Converted::MixedAo => &[AmbientOcclusion],
+            Converted::F0 | Converted::InverseIor => &[Specular, BaseColor, Metallic, Roughness],
+        }
+    }
 }
 
 impl Source {
@@ -49,7 +126,7 @@ impl Source {
             Source::Height => Some(ChannelKind::Height),
             Source::Gray { kind, .. } => Some(*kind),
             Source::Alpha => Some(ChannelKind::Opacity),
-            Source::Constant { .. } | Source::View2d { .. } | Source::MeshMap { .. } => None,
+            Source::Constant { .. } | Source::View2d { .. } | Source::MeshMap { .. } | Source::Converted { .. } => None,
         }
     }
 
@@ -67,6 +144,7 @@ impl Source {
             Source::Gray { kind, invert } => inv(invert, format!("Gray({})", kind.display_name())),
             Source::Alpha => "Alpha (Opacity)".into(),
             Source::MeshMap { kind, component, invert } => inv(invert, if kind.components() > 1 { format!("Baked {}.{}", kind.display_name(), comp(component)) } else { format!("Baked {}", kind.display_name()) }),
+            Source::Converted { map, component } => if map.components() > 1 { format!("{}.{}", map.label(), comp(component)) } else { map.label().to_string() },
         }
     }
 }
@@ -422,8 +500,11 @@ impl ExportTemplate {
         out
     }
 
+    /// The built-in templates: SubCraft's first nine (their order is kept: `--export-template`
+    /// indexes it), then Painter's predefined and default templates
+    /// ([`crate::builtin_presets`]).
     pub fn builtin() -> Vec<ExportTemplate> {
-        vec![
+        let mut all = vec![
             Self::pbr_metal_rough(),
             Self::unreal(),
             Self::unity_hdrp(),
@@ -439,6 +520,8 @@ impl ExportTemplate {
             Self::unity_urp_alpha(),
             Self::godot_alpha(),
             Self::gltf_alpha(),
-        ]
+        ];
+        all.extend(crate::builtin_presets::painter());
+        all
     }
 }

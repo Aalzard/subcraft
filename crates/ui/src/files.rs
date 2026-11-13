@@ -28,6 +28,10 @@ pub enum Purpose {
     /// The updated model for File > Reload mesh.
     ReloadMesh,
     BakeHighPoly,
+    /// More high-poly files for the bake (Common settings).
+    BakeHighPolyExtra,
+    /// A custom cage mesh for the bake.
+    BakeCage,
     Stencil,
     /// A `.ttf` / `.otf` font for the text tool.
     Font,
@@ -211,7 +215,7 @@ pub fn window_drops(paths: &[PathBuf]) -> Vec<WindowDrop> {
     }).collect()
 }
 
-fn handle(state: &mut UiState, purpose: Purpose, paths: &[PathBuf], now: f64) {
+pub(crate) fn handle(state: &mut UiState, purpose: Purpose, paths: &[PathBuf], now: f64) {
     let Some(first) = paths.first() else { return };
     match purpose {
         Purpose::BrushChannel { channel } => match state.session.set_brush_channel_image(channel, first) {
@@ -265,6 +269,13 @@ fn handle(state: &mut UiState, purpose: Purpose, paths: &[PathBuf], now: f64) {
             crate::mesh_reload::start_check(state);
         }
         Purpose::BakeHighPoly => state.bake.high_poly = first.display().to_string(),
+        Purpose::BakeHighPolyExtra => {
+            for path in paths {
+                let path = path.display().to_string();
+                if path != state.bake.high_poly && !state.bake.extra_high.contains(&path) { state.bake.extra_high.push(path); }
+            }
+        }
+        Purpose::BakeCage => state.bake.cage_file = first.display().to_string(),
         Purpose::Stencil => match subcraft_image::load_bitmap(first) {
             Ok(bmp) => state.session.brush.stencil = Some(std::sync::Arc::new(subcraft_paint::Stencil::new(std::sync::Arc::new(bmp)))),
             Err(e) => state.set_status(format!("Stencil: {e}"), now),

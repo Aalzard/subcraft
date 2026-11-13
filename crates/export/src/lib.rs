@@ -6,6 +6,7 @@
 //! all absent are skipped. Color channels are sRGB-encoded for integer formats and stay linear in
 //! EXR. Data channels are never color-transformed.
 
+pub mod builtin_presets;
 pub mod mesh_export;
 pub mod preset;
 pub mod psd;
@@ -26,45 +27,9 @@ use subcraft_mesh::Mesh;
 use subcraft_mesh::uv_raster::rasterize_surface;
 
 pub use selection::{MapKey, MapSelection};
-pub use template::{ExportTemplate, OutputMap, Source};
+pub use template::{Converted, ExportTemplate, OutputMap, Source};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Padding {
-    /// No padding: gutter texels keep their composite values.
-    None,
-    /// Grow islands by this many texels; the rest of the gutter keeps its composite values.
-    Texels(u32),
-    /// Fill the whole gutter with the nearest island texel (best for mipmaps).
-    Infinite,
-    /// Painter's "Dilation + default background color": grow islands by this many texels, then
-    /// fill the rest of the gutter with each output's default (the value an empty texture set
-    /// exports: flat normal, white occlusion, black base color...).
-    Background(u32),
-    /// Painter's "Dilation + diffusion": grow islands by this many texels, then fill the rest of
-    /// the gutter with a smooth blend of the surrounding islands.
-    Diffusion(u32),
-}
-
-impl Padding {
-    /// Dilation distance of the modes that have one.
-    pub fn distance(self) -> Option<u32> {
-        match self {
-            Padding::Texels(n) | Padding::Background(n) | Padding::Diffusion(n) => Some(n),
-            Padding::None | Padding::Infinite => None,
-        }
-    }
-
-    /// The same mode with another dilation distance (modes without one are unchanged).
-    pub fn with_distance(self, n: u32) -> Padding {
-        match self {
-            Padding::Texels(_) => Padding::Texels(n),
-            Padding::Background(_) => Padding::Background(n),
-            Padding::Diffusion(_) => Padding::Diffusion(n),
-            other => other,
-        }
-    }
-}
+pub use subcraft_image::dilate::Padding;
 
 /// Sizes offered by the export window's Size menu (Painter's list).
 pub const EXPORT_SIZES: [u32; 7] = [128, 256, 512, 1024, 2048, 4096, 8192];
@@ -98,11 +63,33 @@ pub struct ExportSettings {
     pub size: Option<u32>,
     /// Dither 8-bit outputs ("8 bits + dithering"), overriding the maps' own choice.
     pub dither: Option<bool>,
+    /// Per texture set (by name) settings replacing the ones above: Painter's texture set
+    /// entries under Global settings.
+    pub set_overrides: BTreeMap<String, subcraft_doc::ExportOverrides>,
 }
 
 impl Default for ExportSettings {
     fn default() -> Self {
-        Self { view_2d: None, template: ExportTemplate::pbr_metal_rough(), padding: Padding::Infinite, height_to_normal: 0.02, format_override: None, selection: MapSelection::default(), normal_directx: None, udim_folders: false, size: None, dither: None }
+        Self { view_2d: None, template: ExportTemplate::pbr_metal_rough(), padding: Padding::Infinite, height_to_normal: 0.02, format_override: None, selection: MapSelection::default(), normal_directx: None, udim_folders: false, size: None, dither: None, set_overrides: BTreeMap::new() }
+    }
+}
+
+impl ExportSettings {
+    /// These settings with `set`'s overrides applied (file type and bit depth, size, padding).
+    pub fn for_set(&self, set: &str) -> std::borrow::Cow<'_, ExportSettings> {
+        match self.set_overrides.get(set).filter(|o| !o.is_empty()) {
+            None => std::borrow::Cow::Borrowed(self),
+            Some(o) => {
+                let mut s = self.clone();
+                if let Some(format) = o.format {
+                    s.format_override = Some(format);
+                    s.dither = o.dither;
+                }
+                s.size = o.size.or(s.size);
+                s.padding = o.padding.unwrap_or(s.padding);
+                std::borrow::Cow::Owned(s)
+            }
+        }
     }
 }
 
@@ -169,6 +156,7 @@ fn map_applies(map: &OutputMap, set: &ExportTextureSet, settings: &ExportSetting
         || map.components.iter().filter_map(|s| s.channel()).any(|k| set.source(k).is_some())
         || map.components.iter().any(|s| matches!(s, Source::Normal { .. })) && set.channels.contains_key(&ChannelKind::Height)
         || map.components.iter().any(|s| matches!(s, Source::MeshMap { kind, .. } if set.mesh_maps.is_some_and(|m| m.contains_key(kind))))
+        || map.components.iter().any(|s| matches!(s, Source::Converted { map, .. } if map.inputs().iter().any(|k| set.source(*k).is_some())))
 }
 
 /// Expand a file name pattern (no extension). Tokens: `$mesh`, `$textureSet` (without its UDIM
@@ -290,7 +278,9 @@ fn check_outputs(mesh_name: &str, sets: &[ExportTextureSet], settings: &ExportSe
 /// Every file the template could write, with its checkbox state.
 pub fn plan_all(mesh_name: &str, sets: &[ExportTextureSet], settings: &ExportSettings) -> Vec<PlannedFile> {
     let mut out = Vec::new();
+    let all = settings;
     for set in sets {
+        let settings = &*all.for_set(set.name);
         for map in settings.template.maps.iter().filter(|m| map_applies(m, set, settings)) {
             let fmt = output_format(map, settings);
             out.push(PlannedFile {
@@ -406,6 +396,53 @@ impl<'a> Dense<'a> {
                 (3, (0..n).flat_map(|_| d).collect())
             }
         })
+    }
+
+    /// Component `c` of a converted map, linear, one value per texel.
+    fn converted(&mut self, map: Converted, c: usize) -> Vec<f32> {
+        use ChannelKind::*;
+        let n = (self.size * self.size) as usize;
+        let level_f0 = |s: f32| 0.08 * s;
+        match map {
+            Converted::Glossiness | Converted::GlossinessSquared => {
+                let (rc, r) = self.channel(Roughness);
+                (0..n).map(|i| {
+                    let g = 1.0 - r[i * rc];
+                    if map == Converted::GlossinessSquared { g * g } else { g }
+                }).collect()
+            }
+            Converted::Diffuse | Converted::Specular | Converted::Reflection => {
+                let (bc, b) = self.channel(BaseColor).clone();
+                let (mc, m) = self.channel(Metallic).clone();
+                let spec = (map == Converted::Specular).then(|| self.channel(Specular).clone());
+                let bcomp = c.min(bc - 1);
+                (0..n).map(|i| {
+                    let (base, metal) = (b[i * bc + bcomp], m[i * mc]);
+                    match map {
+                        Converted::Diffuse => base * (1.0 - metal),
+                        Converted::Specular => {
+                            let (sc, s) = spec.as_ref().expect("computed for Specular");
+                            let f0 = level_f0(s[i * sc]);
+                            f0 + (base - f0) * metal
+                        }
+                        _ => 1.0 + (base - 1.0) * metal,
+                    }
+                }).collect()
+            }
+            Converted::MixedAo => {
+                // The AO channel alone (not the baked fallback `channel` uses), times the bake.
+                let painted = self.set.channels.contains_key(&AmbientOcclusion).then(|| self.channel(AmbientOcclusion).clone());
+                let baked = self.set.mesh_maps.is_some_and(|m| m.contains_key(&MeshMapKind::AmbientOcclusion)).then(|| self.mesh_map(MeshMapKind::AmbientOcclusion).clone());
+                (0..n).map(|i| painted.as_ref().map_or(1.0, |(ac, a)| a[i * ac]) * baked.as_ref().map_or(1.0, |(bc, b)| b[i * bc])).collect()
+            }
+            Converted::F0 | Converted::InverseIor => {
+                let (sc, s) = self.channel(Specular);
+                (0..n).map(|i| {
+                    let f0 = level_f0(s[i * sc]).clamp(0.0, 0.999);
+                    if map == Converted::F0 { f0 } else { (1.0 - f0.sqrt()) / (1.0 + f0.sqrt()) }
+                }).collect()
+            }
+        }
     }
 
     /// Effective opacity per texel: the Opacity channel (1 when absent) times the Base Color
@@ -553,6 +590,13 @@ fn evaluate_map(map: &OutputMap, dense: &mut Dense, settings: &ExportSettings, f
                 for i in 0..n {
                     let v = data[i * cc + c];
                     out[i * comps + ci] = if invert { 1.0 - v } else { v };
+                }
+            }
+            Source::Converted { map: conv, component } => {
+                let encode = map.srgb && conv.is_color() && !format.is_float();
+                let data = dense.converted(conv, (component as usize).min(conv.components() - 1));
+                for (i, v) in data.into_iter().enumerate() {
+                    out[i * comps + ci] = if encode { linear_to_srgb(v) } else { v };
                 }
             }
         }
@@ -719,7 +763,9 @@ pub(crate) fn render_maps(mesh: &Mesh, mesh_name: &str, sets: &[ExportTextureSet
         return Err(ExportError::Template(problem));
     }
     let mut count=0;
+    let all = settings;
     for set in sets {
+        let settings = &*all.for_set(set.name);
         let Some(size) = set.channels.values().next().map(|i| i.width()) else { continue };
         let mut covered: Option<Vec<bool>> = None;
         let mut dense = Dense { set, size, cache: HashMap::new(), normal: None, view: None, mesh_maps: HashMap::new(), alpha: None };

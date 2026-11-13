@@ -97,6 +97,10 @@ pub enum Command {
     /// dropped with Ctrl or Alt). What was painted into the mask stays.
     ReplaceMaskEffects { layer: LayerId, effects: Vec<MaskEffectKind>, label: String },
     DeleteLayer(LayerId),
+    /// Painter's "Paste as instance": above the selected layer, one instance of each of these
+    /// layers of the selected texture set. An instance follows its source (content, content
+    /// effects, mask) and is read-only apart from its name, visibility, blending and colour.
+    PasteAsInstance(Vec<LayerId>),
     DuplicateLayer(LayerId),
     /// Multi-select operations: one undo step each. All layers must be in the same texture set;
     /// a layer inside another selected layer is covered by it.

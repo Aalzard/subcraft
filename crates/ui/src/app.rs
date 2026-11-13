@@ -886,6 +886,7 @@ impl SubcraftApp {
             let active = state.graphics.active.clone(); state.graphics = graphics; state.graphics.active = active;
         }
         let prefs = cc.storage.and_then(|s| s.get_string(crate::recovery::PREFS_KEY)).map(|j| crate::recovery::Preferences::from_json_lenient(&j)).unwrap_or_default();
+        crate::recovery::apply_cache_dir(&prefs);
         state.recovery = crate::recovery::RecoveryUi::start(&state.session, prefs, options.autosave_interval);
         // Settings > Libraries: extra library folders, and which library is the default.
         let (extra, default) = (state.recovery.prefs.extra_libraries.clone(), state.recovery.prefs.default_library.clone());
@@ -1085,7 +1086,7 @@ impl SubcraftApp {
             let presets = state.export.presets(state.user_library.as_ref());
             let found = presets.all().find(|p| p.name == *name || p.key() == name).map(|p| p.key().to_string());
             if let Some(key) = found { state.export.preset = key; }
-            state.export.edit_presets = true;
+            state.export.tab = crate::dialogs::ExportTab::OutputTemplates;
         }
         state.render_window = options.render_window;
         if !options.import_smart.is_empty() {
@@ -1202,7 +1203,8 @@ impl SubcraftApp {
         self.open_requested_brush_editor();
         sync_sub_libraries(&mut self.dock, &mut self.state.shelf);
         let style = theme::dock_style(ui.style());
-        let hidden = self.state.hide_ui;
+        // Tab and Baking mode show the views alone (Baking mode adds its own panels around them).
+        let hidden = self.state.hide_ui || self.state.bake.open;
         let mut viewer = Viewer { state: &mut self.state, was_active: &self.active_tabs, active: HashSet::new() };
         // Tab hides the panels: only the views are laid out, in the arrangement of the full layout.
         let mut views = hidden.then(|| views_only(&self.dock));
@@ -2292,6 +2294,7 @@ impl eframe::App for SubcraftApp {
         self.state.view_props_swallow = crate::view_props::show(&ctx, &mut self.state);
         crate::pen::keyboard(&mut self.state, &ctx, ctx.input(|i| i.time));
         self.shortcuts(&ctx);
+        self.state.session.default_uv_scale = self.state.recovery.prefs.default_uv_scale;
         if ctx.input(|i| i.pointer.any_released()) {
             let _ = self.state.session.execute(Command::Seal);
         }
@@ -2338,7 +2341,7 @@ impl eframe::App for SubcraftApp {
         if !self.state.hide_ui && status {
             egui::Panel::bottom("status").exact_size(26.0).show_separator_line(false).frame(bar(theme::BG_0)).show(ui, |ui| self.status_bar(ui));
         }
-        if !self.state.hide_ui && rail {
+        if !self.state.hide_ui && rail && !self.state.bake.open {
             egui::Panel::left("tools")
                 .exact_size(48.0)
                 .resizable(false)
@@ -2347,6 +2350,7 @@ impl eframe::App for SubcraftApp {
                 .show(ui, |ui| self.tool_rail(ui));
         }
         self.mark("bars");
+        dialogs::bake_mode(&mut self.state, ui, ctx.input(|i| i.time));
         self.workspace(ui);
         self.mark("workspace (docked panels)");
         if let Some(layer) = ctx.data_mut(|data| data.remove_temp::<subcraft_core::LayerId>(egui::Id::new("inspect_mask"))) {
@@ -2401,7 +2405,6 @@ impl eframe::App for SubcraftApp {
         }
         dialogs::export_window(&mut self.state, &ctx, now);
         crate::export_mesh::export_mesh_window(&mut self.state, &ctx, now);
-        dialogs::bake_window(&mut self.state, &ctx, now);
         crate::mesh_reload::window(&mut self.state, &ctx, now);
         crate::auto_uv::window(&mut self.state, &ctx, now);
         dialogs::poll_bake(&mut self.state, &ctx, now);

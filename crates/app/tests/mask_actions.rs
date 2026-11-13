@@ -77,6 +77,12 @@ fn clear_removes_the_painting_back_to_the_background_and_keeps_effects() {
     assert_eq!(s.selected_texture_set().find(layer).unwrap().mask.as_ref().unwrap().effects.len(), 1);
     s.execute(Command::Undo).unwrap();
     assert!((base_at(&s, layer, 15, 15) - 1.0).abs() < 1e-3);
+    // QA 2026-11: clearing a mask that has nothing painted added an empty undo step.
+    s.execute(Command::Redo).unwrap();
+    s.execute(Command::Seal).unwrap();
+    let entries = s.history().entries().len();
+    s.execute(Command::ClearMask(layer)).unwrap();
+    assert_eq!(s.history().entries().len(), entries, "nothing to clear: no undo step");
 
     let plain = s.selected_texture_set().layers.len();
     s.execute(Command::AddLayer(subcraft_app::NewLayer::Paint)).unwrap();
