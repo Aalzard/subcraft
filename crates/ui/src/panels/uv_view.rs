@@ -191,7 +191,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
 
     state.sync_gpu();
     if let (Some(rs), Some(renderer)) = (&state.render_state, &mut state.renderer)
-        && let Some(preview) = renderer.preview(&rs.device, &rs.queue, slot, state.uv.source)
+        && let Some(preview) = renderer.preview_component(&rs.device, &rs.queue, slot, state.uv.source, shown_component(&state.recovery.prefs.viewport))
     {
         let view = &preview.display_view;
         let mut r = rs.renderer.write();
@@ -210,6 +210,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     }
     painter.rect_stroke(img_rect, 0.0, Stroke::new(1.0, crate::theme::BORDER_STRONG), egui::StrokeKind::Outside);
     axis_information(&painter, rect);
+    // The isolated component's name, as in the 3D view.
+    if let Some(name) = shown_component(&state.recovery.prefs.viewport).overlay() {
+        crate::viewport::pill(&painter, rect.left_top() + egui::vec2(10.0, 10.0), egui::Align2::LEFT_TOP, crate::i18n::tr(name), crate::theme::TEXT);
+    }
     quick_mask_overlay(state, ui, &painter, img_rect);
 
     if state.uv_wireframe {
@@ -601,3 +605,25 @@ mod navigation_tests {
     }
 }
 
+/// The component the 2D view isolates: Display Settings > Channel component while the 3D view
+/// shows a single channel (the 2D view follows it), otherwise all of them.
+pub fn shown_component(prefs: &crate::viewport_bar::ViewportPrefs) -> subcraft_render::ChannelComponent {
+    if prefs.shown_channel().is_some() { prefs.channel_component } else { subcraft_render::ChannelComponent::All }
+}
+
+#[cfg(test)]
+mod component_tests {
+    use super::*;
+
+    #[test]
+    fn the_2d_view_isolates_the_component_only_for_a_single_channel() {
+        use subcraft_render::ChannelComponent;
+        let mut prefs = crate::viewport_bar::ViewportPrefs::default();
+        prefs.display.channel_component = ChannelComponent::G;
+        assert_eq!(shown_component(&prefs), ChannelComponent::All, "the material view shows every component");
+        prefs.solo = Some(ChannelKind::Roughness);
+        assert_eq!(shown_component(&prefs), ChannelComponent::G);
+        prefs.mesh_map = Some(MeshMapKind::ALL[0]);
+        assert_eq!(shown_component(&prefs), ChannelComponent::All, "a mesh map is not a channel");
+    }
+}
