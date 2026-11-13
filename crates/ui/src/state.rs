@@ -647,6 +647,9 @@ impl UiState {
         // import out before handing over its result).
         self.spp_import = None;
         self.dropped_model = None;
+        // The mask being shown belongs to the old project: left on, the new model was drawn all
+        // black as "Mask of" a layer that does not exist, until the next edit.
+        self.mask_view = None;
         self.multi.clear();
         self.layer_previews = Default::default();
         self.asset_preview.cancel_apply();

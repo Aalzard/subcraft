@@ -16,6 +16,8 @@ use crate::widgets::{primary_button, secondary_button};
 pub const PREFS_KEY: &str = "subcraft_prefs_v1";
 pub const DEFAULT_UI_SIZE: u32 = 95;
 pub const UI_SIZE_RANGE: std::ops::RangeInclusive<u32> = 75..=150;
+/// The 3D view's plain background (linear RGB), as before the setting existed.
+pub const DEFAULT_BACKGROUND: [f32; 3] = [0.018, 0.019, 0.022];
 
 /// The pages of the Settings window (Painter: General, Shortcuts, Libraries).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -70,6 +72,13 @@ pub struct Preferences {
     pub custom_keys: subcraft_app::CustomKeys,
     /// Camera mouse gestures the user rebound (Painter navigation).
     pub custom_mouse: crate::nav::MouseBindings,
+    /// Background of the 3D view, linear RGB: a vertical gradient from bottom to top.
+    pub background_bottom: [f32; 3],
+    pub background_top: [f32; 3],
+    /// UV tiling of new fill layers.
+    pub default_uv_scale: f32,
+    /// Folder for re-creatable files (empty = SubCraft's data folder).
+    pub cache_dir: String,
     /// Blend layers on the graphics card when one is available and the edit is big (the
     /// processor is the fallback and the reference).
     pub use_gpu_compositing: bool,
@@ -130,6 +139,10 @@ impl Default for Preferences {
             keymap: Default::default(),
             custom_keys: Default::default(),
             custom_mouse: Default::default(),
+            background_bottom: DEFAULT_BACKGROUND,
+            background_top: DEFAULT_BACKGROUND,
+            default_uv_scale: 1.0,
+            cache_dir: String::new(),
             use_gpu_compositing: true,
             viewport: Default::default(),
             new_project: Default::default(),
@@ -391,6 +404,7 @@ pub fn preferences_window(state: &mut UiState, ctx: &egui::Context) {
         for (what, how) in rec.prefs.nav_scheme.help() {
             ui.label(RichText::new(format!("{what}: {how}")).small().color(TEXT_DIM));
         }
+        general_view_settings(ui, &mut rec.prefs);
         ui.checkbox(&mut rec.prefs.orbit_around_cursor, "Orbit around the point under the cursor")
             .on_hover_text("Starting an orbit over the model turns the view around that point of the surface, as Substance Painter does. Over the background the last point is kept. Off: the view always turns around its centre. F frames the model and forgets the point.");
         let speed = &mut rec.prefs.camera_speed;
@@ -455,6 +469,50 @@ pub fn preferences_window(state: &mut UiState, ctx: &egui::Context) {
     rec.show_prefs = open;
 }
 
+/// Settings > General: interface, layer stack, camera and temporary-files options from Painter's list.
+fn general_view_settings(ui: &mut egui::Ui, p: &mut Preferences) {
+    // The same setting as Display Settings > Axis indicator.
+    ui.checkbox(&mut p.viewport.axis_indicator, tr("Show world axes")).on_hover_text(tr("The X, Y and Z directions of the scene in the bottom-right corner of the 3D view"));
+    ui.horizontal(|ui| {
+        ui.label(tr("Background color"));
+        ui.color_edit_button_rgb(&mut p.background_top).on_hover_text(tr("Top of the 3D view"));
+        ui.color_edit_button_rgb(&mut p.background_bottom).on_hover_text(tr("Bottom of the 3D view"));
+        if (p.background_top != DEFAULT_BACKGROUND || p.background_bottom != DEFAULT_BACKGROUND) && secondary_button(ui, tr("Reset")).clicked() {
+            p.background_top = DEFAULT_BACKGROUND;
+            p.background_bottom = DEFAULT_BACKGROUND;
+        }
+    });
+    ui.horizontal(|ui| {
+        ui.label(tr("Default UV scale for materials"));
+        ui.add(egui::DragValue::new(&mut p.default_uv_scale).range(0.01..=100.0).speed(0.01).max_decimals(2))
+            .on_hover_text(tr("UV tiling given to new fill layers"));
+    });
+    ui.add_space(6.0);
+    ui.label(RichText::new(tr("Temporary files")).font(theme::font_strong(12.5)));
+    let shown = subcraft_app::recovery::cache_dir().map(|d| d.display().to_string()).unwrap_or_else(|| tr("unavailable").to_string());
+    ui.horizontal_wrapped(|ui| {
+        ui.label(tr("Cache folder"));
+        ui.label(RichText::new(shown).monospace().small().color(TEXT_DIM));
+    });
+    ui.horizontal(|ui| {
+        #[cfg(not(target_arch = "wasm32"))]
+        if secondary_button(ui, tr("Choose…")).clicked()
+            && let Some(dir) = rfd::FileDialog::new().set_title(tr("Cache folder")).pick_folder()
+        {
+            p.cache_dir = dir.display().to_string();
+        }
+        if !p.cache_dir.is_empty() && secondary_button(ui, tr("Default")).clicked() {
+            p.cache_dir.clear();
+        }
+    });
+    apply_cache_dir(p);
+}
+
+/// Point the app's cache at the folder chosen in Settings (called at startup and on change).
+pub fn apply_cache_dir(p: &Preferences) {
+    subcraft_app::recovery::set_cache_dir((!p.cache_dir.trim().is_empty()).then(|| std::path::PathBuf::from(p.cache_dir.trim())));
+}
+
 /// The page buttons at the top of the Settings window.
 fn settings_tabs(ui: &mut egui::Ui, tab: &mut SettingsTab) {
     ui.horizontal(|ui| {
@@ -508,6 +566,24 @@ fn shortcuts_page(state: &mut UiState, ctx: &egui::Context) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn general_settings_default_to_the_old_behaviour_and_survive_a_save() {
+        let d = Preferences::default();
+        assert_eq!(d.camera_speed, crate::nav::CameraSpeed::default());
+        assert_eq!((d.background_top, d.background_bottom), (DEFAULT_BACKGROUND, DEFAULT_BACKGROUND));
+        assert_eq!(subcraft_render::ViewParams::new(glam::Mat4::IDENTITY, glam::Mat4::IDENTITY).background, DEFAULT_BACKGROUND, "same plain background as the renderer's default");
+        assert!(d.viewport.axis_indicator && d.default_uv_scale == 1.0 && d.cache_dir.is_empty());
+        let mut p = d.clone();
+        p.camera_speed.wheel_invert = true;
+        p.background_top = [0.2, 0.3, 0.4];
+        p.viewport.axis_indicator = false;
+        p.default_uv_scale = 4.0;
+        p.cache_dir = "D:/cache".into();
+        assert_eq!(Preferences::from_json_lenient(&serde_json::to_string(&p).unwrap()), p);
+        let old = Preferences::from_json_lenient(r#"{"ui_size_percent":100}"#);
+        assert_eq!((old.camera_speed, old.background_top, old.viewport.axis_indicator), (d.camera_speed, d.background_top, true), "older files get the defaults");
+    }
 
     /// QA 2026-11: one value this build does not know reset every preference to its default.
     #[test]

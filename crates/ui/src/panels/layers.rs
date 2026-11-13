@@ -558,6 +558,11 @@ Files: {}", ex.dir().display()));
                     let effects = l.content_effects.len() + l.mask.as_ref().map_or(0, |m| m.effects.len());
                     let kind = format!("{:?}", l.kind());
                     let detail = if effects == 0 { kind } else { format!("{kind}  ·  {effects} fx") };
+                    // Painter's instance icon: what the link looks like.
+                    let detail = match l.instance_of.and_then(|_| state.session.instance_state(l.id)) {
+                        Some(link) => format!("{}  ·  {detail}", instance_label(link)),
+                        None => detail,
+                    };
                     let problem = anchor_index.as_ref().and_then(|i| i.problems().find(|r| r.site.layer() == l.id)).map(|r| r.status);
                     if let Some(status) = problem {
                         ui.add(egui::Label::new(RichText::new(format!("{}  {detail}  ·  anchor input ignored", icons::WARNING)).font(theme::font(10.0)).color(theme::WARNING)).truncate())
@@ -704,6 +709,9 @@ Files: {}", ex.dir().display()));
                 }
                 if ui.add_enabled(have_layer_clip, egui::Button::new("Paste layer").shortcut_text(crate::keys::native("Ctrl+V"))).on_hover_text(tr("Pastes above this layer")).clicked() {
                     aim(&mut cmds); crate::clipboard::request(ui.ctx(), crate::clipboard::Request::PasteLayers); ui.close();
+                }
+                if ui.add_enabled(have_layer_clip, egui::Button::new("Paste as instance")).on_hover_text("Adds a layer that follows the copied one: its content, effects and mask stay those of the source").clicked() {
+                    aim(&mut cmds); crate::clipboard::request(ui.ctx(), crate::clipboard::Request::PasteAsInstance); ui.close();
                 }
                 if ui.add(egui::Button::new(format!("Duplicate{suffix}")).shortcut_text(crate::keys::native("Ctrl+D"))).clicked() {
                     cmds.push(if in_multi { Command::DuplicateLayers(multi_ids.clone()) } else { Command::DuplicateLayer(l.id) });
@@ -957,6 +965,15 @@ fn flatten_export_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
     }
     state.flatten_export = None;
     state.set_status(format!("Exported {files} flattened image(s) to {}", folder.display()), now);
+}
+
+/// Row text of an instance layer's link.
+pub fn instance_label(state: subcraft_doc::InstanceState) -> &'static str {
+    match state {
+        subcraft_doc::InstanceState::Linked => "Instance",
+        subcraft_doc::InstanceState::Broken => "Instance (source missing)",
+        subcraft_doc::InstanceState::Cycle => "Instance (inside its source: not updated)",
+    }
 }
 
 pub fn save_to_library(state: &mut UiState, layer: subcraft_core::LayerId, mask: bool, now: f64) {

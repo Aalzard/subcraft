@@ -46,6 +46,44 @@ impl SizeSpace {
     }
 }
 
+/// Which way Position Jitter moves a stamp (Painter's Position Jitter Axis).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum JitterAxis {
+    /// Anywhere around the stroke: along it and across it.
+    #[default]
+    Both,
+    /// Only across the stroke, so the stamps keep their spacing along it.
+    One,
+}
+
+impl JitterAxis {
+    pub const ALL: [JitterAxis; 2] = [JitterAxis::Both, JitterAxis::One];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            JitterAxis::Both => "Both axes",
+            JitterAxis::One => "One axis",
+        }
+    }
+
+    /// Where a stamp moves, in units of the jitter distance (length at most 1), from two
+    /// random numbers in 0..1. `dir` is the stroke's direction of travel at the stamp.
+    /// `Both` fills a disc evenly; `One` spreads evenly along the line across the stroke.
+    pub fn offset(self, dir: glam::Vec2, r0: f32, r1: f32) -> glam::Vec2 {
+        match self {
+            JitterAxis::Both => {
+                let a = r0 * std::f32::consts::TAU;
+                glam::Vec2::new(a.cos(), a.sin()) * r1.sqrt()
+            }
+            JitterAxis::One => {
+                let across = glam::Vec2::new(-dir.y, dir.x).try_normalize().unwrap_or(glam::Vec2::Y);
+                across * (2.0 * r0 - 1.0)
+            }
+        }
+    }
+}
+
 /// What a brush size is converted with (see [`BrushSettings::radius_in`]).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SizeContext {
@@ -86,6 +124,8 @@ pub struct BrushSettings {
     pub angle_jitter_deg: f32,
     /// Random screen offset per stamp, in brush diameters.
     pub position_jitter: f32,
+    /// Whether that offset goes any way or only across the stroke.
+    pub position_jitter_axis: JitterAxis,
     /// Pen pressure scales the size jitter (a light touch jitters less); a mouse is unchanged.
     pub size_jitter_pressure: bool,
     pub flow_jitter_pressure: bool,
@@ -138,6 +178,7 @@ impl Default for BrushSettings {
             flow_jitter: 0.0,
             angle_jitter_deg: 0.0,
             position_jitter: 0.0,
+            position_jitter_axis: JitterAxis::Both,
             size_jitter_pressure: false,
             flow_jitter_pressure: false,
             angle_jitter_pressure: false,
@@ -627,6 +668,34 @@ impl PolygonFillMode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn position_jitter_fills_a_disc_or_only_the_line_across_the_stroke() {
+        use glam::Vec2;
+        let dir = Vec2::new(0.6, 0.8);
+        let across = Vec2::new(-0.8, 0.6);
+        let (mut along_both, mut min_t, mut max_t) = (0.0f32, 1.0f32, -1.0f32);
+        for i in 0..64 {
+            for j in 0..8 {
+                let (r0, r1) = (i as f32 / 63.0, j as f32 / 7.0);
+                let both = JitterAxis::Both.offset(dir, r0, r1);
+                assert!(both.length() <= 1.0 + 1e-5, "inside the unit disc: {both}");
+                along_both = along_both.max(both.dot(dir).abs());
+                let one = JitterAxis::One.offset(dir, r0, r1);
+                assert!(one.dot(dir).abs() < 1e-5, "no movement along the stroke: {one}");
+                assert!(one.length() <= 1.0 + 1e-5);
+                min_t = min_t.min(one.dot(across));
+                max_t = max_t.max(one.dot(across));
+            }
+        }
+        assert!(along_both > 0.9, "both axes also moves stamps along the stroke");
+        assert!((min_t + 1.0).abs() < 1e-5 && (max_t - 1.0).abs() < 1e-5, "one axis reaches both sides: {min_t} {max_t}");
+        // The old behaviour, unchanged: angle from the first number, distance the root of the second.
+        let p = JitterAxis::Both.offset(dir, 0.25, 0.25);
+        assert!((p - Vec2::new(0.0, 0.5)).length() < 1e-5, "{p}");
+        // A stroke with no direction yet still jitters.
+        assert_eq!(JitterAxis::One.offset(Vec2::ZERO, 1.0, 0.0), Vec2::Y);
+    }
 
     #[test]
     fn symmetry_points_mirror_and_turn_the_point_like_the_stroke_copies() {

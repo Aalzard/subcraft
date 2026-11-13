@@ -126,6 +126,9 @@ pub struct Layer {
     /// Colour tag shown on the layer's row (Painter's Set color). Organisation only: it never
     /// changes the composite.
     pub color: Option<LayerColor>,
+    /// The layer this one is an instance of (see `crate::instance`): its content, content
+    /// effects and mask follow that layer.
+    pub instance_of: Option<LayerId>,
     pub content: LayerContent,
     /// Non-destructive effects on the content, bottom to top (separate from the mask's stack).
     pub content_effects: Vec<Arc<ContentEffect>>,
@@ -222,6 +225,7 @@ impl Layer {
             mask: None,
             parts: None,
             color: None,
+            instance_of: None,
             content_effects: Vec::new(),
             content: LayerContent::Paint(PaintContent::default()),
         }
@@ -242,6 +246,7 @@ impl Layer {
             mask: None,
             parts: None,
             color: None,
+            instance_of: None,
             content_effects: Vec::new(),
             content: LayerContent::Fill(FillContent { projection: Projection::default(), channels }),
         }
@@ -256,6 +261,7 @@ impl Layer {
             mask: None,
             parts: None,
             color: None,
+            instance_of: None,
             content_effects: Vec::new(),
             content: LayerContent::Group(GroupContent { children: Vec::new(), expanded: true }),
         }
