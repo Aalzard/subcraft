@@ -114,17 +114,29 @@ impl FieldKey {
     }
 }
 
-/// Hash of the cylinder angle, the symmetry and the 3D transform of a projection; 0 at their defaults.
+/// Hash of the cylinder angle, the symmetry, the 3D transform and (Warp mode) the warp grid of a
+/// projection; 0 at their defaults outside Warp mode.
 fn projection_extra_bits(p: &Projection) -> u32 {
     use subcraft_doc::FillSymmetry;
     let t = p.effective_transform3();
-    if p.cylinder_angle == 360.0 && p.symmetry.is_none() && t.is_identity() {
+    let warp = p.mode == subcraft_doc::ProjectionMode::Warp;
+    if p.cylinder_angle == 360.0 && p.symmetry.is_none() && t.is_identity() && !warp {
         return 0;
     }
     let mut values = vec![p.cylinder_angle.to_bits()];
     if !t.is_identity() {
         values.push(3);
         values.extend(t.offset.iter().chain(&t.rotation_deg).chain(&t.scale).map(|v| v.to_bits()));
+    }
+    if warp {
+        // The field is sampled through the grid: a moved or split point changes it (QA 2026-11:
+        // the cached field of the old grid kept being drawn, and two Warp fills shared one).
+        let grid = p.warp_grid();
+        values.extend([4, grid.cols() as u32, grid.rows() as u32]);
+        for (i, point) in grid.points().iter().enumerate() {
+            let [u, v] = grid.grid_coords(i);
+            values.extend([point[0].to_bits(), point[1].to_bits(), point[2].to_bits(), u.to_bits(), v.to_bits()]);
+        }
     }
     match p.symmetry {
         FillSymmetry::None => {}
@@ -239,5 +251,30 @@ impl FieldCache {
 
     pub fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+}
+
+#[cfg(test)]
+mod warp_key_tests {
+    use super::*;
+    use subcraft_doc::{ProceduralKind, ProjectionMode};
+
+    /// QA 2026-11: the key ignored the warp grid, so a moved point kept the old cached field.
+    #[test]
+    fn the_warp_grid_is_part_of_the_field_key() {
+        let params = ProceduralParams::new(ProceduralKind::Clouds);
+        let flat = Projection { mode: ProjectionMode::Warp, ..Projection::default() };
+        let mut grid = flat.warp_grid();
+        let p = grid.points()[0];
+        assert!(grid.set_point(0, [p[0] + 0.1, p[1], p[2]]));
+        let moved = Projection { warp: Some(grid), ..flat };
+        assert_ne!(FieldKey::new(&params, &flat), FieldKey::new(&params, &moved));
+        let mut split = flat.warp_grid();
+        assert!(split.split_column(0));
+        assert_ne!(FieldKey::new(&params, &flat), FieldKey::new(&params, &Projection { warp: Some(split), ..flat }));
+        assert_eq!(FieldKey::new(&params, &moved), FieldKey::new(&params, &moved.clone()), "stable");
+        // Other modes keep their keys (a stored grid is not read there).
+        let planar = Projection { mode: ProjectionMode::Planar, ..Projection::default() };
+        assert_eq!(FieldKey::new(&params, &planar), FieldKey::new(&params, &Projection { warp: Some(grid), ..planar }));
     }
 }

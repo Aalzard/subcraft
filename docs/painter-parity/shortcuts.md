@@ -37,7 +37,7 @@ Layout notes: Painter lists editable shortcuts in Settings > Shortcuts as one lo
 | Rotate tool | Settings > Shortcuts | E | missing | - | - |
 | Scale tool | Settings > Shortcuts | R | missing | - | - |
 | Surface tool | Settings > Shortcuts | Shift+W | missing | - | - |
-| Symmetry | Settings > Shortcuts | L | partial: toggles the X mirror only | crates/app/src/actions.rs:207 | - |
+| Symmetry | Settings > Shortcuts | L | done: Symmetry on / off in both key sets, the last axes come back (as the toolbar button); X mirror alone stays on X (Shift+X in the Painter key set) | crates/app/src/actions.rs (ToggleSymmetry), paint/src/settings.rs (toggle_symmetry) | #363 |
 | Pause engine computation | Settings > Shortcuts | Shift+Escape | missing | - | - |
 
 ## Editable shortcuts: tools
