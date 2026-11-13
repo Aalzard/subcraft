@@ -68,6 +68,11 @@ impl CompositeCache {
         self.plan.clear();
     }
 
+    /// (entries, bytes, hits) of the cache of the layers' own content and masks.
+    pub fn content_cache_stats(&self) -> (usize, usize, usize) {
+        self.prefix.content.stats()
+    }
+
     /// Statistics of the per-layer result cache.
     pub fn layer_cache_stats(&self) -> crate::PrefixStats {
         self.prefix.stats()

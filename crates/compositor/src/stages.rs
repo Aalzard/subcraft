@@ -267,6 +267,7 @@ pub(crate) struct Graph<'a> {
     /// after it and that accumulation's node (`None` while still the channel's base value).
     tops: Vec<(ChannelKind, Vec<Option<(usize, usize)>>)>,
     prefix: Option<Prefix<'a>>,
+    content: Option<Content<'a>>,
     /// Anchor points and references (ADR-0045); `None` when no layer reads an anchor, so sets
     /// without references build exactly the graph they always did.
     anchors: Option<Anchors<'a>>,
@@ -295,6 +296,14 @@ struct Prefix<'a> {
     cache: &'a crate::prefix::PrefixCache,
     /// Node -> (channel, boundary layer index) for the planned boundaries.
     marks: HashMap<usize, (ChannelKind, usize)>,
+}
+
+/// Results of top-level layers that depend on nothing but the layer (see
+/// [`crate::prefix::ContentCache`]).
+struct Content<'a> {
+    cache: &'a crate::prefix::ContentCache,
+    /// Node -> (layer address, slot).
+    marks: HashMap<usize, (usize, crate::prefix::ContentSlot)>,
 }
 
 /// Where a node's per-tile result lives.
@@ -340,6 +349,7 @@ impl<'a> Graph<'a> {
             modes: OnceLock::new(),
             tops: Vec::new(),
             prefix: None,
+            content: None,
             anchors: None,
             compare_below: HashMap::new(),
             compare_content: HashMap::new(),
@@ -532,7 +542,93 @@ impl<'a> Graph<'a> {
         if !marks.is_empty() {
             self.prefix = Some(Prefix { cache, marks });
         }
+        self.mark_content(&cache.content);
         self
+    }
+    /// Every input of a node (not only the primary one).
+    fn inputs(node: &Node) -> Vec<usize> {
+        match node {
+            Node::Constant(_) | Node::Paint(_, _) | Node::Fill(_, _) | Node::MaskBase(_) | Node::EditorRaw { generator: _ } => Vec::new(),
+            Node::MaskEffect { input, effect: _, filtered, anchor, compare } => {
+                let mut v = vec![*input];
+                v.extend(*filtered);
+                v.extend(anchor.map(|a| a.0));
+                v.extend(compare.iter().flatten().copied());
+                v
+            }
+            Node::AnchorRead { source, from: _, to: _, strength: _ } => vec![*source],
+            Node::ContentEffect { input, effect: _, kind: _, filtered } => {
+                let mut v = vec![*input];
+                v.extend(*filtered);
+                v
+            }
+            Node::Layer { below, input, mask, layer: _, kind: _, passthrough: _ } => {
+                let mut v = vec![*below, *input];
+                v.extend(*mask);
+                v
+            }
+            Node::Directional { input, taps: _, support: _ }
+            | Node::Median { input, radius: _ }
+            | Node::Warp { input, intensity: _, scale: _, seed: _, support: _ }
+            | Node::Pixelwise { input, filter: _, kind: _, support: _ }
+            | Node::Contour { input, filter: _, kind: _, radius: _ }
+            | Node::Gaussian { input, weights: _, horizontal: _, wrap: _ } => vec![*input],
+            Node::MicroDelta { mask, generator: _, opacity: _ } => vec![*mask],
+            Node::MicroHeight { below, delta } | Node::MicroNormal { below, delta } => vec![*below, *delta],
+        }
+    }
+    /// Mark the content and mask nodes of the top-level layers whose results depend on the layer
+    /// alone, so they are read from / written to `cache`.
+    ///
+    /// A node qualifies when nothing it reads, directly or not, is an accumulation of the
+    /// top-level stack, an anchor, or a compare-mask operand. Sets with anchor references are
+    /// left alone altogether, and so are passthrough layers (their content is the stack below).
+    /// Cheap leaves (a constant, a paint image, a plain fill) are not worth a copy.
+    fn mark_content(&mut self, cache: &'a crate::prefix::ContentCache) {
+        if !cache.enabled() || self.anchors.is_some() || self.radius_scale != 1.0 {
+            return;
+        }
+        let n = self.nodes.len();
+        // Accumulations of the top-level stack: results that depend on other layers.
+        let mut pure = vec![true; n];
+        for (_, tops) in &self.tops {
+            for &(_, node) in tops.iter().flatten() {
+                pure[node] = false;
+            }
+        }
+        // Inputs are pushed before the nodes that read them.
+        for i in 0..n {
+            let own = match &self.nodes[i] {
+                Node::AnchorRead { .. } => false,
+                Node::MaskEffect { anchor, compare, .. } => anchor.is_none() && compare.iter().all(Option::is_none),
+                _ => true,
+            };
+            let inputs = Self::inputs(&self.nodes[i]);
+            if !own || inputs.iter().any(|&j| j >= i || !pure[j]) {
+                pure[i] = false;
+            }
+        }
+        let top: std::collections::HashSet<usize> = self.top.iter().map(|l| Arc::as_ptr(l) as usize).collect();
+        let worth = |g: &Self, node: usize| {
+            pure[node] && !g.uniform[node] && !matches!(g.nodes[node], Node::Constant(_) | Node::Paint(_, _) | Node::Fill(_, _) | Node::MaskBase(_))
+        };
+        let mut marks = HashMap::new();
+        for node in &self.nodes {
+            let Node::Layer { input, mask, layer, kind, passthrough: false, .. } = node else { continue };
+            let address = *layer as *const Layer as usize;
+            if !top.contains(&address) {
+                continue;
+            }
+            if worth(self, *input) {
+                marks.insert(*input, (address, *kind as crate::prefix::ContentSlot));
+            }
+            if let Some(m) = mask.filter(|&m| worth(self, m)) {
+                marks.insert(m, (address, crate::prefix::CONTENT_MASK));
+            }
+        }
+        if !marks.is_empty() {
+            self.content = Some(Content { cache, marks });
+        }
     }
     fn push(&mut self, node: Node<'a>) -> usize {
         // Tile-independent stages share one result. Most default material channels are uniform;
@@ -999,6 +1095,11 @@ impl<'a> Graph<'a> {
             let &(kind, j) = p.marks.get(&node)?;
             p.cache.get(kind, j, tile).map(|packed| Arc::new(packed.unpack()))
         })
+        .or_else(|| {
+            let c = self.content.as_ref()?;
+            let &(layer, slot) = c.marks.get(&node)?;
+            c.cache.get(layer, slot, tile).map(|packed| Arc::new(packed.unpack()))
+        })
     }
     fn scratch_put(&self, key: Key, value: Pixels) {
         SCRATCH.with(|s| {
@@ -1059,6 +1160,11 @@ impl<'a> Graph<'a> {
             if let Some(p) = &self.prefix {
                 if let Some(&(kind, j)) = p.marks.get(&id) {
                     p.cache.put(kind, j, tile, &result);
+                }
+            }
+            if let Some(c) = &self.content {
+                if let Some(&(layer, slot)) = c.marks.get(&id) {
+                    c.cache.put(layer, slot, tile, &result);
                 }
             }
             // The primary of a node used once was read by this node alone.
