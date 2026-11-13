@@ -93,6 +93,9 @@ pub enum Command {
     ReplaceLayer { layer: LayerId, replacement: Box<Layer>, label: String },
     /// Give the layer a black mask (if it has none) and append these effects (smart mask).
     ApplyMaskEffects { layer: LayerId, effects: Vec<MaskEffectKind>, label: String },
+    /// Like `ApplyMaskEffects`, but the mask's previous effects go first (Painter: a smart mask
+    /// dropped with Ctrl or Alt). What was painted into the mask stays.
+    ReplaceMaskEffects { layer: LayerId, effects: Vec<MaskEffectKind>, label: String },
     DeleteLayer(LayerId),
     DuplicateLayer(LayerId),
     /// Multi-select operations: one undo step each. All layers must be in the same texture set;
