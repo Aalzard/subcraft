@@ -15,7 +15,7 @@ Layout notes: a narrow vertical strip, top left of the main window by default; i
 | Physical eraser (particles) | Tools toolbar, Eraser second mode; Ctrl + 2 | - | missing | - | - |
 | Path tools button (opens the path type menu) | Tools toolbar, third icon | no default shortcut ("Select paint along path tool" is unbound) | partial: single Pen tool, last in the rail; P by default | crates/ui/src/app.rs:1069 | - |
 | Paint along path | Path tools menu | - | partial: Pen paths are edited in UV space with their own stroke style, not the brush engine on the 3D surface | crates/app/src/pen.rs:1 | - |
-| Ribbon path | Path tools menu | - | missing | - | - |
+| Ribbon path | Path tools menu | - | partial: Path type dropdown in the pen Properties, no Path tools menu | crates/ui/src/pen.rs | - |
 | Filled path | Path tools menu | - | missing | - | - |
 | Erase along path | Path tools menu | - | missing | - | - |
 | Smudge along path | Path tools menu | - | missing | - | - |
@@ -70,7 +70,7 @@ Layout notes: the Contextual toolbar is fixed above the viewports and cannot be 
 | Pen-pressure toggle beside a value | Contextual toolbar / Properties | not documented | partial: pressure amounts for Size and Flow inside the stroke-options popup | crates/ui/src/brush_bar.rs:95 | - |
 | Lazy mouse button | Contextual toolbar; D | off | done | crates/ui/src/brush_bar.rs (stroke_options, toggle_lazy) | - |
 | Lazy mouse Distance | Contextual toolbar, next to the Lazy mouse button | not documented | partial: on the bar where there is room, always in the symmetry settings menu; 1-100 px | crates/ui/src/brush_bar.rs (distance) | - |
-| Symmetry button (on / off) | Contextual toolbar; L | off | partial: toggles and restores the last axes; the L key still toggles mirror X only | crates/ui/src/brush_bar.rs (toggle_symmetry) | - |
+| Symmetry button (on / off) | Contextual toolbar; L | off | done: the button and L toggle and restore the last axes (each remembers its own last axes) | crates/ui/src/brush_bar.rs (toggle_symmetry), crates/app/src/session.rs (ToggleSymmetry) | #363 |
 | Symmetry settings button (opens the settings menu) | Contextual toolbar, next to Symmetry | - | done | crates/ui/src/brush_bar.rs (stroke_options) | - |
 | Brush preview: Full preview | Contextual toolbar (2019.3) | not documented | missing | - | - |
 | Brush preview: Brush outline | Contextual toolbar (2019.3) | not documented | partial: the only cursor style, not selectable | crates/ui/src/viewport.rs:491 | - |
@@ -137,7 +137,7 @@ Layout notes: with a Path tool active the left side shows path controls in the o
 | Snap to vertices | Path settings menu, magnet (11.0) | off | missing | - | - |
 | Snap to edges | Path settings menu, magnet (11.0) | off | missing | - | - |
 | Snap to center of edges | Path settings menu, magnet (11.0) | off | missing | - | - |
-| Path type button (switch Paint / Ribbon / Filled / Erase / Smudge) | Contextual toolbar, Path tools | - | missing | - | - |
+| Path type button (switch Paint / Ribbon / Filled / Erase / Smudge) | Contextual toolbar, Path tools | - | partial: Paint, Filled and Ribbon in the pen Properties' Path type dropdown | crates/ui/src/pen.rs | - |
 | Reverse path direction | Contextual toolbar, Path tools | - | missing | - | - |
 | Toggle corner / smooth | Contextual toolbar, Path tools | shortcut unbound | missing | - | - |
 | Custom tangents | Contextual toolbar, Path tools | off | missing | - | - |

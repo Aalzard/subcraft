@@ -426,7 +426,9 @@ impl ShelfFilter {
     pub fn matches_entry(&self, e: &Entry, query: &Query) -> bool {
         let chip_ok = match &self.chip {
             Chip::All => true,
-            Chip::Mine => e.library == YOURS,
+            // Every user library, not only your_assets (QA 2026-11: an extra library's assets
+            // vanished under Mine). Session imports are not stored in a library.
+            Chip::Mine => e.library != STARTER && e.library != "session",
             Chip::Tileable => e.tileable,
             Chip::Category(c) => e.folder.is_some_and(|x| x.eq_ignore_ascii_case(c)) || e.tags.iter().any(|t| t.eq_ignore_ascii_case(c)),
         };
@@ -479,6 +481,11 @@ mod tests {
     fn chips_filter_by_origin_and_category() {
         assert!(f("", Chip::Mine).matches("My Blue Metal", None, true));
         assert!(!f("", Chip::Mine).matches("Steel", Some("Metal"), false));
+        let query = Query::parse("");
+        let kit = Entry { name: "Kit Steel", usage: "smartmaterial", library: "Kit", folder: None, tags: &[], tileable: false };
+        let session = Entry { library: "session", ..kit };
+        assert!(f("", Chip::Mine).matches_entry(&kit, &query), "an extra user library is Mine too");
+        assert!(!f("", Chip::Mine).matches_entry(&session, &query), "a session import is not stored in a library");
         assert!(f("", Chip::Category("metal".into())).matches("Steel", Some("Metal"), false));
         assert!(!f("", Chip::Category("Metal".into())).matches("Rubber Black", Some("Plastic"), false));
         assert!(!f("", Chip::Category("Metal".into())).matches("Round", None, false));

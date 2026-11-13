@@ -220,8 +220,31 @@ fn as_stored(c: vec3<f32>) -> vec4<f32> {
 // Single-channel view modes: the channel as the 2D view shows it. `t_base` is always read
 // with `albedo_samp`: OpenGL allows one sampler per texture, and the viewport pipeline fails there
 // if a texture is sampled with two (issue #91).
+// Tangent-space bump normal of the Height channel at `uv` (central differences, one texel apart),
+// scaled by the height scale. UV v grows downward while the bitangent points up the image
+// (OpenGL convention), hence +dh/dv for y.
+fn height_bump(uv: vec2<f32>) -> vec3<f32> {
+    let texel = 1.0 / vec2<f32>(textureDimensions(t_height));
+    let h_l = textureSample(t_height, samp, uv - vec2<f32>(texel.x, 0.0)).r;
+    let h_r = textureSample(t_height, samp, uv + vec2<f32>(texel.x, 0.0)).r;
+    let h_u = textureSample(t_height, samp, uv - vec2<f32>(0.0, texel.y)).r;
+    let h_d = textureSample(t_height, samp, uv + vec2<f32>(0.0, texel.y)).r;
+    let dhdu = (h_r - h_l) / (2.0 * texel.x);
+    let dhdv = (h_d - h_u) / (2.0 * texel.y);
+    return normalize(vec3<f32>(-dhdu * g.params.w, dhdv * g.params.w, 1.0));
+}
+
+// The Normal channel combined with the height bump (whiteout), as the shading combines them.
+fn combined_normal(ntex: vec3<f32>, bump: vec3<f32>) -> vec3<f32> {
+    return normalize(vec3<f32>(ntex.xy + bump.xy, max(ntex.z, 1e-3) * bump.z));
+}
+
 fn channel_raw(mode: i32, uv: vec2<f32>) -> vec4<f32> {
     switch mode {
+        case 9: {
+            let ntex = textureSample(t_normal, samp, uv).rgb * 2.0 - 1.0;
+            return vec4<f32>(combined_normal(ntex, height_bump(uv)) * 0.5 + 0.5, 1.0);
+        }
         case 1, 7: { return textureSample(t_base, albedo_samp, uv); }
         case 2: { return vec4<f32>(textureSample(t_normal, samp, uv).rgb, 1.0); }
         case 3: { return vec4<f32>(vec3<f32>(textureSample(t_rough, samp, uv).r), 1.0); }

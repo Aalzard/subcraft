@@ -39,6 +39,7 @@ use wgpu::util::DeviceExt;
 
 pub use egui_wgpu;
 pub use egui_wgpu::wgpu as wgpu_api;
+pub use bake_preview::BakeVisualization;
 pub use gpu_mesh::GpuMesh;
 pub use grid::{GridParams, grid_step};
 pub use subcraft_doc::display::ChannelComponent;
@@ -171,6 +172,8 @@ pub struct ViewParams {
     /// Placement matrix of the high poly in the overlay, and its opacity (1 = solid).
     pub bake_high_transform: Mat4,
     pub bake_high_opacity: f32,
+    /// What the bake overlay draws and its colours.
+    pub bake_vis: BakeVisualization,
     pub bake_distances: [f32; 2],
     /// Show a raw baked map on the low-poly UVs without changing material textures.
     pub bake_map: Option<MeshMapKind>,
@@ -212,10 +215,14 @@ pub enum ViewMode {
     BakedNormal,
     /// The baked tangent-space normal map itself, unlit, on the model.
     BakedNormalMap,
+    /// The tangent-space normal the shading uses: the Normal channel combined with the Height
+    /// channel's bump (Painter's "Normal + Height + Mesh"; SubCraft's material shading does not
+    /// layer the baked mesh normal, so neither does this view).
+    NormalHeight,
 }
 
 impl ViewMode {
-    pub const ALL: [ViewMode; 9] = [
+    pub const ALL: [ViewMode; 10] = [
         ViewMode::Material,
         ViewMode::BaseColor,
         ViewMode::Normal,
@@ -225,6 +232,7 @@ impl ViewMode {
         ViewMode::AmbientOcclusion,
         ViewMode::BakedNormal,
         ViewMode::BakedNormalMap,
+        ViewMode::NormalHeight,
     ];
 
     /// Value of the shader's view-mode switch (0 = full shading). The baked-normal modes are
@@ -233,6 +241,8 @@ impl ViewMode {
     fn shader_mode(self) -> u32 {
         match self {
             ViewMode::BakedNormal | ViewMode::BakedNormalMap => 0,
+            // 7 and 8 are the solo channel modes; the combined normal is 9.
+            ViewMode::NormalHeight => 9,
             m => m as u32,
         }
     }
@@ -248,6 +258,7 @@ impl ViewMode {
             ViewMode::AmbientOcclusion => "Ambient Occlusion",
             ViewMode::BakedNormal => "Baked Normal (shaded)",
             ViewMode::BakedNormalMap => "Baked Normal Map",
+            ViewMode::NormalHeight => "Normal + Height",
         }
     }
 }
@@ -272,7 +283,7 @@ impl ViewParams {
             oit: false,
             view_mode: ViewMode::Material,
             grid: None,
-            bake_overlay: false, bake_cage: true, bake_miss_heatmap: false, bake_high_transform: Mat4::IDENTITY, bake_high_opacity: 1.0, bake_distances: [0.01; 2], bake_map: None, symmetry_guides: false, wireframe: false,
+            bake_overlay: false, bake_cage: true, bake_miss_heatmap: false, bake_high_transform: Mat4::IDENTITY, bake_high_opacity: 1.0, bake_vis: BakeVisualization::default(), bake_distances: [0.01; 2], bake_map: None, symmetry_guides: false, wireframe: false,
             post: PostParams::default(),
             solo_channel: None,
             mask_view: false,
@@ -731,6 +742,12 @@ impl ViewportRenderer {
 
     /// Ray-miss maps (1 = miss) per low-poly material slot for the bake overlay's heatmap. Uploading
     /// new overlay meshes drops them; an empty list removes them.
+    /// Lines of the bake overlay's seam check: `[a, b, normal]` per hard edge of the low poly
+    /// that has no UV seam (shown with `bake_vis.show_seams`). An empty list removes them.
+    pub fn set_bake_seam_lines(&mut self, device: &wgpu::Device, lines: &[[glam::Vec3; 3]]) {
+        self.bake_preview.set_seam_lines(device, lines);
+    }
+
     pub fn set_bake_miss_maps(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, maps: &[(u32, &subcraft_image::TiledImage)]) {
         self.bake_preview.set_miss_maps(device, queue, maps);
     }
@@ -1051,7 +1068,7 @@ impl ViewportRenderer {
         if params.symmetry_guides && let Some(guides) = &self.symmetry { guides.prepare_lines(queue, params.proj * params.view); }
         if params.wireframe && let Some(wire) = &self.wireframe { wire.prepare_lines(queue, params.proj * params.view); }
         if params.bake_overlay {
-            self.bake_preview.prepare(queue, params.proj * params.view, params.bake_distances, params.bake_high_transform, params.bake_high_opacity, params.bake_miss_heatmap);
+            self.bake_preview.prepare(queue, params.proj * params.view, params.bake_distances, params.bake_high_transform, params.bake_high_opacity, params.bake_miss_heatmap, &params.bake_vis);
         }
         if let Some(grid) = params.grid {
             self.grid.prepare(device, queue, params.proj * params.view, params.eye, grid);
@@ -1101,7 +1118,7 @@ impl ViewportRenderer {
                 pass.draw(0..3, 0..1);
             }
             if params.bake_overlay {
-                self.bake_preview.draw(&mut pass, samples > 1, params.bake_cage);
+                self.bake_preview.draw(&mut pass, samples > 1, params.bake_cage, &params.bake_vis);
             } else if let Some(mesh) = &self.mesh {
                 pass.set_bind_group(0, &self.globals_bg, &[]);
                 pass.set_vertex_buffer(0, mesh.vertices.slice(..));

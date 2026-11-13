@@ -88,3 +88,29 @@ fn extended_channel_types_are_added_painted_as_fills_and_saved() {
     assert_eq!(back.selected_texture_set().channels, s.selected_texture_set().channels);
     std::fs::remove_dir_all(&dir).ok();
 }
+
+#[test]
+fn several_channels_are_added_as_one_undo_step() {
+    let mut s = Session::new(primitives::cube(2.0), 64);
+    let ts = s.selection().texture_set;
+    let before = s.selected_texture_set().channels.len();
+    let steps = s.history().entries().len();
+    // Roughness is already there and Emissive is named twice: both are skipped.
+    let kinds = vec![ChannelKind::Emissive, ChannelKind::Roughness, ChannelKind::CoatColor, ChannelKind::Emissive, ChannelKind::User7];
+    s.execute(Command::AddChannels { texture_set: ts, kinds }).unwrap();
+    let set = s.selected_texture_set();
+    assert_eq!(set.channels.len(), before + 3);
+    assert!([ChannelKind::Emissive, ChannelKind::CoatColor, ChannelKind::User7].iter().all(|&k| set.has_channel(k)));
+    assert_eq!(set.channels.iter().filter(|d| d.kind == ChannelKind::Emissive).count(), 1);
+    assert_eq!(s.history().entries().len(), steps + 1, "one step for all of them");
+    s.perform(Action::Undo).unwrap();
+    assert_eq!(s.selected_texture_set().channels.len(), before, "undo takes all of them away");
+    s.perform(Action::Redo).unwrap();
+    assert_eq!(s.selected_texture_set().channels.len(), before + 3);
+
+    // Nothing new: no step.
+    let steps = s.history().entries().len();
+    s.execute(Command::AddChannels { texture_set: ts, kinds: vec![ChannelKind::Roughness, ChannelKind::User7] }).unwrap();
+    s.execute(Command::AddChannels { texture_set: ts, kinds: Vec::new() }).unwrap();
+    assert_eq!(s.history().entries().len(), steps);
+}

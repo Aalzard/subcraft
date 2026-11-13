@@ -208,6 +208,26 @@ fn bench_scene(scene: &Scene, res: u32, reps: usize) {
             last = Some(r);
         }
         println!("{label} opacity, mid layer  : median {:>6.0} ms | last {}", median(times), describe(&last.unwrap()));
+        // One channel only (what an opacity slider or a fill color changes): only that channel
+        // is blended again. Checked against a cold composite of the same state.
+        let mut times = Vec::new();
+        let mut last = None;
+        for i in 0..reps {
+            let l = ts.find_mut(scene.mid).unwrap();
+            let Some(kind) = [ChannelKind::BaseColor, ChannelKind::Roughness].into_iter().find(|k| l.blend_for(*k).is_active()) else { break };
+            if let Some(b) = l.blend.get_mut(&kind) {
+                b.opacity = 0.8 - 0.04 * i as f32;
+            }
+            let r = update(&mut cache, &ts, &ctx, use_gpu);
+            times.push(r.total);
+            last = Some(r);
+        }
+        if let Some(last) = last {
+            let mut cold = CompositeCache::new();
+            update(&mut cold, &ts, &ctx, use_gpu);
+            let same = cache.composite() == cold.composite();
+            println!("{label} opacity, mid, 1 chan: median {:>6.0} ms | last {} | limited to {:?}, identical to a cold composite: {same}", median(times), describe(&last), cache.limited_to());
+        }
     }
     gpu::set_gpu_compositing_enabled(true);
 }

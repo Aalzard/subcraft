@@ -160,8 +160,9 @@ pub fn build(c: &HintContext) -> Vec<Hint> {
                 if let (Some(a), Some(b)) = (key(c, Action::BrushSmaller), key(c, Action::BrushLarger)) {
                     out.push(h(format!("{a} {b}"), "Brush size"));
                 }
-                if let Some(k) = key(c, Action::ToggleSymmetryX) {
-                    out.push(h(k, "Symmetry X"));
+                // Painter's Symmetry on / off (X mirror alone stays in Settings > Shortcuts).
+                if let Some(k) = key(c, Action::ToggleSymmetry) {
+                    out.push(h(k, "Symmetry"));
                 }
                 if let Some(k) = key(c, Action::ToggleLazyMouse) {
                     out.push(h(k, "Lazy mouse"));
@@ -259,7 +260,7 @@ mod tests {
     #[test]
     fn brush_lists_painting_camera_and_part_hints() {
         let w = whats(&ctx(Tool::Brush));
-        for want in ["Paint", "Straight line", "Size / hardness", "Flow / angle", "Brush size", "Symmetry X", "Lazy mouse", "Orbit", "Pan", "Zoom", "Frame model", "Properties / part menu", "Isolate / hide part"] {
+        for want in ["Paint", "Straight line", "Size / hardness", "Flow / angle", "Brush size", "Symmetry", "Lazy mouse", "Orbit", "Pan", "Zoom", "Frame model", "Properties / part menu", "Isolate / hide part"] {
             assert!(w.contains(&want), "{want} missing from {w:?}");
         }
         assert!(!w.contains(&"Show all parts"), "only when something is hidden");
@@ -276,7 +277,7 @@ mod tests {
         let eye = whats(&ctx(Tool::Eyedropper));
         assert!(eye.contains(&"Pick color") && eye.contains(&"Pick material") && !eye.contains(&"Brush size"));
         let pen = whats(&ctx(Tool::Pen));
-        assert!(pen.contains(&"Add point") && pen.contains(&"Finish path") && !pen.contains(&"Symmetry X"));
+        assert!(pen.contains(&"Add point") && pen.contains(&"Finish path") && !pen.contains(&"Symmetry"));
         let mut m = ctx(Tool::Brush);
         m.mask = true;
         assert!(whats(&m).contains(&"Paint mask"));
@@ -320,10 +321,10 @@ mod tests {
     fn keys_come_from_the_active_keymap() {
         let mut c = ctx(Tool::Brush);
         assert_eq!(keys_of(&c, "Frame model"), "Home");
-        assert_eq!(keys_of(&c, "Symmetry X"), "X");
+        assert_eq!(keys_of(&c, "Symmetry"), "L");
         assert_eq!(keys_of(&c, "Rendering mode"), "F10");
         c.keymap = KeymapPreset::Painter.into();
-        assert_eq!(keys_of(&c, "Symmetry X"), "L", "the Painter preset moves symmetry to L");
+        assert_eq!(keys_of(&c, "Symmetry"), "L", "symmetry on / off is L in both presets");
         c.tool = Tool::Eyedropper;
         c.keymap = KeymapPreset::SubCraft.into();
         assert_eq!(keys_of(&ctx(Tool::Brush), "Brush size"), "[ ]");

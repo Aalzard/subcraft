@@ -33,8 +33,17 @@ pub struct NamedLibrary {
     pub lib: UserLibrary,
 }
 
-/// Why a new library cannot be added, or `None` when it can.
-pub fn check_new_library(name: &str, path: &str, existing: &[LibraryPath]) -> Option<&'static str> {
+/// Whether two library folders are the same or one holds the other (compared as written, letter
+/// case ignored: the folder may not exist yet).
+fn folders_overlap(a: &str, b: &str) -> bool {
+    let norm = |p: &str| PathBuf::from(p.trim().to_lowercase());
+    let (a, b) = (norm(a), norm(b));
+    a.starts_with(&b) || b.starts_with(&a)
+}
+
+/// Why a new library cannot be added, or `None` when it can. `yours`: the default library's
+/// folder.
+pub fn check_new_library(name: &str, path: &str, existing: &[LibraryPath], yours: Option<&Path>) -> Option<&'static str> {
     let name = name.trim();
     if name.is_empty() {
         return Some("Give the library a name");
@@ -45,10 +54,22 @@ pub fn check_new_library(name: &str, path: &str, existing: &[LibraryPath]) -> Op
     if RESERVED.iter().any(|r| r.eq_ignore_ascii_case(name)) || existing.iter().any(|l| l.name.trim().eq_ignore_ascii_case(name)) {
         return Some("A library already has this name");
     }
-    if name.contains(['/', '"', ',']) {
-        return Some("A library name cannot hold / , or quotes");
+    // A backslash is the query's escape, even inside quotes: `s:"a\b"` read as `ab`.
+    if name.contains(['/', '\\', '"', ',']) {
+        return Some("A library name cannot hold / \\ , or quotes");
+    }
+    // Nested or shared folders listed every asset twice (QA 2026-11).
+    if yours.is_some_and(|y| folders_overlap(path, &y.to_string_lossy())) || existing.iter().any(|l| folders_overlap(path, &l.path)) {
+        return Some("This folder is, holds or is inside another library");
     }
     None
+}
+
+/// Whether two shelf assets are the same one. Library files are named by file name only, so two
+/// files of the same name in different folders or libraries share an id: they are told apart by
+/// their file (QA 2026-11: one hid the other, and importing a second `dots.png` added nothing).
+pub fn same_asset(a: (subcraft_core::AssetId, Option<&Path>), b: (subcraft_core::AssetId, Option<&Path>)) -> bool {
+    a.0 == b.0 && a.1 == b.1
 }
 
 impl UiState {
@@ -97,18 +118,24 @@ impl UiState {
         self.library.alphas.retain(|a| keep(a.user_file.as_deref(), &session));
         self.library.smart_materials.retain(|m| keep(m.user_file.as_deref(), &session));
         self.library.smart_masks.retain(|m| keep(m.user_file.as_deref(), &session));
-        let env_before = self.library.environments.get(self.env.index).map(|e| e.id);
-        self.library.environments.retain(|e| keep(e.user_file.as_deref(), &session));
-        self.env.index = env_before.and_then(|id| self.library.environments.iter().position(|e| e.id == id)).unwrap_or(0);
-        self.env.uploaded = None;
+        // HDRIs still in a library stay loaded (prefiltering them again is slow): the one in use
+        // stays selected. Dropping it switched the viewport to the first environment, since the
+        // reloaded copy arrives later from the background loader (QA 2026-11).
+        let libraries = self.libraries.clone();
+        let listed: Vec<PathBuf> = libraries.iter().flat_map(|l| l.lib.list(UserAssetKind::Environment)).collect();
+        let env_before = self.library.environments.get(self.env.index).map(|e| (e.id, e.user_file.clone()));
+        self.library.environments.retain(|e| keep(e.user_file.as_deref(), &session) || e.user_file.as_ref().is_some_and(|f| listed.contains(f)));
+        let index = env_before.as_ref().and_then(|(id, file)| self.library.environments.iter().position(|e| e.id == *id && e.user_file == *file));
+        if index != Some(self.env.index) {
+            self.env.index = index.unwrap_or(0);
+            self.env.uploaded = None;
+        }
         self.brush_presets.retain(|p| keep(p.user_file.as_deref(), &session));
         self.textures.items.retain(|t| session.contains(&t.path));
-        let libraries = self.libraries.clone();
-        let mut environments = Vec::new();
         for l in &libraries {
             self.load_library_content(&l.lib);
-            environments.extend(l.lib.list(UserAssetKind::Environment));
         }
+        let environments: Vec<PathBuf> = listed.into_iter().filter(|f| !self.library.environments.iter().any(|e| e.user_file.as_deref() == Some(f.as_path()))).collect();
         if let Some(lib) = &self.user_library {
             self.favorites = subcraft_app::brush_preset::Favorites::load(lib);
         }
@@ -123,7 +150,7 @@ impl UiState {
             log::warn!("library alpha skipped: {e}");
         }
         for a in alphas {
-            if !self.library.alphas.iter().any(|x| x.id == a.id) {
+            if !self.library.alphas.iter().any(|x| same_asset((x.id, x.user_file.as_deref()), (a.id, a.user_file.as_deref()))) {
                 self.library.alphas.push(a);
             }
         }
@@ -174,7 +201,7 @@ impl UiState {
             UserAssetKind::Alpha => {
                 let a = load_alpha(file)?;
                 let name = a.name.clone();
-                if !self.library.alphas.iter().any(|x| x.id == a.id) {
+                if !self.library.alphas.iter().any(|x| same_asset((x.id, x.user_file.as_deref()), (a.id, a.user_file.as_deref()))) {
                     self.library.alphas.push(a);
                 }
                 Ok(name)
@@ -182,7 +209,7 @@ impl UiState {
             UserAssetKind::Environment => {
                 let e = load_environment(file)?;
                 let name = e.name.clone();
-                if !self.library.environments.iter().any(|x| x.id == e.id) {
+                if !self.library.environments.iter().any(|x| same_asset((x.id, x.user_file.as_deref()), (e.id, e.user_file.as_deref()))) {
                     self.library.environments.push(e);
                 }
                 Ok(name)
@@ -292,7 +319,7 @@ pub fn settings(ui: &mut egui::Ui, prefs: &mut crate::recovery::Preferences, you
         {
             form.path = dir.display().to_string();
         }
-        let problem = check_new_library(&form.name, &form.path, &prefs.extra_libraries);
+        let problem = check_new_library(&form.name, &form.path, &prefs.extra_libraries, yours);
         let add = ui.add_enabled(problem.is_none(), egui::Button::new(crate::icons::PLUS));
         let add = match problem {
             Some(why) => add.on_disabled_hover_text(tr(why)),
@@ -339,12 +366,20 @@ mod tests {
     #[test]
     fn new_library_names_must_be_free_and_plain() {
         let existing = vec![LibraryPath { name: "Studio".into(), path: "D:/lib".into() }];
-        assert_eq!(check_new_library("", "x", &existing), Some("Give the library a name"));
-        assert_eq!(check_new_library("Kit", " ", &existing), Some("Choose the library folder"));
-        assert_eq!(check_new_library("studio", "x", &existing), Some("A library already has this name"));
-        assert_eq!(check_new_library("your_assets", "x", &existing), Some("A library already has this name"));
-        assert_eq!(check_new_library("a/b", "x", &existing), Some("A library name cannot hold / , or quotes"));
-        assert_eq!(check_new_library("Kit", "x", &existing), None);
+        let yours = Path::new("C:/Users/me/Documents/SubCraft/Library");
+        let check = |name: &str, path: &str| check_new_library(name, path, &existing, Some(yours));
+        assert_eq!(check("", "x"), Some("Give the library a name"));
+        assert_eq!(check("Kit", " "), Some("Choose the library folder"));
+        assert_eq!(check("studio", "x"), Some("A library already has this name"));
+        assert_eq!(check("your_assets", "x"), Some("A library already has this name"));
+        assert_eq!(check("a/b", "x"), Some("A library name cannot hold / \\ , or quotes"));
+        assert_eq!(check("Kit", "x"), None);
+        // QA 2026-11: a backslash broke s: queries; overlapping folders loaded everything twice.
+        assert_eq!(check("a\\b", "x"), Some("A library name cannot hold / \\ , or quotes"));
+        for overlapping in ["D:/lib", "d:/LIB/sub", "D:/", "C:/Users/me/Documents/SubCraft/Library/Kit", "C:/Users/me/Documents/SubCraft"] {
+            assert_eq!(check("Kit", overlapping), Some("This folder is, holds or is inside another library"), "{overlapping}");
+        }
+        assert_eq!(check("Kit", "D:/library"), None, "a sibling folder whose name starts the same is fine");
     }
 
     #[test]
@@ -370,6 +405,28 @@ mod tests {
         std::fs::remove_dir_all(&root).ok();
     }
 
+    /// QA 2026-11: Refresh libraries dropped the library HDRI in use and switched the viewport
+    /// to the first environment until it reloaded.
+    #[test]
+    fn refresh_keeps_the_library_environment_in_use() {
+        let root = temp_root("refresh-env");
+        let yours = root.join("yours");
+        let mut s = state_with(&yours);
+        let hdr = UserLibrary::new(&yours).folder(UserAssetKind::Environment).join("sky.hdr");
+        std::fs::create_dir_all(hdr.parent().unwrap()).unwrap();
+        subcraft_image::save_image(&hdr, 8, 4, 3, &[0.5; 96], subcraft_image::FileFormat::Hdr32).unwrap();
+        let env = subcraft_app::assets::user_library::load_environment(&hdr).unwrap();
+        let id = env.id;
+        s.library.environments.push(env);
+        s.env.index = s.library.environments.len() - 1;
+        s.env.uploaded = Some(id);
+        s.refresh_libraries();
+        assert_eq!(s.library.environments.get(s.env.index).map(|e| e.id), Some(id), "still the selected environment");
+        assert_eq!(s.env.uploaded, Some(id), "not uploaded again");
+        assert_eq!(s.library.environments.iter().filter(|e| e.user_file.as_deref() == Some(hdr.as_path())).count(), 1, "not loaded twice");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
     #[test]
     fn refresh_finds_new_files_and_keeps_session_imports() {
         let root = temp_root("refresh");
@@ -387,6 +444,23 @@ mod tests {
         assert!(s.library.alphas.iter().any(|a| a.name == "dots") && s.library.alphas.iter().any(|a| a.name == "new"));
         s.refresh_libraries();
         assert_eq!(s.library.alphas.len(), before + 2, "refreshing twice adds nothing");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// QA 2026-11: alphas are named by file name only, so two `dots.png` in different folders
+    /// hid each other.
+    #[test]
+    fn files_of_the_same_name_in_different_folders_both_show() {
+        let root = temp_root("same-name");
+        let yours = root.join("yours");
+        let mut s = state_with(&yours);
+        let folder = UserLibrary::new(&yours).folder(UserAssetKind::Alpha);
+        png(&folder.join("Grunge").join("dots.png"));
+        png(&folder.join("Splats").join("dots.png"));
+        s.refresh_libraries();
+        assert_eq!(s.library.alphas.iter().filter(|a| a.name == "dots").count(), 2);
+        s.refresh_libraries();
+        assert_eq!(s.library.alphas.iter().filter(|a| a.name == "dots").count(), 2, "still no duplicates of one file");
         std::fs::remove_dir_all(&root).ok();
     }
 }
