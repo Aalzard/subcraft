@@ -154,6 +154,30 @@ pub fn parse_hex(text: &str) -> Option<[f32; 3]> {
     Some([((v >> 16) & 255) as f32 / 255.0, ((v >> 8) & 255) as f32 / 255.0, (v & 255) as f32 / 255.0])
 }
 
+/// Issue #333: while an ID eyedropper is armed (an ID Color mask's "Pick from model", or the ID
+/// color editor's), the 3D view shows the ID map; when the pick ends (the button again, Esc, or
+/// another layer) the view goes back to the mode it was in. Call once per frame.
+pub fn sync_pick_view(state: &mut UiState) {
+    use subcraft_core::MeshMapKind;
+    let picking = state.picking_id_color.is_some() || state.picking_id_palette;
+    let view = &mut state.recovery.prefs.viewport.mesh_map;
+    match (picking, state.id_pick_view) {
+        (true, None) => {
+            // Only when there is an ID map to look at.
+            if state.session.has_id_map(state.session.selected_texture_set().id) {
+                state.id_pick_view = Some(*view);
+                *view = Some(MeshMapKind::Id);
+            }
+        }
+        (false, Some(before)) => {
+            state.id_pick_view = None;
+            // A mode the owner picked during the pick stays.
+            if *view == Some(MeshMapKind::Id) { *view = before; }
+        }
+        _ => {}
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -209,6 +233,41 @@ mod tests {
         let typed: Option<String> = ctx.data(|d| d.get_temp(hex_text()));
         assert_eq!(typed.as_deref().map(str::len), Some(8), "the extra digit stays in the field: {typed:?}");
         assert!(same_id(state.id_palette_new, red), "a value that does not parse changes nothing: {:?}", state.id_palette_new);
+    }
+
+    #[test]
+    fn picking_an_id_color_shows_the_id_map_and_ending_it_restores_the_view() {
+        use subcraft_core::MeshMapKind;
+        let mut state = UiState::new(subcraft_app::Session::new(subcraft_mesh::primitives::plane(2.0, 2), 64), None);
+        state.recovery.prefs.viewport.mesh_map = Some(MeshMapKind::Normal);
+        // No ID map yet: nothing to show, the view stays.
+        state.picking_id_palette = true;
+        sync_pick_view(&mut state);
+        assert_eq!(state.recovery.prefs.viewport.mesh_map, Some(MeshMapKind::Normal));
+        state.picking_id_palette = false;
+        sync_pick_view(&mut state);
+        let ts = state.session.selected_texture_set().id;
+        state.session.set_mesh_maps(ts, std::collections::BTreeMap::from([(MeshMapKind::Id, subcraft_image::TiledImage::new(64, 64, 3, [0.5; 4]))]));
+        // An ID Color mask's Pick from model.
+        state.picking_id_color = Some((subcraft_core::LayerId::new(), subcraft_core::EffectId::new()));
+        sync_pick_view(&mut state);
+        assert_eq!(state.recovery.prefs.viewport.mesh_map, Some(MeshMapKind::Id), "the ID map while picking");
+        sync_pick_view(&mut state);
+        assert_eq!(state.recovery.prefs.viewport.mesh_map, Some(MeshMapKind::Id));
+        state.picking_id_color = None; // Esc or the button again
+        sync_pick_view(&mut state);
+        assert_eq!(state.recovery.prefs.viewport.mesh_map, Some(MeshMapKind::Normal), "back to the mode before");
+        // The editor's eyedropper from the material view.
+        state.recovery.prefs.viewport.mesh_map = None;
+        state.picking_id_palette = true;
+        sync_pick_view(&mut state);
+        assert_eq!(state.recovery.prefs.viewport.mesh_map, Some(MeshMapKind::Id));
+        // Switching modes during the pick: that choice stays when the pick ends.
+        state.recovery.prefs.viewport.mesh_map = Some(MeshMapKind::Curvature);
+        state.picking_id_palette = false;
+        sync_pick_view(&mut state);
+        assert_eq!(state.recovery.prefs.viewport.mesh_map, Some(MeshMapKind::Curvature));
+        assert!(state.id_pick_view.is_none());
     }
 
     #[test]

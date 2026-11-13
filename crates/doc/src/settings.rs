@@ -76,6 +76,80 @@ pub struct ProjectSettings {
     /// (see `subcraft_project`). `None` = the window's default folder.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub export_folder: Option<String>,
+    /// The Bake window's settings (issue #320). Optional in the file: absent = the window's
+    /// defaults, so no schema bump is needed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bake: Option<BakeConfig>,
+}
+
+/// The Bake window's settings saved with the project: the files, the maps to bake and every
+/// baker option. Options are named in words (see `subcraft_app::bake_config`), so an unknown
+/// name falls back to its default. Missing fields read as the baker's defaults.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct BakeConfig {
+    /// High-poly model file (empty: the low poly bakes onto itself) and more files baked with it.
+    pub high_poly: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub extra_high: Vec<String>,
+    /// Custom cage mesh file (empty: the distance-based cage).
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub cage_file: String,
+    /// Output size; `None` follows the texture sets' resolution.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub size: Option<u32>,
+    pub maps: Vec<subcraft_core::MeshMapKind>,
+    /// Texture sets unticked for baking.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub skip_sets: Vec<subcraft_core::TextureSetId>,
+    pub ao_samples: u32,
+    pub ao_distance: f32,
+    pub ao_min_distance: f32,
+    pub ao_spread_angle: f32,
+    pub ao_distribution: String,
+    pub ao_attenuation: String,
+    pub ao_ground_plane: bool,
+    pub ao_ground_offset: f32,
+    pub thickness_samples: u32,
+    pub thickness_distance: f32,
+    pub curvature_radius: f32,
+    pub curvature_from_normal: bool,
+    pub normal_curvature_width: f32,
+    pub normal_curvature_intensity: f32,
+    pub cage_front: f32,
+    pub cage_rear: f32,
+    pub id_source: String,
+    pub id_generator: String,
+    pub dilation: u32,
+    pub diffusion: bool,
+    /// Supersampling per side: 1, 2, 4 or 8.
+    pub antialiasing: u32,
+    pub average_normals: bool,
+    pub ignore_backface: bool,
+    /// Position map of one axis (0 = X, 1 = Y, 2 = Z); `None`: all axes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub position_axis: Option<u8>,
+    pub position_normalization: String,
+    /// Height map range as a fraction of the diagonal; `None`: the cage distances.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub height_range: Option<f32>,
+}
+
+impl Default for BakeConfig {
+    /// The baker's defaults (`subcraft_bake::BakeSettings::default()`), as stored.
+    fn default() -> Self {
+        Self {
+            high_poly: String::new(), extra_high: Vec::new(), cage_file: String::new(), size: None,
+            maps: subcraft_core::MeshMapKind::ALL.to_vec(), skip_sets: Vec::new(),
+            ao_samples: 32, ao_distance: 0.25, ao_min_distance: 0.0, ao_spread_angle: 180.0,
+            ao_distribution: "cosine".into(), ao_attenuation: "none".into(), ao_ground_plane: false, ao_ground_offset: 0.0,
+            thickness_samples: 16, thickness_distance: 0.5, curvature_radius: 0.02, curvature_from_normal: false,
+            normal_curvature_width: 2.0, normal_curvature_intensity: 1.0, cage_front: 0.01, cage_rear: 0.01,
+            id_source: "mesh_id".into(), id_generator: "hue_shift".into(), dilation: 16, diffusion: true, antialiasing: 1,
+            average_normals: false, ignore_backface: false, position_axis: None, position_normalization: "bounding_box".into(),
+            height_range: None,
+        }
+    }
 }
 
 /// One texture set's export settings replacing the Export window's global ones (Painter's
@@ -142,6 +216,24 @@ fn is_default_match(m: &subcraft_core::BakeMatch) -> bool {
 
 fn is_default_placement(p: &subcraft_core::BakePlacement) -> bool {
     p.is_identity()
+}
+
+#[cfg(test)]
+mod bake_config_tests {
+    use super::*;
+
+    #[test]
+    fn bake_config_stays_out_of_files_that_have_none_and_old_files_read_as_none() {
+        let plain = serde_json::to_string(&ProjectSettings::default()).unwrap();
+        assert!(!plain.contains("\"bake\""), "{plain}");
+        let old: ProjectSettings = serde_json::from_str(r#"{"export_template":"Godot 4 (ORM)"}"#).unwrap();
+        assert_eq!(old.bake, None);
+        // A partial entry reads the missing options as the defaults.
+        let partial: ProjectSettings = serde_json::from_str(r#"{"bake":{"high_poly":"a_high.fbx","ao_samples":64}}"#).unwrap();
+        let bake = partial.bake.unwrap();
+        assert_eq!((bake.high_poly.as_str(), bake.ao_samples, bake.dilation), ("a_high.fbx", 64, 16));
+        assert_eq!(bake.maps, subcraft_core::MeshMapKind::ALL.to_vec());
+    }
 }
 
 #[cfg(test)]

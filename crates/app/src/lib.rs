@@ -8,6 +8,7 @@ pub mod keymap;
 pub mod asset_apply;
 pub mod auto_uv;
 pub mod bake_job;
+pub mod bake_config;
 mod guides;
 pub mod brush_builtin;
 pub mod brush_preset;

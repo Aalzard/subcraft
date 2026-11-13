@@ -5,6 +5,10 @@ What changed in SubCraft, newest first. Download the latest build from the
 
 ## Unreleased
 
+### Added
+- **Colour space per file** in the Export window's list of maps, like Painter's: sRGB, Linear (float files)
+  or Raw (data such as normals and roughness).
+
 ### Fixed
 - **The export folder is saved with the project** (#322). It used to reset to the default each time the
   project was opened. It is stored relative to the project file when it is inside the project's folder,
