@@ -84,9 +84,9 @@ Layout notes: a thumbnail button for the map (opens a mini-shelf filtered to env
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Shadows (enable) | Display Settings > Shadows | off (unverified) | missing: raster view has no shadows (only the path-traced mode casts them) | - | - |
-| Computation mode | Display Settings > Shadows | Lightweight; options Intensive, Average, Lightweight | missing | - | - |
-| Shadows opacity | Display Settings > Shadows | not documented | missing | - | - |
+| Shadows (enable) | Display Settings > Shadows | off (unverified) | done: off by default; the key light casts shadows in the raster 3D view (the environment light keeps its AO shading) | crates/render/src/shadow.rs, crates/render/src/viewport.wgsl (shadow_visibility) | - |
+| Computation mode | Display Settings > Shadows | Lightweight; options Intensive, Average, Lightweight | done: Intensive, Average, Lightweight (default): shadow-map size 4096 / 2048 / 1024 and filter width | crates/render/src/shadow.rs (ShadowQuality) | - |
+| Shadows opacity | Display Settings > Shadows | not documented | done: 0-1, default 0.8 (Painter's default is not documented) | crates/ui/src/panels/display_settings.rs (environment) | - |
 
 ## Camera settings: Camera
 

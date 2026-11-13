@@ -356,6 +356,20 @@ impl ViewportPrefs {
         }
     }
 
+    /// Raster shadows from these preferences (Display Settings > Shadows).
+    pub fn shadow_params(&self) -> subcraft_render::ShadowParams {
+        let d = &self.display;
+        subcraft_render::ShadowParams {
+            enabled: d.shadows,
+            opacity: if d.shadow_opacity.is_finite() { d.shadow_opacity.clamp(0.0, 1.0) } else { 0.8 },
+            quality: match d.shadow_mode {
+                subcraft_doc::ShadowMode::Lightweight => subcraft_render::ShadowQuality::Lightweight,
+                subcraft_doc::ShadowMode::Average => subcraft_render::ShadowQuality::Average,
+                subcraft_doc::ShadowMode::Intensive => subcraft_render::ShadowQuality::Intensive,
+            },
+        }
+    }
+
     /// Size the Rendering mode traces at for a 3D view of `size` pixels: the override when it is
     /// on, otherwise the view's render size.
     pub fn trace_size(&self, size: [u32; 2]) -> [u32; 2] {

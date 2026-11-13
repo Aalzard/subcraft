@@ -20,6 +20,7 @@ pub mod offline;
 pub mod pace;
 pub mod pathtrace;
 pub mod post;
+pub mod shadow;
 pub mod ray_bake;
 pub mod preview;
 pub mod target;
@@ -40,6 +41,7 @@ pub use gpu_mesh::GpuMesh;
 pub use grid::{GridParams, grid_step};
 pub use subcraft_doc::display::ChannelComponent;
 pub use material::{ChannelTexture, GpuMaterial, SHADED_CHANNELS};
+pub use shadow::{ShadowParams, ShadowQuality};
 pub use pathtrace::{Denoiser, FIREFLY_CLAMP, GroundSettings, PathTraceScene, PathTraceSettings, PathTraceStatus, render_done};
 pub use grade::Grade;
 pub use post::{GlareMode, PostParams, ToneMap};
@@ -174,6 +176,8 @@ pub struct ViewParams {
     pub channel_display: ChannelDisplay,
     /// Texture level bias of the material textures: 0 (soft) down to -3 (very sharp).
     pub mip_bias: f32,
+    /// Raster shadows of the key light (off by default).
+    pub shadows: ShadowParams,
     /// Material slot drawn with a highlight tint (the texture set under the cursor or hovered in
     /// the Texture Set List).
     pub highlight_slot: Option<u32>,
@@ -259,6 +263,7 @@ impl ViewParams {
             mask_view: false,
             channel_display: ChannelDisplay::default(),
             mip_bias: 0.0,
+            shadows: ShadowParams::default(),
             highlight_slot: None,
         }
     }
@@ -291,6 +296,12 @@ struct Globals {
     /// rgb: color of positive values, a: texture level bias.
     solo_positive: [f32; 4],
     solo_negative: [f32; 4],
+    /// Key light's view-projection for the shadow map.
+    shadow_mat: [[f32; 4]; 4],
+    /// x: 1 = shadows on, y: opacity, z: one texel in map UV, w: one texel in world units.
+    shadow: [f32; 4],
+    /// x: filter radius in texels.
+    shadow_filter: [f32; 4],
 }
 
 pub const SAMPLE_COUNT: u32 = 4;
@@ -336,6 +347,8 @@ pub struct ViewportRenderer {
     path_tracer: Option<pathtrace::PathTracer>,
     /// Material slots not drawn (hidden texture sets). The path tracer ignores this.
     hidden_slots: std::collections::HashSet<u32>,
+    /// Key-light shadow map (Display Settings > Shadows).
+    shadow: shadow::ShadowPass,
     path_target: Option<RenderTarget>,
     path_support: Option<Result<(), String>>,
 }
@@ -369,6 +382,19 @@ impl ViewportRenderer {
                     binding: 2,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+                // The key light's shadow map and its comparison sampler.
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Depth, view_dimension: wgpu::TextureViewDimension::D2, multisampled: false },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 4,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Comparison),
                     count: None,
                 },
             ],
@@ -410,6 +436,17 @@ impl ViewportRenderer {
             binding: 10,
             visibility: wgpu::ShaderStages::FRAGMENT,
             ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: None },
+            count: None,
+        });
+        // Specular level (11): the reflectance of non-metals.
+        entries.push(wgpu::BindGroupLayoutEntry {
+            binding: 11,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                view_dimension: wgpu::TextureViewDimension::D2,
+                multisampled: false,
+            },
             count: None,
         });
         let material_layout =
@@ -529,7 +566,8 @@ impl ViewportRenderer {
             ..Default::default()
         });
         let env_texture = ChannelTexture::constant(device, queue, [0.5, 0.5, 0.5, 1.0], 4, "environment placeholder").view;
-        let globals_bg = Self::globals_bind_group(device, &globals_layout, &globals, &env_texture, &env_sampler);
+        let shadow = shadow::ShadowPass::new(device, queue);
+        let globals_bg = Self::globals_bind_group(device, &globals_layout, &globals, &env_texture, &env_sampler, &shadow);
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("material sampler"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -541,7 +579,7 @@ impl ViewportRenderer {
         });
         let defaults = SHADED_CHANNELS
             .iter()
-            .chain(&[ChannelKind::Opacity])
+            .chain(&[ChannelKind::Opacity, ChannelKind::Specular])
             .map(|&k| {
                 let d = k.default_value().0;
                 (k, ChannelTexture::constant(device, queue, [d[0], d[1], d[2], 1.0], composite_comps(k), k.key()))
@@ -574,7 +612,7 @@ impl ViewportRenderer {
             env_levels: 1,
             env_sh: [[0.0; 3]; 9],
             material_layout, anisotropy: 1, sampler, nearest_sampler, mipmaps: mipmap::MipGenerator::new(device), defaults, mesh: None, materials: HashMap::new(), target: None, preview: PreviewPass::new(device), preview_target: None,
-            path_tracer: None, hidden_slots: Default::default(), path_target: None, path_support: None }
+            path_tracer: None, hidden_slots: Default::default(), path_target: None, path_support: None, shadow }
     }
 
     fn globals_bind_group(
@@ -583,6 +621,7 @@ impl ViewportRenderer {
         globals: &wgpu::Buffer,
         env: &wgpu::TextureView,
         sampler: &wgpu::Sampler,
+        shadow: &shadow::ShadowPass,
     ) -> wgpu::BindGroup {
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("globals"),
@@ -591,6 +630,8 @@ impl ViewportRenderer {
                 wgpu::BindGroupEntry { binding: 0, resource: globals.as_entire_binding() },
                 wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(env) },
                 wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(sampler) },
+                wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::TextureView(shadow.view()) },
+                wgpu::BindGroupEntry { binding: 4, resource: wgpu::BindingResource::Sampler(&shadow.sampler) },
             ],
         })
     }
@@ -630,7 +671,7 @@ impl ViewportRenderer {
                 self.env_sh = h.sh;
             }
         }
-        self.globals_bg = Self::globals_bind_group(device, &self.globals_layout, &self.globals, &self.env_texture, &self.env_sampler);
+        self.globals_bg = Self::globals_bind_group(device, &self.globals_layout, &self.globals, &self.env_texture, &self.env_sampler, &self.shadow);
         if let Some(pt) = &mut self.path_tracer { pt.environment_changed(); }
     }
 
@@ -821,7 +862,8 @@ impl ViewportRenderer {
                 entries.push(wgpu::BindGroupEntry { binding: i as u32 + 1, resource: wgpu::BindingResource::TextureView(view) });
             }
             let opacity = mat.channels.get(&ChannelKind::Opacity).map_or(&self.defaults[&ChannelKind::Opacity].view, |t| &t.view);
-            entries.extend(alpha_entries(opacity, params));
+            let specular = mat.channels.get(&ChannelKind::Specular).map_or(&self.defaults[&ChannelKind::Specular].view, |t| &t.view);
+            entries.extend(alpha_entries(opacity, params, specular));
             mat.bind_group = Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("material"),
                 layout: &self.material_layout,
@@ -868,7 +910,8 @@ impl ViewportRenderer {
                     entries.push(wgpu::BindGroupEntry { binding: i as u32 + 1, resource: wgpu::BindingResource::TextureView(view) });
                 }
                 let opacity = mat.channels.get(&ChannelKind::Opacity).map_or(&self.defaults[&ChannelKind::Opacity].view, |t| &t.view);
-                entries.extend(alpha_entries(opacity, mat.params.as_ref().unwrap_or(&self.opaque_params)));
+                let specular = mat.channels.get(&ChannelKind::Specular).map_or(&self.defaults[&ChannelKind::Specular].view, |t| &t.view);
+                entries.extend(alpha_entries(opacity, mat.params.as_ref().unwrap_or(&self.opaque_params), specular));
                 baked_normal_groups.insert(*slot, device.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("baked normal material"), layout: &self.material_layout, entries: &entries }));
             }
         }
@@ -892,7 +935,7 @@ impl ViewportRenderer {
                     let view = if i == 0 { shown.map_or(&neutral.view, |t| &t.view) } else { &self.defaults[k].view };
                     entries.push(wgpu::BindGroupEntry { binding: i as u32 + 1, resource: wgpu::BindingResource::TextureView(view) });
                 }
-                entries.extend(alpha_entries(&self.defaults[&ChannelKind::Opacity].view, &self.opaque_params));
+                entries.extend(alpha_entries(&self.defaults[&ChannelKind::Opacity].view, &self.opaque_params, &self.defaults[&ChannelKind::Specular].view));
                 solo_groups.insert(*slot, device.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("solo channel"), layout: &self.material_layout, entries: &entries }));
             }
         }
@@ -913,11 +956,18 @@ impl ViewportRenderer {
                     let view = if i == 0 { &tex.view } else { &self.defaults[k].view };
                     entries.push(wgpu::BindGroupEntry { binding: i as u32 + 1, resource: wgpu::BindingResource::TextureView(view) });
                 }
-                entries.extend(alpha_entries(&self.defaults[&ChannelKind::Opacity].view, &self.opaque_params));
+                entries.extend(alpha_entries(&self.defaults[&ChannelKind::Opacity].view, &self.opaque_params, &self.defaults[&ChannelKind::Specular].view));
                 mat.bake_bind_groups.insert(kind, device.create_bind_group(&wgpu::BindGroupDescriptor {
                     label: Some("bake map preview"), layout: &self.material_layout, entries: &entries,
                 }));
             }
+        }
+        // Shadows: only for the shaded material view of the model, with a key light.
+        let shadowed = params.shadows.active() && params.light_intensity > 0.0 && bake_map.is_none() && solo.is_none() && !params.bake_overlay && params.view_mode.shader_mode() == 0;
+        let shadow_size = params.shadows.quality.map_size().min(device.limits().max_texture_dimension_2d);
+        let shadow_fit = self.mesh.as_ref().filter(|_| shadowed).map(|m| (shadow::light_view_proj(params.light_dir, m.bounds), shadow::texel_world_size(m.bounds, shadow_size)));
+        if shadow_fit.is_some() && self.shadow.ensure(device, shadow_size) {
+            self.globals_bg = Self::globals_bind_group(device, &self.globals_layout, &self.globals, &self.env_texture, &self.env_sampler, &self.shadow);
         }
         let e = &params.environment;
         let v4 = |c: [f32; 3]| [c[0], c[1], c[2], 0.0];
@@ -952,6 +1002,12 @@ impl ViewportRenderer {
             ],
             solo_positive: { let c = params.channel_display.positive; [c[0], c[1], c[2], params.mip_bias.clamp(-8.0, 8.0)] },
             solo_negative: v4(params.channel_display.negative),
+            shadow_mat: shadow_fit.map_or(Mat4::IDENTITY, |f| f.0).to_cols_array_2d(),
+            shadow: match shadow_fit {
+                Some((_, texel)) => [1.0, params.shadows.opacity.clamp(0.0, 1.0), 1.0 / shadow_size as f32, texel],
+                None => [0.0; 4],
+            },
+            shadow_filter: [params.shadows.quality.filter_radius() as f32, 0.0, 0.0, 0.0],
         };
         queue.write_buffer(&self.globals, 0, bytemuck::bytes_of(&globals));
         if params.symmetry_guides && let Some(guides) = &self.symmetry { guides.prepare_lines(queue, params.proj * params.view); }
@@ -964,6 +1020,9 @@ impl ViewportRenderer {
         }
         let target = self.target.as_ref().expect("created above");
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("viewport") });
+        if let (Some((view_proj, _)), Some(mesh)) = (shadow_fit, &self.mesh) {
+            self.shadow.encode(queue, &mut encoder, mesh, &self.hidden_slots, view_proj);
+        }
         {
             let bg = params.background;
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -1115,10 +1174,11 @@ impl ViewportRenderer {
 
 /// Stored components of a composite channel image (mirrors `subcraft_compositor`).
 /// Bindings 9 (Opacity texture) and 10 (`MaterialParams`) of a material bind group.
-fn alpha_entries<'a>(opacity: &'a wgpu::TextureView, params: &'a wgpu::Buffer) -> [wgpu::BindGroupEntry<'a>; 2] {
+fn alpha_entries<'a>(opacity: &'a wgpu::TextureView, params: &'a wgpu::Buffer, specular: &'a wgpu::TextureView) -> [wgpu::BindGroupEntry<'a>; 3] {
     [
         wgpu::BindGroupEntry { binding: 9, resource: wgpu::BindingResource::TextureView(opacity) },
         wgpu::BindGroupEntry { binding: 10, resource: params.as_entire_binding() },
+        wgpu::BindGroupEntry { binding: 11, resource: wgpu::BindingResource::TextureView(specular) },
     ]
 }
 

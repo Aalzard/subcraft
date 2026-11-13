@@ -492,6 +492,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             params.mask_view = mask_view;
             params.channel_display = view.channel_display();
             params.mip_bias = -(view.mip_bias.min(3) as f32);
+            params.shadows = view.shadow_params();
             params.highlight_slot = state.highlight_slot.take();
             renderer.set_texture_filtering(&rs.device, view.anisotropy.samples());
             params.symmetry_guides = view.symmetry_guides && state.session.brush.options.has_symmetry() && !bake_mode;
