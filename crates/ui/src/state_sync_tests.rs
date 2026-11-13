@@ -66,3 +66,15 @@ fn reloading_the_mesh_deselects_the_imported_camera() {
     state.mesh_reloaded();
     assert_eq!(state.active_camera, None);
 }
+
+/// QA 2026-11: the mask view (the viewport showing a layer's mask) stayed on after another
+/// project was opened, pointing at a layer of the old one.
+#[test]
+fn replacing_the_session_leaves_the_mask_view() {
+    let mut state = state();
+    let layer = state.session.selection().layer.expect("the sample has a layer");
+    crate::mask_view::toggle(&mut state, layer);
+    assert!(state.mask_view.is_some());
+    state.set_session(Session::new(primitives::cube(2.0), 64));
+    assert!(state.mask_view.is_none());
+}
