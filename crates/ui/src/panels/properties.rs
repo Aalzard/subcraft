@@ -367,6 +367,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         );
                         add(ui, "Levels", MaskEffectKind::Levels(Levels::default()));
                         add(ui, "Invert", MaskEffectKind::Invert);
+                        add(ui, "Compare Mask", MaskEffectKind::Compare(Default::default()));
                         add(ui, "ID Color", MaskEffectKind::IdColor(Default::default()));
                         super::effects::add_mask_filters(ui, id, &mut cmds);
                         ui.menu_button(tr("Anchor"), |ui| {
@@ -1003,11 +1004,12 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
                     changed |= projection_options(ui, projection);
                 }
                 MaskEffectKind::Levels(l) => {
-                    changed |= slider_row(ui, tr("In low"), egui::Slider::new(&mut l.in_low, 0.0..=1.0)).changed();
-                    changed |= slider_row(ui, tr("In high"), egui::Slider::new(&mut l.in_high, 0.0..=1.0)).changed();
-                    changed |= slider_row(ui, tr("Gamma"), egui::Slider::new(&mut l.gamma, 0.1..=4.0)).changed();
-                    changed |= slider_row(ui, tr("Out low"), egui::Slider::new(&mut l.out_low, 0.0..=1.0)).changed();
-                    changed |= slider_row(ui, tr("Out high"), egui::Slider::new(&mut l.out_high, 0.0..=1.0)).changed();
+                    let key = subcraft_app::layer_previews::PreviewKey { layer, channel: ChannelKind::Roughness, mask: true, effect: Some(e.id), size: 0 };
+                    changed |= levels_editor(ui, state, key, l, false);
+                }
+                MaskEffectKind::Compare(c) => {
+                    let channels: Vec<ChannelKind> = state.session.selected_texture_set().channel_kinds().collect();
+                    changed |= compare_editor(ui, c, &channels);
                 }
                 MaskEffectKind::Filter(filter) => {
                     changed |= super::filter::editor(ui, filter, None);
@@ -1069,9 +1071,144 @@ fn id_color_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_core::Layer
         state.picking_id_color = if active { None } else { Some((layer, effect)) };
         if !active { state.picking_parts = false; }
     }
+    let mut hardness = 1.0 - id.softness;
+    if slider_row(ui, tr("Hardness"), egui::Slider::new(&mut hardness, 0.0..=1.0).max_decimals(3)).on_hover_text(tr("1 cuts hard at the tolerance; lower values fade out beyond it")).changed() {
+        id.softness = (1.0 - hardness).clamp(0.0, 1.0);
+        changed = true;
+    }
     changed |= slider_row(ui, tr("Tolerance"), egui::Slider::new(&mut id.tolerance, 0.0..=1.0).max_decimals(3)).on_hover_text(tr("Largest RGB distance from a picked color that still counts as a full match")).changed();
-    changed |= slider_row(ui, tr("Softness"), egui::Slider::new(&mut id.softness, 0.0..=1.0).max_decimals(3)).on_hover_text(tr("Smooth falloff beyond the tolerance (0 = hard edge)")).changed();
-    prop_row(ui, "", |ui| changed |= ui.checkbox(&mut id.invert, tr("Invert")).changed());
+    changed |= slider_row(ui, tr("Output value"), egui::Slider::new(&mut id.output, 0.0..=1.0)).on_hover_text(tr("Gray written where the colors match")).changed();
+    prop_row(ui, tr("Background color"), |ui| {
+        egui::ComboBox::from_id_salt("selection_background").selected_text(tr(id.background.label())).show_ui(ui, |ui| {
+            for b in subcraft_doc::SelectionBackground::ALL {
+                changed |= ui.selectable_value(&mut id.background, b, tr(b.label())).changed();
+            }
+        });
+    });
+    // Older projects' invert switch: shown only while it is on, so it can be turned off.
+    if id.invert {
+        prop_row(ui, "", |ui| changed |= ui.checkbox(&mut id.invert, tr("Invert")).changed());
+    }
+    changed
+}
+
+/// Painter's Levels: the component dropdown (colour channels), the input histogram, the five
+/// handles of the shown component, then Auto, Invert and Clamp. `key` names the effect whose
+/// input the histogram shows.
+pub(crate) fn levels_editor(ui: &mut Ui, state: &mut UiState, key: subcraft_app::layer_previews::PreviewKey, levels: &mut Levels, color: bool) -> bool {
+    let mut changed = false;
+    let id = egui::Id::new(("levels_component", key.effect));
+    let mut component: Option<usize> = if color { ui.ctx().data(|d| d.get_temp(id)).unwrap_or(None) } else { None };
+    if color {
+        const NAMES: [&str; 4] = ["RGB", "R", "G", "B"];
+        let at = component.map_or(0, |c| c + 1);
+        prop_row(ui, tr("Component"), |ui| {
+            egui::ComboBox::from_id_salt(id).selected_text(NAMES[at]).show_ui(ui, |ui| {
+                for (i, name) in NAMES.iter().enumerate() {
+                    if ui.selectable_label(i == at, *name).clicked() {
+                        component = i.checked_sub(1);
+                    }
+                }
+            });
+        });
+        ui.ctx().data_mut(|d| d.insert_temp(id, component));
+    }
+    let histogram = state.layer_previews.histogram(&state.session, key);
+    // R, G, B or the luminance (RGB, and gray inputs).
+    let shown = component.unwrap_or(3);
+    if let Some(h) = &histogram {
+        histogram_strip(ui, &h.bins[shown], levels.component(component));
+    }
+    let mut r = levels.component(component);
+    let before = r;
+    slider_row(ui, tr("In low"), egui::Slider::new(&mut r.in_low, 0.0..=1.0));
+    slider_row(ui, tr("Gamma"), egui::Slider::new(&mut r.gamma, 0.1..=4.0).logarithmic(true));
+    slider_row(ui, tr("In high"), egui::Slider::new(&mut r.in_high, 0.0..=1.0));
+    slider_row(ui, tr("Out low"), egui::Slider::new(&mut r.out_low, 0.0..=1.0));
+    slider_row(ui, tr("Out high"), egui::Slider::new(&mut r.out_high, 0.0..=1.0));
+    if r != before {
+        levels.set_component(component, r);
+        changed = true;
+    }
+    prop_row(ui, "", |ui| {
+        let auto = ui.add_enabled(histogram.as_ref().is_some_and(|h| h.count > 0), egui::Button::new(tr("Auto")))
+            .on_hover_text(tr("Input handles at the darkest and brightest input values"));
+        if auto.clicked() && let Some(h) = &histogram {
+            levels.auto(component, h.min[shown], h.max[shown]);
+            changed = true;
+        }
+        if ui.button(tr("Invert")).on_hover_text(tr("Swap the output handles")).clicked() {
+            levels.invert(component);
+            changed = true;
+        }
+        changed |= ui.checkbox(&mut levels.clamp, tr("Clamp")).on_hover_text(tr("Keep values between the input handles; off, they extend past them (HDR)")).changed();
+    });
+    changed
+}
+
+/// A histogram as bars, with the input handles and the gamma midpoint marked.
+fn histogram_strip(ui: &mut Ui, bins: &[u32], r: subcraft_doc::LevelsRange) {
+    let width = ui.available_width().min(320.0);
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(width, 48.0), egui::Sense::hover());
+    let painter = ui.painter_at(rect);
+    painter.rect_filled(rect, 2.0, theme::FIELD);
+    // Scale by the second-largest bin so one huge spike (a flat area) does not flatten the rest.
+    let mut sorted: Vec<u32> = bins.to_vec();
+    sorted.sort_unstable();
+    let top = sorted.iter().rev().nth(1).copied().unwrap_or(0).max(1) as f32;
+    let step = rect.width() / bins.len().max(1) as f32;
+    for (i, &b) in bins.iter().enumerate() {
+        let h = (b as f32 / top).min(1.0) * rect.height();
+        let x = rect.left() + i as f32 * step;
+        painter.rect_filled(egui::Rect::from_min_max(egui::pos2(x, rect.bottom() - h), egui::pos2(x + step.max(1.0), rect.bottom())), 0.0, theme::TEXT_FAINT);
+    }
+    let mark = |v: f32, color: egui::Color32| {
+        let x = rect.left() + v.clamp(0.0, 1.0) * rect.width();
+        painter.line_segment([egui::pos2(x, rect.top()), egui::pos2(x, rect.bottom())], egui::Stroke::new(1.0, color));
+    };
+    mark(r.in_low, theme::TEXT);
+    mark(r.in_high, theme::TEXT);
+    // The input value that maps to the output midpoint.
+    mark(r.in_low + (r.in_high - r.in_low) * 0.5f32.powf(r.gamma.max(1e-3)), theme::ACCENT);
+}
+
+/// Painter's Compare Mask: channel, the left operand / operation / right operand row, then
+/// Constant, Tolerance and Hardness.
+fn compare_editor(ui: &mut Ui, c: &mut subcraft_doc::CompareMask, channels: &[ChannelKind]) -> bool {
+    use subcraft_doc::{CompareOp, CompareOperand};
+    let mut changed = false;
+    prop_row(ui, tr("Channel"), |ui| {
+        egui::ComboBox::from_id_salt("compare_channel").selected_text(c.channel.display_name()).show_ui(ui, |ui| {
+            for k in channels {
+                changed |= ui.selectable_value(&mut c.channel, *k, k.display_name()).changed();
+            }
+        });
+    });
+    let operand = |ui: &mut Ui, id: &str, o: &mut CompareOperand| -> bool {
+        let mut changed = false;
+        egui::ComboBox::from_id_salt(id).width(96.0).selected_text(tr(o.label())).show_ui(ui, |ui| {
+            for v in CompareOperand::ALL {
+                changed |= ui.selectable_value(o, v, tr(v.label())).changed();
+            }
+        });
+        changed
+    };
+    prop_row(ui, tr("Compare"), |ui| {
+        changed |= operand(ui, "compare_left", &mut c.left);
+        egui::ComboBox::from_id_salt("compare_op").width(110.0).selected_text(tr(c.op.label())).show_ui(ui, |ui| {
+            for v in CompareOp::ALL {
+                changed |= ui.selectable_value(&mut c.op, v, tr(v.label())).changed();
+            }
+        });
+        changed |= operand(ui, "compare_right", &mut c.right);
+    });
+    let uses_constant = c.left == CompareOperand::Constant || c.right == CompareOperand::Constant;
+    ui.add_enabled_ui(uses_constant, |ui| changed |= slider_row(ui, tr("Constant"), egui::Slider::new(&mut c.constant, 0.0..=1.0)).changed());
+    ui.add_enabled_ui(c.op == CompareOp::Within, |ui| changed |= slider_row(ui, tr("Tolerance"), egui::Slider::new(&mut c.tolerance, 0.0..=1.0)).changed());
+    changed |= slider_row(ui, tr("Hardness"), egui::Slider::new(&mut c.hardness, 0.0..=1.0))
+        .on_hover_text(tr("1 cuts hard where the comparison flips; lower values blend across it"))
+        .changed();
+    hint(ui, tr("White where the comparison holds. Layers Below is the channel as composited under this layer; This Layer is this layer's own content."));
     changed
 }
 
