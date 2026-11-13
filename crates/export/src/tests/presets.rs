@@ -301,6 +301,23 @@ fn a_preset_with_problems_writes_nothing() {
     }
     let (r, written) = bad(&|_| {});
     assert!(r.is_ok() && written == 2, "a valid preset exports: {r:?}");
+    // QA 2026-11: the export window's sizes come from the project file too.
+    let template = user(vec![good.clone()]);
+    for s in [
+        ExportSettings { template: template.clone(), size: Some(4_000_000_000), ..Default::default() },
+        ExportSettings {
+            template: template.clone(),
+            set_overrides: [("P".to_string(), subcraft_doc::ExportOverrides { size: Some(0), ..Default::default() })].into(),
+            ..Default::default()
+        },
+    ] {
+        let mut written = 0;
+        let r = render_maps(&mesh, "M", &sets, &s, |_, _| {
+            written += 1;
+            Ok(())
+        });
+        assert!(matches!(r, Err(ExportError::Template(_))) && written == 0, "{r:?}");
+    }
 }
 
 #[test]

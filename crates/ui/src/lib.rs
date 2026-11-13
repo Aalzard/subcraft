@@ -16,6 +16,7 @@ pub mod shortcut_editor;
 pub mod device_lost;
 pub mod dialogs;
 pub mod docks;
+pub mod export_mesh;
 pub mod export_presets;
 pub mod layer_export;
 pub mod files;

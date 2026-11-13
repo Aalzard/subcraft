@@ -471,8 +471,10 @@ mod layout_tests {
         let mut state = crate::state::UiState::new(subcraft_app::Session::new(subcraft_mesh::primitives::cube(2.0), 64), None);
         state.hovered_3d = true;
         state.hovered_2d = true;
+        state.gpu_changed = true;
         state.begin_frame();
         assert!(!state.hovered_3d && !state.hovered_2d);
+        assert!(!state.gpu_changed, "uploads are counted per frame");
     }
     #[test]
     fn default_layout_is_valid_and_broken_ones_are_rejected() {
@@ -1655,6 +1657,13 @@ impl SubcraftApp {
                     self.perform(Action::Export, now);
                     self.state.export.view_2d_only = true;
                 }
+                if item(ui, icons::EXPORT, tr("Export mesh…"), "") {
+                    ui.close();
+                    let m = &mut self.state.export_mesh;
+                    m.open = true;
+                    m.folder = self.state.export.folder.clone();
+                    m.displacement.scale = self.state.height_scale;
+                }
                 if item(ui, icons::CAMERA, tr("Render image / turntable…"), "") {
                     ui.close();
                     self.state.render_window = true;
@@ -2398,6 +2407,7 @@ impl eframe::App for SubcraftApp {
         }
         dialogs::export_window(&mut self.state, &ctx, now);
         crate::layer_export::layer_export_window(&mut self.state, &ctx, now);
+        crate::export_mesh::export_mesh_window(&mut self.state, &ctx, now);
         crate::mesh_reload::window(&mut self.state, &ctx, now);
         crate::auto_uv::window(&mut self.state, &ctx, now);
         dialogs::poll_bake(&mut self.state, &ctx, now);

@@ -91,3 +91,13 @@ fn replacing_the_session_leaves_the_mask_view() {
     state.set_session(Session::new(primitives::cube(2.0), 64));
     assert!(state.mask_view.is_none());
 }
+
+/// QA 2026-11: a copied geometry mask survived opening another project and could be pasted onto
+/// a layer of a different mesh.
+#[test]
+fn replacing_the_session_forgets_the_copied_geometry_mask() {
+    let mut state = state();
+    state.parts_clipboard = Some(subcraft_doc::PartMask::new([0]));
+    state.set_session(Session::new(primitives::cube(2.0), 64));
+    assert!(state.parts_clipboard.is_none());
+}
