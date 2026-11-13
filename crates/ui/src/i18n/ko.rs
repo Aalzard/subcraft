@@ -428,7 +428,6 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Visualization settings", "시각화 설정"),
     ("Wireframe color", "와이어프레임 색상"),
     ("Wireframe opacity", "와이어프레임 불투명도"),
-    ("1 is the point the camera orbits around; it follows zooming. Ctrl + middle click in the 3D view focuses on the point under the cursor. Needs Depth of field (Post effects).", "1은 카메라가 공전하는 중심점이며 확대/축소를 따라갑니다. 3D 뷰에서 Ctrl + 가운데 클릭하면 커서 아래 지점에 초점을 맞춥니다. 피사계 심도(포스트 이펙트)가 필요합니다."),
     ("Blur of the environment shown behind the model", "모델 뒤에 보이는 환경의 흐림 정도"),
     ("Brightness of the environment in stops: +1 doubles the light, -1 halves it", "스톱 단위의 환경 밝기: +1은 빛을 두 배로, -1은 절반으로 합니다"),
     ("Drop on the 3D view to light the model with it", "3D 뷰에 놓으면 이것으로 모델을 비춥니다"),
@@ -978,4 +977,5 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Show the log file", "로그 파일 표시"),
     ("Warnings and errors", "경고 및 오류"),
     ("{} warning(s), {} error(s) since the last Clear", "마지막으로 지운 뒤 경고 {}개, 오류 {}개"),
+    ("Distance from the camera, in scene units, that is sharp; it stays put while zooming. Ctrl + middle click in the 3D view focuses on the point under the cursor. Needs Depth of field (Post effects).", "카메라로부터 선명하게 보이는 거리(장면 단위)이며, 확대/축소해도 그대로 유지됩니다. 3D 뷰에서 Ctrl + 가운데 클릭하면 커서 아래 지점에 초점을 맞춥니다. 피사계 심도(후처리 효과)가 필요합니다."),
 ];

@@ -428,7 +428,6 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Visualization settings", "視覺化設定"),
     ("Wireframe color", "線框顏色"),
     ("Wireframe opacity", "線框不透明度"),
-    ("1 is the point the camera orbits around; it follows zooming. Ctrl + middle click in the 3D view focuses on the point under the cursor. Needs Depth of field (Post effects).", "1 為攝影機環繞的中心點，會隨縮放移動。在 3D 檢視中按 Ctrl + 滑鼠中鍵可對焦游標下的點。需要開啟景深（後製效果）。"),
     ("Blur of the environment shown behind the model", "模型後方所顯示環境的模糊程度"),
     ("Brightness of the environment in stops: +1 doubles the light, -1 halves it", "以級數表示的環境亮度：+1 使光線加倍，-1 使光線減半"),
     ("Drop on the 3D view to light the model with it", "拖放到 3D 檢視即可用它照明模型"),
@@ -978,4 +977,5 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Show the log file", "顯示記錄檔"),
     ("Warnings and errors", "警告與錯誤"),
     ("{} warning(s), {} error(s) since the last Clear", "自上次清除以來有 {} 個警告、{} 個錯誤"),
+    ("Distance from the camera, in scene units, that is sharp; it stays put while zooming. Ctrl + middle click in the 3D view focuses on the point under the cursor. Needs Depth of field (Post effects).", "與相機的距離（場景單位），此處清晰；縮放時保持不變。在 3D 檢視中按 Ctrl + 滑鼠中鍵可對焦於游標下的點。需要景深（後製效果）。"),
 ];
