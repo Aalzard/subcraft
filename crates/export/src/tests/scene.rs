@@ -6,8 +6,8 @@ use subcraft_mesh::import_mesh;
 
 fn sets_for<'a>(ch: &'a BTreeMap<ChannelKind, TiledImage>) -> Vec<ExportTextureSet<'a>> {
     vec![
-        ExportTextureSet { name: "Body", material_slot: 0, udim: None, channels: ch, mesh_maps: None },
-        ExportTextureSet { name: "Trim", material_slot: 1, udim: None, channels: ch, mesh_maps: None },
+        ExportTextureSet { name: "Body", material_slot: 0, udim: None, channels: ch, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY },
+        ExportTextureSet { name: "Trim", material_slot: 1, udim: None, channels: ch, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY },
     ]
 }
 
@@ -107,8 +107,8 @@ fn usda_prim_names_are_valid_and_distinct_for_awkward_material_names() {
     mesh.materials[1].name = "Métal A".into();
     let ch = channels();
     let sets = vec![
-        ExportTextureSet { name: "1_Default", material_slot: 0, udim: None, channels: &ch, mesh_maps: None },
-        ExportTextureSet { name: "Métal A", material_slot: 1, udim: None, channels: &ch, mesh_maps: None },
+        ExportTextureSet { name: "1_Default", material_slot: 0, udim: None, channels: &ch, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY },
+        ExportTextureSet { name: "Métal A", material_slot: 1, udim: None, channels: &ch, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY },
     ];
     let dir = tmp("scene-usda-names");
     let files = export_scene(&mesh, "7 crates", &sets, &ExportSettings::default(), SceneFormat::Usda, &dir).unwrap();
@@ -142,7 +142,7 @@ fn packed_pixel(template: ExportTemplate, file: &str) -> [f32; 4] {
     let mesh = primitives::plane(2.0, 1);
     let ch = channels();
     let dir = tmp(&format!("pack-{file}"));
-    let sets = [ExportTextureSet { name: "Body", material_slot: 0, udim: None, channels: &ch, mesh_maps: None }];
+    let sets = [ExportTextureSet { name: "Body", material_slot: 0, udim: None, channels: &ch, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY }];
     export(&mesh, "M", &sets, &ExportSettings { template, ..Default::default() }, &dir).unwrap();
     let p = px(&dir.join(file), 10, 10);
     std::fs::remove_dir_all(dir).unwrap();
