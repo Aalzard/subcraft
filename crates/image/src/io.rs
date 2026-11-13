@@ -1,5 +1,5 @@
 //! Image file I/O (PNG, TGA, JPEG, TIFF, BMP, HDR, WebP, EXR) via the `image` crate; half-float
-//! EXR through the `exr` crate.
+//! EXR through the `exr` crate; Netpbm (PBM, PGM, PPM, PFM) written by [`crate::netpbm`].
 
 use std::path::Path;
 
@@ -131,6 +131,16 @@ pub enum FileFormat {
     Hdr32,
     /// Lossless WebP.
     Webp8,
+    /// Netpbm bitmap: one bit per texel (black below one half).
+    Pbm1,
+    /// Netpbm gray map.
+    Pgm8,
+    Pgm16,
+    /// Netpbm pixel map (RGB).
+    Ppm8,
+    Ppm16,
+    /// Portable float map (gray or RGB).
+    Pfm32,
 }
 
 /// File container of a [`FileFormat`] (what the preset editor's "Format" menu picks).
@@ -144,11 +154,17 @@ pub enum Container {
     Bmp,
     Hdr,
     Webp,
+    Pbm,
+    Pgm,
+    Ppm,
+    Pfm,
 }
 
 /// Bits per component (32 = float).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum BitDepth {
+    /// One bit (PBM).
+    B1,
     B8,
     B16,
     /// 16-bit (half) float.
@@ -158,12 +174,16 @@ pub enum BitDepth {
 
 impl Container {
     /// Alphabetical by extension, like Painter's File type menu.
-    pub const ALL: [Container; 8] = [
+    pub const ALL: [Container; 12] = [
         Container::Bmp,
         Container::Exr,
         Container::Hdr,
         Container::Jpeg,
+        Container::Pbm,
+        Container::Pfm,
+        Container::Pgm,
         Container::Png,
+        Container::Ppm,
         Container::Tga,
         Container::Tiff,
         Container::Webp,
@@ -179,6 +199,10 @@ impl Container {
             Container::Bmp => "BMP",
             Container::Hdr => "HDR",
             Container::Webp => "WebP",
+            Container::Pbm => "PBM",
+            Container::Pgm => "PGM",
+            Container::Ppm => "PPM",
+            Container::Pfm => "PFM",
         }
     }
 
@@ -190,6 +214,9 @@ impl Container {
             Container::Exr => &[BitDepth::F16, BitDepth::F32],
             Container::Hdr => &[BitDepth::F32],
             Container::Tiff => &[BitDepth::B8, BitDepth::B16, BitDepth::F32],
+            Container::Pbm => &[BitDepth::B1],
+            Container::Pgm | Container::Ppm => &[BitDepth::B8, BitDepth::B16],
+            Container::Pfm => &[BitDepth::F32],
         }
     }
 }
@@ -197,6 +224,7 @@ impl Container {
 impl BitDepth {
     pub fn label(self) -> &'static str {
         match self {
+            BitDepth::B1 => "1-bit",
             BitDepth::B8 => "8-bit",
             BitDepth::B16 => "16-bit",
             BitDepth::F16 => "16-bit float",
@@ -206,7 +234,7 @@ impl BitDepth {
 }
 
 impl FileFormat {
-    pub const ALL: [FileFormat; 12] = [
+    pub const ALL: [FileFormat; 18] = [
         FileFormat::Png8,
         FileFormat::Png16,
         FileFormat::Tga8,
@@ -219,6 +247,12 @@ impl FileFormat {
         FileFormat::Bmp8,
         FileFormat::Hdr32,
         FileFormat::Webp8,
+        FileFormat::Pbm1,
+        FileFormat::Pgm8,
+        FileFormat::Pgm16,
+        FileFormat::Ppm8,
+        FileFormat::Ppm16,
+        FileFormat::Pfm32,
     ];
 
     pub fn container(self) -> Container {
@@ -231,15 +265,20 @@ impl FileFormat {
             FileFormat::Bmp8 => Container::Bmp,
             FileFormat::Hdr32 => Container::Hdr,
             FileFormat::Webp8 => Container::Webp,
+            FileFormat::Pbm1 => Container::Pbm,
+            FileFormat::Pgm8 | FileFormat::Pgm16 => Container::Pgm,
+            FileFormat::Ppm8 | FileFormat::Ppm16 => Container::Ppm,
+            FileFormat::Pfm32 => Container::Pfm,
         }
     }
 
     pub fn depth(self) -> BitDepth {
         match self {
-            FileFormat::Png8 | FileFormat::Tga8 | FileFormat::Jpeg | FileFormat::Tiff8 | FileFormat::Bmp8 | FileFormat::Webp8 => BitDepth::B8,
-            FileFormat::Png16 | FileFormat::Tiff16 => BitDepth::B16,
+            FileFormat::Pbm1 => BitDepth::B1,
+            FileFormat::Png8 | FileFormat::Tga8 | FileFormat::Jpeg | FileFormat::Tiff8 | FileFormat::Bmp8 | FileFormat::Webp8 | FileFormat::Pgm8 | FileFormat::Ppm8 => BitDepth::B8,
+            FileFormat::Png16 | FileFormat::Tiff16 | FileFormat::Pgm16 | FileFormat::Ppm16 => BitDepth::B16,
             FileFormat::Exr16 => BitDepth::F16,
-            FileFormat::Exr32 | FileFormat::Tiff32 | FileFormat::Hdr32 => BitDepth::F32,
+            FileFormat::Exr32 | FileFormat::Tiff32 | FileFormat::Hdr32 | FileFormat::Pfm32 => BitDepth::F32,
         }
     }
 
@@ -268,6 +307,12 @@ impl FileFormat {
             (Container::Tiff, BitDepth::B8) => FileFormat::Tiff8,
             (Container::Tiff, BitDepth::B16) => FileFormat::Tiff16,
             (Container::Tiff, _) => FileFormat::Tiff32,
+            (Container::Pbm, _) => FileFormat::Pbm1,
+            (Container::Pgm, BitDepth::B16) => FileFormat::Pgm16,
+            (Container::Pgm, _) => FileFormat::Pgm8,
+            (Container::Ppm, BitDepth::B16) => FileFormat::Ppm16,
+            (Container::Ppm, _) => FileFormat::Ppm8,
+            (Container::Pfm, _) => FileFormat::Pfm32,
         }
     }
 
@@ -281,6 +326,10 @@ impl FileFormat {
             FileFormat::Bmp8 => "bmp",
             FileFormat::Hdr32 => "hdr",
             FileFormat::Webp8 => "webp",
+            FileFormat::Pbm1 => "pbm",
+            FileFormat::Pgm8 | FileFormat::Pgm16 => "pgm",
+            FileFormat::Ppm8 | FileFormat::Ppm16 => "ppm",
+            FileFormat::Pfm32 => "pfm",
         }
     }
 
@@ -298,11 +347,23 @@ impl FileFormat {
             FileFormat::Bmp8 => "BMP 8-bit",
             FileFormat::Hdr32 => "HDR 32-bit float",
             FileFormat::Webp8 => "WebP 8-bit",
+            FileFormat::Pbm1 => "PBM 1-bit",
+            FileFormat::Pgm8 => "PGM 8-bit",
+            FileFormat::Pgm16 => "PGM 16-bit",
+            FileFormat::Ppm8 => "PPM 8-bit",
+            FileFormat::Ppm16 => "PPM 16-bit",
+            FileFormat::Pfm32 => "PFM 32-bit float",
         }
     }
 
     pub fn is_float(self) -> bool {
-        matches!(self, FileFormat::Exr32 | FileFormat::Exr16 | FileFormat::Tiff32 | FileFormat::Hdr32)
+        matches!(self, FileFormat::Exr32 | FileFormat::Exr16 | FileFormat::Tiff32 | FileFormat::Hdr32 | FileFormat::Pfm32)
+    }
+
+    /// Whether the file stores a fourth (alpha) component. JPEG, Radiance HDR and the Netpbm
+    /// formats don't: they drop it.
+    pub fn has_alpha(self) -> bool {
+        !matches!(self.container(), Container::Jpeg | Container::Hdr | Container::Pbm | Container::Pgm | Container::Ppm | Container::Pfm)
     }
 
     /// 8 bits per component: the formats "8-bit + dithering" applies to.
@@ -469,6 +530,20 @@ pub fn encode_image_dithered(width: u32, height: u32, comps: usize, data: &[f32]
             let bytes: Vec<u8> = rgb.iter().flat_map(|v| v.max(0.0).to_ne_bytes()).collect();
             image::write_buffer_with_format(&mut out, &bytes, width, height, image::ExtendedColorType::Rgb32F, image::ImageFormat::Hdr)?;
         }
+        FileFormat::Pbm1 | FileFormat::Pgm8 | FileFormat::Pgm16 | FileFormat::Ppm8 | FileFormat::Ppm16 | FileFormat::Pfm32 => {
+            use crate::netpbm::{Kind, encode};
+            if !(1..=4).contains(&comps) {
+                return Err(ImageIoError::Unsupported(format!("{comps} components")));
+            }
+            let kind = match format.container() {
+                Container::Pbm => Kind::Pbm,
+                Container::Pgm => Kind::Pgm,
+                Container::Ppm => Kind::Ppm,
+                _ => Kind::Pfm,
+            };
+            let bits16 = format.depth() == BitDepth::B16;
+            return Ok(encode(width, height, comps, data, kind, bits16, |d: &[f32]| quantize8(d, dither)));
+        }
     }
     Ok(out.into_inner())
 }
@@ -621,6 +696,39 @@ mod tests {
         // Deeper formats ignore the flag.
         let g: Vec<f32> = (0..16).map(|i| i as f32 / 15.0).collect();
         assert_eq!(encode_image_dithered(4, 4, 1, &g, FileFormat::Png16, true).unwrap(), encode_image(4, 4, 1, &g, FileFormat::Png16).unwrap());
+    }
+
+    #[test]
+    fn netpbm_formats_encode_through_encode_image() {
+        use crate::netpbm::decode;
+        // 2 x 1 RGBA on the 8-bit grid: alpha is dropped, gray files hold the luma.
+        let data = [0.2, 0.4, 0.6, 0.5, 1.0, 1.0, 1.0, 0.0];
+        let ppm = decode(&encode_image(2, 1, 4, &data, FileFormat::Ppm8).unwrap()).unwrap();
+        assert_eq!(ppm.comps, 3);
+        assert!(ppm.data.iter().zip([0.2, 0.4, 0.6, 1.0, 1.0, 1.0]).all(|(a, b)| (a - b).abs() < 0.5 / 255.0), "{:?}", ppm.data);
+        let pgm = decode(&encode_image(2, 1, 4, &data, FileFormat::Pgm16).unwrap()).unwrap();
+        let luma = 0.2126 * 0.2 + 0.7152 * 0.4 + 0.0722 * 0.6;
+        assert!((pgm.data[0] - luma).abs() < 1.0 / 65535.0 && (pgm.data[1] - 1.0).abs() < 1e-6, "{:?}", pgm.data);
+        let pbm = decode(&encode_image(2, 1, 4, &data, FileFormat::Pbm1).unwrap()).unwrap();
+        assert_eq!(pbm.data, [0.0, 1.0], "dark texel black, white texel white");
+        let hdr = [3.5_f32, -0.25];
+        let pfm = decode(&encode_image(2, 1, 1, &hdr, FileFormat::Pfm32).unwrap()).unwrap();
+        assert_eq!(pfm.data, hdr, "PFM keeps float values");
+        // Dithering applies to 8-bit Netpbm like the other 8-bit types.
+        let g = vec![76.5_f32 / 255.0; 64];
+        assert_ne!(encode_image_dithered(8, 8, 1, &g, FileFormat::Pgm8, true).unwrap(), encode_image(8, 8, 1, &g, FileFormat::Pgm8).unwrap());
+        assert!(encode_image(1, 1, 5, &[0.0; 5], FileFormat::Ppm8).is_err(), "more than four components is an error");
+        for f in [FileFormat::Pbm1, FileFormat::Pgm8, FileFormat::Ppm16, FileFormat::Pfm32, FileFormat::Jpeg, FileFormat::Hdr32] {
+            assert!(!f.has_alpha(), "{f:?}");
+        }
+        assert!(FileFormat::Png8.has_alpha() && FileFormat::Exr16.has_alpha());
+        // PBM is 1-bit only, without the dithered 8-bit choice; PFM is float only.
+        assert_eq!(Container::Pbm.depths(), [BitDepth::B1]);
+        assert!(!FileFormat::Pbm1.is_8bit());
+        assert_eq!(FileFormat::from_parts(Container::Pbm, BitDepth::B16), FileFormat::Pbm1);
+        assert_eq!(FileFormat::from_parts(Container::Pfm, BitDepth::F16), FileFormat::Pfm32);
+        assert_eq!(FileFormat::from_parts(Container::Pgm, BitDepth::F32), FileFormat::Pgm16);
+        assert_eq!(FileFormat::from_parts(Container::Png, BitDepth::B1), FileFormat::Png8);
     }
 
     #[test]

@@ -181,7 +181,11 @@ pub fn manipulate(
         state.warp.layer = Some(layer);
         state.warp.selection.clear();
     }
+    // Not while a text field has the keyboard (QA 2026-11: a capital V typed in a layer name
+    // with the pointer over the view switched the mode and cleared the selection).
+    let typing = ui.ctx().egui_wants_keyboard_input();
     let (shift_v, escape, mods) = ui.input(|i| (i.key_pressed(egui::Key::V) && i.modifiers.shift && !i.modifiers.ctrl && !i.modifiers.command, i.key_pressed(egui::Key::Escape), i.modifiers));
+    let (shift_v, escape) = (shift_v && !typing, escape && !typing);
     if response.hovered() && shift_v {
         state.warp.edit_vertices = !state.warp.edit_vertices;
         state.warp.selection.clear();

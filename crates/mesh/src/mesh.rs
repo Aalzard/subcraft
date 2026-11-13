@@ -115,9 +115,6 @@ pub struct SurfacePoint {
 }
 
 impl Mesh {
-    /// A copy with every position moved by `m` (normals by the inverse transpose, tangent
-    /// directions by the linear part, winding flipped for mirroring transforms) and the bounds
-    /// recomputed. UVs, materials and object identity are untouched.
     /// The file's vertex colour at barycentrics `(u, v)` (weights of vertices 1 and 2) of a
     /// triangle; `None` when the mesh has no vertex colours.
     pub fn corner_color(&self, tri: usize, u: f32, v: f32) -> Option<[f32; 4]> {
@@ -173,6 +170,9 @@ impl Mesh {
         out
     }
 
+    /// A copy with every position moved by `m` (normals by the inverse transpose, tangent
+    /// directions by the linear part, winding flipped for mirroring transforms) and the bounds
+    /// recomputed. UVs, materials and object identity are untouched.
     pub fn transformed(&self, m: &glam::Mat4) -> Mesh {
         let mut out = self.clone();
         let lin = glam::Mat3::from_mat4(*m);

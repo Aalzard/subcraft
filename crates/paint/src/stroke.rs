@@ -433,13 +433,15 @@ impl Stroke {
         // Each symmetry copy is numbered like the 3D path's mirrored cameras, so smudge carries
         // one colour per copy (QA 2026-11: shared, the paint picked up on one side of the mirror
         // was dragged onto the other).
-        let mut copies = 1;
+        // A fixed count: a copy filtered out in one segment (on the mirror plane, or no surface
+        // in reach) must not change it, or smudge resets every carried colour mid-stroke.
+        let mut copies = uv_copy_count(&self.options);
         if self.options.has_symmetry() {
             let mirrored: Vec<Stamp> = stamps.iter().flat_map(|st| {
                 let copies = uv_symmetry_copies_indexed(ctx, &self.options, st.uv);
                 copies.into_iter().map(move |(camera, uv)| Stamp { camera, uv, screen: uv * res, ..*st })
             }).collect();
-            copies = mirrored.iter().map(|st| st.camera + 1).max().unwrap_or(1);
+            copies = copies.max(mirrored.iter().map(|st| st.camera + 1).max().unwrap_or(1));
             stamps.extend(mirrored);
         }
         if self.mode == StrokeMode::Clone {
@@ -1110,7 +1112,6 @@ pub fn uv_per_unit(mesh: &Mesh, slot: u32) -> f32 {
     }
 }
 
-/// Triangle of the geometry's material slot whose (tile-wrapped) UV triangle contains `uv`.
 /// Barycentric weights (of vertices 1 and 2) of texture position `uv` in triangle `t`, with the
 /// triangle's UVs wrapped to the 0-1 tile like [`triangle_at_uv`] does.
 fn uv_barycentric(mesh: &Mesh, t: u32, uv: Vec2) -> Option<(f32, f32)> {
@@ -1136,6 +1137,12 @@ pub fn uv_symmetry_copies(ctx: &PaintContext, options: &StrokeOptions, uv: Vec2)
     uv_symmetry_copies_indexed(ctx, options, uv).into_iter().map(|(_, c)| c).collect()
 }
 
+/// How many stroke copies (the stroke itself included) a 2D-view stroke carries smudge paint
+/// for: every symmetry copy, whether or not it lands on the surface in a given segment.
+pub fn uv_copy_count(options: &StrokeOptions) -> usize {
+    (options.copies() as usize).max(1)
+}
+
 /// [`uv_symmetry_copies`] with the number of the symmetry copy each one is (1.., in the order of
 /// [`StrokeOptions::symmetry_points`]; 0 is the stroke itself).
 fn uv_symmetry_copies_indexed(ctx: &PaintContext, options: &StrokeOptions, uv: Vec2) -> Vec<(usize, Vec2)> {
@@ -1154,6 +1161,7 @@ fn uv_symmetry_copies_indexed(ctx: &PaintContext, options: &StrokeOptions, uv: V
     }).collect()
 }
 
+/// Triangle of the geometry's material slot whose (tile-wrapped) UV triangle contains `uv`.
 pub fn triangle_at_uv(mesh: &Mesh, geometry: &TextureSetGeometry, uv: Vec2) -> Option<u32> {
     if !uv.is_finite() || uv.min_element() < 0.0 || uv.max_element() >= 1.0 {
         return None;
@@ -1182,8 +1190,6 @@ pub fn triangle_at_uv(mesh: &Mesh, geometry: &TextureSetGeometry, uv: Vec2) -> O
     best.map(|b| b.1)
 }
 
-/// Wall-clock nanoseconds spent in each stage of the stamp pipeline since the last
-/// [`profile::take`]; read by the benchmarks. Costs one `Instant::now` per stage per call.
 /// The threads that stamp: their own pool, one step above normal priority. A stroke changes tiles
 /// on every frame, and on a deep layer stack the compositor's threads are then busy on every core
 /// re-blending them; sharing the cores evenly made each stamp (which the user is waiting on) take
@@ -1222,6 +1228,8 @@ fn above_normal_priority() {
 #[cfg(not(windows))]
 fn above_normal_priority() {}
 
+/// Wall-clock nanoseconds spent in each stage of the stamp pipeline since the last
+/// [`profile::take`]; read by the benchmarks. Costs one `Instant::now` per stage per call.
 pub mod profile {
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::Instant;

@@ -909,4 +909,8 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Shown in the popup over the view (Esc closes it)", "顯示於視圖上方的彈出視窗中 (按 Esc 關閉)"),
     ("Invert zoom", "反轉縮放"),
     ("Off: turning the wheel forward zooms in, as in Painter. On: forward zooms out. Applies to the 3D and 2D views.", "關閉：向前轉動滾輪會放大，與 Painter 相同。開啟：向前轉動會縮小。套用於 3D 與 2D 視圖。"),
+    ("3D projection", "3D 投影"),
+    ("Degrees about X, Y, Z (applied in that order)", "繞 X、Y、Z 軸的角度（依此順序套用）"),
+    ("Size of the projection box on X, Y, Z; with Shape crop on, a planar projection reaches as deep as its scale along the projection axis", "投影方塊在 X、Y、Z 上的大小；開啟形狀裁切時，平面投影的深度等於投影軸上的縮放"),
+    ("X, Y, Z in units of the model's bounding box; 0 is centred", "以模型邊界框為單位的 X、Y、Z；0 為置中"),
 ];
