@@ -162,6 +162,7 @@ pub fn render_frame(state: &mut UiState, camera: crate::orbit::OrbitCamera, pict
     params.exposure = prefs.exposure_value();
     params.post = prefs.post_params_at(state.session.scene().mesh.bounds.diagonal(), camera.eye_distance());
     params.shadows = prefs.shadow_params();
+    params.oit = prefs.oit;
     let (env_rotation, env_intensity) = crate::panels::shelf::environment_view(&prefs.display, state.env.rotation_deg, camera.yaw);
     params.environment.background_opacity = prefs.env_opacity;
     params.environment.background_blur = prefs.env_blur;

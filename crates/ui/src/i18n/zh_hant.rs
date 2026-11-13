@@ -907,4 +907,6 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Brush outline", "筆刷輪廓"),
     ("Crosshair", "十字準星"),
     ("Shown in the popup over the view (Esc closes it)", "顯示於視圖上方的彈出視窗中 (按 Esc 關閉)"),
+    ("Order-independent transparency", "與順序無關的透明度"),
+    ("Alpha-blended texture sets look the same whatever order their parts are drawn in: overlapping transparent surfaces are averaged by depth and coverage", "無論部件以何種順序繪製，Alpha 混合的紋理集看起來都相同：重疊的透明表面會依深度與覆蓋率平均"),
 ];

@@ -482,6 +482,8 @@ pub struct DisplaySettings {
     /// averaged until `taa_accumulations` of them have been drawn.
     pub taa: bool,
     pub taa_accumulations: u32,
+    /// Order-independent transparency for alpha-blended texture sets (off by default).
+    pub oit: bool,
     /// Depth of field (off by default): blur amount 0..1, focus distance as a multiple of the
     /// orbit distance (1 = the point the camera orbits), sharp band in percent of the model size.
     pub dof: bool,
@@ -631,6 +633,7 @@ impl Default for DisplaySettings {
             antialias: true,
             taa: false,
             taa_accumulations: 16,
+            oit: false,
             dof: false,
             dof_amount: 0.5,
             dof_focus: 1.0,
@@ -726,7 +729,7 @@ impl DisplaySettings {
             ($($field:ident),* $(,)?) => { $( d.$field = std::mem::take(&mut self.$field); )* };
         }
         keep!(
-            env_map, env_opacity, env_exposure, env_rotation, env_blur, env_alignment, shadows, shadow_opacity, shadow_mode, fov, antialias, taa, taa_accumulations, wireframe, wire_color, wire_opacity,
+            env_map, env_opacity, env_exposure, env_rotation, env_blur, env_alignment, shadows, shadow_opacity, shadow_mode, fov, antialias, taa, taa_accumulations, oit, wireframe, wire_color, wire_opacity,
             wire_angle, grid, grid_axes, grid_plane, grid_color, grid_opacity, solo_unlit, hdr_scale, hdr_signed_colors, hdr_positive,
             hdr_negative, channel_component, anisotropy, mip_bias, camera_frame, camera_frame_ratio, gate_opacity,
         );

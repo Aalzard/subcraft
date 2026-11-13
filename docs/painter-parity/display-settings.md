@@ -293,8 +293,8 @@ linear/raw. Hidden or superseded in colour-managed (OCIO/ACE) projects (unverifi
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Order-independent transparency | Display Settings > Render settings | off | missing: the viewport shader does not render opacity at all | - | - |
-| Sort capacity | Display Settings > Render settings | High (4x); options Low (1x), Medium (2x), High (4x), Very high (8x), Ultra (16x) | missing | - | - |
+| Order-independent transparency | Display Settings > Render settings | off | done: weighted blended OIT for alpha-blended texture sets (off by default); also used by Render export | crates/render/src/oit.rs | PRNUM |
+| Sort capacity | Display Settings > Render settings | High (4x); options Low (1x), Medium (2x), High (4x), Very high (8x), Ultra (16x) | partial: not offered; the weighted blended OIT keeps no per-pixel list, so it has no capacity to set | - | PRNUM |
 
 ## Viewport settings: Texture filtering
 

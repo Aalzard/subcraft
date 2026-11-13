@@ -503,6 +503,8 @@ pub fn render(state: &mut UiState, ui: &mut Ui) {
     let prefs = &mut state.recovery.prefs.viewport;
     let tracing = prefs.path_tracing;
     ui.horizontal(|ui| crate::viewport_bar::resolution(ui, prefs));
+    ui.checkbox(&mut prefs.display.oit, tr("Order-independent transparency"))
+        .on_hover_text(tr("Alpha-blended texture sets look the same whatever order their parts are drawn in: overlapping transparent surfaces are averaged by depth and coverage"));
     crate::viewport_bar::rendering_settings(ui, prefs);
 
     // Painter's Iray status block: what the Rendering mode is doing right now.
