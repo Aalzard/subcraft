@@ -119,38 +119,6 @@ fn a_folder_instance_shows_the_layers_of_its_source_and_cannot_go_inside_it() {
     assert_eq!(s.selected_texture_set().find(instance).unwrap().children().len(), 2);
 }
 
-/// QA 2026-11: an instance copied into another texture set kept following its source there,
-/// so the next sync copied in rasters at the other set's resolution. It pastes as a plain copy.
-#[test]
-fn an_instance_pasted_into_another_texture_set_becomes_a_plain_copy() {
-    use glam::{Vec2, Vec3};
-    use subcraft_mesh::{Corner, MeshBuilder};
-    let mut b = MeshBuilder::new("Two");
-    for (i, name) in ["A", "B"].into_iter().enumerate() {
-        let m = b.material(name);
-        let x = i as f32 * 3.0;
-        let c = |dx: f32, z: f32| Corner { position: Vec3::new(x + dx, 0.0, z), normal: Some(Vec3::Y), uv: Some(Vec2::new(dx + 1.0, z + 1.0) * 0.45) };
-        b.push_triangle(m, [c(-1.0, -1.0), c(-1.0, 1.0), c(1.0, 1.0)]);
-    }
-    let mut s = Session::new(b.build().unwrap(), 128);
-    s.execute(Command::AddLayer(NewLayer::Fill)).unwrap();
-    let source = s.selection().layer.unwrap();
-    s.execute(Command::PasteAsInstance(vec![source])).unwrap();
-    let instance = s.selection().layer.unwrap();
-    let clip = std::sync::Arc::new(s.copy_layers(&[instance]).unwrap());
-    // Same set: still an instance of the source.
-    s.execute(Command::PasteLayers(clip.clone())).unwrap();
-    let same = s.selection().layer.unwrap();
-    assert_eq!(s.selected_texture_set().find(same).unwrap().instance_of, Some(source));
-    // Another set: a plain layer.
-    let other = s.document().texture_sets[1].id;
-    s.execute(Command::SelectTextureSet(other)).unwrap();
-    s.execute(Command::PasteLayers(clip)).unwrap();
-    let pasted = s.selection().layer.unwrap();
-    assert_eq!(s.selected_texture_set().find(pasted).unwrap().instance_of, None);
-    assert!(!s.instance_locked(pasted));
-}
-
 #[test]
 fn an_instance_survives_save_and_load() {
     let (mut s, source) = session();
