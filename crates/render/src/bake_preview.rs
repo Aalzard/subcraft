@@ -41,12 +41,20 @@ pub struct BakeVisualization {
     pub cage_surface_opacity: f32,
     /// Draw the project mesh and its cage for this material slot only (the selected texture set).
     pub only_slot: Option<u32>,
+    /// Show the model with a neutral material (one colour, roughness and metallic) shaded by its
+    /// baked normal and ambient occlusion maps instead of its painted channels. Used by the
+    /// viewport when the high / low overlay is not drawn.
+    pub neutral_material: bool,
+    pub neutral_color: [f32; 3],
+    pub neutral_roughness: f32,
+    pub neutral_metallic: f32,
 }
 
 impl Default for BakeVisualization {
     fn default() -> Self {
         Self { show_high: true, show_low: true, high_color: [0.035, 0.23, 0.65], low_color: [0.65, 0.035, 0.025], cage_color: [0.55, 0.65, 0.72], cage_opacity: 0.28, show_seams: false, seam_color: [1.0, 0.85, 0.1],
-            show_cage_surface: false, cage_surface_color: [0.82, 0.74, 0.55], cage_surface_opacity: 0.3, only_slot: None }
+            show_cage_surface: false, cage_surface_color: [0.82, 0.74, 0.55], cage_surface_opacity: 0.3, only_slot: None,
+            neutral_material: false, neutral_color: [0.5, 0.5, 0.5], neutral_roughness: 0.5, neutral_metallic: 0.0 }
     }
 }
 
