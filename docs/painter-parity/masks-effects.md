@@ -15,7 +15,7 @@ Layout notes: a mask is added from the Create Mask button in the Layers header o
 | Add mask with color selection (black mask plus a Color Selection effect) | Create Mask menu / layer context menu | n/a | done | crates/ui/src/panels/layers.rs:61 | - |
 | Add mask with height combination (mask plus Compare Mask on Height; Height blend switched to Normal) | Create Mask menu / layer context menu | n/a | done | crates/ui/src/panels/layers.rs:70 | chunk 43 |
 | Mask on a folder (applies to every layer inside) | Folder row | n/a | done | crates/ui/src/panels/layers.rs:457 | - |
-| Mask created automatically when a material is dropped with Ctrl held | Assets > Layer stack | n/a | missing | - | - |
+| Mask created automatically when a material is dropped with Ctrl held | Assets > Layer stack | n/a | done (a black mask, selected for painting) | crates/ui/src/panels/shelf.rs:157 | - |
 | Mask created automatically when a resource is dropped on the ghost mask slot | Layer stack (while dragging) | n/a | missing | - | - |
 | Mask created automatically when mask effects are pasted on a mask-less layer | Layer stack | n/a | done | crates/app/src/session.rs:1238 | - |
 | Re-adding a mask replaces the existing mask and its effects | Create Mask menu | n/a | done | crates/app/src/session.rs:1399 | - |
@@ -32,7 +32,7 @@ Layout notes: a mask is added from the Create Mask button in the Layers header o
 | Alt + click again deselects effects / leaves mask view | Mask thumbnail | n/a | done (also Esc over the viewport) | crates/ui/src/mask_view.rs:20 | - |
 | Shift + left click: disable or re-enable the mask | Mask thumbnail | enabled | done | crates/ui/src/panels/layers.rs:308 | - |
 | Disabled mask is marked on the thumbnail | Mask thumbnail | n/a | done | crates/ui/src/panels/layers.rs:306 | - |
-| Red line under the mask thumbnail when the mask has effects | Mask thumbnail | grey | partial: "N fx" text under the layer name | crates/ui/src/panels/layers.rs:339 | - |
+| Red line under the mask thumbnail when the mask has effects | Mask thumbnail | grey | done | crates/ui/src/panels/layers.rs:485 | - |
 | Paint tools switch to greyscale when the mask is selected | Tool properties | n/a | done | crates/ui/src/panels/mask.rs:69 | - |
 | Invert grayscale tool value while painting a mask | Shortcut | X | missing (X is symmetry; unbound in the Painter preset) | - | - |
 | Tool blending mode greyed out when painting in a mask | Tool properties | n/a | missing | - | - |
@@ -43,14 +43,14 @@ Layout notes: Adobe documents the entries Toggle mask, Copy mask content, Paste 
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Add generator | Mask context menu | n/a | partial: effect-stack "+ Add" menu and row menu submenu, built-in kinds only | crates/ui/src/panels/effects.rs:127 | - |
-| Add paint | Mask context menu | n/a | partial: "+ Add > Paint" and row menu "Add paint mask effect" | crates/ui/src/panels/effects.rs:125 | - |
-| Add fill | Mask context menu | n/a | partial: "+ Add > Fill" and row menu "Add fill mask effect" | crates/ui/src/panels/effects.rs:126 | - |
-| Add levels | Mask context menu | n/a | partial: "+ Add > Levels" only | crates/ui/src/panels/effects.rs:128 | - |
-| Add compare mask | Mask context menu | n/a | partial: in the mask stack's Add effect menu | crates/ui/src/panels/effects.rs:146 | chunk 43 |
-| Add filter | Mask context menu | n/a | partial: "+ Add > Filter" submenu only | crates/ui/src/panels/effects.rs:94 | - |
-| Add color selection | Mask context menu | n/a | partial: "+ Add > ID Color Mask" | crates/ui/src/panels/effects.rs:130 | - |
-| Add anchor point | Mask context menu | n/a | partial: "+ Add > Anchor Point" only | crates/ui/src/panels/effects.rs:106 | - |
+| Add generator | Mask context menu | n/a | partial: adds an Edges generator, kind changed in Properties | crates/ui/src/panels/layers.rs:513 | - |
+| Add paint | Mask context menu | n/a | done | crates/ui/src/panels/layers.rs:513 | - |
+| Add fill | Mask context menu | n/a | done | crates/ui/src/panels/layers.rs:513 | - |
+| Add levels | Mask context menu | n/a | done | crates/ui/src/panels/layers.rs:513 | - |
+| Add compare mask | Mask context menu | n/a | done | crates/ui/src/panels/layers.rs:513 | chunk 43 |
+| Add filter | Mask context menu | n/a | partial: a submenu of built-in filters instead of an empty slot with a picker | crates/ui/src/panels/layers.rs:513 | - |
+| Add color selection | Mask context menu | n/a | done | crates/ui/src/panels/layers.rs:513 | - |
+| Add anchor point | Mask context menu | n/a | done | crates/ui/src/panels/layers.rs:513 | - |
 | Toggle mask | Mask context menu | Shift + click | done ("Disable mask" / "Enable mask") | crates/ui/src/panels/mask.rs:19 | - |
 | Remove mask | Mask context menu | (unverified) | done | crates/ui/src/panels/mask.rs:49 | - |
 | Invert mask (inverts the painted content) | Mask context menu | (unverified) | partial: appends an Invert effect instead of inverting the pixels | crates/ui/src/panels/mask.rs:33 | - |
@@ -59,7 +59,7 @@ Layout notes: Adobe documents the entries Toggle mask, Copy mask content, Paste 
 | Copy mask content | Mask context menu | n/a | done ("Copy mask") | crates/ui/src/panels/mask.rs:37 | - |
 | Paste into mask | Mask context menu | n/a | done ("Paste mask"; also offered on mask-less layers) | crates/ui/src/panels/mask.rs:41 | - |
 | Export mask to file | Mask context menu | (unverified) | done (PNG / TGA / EXR / TIFF at the set's resolution, effects included) | crates/app/src/mask_tools.rs:37 | - |
-| Create smart mask | Mask context menu | n/a | partial: on the layer row menu, only when the mask has effects | crates/ui/src/panels/layers.rs:480 | - |
+| Create smart mask | Mask context menu | n/a | partial: on the mask menu and the layer row menu; needs at least one effect | crates/ui/src/panels/layers.rs:513 | - |
 | Preview mask (SubCraft extra, same as Alt + click) | n/a | n/a | done | crates/ui/src/panels/mask.rs:14 | - |
 
 ## Effect stack: general mechanics
@@ -290,13 +290,13 @@ Layout notes: an anchor point is a named marker in a content or mask stack. Its 
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Create smart mask (right-click a mask or layer; saved to the shelf) | Mask / layer context menu | named after the layer (unverified) | partial: "Save mask as smart mask" on the layer row, needs at least one effect | crates/app/src/library.rs:35 | - |
+| Create smart mask (right-click a mask or layer; saved to the shelf) | Mask / layer context menu | named after the layer (unverified) | partial: on the mask menu and the layer row menu; needs at least one effect | crates/ui/src/panels/layers.rs:513 | - |
 | Apply by dragging a smart mask onto a layer | Assets > Layer stack | n/a | done | crates/ui/src/panels/layers.rs:411 | - |
 | A black mask is created when the layer has none | Layer stack | black | done | crates/app/src/session.rs:1138 | - |
 | Effects are merged with an existing mask's effects | Layer stack | n/a | done | crates/app/src/session.rs:1139 | - |
 | Dropping several smart masks accumulates them | Layer stack | n/a | done | crates/app/src/session.rs:1139 | - |
-| Ctrl while dropping replaces the whole effect stack | Layer stack | n/a | missing | - | - |
-| Alt while dropping on a thumbnail removes the previous effects first (9.1) | Layer stack | n/a | missing | - | - |
-| Drop a smart mask in the viewport or empty stack area: new fill layer with that mask (9.1) | Assets > Viewport / Layer stack | n/a | missing | - | - |
+| Ctrl while dropping replaces the whole effect stack | Layer stack | n/a | done (what was painted into the mask stays) | crates/app/src/session.rs:1502 | - |
+| Alt while dropping on a thumbnail removes the previous effects first (9.1) | Layer stack | n/a | done (on the row too) | crates/ui/src/panels/shelf.rs:166 | - |
+| Drop a smart mask in the viewport or empty stack area: new fill layer with that mask (9.1) | Assets > Viewport / Layer stack | n/a | partial: the top zone of the stack; not the viewport | crates/ui/src/panels/shelf.rs:159 | - |
 | Smart masks only apply to mask stacks | Layer stack | n/a | done | crates/app/src/command.rs:71 | - |
 | Smart mask files stored in the shelf folder and shareable | Assets | n/a | done | crates/app/src/library.rs:35 | - |

@@ -32,7 +32,7 @@ Layout notes: Painter lists editable shortcuts in Settings > Shortcuts as one lo
 | Increase the manipulator size | Settings > Shortcuts | + | missing | - | - |
 | Decrease the manipulator size | Settings > Shortcuts | - | missing | - | - |
 | Cycle through manipulation spaces | Settings > Shortcuts | T | missing | - | - |
-| Toggle warp edition mode | Settings > Shortcuts | Shift+V | missing | - | - |
+| Toggle warp edition mode | Settings > Shortcuts | Shift+V | done: Shift+V over the 3D view with a Warp fill layer selected | crates/ui/src/warp_view.rs | - |
 | Translate tool | Settings > Shortcuts | W | missing | - | - |
 | Rotate tool | Settings > Shortcuts | E | missing | - | - |
 | Scale tool | Settings > Shortcuts | R | missing | - | - |

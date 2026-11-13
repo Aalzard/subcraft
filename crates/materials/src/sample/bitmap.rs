@@ -226,6 +226,11 @@ pub fn projection_covers(projection: &Projection, sc: (f32, f32), uv: [f32; 2], 
             let pos = projection.effective_symmetry().fold(pos, [0.0; 3]).0;
             projection.uv_wrap.covers(projection.transform_2d_sc(sc, projection.wrapped_coords(pos)))
         }
+        ProjectionMode::Warp => {
+            let pos = projection.effective_symmetry().fold(pos, [0.0; 3]).0;
+            let (q, inside) = projection.warp_coords(pos);
+            inside && projection.uv_wrap.covers(projection.transform_2d_sc(sc, q))
+        }
         ProjectionMode::Triplanar => true,
     }
 }

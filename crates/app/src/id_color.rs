@@ -108,18 +108,39 @@ pub fn apply_id_edits(baked: &subcraft_image::TiledImage, edits: &[subcraft_doc:
     subcraft_image::TiledImage::from_dense(baked.width(), baked.height(), comps, baked.fill(), &dense)
 }
 
-/// Record "show `from` as `to`" in the set and switch every ID Color mask color equal to `from`
-/// to `to`. `from` is a color as currently shown (it may itself be an earlier edit's result).
-pub(crate) fn edit_id_color(ts: &mut subcraft_doc::TextureSet, from: [f32; 3], to: [f32; 3]) {
-    match ts.id_color_edits.iter().position(|e| same_id(e.to, from)) {
-        Some(i) => {
-            ts.id_color_edits[i].to = to;
-            if same_id(ts.id_color_edits[i].from, to) {
-                ts.id_color_edits.remove(i);
+/// Whether some texel of `img` is the ID color `c`.
+pub(crate) fn image_has_color(img: &subcraft_image::TiledImage, c: [f32; 3]) -> bool {
+    let comps = img.comps();
+    let rgb = |p: &[f32]| [p[0], p[1.min(comps - 1)], p[2.min(comps - 1)]];
+    let mut buf = vec![0.0f32; subcraft_image::TILE_TEXELS * comps];
+    for t in 0..img.tile_count() {
+        if img.is_allocated(t) {
+            img.read_tile(t, &mut buf);
+            if buf.chunks(comps).any(|p| same_id(rgb(p), c)) {
+                return true;
             }
+        } else if same_id(rgb(&img.fill()[..]), c) {
+            return true;
         }
-        None if !same_id(from, to) => ts.id_color_edits.push(subcraft_doc::IdColorEdit { from, to }),
-        None => {}
+    }
+    false
+}
+
+/// Record "show `from` as `to`" in the set and switch every ID Color mask color equal to `from`
+/// to `to`. `from` is a color as currently shown: every texel showing it changes, whether it is
+/// an earlier edit's result, the baked color (`baked_has_from`: the baked map has texels of it),
+/// or both after two colors were merged. QA 2026-11: only the first edit showing `from` was
+/// rewritten, so after merging A into B, editing B changed the former A region alone while the
+/// masks switched to the new color and lost the original B region.
+pub(crate) fn edit_id_color(ts: &mut subcraft_doc::TextureSet, from: [f32; 3], to: [f32; 3], baked_has_from: bool) {
+    // Baked texels of `from` show `from` unless an edit already maps them elsewhere.
+    let baked_shown = baked_has_from && !ts.id_color_edits.iter().any(|e| same_id(e.from, from));
+    for e in ts.id_color_edits.iter_mut().filter(|e| same_id(e.to, from)) {
+        e.to = to;
+    }
+    ts.id_color_edits.retain(|e| !same_id(e.from, e.to));
+    if baked_shown && !same_id(from, to) {
+        ts.id_color_edits.push(subcraft_doc::IdColorEdit { from, to });
     }
     let mut ids = Vec::new();
     ts.walk(|l, _| ids.push(l.id));

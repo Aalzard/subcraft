@@ -94,8 +94,16 @@ fn hdr_keeps_packed_maps_in_their_own_format_and_remaps_signed_height() {
     let settings = ExportSettings { template: ExportTemplate::unity_hdrp(), format_override: Some(FileFormat::Hdr32), ..Default::default() };
     for map in &settings.template.maps {
         let format = output_format(map, &settings);
-        assert_eq!(format == FileFormat::Hdr32, map.components.len() != 4, "{}", map.suffix);
+        assert_eq!(format == FileFormat::Hdr32, !matches!(map.components.len(), 2 | 4), "{}", map.suffix);
     }
+    // QA 2026-11: a gray + alpha map lost its alpha to the JPEG / HDR override as well.
+    let gray_alpha = OutputMap::new("GA", FileFormat::Png8, vec![Source::Height, Source::Constant { value: 1.0 }], false);
+    for f in [FileFormat::Jpeg, FileFormat::Hdr32] {
+        let s = ExportSettings { format_override: Some(f), ..Default::default() };
+        assert_eq!(output_format(&gray_alpha, &s), FileFormat::Png8, "{f:?}");
+    }
+    let s = ExportSettings { format_override: Some(FileFormat::Tga8), ..Default::default() };
+    assert_eq!(output_format(&gray_alpha, &s), FileFormat::Tga8, "formats with alpha still override");
     let mut low = ch.clone();
     low.insert(ChannelKind::Height, TiledImage::new(RES, RES, 1, [-0.5; 4]));
     let set = ExportTextureSet { name: "S", material_slot: 0, udim: None, channels: &low, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY };

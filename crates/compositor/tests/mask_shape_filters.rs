@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use subcraft_compositor::{Composite, EvalContext, composite_full};
 use subcraft_core::ChannelKind as C;
-use subcraft_doc::{BevelCorner, ContentEffect, ContentEffectKind, Filter, Layer, LayerContent, Mask, MaskEffect, MaskEffectKind, OutlinePosition, ResourceStore, TextureSet};
+use subcraft_doc::{BevelCorner, BevelDirection, CurvePreset, ContentEffect, ContentEffectKind, Filter, Layer, LayerContent, Mask, MaskEffect, MaskEffectKind, OutlinePosition, ResourceStore, TextureSet};
 use subcraft_materials::{MeshMaps, TextureSetGeometry};
 
 const N: u32 = 128;
@@ -161,4 +161,28 @@ fn angular_bevel_and_blurred_outline_change_the_contour_profile() {
     let blurred = Filter::MaskOutlineShape { radius: 2.0, threshold: 0.5, position: OutlinePosition::Inner, start_black: false, blur: 4.0, curve: 0.0 };
     let at = |f, x| composite_full(&painted(C::Roughness, f), &fx.ctx()).channel(C::Roughness).unwrap().get(x, 50)[0];
     assert!(at(sharp, 45).abs() < 2e-3 && (at(blurred, 45) - 0.2).abs() < 2e-3, "{} {}", at(sharp, 45), at(blurred, 45));
+}
+
+#[test]
+fn gradient_curve_bevel_smooth_and_directional_distance_on_content() {
+    let fx = Fixture::new();
+    let rough = |f, x, y| composite_full(&painted(C::Roughness, f), &fx.ctx()).channel(C::Roughness).unwrap().get(x, y)[0];
+    // Gradient Curve: roughness 1 through an inverted linear curve is 0; the Valley is 1 at 1.
+    assert!(rough(Filter::GradientCurve { preset: CurvePreset::Linear, invert: true, balance: 0.5, contrast: 0.0 }, 50, 50).abs() < 2e-3);
+    assert!((rough(Filter::GradientCurve { preset: CurvePreset::Valley, invert: false, balance: 0.5, contrast: 0.0 }, 50, 50) - 1.0).abs() < 2e-3);
+    // Bevel Smooth inward, 8 px: at (42, 50) the contour is 2.5 px away, so the ramp is 2.5 / 8;
+    // the middle of the square (10 px in) is flat 1. Both ways it is half way plus half of that.
+    let smooth = |direction, smoothing| Filter::BevelSmooth { radius: 8.0, direction, smoothing, curve_offset: 0.0, curve_shape: 0.0, threshold: 0.5 };
+    let v = rough(smooth(BevelDirection::Inward, 0.0), 42, 50);
+    assert!((v - 2.5 / 8.0).abs() < 2e-3, "{v}");
+    assert!((rough(smooth(BevelDirection::Inward, 0.0), 50, 50) - 1.0).abs() < 2e-3);
+    let v = rough(smooth(BevelDirection::Both, 0.0), 42, 50);
+    assert!((v - (0.5 + 2.5 / 16.0)).abs() < 2e-3, "{v}");
+    let t = 2.5f32 / 8.0;
+    let v = rough(smooth(BevelDirection::Inward, 1.0), 42, 50);
+    assert!((v - t * t * (3.0 - 2.0 * t)).abs() < 2e-3, "{v}");
+    assert!((rough(smooth(BevelDirection::Outward, 0.0), 42, 50) - 1.0).abs() < 2e-3, "inside stays full");
+    // Directional Distance leaves the flat inside of the square at 1 (its own value is the brightest).
+    let far = Filter::DirectionalDistance { distance: 8.0, angle_deg: 0.0, contrast: 0.0 };
+    assert!((rough(far, 50, 50) - 1.0).abs() < 2e-3);
 }

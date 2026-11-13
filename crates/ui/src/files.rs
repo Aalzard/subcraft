@@ -6,7 +6,7 @@
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use subcraft_core::{ChannelKind, EffectId, LayerId};
+use subcraft_core::{ChannelKind, EffectId, LayerId, MeshMapKind, TextureSetId};
 
 use crate::state::UiState;
 
@@ -22,6 +22,8 @@ pub enum Purpose {
     NewProjectMeshMaps,
     /// Already-baked mesh maps for the project's texture sets (Texture Set Settings).
     ImportMeshMaps,
+    /// An image for one mesh-map slot of a texture set (Texture Set Settings > Mesh maps).
+    MeshMapSlot { texture_set: TextureSetId, kind: MeshMapKind },
     OpenProject,
     /// The updated model for File > Reload mesh.
     ReloadMesh,
@@ -100,6 +102,12 @@ pub fn pick_with_filters(purpose: Purpose, filters: &[(&str, &[&str])], title: O
 pub fn pick_folder(_ctx: &egui::Context, purpose: Purpose, title: &str) {
     let paths: Vec<PathBuf> = rfd::FileDialog::new().set_title(title).pick_folder().into_iter().collect();
     deliver(purpose, paths);
+}
+
+/// Handle files as if the dialog had returned them (tests cannot open a native dialog).
+#[cfg(test)]
+pub(crate) fn handle_for_test(state: &mut UiState, purpose: Purpose, paths: &[PathBuf]) {
+    handle(state, purpose, paths, 0.0);
 }
 
 /// Hand picked files to their handlers (call once per frame).
@@ -223,6 +231,7 @@ fn handle(state: &mut UiState, purpose: Purpose, paths: &[PathBuf], now: f64) {
         Purpose::NewProjectModel => state.new_project.load_model(first),
         Purpose::NewProjectHighPoly => state.new_project.load_high_poly(first),
         Purpose::NewProjectMeshMaps => state.new_project.add_mesh_maps(paths),
+        Purpose::MeshMapSlot { texture_set, kind } => crate::panels::texture_sets::set_mesh_map_from_file(state, texture_set, kind, first, now),
         Purpose::ImportMeshMaps => {
             let sets = state.session.mesh_map_set_keys();
             if state.mesh_map_import.open {

@@ -226,3 +226,87 @@ fn a_new_top_layer_resumes_from_the_boundaries_stored_before() {
     cache.update(&ts, &fx.ctx());
     assert_exact(&cache, &ts, &fx, "the top layer removed");
 }
+
+/// An edit low in the stack changes what the layers above are blended onto, not what they are:
+/// their filtered content (and masks) comes from the content cache instead of being evaluated
+/// again, and the result is still exactly a full recomposite.
+#[test]
+fn an_edit_low_in_the_stack_reuses_the_content_of_the_layers_above() {
+    let fx = Fixture::new();
+    let (mut ts, ids) = stack(true);
+    let mut cache = CompositeCache::new();
+    cache.update(&ts, &fx.ctx());
+    let (entries, _, hits) = cache.content_cache_stats();
+    assert!(entries >= 16, "the filtered layers' content is stored ({entries} entries)");
+
+    ts.find_mut(ids[0]).unwrap().blend.get_mut(&ChannelKind::BaseColor).unwrap().opacity = 0.4;
+    cache.update(&ts, &fx.ctx());
+    let (_, _, after) = cache.content_cache_stats();
+    // Layers 1, 3, 5 and 7 carry a blur or sharpen: 16 tiles each.
+    assert!(after >= hits + 4 * 16, "every filtered layer above was read from the cache ({hits} -> {after})");
+    assert_exact(&cache, &ts, &fx, "a bottom-layer opacity change");
+
+    // Editing a filtered layer itself replaces its content (and only its own).
+    let layer = ts.find_mut(ids[3]).unwrap();
+    let e = Arc::make_mut(&mut layer.content_effects[0]);
+    e.kind = ContentEffectKind::Filter { channel: ChannelKind::BaseColor, filter: Filter::Blur { radius: 4.0 } };
+    cache.update(&ts, &fx.ctx());
+    assert_exact(&cache, &ts, &fx, "a filter parameter of a cached layer");
+    ts.remove(ids[5]).unwrap();
+    cache.update(&ts, &fx.ctx());
+    assert_exact(&cache, &ts, &fx, "removing a cached layer");
+}
+
+/// A stack whose content does not fit the budget keeps what it holds (no eviction of entries the
+/// same pass is about to read): every further edit still hits, within the budget, and exactly.
+#[test]
+fn content_cache_over_budget_keeps_hitting() {
+    let fx = Fixture::new();
+    let (mut ts, ids) = stack(true);
+    let mut cache = CompositeCache::new();
+    let budget = 1 << 20; // the four filtered layers need about 3 MB
+    cache.set_layer_cache_budget(budget);
+    cache.update(&ts, &fx.ctx());
+    for (round, opacity) in [0.3f32, 0.6, 0.8].into_iter().enumerate() {
+        let (_, bytes, hits) = cache.content_cache_stats();
+        assert!(bytes > 0 && bytes <= budget, "{bytes} bytes");
+        ts.find_mut(ids[0]).unwrap().blend.get_mut(&ChannelKind::BaseColor).unwrap().opacity = opacity;
+        cache.update(&ts, &fx.ctx());
+        let (_, _, after) = cache.content_cache_stats();
+        assert!(after >= hits + 8, "edit {round}: stored content is still read ({hits} -> {after})");
+        assert_exact(&cache, &ts, &fx, "a bottom edit over budget");
+    }
+}
+
+/// Results that depend on other layers are never taken from the content cache: a passthrough
+/// layer (its content is the stack below, blurred) and a masked layer stay exact when the layers
+/// below them change.
+#[test]
+fn passthrough_and_masked_layers_stay_exact_with_cached_content() {
+    use subcraft_doc::{Generator, GeneratorKind, Mask, MaskEffect, MaskEffectKind};
+    let fx = Fixture::new();
+    let (mut ts, ids) = stack(true);
+    // Layer 5 (blur): passthrough, so the blur reads everything below it.
+    ts.find_mut(ids[5]).unwrap().blend.get_mut(&ChannelKind::BaseColor).unwrap().mode = BlendMode::Passthrough;
+    // Layer 6: masked by a generator.
+    let mut mask = Mask::new(RES, false);
+    let mut g = Generator::new(GeneratorKind::Directional);
+    g.noise_amount = 0.35;
+    mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Generator(g))));
+    ts.find_mut(ids[6]).unwrap().mask = Some(mask);
+
+    let mut cache = CompositeCache::new();
+    cache.update(&ts, &fx.ctx());
+    assert_exact(&cache, &ts, &fx, "the first composite");
+    for (pos, opacity) in [(0usize, 0.45f32), (2, 0.7), (4, 0.2), (0, 0.9)] {
+        ts.find_mut(ids[pos]).unwrap().blend.get_mut(&ChannelKind::BaseColor).unwrap().opacity = opacity;
+        cache.update(&ts, &fx.ctx());
+        assert_exact(&cache, &ts, &fx, &format!("opacity of layer {pos} under a passthrough blur"));
+    }
+    // The mask's generator level: only that layer's mask changes.
+    let m = ts.find_mut(ids[6]).unwrap().mask.as_mut().unwrap();
+    let MaskEffectKind::Generator(g) = &mut Arc::make_mut(&mut m.effects[0]).kind else { unreachable!() };
+    g.level = 0.7;
+    cache.update(&ts, &fx.ctx());
+    assert_exact(&cache, &ts, &fx, "a mask generator level");
+}
