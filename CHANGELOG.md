@@ -5,6 +5,11 @@ What changed in SubCraft, newest first. Download the latest build from the
 
 ## Unreleased
 
+### Added
+- **Netpbm export file types**, like Painter: PBM (1-bit), PGM (gray, 8 or 16-bit), PPM (RGB, 8 or 16-bit)
+  and PFM (32-bit float). These files have no alpha: a map with four components keeps its own file type
+  when the window picks one of them.
+
 ## 0.3.7 - 2026-11-13
 
 ### Added

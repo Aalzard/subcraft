@@ -1,5 +1,5 @@
 //! Painter's export settings: padding modes, the Size menu, 8-bit dithering and the extra file
-//! types (BMP, HDR, WebP, half-float EXR).
+//! types (BMP, HDR, WebP, half-float EXR, Netpbm).
 use super::*;
 use subcraft_image::BitmapData;
 
@@ -148,6 +148,45 @@ fn dithering_follows_the_window_then_the_map() {
     assert_eq!(levels(&render(&mesh, &sets, &s)[1].1), 1, "the window's choice wins");
     s.dither = Some(true);
     assert!(levels(&render(&mesh, &sets, &s)[0].1) > 1);
+}
+
+/// Painter's Netpbm file types: PBM, PGM, PPM and PFM files are written and read back, and a
+/// four-component map keeps its own file type when the window picks one without alpha.
+#[test]
+fn netpbm_file_types_export_and_read_back() {
+    let ch = distinct_channels();
+    let sets = [ExportTextureSet { name: "C", material_slot: 0, udim: None, channels: &ch, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY }];
+    let mesh = primitives::plane(2.0, 1);
+    let rgb = || (0..3).map(|c| Source::ch(ChannelKind::BaseColor, c)).collect::<Vec<_>>();
+    let maps = vec![
+        OutputMap::new("Ppm", FileFormat::Ppm8, rgb(), true),
+        OutputMap::new("Pgm", FileFormat::Pgm16, vec![Source::ch(ChannelKind::Roughness, 0)], false),
+        OutputMap::new("Pbm", FileFormat::Pbm1, vec![Source::ch(ChannelKind::Metallic, 0)], false),
+        OutputMap::new("Pfm", FileFormat::Pfm32, rgb(), true),
+    ];
+    let s = ExportSettings { template: user(maps), ..Default::default() };
+    let mut files: Vec<(String, subcraft_image::netpbm::Decoded)> = Vec::new();
+    render_maps(&mesh, "M", &sets, &s, |n, b| {
+        files.push((n.to_string(), subcraft_image::netpbm::decode(b).expect("a Netpbm file")));
+        Ok(())
+    })
+    .unwrap();
+    let names: Vec<&str> = files.iter().map(|f| f.0.as_str()).collect();
+    assert_eq!(names, ["M_C_Ppm.ppm", "M_C_Pgm.pgm", "M_C_Pbm.pbm", "M_C_Pfm.pfm"]);
+    let at = |f: &subcraft_image::netpbm::Decoded, c: usize| f.data[(9 * f.width as usize + 9) * f.comps + c];
+    let base = ch[&ChannelKind::BaseColor].get(9, 9);
+    for c in 0..3 {
+        assert!((at(&files[0].1, c) - linear_to_srgb(base[c])).abs() < 1.0 / 255.0, "8-bit PPM is sRGB");
+        assert!((at(&files[3].1, c) - base[c]).abs() < 1e-6, "PFM stays linear");
+    }
+    assert!((at(&files[1].1, 0) - 0.3).abs() < 1.0 / 65535.0, "16-bit PGM roughness");
+    assert_eq!(at(&files[2].1, 0), 1.0, "metallic 0.8 is white in PBM");
+    assert_eq!((files[1].1.width, files[1].1.comps), (RES, 1));
+    // The window's PPM override leaves a four-component map in its own (alpha) file type.
+    let settings = ExportSettings { template: ExportTemplate::unity_hdrp(), format_override: Some(FileFormat::Ppm8), ..Default::default() };
+    for map in &settings.template.maps {
+        assert_eq!(output_format(map, &settings) == FileFormat::Ppm8, map.components.len() != 4, "{}", map.suffix);
+    }
 }
 
 #[test]
