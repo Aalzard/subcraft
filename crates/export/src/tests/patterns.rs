@@ -43,7 +43,7 @@ fn color_space_names_follow_the_encoding() {
 fn exports_fill_project_material_and_colour_space_and_write_sub_folders() {
     let mesh = primitives::plane(2.0, 1);
     let ch = distinct_channels();
-    let sets = [ExportTextureSet { name: "Body", material_slot: 0, udim: None, channels: &ch, mesh_maps: None }];
+    let sets = [ExportTextureSet { name: "Body", material_slot: 0, udim: None, channels: &ch, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY }];
     let map = |suffix: &str, pattern: &str, comps: Vec<Source>, srgb| OutputMap { pattern: Some(pattern.into()), ..OutputMap::new(suffix, FileFormat::Png8, comps, srgb) };
     let template = ExportTemplate {
         name: "Mine".into(),
@@ -72,8 +72,8 @@ fn exports_fill_project_material_and_colour_space_and_write_sub_folders() {
 fn a_texture_set_can_write_one_map_in_its_own_file_type() {
     let ch = distinct_channels();
     let sets = [
-        ExportTextureSet { name: "Body", material_slot: 0, udim: None, channels: &ch, mesh_maps: None },
-        ExportTextureSet { name: "Trim", material_slot: 0, udim: None, channels: &ch, mesh_maps: None },
+        ExportTextureSet { name: "Body", material_slot: 0, udim: None, channels: &ch, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY },
+        ExportTextureSet { name: "Trim", material_slot: 0, udim: None, channels: &ch, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY },
     ];
     let mut s = ExportSettings::default();
     let mut o = subcraft_doc::ExportOverrides::default();
@@ -91,7 +91,7 @@ fn a_texture_set_can_write_one_map_in_its_own_file_type() {
 #[test]
 fn the_folder_template_writes_one_folder_per_texture_set() {
     let ch = distinct_channels();
-    let sets = [ExportTextureSet { name: "Body", material_slot: 0, udim: None, channels: &ch, mesh_maps: None }];
+    let sets = [ExportTextureSet { name: "Body", material_slot: 0, udim: None, channels: &ch, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY }];
     let t = ExportTemplate::builtin().into_iter().find(|t| t.name == "PBR Metallic Roughness (Folder or PSD Groups)").unwrap();
     let s = ExportSettings { template: t, ..Default::default() };
     let plan = plan_all("M", &sets, &s);
