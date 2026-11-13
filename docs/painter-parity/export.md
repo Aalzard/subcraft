@@ -305,4 +305,4 @@ Layout notes: a small separate window opened from the File menu, with a file-typ
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
 | 2D View predefined template (writes what the 2D view currently shows) | Export textures > Output template | - | done (also File > Export 2D view) | crates/ui/src/app.rs:1140 | - |
-| 2D View export follows the chosen file type, size and padding | Export textures settings | - | partial: file format and padding only | crates/ui/src/dialogs.rs:243 | - |
+| 2D View export follows the chosen file type, size and padding | Export textures settings | - | done (file type, Size menu and padding; the view is resampled to the chosen size) | crates/export/src/lib.rs Dense::view, crates/export/src/tests/view2d.rs | 2d size test |
