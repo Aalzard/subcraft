@@ -230,6 +230,25 @@ fn actions_drive_the_session() {
     assert!(s.brush.options.symmetry[0]);
 }
 
+/// Painter's L: Symmetry on / off. Off remembers every axis and radial symmetry; on brings them
+/// back, and the first L of a session switches on mirror X (as the toolbar button does).
+#[test]
+fn symmetry_key_switches_off_and_restores_the_axes() {
+    let mut s = session();
+    assert!(!s.brush.options.symmetry_on());
+    s.perform(Action::ToggleSymmetry).unwrap();
+    assert_eq!((s.brush.options.symmetry, s.brush.options.radial.enabled), ([true, false, false], false), "first L: mirror X");
+    s.brush.options.symmetry = [false, true, true];
+    s.brush.options.radial.enabled = true;
+    s.perform(Action::ToggleSymmetry).unwrap();
+    assert!(!s.brush.options.symmetry_on() && !s.brush.options.has_symmetry(), "L switches everything off");
+    s.perform(Action::ToggleSymmetry).unwrap();
+    assert_eq!((s.brush.options.symmetry, s.brush.options.radial.enabled), ([false, true, true], true), "the axes come back");
+    // X still flips only the X mirror.
+    s.perform(Action::ToggleSymmetryX).unwrap();
+    assert_eq!(s.brush.options.symmetry, [true, true, true]);
+}
+
 #[test]
 fn pick_reports_material_slot() {
     let s = session();

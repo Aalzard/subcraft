@@ -880,6 +880,15 @@ pub struct BakeUi {
     pub fit_mode: subcraft_core::FitMode,
     /// Opacity of the high poly in the overlay (1 = solid).
     pub high_opacity: f32,
+    /// What the overlay draws and its colours (Baking visualization settings).
+    pub vis: subcraft_render::BakeVisualization,
+    /// The overlay shows the project mesh and cage of the selected texture set only.
+    pub vis_selected_only: bool,
+    /// Hard edges of the low poly without a UV seam (`[a, b, normal]`), for the mesh with this
+    /// address; found when the seam check is first shown.
+    pub seam_edges: Option<(usize, Vec<[glam::Vec3; 3]>)>,
+    /// The current `seam_edges` are on the GPU.
+    pub seams_uploaded: bool,
     pub placement_message: Option<&'static str>,
     pub live_maps: bool,
     pub displayed_map: Option<subcraft_core::MeshMapKind>,
@@ -906,7 +915,7 @@ impl Default for BakeUi {
             // Painter's defaults for the projection rays.
             settings: subcraft_app::BakeSettings { average_normals: true, ignore_backface: true, ..Default::default() },
             high_poly: String::new(), extra_high: Vec::new(), cage_file: String::new(), skip_sets: Default::default(), selected_baker: None, log_tab: BakeLogTab::default(), job_maps: Vec::new(), size_chosen: false, job: None, result: None, report: String::new(), notices: Vec::new(), log: Vec::new(), map_rows: Vec::new(),
-            preview: true, cage: true, fit_mode: Default::default(), high_opacity: 0.55, placement_message: None, live_maps: true, displayed_map: None, follow_maps: true, preview_mesh: None,
+            preview: true, cage: true, fit_mode: Default::default(), high_opacity: 0.55, vis: Default::default(), vis_selected_only: false, seam_edges: None, seams_uploaded: false, placement_message: None, live_maps: true, displayed_map: None, follow_maps: true, preview_mesh: None,
             preview_job: None, preview_source: None, preview_path: String::new(), preview_scene: None, preview_error: None, preview_uploaded: false, preview_checked_at: 0.,
             miss_heatmap: false, cage_job: None, cage_result: None, miss_uploaded: false }
     }
@@ -1509,6 +1518,9 @@ fn common_settings(ui: &mut egui::Ui, b: &mut BakeUi, f: &BakeFrame, bake_match:
         if has_high && (!b.extra_high.is_empty() || !b.cage_file.trim().is_empty()) {
             hint(ui, tr("The overlay and the ray misses show the first high-poly file and the distance cage only."));
         }
+        if has_high {
+            visualization_settings(ui, b);
+        }
         if b.preview_mesh.is_some() && b.result.is_some()
             && secondary_button(ui, format!("{}  {}", icons::CUBE_WIRE, tr("Inspect high / low geometry"))).clicked() {
             b.result = None; b.displayed_map = None; b.follow_maps = false;
@@ -1526,6 +1538,58 @@ fn common_settings(ui: &mut egui::Ui, b: &mut BakeUi, f: &BakeFrame, bake_match:
             }
             hint(ui, tr("Gray: rays reach the high poly · Red: rays miss it · Lower the high-poly opacity to see the heatmap underneath."));
         } else if has_high { hint(ui, tr("Blue: high poly · Red: exposed low poly · Pale lines: cage. Orbit to inspect.")); }
+    });
+}
+
+/// Baking visualization settings: which meshes the overlay draws, and in which colours.
+fn visualization_settings(ui: &mut egui::Ui, b: &mut BakeUi) {
+    egui::CollapsingHeader::new(RichText::new(tr("Visualization settings")).color(TEXT_DIM)).id_salt("bake_vis").default_open(false).show(ui, |ui| {
+        let mut hide = !b.preview;
+        if ui.checkbox(&mut hide, tr("Hide baking meshes")).on_hover_text(tr("Show the model as it is painted instead of the high / low overlay")).changed() {
+            b.preview = !hide;
+        }
+        ui.add_enabled_ui(b.preview, |ui| {
+            let color_row = |ui: &mut egui::Ui, on: Option<&mut bool>, label: &str, color: &mut [f32; 3]| {
+                ui.horizontal(|ui| {
+                    match on {
+                        Some(on) => { ui.checkbox(on, label); }
+                        None => { ui.label(dim(label)); }
+                    }
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| egui::color_picker::color_edit_button_rgb(ui, color));
+                });
+            };
+            color_row(ui, Some(&mut b.vis.show_high), tr("High poly mesh"), &mut b.vis.high_color);
+            color_row(ui, Some(&mut b.vis.show_low), tr("Project mesh"), &mut b.vis.low_color);
+            ui.label(RichText::new(tr("The project mesh shows where the high poly does not cover it: its color marks the matching errors.")).small().color(theme::TEXT_FAINT));
+            color_row(ui, Some(&mut b.cage), tr("Cage wireframe"), &mut b.vis.cage_color);
+            crate::widgets::slider_row(ui, tr("Cage wireframe opacity"), egui::Slider::new(&mut b.vis.cage_opacity, 0.0..=1.0));
+            color_row(ui, Some(&mut b.vis.show_cage_surface), tr("Cage surface"), &mut b.vis.cage_surface_color);
+            if b.vis.show_cage_surface {
+                crate::widgets::slider_row(ui, tr("Cage surface opacity"), egui::Slider::new(&mut b.vis.cage_surface_opacity, 0.0..=1.0));
+            }
+            ui.checkbox(&mut b.vis_selected_only, tr("Show for selected Texture Set only"))
+                .on_hover_text(tr("Draw the project mesh and the cage of the selected texture set only"));
+            color_row(ui, Some(&mut b.vis.show_seams), tr("Missing seams on hard edges"), &mut b.vis.seam_color);
+            if b.vis.show_seams {
+                let text = match &b.seam_edges {
+                    Some((_, edges)) if edges.is_empty() => tr("Every hard edge of the low poly is a UV seam.").to_string(),
+                    Some((_, edges)) => crate::i18n::trf("{} hard edge(s) share UVs across the edge: a baked normal map shows a line there. Split the UVs or soften the edge.", &[&edges.len()]),
+                    None => String::new(),
+                };
+                let warn = b.seam_edges.as_ref().is_some_and(|(_, e)| !e.is_empty());
+                if !text.is_empty() {
+                    ui.add(egui::Label::new(RichText::new(text).small().color(if warn { theme::WARNING } else { theme::TEXT_FAINT })).wrap());
+                }
+            }
+            // The color buttons round a color in its last bits each frame: compare with a tolerance.
+            let d = subcraft_render::BakeVisualization::default();
+            let near = |a: [f32; 3], b: [f32; 3]| a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-3);
+            let changed = !near(b.vis.high_color, d.high_color) || !near(b.vis.low_color, d.low_color) || !near(b.vis.cage_color, d.cage_color)
+                || !near(b.vis.seam_color, d.seam_color) || !near(b.vis.cage_surface_color, d.cage_surface_color) || (b.vis.cage_surface_opacity - d.cage_surface_opacity).abs() > 1e-3 || (b.vis.cage_opacity - d.cage_opacity).abs() > 1e-3 || !b.vis.show_high || !b.vis.show_low;
+            if changed && secondary_button(ui, tr("Reset colors")).clicked() {
+                b.vis = subcraft_render::BakeVisualization { show_seams: b.vis.show_seams, show_cage_surface: b.vis.show_cage_surface, ..Default::default() };
+            }
+        });
     });
 }
 
@@ -1903,6 +1967,50 @@ mod bake_tests {
         state.bake.settings.id_source = subcraft_bake::IdSource::VertexColor;
         assert!(!has_text(&shown(&mut state, MeshMapKind::Id), "Color generator"));
         assert!(has_text(&shown(&mut state, MeshMapKind::Normal), "no settings of its own"));
+    }
+
+    #[test]
+    fn visualization_settings_drive_the_overlay() {
+        let ctx = egui::Context::default(); theme::apply(&ctx);
+        let mut state = UiState::new(Session::new(subcraft_mesh::primitives::plane(2., 1), 128), None);
+        assert_eq!(state.bake.vis, subcraft_render::BakeVisualization::default());
+        assert!(state.bake.vis.show_high && state.bake.vis.show_low);
+        state.bake.open = true; state.bake.preview = false;
+        state.bake.high_poly = "parts_high.fbx".into();
+        let frame = |state: &mut UiState, events: Vec<egui::Event>| {
+            let mut out = ctx.run_ui(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1600.0, 2400.0))), events, ..Default::default() }, |ui| bake_mode(state, ui, 0.0));
+            out.textures_delta.clear(); out
+        };
+        for _ in 0..3 { frame(&mut state, vec![]); }
+        let output = frame(&mut state, vec![]);
+        assert!(!has_text(&output, "Hide baking meshes"), "the settings are folded away at first");
+        // Open the section.
+        let header = output.shapes.iter().find_map(|s| match &s.shape {
+            egui::epaint::Shape::Text(t) if t.galley.job.text == "Visualization settings" => Some(t.pos + t.galley.size() * 0.5),
+            _ => None,
+        }).expect("Visualization settings header");
+        let button = |pressed| egui::Event::PointerButton { pos: header, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::default() };
+        frame(&mut state, vec![egui::Event::PointerMoved(header), button(true)]);
+        frame(&mut state, vec![button(false)]);
+        for _ in 0..12 { frame(&mut state, vec![]); }
+        let output = frame(&mut state, vec![]);
+        for text in ["Hide baking meshes", "High poly mesh", "Project mesh", "Cage wireframe", "Cage wireframe opacity", "Missing seams on hard edges", "Cage surface", "Show for selected Texture Set only"] { assert!(has_text(&output, text), "{text}"); }
+        assert!(!has_text(&output, "Cage surface opacity"));
+        state.bake.vis.show_cage_surface = true;
+        assert!(has_text(&frame(&mut state, vec![]), "Cage surface opacity"));
+        state.bake.vis.show_cage_surface = false;
+        // The seam check reports what the viewport found for the mesh.
+        assert!(!has_text(&output, "share UVs") && !has_text(&output, "is a UV seam"), "nothing is reported while the check is off");
+        state.bake.vis.show_seams = true;
+        state.bake.seam_edges = Some((0, Vec::new()));
+        assert!(has_text(&frame(&mut state, vec![]), "Every hard edge of the low poly is a UV seam."));
+        state.bake.seam_edges = Some((0, vec![[glam::Vec3::ZERO, glam::Vec3::X, glam::Vec3::Y]; 3]));
+        assert!(has_text(&frame(&mut state, vec![]), "3 hard edge(s) share UVs across the edge"));
+        state.bake.vis.show_seams = false;
+        let output = frame(&mut state, vec![]);
+        assert!(!has_text(&output, "Reset colors"), "nothing to reset yet");
+        state.bake.vis.high_color = [0.1, 0.8, 0.1];
+        assert!(has_text(&frame(&mut state, vec![]), "Reset colors"));
     }
 
     #[test]

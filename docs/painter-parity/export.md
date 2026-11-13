@@ -14,7 +14,7 @@ Layout notes: Painter has one modal Export textures window with three tabs along
 | Settings tab | Export window, tab 1 | default tab | done (default tab) | crates/ui/src/dialogs.rs settings_tab | chunk 14 |
 | Output templates tab | Export window, tab 2 | - | done (preset list, New / Duplicate / Delete / Import / Export, and the template editor) | crates/ui/src/dialogs.rs export_window | #124, chunk 14 |
 | List of exports tab | Export window, tab 3 | - | done | crates/ui/src/dialogs.rs export_log | chunk 14 |
-| --export-path command line argument | Launch argument (default output directory) | not documented | missing (only --export-window / --export-template for scripted captures) | - | - |
+| --export-path command line argument | Launch argument (default output directory) | not documented | done (the Export window's default folder; a project's saved export folder still wins) | apps/subcraft/src/main.rs, crates/ui/src/app.rs LaunchOptions::export_folder | export-path |
 
 ## Window bottom buttons
 

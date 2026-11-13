@@ -61,7 +61,7 @@ impl PenRasterizer {
         let size = resolution.div_ceil(TILE_SIZE);
         let mut bins = vec![Vec::new(); (size * size) as usize];
         let filled = path.kind == PathKind::Filled;
-        let stamped = !filled && path.stamp.is_some();
+        let stamped = path.kind == PathKind::Paint && path.stamp.is_some();
         // A filled path only needs the segments near a texel for its anti-aliased edge; a tip
         // image reaches to the corners of its square.
         let radius = if filled { 1.5 } else if stamped { path.radius * resolution as f32 * std::f32::consts::SQRT_2 + 1.0 } else { path.radius * resolution as f32 + 1.0 };
@@ -97,7 +97,8 @@ impl PenRasterizer {
         Ok(Self { path: path.clone(), points, bins, tiles, tile: 0, pixel: 0, segment: 0, distance: f32::INFINITY, coverage: vec![0.0; TILE_TEXELS], images, resolution, alpha: None, stamps, segment_stamps })
     }
 
-    /// The tip image of a stamped path (its `stamp.alpha` resource); without it the tip is round.
+    /// The image a path draws with ([`PenPath::image_resource`]): the stamped tip (round
+    /// without it) or the ribbon image (a solid strip without it).
     pub fn with_alpha(mut self, alpha: Option<std::sync::Arc<subcraft_image::Bitmap>>) -> Self {
         self.alpha = alpha;
         self
@@ -107,7 +108,7 @@ impl PenRasterizer {
     pub fn is_done(&self) -> bool { self.tile == self.tiles.len() }
     /// At most `budget` segment-distance evaluations, plus completed 64² tile writes.
     pub fn step(&mut self, mut budget: usize) {
-        if self.path.kind == PathKind::Filled || !self.stamps.is_empty() {
+        if self.path.kind != PathKind::Paint || !self.stamps.is_empty() {
             // Filled interiors need whole rows of crossings, stamps a pass over their tiles:
             // both are done in one parallel pass.
             self.run();
@@ -155,6 +156,10 @@ impl PenRasterizer {
         use rayon::prelude::*;
         if self.path.kind == PathKind::Filled {
             self.run_filled();
+            return;
+        }
+        if self.path.kind == PathKind::Ribbon {
+            self.run_ribbon();
             return;
         }
         if !self.stamps.is_empty() {
@@ -300,6 +305,94 @@ impl PenRasterizer {
         self.tile = self.tiles.len(); self.pixel = 0; self.segment = 0; self.distance = f32::INFINITY; self.coverage.fill(0.0);
     }
 
+    /// Ribbon path: the image laid along the curve over the path's width. Across the path the
+    /// image runs from one edge to the other; along it, it stretches over the length (`tiles`
+    /// copies) or keeps its aspect ratio. The ends are cut square, not rounded.
+    fn run_ribbon(&mut self) {
+        use rayon::prelude::*;
+        let settings = self.path.ribbon.unwrap_or_default();
+        let (res, across, opacity) = (self.resolution, self.resolution.div_ceil(TILE_SIZE), self.path.opacity);
+        let radius = (self.path.radius * res as f32).max(1e-3);
+        let (points, bins, image) = (&self.points, &self.bins, self.alpha.as_deref());
+        let last = points.len().saturating_sub(2);
+        let open = !self.path.is_closed();
+        let mut arc = Vec::with_capacity(points.len());
+        let mut total = 0.0f32;
+        for (i, p) in points.iter().enumerate() {
+            if i > 0 { total += p.distance(points[i - 1]); }
+            arc.push(total);
+        }
+        let total = total.max(1e-3);
+        let aspect = image.map_or(1.0, |b| b.width as f32 / b.height.max(1) as f32);
+        let copy_length = match settings.mode {
+            subcraft_doc::RibbonMode::Stretch => total / settings.tiles.max(1e-3),
+            subcraft_doc::RibbonMode::KeepAspect => 2.0 * radius * aspect * settings.tiles.max(1e-3),
+        };
+        let colored = settings.color_from_image && image.is_some();
+        let done: Vec<(usize, Vec<f32>, Vec<[f32; 3]>)> = self.tiles[self.tile..].par_iter().map(|&tile| {
+            let mut coverage = vec![0.0f32; TILE_TEXELS];
+            let mut color = vec![[0.0f32; 3]; if colored { TILE_TEXELS } else { 0 }];
+            for pixel in 0..TILE_TEXELS {
+                let x = (tile as u32 % across) * TILE_SIZE + pixel as u32 % TILE_SIZE;
+                let y = (tile as u32 / across) * TILE_SIZE + pixel as u32 / TILE_SIZE;
+                if x >= res || y >= res { continue; }
+                let p = Vec2::new(x as f32 + 0.5, y as f32 + 0.5);
+                // Closest point on the curve: segment, position along it, signed offset.
+                let mut best: Option<(f32, usize, f32, f32)> = None;
+                for &i in &bins[tile] {
+                    let a = points[i]; let d = points[i + 1] - a;
+                    let len2 = d.length_squared();
+                    let raw_t = if len2 > 1e-12 { (p - a).dot(d) / len2 } else { 0.0 };
+                    // Square ends: nothing before the first point or after the last one.
+                    if open && ((i == 0 && raw_t < 0.0) || (i == last && raw_t > 1.0)) { continue; }
+                    let t = raw_t.clamp(0.0, 1.0);
+                    let dist = p.distance(a + d * t);
+                    if best.is_none_or(|b| dist < b.0) {
+                        let side = if len2 > 1e-12 { d.perp_dot(p - a) / len2.sqrt() } else { 0.0 };
+                        best = Some((dist, i, t, side));
+                    }
+                }
+                let Some((dist, i, t, side)) = best else { continue };
+                let edge = (radius + 0.5 - dist).clamp(0.0, 1.0);
+                if edge <= 0.0 { continue; }
+                let along = (arc[i] + (arc[i + 1] - arc[i]) * t) / copy_length;
+                let k = along.floor();
+                let mut u = along - k;
+                if settings.mirror && (k as i64).rem_euclid(2) == 1 { u = 1.0 - u; }
+                let mut v = (0.5 + side / (2.0 * radius)).clamp(0.0, 1.0);
+                if settings.flip { v = 1.0 - v; }
+                let a = match image {
+                    None => 1.0,
+                    Some(b) if colored => {
+                        let c = b.sample(u, v, subcraft_image::Wrap::Clamp, true);
+                        color[pixel] = [c[0], c[1], c[2]];
+                        c[3]
+                    }
+                    Some(b) => {
+                        let c = b.sample(u, v, subcraft_image::Wrap::Clamp, false);
+                        c[0] * c[3]
+                    }
+                };
+                coverage[pixel] = a.clamp(0.0, 1.0) * edge * opacity;
+            }
+            (tile, coverage, color)
+        }).collect();
+        for (tile, coverage, color) in done {
+            if !coverage.iter().any(|&a| a > 0.0) { continue; }
+            for (&kind, img) in &mut self.images {
+                let n = kind.components(); let comps = n + 1; let value = self.path.values[&kind].0;
+                let from_image = colored && kind == ChannelKind::BaseColor;
+                let mut data = vec![0.0; TILE_TEXELS * comps];
+                for (pixel, (out, &alpha)) in data.chunks_exact_mut(comps).zip(&coverage).enumerate() {
+                    if from_image { out[..3].copy_from_slice(&color[pixel]); } else { out[..n].copy_from_slice(&value[..n]); }
+                    out[n] = alpha;
+                }
+                img.write_tile(tile, &data);
+            }
+        }
+        self.tile = self.tiles.len(); self.pixel = 0; self.segment = 0; self.distance = f32::INFINITY; self.coverage.fill(0.0);
+    }
+
     pub fn finish(self) -> Option<BTreeMap<ChannelKind, TiledImage>> { self.is_done().then_some(self.images) }
 }
 
@@ -312,7 +405,7 @@ mod run_tests {
     fn path() -> PenPath {
         let anchors = [(0.1, 0.2), (0.5, 0.8), (0.9, 0.3), (0.6, 0.1)].into_iter().map(|(x, y)| PenAnchor::new(Vec2::new(x, y))).collect();
         let values = [(ChannelKind::BaseColor, ChannelValue::rgb(1.0, 0.5, 0.0))].into_iter().collect();
-        PenPath { anchors, closed: false, radius: 0.02, hardness: 0.5, opacity: 1.0, values, kind: Default::default(), stamp: None }
+        PenPath { anchors, closed: false, radius: 0.02, hardness: 0.5, opacity: 1.0, values, kind: Default::default(), stamp: None, ribbon: None }
     }
 
     #[test]
@@ -336,7 +429,7 @@ mod run_tests {
         let square = [(0.25, 0.25), (0.75, 0.25), (0.75, 0.75), (0.25, 0.75)];
         let anchors = square.into_iter().map(|(x, y)| PenAnchor::new(Vec2::new(x, y))).collect();
         let values = [(ChannelKind::BaseColor, ChannelValue::rgb(0.2, 0.4, 0.6))].into_iter().collect();
-        let filled = PenPath { anchors, closed: false, radius: 0.01, hardness: 1.0, opacity: 0.8, values, kind: subcraft_doc::PathKind::Filled, stamp: None };
+        let filled = PenPath { anchors, closed: false, radius: 0.01, hardness: 1.0, opacity: 0.8, values, kind: subcraft_doc::PathKind::Filled, stamp: None, ribbon: None };
         let mut r = PenRasterizer::new(&filled, 128).unwrap();
         r.step(1);
         assert!(r.is_done(), "a filled path rasterizes in one pass");
@@ -361,7 +454,7 @@ mod run_tests {
     fn a_stamped_path_places_tips_at_its_spacing() {
         let anchors = [(0.1, 0.5), (0.9, 0.5)].into_iter().map(|(x, y)| PenAnchor::new(Vec2::new(x, y))).collect();
         let values = [(ChannelKind::BaseColor, ChannelValue::rgb(1.0, 1.0, 1.0))].into_iter().collect();
-        let mut path = PenPath { anchors, closed: false, radius: 0.02, hardness: 1.0, opacity: 1.0, values, kind: subcraft_doc::PathKind::Paint, stamp: None };
+        let mut path = PenPath { anchors, closed: false, radius: 0.02, hardness: 1.0, opacity: 1.0, values, kind: subcraft_doc::PathKind::Paint, stamp: None, ribbon: None };
         let continuous = { let mut r = PenRasterizer::new(&path, 256).unwrap(); r.run(); r.finish().unwrap() };
         // Spacing 2: a stamp every two diameters (20.48 texels, radius 5.12) from x = 25.6.
         path.stamp = Some(subcraft_doc::PathStamp { alpha: None, spacing: 2.0, follow: true });
@@ -377,5 +470,49 @@ mod run_tests {
         // Spacing outside its range is refused by validation.
         path.stamp = Some(subcraft_doc::PathStamp { alpha: None, spacing: 0.0, follow: true });
         assert!(PenRasterizer::new(&path, 256).is_err());
+    }
+
+    #[test]
+    fn a_ribbon_lays_its_image_along_the_path_with_square_ends() {
+        use std::sync::Arc;
+        use subcraft_doc::{PathKind, PathRibbon, RibbonMode};
+        use subcraft_image::Bitmap;
+        let anchors = [(0.1, 0.5), (0.9, 0.5)].into_iter().map(|(x, y)| PenAnchor::new(Vec2::new(x, y))).collect();
+        let values = [(ChannelKind::BaseColor, ChannelValue::rgb(0.0, 1.0, 0.0))].into_iter().collect();
+        let mut path = PenPath { anchors, closed: false, radius: 0.05, hardness: 1.0, opacity: 1.0, values, kind: PathKind::Ribbon, stamp: None, ribbon: None };
+        // Red on the left half of the image, blue on the right; top row and bottom row differ in green.
+        let along = Arc::new(Bitmap::new_f32(2, 1, 4, vec![1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0]));
+        let across = Arc::new(Bitmap::new_f32(1, 2, 4, vec![1.0, 0.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0]));
+        let render = |path: &PenPath, image: &Arc<Bitmap>| {
+            let mut r = PenRasterizer::new(path, 256).unwrap().with_alpha(Some(image.clone()));
+            r.step(1);
+            assert!(r.is_done());
+            r.finish().unwrap().remove(&ChannelKind::BaseColor).unwrap()
+        };
+        path.ribbon = Some(PathRibbon { image: None, ..Default::default() });
+        let img = render(&path, &along);
+        // x from 25.6 to 230.4 texels, 12.8 texels either side of y = 128.
+        let start = img.get(30, 128);
+        let end = img.get(226, 128);
+        assert!(start[3] > 0.99 && start[0] > 0.9 && start[2] < 0.1, "the image's left end at the path's start: {start:?}");
+        assert!(end[3] > 0.99 && end[2] > 0.9 && end[0] < 0.1, "its right end at the path's end: {end:?}");
+        assert_eq!(img.get(240, 128)[3], 0.0, "the end is cut square, not rounded");
+        assert_eq!(img.get(128, 150)[3], 0.0, "nothing beyond the width");
+        // Two copies, every second mirrored: the end shows the image's left end again.
+        path.ribbon = Some(PathRibbon { tiles: 2.0, mirror: true, ..Default::default() });
+        let mirrored = render(&path, &along).get(226, 128);
+        assert!(mirrored[0] > 0.9 && mirrored[2] < 0.1, "{mirrored:?}");
+        // Across: the image's top row on one side, the bottom row on the other; Flip swaps them.
+        path.ribbon = Some(PathRibbon { mode: RibbonMode::KeepAspect, ..Default::default() });
+        let img = render(&path, &across);
+        let (above, below) = (img.get(128, 118), img.get(128, 138));
+        assert!(above[0] > 0.9 && below[1] > 0.9, "{above:?} {below:?}");
+        path.ribbon = Some(PathRibbon { mode: RibbonMode::KeepAspect, flip: true, ..Default::default() });
+        let flipped = render(&path, &across).get(128, 118);
+        assert!(flipped[1] > 0.9 && flipped[0] < 0.1, "{flipped:?}");
+        // Without the image's colour, Base Color is the path's value through the image alpha.
+        path.ribbon = Some(PathRibbon { color_from_image: false, ..Default::default() });
+        let plain = render(&path, &along).get(30, 128);
+        assert!(plain[1] > 0.99 && plain[0] < 0.01, "{plain:?}");
     }
 }

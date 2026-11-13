@@ -545,7 +545,8 @@ fn source_editor(ui: &mut Ui, slot: usize, src: &mut Source) {
         Source::Channel { kind, component, invert } => {
             channel_combo(ui, slot, kind);
             // Colour channels also offer A: the stack's coverage (0 where a transparent set is unpainted).
-            let n = if kind.is_color() { 4 } else if *kind == ChannelKind::Normal { 3 } else { 1 };
+            // Every channel with three components offers them (Coat Normal was left with R only).
+            let n = if kind.is_color() { 4 } else { kind.components() };
             component_combo(ui, (slot, "comp"), component, n);
             ui.checkbox(invert, "Invert");
         }
