@@ -1,6 +1,6 @@
 //! Orbit camera for the 3D viewport, shared by rendering and painting (identical matrices).
 
-use glam::{Mat4, Vec3};
+use glam::{EulerRot, Mat4, Quat, Vec3};
 use subcraft_app::Camera;
 use subcraft_mesh::Aabb;
 use subcraft_render::ViewParams;
@@ -18,6 +18,8 @@ pub struct OrbitCamera {
     pub scene_radius: f32,
     /// Orthographic projection: `distance` sets the view size and the eye stays behind the scene.
     pub orthographic: bool,
+    /// Radians around the view axis (Painter's free rotation; 0 keeps the horizon level).
+    pub roll: f32,
 }
 
 /// A fixed view for scripted screenshots (`--camera yaw,pitch,zoom[,x,y,z]`): angles in degrees,
@@ -63,6 +65,7 @@ impl OrbitCamera {
             fov_y_deg: fov,
             scene_radius: radius,
             orthographic: false,
+            roll: 0.0,
         }
     }
 
@@ -83,8 +86,17 @@ impl OrbitCamera {
         self.target + Vec3::new(sy * cp, sp, cy * cp) * self.eye_distance()
     }
 
+    /// Camera orientation: looking down its -Z, +Y up (yaw about the world vertical, then
+    /// pitch, then roll about the view axis).
+    pub fn orientation(&self) -> Quat {
+        Quat::from_rotation_y(self.yaw) * Quat::from_rotation_x(-self.pitch) * Quat::from_rotation_z(self.roll)
+    }
+
     pub fn view(&self) -> Mat4 {
-        Mat4::look_at_rh(self.eye(), self.target, Vec3::Y)
+        // A level camera keeps the world up (bit for bit the matrices it always had); a rolled or
+        // overturned one (free rotation) takes its own up.
+        let up = if self.roll == 0.0 && self.pitch.abs() < std::f32::consts::FRAC_PI_2 { Vec3::Y } else { self.orientation() * Vec3::Y };
+        Mat4::look_at_rh(self.eye(), self.target, up)
     }
 
     pub fn proj(&self, aspect: f32) -> Mat4 {
@@ -111,9 +123,31 @@ impl OrbitCamera {
         p
     }
 
+    /// Constrained rotation (Painter's default): about the world vertical and the horizon, which
+    /// stays level (a roll left by free rotation is undone).
     pub fn orbit(&mut self, dx: f32, dy: f32) {
+        self.roll = 0.0;
         self.yaw -= dx * 0.008;
         self.pitch = (self.pitch + dy * 0.008).clamp(-1.55, 1.55);
+    }
+
+    /// Free rotation: about the camera's own up and right axes, so the view can roll and go over
+    /// the top of the model.
+    pub fn free_orbit(&mut self, dx: f32, dy: f32) {
+        let q = (self.orientation() * Quat::from_rotation_y(-dx * 0.008) * Quat::from_rotation_x(-dy * 0.008)).normalize();
+        let (yaw, x, roll) = q.to_euler(EulerRot::YXZ);
+        if yaw.is_finite() && x.is_finite() && roll.is_finite() {
+            self.yaw = yaw;
+            self.pitch = -x;
+            self.roll = roll;
+        }
+    }
+
+    /// [`OrbitCamera::free_orbit`] turning about `pivot`.
+    pub fn free_orbit_around(&mut self, pivot: Vec3, dx: f32, dy: f32) {
+        let before = glam::Mat3::from_mat4(self.view()).transpose();
+        self.free_orbit(dx, dy);
+        self.turn_about(pivot, before);
     }
 
     /// [`OrbitCamera::orbit`] around `pivot` instead of the target: the camera turns rigidly about
@@ -183,6 +217,35 @@ mod tests {
         assert!((cam.target - Vec3::new(0.5 * plain.scene_radius, 0.0, 0.0)).length() < 1e-6);
         assert_eq!(OrbitCamera::framing_with(&b, None), plain);
         assert!(CameraView::parse("1,2").is_none() && CameraView::parse("a,b,c").is_none());
+    }
+
+    #[test]
+    fn free_rotation_rolls_and_goes_over_the_top_and_constrained_levels_it_again() {
+        let b = Aabb { min: Vec3::splat(-1.0), max: Vec3::splat(1.0) };
+        let level = OrbitCamera::framing(&b);
+        // A level camera keeps the world up: the matrix it always had (the test's own call can
+        // round differently once inlined, so compare to within float noise).
+        assert!(level.view().abs_diff_eq(Mat4::look_at_rh(level.eye(), level.target, Vec3::Y), 1e-5));
+        assert!((level.orientation() * Vec3::NEG_Z - (level.target - level.eye()).normalize()).length() < 1e-5, "orientation looks at the target");
+        // Free rotation over the top: the eye stays at its distance and the target stays centred.
+        let mut cam = level;
+        for _ in 0..60 {
+            cam.free_orbit(0.0, 10.0);
+            let pc = cam.paint_camera([800, 600]);
+            assert!(pc.view_proj().is_finite());
+            assert!(((cam.eye() - cam.target).length() - cam.eye_distance()).abs() < 1e-3);
+            let s = pc.project(cam.target).unwrap();
+            assert!((s.x - 400.0).abs() < 1e-2 && (s.y - 300.0).abs() < 1e-2, "target off centre: {s}");
+        }
+        // Horizontal free rotation with a pitch rolls the view.
+        let mut tilted = level;
+        tilted.free_orbit(0.0, 60.0);
+        tilted.free_orbit(120.0, 0.0);
+        assert!(tilted.roll.abs() > 1e-3, "rotating about the camera's own up after a pitch rolls it: {}", tilted.roll);
+        // Constrained rotation levels the horizon.
+        tilted.orbit(1.0, 0.0);
+        assert_eq!(tilted.roll, 0.0);
+        assert!(tilted.view().abs_diff_eq(Mat4::look_at_rh(tilted.eye(), tilted.target, Vec3::Y), 1e-5));
     }
 
     #[test]

@@ -524,6 +524,13 @@ impl StrokeOptions {
         cams
     }
 
+    /// Where the copies of the object-space point `p` land, `p` first, in the order of
+    /// [`Self::copy_cameras`] (planes and pivot at their axis positions, flipped radial copies
+    /// mirrored). As many points as [`StrokeOptions::copies`].
+    pub fn symmetry_points(&self, center: glam::Vec3, p: glam::Vec3) -> Vec<glam::Vec3> {
+        self.copy_transforms(center).iter().map(|t| t.transform_point3(p)).collect()
+    }
+
     /// Object-space transform of every stroke copy, in the order of [`Self::copy_cameras`]
     /// (index 0 is the identity): a point painted at `p` is also painted at `copy_transforms[k] * p`.
     pub fn copy_transforms(&self, center: glam::Vec3) -> Vec<glam::Mat4> {
@@ -620,6 +627,28 @@ impl PolygonFillMode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn symmetry_points_mirror_and_turn_the_point_like_the_stroke_copies() {
+        use glam::Vec3;
+        let center = Vec3::new(1.0, 0.0, 0.0);
+        let p = Vec3::new(3.0, 2.0, 0.5);
+        let none = StrokeOptions::default();
+        assert_eq!(none.symmetry_points(center, p), vec![p], "no symmetry: only the point");
+        let x = StrokeOptions { symmetry: [true, false, false], ..Default::default() };
+        assert_eq!(x.symmetry_points(center, p), vec![p, Vec3::new(-1.0, 2.0, 0.5)], "mirrored through x = 1");
+        let radial = StrokeOptions { radial: RadialSymmetry { enabled: true, axis: 1, count: 4, center_offset: [0.0; 3], flip: false }, ..Default::default() };
+        let pts = radial.symmetry_points(center, p);
+        assert_eq!(pts.len(), 4);
+        // A quarter turn about the vertical line through the centre.
+        assert!((pts[1] - Vec3::new(1.5, 2.0, -2.0)).length() < 1e-5, "{:?}", pts[1]);
+        for q in &pts {
+            assert!(((Vec3::new(q.x, 0.0, q.z) - center).length() - (Vec3::new(p.x, 0.0, p.z) - center).length()).abs() < 1e-4, "same distance from the axis");
+            assert!((q.y - p.y).abs() < 1e-5);
+        }
+        let both = StrokeOptions { symmetry: [false, false, true], ..radial };
+        assert_eq!(both.symmetry_points(center, p).len() as u32, both.copies());
+    }
 
     #[test]
     fn channel_switches_toggle_and_solo() {

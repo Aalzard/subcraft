@@ -13,20 +13,15 @@ use subcraft_paint::Camera;
 use crate::state::UiState;
 use crate::theme::ACCENT;
 
-/// Symmetry display options (Painter's Symmetry settings menu > display).
+/// Symmetry display options (Painter's Symmetry settings menu > display) beside the plane,
+/// cursor and hide-while-painting switches of [`crate::viewport_bar::ViewportPrefs`].
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SymmetryDisplay {
-    /// Translucent mirror plane (and its outline among the guide lines).
-    pub show_plane: bool,
     /// Where the mirror plane cuts the surface.
     pub show_intersection: bool,
     /// Radial axis line and spokes.
     pub show_axis: bool,
-    /// A second brush cursor at every mirrored / radial copy.
-    pub show_cursor: bool,
-    /// Hide the guides and the mirrored cursor while a stroke is being painted.
-    pub hide_while_painting: bool,
     /// Draggable axis-position handles.
     pub manipulator: bool,
     /// Handle size factor.
@@ -36,11 +31,8 @@ pub struct SymmetryDisplay {
 impl Default for SymmetryDisplay {
     fn default() -> Self {
         Self {
-            show_plane: true,
             show_intersection: true,
             show_axis: true,
-            show_cursor: true,
-            hide_while_painting: false,
             manipulator: false,
             manipulator_size: 1.0,
         }
@@ -63,7 +55,7 @@ pub struct GuideKey {
     symmetry: [bool; 3],
     planes: [u32; 3],
     radial: subcraft_paint::RadialSymmetry,
-    kinds: [bool; 3],
+    kinds: [bool; 2],
 }
 
 impl GuideKey {
@@ -74,20 +66,15 @@ impl GuideKey {
             symmetry: options.symmetry,
             planes: options.mirror_offset.map(f32::to_bits),
             radial: options.radial,
-            kinds: [display.show_intersection, display.show_plane, display.show_axis],
+            kinds: [display.show_intersection, display.show_axis],
         }
     }
 }
 
-/// The guide lines to upload for the chosen display options.
+/// The guide lines to upload for the chosen display options (the planes themselves are drawn
+/// as translucent sheets by the view's Show Plane overlay).
 pub fn guide_lines(session: &Session, display: &SymmetryDisplay) -> Vec<[Vec3; 2]> {
-    session.symmetry_guides().segments(display.show_intersection, display.show_plane, display.show_axis)
-}
-
-/// Whether the guides show now: symmetry on, guides on, and not hidden by an ongoing stroke.
-fn guides_shown(state: &UiState) -> bool {
-    let view = &state.recovery.prefs.viewport;
-    view.symmetry_guides && state.session.brush.options.has_symmetry() && !(view.symmetry_display.hide_while_painting && state.painting)
+    session.symmetry_guides().segments(display.show_intersection, false, display.show_axis)
 }
 
 fn to_pos(rect: Rect, pixel_scale: Vec2, p: Vec3) -> Pos2 {
@@ -283,21 +270,12 @@ pub fn manipulate(state: &mut UiState, ui: &Ui, response: &egui::Response, rect:
 
 // ----- drawing ----------------------------------------------------------------------------------
 
-/// Plane fill and manipulator handles (call after the 3D image, before other overlays).
+/// Manipulator handles (call after the 3D image, before other overlays).
 pub fn overlay(state: &UiState, ui: &Ui, painter: &egui::Painter, rect: Rect, pixel_scale: Vec2, camera: &Camera, enabled: bool) {
     if !enabled || !state.session.brush.options.has_symmetry() {
         return;
     }
     let display = state.recovery.prefs.viewport.symmetry_display;
-    if guides_shown(state) && display.show_plane {
-        let fill = Color32::from_rgba_unmultiplied(ACCENT.r(), ACCENT.g(), ACCENT.b(), 22);
-        for plane in state.session.symmetry_guides().planes {
-            let points: Option<Vec<Pos2>> = plane.iter().map(|c| camera.project(*c).map(|s| to_pos(rect, pixel_scale, s))).collect();
-            if let Some(points) = points {
-                painter.add(egui::Shape::convex_polygon(points, fill, Stroke::NONE));
-            }
-        }
-    }
     if state.painting {
         return;
     }
@@ -324,37 +302,6 @@ pub fn overlay(state: &UiState, ui: &Ui, painter: &egui::Painter, rect: Rect, pi
     }
     if hovered.is_some() && dragging.is_none() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
-    }
-}
-
-/// The brush cursor repeated at every copy of the stroke point `p` (view depth `depth`, cursor
-/// radius `r_px` in points). A copy hidden behind the surface is drawn faint.
-#[allow(clippy::too_many_arguments)]
-pub fn mirrored_cursor(state: &UiState, painter: &egui::Painter, rect: Rect, pixel_scale: Vec2, camera: &Camera, p: Vec3, depth: f32, r_px: f32, color: Color32) {
-    let display = &state.recovery.prefs.viewport.symmetry_display;
-    if !display.show_cursor || (display.hide_while_painting && state.painting) {
-        return;
-    }
-    let ppu = camera.pixels_per_unit(depth);
-    if !(ppu.is_finite() && ppu > 0.0) {
-        return;
-    }
-    let tolerance = state.session.scene().mesh.bounds.diagonal() * 2e-3;
-    for q in state.session.symmetry_copies(p) {
-        let Some(s) = camera.project(q) else { continue };
-        let r = r_px * camera.pixels_per_unit(s.z) / ppu;
-        if !(r.is_finite() && r > 0.5) {
-            continue;
-        }
-        let visible = state.session.pick(camera, Vec2::new(s.x, s.y)).is_none_or(|hit| hit.depth >= s.z - tolerance);
-        let (shadow, line) = if visible {
-            (Color32::from_black_alpha(120), color.gamma_multiply(0.8))
-        } else {
-            (Color32::from_black_alpha(40), color.gamma_multiply(0.3))
-        };
-        let at = to_pos(rect, pixel_scale, s);
-        painter.circle_stroke(at, r, Stroke::new(1.5, shadow));
-        painter.circle_stroke(at, r, Stroke::new(1.0, line));
     }
 }
 
@@ -385,7 +332,7 @@ mod tests {
     #[test]
     fn display_defaults_and_size_bounds() {
         let d = SymmetryDisplay::default();
-        assert!(d.show_plane && d.show_intersection && d.show_axis && d.show_cursor && !d.hide_while_painting && !d.manipulator);
+        assert!(d.show_intersection && d.show_axis && !d.manipulator);
         assert_eq!(SymmetryDisplay { manipulator_size: f32::NAN, ..d }.size(), 1.0);
         assert_eq!(SymmetryDisplay { manipulator_size: 99.0, ..d }.size(), 4.0);
         // Older preference files have no display options: they read as the defaults.

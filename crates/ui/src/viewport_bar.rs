@@ -46,10 +46,18 @@ pub struct ViewportPrefs {
     #[serde(skip)]
     pub solo: Option<subcraft_core::ChannelKind>,
     pub symmetry_guides: bool,
+    /// Painter's symmetry "Show Cursor": a second brush cursor where each symmetry copy paints.
+    pub symmetry_cursor: bool,
+    /// Painter's "Hide While Painting" for the symmetry cursors.
+    pub symmetry_cursor_hide_painting: bool,
+    /// Painter's symmetry "Show Plane": the active mirror planes as translucent sheets.
+    pub symmetry_plane: bool,
     /// Which symmetry guides, cursor copies and handles show (Symmetry settings > display).
     pub symmetry_display: crate::symmetry_view::SymmetryDisplay,
     /// Bottom-left list of the mouse / key actions that apply now.
     pub hints: bool,
+    /// X / Y / Z orientation indicator in the 3D view's bottom-right corner.
+    pub axis_indicator: bool,
     /// Environment, camera, post-effect and visualisation settings. Flattened, so preference
     /// files from before the Display Settings panel (same keys, top level) still load.
     #[serde(flatten)]
@@ -85,6 +93,9 @@ pub struct ViewportPrefs {
     pub pt_ground_glossiness: f32,
     pub pt_ground_shadow: f32,
     pub pt_ground_below: bool,
+    /// Painter's Camera Rotation Mode: free (the view can roll and go over the top) instead of
+    /// constrained to the world vertical.
+    pub free_rotation: bool,
     /// Saved and imported camera viewpoints.
     pub camera_bookmarks: Vec<crate::view_extras::CameraBookmark>,
 }
@@ -98,8 +109,12 @@ impl Default for ViewportPrefs {
             mesh_map: None,
             solo: None,
             symmetry_guides: true,
+            symmetry_cursor: true,
+            symmetry_cursor_hide_painting: false,
+            symmetry_plane: true,
             symmetry_display: Default::default(),
             hints: true,
+            axis_indicator: true,
             display: Default::default(),
             path_tracing: false,
             pt_bounces: 4,
@@ -120,6 +135,7 @@ impl Default for ViewportPrefs {
             pt_ground_glossiness: 0.5,
             pt_ground_shadow: 1.0,
             pt_ground_below: true,
+            free_rotation: false,
             camera_bookmarks: Vec::new(),
         }
     }
@@ -262,6 +278,12 @@ impl ViewportPrefs {
         if all && d.vignette_on {
             grade.vignette = d.vignette_amount.clamp(0.0, 1.0);
         }
+        if all && d.lens_on && d.lens_power.is_finite() {
+            grade.lens_power = d.lens_power.clamp(-1.0, 1.0);
+            grade.lens_fov = d.lens_fov.clamp(0.0, 1.0);
+            grade.lens_roundness = d.lens_roundness.clamp(0.0, 1.0);
+            grade.lens_smoothness = d.lens_smoothness.clamp(0.0, 1.0);
+        }
         if all && d.sharpen_on {
             grade.sharpen = d.sharpen_amount.clamp(0.0, 4.0);
             grade.sharpen_diameter = d.sharpen_diameter.clamp(0.5, 16.0);
@@ -337,6 +359,20 @@ impl ViewportPrefs {
         }
     }
 
+    /// Raster shadows from these preferences (Display Settings > Shadows).
+    pub fn shadow_params(&self) -> subcraft_render::ShadowParams {
+        let d = &self.display;
+        subcraft_render::ShadowParams {
+            enabled: d.shadows,
+            opacity: if d.shadow_opacity.is_finite() { d.shadow_opacity.clamp(0.0, 1.0) } else { 0.8 },
+            quality: match d.shadow_mode {
+                subcraft_doc::ShadowMode::Lightweight => subcraft_render::ShadowQuality::Lightweight,
+                subcraft_doc::ShadowMode::Average => subcraft_render::ShadowQuality::Average,
+                subcraft_doc::ShadowMode::Intensive => subcraft_render::ShadowQuality::Intensive,
+            },
+        }
+    }
+
     /// Size the Rendering mode traces at for a 3D view of `size` pixels: the override when it is
     /// on, otherwise the view's render size.
     pub fn trace_size(&self, size: [u32; 2]) -> [u32; 2] {
@@ -359,7 +395,8 @@ impl ViewportPrefs {
 /// 1228.3 wide incl. 16 of frame margin (view combo 150, wireframe + camera buttons, five tool icons); the brush_bar test
 /// fails if this drifts below the real content width.
 // The tool icons left this row (they live in the tool rail), so it fits about 140 points sooner.
-const INLINE_MIN_WIDTH: f32 = 1075.0;
+// The symmetry settings button and the lazy mouse button added 48 points (65 with margin for rounding).
+pub(crate) const INLINE_MIN_WIDTH: f32 = 1140.0;
 
 /// Narrowest dock width (inside the bar's margins) that fits the wireframe and camera buttons
 /// beside the 92-wide View combo, and the one that also fits the 150-wide combo that shows
@@ -406,7 +443,8 @@ pub fn show(ui: &mut Ui, state: &mut crate::state::UiState) {
                     ui.add_space(5.0);
                     crate::brush_bar::show(ui, &mut state.tool, &mut settings, &mut options, &mut state.recovery.prefs.viewport, width);
                     if state.tool == crate::state::Tool::PolygonFill {
-                        crate::brush_bar::fill_options(ui, &mut state.fill_mode, Some(&mut state.fill_visible_only), "fill_mode_3d");
+                        let destination = state.session.polygon_fill_destination();
+                        crate::brush_bar::fill_options(ui, &mut state.fill_mode, Some(&mut state.fill_visible_only), destination, "fill_mode_3d");
                     }
                 }
             });
@@ -415,12 +453,18 @@ pub fn show(ui: &mut Ui, state: &mut crate::state::UiState) {
                 ui.horizontal(|ui| {
                     crate::brush_bar::show(ui, &mut state.tool, &mut settings, &mut options, &mut state.recovery.prefs.viewport, width);
                     if state.tool == crate::state::Tool::PolygonFill {
-                        crate::brush_bar::fill_options(ui, &mut state.fill_mode, Some(&mut state.fill_visible_only), "fill_mode_3d");
+                        let destination = state.session.polygon_fill_destination();
+                        crate::brush_bar::fill_options(ui, &mut state.fill_mode, Some(&mut state.fill_visible_only), destination, "fill_mode_3d");
                     }
                 });
             }
             if painting {
-                crate::brush_bar::channel_switches(ui, state);
+                // The Alt+H button leads the channel row: that row wraps, so the brush rows keep
+                // the widths the layout constants above were measured with.
+                ui.horizontal(|ui| {
+                    hide_excluded_toggle(ui, state);
+                    crate::brush_bar::channel_switches(ui, state);
+                });
             }
         });
     ui.painter().hline(
@@ -832,5 +876,21 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(p.view_mode(), ViewMode::Normal);
+    }
+}
+
+/// Painter's "hide / ignore excluded geometry" button (Alt+H) of the contextual toolbar: off and
+/// disabled while the selected layer has no geometry mask.
+fn hide_excluded_toggle(ui: &mut egui::Ui, state: &mut crate::state::UiState) {
+    let on = state.session.hide_excluded();
+    let enabled = on || state.session.has_excluded_geometry();
+    let tip = if enabled {
+        "Hide the geometry the selected layer's geometry mask leaves out, so strokes reach what it covered (Alt+H)"
+    } else {
+        "Hide excluded geometry (Alt+H): the selected layer has no geometry mask"
+    };
+    let r = ui.add_enabled_ui(enabled, |ui| crate::widgets::icon_toggle(ui, crate::icons::EYE_SLASH, on, tip)).inner;
+    if r.clicked() {
+        state.session.toggle_hide_excluded();
     }
 }

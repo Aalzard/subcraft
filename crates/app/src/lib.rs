@@ -25,6 +25,7 @@ pub mod cage_check;
 pub mod launch;
 pub mod layer_tree;
 pub mod flatten;
+pub mod mask_tools;
 pub mod new_project;
 pub mod effect_stack;
 pub mod export_presets;
@@ -60,7 +61,7 @@ pub use bake_job::{BakeJob, MapProgress, MapState, BakeLogLevel, BakeLogLine, Ba
 pub use actions::{ACTIONS, Action, ActionInfo, Key, KeymapPreset, PAINTER_REFERENCE, PainterEntry, Shortcut, Support, action_for, f2_is_bound, label_in, shortcuts_in};
 pub use keymap::{CustomKeys, Keymap};
 pub use spp_job::{ImportControl, SppImportJob, SppPoll};
-pub use command::{Command, CommandError, NewLayer};
+pub use command::{Command, CommandError, NewLayer, SetsVisibility};
 pub use clipboard::{EffectClip, LayerClip};
 pub use images::TextureSetImport;
 pub use mesh_reload::{MeshReloadJob, MeshReloadReport, PreparedReload, ReloadMode, ReloadOutput};
@@ -69,7 +70,7 @@ pub use parts::MeshPart;
 pub use part_workflow::{PartAction, PartInfo, PartKey, SurfaceTarget};
 pub use recovery::{AutosaveEvent, Autosaver, CrashedSession, RecoveryStore};
 pub use subcraft_compositor::ChangedTiles;
-pub use session::{BrushState, CloneSourceMode, CompositeUpdate, DEFAULT_RESOLUTION, LayerTarget, Pick, ProjectSnapshot, Scene, Selection, Session, SymmetryGuides};
+pub use session::{BrushState, CloneSourceMode, CompositeUpdate, DEFAULT_RESOLUTION, LayerTarget, Pick, ProjectSnapshot, QuickMask, Scene, Selection, Session, SymmetryGuides};
 
 pub use subcraft_compositor::{Composite, composite_comps};
 pub use subcraft_assets as assets;
