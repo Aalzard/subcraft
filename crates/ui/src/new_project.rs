@@ -37,7 +37,6 @@ impl LoadedModel {
     }
 }
 
-#[derive(Default)]
 pub struct NewProjectUi {
     pub open: bool,
     pub model: Option<LoadedModel>,
@@ -45,6 +44,26 @@ pub struct NewProjectUi {
     pub error: Option<String>,
     pub settings: NewProjectSettings,
     pub advanced: bool,
+    /// Already-baked mesh maps to put into the new texture sets (matched to `plan_sets`).
+    pub mesh_maps: Vec<subcraft_app::mesh_map_import::MeshMapFile>,
+    /// Derive curvature from an imported normal map when no curvature map is given.
+    pub derive_curvature: bool,
+}
+
+impl Default for NewProjectUi {
+    fn default() -> Self {
+        Self {
+            open: false,
+            model: None,
+            high: None,
+            error: None,
+            settings: NewProjectSettings::default(),
+            advanced: false,
+            mesh_maps: Vec::new(),
+            // On whichever way the window is opened (`show_window` or a launch option).
+            derive_curvature: true,
+        }
+    }
 }
 
 impl NewProjectUi {
@@ -55,6 +74,22 @@ impl NewProjectUi {
         self.model = None;
         self.high = None;
         self.error = None;
+        self.mesh_maps.clear();
+        self.derive_curvature = true;
+    }
+
+    /// The texture sets the project will get, as the mesh-map matcher sees them.
+    pub fn planned_set_keys(&self) -> Vec<subcraft_app::mesh_map_import::SetKey> {
+        let Some(model) = &self.model else { return Vec::new() };
+        plan_sets(&model.mesh, &self.settings).into_iter().map(|p| subcraft_app::mesh_map_import::SetKey {
+            name: p.name.clone(),
+            udim: p.tile.map(subcraft_mesh::regroup::udim_number),
+        }).collect()
+    }
+
+    pub fn add_mesh_maps(&mut self, paths: &[PathBuf]) {
+        let sets = self.planned_set_keys();
+        crate::mesh_map_import::add_files(&mut self.mesh_maps, paths, &sets);
     }
 
     pub fn load_model(&mut self, path: &Path) {
@@ -95,6 +130,7 @@ pub fn window(state: &mut UiState, ctx: &Context) {
     let mut create = false;
     let mut pick_model = false;
     let mut pick_high = false;
+    let mut pick_maps = false;
     let screen_width = ctx.content_rect().width();
     egui::Window::new("New Project")
         .open(&mut open)
@@ -112,6 +148,13 @@ pub fn window(state: &mut UiState, ctx: &Context) {
                 ui.add_space(8.0);
                 high_poly_section(ui, np, &mut pick_high);
                 ui.add_space(8.0);
+                if np.model.is_some() {
+                    let keys = np.planned_set_keys();
+                    crate::mesh_map_import::rematch(&mut np.mesh_maps, &keys);
+                    let names: Vec<String> = keys.into_iter().map(|k| k.name).collect();
+                    crate::mesh_map_import::new_project_section(ui, &mut np.mesh_maps, &mut np.derive_curvature, &names, &mut pick_maps);
+                    ui.add_space(8.0);
+                }
                 egui::CollapsingHeader::new("Advanced").default_open(np.advanced).show(ui, |ui| advanced_section(ui, np));
             });
             if let Some(error) = &np.error {
@@ -151,6 +194,9 @@ pub fn window(state: &mut UiState, ctx: &Context) {
     }
     if pick_high {
         crate::files::pick(ctx, crate::files::Purpose::NewProjectHighPoly, crate::files::MESHES, false, Some("Choose the high-poly model"));
+    }
+    if pick_maps {
+        crate::files::pick(ctx, crate::files::Purpose::NewProjectMeshMaps, crate::files::IMAGES, true, Some("Choose baked mesh maps"));
     }
     if create {
         create_project(state, now);
@@ -395,6 +441,11 @@ fn create_project(state: &mut UiState, now: f64) {
     match created {
         Ok((mut session, warnings, first_warning)) => {
             session.set_mesh_source(&model.path);
+            let maps = std::mem::take(&mut state.new_project.mesh_maps);
+            let imported = (!maps.is_empty()).then(|| {
+                let assignments = session.mesh_map_assignments(&maps);
+                session.import_mesh_maps(&assignments, state.new_project.derive_curvature)
+            });
             // Cameras are a bonus: a file whose cameras cannot be read still makes the project.
             let cameras = if settings.import_cameras { session.import_mesh_cameras(&model.path) } else { Ok(0) };
             state.set_session(session);
@@ -408,6 +459,9 @@ fn create_project(state: &mut UiState, now: f64) {
             let mut status = format!("Created {} ({} texture set{})", model.summary.name, sets, if sets == 1 { "" } else { "s" });
             if let Some(first) = first_warning {
                 status = format!("Imported {} with {} note(s): {first}", model.summary.name, warnings);
+            }
+            if let Some(report) = imported {
+                status = format!("{status}. {}", report.summary());
             }
             match cameras {
                 Ok(0) => {}
@@ -457,6 +511,58 @@ mod tests {
         }
         let ts = &state.session.document().texture_sets[0];
         assert!(ts.layers.iter().any(|l| l.name == "Painter project (flattened)"), "the flattened Painter layer is missing");
+    }
+
+    /// Maps picked in the New Project window land in the new texture set without a bake, and the
+    /// window shows one row per file.
+    #[test]
+    fn mesh_maps_picked_in_the_dialog_are_in_the_new_project() {
+        let dir = std::env::temp_dir().join(format!("subcraft-np-maps-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut paths = Vec::new();
+        for (name, comps, v) in [("plane_normal.png", 3usize, 0.5f32), ("plane_ao.png", 1, 0.25), ("plane_id.png", 3, 0.8)] {
+            let path = dir.join(name);
+            subcraft_image::save_image(&path, 32, 32, comps, &vec![v; 32 * 32 * comps], subcraft_image::FileFormat::Png8).unwrap();
+            paths.push(path);
+        }
+        let mut state = UiState::new(subcraft_app::Session::new(subcraft_mesh::primitives::cube(2.0), 64), None);
+        let mesh = subcraft_mesh::primitives::plane(2.0, 2);
+        let summary = summarize(&mesh, &[]);
+        state.new_project.open = true;
+        state.new_project.model = Some(LoadedModel { path: dir.join("plane.obj"), mesh, summary });
+        state.new_project.settings.resolution = 256;
+        state.new_project.add_mesh_maps(&paths);
+        assert_eq!(state.new_project.mesh_maps.len(), 3);
+        assert!(state.new_project.mesh_maps.iter().all(|f| f.kind.is_some() && f.set == Some(0)));
+        // The whole window runs (and keeps the files matched to the planned set); its body is a
+        // height-capped scroll area, so labels below the fold are not drawn: the section's own
+        // rows are checked by drawing the section alone.
+        let ctx = egui::Context::default();
+        crate::theme::apply(&ctx);
+        let input = || egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 1000.0))), ..Default::default() };
+        for _ in 0..2 {
+            let mut out = ctx.run_ui(input(), |ui| window(&mut state, ui.ctx()));
+            out.textures_delta.clear();
+        }
+        assert!(state.new_project.open, "the window stays open");
+        assert!(state.new_project.mesh_maps.iter().all(|f| f.set == Some(0)), "still matched after the window ran");
+        let names = vec!["Plane".to_string()];
+        let mut pick = false;
+        let mut texts = String::new();
+        for _ in 0..2 {
+            let np = &mut state.new_project;
+            let mut out = ctx.run_ui(input(), |ui| crate::mesh_map_import::new_project_section(ui, &mut np.mesh_maps, &mut np.derive_curvature, &names, &mut pick));
+            out.textures_delta.clear();
+            texts = out.shapes.iter().filter_map(|s| if let egui::Shape::Text(t) = &s.shape { Some(t.galley.text().to_string()) } else { None }).collect::<Vec<_>>().join("|");
+        }
+        assert!(["plane_normal.png", "plane_ao.png", "plane_id.png", "Baked mesh maps"].iter().all(|t| texts.contains(t)), "the section lists the files: {texts}");
+        create_project(&mut state, 0.0);
+        let ts = state.session.document().texture_sets[0].id;
+        let maps = state.session.mesh_maps(ts).expect("maps imported");
+        for kind in [subcraft_core::MeshMapKind::Normal, subcraft_core::MeshMapKind::AmbientOcclusion, subcraft_core::MeshMapKind::Id, subcraft_core::MeshMapKind::Curvature] {
+            assert!(maps.get(kind).is_some_and(|m| m.width() == 256), "{kind:?}");
+        }
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     /// A model with dozens of long-named parts, shown on small screens at several scales: the

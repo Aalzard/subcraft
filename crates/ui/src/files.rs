@@ -18,6 +18,10 @@ pub enum Purpose {
     NewProjectModel,
     /// The optional high-poly model of the New Project window.
     NewProjectHighPoly,
+    /// Already-baked mesh maps for the New Project window.
+    NewProjectMeshMaps,
+    /// Already-baked mesh maps for the project's texture sets (Texture Set Settings).
+    ImportMeshMaps,
     OpenProject,
     /// The updated model for File > Reload mesh.
     ReloadMesh,
@@ -41,6 +45,10 @@ pub enum Purpose {
     AddMaskImage { layer: LayerId },
     /// Replace the image of an existing image mask effect.
     MaskImage { layer: LayerId, effect: EffectId },
+    /// Image a filter reads (Gradient Dynamic's source), in a mask (`mask`) or content stack.
+    FilterImage { layer: LayerId, effect: EffectId, mask: bool },
+    /// Custom grunge image of a generator mask effect.
+    GeneratorGrunge { layer: LayerId, effect: EffectId },
     /// Image of a Mask Editor generator's texture group (`slot` 0 = Texture, 1 = Texture 2).
     GeneratorTexture { layer: LayerId, effect: EffectId, slot: u8 },
 }
@@ -214,6 +222,19 @@ fn handle(state: &mut UiState, purpose: Purpose, paths: &[PathBuf], now: f64) {
         },
         Purpose::NewProjectModel => state.new_project.load_model(first),
         Purpose::NewProjectHighPoly => state.new_project.load_high_poly(first),
+        Purpose::NewProjectMeshMaps => state.new_project.add_mesh_maps(paths),
+        Purpose::ImportMeshMaps => {
+            let sets = state.session.mesh_map_set_keys();
+            if state.mesh_map_import.open {
+                crate::mesh_map_import::add_files(&mut state.mesh_map_import.files, paths, &sets);
+            } else {
+                state.mesh_map_import.start(paths, &sets);
+            }
+            let unknown = state.mesh_map_import.files.iter().filter(|f| f.kind.is_none()).count();
+            if unknown > 0 {
+                state.set_status(format!("{unknown} file(s) not recognised as a mesh map by name: choose the map in the list or leave them out"), now);
+            }
+        }
         Purpose::OpenMesh if crate::spp_import::is_spp(first) => crate::spp_import::start(state, first),
         Purpose::OpenMesh => match subcraft_app::Session::open_mesh(first, subcraft_app::DEFAULT_RESOLUTION) {
             Ok((s, warnings)) => {
@@ -335,6 +356,48 @@ fn handle(state: &mut UiState, purpose: Purpose, paths: &[PathBuf], now: f64) {
                         if slot == 0 { editor.texture.resource = Some(r) } else { editor.texture2.resource = Some(r) }
                         g.editor = Some(editor);
                     }
+                    state.run(vec![subcraft_app::Command::SetMaskEffect { layer, effect: e }], now);
+                }
+            }
+            Err(e) => state.set_status(format!("Import image: {e}"), now),
+        },
+        Purpose::FilterImage { layer, effect, mask } => match state.session.import_image(first) {
+            Ok(r) => {
+                state.remember_textures(std::slice::from_ref(first));
+                let set_source = |f: &mut subcraft_doc::Filter| {
+                    if let subcraft_doc::Filter::GradientDynamic { source, .. } = f {
+                        *source = r;
+                        true
+                    } else {
+                        false
+                    }
+                };
+                let l = state.session.selected_texture_set().find(layer).cloned();
+                let cmd = l.and_then(|l| {
+                    if mask {
+                        let mut e = (**l.mask.as_ref()?.effects.iter().find(|e| e.id == effect)?).clone();
+                        let subcraft_doc::MaskEffectKind::Filter(f) = &mut e.kind else { return None };
+                        set_source(f).then(|| subcraft_app::Command::SetMaskEffect { layer, effect: e })
+                    } else {
+                        let mut e = (**l.content_effects.iter().find(|e| e.id == effect)?).clone();
+                        let subcraft_doc::ContentEffectKind::Filter { filter, .. } = &mut e.kind else { return None };
+                        set_source(filter).then(|| subcraft_app::Command::SetContentEffect { layer, effect: e })
+                    }
+                });
+                if let Some(cmd) = cmd {
+                    state.run(vec![cmd], now);
+                }
+            }
+            Err(e) => state.set_status(format!("Import image: {e}"), now),
+        },
+        Purpose::GeneratorGrunge { layer, effect } => match state.session.import_image(first) {
+            Ok(r) => {
+                state.remember_textures(std::slice::from_ref(first));
+                let current = state.session.selected_texture_set().find(layer).and_then(|l| l.mask.as_ref()).and_then(|m| m.effects.iter().find(|e| e.id == effect)).map(|e| (**e).clone());
+                if let Some(mut e) = current
+                    && let subcraft_doc::MaskEffectKind::Generator(g) = &mut e.kind
+                {
+                    g.painter.get_or_insert_with(subcraft_doc::PainterControls::default).custom_grunge = Some(r);
                     state.run(vec![subcraft_app::Command::SetMaskEffect { layer, effect: e }], now);
                 }
             }

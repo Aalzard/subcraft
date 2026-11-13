@@ -270,6 +270,39 @@ fn problems_catch_duplicate_and_unsafe_suffixes() {
     assert_eq!(t.problems().len(), 3, "{:?}", t.problems());
 }
 
+/// QA 2026-11: presets read from a file were exported unchecked: an unsafe suffix aborted the
+/// export partway (or named a hidden NTFS stream) and a huge size tried to allocate gigabytes.
+#[test]
+fn a_preset_with_problems_writes_nothing() {
+    let ch = distinct_channels();
+    let sets = [set(&ch, None)];
+    let mesh = primitives::plane(2.0, 1);
+    let good = OutputMap::new("Rough", FileFormat::Png8, vec![Source::Height], false);
+    let bad = |edit: &dyn Fn(&mut ExportTemplate)| {
+        let mut t = user(vec![good.clone(), OutputMap::new("Base", FileFormat::Png8, vec![Source::Height], false)]);
+        edit(&mut t);
+        let mut written = 0;
+        let s = ExportSettings { template: t, ..Default::default() };
+        let r = render_maps(&mesh, "M", &sets, &s, |_, _| {
+            written += 1;
+            Ok(())
+        });
+        (r, written)
+    };
+    for edit in [
+        &(|t: &mut ExportTemplate| t.maps[1].suffix = "Base:Color".into()) as &dyn Fn(&mut ExportTemplate),
+        &|t: &mut ExportTemplate| t.maps[1].size = Some(100_000),
+        &|t: &mut ExportTemplate| t.size = Some(100_000),
+        &|t: &mut ExportTemplate| t.maps[1].components = vec![Source::Height; 5],
+    ] {
+        let (r, written) = bad(edit);
+        assert!(matches!(r, Err(ExportError::Template(_))), "{r:?}");
+        assert_eq!(written, 0, "nothing is written, not even the valid map before it");
+    }
+    let (r, written) = bad(&|_| {});
+    assert!(r.is_ok() && written == 2, "a valid preset exports: {r:?}");
+}
+
 #[test]
 fn preset_json_round_trips_and_rejects_newer_versions() {
     let mut t = preset::duplicate(&ExportTemplate::unity_hdrp(), "HDRP 16");

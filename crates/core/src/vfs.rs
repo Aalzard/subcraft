@@ -15,11 +15,13 @@ mod imp {
     /// no partial file behind.
     pub fn write(path: &Path, bytes: &[u8]) -> io::Result<()> {
         use std::io::Write;
-        let name = path.file_name().ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "path has no file name"))?;
-        let mut tmp_name = std::ffi::OsString::from(".");
-        tmp_name.push(name);
-        tmp_name.push(format!(".{}.tmp", std::process::id()));
-        let tmp = path.with_file_name(tmp_name);
+        use std::sync::atomic::{AtomicU64, Ordering};
+        // One temporary name per call: two threads writing the same file used to share one
+        // temporary file (one truncated the other's bytes before the rename). Short, so a name
+        // close to the 255-character limit still gets a temporary file.
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        path.file_name().ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "path has no file name"))?;
+        let tmp = path.with_file_name(format!(".sc{}-{}.tmp", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
         let result = (|| {
             let mut f = std::fs::File::create(&tmp)?;
             f.write_all(bytes)?;
@@ -38,7 +40,7 @@ mod imp {
         for attempt in 0..6 {
             match std::fs::rename(from, to) {
                 Ok(()) => return Ok(()),
-                Err(e) if cfg!(windows) && matches!(e.kind(), io::ErrorKind::PermissionDenied) && attempt < 5 => {
+                Err(e) if cfg!(windows) && is_transient_lock(&e) && attempt < 5 => {
                     last = Some(e);
                     std::thread::sleep(std::time::Duration::from_millis(40 * (attempt + 1) as u64));
                 }
@@ -46,6 +48,12 @@ mod imp {
             }
         }
         Err(last.unwrap_or_else(|| io::Error::other("rename failed")))
+    }
+
+    /// A file briefly held by another program: access denied, or a sharing / lock violation
+    /// (Windows errors 32 and 33, which std does not report as `PermissionDenied`).
+    fn is_transient_lock(e: &io::Error) -> bool {
+        e.kind() == io::ErrorKind::PermissionDenied || matches!(e.raw_os_error(), Some(32 | 33))
     }
 
     pub fn create_dir_all(path: &Path) -> io::Result<()> {
@@ -66,6 +74,41 @@ pub fn read_to_string(path: &Path) -> io::Result<String> {
 
 #[cfg(test)]
 mod tests {
+    /// QA 2026-11: the temporary file was named after the target and the process, so threads
+    /// writing the same file at once shared it: one truncated it while another renamed it
+    /// (a corrupt file, then "file not found" for the other writer).
+    #[test]
+    fn concurrent_writes_of_one_file_each_land_whole() {
+        let dir = std::env::temp_dir().join(format!("subcraft-vfs-race-{}", std::process::id()));
+        super::create_dir_all(&dir).unwrap();
+        let p = dir.join("same.bin");
+        let contents: Vec<Vec<u8>> = (0..8u8).map(|i| vec![i; 256 * 1024]).collect();
+        for _ in 0..4 {
+            std::thread::scope(|s| {
+                for c in &contents {
+                    let p = &p;
+                    s.spawn(move || super::write(p, c).expect("every writer succeeds"));
+                }
+            });
+            let got = super::read(&p).unwrap();
+            assert!(contents.contains(&got), "the file is one writer's bytes, whole");
+        }
+        let left: Vec<_> = std::fs::read_dir(&dir).unwrap().filter_map(|e| e.ok()).map(|e| e.file_name()).filter(|n| n != "same.bin").collect();
+        assert!(left.is_empty(), "no temporary files left behind: {left:?}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A file name near the 255-character limit is valid; its temporary name must be too.
+    #[test]
+    fn long_file_names_still_write() {
+        let dir = std::env::temp_dir().join(format!("subcraft-vfs-long-{}", std::process::id()));
+        super::create_dir_all(&dir).unwrap();
+        let p = dir.join(format!("{}.png", "n".repeat(240)));
+        super::write(&p, b"x").unwrap();
+        assert_eq!(super::read(&p).unwrap(), b"x");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
     #[test]
     fn round_trip() {
         let dir = std::env::temp_dir().join(format!("subcraft-vfs-{}", std::process::id()));

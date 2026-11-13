@@ -131,6 +131,14 @@ fn load_obj(path: &Path, b: &mut MeshBuilder, warnings: &mut Vec<String>) -> Res
             None => "DefaultMaterial".to_string(),
         };
         let mat = b.material(&mat_name);
+        if let Some(kd) = m.material_id.and_then(|id| materials.get(id)).and_then(|mtl| mtl.diffuse) {
+            b.set_material_color(mat, kd);
+        }
+        // Vertex colours (`v x y z r g b`, written by ZBrush, MeshLab, Blender): one per position.
+        let color = |k: usize| {
+            let i = *m.indices.get(k)? as usize;
+            m.vertex_color.get(3 * i..3 * i + 3).map(|c| [c[0], c[1], c[2], 1.0])
+        };
         // Attribute lookups never index past the end: a short or missing list gives `None` (the
         // builder then counts a missing-UV triangle or regenerates normals) instead of a panic.
         let vec3 = |data: &[f32], i: Option<&u32>| {
@@ -147,7 +155,10 @@ fn load_obj(path: &Path, b: &mut MeshBuilder, warnings: &mut Vec<String>) -> Res
         };
         for k in (0..m.indices.len() / 3).map(|t| 3 * t) {
             if let (Some(a), Some(c1), Some(c2)) = (corner(k), corner(k + 1), corner(k + 2)) {
-                b.push_triangle(mat, [a, c1, c2]);
+                match (color(k), color(k + 1), color(k + 2)) {
+                    (Some(ca), Some(cb), Some(cc)) => b.push_triangle_colored(mat, [a, c1, c2], [ca, cb, cc]),
+                    _ => b.push_triangle(mat, [a, c1, c2]),
+                }
             }
         }
     }
@@ -254,12 +265,19 @@ fn load_gltf(path: &Path, b: &mut MeshBuilder, warnings: &mut Vec<String>) -> Re
                     (None, None) => "DefaultMaterial".to_string(),
                 };
                 let mat = b.material(&mat_name);
+                if prim.material().index().is_some() {
+                    let base = prim.material().pbr_metallic_roughness().base_color_factor();
+                    b.set_material_color(mat, [base[0], base[1], base[2]]);
+                }
                 let reader = prim.reader(|buf| Some(&buffers[buf.index()]));
                 let Some(pos) = reader.read_positions() else { continue };
                 let pos: Vec<Vec3> = pos.map(|p| world.transform_point3(Vec3::from(p))).collect();
                 let nrm: Option<Vec<Vec3>> =
                     reader.read_normals().map(|it| it.map(|n| (normal_m * Vec3::from(n)).normalize_or_zero()).collect());
                 let uv: Option<Vec<Vec2>> = reader.read_tex_coords(0).map(|t| t.into_f32().map(Vec2::from).collect());
+                // COLOR_0, when it covers every vertex.
+                let colors: Option<Vec<[f32; 4]>> =
+                    reader.read_colors(0).map(|c| c.into_rgba_f32().collect::<Vec<_>>()).filter(|c| c.len() >= pos.len());
                 let idx: Vec<u32> = match reader.read_indices() {
                     Some(i) => i.into_u32().collect(),
                     None => (0..pos.len() as u32).collect(),
@@ -279,7 +297,14 @@ fn load_gltf(path: &Path, b: &mut MeshBuilder, warnings: &mut Vec<String>) -> Re
                         continue;
                     }
                     let c = [corner(tri[0]), corner(tri[1]), corner(tri[2])];
-                    b.push_triangle(mat, if flip { [c[0], c[2], c[1]] } else { c });
+                    let c = if flip { [c[0], c[2], c[1]] } else { c };
+                    match &colors {
+                        Some(col) => {
+                            let k = [col[tri[0] as usize], col[tri[1] as usize], col[tri[2] as usize]];
+                            b.push_triangle_colored(mat, c, if flip { [k[0], k[2], k[1]] } else { k });
+                        }
+                        None => b.push_triangle(mat, c),
+                    }
                 }
             }
         }
@@ -344,6 +369,7 @@ fn fbx_scene(scene: &ufbx::Scene, b: &mut MeshBuilder, warnings: &mut Vec<String
         let to_v3 = |v: ufbx::Vec3| Vec3::new(v.x as f32, v.y as f32, v.z as f32);
         let has_uv = mesh.vertex_uv.exists;
         let has_n = mesh.vertex_normal.exists;
+        let has_color = mesh.vertex_color.exists;
         if !has_uv {
             warnings.push(format!("FBX mesh '{}' has no UVs", node.element.name));
         }
@@ -360,6 +386,16 @@ fn fbx_scene(scene: &ufbx::Scene, b: &mut MeshBuilder, warnings: &mut Vec<String
                 mesh.materials.get(mi).map(|mat| mat.element.name.to_string()).unwrap_or_else(|| format!("material_{mi}"))
             };
             let mat = b.material(&mat_name);
+            if !mesh.face_material.is_empty() {
+                if let Some(material) = mesh.materials.get(mesh.face_material[fi] as usize) {
+                    // The PBR base colour when the file has one, else the classic diffuse colour.
+                    let map = if material.pbr.base_color.has_value { &material.pbr.base_color } else { &material.fbx.diffuse_color };
+                    if map.has_value {
+                        let v = map.value_vec4;
+                        b.set_material_color(mat, [v.x as f32, v.y as f32, v.z as f32]);
+                    }
+                }
+            }
             let n = ufbx::triangulate_face_vec(&mut tri_indices, mesh, *face);
             for t in 0..n as usize {
                 let corner = |ix: u32| {
@@ -374,8 +410,19 @@ fn fbx_scene(scene: &ufbx::Scene, b: &mut MeshBuilder, warnings: &mut Vec<String
                         }),
                     }
                 };
-                let c = [corner(tri_indices[3 * t]), corner(tri_indices[3 * t + 1]), corner(tri_indices[3 * t + 2])];
-                b.push_triangle(mat, if flip { [c[0], c[2], c[1]] } else { c });
+                let ix = [tri_indices[3 * t], tri_indices[3 * t + 1], tri_indices[3 * t + 2]];
+                let c = [corner(ix[0]), corner(ix[1]), corner(ix[2])];
+                let c = if flip { [c[0], c[2], c[1]] } else { c };
+                if has_color {
+                    let color = |ix: u32| {
+                        let v = mesh.vertex_color[ix as usize];
+                        [v.x as f32, v.y as f32, v.z as f32, v.w as f32]
+                    };
+                    let k = [color(ix[0]), color(ix[1]), color(ix[2])];
+                    b.push_triangle_colored(mat, c, if flip { [k[0], k[2], k[1]] } else { k });
+                } else {
+                    b.push_triangle(mat, c);
+                }
             }
         }
     }
@@ -444,6 +491,35 @@ mod tests {
         assert!(high.mesh.normals.iter().all(|n| n.is_finite() && (n.length() - 1.).abs() < 1e-5));
         let bvh = crate::Bvh::build(&high.mesh);
         assert!(bvh.intersect(Vec3::new(-0.5, 1., -0.5), -Vec3::Y, 0., 2.).is_some());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Vertex colours (`v x y z r g b`) and the materials' Kd reach the mesh, in triangle order
+    /// after the sort by material.
+    #[test]
+    fn obj_vertex_colors_and_material_colors_are_read() {
+        let dir = tmp("colors");
+        std::fs::write(dir.join("c.mtl"), "newmtl B\nKd 0 0 1\nnewmtl A\nKd 1 0.5 0\n").unwrap();
+        let obj = "mtllib c.mtl\n\
+            v 0 0 0 1 0 0\nv 1 0 0 1 0 0\nv 0 0 1 1 0 0\n\
+            v 0 1 0 0 1 0\nv 1 1 0 0 1 0\nv 0 1 1 0 1 0\n\
+            usemtl B\nf 1 2 3\nusemtl A\nf 4 5 6\n";
+        let path = dir.join("c.obj");
+        std::fs::write(&path, obj).unwrap();
+        let mesh = import_mesh_for_baking(&path).unwrap().mesh;
+        assert_eq!(mesh.triangle_count(), 2);
+        assert_eq!(mesh.corner_colors.len(), 6);
+        for t in 0..2 {
+            let name = &mesh.materials[mesh.tri_material[t] as usize].name;
+            let (vertex, material) = if name == "B" { ([1.0, 0.0, 0.0, 1.0], [0.0, 0.0, 1.0]) } else { ([0.0, 1.0, 0.0, 1.0], [1.0, 0.5, 0.0]) };
+            assert_eq!(mesh.corner_color(t, 0.25, 0.25), Some(vertex), "triangle of {name}");
+            assert_eq!(mesh.material_color(t), Some(material), "material {name}");
+        }
+        // A file without either leaves both lists empty.
+        std::fs::write(&path, "v 0 0 0\nv 1 0 0\nv 0 0 1\nf 1 2 3\n").unwrap();
+        let plain = import_mesh_for_baking(&path).unwrap().mesh;
+        assert!(plain.corner_colors.is_empty() && plain.material_colors.is_empty());
+        assert_eq!(plain.corner_color(0, 0.2, 0.2), None);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
