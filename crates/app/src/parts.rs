@@ -43,13 +43,74 @@ impl Session {
 
     /// Which kind of part the selected layer's geometry mask lists (connected pieces when it
     /// has none yet).
-    fn mask_kind(&self) -> subcraft_core::PartKind {
-        self.selected_layer().and_then(|l| l.parts.as_ref()).map_or(subcraft_core::PartKind::Connected, |p| p.kind)
+    pub fn mask_kind(&self) -> subcraft_core::PartKind {
+        self.selected_layer().and_then(|l| l.parts.as_ref()).map_or(self.part_view.new_mask_kind, |p| p.kind)
+    }
+
+    /// The kind of part a click or box gives a layer that has no geometry mask yet: connected
+    /// pieces by default; the 2D view asks for UV islands.
+    pub fn set_new_mask_kind(&mut self, kind: subcraft_core::PartKind) {
+        self.part_view.new_mask_kind = kind;
+    }
+
+    /// Give the layer a geometry mask listing parts of `kind`, everything included (then clicks
+    /// and boxes exclude or include parts). Replaces a mask of another kind. One undo step.
+    pub fn begin_layer_parts(&mut self, layer: LayerId, kind: subcraft_core::PartKind) -> Result<(), CommandError> {
+        self.selected_texture_set().find(layer).ok_or(CommandError::LayerNotFound)?;
+        let all = self.mesh_parts_of_kind(kind);
+        self.execute(Command::SetParts { layer, parts: Some(PartMask::for_kind(kind, all)) })
     }
 
     fn region_in_mask_kind(&self, triangle: usize) -> Option<u32> {
         let ts = self.selected_texture_set();
         self.scene().geometry.get(ts.material_slot, ts.resolution).triangle_region(triangle, self.mask_kind())
+    }
+
+    /// UV triangles (wrapped to the 0..1 tile) of the selected texture set whose part, of the
+    /// mask's kind, passes `keep`.
+    fn uv_triangles_where(&self, keep: impl Fn(Option<u32>) -> bool) -> Vec<[Vec2; 3]> {
+        let ts = self.selected_texture_set();
+        let geo = self.scene().geometry.get(ts.material_slot, ts.resolution);
+        let kind = self.mask_kind();
+        let mesh = &self.scene().mesh;
+        mesh.material_triangles(ts.material_slot)
+            .filter(|&t| keep(geo.triangle_region(t, kind)))
+            .map(|t| subcraft_mesh::uv_raster::wrap_to_tile(mesh.tri_uvs(t)).0)
+            .collect()
+    }
+
+    /// What the selected layer's geometry mask leaves out, as UV triangles of the selected
+    /// texture set (the 2D view draws them grey). Empty without a mask, or while it is ignored.
+    pub fn excluded_uv_triangles(&self) -> Vec<[Vec2; 3]> {
+        match self.selected_layer().and_then(|l| l.parts.as_ref()).filter(|p| p.enabled) {
+            Some(mask) => self.uv_triangles_where(|part| mask.factor(part) <= 0.0),
+            None => Vec::new(),
+        }
+    }
+
+    /// The UV triangles of `part` (a part of the kind the geometry mask lists) in the selected
+    /// texture set: the 2D view's highlight of the part under the cursor.
+    pub fn part_uv_triangles(&self, part: u32) -> Vec<[Vec2; 3]> {
+        self.uv_triangles_where(|p| p == Some(part))
+    }
+
+    /// The triangle of the selected texture set at a 2D-view texture position (UV 0..1).
+    pub fn triangle_at_uv(&self, uv: Vec2) -> Option<u32> {
+        let ts = self.selected_texture_set();
+        let geo = self.scene().geometry.get(ts.material_slot, ts.resolution);
+        subcraft_paint::stroke::triangle_at_uv(&self.scene().mesh, &geo, uv)
+    }
+
+    /// What Polygon Fill would fill from `triangle` in `mode`, as UV triangles of the selected
+    /// texture set: the 2D view's preview of the element under the cursor.
+    pub fn polygon_fill_preview_uv(&self, triangle: u32, mode: subcraft_paint::PolygonFillMode) -> Vec<[Vec2; 3]> {
+        let ts = self.selected_texture_set();
+        let geo = self.scene().geometry.get(ts.material_slot, ts.resolution);
+        let mesh = &self.scene().mesh;
+        subcraft_paint::select::grow(mesh, &geo, &[triangle], mode)
+            .into_iter()
+            .map(|t| subcraft_mesh::uv_raster::wrap_to_tile(mesh.tri_uvs(t as usize)).0)
+            .collect()
     }
 
     /// The part at a 2D-view texture position (UV 0..1) of the selected texture set.
@@ -116,7 +177,7 @@ impl Session {
                 p
             }
             Some(p) => PartMask::for_kind(p.kind, [part]),
-            None => PartMask::new([part]),
+            None => PartMask::for_kind(self.mask_kind(), [part]),
         };
         self.execute(Command::SetParts { layer, parts: Some(parts) })
     }

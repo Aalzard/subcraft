@@ -41,7 +41,7 @@ impl ChannelDef {
     pub fn default_for(kind: ChannelKind) -> Self {
         let format = match kind {
             ChannelKind::BaseColor | ChannelKind::Roughness | ChannelKind::Metallic => ChannelFormat::Bit8,
-            ChannelKind::Height | ChannelKind::Normal => ChannelFormat::Float16,
+            ChannelKind::Height | ChannelKind::Normal | ChannelKind::CoatNormal | ChannelKind::Displacement => ChannelFormat::Float16,
             _ => ChannelFormat::Bit8,
         };
         Self { kind, format }

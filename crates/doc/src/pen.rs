@@ -20,6 +20,51 @@ impl PenAnchor {
     }
 }
 
+/// What a path paints (Painter's path types).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PathKind {
+    /// A stroke of the path's width along the curve.
+    #[default]
+    Paint,
+    /// The interior of the path (always closed), filled with the path's values; width and
+    /// hardness are not used.
+    Filled,
+}
+
+impl PathKind {
+    pub const ALL: [PathKind; 2] = [PathKind::Paint, PathKind::Filled];
+    pub fn label(self) -> &'static str {
+        match self {
+            PathKind::Paint => "Paint along path",
+            PathKind::Filled => "Filled path",
+        }
+    }
+}
+
+/// Paint along path with a brush tip: stamps of the tip placed along the curve (Painter's
+/// brush, alpha and spacing on a path). Without it a path is one continuous stroke.
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct PathStamp {
+    /// Tip image (an Alpha resource of the project); `None` is the round tip with the path's hardness.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alpha: Option<subcraft_core::ResourceId>,
+    /// Distance between stamps as a fraction of the stamp diameter.
+    pub spacing: f32,
+    /// Turn each stamp along the curve (Follow path); otherwise the tip stays upright.
+    pub follow: bool,
+}
+
+impl PathStamp {
+    pub const SPACING: std::ops::RangeInclusive<f32> = 0.02..=4.0;
+}
+
+impl Default for PathStamp {
+    fn default() -> Self {
+        Self { alpha: None, spacing: 0.25, follow: true }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct PenPath {
     pub anchors: Vec<PenAnchor>,
@@ -30,10 +75,19 @@ pub struct PenPath {
     pub opacity: f32,
     /// Linear color / encoded data-channel values. Absent channels remain transparent.
     pub values: BTreeMap<ChannelKind, ChannelValue>,
+    /// Stroke along the curve, or its filled interior.
+    pub kind: PathKind,
+    /// Brush tip stamped along the curve (Paint along path only).
+    pub stamp: Option<PathStamp>,
 }
 
 impl PenPath {
     pub const MAX_ANCHORS: usize = 256;
+
+    /// Whether the curve returns to its first anchor (a filled path always does).
+    pub fn is_closed(&self) -> bool {
+        self.closed || self.kind == PathKind::Filled
+    }
 
     pub fn validate(&self) -> Result<(), &'static str> {
         if self.anchors.len() > Self::MAX_ANCHORS { return Err("a path supports at most 256 anchors"); }
@@ -41,6 +95,7 @@ impl PenPath {
             || !self.hardness.is_finite() || !(0.0..=1.0).contains(&self.hardness)
             || !self.opacity.is_finite() || !(0.0..=1.0).contains(&self.opacity)
         { return Err("invalid pen width, hardness or opacity"); }
+        if self.stamp.is_some_and(|s| !s.spacing.is_finite() || !PathStamp::SPACING.contains(&s.spacing)) { return Err("pen stamp spacing must be between 2 % and 400 % of the tip"); }
         if self.values.is_empty() || self.values.values().any(|v| !v.0.iter().all(|x| x.is_finite() && x.abs() <= 65504.0)) { return Err("pen channels must contain finite, representable values"); }
         let mut ids = BTreeSet::new();
         for a in &self.anchors {
@@ -75,7 +130,7 @@ impl PenPath {
             curve([f, e, c, p[3]], tolerance, depth + 1, out)
         }
         let count = self.anchors.len();
-        let segments = count.saturating_sub(1) + usize::from(self.closed && count > 1);
+        let segments = count.saturating_sub(1) + usize::from(self.is_closed() && count > 1);
         for i in 0..segments {
             let a = &self.anchors[i % count]; let b = &self.anchors[(i + 1) % count];
             curve([a.position, a.position + a.outgoing, b.position + b.incoming, b.position], tolerance.max(1e-6), 0, &mut out)?;

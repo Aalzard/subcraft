@@ -68,3 +68,26 @@ fn accumulated_frames_smooth_the_edges_and_frame_one_restarts() {
     p.taa_frame = 0;
     assert_eq!(r.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue), plain);
 }
+
+/// QA 2026-11: a new render size part-way through an average (resolution scale, a window resize
+/// keeping the aspect) folded the new, black history in: the image stayed darker.
+#[test]
+fn a_new_size_while_accumulating_does_not_darken_the_image() {
+    let _gpu = gpu_test();
+    let Some((_, device, queue)) = headless::device() else { eprintln!("no adapter: skipping"); return };
+    let mut r = renderer(&device, &queue);
+    let mut p = params();
+    for frame in 1..=4 {
+        p.taa_frame = frame;
+        let _ = r.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+    }
+    let big = SIZE * 2;
+    p.taa_frame = 5;
+    let after = r.render(&device, &queue, [big, big], &p).read_rgba8(&device, &queue);
+    p.taa_frame = 1;
+    let fresh = renderer(&device, &queue).render(&device, &queue, [big, big], &p).read_rgba8(&device, &queue);
+    let c = ((big / 2 * big + big / 2) * 4) as usize;
+    for k in 0..3 {
+        assert!((after[c + k] as i32 - fresh[c + k] as i32).abs() <= 2, "centre {k}: {} after the resize vs {} fresh", after[c + k], fresh[c + k]);
+    }
+}
