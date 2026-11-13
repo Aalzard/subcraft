@@ -1484,6 +1484,9 @@ impl Session {
                 for kind in channels {
                     if !ts.has_channel(kind) {
                         ts.channels.push(ChannelDef::default_for(kind));
+                        // Like Add Channel: without a blend entry a layer ignores the channel, and a
+                        // folder without one switches it off for everything inside it.
+                        add_blend(&mut ts.layers, kind);
                     }
                 }
                 // InsertLayer commits the document including the new channels: one history entry.
@@ -1556,6 +1559,7 @@ impl Session {
                 let ts = self.doc.texture_set_mut(ts_id).ok_or(CommandError::TextureSetNotFound)?;
                 for kind in clip.missing_channels(ts) {
                     ts.channels.push(ChannelDef::default_for(kind));
+                    add_blend(&mut ts.layers, kind);
                 }
                 let mut at = reference;
                 for mut layer in clip.instantiate(ts, mesh) {
