@@ -1230,7 +1230,9 @@ fn file_load_matches_the_sequential_reader() {
 
     let bytes = std::fs::read(&path).unwrap();
     let rasters = decode_rasters(&path);
-    assert!(rasters.len() >= 4, "the parallel pass decoded the rasters ({})", rasters.len());
+    if std::thread::available_parallelism().is_ok_and(|n| n.get() > 1) {
+        assert!(rasters.len() >= 4, "the parallel pass decoded the rasters ({})", rasters.len());
+    }
     let sequential = read_project(Cursor::new(bytes.clone())).unwrap();
     for file in [load_project(&path).unwrap(), load_project_trusted(&path).unwrap()] {
         assert_eq!(file.document, sequential.document);
