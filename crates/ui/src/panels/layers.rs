@@ -274,6 +274,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         && let Some(layer) = state.session.selected_layer()
     { rename = Some(InlineRename { layer: layer.id, text: layer.name.clone(), focus: true }); }
     let mut finish_rename = None;
+    let mut add_smart: Option<usize> = None;
     let mut layer_action = None;
     let cancel_rename = rename.is_some() && ui.input(|i| i.key_pressed(egui::Key::Escape));
 
@@ -332,6 +333,22 @@ Files: {}", ex.dir().display()));
             if icon_button(ui, icons::FOLDER, "New folder (inside the selected folder when it is empty)").clicked() {
                 cmds.push(Command::AddLayer(NewLayer::Folder));
             }
+            // Painter's fifth header button: a small searchable list of smart materials.
+            let smart = ui.menu_button(RichText::new(icons::STACK).font(theme::font(16.0)), |ui| {
+                ui.set_min_width(200.0);
+                let query_id = egui::Id::new("smart_material_search");
+                let mut query = ui.data(|d| d.get_temp::<String>(query_id)).unwrap_or_default();
+                ui.add(egui::TextEdit::singleline(&mut query).hint_text("Search smart materials").desired_width(190.0));
+                let found = smart_material_matches(state.library.smart_materials.iter().map(|m| m.name.as_str()), &query);
+                egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
+                    if found.is_empty() { ui.weak("No smart material matches"); }
+                    for i in found {
+                        if ui.button(&state.library.smart_materials[i].name).clicked() { add_smart = Some(i); ui.close(); }
+                    }
+                });
+                ui.data_mut(|d| d.insert_temp(query_id, query));
+            });
+            smart.response.on_hover_text("Add a smart material above the selection");
             if icon_button(ui, "Aa", crate::keys::native("New text layer (Ctrl+Shift+T): type text, pick font and colour, then click the model to place it")).clicked() {
                 state.text.open_new();
             }
@@ -385,6 +402,8 @@ Files: {}", ex.dir().display()));
     let ts = state.session.selected_texture_set();
     let mut save_request: Option<(subcraft_core::LayerId, bool)> = None;
     let mut drop_request: Option<(subcraft_core::LayerId, ShelfDrag, bool)> = None;
+    // The drop landed on the top zone, not on a row (a smart mask then makes its own layer).
+    let mut drop_on_top = false;
     let mut open_text: Option<(subcraft_core::LayerId, crate::text_panel::Window)> = None;
     let mut grouped = false;
     let mut export_flattened: Option<Vec<LayerId>> = None;
@@ -430,6 +449,7 @@ Files: {}", ex.dir().display()));
             // Above everything: aim at the top layer, so the item lands above it.
             if let Some((_, top)) = list.iter().find(|(d, _)| *d == 0) { drop_request = Some((top.id, *item, alt)); }
             else { drop_request = Some((LayerId::default(), *item, alt)); }
+            drop_on_top = true;
         }
         if list.is_empty() {
             empty_state(ui, icons::STACK, "No layers yet. Add one above.");
@@ -468,7 +488,7 @@ Files: {}", ex.dir().display()));
                 effect_line(ui, thumb.rect, !l.content_effects.is_empty());
                 if let Some(mask) = &l.mask {
                     let thumb = state.layer_previews.image(ui, &state.session, PreviewKey { layer: l.id, channel: ChannelKind::BaseColor, mask: true, effect: None, size: 64 }, thumb_size,
-                        selected && selected_target == LayerTarget::Mask).on_hover_text(tr("Mask · click to edit · Alt+click: UV preview · Shift+click: enable/disable"));
+                        selected && selected_target == LayerTarget::Mask).on_hover_text(tr("Mask · click to edit · Alt+click: show it in the viewport · Shift+click: enable/disable"));
                     if let Some(item) = thumb.dnd_hover_payload::<ShelfDrag>() {
                         ui.painter().rect_stroke(thumb.rect, 0.0, egui::Stroke::new(2.0, ACCENT), egui::StrokeKind::Inside);
                         over_mask = Some(shelf::drop_label(*item, alt, Some(&l.name), true));
@@ -482,7 +502,8 @@ Files: {}", ex.dir().display()));
                         else {
                             cmds.push(Command::SelectLayerTarget { layer: l.id, target: LayerTarget::Mask });
                             if state.tool == crate::state::Tool::Pen { state.tool = crate::state::Tool::Brush; }
-                            if ui.input(|i| i.modifiers.alt) { state.layer_previews.inspect = Some(l.id); }
+                            // Painter: Alt+click shows the mask alone in the viewport (again: back).
+                            if ui.input(|i| i.modifiers.alt) { ui.ctx().data_mut(|d| d.insert_temp(crate::mask_view::toggle_request_id(), l.id)); }
                         }
                     }
                     thumb.context_menu(|ui| super::mask::actions(ui, l.id, mask.enabled, can_paste_mask, &mut cmds));
@@ -494,6 +515,13 @@ Files: {}", ex.dir().display()));
                     let count = descendants(l);
                     badge(ui, &count.to_string(), color).on_hover_text(format!("{count} layer(s) inside"));
                 }
+                // Painter's geometry mask icon: which meshes / islands the layer covers, with the count.
+                let geo = geometry_mask_icon(ui, &state.session, l, ts.material_slot);
+                if geo.clicked() {
+                    cmds.push(Command::SelectLayer(Some(l.id)));
+                    state.picking_parts = true;
+                }
+                geo.context_menu(|ui| geometry_mask_menu(ui, &state.session, &mut state.parts_clipboard, &mut state.picking_parts, l, ts.material_slot, &mut cmds));
                 let mut text = row_text(&l.name, selected || l.visible);
                 if folder.is_some() { text = text.strong(); }
                 if !l.visible {
@@ -821,9 +849,16 @@ Files: {}", ex.dir().display()));
             if effect.is_some() { state.run(vec![Command::SelectEffect { layer, target: LayerTarget::Mask, effect }], now); }
         }
     }
+    if let Some(m) = add_smart.and_then(|i| state.library.smart_materials.get(i).cloned()) {
+        match state.session.add_smart_material(&m) {
+            Ok(()) => state.recovery.autosaver.request_soon(),
+            Err(e) => state.set_status(e.to_string(), now),
+        }
+    }
     if let Some((layer, item, alt)) = drop_request {
         if layer != LayerId::default() { state.run(vec![Command::SelectLayer(Some(layer))], now); }
-        shelf::apply_shelf_item_with(state, item, alt, now);
+        let with_mask = ui.input(|i| i.modifiers.command);
+        shelf::apply_stack_drop(state, item, alt, with_mask, drop_on_top, now);
     }
     if let Some((layer, window)) = open_text {
         state.run(vec![Command::SelectLayer(Some(layer))], now);
@@ -867,6 +902,19 @@ fn generator_rows(ui: &mut Ui, layer: &Layer, mask: &subcraft_doc::Mask, depth: 
 
 /// Save a layer as a smart material (or its mask as a smart mask) into the user library and
 /// show it in the shelf.
+/// Indices of the names containing every word of `query` (case-insensitive), in list order.
+pub fn smart_material_matches<'a>(names: impl Iterator<Item = &'a str>, query: &str) -> Vec<usize> {
+    let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
+    names
+        .enumerate()
+        .filter(|(_, n)| {
+            let n = n.to_lowercase();
+            words.iter().all(|w| n.contains(w.as_str()))
+        })
+        .map(|(i, _)| i)
+        .collect()
+}
+
 /// "Export flattened": the file name pattern, then a folder to write the images to.
 fn flatten_export_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
     let Some(layers) = state.flatten_export.clone() else { return };
@@ -928,4 +976,98 @@ pub fn import_texture_set_dialog(ctx: &egui::Context) {
         true,
         Some("Import texture set: select the maps (base color, roughness, normal, …)"),
     );
+}
+
+/// Parts of `kind` that belong to the texture set of material `slot`.
+fn parts_of(session: &subcraft_app::Session, kind: subcraft_core::PartKind, slot: u32) -> std::collections::BTreeSet<u32> {
+    session.parts(kind).iter().filter(|p| p.materials.contains(&slot)).map(|p| p.id).collect()
+}
+
+/// The geometry mask icon of a layer row: dim when the layer covers the whole model, the included
+/// count over the total when it is restricted, struck through while the mask is ignored.
+fn geometry_mask_icon(ui: &mut Ui, session: &subcraft_app::Session, l: &Layer, slot: u32) -> egui::Response {
+    let (text, color, tip) = match &l.parts {
+        None => (icons::POLYGON.to_string(), TEXT_FAINT, "Geometry mask: the whole model · click to restrict the layer to some meshes or UV islands (click or box them in the 3D / 2D view) · right-click for options".to_string()),
+        Some(p) => {
+            let all = parts_of(session, p.kind, slot);
+            let shown = all.iter().filter(|id| p.parts.contains(id)).count();
+            let what = p.kind.label().to_lowercase();
+            if p.enabled {
+                (format!("{} {shown}/{}", icons::POLYGON, all.len()), ACCENT, format!("Geometry mask: {shown} of {} {what} · click to edit in the views · right-click for options", all.len()))
+            } else {
+                (format!("{} {shown}/{}", icons::POLYGON, all.len()), theme::WARNING, format!("Geometry mask ignored ({shown} of {} {what} chosen) · right-click to use it again", all.len()))
+            }
+        }
+    };
+    ui.add(egui::Button::new(RichText::new(text).font(theme::font(11.0)).color(color)).frame(false).min_size(egui::vec2(18.0, 22.0)))
+        .on_hover_text(tip)
+}
+
+/// Right-click menu of the geometry mask icon (Painter's copy / paste, plus the Properties list's
+/// selection helpers and the kind of part listed).
+fn geometry_mask_menu(ui: &mut Ui, session: &subcraft_app::Session, clipboard: &mut Option<subcraft_doc::PartMask>, picking: &mut bool, l: &Layer, slot: u32, cmds: &mut Vec<Command>) {
+    use subcraft_doc::PartMask;
+    let id = l.id;
+    let kind = l.parts.as_ref().map_or(subcraft_core::PartKind::Connected, |p| p.kind);
+    let all = parts_of(session, kind, slot);
+    ui.label(RichText::new("Geometry mask").color(TEXT_DIM));
+    if ui.button("Edit in the 3D / 2D view").on_hover_text("Click a mesh part or UV island to show or hide the layer on it; drag a box to add several, Ctrl+drag to remove").clicked() {
+        cmds.push(Command::SelectLayer(Some(id)));
+        *picking = true;
+        ui.close();
+    }
+    ui.menu_button("List by", |ui| {
+        for k in subcraft_core::PartKind::ALL {
+            if ui.selectable_label(kind == k && l.parts.is_some(), k.label()).clicked() {
+                cmds.push(Command::SetParts { layer: id, parts: Some(PartMask::for_kind(k, parts_of(session, k, slot))) });
+                ui.close();
+            }
+        }
+    });
+    ui.separator();
+    if ui.button("Include all").clicked() {
+        cmds.push(Command::SetParts { layer: id, parts: Some(PartMask::for_kind(kind, all.clone())) });
+        ui.close();
+    }
+    if ui.button("Exclude all").clicked() {
+        cmds.push(Command::SetParts { layer: id, parts: Some(PartMask::for_kind(kind, [])) });
+        ui.close();
+    }
+    if let Some(p) = &l.parts {
+        if ui.button("Invert").clicked() {
+            cmds.push(Command::SetParts { layer: id, parts: Some(PartMask::for_kind(kind, all.difference(&p.parts).copied())) });
+            ui.close();
+        }
+        if ui.button(if p.enabled { "Ignore temporarily" } else { "Use again" }).clicked() {
+            cmds.push(Command::SetParts { layer: id, parts: Some(PartMask { enabled: !p.enabled, ..p.clone() }) });
+            ui.close();
+        }
+    }
+    ui.separator();
+    if ui.add_enabled(l.parts.is_some(), egui::Button::new("Copy geometry mask")).clicked() {
+        *clipboard = l.parts.clone();
+        ui.close();
+    }
+    if ui.add_enabled(clipboard.is_some(), egui::Button::new("Paste into geometry mask")).clicked() {
+        cmds.push(Command::SetParts { layer: id, parts: clipboard.clone() });
+        ui.close();
+    }
+    if ui.add_enabled(l.parts.is_some(), egui::Button::new("Remove (whole model)")).clicked() {
+        cmds.push(Command::SetParts { layer: id, parts: None });
+        ui.close();
+    }
+}
+
+#[cfg(test)]
+mod smart_material_search_tests {
+    use super::smart_material_matches;
+
+    #[test]
+    fn the_smart_material_search_matches_every_word_in_any_case() {
+        let names = ["Rusty Steel", "Painted Steel", "Worn Leather"];
+        assert_eq!(smart_material_matches(names.iter().copied(), ""), [0, 1, 2]);
+        assert_eq!(smart_material_matches(names.iter().copied(), "steel"), [0, 1]);
+        assert_eq!(smart_material_matches(names.iter().copied(), "STEEL paint"), [1]);
+        assert!(smart_material_matches(names.iter().copied(), "glass").is_empty());
+    }
 }

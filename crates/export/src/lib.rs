@@ -101,6 +101,8 @@ pub struct ExportTextureSet<'a> {
     pub channels: &'a BTreeMap<ChannelKind, TiledImage>,
     /// Baked mesh maps; baked AO stands in for a missing Ambient Occlusion channel.
     pub mesh_maps: Option<&'a BTreeMap<MeshMapKind, TiledImage>>,
+    /// The set's normal / height / AO mixing (`MixingSettings::LEGACY` reproduces older exports).
+    pub mixing: subcraft_doc::MixingSettings,
 }
 
 impl ExportTextureSet<'_> {
@@ -355,6 +357,21 @@ impl<'a> Dense<'a> {
     }
 
     fn channel(&mut self, kind: ChannelKind) -> &(usize, Vec<f32>) {
+        // AO mixing Multiply: the painted AO channel times the baked map.
+        let multiply_ao = kind == ChannelKind::AmbientOcclusion && self.set.mixing.ao == subcraft_doc::AoMixing::Multiply
+            && self.set.channels.contains_key(&kind) && self.set.mesh_maps.is_some_and(|m| m.contains_key(&MeshMapKind::AmbientOcclusion));
+        if multiply_ao && !self.cache.contains_key(&kind) {
+            let size = self.size;
+            let channel = self.set.channels.get(&kind).map(|img| dense_at(img, size)).expect("checked above");
+            let baked = self.set.mesh_maps.and_then(|m| m.get(&MeshMapKind::AmbientOcclusion)).map(|img| dense_at(img, size)).expect("checked above");
+            let (cc, mut data) = channel;
+            let (bc, b) = baked;
+            for i in 0..(size * size) as usize {
+                let ao = b[i * bc];
+                for c in 0..cc { data[i * cc + c] *= ao; }
+            }
+            self.cache.insert(kind, (cc, data));
+        }
         let size = self.size;
         let set = self.set;
         self.cache.entry(kind).or_insert_with(|| match set.source(kind) {
@@ -453,15 +470,23 @@ impl<'a> Dense<'a> {
             let n = (self.size * self.size) as usize;
             let (nc, nmap) = self.channel(ChannelKind::Normal).clone();
             let mut out: Vec<f32> = (0..n).flat_map(|i| [nmap[i * nc], nmap[i * nc + 1], nmap[i * nc + 2]]).collect();
-            if height_scale > 0.0 && self.set.channels.contains_key(&ChannelKind::Height) {
+            let combine = self.set.mixing.normal == subcraft_doc::NormalMixing::Combine;
+            if combine && height_scale > 0.0 && self.set.channels.contains_key(&ChannelKind::Height) {
                 let (hc, h) = self.channel(ChannelKind::Height).clone();
                 let s = self.size as i64;
                 let at = |x: i64, y: i64| h[((y.clamp(0, s - 1) * s + x.clamp(0, s - 1)) as usize) * hc];
+                let sobel = self.set.mixing.height_to_normal == subcraft_doc::HeightToNormal::Smooth;
                 out.par_chunks_mut(3).enumerate().for_each(|(i, px)| {
                     let (x, y) = ((i as i64) % s, (i as i64) / s);
-                    // Same convention as the viewport shader (UV v down, bitangent up).
-                    let dhdu = (at(x + 1, y) - at(x - 1, y)) * 0.5 * s as f32;
-                    let dhdv = (at(x, y + 1) - at(x, y - 1)) * 0.5 * s as f32;
+                    // Same convention as the viewport shader (UV v down, bitangent up). Sobel is the
+                    // central difference averaged over three rows (weights 1-2-1), same slope scale.
+                    let (dhdu, dhdv) = if sobel {
+                        let gx = (at(x + 1, y - 1) + 2.0 * at(x + 1, y) + at(x + 1, y + 1)) - (at(x - 1, y - 1) + 2.0 * at(x - 1, y) + at(x - 1, y + 1));
+                        let gy = (at(x - 1, y + 1) + 2.0 * at(x, y + 1) + at(x + 1, y + 1)) - (at(x - 1, y - 1) + 2.0 * at(x, y - 1) + at(x + 1, y - 1));
+                        (gx * 0.125 * s as f32, gy * 0.125 * s as f32)
+                    } else {
+                        ((at(x + 1, y) - at(x - 1, y)) * 0.5 * s as f32, (at(x, y + 1) - at(x, y - 1)) * 0.5 * s as f32)
+                    };
                     let bump = Vec3::new(-dhdu * height_scale, dhdv * height_scale, 1.0).normalize();
                     let base = Vec3::new(px[0] * 2.0 - 1.0, px[1] * 2.0 - 1.0, (px[2] * 2.0 - 1.0).max(1e-3));
                     let r = Vec3::new(base.x + bump.x, base.y + bump.y, base.z * bump.z).normalize();
@@ -584,7 +609,7 @@ fn background_value(map: &OutputMap, settings: &ExportSettings, format: FileForm
         return vec![0.0; map.components.len()];
     }
     let empty = BTreeMap::new();
-    let set = ExportTextureSet { name: "", material_slot: 0, udim: None, channels: &empty, mesh_maps: None };
+    let set = ExportTextureSet { name: "", material_slot: 0, udim: None, channels: &empty, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY };
     let mut dense = Dense { set: &set, size: 1, cache: HashMap::new(), normal: None, view: None, mesh_maps: HashMap::new(), alpha: None };
     evaluate_map(map, &mut dense, settings, format)
 }

@@ -22,10 +22,22 @@ pub enum ChannelKind {
     User1,
     User2,
     User3,
+    User4,
+    User5,
+    User6,
+    User7,
+    User8,
+    User9,
+    User10,
+    User11,
+    User12,
+    User13,
+    User14,
+    User15,
 }
 
 impl ChannelKind {
-    pub const ALL: [ChannelKind; 13] = [
+    pub const ALL: [ChannelKind; 25] = [
         ChannelKind::BaseColor,
         ChannelKind::Height,
         ChannelKind::Roughness,
@@ -39,7 +51,44 @@ impl ChannelKind {
         ChannelKind::User1,
         ChannelKind::User2,
         ChannelKind::User3,
+        ChannelKind::User4,
+        ChannelKind::User5,
+        ChannelKind::User6,
+        ChannelKind::User7,
+        ChannelKind::User8,
+        ChannelKind::User9,
+        ChannelKind::User10,
+        ChannelKind::User11,
+        ChannelKind::User12,
+        ChannelKind::User13,
+        ChannelKind::User14,
+        ChannelKind::User15,
     ];
+
+    /// Painter's sixteen user channels, User0 to User15.
+    pub const USER: [ChannelKind; 16] = [
+        ChannelKind::User0,
+        ChannelKind::User1,
+        ChannelKind::User2,
+        ChannelKind::User3,
+        ChannelKind::User4,
+        ChannelKind::User5,
+        ChannelKind::User6,
+        ChannelKind::User7,
+        ChannelKind::User8,
+        ChannelKind::User9,
+        ChannelKind::User10,
+        ChannelKind::User11,
+        ChannelKind::User12,
+        ChannelKind::User13,
+        ChannelKind::User14,
+        ChannelKind::User15,
+    ];
+
+    /// True for User0 to User15 (data channels the user can rename).
+    pub fn is_user(self) -> bool {
+        Self::USER.contains(&self)
+    }
 
     /// Channels of the default "PBR - Metallic Roughness" project template.
     pub const METAL_ROUGH: [ChannelKind; 5] = [
@@ -109,6 +158,18 @@ impl ChannelKind {
             ChannelKind::User1 => "User 1",
             ChannelKind::User2 => "User 2",
             ChannelKind::User3 => "User 3",
+            ChannelKind::User4 => "User 4",
+            ChannelKind::User5 => "User 5",
+            ChannelKind::User6 => "User 6",
+            ChannelKind::User7 => "User 7",
+            ChannelKind::User8 => "User 8",
+            ChannelKind::User9 => "User 9",
+            ChannelKind::User10 => "User 10",
+            ChannelKind::User11 => "User 11",
+            ChannelKind::User12 => "User 12",
+            ChannelKind::User13 => "User 13",
+            ChannelKind::User14 => "User 14",
+            ChannelKind::User15 => "User 15",
         }
     }
 
@@ -128,6 +189,18 @@ impl ChannelKind {
             ChannelKind::User1 => "u1",
             ChannelKind::User2 => "u2",
             ChannelKind::User3 => "u3",
+            ChannelKind::User4 => "u4",
+            ChannelKind::User5 => "u5",
+            ChannelKind::User6 => "u6",
+            ChannelKind::User7 => "u7",
+            ChannelKind::User8 => "u8",
+            ChannelKind::User9 => "u9",
+            ChannelKind::User10 => "u10",
+            ChannelKind::User11 => "u11",
+            ChannelKind::User12 => "u12",
+            ChannelKind::User13 => "u13",
+            ChannelKind::User14 => "u14",
+            ChannelKind::User15 => "u15",
         }
     }
 
@@ -147,6 +220,18 @@ impl ChannelKind {
             ChannelKind::User1 => "user1",
             ChannelKind::User2 => "user2",
             ChannelKind::User3 => "user3",
+            ChannelKind::User4 => "user4",
+            ChannelKind::User5 => "user5",
+            ChannelKind::User6 => "user6",
+            ChannelKind::User7 => "user7",
+            ChannelKind::User8 => "user8",
+            ChannelKind::User9 => "user9",
+            ChannelKind::User10 => "user10",
+            ChannelKind::User11 => "user11",
+            ChannelKind::User12 => "user12",
+            ChannelKind::User13 => "user13",
+            ChannelKind::User14 => "user14",
+            ChannelKind::User15 => "user15",
         }
     }
 
@@ -180,6 +265,16 @@ mod tests {
         for c in ChannelKind::ALL {
             assert_eq!(ChannelKind::from_key(c.key()), Some(c));
         }
+    }
+
+    #[test]
+    fn sixteen_user_channels_like_painter() {
+        assert_eq!(ChannelKind::USER.len(), 16);
+        assert!(ChannelKind::USER.iter().all(|k| k.is_user() && k.components() == 1 && !k.is_color()));
+        assert_eq!(ChannelKind::User15.key(), "user15");
+        assert_eq!(ChannelKind::User15.display_name(), "User 15");
+        assert!(!ChannelKind::Opacity.is_user());
+        assert_eq!(ChannelKind::ALL.iter().filter(|k| k.is_user()).count(), 16);
     }
 
     #[test]

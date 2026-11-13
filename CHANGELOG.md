@@ -5,7 +5,22 @@ What changed in SubCraft, newest first. Download the latest build from the
 
 ## Unreleased
 
+## 0.3.7 - 2026-11-13
+
 ### Added
+- **Paint or fill a part, a UV island or the whole object**, like Painter: Polygon Fill on fill layers (triangle, polygon, mesh, UV island, box selection), the geometry mask and Alt+H to hide excluded geometry (#200).
+- **Paint directly in the 2D view**: every paint tool works there like in 3D, including smudge, clone, picker, stencil, symmetry and the mouse gestures (#199).
+- **Transparent textures** (issue #145): an Opacity channel, transparent texture sets, alpha in the viewport, and RGBA Base Color plus an Opacity map on export (#198).
+- **Right-click Properties popup** in the viewport, curvature modes and detail sizes, and box selection for polygon fill (#131).
+- **Baked map import**: bring in your own baked mesh maps, curvature from the normal map, a ray-miss heatmap and an ID colour editor (#137). ID map colours can come from vertex colour, material colour, mesh ID or submesh (#230, issue #117).
+- **Painter .spp projects in File > Open**, as a reconstruction: the layers are rebuilt, the original file is not changed (#191).
+- **Editable shortcut editor** (Settings > Shortcuts) (#209).
+- **Shader Settings panel** with shader instances (#207), and Rendering mode settings: min samples, time limit, firefly switch, resolution override, save render (#193).
+- **Cameras**: import cameras from the mesh file, a camera menu with the default camera, free camera rotation, and a highlight on the texture set under the cursor (#217, #258). 3D view overlays: axis indicator, straight-line preview, lazy mouse ring (#261). Symmetry cursors (#262).
+- **Texture sets**: channel rows and sixteen user channels (#197).
+- **Layers**: mask actions and the mask view (#220), multi-channel filters and Passthrough layers (#208), flatten and layer export (#219), Ctrl-drop with a mask, smart masks as layers, pasted layers renamed (#229), layer row and blending polish (#177).
+- **Generators and filters**: generators on layer content and a Random seed button (#204), custom grunge images and Gradient Dynamic (#205), Compare Mask, Levels with histogram, Color Selection (#201), 3D Distance, 3D Linear Gradient, UV Random Color, Grayscale Conversion (#203), Height Adjust, FXAA, Drop Shadow, Glow, Bevel and Mask Outline options (#202).
+- **Fill projections**: spherical and cylindrical, and symmetry on fills (#228). Symmetry and Lazy mouse buttons and Spacing on the brush bar (#227).
 - **More export file types and bit depths**, like Painter: BMP, Radiance HDR, lossless WebP and 16-bit
   (half) float EXR. File type and bit depth are now two menus; the bit depth menu only lists what the
   file type stores and offers **8-bit + dithering**, which turns banding in smooth gradients into fine
@@ -26,6 +41,16 @@ What changed in SubCraft, newest first. Download the latest build from the
   Amazon Lumberyard, Keyshot, Lens Studio, Maxwell, Redshift, Renderman, Shade 3D, Spark AR, V-Ray, Unity
   HDRP / URP Specular, PBR Specular Glossiness (converted), Roblox MaterialVariant, glTF + displacement,
   Mesh Maps and Document channels + Normal + AO.
+
+### Changed
+- **Faster painting on big projects**: brush stamping runs on its own pool (4-5x faster on a 4K project with a 300 px brush, stalls gone) (#256); catching up after a stroke is about 2x faster (#259).
+
+### Fixed
+- Menu bar readable with a light system theme (issue #206, #221).
+- Export: the alpha of a colour channel is no longer sRGB-encoded (#238); packed HDR maps keep their format (#239); 16-bit float TIFF and half-float EXR fixes (#240); gray+alpha in JPEG and TIFF (#231); a preset with problems writes nothing (#253); OBJ/MTL material slots with the same name stay separate (#226).
+- Atomic file writes with retries on Windows (#233). Deeply nested USD files are refused instead of crashing (#224).
+- Painting under a Passthrough filter refreshes every tile it reaches (#243); Color Correct keeps values above 1 (#250); duplicated mask effects and anchor references fixed (#236, #246, #252); Mask Outline follows the resolution scale (#254).
+- Device loss during start-up stops drawing instead of crashing (#195); hidden texture sets no longer take picks; Shift+Insert pastes layers (#196); PhotoCraft no longer writes into text and path layers (#225); shortcut and session fixes (#242, #251, #255, #241, #237, #244).
 
 ## 0.3.6 - 2026-11-12
 
