@@ -2559,6 +2559,10 @@ impl Session {
         if let ContentEffectKind::Levels { levels, .. } = kind && !levels.valid() {
             return Err(CommandError::Invalid("Levels parameters are invalid".into()));
         }
+        // The project file refuses these: accepted here, the project saved and never opened again.
+        if let ContentEffectKind::Fill(f) = kind && !f.projection.valid() {
+            return Err(CommandError::Invalid("Fill projection parameters are invalid".into()));
+        }
         Ok(())
     }
 
@@ -2575,6 +2579,10 @@ impl Session {
         }
         if let subcraft_doc::MaskEffectKind::Levels(l) | subcraft_doc::MaskEffectKind::AnchorRef { levels: Some(l), .. } = kind && !l.valid() {
             return Err(CommandError::Invalid("Levels parameters are invalid".into()));
+        }
+        // The project file refuses these: accepted here, the project saved and never opened again.
+        if let subcraft_doc::MaskEffectKind::Fill { projection, .. } | subcraft_doc::MaskEffectKind::Image { projection, .. } = kind && !projection.valid() {
+            return Err(CommandError::Invalid("Fill projection parameters are invalid".into()));
         }
         Ok(())
     }
