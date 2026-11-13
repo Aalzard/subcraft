@@ -931,6 +931,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         state.highlight_slot = Some(hit.material_slot);
         ui.ctx().request_repaint();
     }
+    display_corner(state, ui, rect, bake_mode);
     camera_corner(state, ui, rect, bake_mode);
     if state.painting || response.dragged() {
         ui.ctx().request_repaint();
@@ -971,13 +972,33 @@ fn rendering_toggle(state: &mut UiState, ui: &Ui, rect: Rect, bake_mode: bool) {
 
 /// Painter's camera dropdown in the 3D view's top-right corner, only when the project has
 /// imported cameras: Default camera or one of them, with a lock beside it.
+/// Height taken by the display-mode dropdown at the 3D view's top right (the camera dropdown
+/// sits below it).
+const DISPLAY_CORNER_HEIGHT: f32 = 32.0;
+
+/// Painter's display-mode dropdown at the 3D view's top right: material, each channel of the
+/// selected texture set, the baked-normal views and the mesh maps.
+fn display_corner(state: &mut UiState, ui: &Ui, rect: Rect, bake_mode: bool) {
+    if bake_mode {
+        return;
+    }
+    let channels: Vec<_> = state.session.selected_texture_set().channel_kinds().collect();
+    egui::Area::new(ui.id().with("display_corner"))
+        .pivot(egui::Align2::RIGHT_TOP)
+        .fixed_pos(rect.right_top() + egui::vec2(-10.0, 40.0))
+        .constrain_to(rect)
+        .show(ui.ctx(), |ui| {
+            ui.horizontal(|ui| crate::viewport_bar::view_mode(ui, &mut state.recovery.prefs.viewport, &channels, true));
+        });
+}
+
 fn camera_corner(state: &mut UiState, ui: &Ui, rect: Rect, bake_mode: bool) {
     if bake_mode || state.session.scene_cameras().is_empty() {
         return;
     }
     egui::Area::new(ui.id().with("camera_corner"))
         .pivot(egui::Align2::RIGHT_TOP)
-        .fixed_pos(rect.right_top() + egui::vec2(-10.0, 40.0))
+        .fixed_pos(rect.right_top() + egui::vec2(-10.0, 40.0 + DISPLAY_CORNER_HEIGHT))
         .constrain_to(rect)
         .show(ui.ctx(), |ui| {
             ui.horizontal(|ui| {

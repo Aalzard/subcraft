@@ -295,6 +295,10 @@ pub struct UiState {
     /// Which view the pointer was over last frame (F frames that one, or both when neither).
     pub hovered_3d: bool,
     pub hovered_2d: bool,
+    /// The 3D / 2D view layout shown now (set by the app each frame) and one asked for by the
+    /// contextual toolbar's Viewport Mode dropdown (applied by the app, which owns the docks).
+    pub view_layout: crate::app::ViewLayout,
+    pub view_layout_request: Option<crate::app::ViewLayout>,
     /// Material slot to draw highlighted next frame (the texture set under the cursor with
     /// Ctrl+Alt, or hovered in the Texture Set List); taken by the 3D view each frame.
     pub highlight_slot: Option<u32>,
@@ -501,6 +505,8 @@ impl UiState {
             light_pitch: 0.0,
             hovered_3d: false,
             hovered_2d: false,
+            view_layout: crate::app::ViewLayout::Only3d,
+            view_layout_request: None,
             highlight_slot: None,
             drops_taken: false,
             multi: Default::default(),
