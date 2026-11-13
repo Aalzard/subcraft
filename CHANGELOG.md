@@ -6,6 +6,9 @@ What changed in SubCraft, newest first. Download the latest build from the
 ## Unreleased
 
 ### Added
+- **Export flattened / Export mask** from the layer stack, like Painter: right-click a layer or folder (or a
+  multi-selection) to write it on its own, one file per channel (`$textureSet_$layerName_$srcMap`, height and
+  normal as EXR, 1 texel of padding), or its mask as a gray image.
 - **Converted maps** in the preset editor, like Painter's: Diffuse, Specular, Reflection, Glossiness,
   Glossiness squared, Mixed AO, f0 and 1/ior, computed from the metal / roughness channels. Painter
   presets that use them import without losing those maps.

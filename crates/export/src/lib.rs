@@ -7,6 +7,7 @@
 //! EXR. Data channels are never color-transformed.
 
 pub mod builtin_presets;
+pub mod layer_export;
 pub mod preset;
 pub mod psd;
 pub mod scene;
@@ -183,15 +184,22 @@ pub struct PatternVars<'a> {
     pub suffix: &'a str,
     /// `$colorSpace`: `sRGB`, `Linear` or `Raw` (see [`color_space`]).
     pub color_space: &'a str,
+    /// `$layerName` (flattened layer export).
+    pub layer_name: &'a str,
+    /// `$srcMap`: the channel written (flattened layer export).
+    pub src_map: &'a str,
 }
 
-/// File name tokens, longest first where one is a prefix of another.
+/// Output template file name keywords (the editor's `$` menu).
 pub const PATTERN_TOKENS: [&str; 7] = ["$textureSet", "$sceneMaterial", "$colorSpace", "$project", "$suffix", "$mesh", "$udim"];
+
+/// Every keyword the expander knows, longest first where one is a prefix of another.
+const ALL_TOKENS: [&str; 9] = ["$textureSet", "$sceneMaterial", "$colorSpace", "$layerName", "$project", "$suffix", "$srcMap", "$mesh", "$udim"];
 
 /// Expand a file name pattern (no extension) with [`expand_pattern_with`]'s rules, for patterns
 /// that only use `$mesh`, `$textureSet`, `$udim` and `$suffix`.
 pub fn expand_pattern(pattern: &str, mesh: &str, texture_set: &str, udim: Option<u32>, suffix: &str) -> String {
-    expand_pattern_with(pattern, &PatternVars { mesh, project: mesh, texture_set, scene_material: texture_set, udim, suffix, color_space: "" })
+    expand_pattern_with(pattern, &PatternVars { mesh, project: mesh, texture_set, scene_material: texture_set, udim, suffix, ..Default::default() })
 }
 
 /// Expand a file name pattern (no extension). Token values are sanitized like the classic names;
@@ -212,7 +220,7 @@ fn expand_segment(pattern: &str, vars: &PatternVars) -> String {
             && let Some(close) = rest.find(')')
         {
             let inner = &rest[1..close];
-            let has_empty = PATTERN_TOKENS.iter().any(|t| inner.contains(t) && token_value(t, vars).is_empty_value());
+            let has_empty = ALL_TOKENS.iter().any(|t| inner.contains(t) && token_value(t, vars).is_empty_value());
             if !has_empty {
                 out.push_str(&expand_tokens(inner, vars));
             }
@@ -253,6 +261,8 @@ fn token_value(tok: &str, vars: &PatternVars) -> TokenValue {
         "$sceneMaterial" => TokenValue::Text(sanitize(vars.scene_material)),
         "$colorSpace" => TokenValue::Text(if vars.color_space.is_empty() { String::new() } else { sanitize(vars.color_space) }),
         "$udim" => vars.udim.map_or(TokenValue::NoTile, |n| TokenValue::Text(n.to_string())),
+        "$layerName" => TokenValue::Text(if vars.layer_name.is_empty() { String::new() } else { sanitize(vars.layer_name) }),
+        "$srcMap" => TokenValue::Text(if vars.src_map.is_empty() { String::new() } else { sanitize(vars.src_map) }),
         _ => TokenValue::Text(sanitize(vars.suffix)),
     }
 }
@@ -266,7 +276,7 @@ fn expand_tokens(pattern: &str, vars: &PatternVars) -> String {
 fn expand_tokens_into(out: &mut String, pattern: &str, vars: &PatternVars) {
     let mut rest = pattern;
     while !rest.is_empty() {
-        if let Some(tok) = PATTERN_TOKENS.iter().find(|t| rest.starts_with(**t)) {
+        if let Some(tok) = ALL_TOKENS.iter().find(|t| rest.starts_with(**t)) {
             match token_value(tok, vars) {
                 TokenValue::Text(t) => out.push_str(&t),
                 // No tile: drop the separator written for it ("_$udim", ".$udim").
@@ -334,6 +344,7 @@ pub(crate) fn output_path(mesh_name: &str, set: &ExportTextureSet, suffix: &str,
             udim: set.udim,
             suffix,
             color_space: color_space(map, output_format(map, settings)),
+            ..Default::default()
         };
         let mut name = expand_pattern_with(pattern, &vars);
         if name.is_empty() {

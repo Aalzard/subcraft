@@ -276,6 +276,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     let mut finish_rename = None;
     let mut add_smart: Option<usize> = None;
     let mut layer_action = None;
+    // Export flattened / Export mask: (layers, masks).
+    let mut export_request: Option<(Vec<LayerId>, bool)> = None;
     let cancel_rename = rename.is_some() && ui.input(|i| i.key_pressed(egui::Key::Escape));
 
     // Edit in PhotoCraft is running for this texture set: say so and offer to stop.
@@ -406,7 +408,6 @@ Files: {}", ex.dir().display()));
     let mut drop_on_top = false;
     let mut open_text: Option<(subcraft_core::LayerId, crate::text_panel::Window)> = None;
     let mut grouped = false;
-    let mut export_flattened: Option<Vec<LayerId>> = None;
     let alt = ui.input(|i| i.modifiers.alt);
     let mut open: Vec<OpenFolder> = Vec::new();
     let mut list = Vec::new();
@@ -724,11 +725,15 @@ Files: {}", ex.dir().display()));
                     cmds.push(Command::FlattenLayers(if in_multi { multi_ids.clone() } else { vec![l.id] }));
                     ui.close();
                 }
-                if ui.button(format!("Export flattened{suffix} to files…")).on_hover_text("Writes one image per channel (and the mask) to a folder").clicked() {
-                    export_flattened = Some(if in_multi { multi_ids.clone() } else { vec![l.id] });
+                let targets = if in_multi { multi_ids.clone() } else { vec![l.id] };
+                if ui.button(format!("{}  {}", icons::EXPORT, tr("Export flattened…"))).on_hover_text(tr("Writes this layer (a folder with its content) on its own, one file per channel")).clicked() {
+                    export_request = Some((targets.clone(), false));
                     ui.close();
                 }
-                let targets = if in_multi { multi_ids.clone() } else { vec![l.id] };
+                if l.mask.is_some() && ui.button(tr("Export mask…")).on_hover_text(tr("Writes this layer's mask as a gray image")).clicked() {
+                    export_request = Some((targets.clone(), true));
+                    ui.close();
+                }
                 ui.menu_button("Blending options", |ui| {
                     if ui.button("Copy").on_hover_text("Copies this layer's blend mode and opacity of every channel").clicked() {
                         copy_blending = Some(l.id);
@@ -847,11 +852,13 @@ Files: {}", ex.dir().display()));
         if targets.is_empty() { state.set_status("Select the layers or folders to flatten", now); }
         else { cmds.push(Command::FlattenLayers(targets)); }
     }
-    if let Some(layers) = export_flattened { state.flatten_export = Some(layers); }
     state.run(cmds, now);
-    flatten_export_window(state, ui.ctx(), now);
     // The grouped layers are inside the new folder, which is now the selection.
     if grouped || duplicated { state.multi.clear(); }
+    if let Some((layers, masks)) = export_request {
+        let folder = state.export.folder.clone();
+        state.layer_export.show_for(layers, masks, &folder);
+    }
     if let Some((layer, action)) = layer_action {
         use subcraft_app::part_workflow::LayerAction;
         let mask_added = matches!(action, LayerAction::WhiteMask | LayerAction::BlackMask);
@@ -914,8 +921,6 @@ fn generator_rows(ui: &mut Ui, layer: &Layer, mask: &subcraft_doc::Mask, depth: 
     }
 }
 
-/// Save a layer as a smart material (or its mask as a smart mask) into the user library and
-/// show it in the shelf.
 /// Indices of the names containing every word of `query` (case-insensitive), in list order.
 pub fn smart_material_matches<'a>(names: impl Iterator<Item = &'a str>, query: &str) -> Vec<usize> {
     let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
@@ -929,32 +934,8 @@ pub fn smart_material_matches<'a>(names: impl Iterator<Item = &'a str>, query: &
         .collect()
 }
 
-/// "Export flattened": the file name pattern, then a folder to write the images to.
-fn flatten_export_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
-    let Some(layers) = state.flatten_export.clone() else { return };
-    let mut open = true;
-    let mut go = false;
-    egui::Window::new("Export flattened").open(&mut open).collapsible(false).resizable(false).default_width(420.0).show(ctx, |ui| {
-        ui.label(format!("{} layer(s): one image per channel, plus the mask", layers.len()));
-        prop_row(ui, "File name", |ui| { ui.text_edit_singleline(&mut state.flatten_pattern); });
-        ui.label(RichText::new("$textureSet, $layerName, $srcMap (the channel). Height and Normal are written as EXR, the rest as PNG; 1 px padding.").small().color(TEXT_FAINT));
-        go = ui.button("Choose folder and export").clicked();
-    });
-    if !open { state.flatten_export = None; return; }
-    if !go { return; }
-    let Some(folder) = rfd::FileDialog::new().set_title("Folder for the flattened images").pick_folder() else { return };
-    let pattern = if state.flatten_pattern.trim().is_empty() { subcraft_app::flatten::DEFAULT_PATTERN.to_string() } else { state.flatten_pattern.clone() };
-    let mut files = 0;
-    for layer in &layers {
-        match state.session.export_flattened(*layer, &folder, &pattern) {
-            Ok(written) => files += written.len(),
-            Err(e) => { state.set_status(format!("Export flattened: {e}"), now); return; }
-        }
-    }
-    state.flatten_export = None;
-    state.set_status(format!("Exported {files} flattened image(s) to {}", folder.display()), now);
-}
-
+/// Save a layer as a smart material (or its mask as a smart mask) into the user library and
+/// show it in the shelf.
 pub fn save_to_library(state: &mut UiState, layer: subcraft_core::LayerId, mask: bool, now: f64) {
     let Some(lib) = state.user_library.clone() else {
         state.set_status("No library folder (Documents not found; set SUBCRAFT_LIBRARY)", now);

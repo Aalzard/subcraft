@@ -288,17 +288,17 @@ Layout notes: a small separate window opened from the File menu, with a file-typ
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Export flattened group to files | Layer stack right-click on a layer or group | - | done | crates/ui/src/panels/layers.rs:866 | - |
-| Export flattened: batch over a multi-selection | Same entry with several layers selected | - | done | crates/ui/src/panels/layers.rs:866 | - |
-| Export flattened: folder picker | Dialog | - | done | crates/ui/src/panels/layers.rs:878 | - |
-| Export flattened: file name pattern field | Dialog | $textureSet_$layerName_$srcMap(.$udim), remembered | partial: remembered for the session | crates/app/src/flatten.rs:25 | - |
-| Keyword $layerName | Flattened export pattern | - | done | crates/app/src/flatten.rs:25 | - |
-| Keyword $srcMap | Flattened export pattern | - | done | crates/app/src/flatten.rs:25 | - |
-| Export flattened: resolution from texture set, bit depth from channel | Fixed behaviour | - | partial: resolution from the set; 8-bit PNG or 32-bit EXR by channel | crates/app/src/flatten.rs:34 | - |
-| Export flattened: padding fixed to 1 px | Fixed behaviour | 1 px | done | crates/app/src/flatten.rs:111 | - |
-| Export flattened: format by channel (EXR for height / normal, PNG otherwise) | Fixed behaviour | - | done | crates/app/src/flatten.rs:34 | - |
-| Export flattened: format choice when only a mask is exported | Dialog | - | missing | - | - |
-| Export mask to file | Right-click on a layer mask | (unverified label; named in release notes) | missing | - | - |
+| Export flattened group to files | Layer stack right-click on a layer or group | - | done (right-click a layer or folder > Export flattened…) | crates/ui/src/layer_export.rs, crates/app/src/session.rs export_flattened_layers | chunk 44 |
+| Export flattened: batch over a multi-selection | Same entry with several layers selected | - | done (each selected layer) | crates/ui/src/panels/layers.rs | chunk 44 |
+| Export flattened: folder picker | Dialog | - | done | crates/ui/src/layer_export.rs | chunk 44 |
+| Export flattened: file name pattern field | Dialog | $textureSet_$layerName_$srcMap(.$udim), remembered | done (remembered for the session; default $textureSet_$layerName_$srcMap(.$udim)) | crates/export/src/layer_export.rs FLATTENED_PATTERN | chunk 44 |
+| Keyword $layerName | Flattened export pattern | - | done | crates/export/src/lib.rs expand_pattern_with | chunk 44 |
+| Keyword $srcMap | Flattened export pattern | - | done (channel name without spaces; mask for masks) | crates/export/src/layer_export.rs src_map_name | chunk 44 |
+| Export flattened: resolution from texture set, bit depth from channel | Fixed behaviour | - | done | crates/export/src/layer_export.rs flattened_format | chunk 44 |
+| Export flattened: padding fixed to 1 px | Fixed behaviour | 1 px | done | crates/export/src/layer_export.rs | chunk 44 |
+| Export flattened: format by channel (EXR for height / normal, PNG otherwise) | Fixed behaviour | - | done (PNG at the channel's bit depth; float channels EXR) | crates/export/src/layer_export.rs flattened_format | chunk 44 |
+| Export flattened: format choice when only a mask is exported | Dialog | - | done (file type and bit depth menus) | crates/ui/src/layer_export.rs | chunk 44 |
+| Export mask to file | Right-click on a layer mask | (unverified label; named in release notes) | done (right-click > Export mask…, mask effects evaluated) | crates/app/src/session.rs export_layer_masks | chunk 44 |
 
 ## Export of the 2D view
 
