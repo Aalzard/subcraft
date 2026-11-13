@@ -29,6 +29,8 @@ pub struct PresetEditor {
     pub error: Option<String>,
     /// Ask before deleting this preset id.
     confirm_delete: Option<String>,
+    /// A user preset being renamed from the list: (id, the name being typed).
+    rename: Option<(String, String)>,
     /// A source dropped on a slot, waiting for its channel choice: (first component, the slot
     /// is an RGB slot, the source).
     pending_drop: Option<(usize, bool, SourceItem)>,
@@ -149,8 +151,91 @@ fn shows_rgb_slot(m: &OutputMap) -> bool {
     m.components.len() >= 3 && m.rgb_slot.unwrap_or_else(|| SourceItem::of_rgb(&m.components).is_some())
 }
 
+/// What a template asks for from the list's right-click menu.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RowAction {
+    Rename,
+    Duplicate,
+    Delete,
+}
+
+/// One template in the list column: click selects it, double-click renames a user preset, and the
+/// right-click menu offers Rename, Duplicate and Delete like Painter's list (built-ins can only be
+/// duplicated).
+fn template_row(ui: &mut Ui, p: &ExportTemplate, key: &mut String, action: &mut Option<(String, RowAction)>) {
+    let r = ui.selectable_label(*key == p.key(), &p.name);
+    if r.clicked() {
+        *key = p.key().to_string();
+    }
+    let user = !p.is_builtin();
+    if user && r.double_clicked() {
+        *action = Some((p.key().to_string(), RowAction::Rename));
+    }
+    r.context_menu(|ui| {
+        if ui.add_enabled(user, egui::Button::new(tr("Rename…"))).on_disabled_hover_text(tr("Built-in templates can't be renamed")).clicked() {
+            *action = Some((p.key().to_string(), RowAction::Rename));
+            ui.close();
+        }
+        if ui.button(tr("Duplicate")).clicked() {
+            *action = Some((p.key().to_string(), RowAction::Duplicate));
+            ui.close();
+        }
+        if ui.add_enabled(user, egui::Button::new(tr("Delete"))).on_disabled_hover_text(tr("Built-in templates can't be deleted")).clicked() {
+            *action = Some((p.key().to_string(), RowAction::Delete));
+            ui.close();
+        }
+    });
+}
+
 fn dim(text: &str) -> RichText {
     RichText::new(text).color(TEXT_DIM)
+}
+
+/// Painter's template list (the Output templates tab's left column): built-ins, then My presets.
+/// A right-click menu per template (Rename, Duplicate, Delete) and double-click to rename; the
+/// rename field and the delete question show under the picker row (`preset_bar`). Returns a
+/// status message.
+pub fn template_list(ui: &mut Ui, presets: &mut ExportPresets, key: &mut String, ed: &mut PresetEditor) -> Option<String> {
+    let mut action: Option<(String, RowAction)> = None;
+    egui::ScrollArea::vertical().id_salt("template_list").auto_shrink([false, true]).show(ui, |ui| {
+        ui.label(caption("Built-in (read-only)"));
+        for p in presets.builtin() {
+            template_row(ui, p, key, &mut action);
+        }
+        ui.separator();
+        ui.label(caption("My presets"));
+        if presets.user().is_empty() {
+            ui.label(dim("None yet: duplicate a built-in or click New"));
+        }
+        for p in presets.user() {
+            template_row(ui, p, key, &mut action);
+        }
+    });
+    let (k, what) = action?;
+    match what {
+        RowAction::Duplicate => Some(match presets.duplicate(&k) {
+            Ok(p) => {
+                *key = p.key().to_string();
+                ed.map = 0;
+                format!("Created preset \"{}\"", p.name)
+            }
+            Err(e) => format!("Preset: {e}"),
+        }),
+        RowAction::Rename => {
+            if let Some(p) = presets.find(&k) {
+                ed.rename = p.id.clone().map(|id| (id, p.name.clone()));
+                *key = k;
+            }
+            None
+        }
+        RowAction::Delete => {
+            if let Some(p) = presets.find(&k) {
+                ed.confirm_delete = p.id.clone();
+                *key = k;
+            }
+            None
+        }
+    }
 }
 
 
@@ -194,6 +279,9 @@ pub fn preset_bar(ui: &mut Ui, presets: &mut ExportPresets, key: &mut String, ed
             select(presets.duplicate(&k), "Created");
         }
         let deletable = !current.is_builtin();
+        if ui.add_enabled(deletable, egui::Button::new(tr("Rename…"))).on_disabled_hover_text(tr("Built-in templates can't be renamed")).clicked() {
+            ed.rename = current.id.clone().map(|id| (id, current.name.clone()));
+        }
         if ui.add_enabled(deletable, egui::Button::new(tr("Delete"))).on_disabled_hover_text(tr("Built-in templates can't be deleted")).clicked() {
             ed.confirm_delete = current.id.clone();
         }
@@ -221,6 +309,32 @@ pub fn preset_bar(ui: &mut Ui, presets: &mut ExportPresets, key: &mut String, ed
             });
         }
     });
+    if let Some((id, mut text)) = ed.rename.take() {
+        let mut keep = true;
+        ui.horizontal(|ui| {
+            ui.label(tr("Rename preset"));
+            let r = ui.add(egui::TextEdit::singleline(&mut text).id_salt("preset_rename").desired_width(220.0));
+            let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+            if ui.button(tr("Rename")).clicked() || enter {
+                status = Some(match presets.rename(&id, &text) {
+                    Ok(p) => {
+                        *key = p.key().to_string();
+                        // The editor reloads the preset under its new name.
+                        ed.draft_of.clear();
+                        format!("Renamed preset to \"{}\"", p.name)
+                    }
+                    Err(e) => format!("Preset: {e}"),
+                });
+                keep = false;
+            }
+            if ui.button(tr("Cancel")).clicked() {
+                keep = false;
+            }
+        });
+        if keep {
+            ed.rename = Some((id, text));
+        }
+    }
     if let Some(id) = ed.confirm_delete.clone() {
         ui.horizontal(|ui| {
             ui.label(RichText::new(format!("Delete preset \"{}\"? This removes its file from the library.", current.name)).color(theme::WARNING));

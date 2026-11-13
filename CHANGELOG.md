@@ -8,6 +8,9 @@ What changed in SubCraft, newest first. Download the latest build from the
 ### Added
 - **Colour space per file** in the Export window's list of maps, like Painter's: sRGB, Linear (float files)
   or Raw (data such as normals and roughness).
+- **Output templates list** in the Output templates tab's left column, like Painter's: right-click a
+  template for Rename…, Duplicate and Delete (built-ins can only be duplicated), double-click a user
+  preset to rename it. A Rename… button sits beside New, Duplicate and Delete.
 
 ### Fixed
 - **The export folder is saved with the project** (#322). It used to reset to the default each time the

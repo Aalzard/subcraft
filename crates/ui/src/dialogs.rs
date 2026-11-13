@@ -348,7 +348,7 @@ pub fn export_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
         state.export.selected_set = None;
     }
     let title = if view_only { "Export 2D View" } else { "Export Textures" };
-    let width = if state.export.tab == ExportTab::OutputTemplates && !view_only { 860.0 } else { 640.0 };
+    let width = if state.export.tab == ExportTab::OutputTemplates && !view_only { 1080.0 } else { 640.0 };
     let mut action = None;
     // Opened at a fixed height: a window only grows to its content a step per frame, and the
     // scrolling tab below fills the height it is given, so the button row would sit outside the
@@ -381,10 +381,23 @@ pub fn export_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
                     preset_status = Some(s);
                 }
                 ui.add_space(6.0);
-                let key = ex.preset.clone();
-                if let Some(s) = crate::export_presets::preset_editor(ui, list, &key, &mut ex.editor, &mesh_name) {
-                    preset_status = Some(s);
-                }
+                // Painter's layout: the template list on the left, the selected template's editor
+                // beside it.
+                ui.horizontal_top(|ui| {
+                    ui.allocate_ui_with_layout(egui::vec2(220.0, 420.0), egui::Layout::top_down(egui::Align::Min), |ui| {
+                        ui.set_width(220.0);
+                        if let Some(s) = crate::export_presets::template_list(ui, list, &mut ex.preset, &mut ex.editor) {
+                            preset_status = Some(s);
+                        }
+                    });
+                    ui.separator();
+                    ui.vertical(|ui| {
+                        let key = ex.preset.clone();
+                        if let Some(s) = crate::export_presets::preset_editor(ui, list, &key, &mut ex.editor, &mesh_name) {
+                            preset_status = Some(s);
+                        }
+                    });
+                });
             }
             ExportTab::ListOfExports => export_log(ui, &state.export.log),
         });
