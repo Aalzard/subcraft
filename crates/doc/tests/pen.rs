@@ -3,7 +3,7 @@ use subcraft_core::{ChannelKind, ChannelValue};
 use subcraft_doc::{Layer, LayerContent, LayerKind, PenAnchor, PenPath, TextureSet};
 
 fn path() -> PenPath {
-    PenPath { anchors: vec![PenAnchor::new(Vec2::new(0.1, 0.5)), PenAnchor::new(Vec2::new(0.9, 0.5))], closed: false, radius: 0.02, opacity: 1.0, hardness: 1.0, values: [(ChannelKind::BaseColor, ChannelValue::rgb(1.0, 0.0, 0.0))].into() }
+    PenPath { anchors: vec![PenAnchor::new(Vec2::new(0.1, 0.5)), PenAnchor::new(Vec2::new(0.9, 0.5))], closed: false, radius: 0.02, opacity: 1.0, hardness: 1.0, values: [(ChannelKind::BaseColor, ChannelValue::rgb(1.0, 0.0, 0.0))].into(), kind: Default::default(), stamp: None }
 }
 
 #[test]
@@ -38,3 +38,22 @@ fn duplicate_pen_layer_has_fresh_anchor_identity_with_shared_raster_cache() {
     assert_ne!(a.path.as_ref().unwrap().anchors[0].id, b.path.as_ref().unwrap().anchors[0].id);
     assert!(std::sync::Arc::ptr_eq(a.channels[&ChannelKind::BaseColor].tile(0).unwrap(), b.channels[&ChannelKind::BaseColor].tile(0).unwrap()));
 }
+
+#[test]
+fn a_stamped_path_checks_its_spacing_and_keeps_its_tip_with_the_project() {
+    let mut p = path();
+    p.stamp = Some(subcraft_doc::PathStamp::default());
+    assert!(p.validate().is_ok());
+    p.stamp = Some(subcraft_doc::PathStamp { spacing: 9.0, ..Default::default() });
+    assert!(p.validate().is_err(), "spacing beyond 400 %");
+    let tip = subcraft_core::ResourceId::new();
+    p.stamp = Some(subcraft_doc::PathStamp { alpha: Some(tip), ..Default::default() });
+    let ts = subcraft_doc::TextureSet::new("Body", 0, 64);
+    let mut layer = subcraft_doc::Layer::new_paint("Pen path", &ts);
+    let subcraft_doc::LayerContent::Paint(content) = &mut layer.content else { unreachable!() };
+    content.path = Some(p);
+    let mut used = Vec::new();
+    layer.collect_resources(&mut used);
+    assert_eq!(used, vec![tip], "saving keeps the stamped tip image");
+}
+

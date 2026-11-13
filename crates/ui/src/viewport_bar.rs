@@ -494,6 +494,9 @@ pub fn show(ui: &mut Ui, state: &mut crate::state::UiState) {
                     crate::brush_bar::channel_switches(ui, state);
                 });
             }
+            if state.picking_parts {
+                ui.horizontal_wrapped(|ui| crate::panels::parts::mask_bar(ui, state));
+            }
         });
     ui.painter().hline(
         frame.response.rect.x_range(),

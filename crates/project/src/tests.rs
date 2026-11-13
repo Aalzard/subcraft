@@ -88,13 +88,13 @@ fn schema_8_spread_roundtrips_and_schema_7_preserves_legacy_evaluation() {
 #[test]
 fn pen_schema_has_explicit_stable_fields_and_rejects_duplicate_anchors() {
     let id = uuid::Uuid::new_v4();
-    let path = PenPathV4 { anchors: vec![PenAnchorV4 { id, position: [0.2, 0.3], incoming: [0.0, -0.1], outgoing: [0.0, 0.1] }], closed: false, radius: 0.02, hardness: 0.5, opacity: 1.0, values: vec![PenChannelV4 { channel: ChannelKind::BaseColor, value: [1.0, 0.0, 0.0] }] };
+    let path = PenPathV4 { anchors: vec![PenAnchorV4 { id, position: [0.2, 0.3], incoming: [0.0, -0.1], outgoing: [0.0, 0.1] }], closed: false, radius: 0.02, hardness: 0.5, opacity: 1.0, values: vec![PenChannelV4 { channel: ChannelKind::BaseColor, value: [1.0, 0.0, 0.0] }], kind: Default::default(), stamp: None };
     let json = serde_json::to_value(&path).unwrap();
     assert_eq!(json["anchors"][0]["id"], id.to_string()); assert_eq!(json["anchors"][0]["outgoing"], serde_json::json!([0.0, 0.1f32]));
     assert_eq!(json["values"][0]["channel"], "base_color");
     let mut layer = Layer::new_paint("Pen", &TextureSet::new("Body", 0, 128));
     let LayerContent::Paint(p) = &mut layer.content else { panic!() };
-    let mut source = subcraft_doc::PenPath { anchors: vec![subcraft_doc::PenAnchor { id: subcraft_core::AnchorId(id), position: [0.2, 0.3].into(), incoming: [0.0, -0.1].into(), outgoing: [0.0, 0.1].into() }], closed: false, radius: 0.02, hardness: 0.5, opacity: 1.0, values: [(ChannelKind::BaseColor, ChannelValue::rgb(1.0, 0.0, 0.0))].into() };
+    let mut source = subcraft_doc::PenPath { anchors: vec![subcraft_doc::PenAnchor { id: subcraft_core::AnchorId(id), position: [0.2, 0.3].into(), incoming: [0.0, -0.1].into(), outgoing: [0.0, 0.1].into() }], closed: false, radius: 0.02, hardness: 0.5, opacity: 1.0, values: [(ChannelKind::BaseColor, ChannelValue::rgb(1.0, 0.0, 0.0))].into(), kind: Default::default(), stamp: None };
     source.anchors.push(source.anchors[0].clone()); p.path = Some(source);
     let mut ts = TextureSet::new("Body", 0, 128); ts.insert_above(None, layer);
     let bytes = write_project(Cursor::new(Vec::new()), &primitives::cube(2.0), &Document { texture_sets: vec![ts] }, &ResourceStore::default(), &MeshMapSet::new()).unwrap().into_inner();

@@ -82,6 +82,7 @@ Layout notes: every paint tool works in the 2D view except the Path tools, which
 | Projection tool in UV space | LMB drag | - | missing | - | - |
 | Polygon Fill in UV space | LMB click | - | done | crates/ui/src/panels/uv_view.rs:198 | - |
 | Polygon Fill rectangular marquee in UV space | LMB drag | - | done | crates/ui/src/panels/uv_view.rs | #131 |
+| Polygon Fill: element under the cursor highlighted | 2D view overlay | - | done: follows the fill mode | crates/ui/src/panels/uv_view.rs | - |
 | Smudge in UV space | LMB drag | - | done | crates/paint/src/stroke.rs | - |
 | Clone in UV space (V + LMB sets the source) | LMB drag | - | done: Ctrl+click or V+click sets the source; the source is shared with the 3D view | crates/app/src/session.rs | - |
 | Clone brush preview in the 2D view | 2D view overlay (2018.3) | - | partial: source cross and offset circle, no image preview | crates/ui/src/panels/uv_view.rs | - |
@@ -102,7 +103,7 @@ Layout notes: every paint tool works in the 2D view except the Path tools, which
 | Stencil translation | S + MMB drag | - | done | crates/ui/src/viewport.rs | - |
 | Stencil zoom | S + RMB drag | - | done | crates/ui/src/viewport.rs | - |
 | Ignore stencil mask | hold N | - | done | crates/ui/src/viewport.rs | - |
-| Quick mask editing in the 2D view | U / Y / I | - | missing | - | - |
+| Quick mask editing in the 2D view | U / Y / I | - | done: red tint over the protected areas | crates/ui/src/panels/uv_view.rs | - |
 | Brush Size Space "Texture" follows the 2D zoom | Properties > Brush > Size Space | Object | missing | - | - |
 | Right-click: floating Properties at the cursor | RMB click in the 2D view | - | missing | - | #131 |
 | Path tools show a "not supported in 2D" message | 2D view with a Path tool | - | partial: the reverse, Pen paths are drawn and edited in the 2D view | crates/ui/src/panels/uv_view.rs:130 | - |

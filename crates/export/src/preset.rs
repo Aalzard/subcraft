@@ -245,10 +245,15 @@ mod painter {
             "user1" => (User1, false),
             "user2" => (User2, false),
             "user3" => (User3, false),
-            other => {
-                let n: usize = other.strip_prefix("user")?.parse().ok()?;
-                (*ChannelKind::USER.get(n)?, false)
-            }
+            other => match ChannelKind::EXTENDED.into_iter().find(|k| k.key() == other) {
+                // Coat, sheen, anisotropy... by their key. "diffuse" and "glossiness" were taken
+                // above: in a preset they stay the maps converted from Base Color and Roughness.
+                Some(kind) => (kind, false),
+                None => {
+                    let n: usize = other.strip_prefix("user")?.parse().ok()?;
+                    (*ChannelKind::USER.get(n)?, false)
+                }
+            },
         })
     }
 
@@ -369,12 +374,17 @@ mod painter {
             "bmp" => Container::Bmp,
             "hdr" => Container::Hdr,
             "webp" => Container::Webp,
+            "pbm" => Container::Pbm,
+            "pgm" => Container::Pgm,
+            "ppm" => Container::Ppm,
+            "pfm" => Container::Pfm,
             other => {
                 warnings.push(format!("{preset}: file format \"{other}\" is not supported, using PNG"));
                 Container::Png
             }
         };
         let depth = match text("bitDepth").unwrap_or_else(|| "8".into()).to_ascii_lowercase().as_str() {
+            "1" => BitDepth::B1,
             "16" => BitDepth::B16,
             "16f" => BitDepth::F16,
             "32f" | "32" => BitDepth::F32,
