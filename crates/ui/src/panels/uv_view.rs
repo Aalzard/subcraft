@@ -204,9 +204,6 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             }
         });
         ui.horizontal_wrapped(|ui| brush_controls(state, ui));
-        if painting_tool {
-            crate::brush_bar::channel_switches(ui, state);
-        }
         if state.picking_parts {
             ui.horizontal_wrapped(|ui| crate::panels::parts::mask_bar(ui, state));
         }

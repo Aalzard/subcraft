@@ -479,12 +479,9 @@ pub fn show(ui: &mut Ui, state: &mut crate::state::UiState) {
                 });
             }
             if painting {
-                // The Alt+H button leads the channel row: that row wraps, so the brush rows keep
-                // the widths the layout constants above were measured with.
-                ui.horizontal(|ui| {
-                    hide_excluded_toggle(ui, state);
-                    crate::brush_bar::channel_switches(ui, state);
-                });
+                // Which channels the brush paints is set in the Brush panel (Material), as in
+                // other painters; the bar keeps the Alt+H toggle.
+                ui.horizontal(|ui| hide_excluded_toggle(ui, state));
             }
             if state.picking_parts {
                 ui.horizontal_wrapped(|ui| crate::panels::parts::mask_bar(ui, state));

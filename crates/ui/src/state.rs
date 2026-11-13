@@ -255,6 +255,8 @@ pub struct UiState {
     pub uv_density: HashMap<u32, f32>,
     pub rename: Option<(subcraft_core::LayerId, String)>,
     pub show_shortcuts: bool,
+    /// Startup logo overlay (launches only, not scripted screenshots or tests).
+    pub intro: Option<crate::intro::Intro>,
     pub frame_time_ms: f32,
     /// Rendering mode: sampling paused, last frame's progress, and whether the path tracer
     /// was used last frame (its GPU memory is released when the mode turns off).
@@ -487,6 +489,7 @@ impl UiState {
             uv_density: HashMap::new(),
             rename: None,
             show_shortcuts: false,
+            intro: None,
             frame_time_ms: 0.0,
             pt_paused: false,
             pt_status: None,
