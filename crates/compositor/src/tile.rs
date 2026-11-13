@@ -62,7 +62,10 @@ pub(crate) fn evaluate_tile_local_cached(
     tile: usize,
     prefix: Option<(&crate::PrefixCache, &[usize])>,
 ) -> Vec<(ChannelKind, Vec<[f32; 4]>)> {
-    let mut accs: Vec<Acc> = ts.channel_kinds().map(|k| Acc::root(k, ts.base_alpha())).collect();
+    // Only the channels the pending change can affect, when the cache says so.
+    let only = prefix.and_then(|(cache, _)| cache.only());
+    let mut accs: Vec<Acc> =
+        ts.channel_kinds().filter(|k| only.as_ref().is_none_or(|only| only.contains(k))).map(|k| Acc::root(k, ts.base_alpha())).collect();
     let active = vec![true; accs.len()];
     let Some((cache, plan)) = prefix else {
         apply_stack(&ts.layers, &mut accs, &active, tc);

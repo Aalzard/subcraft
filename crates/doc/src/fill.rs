@@ -580,6 +580,37 @@ mod tests {
         assert!(!Projection { shape_crop: ShapeCrop::Crop, ..p }.clips());
         assert!(Projection { mode: ProjectionMode::Planar, shape_crop: ShapeCrop::Crop, ..p }.clips());
     }
+
+    #[test]
+    fn projection_transform_brings_positions_into_the_box_frame() {
+        let close = |a: [f32; 3], b: [f32; 3]| a.iter().zip(&b).all(|(x, y)| (x - y).abs() < 1e-5);
+        let planar = |transform3| Projection { mode: ProjectionMode::Planar, transform3, ..Projection::default() };
+        let id = ProjectionTransform::default();
+        assert!(id.is_identity() && id.valid());
+        assert_eq!(planar(id).local([0.2, 0.3, 0.4], [0.0, 0.0, 1.0]), ([0.2, 0.3, 0.4], [0.0, 0.0, 1.0]));
+        // Offset: the box centre moves, so the texel a quarter to the right is its centre.
+        let moved = ProjectionTransform { offset: [0.25, 0.0, 0.0], ..id };
+        assert!(close(planar(moved).local([0.75, 0.5, 0.5], [0.0, 0.0, 1.0]).0, [0.5, 0.5, 0.5]));
+        // Scale 2 on X: the box edge is at the cube's edge plus half a cube.
+        let wide = ProjectionTransform { scale: [2.0, 1.0, 1.0], ..id };
+        assert!(close(planar(wide).local([1.0, 0.5, 0.5], [0.0, 0.0, 1.0]).0, [0.75, 0.5, 0.5]));
+        // A quarter turn about Z: the model's +Y is the box's +X, for positions and normals.
+        let turned = ProjectionTransform { rotation_deg: [0.0, 0.0, 90.0], ..id };
+        let (p, n) = planar(turned).local([0.5, 0.75, 0.5], [0.0, 1.0, 0.0]);
+        assert!(close(p, [0.75, 0.5, 0.5]) && close(n, [1.0, 0.0, 0.0]), "{p:?} {n:?}");
+        // Rotations apply X first, then Y, then Z: the box's +Y goes to +Z, then stays under Z.
+        let both = ProjectionTransform { rotation_deg: [90.0, 0.0, 90.0], ..id };
+        assert!(close(planar(both).local([0.5, 0.5, 0.75], [0.0, 0.0, 1.0]).0, [0.5, 0.75, 0.5]));
+        // UV and Warp projections ignore it; invalid values are rejected; the default is not written.
+        let uv = Projection { transform3: moved, ..Projection::default() };
+        assert_eq!(uv.local([0.75, 0.5, 0.5], [0.0; 3]).0, [0.75, 0.5, 0.5]);
+        assert!(uv.effective_transform3().is_identity() && planar(moved).effective_transform3() == moved);
+        assert!(planar(moved).valid() && !planar(ProjectionTransform { scale: [0.0, 1.0, 1.0], ..id }).valid());
+        assert!(!planar(ProjectionTransform { offset: [f32::NAN, 0.0, 0.0], ..id }).valid());
+        assert!(!serde_json::to_string(&planar(id)).unwrap().contains("transform3"));
+        let back: Projection = serde_json::from_str(&serde_json::to_string(&planar(turned)).unwrap()).unwrap();
+        assert_eq!(back.transform3, turned);
+    }
 }
 
 /// Procedural pattern generators (original implementations in `subcraft-materials`).
@@ -789,36 +820,5 @@ pub enum FillSource {
 impl FillSource {
     pub fn uniform(v: ChannelValue) -> Self {
         FillSource::Uniform { value: v }
-    }
-
-    #[test]
-    fn projection_transform_brings_positions_into_the_box_frame() {
-        let close = |a: [f32; 3], b: [f32; 3]| a.iter().zip(&b).all(|(x, y)| (x - y).abs() < 1e-5);
-        let planar = |transform3| Projection { mode: ProjectionMode::Planar, transform3, ..Projection::default() };
-        let id = ProjectionTransform::default();
-        assert!(id.is_identity() && id.valid());
-        assert_eq!(planar(id).local([0.2, 0.3, 0.4], [0.0, 0.0, 1.0]), ([0.2, 0.3, 0.4], [0.0, 0.0, 1.0]));
-        // Offset: the box centre moves, so the texel a quarter to the right is its centre.
-        let moved = ProjectionTransform { offset: [0.25, 0.0, 0.0], ..id };
-        assert!(close(planar(moved).local([0.75, 0.5, 0.5], [0.0, 0.0, 1.0]).0, [0.5, 0.5, 0.5]));
-        // Scale 2 on X: the box edge is at the cube's edge plus half a cube.
-        let wide = ProjectionTransform { scale: [2.0, 1.0, 1.0], ..id };
-        assert!(close(planar(wide).local([1.0, 0.5, 0.5], [0.0, 0.0, 1.0]).0, [0.75, 0.5, 0.5]));
-        // A quarter turn about Z: the model's +Y is the box's +X, for positions and normals.
-        let turned = ProjectionTransform { rotation_deg: [0.0, 0.0, 90.0], ..id };
-        let (p, n) = planar(turned).local([0.5, 0.75, 0.5], [0.0, 1.0, 0.0]);
-        assert!(close(p, [0.75, 0.5, 0.5]) && close(n, [1.0, 0.0, 0.0]), "{p:?} {n:?}");
-        // Rotations apply X first, then Y, then Z: the box's +Y goes to +Z, then stays under Z.
-        let both = ProjectionTransform { rotation_deg: [90.0, 0.0, 90.0], ..id };
-        assert!(close(planar(both).local([0.5, 0.5, 0.75], [0.0, 0.0, 1.0]).0, [0.5, 0.75, 0.5]));
-        // UV and Warp projections ignore it; invalid values are rejected; the default is not written.
-        let uv = Projection { transform3: moved, ..Projection::default() };
-        assert_eq!(uv.local([0.75, 0.5, 0.5], [0.0; 3]).0, [0.75, 0.5, 0.5]);
-        assert!(uv.effective_transform3().is_identity() && planar(moved).effective_transform3() == moved);
-        assert!(planar(moved).valid() && !planar(ProjectionTransform { scale: [0.0, 1.0, 1.0], ..id }).valid());
-        assert!(!planar(ProjectionTransform { offset: [f32::NAN, 0.0, 0.0], ..id }).valid());
-        assert!(!serde_json::to_string(&planar(id)).unwrap().contains("transform3"));
-        let back: Projection = serde_json::from_str(&serde_json::to_string(&planar(turned)).unwrap()).unwrap();
-        assert_eq!(back.transform3, turned);
     }
 }

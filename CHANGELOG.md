@@ -5,6 +5,20 @@ What changed in SubCraft, newest first. Download the latest build from the
 
 ## Unreleased
 
+### Added
+- **Converted maps** in the preset editor, like Painter's: Diffuse, Specular, Reflection, Glossiness,
+  Glossiness squared, Mixed AO, f0 and 1/ior, computed from the metal / roughness channels. Painter
+  presets that use them import without losing those maps.
+- **Export window tabs**, like Painter: Settings, Output templates (the preset list and editor) and List of
+  exports (files written per texture set, and the messages; Export switches to it). Settings lists Global
+  settings and each texture set: a texture set can have its own file type, bit depth, size and padding.
+  The bottom row has Reset all, Cancel (closes without keeping the changes), Save settings (stores the
+  export settings in the project) and Export.
+- **About 25 more built-in export templates** with Painter's names: Blender, Arnold, Corona, CryEngine 3,
+  Amazon Lumberyard, Keyshot, Lens Studio, Maxwell, Redshift, Renderman, Shade 3D, Spark AR, V-Ray, Unity
+  HDRP / URP Specular, PBR Specular Glossiness (converted), Roblox MaterialVariant, glTF + displacement,
+  Mesh Maps and Document channels + Normal + AO.
+
 ## 0.3.7 - 2026-11-13
 
 ### Added
