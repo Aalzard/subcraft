@@ -310,6 +310,7 @@ space \"view\": points are [x, y] pixels in the render_preview image taken with 
                 "anchors": { "type": "array", "items": { "type": "object" }, "description": "[{position: [u,v], in: [du,dv], out: [du,dv]}] (UV space)." },
                 "smooth": { "type": "boolean" }, "closed": { "type": "boolean" }, "filled": { "type": "boolean", "description": "Fill the inside of the (closed) path instead of stroking its outline." },
                 "width": { "type": "number", "description": "Line width as a fraction of the texture width (e.g. 0.01)." },
+                "view_width": { "type": "integer", "description": "With space view: width in pixels of the render_preview image the points are in (default 768; `width` is the line width)." },
                 "hardness": { "type": "number" }, "opacity": { "type": "number" },
                 "channels": { "type": "object", "description": "Values the line paints, e.g. {\"base_color\": \"#ffcc00\", \"roughness\": 0.3} (default: the brush's)." },
             })), &[], false),

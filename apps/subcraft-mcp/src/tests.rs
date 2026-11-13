@@ -269,3 +269,16 @@ fn flatten_instantiate_and_channel_removal() {
     let msg = fails(&mut server, "texture_set_update", json!({ "texture_set": "Body", "remove_channels": ["emissive"] }));
     assert!(msg.to_lowercase().contains("emissive"), "{msg}");
 }
+
+/// QA 2026-11: pen_path's `width` was both the line width and, in space view, the width of the
+/// rendered image: a line width of 0.01 was refused as an image size.
+#[test]
+fn a_view_space_pen_path_takes_its_image_size_apart_from_its_line_width() {
+    let mut server = Server::new();
+    sample(&mut server);
+    let picked = ok(&mut server, "pick", json!({ "width": 512, "height": 512, "points": [[256, 256]] }));
+    assert_eq!(picked["points"][0]["hit"], json!(true), "{picked}");
+    let path = ok(&mut server, "pen_path", json!({ "space": "view", "view_width": 512, "height": 512, "width": 0.01, "points": [[250, 256], [262, 256]] }));
+    let width = path["path"]["width"].as_f64().unwrap();
+    assert!((width - 0.01).abs() < 1e-6, "the line width asked for: {path}");
+}
