@@ -471,8 +471,10 @@ mod layout_tests {
         let mut state = crate::state::UiState::new(subcraft_app::Session::new(subcraft_mesh::primitives::cube(2.0), 64), None);
         state.hovered_3d = true;
         state.hovered_2d = true;
+        state.gpu_changed = true;
         state.begin_frame();
         assert!(!state.hovered_3d && !state.hovered_2d);
+        assert!(!state.gpu_changed, "uploads are counted per frame");
     }
     #[test]
     fn default_layout_is_valid_and_broken_ones_are_rejected() {
