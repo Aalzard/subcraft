@@ -57,3 +57,34 @@ fn remove_keeps_paint_and_format_is_one_step() {
     s.perform(Action::Undo).unwrap();
     assert!(s.selected_texture_set().has_channel(ChannelKind::Roughness));
 }
+
+#[test]
+fn extended_channel_types_are_added_painted_as_fills_and_saved() {
+    // 128: the smallest size a project file accepts.
+    let mut s = Session::new(primitives::cube(2.0), 128);
+    let ts = s.selection().texture_set;
+    for k in ChannelKind::EXTENDED {
+        s.execute(Command::AddChannel { texture_set: ts, kind: k }).unwrap();
+    }
+    let set = s.selected_texture_set();
+    assert!(ChannelKind::EXTENDED.iter().all(|&k| set.has_channel(k)));
+    let format = |k: ChannelKind| set.channels.iter().find(|d| d.kind == k).map(|d| d.format);
+    assert_eq!(format(ChannelKind::CoatNormal), Some(ChannelFormat::Float16));
+    assert_eq!(format(ChannelKind::Displacement), Some(ChannelFormat::Float16));
+    assert_eq!(format(ChannelKind::CoatColor), Some(ChannelFormat::Bit8));
+    assert_eq!(set.channel_label(ChannelKind::SpecularColor), "Specular");
+    let steps = s.history().entries().len();
+    s.perform(Action::Undo).unwrap();
+    assert!(!s.selected_texture_set().has_channel(ChannelKind::Transmissive), "adding a channel is one undo step");
+    s.perform(Action::Redo).unwrap();
+    assert_eq!(s.history().entries().len(), steps);
+
+    let dir = std::env::temp_dir().join(format!("subcraft-ts-extended-channels-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("extended.subcraft");
+    s.save(Some(&path)).unwrap();
+    let back = Session::open_project(&path).unwrap();
+    assert!(ChannelKind::EXTENDED.iter().all(|&k| back.selected_texture_set().has_channel(k)));
+    assert_eq!(back.selected_texture_set().channels, s.selected_texture_set().channels);
+    std::fs::remove_dir_all(&dir).ok();
+}
