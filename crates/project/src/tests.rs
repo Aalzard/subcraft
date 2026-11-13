@@ -693,7 +693,7 @@ fn the_trusted_loader_keeps_filter_parameters_the_checked_loader_rejects() {
 #[test]
 fn schema_15_id_color_mask_roundtrips_has_stable_json_and_older_projects_migrate() {
     use subcraft_doc::IdColorMask;
-    let id = IdColorMask { colors: vec![[0.9, 0.3, 0.25], [0.25, 0.5, 0.9]], tolerance: 0.08, softness: 0.02, invert: true };
+    let id = IdColorMask { colors: vec![[0.9, 0.3, 0.25], [0.25, 0.5, 0.9]], tolerance: 0.08, softness: 0.02, invert: true, ..IdColorMask::default() };
     assert_eq!(
         serde_json::to_string(&MaskEffectKindV1::IdColor { id_color: id.clone() }).unwrap(),
         r#"{"type":"id_color","id_color":{"colors":[[0.9,0.3,0.25],[0.25,0.5,0.9]],"tolerance":0.08,"softness":0.02,"invert":true}}"#

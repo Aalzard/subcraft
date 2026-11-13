@@ -406,7 +406,7 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
                 ActionKind::Levels(l) if a.enabled => {
                     for c in &ts.channels {
                         if channel_bit(c.kind).is_some_and(|b| a.channels & b != 0) && c.kind != ChannelKind::Normal {
-                            effects.push(ContentEffect::new(ContentEffectKind::Levels { channel: c.kind, levels: levels_of(l) }, ts));
+                            effects.push(ContentEffect::new(ContentEffectKind::Levels { channel: c.kind, levels: levels_of(l, c.kind.components() >= 3) }, ts));
                         }
                     }
                     self.stats.exact += 1;
@@ -637,7 +637,7 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
                                 // A live reference, linked once every anchor is rebuilt (ADR-0045).
                                 let channel = self.ts.channel_kinds().find(|k| channel_bit(*k).is_some_and(|b| channels & b != 0)).unwrap_or(ChannelKind::Height);
                                 let input = subcraft_doc::AnchorInput::new(EffectId::nil(), channel);
-                                let effect = MaskEffect::new(MaskEffectKind::AnchorRef { input, levels: levels.as_ref().map(levels_of) });
+                                let effect = MaskEffect::new(MaskEffectKind::AnchorRef { input, levels: levels.as_ref().map(|l| levels_of(l, false)) });
                                 self.references.push(PendingRef::Mask { layer: layer.id, effect: effect.id, uid: *anchor });
                                 vec![effect]
                             }
@@ -652,7 +652,7 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
                     }
                 }
                 ActionKind::Levels(l) => {
-                    mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Levels(levels_of(l)))));
+                    mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Levels(levels_of(l, false)))));
                     self.stats.exact += 1;
                     mapped += 1;
                 }
@@ -852,7 +852,7 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
         let width = (1.0 - contrast).max(0.02);
         let in_low = 0.5 + shift + slope * (0.5 - balance) - 0.5 * width;
         let gamma = 2f32.powf(gamma_k * (balance - 0.5));
-        let levels = Levels { in_low, in_high: in_low + width, gamma, out_low: 0.0, out_high: 1.0 };
+        let levels = Levels { in_low, in_high: in_low + width, gamma, out_low: 0.0, out_high: 1.0, ..Levels::default() };
         let id = self.embedded_image_leveled(&g.url, levels)?;
         self.stats.approximate += 1;
         Some(vec![MaskEffect::new(MaskEffectKind::Image { resource: id, projection, invert })])
@@ -1192,9 +1192,22 @@ fn uniform_value(kind: ChannelKind, color: [f32; 3]) -> ChannelValue {
     if kind.components() == 3 { ChannelValue::rgb(color[0], color[1], color[2]) } else { ChannelValue::scalar(color[0]) }
 }
 
-fn levels_of(l: &LevelsInfo) -> Levels {
-    let avg = |v: [f32; 3]| (v[0] + v[1] + v[2]) / 3.0;
-    Levels { in_low: avg(l.in_min), in_high: avg(l.in_max), gamma: avg(l.gamma), out_low: avg(l.out_min), out_high: avg(l.out_max) }
+fn levels_of(l: &LevelsInfo, color: bool) -> Levels {
+    // Painter stores one set of handles per component. Grayscale targets read their average;
+    // on colour channels equal ones are the RGB handles and different ones become per-component
+    // levels over identity RGB handles.
+    if !color {
+        let avg = |v: [f32; 3]| (v[0] + v[1] + v[2]) / 3.0;
+        return Levels { in_low: avg(l.in_min), in_high: avg(l.in_max), gamma: avg(l.gamma), out_low: avg(l.out_min), out_high: avg(l.out_max), ..Levels::default() };
+    }
+    let range = |c: usize| subcraft_doc::LevelsRange { in_low: l.in_min[c], in_high: l.in_max[c], gamma: l.gamma[c], out_low: l.out_min[c], out_high: l.out_max[c] };
+    let mut levels = Levels::default();
+    if range(0) == range(1) && range(1) == range(2) {
+        levels.set_range(range(0));
+    } else {
+        levels.rgb = Some([range(0), range(1), range(2)]);
+    }
+    levels
 }
 
 /// Painter's `fractal_sum_base` / `fractal_sum_base_colored` as SubCraft fractal noise: its
