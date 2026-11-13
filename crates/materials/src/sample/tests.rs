@@ -542,3 +542,33 @@ fn shape_crop_drops_what_lies_outside_the_projection_box() {
         assert!(coverage_tile(&crop, &g).unwrap().iter().all(|&c| c == 1.0));
     }
 }
+
+#[test]
+fn spherical_cylindrical_and_symmetric_projections_sample_folded_coordinates() {
+    use subcraft_doc::FillSymmetry;
+    // The sampler returns the 2D coordinate it was asked for.
+    let probe = |p: &Projection, pos: [f32; 3]| {
+        let s = sample_projected(p, [0.0; 2], pos, [0.0, 1.0, 0.0], |q| [q[0], q[1], 0.0, 1.0]);
+        [s[0], s[1]]
+    };
+    let near = |a: [f32; 2], b: [f32; 2]| (a[0] - b[0]).abs() < 1e-5 && (a[1] - b[1]).abs() < 1e-5;
+    let sphere = Projection { mode: ProjectionMode::Spherical, planar_axis: 1, ..Projection::default() };
+    assert!(near(probe(&sphere, [1.0, 0.5, 0.5]), [0.75, 0.5]));
+    // Tiling scales the wrapped coordinate like any other projection.
+    assert!(near(probe(&Projection { scale: [4.0, 2.0], ..sphere }, [1.0, 0.5, 0.5]), [3.0, 1.0]));
+    let cylinder = Projection { mode: ProjectionMode::Cylindrical, planar_axis: 1, cylinder_angle: 180.0, ..Projection::default() };
+    assert!(near(probe(&cylinder, [1.0, 0.25, 0.5]), [1.0, 0.75]));
+    // Mirror symmetry: both sides of the plane sample the same coordinate.
+    let mirrored = Projection { mode: ProjectionMode::Planar, planar_axis: 2, symmetry: FillSymmetry::mirror(), ..Projection::default() };
+    assert!(near(probe(&mirrored, [0.2, 0.3, 0.5]), probe(&mirrored, [0.8, 0.3, 0.5])));
+    let plain = Projection { symmetry: FillSymmetry::None, ..mirrored };
+    assert!(!near(probe(&plain, [0.2, 0.3, 0.5]), probe(&plain, [0.8, 0.3, 0.5])));
+    // On a UV projection symmetry is ignored.
+    let uv = Projection { symmetry: FillSymmetry::mirror(), ..Projection::default() };
+    assert!(near(sample_projected(&uv, [0.2, 0.7], [0.2, 0.3, 0.5], [0.0, 1.0, 0.0], |q| [q[0], q[1], 0.0, 1.0])[..2].try_into().unwrap(), [0.2, 0.7]));
+    // UV Wrap None clips a half-perimeter cylinder to the half facing its seam's opposite side.
+    let clipped = Projection { uv_wrap: subcraft_doc::UvWrap::None, ..cylinder };
+    let sc = clipped.rotation_sin_cos();
+    assert!(crate::sample::projection_covers(&clipped, sc, [0.0; 2], [0.5, 0.5, 1.0]));
+    assert!(!crate::sample::projection_covers(&clipped, sc, [0.0; 2], [0.5, 0.5, 0.0]));
+}

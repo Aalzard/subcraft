@@ -1461,6 +1461,62 @@ pub(crate) fn projection_options(ui: &mut Ui, proj: &mut Projection) -> bool {
     changed
 }
 
+/// Cylindrical projection: the Angle row (how much of the perimeter one tile covers).
+fn wrapped_projection_rows(ui: &mut Ui, proj: &mut Projection) -> bool {
+    if proj.mode != ProjectionMode::Cylindrical {
+        return false;
+    }
+    slider_row(ui, tr("Angle"), egui::Slider::new(&mut proj.cylinder_angle, 1.0..=360.0).suffix("\u{00b0}"))
+        .on_hover_text(tr("How much of the perimeter the texture covers once"))
+        .changed()
+}
+
+/// Painter's Symmetry group of a fill projection (3D projections only): Enable symmetry, the
+/// type (Mirror / Radial) and its settings.
+fn symmetry_group(ui: &mut Ui, proj: &mut Projection) -> bool {
+    use subcraft_doc::FillSymmetry;
+    let before = proj.symmetry;
+    let enabled = proj.is_3d();
+    egui::CollapsingHeader::new(RichText::new(tr("Symmetry")).font(theme::font_strong(12.0)).color(theme::TEXT)).id_salt("fill_symmetry").default_open(false).show(ui, |ui| {
+        ui.add_enabled_ui(enabled, |ui| {
+            let mut on = !proj.symmetry.is_none();
+            let r = ui.checkbox(&mut on, tr("Enable symmetry"));
+            if !enabled {
+                r.on_disabled_hover_text(tr("Symmetry needs a 3D projection (not UV)"));
+            } else if r.changed() {
+                proj.symmetry = if on { FillSymmetry::mirror() } else { FillSymmetry::None };
+            }
+            if proj.symmetry.is_none() {
+                return;
+            }
+            let mut radial = matches!(proj.symmetry, FillSymmetry::Radial { .. });
+            prop_row(ui, tr("Symmetry type"), |ui| {
+                let a = ui.selectable_value(&mut radial, false, tr("Mirror")).changed();
+                let b = ui.selectable_value(&mut radial, true, tr("Radial")).changed();
+                if a || b {
+                    proj.symmetry = if radial { FillSymmetry::radial() } else { FillSymmetry::mirror() };
+                }
+            });
+            match &mut proj.symmetry {
+                FillSymmetry::Mirror { axis, position } => {
+                    prop_row(ui, tr("Axis"), |ui| { segmented(ui, axis, &[(0u8, "X"), (1, "Y"), (2, "Z")]); });
+                    slider_row(ui, tr("Axis position"), egui::Slider::new(position, 0.0..=1.0));
+                }
+                FillSymmetry::Radial { axis, count, flip, center } => {
+                    prop_row(ui, tr("Axis"), |ui| { segmented(ui, axis, &[(0u8, "X"), (1, "Y"), (2, "Z")]); });
+                    slider_row(ui, tr("Copy count"), egui::Slider::new(count, 1..=FillSymmetry::MAX_COPIES).logarithmic(true));
+                    prop_row(ui, "", |ui| { ui.checkbox(flip, tr("Flip copy")).on_hover_text(tr("Mirror every other copy")); });
+                    for (i, name) in ["X", "Y", "Z"].into_iter().enumerate() {
+                        slider_row(ui, &format!("{} {name}", tr("Axis position")), egui::Slider::new(&mut center[i], 0.0..=1.0));
+                    }
+                }
+                FillSymmetry::None => {}
+            }
+        });
+    });
+    proj.symmetry != before
+}
+
 /// Tri-planar Hardness 0..1 (1 = hard cut between the three planes), stored as the blend exponent.
 fn hardness_row(ui: &mut Ui, proj: &mut Projection) -> bool {
     let mut hardness = proj.hardness();
@@ -1479,11 +1535,14 @@ fn hardness_row(ui: &mut Ui, proj: &mut Projection) -> bool {
 pub(crate) fn fill_properties(ui: &mut Ui, proj: &mut Projection) -> bool {
     let mut changed = false;
     changed |= dropdown_row(ui, "projection", tr("Projection"), &mut proj.mode,
-        &[(ProjectionMode::Uv, "UV projection"), (ProjectionMode::Triplanar, "Tri-planar projection"), (ProjectionMode::Planar, "Planar projection")], true, "");
+        &[(ProjectionMode::Uv, "UV projection"), (ProjectionMode::Triplanar, "Tri-planar projection"), (ProjectionMode::Planar, "Planar projection"),
+            (ProjectionMode::Spherical, "Spherical projection"), (ProjectionMode::Cylindrical, "Cylindrical projection")], true, "");
     changed |= projection_options(ui, proj);
     if proj.mode == ProjectionMode::Triplanar {
         changed |= hardness_row(ui, proj);
     }
+    changed |= wrapped_projection_rows(ui, proj);
+    changed |= symmetry_group(ui, proj);
     ui.add_space(4.0);
     egui::CollapsingHeader::new(RichText::new(tr("UV transformations")).font(theme::font_strong(12.0)).color(theme::TEXT)).default_open(true).show(ui, |ui| {
         let mut scale_mode = 0u8;
@@ -1527,7 +1586,7 @@ pub(crate) fn fill_properties(ui: &mut Ui, proj: &mut Projection) -> bool {
                 changed |= ui.add(egui::Slider::new(&mut proj.offset[1], -1.0..=1.0).clamping(egui::SliderClamping::Never).max_decimals(3)).changed();
             });
         }
-        if proj.mode == ProjectionMode::Planar {
+        if matches!(proj.mode, ProjectionMode::Planar | ProjectionMode::Spherical | ProjectionMode::Cylindrical) {
             prop_row(ui, tr("Axis"), |ui| { changed |= segmented(ui, &mut proj.planar_axis, &[(0u8, "X"), (1, "Y"), (2, "Z")]); });
         }
         let default = reset_transform(proj);
@@ -1577,7 +1636,7 @@ pub(crate) fn material_buttons(ui: &mut Ui, states: &[(ChannelKind, bool)], adda
 pub(crate) fn projection_editor(ui: &mut Ui, proj: &mut Projection) -> bool {
     let mut changed = false;
     prop_row(ui, tr("Mode"), |ui| {
-        changed |= segmented(ui, &mut proj.mode, &[(ProjectionMode::Uv, "UV"), (ProjectionMode::Triplanar, "Tri-planar"), (ProjectionMode::Planar, "Planar")]);
+        changed |= segmented(ui, &mut proj.mode, &[(ProjectionMode::Uv, "UV"), (ProjectionMode::Triplanar, "Tri-planar"), (ProjectionMode::Planar, "Planar"), (ProjectionMode::Spherical, "Sphere"), (ProjectionMode::Cylindrical, "Cylinder")]);
     });
     // Tiling: X and Y linked by default (lock), separate when unlocked. The lock is UI state,
     // remembered per editor; it starts unlocked if the two values already differ.
@@ -1621,11 +1680,13 @@ pub(crate) fn projection_editor(ui: &mut Ui, proj: &mut Projection) -> bool {
     if proj.mode == ProjectionMode::Triplanar {
         changed |= hardness_row(ui, proj);
     }
-    if proj.mode == ProjectionMode::Planar {
+    if matches!(proj.mode, ProjectionMode::Planar | ProjectionMode::Spherical | ProjectionMode::Cylindrical) {
         prop_row(ui, tr("Axis"), |ui| {
             changed |= segmented(ui, &mut proj.planar_axis, &[(0u8, "X"), (1, "Y"), (2, "Z")]);
         });
     }
+    changed |= wrapped_projection_rows(ui, proj);
+    changed |= symmetry_group(ui, proj);
     let default = reset_transform(proj);
     if *proj != default && ui.small_button(tr("Reset tiling, offset and rotation")).clicked() {
         *proj = default;
