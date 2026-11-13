@@ -501,6 +501,10 @@ pub struct BakeUi {
     pub open: bool,
     pub settings: subcraft_app::BakeSettings,
     pub high_poly: String,
+    /// More high-poly files, baked together with `high_poly`.
+    pub extra_high: Vec<String>,
+    /// A custom cage mesh file (empty: the distance-based cage).
+    pub cage_file: String,
     /// Texture sets unticked in the baking list (every other set is baked).
     pub skip_sets: std::collections::HashSet<subcraft_core::TextureSetId>,
     /// The baker whose settings show in Mesh map settings (`None`: Common settings).
@@ -548,7 +552,10 @@ pub struct BakeUi {
 
 impl Default for BakeUi {
     fn default() -> Self {
-        Self { open: false, settings: subcraft_app::BakeSettings::default(), high_poly: String::new(), skip_sets: Default::default(), selected_baker: None, log_tab: BakeLogTab::default(), job_maps: Vec::new(), size_chosen: false, job: None, result: None, report: String::new(), notices: Vec::new(), log: Vec::new(), map_rows: Vec::new(),
+        Self { open: false,
+            // Painter's defaults for the projection rays.
+            settings: subcraft_app::BakeSettings { average_normals: true, ignore_backface: true, ..Default::default() },
+            high_poly: String::new(), extra_high: Vec::new(), cage_file: String::new(), skip_sets: Default::default(), selected_baker: None, log_tab: BakeLogTab::default(), job_maps: Vec::new(), size_chosen: false, job: None, result: None, report: String::new(), notices: Vec::new(), log: Vec::new(), map_rows: Vec::new(),
             preview: true, cage: true, fit_mode: Default::default(), high_opacity: 0.55, placement_message: None, live_maps: true, displayed_map: None, follow_maps: true, preview_mesh: None,
             preview_job: None, preview_source: None, preview_path: String::new(), preview_scene: None, preview_error: None, preview_uploaded: false, preview_checked_at: 0.,
             miss_heatmap: false, cage_job: None, cage_result: None, miss_uploaded: false }
@@ -818,7 +825,11 @@ fn start_bake(state: &mut UiState, only: Option<subcraft_core::MeshMapKind>, fra
     let prepared = (state.bake.preview_path == state.bake.high_poly.trim()
         && state.bake.preview_scene.as_ref().is_some_and(|m| std::sync::Arc::ptr_eq(m, &state.session.scene().mesh)))
         .then(|| state.bake.preview_source.clone()).flatten();
-    state.bake.job = Some(state.session.start_bake_prepared(request, prepared));
+    let files = subcraft_app::BakeFiles {
+        extra_high_polys: state.bake.extra_high.iter().map(|p| p.trim()).filter(|p| !p.is_empty()).map(PathBuf::from).collect(),
+        cage: (!state.bake.cage_file.trim().is_empty()).then(|| PathBuf::from(state.bake.cage_file.trim())),
+    };
+    state.bake.job = Some(state.session.start_bake_files(request, prepared, files));
     state.set_status("Baking…", now);
 }
 
@@ -964,6 +975,20 @@ fn common_settings(ui: &mut egui::Ui, b: &mut BakeUi, f: &BakeFrame, bake_match:
         if b.preview_pending() { ui.add_space(4.0); ui.label(dim(tr("Loading high-poly preview…"))); }
         if let Some(error) = &b.preview_error { ui.add_space(4.0); ui.add(egui::Label::new(RichText::new(error).color(theme::WARNING)).wrap()); }
         if has_high {
+            let mut remove = None;
+            for (i, path) in b.extra_high.iter().enumerate() {
+                ui.horizontal(|ui| {
+                    if icon_button(ui, icons::X, tr("Remove this high-poly file")).clicked() { remove = Some(i); }
+                    ui.add(egui::Label::new(dim(path)).wrap());
+                });
+            }
+            if let Some(i) = remove { b.extra_high.remove(i); }
+            ui.add_space(4.0);
+            if secondary_button(ui, format!("{}  {}", icons::FOLDER_OPEN, tr("Add high-poly file…"))).on_hover_text(tr("Bake against several high-poly files at once")).clicked() {
+                crate::files::pick(ui.ctx(), crate::files::Purpose::BakeHighPolyExtra, crate::files::MESHES, true, None);
+            }
+        }
+        if has_high {
             ui.add_space(4.0);
             if secondary_button(ui, format!("{}  {}", icons::HISTORY, tr("Reload high poly"))).on_hover_text(tr("Read the high-poly file again")).clicked() {
                 b.preview_mesh = None; b.preview_source = None; b.preview_job = None;
@@ -994,6 +1019,41 @@ fn common_settings(ui: &mut egui::Ui, b: &mut BakeUi, f: &BakeFrame, bake_match:
             });
             ui.end_row();
         });
+        ui.add_space(6.0);
+        slider_row(ui, tr("Dilation width"), egui::Slider::new(&mut b.settings.dilation, 0..=64))
+            .on_hover_text(tr("How many texels around each UV island copy the island edge"));
+        ui.add_space(4.0);
+        ui.checkbox(&mut b.settings.diffusion, tr("Apply diffusion"))
+            .on_hover_text(tr("Fill the rest of the texture with a smooth blend of the island edges"));
+        ui.horizontal(|ui| {
+            ui.label(dim(tr("Antialiasing")));
+            egui::ComboBox::from_id_salt("bake_antialiasing").selected_text(b.settings.antialiasing.label()).show_ui(ui, |ui| {
+                for a in subcraft_bake::Antialiasing::ALL {
+                    ui.selectable_value(&mut b.settings.antialiasing, a, a.label());
+                }
+            });
+        })
+        .response
+        .on_hover_text(tr("Bake several samples per texel and average them: smoother edges, a slower bake"));
+        if has_high {
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                ui.label(dim(tr("Cage file")));
+                ui.add(egui::TextEdit::singleline(&mut b.cage_file).hint_text(tr("optional (none = the distances below)")).desired_width(170.0));
+                if icon_button(ui, icons::FOLDER_OPEN, tr("Browse…")).clicked() {
+                    crate::files::pick(ui.ctx(), crate::files::Purpose::BakeCage, crate::files::MESHES, false, None);
+                }
+                if !b.cage_file.is_empty() && icon_button(ui, icons::X, tr("Clear")).clicked() {
+                    b.cage_file.clear();
+                }
+            })
+            .response
+            .on_hover_text(tr("A copy of the low poly pushed outwards, with the same UVs: each ray starts on it"));
+            ui.checkbox(&mut b.settings.average_normals, tr("Average normals"))
+                .on_hover_text(tr("Cast rays along normals averaged across hard edges and UV seams, so no gap opens between faces"));
+            ui.checkbox(&mut b.settings.ignore_backface, tr("Ignore backface"))
+                .on_hover_text(tr("Rays skip high-poly faces that face away from them"));
+        }
         if has_high {
             ui.add_space(6.0);
             slider_row(ui, tr("Cage front (reach above the surface)"), egui::Slider::new(&mut b.settings.cage_front, 0.0..=0.25).fixed_decimals(3).clamping(egui::SliderClamping::Never))
@@ -1026,6 +1086,9 @@ fn common_settings(ui: &mut egui::Ui, b: &mut BakeUi, f: &BakeFrame, bake_match:
                     });
             }
         });
+        if has_high && (!b.extra_high.is_empty() || !b.cage_file.trim().is_empty()) {
+            hint(ui, tr("The overlay and the ray misses show the first high-poly file and the distance cage only."));
+        }
         if b.preview_mesh.is_some() && b.result.is_some()
             && secondary_button(ui, format!("{}  {}", icons::CUBE_WIRE, tr("Inspect high / low geometry"))).clicked() {
             b.result = None; b.displayed_map = None; b.follow_maps = false;
@@ -1089,6 +1152,8 @@ fn bake_log_panel(ui: &mut egui::Ui, b: &mut BakeUi, f: &BakeFrame) {
                 return;
             }
             ui.add(egui::Label::new(path).wrap());
+            for extra in &b.extra_high { ui.add(egui::Label::new(extra.as_str()).wrap()); }
+            if !b.cage_file.trim().is_empty() { ui.add(egui::Label::new(format!("{}: {}", tr("Cage file"), b.cage_file.trim())).wrap()); }
             if b.preview_pending() { ui.label(dim(tr("Loading high-poly preview…"))); }
             if let Some(error) = &b.preview_error { warning(ui, error); }
             if let Some(mesh) = &b.preview_mesh {
@@ -1352,6 +1417,36 @@ mod bake_tests {
         }).expect("Return button over the views");
         click(&mut state, &ctx, back);
         assert!(!state.bake.open);
+    }
+
+    #[test]
+    fn common_settings_offer_padding_antialiasing_and_the_ray_options() {
+        let ctx = egui::Context::default(); theme::apply(&ctx);
+        let mut state = UiState::new(Session::new(subcraft_mesh::primitives::plane(2., 1), 128), None);
+        let s = &state.bake.settings;
+        assert!(s.average_normals && s.ignore_backface && s.diffusion && s.dilation == 16, "Painter's defaults");
+        assert_eq!(s.antialiasing, subcraft_bake::Antialiasing::None);
+        state.bake.open = true; state.bake.preview = false;
+        // A tall screen: every card of the Common settings is in view.
+        let frame = |state: &mut UiState| {
+            let mut out = ctx.run_ui(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1600.0, 2400.0))), ..Default::default() }, |ui| bake_mode(state, ui, 0.0));
+            out.textures_delta.clear(); out
+        };
+        for _ in 0..3 { frame(&mut state); }
+        let output = frame(&mut state);
+        for text in ["Dilation width", "Apply diffusion", "Antialiasing"] { assert!(has_text(&output, text), "{text}"); }
+        assert!(!has_text(&output, "Average normals") && !has_text(&output, "Cage file"), "ray options need a high poly");
+        state.bake.high_poly = "parts_high.fbx".into();
+        state.bake.extra_high = vec!["bolts_high.fbx".into()];
+        for _ in 0..3 { frame(&mut state); }
+        let output = frame(&mut state);
+        for text in ["Average normals", "Ignore backface", "Cage file", "bolts_high.fbx", "Add high-poly file"] { assert!(has_text(&output, text), "{text}"); }
+        // Picked files: extra high polys are added once, the cage replaces the field.
+        let paths = [PathBuf::from("bolts_high.fbx"), PathBuf::from("straps_high.fbx")];
+        crate::files::handle(&mut state, crate::files::Purpose::BakeHighPolyExtra, &paths, 0.0);
+        assert_eq!(state.bake.extra_high, ["bolts_high.fbx", "straps_high.fbx"]);
+        crate::files::handle(&mut state, crate::files::Purpose::BakeCage, &[PathBuf::from("cage.fbx")], 0.0);
+        assert_eq!(state.bake.cage_file, "cage.fbx");
     }
 
     #[test]

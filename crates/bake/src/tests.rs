@@ -687,3 +687,128 @@ fn id_sources_the_model_lacks_fall_back_to_generated_colours_with_a_warning() {
     let (l, r, _) = id_bake(&mirrored, IdSource::VertexColor);
     assert!(close(l, [1.0, 1.0, 0.0]) && close(r, [0.0, 1.0, 0.0]), "mirrored: the sides swap, {l:?} {r:?}");
 }
+
+/// Bake a 2 x 2 plane (y = 0, facing up) against `high` with `settings`.
+fn bake_plane(high: &Mesh, settings: &BakeSettings) -> Result<BTreeMap<MeshMapKind, TiledImage>, BakeError> {
+    let low = primitives::plane(2.0, 4);
+    let (lb, hb) = (Bvh::build(&low), Bvh::build(high));
+    let input = BakeInput { low: Geometry { mesh: &low, bvh: &lb }, high: Some(Geometry { mesh: high, bvh: &hb }), material_slot: 0 };
+    bake(&input, settings, &Progress::new())
+}
+
+#[test]
+fn dilation_pads_up_to_its_width_and_diffusion_fills_the_rest() {
+    // One quad whose UVs cover the middle quarter of the texture: texels 24..40 of 64.
+    let mut b = MeshBuilder::new("island");
+    let m = b.material("m");
+    let c = |x: f32, z: f32| corner(Vec3::new(x, 0.0, z), Vec2::new(0.375 + 0.125 * (x + 1.0), 0.375 + 0.125 * (z + 1.0)));
+    b.push_triangle(m, [c(-1.0, -1.0), c(1.0, 1.0), c(1.0, -1.0)]);
+    b.push_triangle(m, [c(-1.0, -1.0), c(-1.0, 1.0), c(1.0, 1.0)]);
+    let mesh = b.build().unwrap();
+    let bvh = Bvh::build(&mesh);
+    let input = BakeInput { low: Geometry { mesh: &mesh, bvh: &bvh }, high: None, material_slot: 0 };
+    let id = |dilation: u32, diffusion: bool| {
+        let s = BakeSettings { size: 64, maps: vec![MeshMapKind::Id], dilation, diffusion, ..Default::default() };
+        bake(&input, &s, &Progress::new()).unwrap().remove(&MeshMapKind::Id).unwrap()
+    };
+    let rgb = |img: &TiledImage, x: u32, y: u32| { let v = img.get(x, y); [v[0], v[1], v[2]] };
+    let neutral = MeshMapKind::Id.neutral_value();
+    let plain = id(4, false);
+    // (36, 30) and the gutter texels below lie on the same triangle's side of the quad's diagonal.
+    let island = rgb(&plain, 36, 30);
+    assert!(!close(island, neutral), "the island has an ID colour: {island:?}");
+    assert_eq!(rgb(&plain, 42, 32), island, "2 texels outside the island: inside the dilation");
+    assert_eq!(rgb(&plain, 60, 32), neutral, "20 texels outside: beyond a dilation of 4, left neutral without diffusion");
+    assert_eq!(rgb(&id(30, false), 60, 32), island, "a wider dilation reaches it");
+    let diffused = id(4, true);
+    assert_eq!(rgb(&diffused, 42, 32), island, "diffusion leaves the dilated texels alone");
+    assert!(close(rgb(&diffused, 60, 32), island), "diffusion spreads the one colour everywhere: {:?}", rgb(&diffused, 60, 32));
+    assert!((BakeSettings::default().dilation, BakeSettings::default().diffusion) == (16, true));
+}
+
+#[test]
+fn antialiasing_supersamples_and_keeps_the_output_size() {
+    let high = two_part_high(true, false);
+    let base = BakeSettings { id_source: IdSource::VertexColor, ..settings(&[MeshMapKind::Id, MeshMapKind::Normal]) };
+    let plain = bake_plane(&high, &base).unwrap();
+    let smooth = bake_plane(&high, &BakeSettings { antialiasing: Antialiasing::X2, ..base.clone() }).unwrap();
+    for kind in [MeshMapKind::Id, MeshMapKind::Normal] {
+        assert_eq!((smooth[&kind].width(), smooth[&kind].height()), (RES, RES), "{kind:?} keeps the asked size");
+    }
+    // Away from the colour border both bakes agree; the flat normal stays a unit vector.
+    for (x, y) in [(20, 40), (100, 88), (30, 20), (110, 100)] {
+        let (a, b) = (plain[&MeshMapKind::Id].get(x, y), smooth[&MeshMapKind::Id].get(x, y));
+        assert!(close([a[0], a[1], a[2]], [b[0], b[1], b[2]]), "ID at {x},{y}: {a:?} {b:?}");
+        let n = smooth[&MeshMapKind::Normal].get(x, y);
+        assert!(close([n[0], n[1], n[2]], [0.5, 0.5, 1.0]), "normal at {x},{y}: {n:?}");
+    }
+    assert_eq!(Antialiasing::ALL.map(Antialiasing::factor), [1, 2, 4, 8]);
+    // The supersampled bake never exceeds the size limit.
+    let factor = |size: u32, antialiasing: Antialiasing| supersampling(&BakeSettings { size, antialiasing, ..Default::default() });
+    assert_eq!((factor(1024, Antialiasing::X8), factor(4096, Antialiasing::X8), factor(MAX_SUPERSAMPLED_SIZE, Antialiasing::X2), factor(2048, Antialiasing::None)), (8, 2, 1, 1));
+}
+
+#[test]
+fn averaged_normals_tilt_the_rays_at_hard_edges_only_when_asked() {
+    let cube = primitives::cube(2.0);
+    let diag = cube.bounds.diagonal();
+    let samples = texels(&cube, 0, 64);
+    assert!(!samples.is_empty());
+    let hard = Cage::new(&cube, 0, 64, &BakeSettings::default(), diag);
+    let averaged = Cage::new(&cube, 0, 64, &BakeSettings { average_normals: true, ..Default::default() }, diag);
+    let mut tilted = 0;
+    for t in &samples {
+        // The cube's own normals: every ray runs straight down its face.
+        let ray = hard.ray(&cube, t);
+        assert!(ray.dir.dot(t.geometric_normal) < -0.999, "hard: {:?} on {:?}", ray.dir, t.geometric_normal);
+        assert!((ray.origin - (t.position + t.geometric_normal * ray.front)).length() < 1e-4);
+        // Averaged: still from outside towards the surface, tilted towards the edges.
+        let ray = averaged.ray(&cube, t);
+        assert!((ray.dir.length() - 1.0).abs() < 1e-4 && ray.dir.dot(t.geometric_normal) < -0.4, "averaged: {:?}", ray.dir);
+        assert!((ray.origin + ray.dir * ray.front - t.position).length() < 1e-4, "the ray passes through the low-poly point");
+        if ray.dir.dot(t.geometric_normal) > -0.95 { tilted += 1; }
+    }
+    assert!(tilted * 4 > samples.len(), "rays near the edges lean over them: {tilted} of {}", samples.len());
+    // At a corner the averaged normal is the cube's diagonal, shared by the three faces.
+    let normals = averaged_normals(&cube);
+    for (p, n) in cube.positions.iter().zip(&normals).filter(|(p, _)| p.abs().min_element() > 0.99) {
+        assert!((*n - p.normalize()).length() < 1e-3, "{p:?}: {n:?}");
+    }
+}
+
+#[test]
+fn ignore_backface_skips_high_poly_faces_that_face_away() {
+    // The high poly just under the plane, turned to face down: the rays see its back.
+    let high = two_part_high(false, false).transformed(&glam::Mat4::from_scale(Vec3::new(1.0, -1.0, 1.0)));
+    assert!(high.geometric_normal(0).y < -0.9);
+    let both = settings(&[MeshMapKind::Id]);
+    assert!(bake_plane(&high, &both).is_ok(), "both sides are hit by default");
+    let front_only = BakeSettings { ignore_backface: true, ..both.clone() };
+    assert_eq!(bake_plane(&high, &front_only).err(), Some(BakeError::NoProjection));
+    // Facing up it is hit either way, and the ray-miss check follows the same rule.
+    let up = two_part_high(false, false);
+    assert!(bake_plane(&up, &front_only).is_ok());
+    let low = primitives::plane(2.0, 4);
+    let (lb, hb) = (Bvh::build(&low), Bvh::build(&high));
+    let input = BakeInput { low: Geometry { mesh: &low, bvh: &lb }, high: Some(Geometry { mesh: &high, bvh: &hb }), material_slot: 0 };
+    let misses = cage_misses(&input, &front_only, 32).unwrap();
+    assert_eq!(misses.missed, misses.covered);
+    assert!(cage_misses(&input, &both, 32).unwrap().missed < misses.covered / 2);
+}
+
+#[test]
+fn a_custom_cage_decides_where_the_rays_start() {
+    // The high poly floats half a unit above the plane, far beyond the distance-based cage.
+    let high = two_part_high(false, false).transformed(&glam::Mat4::from_translation(Vec3::new(0.0, 0.5, 0.0)));
+    let distance = settings(&[MeshMapKind::Id, MeshMapKind::Height]);
+    assert_eq!(bake_plane(&high, &distance).err(), Some(BakeError::NoProjection));
+    // A cage: the low poly (same UVs) lifted above the high poly.
+    let cage = primitives::plane(2.0, 4).transformed(&glam::Mat4::from_translation(Vec3::Y));
+    let caged = BakeSettings { cage: Some(CageMesh(std::sync::Arc::new(cage))), ..distance.clone() };
+    let maps = bake_plane(&high, &caged).unwrap();
+    let id = maps[&MeshMapKind::Id].get(30, 40);
+    assert!(!close([id[0], id[1], id[2]], MeshMapKind::Id.neutral_value()), "the high poly is reached: {id:?}");
+    assert!(maps[&MeshMapKind::Height].get(30, 40)[0] > 0.9, "and it stands above the low poly");
+    assert_eq!(caged.cage, caged.clone().cage, "a cage equals itself");
+    assert_ne!(caged.cage, Some(CageMesh(std::sync::Arc::new(primitives::plane(2.0, 4)))));
+}

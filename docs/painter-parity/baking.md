@@ -93,30 +93,30 @@ Layout notes: a "Common settings" entry at the top (with its own sync button), t
 | Output size (width) | Common settings > Output settings | paint resolution of the project; list not documented | partial: 256 to 4096, square only | crates/ui/src/dialogs.rs:663 | - |
 | Output size lock (non-square) | Common settings > Output settings | locked | missing | - | - |
 | Output size (height) | Common settings > Output settings | same as width | missing | - | - |
-| Dilation width | Common settings > Output settings | 16 (unverified) | missing | - | - |
-| Apply diffusion | Common settings > Output settings | on (unverified) | missing | - | - |
+| Dilation width | Common settings > Output settings | 16 (unverified) | done: 0 to 64 texels, default 16 | crates/ui/src/dialogs.rs (common_settings) | - |
+| Apply diffusion | Common settings > Output settings | on (unverified) | done | crates/ui/src/dialogs.rs (common_settings) | - |
 
 ## Common settings: High-poly parameters
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
 | Use Low poly mesh as high poly mesh | Common settings > High-poly parameters | not documented | partial: implied by leaving the High poly field empty | crates/ui/src/dialogs.rs:608 | - |
-| High definition meshes list (several files) | Common settings > High-poly parameters | empty | partial: one file only | crates/ui/src/dialogs.rs:608 | - |
+| High definition meshes list (several files) | Common settings > High-poly parameters | empty | partial: several files are baked as one high poly; the overlay and ray-miss check show the first only | crates/ui/src/dialogs.rs (common_settings) | - |
 | Add a high definition mesh file | High definition meshes | not documented | done | crates/ui/src/dialogs.rs:609 | - |
 | Remove / clear high definition meshes | High definition meshes | not documented | done | crates/ui/src/dialogs.rs:612 | - |
-| Cage type | Common settings > Cage | Distance-based (default); Automatic (experimental); Custom file | partial: distance-based only | crates/bake/src/lib.rs:52 | - |
-| Cage file | Common settings > Cage (Custom file) | none | missing | - | - |
+| Cage type | Common settings > Cage | Distance-based (default); Automatic (experimental); Custom file | partial: distance-based, or a custom file when one is set; no Automatic | crates/bake/src/lib.rs (Cage) | - |
+| Cage file | Common settings > Cage (Custom file) | none | done: matched to the low poly by UV | crates/ui/src/dialogs.rs (common_settings) | - |
 | Max frontal distance | Common settings > Cage (Distance-based) | 0.01 (unverified) | done | crates/ui/src/dialogs.rs:678 | - |
 | Max rear distance | Common settings > Cage (Distance-based) | 0.01 (unverified) | done | crates/ui/src/dialogs.rs:681 | - |
 | Relative to bounding box | Common settings > Cage | on (unverified) | partial: always relative to the model diagonal, no toggle | crates/bake/src/lib.rs:51 | - |
-| Average normals | Common settings > Cage | on (unverified) | missing | - | - |
+| Average normals | Common settings > Cage | on (unverified) | done: on by default in the panels | crates/bake/src/lib.rs (averaged_normals) | - |
 | Paint cage | Common settings > Cage (Distance-based) | not documented | missing | - | - |
-| Ignore backface | Common settings > High-poly parameters | on (unverified) | missing | - | - |
+| Ignore backface | Common settings > High-poly parameters | on (unverified) | done: on by default in the panels | crates/bake/src/lib.rs (bake_core) | - |
 | Match | Common settings > High-poly parameters | Always (default, unverified); By mesh name | done | crates/ui/src/dialogs.rs:814 | - |
 | Low poly mesh suffix | Common settings > High-poly parameters | _low (unverified) | done | crates/ui/src/dialogs.rs:820 | - |
 | High poly mesh suffix | Common settings > High-poly parameters | _high (unverified) | done | crates/ui/src/dialogs.rs:822 | - |
 | Suffix preview for the current texture set | Common settings > High-poly parameters | not documented | missing | - | - |
-| Antialiasing | Common settings > High-poly parameters | None (default); Subsampling 2x2; 4x4; 8x8 (all unverified) | missing | - | - |
+| Antialiasing | Common settings > High-poly parameters | None (default); Subsampling 2x2; 4x4; 8x8 (all unverified) | done: None, 2x2, 4x4, 8x8 (reduced when the supersampled bake would pass 8192 px) | crates/bake/src/lib.rs (Antialiasing) | - |
 
 ## Common settings: Skew correction
 
