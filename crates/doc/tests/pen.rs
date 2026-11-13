@@ -79,3 +79,24 @@ fn a_ribbon_checks_its_tiling_and_its_image_is_kept_with_the_project() {
     assert_eq!(used, vec![tip, image], "both images survive a save, whichever type is shown");
 }
 
+#[test]
+fn splitting_a_curved_segment_keeps_its_shape() {
+    let mut p = path();
+    p.anchors[0].outgoing = Vec2::new(0.1, -0.3);
+    p.anchors[1].incoming = Vec2::new(-0.2, 0.25);
+    let cubic = |c: [Vec2; 4], t: f32| { let u = 1.0 - t; c[0] * (u * u * u) + c[1] * (3.0 * u * u * t) + c[2] * (3.0 * u * t * t) + c[3] * (t * t * t) };
+    let whole = p.segment(0).unwrap();
+    let id = p.split_segment(0, 0.3).unwrap();
+    assert_eq!(p.anchors.len(), 3);
+    assert_eq!(p.anchors[1].id, id);
+    assert!((p.anchors[1].position - cubic(whole, 0.3)).length() < 1e-6, "the new point is on the curve");
+    let (left, right) = (p.segment(0).unwrap(), p.segment(1).unwrap());
+    for k in 0..=10 {
+        let t = k as f32 / 10.0;
+        assert!((cubic(left, t) - cubic(whole, 0.3 * t)).length() < 1e-5, "left half at {t}");
+        assert!((cubic(right, t) - cubic(whole, 0.3 + 0.7 * t)).length() < 1e-5, "right half at {t}");
+    }
+    assert!(p.is_smooth(id), "the split point carries the curve's tangents");
+    assert!(p.split_segment(5, 0.5).is_none(), "no such segment");
+}
+

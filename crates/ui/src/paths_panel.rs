@@ -60,7 +60,7 @@ pub fn path_layers(state: &UiState) -> Vec<(LayerId, String, bool)> {
     out
 }
 
-fn path_of(state: &UiState, layer: LayerId) -> Option<PenPath> {
+pub fn path_of(state: &UiState, layer: LayerId) -> Option<PenPath> {
     match &state.session.selected_texture_set().find(layer)?.content {
         LayerContent::Paint(p) => p.path.clone(),
         _ => None,
@@ -74,6 +74,15 @@ fn apply(state: &mut UiState, layer: LayerId, path: PenPath, now: f64) {
     if let Err(e) = result {
         state.set_status(e.to_string(), now);
     }
+}
+
+fn hover_id() -> egui::Id {
+    egui::Id::new("paths_panel_hover")
+}
+
+/// The path layer whose row the pointer is over (the view highlights it).
+pub fn hovered(ui: &Ui) -> Option<LayerId> {
+    ui.data(|d| d.get_temp(hover_id()))
 }
 
 fn clip_id() -> egui::Id {
@@ -109,6 +118,7 @@ pub fn show(state: &mut UiState, ui: &Ui, rect: egui::Rect, now: f64) {
                 }
                 let mut renaming: Option<(LayerId, String)> = ui.data(|d| d.get_temp(rename_id()));
                 let clip: Option<PathClip> = ui.data(|d| d.get_temp(clip_id()));
+                let mut hovered_row: Option<LayerId> = None;
                 for (id, name, visible) in &layers {
                     ui.horizontal(|ui| {
                         let eye = if *visible { icons::EYE } else { icons::EYE_SLASH };
@@ -140,6 +150,9 @@ pub fn show(state: &mut UiState, ui: &Ui, rect: egui::Rect, now: f64) {
                         } else {
                             {
                                 let label = ui.selectable_label(selected == Some(*id), RichText::new(name).color(if *visible { theme::TEXT() } else { theme::TEXT_DIM() }));
+                                if label.hovered() {
+                                    hovered_row = Some(*id);
+                                }
                                 if label.double_clicked() {
                                     renaming = Some((*id, name.clone()));
                                 } else if label.clicked() {
@@ -171,6 +184,14 @@ pub fn show(state: &mut UiState, ui: &Ui, rect: egui::Rect, now: f64) {
                     }
                     None => {
                         d.remove::<(LayerId, String)>(rename_id());
+                    }
+                });
+                ui.data_mut(|d| match hovered_row {
+                    Some(id) => {
+                        d.insert_temp(hover_id(), id);
+                    }
+                    None => {
+                        d.remove::<LayerId>(hover_id());
                     }
                 });
                 ui.label(RichText::new("Double-click to rename · right-click for more").small().color(theme::TEXT_FAINT()));

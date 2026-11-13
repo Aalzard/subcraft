@@ -411,8 +411,39 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     let stroke_pressure = state.recovery.prefs.viewport.pressure_curve.apply(stroke_pressure);
     if !bake_mode && state.tool == Tool::Pen && !picking && !alt && !stencil_edit && !typing && let Some(p) = pointer {
             if primary_pressed && response.hovered() {
-                let hit = state.pen.preview(&state.session).and_then(|path| crate::pen::hit(path, state.pen.selected_anchor(), p, |uv| pen_position(state, &camera, rect, uv)));
-                if let Err(e) = state.pen.begin_surface(&mut state.session, &camera, to_screen(p), hit) { state.set_status(format!("Pen: {e}"), now); }
+                let map = |uv: Vec2| pen_position(state, &camera, rect, uv);
+                let hit = state.pen.preview(&state.session).and_then(|path| crate::pen::hit(path, state.pen.selected_anchor(), p, map));
+                let anchor = hit.filter(|h| h.handle == subcraft_app::pen::Handle::Anchor).map(|h| h.anchor);
+                // A second press on the same point within a double-click: corner / smooth.
+                let last_id = egui::Id::new("pen_last_press");
+                let last: Option<(subcraft_core::AnchorId, f64)> = ui.data(|d| d.get_temp(last_id));
+                let double = anchor.is_some_and(|a| last.is_some_and(|(l, t)| l == a && now - t < 0.4));
+                ui.data_mut(|d| match anchor {
+                    Some(a) => {
+                        d.insert_temp(last_id, (a, now));
+                    }
+                    None => {
+                        d.remove::<(subcraft_core::AnchorId, f64)>(last_id);
+                    }
+                });
+                // A click on the curve itself (not a point) inserts a point there.
+                let on_curve = if hit.is_none() { state.pen.preview(&state.session).and_then(|path| crate::pen::curve_hit(path, p, map)) } else { None };
+                // A click on another path's curve selects that path.
+                let other = if hit.is_none() && on_curve.is_none() {
+                    let current = state.session.selection().layer;
+                    crate::paths_panel::path_layers(state).into_iter().filter(|(id, _, visible)| *visible && Some(*id) != current).find_map(|(id, _, _)| {
+                        crate::paths_panel::path_of(state, id).and_then(|path| crate::pen::curve_hit(&path, p, map)).map(|_| id)
+                    })
+                } else { None };
+                let ctrl = mods.ctrl || mods.command;
+                let result = match (anchor, on_curve, other) {
+                    (Some(a), _, _) if double => state.pen.toggle_point(&state.session, a),
+                    (Some(a), _, _) if !ctrl && state.pen.closes_on(&state.session, a) => state.pen.close_path(&state.session),
+                    (None, Some((segment, t)), _) => state.pen.insert_point(&state.session, segment, t),
+                    (None, None, Some(layer)) => state.session.execute(subcraft_app::Command::SelectLayer(Some(layer))),
+                    _ => state.pen.begin_surface(&mut state.session, &camera, to_screen(p), hit),
+                };
+                if let Err(e) = result { state.set_status(format!("Pen: {e}"), now); }
             } else if primary_down && state.pen.is_editing() {
                 state.pen.drag_surface(&state.session, &camera, to_screen(p), mods.shift);
             }
@@ -740,6 +771,16 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     }
     if !bake_mode {
         crate::paths_panel::show(state, ui, rect, now);
+    }
+    // Paths panel hover: that path drawn over the view.
+    if state.tool == Tool::Pen && let Some(id) = crate::paths_panel::hovered(ui) && state.session.selection().layer != Some(id)
+        && let Some(path) = crate::paths_panel::path_of(state, id) && let Ok(points) = path.polyline(0.002)
+    {
+        for pair in points.windows(2) {
+            if let (Some(a), Some(b)) = (pen_position(state, &camera, rect, pair[0]), pen_position(state, &camera, rect, pair[1])) {
+                painter.line_segment([a, b], Stroke::new(3.0, Color32::from_rgba_unmultiplied(255, 255, 255, 170)));
+            }
+        }
     }
     if state.tool == Tool::Pen && let Some(path) = state.pen.preview(&state.session) {
         crate::pen::draw(&painter, path, state.pen.selected_anchor(), |uv| pen_position(state, &camera, rect, uv));
