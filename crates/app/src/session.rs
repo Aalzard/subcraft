@@ -146,6 +146,9 @@ pub struct Session {
     pub(crate) scene: Scene,
     resources: ResourceStore,
     mesh_maps: HashMap<TextureSetId, MeshMaps>,
+    /// ID maps as baked / imported, with the document edits currently applied over them in
+    /// `mesh_maps` (see `crate::id_color`).
+    id_baked: HashMap<TextureSetId, (subcraft_image::TiledImage, Vec<subcraft_doc::IdColorEdit>)>,
     no_maps: MeshMaps,
     pub(crate) history: History,
     /// Live document: equals the current history entry except while a stroke is in progress.
@@ -160,6 +163,10 @@ pub struct Session {
     /// Clone tool: object-space source point, and the screen offset the first stroke fixed.
     clone_source: Option<Vec3>,
     clone_offset: Option<Vec2>,
+    /// The clone source as a texture position of a texture set (2D-view clone strokes), and the
+    /// UV offset the last 2D clone stroke fixed.
+    clone_source_uv: Option<(TextureSetId, Vec2)>,
+    clone_offset_uv: Option<Vec2>,
     /// Composite caches while compositing runs on the calling thread (until the first
     /// interactive update starts the worker).
     composites: HashMap<TextureSetId, CompositeCache>,
@@ -234,6 +241,7 @@ impl Session {
             part_view: Default::default(),
             resources,
             mesh_maps: HashMap::new(),
+            id_baked: HashMap::new(),
             no_maps: MeshMaps::new(),
             history: History::new(doc.clone(), label),
             saved_doc: doc.clone(),
@@ -259,6 +267,8 @@ impl Session {
             stroke: None,
             clone_source: None,
             clone_offset: None,
+            clone_source_uv: None,
+            clone_offset_uv: None,
             composites: HashMap::new(),
             worker: None,
             inline_only: false,
@@ -293,6 +303,8 @@ impl Session {
         for (ts, maps) in data.mesh_maps {
             s.mesh_maps.insert(ts, MeshMaps::from_map(maps));
         }
+        s.capture_baked_ids();
+        s.sync_id_maps();
         Ok(s)
     }
 
@@ -305,7 +317,7 @@ impl Session {
             Some(p) => p.to_path_buf(),
             None => return Err("no project path: use Save As".into()),
         };
-        let maps: subcraft_project::MeshMapSet = self.mesh_maps.iter().map(|(id, m)| (*id, m.as_map().clone())).collect();
+        let maps: subcraft_project::MeshMapSet = self.mesh_maps.keys().map(|id| (*id, self.stored_mesh_maps(*id))).collect();
         subcraft_project::save_project_with(&path, &self.scene.mesh, &self.doc, &self.resources, &maps, &self.settings).map_err(|e| e.to_string())?;
         self.project_path = Some(path.clone());
         self.saved_doc = self.doc.clone();
@@ -322,7 +334,7 @@ impl Session {
             mesh: self.scene.mesh.clone(),
             document: self.history.current().clone(),
             resources: self.resources.clone(),
-            mesh_maps: self.mesh_maps.iter().map(|(id, m)| (*id, m.as_map().clone())).collect(),
+            mesh_maps: self.mesh_maps.keys().map(|id| (*id, self.stored_mesh_maps(*id))).collect(),
             settings: self.settings.clone(),
         }
     }
@@ -409,6 +421,9 @@ impl Session {
     /// Install baked maps (merged over existing ones) and refresh that set's composite.
     pub fn set_mesh_maps(&mut self, ts: TextureSetId, maps: std::collections::BTreeMap<subcraft_core::MeshMapKind, subcraft_image::TiledImage>) {
         self.settings.stale_mesh_maps.retain(|id| *id != ts);
+        if let Some(id) = maps.get(&subcraft_core::MeshMapKind::Id) {
+            self.id_baked.insert(ts, (id.clone(), Vec::new()));
+        }
         let entry = self.mesh_maps.entry(ts).or_default();
         let mut merged = entry.as_map().clone();
         merged.extend(maps);
@@ -417,6 +432,45 @@ impl Session {
         self.maps_dirty = true;
         self.maps_generation += 1;
         self.revision += 1;
+        // A new bake keeps the user's ID color edits (they apply to colors it still has).
+        self.sync_id_maps();
+    }
+
+    /// Maps as they are saved: the ID map as baked / imported (its edits are in the document).
+    fn stored_mesh_maps(&self, ts: TextureSetId) -> std::collections::BTreeMap<subcraft_core::MeshMapKind, subcraft_image::TiledImage> {
+        let mut maps = self.mesh_maps.get(&ts).map(|m| m.as_map().clone()).unwrap_or_default();
+        if let Some((baked, _)) = self.id_baked.get(&ts) && maps.contains_key(&subcraft_core::MeshMapKind::Id) {
+            maps.insert(subcraft_core::MeshMapKind::Id, baked.clone());
+        }
+        maps
+    }
+
+    /// Take the installed ID maps as the baked ones (after loading or replacing all maps).
+    fn capture_baked_ids(&mut self) {
+        self.id_baked = self.mesh_maps.iter()
+            .filter_map(|(ts, m)| Some((*ts, (m.get(subcraft_core::MeshMapKind::Id)?.clone(), Vec::new()))))
+            .collect();
+    }
+
+    /// Show each set's ID map with the document's ID color edits (after edits, undo and redo).
+    pub(crate) fn sync_id_maps(&mut self) {
+        let mut changed = Vec::new();
+        for ts in &self.doc.texture_sets {
+            if let Some((baked, applied)) = self.id_baked.get(&ts.id) && *applied != ts.id_color_edits {
+                changed.push((ts.id, crate::id_color::apply_id_edits(baked, &ts.id_color_edits), ts.id_color_edits.clone()));
+            }
+        }
+        for (ts, image, edits) in changed {
+            if let Some(entry) = self.id_baked.get_mut(&ts) { entry.1 = edits; }
+            let entry = self.mesh_maps.entry(ts).or_default();
+            let mut maps = entry.as_map().clone();
+            maps.insert(subcraft_core::MeshMapKind::Id, image);
+            *entry = MeshMaps::from_map(maps);
+            self.invalidated.insert(ts);
+            self.maps_dirty = true;
+            self.maps_generation += 1;
+            self.revision += 1;
+        }
     }
 
     /// Start baking on a background thread; poll the job each frame.
@@ -611,7 +665,7 @@ impl Session {
     }
 
     pub(crate) fn mesh_map_set(&self) -> crate::mesh_reload::MapSet {
-        self.mesh_maps.iter().map(|(id, m)| (*id, m.as_map().clone())).collect()
+        self.mesh_maps.keys().map(|id| (*id, self.stored_mesh_maps(*id))).collect()
     }
 
     /// Install a finished reload: new mesh, texture sets and maps. Not undoable: the history is
@@ -638,6 +692,8 @@ impl Session {
         self.doc = output.document;
         self.history.reset(self.doc.clone(), "Reload Mesh");
         self.mesh_maps = output.maps.into_iter().map(|(id, m)| (id, MeshMaps::from_map(m))).collect();
+        self.capture_baked_ids();
+        self.sync_id_maps();
         let doc = &self.doc;
         self.settings.stale_mesh_maps.retain(|id| doc.texture_set(*id).is_some());
         for id in output.stale {
@@ -655,6 +711,8 @@ impl Session {
         }
         self.clone_source = None;
         self.clone_offset = None;
+        self.clone_source_uv = None;
+        self.clone_offset_uv = None;
         self.normalize_target();
         self.mesh_dirty = true;
         self.maps_generation += 1;
@@ -840,7 +898,7 @@ impl Session {
         self.composite_generation
     }
 
-    fn texture_set_of(&self, layer: LayerId) -> Option<TextureSetId> {
+    pub(crate) fn texture_set_of(&self, layer: LayerId) -> Option<TextureSetId> {
         self.doc.texture_sets.iter().find(|t| t.find(layer).is_some()).map(|t| t.id)
     }
 
@@ -913,12 +971,31 @@ impl Session {
         Ok(r)
     }
 
+    /// [`Self::edit_layer_set`] that adds no history entry when `f` changed nothing (a no-op
+    /// click must not wipe the redo branch or mark the project modified).
+    pub(crate) fn edit_layer_set_if_changed<R>(
+        &mut self,
+        layer: LayerId,
+        label: &str,
+        f: impl FnOnce(&mut TextureSet) -> Result<R, CommandError>,
+    ) -> Result<R, CommandError> {
+        let ts_id = self.texture_set_of(layer).ok_or(CommandError::LayerNotFound)?;
+        let ts = self.doc.texture_set_mut(ts_id).ok_or(CommandError::TextureSetNotFound)?;
+        let before = ts.layers.clone();
+        let r = f(ts)?;
+        if ts.layers != before {
+            self.commit(label, None);
+        }
+        Ok(r)
+    }
+
     pub(crate) fn layer_mut(ts: &mut TextureSet, id: LayerId) -> Result<&mut Layer, CommandError> {
         ts.find_mut(id).ok_or(CommandError::LayerNotFound)
     }
 
     fn sync_after_history_move(&mut self) {
         self.doc = self.history.current().clone();
+        self.sync_id_maps();
         if self.doc.texture_set(self.selection.texture_set).is_none() {
             self.selection.texture_set = self.doc.texture_sets[0].id;
         }
@@ -1156,7 +1233,7 @@ impl Session {
             Command::RenameEffect { layer, target, effect, name } => {
                 let name = name.trim().to_string();
                 if name.is_empty() { return Err(CommandError::Invalid("An effect needs a name".into())); }
-                self.edit_layer_set(layer, "Rename Effect", None, |ts| {
+                self.edit_layer_set_if_changed(layer, "Rename Effect", |ts| {
                     use crate::effect_stack::StackEffect;
                     let l = Self::layer_mut(ts, layer)?;
                     let found = on_stack!(l, target, |s| match s.iter_mut().find(|e| e.id() == effect) {
@@ -1283,6 +1360,8 @@ impl Session {
                 }
             }
             Command::SetAlphaSettings { texture_set, alpha } => {
+                // NaN survives clamp, is saved as null and the project no longer opens.
+                if !alpha.threshold.is_finite() { return Err(CommandError::Invalid("the alpha threshold must be a number".into())); }
                 let ts = self.doc.texture_set_mut(texture_set).ok_or(CommandError::TextureSetNotFound)?;
                 let alpha = subcraft_doc::AlphaSettings { threshold: alpha.threshold.clamp(0.0, 1.0), ..alpha };
                 if ts.alpha != alpha {
@@ -1481,6 +1560,7 @@ impl Session {
             }
             Command::ClearMeshMap { texture_set, kind } => {
                 if self.doc.texture_set(texture_set).is_none() { return Err(CommandError::TextureSetNotFound); }
+                if kind == subcraft_core::MeshMapKind::Id { self.id_baked.remove(&texture_set); }
                 if self.mesh_maps.get_mut(&texture_set).is_some_and(|m| m.remove(kind).is_some()) {
                     self.invalidated.insert(texture_set);
                     self.maps_dirty = true;
@@ -1488,6 +1568,7 @@ impl Session {
                     self.revision += 1;
                 }
             }
+            Command::FlattenLayers(layers) => return crate::flatten::flatten_layers(self, &layers),
             Command::GroupLayer(id) => {
                 self.edit_layer_set(id, "Group Layer", None, |ts| ts.group(id, "Folder").map_err(|_| CommandError::LayerNotFound))?;
             }
@@ -1603,7 +1684,7 @@ impl Session {
                 }
             }
             Command::SetBlendAllChannels { layer, from, mode, opacity } => {
-                self.edit_layer_set(layer, "Blend All Channels", None, |ts| {
+                self.edit_layer_set_if_changed(layer, "Blend All Channels", |ts| {
                     let l = Self::layer_mut(ts, layer)?;
                     let source = *l.blend.get(&from).ok_or(CommandError::Invalid("channel not blended by this layer".into()))?;
                     let folder = l.is_folder();
@@ -1775,6 +1856,18 @@ impl Session {
                     Ok(())
                 })?;
             }
+            Command::AddHeightCombinationMask(layer) => {
+                self.edit_layer_set(layer, "Add Mask with Height Combination", None, |ts| {
+                    let res = ts.resolution;
+                    let l = Self::layer_mut(ts, layer)?;
+                    let mut mask = Mask::new(res, false);
+                    mask.effects.push(Arc::new(MaskEffect::new(subcraft_doc::MaskEffectKind::Compare(subcraft_doc::CompareMask::height_combination()))));
+                    l.mask = Some(mask);
+                    let opacity = l.blend.get(&ChannelKind::Height).map_or(1.0, |b| b.opacity);
+                    l.blend.insert(ChannelKind::Height, subcraft_doc::ChannelBlend { mode: subcraft_doc::BlendMode::Normal, opacity });
+                    Ok(())
+                })?;
+            }
             Command::RemoveMask(layer) => {
                 self.edit_layer_set(layer, "Remove Mask", None, |ts| {
                     Self::layer_mut(ts, layer)?.mask.take().map(|_| ()).ok_or(CommandError::NoMask)
@@ -1857,6 +1950,13 @@ impl Session {
                     *slot = Arc::new(effect);
                     Ok(())
                 })?;
+            }
+            Command::EditIdColor { texture_set, from, to } => {
+                if from.iter().chain(&to).any(|v| !v.is_finite()) { return Err(CommandError::Invalid("invalid ID color".into())); }
+                let ts = self.doc.texture_set_mut(texture_set).ok_or(CommandError::TextureSetNotFound)?;
+                crate::id_color::edit_id_color(ts, from, to);
+                self.commit("Edit ID Color", None);
+                self.sync_id_maps();
             }
             Command::SetIdColors { layer, effect, colors } => {
                 self.edit_layer_set(layer, "ID Color", None, |ts| {
@@ -1964,6 +2064,12 @@ impl Session {
         if let subcraft_doc::MaskEffectKind::IdColor(id) = kind && !id.valid() {
             return Err(CommandError::Invalid("ID Color Mask parameters are invalid".into()));
         }
+        if let subcraft_doc::MaskEffectKind::Compare(c) = kind && !c.valid() {
+            return Err(CommandError::Invalid("Compare Mask parameters are invalid".into()));
+        }
+        if let subcraft_doc::MaskEffectKind::Levels(l) = kind && !l.valid() {
+            return Err(CommandError::Invalid("Levels parameters are invalid".into()));
+        }
         Ok(())
     }
 
@@ -2047,13 +2153,27 @@ impl Session {
 
     /// Start a stroke on the selected layer with the current brush.
     pub fn begin_stroke(&mut self) -> Result<(), PaintError> {
+        self.begin_stroke_with(None)
+    }
+
+    /// Start a 2D-view stroke (continued with [`Session::stroke_to_uv`]). `view` is where the
+    /// texture is drawn in the 2D view: a stencil masks the stroke through it. Clone strokes copy
+    /// from [`Session::clone_source_uv`].
+    pub fn begin_uv_stroke(&mut self, view: Option<subcraft_paint::UvView>) -> Result<(), PaintError> {
+        self.begin_stroke_with(Some(view))
+    }
+
+    fn begin_stroke_with(&mut self, uv: Option<Option<subcraft_paint::UvView>>) -> Result<(), PaintError> {
         if self.stroke.is_some() {
             return Ok(());
         }
         let layer = self.selection.layer.ok_or(PaintError::LayerNotFound)?;
         // Before anything below changes the document: a refused stroke leaves no trace.
-        if self.brush.mode == StrokeMode::Clone && self.clone_source.is_none() {
-            return Err(PaintError::NoCloneSource);
+        if self.brush.mode == StrokeMode::Clone {
+            let missing = if uv.is_some() { self.clone_source_uv().is_none() } else { self.clone_source.is_none() };
+            if missing {
+                return Err(PaintError::NoCloneSource);
+            }
         }
         // A normal-map / height stamp turns on its channel on the layer with the first stroke.
         let stamp = self.stroke_stamp();
@@ -2064,6 +2184,10 @@ impl Session {
         if self.brush.mode == StrokeMode::Clone && self.brush.clone_mode == CloneSourceMode::Absolute && self.clone_source.is_some() {
             self.clone_offset = None;
         }
+        if self.brush.mode == StrokeMode::Clone && self.brush.clone_mode == CloneSourceMode::Absolute {
+            self.clone_offset_uv = None;
+        }
+        let uv_clone = self.clone_source_uv();
         let ts = self.selected_texture_set();
         let b = &self.brush;
         let mut material = b.material.clone();
@@ -2076,7 +2200,12 @@ impl Session {
             .with_alpha(if stamp.is_some() { None } else { b.alpha.clone() })
             .with_stamp(stamp.as_ref().map(|(s, _)| s.clone()), stamp.as_ref().map(|(_, i)| i.clone()))
             .with_stencil(if b.stencil_bypass { None } else { b.stencil.clone() });
-        if b.mode == StrokeMode::Clone {
+        if let Some(view) = uv {
+            stroke = stroke.with_uv_view(view);
+            if b.mode == StrokeMode::Clone {
+                stroke = stroke.with_uv_clone(uv_clone.ok_or(PaintError::NoCloneSource)?, self.clone_offset_uv);
+            }
+        } else if b.mode == StrokeMode::Clone {
             let point = self.clone_source.ok_or(PaintError::NoCloneSource)?;
             stroke = stroke.with_clone(point, self.clone_offset);
         }
@@ -2145,7 +2274,31 @@ impl Session {
         let Some(pick) = self.pick(camera, screen) else { return false };
         self.clone_source = Some(pick.position);
         self.clone_offset = None;
+        self.clone_source_uv = self.doc.texture_set_for_slot(pick.material_slot).map(|ts| (ts.id, pick.uv.rem_euclid(Vec2::ONE)));
+        self.clone_offset_uv = None;
         true
+    }
+
+    /// Clone tool in the 2D view: use texture position `uv` (0..1, origin top-left) of the
+    /// selected texture set as the source. It is also the 3D source (the surface point at that
+    /// texel), so either view can paint from it. Returns false outside the set's UV islands.
+    pub fn set_clone_source_uv(&mut self, uv: Vec2) -> bool {
+        let Some(point) = self.pen_uv_position(uv) else { return false };
+        self.clone_source = Some(point);
+        self.clone_offset = None;
+        self.clone_source_uv = Some((self.selection.texture_set, uv));
+        self.clone_offset_uv = None;
+        true
+    }
+
+    /// The clone source as a texture position of the selected texture set, if one is set there.
+    pub fn clone_source_uv(&self) -> Option<Vec2> {
+        self.clone_source_uv.filter(|(ts, _)| *ts == self.selection.texture_set).map(|(_, uv)| uv)
+    }
+
+    /// UV offset from a 2D clone stroke to its source, once a stroke fixed it.
+    pub fn clone_offset_uv(&self) -> Option<Vec2> {
+        self.clone_offset_uv
     }
 
     /// The clone source point (object space), if one is set.
@@ -2168,6 +2321,9 @@ impl Session {
         }, active);
         if result.as_ref().is_ok_and(|t| !t.is_empty()) {
             self.revision += 1;
+        }
+        if let Some(offset) = self.stroke.as_ref().and_then(|a| a.stroke.uv_clone_offset()) {
+            self.clone_offset_uv = Some(offset);
         }
         result
     }
@@ -2200,6 +2356,35 @@ impl Session {
         self.begin_stroke()?;
         let active = self.stroke.take().expect("just begun");
         let tiles = self.with_stroke_context(active.texture_set, camera, |stroke, ts, ctx| stroke.polygon_fill(ts, ctx, screen, mode), active)?;
+        if let Some(a) = self.stroke.as_mut() {
+            a.label = "Polygon Fill";
+        }
+        self.end_stroke();
+        Ok(tiles)
+    }
+
+    /// Polygon fill of everything a screen box `[a, b]` touches, grown to `mode` (one history
+    /// entry). `visible_only` leaves back faces and occluded triangles alone.
+    pub fn polygon_fill_box(&mut self, camera: &Camera, a: Vec2, b: Vec2, mode: PolygonFillMode, visible_only: bool) -> Result<Vec<usize>, PaintError> {
+        self.polygon_fill_with(camera, |stroke, ts, ctx| stroke.polygon_fill_box(ts, ctx, a, b, mode, visible_only))
+    }
+
+    /// Polygon fill of everything a UV box `[a, b]` touches in the 2D view (one history entry).
+    pub fn polygon_fill_uv_box(&mut self, a: Vec2, b: Vec2, mode: PolygonFillMode) -> Result<Vec<usize>, PaintError> {
+        self.polygon_fill_with(&uv_camera(), |stroke, ts, ctx| stroke.polygon_fill_uv_box(ts, ctx, a, b, mode))
+    }
+
+    fn polygon_fill_with(
+        &mut self,
+        camera: &Camera,
+        f: impl FnOnce(&mut Stroke, &mut TextureSet, &PaintContext) -> Result<Vec<usize>, PaintError>,
+    ) -> Result<Vec<usize>, PaintError> {
+        if self.stroke.is_some() {
+            return Ok(Vec::new());
+        }
+        self.begin_stroke()?;
+        let active = self.stroke.take().expect("just begun");
+        let tiles = self.with_stroke_context(active.texture_set, camera, f, active)?;
         if let Some(a) = self.stroke.as_mut() {
             a.label = "Polygon Fill";
         }

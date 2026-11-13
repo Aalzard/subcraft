@@ -129,6 +129,10 @@ pub(crate) fn fonts() -> FontDefinitions {
 
 pub fn apply(ctx: &egui::Context) {
     ctx.set_fonts(fonts());
+    // SubCraft has one (dark) theme. egui follows the system theme by default, and the visuals
+    // below were only set for the theme active at start: with a light system theme the menu bar
+    // and every stock widget took egui's light colours on the app's dark panels (issue #206).
+    ctx.set_theme(egui::ThemePreference::Dark);
 
     let mut v = Visuals::dark();
     v.panel_fill = BG_1;
@@ -185,7 +189,8 @@ pub fn apply(ctx: &egui::Context) {
     for s in [&mut w.noninteractive, &mut w.inactive, &mut w.hovered, &mut w.active, &mut w.open] {
         s.corner_radius = CornerRadius::same(RADIUS);
     }
-    ctx.set_visuals(v);
+    ctx.set_visuals_of(egui::Theme::Light, v.clone());
+    ctx.set_visuals_of(egui::Theme::Dark, v);
 
     ctx.global_style_mut(|s| {
         s.text_styles = [
