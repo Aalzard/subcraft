@@ -2969,6 +2969,14 @@ impl Session {
         let mut s = settings.clone();
         s.selection = self.export_selection();
         s.udim_folders = self.settings.udim_folders;
+        // `$project` and `$sceneMaterial` in file name patterns.
+        s.project_name = Some(self.export_name());
+        s.scene_materials = self
+            .doc
+            .texture_sets
+            .iter()
+            .filter_map(|ts| self.scene.mesh.materials.get(ts.material_slot as usize).map(|m| (ts.name.clone(), m.name.clone())))
+            .collect();
         if let Some(format) = self.settings.normal_format {
             s.normal_directx = Some(format == subcraft_doc::NormalFormat::DirectX);
         }
@@ -3085,6 +3093,63 @@ impl Session {
         let name = self.export_name();
         let sets = self.export_sets();
         subcraft_export::scene::export_scene(&self.scene.mesh, &name, &sets, &settings, format, dir).map_err(|e| e.to_string())
+    }
+
+    /// The texture set holding `layer`, and a copy of it whose stack is that layer alone (visible).
+    fn isolated(&self, layer: LayerId) -> Option<(&TextureSet, TextureSet, Arc<Layer>)> {
+        let ts = self.doc.texture_sets.iter().find(|ts| ts.find(layer).is_some())?;
+        let mut l = ts.find(layer)?.clone();
+        l.visible = true;
+        let l = Arc::new(l);
+        let mut alone = ts.clone();
+        alone.layers = vec![l.clone()];
+        Some((ts, alone, l))
+    }
+
+    fn composite_of(&self, ts: &TextureSet, stack: &TextureSet) -> Composite {
+        let geo = self.scene.geometry.get(ts.material_slot, ts.resolution);
+        let maps = self.mesh_maps.get(&ts.id).unwrap_or(&self.no_maps);
+        let ctx = EvalContext { geometry: &geo, resources: &self.resources, mesh_maps: maps };
+        subcraft_compositor::composite_full(stack, &ctx)
+    }
+
+    /// Painter's Export flattened: each layer (a folder with its content) composited on its own,
+    /// one file per channel it blends into, named by `pattern`
+    /// (`subcraft_export::layer_export::FLATTENED_PATTERN`).
+    pub fn export_flattened_layers(&self, layers: &[LayerId], dir: &Path, pattern: &str) -> Result<Vec<PathBuf>, String> {
+        let name = self.export_name();
+        let mut out = Vec::new();
+        for &id in layers {
+            let Some((ts, alone, layer)) = self.isolated(id) else { continue };
+            let c = self.composite_of(ts, &alone);
+            let set = subcraft_export::ExportTextureSet { name: &ts.name, material_slot: ts.material_slot, udim: ts.udim_number(), channels: &c.channels, mesh_maps: None, mixing: ts.mixing };
+            let channels: Vec<_> = ts.channels.iter().filter(|d| layer.blend.contains_key(&d.kind)).map(|d| (d.kind, d.format)).collect();
+            out.extend(subcraft_export::layer_export::write_flattened(&self.scene.mesh, &name, &set, &layer.name, &channels, pattern, dir).map_err(|e| e.to_string())?);
+        }
+        Ok(out)
+    }
+
+    /// Painter's Export mask: each layer's mask (its effects evaluated) as one gray file.
+    pub fn export_layer_masks(&self, layers: &[LayerId], dir: &Path, pattern: &str, format: subcraft_image::FileFormat) -> Result<Vec<PathBuf>, String> {
+        let name = self.export_name();
+        let mut out = Vec::new();
+        for &id in layers {
+            let Some((ts, mut alone, layer)) = self.isolated(id) else { continue };
+            let Some(mask) = layer.mask.clone() else { continue };
+            // A white fill through the mask into a channel that starts black reads the mask back.
+            alone.channels = vec![ChannelDef::default_for(ChannelKind::Metallic)];
+            let mut probe = Layer::new_fill("mask", &alone);
+            if let LayerContent::Fill(f) = &mut probe.content {
+                f.channels.insert(ChannelKind::Metallic, subcraft_doc::FillChannel::new(subcraft_doc::FillSource::uniform(subcraft_core::ChannelValue::scalar(1.0))));
+            }
+            probe.mask = Some(mask);
+            alone.layers = vec![Arc::new(probe)];
+            let c = self.composite_of(ts, &alone);
+            let Some(img) = c.channels.get(&ChannelKind::Metallic) else { continue };
+            let set = subcraft_export::ExportTextureSet { name: &ts.name, material_slot: ts.material_slot, udim: ts.udim_number(), channels: &c.channels, mesh_maps: None, mixing: ts.mixing };
+            out.push(subcraft_export::layer_export::write_mask(&self.scene.mesh, &name, &set, &layer.name, img, format, pattern, dir).map_err(|e| e.to_string())?);
+        }
+        Ok(out)
     }
 
     /// Export every map as one in-memory ZIP archive.

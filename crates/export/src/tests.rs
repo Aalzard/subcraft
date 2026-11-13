@@ -6,6 +6,7 @@ mod more;
 mod mixing;
 mod formats;
 mod converted;
+mod patterns;
 use std::collections::BTreeMap;
 
 use subcraft_core::{ChannelKind, MeshMapKind};

@@ -6,6 +6,9 @@ What changed in SubCraft, newest first. Download the latest build from the
 ## Unreleased
 
 ### Added
+- **Export flattened / Export mask** from the layer stack, like Painter: right-click a layer or folder (or a
+  multi-selection) to write it on its own, one file per channel (`$textureSet_$layerName_$srcMap`, height and
+  normal as EXR, 1 texel of padding), or its mask as a gray image.
 - **Converted maps** in the preset editor, like Painter's: Diffuse, Specular, Reflection, Glossiness,
   Glossiness squared, Mixed AO, f0 and 1/ior, computed from the metal / roughness channels. Painter
   presets that use them import without losing those maps.
@@ -14,6 +17,12 @@ What changed in SubCraft, newest first. Download the latest build from the
   settings and each texture set: a texture set can have its own file type, bit depth, size and padding.
   The bottom row has Reset all, Cancel (closes without keeping the changes), Save settings (stores the
   export settings in the project) and Export.
+- **Template editor like Painter's**: Gray / RGB / R+G+B / RGB+A / R+G+B+A buttons create maps with those
+  channel slots; drag a map from the Input maps, Converted maps or Mesh maps lists onto a slot and pick
+  RGB, R, G, B or Gray. File names take `$project`, `$sceneMaterial` and `$colorSpace` (a `$` button
+  inserts any keyword), `/` makes sub-folders and a part in parentheses such as `(.$udim)` is left out
+  when its keyword is empty. On the Settings tab a texture set's maps can each have their own file type
+  and bit depth.
 - **About 25 more built-in export templates** with Painter's names: Blender, Arnold, Corona, CryEngine 3,
   Amazon Lumberyard, Keyshot, Lens Studio, Maxwell, Redshift, Renderman, Shade 3D, Spark AR, V-Ray, Unity
   HDRP / URP Specular, PBR Specular Glossiness (converted), Roblox MaterialVariant, glTF + displacement,
