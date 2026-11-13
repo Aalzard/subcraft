@@ -133,7 +133,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     if response.hovered() {
         let scroll = ui.input(|i| i.smooth_scroll_delta.y);
         if scroll != 0.0 && let Some(cursor) = response.hover_pos() {
-            (state.uv.zoom, state.uv.offset) = zoom_about(state.uv.zoom, state.uv.offset, cursor - rect.center(), (scroll * 0.002).exp());
+            (state.uv.zoom, state.uv.offset) = zoom_about(state.uv.zoom, state.uv.offset, cursor - rect.center(), state.recovery.prefs.camera_speed.wheel_magnify_2d(scroll));
         }
     }
     let zoom_drag = alt && !mods.command && !mods.ctrl && response.dragged_by(egui::PointerButton::Secondary);

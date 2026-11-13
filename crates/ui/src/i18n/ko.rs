@@ -828,4 +828,6 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Zoom speed", "확대/축소 속도"),
     ("Wheel speed", "휠 속도"),
     ("Inverse direction", "방향 반전"),
+    ("Invert zoom", "줌 반전"),
+    ("Off: turning the wheel forward zooms in, as in Painter. On: forward zooms out. Applies to the 3D and 2D views.", "끄기: 휠을 앞으로 돌리면 Painter처럼 확대됩니다. 켜기: 앞으로 돌리면 축소됩니다. 3D 뷰와 2D 뷰에 적용됩니다."),
 ];
