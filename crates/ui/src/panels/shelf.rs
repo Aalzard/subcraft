@@ -897,7 +897,9 @@ pub fn import_smart_folder_dialog(ctx: &egui::Context) {
 /// the Smart Materials tab. Draws a hint while files hover over it.
 fn handle_drops(state: &mut UiState, ui: &Ui, now: f64) {
     let rect = ui.max_rect();
-    let over = ui.ctx().input(|i| i.pointer.latest_pos()).is_some_and(|p| rect.contains(p));
+    // Not where the Import resources window floats over the panel: files dropped there are the
+    // window's (QA 2026-11: on Smart Materials they were also imported straight away).
+    let over = ui.ctx().input(|i| i.pointer.latest_pos()).is_some_and(|p| rect.contains(p) && !state.import.covers(p));
     if over && ui.ctx().input(|i| !i.raw.hovered_files.is_empty()) {
         ui.painter().rect_stroke(rect.shrink(2.0), 4.0, egui::Stroke::new(2.0, theme::ACCENT), egui::StrokeKind::Inside);
     }
