@@ -438,3 +438,35 @@ fn anchored_sets_run_on_the_gpu_and_match_the_cpu() {
     plain.layers.truncate(top);
     assert_ne!(run(&plain, &fx, false), cpu);
 }
+
+/// A change of one channel's opacity only blends that channel again on the GPU (every channel has
+/// its own program): the composite equals a cold one of the same state, bit for bit on the same
+/// device, and the other channels are neither blended nor read back.
+#[test]
+fn a_single_channel_edit_only_blends_that_channel_on_the_gpu() {
+    let _turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
+    if !adapter_ok() {
+        return;
+    }
+    let fx = Fixture { geo: TextureSetGeometry::new(Arc::new(primitives::plane(2.0, 2)), 0, RES), res: ResourceStore::default(), maps: MeshMaps::new() };
+    let ctx = EvalContext { geometry: &fx.geo, resources: &fx.res, mesh_maps: &fx.maps };
+    let mut ts = rich_set();
+    gpu::set_gpu_compositing_enabled(true);
+    let mut cache = subcraft_compositor::CompositeCache::new();
+    cache.update(&ts, &ctx);
+    let _ = take_gpu_stats();
+
+    // The bottom layer: nothing cached below it, so every tile goes to the GPU.
+    let bottom = ts.layers[0].id;
+    ts.find_mut(bottom).unwrap().blend.get_mut(&ChannelKind::BaseColor).unwrap().opacity = 0.5;
+    cache.update(&ts, &ctx);
+    let limited = take_gpu_stats();
+    assert_eq!(cache.limited_to(), Some(vec![ChannelKind::BaseColor]));
+    assert!(limited.tiles > 0, "the edit was blended on the GPU: {limited:?}");
+
+    let mut cold = subcraft_compositor::CompositeCache::new();
+    cold.update(&ts, &ctx);
+    let full = take_gpu_stats();
+    assert_eq!(cache.composite(), cold.composite(), "limited to one channel, same texels as a cold composite");
+    assert!(limited.timing.cache_hits + limited.timing.cache_misses < full.timing.cache_hits + full.timing.cache_misses, "fewer sources than every channel: {limited:?} vs {full:?}");
+}
