@@ -568,6 +568,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 if !state.bake.preview_uploaded {
                     renderer.set_bake_preview(&rs.device, Some((&state.session.scene().mesh, high)));
                     state.bake.preview_uploaded = true;
+                    state.bake.cage_normals_uploaded = None;
                     state.bake.miss_uploaded = false;
                     overlay_uploaded = true;
                 }
@@ -588,6 +589,12 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     renderer.set_bake_seam_lines(&rs.device, edges);
                     state.bake.seams_uploaded = true;
                 }
+            }
+            // The cage is drawn along the normals the bake's rays follow (issue #307).
+            if let Some(averaged) = state.bake.cage_normals_due() {
+                let low = &state.session.scene().mesh;
+                let normals = averaged.then(|| subcraft_bake::averaged_normals(low));
+                renderer.set_bake_cage_normals(&rs.device, low, normals.as_deref());
             }
             params.bake_overlay = state.bake.overlay_active();
             if state.bake.preview_mesh.is_some() && !state.bake.miss_uploaded && let Some(r) = &state.bake.cage_result {

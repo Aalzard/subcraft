@@ -748,6 +748,12 @@ impl ViewportRenderer {
         self.bake_preview.set_seam_lines(device, lines);
     }
 
+    /// Normals the bake overlay pushes its cage out along (one per low-poly vertex), or `None`
+    /// for the low poly's own: pass the averaged normals when the bake uses Average normals.
+    pub fn set_bake_cage_normals(&mut self, device: &wgpu::Device, low: &Mesh, normals: Option<&[glam::Vec3]>) {
+        self.bake_preview.set_cage_normals(device, low, normals);
+    }
+
     pub fn set_bake_miss_maps(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, maps: &[(u32, &subcraft_image::TiledImage)]) {
         self.bake_preview.set_miss_maps(device, queue, maps);
     }

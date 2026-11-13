@@ -178,26 +178,30 @@ impl BakePreviewPass {
         self.low_ranges = low.submeshes.iter().map(|s| (s.first_triangle * 3..(s.first_triangle + s.triangle_count) * 3, s.material)).collect();
         indices.extend(high.indices.iter().map(|i| i + low.vertex_count() as u32));
         // Front and rear bounds, sharing the same normal and diagonal convention as the baker.
-        let mut cage = Vec::with_capacity(low.indices.len() * 4);
-        for side in [1., -1.] {
-            for tri in low.indices.as_chunks::<3>().0 {
-                for (a, b) in [(0, 1), (1, 2), (2, 0)] {
-                    for k in [a, b] {
-                        let i = tri[k] as usize;
-                        cage.push(Vertex { position: low.positions[i].to_array(), normal: low.normals[i].to_array(), color: [0.55, 0.65, 0.72, side], uv_low: [0.; 3] });
-                    }
-                }
-            }
-        }
         let buffer = |label, bytes, usage| device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some(label), contents: bytes, usage });
         self.vertices = Some(buffer("bake surfaces", bytemuck::cast_slice(&vertices), wgpu::BufferUsages::VERTEX));
         self.indices = Some(buffer("bake surface indices", bytemuck::cast_slice(&indices), wgpu::BufferUsages::INDEX));
-        self.cage = Some(buffer("bake cage", bytemuck::cast_slice(&cage), wgpu::BufferUsages::VERTEX));
         // The cage surface: the low poly again, every vertex marked for the front cage distance.
-        let surface: Vec<Vertex> = low.positions.iter().zip(&low.normals).map(|(p, n)| Vertex { position: p.to_array(), normal: n.to_array(), color: [0., 0., 0., 1.], uv_low: [0.; 3] }).collect();
-        self.cage_surface = Some(buffer("bake cage surface", bytemuck::cast_slice(&surface), wgpu::BufferUsages::VERTEX));
-        self.count = indices.len() as u32; self.low_index_count = low.indices.len() as u32; self.cage_count = cage.len() as u32;
+        self.upload_cage(device, low, &low.normals);
+        self.count = indices.len() as u32; self.low_index_count = low.indices.len() as u32;
         self.diagonal = low.bounds.diagonal().max(high.bounds.diagonal()).max(1e-6);
+    }
+
+    /// Draw the cage (wireframe and surface) pushed out along `normals`, one per low-poly vertex:
+    /// the averaged normals when the bake uses Average normals (issue #307), `None` for the low
+    /// poly's own. Needs the meshes of `set_meshes`; `low` must be the same low poly.
+    pub fn set_cage_normals(&mut self, device: &wgpu::Device, low: &Mesh, normals: Option<&[glam::Vec3]>) {
+        if self.cage.is_none() { return; }
+        let normals = normals.filter(|n| n.len() == low.positions.len()).unwrap_or(&low.normals);
+        self.upload_cage(device, low, normals);
+    }
+
+    fn upload_cage(&mut self, device: &wgpu::Device, low: &Mesh, normals: &[glam::Vec3]) {
+        let buffer = |label, bytes: &[u8]| device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some(label), contents: bytes, usage: wgpu::BufferUsages::VERTEX });
+        let (lines, surface) = cage_vertices(low, normals);
+        self.cage = Some(buffer("bake cage", bytemuck::cast_slice(&lines)));
+        self.cage_surface = Some(buffer("bake cage surface", bytemuck::cast_slice(&surface)));
+        self.cage_count = lines.len() as u32;
     }
 
     /// Lines of the seam check: `[a, b, normal]` per edge of the low poly (hard edges without a
@@ -294,6 +298,24 @@ impl BakePreviewPass {
     }
 }
 
+/// The cage's wireframe (front then rear, two vertices per triangle edge) and surface vertices
+/// (one per low-poly vertex), pushed out along `normals` by the shader's cage distances.
+fn cage_vertices(low: &Mesh, normals: &[glam::Vec3]) -> (Vec<Vertex>, Vec<Vertex>) {
+    let mut lines = Vec::with_capacity(low.indices.len() * 4);
+    for side in [1., -1.] {
+        for tri in low.indices.as_chunks::<3>().0 {
+            for (a, b) in [(0, 1), (1, 2), (2, 0)] {
+                for k in [a, b] {
+                    let i = tri[k] as usize;
+                    lines.push(Vertex { position: low.positions[i].to_array(), normal: normals[i].to_array(), color: [0.55, 0.65, 0.72, side], uv_low: [0.; 3] });
+                }
+            }
+        }
+    }
+    let surface = low.positions.iter().zip(normals).map(|(p, n)| Vertex { position: p.to_array(), normal: n.to_array(), color: [0., 0., 0., 1.], uv_low: [0.; 3] }).collect();
+    (lines, surface)
+}
+
 /// An R8 texture (`queue` given: filled with `bytes`, row-major `w`x`h`).
 fn miss_texture(device: &wgpu::Device, queue: Option<&wgpu::Queue>, w: u32, h: u32, bytes: &[u8]) -> wgpu::TextureView {
     let size = wgpu::Extent3d { width: w.max(1), height: h.max(1), depth_or_array_layers: 1 };
@@ -317,4 +339,30 @@ fn bind_group(device: &wgpu::Device, layout: &wgpu::BindGroupLayout, uniform: &w
             wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(sampler) },
         ],
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use subcraft_mesh::primitives;
+
+    /// Issue #307: with Average normals on, the cage is drawn along the same averaged normals the
+    /// baker's rays follow, not the low poly's own (split) normals.
+    #[test]
+    fn the_cage_follows_the_normals_it_is_given() {
+        let cube = primitives::cube(2.0);
+        let own = cage_vertices(&cube, &cube.normals);
+        let averaged = subcraft_bake::averaged_normals(&cube);
+        let smooth = cage_vertices(&cube, &averaged);
+        assert_eq!((own.0.len(), own.1.len()), (smooth.0.len(), smooth.1.len()));
+        let corner = |v: &Vertex| glam::Vec3::from(v.position).abs().min_element() > 0.99;
+        for (o, s) in own.0.iter().chain(&own.1).zip(smooth.0.iter().chain(&smooth.1)).filter(|(o, _)| corner(o)) {
+            let p = glam::Vec3::from(o.position);
+            let n = glam::Vec3::from(o.normal);
+            // Own normals: one face's axis. Averaged: the corner's diagonal, shared by its faces.
+            assert!(n.abs().max_element() > 0.999, "own normal {n:?}");
+            assert!((glam::Vec3::from(s.normal) - p.normalize()).length() < 1e-3, "averaged at {p:?}: {:?}", s.normal);
+            assert_eq!(o.position, s.position);
+        }
+    }
 }
