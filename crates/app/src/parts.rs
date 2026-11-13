@@ -94,6 +94,25 @@ impl Session {
         self.uv_triangles_where(|p| p == Some(part))
     }
 
+    /// The triangle of the selected texture set at a 2D-view texture position (UV 0..1).
+    pub fn triangle_at_uv(&self, uv: Vec2) -> Option<u32> {
+        let ts = self.selected_texture_set();
+        let geo = self.scene().geometry.get(ts.material_slot, ts.resolution);
+        subcraft_paint::stroke::triangle_at_uv(&self.scene().mesh, &geo, uv)
+    }
+
+    /// What Polygon Fill would fill from `triangle` in `mode`, as UV triangles of the selected
+    /// texture set: the 2D view's preview of the element under the cursor.
+    pub fn polygon_fill_preview_uv(&self, triangle: u32, mode: subcraft_paint::PolygonFillMode) -> Vec<[Vec2; 3]> {
+        let ts = self.selected_texture_set();
+        let geo = self.scene().geometry.get(ts.material_slot, ts.resolution);
+        let mesh = &self.scene().mesh;
+        subcraft_paint::select::grow(mesh, &geo, &[triangle], mode)
+            .into_iter()
+            .map(|t| subcraft_mesh::uv_raster::wrap_to_tile(mesh.tri_uvs(t as usize)).0)
+            .collect()
+    }
+
     /// The part at a 2D-view texture position (UV 0..1) of the selected texture set.
     pub fn part_at_uv(&self, uv: Vec2) -> Option<u32> {
         let ts = self.selected_texture_set();

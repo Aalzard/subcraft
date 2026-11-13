@@ -223,6 +223,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     }
     quick_mask_overlay(state, ui, &painter, img_rect);
     parts_overlay(state, ui, &painter, img_rect, picking, response.hover_pos());
+    let fill_hover = state.tool == Tool::PolygonFill && paints && !picking && state.uv.fill_box.is_none();
+    fill_hover_overlay(state, &painter, img_rect, fill_hover.then(|| response.hover_pos()).flatten());
 
     if state.uv_wireframe {
         let mesh = state.session.scene().mesh.clone();
@@ -332,6 +334,8 @@ pub struct PartsOverlay {
     hover_key: Option<(subcraft_core::TextureSetId, subcraft_core::PartKind, u32)>,
     hover: Vec<[Vec2; 3]>,
     hatch: Option<egui::TextureHandle>,
+    fill_key: Option<(subcraft_core::TextureSetId, subcraft_paint::PolygonFillMode, u32)>,
+    fill: Vec<[Vec2; 3]>,
     /// The part whose row is under the cursor in the Properties list (set there every frame).
     pub list_hover: Option<u32>,
 }
@@ -371,6 +375,27 @@ fn triangles_mesh(tris: &[[Vec2; 3]], to_px: impl Fn(Vec2) -> Pos2, clip: Rect, 
         mesh.add_triangle(i, i + 1, i + 2);
     }
     egui::Shape::mesh(mesh)
+}
+
+/// Polygon Fill's preview: the triangle, polygon, mesh, UV island or object under the cursor (what
+/// a click would fill in the current mode) is tinted.
+fn fill_hover_overlay(state: &mut UiState, painter: &egui::Painter, image: Rect, pointer: Option<Pos2>) {
+    let side = image.width();
+    let triangle = pointer
+        .filter(|p| image.contains(*p))
+        .and_then(|p| state.session.triangle_at_uv(Vec2::new((p.x - image.left()) / side, (p.y - image.top()) / side)));
+    let key = triangle.map(|t| (state.session.selected_texture_set().id, state.fill_mode, t));
+    if key != state.uv_parts.fill_key {
+        // In every mode but Triangle the element is the same for most cursor moves: skip the
+        // rebuild while the cursor stays on a triangle that is already tinted.
+        state.uv_parts.fill = triangle.map_or_else(Vec::new, |t| state.session.polygon_fill_preview_uv(t, state.fill_mode));
+        state.uv_parts.fill_key = key;
+    }
+    if !state.uv_parts.fill.is_empty() {
+        let to_px = |uv: Vec2| image.min + egui::vec2(uv.x, uv.y) * side;
+        let tint = Color32::from_rgba_unmultiplied(crate::theme::ACCENT.r(), crate::theme::ACCENT.g(), crate::theme::ACCENT.b(), 80);
+        painter.add(triangles_mesh(&state.uv_parts.fill, to_px, painter.clip_rect(), tint, None));
+    }
 }
 
 /// The geometry mask over the 2D view, while it is edited or Alt+H hides what it leaves out:
