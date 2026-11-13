@@ -119,6 +119,34 @@ fn a_folder_instance_shows_the_layers_of_its_source_and_cannot_go_inside_it() {
     assert_eq!(s.selected_texture_set().find(instance).unwrap().children().len(), 2);
 }
 
+/// QA 2026-11: a layer added, pasted or dropped into an instance folder was wiped by the next
+/// sync with the source (an empty undo step); dropping the source itself in deleted both.
+#[test]
+fn nothing_lands_inside_an_instance_folder() {
+    use subcraft_app::layer_tree::DropTarget;
+    let mut s = Session::new(subcraft_mesh::primitives::plane(2.0, 2), 128);
+    s.execute(Command::AddLayer(NewLayer::Folder)).unwrap();
+    let folder = s.selection().layer.unwrap();
+    s.execute(Command::PasteAsInstance(vec![folder])).unwrap();
+    let instance = s.selection().layer.unwrap();
+    let children = |s: &Session| s.selected_texture_set().find(instance).unwrap().children().len();
+    // A new layer with the (empty) instance selected goes above it, and stays.
+    s.execute(Command::AddLayer(NewLayer::Paint)).unwrap();
+    let added = s.selection().layer.unwrap();
+    assert!(s.selected_texture_set().find(added).is_some(), "the new layer exists");
+    assert_eq!(children(&s), 0);
+    assert_eq!(s.selected_texture_set().location(added).unwrap().parent, None, "above the instance, not inside");
+    // Dropping a layer, or the source, into the instance is refused and changes nothing.
+    let ts = s.selection().texture_set;
+    let doc = s.document().clone();
+    for layer in [added, folder] {
+        assert!(s.execute(Command::DropLayer { texture_set: ts, layer, target: DropTarget::Inside(instance) }).is_err());
+        assert!(s.execute(Command::DropLayers { texture_set: ts, layers: vec![layer], target: DropTarget::Inside(instance), copy: false }).is_err());
+    }
+    assert_eq!(s.document(), &doc);
+    assert!(s.selected_texture_set().find(folder).is_some() && s.selected_texture_set().find(instance).is_some());
+}
+
 #[test]
 fn an_instance_survives_save_and_load() {
     let (mut s, source) = session();
