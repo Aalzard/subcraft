@@ -252,6 +252,8 @@ pub struct Session {
     mesh_dirty: bool,
     /// Symmetry axes the L key (Painter's Symmetry on / off) switched off, restored by the next L.
     saved_symmetry: Option<([bool; 3], bool)>,
+    /// Painter's Pause engine computation: the incremental compositing waits while set.
+    engine_paused: bool,
 }
 
 /// Everything a project file holds, captured cheaply (shared tiles and resources) so it can be
@@ -342,6 +344,7 @@ impl Session {
             recovered: false,
             mesh_dirty: false,
             saved_symmetry: None,
+            engine_paused: false,
         }
     }
 
@@ -2532,6 +2535,7 @@ impl Session {
             Action::BrushLarger => self.brush.settings.size = (self.brush.settings.size * 1.15).min(100.0),
             Action::ToggleSymmetryX => self.brush.options.symmetry[0] = !self.brush.options.symmetry[0],
             Action::ToggleSymmetry => self.brush.options.toggle_symmetry(&mut self.saved_symmetry),
+            Action::PauseEngine => self.engine_paused = !self.engine_paused,
             Action::ToggleLazyMouse => {
                 let o = &mut self.brush.options;
                 o.lazy_distance_px = if o.lazy_distance_px > 0.0 { 0.0 } else { 20.0 };
@@ -3079,7 +3083,22 @@ impl Session {
     /// worker (started on the first call) and whatever it finished since the last call is
     /// returned; [`Session::composites_pending`] says whether more is coming. Where no worker
     /// thread is running, up to about `budget` worth of tiles is evaluated here instead.
+    /// Whether layer computation is paused (Shift+Esc).
+    pub fn engine_paused(&self) -> bool {
+        self.engine_paused
+    }
+
+    /// Pause or resume the incremental layer computation. While paused,
+    /// [`Session::update_composites_within`] computes and publishes nothing and the pending work
+    /// waits; the full [`Session::update_composites`] (export, save) still computes.
+    pub fn set_engine_paused(&mut self, paused: bool) {
+        self.engine_paused = paused;
+    }
+
     pub fn update_composites_within(&mut self, budget: Option<std::time::Duration>) -> Vec<CompositeUpdate> {
+        if self.engine_paused {
+            return Vec::new();
+        }
         if self.worker.is_none() && !self.inline_only {
             // An exact synchronous composite may already exist (for example after export).
             // Adopting unchanged caches publishes no tiles, so retain their displayed values.

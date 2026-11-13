@@ -978,4 +978,5 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Show the log file", "로그 파일 표시"),
     ("Warnings and errors", "경고 및 오류"),
     ("{} warning(s), {} error(s) since the last Clear", "마지막으로 지운 뒤 경고 {}개, 오류 {}개"),
+    ("Computation paused · Shift+Esc to resume", "계산 일시 중지됨 · 다시 시작하려면 Shift+Esc"),
 ];

@@ -978,4 +978,5 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Show the log file", "顯示記錄檔"),
     ("Warnings and errors", "警告與錯誤"),
     ("{} warning(s), {} error(s) since the last Clear", "自上次清除以來有 {} 個警告、{} 個錯誤"),
+    ("Computation paused · Shift+Esc to resume", "計算已暫停 · 按 Shift+Esc 繼續"),
 ];

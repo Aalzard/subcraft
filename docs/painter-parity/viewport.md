@@ -138,7 +138,7 @@ Layout notes: the dropdown at the top right of each view switches between Materi
 | Invert grayscale tool value (on masks) | X | - | partial: X in the Painter key set | crates/app/src/actions.rs (Action::InvertMaskGray) | #164 |
 | Pick stroke material | P, then click the mesh | returns to the previous tool after picking | partial: P only in the Painter keymap; Eyedropper stays active after the pick; Shift+click picks the material | crates/ui/src/viewport.rs:294 | - |
 | Set Clone tool source location | V + LMB | - | done | crates/ui/src/viewport.rs:300 | - |
-| Pause engine computation | Shift + Escape | - | missing | - | - |
+| Pause engine computation | Shift + Escape | - | done: layer computation waits and the 3D view says so until Shift+Esc again; export and save still compute | crates/app/src/session.rs (set_engine_paused) | PRNUM |
 | Toggle animation (particles) | Space | - | missing | - | - |
 | Polygon Fill: rectangular marquee drag | LMB drag with Polygon Fill | - | done | crates/ui/src/viewport.rs | #131 |
 | Polygon Fill: extend loop on the other side | Alt while dragging (loop modes) | - | missing | - | - |
