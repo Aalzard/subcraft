@@ -646,7 +646,10 @@ pub(crate) fn resolution(ui: &mut Ui, prefs: &mut ViewportPrefs) {
 /// Painter's Viewport Mode dropdown (contextual toolbar): the 3D / 2D layouts of F1..F4. The
 /// app applies the choice on its next frame.
 fn viewport_mode(ui: &mut Ui, state: &mut crate::state::UiState) {
+    // Narrow: the shown labels are short (3D | 2D, 3D only, 2D only) and the row must still fit
+    // a 540-point dock (tests/brush_bar.rs).
     egui::ComboBox::from_id_salt("viewport_layout_mode")
+        .width(76.0)
         .selected_text(state.view_layout.label())
         .show_ui(ui, |ui| {
             for layout in crate::app::ViewLayout::MENU {
