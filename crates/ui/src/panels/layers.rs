@@ -480,7 +480,8 @@ Files: {}", ex.dir().display()));
                 }
                 let thumb = state.layer_previews.image(ui, &state.session, PreviewKey { layer: l.id, channel: active, mask: false, effect: None, size: 64 }, thumb_size,
                     selected && selected_target == LayerTarget::Content).on_hover_text(format!("{:?} content · {} preview · click to edit", l.kind(), active.display_name()));
-                if thumb.clicked() { cmds.push(Command::SelectLayerTarget { layer: l.id, target: LayerTarget::Content }); }
+                // Clicking a thumbnail also leaves geometry mask editing, as in Painter.
+                if thumb.clicked() { cmds.push(Command::SelectLayerTarget { layer: l.id, target: LayerTarget::Content }); state.picking_parts = false; }
                 // Painter's line under each thumbnail: grey without effects, coloured with at least one.
                 let effect_line = |ui: &Ui, rect: egui::Rect, has: bool| {
                     ui.painter().hline(rect.x_range(), rect.bottom() + 3.0, egui::Stroke::new(2.0, if has { EFFECT_LINE } else { theme::BORDER_STRONG }));
@@ -505,6 +506,7 @@ Files: {}", ex.dir().display()));
                         if ui.input(|i| i.modifiers.shift) { cmds.push(Command::SetMaskEnabled { layer: l.id, enabled: !mask.enabled }); }
                         else {
                             cmds.push(Command::SelectLayerTarget { layer: l.id, target: LayerTarget::Mask });
+                            state.picking_parts = false;
                             if state.tool == crate::state::Tool::Pen { state.tool = crate::state::Tool::Brush; }
                             // Painter: Alt+click shows the mask alone in the viewport (again: back).
                             if ui.input(|i| i.modifiers.alt) { ui.ctx().data_mut(|d| d.insert_temp(crate::mask_view::toggle_request_id(), l.id)); }
@@ -532,8 +534,10 @@ Files: {}", ex.dir().display()));
                 // Painter's geometry mask icon: which meshes / islands the layer covers, with the count.
                 let geo = geometry_mask_icon(ui, &state.session, l, ts.material_slot);
                 if geo.clicked() {
+                    // A second click on the layer being edited leaves the editing.
+                    let editing = state.picking_parts && selected;
                     cmds.push(Command::SelectLayer(Some(l.id)));
-                    state.picking_parts = true;
+                    state.picking_parts = !editing;
                 }
                 geo.context_menu(|ui| geometry_mask_menu(ui, &state.session, &mut state.parts_clipboard, &mut state.picking_parts, l, ts.material_slot, &mut cmds));
                 let mut text = row_text(&l.name, selected || l.visible);
@@ -1023,7 +1027,9 @@ fn geometry_mask_icon(ui: &mut Ui, session: &subcraft_app::Session, l: &Layer, s
             let all = parts_of(session, p.kind, slot);
             let shown = all.iter().filter(|id| p.parts.contains(id)).count();
             let what = p.kind.label().to_lowercase();
-            if p.enabled {
+            if p.enabled && shown == 0 {
+                (format!("{} 0/{}", icons::POLYGON, all.len()), egui::Color32::from_rgb(226, 92, 92), format!("Geometry mask: nothing included, so the layer has no effect · click to include some {what} in the views · right-click for options"))
+            } else if p.enabled {
                 (format!("{} {shown}/{}", icons::POLYGON, all.len()), ACCENT, format!("Geometry mask: {shown} of {} {what} · click to edit in the views · right-click for options", all.len()))
             } else {
                 (format!("{} {shown}/{}", icons::POLYGON, all.len()), theme::WARNING, format!("Geometry mask ignored ({shown} of {} {what} chosen) · right-click to use it again", all.len()))
