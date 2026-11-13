@@ -919,11 +919,9 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Crosshair", "십자선"),
     ("Shown in the popup over the view (Esc closes it)", "뷰 위의 팝업에 표시됨 (Esc로 닫기)"),
     ("Zoom speed", "확대/축소 속도"),
-<<<<<<< HEAD
     ("Rename…", "이름 바꾸기…"),
     ("Rename preset", "프리셋 이름 바꾸기"),
     ("Built-in templates can't be renamed", "기본 제공 템플릿은 이름을 바꿀 수 없습니다"),
-=======
     ("Invert zoom", "줌 반전"),
     ("Off: turning the wheel forward zooms in, as in Painter. On: forward zooms out. Applies to the 3D and 2D views.", "끄기: 휠을 앞으로 돌리면 Painter처럼 확대됩니다. 켜기: 앞으로 돌리면 축소됩니다. 3D 뷰와 2D 뷰에 적용됩니다."),
     ("Hide baking meshes", "베이크 메시 숨기기"),
@@ -934,7 +932,6 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Cage wireframe", "케이지 와이어프레임"),
     ("Cage wireframe opacity", "케이지 와이어프레임 불투명도"),
     ("Reset colors", "색상 재설정"),
->>>>>>> origin/main
     ("3D projection", "3D 투영"),
     ("Degrees about X, Y, Z (applied in that order)", "X, Y, Z 축 기준 각도(이 순서로 적용)"),
     ("Size of the projection box on X, Y, Z; with Shape crop on, a planar projection reaches as deep as its scale along the projection axis", "X, Y, Z 방향의 투영 상자 크기입니다. 모양 자르기를 켜면 평면 투영은 투영 축 방향 스케일만큼의 깊이까지 닿습니다"),

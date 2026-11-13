@@ -919,11 +919,9 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Brush outline", "筆刷輪廓"),
     ("Crosshair", "十字準星"),
     ("Shown in the popup over the view (Esc closes it)", "顯示於視圖上方的彈出視窗中 (按 Esc 關閉)"),
-<<<<<<< HEAD
     ("Rename…", "重新命名…"),
     ("Rename preset", "重新命名預設集"),
     ("Built-in templates can't be renamed", "內建範本無法重新命名"),
-=======
     ("Invert zoom", "反轉縮放"),
     ("Off: turning the wheel forward zooms in, as in Painter. On: forward zooms out. Applies to the 3D and 2D views.", "關閉：向前轉動滾輪會放大，與 Painter 相同。開啟：向前轉動會縮小。套用於 3D 與 2D 視圖。"),
     ("Hide baking meshes", "隱藏烘焙網格"),
@@ -934,7 +932,6 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Cage wireframe", "包覆線框"),
     ("Cage wireframe opacity", "包覆線框不透明度"),
     ("Reset colors", "重設顏色"),
->>>>>>> origin/main
     ("3D projection", "3D 投影"),
     ("Degrees about X, Y, Z (applied in that order)", "繞 X、Y、Z 軸的角度（依此順序套用）"),
     ("Size of the projection box on X, Y, Z; with Shape crop on, a planar projection reaches as deep as its scale along the projection axis", "投影方塊在 X、Y、Z 上的大小；開啟形狀裁切時，平面投影的深度等於投影軸上的縮放"),
