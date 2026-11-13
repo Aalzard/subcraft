@@ -1085,6 +1085,7 @@ impl Session {
     fn sync_after_history_move(&mut self) {
         self.doc = self.history.current().clone();
         self.sync_id_maps();
+        self.fit_quick_mask();
         if self.doc.texture_set(self.selection.texture_set).is_none() {
             self.selection.texture_set = self.doc.texture_sets[0].id;
         }
@@ -1486,6 +1487,7 @@ impl Session {
                 crate::text::refresh_text_rasters(&mut self.doc, &self.resources, &resized);
                 if changed {
                     self.commit(&format!("Resolution {resolution}"), None);
+                    self.fit_quick_mask();
                 }
             }
             Command::AddChannel { texture_set, kind } => {
@@ -2433,6 +2435,29 @@ impl Session {
         self.quick_scratch = Some(scratch);
         self.stroke = Some(ActiveStroke { stroke, texture_set: self.selection.texture_set, label: "Quick Mask Stroke", camera: None, quick: true });
         Ok(())
+    }
+
+    /// Keep the quick mask at its texture set's resolution (resampled), and drop it with its set.
+    /// QA 2026-11: after a resolution change (or an undo across one) an applied quick mask of the
+    /// old size was silently ignored by strokes, so protected areas were painted, and editing it
+    /// failed every stroke with a resolution mismatch.
+    fn fit_quick_mask(&mut self) {
+        let Some(set) = self.quick_mask.as_ref().map(|q| q.texture_set) else { return };
+        match self.doc.texture_set(set).map(|ts| ts.resolution) {
+            None => {
+                self.quick_mask = None;
+                self.revision += 1;
+            }
+            Some(res) => {
+                if let Some(q) = self.quick_mask.as_mut()
+                    && (q.image.width() != res || q.image.height() != res)
+                {
+                    q.image = q.image.resampled(res, res);
+                    q.revision += 1;
+                    self.revision += 1;
+                }
+            }
+        }
     }
 
     /// The quick mask, when one exists for the selected texture set.
