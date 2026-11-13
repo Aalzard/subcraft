@@ -869,6 +869,8 @@ pub struct BakeUi {
     pub high_opacity: f32,
     /// What the overlay draws and its colours (Baking visualization settings).
     pub vis: subcraft_render::BakeVisualization,
+    /// The overlay shows the project mesh and cage of the selected texture set only.
+    pub vis_selected_only: bool,
     /// Hard edges of the low poly without a UV seam (`[a, b, normal]`), for the mesh with this
     /// address; found when the seam check is first shown.
     pub seam_edges: Option<(usize, Vec<[glam::Vec3; 3]>)>,
@@ -900,7 +902,7 @@ impl Default for BakeUi {
             // Painter's defaults for the projection rays.
             settings: subcraft_app::BakeSettings { average_normals: true, ignore_backface: true, ..Default::default() },
             high_poly: String::new(), extra_high: Vec::new(), cage_file: String::new(), skip_sets: Default::default(), selected_baker: None, log_tab: BakeLogTab::default(), job_maps: Vec::new(), size_chosen: false, job: None, result: None, report: String::new(), notices: Vec::new(), log: Vec::new(), map_rows: Vec::new(),
-            preview: true, cage: true, fit_mode: Default::default(), high_opacity: 0.55, vis: Default::default(), seam_edges: None, seams_uploaded: false, placement_message: None, live_maps: true, displayed_map: None, follow_maps: true, preview_mesh: None,
+            preview: true, cage: true, fit_mode: Default::default(), high_opacity: 0.55, vis: Default::default(), vis_selected_only: false, seam_edges: None, seams_uploaded: false, placement_message: None, live_maps: true, displayed_map: None, follow_maps: true, preview_mesh: None,
             preview_job: None, preview_source: None, preview_path: String::new(), preview_scene: None, preview_error: None, preview_uploaded: false, preview_checked_at: 0.,
             miss_heatmap: false, cage_job: None, cage_result: None, miss_uploaded: false }
     }
@@ -1548,6 +1550,12 @@ fn visualization_settings(ui: &mut egui::Ui, b: &mut BakeUi) {
             ui.label(RichText::new(tr("The project mesh shows where the high poly does not cover it: its color marks the matching errors.")).small().color(theme::TEXT_FAINT));
             color_row(ui, Some(&mut b.cage), tr("Cage wireframe"), &mut b.vis.cage_color);
             crate::widgets::slider_row(ui, tr("Cage wireframe opacity"), egui::Slider::new(&mut b.vis.cage_opacity, 0.0..=1.0));
+            color_row(ui, Some(&mut b.vis.show_cage_surface), tr("Cage surface"), &mut b.vis.cage_surface_color);
+            if b.vis.show_cage_surface {
+                crate::widgets::slider_row(ui, tr("Cage surface opacity"), egui::Slider::new(&mut b.vis.cage_surface_opacity, 0.0..=1.0));
+            }
+            ui.checkbox(&mut b.vis_selected_only, tr("Show for selected Texture Set only"))
+                .on_hover_text(tr("Draw the project mesh and the cage of the selected texture set only"));
             color_row(ui, Some(&mut b.vis.show_seams), tr("Missing seams on hard edges"), &mut b.vis.seam_color);
             if b.vis.show_seams {
                 let text = match &b.seam_edges {
@@ -1564,9 +1572,9 @@ fn visualization_settings(ui: &mut egui::Ui, b: &mut BakeUi) {
             let d = subcraft_render::BakeVisualization::default();
             let near = |a: [f32; 3], b: [f32; 3]| a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-3);
             let changed = !near(b.vis.high_color, d.high_color) || !near(b.vis.low_color, d.low_color) || !near(b.vis.cage_color, d.cage_color)
-                || !near(b.vis.seam_color, d.seam_color) || (b.vis.cage_opacity - d.cage_opacity).abs() > 1e-3 || !b.vis.show_high || !b.vis.show_low;
+                || !near(b.vis.seam_color, d.seam_color) || !near(b.vis.cage_surface_color, d.cage_surface_color) || (b.vis.cage_surface_opacity - d.cage_surface_opacity).abs() > 1e-3 || (b.vis.cage_opacity - d.cage_opacity).abs() > 1e-3 || !b.vis.show_high || !b.vis.show_low;
             if changed && secondary_button(ui, tr("Reset colors")).clicked() {
-                b.vis = subcraft_render::BakeVisualization { show_seams: b.vis.show_seams, ..Default::default() };
+                b.vis = subcraft_render::BakeVisualization { show_seams: b.vis.show_seams, show_cage_surface: b.vis.show_cage_surface, ..Default::default() };
             }
         });
     });
@@ -1973,7 +1981,11 @@ mod bake_tests {
         frame(&mut state, vec![button(false)]);
         for _ in 0..12 { frame(&mut state, vec![]); }
         let output = frame(&mut state, vec![]);
-        for text in ["Hide baking meshes", "High poly mesh", "Project mesh", "Cage wireframe", "Cage wireframe opacity", "Missing seams on hard edges"] { assert!(has_text(&output, text), "{text}"); }
+        for text in ["Hide baking meshes", "High poly mesh", "Project mesh", "Cage wireframe", "Cage wireframe opacity", "Missing seams on hard edges", "Cage surface", "Show for selected Texture Set only"] { assert!(has_text(&output, text), "{text}"); }
+        assert!(!has_text(&output, "Cage surface opacity"));
+        state.bake.vis.show_cage_surface = true;
+        assert!(has_text(&frame(&mut state, vec![]), "Cage surface opacity"));
+        state.bake.vis.show_cage_surface = false;
         // The seam check reports what the viewport found for the mesh.
         assert!(!has_text(&output, "share UVs") && !has_text(&output, "is a UV seam"), "nothing is reported while the check is off");
         state.bake.vis.show_seams = true;

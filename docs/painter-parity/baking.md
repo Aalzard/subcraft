@@ -242,14 +242,14 @@ Layout notes: a collapsible panel at the top left of the viewport with a "Hide b
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
 | Hide baking meshes | Visualization panel | off | done | crates/ui/src/dialogs.rs (visualization_settings) | - |
-| Show for selected Texture Set only | Visualization panel > General | not documented | missing | - | - |
+| Show for selected Texture Set only | Visualization panel > General | not documented | partial: the project mesh and cage; the high poly is always whole | crates/ui/src/dialogs.rs (visualization_settings) | - |
 | Mesh (show high poly; off unloads it) | Visualization panel > High definition mesh (HP) | on (unverified) | partial: hides it, the file stays loaded | crates/ui/src/dialogs.rs (visualization_settings) | - |
 | Mesh colour | Visualization panel > High definition mesh (HP) | not documented | done | crates/ui/src/dialogs.rs (visualization_settings) | - |
 | Matching error (high poly outside the cage) | Visualization panel > High definition mesh (HP) | on; bright red | partial: the project mesh shows through where the high poly does not cover it; ray-miss heatmap for cage misses | crates/ui/src/dialogs.rs (visualization_settings) | #137 |
 | Matching error colour | Visualization panel > High definition mesh (HP) | red | partial: the project mesh colour | crates/ui/src/dialogs.rs (visualization_settings) | - |
-| Cage surface | Visualization panel > Cage | on while cage painting; transparent beige | missing | - | - |
-| Cage surface colour | Visualization panel > Cage | beige | missing | - | - |
-| Cage surface opacity | Visualization panel > Cage | not documented | missing | - | - |
+| Cage surface | Visualization panel > Cage | on while cage painting; transparent beige | partial: a flat see-through colour, off by default (no cage painting yet) | crates/ui/src/dialogs.rs (visualization_settings) | - |
+| Cage surface colour | Visualization panel > Cage | beige | done | crates/ui/src/dialogs.rs (visualization_settings) | - |
+| Cage surface opacity | Visualization panel > Cage | not documented | done | crates/ui/src/dialogs.rs (visualization_settings) | - |
 | Cage wireframe | Visualization panel > Cage | not documented | done | crates/ui/src/dialogs.rs (visualization_settings) | - |
 | Cage wireframe colour | Visualization panel > Cage | not documented | done | crates/ui/src/dialogs.rs (visualization_settings) | - |
 | Cage wireframe opacity | Visualization panel > Cage | not documented | done | crates/ui/src/dialogs.rs (visualization_settings) | - |

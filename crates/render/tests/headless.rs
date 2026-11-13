@@ -133,6 +133,30 @@ fn bake_overlay_follows_the_visualization_settings() {
     assert!(yellow > 10, "in the seam colour: {yellow}");
     renderer.set_bake_seam_lines(&device, &[]);
     assert_eq!(diff(&renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue), &plain), 0);
+    // The cage surface: a see-through skin at the front cage distance, over the low poly.
+    p.bake_vis = Default::default();
+    p.bake_vis.show_high = false;
+    p.bake_distances = [0.08, 0.02];
+    p.bake_vis.show_cage_surface = true;
+    p.bake_vis.cage_surface_color = [0.1, 0.9, 0.1];
+    p.bake_vis.cage_surface_opacity = 0.5;
+    let skinned = renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+    let (bare, skin) = (px(&plain, SIZE / 2, SIZE / 2), px(&skinned, SIZE / 2, SIZE / 2));
+    assert!(skin[1] > bare[1] + 40 && skin[0] > 20, "green over the red low poly, which still shows: {bare:?} -> {skin:?}");
+    assert!(diff(&skinned, &plain) > 500, "the skin covers the model and a rim around it");
+    p.bake_vis.cage_surface_opacity = 0.0;
+    assert_eq!(diff(&renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue), &plain), 0, "a fully transparent cage surface is not seen");
+    // Only one material slot: the cube's own slot shows it, another slot shows nothing of the low poly.
+    p.bake_vis.show_cage_surface = false;
+    p.bake_cage = true;
+    let all = renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+    p.bake_vis.only_slot = Some(low.submeshes[0].material);
+    if low.submeshes.len() == 1 {
+        assert_eq!(diff(&renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue), &all), 0, "the cube's one slot is everything");
+    }
+    p.bake_vis.only_slot = Some(77);
+    let none = renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+    assert_eq!(px(&none, SIZE / 2, SIZE / 2), px(&none, 2, 2), "no low poly and no cage for another slot");
 }
 
 #[test]
