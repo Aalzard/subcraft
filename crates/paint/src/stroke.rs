@@ -433,13 +433,15 @@ impl Stroke {
         // Each symmetry copy is numbered like the 3D path's mirrored cameras, so smudge carries
         // one colour per copy (QA 2026-11: shared, the paint picked up on one side of the mirror
         // was dragged onto the other).
-        let mut copies = 1;
+        // A fixed count: a copy filtered out in one segment (on the mirror plane, or no surface
+        // in reach) must not change it, or smudge resets every carried colour mid-stroke.
+        let mut copies = uv_copy_count(&self.options);
         if self.options.has_symmetry() {
             let mirrored: Vec<Stamp> = stamps.iter().flat_map(|st| {
                 let copies = uv_symmetry_copies_indexed(ctx, &self.options, st.uv);
                 copies.into_iter().map(move |(camera, uv)| Stamp { camera, uv, screen: uv * res, ..*st })
             }).collect();
-            copies = mirrored.iter().map(|st| st.camera + 1).max().unwrap_or(1);
+            copies = copies.max(mirrored.iter().map(|st| st.camera + 1).max().unwrap_or(1));
             stamps.extend(mirrored);
         }
         if self.mode == StrokeMode::Clone {
@@ -1134,6 +1136,12 @@ fn uv_at(mesh: &Mesh, t: u32, u: f32, v: f32) -> Vec2 {
 /// of the model size) or land on the dab itself are left out.
 pub fn uv_symmetry_copies(ctx: &PaintContext, options: &StrokeOptions, uv: Vec2) -> Vec<Vec2> {
     uv_symmetry_copies_indexed(ctx, options, uv).into_iter().map(|(_, c)| c).collect()
+}
+
+/// How many stroke copies (the stroke itself included) a 2D-view stroke carries smudge paint
+/// for: every symmetry copy, whether or not it lands on the surface in a given segment.
+pub fn uv_copy_count(options: &StrokeOptions) -> usize {
+    (options.copies() as usize).max(1)
 }
 
 /// [`uv_symmetry_copies`] with the number of the symmetry copy each one is (1.., in the order of
