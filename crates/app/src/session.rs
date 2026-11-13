@@ -3424,7 +3424,20 @@ impl Session {
             let Some((ts, alone, layer)) = self.isolated(id) else { continue };
             let c = self.composite_of(ts, &alone);
             let set = subcraft_export::ExportTextureSet { name: &ts.name, material_slot: ts.material_slot, udim: ts.udim_number(), channels: &c.channels, mesh_maps: None, mixing: ts.mixing };
-            let channels: Vec<_> = ts.channels.iter().filter(|d| layer.blend.contains_key(&d.kind)).map(|d| (d.kind, d.format)).collect();
+            // Every layer has a blend entry for every channel of its set: the filter was no filter
+            // (QA 2026-11: a fill setting Base Color only also wrote Roughness, Metallic, Height...
+            // at their defaults). A channel is written when its blending is on and the layer's
+            // content gives it (folders and content effects: assumed to).
+            let writes = |kind: ChannelKind| {
+                layer.blend.get(&kind).is_some_and(|b| b.is_active())
+                    && (!layer.content_effects.is_empty()
+                        || match &layer.content {
+                            LayerContent::Fill(f) => f.channels.get(&kind).is_some_and(|c| c.enabled),
+                            LayerContent::Paint(p) => p.channels.contains_key(&kind),
+                            LayerContent::Group(_) => true,
+                        })
+            };
+            let channels: Vec<_> = ts.channels.iter().filter(|d| writes(d.kind)).map(|d| (d.kind, d.format)).collect();
             out.extend(subcraft_export::layer_export::write_flattened(&self.scene.mesh, &name, &set, &layer.name, &channels, pattern, dir).map_err(|e| e.to_string())?);
         }
         Ok(out)
