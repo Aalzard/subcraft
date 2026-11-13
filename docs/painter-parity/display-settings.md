@@ -338,7 +338,7 @@ Layout notes: only enabled while a single channel is shown. The selected colour 
 | Positive color | Display Settings > Channel display | not documented | done | crates/ui/src/panels/display_settings.rs (visualization) | - |
 | Negative color | Display Settings > Channel display | not documented | done | crates/ui/src/panels/display_settings.rs (visualization) | - |
 | Color channels | Display Settings > Channel display | RGBA (color) / Grayscale+Alpha (grayscale); options RGBA, Grayscale+Alpha, R, G, B, Alpha | done: RGBA / Grayscale + Alpha, R, G, B, Alpha | crates/doc/src/display.rs (ChannelComponent) | - |
-| Component name overlay in the viewport | 3D / 2D view | - | partial: 3D view only | crates/ui/src/viewport.rs (visualization_overlays) | - |
+| Component name overlay in the viewport | 3D / 2D view | - | done: both views; the 2D view also isolates the component while a single channel is shown | crates/ui/src/viewport.rs (visualization_overlays), crates/ui/src/panels/uv_view.rs (shown_component) | PRNUM |
 
 ## Viewport settings: Grid
 

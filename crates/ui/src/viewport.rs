@@ -10,7 +10,7 @@ use crate::theme::{self, ACCENT};
 use crate::icons;
 
 /// Text on a translucent dark plate, anchored at `pos`; returns the plate rect.
-fn pill(painter: &egui::Painter, pos: Pos2, align: egui::Align2, text: &str, color: Color32) -> Rect {
+pub(crate) fn pill(painter: &egui::Painter, pos: Pos2, align: egui::Align2, text: &str, color: Color32) -> Rect {
     let galley = painter.layout_no_wrap(text.to_string(), theme::font(11.5), color);
     let size = galley.size() + egui::vec2(16.0, 10.0);
     let rect = align.anchor_size(pos, size);

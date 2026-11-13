@@ -776,6 +776,12 @@ impl ViewportRenderer {
     /// Render a display preview (sRGB 8-bit, egui-ready `display_view`) of an uploaded channel or
     /// baked map. Scalar sources are shown as gray.
     pub fn preview(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, material_slot: u32, source: PreviewSource) -> Option<&PreviewTarget> {
+        self.preview_component(device, queue, material_slot, source, ChannelComponent::All)
+    }
+
+    /// [`Self::preview`] showing one component alone as gray (the 2D view follows Display
+    /// Settings > Channel component).
+    pub fn preview_component(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, material_slot: u32, source: PreviewSource, component: ChannelComponent) -> Option<&PreviewTarget> {
         let mat = self.materials.get(&material_slot)?;
         let (tex, is_color) = match source {
             PreviewSource::Channel(k) => (mat.channels.get(&k)?, k.is_color()),
@@ -785,7 +791,7 @@ impl ViewportRenderer {
             self.preview_target = Some(PreviewPass::target(device, tex.size));
         }
         let dst = self.preview_target.as_ref().expect("created above");
-        self.preview.run(device, queue, &tex.view, is_color, tex.comps == 1, dst);
+        self.preview.run(device, queue, &tex.view, is_color, tex.comps == 1, component, dst);
         Some(dst)
     }
 
