@@ -285,6 +285,11 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     let warp_grab = !bake_mode && !alt && !stencil_edit
         && crate::warp_view::manipulate(state, ui, &response, rect, pixel_scale, &camera, primary_pressed, primary_down, pointer);
     let primary_pressed = primary_pressed && !warp_grab;
+    // Manipulator of the selected fill layer's 3D projection: presses on its handles move,
+    // turn or scale the projection box.
+    let gizmo_grab = !bake_mode && !alt && !stencil_edit
+        && crate::projection_gizmo::manipulate(state, ui, &response, rect, pixel_scale, &camera, primary_pressed, primary_down, pointer);
+    let primary_pressed = primary_pressed && !gizmo_grab;
     let parts_picking = !bake_mode && state.picking_parts && state.session.selected_layer().is_some() && !state.painting;
     // ----- ID Color Mask eyedropper: clicks add the ID map color under the cursor ------------
     let id_picking = !bake_mode && !state.painting
@@ -796,6 +801,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     crate::symmetry_view::overlay(state, ui, &painter, rect, pixel_scale, &camera, !bake_mode && state.tool != Tool::Pen);
     if !bake_mode {
         crate::warp_view::overlay(state, ui, &painter, rect, pixel_scale, &camera);
+        crate::projection_gizmo::overlay(state, &painter, rect, pixel_scale, &camera);
     }
     draw_stencil(state, ui, &painter, rect, size);
     // Reset button at the top right of the view while S is held.
