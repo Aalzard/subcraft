@@ -211,7 +211,7 @@ Layout notes: display options (plane, intersection, cursor, manipulator) are onl
 | Toggle quick mask edition | U | off | done: also the selection button on the tool rail | crates/app/src/session.rs | - |
 | Clear quick mask | Y | - | done | crates/app/src/session.rs | - |
 | Invert quick mask | I | - | done (without a quick mask, I still isolates the part under the cursor) | crates/app/src/session.rs | - |
-| Quick mask overlay tint in the view | 3D view while editing | not documented | partial: red tint in the 2D view; the 3D view shows a status pill only | crates/ui/src/panels/uv_view.rs | - |
+| Quick mask overlay tint in the view | 3D view while editing | not documented | done: while editing, Base Color is uploaded tinted red where the mask protects, so the 3D and 2D views both show it (tile by tile); the 2D view keeps its light overlay once applied | crates/app/src/quick_mask_tint.rs, crates/ui/src/state.rs (sync_gpu) | 260 |
 
 ## Geometry hide / isolate
 
@@ -231,7 +231,7 @@ Layout notes: while dragging over the 3D view Painter highlights the Texture Set
 | Drop material from Assets onto the mesh: new fill layer on the Texture Set under the cursor | Assets > 3D view | - | done | crates/ui/src/viewport.rs:190 | - |
 | Drop smart material onto the mesh | Assets > 3D view | - | done | crates/ui/src/panels/shelf.rs:63 | - |
 | Ctrl + drop material: restrict to the mesh part under the cursor (geometry mask) | Assets > 3D view | - | done: uses the part kind chosen in Parts | crates/ui/src/viewport.rs | - |
-| Highlight of the target mesh while dragging | 3D view | - | partial: text label of the action and target near the cursor, no mesh highlight | crates/ui/src/viewport.rs:513 | - |
+| Highlight of the target mesh while dragging | 3D view | - | done: the texture set under the cursor is highlighted (renderer slot highlight); with Ctrl, the part is outlined, hidden edges left out | crates/ui/src/viewport.rs (drop_outline), crates/app/src/region_outline.rs | 260 |
 | Drop alpha / procedural / texture: warp-projected decal layer with channel chooser | Assets > 3D view | menu on release | partial: texture becomes a new UV fill layer; alpha becomes brush tip; no warp decal or channel menu | crates/ui/src/panels/shelf.rs:65 | - |
 | Alt + drop material: decal with warp projection | Assets > 3D view | - | partial: Alt replaces the selected fill layer's material instead | crates/ui/src/panels/shelf.rs:60 | - |
 | Drop smart mask onto the mesh | Assets > 3D view | - | partial: applied to the selected layer, not as a new layer | crates/ui/src/panels/shelf.rs:64 | - |

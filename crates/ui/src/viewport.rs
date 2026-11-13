@@ -10,6 +10,31 @@ use crate::theme::{self, ACCENT};
 use crate::icons;
 
 /// Text on a translucent dark plate, anchored at `pos`; returns the plate rect.
+/// Most border edges tested for visibility when outlining a drop target (one ray each).
+const DROP_OUTLINE_EDGES: usize = 6000;
+
+/// Screen segments of a part's border, hidden edges left out. The edges and their visibility
+/// are computed once per part and camera (a ray per edge), then only projected.
+fn drop_outline(state: &mut UiState, part: subcraft_app::PartKey, camera: &subcraft_app::Camera, rect: Rect, pixel_scale: Vec2) -> Vec<[Pos2; 2]> {
+    if !state.drop_outline.as_ref().is_some_and(|(k, c, _)| *k == part && c == camera) {
+        let all = state.session.part_outline(part);
+        let stride = all.len().div_ceil(DROP_OUTLINE_EDGES).max(1);
+        let tolerance = state.session.scene().mesh.bounds.diagonal() * 0.01;
+        let visible = all
+            .into_iter()
+            .step_by(stride)
+            .filter(|[a, b]| {
+                let mid = (*a + *b) * 0.5;
+                camera.project(mid).and_then(|s| state.session.pick(camera, s.truncate())).is_some_and(|hit| hit.position.distance(mid) <= tolerance)
+            })
+            .collect();
+        state.drop_outline = Some((part, *camera, visible));
+    }
+    let Some((_, _, edges)) = &state.drop_outline else { return Vec::new() };
+    let to_pos = |p: glam::Vec3| camera.project(p).map(|s| rect.min + egui::vec2(s.x / pixel_scale.x, s.y / pixel_scale.y));
+    edges.iter().filter_map(|[a, b]| Some([to_pos(*a)?, to_pos(*b)?])).collect()
+}
+
 fn pill(painter: &egui::Painter, pos: Pos2, align: egui::Align2, text: &str, color: Color32) -> Rect {
     let galley = painter.layout_no_wrap(text.to_string(), theme::font(11.5), color);
     let size = galley.size() + egui::vec2(16.0, 10.0);
@@ -716,6 +741,20 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     }
     if let Some(item) = drop_hover {
         painter.rect_stroke(rect.shrink(1.0), 0.0, Stroke::new(2.0, ACCENT), egui::StrokeKind::Inside);
+        // The geometry that receives the drop: the part under the cursor with Ctrl (outlined),
+        // otherwise its texture set (highlighted by the renderer).
+        let part_drop = (mods.command || mods.ctrl) && !mods.alt && !matches!(item, crate::panels::shelf::ShelfDrag::Alpha(_) | crate::panels::shelf::ShelfDrag::SmartMask(_));
+        if let Some(p) = pointer {
+            if part_drop && let Some(target) = state.session.surface_target(&camera, to_screen(p), state.parts_kind) {
+                for [a, b] in drop_outline(state, target.part, &camera, rect, pixel_scale) {
+                    painter.line_segment([a, b], Stroke::new(3.0, Color32::from_black_alpha(140)));
+                    painter.line_segment([a, b], Stroke::new(1.6, ACCENT));
+                }
+            } else if let Some(hit) = state.session.pick(&camera, to_screen(p)) {
+                state.highlight_slot = Some(hit.material_slot);
+                ui.ctx().request_repaint();
+            }
+        }
         let target = state.session.selected_layer().map(|l| l.name.clone());
         let mut what = crate::panels::shelf::drop_label(item, mods.alt, target.as_deref().filter(|_| mods.alt), false);
         if (mods.command || mods.ctrl) && !mods.alt && !matches!(item, crate::panels::shelf::ShelfDrag::Alpha(_) | crate::panels::shelf::ShelfDrag::SmartMask(_)) {
