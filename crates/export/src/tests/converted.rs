@@ -74,6 +74,10 @@ fn mixed_ao_uses_whichever_ao_exists_and_colour_maps_are_srgb_in_8_bit() {
     let full = material();
     let only_painted = [ExportTextureSet { name: "P", material_slot: 0, udim: None, channels: &full, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY }];
     assert!((ao(&only_painted) - 0.6).abs() < 1e-6, "channel only");
+    // QA 2026-11: with AO mixing Multiply (the default) the bake was applied twice (0.6 x 0.5 x 0.5).
+    let both = [ExportTextureSet { name: "P", material_slot: 0, udim: None, channels: &full, mesh_maps: Some(&baked), mixing: subcraft_doc::MixingSettings::default() }];
+    assert_eq!(both[0].mixing.ao, subcraft_doc::AoMixing::Multiply);
+    assert!((ao(&both) - 0.3).abs() < 1e-6, "channel x bake, once: {}", ao(&both));
     let diffuse = render(&only_painted, user(vec![conv_map(Converted::Diffuse, FileFormat::Png8)]));
     let d = diffuse[0].1.texel(3, 3, false);
     assert!((d[0] - linear_to_srgb(0.6)).abs() < 1.0 / 255.0, "8-bit colour maps are sRGB: {d:?}");

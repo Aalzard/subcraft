@@ -204,6 +204,72 @@ impl ShapeCrop {
     }
 }
 
+/// Placement of a 3D projection's box in the model's bounding cube (Painter's "3D projection"
+/// group): the box is scaled about its centre, rotated (X, then Y, then Z, in degrees) and moved
+/// by `offset` (bounding-cube units, 0 = centred).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ProjectionTransform {
+    pub offset: [f32; 3],
+    pub rotation_deg: [f32; 3],
+    pub scale: [f32; 3],
+}
+
+impl Default for ProjectionTransform {
+    fn default() -> Self {
+        Self { offset: [0.0; 3], rotation_deg: [0.0; 3], scale: [1.0; 3] }
+    }
+}
+
+impl ProjectionTransform {
+    pub const MIN_SCALE: f32 = 0.01;
+    pub const MAX_SCALE: f32 = 100.0;
+    pub const MAX_OFFSET: f32 = 8.0;
+
+    pub fn is_identity(&self) -> bool {
+        *self == Self::default()
+    }
+
+    pub fn valid(&self) -> bool {
+        self.offset.iter().all(|v| v.is_finite() && v.abs() <= Self::MAX_OFFSET)
+            && self.rotation_deg.iter().all(|v| v.is_finite() && v.abs() <= 360.0)
+            && self.scale.iter().all(|v| v.is_finite() && (Self::MIN_SCALE..=Self::MAX_SCALE).contains(v))
+    }
+
+    /// The rotation matrix `Rz * Ry * Rx` (rows).
+    pub fn rotation(&self) -> [[f32; 3]; 3] {
+        let (sx, cx) = self.rotation_deg[0].to_radians().sin_cos();
+        let (sy, cy) = self.rotation_deg[1].to_radians().sin_cos();
+        let (sz, cz) = self.rotation_deg[2].to_radians().sin_cos();
+        [
+            [cz * cy, cz * sy * sx - sz * cx, cz * sy * cx + sz * sx],
+            [sz * cy, sz * sy * sx + cz * cx, sz * sy * cx - cz * sx],
+            [-sy, cy * sx, cy * cx],
+        ]
+    }
+
+    /// A bounding-cube position and normal in the box's own frame (the box is the unit cube
+    /// there): the inverse of scale, rotation and offset. The normal is renormalised.
+    pub fn to_local(&self, pos: [f32; 3], normal: [f32; 3]) -> ([f32; 3], [f32; 3]) {
+        if self.is_identity() {
+            return (pos, normal);
+        }
+        let r = self.rotation();
+        let d = [pos[0] - 0.5 - self.offset[0], pos[1] - 0.5 - self.offset[1], pos[2] - 0.5 - self.offset[2]];
+        let mut p = [0.0f32; 3];
+        let mut n = [0.0f32; 3];
+        for i in 0..3 {
+            let scale = self.scale[i].clamp(Self::MIN_SCALE, Self::MAX_SCALE);
+            p[i] = (r[0][i] * d[0] + r[1][i] * d[1] + r[2][i] * d[2]) / scale + 0.5;
+            n[i] = (r[0][i] * normal[0] + r[1][i] * normal[1] + r[2][i] * normal[2]) * scale;
+        }
+        let len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+        if len > 1e-12 {
+            n = n.map(|c| c / len);
+        }
+        (p, n)
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Projection {
     pub mode: ProjectionMode,
@@ -234,6 +300,10 @@ pub struct Projection {
     /// Warp mode's grid; `None` is the flat grid of [`Projection::warp_grid`]. Not written when absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub warp: Option<crate::warp::WarpGrid>,
+    /// 3D Offset / Rotation / Scale of the projection box (tri-planar, planar, spherical,
+    /// cylindrical). Not written at its default.
+    #[serde(default, skip_serializing_if = "ProjectionTransform::is_identity")]
+    pub transform3: ProjectionTransform,
 }
 
 fn full_turn() -> f32 {
@@ -261,6 +331,7 @@ impl Default for Projection {
             cylinder_angle: 360.0,
             symmetry: FillSymmetry::None,
             warp: None,
+            transform3: ProjectionTransform::default(),
         }
     }
 }
@@ -291,7 +362,27 @@ impl Projection {
     /// count multiplied the work per texel.
     pub fn valid(&self) -> bool {
         let floats = [self.scale[0], self.scale[1], self.rotation_deg, self.offset[0], self.offset[1], self.triplanar_sharpness, self.cylinder_angle];
-        floats.iter().all(|v| v.is_finite()) && self.symmetry.valid()
+        floats.iter().all(|v| v.is_finite()) && self.symmetry.valid() && self.transform3.valid()
+    }
+
+    /// Whether the mode has a 3D Offset / Rotation / Scale (Warp is placed by its grid).
+    #[inline]
+    pub fn has_transform3(&self) -> bool {
+        matches!(self.mode, ProjectionMode::Triplanar | ProjectionMode::Planar | ProjectionMode::Spherical | ProjectionMode::Cylindrical)
+    }
+
+    /// The 3D transform in effect: identity for the modes without one.
+    #[inline]
+    pub fn effective_transform3(&self) -> ProjectionTransform {
+        if self.has_transform3() { self.transform3 } else { ProjectionTransform::default() }
+    }
+
+    /// The position and normal the projection reads for a texel: folded by the symmetry, then
+    /// brought into the projection box's frame.
+    #[inline]
+    pub fn local(&self, pos: [f32; 3], normal: [f32; 3]) -> ([f32; 3], [f32; 3]) {
+        let (p, n) = self.effective_symmetry().fold(pos, normal);
+        if self.has_transform3() { self.transform3.to_local(p, n) } else { (p, n) }
     }
 
     /// The symmetry in effect: 3D projections only.
@@ -488,6 +579,37 @@ mod tests {
         assert!(!Projection { mode: ProjectionMode::Triplanar, uv_wrap: UvWrap::None, ..p }.clips());
         assert!(!Projection { shape_crop: ShapeCrop::Crop, ..p }.clips());
         assert!(Projection { mode: ProjectionMode::Planar, shape_crop: ShapeCrop::Crop, ..p }.clips());
+    }
+
+    #[test]
+    fn projection_transform_brings_positions_into_the_box_frame() {
+        let close = |a: [f32; 3], b: [f32; 3]| a.iter().zip(&b).all(|(x, y)| (x - y).abs() < 1e-5);
+        let planar = |transform3| Projection { mode: ProjectionMode::Planar, transform3, ..Projection::default() };
+        let id = ProjectionTransform::default();
+        assert!(id.is_identity() && id.valid());
+        assert_eq!(planar(id).local([0.2, 0.3, 0.4], [0.0, 0.0, 1.0]), ([0.2, 0.3, 0.4], [0.0, 0.0, 1.0]));
+        // Offset: the box centre moves, so the texel a quarter to the right is its centre.
+        let moved = ProjectionTransform { offset: [0.25, 0.0, 0.0], ..id };
+        assert!(close(planar(moved).local([0.75, 0.5, 0.5], [0.0, 0.0, 1.0]).0, [0.5, 0.5, 0.5]));
+        // Scale 2 on X: the box edge is at the cube's edge plus half a cube.
+        let wide = ProjectionTransform { scale: [2.0, 1.0, 1.0], ..id };
+        assert!(close(planar(wide).local([1.0, 0.5, 0.5], [0.0, 0.0, 1.0]).0, [0.75, 0.5, 0.5]));
+        // A quarter turn about Z: the model's +Y is the box's +X, for positions and normals.
+        let turned = ProjectionTransform { rotation_deg: [0.0, 0.0, 90.0], ..id };
+        let (p, n) = planar(turned).local([0.5, 0.75, 0.5], [0.0, 1.0, 0.0]);
+        assert!(close(p, [0.75, 0.5, 0.5]) && close(n, [1.0, 0.0, 0.0]), "{p:?} {n:?}");
+        // Rotations apply X first, then Y, then Z: the box's +Y goes to +Z, then stays under Z.
+        let both = ProjectionTransform { rotation_deg: [90.0, 0.0, 90.0], ..id };
+        assert!(close(planar(both).local([0.5, 0.5, 0.75], [0.0, 0.0, 1.0]).0, [0.5, 0.75, 0.5]));
+        // UV and Warp projections ignore it; invalid values are rejected; the default is not written.
+        let uv = Projection { transform3: moved, ..Projection::default() };
+        assert_eq!(uv.local([0.75, 0.5, 0.5], [0.0; 3]).0, [0.75, 0.5, 0.5]);
+        assert!(uv.effective_transform3().is_identity() && planar(moved).effective_transform3() == moved);
+        assert!(planar(moved).valid() && !planar(ProjectionTransform { scale: [0.0, 1.0, 1.0], ..id }).valid());
+        assert!(!planar(ProjectionTransform { offset: [f32::NAN, 0.0, 0.0], ..id }).valid());
+        assert!(!serde_json::to_string(&planar(id)).unwrap().contains("transform3"));
+        let back: Projection = serde_json::from_str(&serde_json::to_string(&planar(turned)).unwrap()).unwrap();
+        assert_eq!(back.transform3, turned);
     }
 }
 

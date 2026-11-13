@@ -124,6 +124,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         if painting_tool {
             crate::brush_bar::channel_switches(ui, state);
         }
+        if state.picking_parts {
+            ui.horizontal_wrapped(|ui| crate::panels::parts::mask_bar(ui, state));
+        }
     });
     let (rect, response) = ui.allocate_exact_size(ui.available_size(), Sense::click_and_drag());
     state.hovered_2d = response.hovered();
@@ -178,6 +181,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     // Picking parts for a geometry mask owns the clicks; otherwise the ID eyedropper, then tools.
     let id_eyedropper = !picking && id_pick_input(state, ui, &response, img_rect, ts_id);
     if picking {
+        // A layer without a geometry mask gets one by UV island when it is picked here.
+        if response.hovered() {
+            state.session.set_new_mask_kind(subcraft_core::PartKind::UvIsland);
+        }
         parts_input(state, ui, &response, img_rect);
     } else if !id_eyedropper && !stencil_edit {
         paint_input(state, ui, &response, img_rect, resolution, ts_id, view, lmb_adjust);
@@ -215,6 +222,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         crate::viewport::pill(&painter, rect.left_top() + egui::vec2(10.0, 10.0), egui::Align2::LEFT_TOP, crate::i18n::tr(name), crate::theme::TEXT);
     }
     quick_mask_overlay(state, ui, &painter, img_rect);
+    parts_overlay(state, ui, &painter, img_rect, picking, response.hover_pos());
+    let fill_hover = state.tool == Tool::PolygonFill && paints && !picking && state.uv.fill_box.is_none();
+    fill_hover_overlay(state, &painter, img_rect, fill_hover.then(|| response.hover_pos()).flatten());
 
     if state.uv_wireframe {
         let mesh = state.session.scene().mesh.clone();
@@ -313,6 +323,116 @@ fn parts_input(state: &mut UiState, ui: &Ui, response: &egui::Response, image: R
     };
     if let Err(e) = result {
         state.set_status(format!("Parts: {e}"), now);
+    }
+}
+
+/// Cached geometry of the 2D view's geometry mask overlay.
+#[derive(Default)]
+pub struct PartsOverlay {
+    excluded_key: Option<(subcraft_core::TextureSetId, subcraft_core::LayerId, subcraft_doc::PartMask)>,
+    excluded: Vec<[Vec2; 3]>,
+    hover_key: Option<(subcraft_core::TextureSetId, subcraft_core::PartKind, u32)>,
+    hover: Vec<[Vec2; 3]>,
+    hatch: Option<egui::TextureHandle>,
+    fill_key: Option<(subcraft_core::TextureSetId, subcraft_paint::PolygonFillMode, u32)>,
+    fill: Vec<[Vec2; 3]>,
+    /// The part whose row is under the cursor in the Properties list (set there every frame).
+    pub list_hover: Option<u32>,
+}
+
+/// Size of one hatch pattern repeat, in points.
+const HATCH: f32 = 8.0;
+
+/// Grey with dark diagonal lines: Painter's look for geometry a geometry mask leaves out.
+fn hatch_image() -> egui::ColorImage {
+    let n = HATCH as usize;
+    let mut rgba = Vec::with_capacity(n * n * 4);
+    for y in 0..n {
+        for x in 0..n {
+            let px: [u8; 4] = if (x + y) % n < 2 { [30, 30, 30, 210] } else { [120, 120, 120, 150] };
+            rgba.extend_from_slice(&px);
+        }
+    }
+    egui::ColorImage::from_rgba_unmultiplied([n, n], &rgba)
+}
+
+/// UV triangles as one screen mesh: a flat `color`, or the hatch texture repeated in screen space.
+fn triangles_mesh(tris: &[[Vec2; 3]], to_px: impl Fn(Vec2) -> Pos2, clip: Rect, color: Color32, texture: Option<egui::TextureId>) -> egui::Shape {
+    let mut mesh = egui::Mesh::default();
+    if let Some(t) = texture {
+        mesh.texture_id = t;
+    }
+    for tri in tris {
+        let p = [to_px(tri[0]), to_px(tri[1]), to_px(tri[2])];
+        if !Rect::from_points(&p).intersects(clip) {
+            continue;
+        }
+        let i = mesh.vertices.len() as u32;
+        for q in p {
+            let uv = if texture.is_some() { egui::pos2(q.x / HATCH, q.y / HATCH) } else { egui::epaint::WHITE_UV };
+            mesh.vertices.push(egui::epaint::Vertex { pos: q, uv, color });
+        }
+        mesh.add_triangle(i, i + 1, i + 2);
+    }
+    egui::Shape::mesh(mesh)
+}
+
+/// Polygon Fill's preview: the triangle, polygon, mesh, UV island or object under the cursor (what
+/// a click would fill in the current mode) is tinted.
+fn fill_hover_overlay(state: &mut UiState, painter: &egui::Painter, image: Rect, pointer: Option<Pos2>) {
+    let side = image.width();
+    let triangle = pointer
+        .filter(|p| image.contains(*p))
+        .and_then(|p| state.session.triangle_at_uv(Vec2::new((p.x - image.left()) / side, (p.y - image.top()) / side)));
+    let key = triangle.map(|t| (state.session.selected_texture_set().id, state.fill_mode, t));
+    if key != state.uv_parts.fill_key {
+        // In every mode but Triangle the element is the same for most cursor moves: skip the
+        // rebuild while the cursor stays on a triangle that is already tinted.
+        state.uv_parts.fill = triangle.map_or_else(Vec::new, |t| state.session.polygon_fill_preview_uv(t, state.fill_mode));
+        state.uv_parts.fill_key = key;
+    }
+    if !state.uv_parts.fill.is_empty() {
+        let to_px = |uv: Vec2| image.min + egui::vec2(uv.x, uv.y) * side;
+        let tint = Color32::from_rgba_unmultiplied(crate::theme::ACCENT.r(), crate::theme::ACCENT.g(), crate::theme::ACCENT.b(), 80);
+        painter.add(triangles_mesh(&state.uv_parts.fill, to_px, painter.clip_rect(), tint, None));
+    }
+}
+
+/// The geometry mask over the 2D view, while it is edited or Alt+H hides what it leaves out:
+/// excluded geometry grey with diagonal lines; while editing, the part under the cursor (or under
+/// the cursor in the Properties list) is highlighted.
+fn parts_overlay(state: &mut UiState, ui: &Ui, painter: &egui::Painter, image: Rect, picking: bool, pointer: Option<Pos2>) {
+    let list_hover = state.uv_parts.list_hover.take();
+    if !picking && !state.session.hide_excluded() {
+        return;
+    }
+    let ts = state.session.selected_texture_set().id;
+    let key = state.session.selected_layer().and_then(|l| l.parts.clone().filter(|p| p.enabled).map(|p| (ts, l.id, p)));
+    if key != state.uv_parts.excluded_key {
+        state.uv_parts.excluded = if key.is_some() { state.session.excluded_uv_triangles() } else { Vec::new() };
+        state.uv_parts.excluded_key = key;
+    }
+    let side = image.width();
+    let to_px = |uv: Vec2| image.min + egui::vec2(uv.x, uv.y) * side;
+    let clip = painter.clip_rect();
+    if !state.uv_parts.excluded.is_empty() {
+        let options = egui::TextureOptions { wrap_mode: egui::TextureWrapMode::Repeat, ..egui::TextureOptions::NEAREST };
+        let hatch = state.uv_parts.hatch.get_or_insert_with(|| ui.ctx().load_texture("geometry-mask-hatch", hatch_image(), options)).id();
+        painter.add(triangles_mesh(&state.uv_parts.excluded, to_px, clip, Color32::WHITE, Some(hatch)));
+    }
+    if !picking {
+        return;
+    }
+    let under_cursor = pointer.filter(|p| image.contains(*p)).and_then(|p| state.session.part_at_uv(Vec2::new((p.x - image.left()) / side, (p.y - image.top()) / side)));
+    let part = list_hover.or(under_cursor);
+    let hover_key = part.map(|p| (ts, state.session.mask_kind(), p));
+    if hover_key != state.uv_parts.hover_key {
+        state.uv_parts.hover = part.map_or_else(Vec::new, |p| state.session.part_uv_triangles(p));
+        state.uv_parts.hover_key = hover_key;
+    }
+    if !state.uv_parts.hover.is_empty() {
+        let tint = Color32::from_rgba_unmultiplied(crate::theme::ACCENT.r(), crate::theme::ACCENT.g(), crate::theme::ACCENT.b(), 70);
+        painter.add(triangles_mesh(&state.uv_parts.hover, to_px, clip, tint, None));
     }
 }
 
