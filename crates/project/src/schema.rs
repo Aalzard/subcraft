@@ -144,6 +144,10 @@ pub struct LayerV1 {
     /// Colour tag of the row (absent = none). Older readers ignore it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color: Option<subcraft_doc::LayerColor>,
+    /// The layer this one is an instance of (absent = an ordinary layer). Older readers ignore
+    /// it and see the copy the instance last showed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instance_of: Option<uuid::Uuid>,
     pub content: ContentV1,
     /// Schema 5. Bottom-to-top content effects; absent in older files (no effects).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

@@ -38,6 +38,9 @@ macro_rules! on_stack {
 /// Default texture-set resolution for new sessions.
 pub const DEFAULT_RESOLUTION: u32 = 2048;
 
+/// Shown when an edit targets an instance's content.
+pub const INSTANCE_READ_ONLY: &str = "This layer is an instance: edit its source layer (its name, visibility, blending and colour are its own)";
+
 /// Guide geometry of the active symmetry, in object space (see [`Session::symmetry_guides`]).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SymmetryGuides {
@@ -190,6 +193,8 @@ pub struct Session {
     id_baked: HashMap<TextureSetId, (subcraft_image::TiledImage, Vec<subcraft_doc::IdColorEdit>)>,
     no_maps: MeshMaps,
     pub(crate) history: History,
+    /// Which instances are in step with their sources (see `subcraft_doc::instance`).
+    instances: subcraft_doc::InstanceCache,
     /// Live document: equals the current history entry except while a stroke is in progress.
     pub(crate) doc: Document,
     pub(crate) selection: Selection,
@@ -200,6 +205,8 @@ pub struct Session {
     /// Selected effect of the selected layer's current domain (see [`Session::selected_effect`]).
     effect: Option<EffectId>,
     pub brush: BrushState,
+    /// Settings > General > Default UV scale for materials: the UV tiling of new fill layers.
+    pub default_uv_scale: f32,
     stroke: Option<ActiveStroke>,
     /// Clone tool: object-space source point, and the screen offset the first stroke fixed.
     clone_source: Option<Vec3>,
@@ -288,12 +295,14 @@ impl Session {
             id_baked: HashMap::new(),
             no_maps: MeshMaps::new(),
             history: History::new(doc.clone(), label),
+            instances: Default::default(),
             saved_doc: doc.clone(),
             settings: Default::default(),
             saved_settings: Default::default(),
             doc,
             selection,
             mask_clipboard: None,
+            default_uv_scale: 1.0,
             hidden_sets: Default::default(),
             focus_set: false,
             effect: None,
@@ -528,6 +537,11 @@ impl Session {
     /// Reuse the high-poly mesh already loaded for the bake preview.
     pub fn start_bake_prepared(&self, request: crate::bake_job::BakeRequest, high: Option<crate::bake_job::BakePreviewMesh>) -> crate::bake_job::BakeJob {
         crate::bake_job::BakeJob::start_prepared(self.scene.mesh.clone(), Arc::new(self.scene.bvh.clone()), request, high)
+    }
+
+    /// [`Self::start_bake_prepared`] with more high-poly files and a custom cage file.
+    pub fn start_bake_files(&self, request: crate::bake_job::BakeRequest, high: Option<crate::bake_job::BakePreviewMesh>, files: crate::bake_job::BakeFiles) -> crate::bake_job::BakeJob {
+        crate::bake_job::BakeJob::start_with_files(self.scene.mesh.clone(), Arc::new(self.scene.bvh.clone()), request, high, files)
     }
 
     /// Expose a high-to-low normal bake in the existing layer workflow, without changing
@@ -1035,7 +1049,30 @@ impl Session {
 
     // ----- commands ------------------------------------------------------------------------------
 
+    /// Refresh the instances from their sources (and drop those whose source was just deleted):
+    /// called before every history entry, so one undo step covers both.
+    fn sync_instances(&mut self) {
+        if subcraft_doc::instance::sync(&mut self.doc, Some(self.history.current()), &mut self.instances)
+            && let Some(l) = self.selection.layer
+            && self.doc.texture_set(self.selection.texture_set).is_some_and(|ts| ts.find(l).is_none())
+        {
+            self.selection.layer = None;
+        }
+    }
+
+    /// Whether `layer` is an instance or inside one: its content cannot be edited.
+    pub fn instance_locked(&self, layer: LayerId) -> bool {
+        self.texture_set_of(layer).and_then(|ts| self.doc.texture_set(ts)).is_some_and(|ts| subcraft_doc::instance::root_of(ts, layer).is_some())
+    }
+
+    /// Instance link of `layer` (`None`: an ordinary layer).
+    pub fn instance_state(&self, layer: LayerId) -> Option<subcraft_doc::InstanceState> {
+        let ts = self.doc.texture_set(self.texture_set_of(layer)?)?;
+        subcraft_doc::instance::state(&self.doc, ts.find(layer)?)
+    }
+
     fn commit(&mut self, label: &str, merge_key: Option<String>) {
+        self.sync_instances();
         // Recent actions end up in the log (and in crash reports). Slider drags merge into one
         // history entry; log only the first step.
         if merge_key.is_none() || self.history.current_merge_key() != merge_key.as_deref() {
@@ -1054,10 +1091,29 @@ impl Session {
         f: impl FnOnce(&mut TextureSet) -> Result<R, CommandError>,
     ) -> Result<R, CommandError> {
         let ts_id = self.texture_set_of(layer).ok_or(CommandError::LayerNotFound)?;
+        let guard = self.instance_guard(ts_id, layer);
         let ts = self.doc.texture_set_mut(ts_id).ok_or(CommandError::TextureSetNotFound)?;
         let r = f(ts)?;
+        self.check_instance_guard(ts_id, guard)?;
         self.commit(label, merge_key);
         Ok(r)
+    }
+
+    /// The layers of `ts_id` as they are, when `layer` is an instance or inside one.
+    fn instance_guard(&self, ts_id: TextureSetId, layer: LayerId) -> Option<Vec<Arc<Layer>>> {
+        let ts = self.doc.texture_set(ts_id)?;
+        subcraft_doc::instance::root_of(ts, layer).map(|_| ts.layers.clone())
+    }
+
+    /// An edit of an instance that its source undoes right away changed nothing: refuse it with
+    /// a message instead of recording an empty history step.
+    fn check_instance_guard(&mut self, ts_id: TextureSetId, guard: Option<Vec<Arc<Layer>>>) -> Result<(), CommandError> {
+        let Some(before) = guard else { return Ok(()) };
+        self.sync_instances();
+        if self.doc.texture_set(ts_id).is_some_and(|ts| ts.layers == before) {
+            return Err(CommandError::Invalid(INSTANCE_READ_ONLY.into()));
+        }
+        Ok(())
     }
 
     /// [`Self::edit_layer_set`] that adds no history entry when `f` changed nothing (a no-op
@@ -1073,6 +1129,11 @@ impl Session {
         let before = ts.layers.clone();
         let r = f(ts)?;
         if ts.layers != before {
+            // An edit of an instance's content is undone by its source: nothing to record then.
+            self.sync_instances();
+            if self.doc.texture_set(ts_id).is_some_and(|ts| ts.layers == before) {
+                return Err(CommandError::Invalid(INSTANCE_READ_ONLY.into()));
+            }
             self.commit(label, None);
         }
         Ok(r)
@@ -1421,7 +1482,14 @@ impl Session {
                 let tc = ts.clone();
                 let (layer, label) = match kind {
                     NewLayer::Paint => (Layer::new_paint(format!("Layer {}", self.layer_counter), &tc), "New Paint Layer"),
-                    NewLayer::Fill => (Layer::new_fill(format!("Fill {}", self.layer_counter), &tc), "New Fill Layer"),
+                    NewLayer::Fill => {
+                        let mut fill = Layer::new_fill(format!("Fill {}", self.layer_counter), &tc);
+                        let s = if self.default_uv_scale.is_finite() && self.default_uv_scale > 0.0 { self.default_uv_scale } else { 1.0 };
+                        if let subcraft_doc::LayerContent::Fill(f) = &mut fill.content {
+                            f.projection.scale = [s, s];
+                        }
+                        (fill, "New Fill Layer")
+                    }
                     NewLayer::Folder => (Layer::new_folder(format!("Folder {}", self.layer_counter), &tc), "New Folder"),
                 };
                 // Painter: with an empty folder selected, the new layer goes inside it.
@@ -1587,6 +1655,31 @@ impl Session {
                 if self.selected_texture_set().find(copy).is_some() {
                     self.selection.layer = Some(copy);
                 }
+            }
+            Command::PasteAsInstance(sources) => {
+                let ts_id = self.selection.texture_set;
+                let ts = self.doc.texture_set_mut(ts_id).ok_or(CommandError::TextureSetNotFound)?;
+                // Inside an instance nothing can be added: the new layers go above it.
+                let mut at = self.selection.layer.map(|a| subcraft_doc::instance::root_of(ts, a).unwrap_or(a));
+                let mut made = false;
+                for source_id in crate::clipboard::top_level_in_order(ts, &sources) {
+                    let Some(source) = ts.find(source_id).cloned() else { continue };
+                    if at.is_some_and(|a| a != source_id && ts.is_descendant_or_self(a, source_id)) {
+                        return Err(CommandError::Invalid("An instance cannot go inside its own source: select a layer outside it first".into()));
+                    }
+                    let mut instance = source.clone();
+                    instance.id = LayerId::new();
+                    // An instance of an instance follows the same source.
+                    instance.instance_of = Some(source.instance_of.unwrap_or(source_id));
+                    instance.name = crate::clipboard::pasted_name(ts, &format!("{} instance", source.name));
+                    at = Some(ts.insert_above(at, instance));
+                    made = true;
+                }
+                if !made {
+                    return Err(CommandError::Invalid("Paste as instance: the copied layer is not in this texture set (instances across texture sets are not available yet)".into()));
+                }
+                self.selection.layer = at;
+                self.commit("Paste as Instance", None);
             }
             Command::DeleteLayers(layers) => {
                 let set = self.common_set(&layers)?;
@@ -2097,7 +2190,8 @@ impl Session {
                 })?;
             }
             Command::ClearMask(layer) => {
-                self.edit_layer_set(layer, "Clear Mask", None, |ts| {
+                // Clearing a mask with nothing painted adds no undo step (it wiped redo).
+                self.edit_layer_set_if_changed(layer, "Clear Mask", |ts| {
                     let mask = Self::layer_mut(ts, layer)?.mask.as_mut().ok_or(CommandError::NoMask)?;
                     let (w, h, comps, fill) = (mask.base.width(), mask.base.height(), mask.base.comps(), mask.base.fill());
                     mask.base = subcraft_image::TiledImage::new(w, h, comps, fill);
@@ -2252,6 +2346,9 @@ impl Session {
         if matches!(kind, ContentEffectKind::Levels { channel: subcraft_core::ChannelKind::Normal, .. }) {
             return Err(CommandError::Invalid("Levels cannot adjust the Normal channel".into()));
         }
+        if let ContentEffectKind::Levels { levels, .. } = kind && !levels.valid() {
+            return Err(CommandError::Invalid("Levels parameters are invalid".into()));
+        }
         Ok(())
     }
 
@@ -2266,7 +2363,7 @@ impl Session {
         if let subcraft_doc::MaskEffectKind::Compare(c) = kind && !c.valid() {
             return Err(CommandError::Invalid("Compare Mask parameters are invalid".into()));
         }
-        if let subcraft_doc::MaskEffectKind::Levels(l) = kind && !l.valid() {
+        if let subcraft_doc::MaskEffectKind::Levels(l) | subcraft_doc::MaskEffectKind::AnchorRef { levels: Some(l), .. } = kind && !l.valid() {
             return Err(CommandError::Invalid("Levels parameters are invalid".into()));
         }
         Ok(())
@@ -2374,6 +2471,9 @@ impl Session {
             return self.begin_quick_mask_stroke(uv.flatten());
         }
         let layer = self.selection.layer.ok_or(PaintError::LayerNotFound)?;
+        if self.instance_locked(layer) {
+            return Err(PaintError::Instance);
+        }
         // Before anything below changes the document: a refused stroke leaves no trace.
         if self.brush.mode == StrokeMode::Clone {
             let missing = if uv.is_some() { self.clone_source_uv().is_none() } else { self.clone_source.is_none() };
@@ -2816,6 +2916,7 @@ impl Session {
             }
             return;
         }
+        self.sync_instances();
         if self.doc != *self.history.current() {
             log::info!("action: {}", active.label);
             self.history.push(active.label, self.doc.clone());

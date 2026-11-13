@@ -79,3 +79,15 @@ fn a_straight_line_does_not_start_from_a_point_seen_through_another_view() {
     assert_eq!(state.line_start(&view(6.0)), None, "the camera moved: no stale start");
     assert_eq!(state.line_start(&view(5.0)), None, "and it stays forgotten");
 }
+
+/// QA 2026-11: the mask view (the viewport showing a layer's mask) stayed on after another
+/// project was opened, pointing at a layer of the old one.
+#[test]
+fn replacing_the_session_leaves_the_mask_view() {
+    let mut state = state();
+    let layer = state.session.selection().layer.expect("the sample has a layer");
+    crate::mask_view::toggle(&mut state, layer);
+    assert!(state.mask_view.is_some());
+    state.set_session(Session::new(primitives::cube(2.0), 64));
+    assert!(state.mask_view.is_none());
+}
