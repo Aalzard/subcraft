@@ -97,18 +97,24 @@ impl UiState {
         self.library.alphas.retain(|a| keep(a.user_file.as_deref(), &session));
         self.library.smart_materials.retain(|m| keep(m.user_file.as_deref(), &session));
         self.library.smart_masks.retain(|m| keep(m.user_file.as_deref(), &session));
-        let env_before = self.library.environments.get(self.env.index).map(|e| e.id);
-        self.library.environments.retain(|e| keep(e.user_file.as_deref(), &session));
-        self.env.index = env_before.and_then(|id| self.library.environments.iter().position(|e| e.id == id)).unwrap_or(0);
-        self.env.uploaded = None;
+        // HDRIs still in a library stay loaded (prefiltering them again is slow): the one in use
+        // stays selected. Dropping it switched the viewport to the first environment, since the
+        // reloaded copy arrives later from the background loader (QA 2026-11).
+        let libraries = self.libraries.clone();
+        let listed: Vec<PathBuf> = libraries.iter().flat_map(|l| l.lib.list(UserAssetKind::Environment)).collect();
+        let env_before = self.library.environments.get(self.env.index).map(|e| (e.id, e.user_file.clone()));
+        self.library.environments.retain(|e| keep(e.user_file.as_deref(), &session) || e.user_file.as_ref().is_some_and(|f| listed.contains(f)));
+        let index = env_before.as_ref().and_then(|(id, file)| self.library.environments.iter().position(|e| e.id == *id && e.user_file == *file));
+        if index != Some(self.env.index) {
+            self.env.index = index.unwrap_or(0);
+            self.env.uploaded = None;
+        }
         self.brush_presets.retain(|p| keep(p.user_file.as_deref(), &session));
         self.textures.items.retain(|t| session.contains(&t.path));
-        let libraries = self.libraries.clone();
-        let mut environments = Vec::new();
         for l in &libraries {
             self.load_library_content(&l.lib);
-            environments.extend(l.lib.list(UserAssetKind::Environment));
         }
+        let environments: Vec<PathBuf> = listed.into_iter().filter(|f| !self.library.environments.iter().any(|e| e.user_file.as_deref() == Some(f.as_path()))).collect();
         if let Some(lib) = &self.user_library {
             self.favorites = subcraft_app::brush_preset::Favorites::load(lib);
         }
@@ -367,6 +373,28 @@ mod tests {
         s.set_libraries(&[], "Kit");
         assert_eq!(s.library.alphas.len(), before);
         assert_eq!(s.user_library.as_ref().map(|l| l.root().to_path_buf()), Some(yours.clone()), "back to your_assets");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// QA 2026-11: Refresh libraries dropped the library HDRI in use and switched the viewport
+    /// to the first environment until it reloaded.
+    #[test]
+    fn refresh_keeps_the_library_environment_in_use() {
+        let root = temp_root("refresh-env");
+        let yours = root.join("yours");
+        let mut s = state_with(&yours);
+        let hdr = UserLibrary::new(&yours).folder(UserAssetKind::Environment).join("sky.hdr");
+        std::fs::create_dir_all(hdr.parent().unwrap()).unwrap();
+        subcraft_image::save_image(&hdr, 8, 4, 3, &[0.5; 96], subcraft_image::FileFormat::Hdr32).unwrap();
+        let env = subcraft_app::assets::user_library::load_environment(&hdr).unwrap();
+        let id = env.id;
+        s.library.environments.push(env);
+        s.env.index = s.library.environments.len() - 1;
+        s.env.uploaded = Some(id);
+        s.refresh_libraries();
+        assert_eq!(s.library.environments.get(s.env.index).map(|e| e.id), Some(id), "still the selected environment");
+        assert_eq!(s.env.uploaded, Some(id), "not uploaded again");
+        assert_eq!(s.library.environments.iter().filter(|e| e.user_file.as_deref() == Some(hdr.as_path())).count(), 1, "not loaded twice");
         std::fs::remove_dir_all(&root).ok();
     }
 
