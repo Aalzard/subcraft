@@ -245,10 +245,15 @@ mod painter {
             "user1" => (User1, false),
             "user2" => (User2, false),
             "user3" => (User3, false),
-            other => {
-                let n: usize = other.strip_prefix("user")?.parse().ok()?;
-                (*ChannelKind::USER.get(n)?, false)
-            }
+            other => match ChannelKind::EXTENDED.into_iter().find(|k| k.key() == other) {
+                // Coat, sheen, anisotropy... by their key. "diffuse" and "glossiness" were taken
+                // above: in a preset they stay the maps converted from Base Color and Roughness.
+                Some(kind) => (kind, false),
+                None => {
+                    let n: usize = other.strip_prefix("user")?.parse().ok()?;
+                    (*ChannelKind::USER.get(n)?, false)
+                }
+            },
         })
     }
 
