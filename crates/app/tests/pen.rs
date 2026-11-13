@@ -136,3 +136,22 @@ fn job_commit_preserves_renames_masks_and_folder_moves_made_while_it_runs() {
     assert!(s.selected_texture_set().location(layer).unwrap().parent.is_some());
     assert_eq!(pen(&s).anchors[0].position, Vec2::splat(0.6));
 }
+
+/// QA 2026-11: a resolution change resampled the raster of a pen path (text layers were drawn
+/// again), so the path stayed blurred until its next edit.
+#[test]
+fn a_resolution_change_draws_the_path_again_instead_of_resampling_it() {
+    let mut s = session(); let mut editor = PenEditor::default();
+    point(&mut editor, &mut s, Vec2::new(0.2, 0.2)); point(&mut editor, &mut s, Vec2::new(0.8, 0.7));
+    let path = pen(&s).clone();
+    let steps = s.history().entries().len();
+    s.execute(Command::SetResolution { texture_set: None, resolution: 512 }).unwrap();
+    assert_eq!(s.history().entries().len(), steps + 1);
+    assert_eq!(pen(&s), &path, "the path itself is unchanged");
+    let mut raster = subcraft_paint::pen::PenRasterizer::new(&path, 512).unwrap();
+    raster.run();
+    let expected = raster.finish().unwrap();
+    let LayerContent::Paint(p) = &s.selected_layer().unwrap().content else { panic!() };
+    assert!(!expected.is_empty());
+    assert!(p.channels == expected, "the raster is the path drawn at 512");
+}

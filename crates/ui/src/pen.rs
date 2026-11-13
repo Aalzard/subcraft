@@ -57,7 +57,11 @@ pub fn keyboard(state: &mut UiState, ctx: &egui::Context, now: f64) {
         if let Err(e) = state.pen.release(&state.session) { state.set_status(e.to_string(), now); }
         state.pen.finish_path();
     }
-    if state.pen.selected_anchor().is_some() && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Delete) || i.consume_key(egui::Modifiers::NONE, egui::Key::Backspace))
+    // Only while the selected point is in the path on screen: the selection outlives its path
+    // (another layer selected, the point undone), and Delete then did nothing at all instead of
+    // reaching the layer shortcut.
+    let selected = state.pen.selected_anchor().is_some_and(|id| state.pen.preview(&state.session).is_some_and(|p| p.anchors.iter().any(|a| a.id == id)));
+    if selected && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Delete) || i.consume_key(egui::Modifiers::NONE, egui::Key::Backspace))
         && let Err(e) = state.pen.delete_anchor(&state.session) { state.set_status(e.to_string(), now); }
 }
 

@@ -9,6 +9,43 @@ use crate::{Command, CommandError, Selection, Session};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Handle { Anchor, Incoming, Outgoing }
 
+/// Draw the raster of every pen path layer in `texture_sets` again (after a resolution change).
+/// A path's width is independent of the resolution and its raster is only a cache: resampled,
+/// a path taken from 512 to 4096 stayed blurred until its next edit, and was exported that way.
+pub(crate) fn refresh_path_rasters(doc: &mut subcraft_doc::Document, resources: &subcraft_doc::ResourceStore, texture_sets: &[subcraft_core::TextureSetId]) {
+    use std::sync::Arc;
+    fn walk(layers: &mut [Arc<Layer>], resolution: u32, resources: &subcraft_doc::ResourceStore) {
+        for layer in layers {
+            let needs = match &layer.content {
+                LayerContent::Paint(p) => p.path.is_some(),
+                LayerContent::Group(g) => !g.children.is_empty(),
+                LayerContent::Fill(_) => false,
+            };
+            if !needs { continue; }
+            match &mut Arc::make_mut(layer).content {
+                LayerContent::Paint(p) => {
+                    let Some(path) = p.path.clone() else { continue };
+                    let tip = path.stamp.and_then(|s| s.alpha).and_then(|id| resources.bitmap(id).cloned());
+                    match PenRasterizer::new(&path, resolution) {
+                        Ok(raster) => {
+                            let mut raster = raster.with_alpha(tip);
+                            raster.run();
+                            if let Some(images) = raster.finish() { p.channels = images; }
+                        }
+                        Err(e) => log::warn!("pen path not redrawn: {e}"),
+                    }
+                }
+                LayerContent::Group(g) => walk(&mut g.children, resolution, resources),
+                LayerContent::Fill(_) => {}
+            }
+        }
+    }
+    for ts in doc.texture_sets.iter_mut().filter(|ts| texture_sets.contains(&ts.id)) {
+        let resolution = ts.resolution;
+        walk(&mut ts.layers, resolution, resources);
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PenHit { pub anchor: AnchorId, pub handle: Handle }
 
