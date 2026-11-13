@@ -43,7 +43,7 @@ Layout notes: all navigation is a held modifier plus a mouse drag; the same comb
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
 | Center the whole mesh | F | focuses only the view under the cursor; both when the cursor is outside | done: F frames the view under the cursor, both views when it is elsewhere | crates/ui/src/app.rs (frame_targets) | 249 |
-| Focus on the selected path | F while editing a path (11.0) | not documented | missing | - | - |
+| Focus on the selected path | F while editing a path (11.0) | not documented | done: with the Pen tool, F centres the 3D view on the path (same direction, closer) and frames its UV rectangle in the 2D view | crates/ui/src/orbit.rs (focus_on), crates/ui/src/panels/uv_view.rs (uv_frame) | 265 |
 | Camera Perspective | F5 | default mode | done | crates/app/src/actions.rs:210 | - |
 | Camera Orthographic | F6 | off | done | crates/app/src/actions.rs:211 | - |
 | Free rotation (roll allowed) | Contextual toolbar > Camera Rotation Mode | off | done: Camera menu or Display Settings > Camera > Camera rotation: Free orbits about the view's own axes (rolls, goes over the top); Constrained levels the horizon again | crates/ui/src/orbit.rs (free_orbit) | 258 |
@@ -153,8 +153,8 @@ Layout notes: the dropdown at the top right of each view switches between Materi
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
 | Brush cursor: Full preview (brush alpha / material projected) | 3D view; chosen in Contextual toolbar | default (unverified) | missing | - | - |
-| Brush cursor: Brush outline | 3D view; chosen in Contextual toolbar | - | partial: screen-space circle of the brush radius, the only style | crates/ui/src/viewport.rs:491 | - |
-| Brush cursor: Crosshair | 3D view; chosen in Contextual toolbar | - | missing | - | - |
+| Brush cursor: Brush outline | 3D view; chosen in Contextual toolbar | - | done: screen-space circle of the brush radius (default); Display Settings > Viewport > Brush cursor | crates/ui/src/viewport.rs (brush_mark) | 265 |
+| Brush cursor: Crosshair | 3D view; chosen in Contextual toolbar | - | done: Display Settings > Viewport > Brush cursor > Crosshair (also for the symmetry cursors); not in the top strip | crates/ui/src/viewport.rs (brush_mark) | 265 |
 | Lazy mouse ring around the cursor | 3D view when Lazy mouse is on | grey circle | done: grey ring of the lazy distance around the cursor | crates/ui/src/viewport.rs (overlays) | 261 |
 | Clone source marker | 3D view with the Clone tool | - | done | crates/ui/src/viewport.rs:499 | - |
 | Fill layer cursor (no brush) | 3D view with a fill layer selected | - | missing | - | - |

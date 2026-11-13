@@ -84,6 +84,8 @@ pub struct UvView {
     pub fill_box: Option<egui::Pos2>,
     /// Geometry mask box started in the 2D view while picking parts (screen point).
     pub parts_box: Option<egui::Pos2>,
+    /// Frame this UV rectangle (centre, size) next time the 2D view is drawn (F on a path).
+    pub frame: Option<(Vec2, Vec2)>,
 }
 
 /// Compositing time spent per frame before the remaining dirty tiles wait for the next frame.
@@ -443,7 +445,7 @@ impl UiState {
             render_request: None,
             last_view_size: [1280, 720],
             last_view_rect: egui::Rect::NOTHING,
-            uv: UvView { zoom: 1.0, offset: egui::Vec2::ZERO, source: PreviewSource::Channel(ChannelKind::BaseColor), texture: None, painting: false, last_point: None, fill_box: None, parts_box: None },
+            uv: UvView { zoom: 1.0, offset: egui::Vec2::ZERO, source: PreviewSource::Channel(ChannelKind::BaseColor), texture: None, painting: false, last_point: None, fill_box: None, parts_box: None, frame: None },
             painting: false,
             picking_parts: false,
             warp: Default::default(),
