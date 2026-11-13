@@ -2109,6 +2109,16 @@ impl SubcraftApp {
     }
 }
 
+/// End of the frame: close the undo step of what the widgets did on a pointer release or an Enter
+/// press. The Seal at the top of the frame runs before the widgets, so a click's own command (a
+/// checkbox, a dropdown item, the last value of a slider drag, a typed value) stayed open and
+/// merged with the next drag of the same control: one Undo reverted both.
+pub(crate) fn seal_after_widgets(session: &mut Session, ctx: &egui::Context) {
+    if ctx.input(|i| i.pointer.any_released() || i.key_pressed(egui::Key::Enter)) {
+        let _ = session.execute(Command::Seal);
+    }
+}
+
 impl eframe::App for SubcraftApp {
     fn raw_input_hook(&mut self, _ctx: &egui::Context, raw_input: &mut egui::RawInput) {
         if take_tab_press(&mut raw_input.events, _ctx.egui_wants_keyboard_input()) {
@@ -2325,6 +2335,7 @@ impl eframe::App for SubcraftApp {
             }
             dialogs::run_pending(&mut self.state, action, &ctx, now);
         }
+        seal_after_widgets(&mut self.state.session, &ctx);
         let title = dialogs::title(&self.state);
         if title != self.state.last_title {
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
@@ -2705,3 +2716,41 @@ fn build_demo(state: &mut UiState) {
         assert!(!app.state.asset_preview.is_applying());assert!(app.state.pen_after.is_none());assert!(!app.state.session.is_modified());
         let reopened=Session::open_project(&file).unwrap();assert_eq!(reopened.document(),app.state.session.document());assert!(reopened.resources().iter().any(|r|r.name.starts_with("Starter: ")));std::fs::remove_file(file).unwrap();
     }
+
+#[cfg(test)]
+mod seal_tests {
+    use super::*;
+    use subcraft_core::ChannelKind;
+
+    /// QA 2026-11: a click that changed a value and the slider drag after it were one undo step.
+    #[test]
+    fn a_release_closes_the_undo_step_of_what_the_widgets_just_did() {
+        let mut session = Session::sample();
+        session.execute(Command::AddLayer(subcraft_app::NewLayer::Fill)).unwrap();
+        let layer = session.selection().layer.unwrap();
+        let ctx = egui::Context::default();
+        let entries = session.history().entries().len();
+        let frame = |session: &mut Session, events: Vec<egui::Event>, opacity: f32| {
+            let mut out = ctx.run_ui(egui::RawInput { events, ..Default::default() }, |ui| {
+                // A widget dispatches its command during the frame...
+                session.execute(Command::SetBlendOpacity { layer, channel: ChannelKind::BaseColor, opacity }).unwrap();
+                // ...and the frame ends.
+                seal_after_widgets(session, ui.ctx());
+            });
+            out.textures_delta.clear();
+        };
+        let at = egui::pos2(10.0, 10.0);
+        let button = |pressed| egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+        // A drag: three values, released in the last frame.
+        frame(&mut session, vec![egui::Event::PointerMoved(at), button(true)], 0.9);
+        frame(&mut session, vec![], 0.8);
+        frame(&mut session, vec![button(false)], 0.7);
+        assert_eq!(session.history().entries().len(), entries + 1, "one drag is one undo step");
+        // The next drag of the same control is its own step.
+        frame(&mut session, vec![button(true)], 0.5);
+        frame(&mut session, vec![button(false)], 0.4);
+        assert_eq!(session.history().entries().len(), entries + 2);
+        session.execute(Command::Undo).unwrap();
+        assert_eq!(session.selected_layer().unwrap().blend[&ChannelKind::BaseColor].opacity, 0.7, "Undo returns to where the first drag ended");
+    }
+}
