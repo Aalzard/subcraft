@@ -285,17 +285,17 @@ Layout notes: the Path tool works only in the 3D view. A floating Paths panel in
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
 | Add a point on the mesh surface | LMB click with a Path tool | needs 2+ points | partial: Pen tool anchors are edited in UV space (2D view) and projected | crates/ui/src/viewport.rs:281 | - |
-| Insert a point on an existing path | LMB click on the curve | - | missing | - | - |
+| Insert a point on an existing path | LMB click on the curve | - | done: click on the curve; the curve keeps its shape (de Casteljau split) | crates/doc/src/pen.rs (split_segment), crates/ui/src/viewport.rs (Pen tool) | - |
 | Move a point | LMB drag a point | - | partial: drag on the surface in 3D | crates/ui/src/viewport.rs:286 | - |
 | Exit path edition | Escape or Enter | - | done | crates/ui/src/pen.rs:52 | - |
 | Start a new path | LMB click on blank surface after exiting | - | done | crates/ui/src/viewport.rs:281 | - |
-| Select an existing path | LMB click on a path in the view | - | missing | - | - |
-| Toggle corner / smooth on a point | Double-click a point | - | missing | - | - |
+| Select an existing path | LMB click on a path in the view | - | done: click on another path's curve selects its layer | crates/ui/src/viewport.rs (Pen tool) | - |
+| Toggle corner / smooth on a point | Double-click a point | - | done | crates/ui/src/viewport.rs (Pen tool) | - |
 | Break tangents while moving a handle | Alt | - | missing | - | - |
 | Scale both tangents together | Ctrl | - | missing | - | - |
 | Straight segment between points | Shift (11.0) | - | missing | - | - |
 | Angle snapping when adding a point | Ctrl (11.0) | angle set in the path settings menu | missing | - | - |
-| Auto-close by clicking the first point | LMB on first vertex with the last selected (11.0) | Ctrl selects instead | missing | - | - |
+| Auto-close by clicking the first point | LMB on first vertex with the last selected (11.0) | Ctrl selects instead | done: with the last point selected and 3+ points; Ctrl skips it | crates/app/src/pen.rs (close_path), crates/ui/src/viewport.rs (Pen tool) | - |
 | Rectangle selection of points | LMB drag | - | missing | - | - |
 | Select all points | Ctrl + A | - | missing | - | - |
 | Delete selected points | Delete | - | done | crates/ui/src/pen.rs:60 | - |
@@ -312,8 +312,8 @@ Layout notes: the Path tool works only in the 3D view. A floating Paths panel in
 | Paths panel: right-click menu with the same actions | RMB on a path | - | done | crates/ui/src/paths_panel.rs | - |
 | Paths panel: copy / paste properties | RMB menu | same tool type only | done: width, hardness, opacity, values, type and stamp; the points stay | crates/ui/src/paths_panel.rs | - |
 | Paths panel: copy / paste position (all vertices) | RMB menu | - | done: the points (fresh ids) and open / closed; the style stays | crates/ui/src/paths_panel.rs | - |
-| Hover feedback from the Paths panel in the view | 3D view | - | missing | - | - |
-| Message when using a Path tool in the 2D view | 2D view | - | missing | - | - |
+| Hover feedback from the Paths panel in the view | 3D view | - | done: the hovered row's path is drawn over the view | crates/ui/src/paths_panel.rs (hovered), crates/ui/src/viewport.rs (Pen tool) | - |
+| Message when using a Path tool in the 2D view | 2D view | - | n/a: SubCraft's Pen tool also edits paths in the 2D view | crates/ui/src/pen.rs (uv_input) | - |
 
 ## Animation playback
 
