@@ -49,7 +49,7 @@ Layout notes: left to right a Painter row has the visibility eye, the content th
 | Right-click opacity > Apply to all channels | Layer row, opacity | n/a | done | crates/ui/src/panels/layers.rs:547 | - |
 | Folder disclosure arrow (open/close group) | Folder row | open | done | crates/ui/src/panels/layers.rs:286 | - |
 | Folder closes when moved in or out of another folder (fixed in recent versions: state kept) | Folder row | state kept | done | crates/app/src/layer_tree.rs:17 | - |
-| Instance icon (none / source / target; click opens the instance list) | Layer row, right | hidden when not instanced | partial: text under the name ("Instance", "Source of N instances"); no click-to-list | crates/ui/src/panels/layers.rs:980 | - |
+| Instance icon (none / source / target; click opens the instance list) | Layer row, right | hidden when not instanced | partial: text under the name ("Instance", "Source of N instances"); the list is in Properties, not behind a click on the row | crates/ui/src/panels/layers.rs:1029 | - |
 | Geometry mask icon (click to edit, shows count of included items) | Layer row, far right | all geometry included | done: polygon icon with included/total, click to pick parts in the 3D / 2D view, right-click menu | crates/ui/src/panels/layers.rs | - |
 | Gamma-corrected alpha "i" icon | Layer row | off | missing | - | - |
 | Layer colour stripe (from Set color) | Layer row | none | done (at the right edge of the row; dimmed inside a tagged folder) | crates/ui/src/panels/layers.rs:559 | - |
@@ -245,13 +245,13 @@ Layout notes: colours are set from the context menu. A layer without its own col
 | Only the source layer is editable; instances are read-only | Layer stack | n/a | done (name, visibility, blending, colour tag and geometry mask stay the instance's own) | crates/app/src/session.rs:1102 | - |
 | Paint strokes exist only in the source's texture set | Layer stack | n/a | done (pen paths and text carry over) | crates/doc/src/instance.rs:63 | - |
 | Instance icon states: non-instanced, source, target | Layer row | n/a | partial: text under the name for instances and sources, no icon | crates/ui/src/panels/layers.rs:980 | - |
-| Instance properties button: Properties shows the source and all instances as a list | Layer row > Properties | n/a | missing | - | - |
-| Click a list entry to jump to that layer (switches texture set) | Properties > instance list | n/a | missing | - | - |
+| Instance properties button: Properties shows the source and all instances as a list | Layer row > Properties | n/a | partial: Properties shows the list for a selected source or instance; no button on the row | crates/ui/src/panels/layers.rs:999 | - |
+| Click a list entry to jump to that layer (switches texture set) | Properties > instance list | n/a | done | crates/ui/src/panels/layers.rs:993 | - |
 | Instanced layers default to Passthrough blending | Layer stack | Passthrough | missing | - | - |
 | Deleting the source deletes its instances | Layer stack | n/a | done (one undo step) | crates/doc/src/instance.rs:161 | - |
 | Cycle detection: an instance moved inside its own source is disabled and flagged | Layer stack | n/a | partial: such an instance is flagged and no longer updated; it is not disabled | crates/doc/src/instance.rs:50 | - |
 | Anchor references may not cross an instanced folder boundary | Layer stack | n/a | missing | - | - |
-| Flatten all instanced layers across texture sets | Layer stack (11.x) | n/a | missing | - | - |
+| Flatten all instanced layers across texture sets | Layer stack (11.x) | n/a | partial: "Make all N independent" on a source and "Make independent" on an instance turn instances into ordinary layers; no single project-wide menu entry | crates/app/src/session.rs:1719 | - |
 
 ## Flatten layers
 
