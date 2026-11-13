@@ -526,6 +526,25 @@ fn schema_4_layers_have_no_content_effects_and_bad_effects_are_rejected() {
     assert!(matches!(read_project(Cursor::new(save(&doc))), Err(ProjectError::Invalid(_))));
 }
 
+/// QA 2026-11: fill symmetry was never checked on load (a huge radial count or an infinite
+/// mirror position loaded and stalled or NaN-ed the fill).
+#[test]
+fn out_of_range_fill_symmetry_is_refused_on_load() {
+    let mesh = primitives::sample_crate();
+    let save = |doc: &Document| write_project(Cursor::new(Vec::new()), &mesh, doc, &ResourceStore::default(), &MeshMapSet::new()).unwrap().into_inner();
+    let with = |symmetry: subcraft_doc::FillSymmetry| {
+        let mut doc = effect_document();
+        let layer = Arc::make_mut(&mut doc.texture_sets[0].layers[0]);
+        let LayerContent::Fill(f) = &mut layer.content else { panic!("a fill layer") };
+        f.projection = subcraft_doc::Projection { mode: subcraft_doc::ProjectionMode::Triplanar, symmetry, ..f.projection };
+        doc
+    };
+    assert!(read_project(Cursor::new(save(&with(subcraft_doc::FillSymmetry::radial())))).is_ok());
+    let huge = subcraft_doc::FillSymmetry::Radial { axis: 1, count: 100_000, flip: false, center: [0.5; 3] };
+    let err = read_project(Cursor::new(save(&with(huge)))).unwrap_err();
+    assert!(matches!(err, ProjectError::Invalid(ref m) if m.contains("projection")), "{err}");
+}
+
 #[test]
 fn content_effect_kinds_have_stable_json() {
     let levels = ContentEffectKindV5::Levels { channel: ChannelKind::Roughness, levels: Levels::default() };
@@ -1064,6 +1083,49 @@ fn out_of_range_mask_editor_settings_are_refused_on_load() {
     assert!(matches!(err, ProjectError::Invalid(ref m) if m.contains("Mask Editor")), "{err}");
 }
 
+/// QA 2026-11: shape settings (3D Distance, gradients...) were never checked on load, and
+/// generators in the content stack skipped every check: out-of-range values loaded and turned
+/// the mask, or every channel, NaN.
+#[test]
+fn out_of_range_generator_shapes_are_refused_in_masks_and_content_stacks() {
+    use subcraft_doc::{ContentEffect, ContentEffectKind, Generator, GeneratorKind, Mask, MaskEffect, MaskEffectKind};
+    let generator = |radius: f32, contrast: f32| {
+        let mut g = Generator::new(GeneratorKind::Distance3D);
+        g.shape = Some(subcraft_doc::ShapeSettings { radius, ..g.shape_settings() });
+        let mut editor = Generator::new(GeneratorKind::Cavity);
+        editor.set_kind(GeneratorKind::MaskEditor);
+        editor.editor.as_mut().unwrap().global_contrast = contrast;
+        (g, editor)
+    };
+    let doc_with = |radius: f32, contrast: f32, in_content: bool| {
+        let mut ts = TextureSet::new("Body", 0, 128);
+        let tc = ts.clone();
+        let mut layer = Layer::new_fill("Fill", &tc);
+        let (shape, editor) = generator(radius, contrast);
+        if in_content {
+            for g in [shape, editor] {
+                layer.content_effects.push(std::sync::Arc::new(ContentEffect::new(ContentEffectKind::Generator(g), &tc)));
+            }
+        } else {
+            let mut mask = Mask::new(128, false);
+            for g in [shape, editor] {
+                mask.effects.push(std::sync::Arc::new(MaskEffect::new(MaskEffectKind::Generator(g))));
+            }
+            layer.mask = Some(mask);
+        }
+        ts.insert_above(None, layer);
+        Document { texture_sets: vec![ts] }
+    };
+    let bytes = |doc: &Document| write_project(Cursor::new(Vec::new()), &primitives::cube(2.), doc, &ResourceStore::default(), &MeshMapSet::new()).unwrap().into_inner();
+    for in_content in [false, true] {
+        assert!(read_project(Cursor::new(bytes(&doc_with(0.5, 0.5, in_content)))).is_ok(), "valid settings load (content: {in_content})");
+        let err = read_project(Cursor::new(bytes(&doc_with(1.0e30, 0.5, in_content)))).unwrap_err();
+        assert!(matches!(err, ProjectError::Invalid(ref m) if m.contains("shape")), "content {in_content}: {err}");
+        let err = read_project(Cursor::new(bytes(&doc_with(0.5, 1.0e30, in_content)))).unwrap_err();
+        assert!(matches!(err, ProjectError::Invalid(ref m) if m.contains("Mask Editor")), "content {in_content}: {err}");
+    }
+}
+
 #[test]
 fn imported_cameras_are_saved_with_the_project_and_old_projects_have_none() {
     let doc = Document { texture_sets: vec![TextureSet::new("Body", 0, 128)] };
@@ -1072,7 +1134,7 @@ fn imported_cameras_are_saved_with_the_project_and_old_projects_have_none() {
     assert!(read_project(Cursor::new(plain)).unwrap().settings.cameras.is_empty());
     let cameras = vec![
         subcraft_doc::SceneCamera { name: "Front".into(), position: [0.0, 1.0, 5.0], rotation: [0.0, 0.0, 0.0, 1.0], fov_y_deg: 35.0, orthographic: false, aspect: Some(16.0 / 9.0) },
-        subcraft_doc::SceneCamera { name: "Top".into(), position: [0.0, 6.0, 0.0], rotation: [-0.7071068, 0.0, 0.0, 0.7071068], fov_y_deg: 50.0, orthographic: true, aspect: None },
+        subcraft_doc::SceneCamera { name: "Top".into(), position: [0.0, 6.0, 0.0], rotation: [-std::f32::consts::FRAC_1_SQRT_2, 0.0, 0.0, std::f32::consts::FRAC_1_SQRT_2], fov_y_deg: 50.0, orthographic: true, aspect: None },
     ];
     let settings = subcraft_doc::ProjectSettings { cameras: cameras.clone(), ..Default::default() };
     let bytes = write_project_with(Cursor::new(Vec::new()), &mesh, &doc, &ResourceStore::default(), &MeshMapSet::new(), &settings).unwrap().into_inner();
@@ -1113,4 +1175,22 @@ fn out_of_range_generator_shape_settings_are_refused_on_load() {
         let err = read(&doc(1.0e30, content)).unwrap_err();
         assert!(matches!(err, ProjectError::Invalid(ref m) if m.contains("shape")), "content effect {content}: {err}");
     }
+}
+
+/// QA 2026-11: Levels on a mask were validated on load, Levels as a content effect were not.
+#[test]
+fn invalid_content_levels_are_refused_on_load() {
+    use subcraft_doc::{ContentEffect, ContentEffectKind};
+    let doc = |gamma: f32| {
+        let mut ts = TextureSet::new("Body", 0, 128);
+        let tc = ts.clone();
+        let mut layer = Layer::new_fill("Fill", &tc);
+        layer.content_effects.push(std::sync::Arc::new(ContentEffect::new(ContentEffectKind::Levels { channel: ChannelKind::Roughness, levels: Levels { gamma, ..Levels::default() } }, &tc)));
+        ts.insert_above(None, layer);
+        Document { texture_sets: vec![ts] }
+    };
+    let read = |d: &Document| read_project(Cursor::new(write_project(Cursor::new(Vec::new()), &primitives::cube(2.), d, &ResourceStore::default(), &MeshMapSet::new()).unwrap().into_inner()));
+    assert!(read(&doc(2.0)).is_ok());
+    let err = read(&doc(-1.0)).unwrap_err();
+    assert!(matches!(err, ProjectError::Invalid(ref m) if m.contains("levels")), "{err}");
 }

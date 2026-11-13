@@ -152,6 +152,20 @@ pub fn value(
             let v = eased * amount;
             if channel.is_signed() { v } else { v.clamp(0.0, 1.0) }
         }
+        Filter::BevelSmooth { direction, smoothing, curve_offset, curve_shape, .. } => {
+            use subcraft_doc::BevelDirection as B;
+            // How far along the ramp's width the texel is from the contour (1 with no width).
+            let near = if radius == 0.0 { 1.0 } else { (distance / radius).clamp(0.0, 1.0) };
+            let t = match (direction, inside) {
+                (B::Inward, true) => near,
+                (B::Inward, false) => 0.0,
+                (B::Outward, true) => 1.0,
+                (B::Outward, false) => 1.0 - near,
+                (B::Both, true) => 0.5 + near * 0.5,
+                (B::Both, false) => 0.5 - near * 0.5,
+            };
+            smooth_ramp(t, smoothing, curve_offset, curve_shape)
+        }
         Filter::MaskOutlineShape { radius: width, position, start_black, blur, curve, .. } => {
             if width == 0.0
                 || matches!((position, inside), (OutlinePosition::Inner, false) | (OutlinePosition::Outer, true))
@@ -177,6 +191,15 @@ pub fn value(
         }
         _ => unreachable!("contour filter required"),
     }
+}
+
+/// Bevel Smooth's ramp profile: Curve Offset delays (above 0) or shortens (below 0) the ramp,
+/// Curve Shape raises it to the power `4^-shape`, Smoothing eases it toward a smoothstep.
+pub fn smooth_ramp(t: f32, smoothing: f32, curve_offset: f32, curve_shape: f32) -> f32 {
+    let span = (1.0 - curve_offset.abs()).max(1e-3);
+    let t = ((t - curve_offset.max(0.0)) / span).clamp(0.0, 1.0);
+    let t = t.powf(4f32.powf(-curve_shape));
+    t + (t * t * (3.0 - 2.0 * t) - t) * smoothing
 }
 
 #[cfg(test)]
@@ -220,6 +243,34 @@ mod tests {
         let near = squared_chebyshev(&classes, 7, 5, true, 1);
         assert_eq!(near[3], f32::INFINITY);
         assert_eq!(near[10], 1.0);
+    }
+
+    #[test]
+    fn bevel_smooth_ramps_inward_outward_and_both_ways() {
+        use subcraft_doc::BevelDirection as B;
+        let f = |direction, smoothing, curve_offset, curve_shape| Filter::BevelSmooth { radius: 4.0, direction, smoothing, curve_offset, curve_shape, threshold: 0.5 };
+        let at = |filter, inside, distance: f32| value(filter, inside, (distance + 0.5).powi(2), 4.0, ChannelKind::Roughness);
+        // Inward: 0 outside, linear up to 1 at the width inside.
+        assert_eq!(at(f(B::Inward, 0.0, 0.0, 0.0), false, 1.0), 0.0);
+        assert!((at(f(B::Inward, 0.0, 0.0, 0.0), true, 1.0) - 0.25).abs() < 1e-6);
+        assert_eq!(at(f(B::Inward, 0.0, 0.0, 0.0), true, 9.0), 1.0);
+        // Outward: 1 inside, falling to 0 at the width outside.
+        assert_eq!(at(f(B::Outward, 0.0, 0.0, 0.0), true, 1.0), 1.0);
+        assert!((at(f(B::Outward, 0.0, 0.0, 0.0), false, 1.0) - 0.75).abs() < 1e-6);
+        assert_eq!(at(f(B::Outward, 0.0, 0.0, 0.0), false, 9.0), 0.0);
+        // Both: half at the contour, a width either side.
+        assert!((at(f(B::Both, 0.0, 0.0, 0.0), true, 2.0) - 0.75).abs() < 1e-6);
+        assert!((at(f(B::Both, 0.0, 0.0, 0.0), false, 2.0) - 0.25).abs() < 1e-6);
+        // Smoothing 1 is a smoothstep; Curve Shape 0.5 is a square root; Curve Offset 0.5 starts half way.
+        assert!((at(f(B::Inward, 1.0, 0.0, 0.0), true, 1.0) - 0.15625).abs() < 1e-6);
+        assert!((at(f(B::Inward, 0.0, 0.0, 0.5), true, 1.0) - 0.5).abs() < 1e-6);
+        assert_eq!(at(f(B::Inward, 0.0, 0.5, 0.0), true, 1.0), 0.0);
+        assert!((at(f(B::Inward, 0.0, 0.5, 0.0), true, 3.0) - 0.5).abs() < 1e-6);
+        assert!((at(f(B::Inward, 0.0, -0.5, 0.0), true, 1.0) - 0.5).abs() < 1e-6);
+        // A uniform input (no contour in reach) is flat.
+        assert_eq!(value(f(B::Both, 0.5, 0.0, 0.0), true, f32::INFINITY, 4.0, ChannelKind::Roughness), 1.0);
+        assert_eq!(value(f(B::Both, 0.5, 0.0, 0.0), false, f32::INFINITY, 4.0, ChannelKind::Roughness), 0.0);
+        assert_eq!(value(f(B::Inward, 0.5, 0.0, 0.0), true, 1.0, 0.0, ChannelKind::Roughness), 1.0, "no width");
     }
 
     #[test]

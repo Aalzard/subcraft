@@ -85,4 +85,26 @@ fn hidden_texture_sets_do_not_take_picks() {
     assert_eq!(s.pick(&cam, centre).map(|p| p.material_slot), Some(slot(&s, low)), "Alt+Q isolation");
     s.execute(Command::IsolateTextureSet(low)).unwrap();
     assert_eq!(s.pick(&cam, centre).map(|p| p.material_slot), Some(slot(&s, high)), "and back");
+
+    // QA 2026-11: Show All / Hide All / Invert and Focus changed the viewport only; picking kept
+    // the previous geometry.
+    use subcraft_app::SetsVisibility;
+    s.execute(Command::SetTextureSetHidden { texture_set: high, hidden: true }).unwrap();
+    s.execute(Command::SetTextureSetsVisibility(SetsVisibility::ShowAll)).unwrap();
+    assert_eq!(s.pick(&cam, centre).map(|p| p.material_slot), Some(slot(&s, high)), "Show All");
+    s.execute(Command::SetTextureSetsVisibility(SetsVisibility::HideAll)).unwrap();
+    assert!(s.pick(&cam, centre).is_none(), "Hide All");
+    s.execute(Command::SetTextureSetsVisibility(SetsVisibility::Invert)).unwrap();
+    assert_eq!(s.pick(&cam, centre).map(|p| p.material_slot), Some(slot(&s, high)), "Invert of all hidden");
+    s.execute(Command::SelectTextureSet(low)).unwrap();
+    s.execute(Command::SetTextureSetFocus(true)).unwrap();
+    assert_eq!(s.pick(&cam, centre).map(|p| p.material_slot), Some(slot(&s, low)), "Focus on Low");
+    // Focus follows the selection (the viewport syncs once per frame).
+    s.execute(Command::SelectTextureSet(high)).unwrap();
+    s.sync_excluded_view();
+    assert_eq!(s.pick(&cam, centre).map(|p| p.material_slot), Some(slot(&s, high)), "Focus on High");
+    s.execute(Command::SetTextureSetFocus(false)).unwrap();
+    s.execute(Command::SelectTextureSet(low)).unwrap();
+    s.sync_excluded_view();
+    assert_eq!(s.pick(&cam, centre).map(|p| p.material_slot), Some(slot(&s, high)), "Focus off: all shown");
 }

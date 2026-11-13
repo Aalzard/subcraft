@@ -38,6 +38,15 @@ pub fn active(state: &UiState) -> bool {
     state.mask_view.is_some()
 }
 
+/// How long until the shown mask should be re-evaluated, when it is older than the document: a
+/// change within [`REFRESH_SECONDS`] of the last upload is skipped by [`sync`], and nothing else
+/// may repaint to pick it up (QA 2026-11: the last dab painted into a shown mask appeared only
+/// once something else repainted).
+pub fn refresh_due(state: &UiState) -> Option<std::time::Duration> {
+    let (revision, at) = state.mask_view.as_ref()?.uploaded?;
+    (revision != state.session.revision()).then(|| std::time::Duration::from_secs_f64((REFRESH_SECONDS - at.elapsed().as_secs_f64()).max(0.0)))
+}
+
 /// Text of the viewport label while a mask is shown.
 pub fn label(state: &UiState) -> Option<String> {
     let v = state.mask_view.as_ref()?;
@@ -133,6 +142,12 @@ mod tests {
         toggle(&mut s, other);
         assert_eq!(s.mask_view.as_ref().map(|v| v.layer), Some(other));
         assert_eq!(format_for(std::path::Path::new("a.EXR")).extension(), "exr");
+        // A change after the last upload asks for a repaint once the refresh interval is over.
+        s.mask_view = Some(MaskView { layer, uploaded: Some((s.session.revision(), web_time::Instant::now())) });
+        assert_eq!(refresh_due(&s), None, "up to date");
+        s.session.execute(Command::SetMaskEnabled { layer, enabled: false }).unwrap();
+        let due = refresh_due(&s).expect("the shown mask is older than the document");
+        assert!(due.as_secs_f64() <= REFRESH_SECONDS, "{due:?}");
         assert_eq!(format_for(std::path::Path::new("a")).extension(), "png");
     }
 }

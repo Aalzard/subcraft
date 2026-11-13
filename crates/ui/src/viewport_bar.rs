@@ -52,8 +52,10 @@ pub struct ViewportPrefs {
     pub symmetry_cursor_hide_painting: bool,
     /// Painter's symmetry "Show Plane": the active mirror planes as translucent sheets.
     pub symmetry_plane: bool,
-    /// Painter's brush preview on the contextual toolbar: brush outline, crosshair or full preview.
-    pub brush_preview: crate::brush_cursor::BrushPreview,
+    /// How the brush cursor is drawn in the 3D view (Painter's cursor display).
+    pub brush_cursor: BrushCursor,
+    /// Which symmetry guides, cursor copies and handles show (Symmetry settings > display).
+    pub symmetry_display: crate::symmetry_view::SymmetryDisplay,
     /// Painter's pressure curve on the contextual toolbar: how pen pressure maps to size / flow.
     pub pressure_curve: subcraft_paint::PressureCurve,
     /// Bottom-left list of the mouse / key actions that apply now.
@@ -102,6 +104,28 @@ pub struct ViewportPrefs {
     pub camera_bookmarks: Vec<crate::view_extras::CameraBookmark>,
 }
 
+/// Painter's brush cursor display (contextual toolbar brush preview): the brush outline, only a
+/// crosshair at the brush centre, or the outline filled with the tip's falloff.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum BrushCursor {
+    #[default]
+    Outline,
+    Crosshair,
+    Full,
+}
+
+impl BrushCursor {
+    pub const ALL: [BrushCursor; 3] = [BrushCursor::Full, BrushCursor::Outline, BrushCursor::Crosshair];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            BrushCursor::Outline => crate::i18n::tr("Brush outline"),
+            BrushCursor::Crosshair => crate::i18n::tr("Crosshair"),
+            BrushCursor::Full => crate::i18n::tr("Full preview"),
+        }
+    }
+}
+
 impl Default for ViewportPrefs {
     fn default() -> Self {
         Self {
@@ -114,7 +138,8 @@ impl Default for ViewportPrefs {
             symmetry_cursor: true,
             symmetry_cursor_hide_painting: false,
             symmetry_plane: true,
-            brush_preview: Default::default(),
+            brush_cursor: BrushCursor::Outline,
+            symmetry_display: Default::default(),
             pressure_curve: Default::default(),
             hints: true,
             axis_indicator: true,

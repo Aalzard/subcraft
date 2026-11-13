@@ -19,16 +19,16 @@ pub(crate) fn show(
     tool: &mut Tool,
     settings: &mut BrushSettings,
     options: &mut StrokeOptions,
-    prefs: &mut crate::viewport_bar::ViewportPrefs,
+    view: &mut crate::viewport_bar::ViewportPrefs,
     width: f32,
 ) {
     // Tool selection lives in the left tool rail only (as in Painter); this row holds the
     // stroke options and the brush values of the active tool.
     ui.spacing_mut().item_spacing.x = 9.0;
-    stroke_options(ui, options, prefs);
+    stroke_options(ui, options, view);
     // Its own button where the row has room; always in the symmetry settings menu as well.
     if shows_display_button(width) {
-        display_menu(ui, prefs);
+        display_menu(ui, view);
     }
     let brush = *tool != Tool::PolygonFill;
     if width < FULL_MIN_WIDTH {
@@ -163,7 +163,7 @@ pub(crate) fn toggle_lazy(options: &mut StrokeOptions, saved: &mut Option<f32>) 
 }
 
 /// Painter's three buttons: Symmetry on / off, its settings menu, and Lazy mouse on / off.
-fn stroke_options(ui: &mut Ui, options: &mut StrokeOptions, prefs: &mut crate::viewport_bar::ViewportPrefs) {
+fn stroke_options(ui: &mut Ui, options: &mut StrokeOptions, view: &mut crate::viewport_bar::ViewportPrefs) {
     let saved_id = egui::Id::new("brush_bar_saved_stroke_options");
     let (mut saved_symmetry, mut saved_lazy): (Option<([bool; 3], bool)>, Option<f32>) = ui.data(|d| d.get_temp(saved_id)).unwrap_or((None, None));
     let on = symmetry_on(options);
@@ -201,16 +201,17 @@ fn stroke_options(ui: &mut Ui, options: &mut StrokeOptions, prefs: &mut crate::v
                     }
                 }
             });
+            mirror_positions(ui, options);
             ui.add_space(4.0);
             radial_options(ui, options);
-            ui.checkbox(&mut prefs.symmetry_guides, "Show symmetry guides");
+            symmetry_display(ui, view);
             ui.separator();
             ui.label(RichText::new("Lazy Mouse").color(TEXT_DIM));
             ui.spacing_mut().slider_width = 155.0;
             ui.add(widgets::typed_slider(egui::Slider::new(&mut options.lazy_distance_px, 0.0..=100.0).suffix(" px")));
             ui.label(RichText::new("Distance the brush trails the cursor · 0 px = off").small().color(TEXT_DIM));
             ui.separator();
-            display_options(ui, prefs);
+            display_options(ui, view);
         });
     let toggle = widgets::icon_toggle(ui, icons::CURVE, lazy, if lazy { "Lazy mouse is on · click to switch it off (D)" } else { "Lazy mouse is off · click to switch it on (D)" });
     toggle.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, lazy, "Lazy mouse"));
@@ -223,7 +224,7 @@ fn stroke_options(ui: &mut Ui, options: &mut StrokeOptions, prefs: &mut crate::v
 /// Painter's brush display menu: the brush preview style under the cursor and the pen pressure
 /// curve, both kept with the preferences.
 fn display_menu(ui: &mut Ui, prefs: &mut crate::viewport_bar::ViewportPrefs) {
-    let icon = if prefs.brush_preview == crate::brush_cursor::BrushPreview::Crosshair { icons::CROSSHAIR } else { icons::CURSOR };
+    let icon = if prefs.brush_cursor == crate::viewport_bar::BrushCursor::Crosshair { icons::CROSSHAIR } else { icons::CURSOR };
     let response = widgets::icon_button(ui, icon, "Brush preview and pressure curve");
     egui::Popup::menu(&response)
         .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
@@ -236,10 +237,9 @@ fn display_menu(ui: &mut Ui, prefs: &mut crate::viewport_bar::ViewportPrefs) {
 /// Brush preview style and pressure curve choices (the display menu and the symmetry settings
 /// menu both show them).
 fn display_options(ui: &mut Ui, prefs: &mut crate::viewport_bar::ViewportPrefs) {
-    use crate::brush_cursor::BrushPreview;
     ui.label(RichText::new("Brush preview").color(TEXT_DIM));
-    for style in BrushPreview::ALL {
-        ui.radio_value(&mut prefs.brush_preview, style, style.label()).on_hover_text(style.tip());
+    for style in crate::viewport_bar::BrushCursor::ALL {
+        ui.radio_value(&mut prefs.brush_cursor, style, style.label()).on_hover_text(crate::brush_cursor::tip(style));
     }
     ui.add_space(4.0);
     ui.label(RichText::new("Pressure curve").color(TEXT_DIM));
@@ -262,6 +262,54 @@ pub(crate) fn pressure_tip(curve: subcraft_paint::PressureCurve) -> &'static str
         PressureCurve::EaseIn => "Light pressure does less; full strength needs a firm press",
         PressureCurve::EaseInOut => "Soft at both ends: light touches stay light, firm presses reach full strength sooner",
     }
+}
+
+/// Axis position of each enabled mirror plane: its offset from the model center along its axis.
+fn mirror_positions(ui: &mut Ui, options: &mut StrokeOptions) {
+    if !options.symmetry.contains(&true) {
+        return;
+    }
+    ui.horizontal(|ui| {
+        ui.label("Axis position");
+        for (i, axis) in ["X", "Y", "Z"].into_iter().enumerate() {
+            if options.symmetry[i] {
+                ui.add(widgets::typed_drag(egui::DragValue::new(&mut options.mirror_offset[i]).speed(0.01).max_decimals(3).prefix(format!("{axis} "))))
+                    .on_hover_text(format!("Move the {axis} mirror plane away from the model center (object units); drag its handle with the manipulator"));
+            }
+        }
+        if options.mirror_offset.iter().any(|v| *v != 0.0) && ui.small_button("Reset").on_hover_text("Mirror planes back through the model center").clicked() {
+            options.mirror_offset = [0.0; 3];
+        }
+    });
+}
+
+/// Symmetry display options (Painter's display group): plane, intersection and axis guides,
+/// the cursor at every copy, hide while painting, and the axis-position manipulator.
+fn symmetry_display(ui: &mut Ui, view: &mut crate::viewport_bar::ViewportPrefs) {
+    ui.horizontal(|ui| {
+        ui.checkbox(&mut view.symmetry_plane, "Plane").on_hover_text("Each active mirror plane as a translucent sheet");
+        ui.checkbox(&mut view.symmetry_guides, "Guides").on_hover_text("Intersection and radial axis lines");
+    });
+    let guides = view.symmetry_guides;
+    let d = &mut view.symmetry_display;
+    ui.add_enabled_ui(guides, |ui| {
+        ui.horizontal(|ui| {
+            ui.checkbox(&mut d.show_intersection, "Intersection").on_hover_text("Where the mirror plane cuts the model");
+            ui.checkbox(&mut d.show_axis, "Axis").on_hover_text("Radial axis and one spoke per copy");
+        });
+    });
+    ui.horizontal(|ui| {
+        ui.checkbox(&mut view.symmetry_cursor, "Cursor").on_hover_text("Show the brush cursor at every copy");
+        ui.checkbox(&mut view.symmetry_cursor_hide_painting, "Hide while painting").on_hover_text("Hide the copy cursors and the guides during a stroke");
+    });
+    let d = &mut view.symmetry_display;
+    ui.horizontal(|ui| {
+        ui.checkbox(&mut d.manipulator, "Manipulator").on_hover_text("Drag the handles in the 3D view to move the mirror planes or the radial axis");
+        ui.add_enabled_ui(d.manipulator, |ui| {
+            ui.spacing_mut().slider_width = 70.0;
+            ui.add(egui::Slider::new(&mut d.manipulator_size, crate::symmetry_view::SymmetryDisplay::SIZE_RANGE).text("size"));
+        });
+    });
 }
 
 /// Radial symmetry: on/off, axis, copy count and an optional axis offset from the model center.
@@ -298,6 +346,8 @@ fn radial_options(ui: &mut Ui, options: &mut StrokeOptions) {
         })
         .response
         .on_hover_text("Move the axis away from the model center (object units)");
+        ui.checkbox(&mut radial.flip, "Flip copy")
+            .on_hover_text("Mirror every other copy, so neighbouring copies face each other");
     });
     let mirrors = options.symmetry.iter().filter(|&&m| m).count();
     let effective = options.radial.effective_count(mirrors);

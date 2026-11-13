@@ -375,7 +375,7 @@ pub const PAINTER_REFERENCE: &[PainterEntry] = &[
     none("Manipulator", "+", "Increase manipulator size", "no manipulator"),
     none("Manipulator", "-", "Decrease manipulator size", "no manipulator"),
     none("Manipulator", "T", "Cycle manipulation spaces", "no manipulator"),
-    none("Manipulator", "Shift+V", "Toggle warp edition mode", "no warp mode"),
+    gesture("Manipulator", "Shift+V", "Toggle warp edition mode", "with a Warp fill layer selected, over the 3D view: Transform warp / Edit vertices"),
     none("Manipulator", "W", "Translate tool", "no manipulator"),
     none("Manipulator", "E", "Rotate tool", "no manipulator (E stays Eraser)"),
     none("Manipulator", "R", "Scale tool", "no manipulator"),
