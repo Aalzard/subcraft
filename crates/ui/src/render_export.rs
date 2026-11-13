@@ -7,7 +7,7 @@ use egui::{Context, RichText};
 use subcraft_render::offline;
 
 use crate::state::UiState;
-use crate::theme::TEXT_DIM();
+use crate::theme::TEXT_DIM;
 
 
 /// Output sizes offered for stills and turntables (square-ish; the view's aspect is kept).
@@ -67,7 +67,7 @@ fn window_body(state: &mut UiState, ui: &mut egui::Ui) {
         crate::panels::display_settings::post_effects(state, ui);
         {
             ui.separator();
-            ui.label(RichText::new(tr("Export")).color(TEXT_DIM));
+            ui.label(RichText::new(tr("Export")).color(TEXT_DIM()));
             let settings = &mut state.render_export;
             egui::Grid::new("render_export").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
                 ui.label(tr("Size"));
@@ -100,7 +100,7 @@ fn window_body(state: &mut UiState, ui: &mut egui::Ui) {
                     state.render_request = Some(RenderRequest::Turntable);
                 }
             });
-            ui.label(RichText::new(tr("The grid and guides are left out. 4096 px with smoothing needs about 1 GB of video memory.")).small().color(TEXT_DIM));
+            ui.label(RichText::new(tr("The grid and guides are left out. 4096 px with smoothing needs about 1 GB of video memory.")).small().color(TEXT_DIM()));
         }
     }
 }

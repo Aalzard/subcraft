@@ -87,7 +87,7 @@ fn list_header(state: &mut UiState, ui: &mut Ui, cmds: &mut Vec<Command>) {
             });
             let tip = if focus { "Focus mode is on: only the selected texture set is shown. Click to show the others again" }
                 else { "Focus mode: show only the selected texture set (it follows the selection)" };
-            let r = ui.push_id(focus_button_id(), |ui| ui.add(egui::Button::new(RichText::new(icons::CROSSHAIR).font(theme::font(14.0)).color(if focus { ACCENT } else { TEXT_DIM }))
+            let r = ui.push_id(focus_button_id(), |ui| ui.add(egui::Button::new(RichText::new(icons::CROSSHAIR).font(theme::font(14.0)).color(if focus { ACCENT() } else { TEXT_DIM() }))
                 .selected(focus).frame(focus))).inner.on_hover_text(tip);
             if r.clicked() { cmds.push(Command::SetTextureSetFocus(!focus)); }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -123,7 +123,7 @@ fn set_rows(state: &UiState, ui: &mut Ui, cmds: &mut Vec<Command>, shader_ops: &
         let inner = rect.shrink2(egui::vec2(2.0, 0.0));
         let painter = ui.painter();
         painter.rect_filled(inner, 0.0, if resp.hovered() && !selected { theme::BG_3() } else { theme::BG_2() });
-        if selected { painter.rect_stroke(inner, 0.0, egui::Stroke::new(1.0, ACCENT), egui::StrokeKind::Inside); }
+        if selected { painter.rect_stroke(inner, 0.0, egui::Stroke::new(1.0, ACCENT()), egui::StrokeKind::Inside); }
         let top = egui::Rect::from_min_max(inner.min, egui::pos2(inner.max.x, inner.min.y + 24.0));
         if show_description {
             let line = egui::Rect::from_min_max(egui::pos2(inner.min.x + 30.0, top.max.y - 4.0), egui::pos2(inner.max.x - 6.0, inner.max.y - 2.0));
@@ -135,7 +135,7 @@ fn set_rows(state: &UiState, ui: &mut Ui, cmds: &mut Vec<Command>, shader_ops: &
                     describe = None;
                 }
             } else {
-                let (text, color) = if ts.description.trim().is_empty() { ("No description", TEXT_FAINT) } else { (ts.description.as_str(), TEXT_DIM) };
+                let (text, color) = if ts.description.trim().is_empty() { ("No description", TEXT_FAINT()) } else { (ts.description.as_str(), TEXT_DIM()) };
                 let mut job = egui::text::LayoutJob::simple_singleline(text.to_string(), theme::font(11.0), color);
                 job.wrap.max_width = line.width(); job.wrap.max_rows = 1;
                 let galley = ui.painter().layout_job(job);
@@ -144,7 +144,7 @@ fn set_rows(state: &UiState, ui: &mut Ui, cmds: &mut Vec<Command>, shader_ops: &
         }
         ui.scope_builder(egui::UiBuilder::new().max_rect(top.shrink2(egui::vec2(6.0, 0.0))).layout(egui::Layout::left_to_right(egui::Align::Center)), |ui| {
             let (eye, tip) = if hidden { (icons::EYE_SLASH, "Show this texture set in the 3D view") } else { (icons::EYE, "Hide this texture set in the 3D view") };
-            if ui.add(egui::Button::new(RichText::new(eye).font(theme::font(14.0)).color(if hidden { TEXT_FAINT } else { TEXT })).frame(false)).on_hover_text(tip).clicked() {
+            if ui.add(egui::Button::new(RichText::new(eye).font(theme::font(14.0)).color(if hidden { TEXT_FAINT() } else { TEXT() })).frame(false)).on_hover_text(tip).clicked() {
                 cmds.push(Command::SetTextureSetHidden { texture_set: ts.id, hidden: !hidden });
             }
             let total = ui.available_width();
@@ -158,11 +158,11 @@ fn set_rows(state: &UiState, ui: &mut Ui, cmds: &mut Vec<Command>, shader_ops: &
                     rename = None;
                 }
             } else {
-                let color = if hidden { TEXT_FAINT } else { TEXT };
+                let color = if hidden { TEXT_FAINT() } else { TEXT() };
                 ui.add_sized([name_w, 18.0], egui::Label::new(RichText::new(&ts.name).font(theme::font_strong(12.0)).color(color)).truncate().selectable(false)).on_hover_text(&ts.name);
             }
             // The size is a dropdown, as in Painter: picking one resizes the set (undoable).
-            let size = ui.add_sized([size_w, 18.0], egui::Button::new(RichText::new(size_label(ts.resolution)).font(theme::font(11.5)).color(TEXT_DIM)).frame(false).truncate())
+            let size = ui.add_sized([size_w, 18.0], egui::Button::new(RichText::new(size_label(ts.resolution)).font(theme::font(11.5)).color(TEXT_DIM())).frame(false).truncate())
                 .on_hover_text(crate::keys::native("Texture set size: click to change it. Painted strokes are resampled; Ctrl+Z restores them."));
             if size.hovered() { ui.painter().rect_stroke(size.rect, 2.0, egui::Stroke::new(1.0, theme::BORDER_STRONG()), egui::StrokeKind::Inside); }
             egui::Popup::menu(&size).id(egui::Id::new(("texture_set_size", ts.id))).show(|ui| {
@@ -176,7 +176,7 @@ fn set_rows(state: &UiState, ui: &mut Ui, cmds: &mut Vec<Command>, shader_ops: &
             });
             // The shader button: shows the set's instance, opens the instance menu.
             let shader = state.session.shader_instance_of(ts.id).name;
-            let button = ui.add(egui::Button::new(RichText::new(shader).font(theme::font(11.5)).color(TEXT_DIM)).frame(false).truncate())
+            let button = ui.add(egui::Button::new(RichText::new(shader).font(theme::font(11.5)).color(TEXT_DIM())).frame(false).truncate())
                 .on_hover_text(tr("Shader instance: click to pick another, make a new one or open Shader Settings"));
             if button.hovered() { ui.painter().rect_stroke(button.rect, 2.0, egui::Stroke::new(1.0, theme::BORDER_STRONG()), egui::StrokeKind::Inside); }
             egui::Popup::menu(&button).id(egui::Id::new(("texture_set_shader", ts.id))).show(|ui| {
@@ -299,12 +299,12 @@ fn section_rule(ui: &mut Ui) {
 }
 
 fn heading(ui: &mut Ui, text: &str) {
-    ui.label(RichText::new(text.to_uppercase()).font(theme::font_strong(12.0)).color(TEXT));
+    ui.label(RichText::new(text.to_uppercase()).font(theme::font_strong(12.0)).color(TEXT()));
     ui.add_space(2.0);
 }
 
 fn field_label(ui: &mut Ui, text: &str) {
-    ui.add_sized([86.0, 20.0], egui::Label::new(RichText::new(text).font(theme::font(11.5)).color(TEXT_DIM)).selectable(false));
+    ui.add_sized([86.0, 20.0], egui::Label::new(RichText::new(text).font(theme::font(11.5)).color(TEXT_DIM())).selectable(false));
 }
 
 fn general(state: &mut UiState, ui: &mut Ui, cmds: &mut Vec<Command>) {
@@ -400,7 +400,7 @@ fn transparency(state: &UiState, ui: &mut Ui, cmds: &mut Vec<Command>) {
         if !has_opacity && !transparent {
             ui.horizontal(|ui| {
                 field_label(ui, "");
-                ui.label(RichText::new("Add an Opacity channel or make the set transparent to see an effect.").font(theme::font(11.0)).color(TEXT_FAINT));
+                ui.label(RichText::new("Add an Opacity channel or make the set transparent to see an effect.").font(theme::font(11.0)).color(TEXT_FAINT()));
             });
         }
     }
@@ -414,7 +414,7 @@ fn channels(state: &mut UiState, ui: &mut Ui, cmds: &mut Vec<Command>) {
     // The channels ticked in the "Add channels" window while it is open.
     let mut several: Option<Vec<ChannelKind>> = ui.data(|d| d.get_temp(add_several_id()));
     ui.horizontal(|ui| {
-        ui.label(RichText::new("Channels").font(theme::font(11.5)).color(TEXT_DIM));
+        ui.label(RichText::new("Channels").font(theme::font(11.5)).color(TEXT_DIM()));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let r = ui.push_id(add_channel_id(), |ui| crate::widgets::icon_button(ui, icons::PLUS, "Add a channel")).inner;
             egui::Popup::menu(&r).id(add_channel_id().with("popup")).show(|ui| {
@@ -426,7 +426,7 @@ fn channels(state: &mut UiState, ui: &mut Ui, cmds: &mut Vec<Command>) {
                 }
                 for (title, kinds) in groups {
                     if kinds.is_empty() { continue; }
-                    ui.label(RichText::new(title).small().color(TEXT_FAINT));
+                    ui.label(RichText::new(title).small().color(TEXT_FAINT()));
                     for k in kinds {
                         if ui.button(label(k)).clicked() { cmds.push(Command::AddChannel { texture_set: id, kind: k }); ui.close(); }
                     }
@@ -449,13 +449,13 @@ fn channels(state: &mut UiState, ui: &mut Ui, cmds: &mut Vec<Command>) {
                     rename = None;
                 }
             } else {
-                let r = ui.add(egui::Label::new(RichText::new(label(d.kind)).font(theme::font_strong(12.0)).color(TEXT)).selectable(false).sense(egui::Sense::click()));
+                let r = ui.add(egui::Label::new(RichText::new(label(d.kind)).font(theme::font_strong(12.0)).color(TEXT())).selectable(false).sense(egui::Sense::click()));
                 if d.kind.is_user() {
                     let r = r.on_hover_text("Double-click to rename this user channel");
                     if r.double_clicked() { rename = Some((id, d.kind, label(d.kind), true)); }
                 }
                 if d.kind.is_color() {
-                    ui.add(egui::Label::new(RichText::new(COLOR_MANAGED_ICON).font(theme::font(11.0)).color(TEXT_FAINT)).selectable(false))
+                    ui.add(egui::Label::new(RichText::new(COLOR_MANAGED_ICON).font(theme::font(11.0)).color(TEXT_FAINT())).selectable(false))
                         .on_hover_text("Colour managed: a colour channel, read and written as sRGB. The other channels hold data and are never colour-transformed");
                 }
             }
@@ -474,7 +474,7 @@ fn channels(state: &mut UiState, ui: &mut Ui, cmds: &mut Vec<Command>) {
                         }
                     }
                 });
-                ui.label(RichText::new(format_badge(d.kind, d.format)).font(theme::font(11.0)).color(TEXT_DIM));
+                ui.label(RichText::new(format_badge(d.kind, d.format)).font(theme::font(11.0)).color(TEXT_DIM()));
             });
         });
     }
@@ -489,7 +489,7 @@ fn channels(state: &mut UiState, ui: &mut Ui, cmds: &mut Vec<Command>) {
                 egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
                     for (title, kinds) in add_menu_groups(&present) {
                         if kinds.is_empty() { continue; }
-                        ui.label(RichText::new(title).small().color(TEXT_FAINT));
+                        ui.label(RichText::new(title).small().color(TEXT_FAINT()));
                         for k in kinds {
                             let mut on = ticked.contains(&k);
                             if ui.checkbox(&mut on, label(k)).changed() { tick_channel(ticked, k, on); }
@@ -568,7 +568,7 @@ pub const MIXING_LABELS: [&str; 4] = ["Normal mixing", "Height to normal method"
 fn mixing_rows(ui: &mut Ui, current: MixingSettings) -> MixingSettings {
     fn row<T: Copy + PartialEq>(ui: &mut Ui, label: &str, value: &mut T, all: &[T], name: fn(T) -> &'static str, tip: &str) {
         // Label above the dropdown: the labels are long and the panel can be 300 px narrow.
-        ui.add(egui::Label::new(RichText::new(label).font(theme::font(11.5)).color(TEXT_DIM)).selectable(false).truncate());
+        ui.add(egui::Label::new(RichText::new(label).font(theme::font(11.5)).color(TEXT_DIM())).selectable(false).truncate());
         egui::ComboBox::from_id_salt(("tss_mixing", label)).width((ui.available_width() - 28.0).max(60.0)).truncate().selected_text(name(*value)).show_ui(ui, |ui| {
             for &v in all { ui.selectable_value(value, v, name(v)); }
         }).response.on_hover_text(tip);
@@ -588,14 +588,14 @@ fn mixing_rows(ui: &mut Ui, current: MixingSettings) -> MixingSettings {
 fn mesh_maps(state: &mut UiState, ui: &mut Ui, cmds: &mut Vec<Command>, now: f64) {
     heading(ui, "Mesh maps");
     ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
-        if ui.add(egui::Button::new(RichText::new("Bake Mesh Maps").font(theme::font(12.0)).color(TEXT)).min_size(egui::vec2(110.0, 24.0)))
+        if ui.add(egui::Button::new(RichText::new("Bake Mesh Maps").font(theme::font(12.0)).color(TEXT())).min_size(egui::vec2(110.0, 24.0)))
             .on_hover_text(crate::keys::native("Bake mesh maps (Ctrl+B)")).clicked() { state.bake.open = true; }
-        if ui.add(egui::Button::new(RichText::new("Import mesh maps…").font(theme::font(12.0)).color(TEXT)).min_size(egui::vec2(110.0, 24.0)))
+        if ui.add(egui::Button::new(RichText::new("Import mesh maps…").font(theme::font(12.0)).color(TEXT())).min_size(egui::vec2(110.0, 24.0)))
             .on_hover_text("Use maps baked elsewhere (normal, AO, curvature, ID…): matched to texture sets by file name and UDIM tile, no re-bake").clicked() {
             crate::files::pick(ui.ctx(), crate::files::Purpose::ImportMeshMaps, crate::files::IMAGES, true, Some("Choose baked mesh maps"));
         }
     });
-    if let Some(job) = &state.bake.job { ui.add(egui::ProgressBar::new(job.fraction()).show_percentage().fill(ACCENT)); }
+    if let Some(job) = &state.bake.job { ui.add(egui::ProgressBar::new(job.fraction()).show_percentage().fill(ACCENT())); }
     let (id, set_name) = { let ts = state.session.selected_texture_set(); (ts.id, ts.name.clone()) };
     if state.session.mesh_maps_stale(id) {
         ui.label(RichText::new(format!("{}  Baked for an earlier version of the mesh", icons::WARNING)).small().color(theme::WARNING()));
@@ -624,7 +624,7 @@ fn mesh_maps(state: &mut UiState, ui: &mut Ui, cmds: &mut Vec<Command>, now: f64
         let file_over = over && ui.ctx().input(|i| !i.raw.hovered_files.is_empty());
         let texture_over = row.dnd_hover_payload::<ShelfDrag>().is_some_and(|d| matches!(*d, ShelfDrag::Texture(_)));
         if file_over || texture_over {
-            ui.painter().rect_stroke(row.rect, 2.0, egui::Stroke::new(1.5, ACCENT), egui::StrokeKind::Inside);
+            ui.painter().rect_stroke(row.rect, 2.0, egui::Stroke::new(1.5, ACCENT()), egui::StrokeKind::Inside);
         }
         if over && let Some(path) = ui.ctx().input(|i| i.raw.dropped_files.first().map(|f| f.path().to_path_buf())).filter(|p| !p.as_os_str().is_empty()) {
             state.drops_taken = true;
@@ -660,12 +660,12 @@ fn map_slot(ui: &mut Ui, thumb: Option<&egui::TextureHandle>, title: &str, desc:
     let (rect, row) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 44.0), egui::Sense::click());
     let p = ui.painter();
     p.rect_filled(rect, 2.0, theme::BG_2());
-    p.rect_stroke(rect, 2.0, egui::Stroke::new(1.0, if row.hovered() { TEXT_FAINT } else { theme::BORDER() }), egui::StrokeKind::Inside);
+    p.rect_stroke(rect, 2.0, egui::Stroke::new(1.0, if row.hovered() { TEXT_FAINT() } else { theme::BORDER() }), egui::StrokeKind::Inside);
     let img = egui::Rect::from_min_size(rect.min + egui::vec2(3.0, 3.0), egui::vec2(38.0, 38.0));
     p.rect_filled(img, 0.0, theme::FIELD());
     if let Some(t) = thumb { p.image(t.id(), img, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), Color32::WHITE); }
-    p.text(egui::pos2(img.right() + 8.0, rect.top() + 14.0), egui::Align2::LEFT_CENTER, title, theme::font_strong(12.0), TEXT);
-    let desc_color = if filled { TEXT_DIM } else { TEXT_FAINT };
+    p.text(egui::pos2(img.right() + 8.0, rect.top() + 14.0), egui::Align2::LEFT_CENTER, title, theme::font_strong(12.0), TEXT());
+    let desc_color = if filled { TEXT_DIM() } else { TEXT_FAINT() };
     let mut job = egui::text::LayoutJob::simple_singleline(desc.to_string(), theme::font(11.0), desc_color);
     job.wrap.max_width = rect.right() - img.right() - 40.0; job.wrap.max_rows = 1;
     let galley = p.layout_job(job);
@@ -675,7 +675,7 @@ fn map_slot(ui: &mut Ui, thumb: Option<&egui::TextureHandle>, title: &str, desc:
     if filled {
         let x = egui::Rect::from_center_size(egui::pos2(rect.right() - 16.0, rect.center().y), egui::vec2(20.0, 20.0));
         let r = ui.interact(x, ui.id().with(("clear_map", title)), egui::Sense::click());
-        ui.painter().text(x.center(), egui::Align2::CENTER_CENTER, icons::X, theme::font(12.0), if r.hovered() { TEXT } else { TEXT_DIM });
+        ui.painter().text(x.center(), egui::Align2::CENTER_CENTER, icons::X, theme::font(12.0), if r.hovered() { TEXT() } else { TEXT_DIM() });
         over_cross = r.hovered();
         if r.on_hover_text("Remove the map from this slot").clicked() { action = Some(SlotAction::Clear); }
     }

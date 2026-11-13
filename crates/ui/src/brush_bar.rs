@@ -79,7 +79,7 @@ pub(crate) fn fill_mode_combo(ui: &mut Ui, mode: &mut subcraft_paint::PolygonFil
 /// where the fill lands on the selected layer.
 pub(crate) fn fill_options(ui: &mut Ui, mode: &mut subcraft_paint::PolygonFillMode, visible_only: Option<&mut bool>, destination: Option<subcraft_app::LayerTarget>, id: &str) {
     use subcraft_paint::PolygonFillMode;
-    ui.label(RichText::new("Fill").color(TEXT_DIM));
+    ui.label(RichText::new("Fill").color(TEXT_DIM()));
     if ui.available_width() >= 330.0 {
         for m in PolygonFillMode::ALL {
             if ui.selectable_label(*mode == m, m.label()).on_hover_text(fill_mode_tip(m)).clicked() {
@@ -97,7 +97,7 @@ pub(crate) fn fill_options(ui: &mut Ui, mode: &mut subcraft_paint::PolygonFillMo
     }
     match destination {
         Some(subcraft_app::LayerTarget::Mask) => {
-            ui.label(RichText::new("→ mask").color(ACCENT)).on_hover_text(
+            ui.label(RichText::new("→ mask").color(ACCENT())).on_hover_text(
                 "Fills the selected layer's mask: on a fill layer or folder (a smart material) the layer then shows only on the filled elements. A black mask is added if the layer has none.",
             );
         }
@@ -170,7 +170,7 @@ fn stroke_options(ui: &mut Ui, options: &mut StrokeOptions, view: &mut crate::vi
             }
             // A narrow button beside the toggle, as in Painter: it opens the settings menu.
             let (rect, settings) = ui.allocate_exact_size(egui::vec2(12.0, 26.0), egui::Sense::click());
-            let color = if settings.hovered() { TEXT } else { TEXT_DIM };
+            let color = if settings.hovered() { TEXT() } else { TEXT_DIM() };
             ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, icons::GEAR, theme::font(11.0), color);
             settings.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Symmetry settings"));
             settings.on_hover_text("Symmetry settings").on_hover_cursor(egui::CursorIcon::PointingHand)
@@ -180,7 +180,7 @@ fn stroke_options(ui: &mut Ui, options: &mut StrokeOptions, view: &mut crate::vi
         .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
         .show(|ui| {
             ui.set_min_width(220.0);
-            ui.label(RichText::new("Mirror symmetry").color(TEXT_DIM));
+            ui.label(RichText::new("Mirror symmetry").color(TEXT_DIM()));
             ui.horizontal(|ui| {
                 for (i, axis) in ["X", "Y", "Z"].into_iter().enumerate() {
                     let value = &mut options.symmetry[i];
@@ -198,10 +198,10 @@ fn stroke_options(ui: &mut Ui, options: &mut StrokeOptions, view: &mut crate::vi
             radial_options(ui, options);
             symmetry_display(ui, view);
             ui.separator();
-            ui.label(RichText::new("Lazy Mouse").color(TEXT_DIM));
+            ui.label(RichText::new("Lazy Mouse").color(TEXT_DIM()));
             ui.spacing_mut().slider_width = 155.0;
             ui.add(widgets::typed_slider(egui::Slider::new(&mut options.lazy_distance_px, 0.0..=100.0).suffix(" px")));
-            ui.label(RichText::new("Distance the brush trails the cursor · 0 px = off").small().color(TEXT_DIM));
+            ui.label(RichText::new("Distance the brush trails the cursor · 0 px = off").small().color(TEXT_DIM()));
             ui.separator();
             display_options(ui, view);
         });
@@ -229,12 +229,12 @@ fn display_menu(ui: &mut Ui, prefs: &mut crate::viewport_bar::ViewportPrefs) {
 /// Brush preview style and pressure curve choices (the display menu and the symmetry settings
 /// menu both show them).
 fn display_options(ui: &mut Ui, prefs: &mut crate::viewport_bar::ViewportPrefs) {
-    ui.label(RichText::new("Brush preview").color(TEXT_DIM));
+    ui.label(RichText::new("Brush preview").color(TEXT_DIM()));
     for style in crate::viewport_bar::BrushCursor::ALL {
         ui.radio_value(&mut prefs.brush_cursor, style, style.label()).on_hover_text(crate::brush_cursor::tip(style));
     }
     ui.add_space(4.0);
-    ui.label(RichText::new("Pressure curve").color(TEXT_DIM));
+    ui.label(RichText::new("Pressure curve").color(TEXT_DIM()));
     for curve in subcraft_paint::PressureCurve::ALL {
         ui.radio_value(&mut prefs.pressure_curve, curve, curve.label()).on_hover_text(pressure_tip(curve));
     }
@@ -308,7 +308,7 @@ fn symmetry_display(ui: &mut Ui, view: &mut crate::viewport_bar::ViewportPrefs) 
 fn radial_options(ui: &mut Ui, options: &mut StrokeOptions) {
     let radial = &mut options.radial;
     ui.horizontal(|ui| {
-        ui.label(RichText::new("Radial symmetry").color(TEXT_DIM));
+        ui.label(RichText::new("Radial symmetry").color(TEXT_DIM()));
         ui.checkbox(&mut radial.enabled, "")
             .on_hover_text("Repeat the stroke around an axis through the model center");
     });
@@ -349,7 +349,7 @@ fn radial_options(ui: &mut Ui, options: &mut StrokeOptions) {
         } else {
             format!("{} copies with mirror", options.copies())
         };
-        ui.label(RichText::new(text).small().color(TEXT_DIM));
+        ui.label(RichText::new(text).small().color(TEXT_DIM()));
     }
 }
 
@@ -376,7 +376,7 @@ fn value(ui: &mut Ui, text: &str, v: &mut f32, range: std::ops::RangeInclusive<f
                 visuals.bg_fill = egui::Color32::TRANSPARENT;
                 visuals.bg_stroke = egui::Stroke::NONE;
             }
-            ui.visuals_mut().override_text_color = Some(TEXT);
+            ui.visuals_mut().override_text_color = Some(TEXT());
             ui.spacing_mut().button_padding.x = 1.0;
             ui.spacing_mut().interact_size.x = 36.0;
             ui.add(widgets::typed_drag(egui::DragValue::new(v).speed(speed).range(range).suffix(suffix).max_decimals(0)))
@@ -404,7 +404,7 @@ fn distance(ui: &mut Ui, v: &mut f32) {
 }
 
 fn label(ui: &mut Ui, text: &str) {
-    ui.label(RichText::new(text).font(theme::font(11.5)).color(TEXT_DIM));
+    ui.label(RichText::new(text).font(theme::font(11.5)).color(TEXT_DIM()));
 }
 
 /// Only the resting drag button is frameless; text-entry mode retains a readable field.
@@ -420,7 +420,7 @@ fn scrub(ui: &mut Ui, value: &mut f32, size: bool) -> egui::Response {
             visuals.bg_fill = egui::Color32::TRANSPARENT;
             visuals.bg_stroke = egui::Stroke::NONE;
         }
-        ui.visuals_mut().override_text_color = Some(if size { ACCENT } else { TEXT });
+        ui.visuals_mut().override_text_color = Some(if size { ACCENT() } else { TEXT() });
         ui.spacing_mut().button_padding.x = 1.0;
         ui.spacing_mut().interact_size.x = 36.0;
         ui.add(widgets::typed_drag(
@@ -461,10 +461,10 @@ fn popup_percent(ui: &mut Ui, name: &str, value: &mut f32, help: &str, tip: bool
         let font = theme::font(11.5);
         let label = ui
             .painter()
-            .layout_no_wrap(name.into(), font.clone(), TEXT_DIM);
+            .layout_no_wrap(name.into(), font.clone(), TEXT_DIM());
         let number = ui
             .painter()
-            .layout_no_wrap(format!("{:.0}%", *value * 100.0), font, TEXT);
+            .layout_no_wrap(format!("{:.0}%", *value * 100.0), font, TEXT());
         // Reserve maximum-width values so the row doesn't jump while scrubbing the slider.
         let width = label.size().x + 47.0;
         let (rect, response) =
@@ -472,14 +472,14 @@ fn popup_percent(ui: &mut Ui, name: &str, value: &mut f32, help: &str, tip: bool
         let enabled = ui.is_enabled();
         let painter = ui.painter();
         let color = if response.hovered() && enabled {
-            ACCENT
+            ACCENT()
         } else {
-            TEXT_DIM
+            TEXT_DIM()
         };
         painter.galley(
             egui::pos2(rect.left(), rect.center().y - label.size().y / 2.0),
             label,
-            TEXT_DIM,
+            TEXT_DIM(),
         );
         painter.galley(
             egui::pos2(
@@ -487,7 +487,7 @@ fn popup_percent(ui: &mut Ui, name: &str, value: &mut f32, help: &str, tip: bool
                 rect.center().y - number.size().y / 2.0,
             ),
             number,
-            TEXT,
+            TEXT(),
         );
         if tip {
             let center = egui::pos2(rect.right() - 4.0, rect.center().y);
@@ -495,11 +495,11 @@ fn popup_percent(ui: &mut Ui, name: &str, value: &mut f32, help: &str, tip: bool
             painter.circle_filled(center, *value * 3.5, color);
         } else {
             let y = rect.bottom() - 3.0;
-            painter.hline(rect.x_range(), y, egui::Stroke::new(2.0, BORDER_STRONG));
+            painter.hline(rect.x_range(), y, egui::Stroke::new(2.0, BORDER_STRONG()));
             painter.hline(
                 rect.left()..=rect.left() + rect.width() * *value,
                 y,
-                egui::Stroke::new(2.0, ACCENT),
+                egui::Stroke::new(2.0, ACCENT()),
             );
             painter.text(
                 egui::pos2(rect.right() - 4.0, rect.center().y),
@@ -522,7 +522,7 @@ fn popup_percent(ui: &mut Ui, name: &str, value: &mut f32, help: &str, tip: bool
         egui::Popup::menu(&response)
             .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
             .show(|ui| {
-                ui.label(RichText::new(help).color(TEXT_DIM));
+                ui.label(RichText::new(help).color(TEXT_DIM()));
                 ui.spacing_mut().slider_width = 160.0;
                 let mut display = *value * 100.0;
                 if ui

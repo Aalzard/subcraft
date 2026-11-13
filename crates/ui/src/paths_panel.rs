@@ -3,7 +3,7 @@
 //! panel's actions are layer actions: select, rename (double-click), show / hide, duplicate,
 //! delete, and in the right-click menu copy / paste of a path's properties or of its points.
 
-use egui::{Color32, RichText, Ui};
+use egui::{RichText, Ui};
 use subcraft_app::Command;
 use subcraft_core::LayerId;
 use subcraft_doc::{LayerContent, PenAnchor, PenPath};
