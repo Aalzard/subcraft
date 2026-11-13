@@ -132,6 +132,17 @@ pub fn jitters(ui: &mut Ui, s: &mut BrushSettings) {
         s.angle_jitter_deg = angle * 180.0;
     }
     row(ui, "Position Jitter", "position_jitter", &mut s.position_jitter, &mut s.position_jitter_pressure);
+    prop_row(ui, "Position Jitter Axis", |ui| {
+        use subcraft_paint::JitterAxis;
+        egui::ComboBox::from_id_salt("position_jitter_axis").selected_text(s.position_jitter_axis.label()).show_ui(ui, |ui| {
+            for axis in JitterAxis::ALL {
+                ui.selectable_value(&mut s.position_jitter_axis, axis, axis.label()).on_hover_text(match axis {
+                    JitterAxis::Both => "Stamps move any way around the stroke",
+                    JitterAxis::One => "Stamps move only across the stroke and keep their spacing along it",
+                });
+            }
+        });
+    });
 }
 
 /// Size Space dropdown: what the Size percentage is measured against.

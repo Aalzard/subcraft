@@ -63,7 +63,7 @@ Layout notes: one slider per row, label above. Size, Flow and the jitters carry 
 | Angle Jitter: pen pressure toggle | Properties > Brush > Angle Jitter | (unverified) | done | crates/ui/src/panels/brush_rows.rs (jitters); pressure scales the jitter | - |
 | Position Jitter | Properties > Brush | 0; 0-1 | done | crates/ui/src/panels/brush_rows.rs (jitters) | - |
 | Position Jitter: pen pressure toggle | Properties > Brush > Position Jitter | (unverified) | done | crates/ui/src/panels/brush_rows.rs (jitters); pressure scales the jitter | - |
-| Position Jitter Axis (one axis / both axes) | Properties > Brush | not documented | missing | - | - |
+| Position Jitter Axis (one axis / both axes) | Properties > Brush | not documented | done: Both axes (default) or One axis (only across the stroke); which axis Painter uses is not documented | crates/paint/src/settings.rs (JitterAxis); crates/ui/src/panels/brush_rows.rs (jitters) | - |
 | Stamps Blending (how overlapping stamps of one stroke combine, e.g. Lighten) | Properties > Brush | not documented | missing | - | - |
 | Alignment (dropdown) | Properties > Brush | Tangent &#124; Wrap | done | crates/ui/src/panels/brush.rs (show, Brush block) | - |
 | Alignment: Camera | Properties > Brush > Alignment | option | done | crates/ui/src/panels/brush.rs (show, Brush block) | - |
