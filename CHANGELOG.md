@@ -18,6 +18,9 @@ What changed in SubCraft, newest first. Download the latest build from the
   Amazon Lumberyard, Keyshot, Lens Studio, Maxwell, Redshift, Renderman, Shade 3D, Spark AR, V-Ray, Unity
   HDRP / URP Specular, PBR Specular Glossiness (converted), Roblox MaterialVariant, glTF + displacement,
   Mesh Maps and Document channels + Normal + AO.
+- **Netpbm export file types**, like Painter: PBM (1-bit), PGM (gray, 8 or 16-bit), PPM (RGB, 8 or 16-bit)
+  and PFM (32-bit float). These files have no alpha: a map with four components keeps its own file type
+  when the window picks one of them.
 - **Output templates list** in the Output templates tab's left column, like Painter's: right-click a
   template for Rename…, Duplicate and Delete (built-ins can only be duplicated), double-click a user
   preset to rename it. A Rename… button sits beside New, Duplicate and Delete.

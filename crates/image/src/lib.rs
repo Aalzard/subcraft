@@ -9,6 +9,7 @@
 pub mod bitmap;
 pub mod dilate;
 pub mod io;
+pub mod netpbm;
 pub mod tiled;
 
 pub use bitmap::{Bitmap, BitmapData, TextureFilter, Wrap};

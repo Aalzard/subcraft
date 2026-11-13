@@ -627,3 +627,39 @@ fn field_keys_differ_for_every_cylinder_angle_and_mirror_position() {
         assert!(positions.insert(mirror(i as f32 * 0.005)), "mirror position {} shares a key", i as f32 * 0.005);
     }
 }
+
+#[test]
+fn projection_3d_transform_moves_the_sampled_coordinates_and_the_crop_box() {
+    use subcraft_doc::{ProjectionTransform, ShapeCrop};
+    let id = ProjectionTransform::default();
+    let planar = |transform3, shape_crop| Projection { mode: ProjectionMode::Planar, transform3, shape_crop, ..Projection::default() };
+    let coords = |p: &Projection, pos: [f32; 3]| super::projection::sample_projected(p, [0.0; 2], pos, [0.0, 0.0, 1.0], |q| [q[0], q[1], 0.0, 1.0]);
+    // Planar along Z reads (x, 1 - y). Moved half a cube to the right, the box's left edge is
+    // the cube's middle.
+    let moved = planar(ProjectionTransform { offset: [0.5, 0.0, 0.0], ..id }, ShapeCrop::Crop);
+    let q = coords(&moved, [0.75, 0.5, 0.5]);
+    assert!((q[0] - 0.25).abs() < 1e-6 && (q[1] - 0.5).abs() < 1e-6, "{q:?}");
+    let q = coords(&planar(id, ShapeCrop::Crop), [0.75, 0.5, 0.5]);
+    assert!((q[0] - 0.75).abs() < 1e-6, "{q:?}");
+    // The crop follows the box: the cube's left half is outside it now.
+    let sc = moved.rotation_sin_cos();
+    assert!(projection_covers(&moved, sc, [0.0; 2], [0.75, 0.5, 0.5]));
+    assert!(!projection_covers(&moved, sc, [0.0; 2], [0.25, 0.5, 0.5]));
+    assert!(projection_covers(&planar(ProjectionTransform { offset: [0.5, 0.0, 0.0], ..id }, ShapeCrop::default()), sc, [0.0; 2], [0.25, 0.5, 0.5]), "extends by default");
+    // Scale: half as deep along Z (the planar depth), so the cube's front and back fall outside.
+    let thin = planar(ProjectionTransform { scale: [1.0, 1.0, 0.5], ..id }, ShapeCrop::Crop);
+    assert!(projection_covers(&thin, sc, [0.0; 2], [0.5, 0.5, 0.6]));
+    assert!(!projection_covers(&thin, sc, [0.0; 2], [0.5, 0.5, 0.9]));
+    // Scale 2 on X: the texture is twice as wide on the model.
+    let wide = planar(ProjectionTransform { scale: [2.0, 1.0, 1.0], ..id }, ShapeCrop::default());
+    let q = coords(&wide, [1.0, 0.5, 0.5]);
+    assert!((q[0] - 0.75).abs() < 1e-6, "{q:?}");
+    // Tri-planar follows the rotation: after a quarter turn about Z the model's +Y face reads
+    // the box's X plane.
+    let turned = Projection { mode: ProjectionMode::Triplanar, transform3: ProjectionTransform { rotation_deg: [0.0, 0.0, 90.0], ..id }, ..Projection::default() };
+    let straight = Projection { mode: ProjectionMode::Triplanar, ..Projection::default() };
+    let pos = [0.3, 1.0, 0.6];
+    let a = super::projection::sample_projected(&turned, [0.0; 2], pos, [0.0, 1.0, 0.0], |q| [q[0], q[1], 0.0, 1.0]);
+    let b = super::projection::sample_projected(&straight, [0.0; 2], [1.0, 0.7, 0.6], [1.0, 0.0, 0.0], |q| [q[0], q[1], 0.0, 1.0]);
+    assert!((a[0] - b[0]).abs() < 1e-4 && (a[1] - b[1]).abs() < 1e-4, "{a:?} {b:?}");
+}

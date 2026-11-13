@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use subcraft_core::{AnchorId, EffectId, LayerId};
 
-use crate::{Document, Layer, LayerContent, TextureSet};
+use crate::{BlendMode, ChannelBlend, Document, Layer, LayerContent, TextureSet};
 
 /// What an instance's link looks like right now.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -44,6 +44,80 @@ fn find_arc(list: &[Arc<Layer>], id: LayerId) -> Option<&Arc<Layer>> {
 
 fn doc_find(doc: &Document, id: LayerId) -> Option<&Arc<Layer>> {
     doc.texture_sets.iter().find_map(|ts| find_arc(&ts.layers, id))
+}
+
+/// The layer and the index of its texture set.
+fn doc_locate(doc: &Document, id: LayerId) -> Option<(usize, &Arc<Layer>)> {
+    doc.texture_sets.iter().enumerate().find_map(|(i, ts)| find_arc(&ts.layers, id).map(|l| (i, l)))
+}
+
+/// An instance living in another texture set than its source: the resolutions of both sets.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Cross {
+    pub from: u32,
+    pub to: u32,
+}
+
+/// What does not carry over to another texture set: painted strokes (they belong to the
+/// source's UVs) and the geometry masks of the copied layers (part ids are per texture set).
+fn localize(l: &mut Layer, root: bool) {
+    if !root {
+        l.parts = None;
+    }
+    if let LayerContent::Paint(p) = &mut l.content
+        && p.path.is_none()
+        && p.text.is_none()
+    {
+        p.channels.clear();
+    }
+    if let Some(children) = l.children_mut() {
+        for c in children.iter_mut() {
+            localize(Arc::make_mut(c), false);
+        }
+    }
+}
+
+/// A new instance of `source` for `target` (not inserted yet; [`sync`] fills in its content).
+/// An instance of an instance follows the same source. In another texture set it blends on
+/// that set's channels: the source's blending where the channel exists, the default elsewhere.
+pub fn new_instance(source: &Layer, target: &TextureSet, same_set: bool) -> Layer {
+    let mut l = source.clone();
+    l.id = LayerId::new();
+    l.instance_of = Some(source.instance_of.unwrap_or(source.id));
+    if !same_set {
+        l.parts = None;
+        l.blend = target
+            .channels
+            .iter()
+            .map(|c| (c.kind, source.blend.get(&c.kind).copied().unwrap_or(ChannelBlend::new(BlendMode::default_for(c.kind, source.is_folder())))))
+            .collect();
+    }
+    l
+}
+
+/// How many instances follow each source layer (instances inside another instance come with
+/// its copy and are not counted).
+pub fn counts(doc: &Document) -> HashMap<LayerId, usize> {
+    let mut out = HashMap::new();
+    for ts in &doc.texture_sets {
+        let mut found = Vec::new();
+        roots(&ts.layers, &mut found);
+        for (_, source) in found {
+            *out.entry(source).or_insert(0) += 1;
+        }
+    }
+    out
+}
+
+/// The instances of `source` as (texture set index, layer id), in document order.
+pub fn instances_of(doc: &Document, source: LayerId) -> Vec<(usize, LayerId)> {
+    let mut out = Vec::new();
+    for (i, ts) in doc.texture_sets.iter().enumerate() {
+        let mut found = Vec::new();
+        roots(&ts.layers, &mut found);
+        out.extend(found.into_iter().filter(|(_, s)| *s == source).map(|(id, _)| (i, id)));
+    }
+    out
 }
 
 /// Whether `target` is in the subtree of `layer`, following instance links.
@@ -126,10 +200,18 @@ fn remap(source: &Layer, instance: LayerId, map: &mut HashMap<EffectId, EffectId
 }
 
 /// The instance as it should be now: the source's content, content effects and mask under the
-/// instance's own id, name, visibility, blending, colour tag and geometry mask.
-pub fn derive(source: &Layer, instance: &Layer) -> Layer {
+/// instance's own id, name, visibility, blending, colour tag and geometry mask. `cross` is set
+/// when the instance is in another texture set than its source.
+pub fn derive(source: &Layer, instance: &Layer, cross: Option<Cross>) -> Layer {
     let mut map = HashMap::new();
     let mut l = remap(source, instance.id, &mut map, true);
+    if let Some(cross) = cross {
+        localize(&mut l, true);
+        if cross.from != cross.to {
+            let to = cross.to;
+            l.map_rasters(&|image| image.resampled(to, to));
+        }
+    }
     l.id = instance.id;
     l.name = instance.name.clone();
     l.visible = instance.visible;
@@ -175,7 +257,7 @@ pub fn sync(doc: &mut Document, previous: Option<&Document>, cache: &mut Instanc
         cache.0.retain(|id, _| list.iter().any(|(_, instance, _)| instance == id));
         let mut changed = false;
         for (ts, instance_id, source_id) in list {
-            let Some(source) = doc_find(doc, source_id).cloned() else {
+            let Some((source_ts, source)) = doc_locate(doc, source_id).map(|(i, l)| (i, l.clone())) else {
                 if previous.is_some_and(|p| doc_find(p, source_id).is_some()) && doc.texture_sets[ts].remove(instance_id).is_ok() {
                     cache.0.remove(&instance_id);
                     changed = true;
@@ -190,7 +272,8 @@ pub fn sync(doc: &mut Document, previous: Option<&Document>, cache: &mut Instanc
             if cache.0.get(&instance_id).is_some_and(|(s, i)| Arc::ptr_eq(s, &source) && Arc::ptr_eq(i, &instance)) {
                 continue;
             }
-            let new = derive(&source, &instance);
+            let cross = (source_ts != ts).then(|| Cross { from: doc.texture_sets[source_ts].resolution, to: doc.texture_sets[ts].resolution });
+            let new = derive(&source, &instance, cross);
             let set = &mut doc.texture_sets[ts];
             if let Some(slot) = set.find_mut(instance_id) {
                 *slot = new;
@@ -213,6 +296,44 @@ mod tests {
     use super::*;
     use crate::MaskEffectKind;
     use subcraft_core::ChannelKind;
+
+    #[test]
+    fn an_instance_in_another_texture_set_follows_the_source_without_its_strokes() {
+        let mut d = Document::from_material_slots(&["Body".to_string(), "Trim".to_string()], 64);
+        d.texture_sets[1].resolution = 32;
+        let (body, trim) = (d.texture_sets[0].clone(), d.texture_sets[1].clone());
+        // A folder holding a fill and a painted layer, with a black mask on the folder.
+        let mut folder = Layer::new_folder("Wear", &body);
+        folder.mask = Some(crate::Mask::new(64, false));
+        let fill = Layer::new_fill("Rust", &body);
+        let mut paint = Layer::new_paint("Strokes", &body);
+        if let LayerContent::Paint(p) = &mut paint.content {
+            p.channel_mut(ChannelKind::BaseColor, 64).set(1, 1, [1.0, 0.0, 0.0, 1.0]);
+        }
+        folder.children_mut().unwrap().extend([Arc::new(fill), Arc::new(paint)]);
+        let source = d.texture_sets[0].insert_above(None, folder);
+        let layer = new_instance(d.texture_sets[0].find(source).unwrap(), &trim, false);
+        let inst = d.texture_sets[1].insert_above(None, layer);
+        assert_eq!(counts(&d).get(&source), Some(&1));
+        assert_eq!(instances_of(&d, source), vec![(1, inst)]);
+        let mut cache = InstanceCache::default();
+        assert!(sync(&mut d, None, &mut cache));
+        let copy = d.texture_sets[1].find(inst).unwrap().clone();
+        assert_eq!(state(&d, &copy), Some(InstanceState::Linked));
+        assert_eq!(copy.children().len(), 2);
+        assert_eq!(copy.children()[0].content, d.texture_sets[0].find(source).unwrap().children()[0].content, "the fill is the same");
+        let LayerContent::Paint(p) = &copy.children()[1].content else { panic!("a paint layer") };
+        assert!(p.channels.is_empty(), "strokes stay in the source's texture set");
+        assert_eq!(copy.mask.as_ref().unwrap().base.width(), 32, "rasters take the resolution of the instance's set");
+        // An edit of the source reaches the other set; deleting it removes the instance there.
+        d.texture_sets[0].find_mut(source).unwrap().children_mut().unwrap().pop();
+        assert!(sync(&mut d, None, &mut cache));
+        assert_eq!(d.texture_sets[1].find(inst).unwrap().children().len(), 1);
+        let before = d.clone();
+        d.texture_sets[0].remove(source).unwrap();
+        assert!(sync(&mut d, Some(&before), &mut cache));
+        assert!(d.texture_sets[1].find(inst).is_none());
+    }
 
     fn doc() -> Document {
         Document::from_material_slots(&["Body".to_string()], 64)
