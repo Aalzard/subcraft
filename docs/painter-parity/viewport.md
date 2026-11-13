@@ -67,7 +67,7 @@ Layout notes: imported cameras come from the mesh file (FBX / Alembic) at projec
 | Camera Preset dropdown | Display settings > Camera | active camera | done | crates/ui/src/panels/display_settings.rs (camera) | 217 |
 | Field of view | Display settings > Camera | degrees; range not documented | done: 5-120 degrees in Display Settings > Camera | crates/ui/src/panels/display_settings.rs (camera) | 165 |
 | Focal length | Display settings > Camera | mm; range not documented | done: full-frame equivalent readout | crates/ui/src/panels/display_settings.rs (camera) | 165 |
-| Focus distance | Display settings > Camera | disabled unless Post effects + DOF | partial: "Focus" as a multiple of orbit distance, 0.05-4 | crates/ui/src/viewport_bar.rs:137 | - |
+| Focus distance | Display settings > Camera | disabled unless Post effects + DOF | done: a distance from the camera in scene units that stays put while zooming; set by the slider, Ctrl + middle click, focus picking and auto-focus | crates/doc/src/display.rs (focus_distance) | 397 |
 | Aperture | Display settings > Camera | disabled unless Post effects + DOF | partial: DOF amount 0-1 instead of an aperture | crates/ui/src/viewport_bar.rs:136 | - |
 | Display ratio | Display settings > Camera | "Unspecified" when absent | done: the imported camera's aspect, "Unspecified" when the file has none | crates/ui/src/panels/display_settings.rs (camera) | 217 |
 | Lock camera | Display settings > Camera, lock icon | unlocked | done: checkbox in the 3D view corner and Display Settings > Camera | crates/ui/src/view_extras.rs (follow_camera) | 217 |
@@ -86,7 +86,7 @@ Layout notes: imported cameras come from the mesh file (FBX / Alembic) at projec
 | Swap 2D / 3D view | Contextual toolbar > Viewport Mode; F4 | - | done: F4, Viewport menu and the Viewport Mode dropdown | crates/ui/src/viewport_bar.rs (viewport_mode) | 365 |
 | Undock 3D view to its own window | View menu (7.4) | docked | partial: Window > Undock 3D view floats it in a window inside the main window (not a separate OS window) | crates/ui/src/docks.rs (toggle_undock) | 217 |
 | Undock 2D view to its own window | View menu (7.4) | docked | partial: Window > Undock 2D view floats it inside the main window | crates/ui/src/docks.rs (toggle_undock) | 217 |
-| Swap while one view is undocked | View menu (7.4) | - | missing | - | - |
+| Swap while one view is undocked | View menu (7.4) | - | done: F4, the Viewport menu or the Viewport Mode dropdown puts the other view in the floating window; other panels stay where they are | crates/ui/src/app.rs (apply_view_layout) | 392 |
 | Hide UI (maximise the viewport) | Tab | - | done | crates/ui/src/app.rs (views_only) | #164 |
 
 ## Display modes

@@ -6,7 +6,7 @@
 //! specular / glossiness); file suffixes and formats are SubCraft's reading of those targets and
 //! have not been checked file-by-file against Painter's own preset files. Templates that need
 //! data SubCraft does not have (Dota 2's mask maps, Unreal SSS's scattering) or alpha packing
-//! (left to the opacity export work) are not here.
+//! (the "+ Alpha" / "+ Opacity" templates of #145 cover alpha) are not here.
 
 use subcraft_core::{ChannelKind, MeshMapKind};
 use subcraft_image::FileFormat;
@@ -165,6 +165,15 @@ pub fn painter() -> Vec<ExportTemplate> {
         spec_gloss("Maxwell (Specular Glossiness)", Converted::Specular, Png16),
         mesh_maps(),
         spec_gloss("Non-PBR Specular Glossiness", Converted::Specular, Png8),
+        {
+            // One sub-folder per texture set ("/" in the file name pattern).
+            let mut f = ExportTemplate::pbr_metal_rough();
+            f.name = "PBR Metallic Roughness (Folder or PSD Groups)".into();
+            for map in &mut f.maps {
+                map.pattern = Some("$textureSet/$mesh_$textureSet_$suffix".into());
+            }
+            f
+        },
         {
             let mut s = spec_gloss("PBR Specular Glossiness (converted from Metallic Roughness)", Converted::Specular, Png16);
             s.maps.push(m("AO", Png8, conv(Converted::MixedAo), false));

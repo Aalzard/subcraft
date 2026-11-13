@@ -6,8 +6,18 @@ What changed in SubCraft, newest first. Download the latest build from the
 ## Unreleased
 
 ### Added
+- **Output templates list** in the Output templates tab's left column, like Painter's: right-click a
+  template for Rename…, Duplicate and Delete (built-ins can only be duplicated), double-click a user
+  preset to rename it. A Rename… button sits beside New, Duplicate and Delete.
+
+## 0.3.8 - 2026-11-13
+
+### Added
 - **`--export-path <folder>`** launch argument, like Painter's: the Export window's default output folder
   (a project's own saved export folder still wins).
+- **Export flattened / Export mask** from the layer stack, like Painter: right-click a layer or folder (or a
+  multi-selection) to write it on its own, one file per channel (`$textureSet_$layerName_$srcMap`, height and
+  normal as EXR, 1 texel of padding), or its mask as a gray image.
 - **Converted maps** in the preset editor, like Painter's: Diffuse, Specular, Reflection, Glossiness,
   Glossiness squared, Mixed AO, f0 and 1/ior, computed from the metal / roughness channels. Painter
   presets that use them import without losing those maps.
@@ -16,6 +26,12 @@ What changed in SubCraft, newest first. Download the latest build from the
   settings and each texture set: a texture set can have its own file type, bit depth, size and padding.
   The bottom row has Reset all, Cancel (closes without keeping the changes), Save settings (stores the
   export settings in the project) and Export.
+- **Template editor like Painter's**: Gray / RGB / R+G+B / RGB+A / R+G+B+A buttons create maps with those
+  channel slots; drag a map from the Input maps, Converted maps or Mesh maps lists onto a slot and pick
+  RGB, R, G, B or Gray. File names take `$project`, `$sceneMaterial` and `$colorSpace` (a `$` button
+  inserts any keyword), `/` makes sub-folders and a part in parentheses such as `(.$udim)` is left out
+  when its keyword is empty. On the Settings tab a texture set's maps can each have their own file type
+  and bit depth.
 - **About 25 more built-in export templates** with Painter's names: Blender, Arnold, Corona, CryEngine 3,
   Amazon Lumberyard, Keyshot, Lens Studio, Maxwell, Redshift, Renderman, Shade 3D, Spark AR, V-Ray, Unity
   HDRP / URP Specular, PBR Specular Glossiness (converted), Roblox MaterialVariant, glTF + displacement,
@@ -26,9 +42,26 @@ What changed in SubCraft, newest first. Download the latest build from the
 - **File > Export mesh**, like Painter's: the mesh alone as OBJ, glTF, GLB or USDA, either as modelled or
   with displacement: subdivide 0 to 4 times, push the vertices out by the Height channel and optionally
   recompute the normals.
-- **Output templates list** in the Output templates tab's left column, like Painter's: right-click a
-  template for Rename…, Duplicate and Delete (built-ins can only be duplicated), double-click a user
-  preset to rename it. A Rename… button sits beside New, Duplicate and Delete.
+- **Invert zoom** (Settings > General): one wheel direction for the 3D and 2D views (#223). Settings > General also has camera rotation, zoom and wheel speeds, a background gradient, world axes and the UV scale (#210, #306).
+- **Path tools** like Painter's: filled paths, the brush tip along a path, ribbon paths, and a Paths panel (#300, #375, #324).
+- **Warp projection** with an editable grid (#293).
+- **Layer instancing**: instance layers, Paste as instance, and instances across texture sets with an Instantiate dialog (#316, #327).
+- **22 more channel types**: coat, sheen, anisotropy, scattering and more (#326); add several channels at once (#368).
+- **Symmetry**: display and manipulator, mirror planes, cursors, and L to switch it on and off (#247, #264, #262, #363).
+- **Viewport**: order-independent transparency (#334), temporal anti-aliasing (#294), raster shadows and the Specular level channel (#234), display-mode and viewport-mode dropdowns (#365), Normal + Height display (#374), lens distortion, auto-focus and more viewer extras (#249), grid unit read-out (#391), swapping views while one is undocked (#392).
+- **2D view**: zoom on the cursor, Alt+RMB zoom, rotate the texture with Alt+LMB (#273, #376); Polygon Fill highlights the element under the cursor (#310); overlays follow the channel component (#305).
+- **Fill projections**: 3D offset, rotation and scale with Shape crop, and backface culling (#312, #371).
+- **Masks**: mask menu entries and smart masks (#304), quick mask tint in 3D (#260).
+- **Baking**: per-map baker settings (#298), and bake overlays for the cage surface and missing UV seams (#367, #362).
+- **Assets and libraries**: Import resources window and libraries (#213), Assets panel query syntax, breadcrumbs and saved searches (#211); mesh-map slots (#271).
+- **Filters and generators**: Gradient Curve, Bevel Smooth, Directional Distance (#272); UV Border Distance, UV Checker, UV Texel Density (#235); brush Position Jitter Axis (#308).
+- **Log window** with General and Assets messages and Help > Export log (#377).
+
+### Changed
+- **Faster**: single-channel edits only recompute that channel (2-3.6x faster at 4K, #318, #360); each layer's content and mask are cached (1.4-2x faster edits in deep stacks, #296); projects open faster by decoding on all cores (1.8 s to 0.5 s on a 4K project, #378); the Scratches pattern is 1.6-3.5x faster (#379).
+
+### Fixed
+- About 60 fixes from two review and testing rounds: undo steps, instances and geometry masks, export formats and sizes, TAA restarts, 2D smudge with symmetry, quick mask, pen paths, the Assets panel and libraries, and settings that were not checked when a project loads.
 
 ## 0.3.7 - 2026-11-13
 

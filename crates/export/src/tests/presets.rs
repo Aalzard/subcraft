@@ -222,7 +222,7 @@ fn file_name_patterns_expand_tokens() {
     assert_eq!(expand_pattern("T_$textureSet_$udim_D", "m", "Hull", Some(1003), "D"), "T_Hull_1003_D");
     assert_eq!(expand_pattern("T_$textureSet_$udim_D", "m", "Hull", None, "D"), "T_Hull_D", "empty $udim drops its separator");
     assert_eq!(expand_pattern("$textureSet.$udim", "m", "Hull", None, "x"), "Hull");
-    assert_eq!(expand_pattern("a/b\\c:..d", "m", "s", None, "x"), "a_b_c_.d", "no path separators or ..");
+    assert_eq!(expand_pattern("a/b\\c:..d", "m", "s", None, "x"), "a/b_c_.d", "/ is a sub-folder; no backslash, colon or ..");
     assert_eq!(expand_pattern("$unknown", "m", "s", None, "x"), "unknown");
     assert_eq!(expand_pattern("", "m", "s", None, "x"), "");
 }

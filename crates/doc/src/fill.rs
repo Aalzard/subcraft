@@ -270,6 +270,42 @@ impl ProjectionTransform {
     }
 }
 
+/// Backface culling of a planar or cylindrical projection: surfaces turned more than
+/// `angle_deg` away from the projection's facing direction get nothing. `hardness` 1 cuts at the
+/// angle; below 1 the projection fades out over up to [`BackfaceCulling::SOFT_BAND_DEG`] degrees
+/// before it.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct BackfaceCulling {
+    pub angle_deg: f32,
+    pub hardness: f32,
+}
+
+impl Default for BackfaceCulling {
+    fn default() -> Self {
+        Self { angle_deg: 90.0, hardness: 0.5 }
+    }
+}
+
+impl BackfaceCulling {
+    /// Width in degrees of the fade at Hardness 0.
+    pub const SOFT_BAND_DEG: f32 = 30.0;
+
+    pub fn valid(&self) -> bool {
+        self.angle_deg.is_finite() && (0.0..=180.0).contains(&self.angle_deg) && self.hardness.is_finite() && (0.0..=1.0).contains(&self.hardness)
+    }
+
+    /// Coverage 0..=1 of a surface whose normal makes the angle with cosine `cos` to the facing
+    /// direction.
+    pub fn weight(&self, cos: f32) -> f32 {
+        let theta = cos.clamp(-1.0, 1.0).acos().to_degrees();
+        let band = (1.0 - self.hardness.clamp(0.0, 1.0)) * Self::SOFT_BAND_DEG;
+        if band <= 1e-6 {
+            return if theta <= self.angle_deg { 1.0 } else { 0.0 };
+        }
+        ((self.angle_deg - theta) / band).clamp(0.0, 1.0)
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Projection {
     pub mode: ProjectionMode,
@@ -304,6 +340,9 @@ pub struct Projection {
     /// cylindrical). Not written at its default.
     #[serde(default, skip_serializing_if = "ProjectionTransform::is_identity")]
     pub transform3: ProjectionTransform,
+    /// Backface culling (planar and cylindrical). Not written when off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backface: Option<BackfaceCulling>,
 }
 
 fn full_turn() -> f32 {
@@ -332,6 +371,7 @@ impl Default for Projection {
             symmetry: FillSymmetry::None,
             warp: None,
             transform3: ProjectionTransform::default(),
+            backface: None,
         }
     }
 }
@@ -362,7 +402,39 @@ impl Projection {
     /// count multiplied the work per texel.
     pub fn valid(&self) -> bool {
         let floats = [self.scale[0], self.scale[1], self.rotation_deg, self.offset[0], self.offset[1], self.triplanar_sharpness, self.cylinder_angle];
-        floats.iter().all(|v| v.is_finite()) && self.symmetry.valid() && self.transform3.valid()
+        floats.iter().all(|v| v.is_finite()) && self.symmetry.valid() && self.transform3.valid() && self.backface.is_none_or(|b| b.valid())
+    }
+
+    /// The backface culling in effect: planar and cylindrical projections only.
+    #[inline]
+    pub fn backface_culling(&self) -> Option<BackfaceCulling> {
+        if matches!(self.mode, ProjectionMode::Planar | ProjectionMode::Cylindrical) { self.backface } else { None }
+    }
+
+    /// Coverage 0..=1 left by backface culling for a texel whose position and normal are in the
+    /// projection box's frame ([`Projection::local`]). A planar projection faces the side its
+    /// image reads unmirrored from (+Z, +Y, and -X for the X axis, see the planar frames); a
+    /// cylindrical one faces outward from its axis and always cuts at 90 degrees. A texel
+    /// without a normal is kept.
+    pub fn facing_weight(&self, local_pos: [f32; 3], local_normal: [f32; 3]) -> f32 {
+        let Some(culling) = self.backface_culling() else { return 1.0 };
+        let n = local_normal;
+        let len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+        if len <= 1e-12 {
+            return 1.0;
+        }
+        let a = (self.planar_axis as usize).min(2);
+        if self.mode == ProjectionMode::Planar {
+            let facing = if a == 0 { -1.0 } else { 1.0 };
+            return culling.weight(n[a] * facing / len);
+        }
+        let mut d = [local_pos[0] - 0.5, local_pos[1] - 0.5, local_pos[2] - 0.5];
+        d[a] = 0.0;
+        let dl = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+        if dl <= 1e-9 {
+            return 1.0;
+        }
+        BackfaceCulling { angle_deg: 90.0, ..culling }.weight((n[0] * d[0] + n[1] * d[1] + n[2] * d[2]) / (len * dl))
     }
 
     /// Whether the mode has a 3D Offset / Rotation / Scale (Warp is placed by its grid).
@@ -424,7 +496,7 @@ impl Projection {
     /// Whether some texels can fall outside the projected texture (UV wrap or shape crop).
     #[inline]
     pub fn clips(&self) -> bool {
-        self.effective_wrap() != UvWrap::Repeat || self.crops_to_shape() || self.mode == ProjectionMode::Warp
+        self.effective_wrap() != UvWrap::Repeat || self.crops_to_shape() || self.mode == ProjectionMode::Warp || self.backface_culling().is_some()
     }
 
     /// The warp grid in use: the stored one, or the flat grid of `planar_axis`.
@@ -579,6 +651,43 @@ mod tests {
         assert!(!Projection { mode: ProjectionMode::Triplanar, uv_wrap: UvWrap::None, ..p }.clips());
         assert!(!Projection { shape_crop: ShapeCrop::Crop, ..p }.clips());
         assert!(Projection { mode: ProjectionMode::Planar, shape_crop: ShapeCrop::Crop, ..p }.clips());
+    }
+
+    #[test]
+    fn backface_culling_keeps_what_faces_the_projection() {
+        let hard = BackfaceCulling { angle_deg: 90.0, hardness: 1.0 };
+        assert!(hard.valid() && !BackfaceCulling { angle_deg: 200.0, hardness: 1.0 }.valid() && !BackfaceCulling { angle_deg: 90.0, hardness: 2.0 }.valid());
+        // 60 degrees off: inside a 90 degree limit, outside a 45 degree one.
+        assert_eq!(hard.weight(0.5), 1.0);
+        assert_eq!(BackfaceCulling { angle_deg: 45.0, hardness: 1.0 }.weight(0.5), 0.0);
+        assert_eq!(hard.weight(-0.5), 0.0);
+        // Hardness 0 fades over the last 30 degrees: 75 degrees off is half way.
+        let soft = BackfaceCulling { angle_deg: 90.0, hardness: 0.0 };
+        assert!((soft.weight(75f32.to_radians().cos()) - 0.5).abs() < 1e-3);
+        assert_eq!(soft.weight(1.0), 1.0);
+        assert_eq!(soft.weight(-1.0), 0.0);
+        let planar = |planar_axis| Projection { mode: ProjectionMode::Planar, planar_axis, backface: Some(hard), ..Projection::default() };
+        let c = [0.5; 3];
+        assert_eq!(planar(2).facing_weight(c, [0.0, 0.0, 1.0]), 1.0);
+        assert_eq!(planar(2).facing_weight(c, [0.0, 0.0, -1.0]), 0.0);
+        assert_eq!(planar(1).facing_weight(c, [0.0, 2.0, 0.0]), 1.0, "normals need not be unit length");
+        assert_eq!(planar(0).facing_weight(c, [-1.0, 0.0, 0.0]), 1.0, "the X frame reads upright from -X");
+        assert_eq!(planar(0).facing_weight(c, [1.0, 0.0, 0.0]), 0.0);
+        assert_eq!(planar(2).facing_weight(c, [0.0; 3]), 1.0, "no normal: kept");
+        // Cylindrical (axis Y): outward faces are kept, inward ones culled; its limit is 90 degrees.
+        let cyl = Projection { mode: ProjectionMode::Cylindrical, planar_axis: 1, backface: Some(BackfaceCulling { angle_deg: 10.0, hardness: 1.0 }), ..Projection::default() };
+        assert_eq!(cyl.facing_weight([1.0, 0.2, 0.5], [1.0, 0.0, 0.0]), 1.0);
+        assert_eq!(cyl.facing_weight([1.0, 0.2, 0.5], [0.6, 0.0, 0.8]), 1.0);
+        assert_eq!(cyl.facing_weight([1.0, 0.2, 0.5], [-1.0, 0.0, 0.0]), 0.0);
+        assert_eq!(cyl.facing_weight([0.5, 0.2, 0.5], [-1.0, 0.0, 0.0]), 1.0, "on the axis there is no outward direction");
+        // Other modes ignore it; it makes the projection clip; it is not written when off.
+        let uv = Projection { backface: Some(hard), ..Projection::default() };
+        assert!(uv.backface_culling().is_none() && !uv.clips() && uv.facing_weight(c, [0.0, 0.0, -1.0]) == 1.0);
+        assert!(planar(2).clips() && planar(2).valid());
+        assert!(!Projection { backface: Some(BackfaceCulling { angle_deg: f32::NAN, hardness: 1.0 }), ..planar(2) }.valid());
+        assert!(!serde_json::to_string(&Projection::default()).unwrap().contains("backface"));
+        let back: Projection = serde_json::from_str(&serde_json::to_string(&planar(2)).unwrap()).unwrap();
+        assert_eq!(back.backface, Some(hard));
     }
 
     #[test]

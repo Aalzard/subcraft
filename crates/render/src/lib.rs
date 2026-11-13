@@ -22,6 +22,7 @@ pub mod pathtrace;
 pub mod post;
 pub mod shadow;
 pub mod taa;
+pub mod oit;
 pub mod ray_bake;
 pub mod preview;
 pub mod target;
@@ -155,6 +156,9 @@ pub struct ViewParams {
     /// Temporal anti-aliasing: this frame's number (from 1) in the running average of jittered
     /// frames; 1 starts a new average, 0 is off (see [`taa`]).
     pub taa_frame: u32,
+    /// Order-independent transparency for alpha-blended texture sets (off: blended in mesh
+    /// order, as before).
+    pub oit: bool,
     /// Full material shading or one channel shown unlit.
     pub view_mode: ViewMode,
     /// Display-only floor/axes. None for thumbnails, exports and callers that need no guides.
@@ -276,6 +280,7 @@ impl ViewParams {
             background_top: None,
             antialias: true,
             taa_frame: 0,
+            oit: false,
             view_mode: ViewMode::Material,
             grid: None,
             bake_overlay: false, bake_cage: true, bake_miss_heatmap: false, bake_high_transform: Mat4::IDENTITY, bake_high_opacity: 1.0, bake_vis: BakeVisualization::default(), bake_distances: [0.01; 2], bake_map: None, symmetry_guides: false, wireframe: false,
@@ -365,6 +370,7 @@ pub struct ViewportRenderer {
     preview_target: Option<PreviewTarget>,
     post: post::PostPass,
     taa: taa::Taa,
+    oit: oit::Oit,
     /// Rendering mode (created on first use), its single-sample target, and why it is unavailable.
     path_tracer: Option<pathtrace::PathTracer>,
     /// Material slots not drawn (hidden texture sets). The path tracer ignores this.
@@ -573,6 +579,7 @@ impl ViewportRenderer {
         let pipeline = make_pipeline(if caps::get().msaa4 { SAMPLE_COUNT } else { 1 }, false);
         let pipeline_no_aa = make_pipeline(1, false);
         let pipeline_blend = [make_pipeline(if caps::get().msaa4 { SAMPLE_COUNT } else { 1 }, true), make_pipeline(1, true)];
+        let oit = oit::Oit::new(device, &layout, &shader, gpu_mesh::Vertex::layout(), if caps::get().msaa4 { SAMPLE_COUNT } else { 1 });
         let globals = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("globals"),
             contents: bytemuck::bytes_of(&Globals::zeroed()),
@@ -617,6 +624,7 @@ impl ViewportRenderer {
         Self {
             post,
             taa: taa::Taa::new(device),
+            oit,
             pipeline_blend,
             opaque_params,
             pipeline_emissive,
@@ -1065,6 +1073,12 @@ impl ViewportRenderer {
         if let Some(grid) = params.grid {
             self.grid.prepare(device, queue, params.proj * params.view, params.eye, grid);
         }
+        // Order-independent transparency: only for the material view with a blended set shown.
+        let oit_on = params.oit && !params.bake_overlay && bake_map.is_none() && solo.is_none() && self.mesh.is_some()
+            && self.materials.iter().any(|(slot, m)| m.blends() && !self.hidden_slots.contains(slot));
+        if oit_on {
+            self.oit.ensure(device, size, samples);
+        }
         let target = self.target.as_ref().expect("created above");
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("viewport") });
         if let (Some((view_proj, _)), Some(mesh)) = (shadow_fit, &self.mesh) {
@@ -1087,7 +1101,8 @@ impl ViewportRenderer {
                 })],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: &target.depth_view,
-                    depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(1.0), store: wgpu::StoreOp::Discard }),
+                    // Kept for the transparency pass when it runs.
+                    depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(1.0), store: if oit_on { wgpu::StoreOp::Store } else { wgpu::StoreOp::Discard } }),
                     stencil_ops: None,
                 }),
                 timestamp_writes: None,
@@ -1112,6 +1127,8 @@ impl ViewportRenderer {
                 // them without writing depth. Single-channel and baked-map views are opaque.
                 let channel_view = bake_map.is_some() || solo.is_some();
                 for blended in [false, true] {
+                    // With order-independent transparency the blended sets get their own pass.
+                    if blended && oit_on { continue; }
                     let pipeline = match (blended, samples > 1) {
                         (false, true) => &self.pipeline,
                         (false, false) => &self.pipeline_no_aa,
@@ -1138,6 +1155,23 @@ impl ViewportRenderer {
             }
             if params.symmetry_guides && let Some(guides) = &self.symmetry { guides.draw(&mut pass, samples > 1); }
             if params.wireframe && let Some(wire) = &self.wireframe { wire.draw(&mut pass, samples > 1); }
+        }
+        if oit_on && let Some(mesh) = &self.mesh {
+            {
+                let mut pass = self.oit.begin(&mut encoder, &target.depth_view);
+                pass.set_bind_group(0, &self.globals_bg, &[]);
+                pass.set_vertex_buffer(0, mesh.vertices.slice(..));
+                pass.set_index_buffer(mesh.indices.slice(..), wgpu::IndexFormat::Uint32);
+                for r in &mesh.ranges {
+                    if self.hidden_slots.contains(&r.material_slot) { continue; }
+                    let Some(m) = self.materials.get(&r.material_slot) else { continue };
+                    if !m.blends() { continue; }
+                    let Some(bg) = baked_normal_groups.get(&r.material_slot).or(m.bind_group.as_ref()) else { continue };
+                    pass.set_bind_group(1, bg, &[]);
+                    pass.draw_indexed(r.first_index..r.first_index + r.index_count, 0, 0..1);
+                }
+            }
+            self.oit.composite(&mut encoder, &target.output_view);
         }
         // Glow and glare only exist where the model has an Emissive channel to draw.
         let has_emission = self.materials.values().any(|m| m.channels.contains_key(&ChannelKind::Emissive));

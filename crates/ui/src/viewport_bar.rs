@@ -332,7 +332,7 @@ impl ViewportPrefs {
         let defaults = subcraft_render::PostParams::default();
         subcraft_render::PostParams {
             dof: amount(d.dof, d.dof_amount, 1.0),
-            dof_focus: (d.dof_focus.clamp(0.05, 4.0) * orbit_distance).max(1e-4),
+            dof_focus: d.focus_distance(orbit_distance),
             dof_range: d.dof_range.clamp(0.0, 100.0) * 0.01 * diagonal,
             // Tone mapping off: linear light, clamped. Every effect off: the default curve.
             tone_map: if toned { d.tone_map } else if all { subcraft_render::ToneMap::LinearSat } else { defaults.tone_map },
