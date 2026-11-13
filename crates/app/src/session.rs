@@ -1560,6 +1560,16 @@ impl Session {
                     Ok(())
                 })?;
             }
+            Command::ReplaceMaskEffects { layer, effects, label } => {
+                for kind in &effects { Self::check_mask_effect(kind)?; }
+                self.edit_layer_set(layer, &label, None, |ts| {
+                    let res = ts.resolution;
+                    let l = Self::layer_mut(ts, layer)?;
+                    let mask = l.mask.get_or_insert_with(|| Mask::new(res, false));
+                    mask.effects = effects.into_iter().map(|k| Arc::new(MaskEffect::new(k))).collect();
+                    Ok(())
+                })?;
+            }
             Command::DeleteLayer(id) => {
                 let loc = self.edit_layer_set(id, "Delete Layer", None, |ts| {
                     let loc = ts.location(id);
@@ -3175,11 +3185,17 @@ impl Session {
 
     /// Apply a smart mask to the selected layer.
     pub fn apply_smart_mask(&mut self, mask: &subcraft_assets::SmartMask) -> Result<(), CommandError> {
+        self.apply_smart_mask_with(mask, false)
+    }
+
+    /// `apply_smart_mask`; with `replace` the mask's previous effects are removed first.
+    pub fn apply_smart_mask_with(&mut self, mask: &subcraft_assets::SmartMask, replace: bool) -> Result<(), CommandError> {
         let layer = self.selection.layer.ok_or(CommandError::LayerNotFound)?;
         for r in &mask.resources {
             self.resources.insert_shared(r.clone());
         }
-        self.execute(Command::ApplyMaskEffects { layer, effects: mask.effects.clone(), label: format!("Smart Mask: {}", mask.name) })
+        let (effects, label) = (mask.effects.clone(), format!("Smart Mask: {}", mask.name));
+        self.execute(if replace { Command::ReplaceMaskEffects { layer, effects, label } } else { Command::ApplyMaskEffects { layer, effects, label } })
     }
 
     /// Use a brush alpha for the next strokes.

@@ -68,7 +68,8 @@ pub fn drop_label(item: ShelfDrag, alt: bool, target: Option<&str>, on_mask: boo
         ShelfDrag::Material(_) => format!("Add material layer above{t} (Ctrl: with a black mask)"),
         ShelfDrag::SmartMaterial(_) if alt => "Smart materials are added as a folder: release Alt".to_string(),
         ShelfDrag::SmartMaterial(_) => format!("Add smart material above{t}"),
-        ShelfDrag::SmartMask(_) => format!("Apply mask to{t}"),
+        ShelfDrag::SmartMask(_) if alt => format!("Replace the mask effects of{t}"),
+        ShelfDrag::SmartMask(_) => format!("Apply mask to{t} (Ctrl or Alt: replace its effects)"),
         ShelfDrag::Texture(_) | ShelfDrag::Starter(_) if alt => format!("Use this image in the active channel of{t}"),
         ShelfDrag::Texture(_) | ShelfDrag::Starter(_) => format!("Add texture layer above{t}"),
         ShelfDrag::Alpha(_) if on_mask || target.is_some() => format!("Use this alpha in the mask of{t}"),
@@ -85,7 +86,8 @@ pub fn drop_label(item: ShelfDrag, alt: bool, target: Option<&str>, on_mask: boo
 /// * Alpha: becomes an image effect of the selected layer's mask (adds the mask); without Alt it
 ///   is the brush tip.
 /// * Smart material: no in-place form; says so instead of doing nothing.
-/// * Smart mask: always applies to the selected layer.
+/// * Smart mask: always applies to the selected layer; with Alt the mask's previous effects are
+///   removed first.
 pub fn apply_shelf_item_with(s: &mut UiState, item: ShelfDrag, alt: bool, now: f64) {
     let layer = s.session.selection().layer;
     let selected_fill = s.session.selected_layer().is_some_and(|l| matches!(l.content, LayerContent::Fill(_)));
@@ -106,7 +108,7 @@ pub fn apply_shelf_item_with(s: &mut UiState, item: ShelfDrag, alt: bool, now: f
             None => Ok(()),
         },
         ShelfDrag::SmartMask(i) => match s.library.smart_masks.get(i).cloned() {
-            Some(m) => s.session.apply_smart_mask(&m).map_err(|e| format!("{e} (select a layer first)")),
+            Some(m) => s.session.apply_smart_mask_with(&m, alt).map_err(|e| format!("{e} (select a layer first)")),
             None => Ok(()),
         },
         ShelfDrag::Texture(i) if alt => match (s.textures.items.get(i).map(|t| t.path.clone()), layer) {
@@ -150,6 +152,7 @@ pub fn apply_shelf_item_with(s: &mut UiState, item: ShelfDrag, alt: bool, now: f
 ///   to be painted in;
 /// * `as_new_layer` (a smart mask dropped on the top zone instead of a row): a new fill layer
 ///   carrying that mask;
+/// * `with_mask` or `alt` on a smart mask: it replaces the mask's effects instead of adding to them;
 /// * otherwise the same as [`apply_shelf_item_with`].
 pub fn apply_stack_drop(s: &mut UiState, item: ShelfDrag, alt: bool, with_mask: bool, as_new_layer: bool, now: f64) {
     use subcraft_app::{Command, LayerTarget, NewLayer};
@@ -160,6 +163,7 @@ pub fn apply_stack_drop(s: &mut UiState, item: ShelfDrag, alt: bool, with_mask: 
     }
     let makes_layer = !alt && matches!(item, ShelfDrag::Material(_) | ShelfDrag::Texture(_));
     let before = s.session.selection().layer;
+    let alt = alt || (with_mask && matches!(item, ShelfDrag::SmartMask(_)));
     apply_shelf_item_with(s, item, alt, now);
     if with_mask && makes_layer
         && let Some(layer) = s.session.selection().layer.filter(|l| Some(*l) != before)
@@ -2329,5 +2333,29 @@ mod stack_drop_tests {
         // Dropped on a row instead: that row gets the mask, no new layer.
         apply_stack_drop(&mut s, ShelfDrag::SmartMask(0), false, false, false, 0.0);
         assert_eq!(s.session.selected_texture_set().layers.len(), layers + 1);
+    }
+
+    #[test]
+    fn a_smart_mask_dropped_with_ctrl_or_alt_replaces_the_effects_of_the_mask() {
+        let mut s = state();
+        if s.library.smart_masks.is_empty() {
+            return;
+        }
+        let own = s.library.smart_masks[0].effects.len();
+        let count = |s: &UiState| s.session.selected_layer().unwrap().mask.as_ref().map_or(0, |m| m.effects.len());
+        apply_stack_drop(&mut s, ShelfDrag::SmartMask(0), false, false, false, 0.0);
+        assert_eq!(count(&s), own);
+        // A plain drop adds to what is there.
+        apply_stack_drop(&mut s, ShelfDrag::SmartMask(0), false, false, false, 0.0);
+        assert_eq!(count(&s), own * 2);
+        // Ctrl replaces the whole stack, and so does Alt.
+        apply_stack_drop(&mut s, ShelfDrag::SmartMask(0), false, true, false, 0.0);
+        assert_eq!(count(&s), own);
+        apply_stack_drop(&mut s, ShelfDrag::SmartMask(0), false, false, false, 0.0);
+        apply_stack_drop(&mut s, ShelfDrag::SmartMask(0), true, false, false, 0.0);
+        assert_eq!(count(&s), own);
+        // One undo step brings the replaced effects back.
+        s.session.execute(subcraft_app::Command::Undo).unwrap();
+        assert_eq!(count(&s), own * 2);
     }
 }
