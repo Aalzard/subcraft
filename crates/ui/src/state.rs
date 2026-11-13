@@ -97,7 +97,8 @@ pub struct UiState {
     /// Most tiles one texture set received in the last [`UiState::sync_gpu`] (a quick preview
     /// lists every stale tile; `--profile-edits` uses it to tell a visible update from a slice).
     pub last_sync_tiles: usize,
-    /// The last [`UiState::sync_gpu`] sent the renderer anything (mesh, textures, materials).
+    /// A [`UiState::sync_gpu`] of this frame sent the renderer anything (mesh, textures,
+    /// materials). Several panels sync in one frame: each adds to it, and the frame starts it over.
     pub gpu_changed: bool,
     /// Temporal anti-aliasing progress of the 3D view.
     pub taa: crate::viewport::TaaState,
@@ -265,6 +266,8 @@ pub struct UiState {
     /// Viewport height-to-bump strength.
     pub height_scale: f32,
     pub export: crate::dialogs::ExportUi,
+    /// File > Export mesh window.
+    pub export_mesh: crate::export_mesh::ExportMeshUi,
     pub new_project: crate::new_project::NewProjectUi,
     pub mesh_reload: crate::mesh_reload::MeshReloadUi,
     pub auto_uv: crate::auto_uv::AutoUvUi,
@@ -487,6 +490,7 @@ impl UiState {
             pt_capture_samples: None,
             height_scale: 0.02,
             export: Default::default(),
+            export_mesh: Default::default(),
             confirm: None,
             dropped_model: None,
             light_yaw: 0.0,
@@ -653,6 +657,9 @@ impl UiState {
         // The mask being shown belongs to the old project: left on, the new model was drawn all
         // black as "Mask of" a layer that does not exist, until the next edit.
         self.mask_view = None;
+        // A copied geometry mask lists parts of the old mesh: pasted on another one it limited
+        // the layer to unrelated parts, usually hiding it.
+        self.parts_clipboard = None;
         self.multi.clear();
         self.layer_previews = Default::default();
         self.asset_preview.cancel_apply();
@@ -803,6 +810,7 @@ impl UiState {
         // that hidden view instead of the visible one (QA 2026-11).
         self.hovered_3d = false;
         self.hovered_2d = false;
+        self.gpu_changed = false;
         // The multi-selection holds layer ids; Delete / Duplicate act on them wherever they live,
         // so ids kept from another texture set would edit layers the user is no longer looking at.
         let ts = self.session.selection().texture_set;
@@ -837,7 +845,9 @@ impl UiState {
         let budget = self.composite_deadline.map_or(COMPOSITE_FRAME_BUDGET, |d| d.saturating_duration_since(web_time::Instant::now()));
         let updates = crate::edit_profile::time_tab("  sync: composite", || self.session.update_composites_within(Some(budget)));
         self.last_sync_tiles = updates.iter().map(|u| u.tiles.len()).max().unwrap_or(0);
-        self.gpu_changed = full || self.last_sync_tiles > 0;
+        // QA 2026-11: overwritten by every call, the 3D view's own (usually last, with nothing
+        // left to upload) hid the frame's uploads from TAA, which kept a stale image.
+        self.gpu_changed |= full || self.last_sync_tiles > 0;
         let upload_start = web_time::Instant::now();
         let session = &self.session;
         for ts in &session.document().texture_sets { renderer.set_albedo_filter(ts.material_slot, ts.albedo_filter); renderer.set_alpha(ts.material_slot, ts.alpha); renderer.set_shader(ts.material_slot, session.shader_params_of(ts.id)); }

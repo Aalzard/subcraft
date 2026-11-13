@@ -242,8 +242,9 @@ fn eval_shape_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]]) {
             }
         }
         GeneratorKind::UvChecker | GeneratorKind::UvTexelDensity => {
-            // In a mask: the brightness of the colour the generator gives on content.
-            let colors = generator_color(g, tc).expect("colour generator");
+            // In a mask: the brightness of the colour the generator gives on content. Without its
+            // invert: `finish` inverts the brightness (inverting both cancelled out, QA 2026-11).
+            let colors = generator_color(&Generator { invert: false, ..*g }, tc).expect("colour generator");
             for (o, c) in out.iter_mut().zip(&colors) {
                 *o = [finish(0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]), 1.0, 0.0, 0.0];
             }

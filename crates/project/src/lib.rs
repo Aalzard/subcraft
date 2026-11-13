@@ -699,17 +699,6 @@ fn read_project_checked<R: Read + Seek>(r: R, trusted: bool) -> Result<ProjectDa
         }
         texture_sets.push(ts);
     }
-    // An instance's source is a layer of its own set: one in another set bypassed the raster
-    // checks (its rasters are copied in at the other set's size and channels). QA 2026-11.
-    if !trusted {
-        for ts in &texture_sets {
-            let mut foreign = false;
-            ts.walk(|l, _| foreign |= l.instance_of.is_some_and(|s| ts.find(s).is_none() && texture_sets.iter().any(|o| o.find(s).is_some())));
-            if foreign {
-                return Err(ProjectError::Invalid(format!("texture set {}: an instance's source is in another texture set", ts.name)));
-            }
-        }
-    }
 
     let resources = unpack_resources(&mut loader, &doc.resources)?;
     Ok(ProjectData { mesh, document: Document { texture_sets }, settings: doc.settings.clone(), resources, mesh_maps })

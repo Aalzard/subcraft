@@ -250,6 +250,8 @@ pub struct Session {
     recovered: bool,
     /// The mesh was reloaded since the last save.
     mesh_dirty: bool,
+    /// Symmetry axes the L key (Painter's Symmetry on / off) switched off, restored by the next L.
+    saved_symmetry: Option<([bool; 3], bool)>,
 }
 
 /// Everything a project file holds, captured cheaply (shared tiles and resources) so it can be
@@ -339,6 +341,7 @@ impl Session {
             maps_generation: 0,
             recovered: false,
             mesh_dirty: false,
+            saved_symmetry: None,
         }
     }
 
@@ -1589,6 +1592,8 @@ impl Session {
                 }
                 // Text layers are re-rendered from their outlines instead of resampled.
                 crate::text::refresh_text_rasters(&mut self.doc, &self.resources, &resized);
+                // Pen paths too: their raster is a cache of the path.
+                crate::pen::refresh_path_rasters(&mut self.doc, &self.resources, &resized);
                 if changed {
                     self.commit(&format!("Resolution {resolution}"), None);
                     self.fit_quick_mask();
@@ -1704,7 +1709,10 @@ impl Session {
                 }
                 for (set, source) in found {
                     let same = set == ts_id;
-                    if same && at.is_some_and(|a| a != source.id && ts.is_descendant_or_self(a, source.id)) {
+                    // An instance of an instance follows that one's source: the new layer must stay
+                    // out of that layer too.
+                    let follows = source.instance_of.unwrap_or(source.id);
+                    if at.is_some_and(|a| (same && a != source.id && ts.is_descendant_or_self(a, source.id)) || (a != follows && ts.is_descendant_or_self(a, follows))) {
                         return Err(CommandError::Invalid("An instance cannot go inside its own source: select a layer outside it first".into()));
                     }
                     let mut instance = subcraft_doc::instance::new_instance(&source, ts, same);
@@ -2220,7 +2228,7 @@ impl Session {
                 })?;
             }
             Command::SetParts { layer, parts } => {
-                self.edit_layer_set(layer, "Layer Parts", None, |ts| {
+                self.edit_layer_set_if_changed(layer, "Layer Parts", |ts| {
                     Self::layer_mut(ts, layer)?.parts = parts;
                     Ok(())
                 })?;
@@ -2466,6 +2474,7 @@ impl Session {
             Action::BrushSmaller => self.brush.settings.size = (self.brush.settings.size / 1.15).max(0.1),
             Action::BrushLarger => self.brush.settings.size = (self.brush.settings.size * 1.15).min(100.0),
             Action::ToggleSymmetryX => self.brush.options.symmetry[0] = !self.brush.options.symmetry[0],
+            Action::ToggleSymmetry => self.brush.options.toggle_symmetry(&mut self.saved_symmetry),
             Action::ToggleLazyMouse => {
                 let o = &mut self.brush.options;
                 o.lazy_distance_px = if o.lazy_distance_px > 0.0 { 0.0 } else { 20.0 };
@@ -3242,6 +3251,16 @@ impl Session {
         let name = self.export_name();
         let sets = self.export_sets();
         subcraft_export::scene::export_scene(&self.scene.mesh, &name, &sets, &settings, format, dir).map_err(|e| e.to_string())
+    }
+
+    /// File > Export mesh: the mesh alone (optionally displaced by the Height channel) into `dir`.
+    pub fn export_mesh(&mut self, dir: &Path, options: &subcraft_export::mesh_export::MeshExport) -> Result<Vec<PathBuf>, String> {
+        if options.displacement.is_some() {
+            self.update_composites();
+        }
+        let name = self.export_name();
+        let sets = self.export_sets();
+        subcraft_export::mesh_export::export_mesh(&self.scene.mesh, &name, &sets, options, dir).map_err(|e| e.to_string())
     }
 
     /// Export every map as one in-memory ZIP archive.
