@@ -134,3 +134,35 @@ fn an_instance_survives_save_and_load() {
     back.execute(Command::AddMask { layer: source, white: true }).unwrap();
     assert!(back.selected_texture_set().find(instance).unwrap().mask.is_some());
 }
+
+/// QA 2026-11: a layer moved into an instance was silently deleted by the next refresh, a source
+/// moved into its own instance took the instance with it, and a layer dragged out of an instance
+/// left two layers with the same id.
+#[test]
+fn layers_cannot_be_moved_into_or_out_of_an_instance() {
+    let (mut s, fill) = session();
+    s.execute(Command::AddLayer(NewLayer::Fill)).unwrap();
+    let other = s.selection().layer.unwrap();
+    s.execute(Command::GroupLayers(vec![fill])).unwrap();
+    let folder = s.selection().layer.unwrap();
+    s.execute(Command::PasteAsInstance(vec![folder])).unwrap();
+    let instance = s.selection().layer.unwrap();
+    let child = s.selected_texture_set().find(instance).unwrap().children()[0].id;
+    let steps = s.history().entries().len();
+
+    assert!(s.execute(Command::MoveLayer { layer: other, parent: Some(instance), index: 0 }).is_err());
+    assert!(s.execute(Command::MoveLayer { layer: folder, parent: Some(instance), index: 0 }).is_err());
+    assert!(s.execute(Command::MoveLayer { layer: child, parent: None, index: 0 }).is_err());
+
+    let ts = s.selected_texture_set();
+    for id in [other, folder, instance, fill, child] {
+        assert!(ts.find(id).is_some());
+    }
+    let mut ids = Vec::new();
+    ts.walk(|l, _| ids.push(l.id));
+    let unique: std::collections::HashSet<_> = ids.iter().copied().collect();
+    assert_eq!(unique.len(), ids.len(), "every layer has its own id");
+    assert_eq!(s.history().entries().len(), steps);
+    // The instance itself still moves.
+    s.execute(Command::MoveLayer { layer: instance, parent: None, index: 0 }).unwrap();
+}

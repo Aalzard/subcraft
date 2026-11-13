@@ -1872,6 +1872,7 @@ impl Session {
             }
             Command::MoveLayer { layer, parent, index } => {
                 self.edit_layer_set(layer, "Move Layer", None, |ts| {
+                    Self::check_instance_move(ts, Some(layer), parent)?;
                     ts.move_to(layer, parent, index).map_err(|e| CommandError::Invalid(format!("{e:?}")))
                 })?;
             }
@@ -1882,6 +1883,7 @@ impl Session {
                 if ts.find(layer).is_none() { return Err(CommandError::LayerNotFound); }
                 if let Some(destination) = crate::layer_tree::drop_destination(ts, layer, target) {
                     self.edit_layer_set(layer, "Move Layer", None, |ts| {
+                        Self::check_instance_move(ts, Some(layer), destination.parent)?;
                         ts.move_to(layer, destination.parent, destination.index).map_err(|e| CommandError::Invalid(format!("{e:?}")))?;
                         if let Some(parent) = destination.parent
                             && let LayerContent::Group(folder) = &mut Self::layer_mut(ts, parent)?.content
@@ -1915,6 +1917,8 @@ impl Session {
                     let mut at = target;
                     for &id in &moving {
                         if let Some(destination) = crate::layer_tree::drop_destination(ts, id, at) {
+                            // A copy is a new layer: only where it lands matters.
+                            Self::check_instance_move(ts, (!copy).then_some(id), destination.parent)?;
                             ts.move_to(id, destination.parent, destination.index).map_err(|e| CommandError::Invalid(format!("{e:?}")))?;
                         }
                         at = DropTarget::Above(id);
@@ -2292,6 +2296,17 @@ impl Session {
 
     /// Duplicate `layers` (those not inside another of them), each copy right above its
     /// original. Returns the copies, bottom to top.
+    /// The layers of an instance are its source's. A layer moved into an instance was dropped by
+    /// the next refresh (a source moved into its own instance took the instance with it), and a
+    /// layer dragged out of one was made again inside it under the same id.
+    fn check_instance_move(ts: &TextureSet, layer: Option<LayerId>, parent: Option<LayerId>) -> Result<(), CommandError> {
+        let root = |id| subcraft_doc::instance::root_of(ts, id);
+        if parent.is_some_and(|p| root(p).is_some()) || layer.is_some_and(|l| root(l).is_some_and(|r| r != l)) {
+            return Err(CommandError::Invalid(INSTANCE_READ_ONLY.into()));
+        }
+        Ok(())
+    }
+
     fn duplicate_in_set(ts: &mut TextureSet, layers: &[LayerId]) -> Result<Vec<LayerId>, CommandError> {
         let mut copies = Vec::new();
         for id in crate::clipboard::top_level_in_order(ts, layers) {
