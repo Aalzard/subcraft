@@ -128,7 +128,7 @@ fn polygon_fill_box_and_click_in_the_2d_view_are_one_undo_step_each() {
     state.fill_mode = subcraft_paint::PolygonFillMode::Triangle;
     let out = settle(&mut state, &ctx, false);
     let image = out.shapes.iter().filter_map(|s| match &s.shape {
-        egui::epaint::Shape::Rect(r) if r.stroke.color == theme::BORDER_STRONG && r.rect.width() > 100.0 => Some(r.rect),
+        egui::epaint::Shape::Rect(r) if r.stroke.color == theme::BORDER_STRONG() && r.rect.width() > 100.0 => Some(r.rect),
         _ => None,
     }).max_by(|a, b| a.area().total_cmp(&b.area())).expect("UV image");
     let entries = state.session.history().entries().len();

@@ -633,7 +633,7 @@ pub fn locations(state: &UiState, search: &Search) -> Vec<Location> {
 /// Draw sub-library `id`: the Shelf with that tab's own types, search and folders.
 pub fn show_sub_library(state: &mut UiState, ui: &mut Ui, id: u32) {
     let Some(i) = state.shelf.sub_libraries.iter().position(|s| s.id == id) else {
-        ui.label(RichText::new(tr("This sub-library was closed. Make a new one from the Assets panel.")).color(theme::TEXT_FAINT));
+        ui.label(RichText::new(tr("This sub-library was closed. Make a new one from the Assets panel.")).color(theme::TEXT_FAINT()));
         return;
     };
     let main = state.shelf.take_nav();
@@ -789,39 +789,39 @@ pub(crate) fn tile(ui: &mut Ui, side: f32, thumb: Option<&egui::TextureHandle>, 
             .interactable(false)
             .show(ui.ctx(), |ui| {
                 egui::Frame::popup(ui.style()).show(ui, |ui| {
-                    ui.label(RichText::new(format!("{}  {name}", crate::icons::PLUS)).color(theme::TEXT));
-                    ui.label(RichText::new(tr("Drop on the model or a layer")).small().color(theme::TEXT_FAINT));
+                    ui.label(RichText::new(format!("{}  {name}", crate::icons::PLUS)).color(theme::TEXT()));
+                    ui.label(RichText::new(tr("Drop on the model or a layer")).small().color(theme::TEXT_FAINT()));
                 });
             });
         ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
     }
     let img = egui::Rect::from_min_size(rect.min, egui::vec2(side, side));
     let painter = ui.painter();
-    painter.rect_filled(img, 0.0, theme::FIELD);
+    painter.rect_filled(img, 0.0, theme::FIELD());
     match thumb {
         Some(t) => {
             painter.image(t.id(), img.shrink(1.0), egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), Color32::WHITE);
         }
         None => {
             let icon = ui.data(|d| d.get_temp::<&'static str>(egui::Id::new("shelf_fallback_icon"))).unwrap_or(crate::icons::IMAGE);
-            painter.text(img.center(), egui::Align2::CENTER_CENTER, icon, theme::font(24.0), theme::TEXT_FAINT);
+            painter.text(img.center(), egui::Align2::CENTER_CENTER, icon, theme::font(24.0), theme::TEXT_FAINT());
         }
     }
     let stroke = if selected {
-        egui::Stroke::new(2.0, theme::ACCENT)
+        egui::Stroke::new(2.0, theme::ACCENT())
     } else if resp.hovered() {
-        egui::Stroke::new(1.0, theme::ACCENT_HOVER)
+        egui::Stroke::new(1.0, theme::ACCENT_HOVER())
     } else {
-        egui::Stroke::new(1.0, theme::BORDER)
+        egui::Stroke::new(1.0, theme::BORDER())
     };
     painter.rect_stroke(img, 0.0, stroke, egui::StrokeKind::Inside);
     if selected {
         // The active brush: an accent check badge in the corner, readable on any thumbnail.
         let badge = egui::pos2(img.right() - 11.0, img.top() + 11.0);
-        painter.circle_filled(badge, 8.0, theme::ACCENT);
+        painter.circle_filled(badge, 8.0, theme::ACCENT());
         painter.text(badge, egui::Align2::CENTER_CENTER, crate::icons::CHECK, theme::font(11.0), Color32::WHITE);
     }
-    let color = if selected || resp.hovered() { theme::TEXT } else { theme::TEXT_DIM };
+    let color = if selected || resp.hovered() { theme::TEXT() } else { theme::TEXT_DIM() };
     let mut job = egui::text::LayoutJob::simple(name.to_string(), theme::font(11.0), color, side);
     job.wrap.max_rows = 1;
     let galley = painter.layout_job(job);
@@ -842,22 +842,22 @@ fn list_row(ui: &mut Ui, thumb: Option<&egui::TextureHandle>, name: &str, select
     }
     let painter = ui.painter();
     if selected {
-        painter.rect_filled(rect, 2.0, theme::ACCENT_SOFT);
+        painter.rect_filled(rect, 2.0, theme::ACCENT_SOFT());
     } else if resp.hovered() {
-        painter.rect_filled(rect, 2.0, theme::BG_3);
+        painter.rect_filled(rect, 2.0, theme::BG_3());
     }
     let img = egui::Rect::from_min_size(rect.min + egui::vec2(3.0, 3.0), egui::vec2(LIST_ROW - 6.0, LIST_ROW - 6.0));
-    painter.rect_filled(img, 0.0, theme::FIELD);
+    painter.rect_filled(img, 0.0, theme::FIELD());
     match thumb {
         Some(t) => {
             painter.image(t.id(), img, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), Color32::WHITE);
         }
         None => {
             let icon = ui.data(|d| d.get_temp::<&'static str>(egui::Id::new("shelf_fallback_icon"))).unwrap_or(crate::icons::IMAGE);
-            painter.text(img.center(), egui::Align2::CENTER_CENTER, icon, theme::font(13.0), theme::TEXT_FAINT);
+            painter.text(img.center(), egui::Align2::CENTER_CENTER, icon, theme::font(13.0), theme::TEXT_FAINT());
         }
     }
-    let color = if selected { theme::ACCENT } else if resp.hovered() { theme::TEXT } else { theme::TEXT_DIM };
+    let color = if selected { theme::ACCENT() } else if resp.hovered() { theme::TEXT() } else { theme::TEXT_DIM() };
     let mut job = egui::text::LayoutJob::simple(name.to_string(), theme::font(11.5), color, (rect.width() - LIST_ROW - 8.0).max(1.0));
     job.wrap.max_rows = 1;
     let galley = painter.layout_job(job);
@@ -920,7 +920,7 @@ fn handle_drops(state: &mut UiState, ui: &Ui, now: f64) {
     // window's (QA 2026-11: on Smart Materials they were also imported straight away).
     let over = ui.ctx().input(|i| i.pointer.latest_pos()).is_some_and(|p| rect.contains(p) && !state.import.covers(p));
     if over && ui.ctx().input(|i| !i.raw.hovered_files.is_empty()) {
-        ui.painter().rect_stroke(rect.shrink(2.0), 4.0, egui::Stroke::new(2.0, theme::ACCENT), egui::StrokeKind::Inside);
+        ui.painter().rect_stroke(rect.shrink(2.0), 4.0, egui::Stroke::new(2.0, theme::ACCENT()), egui::StrokeKind::Inside);
     }
     let dropped: Vec<std::path::PathBuf> = ui.ctx().input(|i| i.raw.dropped_files.iter().map(|f| f.path().to_path_buf()).collect());
     if !over || dropped.is_empty() {
@@ -996,7 +996,7 @@ fn preset_menu(resp: &egui::Response, p: &subcraft_app::brush_preset::BrushPrese
     let mut action = None;
     let user = p.user_file.is_some();
     resp.context_menu(|ui| {
-        ui.label(RichText::new(format!("{} · {}", p.name, if user { p.kind.label() } else { "built-in preset" })).small().color(theme::TEXT_FAINT));
+        ui.label(RichText::new(format!("{} · {}", p.name, if user { p.kind.label() } else { "built-in preset" })).small().color(theme::TEXT_FAINT()));
         ui.separator();
         if ui.add_enabled(user, egui::Button::new(format!("{}  Update from current tool", crate::icons::SAVE)))
             .on_hover_text("Overwrite this preset with what the tool Properties show now")
@@ -1110,8 +1110,8 @@ fn favorite_badge(painter: &egui::Painter, tile: egui::Rect) {
     painter.circle_filled(c, 8.5, Color32::from_black_alpha(150));
     // A star is concave: fan it from the center.
     let mut mesh = egui::Mesh::default();
-    mesh.colored_vertex(c, theme::ACCENT);
-    for p in &points { mesh.colored_vertex(*p, theme::ACCENT); }
+    mesh.colored_vertex(c, theme::ACCENT());
+    for p in &points { mesh.colored_vertex(*p, theme::ACCENT()); }
     for k in 0..10u32 { mesh.add_triangle(0, 1 + k, 1 + (k + 1) % 10); }
     painter.add(egui::Shape::mesh(mesh));
 }
@@ -1178,15 +1178,15 @@ fn shelf_tab(ui: &mut Ui, current: &mut ShelfTab, value: ShelfTab, icon: &str, l
     let selected = *current == value;
     let drawn = icon == BUMPS;
     let text = if drawn { format!("      {label}") } else { format!("{icon}  {label}") };
-    let color = if selected { theme::TEXT } else { theme::TEXT_FAINT };
+    let color = if selected { theme::TEXT() } else { theme::TEXT_FAINT() };
     let galley = ui.painter().layout_no_wrap(text, theme::font_strong(12.0), color);
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(galley.size().x + 16.0, 34.0), egui::Sense::click());
-    let color = if resp.hovered() && !selected { theme::TEXT_DIM } else { color };
+    let color = if resp.hovered() && !selected { theme::TEXT_DIM() } else { color };
     let text_pos = rect.center() - galley.size() / 2.0;
     if drawn { draw_bumps(ui.painter(), egui::pos2(text_pos.x + 7.0, rect.center().y), color); }
     ui.painter().galley_with_override_text_color(text_pos, galley, color);
     if selected {
-        ui.painter().rect_filled(egui::Rect::from_min_max(egui::pos2(rect.left(), rect.bottom() - 2.0), rect.right_bottom()), 0.0, theme::ACCENT);
+        ui.painter().rect_filled(egui::Rect::from_min_max(egui::pos2(rect.left(), rect.bottom() - 2.0), rect.right_bottom()), 0.0, theme::ACCENT());
     }
     if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
         *current = value;
@@ -1194,7 +1194,7 @@ fn shelf_tab(ui: &mut Ui, current: &mut ShelfTab, value: ShelfTab, icon: &str, l
 }
 
 fn shelf_hint(ui: &mut Ui, text: &str) {
-    ui.label(RichText::new(crate::icons::INFO).color(theme::TEXT_FAINT)).on_hover_text(text);
+    ui.label(RichText::new(crate::icons::INFO).color(theme::TEXT_FAINT())).on_hover_text(text);
 }
 
 pub fn show(state: &mut UiState, ui: &mut Ui) {
@@ -1238,7 +1238,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             // Several types: a small heading names each one.
             if tabs.len() > 1 && (!own.is_empty() || !starters.is_empty()) {
                 ui.end_row();
-                ui.label(RichText::new(category_name(tab)).font(theme::font_strong(11.0)).color(theme::TEXT_DIM));
+                ui.label(RichText::new(category_name(tab)).font(theme::font_strong(11.0)).color(theme::TEXT_DIM()));
                 ui.end_row();
             }
             ui.data_mut(|d| d.insert_temp(egui::Id::new("shelf_fallback_icon"), category_icon(tab)));
@@ -1456,8 +1456,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         if resp.dragged() && let Some(p) = ui.ctx().pointer_latest_pos() {
                             egui::Area::new(egui::Id::new("environment-drag-ghost")).order(egui::Order::Tooltip).fixed_pos(p + egui::vec2(14.0, 10.0)).interactable(false).show(ui.ctx(), |ui| {
                                 egui::Frame::popup(ui.style()).show(ui, |ui| {
-                                    ui.label(RichText::new(&e.name).color(theme::TEXT));
-                                    ui.label(RichText::new(tr("Drop on the 3D view to light the model with it")).small().color(theme::TEXT_FAINT));
+                                    ui.label(RichText::new(&e.name).color(theme::TEXT()));
+                                    ui.label(RichText::new(tr("Drop on the 3D view to light the model with it")).small().color(theme::TEXT_FAINT()));
                                 });
                             });
                         }
@@ -1471,7 +1471,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             }
             if shown == 0 {
                 let msg = if filter.is_active() || !search.nav.paths.is_empty() { "No matches. Clear the search or pick another filter." } else { "Nothing here yet." };
-                ui.label(RichText::new(msg).color(theme::TEXT_FAINT));
+                ui.label(RichText::new(msg).color(theme::TEXT_FAINT()));
             }
         }));
     });
@@ -1561,12 +1561,12 @@ fn header(state: &mut UiState, ui: &mut Ui) {
     egui::Frame::new().inner_margin(egui::Margin::symmetric(8, 0)).show(ui, |ui| {
         ui.horizontal(|ui| {
             let (r, _) = ui.allocate_exact_size(egui::vec2(16.0, 16.0), egui::Sense::hover());
-            let stroke = egui::Stroke::new(1.6, theme::TEXT_DIM);
+            let stroke = egui::Stroke::new(1.6, theme::TEXT_DIM());
             ui.painter().circle_stroke(r.center() - egui::vec2(1.5, 1.5), 5.0, stroke);
             ui.painter().line_segment([r.center() + egui::vec2(2.0, 2.0), r.center() + egui::vec2(6.5, 6.5)], stroke);
             // The saved search in use, as a tag: hover shows what it holds, a click drops it.
             if let Some(name) = nav.saved.clone() {
-                let tag = egui::Button::new(RichText::new(format!("{name}  {}", crate::icons::X)).font(theme::font(11.0)).color(theme::ACCENT)).fill(theme::ACCENT_SOFT).stroke(egui::Stroke::NONE);
+                let tag = egui::Button::new(RichText::new(format!("{name}  {}", crate::icons::X)).font(theme::font(11.0)).color(theme::ACCENT())).fill(theme::ACCENT_SOFT()).stroke(egui::Stroke::NONE);
                 let query = nav.query();
                 if ui.add(tag).on_hover_text(format!("{}\n{query}", tr("Saved search (click to clear it):"))).clicked() {
                     nav = ShelfNav::new(nav.tab);
@@ -1589,11 +1589,11 @@ fn header(state: &mut UiState, ui: &mut Ui) {
                 let (rect, resp) = ui.allocate_exact_size(egui::vec2(28.0, 26.0), egui::Sense::click());
                 let painter = ui.painter();
                 if selected {
-                    painter.rect_filled(rect, 2.0, theme::BG_4);
+                    painter.rect_filled(rect, 2.0, theme::BG_4());
                 } else if resp.hovered() {
-                    painter.rect_filled(rect, 2.0, theme::BG_3);
+                    painter.rect_filled(rect, 2.0, theme::BG_3());
                 }
-                let color = if selected { theme::TEXT } else { theme::TEXT_DIM };
+                let color = if selected { theme::TEXT() } else { theme::TEXT_DIM() };
                 draw_category_icon(painter, rect.center(), icon, color);
                 let hint = format!("{}\n{}", category_name(tab), tr("Ctrl+click: show several types"));
                 if resp.on_hover_text(hint).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
@@ -1635,8 +1635,8 @@ pub fn same_search(saved: &str, now: &str) -> bool {
 
 /// A small toggle button for an optional section of the filter area.
 fn section_toggle(ui: &mut Ui, on: &mut bool, icon: &str, label: &str) {
-    let text = RichText::new(icon).font(theme::font(13.0)).color(if *on { theme::ACCENT } else { theme::TEXT_DIM });
-    let b = egui::Button::new(text).fill(if *on { theme::ACCENT_SOFT } else { Color32::TRANSPARENT }).stroke(egui::Stroke::NONE);
+    let text = RichText::new(icon).font(theme::font(13.0)).color(if *on { theme::ACCENT() } else { theme::TEXT_DIM() });
+    let b = egui::Button::new(text).fill(if *on { theme::ACCENT_SOFT() } else { Color32::TRANSPARENT }).stroke(egui::Stroke::NONE);
     if ui.add(b).on_hover_text(label).clicked() {
         *on = !*on;
     }
@@ -1668,7 +1668,7 @@ fn breadcrumbs(ui: &mut Ui, nav: &mut ShelfNav, places: &[Location]) {
         None => (None, None),
     };
     let crumb = |ui: &mut Ui, text: &str, last: bool| {
-        let color = if last { theme::TEXT } else { theme::TEXT_DIM };
+        let color = if last { theme::TEXT() } else { theme::TEXT_DIM() };
         let font = if last { theme::font_strong(12.0) } else { theme::font(12.0) };
         ui.add(egui::Label::new(RichText::new(text).font(font).color(color)).sense(egui::Sense::click())).on_hover_cursor(egui::CursorIcon::PointingHand).clicked()
     };
@@ -1685,20 +1685,20 @@ fn breadcrumbs(ui: &mut Ui, nav: &mut ShelfNav, places: &[Location]) {
             crumb(ui, f, true);
         }
     } else if nav.paths.len() > 1 {
-        ui.label(RichText::new(format!("({} {})", nav.paths.len(), tr("places"))).font(theme::font(11.0)).color(theme::TEXT_FAINT));
+        ui.label(RichText::new(format!("({} {})", nav.paths.len(), tr("places"))).font(theme::font(11.0)).color(theme::TEXT_FAINT()));
     }
 }
 
 /// The arrow after a crumb and the menu of the places below it.
 fn crumb_menu(ui: &mut Ui, id: &str, children: Vec<&Location>, nav: &mut ShelfNav, label: impl Fn(&Location) -> String) {
-    let resp = ui.add(egui::Label::new(RichText::new(crate::icons::CARET_RIGHT).font(theme::font(11.0)).color(theme::TEXT_DIM)).sense(egui::Sense::click()));
+    let resp = ui.add(egui::Label::new(RichText::new(crate::icons::CARET_RIGHT).font(theme::font(11.0)).color(theme::TEXT_DIM())).sense(egui::Sense::click()));
     let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
     egui::Popup::menu(&resp).id(ui.make_persistent_id(("shelf-crumb", id))).show(|ui| {
         if children.is_empty() {
-            ui.label(RichText::new(tr("No folders")).color(theme::TEXT_FAINT));
+            ui.label(RichText::new(tr("No folders")).color(theme::TEXT_FAINT()));
         }
         for place in children {
-            let color = if place.applicable > 0 { theme::TEXT } else { theme::TEXT_FAINT };
+            let color = if place.applicable > 0 { theme::TEXT() } else { theme::TEXT_FAINT() };
             if ui.button(RichText::new(label(place)).color(color)).clicked() {
                 nav.paths = vec![place.path()];
                 ui.close();
@@ -1713,7 +1713,7 @@ fn filter_by_path(state: &mut UiState, ui: &mut Ui, nav: &mut ShelfNav, places: 
     use crate::panels::shelf_filter::library_name;
     egui::Frame::new().inner_margin(egui::Margin::symmetric(8, 2)).show(ui, |ui| {
         ui.horizontal(|ui| {
-            ui.label(RichText::new(tr("Filter by path")).font(theme::font_strong(11.0)).color(theme::TEXT_DIM));
+            ui.label(RichText::new(tr("Filter by path")).font(theme::font_strong(11.0)).color(theme::TEXT_DIM()));
             ui.checkbox(&mut state.shelf.hide_empty_folders, RichText::new(tr("Hide non-applicable folders")).font(theme::font(11.0)));
         });
         let hide = state.shelf.hide_empty_folders;
@@ -1722,7 +1722,7 @@ fn filter_by_path(state: &mut UiState, ui: &mut Ui, nav: &mut ShelfNav, places: 
             let folded = state.shelf.folded.contains(&lib.library);
             ui.horizontal(|ui| {
                 let caret = if folded { crate::icons::CARET_RIGHT } else { crate::icons::CARET_DOWN };
-                if ui.add(egui::Label::new(RichText::new(caret).font(theme::font(11.0)).color(theme::TEXT_DIM)).sense(egui::Sense::click())).clicked() {
+                if ui.add(egui::Label::new(RichText::new(caret).font(theme::font(11.0)).color(theme::TEXT_DIM())).sense(egui::Sense::click())).clicked() {
                     if shift {
                         // Shift: every library follows this one.
                         for l in places.iter().filter(|p| p.folder.is_none()) {
@@ -1759,8 +1759,8 @@ fn filter_by_path(state: &mut UiState, ui: &mut Ui, nav: &mut ShelfNav, places: 
 fn place_row(ui: &mut Ui, nav: &mut ShelfNav, place: &Location, name: &str, ctrl: bool) {
     let path = place.path();
     let selected = nav.paths.contains(&path);
-    let color = if place.applicable > 0 { theme::TEXT } else { theme::TEXT_FAINT };
-    let text = RichText::new(format!("{name}  ({})", place.applicable)).font(theme::font(11.5)).color(if selected { theme::ACCENT } else { color });
+    let color = if place.applicable > 0 { theme::TEXT() } else { theme::TEXT_FAINT() };
+    let text = RichText::new(format!("{name}  ({})", place.applicable)).font(theme::font(11.5)).color(if selected { theme::ACCENT() } else { color });
     if ui.selectable_label(selected, text).clicked() {
         nav.click_path(path, ctrl);
     }
@@ -1774,7 +1774,7 @@ fn saved_searches(state: &mut UiState, ui: &mut Ui, nav: &mut ShelfNav) {
     let mut open_tab = None;
     egui::Frame::new().inner_margin(egui::Margin::symmetric(8, 2)).show(ui, |ui| {
         ui.horizontal(|ui| {
-            ui.label(RichText::new(tr("Saved searches")).font(theme::font_strong(11.0)).color(theme::TEXT_DIM));
+            ui.label(RichText::new(tr("Saved searches")).font(theme::font_strong(11.0)).color(theme::TEXT_DIM()));
             ui.menu_button(RichText::new(format!("{}  {}", crate::icons::PLUS, tr("Save current search"))).font(theme::font(11.0)), |ui| {
                 let id = egui::Id::new("shelf-save-search");
                 let mut name = ui.data(|d| d.get_temp::<String>(id)).unwrap_or_else(|| default_search_name(nav));
@@ -1789,7 +1789,7 @@ fn saved_searches(state: &mut UiState, ui: &mut Ui, nav: &mut ShelfNav) {
             });
         });
         if state.recovery.prefs.shelf_saved_searches.is_empty() {
-            ui.label(RichText::new(tr("No saved searches yet.")).font(theme::font(11.0)).color(theme::TEXT_FAINT));
+            ui.label(RichText::new(tr("No saved searches yet.")).font(theme::font(11.0)).color(theme::TEXT_FAINT()));
         }
         for (i, s) in state.recovery.prefs.shelf_saved_searches.iter().enumerate() {
             let selected = nav.saved.as_deref() == Some(s.name.as_str());
@@ -1881,7 +1881,7 @@ fn env_controls(state: &mut UiState, ui: &mut Ui) {
         // Exposure is in EV (stops) like Painter's Environment Exposure: +1 doubles the light.
         for (label, value, range) in [("Rotation", &mut state.env.rotation_deg, -180.0..=180.0), ("Exposure", &mut state.recovery.prefs.viewport.display.env_exposure, -5.0..=5.0)] {
             ui.allocate_ui_with_layout(egui::vec2(width, 20.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                ui.add_sized([60.0, 18.0], egui::Label::new(RichText::new(label).color(theme::TEXT_DIM)));
+                ui.add_sized([60.0, 18.0], egui::Label::new(RichText::new(label).color(theme::TEXT_DIM())));
                 // Room for the value box: "-180°" is the widest rotation (whole degrees).
                 ui.spacing_mut().slider_width = (ui.available_width() - 72.0).max(20.0);
                 let slider = egui::Slider::new(value, range);
@@ -1977,7 +1977,7 @@ fn size_label(name: &str) -> &'static str {
 /// The thumbnail size menu (Painter's left-most bottom icon): Small, Medium (default), Large, List.
 fn size_menu(ui: &mut Ui, prefs: &mut crate::recovery::Preferences) {
     let current = preview_size_name(prefs);
-    let label = RichText::new(format!("{}  {}", crate::icons::GRID, size_label(current))).font(theme::font(11.0)).color(theme::TEXT_DIM);
+    let label = RichText::new(format!("{}  {}", crate::icons::GRID, size_label(current))).font(theme::font(11.0)).color(theme::TEXT_DIM());
     let resp = ui.menu_button(label, |ui| {
         for name in ["Small", "Medium", "Large", "List"] {
             if ui.radio(current == name, size_label(name)).clicked() {
@@ -2239,8 +2239,8 @@ fn filter_row(state: &mut UiState, ui: &mut Ui) {
             ui.spacing_mut().item_spacing.x = 4.0;
             for (chip, label) in chips {
                 let selected = filter.chip == chip;
-                let text = RichText::new(label).font(theme::font(11.5)).color(if selected { theme::ACCENT } else { theme::TEXT_DIM });
-                let b = egui::Button::new(text).fill(if selected { theme::ACCENT_SOFT } else { theme::BG_3 }).stroke(egui::Stroke::NONE);
+                let text = RichText::new(label).font(theme::font(11.5)).color(if selected { theme::ACCENT() } else { theme::TEXT_DIM() });
+                let b = egui::Button::new(text).fill(if selected { theme::ACCENT_SOFT() } else { theme::BG_3() }).stroke(egui::Stroke::NONE);
                 if ui.add(b).clicked() {
                     filter.chip = if selected { Chip::All } else { chip };
                 }

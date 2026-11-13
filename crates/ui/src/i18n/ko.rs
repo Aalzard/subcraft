@@ -988,4 +988,9 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Which of the model's vertex color sets the ID map reads (glTF / GLB files can have several)", "ID 맵이 모델의 어느 버텍스 컬러 세트를 읽을지 (glTF / GLB 파일은 여러 개를 가질 수 있습니다)"),
     ("The high poly has no vertex colors.", "하이 폴리에 버텍스 컬러가 없습니다."),
     ("The high poly has {} vertex color set(s).", "하이 폴리에 버텍스 컬러 세트가 {}개 있습니다."),
+    ("Theme", "테마"),
+    ("Dark", "어둡게"),
+    ("Light", "밝게"),
+    ("Painter-style", "Painter 스타일"),
+    ("Colours of the panels and controls. The 3D view background is set under Background color.", "패널과 컨트롤의 색입니다. 3D 뷰 배경은 배경색에서 설정합니다."),
 ];

@@ -325,7 +325,7 @@ pub fn window(state: &mut UiState, ctx: &egui::Context) {
             if ui.add_enabled(any_selected, egui::Button::new(format!("{}  {}", crate::icons::TRASH, tr("Remove selected resources")))).clicked() {
                 state.import.remove_selected();
             }
-            ui.label(RichText::new(tr("Show")).color(theme::TEXT_DIM));
+            ui.label(RichText::new(tr("Show")).color(theme::TEXT_DIM()));
             let shown = state.import.filter.map_or(tr("All usages"), |u| u.label());
             egui::ComboBox::from_id_salt("import-usage-filter").selected_text(shown).show_ui(ui, |ui| {
                 ui.selectable_value(&mut state.import.filter, None, tr("All usages"));
@@ -336,16 +336,16 @@ pub fn window(state: &mut UiState, ctx: &egui::Context) {
         });
         ui.add_space(6.0);
         if state.import.rows.is_empty() {
-            ui.label(RichText::new(tr("Add resources, or drop files and folders here.")).color(theme::TEXT_FAINT));
+            ui.label(RichText::new(tr("Add resources, or drop files and folders here.")).color(theme::TEXT_FAINT()));
         }
         let visible = state.import.visible();
         let mut usage_change = None;
         egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
             egui::Grid::new("import-rows").num_columns(5).spacing([10.0, 4.0]).striped(true).show(ui, |ui| {
                 ui.label("");
-                ui.label(RichText::new(tr("Usage")).color(theme::TEXT_DIM));
-                ui.label(RichText::new(tr("Prefix")).color(theme::TEXT_DIM));
-                ui.label(RichText::new(tr("Filename")).color(theme::TEXT_DIM));
+                ui.label(RichText::new(tr("Usage")).color(theme::TEXT_DIM()));
+                ui.label(RichText::new(tr("Prefix")).color(theme::TEXT_DIM()));
+                ui.label(RichText::new(tr("Filename")).color(theme::TEXT_DIM()));
                 ui.label("");
                 ui.end_row();
                 for i in visible {
@@ -365,10 +365,10 @@ pub fn window(state: &mut UiState, ctx: &egui::Context) {
                     ui.label(name).on_hover_text(row.path.display().to_string());
                     match row.warning() {
                         Some(w) => {
-                            ui.label(RichText::new(crate::icons::WARNING).color(theme::WARNING)).on_hover_text(tr(w));
+                            ui.label(RichText::new(crate::icons::WARNING).color(theme::WARNING())).on_hover_text(tr(w));
                         }
                         None if row.usage == Usage::Undefined => {
-                            ui.label(RichText::new(crate::icons::INFO).color(theme::TEXT_FAINT)).on_hover_text(tr("Choose a usage to import this file"));
+                            ui.label(RichText::new(crate::icons::INFO).color(theme::TEXT_FAINT())).on_hover_text(tr("Choose a usage to import this file"));
                         }
                         None => {
                             ui.label("");
@@ -383,7 +383,7 @@ pub fn window(state: &mut UiState, ctx: &egui::Context) {
         }
         ui.add_space(8.0);
         ui.horizontal(|ui| {
-            ui.label(RichText::new(tr("Import to")).color(theme::TEXT_DIM));
+            ui.label(RichText::new(tr("Import to")).color(theme::TEXT_DIM()));
             let current = state.import.destination.clone().unwrap_or_else(|| default_destination(state));
             let mut chosen = current.clone();
             let label = destination_label(state, &current);

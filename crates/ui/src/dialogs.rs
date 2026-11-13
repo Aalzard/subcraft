@@ -14,7 +14,7 @@ use crate::theme::{self, TEXT_DIM};
 use crate::widgets::{caption, divider, hint, primary_button, secondary_button, segmented};
 
 fn dim(text: &str) -> RichText {
-    RichText::new(text).color(TEXT_DIM)
+    RichText::new(text).color(TEXT_DIM())
 }
 
 fn window_title(text: &str) -> RichText {
@@ -531,13 +531,13 @@ fn export_log(ui: &mut egui::Ui, log: &[ExportLogLine]) {
             }
             ui.horizontal(|ui| {
                 ui.add_space(14.0);
-                ui.add(egui::Label::new(RichText::new(&line.text).monospace().small().color(TEXT_DIM)).truncate()).on_hover_text(&line.text);
+                ui.add(egui::Label::new(RichText::new(&line.text).monospace().small().color(TEXT_DIM())).truncate()).on_hover_text(&line.text);
             });
         }
         ui.add_space(8.0);
         ui.label(caption("Console"));
         for line in log.iter().filter(|l| l.set.is_none()) {
-            ui.label(if line.error { RichText::new(&line.text).color(theme::WARNING) } else { RichText::new(&line.text) });
+            ui.label(if line.error { RichText::new(&line.text).color(theme::WARNING()) } else { RichText::new(&line.text) });
         }
     });
 }
@@ -830,7 +830,7 @@ fn export_map_list(ui: &mut egui::Ui, state: &mut UiState, settings: &ExportSett
             if ui.small_button(tr("Select all")).clicked() { click = Some(MapClick::All); }
         });
     });
-    egui::Frame::new().fill(theme::FIELD).inner_margin(egui::Margin::same(8)).show(ui, |ui| {
+    egui::Frame::new().fill(theme::FIELD()).inner_margin(egui::Margin::same(8)).show(ui, |ui| {
         egui::ScrollArea::vertical().max_height(220.0).show(ui, |ui| {
             ui.set_min_width(ui.available_width());
             let mut current: Option<&str> = None;
@@ -868,8 +868,8 @@ fn export_map_list(ui: &mut egui::Ui, state: &mut UiState, settings: &ExportSett
                         }
                     }
                     // Painter shows each file's colour space (with colour management on).
-                    ui.label(RichText::new(f.color_space).small().color(TEXT_DIM)).on_hover_text(tr("Colour space of the file: sRGB-encoded colour, linear colour (float files) or raw data"));
-                    ui.add(egui::Label::new(RichText::new(&f.path).monospace().small().color(if f.enabled { TEXT_DIM } else { theme::TEXT_DIM.gamma_multiply(0.5) })).truncate()).on_hover_text(&f.path);
+                    ui.label(RichText::new(f.color_space).small().color(TEXT_DIM())).on_hover_text(tr("Colour space of the file: sRGB-encoded colour, linear colour (float files) or raw data"));
+                    ui.add(egui::Label::new(RichText::new(&f.path).monospace().small().color(if f.enabled { TEXT_DIM() } else { theme::TEXT_DIM().gamma_multiply(0.5) })).truncate()).on_hover_text(&f.path);
                 });
             }
         });
@@ -1187,7 +1187,7 @@ impl BakeFrame {
 
 /// Title of a baking panel, in capitals like the docked panels.
 fn panel_title(ui: &mut egui::Ui, text: &str) {
-    ui.label(RichText::new(text.to_uppercase()).font(theme::font_strong(11.5)).color(TEXT_DIM));
+    ui.label(RichText::new(text.to_uppercase()).font(theme::font_strong(11.5)).color(TEXT_DIM()));
     ui.add_space(4.0);
 }
 
@@ -1221,7 +1221,7 @@ pub fn bake_mode(state: &mut UiState, ui: &mut egui::Ui, now: f64) {
     let busy = state.bake.job.is_some();
     let mut select_set = None;
     let mut quick = None;
-    let side = || egui::Frame::new().fill(theme::BG_1).inner_margin(egui::Margin::same(8));
+    let side = || egui::Frame::new().fill(theme::BG_1()).inner_margin(egui::Margin::same(8));
     egui::Panel::left("bake_left").default_size(300.0).size_range(240.0..=420.0).frame(side()).show(ui, |ui| {
         egui::ScrollArea::vertical().id_salt("bake_left_scroll").auto_shrink([false, false]).show(ui, |ui| {
             ui.add_enabled_ui(!busy, |ui| {
@@ -1247,11 +1247,11 @@ pub fn bake_mode(state: &mut UiState, ui: &mut egui::Ui, now: f64) {
     let (mut go, mut leave) = (false, false);
     egui::Area::new(egui::Id::new("bake_actions")).order(egui::Order::Middle).pivot(egui::Align2::CENTER_BOTTOM)
         .fixed_pos(egui::pos2(views.center().x, views.bottom() - 16.0)).show(ui.ctx(), |ui| {
-        egui::Frame::new().fill(theme::BG_2).corner_radius(8).inner_margin(egui::Margin::same(8)).show(ui, |ui| {
+        egui::Frame::new().fill(theme::BG_2()).corner_radius(8).inner_margin(egui::Margin::same(8)).show(ui, |ui| {
             ui.horizontal(|ui| {
                 match &state.bake.job {
                     Some(job) => {
-                        ui.add(egui::ProgressBar::new(job.fraction()).desired_width(220.0).show_percentage().fill(theme::ACCENT));
+                        ui.add(egui::ProgressBar::new(job.fraction()).desired_width(220.0).show_percentage().fill(theme::ACCENT()));
                         if secondary_button(ui, tr("Cancel")).clicked() { job.cancel(); }
                     }
                     None => {
@@ -1469,7 +1469,7 @@ fn map_settings_panel(ui: &mut egui::Ui, b: &mut BakeUi) {
                 .on_hover_text(tr("Which of the model's vertex color sets the ID map reads (glTF / GLB files can have several)"));
                 match sets {
                     Some(0) => hint(ui, tr("The high poly has no vertex colors.")),
-                    Some(n) => { ui.label(RichText::new(crate::i18n::trf("The high poly has {} vertex color set(s).", &[&n])).small().color(theme::TEXT_FAINT)); }
+                    Some(n) => { ui.label(RichText::new(crate::i18n::trf("The high poly has {} vertex color set(s).", &[&n])).small().color(theme::TEXT_FAINT())); }
                     None => {}
                 }
             }
@@ -1532,7 +1532,7 @@ fn common_settings(ui: &mut egui::Ui, b: &mut BakeUi, f: &BakeFrame, bake_match:
     // Maps below the texture set's resolution look blocky: default to the largest ticked set.
     let target_res = f.sets.iter().filter(|s| !b.skip_sets.contains(&s.0)).map(|s| s.3).max().unwrap_or(1024).clamp(256, 4096);
     // --- Models -------------------------------------------------------------------
-    card(ui, theme::ACCENT_DIM, |ui| {
+    card(ui, theme::ACCENT_DIM(), |ui| {
         ui.set_width(ui.available_width());
         card_title(ui, icons::CUBE, tr("Models"), |_| {});
         egui::Grid::new("bake_sources").num_columns(2).spacing([16.0, 12.0]).show(ui, |ui| {
@@ -1553,7 +1553,7 @@ fn common_settings(ui: &mut egui::Ui, b: &mut BakeUi, f: &BakeFrame, bake_match:
             if has_high { bake_match_rows(ui, bake_match); }
         });
         if b.preview_pending() { ui.add_space(4.0); ui.label(dim(tr("Loading high-poly preview…"))); }
-        if let Some(error) = &b.preview_error { ui.add_space(4.0); ui.add(egui::Label::new(RichText::new(error).color(theme::WARNING)).wrap()); }
+        if let Some(error) = &b.preview_error { ui.add_space(4.0); ui.add(egui::Label::new(RichText::new(error).color(theme::WARNING())).wrap()); }
         if has_high {
             let mut remove = None;
             for (i, path) in b.extra_high.iter().enumerate() {
@@ -1579,7 +1579,7 @@ fn common_settings(ui: &mut egui::Ui, b: &mut BakeUi, f: &BakeFrame, bake_match:
     });
     // --- Placement ----------------------------------------------------------------
     if has_high {
-        card(ui, theme::ACCENT, |ui| {
+        card(ui, theme::ACCENT(), |ui| {
             ui.set_width(ui.available_width());
             card_title(ui, icons::SELECTION, tr("Placement"), |_| {});
             crate::placement::placement_section(ui, placement, f.low_box, f.high_box, &mut b.fit_mode, &mut b.high_opacity, &mut b.placement_message);
@@ -1644,7 +1644,7 @@ fn common_settings(ui: &mut egui::Ui, b: &mut BakeUi, f: &BakeFrame, bake_match:
         }
     });
     // --- Viewport -----------------------------------------------------------------
-    card(ui, theme::ACCENT_DIM, |ui| {
+    card(ui, theme::ACCENT_DIM(), |ui| {
         ui.set_width(ui.available_width());
         card_title(ui, icons::EYE, tr("Viewport"), |_| {});
         ui.horizontal(|ui| {
@@ -1684,7 +1684,7 @@ fn common_settings(ui: &mut egui::Ui, b: &mut BakeUi, f: &BakeFrame, bake_match:
                 (None, None) => String::new(),
             };
             if !text.is_empty() {
-                let color = if b.cage_result.as_ref().is_some_and(|r| r.missed > 0) && b.cage_job.is_none() { theme::WARNING } else { TEXT_DIM };
+                let color = if b.cage_result.as_ref().is_some_and(|r| r.missed > 0) && b.cage_job.is_none() { theme::WARNING() } else { TEXT_DIM() };
                 ui.add(egui::Label::new(egui::RichText::new(text).color(color)).wrap());
             }
             hint(ui, tr("Gray: rays reach the high poly · Red: rays miss it · Lower the high-poly opacity to see the heatmap underneath."));
@@ -1694,7 +1694,7 @@ fn common_settings(ui: &mut egui::Ui, b: &mut BakeUi, f: &BakeFrame, bake_match:
 
 /// Baking visualization settings: which meshes the overlay draws, and in which colours.
 fn visualization_settings(ui: &mut egui::Ui, b: &mut BakeUi) {
-    egui::CollapsingHeader::new(RichText::new(tr("Visualization settings")).color(TEXT_DIM)).id_salt("bake_vis").default_open(false).show(ui, |ui| {
+    egui::CollapsingHeader::new(RichText::new(tr("Visualization settings")).color(TEXT_DIM())).id_salt("bake_vis").default_open(false).show(ui, |ui| {
         let mut hide = !b.preview;
         if ui.checkbox(&mut hide, tr("Hide baking meshes")).on_hover_text(tr("Show the model as it is painted instead of the high / low overlay")).changed() {
             b.preview = !hide;
@@ -1711,7 +1711,7 @@ fn visualization_settings(ui: &mut egui::Ui, b: &mut BakeUi) {
             };
             color_row(ui, Some(&mut b.vis.show_high), tr("High poly mesh"), &mut b.vis.high_color);
             color_row(ui, Some(&mut b.vis.show_low), tr("Project mesh"), &mut b.vis.low_color);
-            ui.label(RichText::new(tr("The project mesh shows where the high poly does not cover it: its color marks the matching errors.")).small().color(theme::TEXT_FAINT));
+            ui.label(RichText::new(tr("The project mesh shows where the high poly does not cover it: its color marks the matching errors.")).small().color(theme::TEXT_FAINT()));
             color_row(ui, Some(&mut b.cage), tr("Cage wireframe"), &mut b.vis.cage_color);
             crate::widgets::slider_row(ui, tr("Cage wireframe opacity"), egui::Slider::new(&mut b.vis.cage_opacity, 0.0..=1.0));
             color_row(ui, Some(&mut b.vis.show_cage_surface), tr("Cage surface"), &mut b.vis.cage_surface_color);
@@ -1729,7 +1729,7 @@ fn visualization_settings(ui: &mut egui::Ui, b: &mut BakeUi) {
                 };
                 let warn = b.seam_edges.as_ref().is_some_and(|(_, e)| !e.is_empty());
                 if !text.is_empty() {
-                    ui.add(egui::Label::new(RichText::new(text).small().color(if warn { theme::WARNING } else { theme::TEXT_FAINT })).wrap());
+                    ui.add(egui::Label::new(RichText::new(text).small().color(if warn { theme::WARNING() } else { theme::TEXT_FAINT() })).wrap());
                 }
             }
             // The color buttons round a color in its last bits each frame: compare with a tolerance.
@@ -1748,7 +1748,7 @@ fn visualization_settings(ui: &mut egui::Ui, b: &mut BakeUi) {
 fn bake_log_panel(ui: &mut egui::Ui, b: &mut BakeUi, f: &BakeFrame) {
     use crate::icons;
     ui.horizontal_wrapped(|ui| {
-        ui.label(RichText::new(tr("Baking log").to_uppercase()).font(theme::font_strong(11.5)).color(TEXT_DIM));
+        ui.label(RichText::new(tr("Baking log").to_uppercase()).font(theme::font_strong(11.5)).color(TEXT_DIM()));
         ui.add_space(12.0);
         for (tab, label) in [(BakeLogTab::Process, tr("Baking process")), (BakeLogTab::HighPoly, tr("High poly parameters")), (BakeLogTab::Matching, tr("Matching by name"))] {
             if ui.selectable_label(b.log_tab == tab, label).clicked() { b.log_tab = tab; }
@@ -1756,7 +1756,7 @@ fn bake_log_panel(ui: &mut egui::Ui, b: &mut BakeUi, f: &BakeFrame) {
     });
     ui.add_space(4.0);
     let warning = |ui: &mut egui::Ui, text: &str| {
-        ui.add(egui::Label::new(RichText::new(format!("{}  {text}", icons::WARNING)).color(theme::WARNING)).wrap());
+        ui.add(egui::Label::new(RichText::new(format!("{}  {text}", icons::WARNING)).color(theme::WARNING())).wrap());
     };
     egui::ScrollArea::vertical().id_salt("bake_log_tab").auto_shrink([false, false]).show(ui, |ui| match b.log_tab {
         BakeLogTab::Process => {
@@ -1764,8 +1764,8 @@ fn bake_log_panel(ui: &mut egui::Ui, b: &mut BakeUi, f: &BakeFrame) {
                 ui.label(dim(&job.stage()));
             } else if let Some(result) = &b.result {
                 match result {
-                    Ok(n) => { ui.label(RichText::new(format!("{}  {}", icons::CHECK, crate::i18n::trf("Bake complete: {} texture set(s)", &[n]))).color(crate::bake_view::OK_GREEN)); }
-                    Err(e) => { ui.add(egui::Label::new(RichText::new(format!("{}  {}: {e}", icons::WARNING, tr("Bake failed"))).color(theme::WARNING)).wrap()); }
+                    Ok(n) => { ui.label(RichText::new(format!("{}  {}", icons::CHECK, crate::i18n::trf("Bake complete: {} texture set(s)", &[n]))).color(crate::bake_view::OK_GREEN())); }
+                    Err(e) => { ui.add(egui::Label::new(RichText::new(format!("{}  {}: {e}", icons::WARNING, tr("Bake failed"))).color(theme::WARNING())).wrap()); }
                 }
             } else if b.map_rows.is_empty() && b.log.is_empty() {
                 ui.label(dim(tr("Nothing baked yet in this session.")));
@@ -1817,7 +1817,7 @@ fn bake_log_section(ui: &mut egui::Ui, lines: &[subcraft_app::BakeLogLine]) {
     if lines.is_empty() { return; }
     let problems = lines.iter().filter(|l| l.level != BakeLogLevel::Info).count();
     let title = if problems == 0 { tr("Details").to_string() } else { format!("{} ({problems} warning(s) or error(s))", tr("Details")) };
-    egui::CollapsingHeader::new(RichText::new(title).color(TEXT_DIM)).id_salt("bake_log").default_open(false).show(ui, |ui| {
+    egui::CollapsingHeader::new(RichText::new(title).color(TEXT_DIM())).id_salt("bake_log").default_open(false).show(ui, |ui| {
         if ui.small_button(tr("Copy log")).on_hover_text(tr("Copies the whole log as plain text")).clicked() {
             ui.ctx().copy_text(subcraft_app::bake_log_text(lines));
         }
@@ -1825,9 +1825,9 @@ fn bake_log_section(ui: &mut egui::Ui, lines: &[subcraft_app::BakeLogLine]) {
             for line in lines {
                 let text = RichText::new(line.plain()).monospace().size(11.0);
                 let text = match line.level {
-                    BakeLogLevel::Info => text.color(theme::TEXT_DIM),
-                    BakeLogLevel::Warning => text.color(theme::WARNING),
-                    BakeLogLevel::Error => text.color(egui::Color32::from_rgb(235, 100, 100)),
+                    BakeLogLevel::Info => text.color(theme::TEXT_DIM()),
+                    BakeLogLevel::Warning => text.color(theme::WARNING()),
+                    BakeLogLevel::Error => text.color(theme::ERROR()),
                 };
                 ui.add(egui::Label::new(text).wrap());
             }

@@ -53,7 +53,7 @@ pub fn show(ctx: &egui::Context, intro: &mut Option<Intro>) {
             // Swallow clicks while the overlay is up.
             let (rect, _) = ui.allocate_exact_size(screen.size(), egui::Sense::click_and_drag());
             let p = ui.painter();
-            p.rect_filled(rect, 0.0, theme::BG_0.gamma_multiply(overlay));
+            p.rect_filled(rect, 0.0, theme::BG_0().gamma_multiply(overlay));
             let side = 112.0;
             let center = rect.center() - egui::vec2(0.0, 18.0);
             let logo_rect = egui::Rect::from_center_size(center, egui::vec2(side, side));
@@ -63,7 +63,7 @@ pub fn show(ctx: &egui::Context, intro: &mut Option<Intro>) {
                 egui::Align2::CENTER_CENTER,
                 "SubCraft",
                 theme::font_strong(22.0),
-                theme::TEXT.gamma_multiply(logo),
+                theme::TEXT().gamma_multiply(logo),
             );
         });
     ctx.request_repaint();

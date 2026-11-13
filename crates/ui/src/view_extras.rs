@@ -244,7 +244,7 @@ pub fn wireframe_control(ui: &mut Ui, prefs: &mut ViewportPrefs) {
         prefs.wireframe = !prefs.wireframe;
     }
     egui::Popup::context_menu(&response).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
-        ui.label(RichText::new("Polygon wireframe").color(TEXT_DIM));
+        ui.label(RichText::new("Polygon wireframe").color(TEXT_DIM()));
         ui.checkbox(&mut prefs.wireframe, "Show wireframe");
         ui.horizontal(|ui| {
             ui.label("Color");

@@ -157,7 +157,7 @@ fn drag_names_both_directions_and_domains_selects_the_moved_effect_with_one_undo
         let hover = frame(&mut state, &ctx, vec![Event::PointerMoved(end)]);
         assert_eq!(state.session.document(), &original);
         assert_eq!(state.session.history().entries().len(), history);
-        assert!(hover.shapes.iter().any(|s|matches!(&s.shape,egui::Shape::LineSegment {stroke,..} if stroke.width==2.0 && stroke.color==theme::ACCENT)),"insertion line must be visible");
+        assert!(hover.shapes.iter().any(|s|matches!(&s.shape,egui::Shape::LineSegment {stroke,..} if stroke.width==2.0 && stroke.color==theme::ACCENT())),"insertion line must be visible");
         frame(&mut state, &ctx, vec![button(end, false)]);
         assert_eq!(order(&state, mask), [ids[1], ids[2], ids[0]]);
         assert_eq!(state.session.selected_effect(), Some(ids[0]));

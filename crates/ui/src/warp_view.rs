@@ -300,15 +300,15 @@ pub fn overlay(state: &UiState, ui: &Ui, painter: &egui::Painter, rect: Rect, pi
         let Some(p) = *p else { continue };
         let selected = edit && state.warp.selection.contains(&i);
         let r = if edit { radius } else { radius * 0.7 };
-        painter.circle_filled(p, r, if selected { ACCENT } else { Color32::from_black_alpha(150) });
+        painter.circle_filled(p, r, if selected { ACCENT() } else { Color32::from_black_alpha(150) });
         painter.circle_stroke(p, r, Stroke::new(1.5, if selected { Color32::WHITE } else { color }));
     }
     if let Some(Gesture::Rect { from, .. }) = ui.data(|d| d.get_temp::<Gesture>(gesture_id()))
         && let Some(to) = ui.input(|i| i.pointer.hover_pos())
     {
         let r = Rect::from_two_pos(from, to);
-        painter.rect_filled(r, 0.0, ACCENT.gamma_multiply(0.08));
-        painter.rect_stroke(r, 0.0, Stroke::new(1.0, ACCENT), egui::StrokeKind::Inside);
+        painter.rect_filled(r, 0.0, ACCENT().gamma_multiply(0.08));
+        painter.rect_stroke(r, 0.0, Stroke::new(1.0, ACCENT()), egui::StrokeKind::Inside);
     }
     let mode = if edit { "Warp · Edit vertices (Shift+V: Transform warp)" } else { "Warp · Transform warp: drag a point to move the grid (Shift+V: Edit vertices)" };
     let pos = rect.center_bottom() - egui::vec2(0.0, 42.0);

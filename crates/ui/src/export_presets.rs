@@ -188,7 +188,7 @@ fn template_row(ui: &mut Ui, p: &ExportTemplate, key: &mut String, action: &mut 
 }
 
 fn dim(text: &str) -> RichText {
-    RichText::new(text).color(TEXT_DIM)
+    RichText::new(text).color(TEXT_DIM())
 }
 
 /// Painter's template list (the Output templates tab's left column): built-ins, then My presets.
@@ -337,7 +337,7 @@ pub fn preset_bar(ui: &mut Ui, presets: &mut ExportPresets, key: &mut String, ed
     }
     if let Some(id) = ed.confirm_delete.clone() {
         ui.horizontal(|ui| {
-            ui.label(RichText::new(format!("Delete preset \"{}\"? This removes its file from the library.", current.name)).color(theme::WARNING));
+            ui.label(RichText::new(format!("Delete preset \"{}\"? This removes its file from the library.", current.name)).color(theme::WARNING()));
             if ui.button(tr("Delete")).clicked() {
                 status = Some(match presets.delete(&id) {
                     Ok(()) => {
@@ -404,7 +404,7 @@ pub fn preset_editor(ui: &mut Ui, presets: &mut ExportPresets, key: &str, ed: &m
         ui.vertical(|ui| {
             ui.set_width(220.0);
             ui.label(caption(&format!("Output maps ({})", draft.maps.len())));
-            egui::Frame::new().fill(theme::FIELD).inner_margin(egui::Margin::same(4)).show(ui, |ui| {
+            egui::Frame::new().fill(theme::FIELD()).inner_margin(egui::Margin::same(4)).show(ui, |ui| {
                 egui::ScrollArea::vertical().id_salt("preset_maps").max_height(300.0).show(ui, |ui| {
                     ui.set_min_width(212.0);
                     for (i, m) in draft.maps.iter().enumerate() {
@@ -469,7 +469,7 @@ pub fn preset_editor(ui: &mut Ui, presets: &mut ExportPresets, key: &str, ed: &m
         }
     });
     if let Some(e) = &ed.error {
-        ui.label(RichText::new(e).color(theme::WARNING));
+        ui.label(RichText::new(e).color(theme::WARNING()));
     }
     if editable && Some(&draft) != ed.draft.as_ref() {
         draft.name = current.name.clone();
@@ -530,7 +530,7 @@ fn map_editor(ui: &mut Ui, map: &mut OutputMap, mesh: &str, pending: &mut Option
                 ..Default::default()
             };
             let name = subcraft_export::expand_pattern_with(&pattern, &vars);
-            ui.label(RichText::new(format!("{name}.{}", map.format.extension())).monospace().small().color(TEXT_DIM));
+            ui.label(RichText::new(format!("{name}.{}", map.format.extension())).monospace().small().color(TEXT_DIM()));
         });
         ui.end_row();
         ui.label(dim("Format"));
@@ -581,12 +581,12 @@ fn map_editor(ui: &mut Ui, map: &mut OutputMap, mesh: &str, pending: &mut Option
             let group = rgb && i == 0;
             let slot_label = if group { "RGB" } else { names[i] };
             // The slot name is the drop target for the source lists.
-            let target = egui::Frame::new().fill(theme::FIELD).inner_margin(egui::Margin::symmetric(6, 2)).show(ui, |ui| {
+            let target = egui::Frame::new().fill(theme::FIELD()).inner_margin(egui::Margin::symmetric(6, 2)).show(ui, |ui| {
                 ui.label(RichText::new(slot_label).strong().color(slot_color(names[i])));
             });
             let r = ui.interact(target.response.rect, ui.id().with(("slot", i)), egui::Sense::hover());
             if r.dnd_hover_payload::<SourceItem>().is_some() {
-                ui.painter().rect_stroke(target.response.rect, 2.0, egui::Stroke::new(1.5, theme::ACCENT), egui::StrokeKind::Outside);
+                ui.painter().rect_stroke(target.response.rect, 2.0, egui::Stroke::new(1.5, theme::ACCENT()), egui::StrokeKind::Outside);
             }
             if let Some(item) = r.dnd_release_payload::<SourceItem>() {
                 let item = *item;
@@ -601,7 +601,7 @@ fn map_editor(ui: &mut Ui, map: &mut OutputMap, mesh: &str, pending: &mut Option
             }
             if group {
                 let label = SourceItem::of_rgb(&map.components[..3]).map_or_else(|| "empty: drag a source here".to_string(), |s| s.label());
-                ui.label(RichText::new(label).color(TEXT_DIM));
+                ui.label(RichText::new(label).color(TEXT_DIM()));
                 ui.label("");
                 ui.label("");
                 ui.label("");
@@ -656,7 +656,7 @@ fn slot_color(slot: &str) -> egui::Color32 {
         "R" => egui::Color32::from_rgb(230, 110, 110),
         "G" => egui::Color32::from_rgb(120, 200, 120),
         "B" => egui::Color32::from_rgb(120, 150, 240),
-        _ => TEXT_DIM,
+        _ => TEXT_DIM(),
     }
 }
 

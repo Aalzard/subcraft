@@ -60,7 +60,7 @@ pub fn tick(state: &mut UiState, ctx: &egui::Context) {
                 Phase::Prepared { .. } => { ui.label(if !can_restart { "Waiting for your current work to finish…" } else { "Download verified. Ready to update and restart." }); if ui.button("Update and restart").clicked() { updater.auto_install = true; } },
                 Phase::Preparing => { ui.spinner(); ui.label("Preserving your project and preparing the restart…"); },
                 Phase::Exiting => { ui.label("Restarting SubCraft…"); },
-                Phase::Error(error) => { ui.add(egui::Label::new(egui::RichText::new(error).color(crate::theme::TEXT)).wrap()); if ui.button("Try again").clicked() { updater.check(); } },
+                Phase::Error(error) => { ui.add(egui::Label::new(egui::RichText::new(error).color(crate::theme::TEXT())).wrap()); if ui.button("Try again").clicked() { updater.check(); } },
             }
         };
         if modal { egui::Modal::new(egui::Id::new("update-restart")).show(ctx, contents); }
@@ -100,11 +100,11 @@ fn callout(ctx: &egui::Context, anchor: egui::Rect, version: &str) -> Option<boo
     let top = anchor.bottom() + 10.0;
     let mut choice = None;
     let area = egui::Area::new(egui::Id::new("update_callout")).order(Order::Foreground).fixed_pos(egui::pos2(x, top)).show(ctx, |ui| {
-        egui::Frame::new().fill(BG_2).stroke(Stroke::new(1.0, ACCENT)).inner_margin(egui::Margin::same(12)).show(ui, |ui| {
+        egui::Frame::new().fill(BG_2()).stroke(Stroke::new(1.0, ACCENT())).inner_margin(egui::Margin::same(12)).show(ui, |ui| {
             ui.set_width(WIDTH - 26.0);
-            ui.label(RichText::new(format!("{}  Version {version} is available", crate::icons::DOWNLOAD)).font(theme::font_strong(13.0)).color(TEXT));
+            ui.label(RichText::new(format!("{}  Version {version} is available", crate::icons::DOWNLOAD)).font(theme::font_strong(13.0)).color(TEXT()));
             ui.add_space(2.0);
-            ui.label(RichText::new("Click Update to install it. SubCraft restarts and keeps your project.").color(TEXT_DIM));
+            ui.label(RichText::new("Click Update to install it. SubCraft restarts and keeps your project.").color(TEXT_DIM()));
             ui.add_space(6.0);
             ui.horizontal(|ui| {
                 if crate::widgets::primary_button(ui, "Update now").clicked() {
@@ -122,8 +122,8 @@ fn callout(ctx: &egui::Context, anchor: egui::Rect, version: &str) -> Option<boo
     let painter = ctx.layer_painter(egui::LayerId::new(Order::Foreground, egui::Id::new("update_callout_arrow")));
     painter.add(egui::Shape::convex_polygon(
         vec![tip, egui::pos2(tip.x + 8.0, base), egui::pos2(tip.x - 8.0, base)],
-        BG_2,
-        Stroke::new(1.0, ACCENT),
+        BG_2(),
+        Stroke::new(1.0, ACCENT()),
     ));
     choice
 }

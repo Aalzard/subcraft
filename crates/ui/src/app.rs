@@ -972,6 +972,7 @@ impl SubcraftApp {
             state.recovery.prefs.use_gpu_baking = false;
         }
         state.recovery.prefs.apply_ui_size(&cc.egui_ctx);
+        theme::set(&cc.egui_ctx, state.recovery.prefs.theme);
         crate::i18n::sync(&cc.egui_ctx, state.recovery.prefs.language);
         subcraft_compositor::gpu::set_gpu_compositing_enabled(state.recovery.prefs.use_gpu_compositing && !subcraft_app::safe_mode::is_active());
         state.recovery.show_prefs = options.preferences;
@@ -1287,7 +1288,7 @@ impl SubcraftApp {
         let mut viewer = Viewer { state: &mut self.state, was_active: &self.active_tabs, active: HashSet::new() };
         // Tab hides the panels: only the views are laid out, in the arrangement of the full layout.
         let mut views = hidden.then(|| views_only(&self.dock));
-        egui::Frame::new().fill(theme::BG_0).inner_margin(egui::Margin { left: 3, right: 0, top: 3, bottom: 0 }).show(ui, |ui| {
+        egui::Frame::new().fill(theme::BG_0()).inner_margin(egui::Margin { left: 3, right: 0, top: 3, bottom: 0 }).show(ui, |ui| {
             let dock = views.as_mut().unwrap_or(&mut self.dock);
             DockArea::new(dock).style(style).show_close_buttons(true).show_leaf_close_all_buttons(false).show_leaf_collapse_buttons(false).show_inside(ui, &mut viewer);
         });
@@ -1575,7 +1576,7 @@ impl SubcraftApp {
             let (r, _) = ui.allocate_exact_size(egui::vec2(BRAND_MARK_SIZE, BRAND_MARK_SIZE), egui::Sense::hover());
             let mark = theme::brand_mark(ui.ctx());
             ui.painter().image(mark.id(), r, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), egui::Color32::WHITE);
-            ui.label(RichText::new(tr("SubCraft")).font(theme::font_strong(14.0)).color(theme::TEXT));
+            ui.label(RichText::new(tr("SubCraft")).font(theme::font_strong(14.0)).color(theme::TEXT()));
             ui.add_space(10.0);
             self.menu(ui)
         }).inner;
@@ -1585,7 +1586,7 @@ impl SubcraftApp {
             let title = dialogs::title(&self.state);
             let name = title.trim_start_matches("SubCraft — ");
             let center = egui::pos2(bar.center().x.clamp(title_rect.left(), title_rect.right()), bar.center().y);
-            ui.painter().with_clip_rect(title_rect.intersect(ui.clip_rect())).text(center, egui::Align2::CENTER_CENTER, name, theme::font(12.5), theme::TEXT_FAINT);
+            ui.painter().with_clip_rect(title_rect.intersect(ui.clip_rect())).text(center, egui::Align2::CENTER_CENTER, name, theme::font(12.5), theme::TEXT_FAINT());
         }
     }
 
@@ -2028,17 +2029,17 @@ impl SubcraftApp {
                 Tool::Pen => (icons::CURVE, "Pen paths"),
             };
             let small = |t: String, c| RichText::new(t).font(theme::font(11.5)).color(c);
-            ui.label(small(format!("{icon}  {tool}"), theme::ACCENT));
+            ui.label(small(format!("{icon}  {tool}"), theme::ACCENT()));
             let size = if self.state.tool == Tool::Pen {
                 self.state.pen.preview(&self.state.session).map_or_else(|| "Click to start a path".into(), |p| format!("Width {:.2}% UV", p.radius * 200.0))
             } else { format!("Size {:.1}%", self.state.session.brush.settings.size) };
-            ui.label(small(size, theme::TEXT_DIM));
+            ui.label(small(size, theme::TEXT_DIM()));
             if let Some(l) = self.state.session.selected_layer() {
-                ui.add(egui::Label::new(small(format!("{}  {} / {}", icons::STACK, self.state.session.selected_texture_set().name, l.name), theme::TEXT_DIM)).truncate());
+                ui.add(egui::Label::new(small(format!("{}  {} / {}", icons::STACK, self.state.session.selected_texture_set().name, l.name), theme::TEXT_DIM())).truncate());
             }
             if let Some(import) = &self.state.spp_import {
                 let (text, fraction) = import.progress();
-                ui.add(egui::Label::new(small(format!("{}  {text}", icons::INFO), theme::ACCENT)).truncate());
+                ui.add(egui::Label::new(small(format!("{}  {text}", icons::INFO), theme::ACCENT())).truncate());
                 ui.add(egui::ProgressBar::new(fraction.unwrap_or(0.0)).desired_width(120.0).animate(fraction.is_none()));
                 if ui.small_button(tr("Cancel")).clicked() {
                     import.cancel();
@@ -2047,21 +2048,21 @@ impl SubcraftApp {
             if let Some((msg, t)) = &self.state.status
                 && now - t < 6.0
             {
-                ui.add(egui::Label::new(small(format!("{}  {msg}", icons::INFO), theme::WARNING)).truncate()).on_hover_text(msg.as_str());
+                ui.add(egui::Label::new(small(format!("{}  {msg}", icons::INFO), theme::WARNING())).truncate()).on_hover_text(msg.as_str());
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label(small(format!("{:.1} ms", self.state.frame_time_ms), theme::TEXT_FAINT));
+                ui.label(small(format!("{:.1} ms", self.state.frame_time_ms), theme::TEXT_FAINT()));
                 let rec = &self.state.recovery;
                 if rec.autosaver.is_saving() {
-                    ui.label(small(format!("{}  Autosaving…", icons::SAVE), theme::TEXT_FAINT));
+                    ui.label(small(format!("{}  Autosaving…", icons::SAVE), theme::TEXT_FAINT()));
                 } else if let Some(t) = rec.last_saved {
                     let mins = t.elapsed().map_or(0, |d| d.as_secs() / 60);
                     let when = if mins == 0 { "just now".to_string() } else { format!("{mins} min ago") };
-                    ui.label(small(format!("{}  Autosaved {when}", icons::SAVE), theme::TEXT_FAINT))
+                    ui.label(small(format!("{}  Autosaved {when}", icons::SAVE), theme::TEXT_FAINT()))
                         .on_hover_text(rec.autosaver.live().map(|l| format!("Recovery copies: {}", l.dir().display())).unwrap_or_default());
                 }
                 let mesh = &self.state.session.scene().mesh;
-                ui.label(small(format!("{} tris", mesh.triangle_count()), theme::TEXT_FAINT));
+                ui.label(small(format!("{} tris", mesh.triangle_count()), theme::TEXT_FAINT()));
             });
         });
     }
@@ -2136,7 +2137,7 @@ impl SubcraftApp {
 
 fn rail_divider(ui: &mut Ui) {
     let (r, _) = ui.allocate_exact_size(egui::vec2(24.0, 1.0), egui::Sense::hover());
-    ui.painter().hline(r.x_range(), r.center().y, egui::Stroke::new(1.0, theme::BORDER_STRONG));
+    ui.painter().hline(r.x_range(), r.center().y, egui::Stroke::new(1.0, theme::BORDER_STRONG()));
 }
 
 /// Take a plain Tab press out of the input when no text field has the keyboard: Tab is a
@@ -2238,7 +2239,7 @@ impl egui_dock::TabViewer for Viewer<'_> {
         if self.was_active.contains(tab) {
             let r = response.rect;
             let painter = response.ctx.layer_painter(response.layer_id);
-            painter.rect_filled(egui::Rect::from_min_size(r.min, egui::vec2(r.width(), 2.0)), 0.0, theme::ACCENT);
+            painter.rect_filled(egui::Rect::from_min_size(r.min, egui::vec2(r.width(), 2.0)), 0.0, theme::ACCENT());
         }
     }
 
@@ -2337,6 +2338,8 @@ impl eframe::App for SubcraftApp {
             p.ui_begin(&mut self.state, &ctx);
         }
         self.state.recovery.prefs.apply_ui_size(&ctx);
+        // Settings > General > Theme applies on the next frame.
+        theme::follow(&ctx, self.state.recovery.prefs.theme);
         // The contextual toolbar's Viewport Mode dropdown asks; the docks live here.
         if let Some(layout) = self.state.view_layout_request.take() {
             apply_view_layout(&mut self.dock, layout);
@@ -2425,19 +2428,19 @@ impl eframe::App for SubcraftApp {
         }
         let bar = |fill| egui::Frame::new().fill(fill).inner_margin(egui::Margin::symmetric(12, 0));
         egui::Panel::top("header").exact_size(44.0).show_separator_line(false)
-            .frame(egui::Frame::new().fill(theme::BG_2).inner_margin(egui::Margin { left: 12, right: if crate::window_frame::frameless() { 0 } else { 12 }, top: 0, bottom: 0 }))
+            .frame(egui::Frame::new().fill(theme::BG_2()).inner_margin(egui::Margin { left: 12, right: if crate::window_frame::frameless() { 0 } else { 12 }, top: 0, bottom: 0 }))
             .show(ui, |ui| self.header_bar(ui));
         // Tab (Hide UI) leaves the menu bar and the views.
         let (rail, status) = (self.state.recovery.prefs.show_tools_toolbar, self.state.recovery.prefs.show_status_bar);
         if !self.state.hide_ui && status {
-            egui::Panel::bottom("status").exact_size(26.0).show_separator_line(false).frame(bar(theme::BG_0)).show(ui, |ui| self.status_bar(ui));
+            egui::Panel::bottom("status").exact_size(26.0).show_separator_line(false).frame(bar(theme::BG_0())).show(ui, |ui| self.status_bar(ui));
         }
         if !self.state.hide_ui && rail && !self.state.bake.open {
             egui::Panel::left("tools")
                 .exact_size(48.0)
                 .resizable(false)
                 .show_separator_line(false)
-                .frame(egui::Frame::new().fill(theme::BG_2).inner_margin(egui::Margin::symmetric(4, 0)))
+                .frame(egui::Frame::new().fill(theme::BG_2()).inner_margin(egui::Margin::symmetric(4, 0)))
                 .show(ui, |ui| self.tool_rail(ui));
         }
         self.mark("bars");

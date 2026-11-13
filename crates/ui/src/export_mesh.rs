@@ -29,7 +29,7 @@ impl Default for ExportMeshUi {
 }
 
 fn dim(text: &str) -> RichText {
-    RichText::new(text).color(TEXT_DIM)
+    RichText::new(text).color(TEXT_DIM())
 }
 
 pub fn export_mesh_window(state: &mut UiState, ctx: &egui::Context, now: f64) {

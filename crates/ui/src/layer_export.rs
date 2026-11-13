@@ -46,7 +46,7 @@ impl LayerExportUi {
 }
 
 fn dim(text: &str) -> RichText {
-    RichText::new(text).color(TEXT_DIM)
+    RichText::new(text).color(TEXT_DIM())
 }
 
 pub fn layer_export_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
@@ -82,7 +82,7 @@ pub fn layer_export_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
                         Some(k) => preview_name(&e.pattern, set, layer, k),
                         None => preview_name(&e.pattern, set, layer, ChannelKind::BaseColor).replace("BaseColor", "mask"),
                     };
-                    ui.label(RichText::new(name).monospace().small().color(TEXT_DIM));
+                    ui.label(RichText::new(name).monospace().small().color(TEXT_DIM()));
                 }
             });
             ui.end_row();

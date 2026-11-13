@@ -38,7 +38,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             }
             ui.end_row();
             ui.label(tr("Used by"));
-            ui.label(RichText::new(users.join(", ")).color(TEXT_DIM)).on_hover_text(tr("Texture sets drawn with this shader instance"));
+            ui.label(RichText::new(users.join(", ")).color(TEXT_DIM())).on_hover_text(tr("Texture sets drawn with this shader instance"));
             ui.end_row();
         });
         ui.add_space(4.0);
@@ -49,7 +49,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             state.session.restore_shader_defaults(instance.id);
         }
         ui.add_space(6.0);
-        ui.label(RichText::new(tr("COMMON PARAMETERS")).font(theme::font_strong(11.0)).color(TEXT_DIM));
+        ui.label(RichText::new(tr("COMMON PARAMETERS")).font(theme::font_strong(11.0)).color(TEXT_DIM()));
         let mut p = instance.params;
         egui::Grid::new("shader_settings_common").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
             ui.label(tr("AO Intensity"));
@@ -66,7 +66,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             state.session.set_shader_params(instance.id, p);
         }
         ui.add_space(8.0);
-        ui.label(RichText::new(tr("New instances and which instance a texture set uses: the shader button of the Texture Set List or Texture Set Settings.")).small().color(TEXT_DIM));
+        ui.label(RichText::new(tr("New instances and which instance a texture set uses: the shader button of the Texture Set List or Texture Set Settings.")).small().color(TEXT_DIM()));
     });
 }
 

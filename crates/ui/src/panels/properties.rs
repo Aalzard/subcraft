@@ -38,7 +38,7 @@ pub fn shows_brush(state: &UiState) -> bool {
 pub fn show_docked(state: &mut UiState, ui: &mut Ui) {
     if state.view_props.is_some() {
         ui.add_space(8.0);
-        ui.label(RichText::new(tr("Shown in the popup over the view (Esc closes it)")).color(TEXT_DIM));
+        ui.label(RichText::new(tr("Shown in the popup over the view (Esc closes it)")).color(TEXT_DIM()));
         return;
     }
     show(state, ui);
@@ -83,7 +83,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 LayerContent::Fill(_) => icons::PAINT_BUCKET,
                 LayerContent::Group(_) => icons::FOLDER_OPEN,
             };
-            ui.label(RichText::new(icon).font(theme::font(18.0)).color(ACCENT));
+            ui.label(RichText::new(icon).font(theme::font(18.0)).color(ACCENT()));
             fill_width(ui);
             let buf = match &mut state.rename {
                 Some((lid, s)) if *lid == id => s,
@@ -217,7 +217,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     } else {
                         ui.horizontal_wrapped(|ui| {
                             for k in p.channels.keys() {
-                                crate::widgets::badge(ui, k.display_name(), TEXT_DIM);
+                                crate::widgets::badge(ui, k.display_name(), TEXT_DIM());
                             }
                         });
                     }
@@ -241,7 +241,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             }
             LayerContent::Group(g) => {
                 section(ui, "folder", tr("Folder"), true, |ui| {
-                    ui.label(RichText::new(format!("{} layers inside", g.children.len())).color(TEXT_DIM));
+                    ui.label(RichText::new(format!("{} layers inside", g.children.len())).color(TEXT_DIM()));
                 });
             }
             LayerContent::Fill(f) => {
@@ -276,7 +276,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         // The channel's image slot: its texture, or an empty "+" box to click or drop on.
                         let bitmap = match ch.source { FillSource::Bitmap { resource } => Some(resource), _ => None };
                         if map_slot(ui, state, bitmap, *kind).clicked() { pick_image = true; }
-                        ui.label(RichText::new(kind.display_name()).font(theme::font_strong(13.0)).color(theme::TEXT));
+                        ui.label(RichText::new(kind.display_name()).font(theme::font_strong(13.0)).color(theme::TEXT()));
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             let current = match ch.source {
                                 FillSource::Uniform { .. } => 0,
@@ -342,12 +342,12 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     // Drag a texture from Shelf → Textures onto this row to use it here.
                     let is_texture = |d: &crate::panels::shelf::ShelfDrag| matches!(d, crate::panels::shelf::ShelfDrag::Texture(_)|crate::panels::shelf::ShelfDrag::Starter(_));
                     if row.response.dnd_hover_payload::<crate::panels::shelf::ShelfDrag>().is_some_and(|d| is_texture(&d)) {
-                        ui.painter().rect_stroke(row.response.rect, 0.0, egui::Stroke::new(1.5, ACCENT), egui::StrokeKind::Inside);
+                        ui.painter().rect_stroke(row.response.rect, 0.0, egui::Stroke::new(1.5, ACCENT()), egui::StrokeKind::Inside);
                     }
                     // A file dragged in from the system file browser onto this channel's row.
                     let over_row = ui.ctx().input(|i| i.pointer.latest_pos()).is_some_and(|p| row.response.rect.contains(p));
                     if over_row && ui.ctx().input(|i| !i.raw.hovered_files.is_empty()) {
-                        ui.painter().rect_stroke(row.response.rect, 0.0, egui::Stroke::new(1.5, ACCENT), egui::StrokeKind::Inside);
+                        ui.painter().rect_stroke(row.response.rect, 0.0, egui::Stroke::new(1.5, ACCENT()), egui::StrokeKind::Inside);
                     }
                     if over_row && let Some(path) = ui.ctx().input(|i| i.raw.dropped_files.first().map(|f| f.path().to_path_buf())).filter(|p| !p.as_os_str().is_empty()) {
                         state.drops_taken = true;
@@ -697,7 +697,7 @@ fn editor_blend_row(ui: &mut Ui, id: &str, mode: &mut subcraft_doc::BlendMode) -
 }
 
 fn editor_group<R>(ui: &mut Ui, title: &'static str, body: impl FnOnce(&mut Ui) -> R) -> Option<R> {
-    egui::CollapsingHeader::new(RichText::new(tr(title)).font(theme::font_strong(12.0)).color(theme::TEXT)).id_salt(("mask_editor_group", title)).default_open(false).show(ui, body).body_returned
+    egui::CollapsingHeader::new(RichText::new(tr(title)).font(theme::font_strong(12.0)).color(theme::TEXT())).id_salt(("mask_editor_group", title)).default_open(false).show(ui, body).body_returned
 }
 
 /// Painter's Mask Editor: the four global controls, one opacity per contribution, then one
@@ -900,14 +900,14 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
     let mut eff = (**e).clone();
     let default_name = eff.name == eff.kind.label();
     let mut changed = false;
-    crate::widgets::card(ui, theme::ACCENT_DIM, |ui| {
+    crate::widgets::card(ui, theme::ACCENT_DIM(), |ui| {
         ui.horizontal(|ui| {
             let (icon, tip) = if eff.visible { (icons::EYE, "Hide effect") } else { (icons::EYE_SLASH, "Show effect") };
             if icon_button(ui, icon, tip).clicked() {
                 eff.visible = !eff.visible;
                 changed = true;
             }
-            ui.label(RichText::new(&eff.name).font(theme::font_strong(12.5)).color(if eff.visible { theme::TEXT } else { TEXT_FAINT }));
+            ui.label(RichText::new(&eff.name).font(theme::font_strong(12.5)).color(if eff.visible { theme::TEXT() } else { TEXT_FAINT() }));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if icon_button(ui, icons::X, "Remove effect").clicked() {
                     cmds.push(Command::RemoveMaskEffect { layer, effect: eff.id });
@@ -1160,7 +1160,7 @@ fn id_color_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_core::Layer
                 cmds.push(Command::SetIdColors { layer, effect, colors });
             }
         }
-        if id.colors.is_empty() { ui.label(RichText::new(tr("No colors picked")).font(theme::font(12.0)).color(TEXT_FAINT)); }
+        if id.colors.is_empty() { ui.label(RichText::new(tr("No colors picked")).font(theme::font(12.0)).color(TEXT_FAINT())); }
     });
     let active = state.picking_id_color == Some((layer, effect));
     let label = if active { "Picking: click the model (Esc to stop)" } else { "Pick from model" };
@@ -1251,7 +1251,7 @@ fn histogram_strip(ui: &mut Ui, bins: &[u32], r: subcraft_doc::LevelsRange) {
     let width = ui.available_width().min(320.0);
     let (rect, _) = ui.allocate_exact_size(egui::vec2(width, 48.0), egui::Sense::hover());
     let painter = ui.painter_at(rect);
-    painter.rect_filled(rect, 2.0, theme::FIELD);
+    painter.rect_filled(rect, 2.0, theme::FIELD());
     // Scale by the second-largest bin so one huge spike (a flat area) does not flatten the rest.
     let mut sorted: Vec<u32> = bins.to_vec();
     sorted.sort_unstable();
@@ -1260,16 +1260,16 @@ fn histogram_strip(ui: &mut Ui, bins: &[u32], r: subcraft_doc::LevelsRange) {
     for (i, &b) in bins.iter().enumerate() {
         let h = (b as f32 / top).min(1.0) * rect.height();
         let x = rect.left() + i as f32 * step;
-        painter.rect_filled(egui::Rect::from_min_max(egui::pos2(x, rect.bottom() - h), egui::pos2(x + step.max(1.0), rect.bottom())), 0.0, theme::TEXT_FAINT);
+        painter.rect_filled(egui::Rect::from_min_max(egui::pos2(x, rect.bottom() - h), egui::pos2(x + step.max(1.0), rect.bottom())), 0.0, theme::TEXT_FAINT());
     }
     let mark = |v: f32, color: egui::Color32| {
         let x = rect.left() + v.clamp(0.0, 1.0) * rect.width();
         painter.line_segment([egui::pos2(x, rect.top()), egui::pos2(x, rect.bottom())], egui::Stroke::new(1.0, color));
     };
-    mark(r.in_low, theme::TEXT);
-    mark(r.in_high, theme::TEXT);
+    mark(r.in_low, theme::TEXT());
+    mark(r.in_high, theme::TEXT());
     // The input value that maps to the output midpoint.
-    mark(r.in_low + (r.in_high - r.in_low) * 0.5f32.powf(r.gamma.max(1e-3)), theme::ACCENT);
+    mark(r.in_low + (r.in_high - r.in_low) * 0.5f32.powf(r.gamma.max(1e-3)), theme::ACCENT());
 }
 
 /// Painter's Compare Mask: channel, the left operand / operation / right operand row, then
@@ -1471,10 +1471,10 @@ fn map_slot(ui: &mut Ui, state: &mut UiState, resource: Option<subcraft_core::Re
     match thumb {
         Some(tex) => {
             painter.image(tex.id(), rect, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), egui::Color32::WHITE);
-            painter.rect_stroke(rect, 3.0, egui::Stroke::new(1.0, if hovered { ACCENT } else { theme::BORDER_STRONG }), egui::StrokeKind::Inside);
+            painter.rect_stroke(rect, 3.0, egui::Stroke::new(1.0, if hovered { ACCENT() } else { theme::BORDER_STRONG() }), egui::StrokeKind::Inside);
         }
         None => {
-            let color = if hovered { ACCENT } else { TEXT_DIM };
+            let color = if hovered { ACCENT() } else { TEXT_DIM() };
             let r = rect.shrink(1.0);
             // Dashed outline: four dashes per side.
             for (a, b) in [(r.left_top(), r.right_top()), (r.right_top(), r.right_bottom()), (r.right_bottom(), r.left_bottom()), (r.left_bottom(), r.left_top())] {
@@ -1495,7 +1495,7 @@ fn map_slot(ui: &mut Ui, state: &mut UiState, resource: Option<subcraft_core::Re
 
 pub(crate) fn image_row(ui: &mut Ui, state: &mut UiState, resource: subcraft_core::ResourceId) -> bool {
     let Some(r) = state.session.resources().get(resource).cloned() else {
-        ui.label(RichText::new(format!("{}  Image missing from the project", icons::WARNING)).color(theme::WARNING));
+        ui.label(RichText::new(format!("{}  Image missing from the project", icons::WARNING)).color(theme::WARNING()));
         return secondary_button(ui, tr("Choose image…")).clicked();
     };
     let tex = state
@@ -1513,8 +1513,8 @@ pub(crate) fn image_row(ui: &mut Ui, state: &mut UiState, resource: subcraft_cor
         let scale = 48.0 / size.x.max(size.y);
         ui.image((tex.id(), size * scale));
         ui.vertical(|ui| {
-            ui.label(RichText::new(&r.name).color(theme::TEXT));
-            ui.label(RichText::new(format!("{} × {}", r.bitmap.width, r.bitmap.height)).color(TEXT_DIM).font(theme::font(11.0)));
+            ui.label(RichText::new(&r.name).color(theme::TEXT()));
+            ui.label(RichText::new(format!("{} × {}", r.bitmap.width, r.bitmap.height)).color(TEXT_DIM()).font(theme::font(11.0)));
             clicked = secondary_button(ui, tr("Replace…")).clicked();
         });
     });
@@ -1524,7 +1524,7 @@ pub(crate) fn image_row(ui: &mut Ui, state: &mut UiState, resource: subcraft_cor
 /// Painter-style block title: bold capitals, no caret.
 pub(crate) fn block_header(ui: &mut Ui, text: &str) {
     ui.add_space(10.0);
-    ui.label(RichText::new(text.to_uppercase()).font(theme::font_strong(12.0)).color(theme::TEXT));
+    ui.label(RichText::new(text.to_uppercase()).font(theme::font_strong(12.0)).color(theme::TEXT()));
     ui.add_space(4.0);
 }
 
@@ -1605,7 +1605,7 @@ pub(crate) fn warp_rows(ui: &mut Ui, proj: &mut Projection) -> bool {
         proj.warp = None;
         changed = true;
     }
-    ui.label(RichText::new("Drag the grid points in the 3D view · Shift+V: Transform warp / Edit vertices").small().color(TEXT_DIM));
+    ui.label(RichText::new("Drag the grid points in the 3D view · Shift+V: Transform warp / Edit vertices").small().color(TEXT_DIM()));
     changed
 }
 
@@ -1634,7 +1634,7 @@ fn transform3_group(ui: &mut Ui, proj: &mut Projection) -> bool {
             }
         });
     }
-    egui::CollapsingHeader::new(RichText::new(tr("3D projection")).font(theme::font_strong(12.0)).color(theme::TEXT)).id_salt("fill_transform3").default_open(false).show(ui, |ui| {
+    egui::CollapsingHeader::new(RichText::new(tr("3D projection")).font(theme::font_strong(12.0)).color(theme::TEXT())).id_salt("fill_transform3").default_open(false).show(ui, |ui| {
         let t = &mut proj.transform3;
         row(ui, tr("Offset"), &mut t.offset, 0.005, -T::MAX_OFFSET..=T::MAX_OFFSET, "", tr("X, Y, Z in units of the model's bounding box; 0 is centred"));
         row(ui, tr("Rotation"), &mut t.rotation_deg, 0.5, -360.0..=360.0, "\u{00b0}", tr("Degrees about X, Y, Z (applied in that order)"));
@@ -1677,7 +1677,7 @@ fn symmetry_group(ui: &mut Ui, proj: &mut Projection) -> bool {
     use subcraft_doc::FillSymmetry;
     let before = proj.symmetry;
     let enabled = proj.is_3d();
-    egui::CollapsingHeader::new(RichText::new(tr("Symmetry")).font(theme::font_strong(12.0)).color(theme::TEXT)).id_salt("fill_symmetry").default_open(false).show(ui, |ui| {
+    egui::CollapsingHeader::new(RichText::new(tr("Symmetry")).font(theme::font_strong(12.0)).color(theme::TEXT())).id_salt("fill_symmetry").default_open(false).show(ui, |ui| {
         ui.add_enabled_ui(enabled, |ui| {
             let mut on = !proj.symmetry.is_none();
             let r = ui.checkbox(&mut on, tr("Enable symmetry"));
@@ -1747,7 +1747,7 @@ pub(crate) fn fill_properties(ui: &mut Ui, proj: &mut Projection) -> bool {
     changed |= backface_rows(ui, proj);
     changed |= symmetry_group(ui, proj);
     ui.add_space(4.0);
-    egui::CollapsingHeader::new(RichText::new(tr("UV transformations")).font(theme::font_strong(12.0)).color(theme::TEXT)).default_open(true).show(ui, |ui| {
+    egui::CollapsingHeader::new(RichText::new(tr("UV transformations")).font(theme::font_strong(12.0)).color(theme::TEXT())).default_open(true).show(ui, |ui| {
         let mut scale_mode = 0u8;
         dropdown_row(ui, "scale", tr("Scale"), &mut scale_mode, &[(0u8, "Tiling")], false, "Only tiling is supported");
         let lock_id = ui.id().with("tiling_lock");
@@ -1818,7 +1818,7 @@ pub(crate) fn material_buttons(ui: &mut Ui, states: &[(ChannelKind, bool)], adda
         for kind in ORDER.into_iter().chain(extra) {
             let state = states.iter().find(|s| s.0 == kind).map(|s| s.1);
             let can_add = state.is_none() && addable.contains(&kind);
-            let r = ui.add_enabled(state.is_some() || can_add, egui::Button::new(RichText::new(kind.short_name()).font(theme::font(12.0)).color(if state == Some(true) { theme::TEXT } else { theme::TEXT_DIM }))
+            let r = ui.add_enabled(state.is_some() || can_add, egui::Button::new(RichText::new(kind.short_name()).font(theme::font(12.0)).color(if state == Some(true) { theme::TEXT() } else { theme::TEXT_DIM() }))
                 .selected(state == Some(true)).min_size(egui::vec2(38.0, 22.0)))
                 .on_hover_text(format!("{} · Click: toggle · Alt+click: only this channel", kind.display_name()));
             if r.clicked() {
@@ -1827,11 +1827,11 @@ pub(crate) fn material_buttons(ui: &mut Ui, states: &[(ChannelKind, bool)], adda
         }
     });
     ui.add_space(6.0);
-    egui::Frame::new().fill(theme::BG_2).stroke(egui::Stroke::new(1.0, theme::BORDER)).inner_margin(egui::Margin::symmetric(8, 6)).show(ui, |ui| {
+    egui::Frame::new().fill(theme::BG_2()).stroke(egui::Stroke::new(1.0, theme::BORDER())).inner_margin(egui::Margin::symmetric(8, 6)).show(ui, |ui| {
         ui.set_width(ui.available_width());
         ui.vertical_centered(|ui| {
-            ui.label(RichText::new("Material mode").font(theme::font_strong(12.0)).color(theme::TEXT));
-            ui.label(RichText::new("No Resource Selected").font(theme::font(11.5)).color(theme::TEXT_DIM));
+            ui.label(RichText::new("Material mode").font(theme::font_strong(12.0)).color(theme::TEXT()));
+            ui.label(RichText::new("No Resource Selected").font(theme::font(11.5)).color(theme::TEXT_DIM()));
         });
     }).response.on_hover_text("Material resources are not supported yet: each channel below has its own source");
     ui.add_space(4.0);
@@ -1858,9 +1858,9 @@ pub(crate) fn projection_editor(ui: &mut Ui, proj: &mut Projection) -> bool {
                 changed = true;
             }
         } else {
-            ui.label(RichText::new("X").color(TEXT_DIM));
+            ui.label(RichText::new("X").color(TEXT_DIM()));
             changed |= ui.add(tiling(&mut proj.scale[0])).changed();
-            ui.label(RichText::new("Y").color(TEXT_DIM));
+            ui.label(RichText::new("Y").color(TEXT_DIM()));
             changed |= ui.add(tiling(&mut proj.scale[1])).changed();
         }
         if ui.checkbox(&mut locked, tr("Link")).on_hover_text(tr("Same tiling for X and Y; untick to set them separately")).changed() {
@@ -1877,9 +1877,9 @@ pub(crate) fn projection_editor(ui: &mut Ui, proj: &mut Projection) -> bool {
             fn offset(v: &mut f32) -> egui::DragValue<'_> {
                 egui::DragValue::new(v).speed(0.005).range(-16.0..=16.0).max_decimals(3)
             }
-            ui.label(RichText::new("X").color(TEXT_DIM));
+            ui.label(RichText::new("X").color(TEXT_DIM()));
             changed |= ui.add(offset(&mut proj.offset[0])).changed();
-            ui.label(RichText::new("Y").color(TEXT_DIM));
+            ui.label(RichText::new("Y").color(TEXT_DIM()));
             changed |= ui.add(offset(&mut proj.offset[1])).changed();
         });
     }

@@ -55,14 +55,14 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             ui.add_space(theme::SP_XS);
             let has_image = material.textures.contains_key(&kind);
             let row = egui::Frame::new()
-                .fill(theme::BG_2)
-                .stroke(egui::Stroke::new(1.0, theme::BORDER_SOFT))
+                .fill(theme::BG_2())
+                .stroke(egui::Stroke::new(1.0, theme::BORDER_SOFT()))
                 .inner_margin(egui::Margin::same(theme::SP_M as i8))
                 .corner_radius(6)
                 .show(ui, |ui| {
                     ui.set_min_width(ui.available_width());
                     ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new(kind.display_name()).font(theme::font_strong(12.5)).color(theme::TEXT));
+                        ui.label(egui::RichText::new(kind.display_name()).font(theme::font_strong(12.5)).color(theme::TEXT()));
                         if !enabled {
                             ui.weak("drop the image here to use it");
                         } else if !has_image {
@@ -108,7 +108,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 ui.painter().rect_stroke(
                     row.response.rect,
                     0.0,
-                    egui::Stroke::new(1.5, theme::ACCENT),
+                    egui::Stroke::new(1.5, theme::ACCENT()),
                     egui::StrokeKind::Inside,
                 );
             }

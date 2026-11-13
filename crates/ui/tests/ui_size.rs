@@ -164,7 +164,7 @@ fn scene_dabs_write_the_same_texels_at_small_default_and_large_ui_sizes() {
             .shapes
             .iter()
             .filter_map(|s| match &s.shape {
-                egui::Shape::Rect(r) if r.fill == theme::BG_0 => Some(r.rect),
+                egui::Shape::Rect(r) if r.fill == theme::BG_0() => Some(r.rect),
                 _ => None,
             })
             .max_by(|a, b| a.area().total_cmp(&b.area()))

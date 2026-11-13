@@ -27,7 +27,7 @@ fn pressure_toggle(ui: &mut Ui, key: &str, on: bool, what: &str) -> Response {
     let (rect, _) = ui.allocate_exact_size(egui::vec2(22.0, 18.0), Sense::hover());
     let resp = ui.interact(rect, pressure_toggle_id(key), Sense::click());
     let hovered = resp.hovered() && ui.is_enabled();
-    let (bg, fg) = if on { (ACCENT_SOFT, ACCENT) } else if hovered { (BG_4, TEXT) } else { (Color32::TRANSPARENT, TEXT_FAINT) };
+    let (bg, fg) = if on { (ACCENT_SOFT(), ACCENT()) } else if hovered { (BG_4(), TEXT()) } else { (Color32::TRANSPARENT, TEXT_FAINT()) };
     let p = ui.painter();
     p.rect_filled(rect, 3.0, bg);
     let c = rect.center();
@@ -179,19 +179,19 @@ pub fn alpha_slot(state: &mut UiState, ui: &mut Ui) {
         let (rect, _) = ui.allocate_exact_size(egui::vec2(side, side), Sense::hover());
         let slot = ui.interact(rect, alpha_slot_id(), Sense::click());
         let p = ui.painter();
-        p.rect_filled(rect, 3.0, theme::FIELD);
+        p.rect_filled(rect, 3.0, theme::FIELD());
         match thumb {
             Some(t) => {
                 p.image(t, rect.shrink(1.0), egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), Color32::WHITE);
             }
             // The procedural round tip (or a thumbnail not rendered yet): a soft disc.
             None => {
-                p.circle_filled(rect.center(), side * 0.3, TEXT_DIM.gamma_multiply(0.6));
-                p.circle_filled(rect.center(), side * 0.18, TEXT);
+                p.circle_filled(rect.center(), side * 0.3, TEXT_DIM().gamma_multiply(0.6));
+                p.circle_filled(rect.center(), side * 0.18, TEXT());
             }
         }
         let dropping = slot.dnd_hover_payload::<ShelfDrag>().is_some_and(|d| matches!(*d, ShelfDrag::Alpha(_)));
-        let stroke = if dropping { Stroke::new(1.5, ACCENT) } else if slot.hovered() { Stroke::new(1.0, theme::ACCENT_HOVER) } else { Stroke::new(1.0, theme::BORDER_STRONG) };
+        let stroke = if dropping { Stroke::new(1.5, ACCENT()) } else if slot.hovered() { Stroke::new(1.0, theme::ACCENT_HOVER()) } else { Stroke::new(1.0, theme::BORDER_STRONG()) };
         p.rect_stroke(rect, 3.0, stroke, egui::StrokeKind::Inside);
         if let Some(d) = slot.dnd_release_payload::<ShelfDrag>()
             && let ShelfDrag::Alpha(i) = *d
@@ -206,14 +206,14 @@ pub fn alpha_slot(state: &mut UiState, ui: &mut Ui) {
             }
         });
         ui.vertical(|ui| {
-            ui.add(egui::Label::new(RichText::new(&shown).color(TEXT)).truncate());
-            ui.label(RichText::new(if has_image { "Bitmap alpha" } else { "Procedural round tip" }).small().color(TEXT_FAINT));
+            ui.add(egui::Label::new(RichText::new(&shown).color(TEXT())).truncate());
+            ui.label(RichText::new(if has_image { "Bitmap alpha" } else { "Procedural round tip" }).small().color(TEXT_FAINT()));
         });
         if has_image {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let (rect, _) = ui.allocate_exact_size(egui::Vec2::splat(22.0), Sense::hover());
                 let x = ui.interact(rect, alpha_remove_id(), Sense::click());
-                let fg = if x.hovered() { TEXT } else { TEXT_DIM };
+                let fg = if x.hovered() { TEXT() } else { TEXT_DIM() };
                 ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, crate::icons::X, theme::font(13.0), fg);
                 if x.on_hover_text("Remove the alpha (back to the round tip)").clicked() {
                     action = Some(SlotAction::Remove);
@@ -253,20 +253,20 @@ fn mini_browser(state: &mut UiState, ui: &mut Ui, current: &str) -> Option<usize
                 shown += 1;
                 let (rect, resp) = ui.allocate_exact_size(egui::Vec2::splat(48.0), Sense::click());
                 let p = ui.painter();
-                p.rect_filled(rect, 2.0, theme::FIELD);
+                p.rect_filled(rect, 2.0, theme::FIELD());
                 match state.shelf.thumb(&a.id) {
                     Some(t) => {
                         p.image(t.id(), rect.shrink(1.0), egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), Color32::WHITE);
                     }
                     None => {
-                        let mut job = egui::text::LayoutJob::simple(a.name.clone(), theme::font(9.5), TEXT_DIM, 44.0);
+                        let mut job = egui::text::LayoutJob::simple(a.name.clone(), theme::font(9.5), TEXT_DIM(), 44.0);
                         job.wrap.max_rows = 3;
                         let g = p.layout_job(job);
-                        p.galley(rect.min + egui::vec2(2.0, 2.0), g, TEXT_DIM);
+                        p.galley(rect.min + egui::vec2(2.0, 2.0), g, TEXT_DIM());
                     }
                 }
                 let selected = a.name == current;
-                let stroke = if selected { Stroke::new(2.0, ACCENT) } else if resp.hovered() { Stroke::new(1.0, theme::ACCENT_HOVER) } else { Stroke::new(1.0, theme::BORDER) };
+                let stroke = if selected { Stroke::new(2.0, ACCENT()) } else if resp.hovered() { Stroke::new(1.0, theme::ACCENT_HOVER()) } else { Stroke::new(1.0, theme::BORDER()) };
                 p.rect_stroke(rect, 2.0, stroke, egui::StrokeKind::Inside);
                 if resp.on_hover_text(&a.name).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
                     chosen = Some(i);

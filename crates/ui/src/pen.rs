@@ -28,7 +28,7 @@ pub fn hit(path: &PenPath, selected: Option<subcraft_core::AnchorId>, pointer: P
 pub fn draw(painter: &egui::Painter, path: &PenPath, selected: Option<subcraft_core::AnchorId>, map: impl Fn(Vec2) -> Option<Pos2>) {
     if let Ok(points) = path.polyline(0.002) {
         for pair in points.windows(2) {
-            if let (Some(a), Some(b)) = (map(pair[0]), map(pair[1])) { painter.line_segment([a, b], Stroke::new(1.5, theme::ACCENT)); }
+            if let (Some(a), Some(b)) = (map(pair[0]), map(pair[1])) { painter.line_segment([a, b], Stroke::new(1.5, theme::ACCENT())); }
         }
     }
     for a in &path.anchors {
@@ -36,13 +36,13 @@ pub fn draw(painter: &egui::Painter, path: &PenPath, selected: Option<subcraft_c
         if selected == Some(a.id) {
             for tangent in [a.incoming, a.outgoing] {
                 if tangent.length_squared() > 1e-10 && let Some(q) = map(a.position + tangent) {
-                    painter.line_segment([p, q], Stroke::new(1.0, theme::TEXT_DIM));
-                    painter.circle_filled(q, 3.0, theme::TEXT);
-                    painter.circle_stroke(q, 3.0, Stroke::new(1.0, theme::BG_0));
+                    painter.line_segment([p, q], Stroke::new(1.0, theme::TEXT_DIM()));
+                    painter.circle_filled(q, 3.0, theme::TEXT());
+                    painter.circle_stroke(q, 3.0, Stroke::new(1.0, theme::BG_0()));
                 }
             }
         }
-        painter.circle_filled(p, 4.5, if selected == Some(a.id) { theme::ACCENT } else { theme::TEXT });
+        painter.circle_filled(p, 4.5, if selected == Some(a.id) { theme::ACCENT() } else { theme::TEXT() });
         painter.circle_stroke(p, 4.5, Stroke::new(1.0, Color32::BLACK));
     }
 }
@@ -98,7 +98,7 @@ fn ribbon_rows(state: &mut UiState, ui: &mut Ui, path: &mut PenPath) -> bool {
     let ribbon = path.ribbon.get_or_insert_with(PathRibbon::default);
     let name = ribbon.image.and_then(|id| state.session.resources().get(id)).map_or("none (solid strip)".to_string(), |r| r.name.clone());
     ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(format!("Image: {name}")).color(crate::theme::TEXT_DIM));
+        ui.label(egui::RichText::new(format!("Image: {name}")).color(crate::theme::TEXT_DIM()));
         if ui.small_button("Use current brush tip").on_hover_text("Lay the tip chosen in the Brush settings / Shelf along the path").clicked() {
             ribbon.image = state.session.brush_tip_resource();
             changed = true;
@@ -151,7 +151,7 @@ pub fn properties(state: &mut UiState, ui: &mut Ui, path: &PenPath, now: f64) {
         path.radius = width / 200.0;
         changed |= ribbon_rows(state, ui, &mut path);
     } else if filled {
-        ui.label(egui::RichText::new("The interior is filled; the path closes on its first point").small().color(crate::theme::TEXT_DIM));
+        ui.label(egui::RichText::new("The interior is filled; the path closes on its first point").small().color(crate::theme::TEXT_DIM()));
     } else {
         changed |= ui.add_enabled(path.anchors.len() > 1, egui::Checkbox::new(&mut path.closed, "Closed path")).changed();
         let mut width = path.radius * 200.0;
@@ -171,7 +171,7 @@ pub fn properties(state: &mut UiState, ui: &mut Ui, path: &PenPath, now: f64) {
             changed |= ui.checkbox(&mut stamp.follow, "Follow path").on_hover_text("Turn each stamp along the curve").changed();
             let tip = stamp.alpha.and_then(|id| state.session.resources().get(id)).map_or("Round".to_string(), |r| r.name.clone());
             ui.horizontal(|ui| {
-                ui.label(egui::RichText::new(format!("Tip: {tip}")).color(crate::theme::TEXT_DIM));
+                ui.label(egui::RichText::new(format!("Tip: {tip}")).color(crate::theme::TEXT_DIM()));
                 if ui.small_button("Use current brush tip").on_hover_text("Stamp the tip chosen in the Brush settings / Shelf").clicked() {
                     stamp.alpha = state.session.brush_tip_resource();
                     changed = true;

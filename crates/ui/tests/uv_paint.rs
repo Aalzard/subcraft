@@ -37,7 +37,7 @@ fn image(output: &egui::FullOutput) -> Rect {
         .shapes
         .iter()
         .filter_map(|s| match &s.shape {
-            egui::epaint::Shape::Rect(r) if r.stroke.color == theme::BORDER_STRONG && r.rect.width() > 100.0 => Some(r.rect),
+            egui::epaint::Shape::Rect(r) if r.stroke.color == theme::BORDER_STRONG() && r.rect.width() > 100.0 => Some(r.rect),
             _ => None,
         })
         .max_by(|a, b| a.area().total_cmp(&b.area()))

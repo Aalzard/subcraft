@@ -102,17 +102,17 @@ pub fn report_window(state: &mut UiState, ctx: &egui::Context) {
     let mut go = false;
     crate::widgets::window(ctx, RichText::new("Report a bug").font(theme::font_strong(14.0))).open(&mut open).collapsible(false).resizable(false).show(ctx, |ui| {
         ui.set_width(460.0);
-        ui.label(RichText::new("This opens a new issue on GitHub in your browser with the details below already filled in. Nothing is sent until you submit it there.").color(TEXT_DIM));
+        ui.label(RichText::new("This opens a new issue on GitHub in your browser with the details below already filled in. Nothing is sent until you submit it there.").color(TEXT_DIM()));
         ui.add_space(10.0);
         egui::Grid::new("bug_info").num_columns(2).spacing([16.0, 6.0]).show(ui, |ui| {
             for (k, v) in [("Version", &info.version), ("OS", &info.os), ("GPU", &info.gpu)] {
-                ui.label(RichText::new(k).color(TEXT_FAINT));
+                ui.label(RichText::new(k).color(TEXT_FAINT()));
                 ui.label(v.as_str());
                 ui.end_row();
             }
         });
         ui.add_space(10.0);
-        ui.label(RichText::new(log_hint()).color(TEXT_DIM));
+        ui.label(RichText::new(log_hint()).color(TEXT_DIM()));
         ui.add_space(12.0);
         ui.allocate_ui_with_layout(egui::vec2(ui.available_width(), 28.0), egui::Layout::right_to_left(egui::Align::Center), |ui| {
             go = primary_button(ui, "Open GitHub issue").clicked();
@@ -144,9 +144,9 @@ pub fn safe_mode_window(state: &mut UiState, ctx: &egui::Context) {
         ui.set_width(460.0);
         ui.label(reason.text());
         ui.add_space(6.0);
-        ui.label(RichText::new("Off for this run: GPU compositing, GPU baking, anti-aliasing, path tracing and the remembered window position. Painting, layers and export still work, only slower.").color(TEXT_DIM));
+        ui.label(RichText::new("Off for this run: GPU compositing, GPU baking, anti-aliasing, path tracing and the remembered window position. Painting, layers and export still work, only slower.").color(TEXT_DIM()));
         ui.add_space(6.0);
-        ui.label(RichText::new("The next start is normal again automatically once this one runs fine. If it keeps failing, copy the diagnostic info into a bug report.").color(TEXT_DIM));
+        ui.label(RichText::new("The next start is normal again automatically once this one runs fine. If it keeps failing, copy the diagnostic info into a bug report.").color(TEXT_DIM()));
         ui.add_space(12.0);
         ui.allocate_ui_with_layout(egui::vec2(ui.available_width(), 28.0), egui::Layout::right_to_left(egui::Align::Center), |ui| {
             retry = primary_button(ui, "Restart normally").clicked();
@@ -181,16 +181,16 @@ pub fn crash_window(state: &mut UiState, ctx: &egui::Context) {
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
         .show(ctx, |ui| {
             ui.set_width(440.0);
-            ui.label(RichText::new("Sorry about that. A crash report was saved. Reporting it helps get it fixed; nothing is sent unless you submit the issue.").color(TEXT_DIM));
+            ui.label(RichText::new("Sorry about that. A crash report was saved. Reporting it helps get it fixed; nothing is sent unless you submit the issue.").color(TEXT_DIM()));
             ui.add_space(10.0);
-            egui::Frame::new().fill(theme::BG_0).inner_margin(egui::Margin::same(8)).show(ui, |ui| {
+            egui::Frame::new().fill(theme::BG_0()).inner_margin(egui::Margin::same(8)).show(ui, |ui| {
                 ui.set_width(ui.available_width());
-                ui.label(RichText::new(&message).monospace().color(theme::TEXT));
+                ui.label(RichText::new(&message).monospace().color(theme::TEXT()));
             });
             ui.add_space(6.0);
-            ui.label(RichText::new(format!("Report: {}", path.display())).color(TEXT_FAINT).small());
+            ui.label(RichText::new(format!("Report: {}", path.display())).color(TEXT_FAINT()).small());
             if count > 1 {
-                ui.label(RichText::new(format!("{} crash reports since the last start.", count)).color(TEXT_FAINT).small());
+                ui.label(RichText::new(format!("{} crash reports since the last start.", count)).color(TEXT_FAINT()).small());
             }
             ui.add_space(12.0);
             ui.allocate_ui_with_layout(egui::vec2(ui.available_width(), 28.0), egui::Layout::right_to_left(egui::Align::Center), |ui| {
