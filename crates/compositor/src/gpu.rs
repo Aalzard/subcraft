@@ -530,11 +530,14 @@ fn content_source(layer: &Layer, kind: ChannelKind, leaf: Leaf, cpu_effects: boo
     {
         return push_dyn(dyn_px, &g.root(node, tile));
     }
-    let mut content = vec![[0.0f32; 4]; TILE_TEXELS];
+    // Allocated only where texels are evaluated: most leaves of a paint stack are a stored tile
+    // or a constant, and a zeroed 64 KB block per leaf and tile was a large part of the preparation.
+    let blank = || vec![[0.0f32; 4]; TILE_TEXELS];
     match (&layer.content, leaf) {
         (LayerContent::Paint(paint), Leaf::Paint) => match paint.channels.get(&kind) {
             None => {
                 if cpu_effects {
+                    let mut content = blank();
                     apply_cpu_effects(layer, kind, &mut content, tc);
                     return push_dyn(dyn_px, &content);
                 }
@@ -552,6 +555,7 @@ fn content_source(layer: &Layer, kind: ChannelKind, leaf: Leaf, cpu_effects: boo
                         }
                     };
                 }
+                let mut content = blank();
                 read_paint(img, kind, tc, &mut content);
                 if cpu_effects {
                     apply_cpu_effects(layer, kind, &mut content, tc);
@@ -560,6 +564,7 @@ fn content_source(layer: &Layer, kind: ChannelKind, leaf: Leaf, cpu_effects: boo
             }
         },
         (LayerContent::Fill(fill), Leaf::Fill) => {
+            let mut content = blank();
             if !eval_fill(fill, kind, tc, &mut content) {
                 content.fill([0.0; 4]); // effects touch this channel (checked by the plan)
                 if cpu_effects {
@@ -622,19 +627,32 @@ fn dyn_bytes_per_tile(plan: &Plan) -> usize {
 
 /// Evaluate as many of `tiles` as possible on the GPU and store them in `composite`. Returns
 /// what changed plus the tiles the caller must still evaluate on the CPU.
-pub(crate) fn evaluate_tiles(composite: &mut Composite, ts: &TextureSet, ctx: &EvalContext, tiles: &[usize]) -> (ChangedTiles, Vec<usize>) {
+///
+/// `only`: blend just these channels (the others are up to date, see `PrefixCache::set_only`):
+/// every channel has its own program and sources, so the rest is simply left out.
+pub(crate) fn evaluate_tiles(composite: &mut Composite, ts: &TextureSet, ctx: &EvalContext, tiles: &[usize], only: Option<&[ChannelKind]>) -> (ChangedTiles, Vec<usize>) {
     let none = |t: &[usize]| (ChangedTiles::new(), t.to_vec());
     if !gpu_compositing_enabled() || tiles.len() < MIN_TILES.load(Ordering::Relaxed) || ts.resolution < MIN_RESOLUTION.load(Ordering::Relaxed) {
         return none(tiles);
     }
     let Some(backend) = backend() else { return none(tiles) };
-    let plan = match plan(ts) {
+    let mut plan = match plan(ts) {
         Ok(p) => p,
         Err(why) => {
             log::debug!("GPU compositing skipped for this set: {why:?}");
             return none(tiles);
         }
     };
+    if let Some(only) = only {
+        let keep: Vec<bool> = plan.program.channels.iter().map(|c| only.contains(&c.kind)).collect();
+        let mut it = keep.iter();
+        plan.program.channels.retain(|_| *it.next().expect("one flag per channel"));
+        let mut it = keep.iter();
+        plan.ops.retain(|_| *it.next().expect("one flag per channel"));
+        if plan.program.channels.is_empty() {
+            return none(tiles);
+        }
+    }
     let batch = (MAX_BATCH).min((192usize << 20) / dyn_bytes_per_tile(&plan).max(1)).max(4);
     // Anchor references: their masks / fill channels are evaluated by the stage graph.
     let stage_cache = crate::stages::StageCache::default();
