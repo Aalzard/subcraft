@@ -79,6 +79,87 @@ fn bake_overlay_compares_depth_and_raw_maps_preserve_materials() {
 }
 
 #[test]
+fn bake_overlay_follows_the_visualization_settings() {
+    let _gpu = gpu_test();
+    let Some((_, device, queue)) = headless::device() else { eprintln!("no adapter: skipping"); return };
+    let low = primitives::cube(2.);
+    let mut renderer = ViewportRenderer::new(&device, &queue);
+    renderer.set_mesh(&device, &low);
+    let mut p = params(); p.antialias = false; p.bake_overlay = true; p.bake_cage = false;
+    renderer.set_bake_preview(&device, Some((&low, &primitives::cube(2.2))));
+    let at = |renderer: &mut ViewportRenderer, p: &ViewParams| { let img = renderer.render(&device, &queue, [SIZE, SIZE], p).read_rgba8(&device, &queue); px(&img, SIZE / 2, SIZE / 2) };
+    let default = at(&mut renderer, &p);
+    assert!(default[2] > default[0] * 2, "the default high poly is blue: {default:?}");
+    // The high-poly colour.
+    p.bake_vis.high_color = [0.05, 0.6, 0.05];
+    let green = at(&mut renderer, &p);
+    assert!(green[1] > green[0] * 2 && green[1] > green[2] * 2, "green high poly: {green:?}");
+    // Hiding the high poly shows the low poly behind it, in its own colour.
+    p.bake_vis.show_high = false;
+    let red = at(&mut renderer, &p);
+    assert!(red[0] > red[2] * 2, "the default low poly is red: {red:?}");
+    p.bake_vis.low_color = [0.6, 0.6, 0.05];
+    let yellow = at(&mut renderer, &p);
+    assert!(yellow[0] > yellow[2] * 2 && yellow[1] > yellow[2] * 2, "yellow low poly: {yellow:?}");
+    // Hiding both leaves the background.
+    p.bake_vis.show_low = false;
+    let img = renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+    assert_eq!(px(&img, SIZE / 2, SIZE / 2), px(&img, 2, 2), "nothing is drawn");
+    // The cage wireframe: its opacity and colour change the picture; opacity 0 hides it.
+    p.bake_vis = Default::default();
+    p.bake_distances = [0.08, 0.02];
+    let no_cage = renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+    p.bake_cage = true;
+    let cage = renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+    p.bake_vis.cage_color = [1.0, 0.9, 0.1];
+    p.bake_vis.cage_opacity = 1.0;
+    let bright = renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+    assert!(diff(&cage, &no_cage) > 100 && diff(&bright, &cage) > 100, "the cage colour and opacity are used");
+    p.bake_vis.cage_opacity = 0.0;
+    let hidden = renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+    assert_eq!(diff(&hidden, &no_cage), 0, "a fully transparent cage is not seen");
+    // Seam-check lines: drawn only when asked, in their colour, and removed by an empty list.
+    p.bake_cage = false;
+    p.bake_vis = Default::default();
+    p.bake_vis.show_high = false;
+    let plain = renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+    // The cube's top edge towards the camera, as if it lacked a seam.
+    renderer.set_bake_seam_lines(&device, &[[Vec3::new(-1., 1., 1.), Vec3::new(1., 1., 1.), Vec3::new(0., 1., 1.).normalize()]]);
+    assert_eq!(diff(&renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue), &plain), 0, "seam lines are off by default");
+    p.bake_vis.show_seams = true;
+    let seams = renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+    assert!(diff(&seams, &plain) > 20, "the seam line is drawn: {}", diff(&seams, &plain));
+    let yellow = seams.chunks_exact(4).zip(plain.chunks_exact(4)).filter(|(a, b)| a != b && a[0] > 180 && a[1] > 150 && a[2] * 2 < a[1]).count();
+    assert!(yellow > 10, "in the seam colour: {yellow}");
+    renderer.set_bake_seam_lines(&device, &[]);
+    assert_eq!(diff(&renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue), &plain), 0);
+    // The cage surface: a see-through skin at the front cage distance, over the low poly.
+    p.bake_vis = Default::default();
+    p.bake_vis.show_high = false;
+    p.bake_distances = [0.08, 0.02];
+    p.bake_vis.show_cage_surface = true;
+    p.bake_vis.cage_surface_color = [0.1, 0.9, 0.1];
+    p.bake_vis.cage_surface_opacity = 0.5;
+    let skinned = renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+    let (bare, skin) = (px(&plain, SIZE / 2, SIZE / 2), px(&skinned, SIZE / 2, SIZE / 2));
+    assert!(skin[1] > bare[1] + 40 && skin[0] > 20, "green over the red low poly, which still shows: {bare:?} -> {skin:?}");
+    assert!(diff(&skinned, &plain) > 500, "the skin covers the model and a rim around it");
+    p.bake_vis.cage_surface_opacity = 0.0;
+    assert_eq!(diff(&renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue), &plain), 0, "a fully transparent cage surface is not seen");
+    // Only one material slot: the cube's own slot shows it, another slot shows nothing of the low poly.
+    p.bake_vis.show_cage_surface = false;
+    p.bake_cage = true;
+    let all = renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+    p.bake_vis.only_slot = Some(low.submeshes[0].material);
+    if low.submeshes.len() == 1 {
+        assert_eq!(diff(&renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue), &all), 0, "the cube's one slot is everything");
+    }
+    p.bake_vis.only_slot = Some(77);
+    let none = renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+    assert_eq!(px(&none, SIZE / 2, SIZE / 2), px(&none, 2, 2), "no low poly and no cage for another slot");
+}
+
+#[test]
 fn bake_overlay_high_poly_follows_the_placement_transform_and_opacity() {
     let _gpu = gpu_test();
     let Some((_, device, queue)) = headless::device() else { eprintln!("no adapter: skipping"); return };

@@ -9,6 +9,43 @@ use crate::{Command, CommandError, Selection, Session};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Handle { Anchor, Incoming, Outgoing }
 
+/// Draw the raster of every pen path layer in `texture_sets` again (after a resolution change).
+/// A path's width is independent of the resolution and its raster is only a cache: resampled,
+/// a path taken from 512 to 4096 stayed blurred until its next edit, and was exported that way.
+pub(crate) fn refresh_path_rasters(doc: &mut subcraft_doc::Document, resources: &subcraft_doc::ResourceStore, texture_sets: &[subcraft_core::TextureSetId]) {
+    use std::sync::Arc;
+    fn walk(layers: &mut [Arc<Layer>], resolution: u32, resources: &subcraft_doc::ResourceStore) {
+        for layer in layers {
+            let needs = match &layer.content {
+                LayerContent::Paint(p) => p.path.is_some(),
+                LayerContent::Group(g) => !g.children.is_empty(),
+                LayerContent::Fill(_) => false,
+            };
+            if !needs { continue; }
+            match &mut Arc::make_mut(layer).content {
+                LayerContent::Paint(p) => {
+                    let Some(path) = p.path.clone() else { continue };
+                    let tip = path.image_resource().and_then(|id| resources.bitmap(id).cloned());
+                    match PenRasterizer::new(&path, resolution) {
+                        Ok(raster) => {
+                            let mut raster = raster.with_alpha(tip);
+                            raster.run();
+                            if let Some(images) = raster.finish() { p.channels = images; }
+                        }
+                        Err(e) => log::warn!("pen path not redrawn: {e}"),
+                    }
+                }
+                LayerContent::Group(g) => walk(&mut g.children, resolution, resources),
+                LayerContent::Fill(_) => {}
+            }
+        }
+    }
+    for ts in doc.texture_sets.iter_mut().filter(|ts| texture_sets.contains(&ts.id)) {
+        let resolution = ts.resolution;
+        walk(&mut ts.layers, resolution, resources);
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PenHit { pub anchor: AnchorId, pub handle: Handle }
 
@@ -95,7 +132,7 @@ impl PenEditor {
         }
         let ts = session.selected_texture_set(); let brush = &session.brush;
         let values = brush.material.channels.iter().filter(|(k, v)| v.enabled && ts.has_channel(**k)).map(|(&k, v)| (k, v.value)).collect();
-        let path = PenPath { anchors: Vec::new(), closed: false, radius: (brush.settings.size * 0.005).clamp(0.00001, 0.5), hardness: brush.settings.hardness.clamp(0.0, 1.0), opacity: brush.settings.stroke_opacity.clamp(0.0, 1.0), values, kind: Default::default(), stamp: None };
+        let path = PenPath { anchors: Vec::new(), closed: false, radius: (brush.settings.size * 0.005).clamp(0.00001, 0.5), hardness: brush.settings.hardness.clamp(0.0, 1.0), opacity: brush.settings.stroke_opacity.clamp(0.0, 1.0), values, kind: Default::default(), stamp: None, ribbon: None };
         path.validate().map_err(error)?;
         let mut layer = Layer::new_paint("Pen path", ts);
         layer.parts = session.selected_layer().and_then(|l| l.parts.clone());
@@ -157,7 +194,7 @@ impl PenEditor {
         let expected = match &edit.layer.content { LayerContent::Paint(p) => p.path.as_ref(), _ => None };
         if !edit.new && expected == Some(&edit.path) { return Ok(()); }
         if self.pending.is_empty() && !edit.valid(session) { return Err(error("path changed; pen edit canceled")); }
-        let tip = edit.path.stamp.and_then(|s| s.alpha).and_then(|id| session.resources().bitmap(id).cloned());
+        let tip = edit.path.image_resource().and_then(|id| session.resources().bitmap(id).cloned());
         let raster = PenRasterizer::new(&edit.path, edit.resolution).map_err(error)?.with_alpha(tip);
         self.pending.push_back(Pending { edit, raster }); Ok(())
     }

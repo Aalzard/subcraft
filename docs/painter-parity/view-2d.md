@@ -61,10 +61,10 @@ Layout notes: the 2D view uses exactly the same combinations as the 3D view; orb
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Rotate the UV space around the cursor | Alt + LMB drag | - | missing | - | - |
-| Snap rotation to orthogonal angles | Alt + Shift + LMB drag | every 90 degrees | missing | - | - |
+| Rotate the UV space around the cursor | Alt + LMB drag | - | done: about the point where the drag began; Fit to view and F reset it | crates/ui/src/panels/uv_view.rs | - |
+| Snap rotation to orthogonal angles | Alt + Shift + LMB drag | every 90 degrees | done | crates/ui/src/panels/uv_view.rs | - |
 | Pan | Alt + MMB drag | - | done | crates/ui/src/panels/uv_view.rs:84 | - |
-| Pan (alternative) | Ctrl + Alt + LMB drag | - | partial: Alt + LMB alone pans (Painter rotates with it) | crates/ui/src/panels/uv_view.rs:85 | - |
+| Pan (alternative) | Ctrl + Alt + LMB drag | - | done | crates/ui/src/panels/uv_view.rs | - |
 | Zoom | Alt + RMB drag | - | done: zooms on the point where the drag began | crates/ui/src/panels/uv_view.rs | - |
 | Zoom with the mouse wheel | Wheel over the view | (unverified) | done: zoom range 0.2-20, centred on the cursor | crates/ui/src/panels/uv_view.rs | - |
 | Center the UVs in the 2D view | F with the cursor over the 2D view (2019.3) | - | done | crates/ui/src/app.rs | - |
@@ -105,7 +105,7 @@ Layout notes: every paint tool works in the 2D view except the Path tools, which
 | Ignore stencil mask | hold N | - | done | crates/ui/src/viewport.rs | - |
 | Quick mask editing in the 2D view | U / Y / I | - | done: red tint over the protected areas | crates/ui/src/panels/uv_view.rs | - |
 | Brush Size Space "Texture" follows the 2D zoom | Properties > Brush > Size Space | Object | missing | - | - |
-| Right-click: floating Properties at the cursor | RMB click in the 2D view | - | missing | - | #131 |
+| Right-click: floating Properties at the cursor | RMB click in the 2D view | - | done | crates/ui/src/panels/uv_view.rs | #131 |
 | Path tools show a "not supported in 2D" message | 2D view with a Path tool | - | partial: the reverse, Pen paths are drawn and edited in the 2D view | crates/ui/src/panels/uv_view.rs:130 | - |
 
 ## UV Tiles (UDIM)

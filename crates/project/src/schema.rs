@@ -266,6 +266,9 @@ pub struct PenPathV4 {
     /// Brush tip stamped along the path; absent for a continuous stroke.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stamp: Option<subcraft_doc::PathStamp>,
+    /// Ribbon settings; absent when never set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ribbon: Option<subcraft_doc::PathRibbon>,
 }
 
 fn is_paint_path(kind: &subcraft_doc::PathKind) -> bool {

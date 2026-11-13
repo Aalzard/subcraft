@@ -146,6 +146,14 @@ pub struct ImportWindow {
     rect: Option<egui::Rect>,
 }
 
+impl ImportWindow {
+    /// Whether the open window covers `p` (files dropped there are its own, not the Assets
+    /// panel's under it).
+    pub fn covers(&self, p: egui::Pos2) -> bool {
+        self.open && self.rect.is_some_and(|r| r.contains(p))
+    }
+}
+
 /// Deepest folder level searched for files when a folder is added.
 const MAX_DEPTH: usize = 6;
 
@@ -427,6 +435,17 @@ pub fn window(state: &mut UiState, ctx: &egui::Context) {
 mod tests {
     use super::*;
     use crate::libraries::{LibraryPath, SESSION};
+
+    /// QA 2026-11: files dropped on the window floating over the Assets panel were taken by the
+    /// panel as well; the panel leaves the window's area to it while it is open.
+    #[test]
+    fn the_open_window_covers_its_own_area() {
+        let mut w = ImportWindow { rect: Some(egui::Rect::from_min_size(egui::pos2(100.0, 100.0), egui::vec2(200.0, 150.0))), ..Default::default() };
+        assert!(!w.covers(egui::pos2(150.0, 150.0)), "closed: covers nothing");
+        w.open = true;
+        assert!(w.covers(egui::pos2(150.0, 150.0)));
+        assert!(!w.covers(egui::pos2(50.0, 150.0)));
+    }
 
     fn temp_root(name: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("subcraft-import-{}-{name}", std::process::id()));

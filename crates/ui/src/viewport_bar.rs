@@ -197,7 +197,7 @@ impl ViewportPrefs {
             ViewMode::Metallic => Some(ChannelKind::Metallic),
             ViewMode::Height => Some(ChannelKind::Height),
             ViewMode::AmbientOcclusion => Some(ChannelKind::AmbientOcclusion),
-            ViewMode::Material | ViewMode::BakedNormal | ViewMode::BakedNormalMap => None,
+            ViewMode::Material | ViewMode::BakedNormal | ViewMode::BakedNormalMap | ViewMode::NormalHeight => None,
         })
     }
 
@@ -690,7 +690,7 @@ pub(crate) fn view_mode(ui: &mut Ui, prefs: &mut ViewportPrefs, channels: &[subc
                 }
             }
             ui.separator();
-            for m in [ViewMode::BakedNormal, ViewMode::BakedNormalMap] {
+            for m in [ViewMode::NormalHeight, ViewMode::BakedNormal, ViewMode::BakedNormalMap] {
                 if ui.selectable_label(prefs.mesh_map.is_none() && mode == m, m.label()).clicked() {
                     prefs.show_material();
                     prefs.set_view_mode(m);
