@@ -54,6 +54,8 @@ pub struct ViewportPrefs {
     pub symmetry_plane: bool,
     /// How the brush cursor is drawn in the 3D view (Painter's cursor display).
     pub brush_cursor: BrushCursor,
+    /// Which symmetry guides, cursor copies and handles show (Symmetry settings > display).
+    pub symmetry_display: crate::symmetry_view::SymmetryDisplay,
     /// Bottom-left list of the mouse / key actions that apply now.
     pub hints: bool,
     /// X / Y / Z orientation indicator in the 3D view's bottom-right corner.
@@ -132,6 +134,7 @@ impl Default for ViewportPrefs {
             symmetry_cursor_hide_painting: false,
             symmetry_plane: true,
             brush_cursor: BrushCursor::Outline,
+            symmetry_display: Default::default(),
             hints: true,
             axis_indicator: true,
             display: Default::default(),
@@ -460,7 +463,7 @@ pub fn show(ui: &mut Ui, state: &mut crate::state::UiState) {
                     ui.add_space(5.0);
                     ui.separator();
                     ui.add_space(5.0);
-                    crate::brush_bar::show(ui, &mut state.tool, &mut settings, &mut options, &mut state.recovery.prefs.viewport.symmetry_guides, width);
+                    crate::brush_bar::show(ui, &mut state.tool, &mut settings, &mut options, &mut state.recovery.prefs.viewport, width);
                     if state.tool == crate::state::Tool::PolygonFill {
                         let destination = state.session.polygon_fill_destination();
                         crate::brush_bar::fill_options(ui, &mut state.fill_mode, Some(&mut state.fill_visible_only), destination, "fill_mode_3d");
@@ -470,7 +473,7 @@ pub fn show(ui: &mut Ui, state: &mut crate::state::UiState) {
             if painting && !inline {
                 ui.separator();
                 ui.horizontal(|ui| {
-                    crate::brush_bar::show(ui, &mut state.tool, &mut settings, &mut options, &mut state.recovery.prefs.viewport.symmetry_guides, width);
+                    crate::brush_bar::show(ui, &mut state.tool, &mut settings, &mut options, &mut state.recovery.prefs.viewport, width);
                     if state.tool == crate::state::Tool::PolygonFill {
                         let destination = state.session.polygon_fill_destination();
                         crate::brush_bar::fill_options(ui, &mut state.fill_mode, Some(&mut state.fill_visible_only), destination, "fill_mode_3d");

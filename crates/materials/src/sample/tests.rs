@@ -572,3 +572,25 @@ fn spherical_cylindrical_and_symmetric_projections_sample_folded_coordinates() {
     assert!(crate::sample::projection_covers(&clipped, sc, [0.0; 2], [0.5, 0.5, 1.0]));
     assert!(!crate::sample::projection_covers(&clipped, sc, [0.0; 2], [0.5, 0.5, 0.0]));
 }
+
+/// QA 2026-11: the cache key of a procedural field lost most of the bits of the cylinder angle
+/// and symmetry settings: angle 120 and 144 shared a key, so a fill at one angle was drawn with
+/// the cached field of the other.
+#[test]
+fn field_keys_differ_for_every_cylinder_angle_and_mirror_position() {
+    use subcraft_doc::FillSymmetry;
+    let params = ProceduralParams::new(ProceduralKind::Clouds);
+    let mut seen = std::collections::HashMap::new();
+    for angle in 1..=359 {
+        let p = Projection { mode: ProjectionMode::Cylindrical, cylinder_angle: angle as f32, ..Projection::default() };
+        if let Some(other) = seen.insert(field::FieldKey::new(&params, &p), angle) {
+            panic!("cylinder angles {other} and {angle} share a field key");
+        }
+    }
+    let mirror = |position: f32| field::FieldKey::new(&params, &Projection { mode: ProjectionMode::Triplanar, symmetry: FillSymmetry::Mirror { axis: 0, position }, ..Projection::default() });
+    assert_ne!(mirror(0.4), mirror(0.55));
+    let mut positions = std::collections::HashSet::new();
+    for i in 0..200 {
+        assert!(positions.insert(mirror(i as f32 * 0.005)), "mirror position {} shares a key", i as f32 * 0.005);
+    }
+}

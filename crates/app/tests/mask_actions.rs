@@ -11,6 +11,27 @@ fn session() -> (Session, LayerId) {
     (s, layer)
 }
 
+#[test]
+fn replacing_the_mask_effects_drops_the_old_ones_keeps_the_painting_and_is_one_undo_step() {
+    let (mut s, layer) = session();
+    paint_square(&mut s, layer);
+    s.execute(Command::AddMaskEffect { layer, kind: MaskEffectKind::Levels(Default::default()) }).unwrap();
+    s.execute(Command::AddMaskEffect { layer, kind: MaskEffectKind::Invert }).unwrap();
+    let effects = |s: &Session| s.selected_texture_set().find(layer).unwrap().mask.as_ref().unwrap().effects.iter().map(|e| e.kind.clone()).collect::<Vec<_>>();
+    let steps = s.history().entries().len();
+    s.execute(Command::ReplaceMaskEffects { layer, effects: vec![MaskEffectKind::Invert], label: "Smart Mask: test".into() }).unwrap();
+    assert!(matches!(effects(&s)[..], [MaskEffectKind::Invert]), "only the new effect is left");
+    assert!((base_at(&s, layer, 15, 15) - 1.0).abs() < 1e-3, "the painting stays");
+    assert_eq!(s.history().entries().len(), steps + 1);
+    s.execute(Command::Undo).unwrap();
+    assert!(matches!(effects(&s)[..], [MaskEffectKind::Levels(_), MaskEffectKind::Invert]));
+    // A layer without a mask gets a black one carrying the effects.
+    s.execute(Command::AddLayer(subcraft_app::NewLayer::Fill)).unwrap();
+    let bare = s.selection().layer.unwrap();
+    s.execute(Command::ReplaceMaskEffects { layer: bare, effects: vec![MaskEffectKind::Invert], label: "x".into() }).unwrap();
+    assert_eq!(s.selected_texture_set().find(bare).unwrap().mask.as_ref().unwrap().effects.len(), 1);
+}
+
 /// Paint a white square into the mask base, like a stroke would.
 fn paint_square(s: &mut Session, layer: LayerId) {
     let mut l = s.selected_texture_set().find(layer).unwrap().clone();

@@ -103,6 +103,17 @@ fn display_name(path: &Path, fallback: &str) -> String {
     path.file_stem().and_then(|s| s.to_str()).map(str::to_string).unwrap_or_else(|| fallback.to_string())
 }
 
+/// One `.scsmart` file as a shelf smart material (from a library, or from anywhere for the
+/// current session).
+pub fn load_smart_material_file(path: &Path) -> Result<SmartMaterial, String> {
+    load_fragment(path).map_err(|e| format!("{}: {e}", path.display())).and_then(|f| smart_material_from(f, path.to_path_buf()))
+}
+
+/// One `.scmask` file as a shelf smart mask.
+pub fn load_smart_mask_file(path: &Path) -> Result<SmartMask, String> {
+    load_fragment(path).map_err(|e| format!("{}: {e}", path.display())).and_then(|f| smart_mask_from(f, path.to_path_buf()))
+}
+
 /// All smart materials in the library; unreadable files are reported, not fatal.
 pub fn load_smart_materials(lib: &UserLibrary) -> (Vec<SmartMaterial>, Vec<String>) {
     let mut ok = Vec::new();

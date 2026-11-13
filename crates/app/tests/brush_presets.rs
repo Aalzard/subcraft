@@ -27,7 +27,7 @@ fn preset_roundtrip_restores_the_whole_brush() {
     a.brush.settings.alignment = Alignment::Camera;
     a.brush.settings.size_jitter = 0.4;
     a.brush.options.symmetry = [true, false, false];
-    a.brush.options.radial = subcraft_paint::RadialSymmetry { enabled: true, axis: 0, count: 6, center_offset: [0.0, 0.25, 0.0] };
+    a.brush.options.radial = subcraft_paint::RadialSymmetry { enabled: true, axis: 0, count: 6, center_offset: [0.0, 0.25, 0.0], flip: false };
     a.brush.options.lazy_distance_px = 30.0;
     a.brush.material.set(ChannelKind::BaseColor, ChannelValue::rgb(0.1, 0.6, 0.2));
     let saved = save_brush_preset(&lib, &a.brush_preset("Green Splatter")).unwrap();

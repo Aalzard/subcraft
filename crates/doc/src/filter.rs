@@ -322,6 +322,79 @@ pub enum Filter {
     /// in `color` (linear; scalar channels use its luminance). `precise` doubles the falloff
     /// steepness (SubCraft's approximation of Painter's Precise mode).
     OuterGlow { width: f32, spread: f32, opacity: f32, color: [f32; 3], precise: bool },
+    /// Painter's Gradient Curve: each value (0..=1) goes through the `preset` curve, is
+    /// optionally inverted, then gets Balance (0..=1, 0.5 neutral) and Contrast (0..=1, 0 neutral):
+    /// `(v - (1 - balance)) / (1 - contrast) + 0.5`.
+    GradientCurve { preset: CurvePreset, invert: bool, balance: f32, contrast: f32 },
+    /// Painter's Bevel Smooth: a ramp `radius` (Distance) pixels wide across the contour of the
+    /// shape `threshold` (Mask Threshold) cuts out, going inward, outward or both ways.
+    /// Curve Offset (-0.9..=0.9) delays (above 0) or shortens (below 0) the ramp, Curve Shape
+    /// (-1 pinched ..= 1 rounded) raises it to the power `4^-shape`, Smoothing eases it toward a
+    /// smoothstep.
+    BevelSmooth { radius: f32, direction: BevelDirection, smoothing: f32, curve_offset: f32, curve_shape: f32, threshold: f32 },
+    /// Painter's Directional Distance: bright values spread `distance` pixels along `angle_deg`
+    /// (0 = right, counter-clockwise), fading with the distance; Contrast (0..=1) steepens the fade.
+    DirectionalDistance { distance: f32, angle_deg: f32, contrast: f32 },
+}
+
+/// Curve of a Gradient Curve filter.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CurvePreset {
+    #[default]
+    Linear,
+    EaseIn,
+    EaseOut,
+    SCurve,
+    Bell,
+    Valley,
+}
+
+impl CurvePreset {
+    pub const ALL: [Self; 6] = [Self::Linear, Self::EaseIn, Self::EaseOut, Self::SCurve, Self::Bell, Self::Valley];
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Linear => "Linear",
+            Self::EaseIn => "Ease in",
+            Self::EaseOut => "Ease out",
+            Self::SCurve => "S-curve",
+            Self::Bell => "Bell",
+            Self::Valley => "Valley",
+        }
+    }
+    /// The curve at `t` (clamped to 0..=1).
+    pub fn eval(self, t: f32) -> f32 {
+        let t = t.clamp(0.0, 1.0);
+        match self {
+            Self::Linear => t,
+            Self::EaseIn => t * t,
+            Self::EaseOut => 1.0 - (1.0 - t) * (1.0 - t),
+            Self::SCurve => t * t * (3.0 - 2.0 * t),
+            Self::Bell => (t * std::f32::consts::PI).sin(),
+            Self::Valley => 1.0 - (t * std::f32::consts::PI).sin(),
+        }
+    }
+}
+
+/// Direction of a Bevel Smooth ramp from the contour.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BevelDirection {
+    #[default]
+    Inward,
+    Outward,
+    Both,
+}
+
+impl BevelDirection {
+    pub const ALL: [Self; 3] = [Self::Inward, Self::Outward, Self::Both];
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Inward => "Inward",
+            Self::Outward => "Outward",
+            Self::Both => "Both",
+        }
+    }
 }
 
 /// Corner Type of a Bevel.
@@ -365,7 +438,7 @@ pub struct OutlineParts {
 }
 
 impl Filter {
-    pub const ALL: [Self; 35] = [Self::Contrast { gain: 1.0, pivot: 0.5 },
+    pub const ALL: [Self; 38] = [Self::Contrast { gain: 1.0, pivot: 0.5 },
         Self::Hsl { hue: 0.0, saturation: 1.0, lightness: 0.0 },
         Self::Threshold { cutoff: 0.5 }, Self::Clamp { low: 0.0, high: 1.0 }, Self::Blur { radius: 4.0 }, Self::Sharpen { radius: 2.0, amount: 1.0 }, Self::DirectionalBlur { radius: 8.0, angle_deg: 0.0 }, Self::Highpass { radius: 4.0, amount: 1.0 },
         Self::Bevel {radius:8.0,amount:1.0,threshold:0.5}, Self::MaskOutline {radius:4.0,threshold:0.5,position:OutlinePosition::Both},
@@ -385,7 +458,10 @@ impl Filter {
         Self::Mirror { mode: MirrorMode::AxisX, offset: [0.5; 2], invert_x: false, invert_y: false, corner: MirrorCorner::TopLeft },
         Self::HeightAdjust { invert: false, offset: 0.0, multiply: 1.0 }, Self::Fxaa { alpha: false },
         Self::DropShadow { angle_deg: -45.0, distance: 4.0, size: 4.0, spread: 0.0, opacity: 0.75, color: [0.0; 3] },
-        Self::OuterGlow { width: 8.0, spread: 0.0, opacity: 0.75, color: [1.0; 3], precise: false }];
+        Self::OuterGlow { width: 8.0, spread: 0.0, opacity: 0.75, color: [1.0; 3], precise: false },
+        Self::GradientCurve { preset: CurvePreset::SCurve, invert: false, balance: 0.5, contrast: 0.0 },
+        Self::BevelSmooth { radius: 8.0, direction: BevelDirection::Inward, smoothing: 0.5, curve_offset: 0.0, curve_shape: 0.0, threshold: 0.5 },
+        Self::DirectionalDistance { distance: 16.0, angle_deg: 0.0, contrast: 0.0 }];
 
     /// A Bevel (the plain variant when Corner Type and Smoothing are at their defaults).
     pub fn bevel(p: BevelParts) -> Self {
@@ -486,7 +562,8 @@ impl Filter {
             Self::Smoothstep {..} => "Smoothstep", Self::ContrastLuminosity {..} => "Contrast Luminosity", Self::ColorCorrect {..} => "Color Correct",
             Self::Transform {..} => "Transform", Self::Mirror {..} => "Mirror",
             Self::BevelShape {..} => "Bevel", Self::MaskOutlineShape {..} => "Mask Outline", Self::HeightAdjust {..} => "Height Adjust",
-            Self::Fxaa {..} => "FXAA (Anti-Aliasing)", Self::DropShadow {..} => "Drop Shadow", Self::OuterGlow {..} => "Glow", Self::GradientDynamic {..} => "Gradient Dynamic" }
+            Self::Fxaa {..} => "FXAA (Anti-Aliasing)", Self::DropShadow {..} => "Drop Shadow", Self::OuterGlow {..} => "Glow", Self::GradientDynamic {..} => "Gradient Dynamic",
+            Self::GradientCurve {..} => "Gradient Curve", Self::BevelSmooth {..} => "Bevel Smooth", Self::DirectionalDistance {..} => "Directional Distance" }
     }
 
     pub fn supports_channel(self, channel: ChannelKind) -> bool {
@@ -508,6 +585,7 @@ impl Filter {
             Self::Glow { radius, amount, threshold } => Self::Glow { radius: radius * factor, amount, threshold },
             Self::DirectionalWarp { intensity, angle_deg } => Self::DirectionalWarp { intensity: intensity * factor, angle_deg },
             Self::Mosaic { size } => Self::Mosaic { size: ((size as f32 * factor).round() as u32).clamp(1, MAX_MOSAIC_SIZE) },
+            Self::DirectionalDistance { distance, angle_deg, contrast } => Self::DirectionalDistance { distance: distance * factor, angle_deg, contrast },
             // The outline shape draws its band from its own width and blur, not from the node
             // radius the other contour filters use: both follow the resolution scale.
             Self::MaskOutlineShape { radius, threshold, position, start_black, blur, curve } => {
@@ -520,7 +598,7 @@ impl Filter {
     /// Neighbourhood filters evaluated per texel by the compositor with direct pixel reads
     /// (no Gaussian staging). The node output is the final value.
     pub fn is_pixelwise(self) -> bool {
-        matches!(self, Self::EdgeDetect { .. } | Self::DirectionalWarp { .. } | Self::Mosaic { .. } | Self::Transform { .. } | Self::Mirror { .. } | Self::Fxaa { .. })
+        matches!(self, Self::EdgeDetect { .. } | Self::DirectionalWarp { .. } | Self::Mosaic { .. } | Self::Transform { .. } | Self::Mirror { .. } | Self::Fxaa { .. } | Self::DirectionalDistance { .. })
     }
 
     /// Filters whose every texel may read any other texel of the texture.
@@ -532,7 +610,8 @@ impl Filter {
         match self { Self::Transform { .. } | Self::Mirror { .. } => Some(FULL_SUPPORT as f32),
             Self::Blur { radius } | Self::BlurWrap { radius } | Self::Sharpen { radius, .. } | Self::DirectionalBlur { radius, .. } | Self::Highpass { radius, .. } | Self::Median { radius } | Self::Warp { intensity: radius, .. } | Self::Bevel {radius,..} | Self::MaskOutline {radius,..} | Self::EdgeDetect { radius, .. } | Self::Glow { radius, .. } | Self::DirectionalWarp { intensity: radius, .. } => Some(radius),
             Self::Mosaic { size } => Some(size as f32),
-            Self::BevelShape { radius, .. } => Some(radius),
+            Self::BevelShape { radius, .. } | Self::BevelSmooth { radius, .. } => Some(radius),
+            Self::DirectionalDistance { distance, .. } => Some(distance),
             Self::MaskOutlineShape { radius, blur, .. } => Some(radius + blur),
             Self::Fxaa { .. } => Some(1.0),
             Self::DropShadow { distance, size, .. } => Some(distance + size),
@@ -540,7 +619,7 @@ impl Filter {
             _ => None }
     }
 
-    pub fn is_contour(self) -> bool { matches!(self, Self::Bevel {..} | Self::MaskOutline {..} | Self::BevelShape {..} | Self::MaskOutlineShape {..}) }
+    pub fn is_contour(self) -> bool { matches!(self, Self::Bevel {..} | Self::MaskOutline {..} | Self::BevelShape {..} | Self::MaskOutlineShape {..} | Self::BevelSmooth {..}) }
 
     /// Contours need a half-pixel antialias band beyond their nominal radius.
     pub fn support(self) -> u32 {
@@ -548,7 +627,7 @@ impl Filter {
         if self.reads_whole_texture() { return FULL_SUPPORT; }
         // Edge Detect also reads one sample beyond its offset; Directional Warp interpolates.
         (self.radius().unwrap_or(0.0) + if self.is_contour() {0.5} else {0.0}
-            + if matches!(self, Self::DirectionalWarp { .. } | Self::EdgeDetect { .. } | Self::Fxaa { .. } | Self::DropShadow { .. }) {1.0} else {0.0}).ceil() as u32
+            + if matches!(self, Self::DirectionalWarp { .. } | Self::EdgeDetect { .. } | Self::Fxaa { .. } | Self::DropShadow { .. } | Self::DirectionalDistance { .. }) {1.0} else {0.0}).ceil() as u32
     }
 
     pub fn softens_coverage(self) -> bool {
@@ -561,7 +640,8 @@ impl Filter {
         matches!(self, Self::Blur {radius:0.0} | Self::BlurWrap {radius:0.0} | Self::DirectionalBlur {radius:0.0,..}
             | Self::Sharpen {radius:0.0,..} | Self::Sharpen {amount:0.0,..} | Self::Warp {intensity:0.0,..}
             | Self::DirectionalWarp {intensity:0.0,..} | Self::Mosaic {size:1} | Self::Glow {radius:0.0,..} | Self::Glow {amount:0.0,..}
-            | Self::DropShadow {opacity:0.0,..} | Self::OuterGlow {opacity:0.0,..} | Self::OuterGlow {width:0.0,..})
+            | Self::DropShadow {opacity:0.0,..} | Self::OuterGlow {opacity:0.0,..} | Self::OuterGlow {width:0.0,..}
+            | Self::DirectionalDistance {distance:0.0,..})
             || matches!(self, Self::Median { radius } if radius < 0.5)
     }
 
@@ -609,6 +689,17 @@ impl Filter {
             }
             Self::MaskOutlineShape { radius, threshold, position, blur, curve, .. } => {
                 Self::MaskOutline { radius, threshold, position }.valid() && blur.is_finite() && (0.0..=32.0).contains(&blur) && curve.is_finite() && (-1.0..=1.0).contains(&curve)
+            }
+            Self::GradientCurve { balance, contrast, .. } => [balance, contrast].iter().all(|v| v.is_finite() && (0.0..=1.0).contains(v)),
+            Self::BevelSmooth { radius, smoothing, curve_offset, curve_shape, threshold, .. } => {
+                Self::Blur { radius }.valid() && smoothing.is_finite() && (0.0..=1.0).contains(&smoothing)
+                    && curve_offset.is_finite() && (-0.9..=0.9).contains(&curve_offset)
+                    && curve_shape.is_finite() && (-1.0..=1.0).contains(&curve_shape)
+                    && threshold.is_finite() && (-1.0..=1.0).contains(&threshold)
+            }
+            Self::DirectionalDistance { distance, angle_deg, contrast } => {
+                Self::Blur { radius: distance }.valid() && angle_deg.is_finite() && (-180.0..=180.0).contains(&angle_deg)
+                    && contrast.is_finite() && (0.0..=1.0).contains(&contrast)
             }
             Self::HeightAdjust { offset, multiply, .. } => offset.is_finite() && (-1.0..=1.0).contains(&offset) && multiply.is_finite() && (0.0..=4.0).contains(&multiply),
             Self::Fxaa { .. } => true,
@@ -669,6 +760,23 @@ mod tests {
         assert!(Filter::Fxaa { alpha: true }.softens_coverage() && !Filter::Fxaa { alpha: false }.softens_coverage());
         assert!(Filter::HeightAdjust { invert: true, offset: 0.2, multiply: 2.0 }.valid());
         assert!(!Filter::HeightAdjust { invert: false, offset: 0.0, multiply: 5.0 }.valid());
+        // Gradient Curve, Bevel Smooth, Directional Distance.
+        assert_eq!(CurvePreset::Linear.eval(0.3), 0.3);
+        assert!((CurvePreset::EaseIn.eval(0.5) - 0.25).abs() < 1e-6 && (CurvePreset::EaseOut.eval(0.5) - 0.75).abs() < 1e-6);
+        assert!((CurvePreset::SCurve.eval(0.25) - 0.15625).abs() < 1e-6);
+        assert!((CurvePreset::Bell.eval(0.5) - 1.0).abs() < 1e-6 && CurvePreset::Valley.eval(0.5).abs() < 1e-6);
+        assert_eq!(CurvePreset::EaseIn.eval(2.0), 1.0, "clamped");
+        let smooth = Filter::BevelSmooth { radius: 8.0, direction: BevelDirection::Both, smoothing: 0.5, curve_offset: 0.0, curve_shape: 0.0, threshold: 0.5 };
+        assert!(smooth.valid() && smooth.is_contour() && smooth.support() == 9 && smooth.label() == "Bevel Smooth");
+        assert!(!Filter::BevelSmooth { radius: 8.0, direction: BevelDirection::Both, smoothing: 0.5, curve_offset: 1.0, curve_shape: 0.0, threshold: 0.5 }.valid());
+        let far = Filter::DirectionalDistance { distance: 16.0, angle_deg: 0.0, contrast: 0.0 };
+        assert!(far.valid() && far.is_pixelwise() && far.support() == 17 && !far.softens_coverage());
+        assert_eq!(far.scaled(0.5), Filter::DirectionalDistance { distance: 8.0, angle_deg: 0.0, contrast: 0.0 });
+        assert!(Filter::DirectionalDistance { distance: 0.0, angle_deg: 0.0, contrast: 0.0 }.spatial_identity());
+        assert!(!Filter::GradientCurve { preset: CurvePreset::Bell, invert: false, balance: 1.5, contrast: 0.0 }.valid());
+        for f in [smooth, far, Filter::GradientCurve { preset: CurvePreset::Bell, invert: true, balance: 0.5, contrast: 0.0 }] {
+            assert!(Filter::ALL.iter().any(|a| a.label() == f.label()) && f.supports_mask() && f.supports_channel(ChannelKind::Height));
+        }
         // Every entry of ALL has its own name.
         let mut names: Vec<_> = Filter::ALL.iter().map(|f| f.label()).collect();
         names.sort();

@@ -23,6 +23,7 @@ pub enum SettingsTab {
     #[default]
     General,
     Shortcuts,
+    Libraries,
 }
 
 /// User settings kept between runs.
@@ -34,6 +35,14 @@ pub struct Preferences {
     /// Display sizes only; independent of source images and document texture resolution.
     pub shelf_preview_size: u32,
     pub layer_preview_size: u32,
+    /// Assets panel in List view (one row per asset) instead of thumbnails.
+    pub shelf_list_view: bool,
+    /// Assets panel saved searches (Painter keeps them in Shelf.ini).
+    pub shelf_saved_searches: Vec<crate::panels::shelf::SavedSearch>,
+    /// Settings > Libraries: library folders added besides your_assets.
+    pub extra_libraries: Vec<crate::libraries::LibraryPath>,
+    /// The library new presets and imports go to (`your_assets` or an extra library's name).
+    pub default_library: String,
     /// Minutes between autosaves; 0 turns the timer off.
     pub autosave_minutes: u32,
     /// Recovery copies kept.
@@ -102,6 +111,10 @@ impl Default for Preferences {
             ui_size_percent: DEFAULT_UI_SIZE,
             shelf_preview_size: 88,
             layer_preview_size: 36,
+            shelf_list_view: false,
+            shelf_saved_searches: Vec::new(),
+            extra_libraries: Vec::new(),
+            default_library: crate::panels::shelf_filter::YOURS.to_string(),
             autosave_minutes: (recovery::DEFAULT_INTERVAL.as_secs() / 60) as u32,
             autosave_keep: recovery::DEFAULT_KEEP,
             show_welcome: true,
@@ -320,6 +333,10 @@ pub fn preferences_window(state: &mut UiState, ctx: &egui::Context) {
         shortcuts_page(state, ctx);
         return;
     }
+    if rec.prefs_tab == SettingsTab::Libraries {
+        libraries_page(state, ctx);
+        return;
+    }
     let mut open = true;
     let mut tab = SettingsTab::General;
     crate::widgets::window(ctx, RichText::new(tr("Settings")).font(theme::font_strong(14.0))).id(egui::Id::new("settings_window")).open(&mut open).collapsible(false).resizable(false).default_height(620.0).show(ctx, |ui| {
@@ -423,11 +440,35 @@ pub fn preferences_window(state: &mut UiState, ctx: &egui::Context) {
 /// The page buttons at the top of the Settings window.
 fn settings_tabs(ui: &mut egui::Ui, tab: &mut SettingsTab) {
     ui.horizontal(|ui| {
-        for (t, name) in [(SettingsTab::General, tr("General")), (SettingsTab::Shortcuts, tr("Shortcuts"))] {
+        for (t, name) in [(SettingsTab::General, tr("General")), (SettingsTab::Shortcuts, tr("Shortcuts")), (SettingsTab::Libraries, tr("Libraries"))] {
             ui.selectable_value(tab, t, RichText::new(name).font(theme::font_strong(12.5)));
         }
     });
     ui.separator();
+}
+
+/// Settings > Libraries: the library folders, the default one and Refresh.
+fn libraries_page(state: &mut UiState, ctx: &egui::Context) {
+    let mut open = true;
+    let mut tab = SettingsTab::Libraries;
+    let yours = state.libraries.iter().find(|l| l.id == crate::panels::shelf_filter::YOURS).map(|l| l.lib.root().to_path_buf());
+    let mut change = None;
+    let (prefs, form) = (&mut state.recovery.prefs, &mut state.libraries_form);
+    crate::widgets::window(ctx, RichText::new(tr("Settings")).font(theme::font_strong(14.0))).id(egui::Id::new("settings_window")).open(&mut open).collapsible(false).resizable(false).show(ctx, |ui| {
+        settings_tabs(ui, &mut tab);
+        ui.set_width(520.0);
+        change = crate::libraries::settings(ui, prefs, yours.as_deref(), form);
+    });
+    state.recovery.prefs_tab = tab;
+    state.recovery.show_prefs = open;
+    match change {
+        Some(crate::libraries::LibrariesChange::Changed) => {
+            let (extra, default) = (state.recovery.prefs.extra_libraries.clone(), state.recovery.prefs.default_library.clone());
+            state.set_libraries(&extra, &default);
+        }
+        Some(crate::libraries::LibrariesChange::Refresh) => state.refresh_libraries(),
+        None => {}
+    }
 }
 
 /// Settings > Shortcuts.
