@@ -250,6 +250,8 @@ pub struct Session {
     recovered: bool,
     /// The mesh was reloaded since the last save.
     mesh_dirty: bool,
+    /// Symmetry axes the L key (Painter's Symmetry on / off) switched off, restored by the next L.
+    saved_symmetry: Option<([bool; 3], bool)>,
 }
 
 /// Everything a project file holds, captured cheaply (shared tiles and resources) so it can be
@@ -339,6 +341,7 @@ impl Session {
             maps_generation: 0,
             recovered: false,
             mesh_dirty: false,
+            saved_symmetry: None,
         }
     }
 
@@ -1589,6 +1592,8 @@ impl Session {
                 }
                 // Text layers are re-rendered from their outlines instead of resampled.
                 crate::text::refresh_text_rasters(&mut self.doc, &self.resources, &resized);
+                // Pen paths too: their raster is a cache of the path.
+                crate::pen::refresh_path_rasters(&mut self.doc, &self.resources, &resized);
                 if changed {
                     self.commit(&format!("Resolution {resolution}"), None);
                     self.fit_quick_mask();
@@ -1605,6 +1610,28 @@ impl Session {
                 add_blend(&mut ts.layers, kind);
                 self.brush.material.set(kind, kind.default_paint_value());
                 self.commit(&format!("Add {} Channel", kind.display_name()), None);
+            }
+            Command::AddChannels { texture_set, kinds } => {
+                let ts = self.doc.texture_set_mut(texture_set).ok_or(CommandError::TextureSetNotFound)?;
+                let mut added: Vec<ChannelKind> = Vec::new();
+                for kind in kinds {
+                    if !ts.has_channel(kind) {
+                        ts.channels.push(ChannelDef::default_for(kind));
+                        add_blend(&mut ts.layers, kind);
+                        added.push(kind);
+                    }
+                }
+                if added.is_empty() {
+                    return Ok(());
+                }
+                for &kind in &added {
+                    self.brush.material.set(kind, kind.default_paint_value());
+                }
+                let label = match added.as_slice() {
+                    [one] => format!("Add {} Channel", one.display_name()),
+                    many => format!("Add {} Channels", many.len()),
+                };
+                self.commit(&label, None);
             }
             Command::RemoveChannel { texture_set, kind } => {
                 let ts = self.doc.texture_set_mut(texture_set).ok_or(CommandError::TextureSetNotFound)?;
@@ -1702,9 +1729,16 @@ impl Session {
                 if found.is_empty() {
                     return Err(CommandError::Invalid("Paste as instance: the copied layer is no longer in the project".into()));
                 }
+                // Put back when a later layer is refused: the instances already inserted used to
+                // stay in the document, outside any undo step.
+                let before = ts.layers.clone();
                 for (set, source) in found {
                     let same = set == ts_id;
-                    if same && at.is_some_and(|a| a != source.id && ts.is_descendant_or_self(a, source.id)) {
+                    // An instance of an instance follows that one's source: the new layer must stay
+                    // out of that layer too.
+                    let follows = source.instance_of.unwrap_or(source.id);
+                    if at.is_some_and(|a| (same && a != source.id && ts.is_descendant_or_self(a, source.id)) || (a != follows && ts.is_descendant_or_self(a, follows))) {
+                        ts.layers = before;
                         return Err(CommandError::Invalid("An instance cannot go inside its own source: select a layer outside it first".into()));
                     }
                     let mut instance = subcraft_doc::instance::new_instance(&source, ts, same);
@@ -2220,7 +2254,7 @@ impl Session {
                 })?;
             }
             Command::SetParts { layer, parts } => {
-                self.edit_layer_set(layer, "Layer Parts", None, |ts| {
+                self.edit_layer_set_if_changed(layer, "Layer Parts", |ts| {
                     Self::layer_mut(ts, layer)?.parts = parts;
                     Ok(())
                 })?;
@@ -2466,6 +2500,7 @@ impl Session {
             Action::BrushSmaller => self.brush.settings.size = (self.brush.settings.size / 1.15).max(0.1),
             Action::BrushLarger => self.brush.settings.size = (self.brush.settings.size * 1.15).min(100.0),
             Action::ToggleSymmetryX => self.brush.options.symmetry[0] = !self.brush.options.symmetry[0],
+            Action::ToggleSymmetry => self.brush.options.toggle_symmetry(&mut self.saved_symmetry),
             Action::ToggleLazyMouse => {
                 let o = &mut self.brush.options;
                 o.lazy_distance_px = if o.lazy_distance_px > 0.0 { 0.0 } else { 20.0 };
@@ -2662,7 +2697,11 @@ impl Session {
             Some(q) if q.editing => {
                 q.editing = false;
                 q.revision += 1;
-                let empty = q.image.allocated_tiles() == 0 && q.image.fill()[0] <= 0.0;
+                // Erased texels keep their tile: a mask painted and erased again, or only erased,
+                // has tiles and selects nothing. Counted as painted, it was applied and every
+                // stroke after it painted nothing, with no message.
+                let painted = (0..q.image.tile_count()).any(|i| q.image.tile(i).is_some_and(|t| t.data.iter().any(|v| v.to_f32() > 0.0)));
+                let empty = !painted && q.image.fill()[0] <= 0.0;
                 if empty {
                     self.quick_mask = None;
                 }
@@ -3242,6 +3281,16 @@ impl Session {
         let name = self.export_name();
         let sets = self.export_sets();
         subcraft_export::scene::export_scene(&self.scene.mesh, &name, &sets, &settings, format, dir).map_err(|e| e.to_string())
+    }
+
+    /// File > Export mesh: the mesh alone (optionally displaced by the Height channel) into `dir`.
+    pub fn export_mesh(&mut self, dir: &Path, options: &subcraft_export::mesh_export::MeshExport) -> Result<Vec<PathBuf>, String> {
+        if options.displacement.is_some() {
+            self.update_composites();
+        }
+        let name = self.export_name();
+        let sets = self.export_sets();
+        subcraft_export::mesh_export::export_mesh(&self.scene.mesh, &name, &sets, options, dir).map_err(|e| e.to_string())
     }
 
     /// Export every map as one in-memory ZIP archive.

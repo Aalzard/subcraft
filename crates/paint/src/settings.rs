@@ -557,6 +557,26 @@ impl StrokeOptions {
         self.copies() > 1
     }
 
+    /// Whether a mirror axis or radial symmetry is switched on (Painter's Symmetry button state).
+    pub fn symmetry_on(&self) -> bool {
+        self.symmetry.iter().any(|&m| m) || self.radial.enabled
+    }
+
+    /// Painter's Symmetry on / off (toolbar button and L): switching off remembers the mirror axes
+    /// and radial symmetry in `saved`; switching on brings them back (mirror X when nothing was
+    /// remembered).
+    pub fn toggle_symmetry(&mut self, saved: &mut Option<([bool; 3], bool)>) {
+        if self.symmetry_on() {
+            *saved = Some((self.symmetry, self.radial.enabled));
+            self.symmetry = [false; 3];
+            self.radial.enabled = false;
+        } else {
+            let (mirror, radial) = saved.filter(|(m, r)| m.iter().any(|&x| x) || *r).unwrap_or(([true, false, false], false));
+            self.symmetry = mirror;
+            self.radial.enabled = radial;
+        }
+    }
+
     /// Coordinate of the mirror plane along `axis` for a mesh whose bounds center is `center`.
     pub fn mirror_plane(&self, axis: usize, center: glam::Vec3) -> f32 {
         let offset = self.mirror_offset[axis];

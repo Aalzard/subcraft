@@ -216,6 +216,11 @@ fn uv_checker_and_texel_density_give_colour_on_content() {
     // In a mask the checker is its brightness: lighter and darker cells.
     let m = fx.mask(shaped(GeneratorKind::UvChecker, s));
     assert!(m[(8 * RES + 8) as usize] > m[(8 * RES + 24) as usize] + 0.1);
+    // QA 2026-11: Invert did nothing in a mask (the colour and its brightness were both inverted).
+    let inverted = fx.mask(Generator { invert: true, ..shaped(GeneratorKind::UvChecker, s) });
+    for i in [(8 * RES + 8) as usize, (8 * RES + 24) as usize] {
+        assert!((inverted[i] - (1.0 - m[i])).abs() < 1e-3, "inverted {} vs {}", inverted[i], m[i]);
+    }
     // Texel density: the plane spans the texture exactly once, the medium colour.
     let c = content_color(&fx, shaped(GeneratorKind::UvTexelDensity, ShapeSettings::default()));
     let color = c.channel(ChannelKind::BaseColor).unwrap();

@@ -135,21 +135,13 @@ pub(crate) const DEFAULT_LAZY_DISTANCE: f32 = 20.0;
 
 /// Mirror axes and radial symmetry as one on / off state (Painter's Symmetry button).
 pub(crate) fn symmetry_on(options: &StrokeOptions) -> bool {
-    options.symmetry.iter().any(|&m| m) || options.radial.enabled
+    options.symmetry_on()
 }
 
 /// Switch symmetry off, remembering the axes in `saved`, or back on with the remembered axes
 /// (mirror X when there are none).
 pub(crate) fn toggle_symmetry(options: &mut StrokeOptions, saved: &mut Option<([bool; 3], bool)>) {
-    if symmetry_on(options) {
-        *saved = Some((options.symmetry, options.radial.enabled));
-        options.symmetry = [false; 3];
-        options.radial.enabled = false;
-    } else {
-        let (mirror, radial) = saved.filter(|(m, r)| m.iter().any(|&x| x) || *r).unwrap_or(([true, false, false], false));
-        options.symmetry = mirror;
-        options.radial.enabled = radial;
-    }
+    options.toggle_symmetry(saved);
 }
 
 /// Switch the lazy mouse off, remembering its distance in `saved`, or back on with it.

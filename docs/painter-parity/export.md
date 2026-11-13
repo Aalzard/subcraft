@@ -14,7 +14,7 @@ Layout notes: Painter has one modal Export textures window with three tabs along
 | Settings tab | Export window, tab 1 | default tab | done (default tab) | crates/ui/src/dialogs.rs settings_tab | chunk 14 |
 | Output templates tab | Export window, tab 2 | - | done (preset list, New / Duplicate / Delete / Import / Export, and the template editor) | crates/ui/src/dialogs.rs export_window | #124, chunk 14 |
 | List of exports tab | Export window, tab 3 | - | done | crates/ui/src/dialogs.rs export_log | chunk 14 |
-| --export-path command line argument | Launch argument (default output directory) | not documented | missing (only --export-window / --export-template for scripted captures) | - | - |
+| --export-path command line argument | Launch argument (default output directory) | not documented | done (the Export window's default folder; a project's saved export folder still wins) | apps/subcraft/src/main.rs, crates/ui/src/app.rs LaunchOptions::export_folder | export-path |
 
 ## Window bottom buttons
 
@@ -275,13 +275,13 @@ Layout notes: a small separate window opened from the File menu, with a file-typ
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Export mesh (menu entry) | File > Export mesh | - | partial: "Export model + textures" button inside the Export Textures window, always writes textures too | crates/ui/src/dialogs.rs:277 | - |
-| Mesh file format choice | Export mesh window / save dialog | not documented (USD confirmed; FBX, OBJ, glTF unverified) | partial: OBJ+MTL, glTF, GLB, USDA; no FBX | crates/export/src/scene.rs:19 | - |
-| Without displacement/tessellation | Export mesh window option | selected (unverified) | partial: only mode available | crates/export/src/scene.rs:398 | - |
-| Apply triangulation | Sub-option of Without displacement | off (unverified) | missing | - | - |
-| With displacement/tessellation | Export mesh window option | - | missing | - | - |
-| Recompute vertex normals | Sub-option of With displacement | off (unverified) | missing | - | - |
-| USD as mesh-only export format | Export mesh window | - | partial: USDA text with materials only | crates/export/src/scene.rs:324 | - |
+| Export mesh (menu entry) | File > Export mesh | - | done (File > Export mesh… opens its own window; Export model + textures stays in Export Textures) | crates/ui/src/export_mesh.rs | chunk 48 |
+| Mesh file format choice | Export mesh window / save dialog | not documented (USD confirmed; FBX, OBJ, glTF unverified) | partial: OBJ, glTF, GLB, USDA; no FBX | crates/export/src/mesh_export.rs | chunk 48 |
+| Without displacement/tessellation | Export mesh window option | selected (unverified) | done (default) | crates/export/src/mesh_export.rs | chunk 48 |
+| Apply triangulation | Sub-option of Without displacement | off (unverified) | done (always: SubCraft keeps meshes as triangles; shown checked and locked) | crates/ui/src/export_mesh.rs | chunk 48 |
+| With displacement/tessellation | Export mesh window option | - | done (0-4 subdivision levels, then Height x scale along the normals, per texture set and UDIM tile) | crates/export/src/mesh_export.rs displaced | chunk 48 |
+| Recompute vertex normals | Sub-option of With displacement | off (unverified) | done (area-weighted, shared across UV seams) | crates/export/src/mesh_export.rs smooth_normals | chunk 48 |
+| USD as mesh-only export format | Export mesh window | - | done (USDA mesh with untextured material slots) | crates/export/src/mesh_export.rs | chunk 48 |
 | glTF / GLB written with the glTF template (mesh + textures) | Export textures, glTF template | - | done | crates/export/src/scene.rs:292 | - |
 
 ## Export from the layer stack
