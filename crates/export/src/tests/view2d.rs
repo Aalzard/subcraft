@@ -7,7 +7,7 @@ fn view_settings(view: View2d, padding: Padding, format: Option<FileFormat>) -> 
 
 fn run(ch: &BTreeMap<ChannelKind, TiledImage>, maps: Option<&BTreeMap<MeshMapKind, TiledImage>>, s: &ExportSettings, name: &str) -> PathBuf {
     let mesh = primitives::plane(2.0, 1);
-    let sets = [ExportTextureSet { name: "Body", material_slot: 0, udim: None, channels: ch, mesh_maps: maps }];
+    let sets = [ExportTextureSet { name: "Body", material_slot: 0, udim: None, channels: ch, mesh_maps: maps, mixing: subcraft_doc::MixingSettings::LEGACY }];
     let dir = tmp(name);
     let files = export(&mesh, "M", &sets, s, &dir).unwrap();
     assert_eq!(files.len(), 1, "exactly one file: {files:?}");
@@ -70,7 +70,7 @@ fn padding_fills_the_gutter_with_the_displayed_island_color() {
         base.set(i as u32 % RES, i as u32 / RES, [0.5, 0.25, 0.0, 1.0]);
     }
     ch.insert(ChannelKind::BaseColor, base);
-    let sets = [ExportTextureSet { name: "Body", material_slot: 0, udim: None, channels: &ch, mesh_maps: None }];
+    let sets = [ExportTextureSet { name: "Body", material_slot: 0, udim: None, channels: &ch, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY }];
     let hole = cov.iter().position(|c| !c).expect("crate UVs leave some gutter");
     let (hx, hy) = (hole as u32 % RES, hole as u32 / RES);
     let hole_pixel = |padding: Padding, name: &str| {
@@ -94,7 +94,7 @@ fn baked_mesh_map_view_exports_and_skips_when_missing() {
     let f = run(&ch, Some(&maps), &view_settings(View2d::MeshMap(MeshMapKind::AmbientOcclusion), Padding::None, None), "v-mm");
     assert!((px(&f, 2, 2)[0] - 0.4).abs() < 1.0 / 255.0);
     // no baked map → nothing is written (and no panic)
-    let sets = [ExportTextureSet { name: "Body", material_slot: 0, udim: None, channels: &ch, mesh_maps: None }];
+    let sets = [ExportTextureSet { name: "Body", material_slot: 0, udim: None, channels: &ch, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY }];
     let s = view_settings(View2d::MeshMap(MeshMapKind::AmbientOcclusion), Padding::None, None);
     assert!(plan("M", &sets, &s).is_empty());
     assert!(export(&mesh, "M", &sets, &ExportSettings { view_2d: None, ..s }, &tmp("v-none")).unwrap().is_empty());

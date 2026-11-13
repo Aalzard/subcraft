@@ -3,6 +3,7 @@ mod golden;
 mod presets;
 mod view2d;
 mod more;
+mod mixing;
 mod formats;
 use std::collections::BTreeMap;
 
@@ -18,7 +19,7 @@ const RES: u32 = 128;
 fn archive_contains_all_ten_maps_identical_to_directory_export() {
     use std::io::Read;
     let mesh=primitives::sample_crate();let ch=channels();
-    let sets=[ExportTextureSet {name:"Body",material_slot:0,udim:None,channels:&ch,mesh_maps:None},ExportTextureSet {name:"Trim",material_slot:1,udim:None,channels:&ch,mesh_maps:None}];
+    let sets=[ExportTextureSet {name:"Body",material_slot:0,udim:None,channels:&ch,mesh_maps:None, mixing: subcraft_doc::MixingSettings::LEGACY},ExportTextureSet {name:"Trim",material_slot:1,udim:None,channels:&ch,mesh_maps:None, mixing: subcraft_doc::MixingSettings::LEGACY}];
     let settings=ExportSettings::default();let dir=tmp("archive");let files=export(&mesh,"Test Model",&sets,&settings,&dir).unwrap();
     let result=archive(&mesh,"Test Model",&sets,&settings).unwrap();assert_eq!(result.files,10);assert_eq!(result.name,"Test_Model-textures.zip");
     let mut zip=zip::ZipArchive::new(std::io::Cursor::new(result.bytes)).unwrap();assert_eq!(zip.len(),files.len());
@@ -28,7 +29,7 @@ fn archive_contains_all_ten_maps_identical_to_directory_export() {
 
 #[test]
 fn archive_uses_packed_templates_and_format_overrides() {
-    let mesh=primitives::plane(2.0,1);let ch=channels();let sets=[ExportTextureSet {name:"Body",material_slot:0,udim:None,channels:&ch,mesh_maps:None}];
+    let mesh=primitives::plane(2.0,1);let ch=channels();let sets=[ExportTextureSet {name:"Body",material_slot:0,udim:None,channels:&ch,mesh_maps:None, mixing: subcraft_doc::MixingSettings::LEGACY}];
     let settings=ExportSettings {template:ExportTemplate::unreal(),format_override:Some(FileFormat::Png16),..Default::default()};
     let result=archive(&mesh,"M",&sets,&settings).unwrap();let mut zip=zip::ZipArchive::new(std::io::Cursor::new(result.bytes)).unwrap();assert_eq!(result.files,plan("M",&sets,&settings).len());
     let mut entry=zip.by_name("M_Body_OcclusionRoughnessMetallic.png").unwrap();let mut bytes=Vec::new();std::io::Read::read_to_end(&mut entry,&mut bytes).unwrap();let b=subcraft_image::io::decode_bitmap(&bytes,Some("map.png")).unwrap();let p=b.texel(10,10,false);assert!((p[1]-0.25).abs()<1e-4);assert!((p[2]-1.0).abs()<1e-4);
@@ -36,7 +37,7 @@ fn archive_uses_packed_templates_and_format_overrides() {
 
 #[test]
 fn archive_rejects_colliding_and_unsafe_output_names() {
-    let mesh=primitives::plane(2.0,1);let ch=channels();let set=||ExportTextureSet {name:"Same",material_slot:0,udim:None,channels:&ch,mesh_maps:None};
+    let mesh=primitives::plane(2.0,1);let ch=channels();let set=||ExportTextureSet {name:"Same",material_slot:0,udim:None,channels:&ch,mesh_maps:None, mixing: subcraft_doc::MixingSettings::LEGACY};
     assert!(archive(&mesh,"M",&[set(),set()],&ExportSettings::default()).is_err());
     let mut settings=ExportSettings::default();settings.template.maps[0].suffix="../outside".into();assert!(archive(&mesh,"M",&[set()],&settings).is_err());
 }
@@ -46,7 +47,7 @@ fn archive_rejects_colliding_and_unsafe_output_names() {
 #[test]
 fn export_refuses_texture_sets_that_would_overwrite_each_other() {
     let mesh=primitives::plane(2.0,1);let ch=channels();
-    let set=|name|ExportTextureSet {name,material_slot:0,udim:None,channels:&ch,mesh_maps:None};
+    let set=|name|ExportTextureSet {name,material_slot:0,udim:None,channels:&ch,mesh_maps:None, mixing: subcraft_doc::MixingSettings::LEGACY};
     for (a,b) in [("Body Armor","Body_Armor"),("Mat.001","Mat_001"),("Body","body"),("Same","Same")] {
         let dir=tmp(&format!("collide-{}",sanitize(a)));
         let err=export(&mesh,"M",&[set(a),set(b)],&ExportSettings::default(),&dir).unwrap_err().to_string();
@@ -62,14 +63,14 @@ fn export_refuses_texture_sets_that_would_overwrite_each_other() {
 // QA 2026-11: an empty folder wrote the textures into the process's working directory.
 #[test]
 fn export_refuses_an_empty_folder() {
-    let mesh=primitives::plane(2.0,1);let ch=channels();let sets=[ExportTextureSet {name:"Body",material_slot:0,udim:None,channels:&ch,mesh_maps:None}];
+    let mesh=primitives::plane(2.0,1);let ch=channels();let sets=[ExportTextureSet {name:"Body",material_slot:0,udim:None,channels:&ch,mesh_maps:None, mixing: subcraft_doc::MixingSettings::LEGACY}];
     assert!(matches!(export(&mesh,"M",&sets,&ExportSettings::default(),std::path::Path::new("")),Err(ExportError::Folder(..))));
 }
 
 // QA 2026-11: the JPEG override dropped the alpha component of four-component packed maps.
 #[test]
 fn jpeg_override_keeps_four_component_maps_in_their_own_format() {
-    let mesh=primitives::plane(2.0,1);let ch=channels();let sets=[ExportTextureSet {name:"Body",material_slot:0,udim:None,channels:&ch,mesh_maps:None}];
+    let mesh=primitives::plane(2.0,1);let ch=channels();let sets=[ExportTextureSet {name:"Body",material_slot:0,udim:None,channels:&ch,mesh_maps:None, mixing: subcraft_doc::MixingSettings::LEGACY}];
     let settings=ExportSettings {template:ExportTemplate::unity_hdrp(),format_override:Some(FileFormat::Jpeg),..Default::default()};
     let four:Vec<&OutputMap>=settings.template.maps.iter().filter(|m|m.components.len()==4).collect();
     assert!(!four.is_empty(),"the Unity HDRP template has a four-component mask map");
@@ -96,7 +97,7 @@ fn hdr_keeps_packed_maps_in_their_own_format_and_remaps_signed_height() {
     }
     let mut low = ch.clone();
     low.insert(ChannelKind::Height, TiledImage::new(RES, RES, 1, [-0.5; 4]));
-    let set = ExportTextureSet { name: "S", material_slot: 0, udim: None, channels: &low, mesh_maps: None };
+    let set = ExportTextureSet { name: "S", material_slot: 0, udim: None, channels: &low, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY };
     let map = OutputMap::new("H", FileFormat::Hdr32, vec![Source::Height], false);
     let value = |format| {
         let mut dense = Dense { set: &set, size: RES, cache: HashMap::new(), normal: None, view: None, mesh_maps: HashMap::new(), alpha: None };
@@ -129,7 +130,7 @@ fn px(path: &Path, x: u32, y: u32) -> [f32; 4] {
 #[test]
 fn plan_skips_maps_without_channels() {
     let ch = channels();
-    let sets = [ExportTextureSet { name: "Body Set", material_slot: 0, udim: None, channels: &ch, mesh_maps: None }];
+    let sets = [ExportTextureSet { name: "Body Set", material_slot: 0, udim: None, channels: &ch, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY }];
     let files = plan("My Crate", &sets, &ExportSettings::default());
     let names: Vec<&str> = files.iter().map(|(_, f)| f.as_str()).collect();
     assert_eq!(
@@ -149,7 +150,7 @@ fn plan_skips_maps_without_channels() {
 fn metal_rough_values_and_srgb_encoding() {
     let mesh = primitives::plane(2.0, 1);
     let ch = channels();
-    let sets = [ExportTextureSet { name: "Plane", material_slot: 0, udim: None, channels: &ch, mesh_maps: None }];
+    let sets = [ExportTextureSet { name: "Plane", material_slot: 0, udim: None, channels: &ch, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY }];
     let dir = tmp("pbr");
     let files = export(&mesh, "Mesh", &sets, &ExportSettings::default(), &dir).unwrap();
     assert_eq!(files.len(), 5);
@@ -169,7 +170,7 @@ fn packed_maps_and_normal_formats() {
     let mut ch = channels();
     let tilted = glam::Vec3::new(0.0, 0.6, 0.8);
     ch.insert(ChannelKind::Normal, TiledImage::new(RES, RES, 4, [0.5, tilted.y * 0.5 + 0.5, tilted.z * 0.5 + 0.5, 1.0]));
-    let sets = [ExportTextureSet { name: "P", material_slot: 0, udim: None, channels: &ch, mesh_maps: None }];
+    let sets = [ExportTextureSet { name: "P", material_slot: 0, udim: None, channels: &ch, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY }];
     let dir = tmp("packed");
     let ue = ExportSettings { template: ExportTemplate::unreal(), ..ExportSettings::default() };
     export(&mesh, "M", &sets, &ue, &dir).unwrap();
@@ -200,7 +201,7 @@ fn height_slopes_tilt_the_exported_normal() {
         }
     }
     ch.insert(ChannelKind::Height, h);
-    let sets = [ExportTextureSet { name: "P", material_slot: 0, udim: None, channels: &ch, mesh_maps: None }];
+    let sets = [ExportTextureSet { name: "P", material_slot: 0, udim: None, channels: &ch, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY }];
     let dir = tmp("height");
     export(&mesh, "M", &sets, &ExportSettings::default(), &dir).unwrap();
     let n = px(&dir.join("M_P_Normal.png"), 64, 64);
@@ -225,7 +226,7 @@ fn padding_fills_the_gutter_from_islands() {
     }
     let mut ch = BTreeMap::new();
     ch.insert(ChannelKind::Roughness, rough);
-    let sets = [ExportTextureSet { name: "C", material_slot: 0, udim: None, channels: &ch, mesh_maps: None }];
+    let sets = [ExportTextureSet { name: "C", material_slot: 0, udim: None, channels: &ch, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY }];
     let gutter = cov.iter().position(|c| !c).unwrap() as u32;
     let (gx, gy) = (gutter % RES, gutter / RES);
     let dir = tmp("pad");
@@ -245,7 +246,7 @@ fn baked_ao_fills_the_occlusion_slot() {
     let ch = channels();
     let mut baked = BTreeMap::new();
     baked.insert(MeshMapKind::AmbientOcclusion, TiledImage::new(64, 64, 1, [0.4; 4]));
-    let sets = [ExportTextureSet { name: "P", material_slot: 0, udim: None, channels: &ch, mesh_maps: Some(&baked) }];
+    let sets = [ExportTextureSet { name: "P", material_slot: 0, udim: None, channels: &ch, mesh_maps: Some(&baked), mixing: subcraft_doc::MixingSettings::LEGACY }];
     let files = plan("M", &sets, &ExportSettings::default());
     assert!(files.iter().any(|(_, f)| f == "M_P_AO.png"), "AO map exported from the bake: {files:?}");
     let dir = tmp("ao");
@@ -274,7 +275,7 @@ fn near(a: f32, b: f32) -> bool { (a - b).abs() <= 1.5 / 255.0 }
 fn export_with(template: ExportTemplate, name: &str) -> (PathBuf, Vec<String>) {
     let mesh = primitives::plane(2.0, 1);
     let ch = distinct_channels();
-    let sets = [ExportTextureSet { name: "P", material_slot: 0, udim: None, channels: &ch, mesh_maps: None }];
+    let sets = [ExportTextureSet { name: "P", material_slot: 0, udim: None, channels: &ch, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY }];
     let dir = tmp(name);
     let files = export(&mesh, "M", &sets, &ExportSettings { template, ..ExportSettings::default() }, &dir).unwrap();
     let names = files.iter().map(|f| f.file_name().unwrap().to_str().unwrap().to_string()).collect();

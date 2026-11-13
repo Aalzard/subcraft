@@ -24,8 +24,8 @@ Layout notes: with a fill layer or fill effect selected the panel has two upper-
 | UV projection | Properties > Fill > Projection | option | done | crates/ui/src/panels/properties.rs:965 | - |
 | Tri-planar projection | Properties > Fill > Projection | option | done | crates/ui/src/panels/properties.rs:965 | - |
 | Planar projection | Properties > Fill > Projection | option | partial: projects along a chosen object axis (X/Y/Z) only; no free 3D placement, crop or culling | crates/ui/src/panels/properties.rs:1014 | - |
-| Spherical projection | Properties > Fill > Projection | option | missing | - | - |
-| Cylindrical projection | Properties > Fill > Projection | option | missing | - | - |
+| Spherical projection | Properties > Fill > Projection | option | done: around the centre of the bounding cube, pole on a chosen axis | crates/doc/src/fill.rs:291 | chunk 46 |
+| Cylindrical projection | Properties > Fill > Projection | option | done: around a chosen axis through the centre of the bounding cube | crates/doc/src/fill.rs:291 | chunk 46 |
 | Warp projection | Properties > Fill > Projection | option | missing | - | - |
 
 ## Fill (match per UV Tile)
@@ -127,12 +127,12 @@ Layout notes: Filtering, UV Wrap, then the UV transformations group (Scale mode,
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Filtering (same three options) | Properties > Fill | Bilinear &#124; HQ | missing | - | - |
-| UV Wrap (four options) | Properties > Fill | Repeat | missing | - | - |
-| Shape Crop (two options) | Properties > Fill | Projection extends outside shape | missing | - | - |
-| UV transformation: Scale | Properties > Fill > UV transformations | not documented | missing | - | - |
-| UV transformation: Rotation | Properties > Fill > UV transformations | not documented | missing | - | - |
-| UV transformation: Offset | Properties > Fill > UV transformations | texture centred | missing | - | - |
+| Filtering (same three options) | Properties > Fill | Bilinear &#124; HQ | done | crates/ui/src/panels/properties.rs:1218 | chunk 46 |
+| UV Wrap (four options) | Properties > Fill | Repeat | done | crates/ui/src/panels/properties.rs:1218 | chunk 46 |
+| Shape Crop (two options) | Properties > Fill | Projection extends outside shape | partial: selectable, but the shape is the bounding cube until the 3D projection transform exists | crates/ui/src/panels/properties.rs:1218 | chunk 46 |
+| UV transformation: Scale | Properties > Fill > UV transformations | not documented | done: the shared Tiling / Rotation / Offset rows | crates/ui/src/panels/properties.rs:1302 | chunk 46 |
+| UV transformation: Rotation | Properties > Fill > UV transformations | not documented | done: the shared Tiling / Rotation / Offset rows | crates/ui/src/panels/properties.rs:1302 | chunk 46 |
+| UV transformation: Offset | Properties > Fill > UV transformations | texture centred | done: the shared Tiling / Rotation / Offset rows | crates/ui/src/panels/properties.rs:1302 | chunk 46 |
 | 3D projection: Offset X, Y, Z | Properties > Fill > 3D projection | 0, 0, 0 | missing | - | - |
 | 3D projection: Rotation X, Y, Z | Properties > Fill > 3D projection | not documented | missing | - | - |
 | 3D projection: Scale X, Y, Z | Properties > Fill > 3D projection | not documented | missing | - | - |
@@ -141,10 +141,10 @@ Layout notes: Filtering, UV Wrap, then the UV transformations group (Scale mode,
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Filtering (same three options) | Properties > Fill | Bilinear &#124; HQ | missing | - | - |
-| UV wrap (four options) | Properties > Fill | Repeat | missing | - | - |
-| Shape crop (two options) | Properties > Fill | Projection extends outside shape | missing | - | - |
-| Angle (how much of the perimeter is covered) | Properties > Fill | not documented (360 unverified) | missing | - | - |
+| Filtering (same three options) | Properties > Fill | Bilinear &#124; HQ | done | crates/ui/src/panels/properties.rs:1218 | chunk 46 |
+| UV wrap (four options) | Properties > Fill | Repeat | done | crates/ui/src/panels/properties.rs:1218 | chunk 46 |
+| Shape crop (two options) | Properties > Fill | Projection extends outside shape | partial: selectable, but the shape is the bounding cube until the 3D projection transform exists | crates/ui/src/panels/properties.rs:1218 | chunk 46 |
+| Angle (how much of the perimeter is covered) | Properties > Fill | not documented (360 unverified) | done: 1-360 degrees, default 360 | crates/ui/src/panels/properties.rs:1232 | chunk 46 |
 | Backface Culling (toggle) | Properties > Fill | not documented | missing | - | - |
 | Backface Culling: Hardness | Properties > Fill > Backface Culling | not documented | missing | - | - |
 | 3D projection: Offset X, Y, Z | Properties > Fill > 3D projection | 0, 0, 0 | missing | - | - |
@@ -226,16 +226,16 @@ Layout notes: a Symmetry sub-group in the FILL block with an "Enable symmetry" t
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Enable symmetry | Properties > Fill > Symmetry | off | missing | - | - |
-| Enable symmetry unavailable for UV projection and Fill (match per UV Tile) | Properties > Fill > Symmetry | n/a | missing | - | - |
-| Symmetry type: Mirror | Properties > Fill > Symmetry | not documented | missing | - | - |
-| Symmetry type: Radial | Properties > Fill > Symmetry | not documented | missing | - | - |
-| Mirror: Axis | Properties > Fill > Symmetry | not documented | missing | - | - |
-| Mirror: Axis position | Properties > Fill > Symmetry | not documented | missing | - | - |
-| Radial: Axis | Properties > Fill > Symmetry | not documented | missing | - | - |
-| Radial: copy count | Properties > Fill > Symmetry | (unverified) | missing | - | - |
-| Radial: Flip copy (alternate copies flipped on U or V) | Properties > Fill > Symmetry | not documented | missing | - | - |
-| Radial: Axis position X, Y, Z | Properties > Fill > Symmetry | not documented | missing | - | - |
+| Enable symmetry | Properties > Fill > Symmetry | off | done | crates/ui/src/panels/properties.rs:1243 | chunk 46 |
+| Enable symmetry unavailable for UV projection and Fill (match per UV Tile) | Properties > Fill > Symmetry | n/a | done: greyed out on UV projection | crates/ui/src/panels/properties.rs:1243 | chunk 46 |
+| Symmetry type: Mirror | Properties > Fill > Symmetry | not documented | done | crates/ui/src/panels/properties.rs:1243 | chunk 46 |
+| Symmetry type: Radial | Properties > Fill > Symmetry | not documented | done | crates/ui/src/panels/properties.rs:1243 | chunk 46 |
+| Mirror: Axis | Properties > Fill > Symmetry | not documented | done | crates/ui/src/panels/properties.rs:1243 | chunk 46 |
+| Mirror: Axis position | Properties > Fill > Symmetry | not documented | done: bounding-cube coordinate, 0.5 = the middle | crates/ui/src/panels/properties.rs:1243 | chunk 46 |
+| Radial: Axis | Properties > Fill > Symmetry | not documented | done | crates/ui/src/panels/properties.rs:1243 | chunk 46 |
+| Radial: copy count | Properties > Fill > Symmetry | (unverified) | done: 1-64, default 4 | crates/ui/src/panels/properties.rs:1243 | chunk 46 |
+| Radial: Flip copy (alternate copies flipped on U or V) | Properties > Fill > Symmetry | not documented | done | crates/ui/src/panels/properties.rs:1243 | chunk 46 |
+| Radial: Axis position X, Y, Z | Properties > Fill > Symmetry | not documented | done | crates/ui/src/panels/properties.rs:1243 | chunk 46 |
 
 ## Material
 

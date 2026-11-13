@@ -370,10 +370,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                             let line_from = if mods.shift { state.last_stroke_point } else { None };
                             // Ctrl+Shift+click: the line snaps to 5 degree steps, as in Painter, and
                             // the next line starts where this one ended (not at the raw click).
-                            let end = match line_from {
-                                Some(from) if mods.command || mods.ctrl => crate::nav::snap_line_end(from, sp, 5.0),
-                                _ => sp,
-                            };
+                            let end = line_from.map_or(sp, |from| straight_line_end(from, sp, mods.command || mods.ctrl));
                             if let Some(from) = line_from {
                                 let _ = state.session.stroke_to(&camera, from, true);
                                 let _ = state.session.stroke_to(&camera, end, true);
@@ -591,6 +588,18 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 let color = if state.tool == Tool::Eraser { Color32::from_rgb(120, 190, 255) } else { ACCENT };
                 painter.circle_stroke(p, r_px, Stroke::new(1.5, Color32::from_black_alpha(160)));
                 painter.circle_stroke(p, r_px, Stroke::new(1.0, color));
+            }
+            // Lazy mouse: the grey ring the cursor moves in before the brush follows.
+            let lazy = state.session.brush.options.lazy_distance_px;
+            if lazy > 0.0 {
+                painter.circle_stroke(p, lazy / pixel_scale.y, Stroke::new(1.0, Color32::from_gray(150)));
+            }
+            // Shift: dotted preview of the straight line from the last stroke point (snapped with
+            // Ctrl, exactly where the click would draw it).
+            if mods.shift && !state.painting && let Some(from) = state.last_stroke_point {
+                let to_pos = |s: Vec2| rect.min + egui::vec2(s.x / pixel_scale.x, s.y / pixel_scale.y);
+                let end = straight_line_end(from, to_screen(p), mods.command || mods.ctrl);
+                painter.extend(egui::Shape::dashed_line(&[to_pos(from), to_pos(end)], Stroke::new(1.2, Color32::from_white_alpha(200)), 5.0, 4.0));
             }
         } else if state.tool == Tool::PolygonFill && !picking {
             painter.circle_filled(p, 3.0, ACCENT);
@@ -891,9 +900,45 @@ fn visualization_overlays(state: &UiState, painter: &egui::Painter, rect: Rect, 
     if prefs.shown_channel().is_some() && let Some(name) = prefs.channel_component.overlay() {
         pill(painter, rect.left_top() + egui::vec2(10.0, 10.0), egui::Align2::LEFT_TOP, crate::i18n::tr(name), theme::TEXT);
     }
+    // Axis indicator above the Render toggle in the bottom-right corner.
+    if prefs.axis_indicator {
+        draw_axis_indicator(painter, rect.right_bottom() + egui::vec2(-44.0, -78.0), state.camera.view());
+    }
     // The grid's unit, where the hints are not (they own the bottom-left corner when shown).
     if prefs.grid && !prefs.hints && let Some(step) = subcraft_render::grid_step(state.session.scene().mesh.bounds) {
         pill(painter, rect.left_bottom() + egui::vec2(10.0, -10.0), egui::Align2::LEFT_BOTTOM, &grid_unit_label(step), theme::TEXT_FAINT);
+    }
+}
+
+/// End of a Shift+click straight line from `from` towards the cursor: Ctrl snaps it to 5 degree
+/// steps, as in Painter. The stroke and its dotted preview both use it.
+pub fn straight_line_end(from: Vec2, cursor: Vec2, snap: bool) -> Vec2 {
+    if snap { crate::nav::snap_line_end(from, cursor, 5.0) } else { cursor }
+}
+
+/// The world X, Y and Z axes as seen through `view`: axis index, screen direction (y down, length
+/// up to 1) and view depth, farthest first so nearer axes draw over it.
+pub fn axis_indicator(view: glam::Mat4) -> [(usize, egui::Vec2, f32); 3] {
+    let mut axes = [0, 1, 2].map(|i| {
+        let d = view.transform_vector3([glam::Vec3::X, glam::Vec3::Y, glam::Vec3::Z][i]);
+        (i, egui::vec2(d.x, -d.y), d.z)
+    });
+    // The view looks down -Z: the most negative depth is the farthest.
+    axes.sort_by(|a, b| a.2.total_cmp(&b.2));
+    axes
+}
+
+/// Painter's orientation indicator: red X, green Y, blue Z from a common centre.
+fn draw_axis_indicator(painter: &egui::Painter, centre: Pos2, view: glam::Mat4) {
+    const COLORS: [Color32; 3] = [Color32::from_rgb(232, 84, 84), Color32::from_rgb(116, 204, 92), Color32::from_rgb(86, 146, 240)];
+    painter.circle_filled(centre, 32.0, Color32::from_black_alpha(60));
+    for (i, d, depth) in axis_indicator(view) {
+        let tip = centre + d * 22.0;
+        // Axes pointing away are drawn dimmer.
+        let color = if depth < -0.05 { COLORS[i].gamma_multiply(0.55) } else { COLORS[i] };
+        painter.line_segment([centre, tip], Stroke::new(2.0, color));
+        painter.circle_filled(tip, 7.0, color);
+        painter.text(tip, egui::Align2::CENTER_CENTER, ["X", "Y", "Z"][i], egui::FontId::proportional(9.5), Color32::from_gray(20));
     }
 }
 
@@ -1003,6 +1048,39 @@ pub(crate) fn draw_stencil(state: &mut UiState, ui: &Ui, painter: &egui::Painter
 mod tests {
     use super::*;
     use crate::state::BrushNotice;
+
+    #[test]
+    fn the_axis_indicator_follows_the_camera_and_draws_far_axes_first() {
+        // Looking straight down -Z: X to the right, Y up, Z towards the viewer (a dot, drawn last).
+        let front = glam::Mat4::look_at_rh(glam::Vec3::new(0.0, 0.0, 5.0), glam::Vec3::ZERO, glam::Vec3::Y);
+        let axes = axis_indicator(front);
+        let get = |i: usize| axes.iter().find(|a| a.0 == i).copied().unwrap();
+        assert!((get(0).1 - egui::vec2(1.0, 0.0)).length() < 1e-5, "X points right");
+        assert!((get(1).1 - egui::vec2(0.0, -1.0)).length() < 1e-5, "Y points up the screen");
+        assert!(get(2).1.length() < 1e-5 && get(2).2 > 0.9, "Z faces the viewer");
+        assert_eq!(axes[2].0, 2, "the axis towards the viewer is drawn last");
+        // Orbiting to the right side (+X): Z now points left, X at the viewer.
+        let side = glam::Mat4::look_at_rh(glam::Vec3::new(5.0, 0.0, 0.0), glam::Vec3::ZERO, glam::Vec3::Y);
+        let axes = axis_indicator(side);
+        let get = |i: usize| axes.iter().find(|a| a.0 == i).copied().unwrap();
+        assert!((get(2).1 - egui::vec2(-1.0, 0.0)).length() < 1e-5, "Z points left from the +X side: {:?}", get(2).1);
+        assert_eq!(axes[2].0, 0);
+        // The orbit camera's three-quarter view: every axis visible, depths sorted.
+        let b = subcraft_mesh::Aabb { min: glam::Vec3::splat(-1.0), max: glam::Vec3::splat(1.0) };
+        let axes = axis_indicator(crate::orbit::OrbitCamera::framing(&b).view());
+        assert!(axes.windows(2).all(|w| w[0].2 <= w[1].2));
+        assert!(axes.iter().all(|a| a.1.length() > 0.2 && a.1.length() <= 1.0 + 1e-5));
+    }
+
+    #[test]
+    fn the_straight_line_preview_ends_where_the_click_draws() {
+        let from = Vec2::new(100.0, 100.0);
+        let cursor = Vec2::new(200.0, 104.0);
+        assert_eq!(straight_line_end(from, cursor, false), cursor);
+        let snapped = straight_line_end(from, cursor, true);
+        assert_eq!(snapped, crate::nav::snap_line_end(from, cursor, 5.0));
+        assert!((snapped.y - from.y).abs() < 1e-3, "a near-horizontal line snaps flat: {snapped}");
+    }
 
     #[test]
     fn the_camera_frame_is_the_largest_centred_picture_of_its_ratio() {

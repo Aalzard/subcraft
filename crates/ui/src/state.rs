@@ -205,6 +205,8 @@ pub struct UiState {
     pub pen_input: crate::pen_input::PenInputFixer,
     /// Clicks in the 3D view show / hide the selected layer on mesh parts (Properties → Parts).
     pub picking_parts: bool,
+    /// Texture Set List > Settings: which description lines the rows show.
+    pub set_descriptions: crate::panels::texture_sets::DescriptionDisplay,
     /// Depth of field: the next click on the model sets the focus distance.
     pub picking_focus: bool,
     /// Clicks in the 3D view add the ID map color under the cursor to this ID Color Mask effect.
@@ -407,6 +409,7 @@ impl UiState {
             uv: UvView { zoom: 1.0, offset: egui::Vec2::ZERO, source: PreviewSource::Channel(ChannelKind::BaseColor), texture: None, painting: false, last_point: None, fill_box: None },
             painting: false,
             picking_parts: false,
+            set_descriptions: Default::default(),
             picking_focus: false,
             picking_id_color: None,
             picking_id_palette: false,

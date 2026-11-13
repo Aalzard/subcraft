@@ -66,12 +66,12 @@ Layout notes: the Contextual toolbar is fixed above the viewports and cannot be 
 | Size | Contextual toolbar, painting tools | not documented | partial: percent of the model diagonal, 0.1-100; scrub field without a slider | crates/ui/src/brush_bar.rs:189 | - |
 | Flow | Contextual toolbar, painting tools | not documented | done | crates/ui/src/brush_bar.rs:44 | - |
 | Stroke opacity | Contextual toolbar, painting tools | not documented | partial: labelled "Opacity" | crates/ui/src/brush_bar.rs:46 | - |
-| Spacing | Contextual toolbar, painting tools | not documented | partial: only in the Properties brush section (0.02-2) | crates/ui/src/panels/brush.rs:108 | - |
+| Spacing | Contextual toolbar, painting tools | not documented | partial: on the bar where there is room (own row from 900 pt, beside the view controls from 1400 pt), else in the Brush settings menu and Properties; shown as % of the diameter | crates/ui/src/brush_bar.rs (spacing) | - |
 | Pen-pressure toggle beside a value | Contextual toolbar / Properties | not documented | partial: pressure amounts for Size and Flow inside the stroke-options popup | crates/ui/src/brush_bar.rs:95 | - |
-| Lazy mouse button | Contextual toolbar; D | off | partial: no dedicated button; D toggles a 20 px distance, or set the slider above 0 | crates/app/src/session.rs:1589 | - |
-| Lazy mouse Distance | Contextual toolbar, next to the Lazy mouse button | not documented | partial: slider inside the popup, 0-100 px | crates/ui/src/brush_bar.rs:87 | - |
-| Symmetry button (on / off) | Contextual toolbar; L | off | partial: one button opens the options popup instead of toggling; L toggles mirror X | crates/ui/src/brush_bar.rs:53 | - |
-| Symmetry settings button (opens the settings menu) | Contextual toolbar, next to Symmetry | - | partial: same popup as the symmetry button | crates/ui/src/brush_bar.rs:64 | - |
+| Lazy mouse button | Contextual toolbar; D | off | done | crates/ui/src/brush_bar.rs (stroke_options, toggle_lazy) | - |
+| Lazy mouse Distance | Contextual toolbar, next to the Lazy mouse button | not documented | partial: on the bar where there is room, always in the symmetry settings menu; 1-100 px | crates/ui/src/brush_bar.rs (distance) | - |
+| Symmetry button (on / off) | Contextual toolbar; L | off | partial: toggles and restores the last axes; the L key still toggles mirror X only | crates/ui/src/brush_bar.rs (toggle_symmetry) | - |
+| Symmetry settings button (opens the settings menu) | Contextual toolbar, next to Symmetry | - | done | crates/ui/src/brush_bar.rs (stroke_options) | - |
 | Brush preview: Full preview | Contextual toolbar (2019.3) | not documented | missing | - | - |
 | Brush preview: Brush outline | Contextual toolbar (2019.3) | not documented | partial: the only cursor style, not selectable | crates/ui/src/viewport.rs:491 | - |
 | Brush preview: Crosshair | Contextual toolbar (2019.3) | not documented | missing | - | - |
