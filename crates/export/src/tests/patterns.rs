@@ -28,6 +28,21 @@ fn keywords_subfolders_and_optional_parts() {
     }
 }
 
+/// The export list shows each file's colour space (Painter's colour column).
+#[test]
+fn planned_files_carry_their_colour_space() {
+    let ch = distinct_channels();
+    let sets = [ExportTextureSet { name: "Body", material_slot: 0, udim: None, channels: &ch, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY }];
+    let maps = vec![
+        OutputMap::new("Color", FileFormat::Png8, (0..3).map(|c| Source::ch(ChannelKind::BaseColor, c)).collect(), true),
+        OutputMap::new("ColorHdr", FileFormat::Exr16, (0..3).map(|c| Source::ch(ChannelKind::BaseColor, c)).collect(), true),
+        OutputMap::new("Rough", FileFormat::Png8, vec![Source::ch(ChannelKind::Roughness, 0)], false),
+    ];
+    let s = ExportSettings { template: ExportTemplate { name: "Mine".into(), maps, id: Some(preset::new_id()), ..Default::default() }, ..Default::default() };
+    let spaces: Vec<(String, &str)> = plan_all("M", &sets, &s).into_iter().map(|f| (f.suffix, f.color_space)).collect();
+    assert_eq!(spaces, [("Color".to_string(), "sRGB"), ("ColorHdr".to_string(), "Linear"), ("Rough".to_string(), "Raw")]);
+}
+
 #[test]
 fn color_space_names_follow_the_encoding() {
     let color = OutputMap::new("C", FileFormat::Png8, (0..3).map(|c| Source::ch(ChannelKind::BaseColor, c)).collect(), true);

@@ -1810,7 +1810,10 @@ pub(crate) fn material_buttons(ui: &mut Ui, states: &[(ChannelKind, bool)], adda
     let mut clicked = None;
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing = egui::vec2(5.0, 6.0);
-        for kind in ORDER {
+        // The usual seven first, then every other channel the texture set has (Opacity and the
+        // rest), so each one can be toggled on a fill layer.
+        let extra = states.iter().map(|s| s.0).filter(|k| !ORDER.contains(k));
+        for kind in ORDER.into_iter().chain(extra) {
             let state = states.iter().find(|s| s.0 == kind).map(|s| s.1);
             let can_add = state.is_none() && addable.contains(&kind);
             let r = ui.add_enabled(state.is_some() || can_add, egui::Button::new(RichText::new(kind.short_name()).font(theme::font(12.0)).color(if state == Some(true) { theme::TEXT } else { theme::TEXT_DIM }))
@@ -2034,5 +2037,24 @@ mod anchor_name_tests {
         assert!(renamed, "Enter commits the typed name");
         // The text lands where the click put the cursor, so only its presence is checked.
         assert!(name.contains("edges") && name.len() == "Anchor 1 edges".len(), "{name:?}");
+    }
+}
+
+#[cfg(test)]
+mod material_button_tests {
+    use super::*;
+
+    #[test]
+    fn fill_material_buttons_include_opacity_and_other_set_channels() {
+        let ctx = egui::Context::default();
+        crate::theme::apply(&ctx);
+        let states = [(ChannelKind::BaseColor, true), (ChannelKind::Roughness, false), (ChannelKind::Opacity, true)];
+        let mut first = ctx.run_ui(Default::default(), |ui| { let _ = material_buttons(ui, &states, &[]); });
+        first.textures_delta.clear();
+        let mut out = ctx.run_ui(Default::default(), |ui| { let _ = material_buttons(ui, &states, &[]); });
+        out.textures_delta.clear();
+        let has = |t: &str| out.shapes.iter().any(|s| matches!(&s.shape, egui::Shape::Text(g) if g.galley.text() == t));
+        assert!(has(ChannelKind::Opacity.short_name()), "Opacity gets a toggle on fill layers");
+        assert!(has(ChannelKind::BaseColor.short_name()));
     }
 }
