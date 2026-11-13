@@ -135,6 +135,28 @@ fn an_instance_survives_save_and_load() {
     assert!(back.selected_texture_set().find(instance).unwrap().mask.is_some());
 }
 
+/// QA 2026-11: pasting an instance of an instance with a layer of the original source selected
+/// put the new instance inside its own source (the check looked at the copied instance only).
+#[test]
+fn an_instance_of_an_instance_cannot_go_inside_the_original_source() {
+    let (mut s, fill) = session();
+    s.execute(Command::GroupLayers(vec![fill])).unwrap();
+    let folder = s.selection().layer.unwrap();
+    s.execute(Command::PasteAsInstance(vec![folder])).unwrap();
+    let instance = s.selection().layer.unwrap();
+    s.execute(Command::SelectLayer(Some(fill))).unwrap();
+    let steps = s.history().entries().len();
+    assert!(s.execute(Command::PasteAsInstance(vec![instance])).is_err());
+    assert_eq!(s.history().entries().len(), steps);
+    assert_eq!(s.selected_texture_set().find(folder).unwrap().children().len(), 1);
+    // Outside the source it works and follows the original.
+    s.execute(Command::SelectLayer(Some(instance))).unwrap();
+    s.execute(Command::PasteAsInstance(vec![instance])).unwrap();
+    let second = s.selection().layer.unwrap();
+    assert_eq!(s.selected_texture_set().find(second).unwrap().instance_of, Some(folder));
+    assert_eq!(s.instance_state(second), Some(InstanceState::Linked));
+}
+
 /// Two quads, one material each: a project with two texture sets.
 fn two_sets() -> Session {
     use glam::{Vec2, Vec3};

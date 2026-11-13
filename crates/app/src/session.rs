@@ -1709,7 +1709,10 @@ impl Session {
                 }
                 for (set, source) in found {
                     let same = set == ts_id;
-                    if same && at.is_some_and(|a| a != source.id && ts.is_descendant_or_self(a, source.id)) {
+                    // An instance of an instance follows that one's source: the new layer must stay
+                    // out of that layer too.
+                    let follows = source.instance_of.unwrap_or(source.id);
+                    if at.is_some_and(|a| (same && a != source.id && ts.is_descendant_or_self(a, source.id)) || (a != follows && ts.is_descendant_or_self(a, follows))) {
                         return Err(CommandError::Invalid("An instance cannot go inside its own source: select a layer outside it first".into()));
                     }
                     let mut instance = subcraft_doc::instance::new_instance(&source, ts, same);
