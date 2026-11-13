@@ -104,7 +104,9 @@ fn unknown_arguments_are_reported_with_the_valid_names() {
 fn annotations_mark_writing_tools_destructive() {
     let defs = crate::tools::definitions();
     let ann = |n: &str| defs.iter().find(|d| d["name"] == n).unwrap()["annotations"].clone();
-    for n in ["project_save", "export_textures", "export_scene", "layer_delete", "save_to_library", "open_in_app"] {
+    // render_preview and render_texture write a PNG when given save_path (QA 2026-11: they were
+    // marked read-only).
+    for n in ["project_save", "export_textures", "export_scene", "layer_delete", "save_to_library", "open_in_app", "render_preview", "render_texture"] {
         assert_eq!(ann(n)["destructiveHint"], json!(true), "{n}");
         assert_eq!(ann(n)["readOnlyHint"], json!(false), "{n}");
     }
