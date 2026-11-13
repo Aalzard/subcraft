@@ -384,6 +384,9 @@ impl Layer {
         if let LayerContent::Paint(p) = &self.content && let Some(r) = p.text.as_ref().and_then(|t| t.resource()) {
             add(r);
         }
+        if let LayerContent::Paint(p) = &self.content && let Some(r) = p.path.as_ref().and_then(|path| path.stamp).and_then(|s| s.alpha) {
+            add(r);
+        }
         for e in &self.content_effects {
             if let ContentEffectKind::Filter { filter, .. } = e.kind {
                 filter.resource().into_iter().for_each(&mut add);

@@ -112,6 +112,26 @@ pub fn properties(state: &mut UiState, ui: &mut Ui, path: &PenPath, now: f64) {
         changed |= crate::widgets::slider_row(ui, "Width (% UV)", egui::Slider::new(&mut width, 0.01..=100.0).logarithmic(true)).changed();
         path.radius = width / 200.0;
         changed |= crate::widgets::slider_row(ui, "Hardness", egui::Slider::new(&mut path.hardness, 0.0..=1.0)).changed();
+        // Brush tip stamped along the path, with spacing (Painter's brush on a path).
+        let mut stamped = path.stamp.is_some();
+        if ui.checkbox(&mut stamped, "Stamp the brush tip").on_hover_text("Place the current brush tip along the path instead of one continuous stroke").changed() {
+            changed = true;
+            path.stamp = stamped.then(|| subcraft_doc::PathStamp { alpha: state.session.brush_tip_resource(), ..Default::default() });
+        }
+        if let Some(stamp) = path.stamp.as_mut() {
+            let mut spacing = stamp.spacing * 100.0;
+            changed |= crate::widgets::slider_row(ui, "Spacing (%)", egui::Slider::new(&mut spacing, 2.0..=400.0).logarithmic(true)).changed();
+            stamp.spacing = (spacing / 100.0).clamp(*subcraft_doc::PathStamp::SPACING.start(), *subcraft_doc::PathStamp::SPACING.end());
+            changed |= ui.checkbox(&mut stamp.follow, "Follow path").on_hover_text("Turn each stamp along the curve").changed();
+            let tip = stamp.alpha.and_then(|id| state.session.resources().get(id)).map_or("Round".to_string(), |r| r.name.clone());
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new(format!("Tip: {tip}")).color(crate::theme::TEXT_DIM));
+                if ui.small_button("Use current brush tip").on_hover_text("Stamp the tip chosen in the Brush settings / Shelf").clicked() {
+                    stamp.alpha = state.session.brush_tip_resource();
+                    changed = true;
+                }
+            });
+        }
     }
     changed |= crate::widgets::slider_row(ui, "Opacity", egui::Slider::new(&mut path.opacity, 0.0..=1.0)).changed();
     for kind in state.session.channels() {

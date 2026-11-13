@@ -259,6 +259,9 @@ pub struct PenPathV4 {
     /// Paint along path / Filled path; files from before it read as Paint. Not written for Paint.
     #[serde(default, skip_serializing_if = "is_paint_path")]
     pub kind: subcraft_doc::PathKind,
+    /// Brush tip stamped along the path; absent for a continuous stroke.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stamp: Option<subcraft_doc::PathStamp>,
 }
 
 fn is_paint_path(kind: &subcraft_doc::PathKind) -> bool {

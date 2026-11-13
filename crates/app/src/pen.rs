@@ -95,7 +95,7 @@ impl PenEditor {
         }
         let ts = session.selected_texture_set(); let brush = &session.brush;
         let values = brush.material.channels.iter().filter(|(k, v)| v.enabled && ts.has_channel(**k)).map(|(&k, v)| (k, v.value)).collect();
-        let path = PenPath { anchors: Vec::new(), closed: false, radius: (brush.settings.size * 0.005).clamp(0.00001, 0.5), hardness: brush.settings.hardness.clamp(0.0, 1.0), opacity: brush.settings.stroke_opacity.clamp(0.0, 1.0), values, kind: Default::default() };
+        let path = PenPath { anchors: Vec::new(), closed: false, radius: (brush.settings.size * 0.005).clamp(0.00001, 0.5), hardness: brush.settings.hardness.clamp(0.0, 1.0), opacity: brush.settings.stroke_opacity.clamp(0.0, 1.0), values, kind: Default::default(), stamp: None };
         path.validate().map_err(error)?;
         let mut layer = Layer::new_paint("Pen path", ts);
         layer.parts = session.selected_layer().and_then(|l| l.parts.clone());
@@ -157,7 +157,8 @@ impl PenEditor {
         let expected = match &edit.layer.content { LayerContent::Paint(p) => p.path.as_ref(), _ => None };
         if !edit.new && expected == Some(&edit.path) { return Ok(()); }
         if self.pending.is_empty() && !edit.valid(session) { return Err(error("path changed; pen edit canceled")); }
-        let raster = PenRasterizer::new(&edit.path, edit.resolution).map_err(error)?;
+        let tip = edit.path.stamp.and_then(|s| s.alpha).and_then(|id| session.resources().bitmap(id).cloned());
+        let raster = PenRasterizer::new(&edit.path, edit.resolution).map_err(error)?.with_alpha(tip);
         self.pending.push_back(Pending { edit, raster }); Ok(())
     }
 

@@ -245,13 +245,13 @@ Layout notes: with a path tool active the Properties panel starts with a Presets
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Path type: Paint along path | Properties / toolbar menu | default | partial: Pen path draws a solid stroke in UV space with width, hardness, opacity and per-channel values; no brush alpha, spacing or jitter | crates/ui/src/pen.rs:88 | - |
+| Path type: Paint along path | Properties / toolbar menu | default | partial: a continuous stroke, or the brush tip stamped along the path with spacing and Follow path (UV space); no jitter or per-stamp pressure | crates/paint/src/pen.rs (run_stamped), crates/ui/src/pen.rs | - |
 | Path type: Ribbon path | Properties / toolbar menu | option | missing | - | - |
 | Path type: Filled path | Properties / toolbar menu | option | done: Path type dropdown in the pen Properties; the interior is filled (even-odd), anti-aliased, closing on the first point; saved with the project | crates/paint/src/pen.rs (run_filled), crates/ui/src/pen.rs | - |
 | Path type: Erase along path | Properties / toolbar menu | option | missing | - | - |
 | Path type: Smudge along path | Properties / toolbar menu | option | missing | - | - |
 | Brush block applies to the whole path | Properties > Brush | n/a | partial: Width, Hardness, Opacity only | crates/ui/src/pen.rs:100 | - |
-| Alpha block applies to the whole path | Properties > Alpha | n/a | missing | - | - |
+| Alpha block applies to the whole path | Properties > Alpha | n/a | partial: "Stamp the brush tip" stores the current tip with the project and stamps it along the path; no separate Alpha block | crates/app/src/session.rs (brush_tip_resource) | - |
 | Material block applies to the whole path | Properties > Material | n/a | partial: channel checkboxes with a uniform value each | crates/ui/src/pen.rs:107 | - |
 | Projection depth | Properties > Brush (path only) | not documented | missing | - | - |
 | Up axis (stamp orientation when Follow path is off) | Properties > Brush (path only) | not documented | missing | - | - |
