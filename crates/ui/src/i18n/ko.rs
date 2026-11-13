@@ -678,7 +678,6 @@ pub static TABLE: &[(&str, &str)] = &[
     ("no key", "키 없음"),
     ("none", "없음"),
     ("A small X / Y / Z gizmo in the bottom-right corner of the 3D view", "3D 뷰 오른쪽 아래 모서리에 작은 X / Y / Z 축 기즈모를 표시합니다"),
-    ("Background color", "배경 색상"),
     ("Bottom of the 3D view", "3D 뷰 아래쪽"),
     ("Cache folder", "캐시 폴더"),
     ("Choose…", "선택…"),

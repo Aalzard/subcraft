@@ -678,7 +678,6 @@ pub static TABLE: &[(&str, &str)] = &[
     ("no key", "無按鍵"),
     ("none", "無"),
     ("A small X / Y / Z gizmo in the bottom-right corner of the 3D view", "在 3D 視圖右下角顯示小型 X / Y / Z 座標軸"),
-    ("Background color", "背景色彩"),
     ("Bottom of the 3D view", "3D 視圖底部"),
     ("Cache folder", "快取資料夾"),
     ("Choose…", "選擇…"),
