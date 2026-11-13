@@ -937,3 +937,29 @@ fn id_colour_generators() {
     // No generator gives black, the ID map's empty value.
     for g in IdGenerator::ALL { for i in 0..64 { assert!(g.color(i).iter().all(|c| *c >= 0.1 && *c <= 1.0), "{g:?} {i}"); } }
 }
+
+#[test]
+fn the_id_map_reads_the_chosen_vertex_color_set() {
+    // The two-part high poly with a second colour set: blue on the left part, white on the right.
+    let mut high = two_part_high(true, false);
+    let second: Vec<[f32; 4]> = (0..high.triangle_count()).flat_map(|t| {
+        let left = high.tri_positions(t)[0].x < 0.0;
+        [if left { [0.0, 0.0, 1.0, 1.0] } else { [1.0, 1.0, 1.0, 1.0] }; 3]
+    }).collect();
+    high.extra_color_sets.push(second);
+    assert_eq!(high.color_set_count(), 2);
+    let with_set = |set: u32| BakeSettings { id_source: IdSource::VertexColor, vertex_color_set: set, ..settings(&[MeshMapKind::Id]) };
+    let (l, r, w) = id_bake_with(&high, &with_set(0));
+    assert!(close(l, [0.0, 1.0, 0.0]) && close(r, [1.0, 1.0, 0.0]) && w.is_empty(), "set 0: {l:?} {r:?} {w:?}");
+    let (l, r, w) = id_bake_with(&high, &with_set(1));
+    assert!(close(l, [0.0, 0.0, 1.0]) && close(r, [1.0, 1.0, 1.0]) && w.is_empty(), "set 1: {l:?} {r:?} {w:?}");
+    // A set the model lacks: generated colours, and the warning names the sets it has.
+    let (l, r, w) = id_bake_with(&high, &with_set(4));
+    let (ml, mr, _) = id_bake(&high, IdSource::MeshId);
+    assert!(close(l, ml) && close(r, mr), "fallback to the mesh-element colours");
+    assert!(w.iter().any(|w| w.contains("2 vertex colour set(s), not set 5")), "{w:?}");
+    // A mirrored high poly keeps every set's colours on their corners.
+    let mirrored = high.transformed(&glam::Mat4::from_scale(Vec3::new(-1.0, 1.0, 1.0)));
+    let (l, r, _) = id_bake_with(&mirrored, &with_set(1));
+    assert!(close(l, [1.0, 1.0, 1.0]) && close(r, [0.0, 0.0, 1.0]), "mirrored: {l:?} {r:?}");
+}

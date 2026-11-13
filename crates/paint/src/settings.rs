@@ -433,6 +433,40 @@ impl BrushMaterial {
     }
 }
 
+/// How pen pressure is remapped before it scales size and flow (Painter's contextual toolbar
+/// pressure curve): linear, ease-in (light pressure does less, `p²`) or ease-in-out
+/// (smoothstep: soft at both ends).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PressureCurve {
+    #[default]
+    Linear,
+    EaseIn,
+    EaseInOut,
+}
+
+impl PressureCurve {
+    pub const ALL: [PressureCurve; 3] = [PressureCurve::Linear, PressureCurve::EaseIn, PressureCurve::EaseInOut];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            PressureCurve::Linear => "Linear",
+            PressureCurve::EaseIn => "Ease in",
+            PressureCurve::EaseInOut => "Ease in-out",
+        }
+    }
+
+    /// The remapped pressure (0..1); 0 and 1 stay put and the curve never decreases.
+    pub fn apply(self, pressure: f32) -> f32 {
+        let p = if pressure.is_finite() { pressure.clamp(0.0, 1.0) } else { 1.0 };
+        match self {
+            PressureCurve::Linear => p,
+            PressureCurve::EaseIn => p * p,
+            PressureCurve::EaseInOut => p * p * (3.0 - 2.0 * p),
+        }
+    }
+}
+
 /// Stroke-level options that shape the stamp path rather than the footprint.
 #[derive(Clone, Copy, Debug, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -688,6 +722,23 @@ impl PolygonFillMode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pressure_curves_keep_the_ends_rise_steadily_and_soften_light_pressure() {
+        for c in PressureCurve::ALL {
+            assert_eq!(c.apply(0.0), 0.0, "{c:?}");
+            assert_eq!(c.apply(1.0), 1.0, "{c:?}");
+            assert_eq!(c.apply(2.0), 1.0, "{c:?} clamps");
+            assert_eq!(c.apply(f32::NAN), 1.0, "{c:?}: a broken reading paints at full pressure");
+            let samples: Vec<f32> = (0..=20).map(|i| c.apply(i as f32 / 20.0)).collect();
+            assert!(samples.windows(2).all(|w| w[1] >= w[0]), "{c:?} never decreases");
+        }
+        assert_eq!(PressureCurve::default(), PressureCurve::Linear);
+        assert_eq!(PressureCurve::Linear.apply(0.3), 0.3);
+        assert!((PressureCurve::EaseIn.apply(0.5) - 0.25).abs() < 1e-6, "ease in: half pressure does a quarter");
+        assert!((PressureCurve::EaseInOut.apply(0.5) - 0.5).abs() < 1e-6, "ease in-out is symmetric");
+        assert!(PressureCurve::EaseInOut.apply(0.2) < 0.2 && PressureCurve::EaseInOut.apply(0.8) > 0.8);
+    }
 
     #[test]
     fn position_jitter_fills_a_disc_or_only_the_line_across_the_stroke() {

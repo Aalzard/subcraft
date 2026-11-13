@@ -99,7 +99,7 @@ Layout notes: these are listed in the same editable list; mouse combinations can
 |---|---|---|---|---|---|
 | Use tool / paint | Viewport | Mouse left | done | crates/ui/src/viewport.rs:318 | - |
 | Draw straight lines | Viewport | Shift+Mouse left | done | crates/ui/src/viewport.rs:326 | - |
-| Straight line preview (dotted line while Shift is held) | Viewport | shown while Shift held | missing | - | - |
+| Straight line preview (dotted line while Shift is held) | Viewport | shown while Shift held | done: from the last stroke point, snapped with Ctrl | crates/ui/src/viewport.rs (straight_line_end) | #274 |
 | Draw straight lines with snapping | Viewport | Ctrl+Shift+Mouse left; 5 degree steps | done | crates/ui/src/nav.rs (snap_line_end) | #163 |
 | Camera rotate | Viewport 3D | Alt+Mouse left | done | crates/ui/src/nav.rs:84 | - |
 | Camera snap rotate | Viewport | Alt+Shift+Mouse left; 90 degree steps | done | crates/ui/src/nav.rs (NavMode::OrbitSnap) | #163 |

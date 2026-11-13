@@ -117,7 +117,7 @@ Layout notes: shown on the right only when a texture set (not Global settings) i
 | Resolved file name per map | Row text | - | done (path preview) | crates/ui/src/dialogs.rs:418 | - |
 | File format override per map | Row dropdown | from template | done (per texture set, in its output map rows) | crates/doc/src/settings.rs MapFormat | chunk 22 |
 | Bit depth override per map | Row dropdown | from template | done (with the file format) | crates/doc/src/settings.rs MapFormat | chunk 22 |
-| Colour space shown per map | Row text (colour management on) | - | missing | - | - |
+| Colour space shown per map | Row text (colour management on) | - | done (sRGB, Linear or Raw beside each file; shown always, SubCraft has no colour management switch) | crates/ui/src/dialogs.rs export_map_list, crates/export/src/lib.rs PlannedFile::color_space | colour space |
 
 ## Output templates tab: presets list (left column)
 
