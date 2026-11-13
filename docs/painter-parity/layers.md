@@ -285,9 +285,9 @@ Layout notes: the geometry mask is a second, list-based mask on every layer and 
 | Icon state: nothing excluded | Layer row icon | default | done: dim icon | crates/ui/src/panels/layers.rs | - |
 | Icon state: mesh names excluded (shows number still included) | Layer row icon | n/a | done: included / total beside the icon | crates/ui/src/panels/layers.rs | - |
 | Icon state: UV tiles excluded (shows number still included) | Layer row icon | n/a | missing | - | - |
-| Icon state: nothing included (layer has no effect) | Layer row icon | n/a | partial: shows 0 / total, no separate icon | crates/ui/src/panels/layers.rs | - |
+| Icon state: nothing included (layer has no effect) | Layer row icon | n/a | done: red 0 / total | crates/ui/src/panels/layers.rs | - |
 | Click the icon to enter geometry-mask editing | Layer row icon | n/a | done | crates/ui/src/panels/layers.rs | - |
-| Leave editing by clicking the content or mask thumbnail (folder thumbnail for folders) | Layer row | n/a | partial: Done in the geometry mask bar of the views, or Esc | crates/ui/src/panels/parts.rs | - |
+| Leave editing by clicking the content or mask thumbnail (folder thumbnail for folders) | Layer row | n/a | done; also Done in the geometry mask bar, Esc, or the icon again | crates/ui/src/panels/layers.rs | - |
 | Masking type dropdown: UV Tiles | Properties > Geometry mask | disabled when the project has no UV tiles | missing | - | - |
 | Masking type dropdown: Mesh names | Properties > Geometry mask | Mesh names | done: geometry mask bar of the views (connected pieces, UV islands, objects, material IDs) | crates/ui/src/panels/parts.rs | - |
 | Count of included items over total | Properties > Geometry mask | n/a | done | crates/ui/src/panels/properties.rs:113 | - |
