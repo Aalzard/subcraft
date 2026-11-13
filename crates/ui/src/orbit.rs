@@ -223,8 +223,9 @@ mod tests {
     fn free_rotation_rolls_and_goes_over_the_top_and_constrained_levels_it_again() {
         let b = Aabb { min: Vec3::splat(-1.0), max: Vec3::splat(1.0) };
         let level = OrbitCamera::framing(&b);
-        // A level camera has exactly the matrix it always had.
-        assert_eq!(level.view(), Mat4::look_at_rh(level.eye(), level.target, Vec3::Y));
+        // A level camera keeps the world up: the matrix it always had (the test's own call can
+        // round differently once inlined, so compare to within float noise).
+        assert!(level.view().abs_diff_eq(Mat4::look_at_rh(level.eye(), level.target, Vec3::Y), 1e-5));
         assert!((level.orientation() * Vec3::NEG_Z - (level.target - level.eye()).normalize()).length() < 1e-5, "orientation looks at the target");
         // Free rotation over the top: the eye stays at its distance and the target stays centred.
         let mut cam = level;
@@ -244,7 +245,7 @@ mod tests {
         // Constrained rotation levels the horizon.
         tilted.orbit(1.0, 0.0);
         assert_eq!(tilted.roll, 0.0);
-        assert_eq!(tilted.view(), Mat4::look_at_rh(tilted.eye(), tilted.target, Vec3::Y));
+        assert!(tilted.view().abs_diff_eq(Mat4::look_at_rh(tilted.eye(), tilted.target, Vec3::Y), 1e-5));
     }
 
     #[test]
