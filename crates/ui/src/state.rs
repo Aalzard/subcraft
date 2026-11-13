@@ -234,6 +234,9 @@ pub struct UiState {
     /// "Import mesh maps…" from Texture Set Settings.
     pub mesh_map_import: crate::mesh_map_import::MeshMapImportUi,
     pub last_stroke_point: Option<Vec2>,
+    /// The view `last_stroke_point` was painted through. It is a screen position: once the camera
+    /// moves it no longer lies on the stroke's end.
+    pub last_stroke_camera: Option<subcraft_app::Camera>,
     pub uv_edges: HashMap<u32, Vec<[Vec2; 2]>>,
     /// UV units per object unit of each material slot (2D brush cursor size).
     pub uv_density: HashMap<u32, f32>,
@@ -439,6 +442,7 @@ impl UiState {
             id_palette_new: [1.0, 1.0, 1.0],
             mesh_map_import: Default::default(),
             last_stroke_point: None,
+            last_stroke_camera: None,
             pen_pressure: 1.0,
             pen_input: Default::default(),
             uv_edges: HashMap::new(),
@@ -716,6 +720,23 @@ impl UiState {
             || !self.recovery.crashed.is_empty()
             || self.new_project.open
             || self.updater.as_ref().is_some_and(|u| matches!(u.phase, subcraft_app::updater::Phase::Preparing | subcraft_app::updater::Phase::Exiting))
+    }
+
+    /// The start of a Shift + click straight line in the 3D view: the end of the last stroke, as
+    /// long as the view has not changed since. After orbiting, zooming or resizing, the remembered
+    /// screen position lies over some other part of the model, and the line started there.
+    pub fn line_start(&mut self, camera: &subcraft_app::Camera) -> Option<Vec2> {
+        if self.last_stroke_camera.as_ref() != Some(camera) {
+            self.last_stroke_point = None;
+            self.last_stroke_camera = None;
+        }
+        self.last_stroke_point
+    }
+
+    /// Remember where a stroke ended, and through which view.
+    pub fn set_line_start(&mut self, point: Vec2, camera: &subcraft_app::Camera) {
+        self.last_stroke_point = Some(point);
+        self.last_stroke_camera = Some(*camera);
     }
 
     pub fn set_status(&mut self, msg: impl Into<String>, now: f64) {

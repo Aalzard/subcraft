@@ -413,7 +413,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         Ok(()) => {
                             state.painting = true;
                             state.session.set_stroke_pressure(stroke_pressure);
-                            let line_from = if mods.shift { state.last_stroke_point } else { None };
+                            let line_from = if mods.shift { state.line_start(&camera) } else { None };
                             // Ctrl+Shift+click: the line snaps to 5 degree steps, as in Painter, and
                             // the next line starts where this one ended (not at the raw click).
                             let end = line_from.map_or(sp, |from| straight_line_end(from, sp, mods.command || mods.ctrl));
@@ -423,7 +423,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                             } else {
                                 let _ = state.session.stroke_to(&camera, sp, false);
                             }
-                            state.last_stroke_point = Some(end);
+                            state.set_line_start(end, &camera);
                         }
                         Err(subcraft_paint::PaintError::NoCloneSource) => state.set_status(crate::keys::native("Ctrl+click the model to set the clone source first"), now),
                         Err(e) => state.set_status(format!("Can't paint here: {e} (select a paint layer)"), now),
@@ -443,7 +443,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             let mut path: Vec<Vec2> = ui.input(|i| i.events.iter().filter_map(|e| if let egui::Event::PointerMoved(q) = e { Some(to_screen(*q)) } else { None }).collect());
             if path.last() != Some(&sp) { path.push(sp); }
             let _ = state.session.stroke_to_many(&camera, &path);
-            state.last_stroke_point = Some(sp);
+            state.set_line_start(sp, &camera);
         }
     } else if state.painting && !primary_down {
         state.session.end_stroke();
@@ -670,7 +670,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             }
             // Shift: dotted preview of the straight line from the last stroke point (snapped with
             // Ctrl, exactly where the click would draw it).
-            if mods.shift && !state.painting && let Some(from) = state.last_stroke_point {
+            if mods.shift && !state.painting && let Some(from) = state.line_start(&camera) {
                 let to_pos = |s: Vec2| rect.min + egui::vec2(s.x / pixel_scale.x, s.y / pixel_scale.y);
                 let end = straight_line_end(from, to_screen(p), mods.command || mods.ctrl);
                 painter.extend(egui::Shape::dashed_line(&[to_pos(from), to_pos(end)], Stroke::new(1.2, Color32::from_white_alpha(200)), 5.0, 4.0));
