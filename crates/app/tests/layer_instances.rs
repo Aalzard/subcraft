@@ -237,6 +237,8 @@ fn multi_select_commands_refuse_layers_inside_an_instance() {
     s.execute(Command::AddLayer(NewLayer::Folder)).unwrap();
     let folder = s.selection().layer.unwrap();
     s.execute(Command::AddLayer(NewLayer::Fill)).unwrap();
+    // The fill went inside the empty folder; with the folder selected, its instance lands above it.
+    s.execute(Command::SelectLayer(Some(folder))).unwrap();
     s.execute(Command::PasteAsInstance(vec![folder])).unwrap();
     let instance = s.selection().layer.unwrap();
     let child = s.selected_texture_set().find(instance).unwrap().children()[0].id;
