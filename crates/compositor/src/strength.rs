@@ -15,7 +15,7 @@ pub fn apply_strength(kind: ChannelKind, strength: f32, px: &mut [[f32; 4]]) {
     }
     let s = strength.max(0.0);
     match kind {
-        ChannelKind::Normal => {
+        ChannelKind::Normal | ChannelKind::CoatNormal => {
             for p in px.iter_mut() {
                 let (x, y, z) = ((p[0] * 2.0 - 1.0) * s, (p[1] * 2.0 - 1.0) * s, (p[2] * 2.0 - 1.0).max(1e-4));
                 let len = (x * x + y * y + z * z).sqrt();
@@ -44,8 +44,12 @@ pub fn apply_strength(kind: ChannelKind, strength: f32, px: &mut [[f32; 4]]) {
             }
         }
         _ => {
+            // Every component the channel has (one for the scalar channels, three for the colours).
+            let comps = kind.components();
             for p in px.iter_mut() {
-                p[0] = (p[0] * s).clamp(0.0, 1.0);
+                for c in p.iter_mut().take(comps) {
+                    *c = (*c * s).clamp(0.0, 1.0);
+                }
             }
         }
     }
@@ -68,6 +72,26 @@ mod tests {
             apply_strength(kind, 0.5, &mut px);
             assert_eq!(px[0][3], 0.42, "{kind:?} alpha");
         }
+    }
+
+    #[test]
+    fn strength_scales_every_component_of_a_colour_channel() {
+        for kind in [ChannelKind::CoatColor, ChannelKind::Diffuse, ChannelKind::SheenColor, ChannelKind::Transmissive] {
+            let mut px = [[0.2, 0.4, 0.8, 0.5]];
+            apply_strength(kind, 0.5, &mut px);
+            assert_eq!(px, [[0.1, 0.2, 0.4, 0.5]], "{kind:?}");
+            apply_strength(kind, 4.0, &mut px);
+            assert_eq!(px, [[0.4, 0.8, 1.0, 0.5]], "{kind:?} clamps at 1");
+        }
+        // A scalar channel keeps its unused components.
+        let mut px = [[0.2, 0.4, 0.8, 0.5]];
+        apply_strength(ChannelKind::SheenRoughness, 0.5, &mut px);
+        assert_eq!(px, [[0.1, 0.4, 0.8, 0.5]]);
+        // Coat normal follows the Normal channel's rule.
+        let (mut a, mut b) = ([[0.7, 0.5, 0.9, 1.0]], [[0.7, 0.5, 0.9, 1.0]]);
+        apply_strength(ChannelKind::Normal, 0.5, &mut a);
+        apply_strength(ChannelKind::CoatNormal, 0.5, &mut b);
+        assert_eq!(a, b);
     }
 
     #[test]

@@ -237,13 +237,12 @@ pub(crate) fn output_path(mesh_name: &str, set: &ExportTextureSet, suffix: &str,
 }
 
 /// The file format a map is written in: the export-wide override, except that a map with an
-/// alpha component (four components, or gray + alpha) keeps its own format when the override is
-/// JPEG. JPEG has no alpha channel, so the override used to drop it (Unity's smoothness in a mask
-/// map, the alpha of a gray + alpha map) without a word.
+/// alpha component (four components, or gray + alpha) keeps its own format when the override has
+/// no alpha (JPEG, HDR, the Netpbm formats). The override used to drop it (Unity's smoothness in
+/// a mask map, the alpha of a gray + alpha map) without a word.
 pub(crate) fn output_format(map: &OutputMap, settings: &ExportSettings) -> FileFormat {
     match settings.format_override {
-        // Radiance HDR stores RGB only as well.
-        Some(f @ (FileFormat::Jpeg | FileFormat::Hdr32)) if matches!(map.components.len(), 2 | 4) && map.format != f => map.format,
+        Some(f) if !f.has_alpha() && matches!(map.components.len(), 2 | 4) && map.format != f => map.format,
         Some(format) => format,
         None => map.format,
     }

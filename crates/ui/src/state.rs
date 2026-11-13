@@ -107,6 +107,8 @@ pub struct UiState {
     /// Layers waiting in the "Export flattened" window, and the file name pattern (kept for
     /// the next export in this session).
     pub flatten_export: Option<Vec<subcraft_core::LayerId>>,
+    /// The open "Instantiate across texture sets" window.
+    pub instantiate: Option<crate::panels::layers::InstantiateDialog>,
     pub flatten_pattern: String,
     pub graphics: crate::graphics::GraphicsUi,
     pub asset_preview: crate::asset_preview::AssetPreviewUi,
@@ -222,6 +224,8 @@ pub struct UiState {
     pub parts_box: Option<egui::Pos2>,
     /// Geometry mask copied from a layer row's menu.
     pub parts_clipboard: Option<subcraft_doc::PartMask>,
+    /// Geometry mask overlay of the 2D view (excluded islands, hovered part).
+    pub uv_parts: crate::panels::uv_view::PartsOverlay,
     /// Quick mask overlay of the 2D view: (quick mask revision, texture).
     pub quick_mask_tex: Option<(u64, egui::TextureHandle)>,
     /// Texture Set List > Settings: which description lines the rows show.
@@ -391,6 +395,7 @@ impl UiState {
             layer_previews: Default::default(),
             mask_view: None,
             flatten_export: None,
+            instantiate: None,
             flatten_pattern: subcraft_app::flatten::DEFAULT_PATTERN.to_string(),
             graphics,
             asset_preview: Default::default(),
@@ -459,6 +464,7 @@ impl UiState {
             warp: Default::default(),
             parts_box: None,
             parts_clipboard: None,
+            uv_parts: Default::default(),
             quick_mask_tex: None,
             set_descriptions: Default::default(),
             picking_focus: false,
