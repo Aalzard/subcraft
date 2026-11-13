@@ -32,11 +32,14 @@ pub struct BakeVisualization {
     pub low_color: [f32; 3],
     pub cage_color: [f32; 3],
     pub cage_opacity: f32,
+    /// Draw the lines of `set_seam_lines` (hard edges without a UV seam).
+    pub show_seams: bool,
+    pub seam_color: [f32; 3],
 }
 
 impl Default for BakeVisualization {
     fn default() -> Self {
-        Self { show_high: true, show_low: true, high_color: [0.035, 0.23, 0.65], low_color: [0.65, 0.035, 0.025], cage_color: [0.55, 0.65, 0.72], cage_opacity: 0.28 }
+        Self { show_high: true, show_low: true, high_color: [0.035, 0.23, 0.65], low_color: [0.65, 0.035, 0.025], cage_color: [0.55, 0.65, 0.72], cage_opacity: 0.28, show_seams: false, seam_color: [1.0, 0.85, 0.1] }
     }
 }
 
@@ -56,6 +59,11 @@ pub(crate) struct BakePreviewPass {
     /// Same layout as `uniform`, for the high poly: its placement matrix and opacity.
     uniform_high: wgpu::Buffer,
     group_high: wgpu::BindGroup,
+    /// Same layout again, for the seam-check lines: their colour and a small lift off the surface.
+    uniform_seams: wgpu::Buffer,
+    group_seams: wgpu::BindGroup,
+    seams: Option<wgpu::Buffer>,
+    seam_count: u32,
     low_index_count: u32,
     vertices: Option<wgpu::Buffer>,
     indices: Option<wgpu::Buffer>,
@@ -94,6 +102,11 @@ impl BakePreviewPass {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
         let group_high = make_group(&uniform_high);
+        let uniform_seams = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("bake preview seam uniforms"), contents: bytemuck::bytes_of(&Uniforms::zeroed()),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+        let group_seams = make_group(&uniform_seams);
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("bake preview shader"), source: wgpu::ShaderSource::Wgsl(include_str!("bake_preview.wgsl").into()),
         });
@@ -120,7 +133,7 @@ impl BakePreviewPass {
         });
         Self { layout, sampler, _dummy: dummy, low_ranges: Vec::new(), miss_groups: Default::default(),
             surfaces: [make(1, false), make(SAMPLE_COUNT, false)], lines: [make(1, true), make(SAMPLE_COUNT, true)],
-            uniform, group, uniform_high, group_high, low_index_count: 0, vertices: None, indices: None, cage: None, count: 0, cage_count: 0, diagonal: 1. }
+            uniform, group, uniform_high, group_high, uniform_seams, group_seams, seams: None, seam_count: 0, low_index_count: 0, vertices: None, indices: None, cage: None, count: 0, cage_count: 0, diagonal: 1. }
     }
 
     pub fn set_meshes(&mut self, device: &wgpu::Device, meshes: Option<(&Mesh, &Mesh)>) {
@@ -156,6 +169,17 @@ impl BakePreviewPass {
         self.diagonal = low.bounds.diagonal().max(high.bounds.diagonal()).max(1e-6);
     }
 
+    /// Lines of the seam check: `[a, b, normal]` per edge of the low poly (hard edges without a
+    /// UV seam). An empty list removes them. Independent of `set_meshes`.
+    pub fn set_seam_lines(&mut self, device: &wgpu::Device, lines: &[[glam::Vec3; 3]]) {
+        self.seams = None;
+        self.seam_count = 0;
+        if lines.is_empty() { return; }
+        let vertices: Vec<Vertex> = lines.iter().flat_map(|[a, b, n]| [a, b].map(|p| Vertex { position: p.to_array(), normal: n.to_array(), color: [0., 0., 0., 1.], uv_low: [0.; 3] })).collect();
+        self.seams = Some(device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("bake seam lines"), contents: bytemuck::cast_slice(&vertices), usage: wgpu::BufferUsages::VERTEX }));
+        self.seam_count = vertices.len() as u32;
+    }
+
     /// `high_model` places the high poly (object space of the loaded file to the low poly's space);
     /// `high_opacity` < 1 draws it see-through over the low poly.
     /// Miss maps (1 component, 1 = miss) per low-poly material slot for the ray-miss heatmap;
@@ -181,6 +205,10 @@ impl BakePreviewPass {
         }));
         queue.write_buffer(&self.uniform_high, 0, bytemuck::bytes_of(&Uniforms {
             view_proj: vp, model: high_model.to_cols_array_2d(), cage: [0., 0., high_opacity.clamp(0.05, 1.), 0.], tint: rgb(vis.high_color), line,
+        }));
+        // Seam lines sit a little above the surface so the low poly does not hide them.
+        queue.write_buffer(&self.uniform_seams, 0, bytemuck::bytes_of(&Uniforms {
+            view_proj: vp, model: Mat4::IDENTITY.to_cols_array_2d(), cage: [0.002 * self.diagonal, 0., 1., 0.], tint: rgb(vis.seam_color), line: rgb(vis.seam_color),
         }));
     }
     pub fn draw(&self, pass: &mut wgpu::RenderPass<'_>, antialias: bool, show_cage: bool, vis: &BakeVisualization) {
@@ -208,6 +236,12 @@ impl BakePreviewPass {
             pass.set_bind_group(0, &self.group, &[]);
             pass.set_vertex_buffer(0, cage.slice(..));
             pass.draw(0..self.cage_count, 0..1);
+        }
+        if vis.show_seams && let Some(seams) = &self.seams {
+            pass.set_pipeline(&self.lines[usize::from(antialias)]);
+            pass.set_bind_group(0, &self.group_seams, &[]);
+            pass.set_vertex_buffer(0, seams.slice(..));
+            pass.draw(0..self.seam_count, 0..1);
         }
     }
 }

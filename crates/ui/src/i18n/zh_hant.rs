@@ -919,4 +919,7 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Degrees about X, Y, Z (applied in that order)", "繞 X、Y、Z 軸的角度（依此順序套用）"),
     ("Size of the projection box on X, Y, Z; with Shape crop on, a planar projection reaches as deep as its scale along the projection axis", "投影方塊在 X、Y、Z 上的大小；開啟形狀裁切時，平面投影的深度等於投影軸上的縮放"),
     ("X, Y, Z in units of the model's bounding box; 0 is centred", "以模型邊界框為單位的 X、Y、Z；0 為置中"),
+    ("Missing seams on hard edges", "硬邊缺少接縫"),
+    ("Every hard edge of the low poly is a UV seam.", "低模的每條硬邊都是 UV 接縫。"),
+    ("{} hard edge(s) share UVs across the edge: a baked normal map shows a line there. Split the UVs or soften the edge.", "{} 條硬邊兩側共用 UV：烘焙的法線貼圖會在該處出現線條。請分割 UV 或將邊軟化。"),
 ];

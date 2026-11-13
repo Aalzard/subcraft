@@ -253,8 +253,8 @@ Layout notes: a collapsible panel at the top left of the viewport with a "Hide b
 | Cage wireframe | Visualization panel > Cage | not documented | done | crates/ui/src/dialogs.rs (visualization_settings) | - |
 | Cage wireframe colour | Visualization panel > Cage | not documented | done | crates/ui/src/dialogs.rs (visualization_settings) | - |
 | Cage wireframe opacity | Visualization panel > Cage | not documented | done | crates/ui/src/dialogs.rs (visualization_settings) | - |
-| Missing seams on hard edges (3D and 2D views) | Visualization panel > UV seams | not documented | missing | - | - |
-| Missing seams colour | Visualization panel > UV seams | not documented | missing | - | - |
+| Missing seams on hard edges (3D and 2D views) | Visualization panel > UV seams | not documented | partial: lines in the 3D bake overlay with a count; not in the 2D view | crates/bake/src/seam_check.rs | - |
+| Missing seams colour | Visualization panel > UV seams | not documented | done | crates/ui/src/dialogs.rs (visualization_settings) | - |
 | Project mesh (show low poly) | Visualization panel > Project mesh | on; forced on by Hide baking meshes | done | crates/ui/src/dialogs.rs (visualization_settings) | - |
 | Project mesh colour | Visualization panel > Project mesh | not documented | done | crates/ui/src/dialogs.rs (visualization_settings) | - |
 | Neutral material: Quality | Visualization panel > Project mesh | not documented | missing | - | - |

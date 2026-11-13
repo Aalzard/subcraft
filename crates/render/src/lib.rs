@@ -726,6 +726,12 @@ impl ViewportRenderer {
 
     /// Ray-miss maps (1 = miss) per low-poly material slot for the bake overlay's heatmap. Uploading
     /// new overlay meshes drops them; an empty list removes them.
+    /// Lines of the bake overlay's seam check: `[a, b, normal]` per hard edge of the low poly
+    /// that has no UV seam (shown with `bake_vis.show_seams`). An empty list removes them.
+    pub fn set_bake_seam_lines(&mut self, device: &wgpu::Device, lines: &[[glam::Vec3; 3]]) {
+        self.bake_preview.set_seam_lines(device, lines);
+    }
+
     pub fn set_bake_miss_maps(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, maps: &[(u32, &subcraft_image::TiledImage)]) {
         self.bake_preview.set_miss_maps(device, queue, maps);
     }

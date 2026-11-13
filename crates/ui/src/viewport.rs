@@ -561,6 +561,20 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 renderer.set_bake_preview(&rs.device, None);
                 state.bake.preview_uploaded = true;
             }
+            // Seam check: found once per mesh, uploaded when the lines change.
+            if state.bake.vis.show_seams {
+                let mesh = &state.session.scene().mesh;
+                let key = std::sync::Arc::as_ptr(mesh) as usize;
+                if state.bake.seam_edges.as_ref().is_none_or(|(k, _)| *k != key) {
+                    let edges = subcraft_bake::seam_check::hard_edges_without_seams(mesh).iter().map(|e| [e.a, e.b, e.normal]).collect();
+                    state.bake.seam_edges = Some((key, edges));
+                    state.bake.seams_uploaded = false;
+                }
+                if !state.bake.seams_uploaded && let Some((_, edges)) = &state.bake.seam_edges {
+                    renderer.set_bake_seam_lines(&rs.device, edges);
+                    state.bake.seams_uploaded = true;
+                }
+            }
             params.bake_overlay = state.bake.overlay_active();
             if state.bake.preview_mesh.is_some() && !state.bake.miss_uploaded && let Some(r) = &state.bake.cage_result {
                 let maps: Vec<(u32, &subcraft_image::TiledImage)> = r.maps.iter().map(|(_, slot, img)| (*slot, img)).collect();

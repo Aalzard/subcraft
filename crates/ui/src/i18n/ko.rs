@@ -919,4 +919,7 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Degrees about X, Y, Z (applied in that order)", "X, Y, Z 축 기준 각도(이 순서로 적용)"),
     ("Size of the projection box on X, Y, Z; with Shape crop on, a planar projection reaches as deep as its scale along the projection axis", "X, Y, Z 방향의 투영 상자 크기입니다. 모양 자르기를 켜면 평면 투영은 투영 축 방향 스케일만큼의 깊이까지 닿습니다"),
     ("X, Y, Z in units of the model's bounding box; 0 is centred", "모델 경계 상자 단위의 X, Y, Z 값이며 0이 중앙입니다"),
+    ("Missing seams on hard edges", "하드 에지의 누락된 이음매"),
+    ("Every hard edge of the low poly is a UV seam.", "로우 폴리의 모든 하드 에지가 UV 이음매입니다."),
+    ("{} hard edge(s) share UVs across the edge: a baked normal map shows a line there. Split the UVs or soften the edge.", "하드 에지 {}개가 양쪽에서 UV를 공유합니다: 베이크한 노멀 맵에 선이 보입니다. UV를 나누거나 에지를 부드럽게 하세요."),
 ];

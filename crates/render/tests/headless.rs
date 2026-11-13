@@ -118,6 +118,21 @@ fn bake_overlay_follows_the_visualization_settings() {
     p.bake_vis.cage_opacity = 0.0;
     let hidden = renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
     assert_eq!(diff(&hidden, &no_cage), 0, "a fully transparent cage is not seen");
+    // Seam-check lines: drawn only when asked, in their colour, and removed by an empty list.
+    p.bake_cage = false;
+    p.bake_vis = Default::default();
+    p.bake_vis.show_high = false;
+    let plain = renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+    // The cube's top edge towards the camera, as if it lacked a seam.
+    renderer.set_bake_seam_lines(&device, &[[Vec3::new(-1., 1., 1.), Vec3::new(1., 1., 1.), Vec3::new(0., 1., 1.).normalize()]]);
+    assert_eq!(diff(&renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue), &plain), 0, "seam lines are off by default");
+    p.bake_vis.show_seams = true;
+    let seams = renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+    assert!(diff(&seams, &plain) > 20, "the seam line is drawn: {}", diff(&seams, &plain));
+    let yellow = seams.chunks_exact(4).zip(plain.chunks_exact(4)).filter(|(a, b)| a != b && a[0] > 180 && a[1] > 150 && a[2] * 2 < a[1]).count();
+    assert!(yellow > 10, "in the seam colour: {yellow}");
+    renderer.set_bake_seam_lines(&device, &[]);
+    assert_eq!(diff(&renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue), &plain), 0);
 }
 
 #[test]
