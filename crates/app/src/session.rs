@@ -1507,7 +1507,8 @@ impl Session {
                     ts.channels.push(ChannelDef::default_for(kind));
                 }
                 let mut at = reference;
-                for layer in clip.instantiate(ts, mesh) {
+                for mut layer in clip.instantiate(ts, mesh) {
+                    layer.name = crate::clipboard::pasted_name(ts, &layer.name);
                     at = Some(ts.insert_above(at, layer));
                 }
                 self.selection.layer = at;
