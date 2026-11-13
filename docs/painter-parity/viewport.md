@@ -98,7 +98,7 @@ Layout notes: the dropdown at the top right of each view switches between Materi
 | Display mode dropdown | 3D view, top right | Material | partial: "View" combo sits in the top strip, left side | crates/ui/src/viewport_bar.rs:361 | - |
 | Material (lit) mode | Display mode dropdown | default | done | crates/render/src/lib.rs:138 | - |
 | Single channel (solo) mode, one entry per Texture Set channel | Display mode dropdown | - | done: every channel of the texture set (#181) | crates/ui/src/viewport_bar.rs (view_mode) | 181 |
-| Composited normal (normal + height + bake) solo entry | Display mode dropdown | - | partial: "Normal + Height" shows the tangent-space normal the shading uses (Normal channel with the Height bump); the baked mesh normal is not layered in, as SubCraft's material shading does not use it | crates/render/src/viewport.wgsl (combined_normal) | PRNUM |
+| Composited normal (normal + height + bake) solo entry | Display mode dropdown | - | partial: "Normal + Height" shows the tangent-space normal the shading uses (Normal channel with the Height bump); the baked mesh normal is not layered in, as SubCraft's material shading does not use it | crates/render/src/viewport.wgsl (combined_normal) | 374 |
 | Mesh map solo entries | Display mode dropdown | - | done | crates/ui/src/viewport_bar.rs:377 | - |
 | Display next channel | C | - | done: C cycles the material and each channel of the selected texture set (#181) | crates/ui/src/viewport_bar.rs (cycle_channel) | 181 |
 | Display previous channel | Shift + C | - | done: Shift+C (#181) | crates/ui/src/viewport_bar.rs (cycle_channel) | 181 |
