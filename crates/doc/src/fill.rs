@@ -247,6 +247,41 @@ impl ProjectionTransform {
         ]
     }
 
+    /// Euler angles in degrees (X, then Y, then Z) of a rotation matrix given as rows: the
+    /// inverse of [`ProjectionTransform::rotation`]. At Y = +-90 degrees (where X and Z turn
+    /// about the same axis) the whole turn is reported on X.
+    pub fn euler_of(m: [[f32; 3]; 3]) -> [f32; 3] {
+        let sy = (-m[2][0]).clamp(-1.0, 1.0);
+        let y = sy.asin();
+        let (x, z) = if sy.abs() > 0.99999 {
+            ((m[0][1] * sy).atan2(m[1][1]), 0.0)
+        } else {
+            (m[2][1].atan2(m[2][2]), m[1][0].atan2(m[0][0]))
+        };
+        [x.to_degrees(), y.to_degrees(), z.to_degrees()]
+    }
+
+    /// The rotation angles after turning the box by `deg` about its own axis `axis` (0 = X).
+    pub fn rotated_about_local_axis(&self, axis: usize, deg: f32) -> [f32; 3] {
+        let a = axis.min(2);
+        let (b, d) = ((a + 1) % 3, (a + 2) % 3);
+        let (s, c) = deg.to_radians().sin_cos();
+        let mut local = [[0.0f32; 3]; 3];
+        local[a][a] = 1.0;
+        local[b][b] = c;
+        local[b][d] = -s;
+        local[d][b] = s;
+        local[d][d] = c;
+        let r = self.rotation();
+        let mut m = [[0.0f32; 3]; 3];
+        for (i, row) in m.iter_mut().enumerate() {
+            for (j, v) in row.iter_mut().enumerate() {
+                *v = r[i][0] * local[0][j] + r[i][1] * local[1][j] + r[i][2] * local[2][j];
+            }
+        }
+        Self::euler_of(m)
+    }
+
     /// A bounding-cube position and normal in the box's own frame (the box is the unit cube
     /// there): the inverse of scale, rotation and offset. The normal is renormalised.
     pub fn to_local(&self, pos: [f32; 3], normal: [f32; 3]) -> ([f32; 3], [f32; 3]) {
@@ -688,6 +723,27 @@ mod tests {
         assert!(!serde_json::to_string(&Projection::default()).unwrap().contains("backface"));
         let back: Projection = serde_json::from_str(&serde_json::to_string(&planar(2)).unwrap()).unwrap();
         assert_eq!(back.backface, Some(hard));
+    }
+
+    #[test]
+    fn rotation_angles_round_trip_and_compose_about_the_box_axes() {
+        let close = |a: [f32; 3], b: [f32; 3]| a.iter().zip(&b).all(|(x, y)| (x - y).abs() < 1e-3);
+        let id = ProjectionTransform::default();
+        for angles in [[0.0, 0.0, 0.0], [20.0, -35.0, 110.0], [-170.0, 60.0, -45.0], [0.0, 0.0, 90.0]] {
+            let t = ProjectionTransform { rotation_deg: angles, ..id };
+            assert!(close(ProjectionTransform::euler_of(t.rotation()), angles), "{angles:?}");
+        }
+        // At Y = 90 the angles are not unique: the matrix still round-trips.
+        let locked = ProjectionTransform { rotation_deg: [30.0, 90.0, 40.0], ..id };
+        let again = ProjectionTransform { rotation_deg: ProjectionTransform::euler_of(locked.rotation()), ..id };
+        let (a, b) = (locked.rotation(), again.rotation());
+        assert!((0..3).all(|i| (0..3).all(|j| (a[i][j] - b[i][j]).abs() < 1e-3)), "{a:?} {b:?}");
+        // Turning about the box's own axis: Z on an unrotated box is plain Z; X after a quarter
+        // turn about Z is X first, then Z.
+        assert!(close(id.rotated_about_local_axis(2, 30.0), [0.0, 0.0, 30.0]));
+        let turned = ProjectionTransform { rotation_deg: [0.0, 0.0, 90.0], ..id };
+        assert!(close(turned.rotated_about_local_axis(0, 90.0), [90.0, 0.0, 90.0]));
+        assert!(close(turned.rotated_about_local_axis(2, -90.0), [0.0, 0.0, 0.0]));
     }
 
     #[test]

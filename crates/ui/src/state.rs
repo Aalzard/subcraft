@@ -223,6 +223,8 @@ pub struct UiState {
     pub picking_parts: bool,
     /// Warp projection grid editing (mode, selected points, display settings).
     pub warp: crate::warp_view::WarpEdit,
+    /// Fill projection manipulator of the 3D view (tool, visibility, size, snapping steps).
+    pub gizmo: crate::projection_gizmo::GizmoEdit,
     /// Geometry mask box started in a view (screen point), while picking parts.
     pub parts_box: Option<egui::Pos2>,
     /// Geometry mask copied from a layer row's menu.
@@ -475,6 +477,7 @@ impl UiState {
             painting: false,
             picking_parts: false,
             warp: Default::default(),
+            gizmo: Default::default(),
             parts_box: None,
             parts_clipboard: None,
             uv_parts: Default::default(),
