@@ -303,15 +303,31 @@ impl Layer {
     /// Raster data stays shared (copy-on-write).
     pub fn duplicate_with_new_ids(&self) -> Layer {
         let mut map = std::collections::HashMap::new();
-        let mut l = self.duplicate_ids(&mut map);
+        let mut ids = std::collections::HashMap::new();
+        let mut l = self.duplicate_ids(&mut map, &mut ids);
         // References inside the copy read the copied anchors (ADR-0045).
         crate::anchor::remap_inputs(&mut l, &map);
+        l.follow_copied_sources(&ids);
         l
     }
 
-    fn duplicate_ids(&self, map: &mut std::collections::HashMap<subcraft_core::EffectId, subcraft_core::EffectId>) -> Layer {
+    /// An instance copied together with its source follows the copy of the source. It used to
+    /// keep following the original: deleting the original then took a layer out of the copy.
+    fn follow_copied_sources(&mut self, ids: &std::collections::HashMap<LayerId, LayerId>) {
+        if let Some(copy) = self.instance_of.and_then(|s| ids.get(&s)) {
+            self.instance_of = Some(*copy);
+        }
+        if let LayerContent::Group(g) = &mut self.content {
+            for c in g.children.iter_mut() {
+                Arc::make_mut(c).follow_copied_sources(ids);
+            }
+        }
+    }
+
+    fn duplicate_ids(&self, map: &mut std::collections::HashMap<subcraft_core::EffectId, subcraft_core::EffectId>, ids: &mut std::collections::HashMap<LayerId, LayerId>) -> Layer {
         let mut l = self.clone();
         l.id = LayerId::new();
+        ids.insert(self.id, l.id);
         if let LayerContent::Paint(p) = &mut l.content && let Some(path) = &mut p.path {
             for a in &mut path.anchors { a.id = subcraft_core::AnchorId::new(); }
         }
@@ -329,7 +345,7 @@ impl Layer {
         }
         if let LayerContent::Group(g) = &mut l.content {
             for c in g.children.iter_mut() {
-                *c = Arc::new(c.duplicate_ids(map));
+                *c = Arc::new(c.duplicate_ids(map, ids));
             }
         }
         l
@@ -465,9 +481,11 @@ impl Layer {
 /// between the copied layers read the copied anchors.
 pub fn duplicate_layers_with_new_ids<'a>(layers: impl IntoIterator<Item = &'a Layer>) -> Vec<Layer> {
     let mut map = std::collections::HashMap::new();
-    let mut out: Vec<Layer> = layers.into_iter().map(|l| l.duplicate_ids(&mut map)).collect();
+    let mut ids = std::collections::HashMap::new();
+    let mut out: Vec<Layer> = layers.into_iter().map(|l| l.duplicate_ids(&mut map, &mut ids)).collect();
     for l in &mut out {
         crate::anchor::remap_inputs(l, &map);
+        l.follow_copied_sources(&ids);
     }
     out
 }

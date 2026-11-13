@@ -134,3 +134,27 @@ fn an_instance_survives_save_and_load() {
     back.execute(Command::AddMask { layer: source, white: true }).unwrap();
     assert!(back.selected_texture_set().find(instance).unwrap().mask.is_some());
 }
+
+/// QA 2026-11: duplicating a folder that holds a layer and its instance left the copied instance
+/// following the original layer, so deleting the original folder took a layer out of the copy.
+#[test]
+fn an_instance_duplicated_with_its_source_follows_the_copied_source() {
+    let (mut s, fill) = session();
+    s.execute(Command::PasteAsInstance(vec![fill])).unwrap();
+    let instance = s.selection().layer.unwrap();
+    s.execute(Command::GroupLayers(vec![fill, instance])).unwrap();
+    let folder = s.selection().layer.unwrap();
+    s.execute(Command::DuplicateLayer(folder)).unwrap();
+    let copy = s.selection().layer.unwrap();
+    assert_ne!(copy, folder);
+    {
+        let children = s.selected_texture_set().find(copy).unwrap().children();
+        assert_eq!(children.len(), 2);
+        let source = children.iter().find(|l| l.instance_of.is_none()).unwrap();
+        let inst = children.iter().find(|l| l.instance_of.is_some()).unwrap();
+        assert_ne!(source.id, fill);
+        assert_eq!(inst.instance_of, Some(source.id));
+    }
+    s.execute(Command::DeleteLayer(folder)).unwrap();
+    assert_eq!(s.selected_texture_set().find(copy).unwrap().children().len(), 2, "the copy does not depend on the original");
+}
