@@ -29,7 +29,7 @@ Layout notes: Painter has three modes (Bake mesh maps, Painting, Rendering) swit
 |---|---|---|---|---|---|
 | Same navigation as Painting mode | Viewport | not documented | done | crates/ui/src/dialogs.rs:566 | - |
 | Channel dropdown shows baked maps | Viewport, top right | not documented | partial: Display dropdown in the Bake window and mesh maps in the view-mode dropdown | crates/ui/src/dialogs.rs:706 | - |
-| Baking visualization settings panel (collapsible) | Viewport, top left | not documented | partial: four icon toggles in the Bake window's Viewport card | crates/ui/src/dialogs.rs:701 | - |
+| Baking visualization settings panel (collapsible) | Viewport, top left | not documented | partial: a collapsible section in Common settings > Viewport, not over the viewport | crates/ui/src/dialogs.rs (visualization_settings) | - |
 | Bake selected textures button | Viewport, bottom | not documented | done | crates/ui/src/dialogs.rs (bake_mode) | - |
 | Cancel baking button | Viewport, bottom | not documented | done | crates/ui/src/dialogs.rs (bake_mode) | - |
 | Viewport progress bar (mesh loading and baking) | Viewport | not documented | partial: bar beside Cancel over the views while baking, none for mesh loading | crates/ui/src/dialogs.rs (bake_mode) | - |
@@ -241,22 +241,22 @@ Layout notes: a collapsible panel at the top left of the viewport with a "Hide b
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Hide baking meshes | Visualization panel | off | partial: turn the overlay toggle off | crates/ui/src/dialogs.rs:701 | - |
+| Hide baking meshes | Visualization panel | off | done | crates/ui/src/dialogs.rs (visualization_settings) | - |
 | Show for selected Texture Set only | Visualization panel > General | not documented | missing | - | - |
-| Mesh (show high poly; off unloads it) | Visualization panel > High definition mesh (HP) | on (unverified) | partial: one overlay toggle for high and low | crates/ui/src/dialogs.rs:701 | - |
-| Mesh colour | Visualization panel > High definition mesh (HP) | not documented | partial: fixed blue, opacity slider only | crates/ui/src/placement.rs:98 | - |
-| Matching error (high poly outside the cage) | Visualization panel > High definition mesh (HP) | on; bright red | partial: exposed low poly drawn red; ray-miss heatmap in PR | crates/ui/src/dialogs.rs:701 | #137 |
-| Matching error colour | Visualization panel > High definition mesh (HP) | red | missing | - | - |
+| Mesh (show high poly; off unloads it) | Visualization panel > High definition mesh (HP) | on (unverified) | partial: hides it, the file stays loaded | crates/ui/src/dialogs.rs (visualization_settings) | - |
+| Mesh colour | Visualization panel > High definition mesh (HP) | not documented | done | crates/ui/src/dialogs.rs (visualization_settings) | - |
+| Matching error (high poly outside the cage) | Visualization panel > High definition mesh (HP) | on; bright red | partial: the project mesh shows through where the high poly does not cover it; ray-miss heatmap for cage misses | crates/ui/src/dialogs.rs (visualization_settings) | #137 |
+| Matching error colour | Visualization panel > High definition mesh (HP) | red | partial: the project mesh colour | crates/ui/src/dialogs.rs (visualization_settings) | - |
 | Cage surface | Visualization panel > Cage | on while cage painting; transparent beige | missing | - | - |
 | Cage surface colour | Visualization panel > Cage | beige | missing | - | - |
 | Cage surface opacity | Visualization panel > Cage | not documented | missing | - | - |
-| Cage wireframe | Visualization panel > Cage | not documented | done | crates/ui/src/dialogs.rs:702 | - |
-| Cage wireframe colour | Visualization panel > Cage | not documented | missing | - | - |
-| Cage wireframe opacity | Visualization panel > Cage | not documented | missing | - | - |
-| Missing seams on hard edges (3D and 2D views) | Visualization panel > UV seams | not documented | missing | - | - |
-| Missing seams colour | Visualization panel > UV seams | not documented | missing | - | - |
-| Project mesh (show low poly) | Visualization panel > Project mesh | on; forced on by Hide baking meshes | partial: low poly always shown | crates/ui/src/dialogs.rs:701 | - |
-| Project mesh colour | Visualization panel > Project mesh | not documented | missing | - | - |
+| Cage wireframe | Visualization panel > Cage | not documented | done | crates/ui/src/dialogs.rs (visualization_settings) | - |
+| Cage wireframe colour | Visualization panel > Cage | not documented | done | crates/ui/src/dialogs.rs (visualization_settings) | - |
+| Cage wireframe opacity | Visualization panel > Cage | not documented | done | crates/ui/src/dialogs.rs (visualization_settings) | - |
+| Missing seams on hard edges (3D and 2D views) | Visualization panel > UV seams | not documented | partial: lines in the 3D bake overlay with a count; not in the 2D view | crates/bake/src/seam_check.rs | - |
+| Missing seams colour | Visualization panel > UV seams | not documented | done | crates/ui/src/dialogs.rs (visualization_settings) | - |
+| Project mesh (show low poly) | Visualization panel > Project mesh | on; forced on by Hide baking meshes | done | crates/ui/src/dialogs.rs (visualization_settings) | - |
+| Project mesh colour | Visualization panel > Project mesh | not documented | done | crates/ui/src/dialogs.rs (visualization_settings) | - |
 | Neutral material: Quality | Visualization panel > Project mesh | not documented | missing | - | - |
 | Neutral material: Roughness | Visualization panel > Project mesh | not documented | missing | - | - |
 | Neutral material: Metallic | Visualization panel > Project mesh | not documented | missing | - | - |
