@@ -11,6 +11,9 @@ mod output;
 mod paint;
 mod project;
 
+#[cfg(test)]
+pub use output::png_path;
+
 pub fn dispatch(server: &mut Server, name: &str, args: &Args) -> Res<Reply> {
     match name {
         "status" => project::status(server),
@@ -32,6 +35,8 @@ pub fn dispatch(server: &mut Server, name: &str, args: &Args) -> Res<Reply> {
         "layer_duplicate" => layers::duplicate(server, args),
         "layer_move" => layers::move_layer(server, args),
         "layer_group" => layers::group(server, args),
+        "layer_flatten" => layers::flatten(server, args),
+        "layer_instantiate" => layers::instantiate(server, args),
         "fill_set" => layers::fill_set(server, args),
         "parts_list" => layers::parts_list(server, args),
         "layer_set_parts" => layers::set_parts(server, args),
@@ -69,13 +74,28 @@ pub fn dispatch(server: &mut Server, name: &str, args: &Args) -> Res<Reply> {
     }
 }
 
+/// Tools that write or overwrite files, delete layers or drop the open project: MCP clients use
+/// `destructiveHint` to ask the user before running them.
+pub const DESTRUCTIVE: &[&str] = &[
+    "project_new", "project_open", "project_save", "layer_delete", "mask_remove", "effect_remove", "save_to_library",
+    "export_textures", "export_scene", "open_in_app",
+];
+
+/// Tools that reach outside the server (start another program).
+pub const OPEN_WORLD: &[&str] = &["open_in_app"];
+
 fn tool(name: &str, title: &str, description: &str, properties: Value, required: &[&str], read_only: bool) -> Value {
     json!({
         "name": name,
         "title": title,
         "description": description,
-        "inputSchema": { "type": "object", "properties": properties, "required": required },
-        "annotations": { "title": title, "readOnlyHint": read_only, "destructiveHint": false, "openWorldHint": false },
+        "inputSchema": { "type": "object", "properties": properties, "required": required, "additionalProperties": false },
+        "annotations": {
+            "title": title,
+            "readOnlyHint": read_only,
+            "destructiveHint": !read_only && DESTRUCTIVE.contains(&name),
+            "openWorldHint": OPEN_WORLD.contains(&name),
+        },
     })
 }
 
@@ -132,6 +152,7 @@ pub fn definitions() -> Vec<Value> {
                 "resolution": { "type": "integer", "enum": [256, 512, 1024, 2048, 4096] },
                 "all_texture_sets": { "type": "boolean", "description": "Apply `resolution` to every texture set." },
                 "add_channels": { "type": "array", "items": { "type": "string" }, "description": "e.g. [\"emissive\", \"opacity\", \"ambient_occlusion\"]" },
+                "remove_channels": { "type": "array", "items": { "type": "string" }, "description": "Channels to drop from the texture set (layers keep their data; undo or adding the channel back restores it)." },
                 "hidden": { "type": "boolean" },
             }), &[], false),
         tool("undo", "Undo", "Undo the last edit(s).", json!({ "steps": { "type": "integer", "description": "Default 1." } }), &[], false),
@@ -180,6 +201,10 @@ pub fn definitions() -> Vec<Value> {
             }), &["layer"], false),
         tool("layer_group", "Group into folder", "Wrap a layer in a new folder; returns the folder id.",
             json!({ "layer": { "type": "string", "description": LAYER }, "texture_set": { "type": "string" }, "name": { "type": "string", "description": "Folder name." } }), &["layer"], false),
+        tool("layer_flatten", "Flatten layers", "Bake layers or folders (all in one texture set) into new paint layers of plain pixels, each placed right above its source; the sources stay, hidden. Like Painter's Flatten (Ctrl+M).",
+            json!({ "layers": { "type": "array", "items": { "type": "string" }, "description": "Layer ids or names." }, "texture_set": { "type": "string" } }), &["layers"], false),
+        tool("layer_instantiate", "Instance across texture sets", "Put a linked instance of each layer on top of other texture sets (default: all others), like Painter's Instantiate across texture sets. Instances follow their source's content, effects and mask; their own name, visibility, blending and colour can differ. Use it to give several materials the same look and edit it once.",
+            json!({ "layers": { "type": "array", "items": { "type": "string" }, "description": "Layer ids or names, all in one texture set." }, "texture_set": { "type": "string" }, "to_texture_sets": { "type": "array", "items": { "type": "string" }, "description": "Default: every other texture set." } }), &["layers"], false),
         tool("fill_set", "Set fill channels", &format!("Set a fill layer's channels and projection. {fill_spec}"),
             json!({
                 "layer": { "type": "string", "description": LAYER }, "texture_set": { "type": "string" },
@@ -209,12 +234,13 @@ Check the result with render_texture {layer, mask: true}.",
                 "layer": { "type": "string", "description": LAYER }, "texture_set": { "type": "string" },
                 "effect": { "type": "object", "description": "{type, ...parameters}" },
                 "name": { "type": "string" }, "opacity": { "type": "number" }, "blend": { "type": "string", "description": "normal, multiply, screen, subtract, ..." },
+                "visible": { "type": "boolean" },
             }), &["layer", "effect"], false),
         tool("content_add_effect", "Add content effect", &format!("Add an effect to a layer's content stack: filter {{type: filter, channel, kind, ...fields at the top level}}, levels {{channel, in_low, in_high, gamma, out_low, out_high}}, fill {{channels: like fill_set, projection}} or paint (a raster to paint into, also on fill layers). Filters and their allowed values: {}", layers::FILTER_RANGES),
             json!({
                 "layer": { "type": "string", "description": LAYER }, "texture_set": { "type": "string" },
                 "effect": { "type": "object", "description": "{type: filter|levels|fill|paint, channel, ...}" },
-                "name": { "type": "string" },
+                "name": { "type": "string" }, "opacity": { "type": "number" }, "blend": { "type": "string" }, "visible": { "type": "boolean" },
             }), &["layer", "effect"], false),
         tool("effect_update", "Edit effect", "Change a mask or content effect: `params` merge into its settings (generator level, filter radius, levels, fill value...), plus visible, opacity, blend, name.",
             json!({
@@ -270,6 +296,7 @@ space \"view\": points are [x, y] pixels in the render_preview image taken with 
                 "mode": { "type": "string", "enum": ["triangle", "mesh_element", "uv_island"], "description": "Default mesh_element." },
                 "space": { "type": "string", "enum": ["uv", "view"] },
                 "point": { "type": "array", "items": { "type": "number" } },
+                "brush": { "type": "object", "description": "brush_set arguments for this call only." },
             })), &["layer", "point"], false),
         tool("pick", "What is at a pixel", &format!("For pixel positions in a render_preview image: the surface UV, 3D position, normal, texture set and part under each. {CAMERA}"),
             with(camera_props(), json!({ "points": { "type": "array", "items": { "type": "array", "items": { "type": "number" } }, "description": "[[x, y], ...] pixels." } })), &["points"], true),
@@ -281,7 +308,7 @@ space \"view\": points are [x, y] pixels in the render_preview image taken with 
                 "space": { "type": "string", "enum": ["uv", "view"], "description": "uv (default): [u,v] 0..1, origin top-left; view: [x,y] pixels of render_preview with the same camera." },
                 "points": { "type": "array", "items": { "type": "array", "items": { "type": "number" } } },
                 "anchors": { "type": "array", "items": { "type": "object" }, "description": "[{position: [u,v], in: [du,dv], out: [du,dv]}] (UV space)." },
-                "smooth": { "type": "boolean" }, "closed": { "type": "boolean" },
+                "smooth": { "type": "boolean" }, "closed": { "type": "boolean" }, "filled": { "type": "boolean", "description": "Fill the inside of the (closed) path instead of stroking its outline." },
                 "width": { "type": "number", "description": "Line width as a fraction of the texture width (e.g. 0.01)." },
                 "hardness": { "type": "number" }, "opacity": { "type": "number" },
                 "channels": { "type": "object", "description": "Values the line paints, e.g. {\"base_color\": \"#ffcc00\", \"roughness\": 0.3} (default: the brush's)." },
@@ -315,7 +342,7 @@ space \"view\": points are [x, y] pixels in the render_preview image taken with 
                 "image": { "type": "string", "description": "Image file, or \"none\"." },
                 "center": { "type": "array", "items": { "type": "number" }, "description": "[x, y] as fractions of the view (default [0.5, 0.5])." },
                 "scale": { "type": "number", "description": "Image height as a fraction of the view height (default 0.8)." },
-                "rotation_deg": { "type": "number" }, "tiling": { "type": "boolean" },
+                "rotation_deg": { "type": "number" }, "tiling": { "description": "true (repeat both ways), false, or \"none\", \"horizontal\", \"vertical\", \"both\"." },
             }), &[], false),
         tool("clone_source", "Clone source", &format!("Set the clone tool's source to the surface under a pixel and switch the brush to clone. Then paint_stroke in space view copies from there. {CAMERA}"),
             with(camera_props(), json!({ "point": { "type": "array", "items": { "type": "number" }, "description": "[x, y] pixels." } })), &["point"], false),
@@ -352,6 +379,9 @@ space \"view\": points are [x, y] pixels in the render_preview image taken with 
                 "template": { "type": "string" },
                 "texture_format": { "type": "string", "enum": ["png8", "png16", "tga8", "jpeg", "exr32"] },
                 "normal_format": { "type": "string", "enum": ["opengl", "directx"] },
+                "padding": { "description": "\"infinite\" (default), \"none\", or a texel count." },
+                "height_to_normal": { "type": "number" },
+                "udim_folders": { "type": "boolean" },
             }), &["dir", "format"], false),
         tool("render_preview", "Render preview", &format!("Render the textured model as the SubCraft viewport shows it and return the image. {CAMERA} \
 `views` renders several named angles at once (front, back, left, right, top, bottom, three_quarter). view shows one channel unlit. Use it after edits to check the result."),

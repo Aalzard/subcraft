@@ -125,6 +125,7 @@ fn short_source(res: &ResourceStore, kind: ChannelKind, s: &FillSource) -> Value
         FillSource::Bitmap { resource } => json!(format!("image {}", res.get(*resource).map(|r| r.name.as_str()).unwrap_or("?"))),
         FillSource::Procedural { params, low, high } => json!(format!("procedural {} ({}..{})", name_of(&params.kind), show_value(kind, *low), show_value(kind, *high)).replace('"', "")),
         FillSource::MeshMap { map } => json!(format!("mesh map {}", name_of(map))),
+        FillSource::Anchor { input } => json!(format!("anchor {}", serde_json::to_value(input).map(|v| v.to_string()).unwrap_or_default()).replace('"', "")),
     }
 }
 
@@ -225,6 +226,7 @@ pub fn fill_source(res: &ResourceStore, kind: ChannelKind, s: &FillSource) -> Va
         FillSource::Bitmap { resource } => json!({ "type": "image", "resource": resource.to_string(), "name": res.get(*resource).map(|r| r.name.clone()) }),
         FillSource::Procedural { params, low, high } => json!({ "type": "procedural", "params": params, "low": show_value(kind, *low), "high": show_value(kind, *high) }),
         FillSource::MeshMap { map } => json!({ "type": "mesh_map", "map": name_of(map) }),
+        FillSource::Anchor { input } => json!({ "type": "anchor", "input": input }),
     }
 }
 
@@ -238,6 +240,9 @@ pub fn mask_effect_type(k: &MaskEffectKind) -> &'static str {
         MaskEffectKind::Invert => "invert",
         MaskEffectKind::Image { .. } => "image",
         MaskEffectKind::IdColor(_) => "id_color",
+        MaskEffectKind::Compare(_) => "compare",
+        MaskEffectKind::Anchor => "anchor",
+        MaskEffectKind::AnchorRef { .. } => "anchor_ref",
     }
 }
 
@@ -253,6 +258,9 @@ pub fn mask_effect(e: &MaskEffect, detail: bool) -> Value {
             MaskEffectKind::Invert => json!({}),
             MaskEffectKind::Image { resource, projection, invert } => json!({ "resource": resource.to_string(), "projection": projection, "invert": invert }),
             MaskEffectKind::IdColor(c) => serde_json::to_value(c).unwrap_or(Value::Null),
+            MaskEffectKind::Compare(c) => serde_json::to_value(c).unwrap_or(Value::Null),
+            MaskEffectKind::Anchor => json!({}),
+            MaskEffectKind::AnchorRef { input, levels } => json!({ "input": input, "levels": levels }),
         };
     }
     v
@@ -264,6 +272,8 @@ pub fn content_effect_type(k: &ContentEffectKind) -> &'static str {
         ContentEffectKind::Fill(_) => "fill",
         ContentEffectKind::Levels { .. } => "levels",
         ContentEffectKind::Filter { .. } => "filter",
+        ContentEffectKind::Anchor => "anchor",
+        ContentEffectKind::Generator(_) => "generator",
     }
 }
 
@@ -276,5 +286,7 @@ fn content_effect_params(res: &ResourceStore, k: &ContentEffectKind) -> Value {
         }
         ContentEffectKind::Levels { channel, levels } => json!({ "channel": name_of(channel), "levels": levels }),
         ContentEffectKind::Filter { channel, filter } => json!({ "channel": name_of(channel), "filter": filter }),
+        ContentEffectKind::Anchor => json!({}),
+        ContentEffectKind::Generator(g) => serde_json::to_value(g).unwrap_or(Value::Null),
     }
 }

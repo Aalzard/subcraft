@@ -313,7 +313,21 @@ fn hex_bg(s: &str) -> Res<[f32; 3]> {
     Ok(v.0)
 }
 
+/// A `save_path` must name a `.png` file, so a wrong path cannot overwrite some other file with
+/// image bytes.
+pub fn png_path(path: &std::path::Path) -> Res<()> {
+    if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("png")) && path.file_stem().is_some_and(|s| !s.is_empty()) {
+        Ok(())
+    } else {
+        Err(format!("save_path must be a .png file, got {}", paths::output(path)))
+    }
+}
+
 fn save_png(path: &std::path::Path, png: &[u8]) -> Res<String> {
+    png_path(path)?;
+    if path.is_dir() {
+        return Err(format!("save_path is a folder: {}", paths::output(path)));
+    }
     if let Some(d) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
         std::fs::create_dir_all(d).map_err(|e| format!("{}: {e}", paths::output(d)))?;
     }
@@ -344,6 +358,9 @@ pub fn render_preview(server: &mut Server, args: &Args) -> Res<Reply> {
         return Err("too many pixels in one call: use fewer views or a smaller size".into());
     }
     let save = args.str("save_path")?.map(paths::input);
+    if let Some(p) = &save {
+        png_path(p)?;
+    }
     let (session, library, gpu) = server.render_parts()?;
     let environment = match &env_name {
         Some(n) => library.environments.iter().position(|e| e.name.eq_ignore_ascii_case(n.trim()))

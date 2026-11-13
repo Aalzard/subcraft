@@ -53,6 +53,9 @@ impl Server {
             Value::Null => Default::default(),
             other => return error_result(&format!("arguments must be an object, got {other}")),
         };
+        if let Err(e) = check_argument_names(name, &map) {
+            return error_result(&e);
+        }
         let started = std::time::Instant::now();
         let outcome = std::panic::catch_unwind(AssertUnwindSafe(|| crate::tools::dispatch(self, name, &Args(&map))));
         // Each tool call is its own undo step (slider-like edits otherwise merge).
@@ -148,6 +151,31 @@ impl Server {
 
 fn error_result(msg: &str) -> Value {
     json!({ "content": [{ "type": "text", "text": msg }], "isError": true })
+}
+
+/// Reject argument names the tool's input schema does not declare, so a misspelt or invented
+/// argument is reported instead of silently falling back to its default. Unknown tools are left
+/// to `dispatch`, which names them.
+pub fn check_argument_names(tool: &str, args: &serde_json::Map<String, Value>) -> Result<(), String> {
+    static KNOWN: std::sync::OnceLock<std::collections::HashMap<String, Vec<String>>> = std::sync::OnceLock::new();
+    let known = KNOWN.get_or_init(|| {
+        crate::tools::definitions()
+            .iter()
+            .filter_map(|t| {
+                let name = t.get("name")?.as_str()?.to_string();
+                let mut props: Vec<String> = t.pointer("/inputSchema/properties")?.as_object()?.keys().cloned().collect();
+                props.sort();
+                Some((name, props))
+            })
+            .collect()
+    });
+    let Some(props) = known.get(tool) else { return Ok(()) };
+    let unknown: Vec<&str> = args.keys().map(String::as_str).filter(|k| !props.iter().any(|p| p == k)).collect();
+    if unknown.is_empty() {
+        return Ok(());
+    }
+    let valid = if props.is_empty() { "(none)".to_string() } else { props.join(", ") };
+    Err(format!("unknown argument{} {} for `{tool}`; valid: {valid}", if unknown.len() == 1 { "" } else { "s" }, unknown.iter().map(|k| format!("`{k}`")).collect::<Vec<_>>().join(", ")))
 }
 
 // ----- lookups ---------------------------------------------------------------------------------

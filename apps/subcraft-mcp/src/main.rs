@@ -18,6 +18,8 @@ mod params;
 mod render;
 mod server;
 mod tools;
+#[cfg(test)]
+mod tests;
 
 const PROTOCOL_VERSIONS: [&str; 4] = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 

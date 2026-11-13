@@ -140,10 +140,16 @@ pub fn pen_path(server: &mut Server, args: &Args) -> Res<Reply> {
             hardness: session.brush.settings.hardness.clamp(0.0, 1.0),
             opacity: session.brush.settings.stroke_opacity.clamp(0.0, 1.0),
             values: BTreeMap::new(),
+            kind: subcraft_doc::PathKind::Paint,
+            stamp: None,
+            ribbon: None,
         },
     };
     let smooth = args.bool("smooth")?.unwrap_or(true);
     if let Some(c) = args.bool("closed")? { path.closed = c; }
+    if let Some(f) = args.bool("filled")? {
+        path.kind = if f { subcraft_doc::PathKind::Filled } else { subcraft_doc::PathKind::Paint };
+    }
     if let Some(mut a) = anchors {
         if args.get("points").is_some() && smooth {
             smooth_tangents(&mut a, path.closed);
@@ -198,7 +204,7 @@ pub fn pen_path(server: &mut Server, args: &Args) -> Res<Reply> {
         "layer": summary(session, ts, id)?,
         "path": {
             "anchors": path.anchors.iter().map(|a| json!({ "position": a.position.to_array(), "in": a.incoming.to_array(), "out": a.outgoing.to_array() })).collect::<Vec<_>>(),
-            "closed": path.closed, "width": path.radius * 2.0, "hardness": path.hardness, "opacity": path.opacity, "channels": show_values(&path.values),
+            "closed": path.is_closed(), "filled": path.kind == subcraft_doc::PathKind::Filled, "width": path.radius * 2.0, "hardness": path.hardness, "opacity": path.opacity, "channels": show_values(&path.values),
         },
     })))
 }
@@ -349,14 +355,14 @@ pub fn stencil_set(server: &mut Server, args: &Args) -> Res<Reply> {
         if let Some(c) = args.get("center") { s.center = vec2(c, "center")?; }
         if let Some(v) = args.f32("scale")? { s.scale = v.max(0.01); }
         if let Some(v) = args.f32("rotation_deg")? { s.rotation = v.to_radians(); }
-        if let Some(v) = args.bool("tiling")? { s.tiling = v; }
+        if let Some(v) = args.get("tiling") { s.tiling = stencil_tiling(v)?; }
         session.brush.stencil = Some(Arc::new(s));
     } else if args.get("image").is_none() {
         return Err("no stencil is set: pass `image`".into());
     }
     let s = session.brush.stencil.as_ref();
     Ok(Reply::json(json!({
-        "stencil": s.map(|s| json!({ "image_size": [s.bitmap.width, s.bitmap.height], "center": s.center.to_array(), "scale": s.scale, "rotation_deg": s.rotation.to_degrees(), "tiling": s.tiling })),
+        "stencil": s.map(|s| json!({ "image_size": [s.bitmap.width, s.bitmap.height], "center": s.center.to_array(), "scale": s.scale, "rotation_deg": s.rotation.to_degrees(), "tiling": name_of(&s.tiling) })),
         "note": "the stencil masks paint_stroke / paint_fill in space \"view\" (white paints, black blocks); center and scale are fractions of that view's size",
     })))
 }
@@ -431,4 +437,21 @@ pub fn open_in_app(server: &mut Server, args: &Args) -> Res<Reply> {
         "app": paths::output(&app),
         "note": "The app works on its own copy. After editing and saving there, project_open the same file here to continue (with discard_unsaved if this side changed since).",
     })))
+}
+
+/// `tiling`: true (repeat both ways), false, or none / horizontal / vertical / both.
+fn stencil_tiling(v: &Value) -> Res<subcraft_paint::StencilTiling> {
+    use subcraft_paint::StencilTiling as T;
+    Ok(match v {
+        Value::Bool(true) => T::Both,
+        Value::Bool(false) => T::None,
+        Value::String(s) => match crate::params::snake(s).as_str() {
+            "none" | "off" => T::None,
+            "horizontal" | "x" | "u" => T::Horizontal,
+            "vertical" | "y" | "v" => T::Vertical,
+            "both" | "on" | "xy" => T::Both,
+            other => return Err(format!("tiling must be none, horizontal, vertical or both, got `{other}`")),
+        },
+        other => return Err(format!("tiling must be true/false or none, horizontal, vertical, both; got {other}")),
+    })
 }

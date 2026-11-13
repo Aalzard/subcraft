@@ -193,8 +193,16 @@ pub fn texture_set_update(server: &mut Server, args: &Args) -> Res<Reply> {
         exec(session, Command::SetResolution { texture_set: (!all).then_some(ts), resolution: r })?;
     }
     if let Some(chs) = args.strings("add_channels")? {
+        let kinds = chs.iter().map(|c| channel(c)).collect::<Res<Vec<_>>>()?;
+        exec(session, Command::AddChannels { texture_set: ts, kinds })?;
+    }
+    if let Some(chs) = args.strings("remove_channels")? {
         for c in chs {
-            exec(session, Command::AddChannel { texture_set: ts, kind: channel(c)? })?;
+            let kind = channel(c)?;
+            if !server::ts_ref(session, ts)?.has_channel(kind) {
+                return Err(format!("the texture set has no {} channel", kind.display_name()));
+            }
+            exec(session, Command::RemoveChannel { texture_set: ts, kind })?;
         }
     }
     if let Some(h) = args.bool("hidden")? {

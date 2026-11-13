@@ -285,6 +285,60 @@ pub fn group(server: &mut Server, args: &Args) -> Res<Reply> {
     Ok(Reply::json(json!({ "folder": summary(session, ts, folder)? })))
 }
 
+/// Layers of one texture set named by `layers` (ids or names), in the order given.
+fn layers_of_one_set(session: &Session, args: &Args) -> Res<(TextureSetId, Vec<LayerId>)> {
+    let within = args.str("texture_set")?.map(|t| server::texture_set(session, Some(t))).transpose()?;
+    let keys = args.strings("layers")?.ok_or("missing required argument `layers`")?;
+    if keys.is_empty() {
+        return Err("`layers` is empty".into());
+    }
+    let found: Vec<(TextureSetId, LayerId)> = keys.iter().map(|k| server::layer(session, k, within)).collect::<Res<_>>()?;
+    if found.iter().any(|(t, _)| *t != found[0].0) {
+        return Err("the layers must all be in one texture set".into());
+    }
+    Ok((found[0].0, found.iter().map(|f| f.1).collect()))
+}
+
+/// Painter's flatten: each layer or folder evaluated into a new paint layer right above it; the
+/// sources stay, hidden.
+pub fn flatten(server: &mut Server, args: &Args) -> Res<Reply> {
+    let session = server.session()?;
+    let (ts, ids) = layers_of_one_set(session, args)?;
+    let before = all_layer_ids(session, ts);
+    exec(session, Command::FlattenLayers(ids))?;
+    let after = all_layer_ids(session, ts);
+    let new: Vec<Value> = after.difference(&before).map(|id| summary(session, ts, *id)).collect::<Res<_>>()?;
+    if new.is_empty() {
+        return Err("nothing was flattened".into());
+    }
+    Ok(Reply::json(json!({ "flattened": new, "note": "the source layers are kept, hidden; undo restores them as they were" })))
+}
+
+/// Painter's "Instantiate across texture sets": a linked copy of each layer on top of each other
+/// texture set. Instances follow their source's content, effects and mask.
+pub fn instantiate(server: &mut Server, args: &Args) -> Res<Reply> {
+    let session = server.session()?;
+    let (ts, ids) = layers_of_one_set(session, args)?;
+    let targets: Vec<TextureSetId> = match args.strings("to_texture_sets")? {
+        Some(list) => list.iter().map(|t| server::texture_set(session, Some(t))).collect::<Res<_>>()?,
+        None => session.document().texture_sets.iter().map(|t| t.id).filter(|t| *t != ts).collect(),
+    };
+    let targets: Vec<TextureSetId> = targets.into_iter().filter(|t| *t != ts).collect();
+    if targets.is_empty() {
+        return Err("no other texture set to instantiate into".into());
+    }
+    let before: Vec<_> = targets.iter().map(|t| all_layer_ids(session, *t)).collect();
+    exec(session, Command::InstantiateAcross { layers: ids, texture_sets: targets.clone() })?;
+    let mut out = Vec::new();
+    for (t, before) in targets.iter().zip(before) {
+        let after = all_layer_ids(session, *t);
+        let name = server::ts_ref(session, *t)?.name.clone();
+        let added: Vec<Value> = after.difference(&before).map(|id| summary(session, *t, *id)).collect::<Res<_>>()?;
+        out.push(json!({ "texture_set": name, "instances": added }));
+    }
+    Ok(Reply::json(json!({ "instantiated": out, "note": "instances follow their source; only name, visibility, blending and colour are their own" })))
+}
+
 // ----- fills ---------------------------------------------------------------------------------------
 
 pub fn fill_set(server: &mut Server, args: &Args) -> Res<Reply> {

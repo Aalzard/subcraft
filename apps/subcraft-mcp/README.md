@@ -8,12 +8,12 @@ previews so the agent can see what it made.
 
 It speaks MCP over stdio (one JSON-RPC message per line) and holds one open project at a time.
 
-## Tools (49)
+## Tools (51)
 
 | Area | Tools |
 | --- | --- |
 | Project | `status`, `inspect_model`, `project_new` (FBX/OBJ/glTF/USD/PLY/STL/.spp, or `"sample"`), `project_open`, `project_save`, `project_info`, `texture_set_update`, `undo`, `redo`, `history` |
-| Layers | `layers_list`, `layer_get`, `layer_add` (paint/fill/folder, with fill values and mask in one step), `layer_update` (name, visibility, blend mode, opacity per channel), `layer_delete`, `layer_duplicate`, `layer_move`, `layer_group` |
+| Layers | `layers_list`, `layer_get`, `layer_add` (paint/fill/folder, with fill values and mask in one step), `layer_update` (name, visibility, blend mode, opacity per channel), `layer_delete`, `layer_duplicate`, `layer_move`, `layer_group`, `layer_flatten` (bake layers into a paint layer), `layer_instantiate` (linked instances across texture sets) |
 | Fills | `fill_set`: uniform values (`"#rrggbb"` sRGB or numbers), 15 procedurals with low/high, images, baked mesh maps, projection (UV/tri-planar/planar) |
 | Masks and effects | `mask_add`, `mask_remove`, `mask_add_effect` (generators: edges, cavity, concave, directional, position gradient; fill, levels, 26 filters, invert, image), `content_add_effect`, `effect_update`, `effect_remove` |
 | Parts | `parts_list`, `layer_set_parts` (connected pieces, UV islands, objects, materials) |
@@ -39,11 +39,15 @@ Layers and texture sets can be named by id or by exact name. Every edit is an un
 ## Build and install
 
 ```sh
-cargo build --release -p subcraft-mcp      # binary: target/release/subcraft-mcp
+cargo build --release -p subcraft-mcp      # binary: target/release/subcraft-mcp(.exe)
+claude mcp add --scope user subcraft -- /path/to/target/release/subcraft-mcp
 ```
 
-On **Windows with Smart App Control** (or any Application Control policy), freshly built `.exe`
-files are blocked. Build and run the server inside WSL2 instead:
+This works natively on Windows, Linux and macOS. Previews render on the GPU (Vulkan, Metal or DX12)
+through the same renderer as the app.
+
+On **Windows with Smart App Control** (or another Application Control policy), freshly built
+`.exe` files are blocked. Build and run the server inside WSL2 instead:
 
 ```sh
 wsl -d Ubuntu -e bash /mnt/d/subcraft/scripts/build-mcp-wsl.sh
@@ -56,7 +60,17 @@ rustup. Under WSL the server accepts and returns Windows paths (`D:\models\a.fbx
 second for a 512 px image. `SUBCRAFT_LIBRARY` points the shelf at the same user library as the
 desktop app, so your saved smart materials, masks, brushes and HDRIs show up.
 
-On Linux or macOS, build natively and register `target/release/subcraft-mcp` directly.
+## Safety
+
+The server talks only over stdio (no network port) and acts with your user's file access: it
+opens the models and images you name and writes projects, exports and `save_path` images where
+you ask. It keeps a few guard rails:
+
+- Unknown argument names are an error that lists the valid ones (nothing is silently ignored).
+- `save_path` images must be `.png` files, and projects are always saved as `.subcraft`.
+- `project_new` / `project_open` refuse to drop unsaved changes unless `discard_unsaved` is set.
+- Tools that write files, delete or start the app carry MCP's `destructiveHint` (and
+  `open_in_app` the `openWorldHint`), so clients can ask before running them.
 
 ## Limits
 
