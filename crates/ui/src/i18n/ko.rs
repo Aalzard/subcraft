@@ -828,4 +828,7 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Zoom speed", "확대/축소 속도"),
     ("Wheel speed", "휠 속도"),
     ("Inverse direction", "방향 반전"),
+    ("Rename…", "이름 바꾸기…"),
+    ("Rename preset", "프리셋 이름 바꾸기"),
+    ("Built-in templates can't be renamed", "기본 제공 템플릿은 이름을 바꿀 수 없습니다"),
 ];

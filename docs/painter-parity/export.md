@@ -129,10 +129,10 @@ Layout notes: three columns. Left: list of templates with three icon buttons abo
 | Duplicate button | Above the list | - | missing | - | #124 |
 | Remove button (no undo) | Above the list | - | missing | - | #124 |
 | Add button (new empty template) | Above the list | - | missing | - | #124 |
-| Double-click a template to rename | Presets list | - | missing | - | #124 |
-| Right-click > Delete | Presets list context menu | - | missing | - | #124 |
-| Right-click > Rename | Presets list context menu | - | missing | - | #124 |
-| Right-click > Duplicate | Presets list context menu | - | missing | - | #124 |
+| Double-click a template to rename | Presets list | - | partial: right-click > Rename… or the Rename… button (the list is a drop-down, which a click closes) | crates/ui/src/export_presets.rs preset_bar | template menu |
+| Right-click > Delete | Presets list context menu | - | done (asks first; built-ins can't be deleted) | crates/ui/src/export_presets.rs template_row | template menu |
+| Right-click > Rename | Presets list context menu | - | done (user presets; a name field under the picker) | crates/ui/src/export_presets.rs template_row | template menu |
+| Right-click > Duplicate | Presets list context menu | - | done (any template, the copy is selected) | crates/ui/src/export_presets.rs template_row | template menu |
 | Import a preset file (.spexp) through Import resources or the export-presets folder | File > Import resources / library folder | - | missing | - | #124 |
 | Template stored as one shareable file in the library | assets/export-presets folder | - | missing | - | #124 |
 | Last used template embedded in the project file | Automatic on save after an export | - | partial: only the template name is stored in project settings | crates/ui/src/dialogs.rs:355 | #124 |

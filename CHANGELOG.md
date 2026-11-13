@@ -5,6 +5,10 @@ What changed in SubCraft, newest first. Download the latest build from the
 
 ## Unreleased
 
+### Added
+- **Right-click an output template** for Rename…, Duplicate and Delete, like Painter's list (built-ins
+  can only be duplicated). A Rename… button sits beside New, Duplicate and Delete.
+
 ## 0.3.7 - 2026-11-13
 
 ### Added
