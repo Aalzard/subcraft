@@ -763,6 +763,12 @@ pub(crate) fn render_maps(mesh: &Mesh, mesh_name: &str, sets: &[ExportTextureSet
     if let Some(problem) = settings.template.problems().into_iter().next() {
         return Err(ExportError::Template(problem));
     }
+    // The export window's size and per-set sizes are saved in the project and read back
+    // unchecked (QA 2026-11: a size of 4000000000 overflowed the resample allocation).
+    let bad_size = |s: Option<u32>| s.is_some_and(|s| !(1..=16384).contains(&s));
+    if bad_size(settings.size) || settings.set_overrides.values().any(|o| bad_size(o.size)) {
+        return Err(ExportError::Template("the export size must be 1..16384".into()));
+    }
     let mut count=0;
     let all = settings;
     for set in sets {
