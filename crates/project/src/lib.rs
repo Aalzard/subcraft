@@ -462,10 +462,20 @@ impl<R: Read + Seek> Loader<'_, R> {
         Ok(())
     }
 
+    /// The symmetry and cylinder angle of a fill projection were never checked on load: a NaN
+    /// or infinite value made every texel of the fill NaN, a huge radial count stalled it.
+    fn check_projection(&self, p: &Projection) -> Result<(), ProjectError> {
+        if !self.trusted && !p.valid() {
+            return Err(ProjectError::Invalid("invalid fill projection".into()));
+        }
+        Ok(())
+    }
+
     fn mask_effect(&mut self, e: &MaskEffectV1, res: u32) -> Result<MaskEffect, ProjectError> {
         let kind = match &e.kind {
             MaskEffectKindV1::Paint { raster } => MaskEffectKind::Paint { image: self.raster(raster, res)? },
             MaskEffectKindV1::Fill { value, procedural, projection } => {
+                self.check_projection(projection)?;
                 MaskEffectKind::Fill { value: *value, procedural: *procedural, projection: *projection }
             }
             MaskEffectKindV1::Generator { generator } => {
@@ -483,6 +493,7 @@ impl<R: Read + Seek> Loader<'_, R> {
             }
             MaskEffectKindV1::Invert => MaskEffectKind::Invert,
             MaskEffectKindV1::Image { resource, projection, invert } => {
+                self.check_projection(projection)?;
                 MaskEffectKind::Image { resource: ResourceId(*resource), projection: *projection, invert: *invert }
             }
             MaskEffectKindV1::IdColor { id_color } => {
@@ -514,7 +525,10 @@ impl<R: Read + Seek> Loader<'_, R> {
     fn content_effect(&mut self, e: &ContentEffectV5, res: u32) -> Result<ContentEffect, ProjectError> {
         let kind = match &e.kind {
             ContentEffectKindV5::Paint { channels } => ContentEffectKind::Paint { channels: self.paint_channels(channels, res)? },
-            ContentEffectKindV5::Fill { projection, channels } => ContentEffectKind::Fill(read_fill(*projection, channels)),
+            ContentEffectKindV5::Fill { projection, channels } => {
+                self.check_projection(projection)?;
+                ContentEffectKind::Fill(read_fill(*projection, channels))
+            }
             ContentEffectKindV5::Filter { channel, filter } => {
                 if !self.trusted && (!filter.valid() || !filter.supports_channel(*channel)) { return Err(ProjectError::Invalid("invalid content filter".into())); }
                 ContentEffectKind::Filter { channel: *channel, filter: *filter }
@@ -578,7 +592,10 @@ impl<R: Read + Seek> Loader<'_, R> {
                 p.channels = self.paint_channels(channels, res)?;
                 LayerContent::Paint(p)
             }
-            ContentV1::Fill { projection, channels } => LayerContent::Fill(read_fill(*projection, channels)),
+            ContentV1::Fill { projection, channels } => {
+                self.check_projection(projection)?;
+                LayerContent::Fill(read_fill(*projection, channels))
+            }
             ContentV1::Folder { expanded, children } => LayerContent::Group(GroupContent {
                 expanded: *expanded,
                 children: children.iter().map(|c| self.layer(c, res).map(Arc::new)).collect::<Result<_, _>>()?,
