@@ -46,6 +46,10 @@ pub struct ViewportPrefs {
     #[serde(skip)]
     pub solo: Option<subcraft_core::ChannelKind>,
     pub symmetry_guides: bool,
+    /// Painter's symmetry "Show Cursor": a second brush cursor where each symmetry copy paints.
+    pub symmetry_cursor: bool,
+    /// Painter's "Hide While Painting" for the symmetry cursors.
+    pub symmetry_cursor_hide_painting: bool,
     /// Bottom-left list of the mouse / key actions that apply now.
     pub hints: bool,
     /// X / Y / Z orientation indicator in the 3D view's bottom-right corner.
@@ -98,6 +102,8 @@ impl Default for ViewportPrefs {
             mesh_map: None,
             solo: None,
             symmetry_guides: true,
+            symmetry_cursor: true,
+            symmetry_cursor_hide_painting: false,
             hints: true,
             axis_indicator: true,
             display: Default::default(),

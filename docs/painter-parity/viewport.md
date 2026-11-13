@@ -197,8 +197,8 @@ Layout notes: display options (plane, intersection, cursor, manipulator) are onl
 | Symmetry on/off | L | off | partial: L toggles mirror X only | crates/app/src/session.rs:1588 | - |
 | Mirror plane (transparent) | 3D view (Show Plane) | not documented | partial: guide lines drawn, no translucent plane | crates/ui/src/viewport.rs:375 | - |
 | Mirror intersection line on the mesh | 3D view (Show Intersection) | not documented | missing | - | - |
-| Mirrored second cursor | 3D view (Show Cursor) | not documented | missing | - | - |
-| Hide second cursor while painting | 3D view (Hide While Painting) | not documented | missing | - | - |
+| Mirrored second cursor | 3D view (Show Cursor) | not documented | done: one per mirror / radial copy (up to 16), faint when the copy is behind the model; Display Settings > Viewport > Symmetry cursors, on by default | crates/ui/src/viewport.rs (symmetry_cursors) | PRNUM |
+| Hide second cursor while painting | 3D view (Hide While Painting) | not documented | done: Display Settings > Viewport > Hide while painting, off by default | crates/ui/src/viewport_bar.rs (symmetry_cursor_hide_painting) | PRNUM |
 | Mirror axis-position manipulator (drag handles) | 3D view | off until enabled | missing | - | - |
 | Radial axis line | 3D view (Show Axis) | not documented | partial: drawn as part of the symmetry guides | crates/ui/src/viewport.rs:379 | - |
 | Radial axis / mesh intersection point | 3D view (Show Intersection) | not documented | missing | - | - |

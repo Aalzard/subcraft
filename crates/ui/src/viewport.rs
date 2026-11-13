@@ -579,6 +579,18 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 let color = if state.tool == Tool::Eraser { Color32::from_rgb(120, 190, 255) } else { ACCENT };
                 painter.circle_stroke(p, r_px, Stroke::new(1.5, Color32::from_black_alpha(160)));
                 painter.circle_stroke(p, r_px, Stroke::new(1.0, color));
+                // Symmetry: a second cursor where each copy paints (faint when the copy's point
+                // is hidden behind the model).
+                let prefs = &state.recovery.prefs.viewport;
+                if prefs.symmetry_cursor && !(prefs.symmetry_cursor_hide_painting && state.painting) {
+                    let options = &state.session.brush.options;
+                    let center = state.session.scene().mesh.bounds.center();
+                    for (at, visible) in symmetry_cursors(&camera, options, center, pick.position, |s| state.session.pick(&camera, s).map(|h| h.depth)) {
+                        let at = rect.min + egui::vec2(at.x / pixel_scale.x, at.y / pixel_scale.y);
+                        let c = if visible { color.gamma_multiply(0.8) } else { color.gamma_multiply(0.3) };
+                        painter.circle_stroke(at, r_px, Stroke::new(1.0, c));
+                    }
+                }
             }
             // Lazy mouse: the grey ring the cursor moves in before the brush follows.
             let lazy = state.session.brush.options.lazy_distance_px;
@@ -924,6 +936,25 @@ fn draw_axis_indicator(painter: &egui::Painter, centre: Pos2, view: glam::Mat4) 
     }
 }
 
+/// Most symmetry cursors drawn (radial symmetry can make up to 64 copies).
+const MAX_SYMMETRY_CURSORS: usize = 16;
+
+/// Screen positions (physical pixels) of the symmetry copies of the brush point `p`, without
+/// the brush itself, and whether each is visible: `depth_at` gives the depth of the model under
+/// a screen point, and a copy farther than that (beyond a small tolerance) is behind it.
+pub fn symmetry_cursors(camera: &subcraft_app::Camera, options: &subcraft_paint::StrokeOptions, center: glam::Vec3, p: glam::Vec3, depth_at: impl Fn(Vec2) -> Option<f32>) -> Vec<(Vec2, bool)> {
+    let tolerance = |d: f32| d * 0.01 + 1e-4;
+    options.symmetry_points(center, p).into_iter().skip(1).take(MAX_SYMMETRY_CURSORS).filter_map(|q| {
+        let s = camera.project(q)?;
+        let at = Vec2::new(s.x, s.y);
+        let inside = at.x >= 0.0 && at.y >= 0.0 && at.x <= camera.viewport[0] as f32 && at.y <= camera.viewport[1] as f32;
+        if !inside { return None; }
+        let depth = camera.view.transform_point3(q).z.abs();
+        let visible = depth_at(at).is_some_and(|d| depth <= d + tolerance(d));
+        Some((at, visible))
+    }).collect()
+}
+
 /// Bottom-left readout of the grid spacing, in scene units.
 pub fn grid_unit_label(step: f32) -> String {
     let digits = if step >= 1.0 { 0 } else { (-step.log10()).ceil().clamp(0.0, 6.0) as usize };
@@ -1030,6 +1061,34 @@ pub(crate) fn draw_stencil(state: &mut UiState, ui: &Ui, painter: &egui::Painter
 mod tests {
     use super::*;
     use crate::state::BrushNotice;
+
+    #[test]
+    fn symmetry_cursors_sit_on_the_mirrored_points_and_know_when_they_are_hidden() {
+        let camera = subcraft_app::Camera {
+            view: glam::Mat4::look_at_rh(glam::Vec3::new(0.0, 0.0, 10.0), glam::Vec3::ZERO, glam::Vec3::Y),
+            proj: glam::Mat4::perspective_rh(40f32.to_radians(), 1.0, 0.1, 100.0),
+            viewport: [400, 400],
+        };
+        let mirror_x = subcraft_paint::StrokeOptions { symmetry: [true, false, false], ..Default::default() };
+        let p = glam::Vec3::new(1.0, 0.5, 0.0);
+        // Nothing in front: the copy is visible, at the mirror image of the brush on screen.
+        let cursors = symmetry_cursors(&camera, &mirror_x, glam::Vec3::ZERO, p, |_| Some(10.0));
+        assert_eq!(cursors.len(), 1);
+        let brush = camera.project(p).unwrap();
+        let (at, visible) = cursors[0];
+        assert!(visible);
+        assert!((at.x - (400.0 - brush.x)).abs() < 1e-2 && (at.y - brush.y).abs() < 1e-2, "{at} vs brush {brush}");
+        // The model is nearer there: the copy is behind it.
+        let hidden = symmetry_cursors(&camera, &mirror_x, glam::Vec3::ZERO, p, |_| Some(5.0));
+        assert!(!hidden[0].1);
+        // No symmetry, no cursors; a copy off screen is left out.
+        assert!(symmetry_cursors(&camera, &Default::default(), glam::Vec3::ZERO, p, |_| Some(10.0)).is_empty());
+        let off = symmetry_cursors(&camera, &mirror_x, glam::Vec3::new(40.0, 0.0, 0.0), p, |_| Some(10.0));
+        assert!(off.is_empty(), "the mirror image at x = 79 is outside the view");
+        // Radial symmetry draws at most MAX_SYMMETRY_CURSORS.
+        let many = subcraft_paint::StrokeOptions { radial: subcraft_paint::RadialSymmetry { enabled: true, axis: 2, count: 64, center_offset: [0.0; 3] }, ..Default::default() };
+        assert_eq!(symmetry_cursors(&camera, &many, glam::Vec3::ZERO, glam::Vec3::new(0.5, 0.0, 0.0), |_| Some(10.0)).len(), MAX_SYMMETRY_CURSORS);
+    }
 
     #[test]
     fn the_axis_indicator_follows_the_camera_and_draws_far_axes_first() {
