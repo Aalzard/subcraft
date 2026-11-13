@@ -946,7 +946,34 @@ impl ViewportRenderer {
         let bake_map = params.bake_map.or((params.view_mode == ViewMode::BakedNormalMap).then_some(MeshMapKind::Normal));
         // "Baked Normal (shaded)": the material's own bind group with the Normal slot swapped.
         let mut baked_normal_groups: std::collections::HashMap<u32, wgpu::BindGroup> = Default::default();
-        if params.view_mode == ViewMode::BakedNormal && bake_map.is_none() {
+        // Neutral material (Baking mode): constant colour, roughness and metallic, shaded by the
+        // baked normal and ambient occlusion maps; the material's own channels are not read.
+        let vis = &params.bake_vis;
+        if vis.neutral_material && !params.bake_overlay && bake_map.is_none() && params.solo_channel.is_none() && !params.mask_view {
+            let c = vis.neutral_color;
+            let base = ChannelTexture::constant(device, queue, [c[0], c[1], c[2], 1.0], composite_comps(ChannelKind::BaseColor), "neutral base color");
+            let rough = ChannelTexture::constant(device, queue, [vis.neutral_roughness.clamp(0.0, 1.0); 4], composite_comps(ChannelKind::Roughness), "neutral roughness");
+            let metal = ChannelTexture::constant(device, queue, [vis.neutral_metallic.clamp(0.0, 1.0); 4], composite_comps(ChannelKind::Metallic), "neutral metallic");
+            for (slot, mat) in &self.materials {
+                let mut entries = vec![
+                    wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::Sampler(&self.sampler) },
+                    wgpu::BindGroupEntry { binding: 8, resource: wgpu::BindingResource::Sampler(&self.sampler) },
+                ];
+                for (i, k) in SHADED_CHANNELS.iter().enumerate() {
+                    let view = match k {
+                        ChannelKind::BaseColor => &base.view,
+                        ChannelKind::Roughness => &rough.view,
+                        ChannelKind::Metallic => &metal.view,
+                        ChannelKind::Normal => mat.mesh_maps.get(&MeshMapKind::Normal).map_or(&self.defaults[k].view, |t| &t.view),
+                        ChannelKind::AmbientOcclusion => mat.mesh_maps.get(&MeshMapKind::AmbientOcclusion).map_or(&self.defaults[k].view, |t| &t.view),
+                        _ => &self.defaults[k].view,
+                    };
+                    entries.push(wgpu::BindGroupEntry { binding: i as u32 + 1, resource: wgpu::BindingResource::TextureView(view) });
+                }
+                entries.extend(alpha_entries(&self.defaults[&ChannelKind::Opacity].view, &self.opaque_params, &self.defaults[&ChannelKind::Specular].view));
+                baked_normal_groups.insert(*slot, device.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("neutral material"), layout: &self.material_layout, entries: &entries }));
+            }
+        } else if params.view_mode == ViewMode::BakedNormal && bake_map.is_none() {
             for (slot, mat) in &self.materials {
                 let albedo_sampler = if mat.albedo_filter == subcraft_image::TextureFilter::Nearest { &self.nearest_sampler } else { &self.sampler };
                 let mut entries = vec![

@@ -1718,6 +1718,16 @@ fn visualization_settings(ui: &mut egui::Ui, b: &mut BakeUi) {
             if b.vis.show_cage_surface {
                 crate::widgets::slider_row(ui, tr("Cage surface opacity"), egui::Slider::new(&mut b.vis.cage_surface_opacity, 0.0..=1.0));
             }
+            ui.checkbox(&mut b.vis.neutral_material, tr("Neutral material"))
+                .on_hover_text(tr("Show the model in one neutral material shaded by its baked normal and ambient occlusion maps, instead of its painted channels (when the high / low overlay is hidden or after a bake)"));
+            if b.vis.neutral_material {
+                ui.horizontal(|ui| {
+                    ui.label(dim(tr("Color")));
+                    egui::color_picker::color_edit_button_rgb(ui, &mut b.vis.neutral_color);
+                });
+                crate::widgets::slider_row(ui, tr("Roughness"), egui::Slider::new(&mut b.vis.neutral_roughness, 0.0..=1.0));
+                crate::widgets::slider_row(ui, tr("Metallic"), egui::Slider::new(&mut b.vis.neutral_metallic, 0.0..=1.0));
+            }
             ui.checkbox(&mut b.vis_selected_only, tr("Show for selected Texture Set only"))
                 .on_hover_text(tr("Draw the project mesh and the cage of the selected texture set only"));
             color_row(ui, Some(&mut b.vis.show_seams), tr("Missing seams on hard edges"), &mut b.vis.seam_color);
@@ -2209,7 +2219,11 @@ mod bake_tests {
         frame(&mut state, vec![button(false)]);
         for _ in 0..12 { frame(&mut state, vec![]); }
         let output = frame(&mut state, vec![]);
-        for text in ["Hide baking meshes", "High poly mesh", "Project mesh", "Cage wireframe", "Cage wireframe opacity", "Missing seams on hard edges", "Cage surface", "Show for selected Texture Set only"] { assert!(has_text(&output, text), "{text}"); }
+        for text in ["Hide baking meshes", "High poly mesh", "Project mesh", "Cage wireframe", "Cage wireframe opacity", "Missing seams on hard edges", "Cage surface", "Show for selected Texture Set only", "Neutral material"] { assert!(has_text(&output, text), "{text}"); }
+        assert!(!has_text(&output, "Metallic"), "the neutral material's settings show when it is on");
+        state.bake.vis.neutral_material = true;
+        assert!(has_text(&frame(&mut state, vec![]), "Metallic"));
+        state.bake.vis.neutral_material = false;
         assert!(!has_text(&output, "Cage surface opacity"));
         state.bake.vis.show_cage_surface = true;
         assert!(has_text(&frame(&mut state, vec![]), "Cage surface opacity"));
