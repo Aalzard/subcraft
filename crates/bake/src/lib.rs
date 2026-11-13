@@ -36,7 +36,7 @@ use subcraft_mesh::ray_batch::{BatchControl, CurvatureSurface, CurvatureTexel, N
 use subcraft_mesh::{Bvh, Mesh, topology};
 
 use name_match::PartMatch;
-use surface::{Texel, cosine_directions, hash01, texels};
+use surface::{Texel, cone_directions, cosine_directions, hash01, texels};
 
 /// Where the ID map takes its colours from (issue #117). The colours come from the mesh the bake
 /// reads its detail from: the high poly when there is one, else the low poly.
@@ -55,6 +55,155 @@ pub enum IdSource {
 
 impl IdSource {
     pub const ALL: [IdSource; 4] = [IdSource::VertexColor, IdSource::MaterialColor, IdSource::MeshId, IdSource::Submesh];
+}
+
+/// How occlusion rays are spread over their cone.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum RayDistribution {
+    /// More rays near the normal (the physically weighted choice).
+    #[default]
+    Cosine,
+    /// The same number of rays in every direction of the cone.
+    Uniform,
+}
+
+impl RayDistribution {
+    pub const ALL: [RayDistribution; 2] = [RayDistribution::Cosine, RayDistribution::Uniform];
+    pub fn label(self) -> &'static str {
+        match self {
+            RayDistribution::Cosine => "Cosine",
+            RayDistribution::Uniform => "Uniform",
+        }
+    }
+}
+
+/// How much an occluder counts with its distance.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum AoAttenuation {
+    /// Any hit within the distance occludes fully.
+    #[default]
+    None,
+    /// Occlusion fades smoothly to nothing at the maximum distance.
+    Smooth,
+    /// Occlusion fades linearly to nothing at the maximum distance.
+    Linear,
+}
+
+impl AoAttenuation {
+    pub const ALL: [AoAttenuation; 3] = [AoAttenuation::None, AoAttenuation::Smooth, AoAttenuation::Linear];
+    pub fn label(self) -> &'static str {
+        match self {
+            AoAttenuation::None => "None",
+            AoAttenuation::Smooth => "Smooth",
+            AoAttenuation::Linear => "Linear",
+        }
+    }
+    /// Weight of a hit at `t` of `max`.
+    fn weight(self, t: f32, max: f32) -> f32 {
+        let x = (1.0 - t / max.max(1e-9)).clamp(0.0, 1.0);
+        match self {
+            AoAttenuation::None => 1.0,
+            AoAttenuation::Linear => x,
+            AoAttenuation::Smooth => x * x * (3.0 - 2.0 * x),
+        }
+    }
+}
+
+/// Options of the occlusion rays (ambient occlusion; the ray cone and distances also shape the
+/// bent normals). The default is the plain cosine hemisphere, which may run on the GPU.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct AoOptions {
+    /// Occluders nearer than this are ignored, as a fraction of the diagonal.
+    pub min_distance: f32,
+    /// Full opening angle of the ray cone in degrees (180 = the whole hemisphere).
+    pub spread_angle: f32,
+    pub distribution: RayDistribution,
+    pub attenuation: AoAttenuation,
+    /// A floor under the model occludes too (Y up).
+    pub ground_plane: bool,
+    /// How far the floor lies under the model's lowest point, as a fraction of the diagonal.
+    pub ground_offset: f32,
+}
+
+impl Default for AoOptions {
+    fn default() -> Self {
+        Self { min_distance: 0.0, spread_angle: 180.0, distribution: RayDistribution::Cosine, attenuation: AoAttenuation::None, ground_plane: false, ground_offset: 0.0 }
+    }
+}
+
+impl AoOptions {
+    /// The plain cosine hemisphere (what the GPU kernels and the fast CPU path compute).
+    pub fn is_plain(&self) -> bool {
+        self.min_distance <= 0.0 && self.spread_angle >= 180.0 && self.distribution == RayDistribution::Cosine && self.attenuation == AoAttenuation::None && !self.ground_plane
+    }
+}
+
+/// What the position map is normalized to.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum PositionNormalization {
+    /// Each axis over the model's bounding box.
+    #[default]
+    BoundingBox,
+    /// All axes over the sphere around the bounding box (proportions are kept).
+    BoundingSphere,
+}
+
+impl PositionNormalization {
+    pub const ALL: [PositionNormalization; 2] = [PositionNormalization::BoundingBox, PositionNormalization::BoundingSphere];
+    pub fn label(self) -> &'static str {
+        match self {
+            PositionNormalization::BoundingBox => "Bounding box",
+            PositionNormalization::BoundingSphere => "Bounding sphere",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct PositionOptions {
+    /// `Some(0 | 1 | 2)`: a grayscale map of X, Y or Z alone; `None`: X, Y, Z in red, green, blue.
+    pub single_axis: Option<u8>,
+    pub normalization: PositionNormalization,
+}
+
+/// What the height map's full range stands for.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum HeightNormalization {
+    /// White at the cage's front reach, black at its rear reach.
+    #[default]
+    Cage,
+    /// White / black at this distance above / below the low poly, as a fraction of the diagonal.
+    Manual { distance: f32 },
+}
+
+/// How generated ID colours (one per mesh element or object) are picked.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum IdGenerator {
+    /// Unrelated colours.
+    Random,
+    /// Saturated colours stepping around the hue wheel.
+    #[default]
+    HueShift,
+    /// Gray levels.
+    Grayscale,
+}
+
+impl IdGenerator {
+    pub const ALL: [IdGenerator; 3] = [IdGenerator::Random, IdGenerator::HueShift, IdGenerator::Grayscale];
+    pub fn label(self) -> &'static str {
+        match self {
+            IdGenerator::Random => "Random",
+            IdGenerator::HueShift => "Hue shift",
+            IdGenerator::Grayscale => "Grayscale",
+        }
+    }
+    /// The colour of element / object `i`. Never black, the ID map's "nothing here".
+    pub fn color(self, i: u32) -> [f32; 3] {
+        match self {
+            IdGenerator::Random => [1u32, 2, 3].map(|c| 0.15 + 0.85 * hash01(i, 100 + c)),
+            IdGenerator::HueShift => hsv_to_rgb([(i as f32 * 0.618_034).fract(), 0.65, 0.9]),
+            IdGenerator::Grayscale => [0.1 + 0.9 * (i as f32 * 0.618_034).fract(); 3],
+        }
+    }
 }
 
 /// Supersampling of the whole bake: each output texel averages this many texels per side.
@@ -151,6 +300,10 @@ pub struct BakeSettings {
     pub ignore_backface: bool,
     /// A custom cage instead of the distance-based one (texels outside its UVs use the distances).
     pub cage: Option<CageMesh>,
+    pub ao: AoOptions,
+    pub position: PositionOptions,
+    pub height: HeightNormalization,
+    pub id_generator: IdGenerator,
 }
 
 impl Default for BakeSettings {
@@ -177,6 +330,10 @@ impl Default for BakeSettings {
             average_normals: false,
             ignore_backface: false,
             cage: None,
+            ao: AoOptions::default(),
+            position: PositionOptions::default(),
+            height: HeightNormalization::default(),
+            id_generator: IdGenerator::default(),
         }
     }
 }
@@ -584,6 +741,20 @@ fn bake_core(
     }
     let nearest = subcraft_image::dilate::nearest_covered(size as usize, size as usize, &covered);
 
+    // The nearest occluder of an occlusion ray between `min` and `max`: the detail mesh or, with
+    // the ground plane on, the floor under the model.
+    let ground = settings.ao.ground_plane.then(|| bounds.min.y.min(detail_geo.mesh.bounds.min.y) - settings.ao.ground_offset.max(0.0) * diag);
+    let occluder = |origin: Vec3, dir: Vec3, min: f32, max: f32, group: u32| -> Option<f32> {
+        let mut nearest = detail_geo.bvh.intersect_filtered(origin, dir, min, max, |tri| accepts(group, tri)).map(|h| h.t);
+        if let Some(y) = ground && dir.y < -1e-6 {
+            let t = (y - origin.y) / dir.y;
+            if t > min && t < max {
+                nearest = Some(nearest.map_or(t, |n| n.min(t)));
+            }
+        }
+        nearest
+    };
+
     let mut out = BTreeMap::new();
     let mut internal_normal: Option<TiledImage> = None;
     for &kind in &order {
@@ -618,14 +789,22 @@ fn bake_core(
                     [n.x * 0.5 + 0.5, n.y * 0.5 + 0.5, n.z * 0.5 + 0.5]
                 }
                 MeshMapKind::Position => {
-                    let p = ((t.position - bounds.min) / extent).clamp(Vec3::ZERO, Vec3::ONE);
-                    [p.x, p.y, p.z]
+                    let p = match settings.position.normalization {
+                        PositionNormalization::BoundingBox => (t.position - bounds.min) / extent,
+                        // The sphere around the box: one scale for every axis, 0.5 at the centre.
+                        PositionNormalization::BoundingSphere => (t.position - (bounds.min + bounds.max) * 0.5) / extent.length().max(1e-6) + Vec3::splat(0.5),
+                    }
+                    .clamp(Vec3::ZERO, Vec3::ONE);
+                    match settings.position.single_axis {
+                        Some(axis) => [p[axis.min(2) as usize]; 3],
+                        None => [p.x, p.y, p.z],
+                    }
                 }
                 MeshMapKind::Id => {
                     let Some(tri) = d.tri else { return kind.neutral_value()[..3].try_into().expect("RGB ID"); };
                     let mesh = detail_geo.mesh;
                     let tri = tri as usize;
-                    let generated = |i: u32| hsv_to_rgb([(i as f32 * 0.618_034).fract(), 0.65, 0.9]);
+                    let generated = |i: u32| settings.id_generator.color(i);
                     let slot = mesh.tri_material.get(tri).copied().unwrap_or(0);
                     match id_source {
                         IdSource::VertexColor => {
@@ -644,6 +823,25 @@ fn bake_core(
                             None => generated(slot),
                         },
                     }
+                }
+                MeshMapKind::AmbientOcclusion if !settings.ao.is_plain() => {
+                    let o = &settings.ao;
+                    let mut dirs = Vec::with_capacity(settings.ao_samples as usize);
+                    cone_directions(d.normal, settings.ao_samples.max(1), hash01(t.index, 1), o.spread_angle, o.distribution == RayDistribution::Uniform, &mut dirs);
+                    let origin = d.position + d.offset * bias;
+                    let (min, max) = (o.min_distance.max(0.0) * diag, settings.ao_distance * diag);
+                    let (mut occluded, mut counted) = (0.0f32, 0u32);
+                    for dir in &dirs {
+                        if dir.dot(d.offset) <= 0.0 {
+                            continue;
+                        }
+                        counted += 1;
+                        if let Some(hit) = occluder(origin, *dir, min, max, d.group) {
+                            occluded += o.attenuation.weight(hit, max);
+                        }
+                    }
+                    let ao = if counted == 0 { 1.0 } else { 1.0 - occluded / counted as f32 };
+                    [ao; 3]
                 }
                 MeshMapKind::AmbientOcclusion => {
                     let mut dirs = Vec::with_capacity(settings.ao_samples as usize);
@@ -665,7 +863,10 @@ fn bake_core(
                 }
                 MeshMapKind::Height => {
                     // Piecewise so the front and rear cage distances both span half the range.
-                    let reach = if d.height >= 0.0 { settings.cage_front } else { settings.cage_rear } * diag;
+                    let reach = match settings.height {
+                        HeightNormalization::Cage => if d.height >= 0.0 { settings.cage_front } else { settings.cage_rear },
+                        HeightNormalization::Manual { distance } => distance,
+                    } * diag;
                     let h = 0.5 + 0.5 * (d.height / reach.max(1e-9)).clamp(-1.0, 1.0);
                     [h; 3]
                 }
@@ -674,13 +875,23 @@ fn bake_core(
                     let tan = (t.tangent.truncate() - n * n.dot(t.tangent.truncate())).normalize_or(n.any_orthonormal_vector());
                     let bit = n.cross(tan) * if t.tangent.w < 0.0 { -1.0 } else { 1.0 };
                     let mut dirs = Vec::with_capacity(settings.ao_samples as usize);
-                    cosine_directions(d.normal, settings.ao_samples.max(1), hash01(t.index, 3), &mut dirs);
                     let origin = d.position + d.offset * bias;
                     let dist = settings.ao_distance * diag;
                     let mut sum = Vec3::ZERO;
-                    for dir in &dirs {
-                        if dir.dot(d.offset) > 0.0 && !detail_geo.bvh.occluded_filtered(origin, *dir, 0.0, dist, |tri| accepts(d.group, tri)) {
-                            sum += *dir;
+                    if settings.ao.is_plain() {
+                        cosine_directions(d.normal, settings.ao_samples.max(1), hash01(t.index, 3), &mut dirs);
+                        for dir in &dirs {
+                            if dir.dot(d.offset) > 0.0 && !detail_geo.bvh.occluded_filtered(origin, *dir, 0.0, dist, |tri| accepts(d.group, tri)) {
+                                sum += *dir;
+                            }
+                        }
+                    } else {
+                        let o = &settings.ao;
+                        cone_directions(d.normal, settings.ao_samples.max(1), hash01(t.index, 3), o.spread_angle, o.distribution == RayDistribution::Uniform, &mut dirs);
+                        for dir in &dirs {
+                            if dir.dot(d.offset) > 0.0 && occluder(origin, *dir, o.min_distance.max(0.0) * diag, dist, d.group).is_none() {
+                                sum += *dir;
+                            }
                         }
                     }
                     // Fully occluded texels keep the surface normal.
@@ -707,7 +918,9 @@ fn bake_core(
         let started = Instant::now();
         let mut backend = "CPU".to_string();
         // The GPU ray kernels cannot filter hits by part, so name matching bakes AO and thickness on the CPU.
-        let backend_gpu = if settings.use_gpu && (matching.is_none() || kind == MeshMapKind::Curvature) { gpu_backend } else { None };
+        // Nor do they know the occlusion options (cone, distances, attenuation, ground plane).
+        let plain = kind != MeshMapKind::AmbientOcclusion || settings.ao.is_plain();
+        let backend_gpu = if settings.use_gpu && plain && (matching.is_none() || kind == MeshMapKind::Curvature) { gpu_backend } else { None };
         // The GPU kernels need every texel's projection; low-on-low bakes derive it only now.
         let derived: Option<Vec<Detail>> = (backend_gpu.is_some() && details.is_none()).then(|| samples.par_iter().map(project).collect());
         let gpu_details = || details.as_deref().or(derived.as_deref()).unwrap_or(&[]);

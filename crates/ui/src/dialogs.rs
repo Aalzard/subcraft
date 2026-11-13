@@ -897,46 +897,116 @@ fn bakers_panel(ui: &mut egui::Ui, b: &mut BakeUi, f: &BakeFrame, quick: &mut Op
     }
 }
 
+/// A labelled dropdown over the options of one baker setting.
+fn option_row<T: PartialEq + Copy>(ui: &mut egui::Ui, id: &str, label: &str, value: &mut T, options: &[T], name: impl Fn(T) -> &'static str) {
+    ui.horizontal(|ui| {
+        ui.label(dim(label));
+        egui::ComboBox::from_id_salt(id).selected_text(name(*value)).show_ui(ui, |ui| {
+            for &option in options {
+                ui.selectable_value(value, option, name(option));
+            }
+        });
+    });
+}
+
 /// Settings of the baker selected in the list (nothing while Common settings is selected).
 fn map_settings_panel(ui: &mut egui::Ui, b: &mut BakeUi) {
     use crate::widgets::slider_row;
+    use subcraft_bake::{AoAttenuation, HeightNormalization, IdGenerator, IdSource, PositionNormalization, RayDistribution};
     use subcraft_core::MeshMapKind;
     let Some(kind) = b.selected_baker else { return };
     panel_title(ui, &format!("{} > {}", tr("Mesh map settings"), tr(kind.display_name())));
+    ui.spacing_mut().item_spacing.y = 6.0;
+    let s = &mut b.settings;
     match kind {
         MeshMapKind::AmbientOcclusion | MeshMapKind::BentNormal => {
-            slider_row(ui, tr("AO samples"), egui::Slider::new(&mut b.settings.ao_samples, 4..=256).logarithmic(true));
-            ui.add_space(6.0);
-            slider_row(ui, tr("AO distance"), egui::Slider::new(&mut b.settings.ao_distance, 0.01..=1.0).logarithmic(true));
+            slider_row(ui, tr("Secondary rays"), egui::Slider::new(&mut s.ao_samples, 4..=256).logarithmic(true))
+                .on_hover_text(tr("Rays cast per texel: more rays, less noise, a slower bake"));
+            slider_row(ui, tr("Min occluder distance"), egui::Slider::new(&mut s.ao.min_distance, 0.0..=0.1).fixed_decimals(4).clamping(egui::SliderClamping::Never))
+                .on_hover_text(tr("Fraction of the model diagonal. Surfaces nearer than this do not occlude."));
+            slider_row(ui, tr("Max occluder distance"), egui::Slider::new(&mut s.ao_distance, 0.01..=1.0).logarithmic(true).clamping(egui::SliderClamping::Never))
+                .on_hover_text(tr("Fraction of the model diagonal. Surfaces further than this do not occlude."));
+            slider_row(ui, tr("Spread angle"), egui::Slider::new(&mut s.ao.spread_angle, 1.0..=180.0).fixed_decimals(0))
+                .on_hover_text(tr("Opening angle of the ray cone in degrees: 180 is the whole hemisphere"));
+            option_row(ui, "bake_ao_distribution", tr("Distribution"), &mut s.ao.distribution, &RayDistribution::ALL, RayDistribution::label);
+            if kind == MeshMapKind::AmbientOcclusion {
+                option_row(ui, "bake_ao_attenuation", tr("Attenuation"), &mut s.ao.attenuation, &AoAttenuation::ALL, AoAttenuation::label);
+            }
+            ui.checkbox(&mut s.ao.ground_plane, tr("Ground plane")).on_hover_text(tr("A floor under the model occludes too"));
+            if s.ao.ground_plane {
+                slider_row(ui, tr("Ground plane offset"), egui::Slider::new(&mut s.ao.ground_offset, 0.0..=0.5).fixed_decimals(3))
+                    .on_hover_text(tr("How far the floor lies under the model, as a fraction of the model diagonal"));
+            }
+            if !s.ao.is_plain() && kind == MeshMapKind::AmbientOcclusion {
+                hint(ui, tr("With these options ambient occlusion is baked on the CPU."));
+            }
+        }
+        MeshMapKind::Thickness => {
+            slider_row(ui, tr("Secondary rays"), egui::Slider::new(&mut s.thickness_samples, 4..=256).logarithmic(true))
+                .on_hover_text(tr("Rays cast per texel: more rays, less noise, a slower bake"));
+            slider_row(ui, tr("Max occluder distance"), egui::Slider::new(&mut s.thickness_distance, 0.01..=1.0).logarithmic(true).clamping(egui::SliderClamping::Never))
+                .on_hover_text(tr("Fraction of the model diagonal. Thicker parts than this all read as fully thick."));
         }
         MeshMapKind::Id => {
-            let label = |s: subcraft_bake::IdSource| match s {
-                subcraft_bake::IdSource::VertexColor => tr("Vertex color"),
-                subcraft_bake::IdSource::MaterialColor => tr("Material color"),
-                subcraft_bake::IdSource::MeshId => tr("Mesh ID / Polygroup"),
-                subcraft_bake::IdSource::Submesh => tr("Submesh (object)"),
+            let label = |s: IdSource| match s {
+                IdSource::VertexColor => tr("Vertex color"),
+                IdSource::MaterialColor => tr("Material color"),
+                IdSource::MeshId => tr("Mesh ID / Polygroup"),
+                IdSource::Submesh => tr("Submesh (object)"),
             };
             ui.horizontal(|ui| {
                 ui.label(tr("ID colors from"));
-                egui::ComboBox::from_id_salt("bake_id_source").selected_text(label(b.settings.id_source)).show_ui(ui, |ui| {
-                    for source in subcraft_bake::IdSource::ALL {
-                        ui.selectable_value(&mut b.settings.id_source, source, label(source));
+                egui::ComboBox::from_id_salt("bake_id_source").selected_text(label(s.id_source)).show_ui(ui, |ui| {
+                    for source in IdSource::ALL {
+                        ui.selectable_value(&mut s.id_source, source, label(source));
                     }
                 });
             })
             .response
             .on_hover_text(tr("Where the ID map takes its colors: the model's vertex colors or material colors, or one generated color per mesh element or per object. With a high poly, its colors are used."));
+            if matches!(s.id_source, IdSource::MeshId | IdSource::Submesh) {
+                option_row(ui, "bake_id_generator", tr("Color generator"), &mut s.id_generator, &IdGenerator::ALL, IdGenerator::label);
+            }
         }
         MeshMapKind::Curvature => {
-            ui.checkbox(&mut b.settings.curvature_from_normal, tr("Curvature from the normal map"))
+            ui.checkbox(&mut s.curvature_from_normal, tr("Curvature from the normal map"))
                 .on_hover_text(tr("Measure curvature from the baked normal map along the surface: one clean band per edge, continuous across UV seams and on curved parts"));
-            ui.add_space(4.0);
-            if b.settings.curvature_from_normal {
-                slider_row(ui, tr("Curvature width (texels)"), egui::Slider::new(&mut b.settings.normal_curvature.radius_texels, 0.5..=8.0));
-                ui.add_space(6.0);
-                slider_row(ui, tr("Curvature intensity"), egui::Slider::new(&mut b.settings.normal_curvature.intensity, 0.1..=4.0).logarithmic(true));
+            if s.curvature_from_normal {
+                slider_row(ui, tr("Curvature width (texels)"), egui::Slider::new(&mut s.normal_curvature.radius_texels, 0.5..=8.0));
+                slider_row(ui, tr("Curvature intensity"), egui::Slider::new(&mut s.normal_curvature.intensity, 0.1..=4.0).logarithmic(true));
             } else {
-                slider_row(ui, tr("Curvature radius"), egui::Slider::new(&mut b.settings.curvature_radius, 0.002..=0.1).logarithmic(true));
+                slider_row(ui, tr("Curvature radius"), egui::Slider::new(&mut s.curvature_radius, 0.002..=0.1).logarithmic(true));
+            }
+        }
+        MeshMapKind::Position => {
+            let mut single = s.position.single_axis.is_some();
+            ui.horizontal(|ui| {
+                ui.label(dim(tr("Mode")));
+                segmented(ui, &mut single, &[(false, tr("All axis")), (true, tr("Single axis"))]);
+            });
+            s.position.single_axis = single.then(|| s.position.single_axis.unwrap_or(1));
+            if let Some(axis) = &mut s.position.single_axis {
+                ui.horizontal(|ui| {
+                    ui.label(dim(tr("Axis")));
+                    segmented(ui, axis, &[(0u8, "X"), (1, "Y"), (2, "Z")]);
+                });
+            }
+            option_row(ui, "bake_position_normalization", tr("Normalization"), &mut s.position.normalization, &PositionNormalization::ALL, PositionNormalization::label);
+        }
+        MeshMapKind::Height => {
+            let mut manual = matches!(s.height, HeightNormalization::Manual { .. });
+            ui.horizontal(|ui| {
+                ui.label(dim(tr("Normalization")));
+                segmented(ui, &mut manual, &[(false, tr("Cage distances")), (true, tr("Manual"))]);
+            });
+            if !manual {
+                s.height = HeightNormalization::Cage;
+            } else if s.height == HeightNormalization::Cage {
+                s.height = HeightNormalization::Manual { distance: s.cage_front.max(0.0005) };
+            }
+            if let HeightNormalization::Manual { distance } = &mut s.height {
+                slider_row(ui, tr("Height range"), egui::Slider::new(distance, 0.0005..=0.25).logarithmic(true).clamping(egui::SliderClamping::Never))
+                    .on_hover_text(tr("Fraction of the model diagonal: white this far above the low poly, black this far below"));
             }
         }
         _ => hint(ui, tr("This mesh map has no settings of its own.")),
@@ -1400,7 +1470,7 @@ mod bake_tests {
         click(&mut state, &ctx, ao);
         assert_eq!(state.bake.selected_baker, Some(subcraft_core::MeshMapKind::AmbientOcclusion));
         let output = draw(&mut state, &ctx, vec![]);
-        assert!(has_text(&output, "MESH MAP SETTINGS > AMBIENT OCCLUSION") && has_text(&output, "AO samples"));
+        assert!(has_text(&output, "MESH MAP SETTINGS > AMBIENT OCCLUSION") && has_text(&output, "Secondary rays"));
         // The log tabs.
         let tab = output.shapes.iter().find_map(|s| match &s.shape {
             egui::epaint::Shape::Text(t) if t.galley.job.text == "High poly parameters" => Some(t.pos + t.galley.size() * 0.5),
@@ -1447,6 +1517,42 @@ mod bake_tests {
         assert_eq!(state.bake.extra_high, ["bolts_high.fbx", "straps_high.fbx"]);
         crate::files::handle(&mut state, crate::files::Purpose::BakeCage, &[PathBuf::from("cage.fbx")], 0.0);
         assert_eq!(state.bake.cage_file, "cage.fbx");
+    }
+
+    #[test]
+    fn every_baker_shows_its_own_settings() {
+        use subcraft_core::MeshMapKind;
+        let ctx = egui::Context::default(); theme::apply(&ctx);
+        let mut state = UiState::new(Session::new(subcraft_mesh::primitives::plane(2., 1), 128), None);
+        state.bake.open = true; state.bake.preview = false;
+        let shown = |state: &mut UiState, kind: MeshMapKind| {
+            state.bake.selected_baker = Some(kind);
+            for _ in 0..3 { draw(state, &ctx, vec![]); }
+            draw(state, &ctx, vec![])
+        };
+        let output = shown(&mut state, MeshMapKind::AmbientOcclusion);
+        for text in ["Secondary rays", "Min occluder distance", "Max occluder distance", "Spread angle", "Distribution", "Attenuation", "Ground plane"] { assert!(has_text(&output, text), "AO: {text}"); }
+        assert!(!has_text(&output, "Ground plane offset") && !has_text(&output, "baked on the CPU"));
+        state.bake.settings.ao.ground_plane = true;
+        let output = shown(&mut state, MeshMapKind::AmbientOcclusion);
+        assert!(has_text(&output, "Ground plane offset") && has_text(&output, "baked on the CPU"));
+        let output = shown(&mut state, MeshMapKind::BentNormal);
+        assert!(has_text(&output, "Spread angle") && !has_text(&output, "Attenuation"), "bent normals share the ray cone");
+        let output = shown(&mut state, MeshMapKind::Thickness);
+        assert!(has_text(&output, "Secondary rays") && has_text(&output, "Max occluder distance") && !has_text(&output, "Spread angle"));
+        let output = shown(&mut state, MeshMapKind::Position);
+        assert!(has_text(&output, "All axis") && has_text(&output, "Single axis") && has_text(&output, "Normalization") && !has_text(&output, "Axis"), "position");
+        state.bake.settings.position.single_axis = Some(2);
+        assert!(has_text(&shown(&mut state, MeshMapKind::Position), "Axis"));
+        let output = shown(&mut state, MeshMapKind::Height);
+        assert!(has_text(&output, "Cage distances") && !has_text(&output, "Height range"));
+        state.bake.settings.height = subcraft_bake::HeightNormalization::Manual { distance: 0.02 };
+        assert!(has_text(&shown(&mut state, MeshMapKind::Height), "Height range"));
+        let output = shown(&mut state, MeshMapKind::Id);
+        assert!(has_text(&output, "Color generator"), "generated ID colours offer a generator");
+        state.bake.settings.id_source = subcraft_bake::IdSource::VertexColor;
+        assert!(!has_text(&shown(&mut state, MeshMapKind::Id), "Color generator"));
+        assert!(has_text(&shown(&mut state, MeshMapKind::Normal), "no settings of its own"));
     }
 
     #[test]

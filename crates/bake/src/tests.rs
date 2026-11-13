@@ -620,12 +620,16 @@ fn two_part_high(vertex_colors: bool, material_colors: bool) -> Mesh {
 
 /// The ID map's colour left and right of the middle of the plane, with the bake's warnings.
 fn id_bake(high: &Mesh, source: IdSource) -> ([f32; 3], [f32; 3], Vec<String>) {
+    id_bake_with(high, &BakeSettings { id_source: source, ..settings(&[MeshMapKind::Id]) })
+}
+
+/// [`id_bake`] with explicit settings (which must ask for the ID map).
+fn id_bake_with(high: &Mesh, s: &BakeSettings) -> ([f32; 3], [f32; 3], Vec<String>) {
     let low = primitives::plane(2.0, 4);
     let (lb, hb) = (Bvh::build(&low), Bvh::build(high));
     let input = BakeInput { low: Geometry { mesh: &low, bvh: &lb }, high: Some(Geometry { mesh: high, bvh: &hb }), material_slot: 0 };
-    let s = BakeSettings { id_source: source, ..settings(&[MeshMapKind::Id]) };
     let progress = Progress::new();
-    let maps = bake(&input, &s, &progress).unwrap();
+    let maps = bake(&input, s, &progress).unwrap();
     let id = &maps[&MeshMapKind::Id];
     let (mut left, mut right) = (None, None);
     for t in texels(&low, 0, RES) {
@@ -811,4 +815,125 @@ fn a_custom_cage_decides_where_the_rays_start() {
     assert!(maps[&MeshMapKind::Height].get(30, 40)[0] > 0.9, "and it stands above the low poly");
     assert_eq!(caged.cage, caged.clone().cage, "a cage equals itself");
     assert_ne!(caged.cage, Some(CageMesh(std::sync::Arc::new(primitives::plane(2.0, 4)))));
+}
+
+/// Ambient occlusion at the middle of a 2 x 2 plane that faces down, baked onto itself.
+fn ao_under_plane(ao: AoOptions) -> f32 {
+    let low = primitives::plane(2.0, 4).transformed(&glam::Mat4::from_rotation_x(std::f32::consts::PI));
+    assert!(low.geometric_normal(0).y < -0.9, "the plane faces down");
+    let bvh = Bvh::build(&low);
+    let input = BakeInput { low: Geometry { mesh: &low, bvh: &bvh }, high: None, material_slot: 0 };
+    let s = BakeSettings { ao, use_gpu: false, ..settings(&[MeshMapKind::AmbientOcclusion]) };
+    bake(&input, &s, &Progress::new()).unwrap()[&MeshMapKind::AmbientOcclusion].get(64, 64)[0]
+}
+
+#[test]
+fn ambient_occlusion_options_shape_the_rays() {
+    assert!(AoOptions::default().is_plain());
+    assert_eq!(ao_under_plane(AoOptions::default()), 1.0, "nothing under the plane");
+    // A floor 0.05 diagonals under it: nearly every ray of the hemisphere reaches it.
+    let floor = AoOptions { ground_plane: true, ground_offset: 0.05, ..Default::default() };
+    assert!(!floor.is_plain());
+    let dark = ao_under_plane(floor);
+    assert!(dark < 0.12, "the floor occludes: {dark}");
+    // Uniform rays: more of them graze the horizon and escape.
+    let uniform = ao_under_plane(AoOptions { distribution: RayDistribution::Uniform, ..floor });
+    assert!(uniform > dark + 0.08 && uniform < 0.4, "uniform {uniform} vs cosine {dark}");
+    // A narrow cone only looks straight down: fully occluded.
+    assert!(ao_under_plane(AoOptions { spread_angle: 20.0, ..floor }) < 0.01);
+    // Attenuation: the floor is 0.2 of the maximum distance away, so it counts for less.
+    let linear = ao_under_plane(AoOptions { attenuation: AoAttenuation::Linear, ..floor });
+    let smooth = ao_under_plane(AoOptions { attenuation: AoAttenuation::Smooth, ..floor });
+    assert!(linear > dark + 0.1 && linear < 0.8, "linear {linear}");
+    assert!(smooth > dark && smooth < linear, "smooth {smooth} keeps near occluders darker than linear {linear}");
+    // A minimum distance beyond the floor straight below ignores most of it.
+    let far_only = ao_under_plane(AoOptions { min_distance: 0.1, ..floor });
+    assert!(far_only > dark + 0.5, "min distance {far_only}");
+    assert_eq!((AoAttenuation::None.weight(0.3, 1.0), AoAttenuation::Linear.weight(0.25, 1.0), AoAttenuation::Smooth.weight(0.5, 1.0)), (1.0, 0.75, 0.5));
+}
+
+#[test]
+fn cone_directions_stay_inside_the_cone_and_match_the_cosine_hemisphere() {
+    let n = Vec3::new(0.3, 0.9, -0.2).normalize();
+    let (mut cone, mut hemi) = (Vec::new(), Vec::new());
+    surface::cone_directions(n, 64, 0.37, 180.0, false, &mut cone);
+    surface::cosine_directions(n, 64, 0.37, &mut hemi);
+    for (a, b) in cone.iter().zip(&hemi) { assert!((*a - *b).length() < 1e-4, "{a:?} {b:?}"); }
+    for uniform in [false, true] {
+        surface::cone_directions(n, 64, 0.11, 60.0, uniform, &mut cone);
+        assert_eq!(cone.len(), 64);
+        let limit = 30f32.to_radians().cos() - 1e-4;
+        assert!(cone.iter().all(|d| (d.length() - 1.0).abs() < 1e-4 && d.dot(n) >= limit), "uniform {uniform}");
+    }
+    // Uniform spreads wider on average than cosine weighting.
+    let mean = |uniform: bool| { let mut d = Vec::new(); surface::cone_directions(n, 256, 0.0, 180.0, uniform, &mut d); d.iter().map(|d| d.dot(n)).sum::<f32>() / 256.0 };
+    assert!((mean(false) - 2.0 / 3.0).abs() < 0.02 && (mean(true) - 0.5).abs() < 0.02, "{} {}", mean(false), mean(true));
+}
+
+#[test]
+fn position_map_normalization_and_single_axis() {
+    let mesh = primitives::plane(2.0, 4);
+    let bvh = Bvh::build(&mesh);
+    let input = BakeInput { low: Geometry { mesh: &mesh, bvh: &bvh }, high: None, material_slot: 0 };
+    let position = |position: PositionOptions| {
+        let s = BakeSettings { position, ..settings(&[MeshMapKind::Position]) };
+        bake(&input, &s, &Progress::new()).unwrap().remove(&MeshMapKind::Position).unwrap()
+    };
+    let boxed = position(PositionOptions::default());
+    let sphere = position(PositionOptions { normalization: PositionNormalization::BoundingSphere, ..Default::default() });
+    let z_only = position(PositionOptions { single_axis: Some(2), ..Default::default() });
+    let radius = mesh.bounds.diagonal() * 0.5;
+    for t in texels(&mesh, 0, RES) {
+        let p = t.position;
+        // Rim texels lie just outside the plane, where the map is clamped.
+        if p.x.abs() > 1.0 || p.z.abs() > 1.0 { continue; }
+        let (b, s, z) = (at(&boxed, &t), at(&sphere, &t), at(&z_only, &t));
+        // Box: each axis spans 0..1 (the flat Y axis sits at the box's floor).
+        assert!((b[0] - (p.x + 1.0) * 0.5).abs() < 2e-3 && (b[2] - (p.z + 1.0) * 0.5).abs() < 2e-3, "box {b:?} at {p}");
+        // Sphere: one scale for all axes, the centre at 0.5.
+        let expect = |v: f32| 0.5 + v / (2.0 * radius);
+        assert!((s[0] - expect(p.x)).abs() < 2e-3 && (s[1] - 0.5).abs() < 2e-3 && (s[2] - expect(p.z)).abs() < 2e-3, "sphere {s:?} at {p}");
+        // Single axis: gray, the value of that axis.
+        assert!(z[0] == z[1] && z[1] == z[2] && (z[0] - b[2]).abs() < 1e-6, "single axis {z:?} vs {b:?}");
+    }
+}
+
+#[test]
+fn height_map_can_use_a_manual_range() {
+    let high = two_part_high(false, false);
+    let low = primitives::plane(2.0, 4);
+    let diag = low.bounds.diagonal().max(high.bounds.diagonal());
+    let height = |height: HeightNormalization| {
+        let s = BakeSettings { height, ..settings(&[MeshMapKind::Height]) };
+        bake_plane(&high, &s).unwrap()[&MeshMapKind::Height].get(30, 40)[0]
+    };
+    // The high poly stands 0.005 above the plane. Cage: over the front reach of 0.01 diagonals.
+    let cage = height(HeightNormalization::Cage);
+    assert!((cage - (0.5 + 0.5 * 0.005 / (0.01 * diag))).abs() < 5e-3, "cage {cage}");
+    // Manual: white at 0.02 above.
+    let manual = height(HeightNormalization::Manual { distance: 0.02 / diag });
+    assert!((manual - 0.625).abs() < 5e-3, "manual {manual}");
+    // A range shorter than the offset saturates.
+    assert!(height(HeightNormalization::Manual { distance: 0.004 / diag }) > 0.999);
+}
+
+#[test]
+fn id_colour_generators() {
+    let high = two_part_high(false, false);
+    let ids = |id_generator: IdGenerator| {
+        let s = BakeSettings { id_generator, ..settings(&[MeshMapKind::Id]) };
+        let (l, r, _) = id_bake_with(&high, &s);
+        (l, r)
+    };
+    let gray = |c: [f32; 3]| c[0] == c[1] && c[1] == c[2];
+    let (l, r) = ids(IdGenerator::Grayscale);
+    assert!(gray(l) && gray(r) && !close(l, r), "grayscale {l:?} {r:?}");
+    let (l, r) = ids(IdGenerator::Random);
+    assert!(!gray(l) && !gray(r) && !close(l, r), "random {l:?} {r:?}");
+    let (l, r) = ids(IdGenerator::HueShift);
+    assert!(!gray(l) && !close(l, r), "hue shift {l:?} {r:?}");
+    assert_eq!(BakeSettings::default().id_generator, IdGenerator::HueShift, "the default is the colours so far");
+    assert_eq!(IdGenerator::HueShift.color(3), subcraft_core::color::hsv_to_rgb([(3.0f32 * 0.618_034).fract(), 0.65, 0.9]));
+    // No generator gives black, the ID map's empty value.
+    for g in IdGenerator::ALL { for i in 0..64 { assert!(g.color(i).iter().all(|c| *c >= 0.1 && *c <= 1.0), "{g:?} {i}"); } }
 }

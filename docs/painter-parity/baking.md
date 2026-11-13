@@ -141,24 +141,24 @@ Layout notes: a "Common settings" entry at the top (with its own sync button), t
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
 | ID baker | Mesh map bakers | not documented | done | crates/bake/src/lib.rs:310 | - |
-| Color source | Mesh map settings > ID | Vertex Color; Material Color; File ID; Mesh ID/Polygroup (default not documented) | partial: mesh element colours only, no choice | crates/bake/src/lib.rs:310 | - |
-| Color Generator | Mesh map settings > ID (File ID or Mesh ID/Polygroup) | Random; Hue shift; Grayscale (default not documented) | missing | - | - |
+| Color source | Mesh map settings > ID | Vertex Color; Material Color; File ID; Mesh ID/Polygroup (default not documented) | partial: Vertex color, Material color, Mesh ID / Polygroup, Submesh; no File ID | crates/ui/src/dialogs.rs (map_settings_panel) | - |
+| Color Generator | Mesh map settings > ID (File ID or Mesh ID/Polygroup) | Random; Hue shift; Grayscale (default not documented) | done: Random, Hue shift (default), Grayscale | crates/bake/src/lib.rs (IdGenerator) | - |
 
 ## Mesh map settings: Ambient occlusion
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Secondary rays | Mesh map settings > Ambient occlusion | 64 (unverified) | partial: "AO samples" 4 to 256, default 32 | crates/ui/src/dialogs.rs:686 | - |
-| Min Occluder distance | Mesh map settings > Ambient occlusion | 0.00001 (unverified) | missing | - | - |
-| Max occluder distance | Mesh map settings > Ambient occlusion | 1 (unverified); values above 1 allowed | partial: "AO distance" 0.01 to 1, default 0.25 | crates/ui/src/dialogs.rs:688 | - |
+| Secondary rays | Mesh map settings > Ambient occlusion | 64 (unverified) | done: 4 to 256, default 32 | crates/ui/src/dialogs.rs (map_settings_panel) | - |
+| Min Occluder distance | Mesh map settings > Ambient occlusion | 0.00001 (unverified) | done: fraction of the diagonal, default 0 | crates/ui/src/dialogs.rs (map_settings_panel) | - |
+| Max occluder distance | Mesh map settings > Ambient occlusion | 1 (unverified); values above 1 allowed | done: fraction of the diagonal, default 0.25, values above 1 can be typed | crates/ui/src/dialogs.rs (map_settings_panel) | - |
 | Relative to bounding box | Mesh map settings > Ambient occlusion | on (unverified) | partial: always relative, no toggle | crates/bake/src/lib.rs:45 | - |
-| Spread angle | Mesh map settings > Ambient occlusion | 180 (unverified) | missing | - | - |
-| Distribution | Mesh map settings > Ambient occlusion | Cosine (default); Uniform (unverified) | missing | - | - |
+| Spread angle | Mesh map settings > Ambient occlusion | 180 (unverified) | done: 1 to 180, default 180 | crates/ui/src/dialogs.rs (map_settings_panel) | - |
+| Distribution | Mesh map settings > Ambient occlusion | Cosine (default); Uniform (unverified) | done: Cosine (default), Uniform | crates/bake/src/lib.rs (RayDistribution) | - |
 | Ignore backface | Mesh map settings > Ambient occlusion | Never; Always; By mesh name (unverified) | missing | - | - |
 | Self occlusion | Mesh map settings > Ambient occlusion | Always; Only same mesh name (unverified) | partial: follows the Match mode, no own setting | crates/bake/src/lib.rs:58 | - |
-| Attenuation | Mesh map settings > Ambient occlusion | None; Smooth; Linear (unverified) | missing | - | - |
-| Ground plane | Mesh map settings > Ambient occlusion | off (unverified) | missing | - | - |
-| Ground plane offset | Mesh map settings > Ambient occlusion | not documented | missing | - | - |
+| Attenuation | Mesh map settings > Ambient occlusion | None; Smooth; Linear (unverified) | done: None (default), Smooth, Linear | crates/bake/src/lib.rs (AoAttenuation) | - |
+| Ground plane | Mesh map settings > Ambient occlusion | off (unverified) | done | crates/ui/src/dialogs.rs (map_settings_panel) | - |
+| Ground plane offset | Mesh map settings > Ambient occlusion | not documented | done: fraction of the diagonal under the lowest point | crates/ui/src/dialogs.rs (map_settings_panel) | - |
 
 ## Mesh map settings: Curvature
 
@@ -178,18 +178,18 @@ Layout notes: a "Common settings" entry at the top (with its own sync button), t
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
 | Position baker | Mesh map bakers | not documented | done | crates/core/src/meshmap.rs:14 | - |
-| Mode | Mesh map settings > Position | All axis; Single axis (default not documented) | missing | - | - |
-| Axis | Mesh map settings > Position (Single axis) | X; Y; Z (unverified) | missing | - | - |
-| Normalization type | Mesh map settings > Position | Bounding Box; Bounding sphere; none (default not documented) | missing | - | - |
+| Mode | Mesh map settings > Position | All axis; Single axis (default not documented) | done: All axis (default), Single axis | crates/ui/src/dialogs.rs (map_settings_panel) | - |
+| Axis | Mesh map settings > Position (Single axis) | X; Y; Z (unverified) | done | crates/ui/src/dialogs.rs (map_settings_panel) | - |
+| Normalization type | Mesh map settings > Position | Bounding Box; Bounding sphere; none (default not documented) | partial: Bounding box (default), Bounding sphere; no "none" | crates/bake/src/lib.rs (PositionNormalization) | - |
 | Normalization scale | Mesh map settings > Position | not documented | missing | - | - |
 
 ## Mesh map settings: Thickness
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Secondary rays | Mesh map settings > Thickness | not documented | partial: fixed 16 samples, no control | crates/bake/src/lib.rs:47 | - |
+| Secondary rays | Mesh map settings > Thickness | not documented | done: 4 to 256, default 16 | crates/ui/src/dialogs.rs (map_settings_panel) | - |
 | Min Occluder distance | Mesh map settings > Thickness | not documented | missing | - | - |
-| Max Occluder distance | Mesh map settings > Thickness | not documented | partial: fixed 0.5 of the diagonal, no control | crates/bake/src/lib.rs:48 | - |
+| Max Occluder distance | Mesh map settings > Thickness | not documented | done: fraction of the diagonal, default 0.5 | crates/ui/src/dialogs.rs (map_settings_panel) | - |
 | Relative to bounding box | Mesh map settings > Thickness | not documented | partial: always relative, no toggle | crates/bake/src/lib.rs:48 | - |
 | Spread angle | Mesh map settings > Thickness | not documented | missing | - | - |
 | Distribution | Mesh map settings > Thickness | not documented | missing | - | - |
@@ -201,19 +201,19 @@ Layout notes: a "Common settings" entry at the top (with its own sync button), t
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
 | Height baker | Mesh map bakers | not documented | done | crates/core/src/meshmap.rs:18 | - |
-| Normalization | Mesh map settings > Height | options not documented (includes Manual) | missing | - | - |
-| Scaling divisor | Mesh map settings > Height (Manual) | not documented | missing | - | - |
+| Normalization | Mesh map settings > Height | options not documented (includes Manual) | partial: Cage distances (default) or Manual | crates/bake/src/lib.rs (HeightNormalization) | - |
+| Scaling divisor | Mesh map settings > Height (Manual) | not documented | partial: "Height range", a distance as a fraction of the diagonal | crates/ui/src/dialogs.rs (map_settings_panel) | - |
 
 ## Mesh map settings: Bent normals
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Secondary rays | Mesh map settings > Bent normals | not documented | partial: shares "AO samples" | crates/ui/src/dialogs.rs:686 | - |
-| Min Occluder distance | Mesh map settings > Bent normals | not documented | missing | - | - |
-| Max Occluder distance | Mesh map settings > Bent normals | not documented | partial: shares "AO distance" | crates/ui/src/dialogs.rs:688 | - |
+| Secondary rays | Mesh map settings > Bent normals | not documented | partial: shares the ambient occlusion value | crates/ui/src/dialogs.rs (map_settings_panel) | - |
+| Min Occluder distance | Mesh map settings > Bent normals | not documented | partial: shares the ambient occlusion value | crates/ui/src/dialogs.rs (map_settings_panel) | - |
+| Max Occluder distance | Mesh map settings > Bent normals | not documented | partial: shares the ambient occlusion value | crates/ui/src/dialogs.rs (map_settings_panel) | - |
 | Relative to bounding box | Mesh map settings > Bent normals | not documented | partial: always relative, no toggle | crates/bake/src/lib.rs:45 | - |
-| Spread angle | Mesh map settings > Bent normals | not documented | missing | - | - |
-| Distribution | Mesh map settings > Bent normals | not documented | missing | - | - |
+| Spread angle | Mesh map settings > Bent normals | not documented | partial: shares the ambient occlusion value | crates/ui/src/dialogs.rs (map_settings_panel) | - |
+| Distribution | Mesh map settings > Bent normals | not documented | partial: shares the ambient occlusion value | crates/ui/src/dialogs.rs (map_settings_panel) | - |
 | Ignore backface | Mesh map settings > Bent normals | not documented | missing | - | - |
 | Self occlusion | Mesh map settings > Bent normals | not documented | missing | - | - |
 
