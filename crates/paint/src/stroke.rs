@@ -98,20 +98,47 @@ const PREVIEW_MAX_STRIDE: usize = 3;
 
 /// The visible texel samples of every tile the stroke touched, per camera: later stamps on the
 /// same tile skip rasterizing and the visibility test (a pen stroke stamps the same tiles again
-/// and again). Dropped when the cameras, mesh or visibility settings change, and when it grows
-/// past [`RASTER_CACHE_SAMPLES`].
+/// and again). Dropped when the cameras, mesh or visibility settings change. Past `limit`
+/// samples the tiles used longest ago are evicted, never those of the batch being applied: a
+/// large brush at 4096² fills the limit within a few frames, and dropping everything then made
+/// the next frame rasterize every tile under the brush again (a ~200 ms hitch every 7-11 frames).
 #[derive(Clone)]
 struct RasterCache {
     enabled: bool,
     key: Option<RasterKey>,
-    tiles: HashMap<(usize, usize), Arc<[TexelSample]>>,
+    /// Samples, and the batch that last used them.
+    tiles: HashMap<(usize, usize), (Arc<[TexelSample]>, u64)>,
     samples: usize,
+    /// Batches applied so far (the clock of the use stamps).
+    batch: u64,
+    limit: usize,
 }
 
 type RasterKey = (Vec<Camera>, Alignment, Option<u32>, u32, u32, usize);
 
 /// About 120 MB of cached samples.
 const RASTER_CACHE_SAMPLES: usize = 3_000_000;
+
+impl RasterCache {
+    /// Evict the tiles used longest ago until at most three quarters of the limit is held
+    /// (headroom, so the next batches do not evict again at once). Tiles of the current batch stay.
+    fn evict(&mut self) {
+        if self.samples <= self.limit {
+            return;
+        }
+        let target = self.limit / 4 * 3;
+        let mut old: Vec<((usize, usize), u64, usize)> =
+            self.tiles.iter().filter(|(_, (_, used))| *used < self.batch).map(|(k, (s, used))| (*k, *used, s.len())).collect();
+        old.sort_by_key(|&(k, used, _)| (used, k));
+        for (k, _, n) in old {
+            if self.samples <= target {
+                break;
+            }
+            self.tiles.remove(&k);
+            self.samples -= n;
+        }
+    }
+}
 
 /// Where a clone stroke copies from: an object-space surface point, and the screen offset from
 /// the stroke's own position to it (fixed by the first dab, then kept so later strokes align).
@@ -177,7 +204,14 @@ impl Stroke {
             work: Vec::new(),
             carried: Vec::new(),
             uv_per_unit: None,
-            raster: RasterCache { enabled: std::env::var_os("SUBCRAFT_NO_RASTER_CACHE").is_none(), key: None, tiles: HashMap::new(), samples: 0 },
+            raster: RasterCache {
+                enabled: std::env::var_os("SUBCRAFT_NO_RASTER_CACHE").is_none(),
+                key: None,
+                tiles: HashMap::new(),
+                samples: 0,
+                batch: 0,
+                limit: RASTER_CACHE_SAMPLES,
+            },
             preview: LivePreview { tiles: if std::env::var_os("SUBCRAFT_NO_STROKE_PREVIEW").is_some() { 0 } else { 32 }, last_tiles: 0, deferred: Vec::new() },
             stamp: None,
             stamp_acc: HashMap::new(),
@@ -191,6 +225,18 @@ impl Stroke {
     pub fn without_raster_cache(mut self) -> Self {
         self.raster.enabled = false;
         self
+    }
+
+    /// Cap the per-stroke sample cache at `samples` texel samples (tests use a tiny cap to evict
+    /// on every batch; the default holds about 120 MB).
+    pub fn with_raster_cache_limit(mut self, samples: usize) -> Self {
+        self.raster.limit = samples;
+        self
+    }
+
+    /// Texel samples the per-stroke cache holds now (diagnostics and tests).
+    pub fn raster_cache_samples(&self) -> usize {
+        self.raster.samples
     }
 
     /// Thin out the stamps applied while drawing once a stamp touches more than `tiles` tiles
@@ -620,18 +666,23 @@ impl Stroke {
         let cached = self.raster.enabled;
         if cached {
             let key: RasterKey = (cameras.to_vec(), alignment, backface_cos.map(f32::to_bits), ctx.geometry.resolution, ctx.geometry.material_slot, ctx.mesh as *const Mesh as usize);
-            if self.raster.key.as_ref() != Some(&key) || self.raster.samples > RASTER_CACHE_SAMPLES {
+            if self.raster.key.as_ref() != Some(&key) {
                 self.raster.tiles.clear();
                 self.raster.samples = 0;
             }
             self.raster.key = Some(key);
+            self.raster.batch += 1;
+            let batch = self.raster.batch;
             let t_ras = std::time::Instant::now();
             let mut missing = std::collections::BTreeSet::new();
             for (&t, w) in &bins {
                 for &si in &w.stamps {
                     let c = stamps[si as usize].camera;
-                    if !self.raster.tiles.contains_key(&(t, c)) {
-                        missing.insert((t, c));
+                    match self.raster.tiles.get_mut(&(t, c)) {
+                        Some((_, used)) => *used = batch,
+                        None => {
+                            missing.insert((t, c));
+                        }
                     }
                 }
             }
@@ -640,8 +691,9 @@ impl Stroke {
             profile::count(2, built.len());
             for (k, samples) in built {
                 self.raster.samples += samples.len();
-                self.raster.tiles.insert(k, samples);
+                self.raster.tiles.insert(k, (samples, batch));
             }
+            self.raster.evict();
             profile::add(profile::RASTER, t_ras);
         }
         let raster = &self.raster.tiles;
@@ -662,7 +714,7 @@ impl Stroke {
                 // nothing; those need no rewrite, no re-composite and no GPU upload.
                 let before = cached.then(|| (cov.clone(), acc.clone()));
                 if cached {
-                    let per_camera: Vec<Option<&[TexelSample]>> = (0..cameras.len()).map(|c| raster.get(&(t, c)).map(|s| &s[..])).collect();
+                    let per_camera: Vec<Option<&[TexelSample]>> = (0..cameras.len()).map(|c| raster.get(&(t, c)).map(|(s, _)| &s[..])).collect();
                     input.accumulate_visible(&per_camera, stamps, &w.stamps, &mut cov);
                     if let (Some((cfg, bitmap)), Some(acc)) = (&single_stamp, acc.as_mut()) {
                         for &si in &w.stamps {

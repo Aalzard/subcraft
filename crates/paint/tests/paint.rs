@@ -987,22 +987,25 @@ fn batched_points_match_point_by_point() {
 
 /// The per-stroke raster cache (visible samples per tile and camera) must not change a single
 /// texel: a pen-like stroke with a pressure ramp, with and without symmetry and a tip image, on
-/// a sphere where parts of the surface are hidden.
+/// a sphere where parts of the surface are hidden. Also with a cap so small that tiles are
+/// evicted on every batch (what a large brush at 4096² does with the default cap).
 #[test]
 fn raster_cache_gives_identical_strokes() {
     let res = 256;
     let cam = Camera::perspective(Vec3::new(1.5, 0.6, 3.5), Vec3::ZERO, Vec3::Y, 40.0, 0.1, 100.0, [512, 512]);
     let tip = subcraft_image::Bitmap::new_f32(16, 16, 1, (0..256).map(|i| ((i % 16) as f32 / 15.0 * 3.0).sin().abs()).collect());
     for (symmetric, textured) in [(false, false), (true, false), (false, true)] {
-        let run = |cached: bool| {
+        // `limit`: None = uncached, Some(cap).
+        let run = |limit: Option<usize>| {
             let mut sc = Scene::new(primitives::uv_sphere(1.0, 24, 24), res);
             let options = StrokeOptions { symmetry: [symmetric, false, false], ..StrokeOptions::default() };
             let settings = BrushSettings { size: 30.0, hardness: 0.2, pressure_size: 0.8, pressure_flow: 0.4, ..BrushSettings::default() };
             let mut s = Stroke::begin(&sc.ts, sc.layer, PaintTarget::Content, StrokeMode::Paint, settings, options, &red())
                 .unwrap()
                 .with_alpha(textured.then(|| Arc::new(tip.clone())));
-            if !cached {
-                s = s.without_raster_cache();
+            match limit {
+                None => s = s.without_raster_cache(),
+                Some(cap) => s = s.with_raster_cache_limit(cap),
             }
             let mut ts = sc.ts.clone();
             // 120 "pen events", pressure rising then falling, drifting across the sphere.
@@ -1013,13 +1016,15 @@ fn raster_cache_gives_identical_strokes() {
                 s.add_point(&mut ts, &sc.ctx(&cam), p).unwrap();
             }
             sc.ts = ts;
-            sc.image(ChannelKind::BaseColor).unwrap()
+            (sc.image(ChannelKind::BaseColor).unwrap(), s.raster_cache_samples())
         };
-        let (a, b) = (run(true), run(false));
+        let ((a, full), (b, _), (c, small)) = (run(Some(usize::MAX)), run(None), run(Some(3000)));
+        assert!(small < full, "the small cap evicted tiles ({small} vs {full} samples)");
         let mut painted = 0;
         for y in 0..res {
             for x in 0..res {
                 assert_eq!(a.get(x, y), b.get(x, y), "texel ({x},{y}) differs (symmetry {symmetric}, textured {textured})");
+                assert_eq!(c.get(x, y), b.get(x, y), "texel ({x},{y}) differs with eviction (symmetry {symmetric}, textured {textured})");
                 painted += (a.get(x, y)[3] > 0.0) as u32;
             }
         }
