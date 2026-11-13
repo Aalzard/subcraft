@@ -131,23 +131,9 @@ impl LayerClip {
                 }
             }
         }
-        // An instance follows a source in its own texture set only. Pasted into another set it
-        // kept the link, and the next sync replaced its resampled rasters with the source's, at
-        // the other set's resolution and channels (QA 2026-11): it becomes a plain copy.
-        fn unlink_foreign(l: &mut Layer, ts: &TextureSet) {
-            if l.instance_of.is_some_and(|s| ts.find(s).is_none()) {
-                l.instance_of = None;
-            }
-            if let Some(c) = l.children_mut() {
-                for c in c.iter_mut() {
-                    unlink_foreign(Arc::make_mut(c), ts);
-                }
-            }
-        }
         subcraft_doc::duplicate_layers_with_new_ids(&self.layers)
             .into_iter()
             .map(|mut l| {
-                unlink_foreign(&mut l, ts);
                 if self.resolution != ts.resolution {
                     let r = ts.resolution;
                     l.map_rasters(&|img| img.resampled(r, r));
