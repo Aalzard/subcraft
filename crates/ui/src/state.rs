@@ -736,6 +736,11 @@ impl UiState {
     /// Start a frame: the compositing budget for this frame's `sync_gpu` calls.
     pub fn begin_frame(&mut self) {
         self.composite_deadline = Some(web_time::Instant::now() + COMPOSITE_FRAME_BUDGET);
+        // The views set these while they are drawn (after the shortcuts read them). A view that
+        // is no longer drawn (F3 / F2 layouts, a closed tab) kept its last value, and F framed
+        // that hidden view instead of the visible one (QA 2026-11).
+        self.hovered_3d = false;
+        self.hovered_2d = false;
         // The multi-selection holds layer ids; Delete / Duplicate act on them wherever they live,
         // so ids kept from another texture set would edit layers the user is no longer looking at.
         let ts = self.session.selection().texture_set;
