@@ -719,4 +719,6 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Mesh ID / Polygroup", "메시 ID / 폴리그룹"),
     ("Submesh (object)", "서브메시 (오브젝트)"),
     ("Where the ID map takes its colors: the model's vertex colors or material colors, or one generated color per mesh element or per object. With a high poly, its colors are used.", "ID 맵의 색상 소스입니다. 모델의 버텍스 컬러나 머티리얼 색상을 쓰거나, 메시 요소별 또는 오브젝트별로 색상을 하나씩 생성합니다. 하이 폴리가 있으면 하이 폴리의 색상을 사용합니다."),
+    ("Axis indicator", "축 표시기"),
+    ("The X, Y and Z directions of the scene in the bottom-right corner of the 3D view", "3D 뷰 오른쪽 아래 모서리에 장면의 X, Y, Z 방향을 표시합니다"),
 ];

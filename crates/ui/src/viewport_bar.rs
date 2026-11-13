@@ -48,6 +48,8 @@ pub struct ViewportPrefs {
     pub symmetry_guides: bool,
     /// Bottom-left list of the mouse / key actions that apply now.
     pub hints: bool,
+    /// X / Y / Z orientation indicator in the 3D view's bottom-right corner.
+    pub axis_indicator: bool,
     /// Environment, camera, post-effect and visualisation settings. Flattened, so preference
     /// files from before the Display Settings panel (same keys, top level) still load.
     #[serde(flatten)]
@@ -97,6 +99,7 @@ impl Default for ViewportPrefs {
             solo: None,
             symmetry_guides: true,
             hints: true,
+            axis_indicator: true,
             display: Default::default(),
             path_tracing: false,
             pt_bounces: 4,
