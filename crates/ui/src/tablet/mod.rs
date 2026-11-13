@@ -89,7 +89,7 @@ impl Tablet {
         if queued.is_empty() {
             return;
         }
-        let events = finish_events(queued, ctx.zoom_factor(), raw.modifiers, self.last_pointer);
+        let events = finish_events(queued, ctx.zoom_factor(), ctx.input(|i| i.modifiers), self.last_pointer);
         if let Some(p) = events.iter().rev().find_map(|e| match e {
             Event::PointerMoved(p) => Some(*p),
             _ => None,
