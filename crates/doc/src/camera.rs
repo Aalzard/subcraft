@@ -42,7 +42,7 @@ mod tests {
 
     #[test]
     fn cameras_round_trip_and_bad_numbers_are_flagged() {
-        let c = SceneCamera { name: "Shot 1".into(), position: [1.0, 2.0, 3.0], rotation: [0.0, 0.7071, 0.0, 0.7071], fov_y_deg: 30.0, orthographic: false, aspect: Some(1.5) };
+        let c = SceneCamera { name: "Shot 1".into(), position: [1.0, 2.0, 3.0], rotation: [0.0, std::f32::consts::FRAC_1_SQRT_2, 0.0, std::f32::consts::FRAC_1_SQRT_2], fov_y_deg: 30.0, orthographic: false, aspect: Some(1.5) };
         let text = serde_json::to_string(&c).unwrap();
         assert_eq!(serde_json::from_str::<SceneCamera>(&text).unwrap(), c);
         assert!(c.is_valid());

@@ -247,12 +247,13 @@ pub(crate) fn output_path(mesh_name: &str, set: &ExportTextureSet, suffix: &str,
     }
 }
 
-/// The file format a map is written in: the export-wide override, except that a four-component
-/// map keeps its own format when the override has no alpha (JPEG, HDR, the Netpbm formats). The
-/// override used to drop the fourth component (Unity's smoothness in a mask map) without a word.
+/// The file format a map is written in: the export-wide override, except that a map with an
+/// alpha component (four components, or gray + alpha) keeps its own format when the override has
+/// no alpha (JPEG, HDR, the Netpbm formats). The override used to drop it (Unity's smoothness in
+/// a mask map, the alpha of a gray + alpha map) without a word.
 pub(crate) fn output_format(map: &OutputMap, settings: &ExportSettings) -> FileFormat {
     match settings.format_override {
-        Some(f) if !f.has_alpha() && map.components.len() == 4 && map.format != f => map.format,
+        Some(f) if !f.has_alpha() && matches!(map.components.len(), 2 | 4) && map.format != f => map.format,
         Some(format) => format,
         None => map.format,
     }

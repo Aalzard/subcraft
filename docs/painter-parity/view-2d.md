@@ -15,7 +15,7 @@ Layout notes: the 2D view sits to the right of the 3D view inside the viewport a
 | Material (lit) display in UV space | Display mode dropdown | default | missing | - | - |
 | Single channel display, one entry per Texture Set channel | Display mode dropdown | - | done | crates/ui/src/panels/uv_view.rs:31 | - |
 | Mesh map display | Display mode dropdown | - | done | crates/ui/src/panels/uv_view.rs:33 | - |
-| Axis information (U and V directions) | 2D view, bottom right | shown | missing | - | - |
+| Axis information (U and V directions) | 2D view, bottom right | shown | done | crates/ui/src/panels/uv_view.rs | - |
 | UV Tile information button (show / hide UDIM labels) | 2D view, next to Display mode | UV Tile projects only | missing | - | - |
 | Light gray background marking the paintable 0-1 UV range | 2D view, regular projects | shown | partial: dark panel with a 1 px border around the 0-1 square | crates/ui/src/panels/uv_view.rs:119 | - |
 | UV islands outside 0-1 shown but not interactive | 2D view, regular projects | shown | missing | - | - |
@@ -28,11 +28,11 @@ Layout notes: the 2D view sits to the right of the 3D view inside the viewport a
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Display next channel | C | - | missing | - | - |
-| Display previous channel | Shift + C | - | missing | - | - |
-| Display material | M | - | missing | - | - |
-| Display next mesh map | B | - | missing | - | - |
-| Display previous mesh map | Shift + B | - | missing | - | - |
+| Display next channel | C | - | done: C switches both views | crates/ui/src/app.rs | - |
+| Display previous channel | Shift + C | - | done | crates/ui/src/app.rs | - |
+| Display material | M | - | partial: M returns the 2D view to the base colour (no lit material in UV space) | crates/ui/src/app.rs | - |
+| Display next mesh map | B | - | done: both views; unbaked maps fall back to the base colour in 2D | crates/ui/src/app.rs | - |
+| Display previous mesh map | Shift + B | - | done | crates/ui/src/app.rs | - |
 | Viewport layout 2D only | F3 | - | done; also a 2D view button on the left tool rail | crates/ui/src/app.rs | - |
 | Swap 2D / 3D view | F4 | - | done | crates/ui/src/app.rs | - |
 
@@ -65,10 +65,10 @@ Layout notes: the 2D view uses exactly the same combinations as the 3D view; orb
 | Snap rotation to orthogonal angles | Alt + Shift + LMB drag | every 90 degrees | missing | - | - |
 | Pan | Alt + MMB drag | - | done | crates/ui/src/panels/uv_view.rs:84 | - |
 | Pan (alternative) | Ctrl + Alt + LMB drag | - | partial: Alt + LMB alone pans (Painter rotates with it) | crates/ui/src/panels/uv_view.rs:85 | - |
-| Zoom | Alt + RMB drag | - | missing | - | - |
-| Zoom with the mouse wheel | Wheel over the view | (unverified) | partial: zoom range 0.2-20, centred on the view not the cursor | crates/ui/src/panels/uv_view.rs:79 | - |
-| Center the UVs in the 2D view | F with the cursor over the 2D view (2019.3) | - | partial: "Fit to view" button; F does not act on the 2D view | crates/ui/src/panels/uv_view.rs:65 | - |
-| F with the cursor outside both views focuses both | F (2019.3) | - | missing | - | - |
+| Zoom | Alt + RMB drag | - | done: zooms on the point where the drag began | crates/ui/src/panels/uv_view.rs | - |
+| Zoom with the mouse wheel | Wheel over the view | (unverified) | done: zoom range 0.2-20, centred on the cursor | crates/ui/src/panels/uv_view.rs | - |
+| Center the UVs in the 2D view | F with the cursor over the 2D view (2019.3) | - | done | crates/ui/src/app.rs | - |
+| F with the cursor outside both views focuses both | F (2019.3) | - | done | crates/ui/src/app.rs | - |
 | SpaceMouse navigation in the 2D view | 3Dconnexion device (7.4.2) | - | missing | - | - |
 
 ## Painting in UV space

@@ -185,7 +185,7 @@ fn netpbm_file_types_export_and_read_back() {
     // The window's PPM override leaves a four-component map in its own (alpha) file type.
     let settings = ExportSettings { template: ExportTemplate::unity_hdrp(), format_override: Some(FileFormat::Ppm8), ..Default::default() };
     for map in &settings.template.maps {
-        assert_eq!(output_format(map, &settings) == FileFormat::Ppm8, map.components.len() != 4, "{}", map.suffix);
+        assert_eq!(output_format(map, &settings) == FileFormat::Ppm8, !matches!(map.components.len(), 2 | 4), "{}", map.suffix);
     }
 }
 

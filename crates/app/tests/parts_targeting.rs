@@ -195,6 +195,35 @@ fn quick_mask_edits_without_touching_the_document_then_restricts_strokes() {
     assert!(s.quick_mask().is_none());
 }
 
+/// QA 2026-11: the quick mask kept its old size after a resolution change: applied, strokes
+/// ignored it (protected areas were painted); edited, every stroke failed.
+#[test]
+fn the_quick_mask_follows_the_resolution_of_its_texture_set() {
+    let mut s = session();
+    s.execute(Command::AddLayer(NewLayer::Paint)).unwrap();
+    let (a, b) = (island_uv(&s, 0), island_uv(&s, 1));
+    s.perform(Action::QuickMaskToggle).unwrap();
+    fill(&mut s, a);
+    s.perform(Action::QuickMaskToggle).unwrap();
+    let ts = s.selection().texture_set;
+    s.execute(Command::SetResolution { texture_set: Some(ts), resolution: 128 }).unwrap();
+    assert_eq!(s.quick_mask().unwrap().image.width(), 128, "resampled with its set");
+    dab_uv(&mut s, b);
+    assert_eq!(paint_alpha(&s, b), 0.0, "the protected area stays protected at the new size");
+    dab_uv(&mut s, a);
+    assert!(paint_alpha(&s, a) > 0.99);
+    // Back across the resolution change: the mask follows again, and editing it still paints.
+    for _ in 0..8 {
+        if s.document().texture_set(ts).unwrap().resolution == 64 { break; }
+        s.execute(Command::Undo).unwrap();
+    }
+    assert_eq!(s.document().texture_set(ts).unwrap().resolution, 64);
+    assert_eq!(s.quick_mask().unwrap().image.width(), 64);
+    s.perform(Action::QuickMaskToggle).unwrap();
+    assert!(s.quick_mask_editing());
+    fill(&mut s, b);
+}
+
 #[test]
 fn leaving_an_empty_quick_mask_removes_it_and_polygon_fill_paints_the_quick_mask_while_editing() {
     let mut s = session();
