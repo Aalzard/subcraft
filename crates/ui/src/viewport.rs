@@ -366,6 +366,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     // lift within one frame, and its dab must use the tap's force, not the reset after release.
     let (stroke_pressure, carried) = pen_pressure(&ui.input(|i| i.events.clone()), state.pen_pressure);
     state.pen_pressure = carried;
+    // The toolbar's pressure curve (a mouse reports 1, which every curve keeps).
+    let stroke_pressure = state.recovery.prefs.viewport.pressure_curve.apply(stroke_pressure);
     if !bake_mode && state.tool == Tool::Pen && !picking && !alt && !stencil_edit && !typing && let Some(p) = pointer {
             if primary_pressed && response.hovered() {
                 let hit = state.pen.preview(&state.session).and_then(|path| crate::pen::hit(path, state.pen.selected_anchor(), p, |uv| pen_position(state, &camera, rect, uv)));
@@ -648,8 +650,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 let ppu = camera.pixels_per_unit(pick.depth);
                 let r_px = state.session.brush_radius_in(ppu, size[1] as f32, density) * ppu / pixel_scale.y;
                 let color = if state.tool == Tool::Eraser { Color32::from_rgb(120, 190, 255) } else { ACCENT };
-                painter.circle_stroke(p, r_px, Stroke::new(1.5, Color32::from_black_alpha(160)));
-                painter.circle_stroke(p, r_px, Stroke::new(1.0, color));
+                // Painter's brush preview style (contextual toolbar): outline, crosshair or full.
+                let style = state.recovery.prefs.viewport.brush_preview;
+                let hardness = state.session.brush.settings.hardness;
+                crate::brush_cursor::draw(&painter, p, r_px, hardness, color, style);
                 // Symmetry: a second cursor where each copy paints (faint when the copy's point
                 // is hidden behind the model).
                 let prefs = &state.recovery.prefs.viewport;
@@ -659,7 +663,11 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     for (at, visible) in symmetry_cursors(&camera, options, center, pick.position, |s| state.session.pick(&camera, s).map(|h| h.depth)) {
                         let at = rect.min + egui::vec2(at.x / pixel_scale.x, at.y / pixel_scale.y);
                         let c = if visible { color.gamma_multiply(0.8) } else { color.gamma_multiply(0.3) };
-                        painter.circle_stroke(at, r_px, Stroke::new(1.0, c));
+                        if style == crate::brush_cursor::BrushPreview::Crosshair {
+                            crate::brush_cursor::draw(&painter, at, r_px, hardness, c, style);
+                        } else {
+                            painter.circle_stroke(at, r_px, Stroke::new(1.0, c));
+                        }
                     }
                 }
             }
