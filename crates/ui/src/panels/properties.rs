@@ -1826,6 +1826,7 @@ mod anchor_name_tests {
         frame(vec![egui::Event::Key { key: egui::Key::Enter, physical_key: None, pressed: true, repeat: false, modifiers: Default::default() }], &mut name, &mut renamed);
         frame(vec![], &mut name, &mut renamed);
         assert!(renamed, "Enter commits the typed name");
-        assert!(name.contains("edges") && name.contains("Anchor"), "{name:?}");
+        // The text lands where the click put the cursor, so only its presence is checked.
+        assert!(name.contains("edges") && name.len() == "Anchor 1 edges".len(), "{name:?}");
     }
 }
