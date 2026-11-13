@@ -316,7 +316,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     axis_information(&painter, rect);
     // The isolated component's name, as in the 3D view.
     if let Some(name) = shown_component(&state.recovery.prefs.viewport).overlay() {
-        crate::viewport::pill(&painter, rect.left_top() + egui::vec2(10.0, 10.0), egui::Align2::LEFT_TOP, crate::i18n::tr(name), crate::theme::TEXT());
+        crate::viewport::pill(&painter, rect.left_top() + egui::vec2(10.0, 10.0), egui::Align2::LEFT_TOP, crate::i18n::tr(name), crate::theme::OVERLAY_TEXT);
     }
     quick_mask_overlay(state, ui, &painter, frame);
     parts_overlay(state, ui, &painter, frame, picking, response.hover_pos());

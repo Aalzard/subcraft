@@ -206,6 +206,15 @@ pub const PAINTER: Palette = Palette {
     radius: 2,
 };
 
+/// Text and marks drawn over the 3D and 2D views, usually on a dark translucent plate. The
+/// views do not follow the theme, so these do not either: with the Light theme's dark text they
+/// were unreadable over the dark render (the Dark theme's values, so Dark looks as before).
+pub const OVERLAY_TEXT: Color32 = DARK.text;
+pub const OVERLAY_TEXT_DIM: Color32 = DARK.text_dim;
+pub const OVERLAY_TEXT_FAINT: Color32 = DARK.text_faint;
+/// Dark ring around a light mark (pen handles).
+pub const OVERLAY_OUTLINE: Color32 = DARK.bg_0;
+
 /// The theme in use (a `ThemeKind` as a number). The interface runs on one thread; an atomic
 /// keeps the read free.
 static CURRENT: AtomicU8 = AtomicU8::new(0);
@@ -544,6 +553,32 @@ mod tests {
 
     fn differs(a: Color32, b: Color32, by: u8) -> bool {
         a.r().abs_diff(b.r()).max(a.g().abs_diff(b.g())).max(a.b().abs_diff(b.b())) >= by
+    }
+
+    /// `over` with black at `alpha` on top (the translucent plates behind text over the views).
+    fn under_plate(over: Color32, alpha: u8) -> Color32 {
+        let k = 1.0 - alpha as f32 / 255.0;
+        let f = |v: u8| (v as f32 * k).round() as u8;
+        Color32::from_rgb(f(over.r()), f(over.g()), f(over.b()))
+    }
+
+    /// QA 2026-11: pills, the brush notice, shortcut hints and pen anchors over the 3D view used
+    /// the theme's text colours: in the Light theme, dark text on the dark render (about 1.2:1).
+    #[test]
+    fn text_over_the_views_reads_in_every_theme() {
+        // Over the render (its default background) ...
+        let render = Color32::from_rgb(36, 37, 40);
+        assert!(contrast(OVERLAY_TEXT, under_plate(render, 150)) >= 4.5, "pill text");
+        assert!(contrast(OVERLAY_TEXT_FAINT, under_plate(render, 150)) >= 2.5, "faint pill text");
+        assert!(contrast(OVERLAY_TEXT_DIM, under_plate(render, 70)) >= 4.5, "shortcut keys");
+        assert!(contrast(OVERLAY_TEXT_DIM, under_plate(render, 70)) > contrast(OVERLAY_TEXT_FAINT, under_plate(render, 70)), "keys stand out from their labels");
+        assert!(contrast(OVERLAY_TEXT, render) >= 4.5, "pen anchors");
+        // ... and the channel name pill over the 2D view's surround, in every theme.
+        for kind in ThemeKind::ALL {
+            let pill = under_plate(kind.palette().bg_0, 150);
+            assert!(contrast(OVERLAY_TEXT, pill) >= 4.5, "{kind:?}: 2D view pill: {}", contrast(OVERLAY_TEXT, pill));
+        }
+        assert_eq!((OVERLAY_TEXT, OVERLAY_TEXT_DIM, OVERLAY_TEXT_FAINT), (DARK.text, DARK.text_dim, DARK.text_faint), "the Dark theme looks as before");
     }
 
     #[test]
