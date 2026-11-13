@@ -67,6 +67,18 @@ fn reloading_the_mesh_deselects_the_imported_camera() {
     assert_eq!(state.active_camera, None);
 }
 
+/// QA 2026-11: the start of a Shift + click line is a screen position. After the camera moved it
+/// was still used, so the line started from whatever was under that pixel now.
+#[test]
+fn a_straight_line_does_not_start_from_a_point_seen_through_another_view() {
+    let mut state = state();
+    let view = |z: f32| subcraft_app::Camera::perspective(glam::Vec3::new(0.0, 0.0, z), glam::Vec3::ZERO, glam::Vec3::Y, 40.0, 0.1, 100.0, [640, 480]);
+    let p = Vec2::new(100.0, 120.0);
+    state.set_line_start(p, &view(5.0));
+    assert_eq!(state.line_start(&view(5.0)), Some(p), "same view: the line continues from the stroke's end");
+    assert_eq!(state.line_start(&view(6.0)), None, "the camera moved: no stale start");
+    assert_eq!(state.line_start(&view(5.0)), None, "and it stays forgotten");
+
 /// QA 2026-11: the mask view (the viewport showing a layer's mask) stayed on after another
 /// project was opened, pointing at a layer of the old one.
 #[test]

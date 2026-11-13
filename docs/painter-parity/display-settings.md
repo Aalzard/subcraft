@@ -267,8 +267,8 @@ Layout notes: this page is still in the help but the effect is not in the 12.0 e
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Temporal Anti-Aliasing (enable) | Display Settings > Camera | not documented | partial: "Anti-aliasing" in Camera settings is 4x MSAA, not temporal accumulation | crates/ui/src/panels/display_settings.rs (camera) | 161 |
-| Accumulations | Display Settings > Temporal anti-aliasing | 16 recommended; 64 for high contrast (full option list not documented) | missing | - | - |
+| Temporal Anti-Aliasing (enable) | Display Settings > Camera | not documented | done: Display Settings > Camera > Temporal anti-aliasing (off by default, on top of the 4x MSAA): Halton-jittered frames averaged while the view is still; any change restarts it and the finished image stays without re-rendering | crates/render/src/taa.rs, crates/ui/src/viewport.rs (taa_step) | 161, 294 |
+| Accumulations | Display Settings > Temporal anti-aliasing | 16 recommended; 64 for high contrast (full option list not documented) | done: 4, 8, 16 (default), 32, 64 | crates/ui/src/panels/display_settings.rs (camera) | 294 |
 
 ## Camera settings: Subsurface scattering
 
@@ -338,7 +338,7 @@ Layout notes: only enabled while a single channel is shown. The selected colour 
 | Positive color | Display Settings > Channel display | not documented | done | crates/ui/src/panels/display_settings.rs (visualization) | - |
 | Negative color | Display Settings > Channel display | not documented | done | crates/ui/src/panels/display_settings.rs (visualization) | - |
 | Color channels | Display Settings > Channel display | RGBA (color) / Grayscale+Alpha (grayscale); options RGBA, Grayscale+Alpha, R, G, B, Alpha | done: RGBA / Grayscale + Alpha, R, G, B, Alpha | crates/doc/src/display.rs (ChannelComponent) | - |
-| Component name overlay in the viewport | 3D / 2D view | - | partial: 3D view only | crates/ui/src/viewport.rs (visualization_overlays) | - |
+| Component name overlay in the viewport | 3D / 2D view | - | done: both views; the 2D view also isolates the component while a single channel is shown | crates/ui/src/viewport.rs (visualization_overlays), crates/ui/src/panels/uv_view.rs (shown_component) | 305 |
 
 ## Viewport settings: Grid
 

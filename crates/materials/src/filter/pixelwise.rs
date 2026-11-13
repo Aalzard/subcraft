@@ -25,6 +25,26 @@ pub fn directional_offset(v: f32, intensity: f32, angle_deg: f32, channel: Chann
     [a.cos() * k, a.sin() * k]
 }
 
+/// Directional Distance: the brightest value within `distance` pixels behind the texel along
+/// `angle_deg` (0 = right, counter-clockwise on screen), each faded by how far away it is;
+/// Contrast steepens the fade about its middle. `read(dx, dy)` is relative to the texel. The
+/// texel's own coverage is kept.
+pub fn directional_distance(read: impl Fn(i32, i32) -> [f32; 4], distance: f32, angle_deg: f32, contrast: f32, kind: ChannelKind) -> [f32; 4] {
+    let here = read(0, 0);
+    let a = angle_deg.to_radians();
+    let (dx, dy) = (a.cos(), -a.sin());
+    let mut best = scalar(here, kind);
+    for step in 1..=distance.ceil().max(0.0) as i32 {
+        let s = step as f32;
+        if s >= distance { break; }
+        let fade = (((1.0 - s / distance) - 0.5) / (1.0 - contrast).max(1e-3) + 0.5).clamp(0.0, 1.0);
+        if fade <= 0.0 { break; }
+        let p = read((-dx * s).round() as i32, (-dy * s).round() as i32);
+        best = best.max(scalar(p, kind) * p[3].min(1.0) * fade);
+    }
+    [best, best, best, here[3]]
+}
+
 /// Pixel a Mosaic block of `size` takes its value from (the block's centre pixel, clamped).
 pub fn mosaic_source(x: u32, y: u32, size: u32, res: u32) -> (u32, u32) {
     let size = size.max(1);
@@ -257,5 +277,26 @@ mod fxaa_tests {
         let holes = |dx: i32, dy: i32| if dx == 0 && dy == 0 { [1.0, 1.0, 1.0, 1.0] } else { [0.0, 0.0, 0.0, 0.0] };
         assert_eq!(fxaa(holes, false, ChannelKind::Roughness)[3], 1.0);
         assert!((fxaa(holes, true, ChannelKind::Roughness)[3] - 0.25).abs() < 1e-6);
+    }
+
+    #[test]
+    fn directional_distance_trails_bright_values_along_the_angle() {
+        // One bright texel at x = 10 on a dark row.
+        let at = |x: i32, angle: f32, distance: f32, contrast: f32| {
+            let read = |dx: i32, dy: i32| if x + dx == 10 && dy == 0 { [1.0, 1.0, 1.0, 1.0] } else { [0.0, 0.0, 0.0, 1.0] };
+            directional_distance(read, distance, angle, contrast, ChannelKind::Roughness)[0]
+        };
+        // Angle 0 spreads to the right: 4 texels on of 8 is half.
+        assert_eq!(at(10, 0.0, 8.0, 0.0), 1.0);
+        assert!((at(14, 0.0, 8.0, 0.0) - 0.5).abs() < 1e-6);
+        assert_eq!(at(18, 0.0, 8.0, 0.0), 0.0);
+        assert_eq!(at(6, 0.0, 8.0, 0.0), 0.0, "nothing behind the source");
+        // 180 degrees spreads to the left.
+        assert!((at(6, 180.0, 8.0, 0.0) - 0.5).abs() < 1e-5);
+        // Contrast 0.5 doubles the fade's slope about its middle: 0.75 becomes 1, 0.25 becomes 0.
+        assert_eq!(at(12, 0.0, 8.0, 0.5), 1.0);
+        assert_eq!(at(16, 0.0, 8.0, 0.5), 0.0);
+        // No distance: unchanged.
+        assert_eq!(at(11, 0.0, 0.0, 0.0), 0.0);
     }
 }
