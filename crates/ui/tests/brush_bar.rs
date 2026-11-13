@@ -76,7 +76,7 @@ fn bar_fits_wide_wrapped_and_tiny_docks_and_hides_for_non_paint_tools() {
         // Resolution and Albedo form a two-row left column; the main control band is centered
         // beside that column on wide docks and remains below it on narrow docks.
         let band_y = position(&output, "Albedo").map_or(view.y, |albedo| (view.y + albedo.y) * 0.5);
-        if width >= 1100.0 {
+        if width >= 1140.0 {
             assert!((brush.y - band_y).abs() < 3.0 && brush.x > view.x, "inline beside the filter column on wide docks (width {width}, brush {brush:?}, band_y {band_y}, view {view:?})");
         } else {
             assert!(brush.y > band_y + 15.0, "stacked rows on narrow docks");
@@ -85,7 +85,7 @@ fn bar_fits_wide_wrapped_and_tiny_docks_and_hides_for_non_paint_tools() {
             assert!(position(&output, "Anti-aliasing").is_some());
             assert!(position(&output, "AA").is_none());
         }
-        if width >= 595.0 {
+        if width >= 640.0 {
             for label in ["Size", "Flow", "Opacity", "Hardness"] {
                 assert!(
                     position(&output, label).is_some(),
@@ -249,7 +249,7 @@ fn symmetry_popup_owns_all_axes_and_lazy_mouse_while_sidebar_has_no_duplicates()
     click(
         &mut state,
         &ctx,
-        position(&out, subcraft_ui::icons::SYMMETRY).unwrap(),
+        position(&out, subcraft_ui::icons::GEAR).expect("symmetry settings button"),
     );
     for _ in 0..3 {
         frame(&mut state, &ctx, 1125.0, vec![]);

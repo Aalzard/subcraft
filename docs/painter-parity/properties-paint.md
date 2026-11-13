@@ -206,8 +206,8 @@ Layout notes: Selection mode icons first, then Fill mode icons (only meaningful 
 | Selection mode: Partial polygon loop fill | Properties > Polygon Fill > Selection mode | option | missing | - | - |
 | Fill mode: Triangle fill | Properties > Polygon Fill > Fill mode | option | done | crates/ui/src/panels/brush.rs:26 | - |
 | Fill mode: Polygon fill (source quads / n-gons) | Properties > Polygon Fill > Fill mode | option | missing | - | #131 |
-| Fill mode: Mesh fill (connected polygons) | Properties > Polygon Fill > Fill mode | option | partial: named "Part" | crates/ui/src/panels/brush.rs:26 | #131 |
-| Fill mode: UV chunk fill | Properties > Polygon Fill > Fill mode | option | partial: named "UV island" | crates/ui/src/panels/brush.rs:26 | - |
+| Fill mode: Mesh fill (connected polygons) | Properties > Polygon Fill > Fill mode | option | done: "Mesh" | crates/ui/src/brush_bar.rs | #131 |
+| Fill mode: UV chunk fill | Properties > Polygon Fill > Fill mode | option | done: "UV island" | crates/ui/src/brush_bar.rs | - |
 | Hit-test: Intersection | Properties > Polygon Fill > Hit-test | default | missing | - | #131 |
 | Hit-test: Contained center | Properties > Polygon Fill > Hit-test | option | missing | - | - |
 | Visible polygons only | Properties > Polygon Fill > Hit-test | not documented | missing | - | #131 |
@@ -328,10 +328,10 @@ Layout notes: groups in order: Size, Opacity, Stroke, Stretching & Tiling (a mod
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Quick mask edit mode (paint a temporary mask with the current brush) | Tools / U (docs also cite Y) | off | done: the current brush, alpha and stencil paint the mask | crates/app/src/quick_mask.rs | - |
-| Leave quick mask edit and paint through the mask (U) | Shortcut | n/a | done | crates/paint/src/stroke.rs (with_quick_mask) | - |
-| Reset / disable the quick mask (Y) | Shortcut | n/a | done: while editing | crates/app/src/quick_mask.rs | - |
-| Invert the quick mask (I) | Shortcut | n/a | done: while editing | crates/app/src/quick_mask.rs | - |
+| Quick mask edit mode (paint a temporary mask with the current brush) | Tools / U (docs also cite Y) | off | done | crates/app/src/session.rs | - |
+| Leave quick mask edit and paint through the mask (U) | Shortcut | n/a | done | crates/app/src/session.rs | - |
+| Reset / disable the quick mask (Y) | Shortcut | n/a | done | crates/app/src/session.rs | - |
+| Invert the quick mask (I) | Shortcut | n/a | done | crates/app/src/session.rs | - |
 
 ## Text resource parameters
 

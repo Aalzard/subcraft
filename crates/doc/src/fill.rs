@@ -13,6 +13,88 @@ pub enum ProjectionMode {
     Triplanar,
     /// Planar projection along an object axis.
     Planar,
+    /// Wrapped around a sphere at the centre of the model's bounding cube; `planar_axis` is the
+    /// pole (u = longitude, v = latitude from the pole).
+    Spherical,
+    /// Wrapped around a cylinder along `planar_axis` through the centre of the bounding cube
+    /// (u = angle around it over [`Projection::cylinder_angle`], v = position along it).
+    Cylindrical,
+}
+
+/// Symmetry of a 3D projection: the model position is folded before it is projected, so the
+/// projected texture repeats mirrored or around an axis.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum FillSymmetry {
+    #[default]
+    None,
+    /// The side above `position` (bounding-cube coordinate, 0.5 = the middle) along `axis` is
+    /// mirrored onto the other.
+    Mirror { axis: u8, position: f32 },
+    /// `count` copies around `axis` through `center`; `flip` mirrors every other copy.
+    Radial { axis: u8, count: u32, flip: bool, center: [f32; 3] },
+}
+
+impl FillSymmetry {
+    pub const MAX_COPIES: u32 = 64;
+
+    pub fn is_none(&self) -> bool {
+        *self == Self::None
+    }
+
+    pub fn mirror() -> Self {
+        Self::Mirror { axis: 0, position: 0.5 }
+    }
+
+    pub fn radial() -> Self {
+        Self::Radial { axis: 1, count: 4, flip: false, center: [0.5; 3] }
+    }
+
+    pub fn valid(&self) -> bool {
+        match *self {
+            Self::None => true,
+            Self::Mirror { axis, position } => axis < 3 && position.is_finite(),
+            Self::Radial { axis, count, center, .. } => axis < 3 && (1..=Self::MAX_COPIES).contains(&count) && center.iter().all(|c| c.is_finite()),
+        }
+    }
+
+    /// The position and normal the projection reads for a texel at `pos` with `normal`.
+    pub fn fold(&self, pos: [f32; 3], normal: [f32; 3]) -> ([f32; 3], [f32; 3]) {
+        match *self {
+            Self::None => (pos, normal),
+            Self::Mirror { axis, position } => {
+                let a = (axis as usize).min(2);
+                let (mut p, mut n) = (pos, normal);
+                if p[a] < position {
+                    p[a] = 2.0 * position - p[a];
+                    n[a] = -n[a];
+                }
+                (p, n)
+            }
+            Self::Radial { axis, count, flip, center } => {
+                let a = (axis as usize).min(2);
+                let (b, c) = ((a + 1) % 3, (a + 2) % 3);
+                let sector = std::f32::consts::TAU / count.clamp(1, Self::MAX_COPIES) as f32;
+                let (x, y) = (pos[b] - center[b], pos[c] - center[c]);
+                let theta = y.atan2(x).rem_euclid(std::f32::consts::TAU);
+                let k = (theta / sector).floor();
+                let local = theta - k * sector;
+                let mirrored = flip && (k as i64) % 2 == 1;
+                let target = if mirrored { sector - local } else { local };
+                // Rotate about the axis by `target - theta`; a flipped copy is also mirrored,
+                // which for the angle is the reflection `theta -> target` (same radius).
+                let r = (x * x + y * y).sqrt();
+                let mut p = pos;
+                p[b] = center[b] + r * target.cos();
+                p[c] = center[c] + r * target.sin();
+                let (s, co) = (target - theta).sin_cos();
+                let mut n = normal;
+                n[b] = normal[b] * co - normal[c] * s;
+                n[c] = normal[b] * s + normal[c] * co;
+                (p, n)
+            }
+        }
+    }
 }
 
 /// Texture reconstruction of a projected bitmap (Painter's Filtering dropdown).
@@ -140,6 +222,19 @@ pub struct Projection {
     /// Limit a tri-planar / planar projection to its box. Not written at its default.
     #[serde(default, skip_serializing_if = "ShapeCrop::is_default")]
     pub shape_crop: ShapeCrop,
+    /// Cylindrical: degrees of the perimeter the texture spans once (360 = all the way round).
+    #[serde(default = "full_turn", skip_serializing_if = "is_full_turn")]
+    pub cylinder_angle: f32,
+    /// Mirror / radial symmetry of a 3D projection. Not written when off.
+    #[serde(default, skip_serializing_if = "FillSymmetry::is_none")]
+    pub symmetry: FillSymmetry,
+}
+
+fn full_turn() -> f32 {
+    360.0
+}
+fn is_full_turn(v: &f32) -> bool {
+    *v == 360.0
 }
 
 /// Triplanar exponent stored for Hardness 1.0: the three planes are cut, not blended.
@@ -157,6 +252,8 @@ impl Default for Projection {
             filtering: FillFiltering::default(),
             uv_wrap: UvWrap::default(),
             shape_crop: ShapeCrop::default(),
+            cylinder_angle: 360.0,
+            symmetry: FillSymmetry::None,
         }
     }
 }
@@ -174,6 +271,36 @@ impl Projection {
         let h = hardness.clamp(0.0, 1.0);
         let s = 1.0 / (1.0 - h);
         self.triplanar_sharpness = if s >= TRIPLANAR_HARD { TRIPLANAR_HARD } else { s };
+    }
+
+    /// Whether the projection reads the model position (everything but UV).
+    #[inline]
+    pub fn is_3d(&self) -> bool {
+        self.mode != ProjectionMode::Uv
+    }
+
+    /// The symmetry in effect: 3D projections only.
+    #[inline]
+    pub fn effective_symmetry(&self) -> FillSymmetry {
+        if self.is_3d() { self.symmetry } else { FillSymmetry::None }
+    }
+
+    /// Unprojected 2D coordinates of a bounding-cube position for the spherical and cylindrical
+    /// modes: u around `planar_axis` (0.5 where the next axis points), v from the pole (sphere)
+    /// or along the axis (cylinder, top = 0).
+    pub fn wrapped_coords(&self, pos: [f32; 3]) -> [f32; 2] {
+        let a = (self.planar_axis as usize).min(2);
+        let (b, c) = ((a + 1) % 3, (a + 2) % 3);
+        let d = [pos[0] - 0.5, pos[1] - 0.5, pos[2] - 0.5];
+        let theta = d[c].atan2(d[b]);
+        if self.mode == ProjectionMode::Spherical {
+            let len = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+            let v = if len <= 1e-12 { 0.5 } else { (d[a] / len).clamp(-1.0, 1.0).acos() / std::f32::consts::PI };
+            [theta / std::f32::consts::TAU + 0.5, v]
+        } else {
+            let span = self.cylinder_angle.clamp(1.0, 360.0).to_radians();
+            [theta / span + 0.5, 1.0 - pos[a]]
+        }
     }
 
     /// The UV wrap in effect: tri-planar has no UV Wrap setting and always repeats.
@@ -217,6 +344,51 @@ impl Projection {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn spherical_and_cylindrical_coordinates_and_symmetry_folds() {
+        let near = |a: [f32; 2], b: [f32; 2]| (a[0] - b[0]).abs() < 1e-5 && (a[1] - b[1]).abs() < 1e-5;
+        // Sphere with the Y pole: the equator point on +Z is u 0.5, v 0.5; the pole is v 0.
+        let s = Projection { mode: ProjectionMode::Spherical, planar_axis: 1, ..Projection::default() };
+        assert!(near(s.wrapped_coords([0.5, 0.5, 1.0]), [0.5, 0.5]));
+        assert!((s.wrapped_coords([0.5, 1.0, 0.5])[1]).abs() < 1e-5);
+        assert!((s.wrapped_coords([0.5, 0.0, 0.5])[1] - 1.0).abs() < 1e-5);
+        // A quarter turn toward +X is a quarter of the longitude.
+        assert!(near(s.wrapped_coords([1.0, 0.5, 0.5]), [0.75, 0.5]));
+        // Cylinder along Y: v runs down from the top; Angle 180 spans half the perimeter per tile.
+        let c = Projection { mode: ProjectionMode::Cylindrical, planar_axis: 1, ..Projection::default() };
+        assert!(near(c.wrapped_coords([1.0, 0.25, 0.5]), [0.75, 0.75]));
+        let half = Projection { cylinder_angle: 180.0, ..c };
+        assert!(near(half.wrapped_coords([1.0, 0.25, 0.5]), [1.0, 0.75]));
+        // Mirror on X at the middle: the low side reads the high side, its normal flipped.
+        let m = FillSymmetry::mirror();
+        let (p, n) = m.fold([0.2, 0.3, 0.4], [1.0, 0.0, 0.0]);
+        assert!((p[0] - 0.8).abs() < 1e-6 && p[1] == 0.3 && p[2] == 0.4 && n == [-1.0, 0.0, 0.0], "{p:?} {n:?}");
+        assert_eq!(m.fold([0.8, 0.3, 0.4], [1.0, 0.0, 0.0]), ([0.8, 0.3, 0.4], [1.0, 0.0, 0.0]));
+        // Radial, 4 copies about Y: the same spot in every quarter reads the first one.
+        let r = FillSymmetry::radial();
+        let at = |angle: f32| [0.5 + 0.4 * angle.sin(), 0.1, 0.5 + 0.4 * angle.cos()];
+        let quarter = std::f32::consts::FRAC_PI_2;
+        let first = at(0.2);
+        for k in 0..4 {
+            let p = r.fold(at(0.2 + k as f32 * quarter), [0.0, 0.0, 1.0]).0;
+            assert!((0..3).all(|i| (p[i] - first[i]).abs() < 1e-5), "quarter {k}: {p:?}");
+        }
+        // Flip mirrors every other copy: a point just inside the second sector reads the far
+        // end of the first.
+        let f = FillSymmetry::Radial { axis: 1, count: 4, flip: true, center: [0.5; 3] };
+        let t = 0.1f32;
+        let (p, q) = (f.fold(at(quarter + t), [0.0; 3]).0, at(quarter - t));
+        assert!((0..3).all(|i| (p[i] - q[i]).abs() < 1e-5), "{p:?} {q:?}");
+        // Symmetry does nothing on a UV projection; defaults are not written.
+        let uv = Projection { symmetry: m, ..Projection::default() };
+        assert!(uv.effective_symmetry().is_none() && Projection { mode: ProjectionMode::Planar, ..uv }.effective_symmetry() == m);
+        let json = serde_json::to_string(&Projection::default()).unwrap();
+        assert!(!json.contains("symmetry") && !json.contains("cylinder_angle"), "{json}");
+        let back: Projection = serde_json::from_str(&serde_json::to_string(&Projection { symmetry: f, cylinder_angle: 90.0, ..s }).unwrap()).unwrap();
+        assert_eq!((back.symmetry, back.cylinder_angle, back.mode), (f, 90.0, ProjectionMode::Spherical));
+        assert!(!FillSymmetry::Radial { axis: 1, count: 0, flip: false, center: [0.5; 3] }.valid());
+    }
 
     #[test]
     fn transform_scales_x_and_y_separately_then_offsets() {

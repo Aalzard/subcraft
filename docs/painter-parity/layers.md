@@ -19,7 +19,7 @@ Layout notes: one header row. Far left is the view-mode (channel) dropdown; the 
 | Create Mask > Add mask with height combination | Layers header, mask menu | not documented | missing (no Compare Mask effect) | - | - |
 | Create New Paint Layer (above the selection) | Layers header, icon 3 | not documented | done | crates/ui/src/panels/layers.rs:162 | - |
 | Create New Fill Layer (above the selection) | Layers header, icon 4 | not documented | done | crates/ui/src/panels/layers.rs:165 | - |
-| Add New Smart Materials (mini-shelf of smart materials, inserts above the selection) | Layers header, icon 5 | not documented | missing (smart materials are added from the shelf only) | - | - |
+| Add New Smart Materials (mini-shelf of smart materials, inserts above the selection) | Layers header, icon 5 | not documented | done (a searchable list, no thumbnails) | crates/ui/src/panels/layers.rs:332 | - |
 | Add New Folder (empty, above the selection) | Layers header, icon 6 | not documented | done | crates/ui/src/panels/layers.rs:168 | - |
 | Delete Layer (selected layer, folder or effect) | Layers header, icon 7 | not documented | done | crates/ui/src/panels/layers.rs:343 | - |
 | New layer goes inside a selected empty folder | Layers header buttons | not documented | done | crates/app/src/session.rs:1207 | - |
@@ -50,7 +50,7 @@ Layout notes: left to right a Painter row has the visibility eye, the content th
 | Folder disclosure arrow (open/close group) | Folder row | open | done | crates/ui/src/panels/layers.rs:286 | - |
 | Folder closes when moved in or out of another folder (fixed in recent versions: state kept) | Folder row | state kept | done | crates/app/src/layer_tree.rs:17 | - |
 | Instance icon (none / source / target; click opens the instance list) | Layer row, right | hidden when not instanced | missing | - | - |
-| Geometry mask icon (click to edit, shows count of included items) | Layer row, far right | all geometry included | partial: no row icon; the "Parts" section in Properties plays this role | crates/ui/src/panels/properties.rs:88 | - |
+| Geometry mask icon (click to edit, shows count of included items) | Layer row, far right | all geometry included | done: polygon icon with included/total, click to pick parts in the 3D / 2D view, right-click menu | crates/ui/src/panels/layers.rs | - |
 | Gamma-corrected alpha "i" icon | Layer row | off | missing | - | - |
 | Layer colour stripe (from Set color) | Layer row | none | done (at the right edge of the row; dimmed inside a tagged folder) | crates/ui/src/panels/layers.rs:559 | - |
 | Broken instance / cycle indicator | Layer row | n/a | missing | - | - |
@@ -120,13 +120,13 @@ Layout notes: one flat dropdown, grouped by separators in this order: Normal / P
 | Drag an effect (filter / generator) from Assets into the stack (new layer set to Passthrough on all channels) | Assets > Layer stack | n/a | partial: filters only (generators are not on the shelf) | crates/ui/src/panels/shelf.rs:133 | - |
 | Drag a texture from Assets into the stack (new fill layer) | Assets > Layer stack | n/a | done | crates/ui/src/panels/shelf.rs:111 | - |
 | Drag an alpha / procedural / environment map into the stack | Assets > Layer stack | n/a | partial: alphas go to the row's mask as an image effect; no procedural or environment drop | crates/ui/src/panels/shelf.rs:115 | - |
-| Drag a Smart Mask onto the stack as a new layer (fill layer with that mask) | Assets > Layer stack | n/a | partial: applies to the row it is dropped on, never creates a layer | crates/ui/src/panels/shelf.rs:99 | - |
+| Drag a Smart Mask onto the stack as a new layer (fill layer with that mask) | Assets > Layer stack | n/a | done (dropped on the top zone; on a row it goes into that row's mask) | crates/ui/src/panels/shelf.rs:154 | - |
 | Drag an external file from the OS into the stack (auto-import and create layer/effect) | OS > Layer stack | n/a | missing | - | - |
-| Ctrl while dropping a resource in the stack: new layer with the resource inside a black mask | Assets > Layer stack | n/a | missing | - | - |
+| Ctrl while dropping a resource in the stack: new layer with the resource inside a black mask | Assets > Layer stack | n/a | partial: materials and textures; the new layer gets a black mask, the resource stays the layer's content | crates/ui/src/panels/shelf.rs:154 | - |
 | Alt while dropping on a layer thumbnail: remove the previous effects first | Assets > Layer stack | n/a | partial: Alt means "apply in place" (replace the fill material / set the active channel), a different rule | crates/ui/src/panels/shelf.rs:80 | - |
 | Hovering a thumbnail while dragging switches to that stack (content or mask) | Layer stack | n/a | partial: mask thumbnail is a separate drop target, no stack switch | crates/ui/src/panels/layers.rs:300 | - |
 | Ghost mask icon on mask-less layers while dragging (drop creates a black mask plus the resource) | Layer stack | n/a | missing | - | - |
-| Ctrl + drag a material creates the fill layer with a mask immediately | Assets > Layer stack | n/a | missing | - | - |
+| Ctrl + drag a material creates the fill layer with a mask immediately | Assets > Layer stack | n/a | done | crates/ui/src/panels/shelf.rs:154 | - |
 | Automatic ID mask when dropping a material on a mesh with an ID map (Ctrl in viewport) | Assets > Viewport | n/a | missing | - | - |
 
 ## Managing layers
@@ -137,7 +137,7 @@ Layout notes: one flat dropdown, grouped by separators in this order: Normal / P
 | Insertion bar between two layers | Layer stack | n/a | done | crates/ui/src/panels/layers.rs:75 | - |
 | Insertion bar below a layer | Layer stack | n/a | done | crates/ui/src/panels/layers.rs:86 | - |
 | Drop on a folder to move the layer inside (lands at the top of the folder) | Layer stack | n/a | done | crates/app/src/layer_tree.rs:20 | - |
-| Drag several selected layers at once | Layer stack | n/a | missing (drag carries one layer) | - | - |
+| Drag several selected layers at once | Layer stack | n/a | done | crates/ui/src/panels/layers.rs:118 | - |
 | Auto-scroll the stack while dragging near its edges | Layer stack | n/a | done | crates/ui/src/panels/layers.rs:247 | - |
 | Single click selects a layer | Layer stack | n/a | done | crates/ui/src/panels/layers.rs:398 | - |
 | Ctrl / Cmd + click adds or removes a layer from the selection | Layer stack | n/a | done | crates/app/src/multi_select.rs:37 | - |
@@ -164,10 +164,10 @@ Layout notes: these are Painter's non-editable shortcuts; copy/paste only fire w
 | Paste as instance | Layer stack | Ctrl+Shift+V (per instancing page) | missing | - | - |
 | Instantiate across texture sets | Layer stack | Ctrl+Shift+D (2017.4 release notes) | missing | - | - |
 | Merge / flatten the selected group | Layer stack | Ctrl+M | done | crates/ui/src/panels/layers.rs:797 | - |
-| Display mask in viewport | Mask thumbnail | Alt + left click | partial: opens a floating UV preview window of the mask, viewport unchanged | crates/ui/src/panels/layers.rs:312 | - |
+| Display mask in viewport | Mask thumbnail | Alt + left click | done | crates/ui/src/panels/layers.rs:481 | - |
 | Disable / enable mask | Mask thumbnail | Shift + left click | done | crates/ui/src/panels/layers.rs:308 | - |
-| Move effect up / down | Effect row | Alt + Arrow Up / Arrow Down | missing | - | - |
-| Hide / ignore excluded geometry | Viewport contextual toolbar | Alt+H | missing | - | - |
+| Move effect up / down | Effect row | Alt + Arrow Up / Arrow Down | done | crates/ui/src/panels/effects.rs:290 | - |
+| Hide / ignore excluded geometry | Viewport contextual toolbar | Alt+H | done | crates/app/src/part_workflow.rs | - |
 | Copy/paste limited to pointer over the layer stack | Layer stack | n/a | partial: fires whenever no text field has focus | crates/ui/src/clipboard.rs:40 | - |
 
 ## Layer context menu (right-click on a layer)
@@ -217,10 +217,10 @@ Layout notes: Painter's menu is, top to bottom: effect entries (with icons), mas
 | Copy / cut / paste one or several layers; pasted above the selection | Layer stack | Ctrl+C / X / V | done | crates/app/src/command.rs:81 | - |
 | Paste layers into another texture set | Layer stack | n/a | done | crates/app/src/session.rs:694 | - |
 | Copy/paste layers across projects (not supported in Painter) | Layer stack | not supported | done (SubCraft allows it) | crates/app/src/command.rs:80 | - |
-| Pasted duplicates are renamed ("copy N") | Layer stack | not documented | partial: names kept, ids regenerated | crates/app/src/session.rs:1061 | - |
+| Pasted duplicates are renamed ("copy N") | Layer stack | not documented | done ("name copy", then "name copy 2"...) | crates/app/src/clipboard.rs:71 | - |
 | Copy layer content / paste layer content (painting plus effects into an existing layer) | Layer stack | Ctrl+Shift+C / V | done (the content replaces the target's; the mask is not copied) | crates/app/src/session.rs:1561 | - |
 | Copy / paste blending options between layers | Layer context menu > Blending options | n/a | done | crates/app/src/session.rs:1535 | - |
-| Copy / cut / paste effects (see masks-effects.md) | Effect rows | Ctrl+C / X / V | partial: copy and paste from the effect row menu only | crates/ui/src/panels/effects.rs:286 | - |
+| Copy / cut / paste effects (see masks-effects.md) | Effect rows | Ctrl+C / X / V | done | crates/ui/src/clipboard.rs:61 | - |
 | Anchor references survive duplicate and copy/paste | Layer stack | n/a | done | crates/app/src/clipboard.rs:209 | - |
 
 ## Layer colours
@@ -301,11 +301,11 @@ Layout notes: the geometry mask is a second, list-based mask on every layer and 
 | Click geometry in the 3D or 2D view to toggle it | Viewport (edit mode) | n/a | partial: 3D view picking only | crates/ui/src/panels/properties.rs:105 | - |
 | Rectangle selection in both viewports | Viewport (edit mode) | n/a | missing | - | - |
 | Excluded geometry drawn grey with diagonal lines while editing | Viewport (edit mode) | n/a | missing | - | - |
-| Right-click icon > Copy geometry mask | Layer row icon menu | n/a | missing | - | - |
-| Right-click icon > Paste into geometry mask | Layer row icon menu | n/a | missing | - | - |
+| Right-click icon > Copy geometry mask | Layer row icon menu | n/a | done | crates/ui/src/panels/layers.rs | - |
+| Right-click icon > Paste into geometry mask | Layer row icon menu | n/a | done | crates/ui/src/panels/layers.rs | - |
 | Right-click icon > Include all | Layer row icon menu | n/a | partial: "All" button in Properties | crates/ui/src/panels/properties.rs:118 | - |
 | Right-click icon > Exclude all | Layer row icon menu | n/a | partial: "None" button in Properties | crates/ui/src/panels/properties.rs:121 | - |
-| Hide/ignore excluded geometry button (paint through hidden parts) | Viewport contextual toolbar | off; Alt+H | partial: parts can be hidden or isolated per part (H / I under the cursor), not tied to the layer's mask | crates/ui/src/viewport.rs:183 | - |
+| Hide/ignore excluded geometry button (paint through hidden parts) | Viewport contextual toolbar | off; Alt+H | done: hides what the selected layer's geometry mask leaves out and follows the selection | crates/ui/src/viewport_bar.rs | - |
 | Mask is dynamic: strokes are recomputed when the include list changes | Engine | n/a | partial: the part mask multiplies the layer result; strokes are not reprojected | crates/doc/src/layer.rs:134 | - |
 | Survives mesh re-import by name / tile number | Engine | n/a | partial: part ids are stable for a stored mesh only | crates/doc/src/layer.rs:137 | - |
 | Excluded UV tiles are skipped by the engine (performance) | Engine | n/a | missing | - | - |
@@ -317,7 +317,7 @@ Layout notes: the geometry mask is a second, list-based mask on every layer and 
 |---|---|---|---|---|---|
 | Create smart material from a folder (named after the folder, saved to the current shelf) | Folder context menu | n/a | partial: any layer can be saved; label differs | crates/app/src/library.rs:17 | - |
 | Add smart material by drag and drop into the stack | Assets > Layer stack | n/a | done | crates/ui/src/panels/shelf.rs:95 | - |
-| Add smart material from the header mini-shelf button | Layers header, icon 5 | n/a | missing | - | - |
+| Add smart material from the header mini-shelf button | Layers header, icon 5 | n/a | done (a searchable list, no thumbnails) | crates/ui/src/panels/layers.rs:332 | - |
 | Smart material arrives as a folder of layers | Layer stack | n/a | done | crates/ui/src/panels/shelf.rs:62 | - |
 | No link back to the source preset once added | Layer stack | n/a | done | crates/app/src/command.rs:51 | - |
 | Instanced layers inside a smart material need their source in the folder | Smart material save | n/a | missing (no instancing) | - | - |

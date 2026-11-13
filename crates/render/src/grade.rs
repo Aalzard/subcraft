@@ -118,6 +118,15 @@ pub struct Grade {
     pub temperature: f32,
     /// Display gamma after everything else (1 = none; 2 brightens the mid tones).
     pub gamma: f32,
+    /// Lens distortion strength (0 = off): positive bends the picture like a wide lens (barrel),
+    /// negative like a telephoto (pincushion).
+    pub lens_power: f32,
+    /// How far a barrel distortion zooms in to hide the stretched border, 0..1.
+    pub lens_fov: f32,
+    /// Shape of the picture's edge: 0 a rectangle, 1 an oval.
+    pub lens_roundness: f32,
+    /// Softness of that edge, 0 (hard) .. 1.
+    pub lens_smoothness: f32,
 }
 
 impl Default for Grade {
@@ -143,6 +152,10 @@ impl Default for Grade {
             sepia: 0.0,
             temperature: 6500.0,
             gamma: 1.0,
+            lens_power: 0.0,
+            lens_fov: 1.0,
+            lens_roundness: 0.5,
+            lens_smoothness: 0.2,
         }
     }
 }
@@ -153,7 +166,29 @@ pub const ABERRATION_SHIFT: f32 = 0.04;
 impl Grade {
     /// Whether the stage changes the picture at all.
     pub fn active(&self) -> bool {
-        self.aberration > 0.0 || self.vignette > 0.0 || self.sharpen > 0.0 || self.grain > 0.0 || self.color_correction || (self.gamma - 1.0).abs() > 1e-6
+        self.aberration > 0.0 || self.vignette > 0.0 || self.sharpen > 0.0 || self.grain > 0.0 || self.color_correction || (self.gamma - 1.0).abs() > 1e-6 || self.lens_power != 0.0
+    }
+
+    /// Zoom that keeps a barrel distortion's corners inside the picture, by the FOV setting.
+    pub fn lens_zoom(&self) -> f32 {
+        1.0 / (1.0 + self.lens_power.max(0.0) * self.lens_fov.clamp(0.0, 1.0))
+    }
+
+    /// Where the lens makes view point `uv` read the picture, and how much of it shows there
+    /// (0 outside the rounded edge). `aspect` is width / height. Identity when the power is 0.
+    pub fn lens_uv(&self, uv: [f32; 2], aspect: f32) -> ([f32; 2], f32) {
+        if self.lens_power == 0.0 {
+            return (uv, 1.0);
+        }
+        let d = [(uv[0] - 0.5) * aspect, uv[1] - 0.5];
+        let r2 = (d[0] * d[0] + d[1] * d[1]) / ((aspect * aspect + 1.0) * 0.25);
+        let f = (1.0 + self.lens_power * r2) * self.lens_zoom();
+        let at = [0.5 + (uv[0] - 0.5) * f, 0.5 + (uv[1] - 0.5) * f];
+        let q = [(at[0] - 0.5).abs() * 2.0, (at[1] - 0.5).abs() * 2.0];
+        let n = 16.0 + (2.0 - 16.0) * self.lens_roundness.clamp(0.0, 1.0);
+        let s = (q[0].powf(n) + q[1].powf(n)).powf(1.0 / n);
+        let soft = self.lens_smoothness.clamp(0.0, 1.0) * 0.5;
+        (at, 1.0 - smoothstep(1.0 - soft - 1e-4, 1.0, s))
     }
 
     /// Offset (in view units, 0..1) of the red image at `uv`; blue moves the opposite way.
@@ -232,13 +267,14 @@ impl Grade {
         let mut out = Vec::with_capacity(image.len());
         for y in 0..h {
             for x in 0..w {
-                let uv = [(x as f32 + 0.5) / w as f32, (y as f32 + 0.5) / h as f32];
+                let (uv, mask) = self.lens_uv([(x as f32 + 0.5) / w as f32, (y as f32 + 0.5) / h as f32], w as f32 / h as f32);
                 let mut c = fetch(uv);
                 if self.sharpen > 0.0 {
                     let o = [0.5 * self.sharpen_diameter / w as f32, 0.5 * self.sharpen_diameter / h as f32];
                     let taps = [[-1.0, -1.0], [1.0, -1.0], [-1.0, 1.0], [1.0, 1.0]].map(|k: [f32; 2]| fetch([uv[0] + k[0] * o[0], uv[1] + k[1] * o[1]]));
                     c = [0, 1, 2].map(|i| (c[i] + self.sharpen * (c[i] - 0.25 * (taps[0][i] + taps[1][i] + taps[2][i] + taps[3][i]))).max(0.0));
                 }
+                let c = c.map(|v| v * mask);
                 let c = self.apply_gamma(self.correct(c));
                 out.extend([linear_to_srgb(c[0]), linear_to_srgb(c[1]), linear_to_srgb(c[2]), image[(y * w + x) * 4 + 3]]);
             }
@@ -301,6 +337,31 @@ mod tests {
         let ids: std::collections::HashSet<u32> = ToneMap::ALL.iter().map(|t| tone_map_id(*t) as u32).collect();
         assert_eq!(ids.len(), ToneMap::ALL.len() - 1);
         assert_eq!(tone_map_id(ToneMap::Auto), tone_map_id(ToneMap::Sensitometric));
+    }
+
+    #[test]
+    fn the_lens_bends_the_picture_and_masks_its_edge() {
+        let off = Grade::default();
+        assert_eq!(off.lens_uv([0.2, 0.7], 1.5), ([0.2, 0.7], 1.0), "power 0 is no lens");
+        assert!(!off.active());
+        let barrel = Grade { lens_power: 0.6, lens_fov: 1.0, lens_roundness: 0.0, lens_smoothness: 0.0, ..Default::default() };
+        assert!(barrel.active());
+        let (c, m) = barrel.lens_uv([0.5, 0.5], 1.5);
+        assert!((c[0] - 0.5).abs() < 1e-6 && (c[1] - 0.5).abs() < 1e-6 && m == 1.0, "the centre stays put");
+        // FOV 1 zooms exactly enough that a corner reads the picture's corner.
+        let (corner, _) = barrel.lens_uv([1.0, 1.0], 1.5);
+        assert!((corner[0] - 1.0).abs() < 1e-5 && (corner[1] - 1.0).abs() < 1e-5, "{corner:?}");
+        // Without the zoom the corner reads outside the picture, where the mask hides it.
+        let (outside, hidden) = Grade { lens_fov: 0.0, ..barrel }.lens_uv([0.98, 0.98], 1.5);
+        assert!(outside[0] > 1.0 && hidden == 0.0, "{outside:?} {hidden}");
+        // A telephoto pulls the edges in: everything reads from inside the picture.
+        let (pulled, shown) = Grade { lens_power: -0.5, ..barrel }.lens_uv([1.0, 0.5], 1.5);
+        assert!(pulled[0] < 1.0 && shown == 1.0);
+        // An oval edge hides the corners that a rectangular one keeps.
+        let edge = Grade { lens_power: 0.01, lens_fov: 0.0, lens_smoothness: 0.0, ..Default::default() };
+        let corner_rect = Grade { lens_roundness: 0.0, ..edge }.lens_uv([0.97, 0.97], 1.0).1;
+        let corner_oval = Grade { lens_roundness: 1.0, ..edge }.lens_uv([0.97, 0.97], 1.0).1;
+        assert!(corner_rect > 0.99 && corner_oval < 0.01, "rectangle {corner_rect}, oval {corner_oval}");
     }
 
     #[test]

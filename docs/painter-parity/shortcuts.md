@@ -80,9 +80,9 @@ Layout notes: Painter lists editable shortcuts in Settings > Shortcuts as one lo
 | Toggle animation | Settings > Shortcuts | Space | missing | - | - |
 | Export textures | Settings > Shortcuts | Ctrl+Shift+E | done | crates/app/src/actions.rs:220 | - |
 | Center the whole mesh | Settings > Shortcuts | F | done | crates/app/src/actions.rs:209 | - |
-| Toggle quick mask edition | Settings > Shortcuts | U | done: both key sets, editable | crates/app/src/actions.rs | - |
-| Clear quick mask | Settings > Shortcuts | Y | done | crates/app/src/actions.rs | - |
-| Invert quick mask | Settings > Shortcuts | I | done | crates/app/src/actions.rs | - |
+| Toggle quick mask edition | Settings > Shortcuts | U | missing | - | - |
+| Clear quick mask | Settings > Shortcuts | Y | missing | - | - |
+| Invert quick mask | Settings > Shortcuts | I | missing | - | - |
 | Viewport layout 3D/2D | Settings > Shortcuts | F1 | done | crates/ui/src/app.rs (apply_view_layout) | #164 |
 | Viewport layout 3D only | Settings > Shortcuts | F2 | partial: Painter key set only (F2 renames a layer in the SubCraft set); the 2D view stays a tab behind | crates/ui/src/app.rs (apply_view_layout) | #164 |
 | Viewport layout 2D only | Settings > Shortcuts | F3 | partial: the 3D view stays a tab behind | crates/ui/src/app.rs (apply_view_layout) | #164 |
@@ -145,7 +145,7 @@ Layout notes: these act only while the pointer is over the layer stack.
 | Group layer | Layer stack | Ctrl+G | done (no selection: adds an empty folder) | crates/app/src/session.rs:1908 | - |
 | Copy layer content | Layer stack | Ctrl+Shift+C (Option+Cmd+C) | done | crates/ui/src/clipboard.rs:66 | - |
 | Paste layer content | Layer stack | Ctrl+Shift+V (Option+Cmd+V) | done | crates/ui/src/clipboard.rs:66 | - |
-| Display mask in viewport | Layer stack, mask thumbnail | Alt+Mouse left | partial: opens a preview inspector window, viewport does not switch to the mask | crates/ui/src/panels/layers.rs:312 | - |
+| Display mask in viewport | Layer stack, mask thumbnail | Alt+Mouse left | done | crates/ui/src/panels/layers.rs:481 | - |
 | Disable/Enable mask | Layer stack, mask thumbnail | Shift+Mouse left | done | crates/ui/src/panels/layers.rs:308 | - |
 | Drag and drop material onto one part of the model | Assets to viewport | Ctrl+Drag and drop | missing | - | - |
 | Manipulator constraint/snapping | Viewport manipulator | Shift | missing | - | - |

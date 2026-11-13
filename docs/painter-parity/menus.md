@@ -164,9 +164,9 @@ Layout notes: two submenus with a tick per item (Views for dockable windows, Too
 | Display next mesh map | Viewport | B | done | crates/ui/src/app.rs (menu) | #164 |
 | Display previous mesh map | Viewport | Shift+B | done | crates/ui/src/app.rs (menu) | #164 |
 | Show entire mesh | Viewport | F | done | crates/ui/src/app.rs (menu) | #164 |
-| Enabled quick mask | Viewport | not documented | partial: a quick mask always applies once painted; Clear quick mask removes it | crates/ui/src/app.rs (menu) | - |
-| Edit quick mask | Viewport | U | done | crates/ui/src/app.rs (menu) | - |
-| Invert quick mask | Viewport | I | done: enabled while editing; Clear quick mask beside it | crates/ui/src/app.rs (menu) | - |
+| Enabled quick mask | Viewport | not documented | missing | - | - |
+| Edit quick mask | Viewport | U | missing | - | - |
+| Invert quick mask | Viewport | I | missing | - | - |
 
 ## Plugins menus (JavaScript, Python)
 

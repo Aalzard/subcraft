@@ -49,9 +49,6 @@ pub struct Stroke {
     alpha: Option<Arc<subcraft_image::Bitmap>>,
     stencil: Option<Arc<crate::stencil::Stencil>>,
     parts: Option<subcraft_doc::PartMask>,
-    /// Quick mask (1 comp, texture-set resolution): 1 protects a texel from the stroke, 0 lets it
-    /// paint (Painter's quick mask once its edition is closed).
-    quick_mask: Option<TiledImage>,
     projection: Projection,
     texture_tiling: bool,
     albedo_filter: subcraft_image::TextureFilter,
@@ -64,6 +61,8 @@ pub struct Stroke {
     uv_clone: Option<UvClone>,
     /// 2D-view strokes: where the texture sits in the 2D view (stencil masking).
     uv_view: Option<UvView>,
+    /// Quick mask: paint lands only where this single-channel image is white.
+    quick_mask: Option<TiledImage>,
     /// Smudge: live copies of the target images (the snapshots stay pre-stroke) and the paint
     /// carried along (premultiplied value, alpha) per stroke copy and image.
     work: Vec<TiledImage>,
@@ -165,7 +164,6 @@ impl Stroke {
             alpha: None,
             stencil: None,
             parts: ts.find(layer).and_then(|l| l.parts.clone()),
-            quick_mask: None,
             projection: material.projection,
             texture_tiling: material.texture_tiling,
             albedo_filter: ts.albedo_filter,
@@ -175,6 +173,7 @@ impl Stroke {
             clone: None,
             uv_clone: None,
             uv_view: None,
+            quick_mask: None,
             work: Vec::new(),
             carried: Vec::new(),
             uv_per_unit: None,
@@ -239,6 +238,13 @@ impl Stroke {
         self
     }
 
+    /// Restrict the stroke to the white of a quick mask (one channel, the texture set's
+    /// resolution; 0 blocks, 1 lets paint through). A mask of another size is ignored.
+    pub fn with_quick_mask(mut self, mask: Option<TiledImage>) -> Self {
+        self.quick_mask = mask;
+        self
+    }
+
     /// The clone offset in screen pixels, once the first dab has fixed it.
     pub fn clone_offset(&self) -> Option<Vec2> {
         self.clone.and_then(|c| c.offset)
@@ -280,13 +286,6 @@ impl Stroke {
     /// Mask the stroke with a screen-space stencil (white paints, black blocks).
     pub fn with_stencil(mut self, stencil: Option<Arc<crate::stencil::Stencil>>) -> Self {
         self.stencil = stencil;
-        self
-    }
-
-    /// Protect the texels a quick mask covers: coverage is scaled by `1 - mask` (1 comp image at
-    /// the texture set's resolution; another size is ignored).
-    pub fn with_quick_mask(mut self, mask: Option<TiledImage>) -> Self {
-        self.quick_mask = mask.filter(|m| m.comps() >= 1);
         self
     }
 
@@ -1052,15 +1051,12 @@ impl Stroke {
                 *c *= parts.factor(geo.region(i, parts.kind));
             }
         }
-        if let Some(mask) = self.quick_mask.as_ref().filter(|m| m.width() == geometry.resolution && m.height() == geometry.resolution) {
-            if !mask.is_allocated(tile) && mask.fill()[0] <= 0.0 {
-                return;
-            }
+        if let Some(mask) = self.quick_mask.as_ref().filter(|m| m.width() == geometry.resolution && m.height() == geometry.resolution && tile < m.tile_count()) {
             let comps = mask.comps();
-            let mut texels = vec![0.0f32; TILE_TEXELS * comps];
-            mask.read_tile(tile, &mut texels);
-            for (c, m) in cov.iter_mut().zip(texels.chunks_exact(comps)) {
-                *c *= (1.0 - m[0]).clamp(0.0, 1.0);
+            let mut buf = vec![0.0f32; TILE_TEXELS * comps];
+            mask.read_tile(tile, &mut buf);
+            for (c, px) in cov.iter_mut().zip(buf.chunks_exact(comps)) {
+                *c *= px[0].clamp(0.0, 1.0);
             }
         }
     }
@@ -1148,24 +1144,7 @@ pub fn uv_symmetry_copies(ctx: &PaintContext, options: &StrokeOptions, uv: Vec2)
     let Some(t) = triangle_at_uv(mesh, ctx.geometry, uv) else { return Vec::new() };
     let Some((u, v)) = uv_barycentric(mesh, t, uv) else { return Vec::new() };
     let p = mesh.interpolate(t as usize, u, v).position;
-    let center = mesh.bounds.center();
-    let mut points = vec![p];
-    let mirrors = options.symmetry.iter().filter(|&&m| m).count();
-    let radial = &options.radial;
-    let n = radial.effective_count(mirrors);
-    if n > 1 {
-        let pivot = center + Vec3::from_array(radial.center_offset);
-        for k in 1..n {
-            let q = glam::Quat::from_axis_angle(radial.axis_dir(), std::f32::consts::TAU * k as f32 / n as f32);
-            points.push(pivot + q * (p - pivot));
-        }
-    }
-    for axis in 0..3 {
-        if options.symmetry[axis] {
-            let mirrored: Vec<Vec3> = points.iter().map(|&q| { let mut m = q; m[axis] = 2.0 * center[axis] - q[axis]; m }).collect();
-            points.extend(mirrored);
-        }
-    }
+    let points = options.symmetry_points(mesh.bounds.center(), p);
     let slot = ctx.geometry.material_slot;
     let reach = (mesh.bounds.diagonal() * 0.05).max(1e-6);
     let min_gap = 0.5 / ctx.geometry.resolution.max(1) as f32;
