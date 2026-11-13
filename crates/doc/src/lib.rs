@@ -30,7 +30,7 @@ pub use display::{Anisotropy, ChannelComponent, DisplaySettings, EnvAlignment, F
 pub use document::Document;
 pub use effect::{ContentEffect, ContentEffectKind};
 pub use warp::{DEFAULT_WARP_CELLS, MAX_WARP_SIDE, WarpGrid};
-pub use fill::{ProjectionTransform, FillSymmetry, FillFiltering, FillSource, ShapeCrop, TRIPLANAR_HARD, UvWrap, ProceduralKind, ProceduralParams, ScratchParams, ScratchPreset, Projection, ProjectionMode};
+pub use fill::{BackfaceCulling, ProjectionTransform, FillSymmetry, FillFiltering, FillSource, ShapeCrop, TRIPLANAR_HARD, UvWrap, ProceduralKind, ProceduralParams, ScratchParams, ScratchPreset, Projection, ProjectionMode};
 pub use filter::{BevelCorner, BevelDirection, BevelParts, CurvePreset, OutlineParts, FULL_SUPPORT, Filter, FlipMode, HslMode, MirrorCorner, MirrorMode, RepeatMode, ThresholdMode, Gradient, GradientStop, MAX_GRADIENT_STOPS, MAX_MEDIAN_RADIUS, MAX_MOSAIC_SIZE, MAX_POSTERIZE_LEVELS, MAX_WARP_SCALE, GRADIENT_PRESETS, OutlinePosition};
 pub use history::{History, HistoryEntry};
 pub use instance::{InstanceCache, InstanceState};
@@ -39,6 +39,6 @@ pub use mask::{CompareMask, CompareOp, CompareOperand, LevelsRange, SelectionBac
 pub use pen::{PathKind, PathRibbon, PathStamp, PenAnchor, PenPath, RibbonMode};
 pub use resources::{Resource, ResourceKind, ResourceStore};
 pub use text::TextDecal;
-pub use settings::{ExportConfig, ExportOverrides, NormalFormat, ProjectSettings};
+pub use settings::{BakeConfig, ExportConfig, ExportOverrides, MapFormat, NormalFormat, ProjectSettings};
 pub use shader::{MAIN_SHADER, ShaderAssignment, ShaderInstance, ShaderInstanceId, ShaderParams};
 pub use texture_set::{AlphaMode, AlphaSettings, AoMixing, ChannelDef, ChannelFormat, HeightToNormal, IdColorEdit, LayerLocation, LayerOpError, MixingSettings, NormalMixing, RESOLUTIONS, TextureSet, UvPadding};

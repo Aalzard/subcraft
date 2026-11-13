@@ -142,7 +142,7 @@ Layout notes: two submenus with a tick per item (Views for dockable windows, Too
 | Views > Display settings | Window > Views | (unverified) | partial: Render quality window from the View menu | crates/ui/src/app.rs:1254 | - |
 | Views > History | Window > Views | (unverified) | partial: entry brings the panel to the front; it cannot be hidden | crates/ui/src/app.rs (menu) | #164 |
 | Views > Layers | Window > Views | shown (unverified) | partial: entry brings the panel to the front; it cannot be hidden | crates/ui/src/app.rs (menu) | #164 |
-| Views > Log | Window > Views | (unverified) | missing | - | - |
+| Views > Log | Window > Views | (unverified) | done: opens the Log panel (closed by default) and brings it to the front | crates/ui/src/app.rs (menu), panels/log.rs | - |
 | Views > Properties | Window > Views | shown (unverified) | partial: entry brings the panel to the front; it cannot be hidden | crates/ui/src/app.rs (menu) | #164 |
 | Views > Shader settings | Window > Views | (unverified) | missing | - | - |
 | Views > Texture Set List | Window > Views | shown (unverified) | partial: entry brings the panel to the front; it cannot be hidden | crates/ui/src/app.rs (menu) | #164 |
@@ -200,7 +200,7 @@ Layout notes: every plugin found at start-up gets a submenu named after it in th
 | Forums | Help | - | missing | - | - |
 | Report a bug | Help | - | done | crates/ui/src/app.rs:1290 | - |
 | Show log | Help | - | partial: opens the log folder, not the file in a text editor | crates/ui/src/app.rs:1295 | - |
-| Export log | Help | - | partial: Copy diagnostic info in the bug report window, no file export | crates/ui/src/bug_report.rs:105 | - |
+| Export log | Help | - | done: Help > Export log… saves a copy of this session's log file | crates/ui/src/panels/log.rs (export_log) | - |
 | Give feedback | Help | - | missing | - | - |
 | Manage my account | Help | - | n/a | - | - |
 | Sign out | Help | - | n/a | - | - |

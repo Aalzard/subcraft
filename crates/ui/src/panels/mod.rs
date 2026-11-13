@@ -6,6 +6,7 @@ pub mod brush_rows;
 pub mod effects;
 pub mod filter;
 pub mod history;
+pub mod log;
 pub mod id_colors;
 pub mod layers;
 pub mod mask;

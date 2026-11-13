@@ -238,14 +238,29 @@ pub fn projection_covers(projection: &Projection, sc: (f32, f32), uv: [f32; 2], 
     }
 }
 
-/// Per-texel coverage (1 inside, 0 outside) of a projection on a tile; `None` when nothing is
-/// clipped ([`Projection::clips`]), which is every projection at its defaults.
+/// Coverage 0..=1 of texel `(uv, pos, normal)`: 0 outside the projected texture
+/// ([`projection_covers`]), otherwise what backface culling leaves (1 without it).
+#[inline]
+pub fn projection_coverage(projection: &Projection, sc: (f32, f32), uv: [f32; 2], pos: [f32; 3], normal: [f32; 3]) -> f32 {
+    if !projection_covers(projection, sc, uv, pos) {
+        return 0.0;
+    }
+    if projection.backface_culling().is_none() {
+        return 1.0;
+    }
+    let (p, n) = projection.local(pos, normal);
+    projection.facing_weight(p, n)
+}
+
+/// Per-texel coverage (1 inside, 0 outside, in between where backface culling fades) of a
+/// projection on a tile; `None` when nothing is clipped ([`Projection::clips`]), which is every
+/// projection at its defaults.
 pub fn coverage_tile(projection: &Projection, geo: &TileGeometry) -> Option<Vec<f32>> {
     if !projection.clips() {
         return None;
     }
     let sc = projection.rotation_sin_cos();
-    Some((0..TILE_TEXELS).map(|i| if projection_covers(projection, sc, geo.uv(i), geo.position(i)) { 1.0 } else { 0.0 }).collect())
+    Some((0..TILE_TEXELS).map(|i| projection_coverage(projection, sc, geo.uv(i), geo.position(i), geo.normal(i))).collect())
 }
 
 /// Mip level of texel `i`: log2 of the source texels one output texel spans.
@@ -288,7 +303,8 @@ pub fn bitmap_tile(bmp: &Arc<Bitmap>, linearize: bool, projection: &Projection, 
     let uv_lod = (sampler.uses_lod() && projection.mode == ProjectionMode::Uv).then(|| texel_lod(projection, density, geo, 0));
     for (i, o) in out.iter_mut().enumerate() {
         let (uv, pos) = (geo.uv(i), geo.position(i));
-        if clips && !projection_covers(projection, sc, uv, pos) {
+        let cover = if clips { projection_coverage(projection, sc, uv, pos, geo.normal(i)) } else { 1.0 };
+        if cover <= 0.0 {
             *o = [0.0; 4];
             continue;
         }
@@ -298,5 +314,6 @@ pub fn bitmap_tile(bmp: &Arc<Bitmap>, linearize: bool, projection: &Projection, 
             None => 0.0,
         };
         *o = sample_projected_sc(projection, sc, uv, pos, geo.normal(i), |p| sampler.sample(p, lod));
+        o[3] *= cover;
     }
 }

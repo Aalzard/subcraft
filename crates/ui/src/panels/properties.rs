@@ -1646,6 +1646,31 @@ fn transform3_group(ui: &mut Ui, proj: &mut Projection) -> bool {
     proj.transform3 != before
 }
 
+/// Painter's Backface culling of a planar or cylindrical projection: the toggle, the Angle
+/// (planar) and the Hardness.
+fn backface_rows(ui: &mut Ui, proj: &mut Projection) -> bool {
+    if !matches!(proj.mode, ProjectionMode::Planar | ProjectionMode::Cylindrical) {
+        return false;
+    }
+    let before = proj.backface;
+    let mut on = proj.backface.is_some();
+    prop_row(ui, "", |ui| {
+        if ui.checkbox(&mut on, tr("Backface culling")).on_hover_text(tr("Project only on the surfaces that face the projection")).changed() {
+            proj.backface = on.then(subcraft_doc::BackfaceCulling::default);
+        }
+    });
+    let planar = proj.mode == ProjectionMode::Planar;
+    if let Some(b) = &mut proj.backface {
+        if planar {
+            slider_row(ui, tr("Culling angle"), egui::Slider::new(&mut b.angle_deg, 0.0..=180.0).suffix("\u{00b0}"))
+                .on_hover_text(tr("Surfaces turned further than this from the projection get nothing"));
+        }
+        slider_row(ui, tr("Culling hardness"), egui::Slider::new(&mut b.hardness, 0.0..=1.0))
+            .on_hover_text(tr("1 cuts at the angle; lower values fade the projection out before it"));
+    }
+    proj.backface != before
+}
+
 /// Painter's Symmetry group of a fill projection (3D projections only): Enable symmetry, the
 /// type (Mirror / Radial) and its settings.
 fn symmetry_group(ui: &mut Ui, proj: &mut Projection) -> bool {
@@ -1719,6 +1744,7 @@ pub(crate) fn fill_properties(ui: &mut Ui, proj: &mut Projection) -> bool {
     }
     changed |= wrapped_projection_rows(ui, proj);
     changed |= transform3_group(ui, proj);
+    changed |= backface_rows(ui, proj);
     changed |= symmetry_group(ui, proj);
     ui.add_space(4.0);
     egui::CollapsingHeader::new(RichText::new(tr("UV transformations")).font(theme::font_strong(12.0)).color(theme::TEXT)).default_open(true).show(ui, |ui| {
@@ -1786,7 +1812,10 @@ pub(crate) fn material_buttons(ui: &mut Ui, states: &[(ChannelKind, bool)], adda
     let mut clicked = None;
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing = egui::vec2(5.0, 6.0);
-        for kind in ORDER {
+        // The usual seven first, then every other channel the texture set has (Opacity and the
+        // rest), so each one can be toggled on a fill layer.
+        let extra = states.iter().map(|s| s.0).filter(|k| !ORDER.contains(k));
+        for kind in ORDER.into_iter().chain(extra) {
             let state = states.iter().find(|s| s.0 == kind).map(|s| s.1);
             let can_add = state.is_none() && addable.contains(&kind);
             let r = ui.add_enabled(state.is_some() || can_add, egui::Button::new(RichText::new(kind.short_name()).font(theme::font(12.0)).color(if state == Some(true) { theme::TEXT } else { theme::TEXT_DIM }))
@@ -1864,6 +1893,7 @@ pub(crate) fn projection_editor(ui: &mut Ui, proj: &mut Projection) -> bool {
     }
     changed |= wrapped_projection_rows(ui, proj);
     changed |= transform3_group(ui, proj);
+    changed |= backface_rows(ui, proj);
     changed |= symmetry_group(ui, proj);
     let default = reset_transform(proj);
     if *proj != default && ui.small_button(tr("Reset tiling, offset and rotation")).clicked() {
@@ -2009,5 +2039,24 @@ mod anchor_name_tests {
         assert!(renamed, "Enter commits the typed name");
         // The text lands where the click put the cursor, so only its presence is checked.
         assert!(name.contains("edges") && name.len() == "Anchor 1 edges".len(), "{name:?}");
+    }
+}
+
+#[cfg(test)]
+mod material_button_tests {
+    use super::*;
+
+    #[test]
+    fn fill_material_buttons_include_opacity_and_other_set_channels() {
+        let ctx = egui::Context::default();
+        crate::theme::apply(&ctx);
+        let states = [(ChannelKind::BaseColor, true), (ChannelKind::Roughness, false), (ChannelKind::Opacity, true)];
+        let mut first = ctx.run_ui(Default::default(), |ui| { let _ = material_buttons(ui, &states, &[]); });
+        first.textures_delta.clear();
+        let mut out = ctx.run_ui(Default::default(), |ui| { let _ = material_buttons(ui, &states, &[]); });
+        out.textures_delta.clear();
+        let has = |t: &str| out.shapes.iter().any(|s| matches!(&s.shape, egui::Shape::Text(g) if g.galley.text() == t));
+        assert!(has(ChannelKind::Opacity.short_name()), "Opacity gets a toggle on fill layers");
+        assert!(has(ChannelKind::BaseColor.short_name()));
     }
 }

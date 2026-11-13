@@ -115,9 +115,9 @@ Layout notes: shown on the right only when a texture set (not Global settings) i
 | Output maps list | Right side, per texture set | - | done (all sets under Global settings, one set's maps when a set is selected) | crates/ui/src/dialogs.rs | chunk 14 |
 | Output map checkbox (skip one file) | Row checkbox | checked | done | crates/ui/src/dialogs.rs:414 | - |
 | Resolved file name per map | Row text | - | done (path preview) | crates/ui/src/dialogs.rs:418 | - |
-| File format override per map | Row dropdown | from template | missing | - | - |
-| Bit depth override per map | Row dropdown | from template | missing | - | - |
-| Colour space shown per map | Row text (colour management on) | - | missing | - | - |
+| File format override per map | Row dropdown | from template | done (per texture set, in its output map rows) | crates/doc/src/settings.rs MapFormat | chunk 22 |
+| Bit depth override per map | Row dropdown | from template | done (with the file format) | crates/doc/src/settings.rs MapFormat | chunk 22 |
+| Colour space shown per map | Row text (colour management on) | - | done (sRGB, Linear or Raw beside each file; shown always, SubCraft has no colour management switch) | crates/ui/src/dialogs.rs export_map_list, crates/export/src/lib.rs PlannedFile::color_space | colour space |
 
 ## Output templates tab: presets list (left column)
 
@@ -125,16 +125,16 @@ Layout notes: three columns. Left: list of templates with three icon buttons abo
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Presets list (default + custom templates) | Left column | - | missing | - | #124 |
-| Duplicate button | Above the list | - | missing | - | #124 |
-| Remove button (no undo) | Above the list | - | missing | - | #124 |
-| Add button (new empty template) | Above the list | - | missing | - | #124 |
-| Double-click a template to rename | Presets list | - | missing | - | #124 |
+| Presets list (default + custom templates) | Left column | - | done (preset menu: built-ins, then My presets) | crates/ui/src/export_presets.rs preset_bar | #124 |
+| Duplicate button | Above the list | - | done | crates/ui/src/export_presets.rs preset_bar | #124 |
+| Remove button (no undo) | Above the list | - | done (Delete, with a confirmation) | crates/ui/src/export_presets.rs preset_bar | #124 |
+| Add button (new empty template) | Above the list | - | done (New) | crates/ui/src/export_presets.rs preset_bar | #124 |
+| Double-click a template to rename | Presets list | - | partial: renamed in the editor's Name field | crates/ui/src/export_presets.rs preset_editor | #124 |
 | Right-click > Delete | Presets list context menu | - | missing | - | #124 |
 | Right-click > Rename | Presets list context menu | - | missing | - | #124 |
 | Right-click > Duplicate | Presets list context menu | - | missing | - | #124 |
-| Import a preset file (.spexp) through Import resources or the export-presets folder | File > Import resources / library folder | - | missing | - | #124 |
-| Template stored as one shareable file in the library | assets/export-presets folder | - | missing | - | #124 |
+| Import a preset file (.spexp) through Import resources or the export-presets folder | File > Import resources / library folder | - | done (Import… in the preset bar; files in the library's export-presets folder load at start) | crates/app/src/export_presets.rs | #124 |
+| Template stored as one shareable file in the library | assets/export-presets folder | - | done (export-presets/<uuid>.json; Export… writes one) | crates/export/src/preset.rs | #124 |
 | Last used template embedded in the project file | Automatic on save after an export | - | partial: only the template name is stored in project settings | crates/ui/src/dialogs.rs:355 | #124 |
 | "Outdated" marker when the embedded template differs from the library one | Presets list | - | missing | - | - |
 
@@ -142,36 +142,36 @@ Layout notes: three columns. Left: list of templates with three icon buttons abo
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Output maps list of the selected template | Middle column | - | missing | - | #124 |
-| Create: Gray | Button row above the list: one grayscale slot | - | missing (model supports 1-component maps, crates/export/src/template.rs:44) | - | #124 |
-| Create: RGB | Button row: one RGB slot | - | missing | - | #124 |
-| Create: R+G+B | Button row: three grayscale slots | - | missing | - | #124 |
-| Create: RGB+A | Button row: RGB slot plus alpha slot | - | missing | - | #124 |
-| Create: R+G+B+A | Button row: four grayscale slots | - | missing | - | #124 |
-| Merge / split slots of a map (collapse when empty or same source) | Slot header of an output map | - | missing | - | - |
-| Remove an output map | Cross button on the map row | - | missing | - | #124 |
-| Map name field (file name pattern) | Text field on the map row | - | missing | - | #124 |
-| $ button (insert a keyword) | Beside the name field | - | missing | - | - |
-| Keyword $project | Name pattern: project file name | - | missing | - | - |
-| Keyword $mesh | Name pattern: mesh file name | - | missing (fixed naming mesh_set_suffix, crates/export/src/lib.rs:142) | - | #124 |
-| Keyword $textureSet | Name pattern: texture set / material name | - | missing | - | #124 |
-| Keyword $sceneMaterial | Name pattern: material name as in the mesh file | (unverified) | missing | - | - |
-| Keyword $udim | Name pattern: UV tile number | - | missing (suffix .1001 or per-tile folder is fixed, crates/export/src/lib.rs:146) | - | #124 |
-| Keyword $colorSpace | Name pattern: colour space of the map | - | missing | - | - |
-| "/" in the name creates sub-folders (groups in PSD) | Name pattern | - | missing | - | - |
-| Optional part in parentheses, e.g. (.$udim) | Name pattern | (unverified) | missing | - | - |
-| Map file format dropdown | First dropdown on the map row | - | missing (per-map format exists in the model, crates/export/src/template.rs:43) | - | #124 |
-| Map bit depth dropdown | Second dropdown on the map row | - | missing | - | #124 |
-| Channel slot (drop target) | One or more coloured slots per map | empty | missing | - | #124 |
-| Drag a source map from the right column onto a slot | Drag and drop | - | missing | - | #124 (picked from a dropdown, no drag) |
-| Drop menu: RGB channels | Popup after dropping on a slot | - | missing | - | #124 |
-| Drop menu: R channel | Popup after dropping | - | missing | - | #124 |
-| Drop menu: G channel | Popup after dropping | - | missing | - | #124 |
-| Drop menu: B channel | Popup after dropping | - | missing | - | #124 |
+| Output maps list of the selected template | Middle column | - | done | crates/ui/src/export_presets.rs preset_editor | #124 |
+| Create: Gray | Button row above the list: one grayscale slot | - | done | crates/ui/src/export_presets.rs new_map | chunk 22 |
+| Create: RGB | Button row: one RGB slot | - | done (one RGB slot) | crates/ui/src/export_presets.rs new_map | chunk 22 |
+| Create: R+G+B | Button row: three grayscale slots | - | done (three gray slots) | crates/ui/src/export_presets.rs new_map | chunk 22 |
+| Create: RGB+A | Button row: RGB slot plus alpha slot | - | done | crates/ui/src/export_presets.rs new_map | chunk 22 |
+| Create: R+G+B+A | Button row: four grayscale slots | - | done | crates/ui/src/export_presets.rs new_map | chunk 22 |
+| Merge / split slots of a map (collapse when empty or same source) | Slot header of an output map | - | done (Merge RGB / Split RGB; R, G, B of one source show as one slot) | crates/ui/src/export_presets.rs map_editor | chunk 22 |
+| Remove an output map | Cross button on the map row | - | done (Remove button) | crates/ui/src/export_presets.rs | #124 |
+| Map name field (file name pattern) | Text field on the map row | - | done (with a live preview) | crates/ui/src/export_presets.rs map_editor | #124 |
+| $ button (insert a keyword) | Beside the name field | - | done (appends the keyword) | crates/ui/src/export_presets.rs map_editor | chunk 22 |
+| Keyword $project | Name pattern: project file name | - | done (project file name; the mesh name for an unsaved project) | crates/export/src/lib.rs expand_pattern_with | chunk 22 |
+| Keyword $mesh | Name pattern: mesh file name | - | done | crates/export/src/lib.rs expand_pattern_with | #124 |
+| Keyword $textureSet | Name pattern: texture set / material name | - | done | crates/export/src/lib.rs expand_pattern_with | #124 |
+| Keyword $sceneMaterial | Name pattern: material name as in the mesh file | (unverified) | done (the material's name in the mesh file) | crates/export/src/lib.rs expand_pattern_with | chunk 22 |
+| Keyword $udim | Name pattern: UV tile number | - | done | crates/export/src/lib.rs expand_pattern_with | #124 |
+| Keyword $colorSpace | Name pattern: colour space of the map | - | done (sRGB, Linear or Raw; Painter writes OCIO names when colour management is on) | crates/export/src/lib.rs color_space | chunk 22 |
+| "/" in the name creates sub-folders (groups in PSD) | Name pattern | - | done for folders (no PSD container) | crates/export/src/lib.rs expand_pattern_with | chunk 22 |
+| Optional part in parentheses, e.g. (.$udim) | Name pattern | (unverified) | done (dropped when a keyword in it is empty) | crates/export/src/lib.rs expand_pattern_with | chunk 22 |
+| Map file format dropdown | First dropdown on the map row | - | done | crates/ui/src/export_presets.rs format_combo | #124, chunk 21 |
+| Map bit depth dropdown | Second dropdown on the map row | - | done | crates/ui/src/export_presets.rs format_combo | #124, chunk 21 |
+| Channel slot (drop target) | One or more coloured slots per map | empty | done | crates/ui/src/export_presets.rs map_editor | chunk 22 |
+| Drag a source map from the right column onto a slot | Drag and drop | - | done | crates/ui/src/export_presets.rs source_lists | chunk 22 |
+| Drop menu: RGB channels | Popup after dropping on a slot | - | done (on an RGB slot) | crates/ui/src/export_presets.rs map_editor | chunk 22 |
+| Drop menu: R channel | Popup after dropping | - | done | crates/ui/src/export_presets.rs map_editor | chunk 22 |
+| Drop menu: G channel | Popup after dropping | - | done | crates/ui/src/export_presets.rs map_editor | chunk 22 |
+| Drop menu: B channel | Popup after dropping | - | done | crates/ui/src/export_presets.rs map_editor | chunk 22 |
 | Drop menu: A channel (painted coverage) | Popup after dropping | - | missing | - | - |
-| Drop menu: Gray channel (grayscale conversion) | Popup after dropping | - | missing | - | #124 |
-| Slot colour cue (random colour per source, bar showing RGB / R / G / B / gray / alpha) | Slot button | - | missing | - | - |
-| Empty slot writes a default colour | Export behaviour | - | partial: Constant source, not editable in UI | crates/export/src/template.rs:17 | #124 |
+| Drop menu: Gray channel (grayscale conversion) | Popup after dropping | - | done (colour channels) | crates/ui/src/export_presets.rs map_editor | chunk 22 |
+| Slot colour cue (random colour per source, bar showing RGB / R / G / B / gray / alpha) | Slot button | - | partial: slot names coloured R / G / B, the drop target highlights; no per-source colour | crates/ui/src/export_presets.rs map_editor | chunk 22 |
+| Empty slot writes a default colour | Export behaviour | - | done (empty slots are constants: black, white alpha; editable) | crates/ui/src/export_presets.rs new_map | chunk 22 |
 | Channel missing from a texture set writes its neutral default | Export behaviour | - | done | crates/export/src/lib.rs:219 | - |
 
 ## Output templates tab: source map list (right column)
@@ -180,11 +180,11 @@ Layout notes: three collapsible groups in this order: Input maps, Converted maps
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Input maps group (every texture set channel) | Right column | - | missing as a list (built-in templates read channels, crates/export/src/template.rs:12) | - | #124 |
-| Input maps: user channels listed as user_x | Right column | - | missing | - | #124 |
+| Input maps group (every texture set channel) | Right column | - | done (draggable list) | crates/ui/src/export_presets.rs source_lists | chunk 22 |
+| Input maps: user channels listed as user_x | Right column | - | done (listed by display name) | crates/ui/src/export_presets.rs source_lists | chunk 22 |
 | Input maps grouped by category (OpenPBR naming) | Right column | - | missing | - | - |
-| Converted map: Normal OpenGL | Right column | - | partial: used by built-in templates, not selectable | crates/export/src/template.rs:14 | #124 |
-| Converted map: Normal DirectX | Right column | - | partial: used by built-in templates and a global Normal maps override | crates/ui/src/dialogs.rs:363 | #124 |
+| Converted map: Normal OpenGL | Right column | - | done (draggable) | crates/ui/src/export_presets.rs source_lists | chunk 22 |
+| Converted map: Normal DirectX | Right column | - | done (draggable) | crates/ui/src/export_presets.rs source_lists | chunk 22 |
 | Converted map: Mixed AO | Right column | - | done (AO channel x baked AO; either alone when the other is absent) | crates/export/src/lib.rs Dense::converted | chunk 47 |
 | Converted map: Diffuse | Right column | - | done (base color x (1 - metallic)) | crates/export/src/template.rs Converted | chunk 47 |
 | Converted map: Specular | Right column | - | done (f0 from Specular level for dielectrics, base color for metals, blended by metallic) | crates/export/src/template.rs Converted | chunk 47 |
@@ -195,15 +195,15 @@ Layout notes: three collapsible groups in this order: Input maps, Converted maps
 | Converted map: 1/ior | Right column | - | done (from Specular level: level 0.5 = IOR 1.5) | crates/export/src/template.rs Converted | chunk 47 |
 | Converted map: Glossiness squared | Right column | - | done | crates/export/src/template.rs Converted | chunk 47 |
 | Converted map: f0 | Right column | - | done (0.08 x Specular level) | crates/export/src/template.rs Converted | chunk 47 |
-| Mesh map: Normal | Right column | - | partial: raw file via the Baked Mesh Maps section, cannot be packed | crates/ui/src/dialogs.rs:298 | #124 |
-| Mesh map: World space normal | Right column | - | partial: raw file only | crates/ui/src/dialogs.rs:298 | #124 |
-| Mesh map: ID | Right column | - | partial: raw file only | crates/ui/src/dialogs.rs:298 | #124 |
-| Mesh map: Ambient occlusion | Right column | - | partial: raw file only | crates/ui/src/dialogs.rs:298 | #124 |
-| Mesh map: Curvature | Right column | - | partial: raw file only | crates/ui/src/dialogs.rs:298 | #124 |
-| Mesh map: Position | Right column | - | partial: raw file only | crates/ui/src/dialogs.rs:298 | #124 |
-| Mesh map: Thickness | Right column | - | partial: raw file only | crates/ui/src/dialogs.rs:298 | #124 |
-| Mesh map: Height | Right column | - | partial: raw file only | crates/ui/src/dialogs.rs:298 | #124 |
-| Mesh map: Bent normals | Right column | - | partial: raw file only | crates/ui/src/dialogs.rs:298 | #124 |
+| Mesh map: Normal | Right column | - | done (draggable, packable) | crates/ui/src/export_presets.rs source_lists | chunk 22 |
+| Mesh map: World space normal | Right column | - | done (draggable, packable) | crates/ui/src/export_presets.rs source_lists | chunk 22 |
+| Mesh map: ID | Right column | - | done (draggable, packable) | crates/ui/src/export_presets.rs source_lists | chunk 22 |
+| Mesh map: Ambient occlusion | Right column | - | done (draggable, packable) | crates/ui/src/export_presets.rs source_lists | chunk 22 |
+| Mesh map: Curvature | Right column | - | done (draggable, packable) | crates/ui/src/export_presets.rs source_lists | chunk 22 |
+| Mesh map: Position | Right column | - | done (draggable, packable) | crates/ui/src/export_presets.rs source_lists | chunk 22 |
+| Mesh map: Thickness | Right column | - | done (draggable, packable) | crates/ui/src/export_presets.rs source_lists | chunk 22 |
+| Mesh map: Height | Right column | - | done (draggable, packable) | crates/ui/src/export_presets.rs source_lists | chunk 22 |
+| Mesh map: Bent normals | Right column | - | done (draggable, packable) | crates/ui/src/export_presets.rs source_lists | chunk 22 |
 
 ## List of exports tab
 
@@ -249,7 +249,7 @@ Layout notes: these sit at the top of the Output template dropdown on the Settin
 | Non-PBR Specular Glossiness | Output templates list | - | done (converted maps; unverified) | crates/export/src/builtin_presets.rs | chunk 47 |
 | PBR Metallic Roughness | Output templates list | - | done | crates/export/src/template.rs:72 | - |
 | Alpha variants: Base Color RGB + A = Opacity (Painter's engine templates put opacity in Base Color alpha) | Output templates list | - | done: "PBR Metallic Roughness + Opacity" and "Unreal Engine (ORM packed) + Opacity" (RGBA Base Color plus a grey Opacity map), Unity HDRP / URP, Godot 4 and glTF 2.0 "+ Alpha"; alpha is Opacity x Base Color coverage, colour bled under alpha 0 | crates/export/src/template.rs (with_alpha) | #145 |
-| PBR Metallic Roughness (Folder or PSD Groups) | Output templates list | - | missing | - | - |
+| PBR Metallic Roughness (Folder or PSD Groups) | Output templates list | - | done for folders (one sub-folder per texture set; no PSD container) | crates/export/src/builtin_presets.rs | chunk 22 |
 | PBR Specular Glossiness | Output templates list | - | missing (needs specular / glossiness document channels; use the converted template) | - | - |
 | PBR Specular Glossiness (converted from Metallic Roughness) | Output templates list | - | done | crates/export/src/builtin_presets.rs | chunk 47 |
 | Redshift | Output templates list | - | done (unverified) | crates/export/src/builtin_presets.rs | chunk 47 |
@@ -288,17 +288,17 @@ Layout notes: a small separate window opened from the File menu, with a file-typ
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Export flattened group to files | Layer stack right-click on a layer or group | - | done | crates/ui/src/panels/layers.rs:866 | - |
-| Export flattened: batch over a multi-selection | Same entry with several layers selected | - | done | crates/ui/src/panels/layers.rs:866 | - |
-| Export flattened: folder picker | Dialog | - | done | crates/ui/src/panels/layers.rs:878 | - |
-| Export flattened: file name pattern field | Dialog | $textureSet_$layerName_$srcMap(.$udim), remembered | partial: remembered for the session | crates/app/src/flatten.rs:25 | - |
-| Keyword $layerName | Flattened export pattern | - | done | crates/app/src/flatten.rs:25 | - |
-| Keyword $srcMap | Flattened export pattern | - | done | crates/app/src/flatten.rs:25 | - |
-| Export flattened: resolution from texture set, bit depth from channel | Fixed behaviour | - | partial: resolution from the set; 8-bit PNG or 32-bit EXR by channel | crates/app/src/flatten.rs:34 | - |
-| Export flattened: padding fixed to 1 px | Fixed behaviour | 1 px | done | crates/app/src/flatten.rs:111 | - |
-| Export flattened: format by channel (EXR for height / normal, PNG otherwise) | Fixed behaviour | - | done | crates/app/src/flatten.rs:34 | - |
-| Export flattened: format choice when only a mask is exported | Dialog | - | missing | - | - |
-| Export mask to file | Right-click on a layer mask | (unverified label; named in release notes) | missing | - | - |
+| Export flattened group to files | Layer stack right-click on a layer or group | - | done (right-click a layer or folder > Export flattened…) | crates/ui/src/layer_export.rs, crates/app/src/session.rs export_flattened_layers | chunk 44 |
+| Export flattened: batch over a multi-selection | Same entry with several layers selected | - | done (each selected layer) | crates/ui/src/panels/layers.rs | chunk 44 |
+| Export flattened: folder picker | Dialog | - | done | crates/ui/src/layer_export.rs | chunk 44 |
+| Export flattened: file name pattern field | Dialog | $textureSet_$layerName_$srcMap(.$udim), remembered | done (remembered for the session; default $textureSet_$layerName_$srcMap(.$udim)) | crates/export/src/layer_export.rs FLATTENED_PATTERN | chunk 44 |
+| Keyword $layerName | Flattened export pattern | - | done | crates/export/src/lib.rs expand_pattern_with | chunk 44 |
+| Keyword $srcMap | Flattened export pattern | - | done (channel name without spaces; mask for masks) | crates/export/src/layer_export.rs src_map_name | chunk 44 |
+| Export flattened: resolution from texture set, bit depth from channel | Fixed behaviour | - | done | crates/export/src/layer_export.rs flattened_format | chunk 44 |
+| Export flattened: padding fixed to 1 px | Fixed behaviour | 1 px | done | crates/export/src/layer_export.rs | chunk 44 |
+| Export flattened: format by channel (EXR for height / normal, PNG otherwise) | Fixed behaviour | - | done (PNG at the channel's bit depth; float channels EXR) | crates/export/src/layer_export.rs flattened_format | chunk 44 |
+| Export flattened: format choice when only a mask is exported | Dialog | - | done (file type and bit depth menus) | crates/ui/src/layer_export.rs | chunk 44 |
+| Export mask to file | Right-click on a layer mask | (unverified label; named in release notes) | done (right-click > Export mask…, mask effects evaluated) | crates/app/src/session.rs export_layer_masks | chunk 44 |
 
 ## Export of the 2D view
 

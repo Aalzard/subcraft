@@ -109,12 +109,8 @@ pub struct UiState {
     pub layer_previews: crate::layer_previews::PreviewUi,
     /// A layer's mask shown alone in the 3D view (Alt+click on its mask thumbnail).
     pub mask_view: Option<crate::mask_view::MaskView>,
-    /// Layers waiting in the "Export flattened" window, and the file name pattern (kept for
-    /// the next export in this session).
-    pub flatten_export: Option<Vec<subcraft_core::LayerId>>,
     /// The open "Instantiate across texture sets" window.
     pub instantiate: Option<crate::panels::layers::InstantiateDialog>,
-    pub flatten_pattern: String,
     pub graphics: crate::graphics::GraphicsUi,
     pub asset_preview: crate::asset_preview::AssetPreviewUi,
     pub welcome: crate::welcome::WelcomeUi,
@@ -242,6 +238,9 @@ pub struct UiState {
     /// ID color editor eyedropper: clicks in the 3D or 2D view pick an ID map color, select it in
     /// the editor and feed it to the selected layer's ID Color mask.
     pub picking_id_palette: bool,
+    /// While an ID eyedropper is armed, the 3D view shows the ID map; this is the view mode to
+    /// go back to (the mesh map shown before, or none) when the pick ends.
+    pub id_pick_view: Option<Option<subcraft_core::MeshMapKind>>,
     /// Color selected in the ID color editor (as shown in the ID map).
     pub id_palette_selected: Option<[f32; 3]>,
     /// The editor's palette, keyed by (texture set, maps generation, document revision).
@@ -259,6 +258,8 @@ pub struct UiState {
     pub uv_density: HashMap<u32, f32>,
     pub rename: Option<(subcraft_core::LayerId, String)>,
     pub show_shortcuts: bool,
+    /// Startup logo overlay (launches only, not scripted screenshots or tests).
+    pub intro: Option<crate::intro::Intro>,
     pub frame_time_ms: f32,
     /// Rendering mode: sampling paused, last frame's progress, and whether the path tracer
     /// was used last frame (its GPU memory is released when the mode turns off).
@@ -270,6 +271,8 @@ pub struct UiState {
     /// Viewport height-to-bump strength.
     pub height_scale: f32,
     pub export: crate::dialogs::ExportUi,
+    /// Layer stack > Export flattened / Export mask window.
+    pub layer_export: crate::layer_export::LayerExportUi,
     /// File > Export mesh window.
     pub export_mesh: crate::export_mesh::ExportMeshUi,
     pub new_project: crate::new_project::NewProjectUi,
@@ -403,9 +406,7 @@ impl UiState {
             taa: Default::default(),
             layer_previews: Default::default(),
             mask_view: None,
-            flatten_export: None,
             instantiate: None,
-            flatten_pattern: subcraft_app::flatten::DEFAULT_PATTERN.to_string(),
             graphics,
             asset_preview: Default::default(),
             welcome: Default::default(),
@@ -479,6 +480,7 @@ impl UiState {
             picking_focus: false,
             picking_id_color: None,
             picking_id_palette: false,
+            id_pick_view: None,
             id_palette_selected: None,
             id_palette_cache: None,
             id_palette_new: [1.0, 1.0, 1.0],
@@ -491,6 +493,7 @@ impl UiState {
             uv_density: HashMap::new(),
             rename: None,
             show_shortcuts: false,
+            intro: None,
             frame_time_ms: 0.0,
             pt_paused: false,
             pt_status: None,
@@ -498,6 +501,7 @@ impl UiState {
             pt_capture_samples: None,
             height_scale: 0.02,
             export: Default::default(),
+            layer_export: Default::default(),
             export_mesh: Default::default(),
             confirm: None,
             dropped_model: None,
