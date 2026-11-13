@@ -1581,6 +1581,33 @@ fn wrapped_projection_rows(ui: &mut Ui, proj: &mut Projection) -> bool {
         .changed()
 }
 
+/// Painter's "3D projection" group: Offset, Rotation and Scale of the projection box, for the
+/// 3D projections that have one (tri-planar, planar, spherical, cylindrical).
+fn transform3_group(ui: &mut Ui, proj: &mut Projection) -> bool {
+    use subcraft_doc::ProjectionTransform as T;
+    if !proj.has_transform3() {
+        return false;
+    }
+    let before = proj.transform3;
+    fn row(ui: &mut Ui, label: &str, values: &mut [f32; 3], speed: f64, range: std::ops::RangeInclusive<f32>, suffix: &str, hover: &str) {
+        prop_row(ui, label, |ui| {
+            for v in values.iter_mut() {
+                ui.add(egui::DragValue::new(v).speed(speed).range(range.clone()).max_decimals(3).suffix(suffix)).on_hover_text(hover);
+            }
+        });
+    }
+    egui::CollapsingHeader::new(RichText::new(tr("3D projection")).font(theme::font_strong(12.0)).color(theme::TEXT)).id_salt("fill_transform3").default_open(false).show(ui, |ui| {
+        let t = &mut proj.transform3;
+        row(ui, tr("Offset"), &mut t.offset, 0.005, -T::MAX_OFFSET..=T::MAX_OFFSET, "", tr("X, Y, Z in units of the model's bounding box; 0 is centred"));
+        row(ui, tr("Rotation"), &mut t.rotation_deg, 0.5, -360.0..=360.0, "\u{00b0}", tr("Degrees about X, Y, Z (applied in that order)"));
+        row(ui, tr("Scale"), &mut t.scale, 0.005, T::MIN_SCALE..=T::MAX_SCALE, "", tr("Size of the projection box on X, Y, Z; with Shape crop on, a planar projection reaches as deep as its scale along the projection axis"));
+        if ui.add_enabled(!t.is_identity(), egui::Button::new(tr("Reset")).small()).clicked() {
+            *t = T::default();
+        }
+    });
+    proj.transform3 != before
+}
+
 /// Painter's Symmetry group of a fill projection (3D projections only): Enable symmetry, the
 /// type (Mirror / Radial) and its settings.
 fn symmetry_group(ui: &mut Ui, proj: &mut Projection) -> bool {
@@ -1653,6 +1680,7 @@ pub(crate) fn fill_properties(ui: &mut Ui, proj: &mut Projection) -> bool {
         changed |= hardness_row(ui, proj);
     }
     changed |= wrapped_projection_rows(ui, proj);
+    changed |= transform3_group(ui, proj);
     changed |= symmetry_group(ui, proj);
     ui.add_space(4.0);
     egui::CollapsingHeader::new(RichText::new(tr("UV transformations")).font(theme::font_strong(12.0)).color(theme::TEXT)).default_open(true).show(ui, |ui| {
@@ -1797,6 +1825,7 @@ pub(crate) fn projection_editor(ui: &mut Ui, proj: &mut Projection) -> bool {
         });
     }
     changed |= wrapped_projection_rows(ui, proj);
+    changed |= transform3_group(ui, proj);
     changed |= symmetry_group(ui, proj);
     let default = reset_transform(proj);
     if *proj != default && ui.small_button(tr("Reset tiling, offset and rotation")).clicked() {
