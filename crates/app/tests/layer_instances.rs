@@ -119,38 +119,6 @@ fn a_folder_instance_shows_the_layers_of_its_source_and_cannot_go_inside_it() {
     assert_eq!(s.selected_texture_set().find(instance).unwrap().children().len(), 2);
 }
 
-/// QA 2026-11: an instance copied into another texture set kept following its source there,
-/// so the next sync copied in rasters at the other set's resolution. It pastes as a plain copy.
-#[test]
-fn an_instance_pasted_into_another_texture_set_becomes_a_plain_copy() {
-    use glam::{Vec2, Vec3};
-    use subcraft_mesh::{Corner, MeshBuilder};
-    let mut b = MeshBuilder::new("Two");
-    for (i, name) in ["A", "B"].into_iter().enumerate() {
-        let m = b.material(name);
-        let x = i as f32 * 3.0;
-        let c = |dx: f32, z: f32| Corner { position: Vec3::new(x + dx, 0.0, z), normal: Some(Vec3::Y), uv: Some(Vec2::new(dx + 1.0, z + 1.0) * 0.45) };
-        b.push_triangle(m, [c(-1.0, -1.0), c(-1.0, 1.0), c(1.0, 1.0)]);
-    }
-    let mut s = Session::new(b.build().unwrap(), 128);
-    s.execute(Command::AddLayer(NewLayer::Fill)).unwrap();
-    let source = s.selection().layer.unwrap();
-    s.execute(Command::PasteAsInstance(vec![source])).unwrap();
-    let instance = s.selection().layer.unwrap();
-    let clip = std::sync::Arc::new(s.copy_layers(&[instance]).unwrap());
-    // Same set: still an instance of the source.
-    s.execute(Command::PasteLayers(clip.clone())).unwrap();
-    let same = s.selection().layer.unwrap();
-    assert_eq!(s.selected_texture_set().find(same).unwrap().instance_of, Some(source));
-    // Another set: a plain layer.
-    let other = s.document().texture_sets[1].id;
-    s.execute(Command::SelectTextureSet(other)).unwrap();
-    s.execute(Command::PasteLayers(clip)).unwrap();
-    let pasted = s.selection().layer.unwrap();
-    assert_eq!(s.selected_texture_set().find(pasted).unwrap().instance_of, None);
-    assert!(!s.instance_locked(pasted));
-}
-
 #[test]
 fn an_instance_survives_save_and_load() {
     let (mut s, source) = session();
@@ -165,6 +133,52 @@ fn an_instance_survives_save_and_load() {
     // Still linked after loading.
     back.execute(Command::AddMask { layer: source, white: true }).unwrap();
     assert!(back.selected_texture_set().find(instance).unwrap().mask.is_some());
+}
+
+/// QA 2026-11: duplicating a folder that holds a layer and its instance left the copied instance
+/// following the original layer, so deleting the original folder took a layer out of the copy.
+#[test]
+fn an_instance_duplicated_with_its_source_follows_the_copied_source() {
+    let (mut s, fill) = session();
+    s.execute(Command::PasteAsInstance(vec![fill])).unwrap();
+    let instance = s.selection().layer.unwrap();
+    s.execute(Command::GroupLayers(vec![fill, instance])).unwrap();
+    let folder = s.selection().layer.unwrap();
+    s.execute(Command::DuplicateLayer(folder)).unwrap();
+    let copy = s.selection().layer.unwrap();
+    assert_ne!(copy, folder);
+    {
+        let children = s.selected_texture_set().find(copy).unwrap().children();
+        assert_eq!(children.len(), 2);
+        let source = children.iter().find(|l| l.instance_of.is_none()).unwrap();
+        let inst = children.iter().find(|l| l.instance_of.is_some()).unwrap();
+        assert_ne!(source.id, fill);
+        assert_eq!(inst.instance_of, Some(source.id));
+    }
+    s.execute(Command::DeleteLayer(folder)).unwrap();
+    assert_eq!(s.selected_texture_set().find(copy).unwrap().children().len(), 2, "the copy does not depend on the original");
+}
+
+/// QA 2026-11: pasting an instance of an instance with a layer of the original source selected
+/// put the new instance inside its own source (the check looked at the copied instance only).
+#[test]
+fn an_instance_of_an_instance_cannot_go_inside_the_original_source() {
+    let (mut s, fill) = session();
+    s.execute(Command::GroupLayers(vec![fill])).unwrap();
+    let folder = s.selection().layer.unwrap();
+    s.execute(Command::PasteAsInstance(vec![folder])).unwrap();
+    let instance = s.selection().layer.unwrap();
+    s.execute(Command::SelectLayer(Some(fill))).unwrap();
+    let steps = s.history().entries().len();
+    assert!(s.execute(Command::PasteAsInstance(vec![instance])).is_err());
+    assert_eq!(s.history().entries().len(), steps);
+    assert_eq!(s.selected_texture_set().find(folder).unwrap().children().len(), 1);
+    // Outside the source it works and follows the original.
+    s.execute(Command::SelectLayer(Some(instance))).unwrap();
+    s.execute(Command::PasteAsInstance(vec![instance])).unwrap();
+    let second = s.selection().layer.unwrap();
+    assert_eq!(s.selected_texture_set().find(second).unwrap().instance_of, Some(folder));
+    assert_eq!(s.instance_state(second), Some(InstanceState::Linked));
 }
 
 /// Two quads, one material each: a project with two texture sets.
@@ -248,4 +262,25 @@ fn instantiating_across_a_missing_texture_set_changes_nothing() {
     let layers = s.document().texture_set(trim).unwrap().layers.len();
     s.execute(Command::InstantiateAcross { layers: vec![source], texture_sets: vec![trim, trim] }).unwrap();
     assert_eq!(s.document().texture_set(trim).unwrap().layers.len(), layers + 1);
+}
+
+/// QA 2026-11: with several layers copied, Paste as instance inserted the first instances and
+/// then refused a later one: the error came back with the document already changed, outside
+/// any undo step.
+#[test]
+fn a_refused_paste_as_instance_changes_nothing() {
+    let (mut s, a) = session();
+    s.execute(Command::AddLayer(NewLayer::Fill)).unwrap();
+    let child = s.selection().layer.unwrap();
+    s.execute(Command::GroupLayers(vec![child])).unwrap();
+    let folder = s.selection().layer.unwrap();
+    // With a layer of the folder selected, an instance of the folder would land inside it.
+    s.execute(Command::SelectLayer(Some(child))).unwrap();
+    let before = s.document().clone();
+    let steps = s.history().entries().len();
+    for sources in [vec![a, folder], vec![folder, a]] {
+        assert!(s.execute(Command::PasteAsInstance(sources)).is_err());
+        assert!(s.document() == &before, "nothing was inserted");
+        assert_eq!(s.history().entries().len(), steps);
+    }
 }

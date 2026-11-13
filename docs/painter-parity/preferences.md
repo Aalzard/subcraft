@@ -49,7 +49,7 @@ Layout notes: Edit > Settings opens one window with three sections chosen on the
 | Zoom speed | Settings > General > Camera | multiplier; not documented | done: 0.1-5x (default 1) for the zoom drag | crates/ui/src/nav.rs (CameraSpeed) | 306 |
 | Zoom speed: Inverse direction | Settings > General > Camera | not documented | done | crates/ui/src/nav.rs (CameraSpeed) | 306 |
 | Wheel speed | Settings > General > Camera | multiplier; not documented | done: 0.1-5x (default 1) for the mouse wheel in the 3D view | crates/ui/src/nav.rs (CameraSpeed) | 306 |
-| Wheel speed: Inverse direction | Settings > General > Camera | not documented | done | crates/ui/src/nav.rs (CameraSpeed) | 306 |
+| Wheel speed: Inverse direction | Settings > General > Camera | not documented | done: "Invert zoom", 3D and 2D views; off = wheel forward zooms in; the wheel speed also applies to the 2D view | crates/ui/src/nav.rs (CameraSpeed::wheel_zoom, wheel_magnify_2d) | 306, #223 |
 
 ## General: Baking options
 

@@ -113,6 +113,8 @@ pub fn sync(state: &mut UiState) {
             renderer.clear_mask_views();
             renderer.upload_mask_view(&rs.device, &rs.queue, m.material_slot, Some(&m.image));
             view.uploaded = Some((revision, web_time::Instant::now()));
+            // A throttled upload lands after the revision changed: TAA must see it as new data.
+            state.gpu_changed = true;
         }
         Err(_) => {
             renderer.clear_mask_views();

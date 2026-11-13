@@ -246,7 +246,7 @@ Layout notes: with a path tool active the Properties panel starts with a Presets
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
 | Path type: Paint along path | Properties / toolbar menu | default | partial: a continuous stroke, or the brush tip stamped along the path with spacing and Follow path (UV space); no jitter or per-stamp pressure | crates/paint/src/pen.rs (run_stamped), crates/ui/src/pen.rs | - |
-| Path type: Ribbon path | Properties / toolbar menu | option | missing | - | - |
+| Path type: Ribbon path | Properties / toolbar menu | option | done: an image laid along the path over its width, square ends | crates/paint/src/pen.rs (run_ribbon), crates/ui/src/pen.rs (ribbon_rows) | - |
 | Path type: Filled path | Properties / toolbar menu | option | done: Path type dropdown in the pen Properties; the interior is filled (even-odd), anti-aliased, closing on the first point; saved with the project | crates/paint/src/pen.rs (run_filled), crates/ui/src/pen.rs | - |
 | Path type: Erase along path | Properties / toolbar menu | option | missing | - | - |
 | Path type: Smudge along path | Properties / toolbar menu | option | missing | - | - |
@@ -271,18 +271,18 @@ Layout notes: groups in order: Size, Opacity, Stroke, Stretching & Tiling (a mod
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Stroke width | Properties > Size | not documented | missing | - | - |
-| Stroke opacity | Properties > Opacity | not documented | missing | - | - |
+| Stroke width | Properties > Size | not documented | done: Width (% UV) | crates/paint/src/pen.rs (run_ribbon), crates/ui/src/pen.rs (ribbon_rows) | - |
+| Stroke opacity | Properties > Opacity | not documented | done: Opacity | crates/paint/src/pen.rs (run_ribbon), crates/ui/src/pen.rs (ribbon_rows) | - |
 | Image orientation | Properties > Stroke | not documented | missing | - | - |
-| Flip image | Properties > Stroke | off (unverified) | missing | - | - |
+| Flip image | Properties > Stroke | off (unverified) | done | crates/paint/src/pen.rs (run_ribbon), crates/ui/src/pen.rs (ribbon_rows) | - |
 | Corner (dropdown) | Properties > Stroke | not documented | missing | - | - |
 | Corner: Miter join | Properties > Stroke > Corner | option | missing | - | - |
 | Corner: Round join | Properties > Stroke > Corner | option | missing | - | - |
 | Corner: Bevel join | Properties > Stroke > Corner | option | missing | - | - |
 | Corner: Cut join | Properties > Stroke > Corner | option | missing | - | - |
 | Omit ends when closed | Properties > Stroke | not documented | missing | - | - |
-| Mode: Stretch along path | Properties > Stretching & Tiling | default | missing | - | - |
-| Mode: Keep aspect ratio | Properties > Stretching & Tiling | option | missing | - | - |
+| Mode: Stretch along path | Properties > Stretching & Tiling | default | done: Copies over the length | crates/paint/src/pen.rs (run_ribbon), crates/ui/src/pen.rs (ribbon_rows) | - |
+| Mode: Keep aspect ratio | Properties > Stretching & Tiling | option | done: copies keep the image's aspect at the path width, scaled by Aspect factor | crates/paint/src/pen.rs (run_ribbon), crates/ui/src/pen.rs (ribbon_rows) | - |
 | Stretch between offsets only | Stretching & Tiling (Stretch along path) | not documented | missing | - | - |
 | Start offset | Stretching & Tiling (Stretch along path) | not documented | missing | - | - |
 | End offset | Stretching & Tiling (Stretch along path) | not documented | missing | - | - |
@@ -290,9 +290,9 @@ Layout notes: groups in order: Size, Opacity, Stroke, Stretching & Tiling (a mod
 | Tiling mode: None | Stretching & Tiling > Tiling mode | option | missing | - | - |
 | Tiling mode: Auto | Stretching & Tiling > Tiling mode | default | missing | - | - |
 | Tiling mode: Custom | Stretching & Tiling > Tiling mode | option | missing | - | - |
-| Tiling amount (Custom tiling) | Stretching & Tiling | not documented | missing | - | - |
-| Mirror every 2nd tile | Stretching & Tiling (both modes) | not documented | missing | - | - |
-| Aspect ratio factor | Stretching & Tiling (both modes) | not documented | missing | - | - |
+| Tiling amount (Custom tiling) | Stretching & Tiling | not documented | partial: the Copies slider (no Auto / None modes) | crates/paint/src/pen.rs (run_ribbon), crates/ui/src/pen.rs (ribbon_rows) | - |
+| Mirror every 2nd tile | Stretching & Tiling (both modes) | not documented | done | crates/paint/src/pen.rs (run_ribbon), crates/ui/src/pen.rs (ribbon_rows) | - |
+| Aspect ratio factor | Stretching & Tiling (both modes) | not documented | done | crates/paint/src/pen.rs (run_ribbon), crates/ui/src/pen.rs (ribbon_rows) | - |
 | Ratio (dropdown) | Stretching & Tiling (Keep aspect ratio) | Fit to path width | missing | - | - |
 | Ratio: Fit to path width | Stretching & Tiling > Ratio | default | missing | - | - |
 | Ratio: Fit to path length | Stretching & Tiling > Ratio | option | missing | - | - |
