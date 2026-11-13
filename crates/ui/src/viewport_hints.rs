@@ -190,14 +190,15 @@ pub fn build(c: &HintContext) -> Vec<Hint> {
 }
 
 /// Paint `rows` bottom-left of `rect`: small, low-contrast, one line each. Rows that do not fit in the
-/// lower 40% of the view are dropped from the end so the model stays visible.
-pub fn draw(painter: &egui::Painter, rect: egui::Rect, rows: &[Hint]) {
+/// lower 40% of the view are dropped from the end so the model stays visible. Returns the plate
+/// painted, if any (the grid unit read-out sits above it).
+pub fn draw(painter: &egui::Painter, rect: egui::Rect, rows: &[Hint]) -> Option<egui::Rect> {
     use egui::{Color32, Pos2, vec2};
     let font = crate::theme::font(11.0);
     let line = 17.0;
     let fit = (((rect.height() * 0.4) / line) as usize).min(rows.len());
     if fit == 0 {
-        return;
+        return None;
     }
     let rows = &rows[..fit];
     let keys: Vec<_> = rows.iter().map(|r| painter.layout_no_wrap(r.keys.clone(), font.clone(), crate::theme::TEXT_DIM)).collect();
@@ -205,12 +206,14 @@ pub fn draw(painter: &egui::Painter, rect: egui::Rect, rows: &[Hint]) {
     let label_w = rows.iter().map(|r| painter.layout_no_wrap(r.what.to_string(), font.clone(), crate::theme::TEXT_FAINT).size().x).fold(0.0, f32::max);
     let size = vec2(key_w + label_w + 16.0, line * rows.len() as f32 + 8.0);
     let top_left = egui::Align2::LEFT_BOTTOM.anchor_size(rect.left_bottom() + vec2(10.0, -10.0), size).min;
-    painter.rect_filled(egui::Rect::from_min_size(top_left, size), 3.0, Color32::from_black_alpha(70));
+    let plate = egui::Rect::from_min_size(top_left, size);
+    painter.rect_filled(plate, 3.0, Color32::from_black_alpha(70));
     for (i, (row, glyph)) in rows.iter().zip(keys).enumerate() {
         let y = top_left.y + 4.0 + line * i as f32;
         painter.galley(Pos2::new(top_left.x + 8.0, y), glyph, crate::theme::TEXT_DIM);
         painter.text(Pos2::new(top_left.x + 8.0 + key_w, y), egui::Align2::LEFT_TOP, row.what, font.clone(), crate::theme::TEXT_FAINT);
     }
+    Some(plate)
 }
 
 /// Rows for `c`, rebuilt only when the context differs from the previous frame's.
