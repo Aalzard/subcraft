@@ -707,4 +707,6 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Mesh ID / Polygroup", "網格 ID／多邊形群組"),
     ("Submesh (object)", "子網格（物件）"),
     ("Where the ID map takes its colors: the model's vertex colors or material colors, or one generated color per mesh element or per object. With a high poly, its colors are used.", "ID 貼圖的顏色來源：模型的頂點色或材質顏色，或為每個網格元素、每個物件各產生一種顏色。有高模時使用高模的顏色。"),
+    ("Axis indicator", "座標軸指示器"),
+    ("The X, Y and Z directions of the scene in the bottom-right corner of the 3D view", "在 3D 檢視右下角顯示場景的 X、Y、Z 方向"),
 ];

@@ -15,7 +15,7 @@ Layout notes: Painter's viewport is one central area with four parts stacked top
 | Splitter between 3D and 2D views | Viewport, between views | 50/50 (unverified) | partial: only after View > Side-by-side 3D / 2D | crates/ui/src/app.rs:232 | - |
 | Progress bar for engine computations | Viewport, bottom edge | hidden when idle | missing | - | - |
 | Colour-profile name text | 3D view, top left | shown when a profile is loaded | missing | - | - |
-| Axis indicator (X/Y/Z orientation) | 3D view, bottom right | shown | missing | - | - |
+| Axis indicator (X/Y/Z orientation) | 3D view, bottom right | shown | done: red X, green Y, blue Z above the Render toggle, far axes dimmed; Display Settings > Viewport > Axis indicator | crates/ui/src/viewport.rs (axis_indicator) | PRNUM |
 | Grid unit read-out | 3D view, bottom left | shown when the grid is on | missing | - | - |
 | Warning when painting on a non-active Texture Set | 3D view overlay (12.1) | not documented | missing | - | - |
 
@@ -126,8 +126,8 @@ Layout notes: the dropdown at the top right of each view switches between Materi
 |---|---|---|---|---|---|
 | Use tool / paint | LMB drag | editable shortcut | done | crates/ui/src/viewport.rs:290 | - |
 | Draw straight line from the last stroke point | Shift + LMB click | editable shortcut | done | crates/ui/src/viewport.rs:326 | - |
-| Dotted preview of the straight line while Shift is held | 3D view overlay | - | missing | - | - |
-| Draw straight line with snapping | Ctrl + Shift + LMB | every 5 degrees | partial: snaps every 5 degrees; no dotted preview line yet | crates/ui/src/nav.rs (snap_line_end) | #163 |
+| Dotted preview of the straight line while Shift is held | 3D view overlay | - | done: from the last stroke point, snapped with Ctrl exactly as the click draws it | crates/ui/src/viewport.rs (straight_line_end) | PRNUM |
+| Draw straight line with snapping | Ctrl + Shift + LMB | every 5 degrees | done: snaps every 5 degrees, with the dotted preview | crates/ui/src/nav.rs (snap_line_end) | #163, PRNUM |
 | Change tool size (horizontal drag) | Ctrl + RMB drag | editable shortcut | done | crates/ui/src/viewport.rs:147 | - |
 | Change tool hardness (vertical drag) | Ctrl + RMB drag | needs an alpha exposing "hardness" | done | crates/ui/src/viewport.rs:148 | - |
 | Change tool flow (horizontal drag) | Ctrl + LMB drag | editable shortcut | done | crates/ui/src/viewport.rs:150 | - |
@@ -155,7 +155,7 @@ Layout notes: the dropdown at the top right of each view switches between Materi
 | Brush cursor: Full preview (brush alpha / material projected) | 3D view; chosen in Contextual toolbar | default (unverified) | missing | - | - |
 | Brush cursor: Brush outline | 3D view; chosen in Contextual toolbar | - | partial: screen-space circle of the brush radius, the only style | crates/ui/src/viewport.rs:491 | - |
 | Brush cursor: Crosshair | 3D view; chosen in Contextual toolbar | - | missing | - | - |
-| Lazy mouse ring around the cursor | 3D view when Lazy mouse is on | grey circle | missing | - | - |
+| Lazy mouse ring around the cursor | 3D view when Lazy mouse is on | grey circle | done: grey ring of the lazy distance around the cursor | crates/ui/src/viewport.rs (overlays) | PRNUM |
 | Clone source marker | 3D view with the Clone tool | - | done | crates/ui/src/viewport.rs:499 | - |
 | Fill layer cursor (no brush) | 3D view with a fill layer selected | - | missing | - | - |
 | Projection tool: material tiled over the viewport | 3D view with Projection tool | preview channel set in Display settings | missing | - | - |

@@ -5726,3 +5726,18 @@ symmetry. `crates/app/tests/uv_tools.rs` covers session routing: the 2D clone so
   `id_sources_the_model_lacks_fall_back_to_generated_colours_with_a_warning`; mesh
   `obj_vertex_colors_and_material_colors_are_read`. Nothing was built or run locally (coordinator's rule after
   the PC's power cuts), and no capture was taken.
+
+### Painter parity: 3D view overlays (axis indicator, straight-line preview, lazy mouse ring)
+
+* **Axis indicator:** red X, green Y and blue Z from a common centre in the 3D view's bottom-right corner, above
+  the Render toggle. It follows the camera (`viewport::axis_indicator(view)`: screen direction and depth per axis,
+  farthest first so nearer axes draw over it; axes pointing away are dimmed). On by default; Display Settings >
+  Viewport > Guides > "Axis indicator". Hidden in the bake view.
+* **Straight line preview:** holding Shift with a paint tool shows a dotted line from the last stroke point to
+  the cursor, snapped to 5 degree steps with Ctrl. The click and the preview share `straight_line_end`, so the
+  line drawn is the one shown (the 2D view already had this).
+* **Lazy mouse ring:** a grey circle of the lazy distance around the brush cursor while Lazy mouse is on.
+* Translated (zh-Hant, ko): 2 new texts.
+* **Tests (new, run by CI only):** ui `the_axis_indicator_follows_the_camera_and_draws_far_axes_first`,
+  `the_straight_line_preview_ends_where_the_click_draws`. Nothing was built or run locally (the PC is unstable
+  under build load); no capture was taken.
