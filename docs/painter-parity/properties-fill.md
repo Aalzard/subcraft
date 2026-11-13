@@ -98,13 +98,13 @@ Layout notes: Filtering, UV Wrap, then the UV transformations group (Scale mode,
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
 | Filtering (same three options as UV projection) | Properties > Fill | Bilinear &#124; HQ | done | crates/ui/src/panels/properties.rs:963 | chunk 8 |
-| Shape crop (dropdown) | Properties > Fill | Projection extends outside shape | partial: selectable and applied, but the shape is the model's bounding cube until the 3D projection transform exists, so it clips nothing yet | crates/ui/src/panels/properties.rs:963 | chunk 8 |
-| Shape crop: Project cropped to shape | Properties > Fill > Shape crop | option | partial: see the Shape crop row | crates/ui/src/panels/properties.rs:963 | chunk 8 |
-| Shape crop: Projection extends outside shape | Properties > Fill > Shape crop | default | done | crates/ui/src/panels/properties.rs:963 | chunk 8 |
+| Shape crop (dropdown) | Properties > Fill | Projection extends outside shape | done: crops to the projection box, which follows the 3D Offset / Rotation / Scale (the bounding cube until it is moved) | crates/materials/src/sample/bitmap.rs:214 | chunk 9 (part 1) |
+| Shape crop: Project cropped to shape | Properties > Fill > Shape crop | option | done: crops to the projection box, which follows the 3D Offset / Rotation / Scale (the bounding cube until it is moved) | crates/materials/src/sample/bitmap.rs:214 | chunk 9 (part 1) |
+| Shape crop: Projection extends outside shape | Properties > Fill > Shape crop | default | done: crops to the projection box, which follows the 3D Offset / Rotation / Scale (the bounding cube until it is moved) | crates/materials/src/sample/bitmap.rs:214 | chunk 9 (part 1) |
 | Hardness (blend between the three planes; 1.0 = hard cut) | Properties > Fill | not documented; max 1.0 | done: 0-1, 1.0 = hard cut; default 0.875 (the former Sharpness 8) | crates/ui/src/panels/properties.rs:977 | chunk 8 |
-| 3D projection: Offset X, Y, Z (scene bounding-box units, 0 = centre) | Properties > Fill > 3D projection | 0, 0, 0 | missing | - | - |
-| 3D projection: Rotation X, Y, Z (degrees) | Properties > Fill > 3D projection | 0, 0, 0 (unverified) | missing | - | - |
-| 3D projection: Scale X, Y, Z | Properties > Fill > 3D projection | 1, 1, 1 (unverified) | missing | - | - |
+| 3D projection: Offset X, Y, Z (scene bounding-box units, 0 = centre) | Properties > Fill > 3D projection | 0, 0, 0 | done: three number fields, bounding-box units, 0 centred; no viewport manipulator yet | crates/ui/src/panels/properties.rs:1586 | chunk 9 (part 1) |
+| 3D projection: Rotation X, Y, Z (degrees) | Properties > Fill > 3D projection | 0, 0, 0 (unverified) | done: degrees about X, Y, Z, applied in that order (the axis choice stays as well); no viewport manipulator yet | crates/ui/src/panels/properties.rs:1586 | chunk 9 (part 1) |
+| 3D projection: Scale X, Y, Z | Properties > Fill > 3D projection | 1, 1, 1 (unverified) | done: 0.01..100 per axis; no viewport manipulator yet | crates/ui/src/panels/properties.rs:1586 | chunk 9 (part 1) |
 
 ## Planar projection
 
@@ -112,16 +112,16 @@ Layout notes: Filtering, UV Wrap, then the UV transformations group (Scale mode,
 |---|---|---|---|---|---|
 | Filtering (same three options) | Properties > Fill | Bilinear &#124; HQ | done | crates/ui/src/panels/properties.rs:963 | chunk 8 |
 | UV Wrap (None / Repeat horizontally / Repeat vertically / Repeat) | Properties > Fill | Repeat | done | crates/ui/src/panels/properties.rs:963 | chunk 8 |
-| Shape crop (cropped to shape / extends outside shape) | Properties > Fill | Projection extends outside shape | partial: selectable and applied, but the shape is the model's bounding cube until the 3D projection transform exists | crates/ui/src/panels/properties.rs:963 | chunk 8 |
+| Shape crop (cropped to shape / extends outside shape) | Properties > Fill | Projection extends outside shape | done: crops to the projection box, which follows the 3D Offset / Rotation / Scale (the bounding cube until it is moved) | crates/materials/src/sample/bitmap.rs:214 | chunk 9 (part 1) |
 | Depth culling (toggle) | Properties > Fill | not documented | missing | - | - |
 | Depth culling: Hardness | Properties > Fill > Depth culling | not documented | missing | - | - |
 | Backface culling (toggle) | Properties > Fill | not documented | missing | - | - |
 | Backface culling: Angle | Properties > Fill > Backface culling | not documented | missing | - | - |
 | Backface culling: Hardness | Properties > Fill > Backface culling | not documented | missing | - | - |
-| Projection depth follows the transform's Z scale | Properties > Fill > 3D projection | n/a | missing | - | - |
-| 3D projection: Offset X, Y, Z | Properties > Fill > 3D projection | 0, 0, 0 | missing | - | - |
-| 3D projection: Rotation X, Y, Z | Properties > Fill > 3D projection | not documented | partial: axis choice X / Y / Z only | crates/ui/src/panels/properties.rs:1014 | - |
-| 3D projection: Scale X, Y, Z | Properties > Fill > 3D projection | not documented | missing | - | - |
+| Projection depth follows the transform's Z scale | Properties > Fill > 3D projection | n/a | done with Shape crop on: the box is as deep as its scale along the projection axis; there is no separate depth without the crop | crates/doc/src/fill.rs:211 | chunk 9 (part 1) |
+| 3D projection: Offset X, Y, Z | Properties > Fill > 3D projection | 0, 0, 0 | done: three number fields, bounding-box units, 0 centred; no viewport manipulator yet | crates/ui/src/panels/properties.rs:1586 | chunk 9 (part 1) |
+| 3D projection: Rotation X, Y, Z | Properties > Fill > 3D projection | not documented | done: degrees about X, Y, Z, applied in that order (the axis choice stays as well); no viewport manipulator yet | crates/ui/src/panels/properties.rs:1586 | chunk 9 (part 1) |
+| 3D projection: Scale X, Y, Z | Properties > Fill > 3D projection | not documented | done: 0.01..100 per axis; no viewport manipulator yet | crates/ui/src/panels/properties.rs:1586 | chunk 9 (part 1) |
 
 ## Spherical projection
 
@@ -129,13 +129,13 @@ Layout notes: Filtering, UV Wrap, then the UV transformations group (Scale mode,
 |---|---|---|---|---|---|
 | Filtering (same three options) | Properties > Fill | Bilinear &#124; HQ | done | crates/ui/src/panels/properties.rs:1218 | chunk 46 |
 | UV Wrap (four options) | Properties > Fill | Repeat | done | crates/ui/src/panels/properties.rs:1218 | chunk 46 |
-| Shape Crop (two options) | Properties > Fill | Projection extends outside shape | partial: selectable, but the shape is the bounding cube until the 3D projection transform exists | crates/ui/src/panels/properties.rs:1218 | chunk 46 |
+| Shape Crop (two options) | Properties > Fill | Projection extends outside shape | done: crops to the projection box, which follows the 3D Offset / Rotation / Scale (the bounding cube until it is moved) | crates/materials/src/sample/bitmap.rs:214 | chunk 9 (part 1) |
 | UV transformation: Scale | Properties > Fill > UV transformations | not documented | done: the shared Tiling / Rotation / Offset rows | crates/ui/src/panels/properties.rs:1302 | chunk 46 |
 | UV transformation: Rotation | Properties > Fill > UV transformations | not documented | done: the shared Tiling / Rotation / Offset rows | crates/ui/src/panels/properties.rs:1302 | chunk 46 |
 | UV transformation: Offset | Properties > Fill > UV transformations | texture centred | done: the shared Tiling / Rotation / Offset rows | crates/ui/src/panels/properties.rs:1302 | chunk 46 |
-| 3D projection: Offset X, Y, Z | Properties > Fill > 3D projection | 0, 0, 0 | missing | - | - |
-| 3D projection: Rotation X, Y, Z | Properties > Fill > 3D projection | not documented | missing | - | - |
-| 3D projection: Scale X, Y, Z | Properties > Fill > 3D projection | not documented | missing | - | - |
+| 3D projection: Offset X, Y, Z | Properties > Fill > 3D projection | 0, 0, 0 | done: three number fields, bounding-box units, 0 centred; no viewport manipulator yet | crates/ui/src/panels/properties.rs:1586 | chunk 9 (part 1) |
+| 3D projection: Rotation X, Y, Z | Properties > Fill > 3D projection | not documented | done: degrees about X, Y, Z, applied in that order (the axis choice stays as well); no viewport manipulator yet | crates/ui/src/panels/properties.rs:1586 | chunk 9 (part 1) |
+| 3D projection: Scale X, Y, Z | Properties > Fill > 3D projection | not documented | done: 0.01..100 per axis; no viewport manipulator yet | crates/ui/src/panels/properties.rs:1586 | chunk 9 (part 1) |
 
 ## Cylindrical projection
 
@@ -143,13 +143,13 @@ Layout notes: Filtering, UV Wrap, then the UV transformations group (Scale mode,
 |---|---|---|---|---|---|
 | Filtering (same three options) | Properties > Fill | Bilinear &#124; HQ | done | crates/ui/src/panels/properties.rs:1218 | chunk 46 |
 | UV wrap (four options) | Properties > Fill | Repeat | done | crates/ui/src/panels/properties.rs:1218 | chunk 46 |
-| Shape crop (two options) | Properties > Fill | Projection extends outside shape | partial: selectable, but the shape is the bounding cube until the 3D projection transform exists | crates/ui/src/panels/properties.rs:1218 | chunk 46 |
+| Shape crop (two options) | Properties > Fill | Projection extends outside shape | done: crops to the projection box, which follows the 3D Offset / Rotation / Scale (the bounding cube until it is moved) | crates/materials/src/sample/bitmap.rs:214 | chunk 9 (part 1) |
 | Angle (how much of the perimeter is covered) | Properties > Fill | not documented (360 unverified) | done: 1-360 degrees, default 360 | crates/ui/src/panels/properties.rs:1232 | chunk 46 |
 | Backface Culling (toggle) | Properties > Fill | not documented | missing | - | - |
 | Backface Culling: Hardness | Properties > Fill > Backface Culling | not documented | missing | - | - |
-| 3D projection: Offset X, Y, Z | Properties > Fill > 3D projection | 0, 0, 0 | missing | - | - |
-| 3D projection: Rotation X, Y, Z | Properties > Fill > 3D projection | not documented | missing | - | - |
-| 3D projection: Scale X, Y, Z | Properties > Fill > 3D projection | not documented | missing | - | - |
+| 3D projection: Offset X, Y, Z | Properties > Fill > 3D projection | 0, 0, 0 | done: three number fields, bounding-box units, 0 centred; no viewport manipulator yet | crates/ui/src/panels/properties.rs:1586 | chunk 9 (part 1) |
+| 3D projection: Rotation X, Y, Z | Properties > Fill > 3D projection | not documented | done: degrees about X, Y, Z, applied in that order (the axis choice stays as well); no viewport manipulator yet | crates/ui/src/panels/properties.rs:1586 | chunk 9 (part 1) |
+| 3D projection: Scale X, Y, Z | Properties > Fill > 3D projection | not documented | done: 0.01..100 per axis; no viewport manipulator yet | crates/ui/src/panels/properties.rs:1586 | chunk 9 (part 1) |
 
 ## Warp projection
 

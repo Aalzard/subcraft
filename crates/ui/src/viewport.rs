@@ -278,7 +278,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     // ----- part picking: clicks show / hide the selected layer on mesh parts ----------------------
     let bake_mode = state.bake.open || state.bake.job.is_some();
     // Symmetry manipulator: a press on a handle moves the mirror plane / radial axis instead of painting.
-    let symmetry_grab = !bake_mode && !alt && !stencil_edit
+    // Not with the Pen, whose handles are not drawn either (QA 2026-11: an invisible handle took
+    // the press that should place an anchor, and the drag moved the mirror plane).
+    let symmetry_grab = !bake_mode && !alt && !stencil_edit && state.tool != Tool::Pen
         && crate::symmetry_view::manipulate(state, ui, &response, rect, pixel_scale, &camera, primary_pressed, primary_down, pointer);
     let primary_pressed = primary_pressed && !symmetry_grab;
     // Warp projection grid of the selected fill layer: presses on it edit the grid, not paint.
@@ -373,6 +375,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     // Geometry mask editing: a click shows / hides the layer on the part under the cursor, a drag
     // adds every part the box touches (Ctrl+drag removes them).
     if parts_picking && primary_pressed && response.hovered() && !alt && !stencil_edit && let Some(p) = pointer {
+        // A layer without a geometry mask gets one of the kind chosen in the Parts panel.
+        state.session.set_new_mask_kind(state.parts_kind);
         state.parts_box = Some(p);
     }
     if let Some(start) = state.parts_box {
@@ -692,6 +696,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 painter.add(egui::Shape::convex_polygon(corners, c.gamma_multiply(0.12), Stroke::new(1.0, c.gamma_multiply(0.6))));
             }
         }
+    }
+    if !bake_mode {
+        crate::paths_panel::show(state, ui, rect, now);
     }
     if state.tool == Tool::Pen && let Some(path) = state.pen.preview(&state.session) {
         crate::pen::draw(&painter, path, state.pen.selected_anchor(), |uv| pen_position(state, &camera, rect, uv));

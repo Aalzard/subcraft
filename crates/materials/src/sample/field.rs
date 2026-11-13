@@ -114,13 +114,18 @@ impl FieldKey {
     }
 }
 
-/// Hash of the cylinder angle and the symmetry of a projection; 0 at their defaults.
+/// Hash of the cylinder angle, the symmetry and the 3D transform of a projection; 0 at their defaults.
 fn projection_extra_bits(p: &Projection) -> u32 {
     use subcraft_doc::FillSymmetry;
-    if p.cylinder_angle == 360.0 && p.symmetry.is_none() {
+    let t = p.effective_transform3();
+    if p.cylinder_angle == 360.0 && p.symmetry.is_none() && t.is_identity() {
         return 0;
     }
     let mut values = vec![p.cylinder_angle.to_bits()];
+    if !t.is_identity() {
+        values.push(3);
+        values.extend(t.offset.iter().chain(&t.rotation_deg).chain(&t.scale).map(|v| v.to_bits()));
+    }
     match p.symmetry {
         FillSymmetry::None => {}
         FillSymmetry::Mirror { axis, position } => values.extend([1, axis as u32, position.to_bits()]),

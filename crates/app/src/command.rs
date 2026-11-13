@@ -101,6 +101,9 @@ pub enum Command {
     /// layers of the selected texture set. An instance follows its source (content, content
     /// effects, mask) and is read-only apart from its name, visibility, blending and colour.
     PasteAsInstance(Vec<LayerId>),
+    /// Painter's "Instantiate across texture sets": an instance of each of these layers on top
+    /// of the stack of each of these texture sets (the layers' own set is skipped).
+    InstantiateAcross { layers: Vec<LayerId>, texture_sets: Vec<TextureSetId> },
     DuplicateLayer(LayerId),
     /// Multi-select operations: one undo step each. All layers must be in the same texture set;
     /// a layer inside another selected layer is covered by it.
