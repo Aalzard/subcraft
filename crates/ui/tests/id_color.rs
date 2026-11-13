@@ -40,7 +40,7 @@ fn id_color_properties_show_hint_swatches_and_toggle_the_eyedropper() {
     let out = frame(&mut state, input.clone());
     let text = labels(&out);
     assert!(text.iter().any(|s| s.contains("No ID map baked")), "{text:?}");
-    assert!(text.iter().any(|s| s == "Tolerance") && text.iter().any(|s| s == "Softness"), "{text:?}");
+    assert!(text.iter().any(|s| s == "Tolerance") && text.iter().any(|s| s == "Hardness") && text.iter().any(|s| s == "Output value"), "{text:?}");
     assert!(text.iter().any(|s| s == "No colors picked"));
 
     // Clicking "Pick from model" arms the 3D-view eyedropper for this effect.

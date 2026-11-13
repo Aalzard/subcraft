@@ -146,6 +146,9 @@ pub struct Session {
     pub(crate) scene: Scene,
     resources: ResourceStore,
     mesh_maps: HashMap<TextureSetId, MeshMaps>,
+    /// ID maps as baked / imported, with the document edits currently applied over them in
+    /// `mesh_maps` (see `crate::id_color`).
+    id_baked: HashMap<TextureSetId, (subcraft_image::TiledImage, Vec<subcraft_doc::IdColorEdit>)>,
     no_maps: MeshMaps,
     pub(crate) history: History,
     /// Live document: equals the current history entry except while a stroke is in progress.
@@ -240,6 +243,7 @@ impl Session {
             part_view: Default::default(),
             resources,
             mesh_maps: HashMap::new(),
+            id_baked: HashMap::new(),
             no_maps: MeshMaps::new(),
             history: History::new(doc.clone(), label),
             saved_doc: doc.clone(),
@@ -302,6 +306,8 @@ impl Session {
         for (ts, maps) in data.mesh_maps {
             s.mesh_maps.insert(ts, MeshMaps::from_map(maps));
         }
+        s.capture_baked_ids();
+        s.sync_id_maps();
         Ok(s)
     }
 
@@ -314,7 +320,7 @@ impl Session {
             Some(p) => p.to_path_buf(),
             None => return Err("no project path: use Save As".into()),
         };
-        let maps: subcraft_project::MeshMapSet = self.mesh_maps.iter().map(|(id, m)| (*id, m.as_map().clone())).collect();
+        let maps: subcraft_project::MeshMapSet = self.mesh_maps.keys().map(|id| (*id, self.stored_mesh_maps(*id))).collect();
         subcraft_project::save_project_with(&path, &self.scene.mesh, &self.doc, &self.resources, &maps, &self.settings).map_err(|e| e.to_string())?;
         self.project_path = Some(path.clone());
         self.saved_doc = self.doc.clone();
@@ -331,7 +337,7 @@ impl Session {
             mesh: self.scene.mesh.clone(),
             document: self.history.current().clone(),
             resources: self.resources.clone(),
-            mesh_maps: self.mesh_maps.iter().map(|(id, m)| (*id, m.as_map().clone())).collect(),
+            mesh_maps: self.mesh_maps.keys().map(|id| (*id, self.stored_mesh_maps(*id))).collect(),
             settings: self.settings.clone(),
         }
     }
@@ -418,6 +424,9 @@ impl Session {
     /// Install baked maps (merged over existing ones) and refresh that set's composite.
     pub fn set_mesh_maps(&mut self, ts: TextureSetId, maps: std::collections::BTreeMap<subcraft_core::MeshMapKind, subcraft_image::TiledImage>) {
         self.settings.stale_mesh_maps.retain(|id| *id != ts);
+        if let Some(id) = maps.get(&subcraft_core::MeshMapKind::Id) {
+            self.id_baked.insert(ts, (id.clone(), Vec::new()));
+        }
         let entry = self.mesh_maps.entry(ts).or_default();
         let mut merged = entry.as_map().clone();
         merged.extend(maps);
@@ -426,6 +435,45 @@ impl Session {
         self.maps_dirty = true;
         self.maps_generation += 1;
         self.revision += 1;
+        // A new bake keeps the user's ID color edits (they apply to colors it still has).
+        self.sync_id_maps();
+    }
+
+    /// Maps as they are saved: the ID map as baked / imported (its edits are in the document).
+    fn stored_mesh_maps(&self, ts: TextureSetId) -> std::collections::BTreeMap<subcraft_core::MeshMapKind, subcraft_image::TiledImage> {
+        let mut maps = self.mesh_maps.get(&ts).map(|m| m.as_map().clone()).unwrap_or_default();
+        if let Some((baked, _)) = self.id_baked.get(&ts) && maps.contains_key(&subcraft_core::MeshMapKind::Id) {
+            maps.insert(subcraft_core::MeshMapKind::Id, baked.clone());
+        }
+        maps
+    }
+
+    /// Take the installed ID maps as the baked ones (after loading or replacing all maps).
+    fn capture_baked_ids(&mut self) {
+        self.id_baked = self.mesh_maps.iter()
+            .filter_map(|(ts, m)| Some((*ts, (m.get(subcraft_core::MeshMapKind::Id)?.clone(), Vec::new()))))
+            .collect();
+    }
+
+    /// Show each set's ID map with the document's ID color edits (after edits, undo and redo).
+    pub(crate) fn sync_id_maps(&mut self) {
+        let mut changed = Vec::new();
+        for ts in &self.doc.texture_sets {
+            if let Some((baked, applied)) = self.id_baked.get(&ts.id) && *applied != ts.id_color_edits {
+                changed.push((ts.id, crate::id_color::apply_id_edits(baked, &ts.id_color_edits), ts.id_color_edits.clone()));
+            }
+        }
+        for (ts, image, edits) in changed {
+            if let Some(entry) = self.id_baked.get_mut(&ts) { entry.1 = edits; }
+            let entry = self.mesh_maps.entry(ts).or_default();
+            let mut maps = entry.as_map().clone();
+            maps.insert(subcraft_core::MeshMapKind::Id, image);
+            *entry = MeshMaps::from_map(maps);
+            self.invalidated.insert(ts);
+            self.maps_dirty = true;
+            self.maps_generation += 1;
+            self.revision += 1;
+        }
     }
 
     /// Start baking on a background thread; poll the job each frame.
@@ -620,7 +668,7 @@ impl Session {
     }
 
     pub(crate) fn mesh_map_set(&self) -> crate::mesh_reload::MapSet {
-        self.mesh_maps.iter().map(|(id, m)| (*id, m.as_map().clone())).collect()
+        self.mesh_maps.keys().map(|id| (*id, self.stored_mesh_maps(*id))).collect()
     }
 
     /// Install a finished reload: new mesh, texture sets and maps. Not undoable: the history is
@@ -647,6 +695,8 @@ impl Session {
         self.doc = output.document;
         self.history.reset(self.doc.clone(), "Reload Mesh");
         self.mesh_maps = output.maps.into_iter().map(|(id, m)| (id, MeshMaps::from_map(m))).collect();
+        self.capture_baked_ids();
+        self.sync_id_maps();
         let doc = &self.doc;
         self.settings.stale_mesh_maps.retain(|id| doc.texture_set(*id).is_some());
         for id in output.stale {
@@ -935,12 +985,31 @@ impl Session {
         Ok(r)
     }
 
+    /// [`Self::edit_layer_set`] that adds no history entry when `f` changed nothing (a no-op
+    /// click must not wipe the redo branch or mark the project modified).
+    pub(crate) fn edit_layer_set_if_changed<R>(
+        &mut self,
+        layer: LayerId,
+        label: &str,
+        f: impl FnOnce(&mut TextureSet) -> Result<R, CommandError>,
+    ) -> Result<R, CommandError> {
+        let ts_id = self.texture_set_of(layer).ok_or(CommandError::LayerNotFound)?;
+        let ts = self.doc.texture_set_mut(ts_id).ok_or(CommandError::TextureSetNotFound)?;
+        let before = ts.layers.clone();
+        let r = f(ts)?;
+        if ts.layers != before {
+            self.commit(label, None);
+        }
+        Ok(r)
+    }
+
     pub(crate) fn layer_mut(ts: &mut TextureSet, id: LayerId) -> Result<&mut Layer, CommandError> {
         ts.find_mut(id).ok_or(CommandError::LayerNotFound)
     }
 
     fn sync_after_history_move(&mut self) {
         self.doc = self.history.current().clone();
+        self.sync_id_maps();
         if self.doc.texture_set(self.selection.texture_set).is_none() {
             self.selection.texture_set = self.doc.texture_sets[0].id;
         }
@@ -1178,7 +1247,7 @@ impl Session {
             Command::RenameEffect { layer, target, effect, name } => {
                 let name = name.trim().to_string();
                 if name.is_empty() { return Err(CommandError::Invalid("An effect needs a name".into())); }
-                self.edit_layer_set(layer, "Rename Effect", None, |ts| {
+                self.edit_layer_set_if_changed(layer, "Rename Effect", |ts| {
                     use crate::effect_stack::StackEffect;
                     let l = Self::layer_mut(ts, layer)?;
                     let found = on_stack!(l, target, |s| match s.iter_mut().find(|e| e.id() == effect) {
@@ -1305,6 +1374,8 @@ impl Session {
                 }
             }
             Command::SetAlphaSettings { texture_set, alpha } => {
+                // NaN survives clamp, is saved as null and the project no longer opens.
+                if !alpha.threshold.is_finite() { return Err(CommandError::Invalid("the alpha threshold must be a number".into())); }
                 let ts = self.doc.texture_set_mut(texture_set).ok_or(CommandError::TextureSetNotFound)?;
                 let alpha = subcraft_doc::AlphaSettings { threshold: alpha.threshold.clamp(0.0, 1.0), ..alpha };
                 if ts.alpha != alpha {
@@ -1535,6 +1606,7 @@ impl Session {
             }
             Command::ClearMeshMap { texture_set, kind } => {
                 if self.doc.texture_set(texture_set).is_none() { return Err(CommandError::TextureSetNotFound); }
+                if kind == subcraft_core::MeshMapKind::Id { self.id_baked.remove(&texture_set); }
                 if self.mesh_maps.get_mut(&texture_set).is_some_and(|m| m.remove(kind).is_some()) {
                     self.invalidated.insert(texture_set);
                     self.maps_dirty = true;
@@ -1658,7 +1730,7 @@ impl Session {
                 }
             }
             Command::SetBlendAllChannels { layer, from, mode, opacity } => {
-                self.edit_layer_set(layer, "Blend All Channels", None, |ts| {
+                self.edit_layer_set_if_changed(layer, "Blend All Channels", |ts| {
                     let l = Self::layer_mut(ts, layer)?;
                     let source = *l.blend.get(&from).ok_or(CommandError::Invalid("channel not blended by this layer".into()))?;
                     let folder = l.is_folder();
@@ -1830,6 +1902,18 @@ impl Session {
                     Ok(())
                 })?;
             }
+            Command::AddHeightCombinationMask(layer) => {
+                self.edit_layer_set(layer, "Add Mask with Height Combination", None, |ts| {
+                    let res = ts.resolution;
+                    let l = Self::layer_mut(ts, layer)?;
+                    let mut mask = Mask::new(res, false);
+                    mask.effects.push(Arc::new(MaskEffect::new(subcraft_doc::MaskEffectKind::Compare(subcraft_doc::CompareMask::height_combination()))));
+                    l.mask = Some(mask);
+                    let opacity = l.blend.get(&ChannelKind::Height).map_or(1.0, |b| b.opacity);
+                    l.blend.insert(ChannelKind::Height, subcraft_doc::ChannelBlend { mode: subcraft_doc::BlendMode::Normal, opacity });
+                    Ok(())
+                })?;
+            }
             Command::RemoveMask(layer) => {
                 self.edit_layer_set(layer, "Remove Mask", None, |ts| {
                     Self::layer_mut(ts, layer)?.mask.take().map(|_| ()).ok_or(CommandError::NoMask)
@@ -1912,6 +1996,13 @@ impl Session {
                     *slot = Arc::new(effect);
                     Ok(())
                 })?;
+            }
+            Command::EditIdColor { texture_set, from, to } => {
+                if from.iter().chain(&to).any(|v| !v.is_finite()) { return Err(CommandError::Invalid("invalid ID color".into())); }
+                let ts = self.doc.texture_set_mut(texture_set).ok_or(CommandError::TextureSetNotFound)?;
+                crate::id_color::edit_id_color(ts, from, to);
+                self.commit("Edit ID Color", None);
+                self.sync_id_maps();
             }
             Command::SetIdColors { layer, effect, colors } => {
                 self.edit_layer_set(layer, "ID Color", None, |ts| {
@@ -2018,6 +2109,12 @@ impl Session {
         }
         if let subcraft_doc::MaskEffectKind::IdColor(id) = kind && !id.valid() {
             return Err(CommandError::Invalid("ID Color Mask parameters are invalid".into()));
+        }
+        if let subcraft_doc::MaskEffectKind::Compare(c) = kind && !c.valid() {
+            return Err(CommandError::Invalid("Compare Mask parameters are invalid".into()));
+        }
+        if let subcraft_doc::MaskEffectKind::Levels(l) = kind && !l.valid() {
+            return Err(CommandError::Invalid("Levels parameters are invalid".into()));
         }
         Ok(())
     }

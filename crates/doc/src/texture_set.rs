@@ -143,6 +143,17 @@ pub struct TextureSet {
     pub transparent: bool,
     /// How the viewport draws opacity.
     pub alpha: AlphaSettings,
+    /// ID map colors the user changed in the ID color editor, applied over the baked / imported
+    /// ID map (`from` is the color in that map). Part of the document, so undo restores the map
+    /// colors together with the ID Color masks that were updated with them.
+    pub id_color_edits: Vec<IdColorEdit>,
+}
+
+/// One edited ID color: texels of `from` in the baked ID map show `to`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct IdColorEdit {
+    pub from: [f32; 3],
+    pub to: [f32; 3],
 }
 
 impl TextureSet {
@@ -159,6 +170,7 @@ impl TextureSet {
             udim_tile: None,
             transparent: false,
             alpha: AlphaSettings::default(),
+            id_color_edits: Vec::new(),
         }
     }
 
