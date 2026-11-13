@@ -993,4 +993,5 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Light", "밝게"),
     ("Painter-style", "Painter 스타일"),
     ("Colours of the panels and controls. The 3D view background is set under Background color.", "패널과 컨트롤의 색입니다. 3D 뷰 배경은 배경색에서 설정합니다."),
+    ("Drag to resize the list", "끌어서 목록 크기 조절"),
 ];

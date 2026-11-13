@@ -993,4 +993,5 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Light", "淺色"),
     ("Painter-style", "Painter 風格"),
     ("Colours of the panels and controls. The 3D view background is set under Background color.", "面板與控制項的顏色。3D 視圖背景在背景顏色中設定。"),
+    ("Drag to resize the list", "拖曳以調整清單寬度"),
 ];

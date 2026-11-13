@@ -39,7 +39,7 @@ Layout notes: a resizable left column. First entry is Global settings; below it 
 | Selection dropdown: Invert all | Dropdown above the list | - | done (Invert button) | crates/ui/src/dialogs.rs:394 | - |
 | UV tile checkboxes per texture set | Tiles listed under a set in UV-tile projects | checked (unverified) | missing (tiles appear as separate sets in the checklist, no tile picker) | - | - |
 | UV tile resolution-differs marker | Icon on tiles whose size differs from the project default | - | missing | - | - |
-| Resizable list column | Drag the divider | - | missing | - | - |
+| Resizable list column | Drag the divider | - | done (drag the divider: 120 to 360 px, kept for the session) | crates/ui/src/dialogs.rs settings_tab | list column |
 
 ## Settings tab: general export parameters
 

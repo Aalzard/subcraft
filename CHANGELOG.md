@@ -6,6 +6,8 @@ What changed in SubCraft, newest first. Download the latest build from the
 ## Unreleased
 
 ### Added
+- **Resizable list column** in the Export window's Settings tab, like Painter's: drag the divider beside
+  Global settings and the texture sets.
 - **Colour space per file** in the Export window's list of maps, like Painter's: sRGB, Linear (float files)
   or Raw (data such as normals and roughness).
 - **Output templates list** in the Output templates tab's left column, like Painter's: right-click a
