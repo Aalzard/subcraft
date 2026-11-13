@@ -134,3 +134,32 @@ fn an_instance_survives_save_and_load() {
     back.execute(Command::AddMask { layer: source, white: true }).unwrap();
     assert!(back.selected_texture_set().find(instance).unwrap().mask.is_some());
 }
+
+/// QA 2026-11: with a layer inside an instance selected, a new or pasted layer was inserted into
+/// the instance and removed again by the refresh: the command succeeded, recorded an undo step,
+/// added nothing and left the selection empty.
+#[test]
+fn a_layer_added_with_an_instance_child_selected_goes_above_the_instance() {
+    let (mut s, fill) = session();
+    s.execute(Command::GroupLayers(vec![fill])).unwrap();
+    let folder = s.selection().layer.unwrap();
+    s.execute(Command::PasteAsInstance(vec![folder])).unwrap();
+    let instance = s.selection().layer.unwrap();
+    let child = s.selected_texture_set().find(instance).unwrap().children()[0].id;
+    let above_instance = |s: &Session, id: LayerId| {
+        let ts = s.selected_texture_set();
+        let (new, inst) = (ts.location(id).expect("the layer is in the stack"), ts.location(instance).unwrap());
+        assert_eq!(new.parent, inst.parent);
+        assert_eq!(new.index, inst.index + 1);
+    };
+
+    s.execute(Command::SelectLayer(Some(child))).unwrap();
+    s.execute(Command::AddLayer(NewLayer::Fill)).unwrap();
+    above_instance(&s, s.selection().layer.expect("the new layer is selected"));
+
+    let clip = std::sync::Arc::new(s.copy_layers(&[fill]).unwrap());
+    s.execute(Command::SelectLayer(Some(child))).unwrap();
+    s.execute(Command::PasteLayers(clip)).unwrap();
+    above_instance(&s, s.selection().layer.expect("the pasted layer is selected"));
+    assert_eq!(s.selected_texture_set().find(instance).unwrap().children().len(), 1);
+}

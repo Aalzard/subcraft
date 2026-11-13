@@ -1479,6 +1479,10 @@ impl Session {
                 let ts_id = self.selection.texture_set;
                 let reference = self.selection.layer;
                 let ts = self.doc.texture_set_mut(ts_id).ok_or(CommandError::TextureSetNotFound)?;
+                // Inside an instance nothing can be added (its source would take the layer away
+                // again): the new layer goes above the instance.
+                let instance = reference.and_then(|r| subcraft_doc::instance::root_of(ts, r));
+                let reference = instance.or(reference);
                 let tc = ts.clone();
                 let (layer, label) = match kind {
                     NewLayer::Paint => (Layer::new_paint(format!("Layer {}", self.layer_counter), &tc), "New Paint Layer"),
@@ -1493,7 +1497,7 @@ impl Session {
                     NewLayer::Folder => (Layer::new_folder(format!("Folder {}", self.layer_counter), &tc), "New Folder"),
                 };
                 // Painter: with an empty folder selected, the new layer goes inside it.
-                let empty_folder = reference.filter(|&r| ts.find(r).is_some_and(|l| l.is_folder() && l.children().is_empty()));
+                let empty_folder = reference.filter(|&r| instance.is_none() && ts.find(r).is_some_and(|l| l.is_folder() && l.children().is_empty()));
                 let id = match empty_folder {
                     Some(folder) => ts.insert(Some(folder), 0, layer).map_err(|_| CommandError::LayerNotFound)?,
                     None => ts.insert_above(reference, layer),
@@ -1509,6 +1513,7 @@ impl Session {
                 if ts.find(layer.id).is_some() {
                     layer = layer.duplicate_with_new_ids();
                 }
+                let reference = reference.map(|r| subcraft_doc::instance::root_of(ts, r).unwrap_or(r));
                 let id = ts.insert_above(reference, layer);
                 self.selection.layer = Some(id);
                 self.commit(&label, None);
@@ -1722,7 +1727,7 @@ impl Session {
                     ts.channels.push(ChannelDef::default_for(kind));
                     add_blend(&mut ts.layers, kind);
                 }
-                let mut at = reference;
+                let mut at = reference.map(|r| subcraft_doc::instance::root_of(ts, r).unwrap_or(r));
                 for mut layer in clip.instantiate(ts, mesh) {
                     layer.name = crate::clipboard::pasted_name(ts, &layer.name);
                     at = Some(ts.insert_above(at, layer));
