@@ -73,40 +73,13 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     let (mods, scroll, delta, primary_pressed, primary_down, pointer) = ui.input(|i| {
         (i.modifiers, i.smooth_scroll_delta.y, i.pointer.delta(), i.pointer.primary_pressed(), i.pointer.primary_down(), i.pointer.latest_pos())
     });
+    // The press that closed the right-click Properties popup only closes it.
+    let primary_pressed = primary_pressed && !state.view_props_swallow;
 
     // ----- stencil: hold S + drag (LMB rotate, MMB move, RMB scale); hold N to bypass ------------
     // Shift is the only modifier allowed with S: it snaps the rotation to quarter turns.
-    let (s_down, n_down) = ui.input(|i| (i.key_down(egui::Key::S) && !(i.modifiers.ctrl || i.modifiers.command || i.modifiers.alt), i.key_down(egui::Key::N) && !i.modifiers.any()));
     let typing = ui.ctx().egui_wants_keyboard_input();
-    state.session.brush.stencil_bypass = n_down && !typing;
-    let stencil_edit = s_down && !typing && state.session.brush.stencil.is_some();
-    if stencil_edit && response.hovered() {
-        let mut st = (**state.session.brush.stencil.as_ref().expect("checked above")).clone();
-        let mut changed = false;
-        // The free angle of the drag is kept apart so a snapped rotation follows the whole
-        // gesture, not each small mouse step.
-        let free_id = egui::Id::new("stencil-free-rotation");
-        if response.dragged_by(PointerButton::Primary) {
-            let free = ui.data(|d| d.get_temp::<f32>(free_id)).unwrap_or(st.rotation) + delta.x * 0.01;
-            ui.data_mut(|d| d.insert_temp(free_id, free));
-            st.rotation = stencil_drag_rotation(free, mods.shift);
-            changed = true;
-        } else {
-            ui.data_mut(|d| d.remove::<f32>(free_id));
-        }
-        if response.dragged_by(PointerButton::Middle) {
-            st.center += Vec2::new(delta.x / rect.width(), delta.y / rect.height());
-            changed = true;
-        }
-        if response.dragged_by(PointerButton::Secondary) {
-            st.scale = (st.scale * (-delta.y * 0.01).exp()).clamp(0.02, 8.0);
-            changed = true;
-        }
-        if changed {
-            state.session.brush.stencil = Some(std::sync::Arc::new(st));
-        }
-        ui.ctx().set_cursor_icon(egui::CursorIcon::AllScroll);
-    }
+    let stencil_edit = stencil_input(state, ui, &response, rect, mods, delta);
 
     // ----- navigation: scheme from Preferences; mode changes mid-drag take over seamlessly -----
     use crate::nav::{NavDrag, NavInput, NavMode};
@@ -200,50 +173,19 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     }
 
     // ----- Painter-style brush gestures: Ctrl+RMB drag = size / hardness, Ctrl+LMB drag = flow / angle -----
-    let gesture_ok = mods.command && !mods.alt && !stencil_edit && !typing && !(state.bake.open || state.bake.job.is_some());
-    let brush_tool = matches!(state.tool, Tool::Brush | Tool::Eraser | Tool::Smudge | Tool::Clone);
-    // Ctrl+Shift+LMB is the snapped straight line, so the flow / angle drag needs Shift up.
-    let lmb_adjust = gesture_ok && !mods.shift && matches!(state.tool, Tool::Brush | Tool::Eraser | Tool::Smudge);
-    if gesture_ok && brush_tool && !state.painting {
-        let s = &mut state.session.brush.settings;
-        if response.dragged_by(PointerButton::Secondary) {
-            s.size = (s.size * (delta.x * 0.01).exp()).clamp(0.1, 100.0);
-            s.hardness = (s.hardness - delta.y * 0.005).clamp(0.0, 1.0);
-        } else if lmb_adjust && response.dragged_by(PointerButton::Primary) {
-            s.flow = (s.flow + delta.x * 0.003).clamp(0.01, 1.0);
-            s.angle_deg = (s.angle_deg + delta.y * 0.5).rem_euclid(360.0);
-        }
-    }
+    let gesture_ok = !stencil_edit && !typing && !(state.bake.open || state.bake.job.is_some());
+    let lmb_adjust = brush_gestures(state, &response, mods, delta, gesture_ok && !state.painting);
     let v_down = ui.input(|i| i.key_down(egui::Key::V)) && !typing && !mods.any();
 
     // Imported cameras: a locked one ignores the navigation above, an unlocked one hands over.
     crate::view_extras::follow_camera(state);
     let camera = state.camera.paint_camera(size);
 
-    if response.secondary_clicked() && !alt && !stencil_edit {
-        state.context_part = pointer.and_then(|p| state.session.surface_target(&camera, to_screen(p), state.parts_kind));
+    // Right-click (no drag): the Properties popup at the cursor, part actions in its header.
+    if response.secondary_clicked() && !stencil_edit && !pick_set && crate::view_props::opens(state, mods) && let Some(p) = pointer {
+        state.context_part = state.session.surface_target(&camera, to_screen(p), state.parts_kind);
+        crate::view_props::open(state, p, crate::view_props::View::View3d);
     }
-    let mut part_action = None;
-    // Ctrl+Alt+RMB selected a texture set above: no menu for that click.
-    if !(pick_set && response.secondary_clicked()) { response.context_menu(|ui| {
-        if let Some(target) = state.context_part {
-            ui.label(target.part.kind.label());
-            ui.menu_button("Target", |ui| {
-                for kind in subcraft_core::PartKind::ALL {
-                    if ui.selectable_label(state.parts_kind == kind, kind.label()).clicked()
-                        && let Some(next) = state.session.target_kind(target, kind) {
-                        state.context_part = Some(next); state.parts_kind = kind;
-                    }
-                }
-            });
-            if let Some(action) = crate::panels::parts::menu(ui, state.context_part.unwrap_or(target), state.session.selection().layer.is_some() && state.session.selection().texture_set == target.texture_set) {
-                part_action = Some((state.context_part.unwrap_or(target), action));
-            }
-        } else { ui.label("Right-click the model to texture a part."); }
-        if state.session.has_hidden_parts() && ui.button("Show all parts").clicked() { state.session.show_all_parts(); ui.close(); }
-        if ui.button("Eyedropper tool").clicked() { state.tool = Tool::Eyedropper; ui.close(); }
-    }); }
-    if let Some((target, action)) = part_action { crate::panels::parts::apply(state, target, action, now); }
     if response.hovered() && !typing && !mods.any() {
         let target = pointer.and_then(|p| state.session.surface_target(&camera, to_screen(p), state.parts_kind));
         for (key, action) in [(egui::Key::I, subcraft_app::PartAction::Isolate), (egui::Key::H, subcraft_app::PartAction::Hide)] {
@@ -293,6 +235,21 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         }
     }
     if id_picking && response.hovered() { ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair); }
+    // ----- ID color editor eyedropper: clicks select the ID color under the cursor --------------
+    let palette_picking = !bake_mode && !state.painting && !id_picking && state.picking_id_palette;
+    if state.picking_id_palette && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+        state.picking_id_palette = false;
+    }
+    if palette_picking && primary_pressed && response.hovered() && !alt && !stencil_edit && let Some(p) = pointer {
+        match state.session.id_color_under(&camera, to_screen(p)) {
+            Some((ts, color)) => {
+                if state.session.selection().texture_set != ts { let _ = state.session.execute(subcraft_app::Command::SelectTextureSet(ts)); }
+                crate::panels::id_colors::picked(state, ts, color, now);
+            }
+            None => state.set_status("No ID color there: missed the model, or this part has no ID map.", now),
+        }
+    }
+    if palette_picking && response.hovered() { ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair); }
     // ----- text tool: the next click places the selected text layer or stamps the draft text ------
     let text_armed = !bake_mode && !state.painting && state.text.armed.is_some();
     if text_armed && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
@@ -340,7 +297,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         state.picking_focus = false;
     }
     let gizmo_busy = !bake_mode && !state.painting && !text_armed && text_gizmo(state, ui, &camera, rect, size_scale(rect, &camera), now);
-    let picking = parts_picking || id_picking || text_armed || focus_picking || gizmo_busy;
+    let picking = parts_picking || id_picking || palette_picking || text_armed || focus_picking || gizmo_busy;
     if state.picking_parts && (!picking || ui.input(|i| i.key_pressed(egui::Key::Escape))) {
         state.picking_parts = false;
     }
@@ -385,12 +342,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     if state.session.set_clone_source(&camera, sp) { state.set_status("Clone source set: now paint where the copy should go", now); }
                     else { state.set_status(crate::keys::native("Ctrl+click the model to set the clone source"), now); }
                 }
-                Tool::PolygonFill => {
-                    state.session.brush.mode = StrokeMode::Paint;
-                    if let Err(e) = state.session.polygon_fill(&camera, sp, state.fill_mode) {
-                        state.set_status(format!("Polygon fill: {e}"), now);
-                    }
-                }
+                Tool::PolygonFill => state.fill_box = Some(p),
                 _ => {
                     if let Err(e) = state.session.prepare_surface_paint(&camera, sp) { state.set_status(format!("Parts: {e}"), now); }
                     state.session.brush.mode = match state.tool {
@@ -447,6 +399,28 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         state.painting = false;
     }
 
+    // ----- polygon fill: a click fills the element under the cursor, a drag every element in the box -----
+    let fill_rect = state.fill_box.zip(pointer).map(|(a, b)| Rect::from_two_pos(a, b));
+    if state.fill_box.is_some() && (state.tool != Tool::PolygonFill || bake_mode || ui.input(|i| i.key_pressed(egui::Key::Escape))) {
+        state.fill_box = None;
+    } else if let Some(start) = state.fill_box
+        && !primary_down
+    {
+        state.fill_box = None;
+        let end = pointer.unwrap_or(start);
+        state.session.brush.mode = StrokeMode::Paint;
+        let result = if crate::view_props::is_box_drag(start, end) {
+            state.session.polygon_fill_box(&camera, to_screen(start), to_screen(end), state.fill_mode, state.fill_visible_only)
+        } else {
+            state.session.polygon_fill(&camera, to_screen(start), state.fill_mode)
+        };
+        match result {
+            Ok(tiles) if tiles.is_empty() && crate::view_props::is_box_drag(start, end) => state.set_status("Polygon fill: the box touched no triangle of this texture set", now),
+            Ok(_) => {}
+            Err(e) => state.set_status(format!("Polygon fill: {e}"), now),
+        }
+    }
+
     // ----- render --------------------------------------------------------------------------------
     state.sync_gpu();
     let painter = ui.painter_at(rect);
@@ -482,12 +456,19 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 if !state.bake.preview_uploaded {
                     renderer.set_bake_preview(&rs.device, Some((&state.session.scene().mesh, high)));
                     state.bake.preview_uploaded = true;
+                    state.bake.miss_uploaded = false;
                 }
             } else if !state.bake.preview_uploaded {
                 renderer.set_bake_preview(&rs.device, None);
                 state.bake.preview_uploaded = true;
             }
             params.bake_overlay = state.bake.overlay_active();
+            if state.bake.preview_mesh.is_some() && !state.bake.miss_uploaded && let Some(r) = &state.bake.cage_result {
+                let maps: Vec<(u32, &subcraft_image::TiledImage)> = r.maps.iter().map(|(_, slot, img)| (*slot, img)).collect();
+                renderer.set_bake_miss_maps(&rs.device, &rs.queue, &maps);
+                state.bake.miss_uploaded = true;
+            }
+            params.bake_miss_heatmap = state.bake.heatmap_shown();
             params.bake_cage = state.bake.cage;
             if let Some(high) = &state.bake.preview_mesh {
                 let low = state.session.scene().mesh.bounds;
@@ -619,6 +600,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             let from = p + egui::vec2(offset.x / pixel_scale.x, offset.y / pixel_scale.y);
             painter.circle_stroke(from, 6.0, Stroke::new(1.5, cross));
         }
+    }
+    if let Some(r) = fill_rect.filter(|r| state.fill_box.is_some() && crate::view_props::is_box_drag(r.min, r.max)) {
+        crate::view_props::draw_fill_box(&painter, r, state.fill_visible_only);
     }
     draw_stencil(state, ui, &painter, rect, size);
     // Reset button at the top right of the view while S is held.
@@ -903,7 +887,68 @@ pub fn grid_unit_label(step: f32) -> String {
 
 /// Semi-transparent stencil image over the 3D view (hidden while N bypasses it), repeated along
 /// its tiled axes.
-fn draw_stencil(state: &mut UiState, ui: &Ui, painter: &egui::Painter, rect: Rect, size: [u32; 2]) {
+/// Stencil keys shared by the 3D and 2D views: hold N to paint without it; hold S and drag to
+/// place it (LMB rotate, Shift snaps to quarter turns; MMB move; RMB scale). `rect` is the view
+/// the stencil is laid over. Returns whether S is editing the stencil (drags belong to it).
+pub(crate) fn stencil_input(state: &mut UiState, ui: &Ui, response: &egui::Response, rect: Rect, mods: egui::Modifiers, delta: egui::Vec2) -> bool {
+    // Shift is the only modifier allowed with S: it snaps the rotation to quarter turns.
+    let (s_down, n_down) = ui.input(|i| (i.key_down(egui::Key::S) && !(i.modifiers.ctrl || i.modifiers.command || i.modifiers.alt), i.key_down(egui::Key::N) && !i.modifiers.any()));
+    let typing = ui.ctx().egui_wants_keyboard_input();
+    state.session.brush.stencil_bypass = n_down && !typing;
+    let stencil_edit = s_down && !typing && state.session.brush.stencil.is_some();
+    if stencil_edit && response.hovered() {
+        let mut st = (**state.session.brush.stencil.as_ref().expect("checked above")).clone();
+        let mut changed = false;
+        // The free angle of the drag is kept apart so a snapped rotation follows the whole
+        // gesture, not each small mouse step.
+        let free_id = egui::Id::new("stencil-free-rotation");
+        if response.dragged_by(PointerButton::Primary) {
+            let free = ui.data(|d| d.get_temp::<f32>(free_id)).unwrap_or(st.rotation) + delta.x * 0.01;
+            ui.data_mut(|d| d.insert_temp(free_id, free));
+            st.rotation = stencil_drag_rotation(free, mods.shift);
+            changed = true;
+        } else {
+            ui.data_mut(|d| d.remove::<f32>(free_id));
+        }
+        if response.dragged_by(PointerButton::Middle) {
+            st.center += Vec2::new(delta.x / rect.width(), delta.y / rect.height());
+            changed = true;
+        }
+        if response.dragged_by(PointerButton::Secondary) {
+            st.scale = (st.scale * (-delta.y * 0.01).exp()).clamp(0.02, 8.0);
+            changed = true;
+        }
+        if changed {
+            state.session.brush.stencil = Some(std::sync::Arc::new(st));
+        }
+        ui.ctx().set_cursor_icon(egui::CursorIcon::AllScroll);
+    }
+    stencil_edit
+}
+
+/// Painter's brush gestures, shared by the 3D and 2D views: Ctrl+RMB drag = size (left-right) /
+/// hardness (up-down), Ctrl+LMB drag = flow / angle. `allowed` is false while the view's own
+/// state rules them out (a stroke, the stencil, a text field). Returns whether Ctrl+LMB belongs
+/// to the flow / angle drag (so the press must not start a stroke).
+pub(crate) fn brush_gestures(state: &mut UiState, response: &egui::Response, mods: egui::Modifiers, delta: egui::Vec2, allowed: bool) -> bool {
+    let gesture_ok = allowed && mods.command && !mods.alt;
+    let brush_tool = matches!(state.tool, Tool::Brush | Tool::Eraser | Tool::Smudge | Tool::Clone);
+    // Ctrl+Shift+LMB is the snapped straight line, so the flow / angle drag needs Shift up.
+    let lmb_adjust = gesture_ok && !mods.shift && matches!(state.tool, Tool::Brush | Tool::Eraser | Tool::Smudge);
+    if gesture_ok && brush_tool {
+        let s = &mut state.session.brush.settings;
+        if response.dragged_by(PointerButton::Secondary) {
+            s.size = (s.size * (delta.x * 0.01).exp()).clamp(0.1, 100.0);
+            s.hardness = (s.hardness - delta.y * 0.005).clamp(0.0, 1.0);
+        } else if lmb_adjust && response.dragged_by(PointerButton::Primary) {
+            s.flow = (s.flow + delta.x * 0.003).clamp(0.01, 1.0);
+            s.angle_deg = (s.angle_deg + delta.y * 0.5).rem_euclid(360.0);
+        }
+    }
+    lmb_adjust
+}
+
+pub(crate) fn draw_stencil(state: &mut UiState, ui: &Ui, painter: &egui::Painter, rect: Rect, size: [u32; 2]) {
     let Some(st) = state.session.brush.stencil.clone() else {
         state.stencil_tex = None;
         return;

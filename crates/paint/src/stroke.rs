@@ -17,7 +17,7 @@ use subcraft_mesh::{Bvh, Mesh};
 
 use crate::camera::Camera;
 use crate::depth::{DepthCache, DepthMap};
-use crate::kernel::{KernelInput, TexelSample, TileWork};
+use crate::kernel::{KernelInput, TexelSample, TileWork, UvView};
 use crate::path::{PathSample, ScreenPath, rand01};
 use crate::settings::{Alignment, BrushMaterial, BrushSettings, SizeContext, SizeSpace, ImageStamp, StampKind, PaintTarget, PolygonFillMode, StrokeMode, StrokeOptions};
 use crate::stamp::{Dab, Stamp, resolve_overlap};
@@ -57,6 +57,10 @@ pub struct Stroke {
     /// The view the stroke started in: projects images and anchors the clone offset.
     view_camera: Option<Camera>,
     clone: Option<CloneSource>,
+    /// 2D-view clone: the texture position copied from and the UV offset from the stroke to it.
+    uv_clone: Option<UvClone>,
+    /// 2D-view strokes: where the texture sits in the 2D view (stencil masking).
+    uv_view: Option<UvView>,
     /// Smudge: live copies of the target images (the snapshots stay pre-stroke) and the paint
     /// carried along (premultiplied value, alpha) per stroke copy and image.
     work: Vec<TiledImage>,
@@ -115,6 +119,14 @@ struct CloneSource {
     offset: Option<Vec2>,
 }
 
+/// Where a 2D-view clone stroke copies from: a texture position, and the UV offset from the
+/// stroke's own position to it (fixed by the first dab, then kept so later strokes align).
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct UvClone {
+    source: Vec2,
+    offset: Option<Vec2>,
+}
+
 /// Per-tile texel remapping for the image sources (clone / camera projection).
 enum Remap {
     None,
@@ -157,6 +169,8 @@ impl Stroke {
             camera_projection: material.camera_projection,
             view_camera: None,
             clone: None,
+            uv_clone: None,
+            uv_view: None,
             work: Vec::new(),
             carried: Vec::new(),
             uv_per_unit: None,
@@ -199,6 +213,25 @@ impl Stroke {
     /// stroke; `None` lets the first dab define it.
     pub fn with_clone(mut self, point: Vec3, offset: Option<Vec2>) -> Self {
         self.clone = Some(CloneSource { point, offset });
+        self
+    }
+
+    /// 2D-view clone from texture position `source` (UV 0..1). `offset` is the UV offset kept
+    /// from an earlier stroke; `None` lets the first dab define it.
+    pub fn with_uv_clone(mut self, source: Vec2, offset: Option<Vec2>) -> Self {
+        self.uv_clone = Some(UvClone { source, offset });
+        self
+    }
+
+    /// The 2D-view clone offset in UV units, once the first dab has fixed it.
+    pub fn uv_clone_offset(&self) -> Option<Vec2> {
+        self.uv_clone.and_then(|c| c.offset)
+    }
+
+    /// 2D-view strokes: where the texture is drawn in the 2D view, so a stencil laid over that
+    /// view masks the stroke like it masks a 3D stroke. `None`: the stencil is not used in UV.
+    pub fn with_uv_view(mut self, view: Option<UvView>) -> Self {
+        self.uv_view = view;
         self
     }
 
@@ -303,8 +336,10 @@ impl Stroke {
 
     /// Feed a 2D-view cursor position in texture UV (0..1, origin top-left; `line`: straight
     /// segment). Stamps are UV discs ([`Alignment::Uv`]) with no 3D visibility test, so
-    /// hidden and back faces are reachable. Symmetry and stencils belong to the 3D view and do
-    /// not apply. `texels_per_px` converts the lazy-mouse distance from view pixels to texels.
+    /// hidden and back faces are reachable. Smudge and clone work in UV space, the stencil masks
+    /// through the 2D view ([`Stroke::with_uv_view`]) and symmetry mirrors each dab through the
+    /// 3D model onto the matching texture position. `texels_per_px` converts the lazy-mouse
+    /// distance from view pixels to texels.
     pub fn add_uv_point(&mut self, ts: &mut TextureSet, ctx: &PaintContext, uv: Vec2, line: bool, texels_per_px: f32) -> Result<Vec<usize>, PaintError> {
         self.check(ts, ctx)?;
         let res = ctx.geometry.resolution as f32;
@@ -385,7 +420,24 @@ impl Stroke {
                 bitangent: Vec3::Y,
             });
         }
-        self.apply_stamps(ts, ctx, std::slice::from_ref(ctx.camera), &stamps, Alignment::Uv, false)
+        if self.options.has_symmetry() {
+            let mirrored: Vec<Stamp> = stamps.iter().flat_map(|st| {
+                let copies = uv_symmetry_copies(ctx, &self.options, st.uv);
+                copies.into_iter().map(move |uv| Stamp { uv, screen: uv * res, ..*st })
+            }).collect();
+            stamps.extend(mirrored);
+        }
+        if self.mode == StrokeMode::Clone {
+            let clone = self.uv_clone.as_mut().ok_or(PaintError::NoCloneSource)?;
+            if clone.offset.is_none() {
+                clone.offset = Some(clone.source - samples[0].pos / res);
+            }
+        }
+        if self.mode == StrokeMode::Smudge {
+            return self.smudge_stamps(ts, ctx, std::slice::from_ref(ctx.camera), &stamps, Alignment::Uv);
+        }
+        let stencil = self.uv_view.is_some();
+        self.apply_stamps(ts, ctx, std::slice::from_ref(ctx.camera), &stamps, Alignment::Uv, stencil)
     }
 
     fn check(&self, ts: &TextureSet, ctx: &PaintContext) -> Result<(), PaintError> {
@@ -501,7 +553,8 @@ impl Stroke {
             }
         }
         if self.mode == StrokeMode::Smudge {
-            return self.smudge_stamps(ts, ctx, &cameras, &stamps);
+            let alignment = self.settings.alignment;
+            return self.smudge_stamps(ts, ctx, &cameras, &stamps, alignment);
         }
         if self.preview.tiles > 0 && matches!(self.mode, StrokeMode::Paint | StrokeMode::Erase) {
             let stride = (self.preview.last_tiles / self.preview.tiles).clamp(1, PREVIEW_MAX_STRIDE) as u32;
@@ -520,6 +573,13 @@ impl Stroke {
         if stamps.is_empty() {
             return Ok(Vec::new());
         }
+        match stamp_pool() {
+            Some(pool) => pool.install(|| self.apply_stamps_here(ts, ctx, cameras, stamps, alignment, stencil)),
+            None => self.apply_stamps_here(ts, ctx, cameras, stamps, alignment, stencil),
+        }
+    }
+
+    fn apply_stamps_here(&mut self, ts: &mut TextureSet, ctx: &PaintContext, cameras: &[Camera], stamps: &[Stamp], alignment: Alignment, stencil: bool) -> Result<Vec<usize>, PaintError> {
         let depth: Vec<Arc<DepthMap>> =
             if alignment == Alignment::Uv { Vec::new() } else { ctx.depth.get_all(ctx.mesh, cameras) };
         let backface_cos = self.settings.backface_culling.then(|| self.settings.backface_angle_deg.to_radians().cos());
@@ -533,6 +593,7 @@ impl Stroke {
             backface_cos,
             alpha: self.alpha.as_deref(),
             stencil: self.stencil.as_deref().filter(|_| stencil),
+            stencil_uv: self.uv_view.filter(|_| alignment == Alignment::Uv),
         };
         if let Some((st, _)) = &self.stamp
             && st.tiled
@@ -544,6 +605,8 @@ impl Stroke {
         let t_bin = std::time::Instant::now();
         let bins = input.bin(stamps);
         profile::add(profile::BIN, t_bin);
+        profile::count(0, stamps.len());
+        profile::count(1, bins.len());
         if alignment != Alignment::Uv {
             // Cost estimate for the live preview: the tiles a batch touches per stamp.
             let n = stamps.len().max(1);
@@ -569,6 +632,7 @@ impl Stroke {
             }
             let built: Vec<((usize, usize), Arc<[TexelSample]>)> =
                 missing.into_par_iter().map(|(t, c)| ((t, c), Arc::from(input.tile_samples(t, c)))).collect();
+            profile::count(2, built.len());
             for (k, samples) in built {
                 self.raster.samples += samples.len();
                 self.raster.tiles.insert(k, samples);
@@ -618,6 +682,7 @@ impl Stroke {
             .collect();
         profile::add(profile::ACCUM, t_acc);
         let tiles: Vec<usize> = done.iter().filter(|d| d.3).map(|d| d.0).collect();
+        profile::count(3, tiles.len());
         for (t, cov, acc, _) in done {
             self.coverage.insert(t, cov);
             if let Some(acc) = acc { self.stamp_acc.insert(t, acc); }
@@ -727,6 +792,19 @@ impl Stroke {
     }
 
     fn remap(&self, ctx: &PaintContext, tile: usize, cov: &[f32]) -> Remap {
+        if self.mode == StrokeMode::Clone && let Some(offset) = self.uv_clone.and_then(|c| c.offset) {
+            // 2D view: every texel copies from the texel `offset` away in texture space.
+            let g = ctx.geometry;
+            let res = g.resolution as f32;
+            let (x0, y0) = ((tile as u32 % g.tiles_x) * TILE_SIZE, (tile as u32 / g.tiles_x) * TILE_SIZE);
+            let uvs = (0..TILE_TEXELS).map(|i| {
+                if cov[i] <= 0.0 { return None; }
+                let uv = Vec2::new((x0 + i as u32 % TILE_SIZE) as f32 + 0.5, (y0 + i as u32 / TILE_SIZE) as f32 + 0.5) / res + offset;
+                let inside = (0.0..=1.0).contains(&uv.x) && (0.0..=1.0).contains(&uv.y);
+                inside.then_some([uv.x, uv.y])
+            }).collect();
+            return Remap::Clone(uvs);
+        }
         let Some(cam) = self.view_camera.as_ref() else { return Remap::None };
         if self.mode == StrokeMode::Clone {
             let Some(offset) = self.clone.and_then(|c| c.offset) else { return Remap::None };
@@ -758,7 +836,7 @@ impl Stroke {
 
     /// Smudge: stamp by stamp, pick up what is under the brush and drag it along. Works on live
     /// copies of the target images, so a stamp sees what earlier stamps left.
-    fn smudge_stamps(&mut self, ts: &mut TextureSet, ctx: &PaintContext, cameras: &[Camera], stamps: &[Stamp]) -> Result<Vec<usize>, PaintError> {
+    fn smudge_stamps(&mut self, ts: &mut TextureSet, ctx: &PaintContext, cameras: &[Camera], stamps: &[Stamp], alignment: Alignment) -> Result<Vec<usize>, PaintError> {
         if stamps.is_empty() {
             return Ok(Vec::new());
         }
@@ -771,13 +849,12 @@ impl Stroke {
         if self.carried.len() != images * cameras.len().max(1) {
             self.carried = vec![None; images * cameras.len().max(1)];
         }
-        let alignment = self.settings.alignment;
         let depth: Vec<Arc<DepthMap>> =
             if alignment == Alignment::Uv { Vec::new() } else { ctx.depth.get_all(ctx.mesh, cameras) };
         let backface_cos = self.settings.backface_culling.then(|| self.settings.backface_angle_deg.to_radians().cos());
         let input = KernelInput {
             mesh: ctx.mesh, bvh: ctx.bvh, geometry: ctx.geometry, alignment, cameras, depth: &depth, backface_cos,
-            alpha: self.alpha.as_deref(), stencil: None,
+            alpha: self.alpha.as_deref(), stencil: None, stencil_uv: None,
         };
         let mut changed = std::collections::BTreeSet::new();
         let (carry, strength, material, falloff) = (self.settings.smudge_carry.clamp(0.0, 1.0), self.settings.smudge_strength.clamp(0.0, 1.0),
@@ -888,24 +965,38 @@ impl Stroke {
         }
     }
 
+    /// Fill everything a screen box `[a, b]` (pixels) touches, grown to `mode`'s elements.
+    /// `visible_only` skips back faces and occluded triangles (see
+    /// [`crate::select::triangles_in_screen_box`]).
+    pub fn polygon_fill_box(&mut self, ts: &mut TextureSet, ctx: &PaintContext, a: Vec2, b: Vec2, mode: PolygonFillMode, visible_only: bool) -> Result<Vec<usize>, PaintError> {
+        self.check(ts, ctx)?;
+        let seeds = crate::select::triangles_in_screen_box(ctx.mesh, ctx.bvh, ctx.camera, ctx.geometry.material_slot, a, b, visible_only);
+        let tris = crate::select::grow(ctx.mesh, ctx.geometry, &seeds, mode);
+        self.fill_triangles(ts, ctx, &tris)
+    }
+
+    /// [`Stroke::polygon_fill_box`] from the 2D view: a box in UV space.
+    pub fn polygon_fill_uv_box(&mut self, ts: &mut TextureSet, ctx: &PaintContext, a: Vec2, b: Vec2, mode: PolygonFillMode) -> Result<Vec<usize>, PaintError> {
+        self.check(ts, ctx)?;
+        let seeds = crate::select::triangles_in_uv_box(ctx.mesh, ctx.geometry.material_slot, a, b);
+        let tris = crate::select::grow(ctx.mesh, ctx.geometry, &seeds, mode);
+        self.fill_triangles(ts, ctx, &tris)
+    }
+
     fn fill_from(&mut self, ts: &mut TextureSet, ctx: &PaintContext, hit_tri: u32, mode: PolygonFillMode) -> Result<Vec<usize>, PaintError> {
-        let mesh = ctx.mesh;
-        let slot = ctx.geometry.material_slot;
-        if mesh.tri_material[hit_tri as usize] != slot {
+        if ctx.mesh.tri_material[hit_tri as usize] != ctx.geometry.material_slot {
             return Ok(Vec::new());
         }
-        let group = match mode {
-            PolygonFillMode::Triangle => None,
-            PolygonFillMode::MeshElement => Some(ctx.geometry.triangle_parts()),
-            PolygonFillMode::UvIsland => Some(ctx.geometry.triangle_islands()),
-        };
-        let tris: Vec<u32> = match &group {
-            None => vec![hit_tri],
-            Some(g) => {
-                let id = g[hit_tri as usize];
-                mesh.material_triangles(slot).filter(|&t| g[t] == id).map(|t| t as u32).collect()
-            }
-        };
+        let tris = crate::select::grow(ctx.mesh, ctx.geometry, &[hit_tri], mode);
+        self.fill_triangles(ts, ctx, &tris)
+    }
+
+    /// Fill `tris` (of the painted texture set) at full coverage, scaled by stroke opacity.
+    fn fill_triangles(&mut self, ts: &mut TextureSet, ctx: &PaintContext, tris: &[u32]) -> Result<Vec<usize>, PaintError> {
+        if tris.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mesh = ctx.mesh;
         let input = KernelInput {
             mesh,
             bvh: ctx.bvh,
@@ -916,9 +1007,10 @@ impl Stroke {
             backface_cos: None,
             alpha: None,
             stencil: None,
+            stencil_uv: None,
         };
         let mut bins: std::collections::BTreeMap<usize, Vec<u32>> = std::collections::BTreeMap::new();
-        for &t in &tris {
+        for &t in tris {
             for tile in input.triangle_tiles(t) {
                 bins.entry(tile).or_default().push(t);
             }
@@ -1008,6 +1100,60 @@ pub fn uv_per_unit(mesh: &Mesh, slot: u32) -> f32 {
 }
 
 /// Triangle of the geometry's material slot whose (tile-wrapped) UV triangle contains `uv`.
+/// Barycentric weights (of vertices 1 and 2) of texture position `uv` in triangle `t`, with the
+/// triangle's UVs wrapped to the 0-1 tile like [`triangle_at_uv`] does.
+fn uv_barycentric(mesh: &Mesh, t: u32, uv: Vec2) -> Option<(f32, f32)> {
+    let (q, _) = subcraft_mesh::uv_raster::wrap_to_tile(mesh.tri_uvs(t as usize));
+    let (e0, e1, w) = (q[1] - q[0], q[2] - q[0], uv - q[0]);
+    let d = e0.perp_dot(e1);
+    (d.abs() >= 1e-14).then(|| (w.perp_dot(e1) / d, e0.perp_dot(w) / d))
+}
+
+/// Texture position of the surface point at barycentrics `(u, v)` of triangle `t` (wrapped to
+/// the 0-1 tile).
+fn uv_at(mesh: &Mesh, t: u32, u: f32, v: f32) -> Vec2 {
+    let (q, _) = subcraft_mesh::uv_raster::wrap_to_tile(mesh.tri_uvs(t as usize));
+    q[0] * (1.0 - u - v) + q[1] * u + q[2] * v
+}
+
+/// Symmetry for 2D-view strokes: the texture positions where the copies of a dab at `uv` land.
+/// The dab's surface point is mirrored (and turned, for radial symmetry) in object space with
+/// the same planes as a 3D stroke, then brought back to the nearest surface point of the same
+/// texture set, whose UV is the copy's position. Copies that find no surface nearby (within 5 %
+/// of the model size) or land on the dab itself are left out.
+pub fn uv_symmetry_copies(ctx: &PaintContext, options: &StrokeOptions, uv: Vec2) -> Vec<Vec2> {
+    let mesh = ctx.mesh;
+    let Some(t) = triangle_at_uv(mesh, ctx.geometry, uv) else { return Vec::new() };
+    let Some((u, v)) = uv_barycentric(mesh, t, uv) else { return Vec::new() };
+    let p = mesh.interpolate(t as usize, u, v).position;
+    let center = mesh.bounds.center();
+    let mut points = vec![p];
+    let mirrors = options.symmetry.iter().filter(|&&m| m).count();
+    let radial = &options.radial;
+    let n = radial.effective_count(mirrors);
+    if n > 1 {
+        let pivot = center + Vec3::from_array(radial.center_offset);
+        for k in 1..n {
+            let q = glam::Quat::from_axis_angle(radial.axis_dir(), std::f32::consts::TAU * k as f32 / n as f32);
+            points.push(pivot + q * (p - pivot));
+        }
+    }
+    for axis in 0..3 {
+        if options.symmetry[axis] {
+            let mirrored: Vec<Vec3> = points.iter().map(|&q| { let mut m = q; m[axis] = 2.0 * center[axis] - q[axis]; m }).collect();
+            points.extend(mirrored);
+        }
+    }
+    let slot = ctx.geometry.material_slot;
+    let reach = (mesh.bounds.diagonal() * 0.05).max(1e-6);
+    let min_gap = 0.5 / ctx.geometry.resolution.max(1) as f32;
+    points[1..].iter().filter_map(|&q| {
+        let hit = ctx.bvh.closest_point(q, reach, |tri| mesh.tri_material[tri as usize] == slot)?;
+        let c = uv_at(mesh, hit.tri, hit.u, hit.v);
+        (c.is_finite() && (c - uv).length() > min_gap).then_some(c)
+    }).collect()
+}
+
 pub fn triangle_at_uv(mesh: &Mesh, geometry: &TextureSetGeometry, uv: Vec2) -> Option<u32> {
     if !uv.is_finite() || uv.min_element() < 0.0 || uv.max_element() >= 1.0 {
         return None;
@@ -1038,6 +1184,44 @@ pub fn triangle_at_uv(mesh: &Mesh, geometry: &TextureSetGeometry, uv: Vec2) -> O
 
 /// Wall-clock nanoseconds spent in each stage of the stamp pipeline since the last
 /// [`profile::take`]; read by the benchmarks. Costs one `Instant::now` per stage per call.
+/// The threads that stamp: their own pool, one step above normal priority. A stroke changes tiles
+/// on every frame, and on a deep layer stack the compositor's threads are then busy on every core
+/// re-blending them; sharing the cores evenly made each stamp (which the user is waiting on) take
+/// several times longer than on an idle machine. The stamps come first; compositing gets the
+/// cores back as soon as the frame's stamps are down. Results do not depend on it. `None` if the
+/// pool could not be created (stamping then runs on the caller's pool as before).
+fn stamp_pool() -> Option<&'static rayon::ThreadPool> {
+    static POOL: std::sync::OnceLock<Option<rayon::ThreadPool>> = std::sync::OnceLock::new();
+    POOL.get_or_init(|| {
+        rayon::ThreadPoolBuilder::new()
+            .thread_name(|i| format!("stamp-{i}"))
+            .start_handler(|_| above_normal_priority())
+            .build()
+            .map_err(|e| log::warn!("stamp pool: {e}"))
+            .ok()
+    })
+    .as_ref()
+}
+
+/// Only Windows needs it: its scheduler otherwise shares the cores evenly between the composite
+/// threads and the stamping threads. Other systems keep their default.
+#[cfg(windows)]
+#[allow(unsafe_code)]
+fn above_normal_priority() {
+    const THREAD_PRIORITY_ABOVE_NORMAL: i32 = 1;
+    unsafe extern "system" {
+        fn GetCurrentThread() -> isize;
+        fn SetThreadPriority(thread: isize, priority: i32) -> i32;
+    }
+    // SAFETY: both functions take no pointers; the pseudo handle of the current thread is always
+    // valid. A failure (returns 0) leaves the priority as it was.
+    unsafe {
+        SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
+    }
+}
+#[cfg(not(windows))]
+fn above_normal_priority() {}
+
 pub mod profile {
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::Instant;
@@ -1053,5 +1237,14 @@ pub mod profile {
     /// Milliseconds per stage, resetting the counters.
     pub fn take() -> [f64; 4] {
         std::array::from_fn(|i| NS[i].swap(0, Ordering::Relaxed) as f64 / 1e6)
+    }
+    pub const COUNT_NAMES: [&str; 4] = ["stamps", "tiles binned", "tiles rasterized", "tiles changed"];
+    static COUNTS: [AtomicU64; 4] = [AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0)];
+    pub(super) fn count(what: usize, n: usize) {
+        COUNTS[what].fetch_add(n as u64, Ordering::Relaxed);
+    }
+    /// Work counts since the last call (see [`COUNT_NAMES`]), resetting them.
+    pub fn take_counts() -> [u64; 4] {
+        std::array::from_fn(|i| COUNTS[i].swap(0, Ordering::Relaxed))
     }
 }
