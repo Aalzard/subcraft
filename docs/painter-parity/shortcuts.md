@@ -195,7 +195,7 @@ Layout notes: these act only while the pointer is over the layer stack.
 | Path: scale both tangents together | Viewport, Path tool | Ctrl | missing | - | - |
 | Path: select all points | Viewport, Path tool | Ctrl+A (release notes) | missing | - | - |
 | Path: delete selected path or point | Paths panel / viewport | Delete | partial: Delete removes the selected anchor only | crates/ui/src/pen.rs:60 | - |
-| Path: rename | Paths panel | Double-click | missing | - | - |
+| Path: rename | Paths panel | Double-click | done: double-click in the Paths panel | crates/ui/src/paths_panel.rs | - |
 | Path: copy / paste / duplicate | Paths panel | Ctrl+C / Ctrl+V / Ctrl+D | missing | - | - |
 | Hardness shortcut drives a Substance brush "hardness" parameter | Paint tool | Ctrl+Mouse right vertical | missing | - | - |
 

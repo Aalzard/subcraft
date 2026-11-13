@@ -30,6 +30,7 @@ pub mod nav;
 pub mod orbit;
 pub mod render_export;
 pub mod pen;
+pub mod paths_panel;
 pub mod placement;
 pub mod pen_input;
 pub mod text_panel;

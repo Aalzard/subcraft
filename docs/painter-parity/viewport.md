@@ -302,16 +302,16 @@ Layout notes: the Path tool works only in the 3D view. A floating Paths panel in
 | Delete path | Backspace (11.0) | - | partial: Backspace deletes the selected anchor only | crates/ui/src/pen.rs:60 | - |
 | Path preview (dotted next segment) | Shift + P toggles (11.0) | on | missing | - | - |
 | Manipulators on path points | W, S, D toggle them (11.0) | - | missing | - | - |
-| Paths panel: list of paths | Floating panel in the viewport | shown with a Path tool | missing | - | - |
-| Paths panel: rename | Double-click a path | - | missing | - | - |
-| Paths panel: delete | Delete key | - | missing | - | - |
-| Paths panel: copy | Ctrl + C | - | missing | - | - |
-| Paths panel: paste | Ctrl + V | - | missing | - | - |
-| Paths panel: duplicate | Ctrl + D | - | missing | - | - |
-| Paths panel: show / hide path | Eye icon | - | missing | - | - |
-| Paths panel: right-click menu with the same actions | RMB on a path | - | missing | - | - |
-| Paths panel: copy / paste properties | RMB menu | same tool type only | missing | - | - |
-| Paths panel: copy / paste position (all vertices) | RMB menu | - | missing | - | - |
+| Paths panel: list of paths | Floating panel in the viewport | shown with a Path tool | done: floating at the top left of the 3D view with the Pen tool; each path is its own layer, so it lists the texture set's pen-path layers | crates/ui/src/paths_panel.rs | - |
+| Paths panel: rename | Double-click a path | - | done | crates/ui/src/paths_panel.rs | - |
+| Paths panel: delete | Delete key | - | partial: right-click > Delete (the Delete key removes the selected point) | crates/ui/src/paths_panel.rs | - |
+| Paths panel: copy | Ctrl + C | - | partial: right-click > Copy properties / Copy position, no Ctrl+C | crates/ui/src/paths_panel.rs | - |
+| Paths panel: paste | Ctrl + V | - | partial: right-click > Paste properties / Paste position, no Ctrl+V | crates/ui/src/paths_panel.rs | - |
+| Paths panel: duplicate | Ctrl + D | - | done: right-click > Duplicate; Ctrl+D duplicates the selected path layer | crates/ui/src/paths_panel.rs | - |
+| Paths panel: show / hide path | Eye icon | - | done | crates/ui/src/paths_panel.rs | - |
+| Paths panel: right-click menu with the same actions | RMB on a path | - | done | crates/ui/src/paths_panel.rs | - |
+| Paths panel: copy / paste properties | RMB menu | same tool type only | done: width, hardness, opacity, values, type and stamp; the points stay | crates/ui/src/paths_panel.rs | - |
+| Paths panel: copy / paste position (all vertices) | RMB menu | - | done: the points (fresh ids) and open / closed; the style stays | crates/ui/src/paths_panel.rs | - |
 | Hover feedback from the Paths panel in the view | 3D view | - | missing | - | - |
 | Message when using a Path tool in the 2D view | 2D view | - | missing | - | - |
 

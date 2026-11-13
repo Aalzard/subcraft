@@ -634,6 +634,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             }
         }
     }
+    if !bake_mode {
+        crate::paths_panel::show(state, ui, rect, now);
+    }
     if state.tool == Tool::Pen && let Some(path) = state.pen.preview(&state.session) {
         crate::pen::draw(&painter, path, state.pen.selected_anchor(), |uv| pen_position(state, &camera, rect, uv));
     }
