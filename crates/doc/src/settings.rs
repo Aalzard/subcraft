@@ -125,6 +125,9 @@ pub struct BakeConfig {
     pub cage_rear: f32,
     pub id_source: String,
     pub id_generator: String,
+    /// Vertex colour set the ID map reads with the vertex colour source (0 = the first).
+    #[serde(skip_serializing_if = "is_zero")]
+    pub vertex_color_set: u32,
     pub dilation: u32,
     pub diffusion: bool,
     /// Supersampling per side: 1, 2, 4 or 8.
@@ -150,7 +153,7 @@ impl Default for BakeConfig {
             ao_distribution: "cosine".into(), ao_attenuation: "none".into(), ao_ground_plane: false, ao_ground_offset: 0.0,
             thickness_samples: 16, thickness_distance: 0.5, curvature_radius: 0.02, curvature_from_normal: false,
             normal_curvature_width: 2.0, normal_curvature_intensity: 1.0, cage_front: 0.01, cage_rear: 0.01,
-            id_source: "mesh_id".into(), id_generator: "hue_shift".into(), dilation: 16, diffusion: true, antialiasing: 1,
+            id_source: "mesh_id".into(), id_generator: "hue_shift".into(), vertex_color_set: 0, dilation: 16, diffusion: true, antialiasing: 1,
             average_normals: false, ignore_backface: false, position_axis: None, position_normalization: "bounding_box".into(),
             height_range: None,
         }
@@ -213,6 +216,10 @@ pub struct ExportConfig {
     /// Per texture set overrides, by texture set id.
     #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub sets: std::collections::BTreeMap<subcraft_core::TextureSetId, ExportOverrides>,
+}
+
+fn is_zero(v: &u32) -> bool {
+    *v == 0
 }
 
 fn is_default_match(m: &subcraft_core::BakeMatch) -> bool {
