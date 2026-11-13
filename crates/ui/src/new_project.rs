@@ -371,7 +371,7 @@ fn high_poly_section(ui: &mut Ui, np: &mut NewProjectUi, pick: &mut bool) {
             if !high.summary.has_uvs {
                 ui.add(egui::Label::new(RichText::new("No UVs: fine for baking, the high poly only needs its shape.").color(TEXT_DIM)).wrap());
             }
-            ui.add(egui::Label::new(RichText::new("The Bake window opens with this model after the project is created.").color(TEXT_DIM)).wrap());
+            ui.add(egui::Label::new(RichText::new("Baking mode opens with this model after the project is created.").color(TEXT_DIM)).wrap());
         }
     });
 }

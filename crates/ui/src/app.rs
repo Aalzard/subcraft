@@ -1150,7 +1150,8 @@ impl SubcraftApp {
         self.follow_layer_selection();
         self.open_requested_brush_editor();
         let style = theme::dock_style(ui.style());
-        let hidden = self.state.hide_ui;
+        // Tab and Baking mode show the views alone (Baking mode adds its own panels around them).
+        let hidden = self.state.hide_ui || self.state.bake.open;
         let mut viewer = Viewer { state: &mut self.state, was_active: &self.active_tabs, active: HashSet::new() };
         // Tab hides the panels: only the views are laid out, in the arrangement of the full layout.
         let mut views = hidden.then(|| views_only(&self.dock));
@@ -2227,7 +2228,7 @@ impl eframe::App for SubcraftApp {
         if !self.state.hide_ui && status {
             egui::Panel::bottom("status").exact_size(26.0).show_separator_line(false).frame(bar(theme::BG_0)).show(ui, |ui| self.status_bar(ui));
         }
-        if !self.state.hide_ui && rail {
+        if !self.state.hide_ui && rail && !self.state.bake.open {
             egui::Panel::left("tools")
                 .exact_size(48.0)
                 .resizable(false)
@@ -2236,6 +2237,7 @@ impl eframe::App for SubcraftApp {
                 .show(ui, |ui| self.tool_rail(ui));
         }
         self.mark("bars");
+        dialogs::bake_mode(&mut self.state, ui, ctx.input(|i| i.time));
         self.workspace(ui);
         self.mark("workspace (docked panels)");
         if let Some(layer) = ctx.data_mut(|data| data.remove_temp::<subcraft_core::LayerId>(egui::Id::new("inspect_mask"))) {
@@ -2289,7 +2291,6 @@ impl eframe::App for SubcraftApp {
             panic!("test crash requested with --test-crash");
         }
         dialogs::export_window(&mut self.state, &ctx, now);
-        dialogs::bake_window(&mut self.state, &ctx, now);
         crate::mesh_reload::window(&mut self.state, &ctx, now);
         crate::auto_uv::window(&mut self.state, &ctx, now);
         dialogs::poll_bake(&mut self.state, &ctx, now);

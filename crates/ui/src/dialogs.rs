@@ -501,7 +501,13 @@ pub struct BakeUi {
     pub open: bool,
     pub settings: subcraft_app::BakeSettings,
     pub high_poly: String,
-    pub all_sets: bool,
+    /// Texture sets unticked in the baking list (every other set is baked).
+    pub skip_sets: std::collections::HashSet<subcraft_core::TextureSetId>,
+    /// The baker whose settings show in Mesh map settings (`None`: Common settings).
+    pub selected_baker: Option<subcraft_core::MeshMapKind>,
+    pub log_tab: BakeLogTab,
+    /// Maps of the running or last bake started from the panels (a quick bake has one).
+    pub job_maps: Vec<subcraft_core::MeshMapKind>,
     /// The user picked a size; until then it follows the texture set resolution.
     pub size_chosen: bool,
     pub job: Option<subcraft_app::BakeJob>,
@@ -542,7 +548,7 @@ pub struct BakeUi {
 
 impl Default for BakeUi {
     fn default() -> Self {
-        Self { open: false, settings: subcraft_app::BakeSettings::default(), high_poly: String::new(), all_sets: true, size_chosen: false, job: None, result: None, report: String::new(), notices: Vec::new(), log: Vec::new(), map_rows: Vec::new(),
+        Self { open: false, settings: subcraft_app::BakeSettings::default(), high_poly: String::new(), skip_sets: Default::default(), selected_baker: None, log_tab: BakeLogTab::default(), job_maps: Vec::new(), size_chosen: false, job: None, result: None, report: String::new(), notices: Vec::new(), log: Vec::new(), map_rows: Vec::new(),
             preview: true, cage: true, fit_mode: Default::default(), high_opacity: 0.55, placement_message: None, live_maps: true, displayed_map: None, follow_maps: true, preview_mesh: None,
             preview_job: None, preview_source: None, preview_path: String::new(), preview_scene: None, preview_error: None, preview_uploaded: false, preview_checked_at: 0.,
             miss_heatmap: false, cage_job: None, cage_result: None, miss_uploaded: false }
@@ -628,13 +634,15 @@ pub fn poll_bake(state: &mut UiState, ctx: &egui::Context, now: f64) {
     let result = job.poll(&mut state.session);
     if state.bake.follow_maps && let Some((_, kind)) = job.latest_map { state.bake.displayed_map = Some(kind); }
     state.bake.notices = job.notices().to_vec();
-    { let mut maps = state.bake.settings.maps.clone(); maps.sort(); state.bake.map_rows = job.map_progress(&maps); }
+    let mut maps = if state.bake.job_maps.is_empty() { state.bake.settings.maps.clone() } else { state.bake.job_maps.clone() };
+    maps.sort();
+    state.bake.map_rows = job.map_progress(&maps);
     if state.bake.log.len() != job.log().len() { state.bake.log = job.log().to_vec(); }
     if let Some(result) = result {
         let summary = state.bake.job.as_ref().map(|j| j.summary()).unwrap_or_default();
-        { let mut maps = state.bake.settings.maps.clone(); maps.sort(); if let Some(j) = state.bake.job.as_ref() { state.bake.map_rows = j.map_progress(&maps); } }
+        if let Some(j) = state.bake.job.as_ref() { state.bake.map_rows = j.map_progress(&maps); }
         state.bake.job = None;
-        let note = if state.bake.notices.is_empty() { "" } else { " Some low-poly parts had no high-poly match by name (see the Bake window)." };
+        let note = if state.bake.notices.is_empty() { "" } else { " Some low-poly parts had no high-poly match by name (see the Baking log)." };
         match &result {
             Ok(n) => {
                 state.bake.displayed_map = None;
@@ -652,267 +660,454 @@ pub fn poll_bake(state: &mut UiState, ctx: &egui::Context, now: f64) {
     }
 }
 
-pub fn bake_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
-    use crate::bake_view::{card_title, icon_toggle, map_chip, status_row};
+/// Tabs of the Baking log panel.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum BakeLogTab {
+    #[default]
+    Process,
+    HighPoly,
+    Matching,
+}
+
+/// What the baking panels read from the session at the start of a frame.
+struct BakeFrame {
+    sel_id: subcraft_core::TextureSetId,
+    sel_slot: u32,
+    /// Every texture set: id, material slot, name, resolution.
+    sets: Vec<(subcraft_core::TextureSetId, u32, String, u32)>,
+    low_name: String,
+    low_box: (glam::Vec3, glam::Vec3),
+    high_box: Option<(glam::Vec3, glam::Vec3)>,
+    /// Maps the selected texture set already has.
+    baked_maps: Vec<subcraft_core::MeshMapKind>,
+    match_mode: subcraft_core::BakeMatchMode,
+}
+
+impl BakeFrame {
+    /// The texture sets ticked for baking.
+    fn targets(&self, b: &BakeUi) -> Vec<(subcraft_core::TextureSetId, u32)> {
+        self.sets.iter().filter(|s| !b.skip_sets.contains(&s.0)).map(|s| (s.0, s.1)).collect()
+    }
+}
+
+/// Title of a baking panel, in capitals like the docked panels.
+fn panel_title(ui: &mut egui::Ui, text: &str) {
+    ui.label(RichText::new(text.to_uppercase()).font(theme::font_strong(11.5)).color(TEXT_DIM));
+    ui.add_space(4.0);
+}
+
+/// Baking mode (F8): the baking panels around the views, replacing the painting panels until
+/// F9 or "Return to painting mode". Left: the texture sets to bake, the mesh map bakers and the
+/// selected baker's settings. Right: the common settings. Below the views: the baking log. Over
+/// the views: Bake and Return. Call before the views are laid out.
+pub fn bake_mode(state: &mut UiState, ui: &mut egui::Ui, now: f64) {
     use crate::icons;
-    use crate::widgets::{card, icon_button, slider_row};
-    use subcraft_core::MeshMapKind;
     if !state.bake.open {
         return;
     }
-    let mut open = true;
-    let selected = state.session.selected_texture_set();
-    let (sel_id, sel_slot, sel_name) = (selected.id, selected.material_slot, selected.name.clone());
-    let all: Vec<(subcraft_core::TextureSetId, u32)> = state.session.document().texture_sets.iter().map(|t| (t.id, t.material_slot)).collect();
-    let low_name = state.session.scene().mesh.name.clone();
-    // Maps below the texture set's resolution look blocky: default to the largest targeted set.
-    let target_res = if state.bake.all_sets { state.session.document().texture_sets.iter().map(|t| t.resolution).max().unwrap_or(1024) } else { selected.resolution }.clamp(256, 4096);
+    let frame = {
+        let selected = state.session.selected_texture_set();
+        let bounds = state.session.scene().mesh.bounds;
+        BakeFrame {
+            sel_id: selected.id,
+            sel_slot: selected.material_slot,
+            sets: state.session.document().texture_sets.iter().map(|t| (t.id, t.material_slot, t.name.clone(), t.resolution)).collect(),
+            low_name: state.session.scene().mesh.name.clone(),
+            low_box: (bounds.min, bounds.max),
+            high_box: state.bake.preview_mesh.as_ref().map(|m| (m.bounds.min, m.bounds.max)),
+            baked_maps: state.session.mesh_maps(selected.id).map(|m| m.iter().map(|(k, _)| k).collect()).unwrap_or_default(),
+            match_mode: state.session.settings().bake_match.mode,
+        }
+    };
+    state.bake.skip_sets.retain(|id| frame.sets.iter().any(|s| s.0 == *id));
     // Part matching and placement are project settings (saved with the project), edited here.
     let mut bake_match = state.session.settings().bake_match.clone();
     let mut placement = state.session.settings().bake_placement.clone();
-    let low_box = { let b = state.session.scene().mesh.bounds; (b.min, b.max) };
-    let high_box = state.bake.preview_mesh.as_ref().map(|m| (m.bounds.min, m.bounds.max));
-    let baked_maps: Vec<MeshMapKind> = state.session.mesh_maps(sel_id).map(|m| m.iter().map(|(k, _)| k).collect()).unwrap_or_default();
-    let reserve = if state.bake.job.is_some() || !state.bake.map_rows.is_empty() { 410.0 } else { 150.0 };
-    let max_height = (ctx.content_rect().height() - 130.0 - reserve).max(160.0);
-    crate::widgets::window(ctx, window_title(tr("Bake Mesh Maps"))).open(&mut open).collapsible(false).default_width(500.0)
-        .default_pos(egui::pos2(32., if ctx.content_rect().height() < 800.0 { 48. } else { 80. })).show(ctx, |ui| {
-        ui.set_max_width((ctx.content_rect().width() - 80.0).clamp(300.0, 540.0));
-        egui::ScrollArea::vertical().id_salt("bake_scroll").max_height(max_height).auto_shrink([false, true]).show(ui, |ui| {
-        ui.spacing_mut().item_spacing.y = 6.0;
-        let busy = state.bake.job.is_some();
-        let has_high = !state.bake.high_poly.trim().is_empty();
-        ui.add_enabled_ui(!busy, |ui| {
-            let b = &mut state.bake;
-            // --- Models -------------------------------------------------------------------
-            card(ui, theme::ACCENT_DIM, |ui| {
-                ui.set_width(ui.available_width());
-                card_title(ui, icons::CUBE, tr("Models"), |_| {});
-                egui::Grid::new("bake_sources").num_columns(2).spacing([16.0, 12.0]).show(ui, |ui| {
-                    ui.label(dim(tr("Low poly")));
-                    ui.label(RichText::new(format!("{}  {}", icons::CUBE, low_name)));
-                    ui.end_row();
-                    ui.label(dim(tr("High poly")));
-                    ui.horizontal(|ui| {
-                        ui.add(egui::TextEdit::singleline(&mut b.high_poly).hint_text(tr("optional (none = low on low)")).desired_width(230.0));
-                        if icon_button(ui, icons::FOLDER_OPEN, tr("Browse…")).clicked() {
-                            crate::files::pick(ui.ctx(), crate::files::Purpose::BakeHighPoly, crate::files::MESHES, false, None);
-                        }
-                        if !b.high_poly.is_empty() && icon_button(ui, icons::X, tr("Clear")).clicked() {
-                            b.high_poly.clear();
-                        }
-                    });
-                    ui.end_row();
-                    if has_high { bake_match_rows(ui, &mut bake_match); }
-                });
-                if b.preview_pending() { ui.add_space(4.0); ui.label(dim(tr("Loading high-poly preview…"))); }
-                if let Some(error) = &b.preview_error { ui.add_space(4.0); ui.add(egui::Label::new(RichText::new(error).color(theme::WARNING)).wrap()); }
-                if has_high {
-                    ui.add_space(4.0);
-                    if secondary_button(ui, format!("{}  {}", icons::HISTORY, tr("Reload high poly"))).on_hover_text(tr("Read the high-poly file again")).clicked() {
-                        b.preview_mesh = None; b.preview_source = None; b.preview_job = None;
-                        b.preview_error = None; b.preview_uploaded = false; b.result = None;
-                        b.displayed_map = None;
-                    }
-                }
+    let busy = state.bake.job.is_some();
+    let mut select_set = None;
+    let mut quick = None;
+    let side = || egui::Frame::new().fill(theme::BG_1).inner_margin(egui::Margin::same(8));
+    egui::Panel::left("bake_left").default_size(300.0).size_range(240.0..=420.0).frame(side()).show(ui, |ui| {
+        egui::ScrollArea::vertical().id_salt("bake_left_scroll").auto_shrink([false, false]).show(ui, |ui| {
+            ui.add_enabled_ui(!busy, |ui| {
+                bake_set_list(ui, &mut state.bake, &frame, &mut select_set);
+                ui.add_space(10.0);
+                bakers_panel(ui, &mut state.bake, &frame, &mut quick);
+                ui.add_space(10.0);
+                map_settings_panel(ui, &mut state.bake);
             });
-            // --- Placement ----------------------------------------------------------------
-            if has_high {
-                card(ui, theme::ACCENT, |ui| {
-                    ui.set_width(ui.available_width());
-                    card_title(ui, icons::SELECTION, tr("Placement"), |_| {});
-                    crate::placement::placement_section(ui, &mut placement, low_box, high_box, &mut b.fit_mode, &mut b.high_opacity, &mut b.placement_message);
-                });
-            }
-            // --- Maps ---------------------------------------------------------------------
-            card(ui, theme::channel_accent(subcraft_core::ChannelKind::Normal), |ui| {
-                ui.set_width(ui.available_width());
-                card_title(ui, icons::IMAGE, tr("Maps to bake"), |ui| {
-                    if ui.small_button(tr("None")).clicked() { b.settings.maps.clear(); }
-                    if ui.small_button(tr("All")).clicked() { b.settings.maps = MeshMapKind::ALL.to_vec(); }
-                });
-                let width = ((ui.available_width() - ui.spacing().item_spacing.x) / 2.0).floor();
-                ui.horizontal_wrapped(|ui| {
-                    ui.spacing_mut().item_spacing = egui::vec2(8.0, 8.0);
-                    for k in MeshMapKind::ALL {
-                        let on = b.settings.maps.contains(&k);
-                        if map_chip(ui, k, on, width) {
-                            if on { b.settings.maps.retain(|m| *m != k); } else { b.settings.maps.push(k); }
-                        }
-                    }
-                });
-            });
-            // --- Quality ------------------------------------------------------------------
-            card(ui, theme::channel_accent(subcraft_core::ChannelKind::Roughness), |ui| {
-                ui.set_width(ui.available_width());
-                card_title(ui, icons::SLIDERS, tr("Quality"), |_| {});
-                egui::Grid::new("bake_quality").num_columns(2).spacing([16.0, 12.0]).show(ui, |ui| {
-                    if !b.size_chosen { b.settings.size = target_res; }
-                    ui.label(dim(tr("Resolution")));
-                    egui::ComboBox::from_id_salt("bake_size").selected_text(format!("{0} × {0}", b.settings.size)).show_ui(ui, |ui| {
-                        for r in [256u32, 512, 1024, 2048, 4096] {
-                            if ui.selectable_value(&mut b.settings.size, r, format!("{r} × {r}")).clicked() { b.size_chosen = true; }
-                        }
-                    });
-                    ui.end_row();
-                    ui.label(dim(tr("Texture sets")));
-                    let only = format!("{} {sel_name}", tr("Only"));
-                    segmented(ui, &mut b.all_sets, &[(true, tr("All")), (false, only.as_str())]);
-                    ui.end_row();
-                });
-                ui.add_space(6.0);
-                let wants = |kinds: &[MeshMapKind]| kinds.iter().any(|k| b.settings.maps.contains(k));
-                let (ao, curv) = (wants(&[MeshMapKind::AmbientOcclusion, MeshMapKind::BentNormal]), wants(&[MeshMapKind::Curvature]));
-                if has_high {
-                    slider_row(ui, tr("Cage front (reach above the surface)"), egui::Slider::new(&mut b.settings.cage_front, 0.0..=0.25).fixed_decimals(3).clamping(egui::SliderClamping::Never))
-                        .on_hover_text(tr("Fraction of the model diagonal. Raise it when the high poly stands further out than this."));
-                    ui.add_space(6.0);
-                    slider_row(ui, tr("Cage rear (reach below the surface)"), egui::Slider::new(&mut b.settings.cage_rear, 0.0..=0.25).fixed_decimals(3).clamping(egui::SliderClamping::Never))
-                        .on_hover_text(tr("Fraction of the model diagonal. Raise it when parts of the high poly sink under the low poly."));
-                    ui.add_space(6.0);
-                }
-                if ao {
-                    slider_row(ui, tr("AO samples"), egui::Slider::new(&mut b.settings.ao_samples, 4..=256).logarithmic(true));
-                    ui.add_space(6.0);
-                    slider_row(ui, tr("AO distance"), egui::Slider::new(&mut b.settings.ao_distance, 0.01..=1.0).logarithmic(true));
-                    ui.add_space(6.0);
-                }
-                if b.settings.maps.contains(&MeshMapKind::Id) {
-                    let label = |s: subcraft_bake::IdSource| match s {
-                        subcraft_bake::IdSource::VertexColor => tr("Vertex color"),
-                        subcraft_bake::IdSource::MaterialColor => tr("Material color"),
-                        subcraft_bake::IdSource::MeshId => tr("Mesh ID / Polygroup"),
-                        subcraft_bake::IdSource::Submesh => tr("Submesh (object)"),
-                    };
-                    ui.horizontal(|ui| {
-                        ui.label(tr("ID colors from"));
-                        egui::ComboBox::from_id_salt("bake_id_source").selected_text(label(b.settings.id_source)).show_ui(ui, |ui| {
-                            for source in subcraft_bake::IdSource::ALL {
-                                ui.selectable_value(&mut b.settings.id_source, source, label(source));
-                            }
-                        });
-                    })
-                    .response
-                    .on_hover_text(tr("Where the ID map takes its colors: the model's vertex colors or material colors, or one generated color per mesh element or per object. With a high poly, its colors are used."));
-                    ui.add_space(6.0);
-                }
-                if curv {
-                    ui.checkbox(&mut b.settings.curvature_from_normal, tr("Curvature from the normal map"))
-                        .on_hover_text(tr("Measure curvature from the baked normal map along the surface: one clean band per edge, continuous across UV seams and on curved parts"));
-                    ui.add_space(4.0);
-                    if b.settings.curvature_from_normal {
-                        slider_row(ui, tr("Curvature width (texels)"), egui::Slider::new(&mut b.settings.normal_curvature.radius_texels, 0.5..=8.0));
-                        ui.add_space(6.0);
-                        slider_row(ui, tr("Curvature intensity"), egui::Slider::new(&mut b.settings.normal_curvature.intensity, 0.1..=4.0).logarithmic(true));
-                    } else {
-                        slider_row(ui, tr("Curvature radius"), egui::Slider::new(&mut b.settings.curvature_radius, 0.002..=0.1).logarithmic(true));
-                    }
-                }
-            });
-            // --- Viewport -----------------------------------------------------------------
-            card(ui, theme::ACCENT_DIM, |ui| {
-                ui.set_width(ui.available_width());
-                card_title(ui, icons::EYE, tr("Viewport"), |_| {});
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 8.0;
-                    icon_toggle(ui, icons::EYE, &mut b.preview, "High / low overlay: blue high poly, red exposed low poly");
-                    icon_toggle(ui, icons::CUBE_WIRE, &mut b.cage, "Cage wireframe: the front and rear reach of the bake");
-                    if has_high {
-                        icon_toggle(ui, icons::WARNING, &mut b.miss_heatmap, "Ray misses: color the low poly red where the bake's rays reach no high-poly surface (fix with Cage front / rear before baking)");
-                    }
-                    icon_toggle(ui, icons::LIGHTNING, &mut b.live_maps, "Live maps: show each map on the model as soon as it is baked");
-                    icon_toggle(ui, icons::CROSSHAIR, &mut b.follow_maps, "Follow bake: switch the model to the map being baked");
-                    if !baked_maps.is_empty() {
-                        egui::ComboBox::from_id_salt("bake_display_map")
-                            .selected_text(b.displayed_map.map_or(tr("Material"), |k| tr(k.display_name()))).show_ui(ui, |ui| {
-                                if ui.selectable_value(&mut b.displayed_map, None, tr("Material")).clicked() { b.follow_maps = false; }
-                                for &kind in &baked_maps {
-                                    if ui.selectable_value(&mut b.displayed_map, Some(kind), tr(kind.display_name())).clicked() { b.follow_maps = false; }
-                                }
-                            });
-                    }
-                });
-                if b.preview_mesh.is_some() && b.result.is_some()
-                    && secondary_button(ui, format!("{}  {}", icons::CUBE_WIRE, tr("Inspect high / low geometry"))).clicked() {
-                    b.result = None; b.displayed_map = None; b.follow_maps = false;
-                }
-                if has_high && b.miss_heatmap {
-                    let text = match (&b.cage_result, &b.cage_job) {
-                        (_, Some(_)) => tr("Checking where rays miss the high poly…").to_string(),
-                        (Some(r), None) if r.missed == 0 => tr("Every texel's ray reaches the high poly.").to_string(),
-                        (Some(r), None) => format!("{} {:.1}% {}", tr("Ray misses:"), 100.0 * r.miss_fraction(), tr("of texels reach no high-poly surface (red). Raise Cage front / rear or fix the placement.")),
-                        (None, None) => String::new(),
-                    };
-                    if !text.is_empty() {
-                        let color = if b.cage_result.as_ref().is_some_and(|r| r.missed > 0) && b.cage_job.is_none() { theme::WARNING } else { TEXT_DIM };
-                        ui.add(egui::Label::new(egui::RichText::new(text).color(color)).wrap());
-                    }
-                    hint(ui, tr("Gray: rays reach the high poly · Red: rays miss it · Lower the high-poly opacity to see the heatmap underneath."));
-                } else if has_high { hint(ui, tr("Blue: high poly · Red: exposed low poly · Pale lines: cage. Orbit to inspect.")); }
-            });
-        });
-        });
-        ui.add_space(6.0);
-        // --- Progress and result (pinned below the scrolling cards, so Bake is always in view) ---
-        card(ui, theme::ACCENT, |ui| {
-            ui.set_width(ui.available_width());
-            let mut go = false;
-            let can = !state.bake.settings.maps.is_empty();
-            let running = state.bake.job.as_ref();
-            card_title(ui, icons::MAGIC_WAND, tr("Bake"), |ui| match &running {
-                Some(job) => { if secondary_button(ui, tr("Cancel")).clicked() { job.cancel(); } }
-                None => { go = ui.add_enabled_ui(can, |ui| primary_button(ui, format!("{}  {}", icons::MAGIC_WAND, tr("Bake")))).inner.clicked(); }
-            });
-            if let Some(job) = &state.bake.job {
-                ui.label(dim(&job.stage()));
-                ui.add(egui::ProgressBar::new(job.fraction()).show_percentage().fill(theme::ACCENT));
-                ui.add_space(4.0);
-            } else if let Some(result) = &state.bake.result {
-                match result {
-                    Ok(n) => { ui.label(RichText::new(format!("{}  {}", icons::CHECK, crate::i18n::trf("Bake complete: {} texture set(s)", &[n]))).color(crate::bake_view::OK_GREEN)); }
-                    Err(e) => { ui.add(egui::Label::new(RichText::new(format!("{}  {}: {e}", icons::WARNING, tr("Bake failed"))).color(theme::WARNING)).wrap()); }
-                }
-                ui.add_space(4.0);
-            }
-            for p in &state.bake.map_rows { status_row(ui, p); }
-            for note in &state.bake.notices {
-                ui.add(egui::Label::new(RichText::new(format!("{}  {note}", icons::WARNING)).color(theme::WARNING)).wrap());
-            }
-            if !state.bake.map_rows.is_empty() || !state.bake.log.is_empty() { ui.add_space(4.0); }
-            bake_log_section(ui, &state.bake.log);
-            if go {
-                        state.bake.result = None;
-                        state.bake.notices.clear();
-                        state.bake.log.clear();
-                        state.bake.map_rows.clear();
-                        state.bake.displayed_map = None;
-                        state.bake.follow_maps = true;
-                        let mut settings = state.bake.settings.clone();
-                        settings.maps.sort();
-                        settings.use_gpu = state.recovery.prefs.use_gpu_baking;
-                        settings.name_match = state.session.settings().bake_match.clone();
-                        settings.placement = state.session.settings().bake_placement.clone();
-                        state.bake.map_rows = settings.maps.iter().map(|&kind| subcraft_app::MapProgress { kind, state: subcraft_app::MapState::Waiting, seconds: 0. }).collect();
-                        let request = subcraft_app::BakeRequest {
-                            settings,
-                            high_poly: (!state.bake.high_poly.trim().is_empty()).then(|| PathBuf::from(state.bake.high_poly.trim())),
-                            texture_sets: if state.bake.all_sets { all.clone() } else { vec![(sel_id, sel_slot)] },
-                        };
-                        let prepared = (state.bake.preview_path == state.bake.high_poly.trim()
-                            && state.bake.preview_scene.as_ref().is_some_and(|m| std::sync::Arc::ptr_eq(m, &state.session.scene().mesh)))
-                            .then(|| state.bake.preview_source.clone()).flatten();
-                        state.bake.job = Some(state.session.start_bake_prepared(request, prepared));
-                        state.set_status("Baking…", now);
-            }
         });
     });
+    egui::Panel::right("bake_right").default_size(380.0).size_range(300.0..=520.0).frame(side()).show(ui, |ui| {
+        panel_title(ui, tr("Common settings"));
+        egui::ScrollArea::vertical().id_salt("bake_scroll").auto_shrink([false, false]).show(ui, |ui| {
+            ui.spacing_mut().item_spacing.y = 6.0;
+            ui.add_enabled_ui(!busy, |ui| common_settings(ui, &mut state.bake, &frame, &mut bake_match, &mut placement));
+        });
+    });
+    egui::Panel::bottom("bake_log").default_size(190.0).size_range(120.0..=420.0).frame(side()).show(ui, |ui| bake_log_panel(ui, &mut state.bake, &frame));
+    // --- Bake / Return, over the bottom of the views -------------------------------------------
+    let views = ui.available_rect_before_wrap();
+    let can = !state.bake.settings.maps.is_empty() && !frame.targets(&state.bake).is_empty();
+    let (mut go, mut leave) = (false, false);
+    egui::Area::new(egui::Id::new("bake_actions")).order(egui::Order::Middle).pivot(egui::Align2::CENTER_BOTTOM)
+        .fixed_pos(egui::pos2(views.center().x, views.bottom() - 16.0)).show(ui.ctx(), |ui| {
+        egui::Frame::new().fill(theme::BG_2).corner_radius(8).inner_margin(egui::Margin::same(8)).show(ui, |ui| {
+            ui.horizontal(|ui| {
+                match &state.bake.job {
+                    Some(job) => {
+                        ui.add(egui::ProgressBar::new(job.fraction()).desired_width(220.0).show_percentage().fill(theme::ACCENT));
+                        if secondary_button(ui, tr("Cancel")).clicked() { job.cancel(); }
+                    }
+                    None => {
+                        go = ui.add_enabled_ui(can, |ui| primary_button(ui, format!("{}  {}", icons::MAGIC_WAND, tr("Bake selected textures")))).inner
+                            .on_hover_text(tr("Bake the ticked mesh maps for the ticked texture sets")).clicked();
+                    }
+                }
+                leave = secondary_button(ui, format!("{}  {}", icons::PAINT_BRUSH, tr("Return to painting mode"))).clicked();
+            });
+        });
+    });
+    if let Some(id) = select_set && let Err(e) = state.session.execute(subcraft_app::Command::SelectTextureSet(id)) {
+        state.set_status(e.to_string(), now);
+    }
+    if go {
+        start_bake(state, None, &frame, now);
+    } else if let Some(kind) = quick {
+        start_bake(state, Some(kind), &frame, now);
+    }
     if bake_match != state.session.settings().bake_match || placement != state.session.settings().bake_placement {
         let mut project = state.session.settings().clone();
         project.bake_match = bake_match;
         project.bake_placement = placement;
         state.session.set_settings(project);
     }
-    state.bake.open = open;
+    if leave {
+        state.bake.open = false;
+    }
+}
+
+/// Start a bake of the ticked maps, or of `only` (quick bake), for the ticked texture sets.
+fn start_bake(state: &mut UiState, only: Option<subcraft_core::MeshMapKind>, frame: &BakeFrame, now: f64) {
+    let mut texture_sets = frame.targets(&state.bake);
+    if texture_sets.is_empty() {
+        // A quick bake with nothing ticked bakes the selected texture set.
+        texture_sets.push((frame.sel_id, frame.sel_slot));
+    }
+    state.bake.result = None;
+    state.bake.notices.clear();
+    state.bake.log.clear();
+    state.bake.displayed_map = None;
+    state.bake.follow_maps = true;
+    state.bake.log_tab = BakeLogTab::Process;
+    let mut settings = state.bake.settings.clone();
+    if let Some(kind) = only {
+        settings.maps = vec![kind];
+    }
+    settings.maps.sort();
+    settings.use_gpu = state.recovery.prefs.use_gpu_baking;
+    settings.name_match = state.session.settings().bake_match.clone();
+    settings.placement = state.session.settings().bake_placement.clone();
+    state.bake.job_maps = settings.maps.clone();
+    state.bake.map_rows = settings.maps.iter().map(|&kind| subcraft_app::MapProgress { kind, state: subcraft_app::MapState::Waiting, seconds: 0. }).collect();
+    let request = subcraft_app::BakeRequest {
+        settings,
+        high_poly: (!state.bake.high_poly.trim().is_empty()).then(|| PathBuf::from(state.bake.high_poly.trim())),
+        texture_sets,
+    };
+    let prepared = (state.bake.preview_path == state.bake.high_poly.trim()
+        && state.bake.preview_scene.as_ref().is_some_and(|m| std::sync::Arc::ptr_eq(m, &state.session.scene().mesh)))
+        .then(|| state.bake.preview_source.clone()).flatten();
+    state.bake.job = Some(state.session.start_bake_prepared(request, prepared));
+    state.set_status("Baking…", now);
+}
+
+/// The texture sets, each with its bake tick. Clicking a name selects the set.
+fn bake_set_list(ui: &mut egui::Ui, b: &mut BakeUi, f: &BakeFrame, select: &mut Option<subcraft_core::TextureSetId>) {
+    panel_title(ui, tr("Texture Set List"));
+    for (id, _, name, resolution) in &f.sets {
+        ui.horizontal(|ui| {
+            let mut on = !b.skip_sets.contains(id);
+            if ui.checkbox(&mut on, "").on_hover_text(tr("Bake this texture set")).changed() {
+                if on { b.skip_sets.remove(id); } else { b.skip_sets.insert(*id); }
+            }
+            if ui.selectable_label(*id == f.sel_id, name.as_str()).clicked() {
+                *select = Some(*id);
+            }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| ui.label(dim(&resolution.to_string())));
+        });
+    }
+}
+
+/// The Common settings entry, then one row per mesh map: bake tick, name (click to edit its
+/// settings), show on the model, quick bake.
+fn bakers_panel(ui: &mut egui::Ui, b: &mut BakeUi, f: &BakeFrame, quick: &mut Option<subcraft_core::MeshMapKind>) {
+    use crate::icons;
+    use subcraft_core::MeshMapKind;
+    ui.horizontal(|ui| {
+        panel_title(ui, tr("Mesh map bakers"));
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.menu_button(icons::SLIDERS, |ui| {
+                if ui.button(tr("Check all")).clicked() { b.settings.maps = MeshMapKind::ALL.to_vec(); ui.close(); }
+                if ui.button(tr("Uncheck all")).clicked() { b.settings.maps.clear(); ui.close(); }
+                if ui.button(tr("Invert checked mesh maps")).clicked() {
+                    b.settings.maps = MeshMapKind::ALL.into_iter().filter(|k| !b.settings.maps.contains(k)).collect();
+                    ui.close();
+                }
+            });
+        });
+    });
+    if ui.selectable_label(b.selected_baker.is_none(), format!("{}   {}", icons::SLIDERS, tr("Common settings"))).clicked() {
+        b.selected_baker = None;
+    }
+    for kind in MeshMapKind::ALL {
+        ui.horizontal(|ui| {
+            let mut on = b.settings.maps.contains(&kind);
+            if ui.checkbox(&mut on, "").changed() {
+                if on { b.settings.maps.push(kind); } else { b.settings.maps.retain(|m| *m != kind); }
+            }
+            let (icon, tip) = crate::bake_view::map_info(kind);
+            if ui.selectable_label(b.selected_baker == Some(kind), format!("{icon}   {}", tr(kind.display_name()))).on_hover_text(tr(tip)).clicked() {
+                b.selected_baker = Some(kind);
+            }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if crate::widgets::icon_button(ui, icons::LIGHTNING, tr("Quick bake: bake only this map")).clicked() {
+                    *quick = Some(kind);
+                }
+                let shown = b.displayed_map == Some(kind);
+                let baked = f.baked_maps.contains(&kind);
+                let eye = ui.add_enabled_ui(baked, |ui| crate::widgets::icon_toggle(ui, icons::EYE, shown, tr("Show this map on the model (once it is baked)"))).inner;
+                if eye.clicked() {
+                    b.displayed_map = if shown { None } else { Some(kind) };
+                    b.follow_maps = false;
+                }
+            });
+        });
+    }
+}
+
+/// Settings of the baker selected in the list (nothing while Common settings is selected).
+fn map_settings_panel(ui: &mut egui::Ui, b: &mut BakeUi) {
+    use crate::widgets::slider_row;
+    use subcraft_core::MeshMapKind;
+    let Some(kind) = b.selected_baker else { return };
+    panel_title(ui, &format!("{} > {}", tr("Mesh map settings"), tr(kind.display_name())));
+    match kind {
+        MeshMapKind::AmbientOcclusion | MeshMapKind::BentNormal => {
+            slider_row(ui, tr("AO samples"), egui::Slider::new(&mut b.settings.ao_samples, 4..=256).logarithmic(true));
+            ui.add_space(6.0);
+            slider_row(ui, tr("AO distance"), egui::Slider::new(&mut b.settings.ao_distance, 0.01..=1.0).logarithmic(true));
+        }
+        MeshMapKind::Id => {
+            let label = |s: subcraft_bake::IdSource| match s {
+                subcraft_bake::IdSource::VertexColor => tr("Vertex color"),
+                subcraft_bake::IdSource::MaterialColor => tr("Material color"),
+                subcraft_bake::IdSource::MeshId => tr("Mesh ID / Polygroup"),
+                subcraft_bake::IdSource::Submesh => tr("Submesh (object)"),
+            };
+            ui.horizontal(|ui| {
+                ui.label(tr("ID colors from"));
+                egui::ComboBox::from_id_salt("bake_id_source").selected_text(label(b.settings.id_source)).show_ui(ui, |ui| {
+                    for source in subcraft_bake::IdSource::ALL {
+                        ui.selectable_value(&mut b.settings.id_source, source, label(source));
+                    }
+                });
+            })
+            .response
+            .on_hover_text(tr("Where the ID map takes its colors: the model's vertex colors or material colors, or one generated color per mesh element or per object. With a high poly, its colors are used."));
+        }
+        MeshMapKind::Curvature => {
+            ui.checkbox(&mut b.settings.curvature_from_normal, tr("Curvature from the normal map"))
+                .on_hover_text(tr("Measure curvature from the baked normal map along the surface: one clean band per edge, continuous across UV seams and on curved parts"));
+            ui.add_space(4.0);
+            if b.settings.curvature_from_normal {
+                slider_row(ui, tr("Curvature width (texels)"), egui::Slider::new(&mut b.settings.normal_curvature.radius_texels, 0.5..=8.0));
+                ui.add_space(6.0);
+                slider_row(ui, tr("Curvature intensity"), egui::Slider::new(&mut b.settings.normal_curvature.intensity, 0.1..=4.0).logarithmic(true));
+            } else {
+                slider_row(ui, tr("Curvature radius"), egui::Slider::new(&mut b.settings.curvature_radius, 0.002..=0.1).logarithmic(true));
+            }
+        }
+        _ => hint(ui, tr("This mesh map has no settings of its own.")),
+    }
+}
+
+/// Common settings: models, placement, output size and cage, viewport overlays.
+fn common_settings(ui: &mut egui::Ui, b: &mut BakeUi, f: &BakeFrame, bake_match: &mut subcraft_core::BakeMatch, placement: &mut subcraft_core::BakePlacement) {
+    use crate::bake_view::{card_title, icon_toggle};
+    use crate::icons;
+    use crate::widgets::{card, icon_button, slider_row};
+    let has_high = !b.high_poly.trim().is_empty();
+    // Maps below the texture set's resolution look blocky: default to the largest ticked set.
+    let target_res = f.sets.iter().filter(|s| !b.skip_sets.contains(&s.0)).map(|s| s.3).max().unwrap_or(1024).clamp(256, 4096);
+    // --- Models -------------------------------------------------------------------
+    card(ui, theme::ACCENT_DIM, |ui| {
+        ui.set_width(ui.available_width());
+        card_title(ui, icons::CUBE, tr("Models"), |_| {});
+        egui::Grid::new("bake_sources").num_columns(2).spacing([16.0, 12.0]).show(ui, |ui| {
+            ui.label(dim(tr("Low poly")));
+            ui.label(RichText::new(format!("{}  {}", icons::CUBE, f.low_name)));
+            ui.end_row();
+            ui.label(dim(tr("High poly")));
+            ui.horizontal(|ui| {
+                ui.add(egui::TextEdit::singleline(&mut b.high_poly).hint_text(tr("optional (none = low on low)")).desired_width(180.0));
+                if icon_button(ui, icons::FOLDER_OPEN, tr("Browse…")).clicked() {
+                    crate::files::pick(ui.ctx(), crate::files::Purpose::BakeHighPoly, crate::files::MESHES, false, None);
+                }
+                if !b.high_poly.is_empty() && icon_button(ui, icons::X, tr("Clear")).clicked() {
+                    b.high_poly.clear();
+                }
+            });
+            ui.end_row();
+            if has_high { bake_match_rows(ui, bake_match); }
+        });
+        if b.preview_pending() { ui.add_space(4.0); ui.label(dim(tr("Loading high-poly preview…"))); }
+        if let Some(error) = &b.preview_error { ui.add_space(4.0); ui.add(egui::Label::new(RichText::new(error).color(theme::WARNING)).wrap()); }
+        if has_high {
+            ui.add_space(4.0);
+            if secondary_button(ui, format!("{}  {}", icons::HISTORY, tr("Reload high poly"))).on_hover_text(tr("Read the high-poly file again")).clicked() {
+                b.preview_mesh = None; b.preview_source = None; b.preview_job = None;
+                b.preview_error = None; b.preview_uploaded = false; b.result = None;
+                b.displayed_map = None;
+            }
+        }
+    });
+    // --- Placement ----------------------------------------------------------------
+    if has_high {
+        card(ui, theme::ACCENT, |ui| {
+            ui.set_width(ui.available_width());
+            card_title(ui, icons::SELECTION, tr("Placement"), |_| {});
+            crate::placement::placement_section(ui, placement, f.low_box, f.high_box, &mut b.fit_mode, &mut b.high_opacity, &mut b.placement_message);
+        });
+    }
+    // --- Output and cage ----------------------------------------------------------
+    card(ui, theme::channel_accent(subcraft_core::ChannelKind::Roughness), |ui| {
+        ui.set_width(ui.available_width());
+        card_title(ui, icons::SLIDERS, tr("Output"), |_| {});
+        egui::Grid::new("bake_quality").num_columns(2).spacing([16.0, 12.0]).show(ui, |ui| {
+            if !b.size_chosen { b.settings.size = target_res; }
+            ui.label(dim(tr("Resolution")));
+            egui::ComboBox::from_id_salt("bake_size").selected_text(format!("{0} × {0}", b.settings.size)).show_ui(ui, |ui| {
+                for r in [256u32, 512, 1024, 2048, 4096] {
+                    if ui.selectable_value(&mut b.settings.size, r, format!("{r} × {r}")).clicked() { b.size_chosen = true; }
+                }
+            });
+            ui.end_row();
+        });
+        if has_high {
+            ui.add_space(6.0);
+            slider_row(ui, tr("Cage front (reach above the surface)"), egui::Slider::new(&mut b.settings.cage_front, 0.0..=0.25).fixed_decimals(3).clamping(egui::SliderClamping::Never))
+                .on_hover_text(tr("Fraction of the model diagonal. Raise it when the high poly stands further out than this."));
+            ui.add_space(6.0);
+            slider_row(ui, tr("Cage rear (reach below the surface)"), egui::Slider::new(&mut b.settings.cage_rear, 0.0..=0.25).fixed_decimals(3).clamping(egui::SliderClamping::Never))
+                .on_hover_text(tr("Fraction of the model diagonal. Raise it when parts of the high poly sink under the low poly."));
+        }
+    });
+    // --- Viewport -----------------------------------------------------------------
+    card(ui, theme::ACCENT_DIM, |ui| {
+        ui.set_width(ui.available_width());
+        card_title(ui, icons::EYE, tr("Viewport"), |_| {});
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 8.0;
+            icon_toggle(ui, icons::EYE, &mut b.preview, "High / low overlay: blue high poly, red exposed low poly");
+            icon_toggle(ui, icons::CUBE_WIRE, &mut b.cage, "Cage wireframe: the front and rear reach of the bake");
+            if has_high {
+                icon_toggle(ui, icons::WARNING, &mut b.miss_heatmap, "Ray misses: color the low poly red where the bake's rays reach no high-poly surface (fix with Cage front / rear before baking)");
+            }
+            icon_toggle(ui, icons::LIGHTNING, &mut b.live_maps, "Live maps: show each map on the model as soon as it is baked");
+            icon_toggle(ui, icons::CROSSHAIR, &mut b.follow_maps, "Follow bake: switch the model to the map being baked");
+            if !f.baked_maps.is_empty() {
+                egui::ComboBox::from_id_salt("bake_display_map")
+                    .selected_text(b.displayed_map.map_or(tr("Material"), |k| tr(k.display_name()))).show_ui(ui, |ui| {
+                        if ui.selectable_value(&mut b.displayed_map, None, tr("Material")).clicked() { b.follow_maps = false; }
+                        for &kind in &f.baked_maps {
+                            if ui.selectable_value(&mut b.displayed_map, Some(kind), tr(kind.display_name())).clicked() { b.follow_maps = false; }
+                        }
+                    });
+            }
+        });
+        if b.preview_mesh.is_some() && b.result.is_some()
+            && secondary_button(ui, format!("{}  {}", icons::CUBE_WIRE, tr("Inspect high / low geometry"))).clicked() {
+            b.result = None; b.displayed_map = None; b.follow_maps = false;
+        }
+        if has_high && b.miss_heatmap {
+            let text = match (&b.cage_result, &b.cage_job) {
+                (_, Some(_)) => tr("Checking where rays miss the high poly…").to_string(),
+                (Some(r), None) if r.missed == 0 => tr("Every texel's ray reaches the high poly.").to_string(),
+                (Some(r), None) => format!("{} {:.1}% {}", tr("Ray misses:"), 100.0 * r.miss_fraction(), tr("of texels reach no high-poly surface (red). Raise Cage front / rear or fix the placement.")),
+                (None, None) => String::new(),
+            };
+            if !text.is_empty() {
+                let color = if b.cage_result.as_ref().is_some_and(|r| r.missed > 0) && b.cage_job.is_none() { theme::WARNING } else { TEXT_DIM };
+                ui.add(egui::Label::new(egui::RichText::new(text).color(color)).wrap());
+            }
+            hint(ui, tr("Gray: rays reach the high poly · Red: rays miss it · Lower the high-poly opacity to see the heatmap underneath."));
+        } else if has_high { hint(ui, tr("Blue: high poly · Red: exposed low poly · Pale lines: cage. Orbit to inspect.")); }
+    });
+}
+
+/// The Baking log panel: the running or last bake, the high-poly file, and the name matching.
+fn bake_log_panel(ui: &mut egui::Ui, b: &mut BakeUi, f: &BakeFrame) {
+    use crate::icons;
+    ui.horizontal_wrapped(|ui| {
+        ui.label(RichText::new(tr("Baking log").to_uppercase()).font(theme::font_strong(11.5)).color(TEXT_DIM));
+        ui.add_space(12.0);
+        for (tab, label) in [(BakeLogTab::Process, tr("Baking process")), (BakeLogTab::HighPoly, tr("High poly parameters")), (BakeLogTab::Matching, tr("Matching by name"))] {
+            if ui.selectable_label(b.log_tab == tab, label).clicked() { b.log_tab = tab; }
+        }
+    });
+    ui.add_space(4.0);
+    let warning = |ui: &mut egui::Ui, text: &str| {
+        ui.add(egui::Label::new(RichText::new(format!("{}  {text}", icons::WARNING)).color(theme::WARNING)).wrap());
+    };
+    egui::ScrollArea::vertical().id_salt("bake_log_tab").auto_shrink([false, false]).show(ui, |ui| match b.log_tab {
+        BakeLogTab::Process => {
+            if let Some(job) = &b.job {
+                ui.label(dim(&job.stage()));
+            } else if let Some(result) = &b.result {
+                match result {
+                    Ok(n) => { ui.label(RichText::new(format!("{}  {}", icons::CHECK, crate::i18n::trf("Bake complete: {} texture set(s)", &[n]))).color(crate::bake_view::OK_GREEN)); }
+                    Err(e) => { ui.add(egui::Label::new(RichText::new(format!("{}  {}: {e}", icons::WARNING, tr("Bake failed"))).color(theme::WARNING)).wrap()); }
+                }
+            } else if b.map_rows.is_empty() && b.log.is_empty() {
+                ui.label(dim(tr("Nothing baked yet in this session.")));
+            }
+            for note in &b.notices { warning(ui, note); }
+            bake_log_section(ui, &b.log);
+            if !b.map_rows.is_empty() {
+                ui.add_space(4.0);
+                // Three columns keep the rows of every map in view in the short panel.
+                ui.columns(3, |columns| {
+                    for (i, p) in b.map_rows.iter().enumerate() { crate::bake_view::status_row(&mut columns[i % 3], p); }
+                });
+            }
+        }
+        BakeLogTab::HighPoly => {
+            let path = b.high_poly.trim();
+            if path.is_empty() {
+                ui.label(dim(tr("No high-poly file: the low poly is baked onto itself.")));
+                return;
+            }
+            ui.add(egui::Label::new(path).wrap());
+            if b.preview_pending() { ui.label(dim(tr("Loading high-poly preview…"))); }
+            if let Some(error) = &b.preview_error { warning(ui, error); }
+            if let Some(mesh) = &b.preview_mesh {
+                let size = mesh.bounds.max - mesh.bounds.min;
+                ui.label(dim(&format!("{} {}", tr("Triangles:"), mesh.indices.len() / 3)));
+                ui.label(dim(&format!("{} {}", tr("Named parts:"), mesh.objects.len())));
+                ui.label(dim(&format!("{} {:.3} × {:.3} × {:.3}", tr("Size:"), size.x, size.y, size.z)));
+            }
+        }
+        BakeLogTab::Matching => {
+            ui.label(format!("{}: {}", tr("Match"), f.match_mode.label()));
+            if f.match_mode != subcraft_core::BakeMatchMode::ByName {
+                ui.label(dim(tr("Every low-poly part is baked against the whole high poly.")));
+            } else if b.notices.is_empty() {
+                ui.label(dim(tr("No low-poly part without a high-poly part of the same name was reported.")));
+            }
+            for note in &b.notices { warning(ui, note); }
+        }
+    });
 }
 
 /// The bake log, collapsed by default under "Details": what ran where and for how long, warnings
@@ -942,7 +1137,7 @@ fn bake_log_section(ui: &mut egui::Ui, lines: &[subcraft_app::BakeLogLine]) {
 
 fn bake_match_rows(ui: &mut egui::Ui, m: &mut subcraft_core::BakeMatch) {
     use subcraft_core::BakeMatchMode;
-    ui.label(dim("Match"));
+    ui.label(dim(tr("Match")));
     let options: Vec<(BakeMatchMode, &str)> = BakeMatchMode::ALL.iter().map(|&k| (k, k.label())).collect();
     segmented(ui, &mut m.mode, &options);
     ui.end_row();
@@ -1035,7 +1230,7 @@ mod bake_tests {
         let mut output = ctx.run_ui(egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1600., 940.))), events,
             ..Default::default()
-        }, |_| bake_window(state, ctx, 0.));
+        }, |ui| bake_mode(state, ui, 0.));
         output.textures_delta.clear();
         output
     }
@@ -1051,9 +1246,9 @@ mod bake_tests {
         for _ in 0..3 { draw(&mut state, &ctx, vec![]); }
         let output = draw(&mut state, &ctx, vec![]);
         let pos = output.shapes.iter().find_map(|s| match &s.shape {
-            egui::epaint::Shape::Text(t) if t.galley.job.text.ends_with("  Bake") => Some(t.pos + t.galley.size() * 0.5),
+            egui::epaint::Shape::Text(t) if t.galley.job.text.ends_with("Bake selected textures") => Some(t.pos + t.galley.size() * 0.5),
             _ => None,
-        }).expect("visible Bake button");
+        }).expect("visible Bake button over the views");
         let button = |pressed| egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::default() };
         draw(&mut state, &ctx, vec![egui::Event::PointerMoved(pos), button(true)]);
         draw(&mut state, &ctx, vec![button(false)]);
@@ -1067,7 +1262,6 @@ mod bake_tests {
         let mut state = UiState::new(Session::new(subcraft_mesh::primitives::plane(2., 1), 128), None);
         state.bake.open = true;
         state.bake.result = Some(Err("align models and increase Cage front / rear".into()));
-        // Floating windows need an initial sizing frame before they paint their text.
         for _ in 0..4 { draw(&mut state, &ctx, vec![]); }
         for _ in 0..3 {
             let output = draw(&mut state, &ctx, vec![]);
@@ -1108,6 +1302,89 @@ mod bake_tests {
         let output = draw(&mut state, &ctx, vec![]);
         assert!(output.shapes.iter().any(|s| matches!(&s.shape, egui::epaint::Shape::Text(t) if t.galley.job.text.contains("Clip_low"))));
     }
+
+    fn has_text(output: &egui::FullOutput, needle: &str) -> bool {
+        output.shapes.iter().any(|s| matches!(&s.shape, egui::epaint::Shape::Text(t) if t.galley.job.text.contains(needle)))
+    }
+
+    fn click(state: &mut UiState, ctx: &egui::Context, pos: egui::Pos2) {
+        let button = |pressed| egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::default() };
+        draw(state, ctx, vec![egui::Event::PointerMoved(pos), button(true)]);
+        draw(state, ctx, vec![button(false)]);
+    }
+
+    #[test]
+    fn baking_mode_shows_its_four_panels_and_return_leaves_it() {
+        let ctx = egui::Context::default(); theme::apply(&ctx);
+        let mut state = UiState::new(Session::new(subcraft_mesh::primitives::plane(2., 1), 128), None);
+        // Painting mode: nothing of the baking layout is drawn.
+        let output = draw(&mut state, &ctx, vec![]);
+        assert!(!has_text(&output, "MESH MAP BAKERS"));
+        state.bake.open = true; state.bake.preview = false;
+        for _ in 0..3 { draw(&mut state, &ctx, vec![]); }
+        let output = draw(&mut state, &ctx, vec![]);
+        for title in ["TEXTURE SET LIST", "MESH MAP BAKERS", "COMMON SETTINGS", "BAKING LOG", "Baking process", "High poly parameters", "Matching by name"] {
+            assert!(has_text(&output, title), "{title}");
+        }
+        assert!(!has_text(&output, "MESH MAP SETTINGS"), "Common settings is selected at first");
+        // Selecting a baker shows its settings.
+        let ao = output.shapes.iter().find_map(|s| match &s.shape {
+            egui::epaint::Shape::Text(t) if t.galley.job.text.ends_with("Ambient Occlusion") => Some(t.pos + t.galley.size() * 0.5),
+            _ => None,
+        }).expect("the Ambient Occlusion baker row");
+        click(&mut state, &ctx, ao);
+        assert_eq!(state.bake.selected_baker, Some(subcraft_core::MeshMapKind::AmbientOcclusion));
+        let output = draw(&mut state, &ctx, vec![]);
+        assert!(has_text(&output, "MESH MAP SETTINGS > AMBIENT OCCLUSION") && has_text(&output, "AO samples"));
+        // The log tabs.
+        let tab = output.shapes.iter().find_map(|s| match &s.shape {
+            egui::epaint::Shape::Text(t) if t.galley.job.text == "High poly parameters" => Some(t.pos + t.galley.size() * 0.5),
+            _ => None,
+        }).unwrap();
+        click(&mut state, &ctx, tab);
+        assert_eq!(state.bake.log_tab, BakeLogTab::HighPoly);
+        let output = draw(&mut state, &ctx, vec![]);
+        assert!(has_text(&output, "No high-poly file"));
+        // Return to painting mode.
+        let back = output.shapes.iter().find_map(|s| match &s.shape {
+            egui::epaint::Shape::Text(t) if t.galley.job.text.ends_with("Return to painting mode") => Some(t.pos + t.galley.size() * 0.5),
+            _ => None,
+        }).expect("Return button over the views");
+        click(&mut state, &ctx, back);
+        assert!(!state.bake.open);
+    }
+
+    #[test]
+    fn a_bake_covers_the_ticked_texture_sets_and_a_quick_bake_one_map() {
+        let mut state = UiState::new(Session::new(subcraft_mesh::primitives::plane(2., 1), 128), None);
+        let (id, slot) = { let ts = state.session.selected_texture_set(); (ts.id, ts.material_slot) };
+        let frame = BakeFrame {
+            sel_id: id, sel_slot: slot, sets: vec![(id, slot, "Set".into(), 128)],
+            low_name: String::new(), low_box: (glam::Vec3::ZERO, glam::Vec3::ONE), high_box: None, baked_maps: Vec::new(),
+            match_mode: subcraft_core::BakeMatchMode::Always,
+        };
+        assert_eq!(frame.targets(&state.bake), vec![(id, slot)], "every set is ticked at first");
+        state.bake.skip_sets.insert(id);
+        assert!(frame.targets(&state.bake).is_empty());
+        // A quick bake bakes only its map, for the selected set when none is ticked, and leaves
+        // the ticked maps as they were.
+        state.bake.settings.size = 128;
+        let ticked = state.bake.settings.maps.clone();
+        start_bake(&mut state, Some(subcraft_core::MeshMapKind::Position), &frame, 0.);
+        assert_eq!(state.bake.job_maps, vec![subcraft_core::MeshMapKind::Position]);
+        assert_eq!(state.bake.settings.maps, ticked);
+        let ctx = egui::Context::default();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        while state.bake.job.is_some() {
+            poll_bake(&mut state, &ctx, 0.);
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        assert!(matches!(state.bake.result, Some(Ok(1))), "{:?}", state.bake.result);
+        assert_eq!(state.bake.map_rows.len(), 1, "one status row for the quick bake");
+        let maps: Vec<_> = state.session.mesh_maps(id).unwrap().iter().map(|(k, _)| k).collect();
+        assert_eq!(maps, vec![subcraft_core::MeshMapKind::Position]);
+    }
 }
 
 #[cfg(test)]
@@ -1116,7 +1393,7 @@ mod bake_log_tests {
     use subcraft_app::{BakeLogLevel, BakeLogLine, Session};
 
     #[test]
-    fn the_bake_window_keeps_the_log_collapsed_under_details_and_counts_problems() {
+    fn the_baking_log_keeps_the_lines_collapsed_under_details_and_counts_problems() {
         let ctx = egui::Context::default(); theme::apply(&ctx);
         let mut state = UiState::new(Session::new(subcraft_mesh::primitives::plane(2., 1), 128), None);
         state.bake.open = true; state.bake.preview = false;
@@ -1125,7 +1402,7 @@ mod bake_log_tests {
             BakeLogLine { at: 1.2, level: BakeLogLevel::Warning, text: "Cage: 12 of 100 texels missed".into() },
         ];
         let frame = |state: &mut UiState| {
-            let mut out = ctx.run_ui(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1100.0, 900.0))), ..Default::default() }, |ui| bake_window(state, ui.ctx(), 0.0));
+            let mut out = ctx.run_ui(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1100.0, 900.0))), ..Default::default() }, |ui| bake_mode(state, ui, 0.0));
             out.textures_delta.clear(); out
         };
         for _ in 0..5 { frame(&mut state); }

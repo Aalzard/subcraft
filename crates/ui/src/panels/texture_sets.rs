@@ -517,7 +517,7 @@ fn mesh_maps(state: &mut UiState, ui: &mut Ui, cmds: &mut Vec<Command>) {
             Some(thumb) => { any = true; map_row(ui, Some(&thumb), title, &format!("{what} {set_name}"), || cmds.push(Command::ClearMeshMap { texture_set: id, kind })); }
             None => {
                 if ui.add_sized([ui.available_width(), 38.0], egui::Button::new(RichText::new(empty).font(theme::font(12.0)).color(TEXT_DIM)))
-                    .on_hover_text("Opens the bake window: pick a high-poly mesh and tick this map").clicked() {
+                    .on_hover_text("Opens Baking mode: pick a high-poly mesh and tick this map").clicked() {
                     state.bake.open = true;
                     if !state.bake.settings.maps.contains(&kind) { state.bake.settings.maps.push(kind); }
                 }

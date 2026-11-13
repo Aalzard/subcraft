@@ -7,21 +7,21 @@ The public pages name the settings but give almost no defaults, ranges or dropdo
 
 ## Entering and leaving Baking mode
 
-Layout notes: Painter has three modes (Bake mesh maps, Painting, Rendering) switched from the Mode menu, a mode button at the top right of the viewport, or F8 / F9 / F10. Baking mode swaps the whole layout: viewport plus four baking panels (Mesh map bakers, Common settings, Mesh map settings, Baking log) and the Texture Set list; Log, Display settings and History stay reachable from the right bar. SubCraft has no modes: baking is one floating "Bake Mesh Maps" window (cards: Models, Placement, Maps to bake, Quality, Viewport, Bake) over the normal layout.
+Layout notes: Painter has three modes (Bake mesh maps, Painting, Rendering) switched from the Mode menu, a mode button at the top right of the viewport, or F8 / F9 / F10. Baking mode swaps the whole layout: viewport plus four baking panels (Mesh map bakers, Common settings, Mesh map settings, Baking log) and the Texture Set list; Log, Display settings and History stay reachable from the right bar. SubCraft: F8 swaps the painting panels for the baking panels around the views (left: Texture Set list, Mesh map bakers, Mesh map settings; right: Common settings; below: Baking log; Bake and Return over the views), F9 returns.
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Baking mode button | Contextual toolbar, top right of viewport | not documented | partial: top bar "Bake" button opens a window, not a mode | crates/ui/src/app.rs:1017 | - |
-| Mode > Bake mesh maps | Main menu > Mode | not documented | missing | - | - |
-| Mode > Painting | Main menu > Mode | default mode | missing | - | - |
+| Baking mode button | Contextual toolbar, top right of viewport | not documented | partial: top bar "Bake" button switches to Baking mode (not at the top right of the viewport) | crates/ui/src/dialogs.rs (bake_mode) | - |
+| Mode > Bake mesh maps | Main menu > Mode | not documented | done | crates/ui/src/app.rs (Mode menu) | - |
+| Mode > Painting | Main menu > Mode | default mode | done | crates/ui/src/app.rs (Mode menu) | - |
 | Edit > Bake Mesh maps | Main menu > Edit | not documented | done | crates/ui/src/app.rs:1149 | - |
-| Dedicated baking layout (panel set changes with the mode) | Baking mode | not documented | missing | - | - |
-| Return to Painting mode button | Bottom of viewport in Baking mode | not documented | partial: close the Bake window | crates/ui/src/dialogs.rs:589 | - |
+| Dedicated baking layout (panel set changes with the mode) | Baking mode | not documented | done: views plus the baking panels; the painting panels come back with F9 | crates/ui/src/dialogs.rs (bake_mode) | - |
+| Return to Painting mode button | Bottom of viewport in Baking mode | not documented | done | crates/ui/src/dialogs.rs (bake_mode) | - |
 | Mode switch recorded as an undo step | History | not documented | missing | - | - |
 | Baking parameter changes recorded in History | History | not documented | missing | - | - |
 | Undo across a bake step reopens Baking mode | History | not documented | missing | - | - |
-| Texture Set list available in Baking mode | Baking mode | not documented | done | crates/ui/src/panels/texture_sets.rs:17 | - |
-| Log, Display settings, History available in Baking mode | Right bar | not documented | done | crates/ui/src/app.rs:260 | - |
+| Texture Set list available in Baking mode | Baking mode | not documented | done | crates/ui/src/dialogs.rs (bake_set_list) | - |
+| Log, Display settings, History available in Baking mode | Right bar | not documented | partial: the painting panels are hidden in Baking mode | crates/ui/src/dialogs.rs (bake_mode) | - |
 
 ## Baking mode viewport
 
@@ -30,18 +30,18 @@ Layout notes: Painter has three modes (Bake mesh maps, Painting, Rendering) swit
 | Same navigation as Painting mode | Viewport | not documented | done | crates/ui/src/dialogs.rs:566 | - |
 | Channel dropdown shows baked maps | Viewport, top right | not documented | partial: Display dropdown in the Bake window and mesh maps in the view-mode dropdown | crates/ui/src/dialogs.rs:706 | - |
 | Baking visualization settings panel (collapsible) | Viewport, top left | not documented | partial: four icon toggles in the Bake window's Viewport card | crates/ui/src/dialogs.rs:701 | - |
-| Bake selected textures button | Viewport, bottom | not documented | partial: Bake button inside the window | crates/ui/src/dialogs.rs:732 | - |
-| Cancel baking button | Viewport, bottom | not documented | done | crates/ui/src/dialogs.rs:731 | - |
-| Viewport progress bar (mesh loading and baking) | Viewport | not documented | partial: stage text and per-map rows in the window, bar in Texture Set Settings | crates/ui/src/panels/texture_sets.rs:249 | - |
+| Bake selected textures button | Viewport, bottom | not documented | done | crates/ui/src/dialogs.rs (bake_mode) | - |
+| Cancel baking button | Viewport, bottom | not documented | done | crates/ui/src/dialogs.rs (bake_mode) | - |
+| Viewport progress bar (mesh loading and baking) | Viewport | not documented | partial: bar beside Cancel over the views while baking, none for mesh loading | crates/ui/src/dialogs.rs (bake_mode) | - |
 | Orbit while a bake runs | Viewport | not documented | done | crates/app/src/bake_job.rs:75 | - |
 | Neutral material on the project mesh | Viewport in Baking mode | not documented | missing | - | - |
-| Error notice in viewport when the Baking log is hidden | Viewport | not documented | partial: result line and warnings in the window | crates/ui/src/dialogs.rs:738 | - |
+| Error notice in viewport when the Baking log is hidden | Viewport | not documented | partial: result line and warnings in the Baking log, which cannot be hidden | crates/ui/src/dialogs.rs (bake_log_panel) | - |
 
 ## Texture Set list in Baking mode
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Bake checkbox per texture set | Texture Set list (Baking mode) | not documented | partial: All or Only the selected set | crates/ui/src/dialogs.rs:669 | - |
+| Bake checkbox per texture set | Texture Set list (Baking mode) | not documented | done | crates/ui/src/dialogs.rs (bake_set_list) | - |
 | Bake checkbox per UV tile | Texture Set list (Baking mode) | not documented | missing | - | - |
 | Selection action menu (copy / invert selection) | Texture Set list (Baking mode) | (unverified) | missing | - | - |
 | Description shown in baking list | Texture Set list (Baking mode) | not documented | missing | - | - |
@@ -52,7 +52,7 @@ Layout notes: a "Common settings" entry at the top (with its own sync button), t
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Common settings entry | Mesh map bakers, top | not documented | partial: Models and Quality cards | crates/ui/src/dialogs.rs:598 | - |
+| Common settings entry | Mesh map bakers, top | not documented | partial: selects Common settings (always shown at the right), no sync button | crates/ui/src/dialogs.rs (bakers_panel) | - |
 | Baker row: Normal | Mesh map bakers | checked (unverified) | done | crates/ui/src/dialogs.rs:647 | - |
 | Baker row: World space normal | Mesh map bakers | checked (unverified) | done | crates/ui/src/dialogs.rs:647 | - |
 | Baker row: ID | Mesh map bakers | checked (unverified) | done | crates/ui/src/dialogs.rs:647 | - |
@@ -63,18 +63,18 @@ Layout notes: a "Common settings" entry at the top (with its own sync button), t
 | Baker row: Height | Mesh map bakers | not documented | done | crates/ui/src/dialogs.rs:647 | - |
 | Baker row: Bent normals | Mesh map bakers | not documented | done | crates/ui/src/dialogs.rs:647 | - |
 | Baker row: Opacity | Mesh map bakers | not documented | missing | - | - |
-| Mesh map thumbnail in the row | Mesh map bakers | not documented | partial: thumbnails only in Texture Set Settings | crates/ui/src/panels/texture_sets.rs:299 | - |
-| Check / uncheck a map | Baker row | not documented | done | crates/ui/src/bake_view.rs:30 | - |
+| Mesh map thumbnail in the row | Mesh map bakers | not documented | partial: icon in the row, thumbnails only in Texture Set Settings | crates/ui/src/dialogs.rs (bakers_panel) | - |
+| Check / uncheck a map | Baker row | not documented | done | crates/ui/src/dialogs.rs (bakers_panel) | - |
 | Drag across check boxes to toggle several | Mesh map bakers | not documented | missing | - | - |
-| Visualize the map in the viewport | Baker row | not documented | partial: Display dropdown, only for baked maps | crates/ui/src/dialogs.rs:706 | - |
-| Quick bake (only this map) | Baker row | not documented | missing | - | - |
+| Visualize the map in the viewport | Baker row | not documented | partial: eye button per row, only for baked maps | crates/ui/src/dialogs.rs (bakers_panel) | - |
+| Quick bake (only this map) | Baker row | not documented | done | crates/ui/src/dialogs.rs (bakers_panel, start_bake) | - |
 | Auto-rebake for the map | Baker row | off; turned on for Normal when cage or skew painting starts | missing | - | - |
 | Synchronize this map's settings across texture sets | Baker row | not documented | missing | - | - |
 | Synchronize common settings (Common settings sync window) | Mesh map bakers, top | not documented | missing | - | - |
 | Per texture set baker selection and common settings | Baking mode | per texture set | missing | - | - |
-| Check all | Mesh map bakers dropdown | not documented | done | crates/ui/src/dialogs.rs:643 | - |
-| Uncheck all | Mesh map bakers dropdown | not documented | done | crates/ui/src/dialogs.rs:642 | - |
-| Invert checked mesh maps | Mesh map bakers dropdown | not documented | missing | - | - |
+| Check all | Mesh map bakers dropdown | not documented | done | crates/ui/src/dialogs.rs (bakers_panel) | - |
+| Uncheck all | Mesh map bakers dropdown | not documented | done | crates/ui/src/dialogs.rs (bakers_panel) | - |
+| Invert checked mesh maps | Mesh map bakers dropdown | not documented | done | crates/ui/src/dialogs.rs (bakers_panel) | - |
 | Apply checked to more Texture sets... | Mesh map bakers dropdown | not documented | missing | - | - |
 | Apply checked to all Texture sets | Mesh map bakers dropdown | not documented | missing | - | - |
 | Sync all settings to more Texture sets... | Mesh map bakers dropdown | not documented | missing | - | - |
@@ -84,7 +84,7 @@ Layout notes: a "Common settings" entry at the top (with its own sync button), t
 | Reset cage painting strokes | Mesh map bakers dropdown | (unverified) | missing | - | - |
 | Reset all baking settings | Mesh map bakers dropdown | (unverified) | missing | - | - |
 | Apply (mesh map) settings to more Texture sets... | Right-click on a baker row | not documented | missing | - | - |
-| Breadcrumbs in Mesh map settings | Mesh map settings panel | not documented | missing | - | - |
+| Breadcrumbs in Mesh map settings | Mesh map settings panel | not documented | partial: "Mesh map settings > map" title, not clickable | crates/ui/src/dialogs.rs (map_settings_panel) | - |
 
 ## Common settings: Output
 
@@ -229,9 +229,9 @@ Layout notes: a docked panel with three tabs. SubCraft has a collapsed "Details"
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Baking process tab (status of running / last bake) | Baking log | not documented | partial: status rows and Details log inside the window | crates/ui/src/dialogs.rs:788 | - |
-| High poly parameters tab (details of high poly files, loading state) | Baking log | not documented | partial: loading and error text in the Models card | crates/ui/src/dialogs.rs:619 | - |
-| Matching by name tab (how meshes were paired) | Baking log | shown when Match is By mesh name | partial: only unmatched low parts are listed | crates/ui/src/dialogs.rs:746 | - |
+| Baking process tab (status of running / last bake) | Baking log | not documented | done | crates/ui/src/dialogs.rs (bake_log_panel) | - |
+| High poly parameters tab (details of high poly files, loading state) | Baking log | not documented | partial: path, loading state, triangle and part counts, size of the one file | crates/ui/src/dialogs.rs (bake_log_panel) | - |
+| Matching by name tab (how meshes were paired) | Baking log | shown when Match is By mesh name | partial: the mode and the unmatched low parts, not every pair | crates/ui/src/dialogs.rs (bake_log_panel) | - |
 | Arrow button on an error: jump to the related baker settings | Baking log | not documented | missing | - | - |
 | Individual UV tiles listed in bake progress | Baking log | not documented | missing | - | - |
 
@@ -317,8 +317,8 @@ Layout notes: entered with Paint cage in Common settings (needs a high-poly file
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Baking (switch to Baking mode) | Shortcut | F8 | partial: opens the Bake window | crates/app/src/actions.rs:221 | - |
-| Painting (switch to Painting mode) | Shortcut | F9 | missing | - | - |
+| Baking (switch to Baking mode) | Shortcut | F8 | done | crates/app/src/actions.rs (Action::Bake) | - |
+| Painting (switch to Painting mode) | Shortcut | F9 | done | crates/app/src/actions.rs (Action::PaintingMode) | - |
 | Bake Mesh Maps (open baking settings) | Shortcut | Ctrl+Shift+B | done | crates/app/src/actions.rs:221 | - |
 | Display next mesh map | Shortcut / Viewport menu | B | partial: dropdown only; B is the Brush tool | crates/ui/src/viewport_bar.rs:378 | - |
 | Display previous mesh map | Shortcut / Viewport menu | Shift+B | partial: dropdown only | crates/ui/src/viewport_bar.rs:378 | - |
