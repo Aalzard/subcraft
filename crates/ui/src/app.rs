@@ -135,6 +135,9 @@ pub struct LaunchOptions {
     pub export_template: Option<usize>,
     /// Export preset to select by name or id (built-in or from the user library).
     pub export_preset: Option<String>,
+    /// Painter's `--export-path`: the Export window's default output folder (a project's own
+    /// saved export folder still wins when it has one).
+    pub export_path: Option<PathBuf>,
     /// Open the Render quality window (scripted captures).
     pub render_window: bool,
     /// Render a still or a turntable from the loaded project, then quit (scripted export).
@@ -208,6 +211,11 @@ pub struct LaunchOptions {
 }
 
 impl LaunchOptions {
+    /// The Export window's folder at launch: `--export-path` when given, else `default`.
+    pub fn export_folder(&self, default: &str) -> String {
+        self.export_path.as_ref().map_or_else(|| default.to_string(), |p| p.display().to_string())
+    }
+
     fn shows_welcome(&self, enabled: bool, recovered: bool) -> bool {
         self.resume_update.is_none() && (self.welcome || (enabled && self.mesh.is_none()
             && !self.demo && self.screenshot.is_none() && !recovered))
@@ -1080,6 +1088,7 @@ impl SubcraftApp {
             state.mesh_map_import.start(&options.mesh_map_files, &sets);
             state.welcome.open = false;
         }
+        state.export.folder = options.export_folder(&state.export.folder);
         state.export.open = options.export_window || options.export_template.is_some() || options.export_preset.is_some();
         if let Some(i) = options.export_template { let all = subcraft_export::ExportTemplate::builtin(); state.export.preset = all[i.min(all.len() - 1)].name.clone(); }
         if let Some(name) = &options.export_preset {
@@ -2815,6 +2824,19 @@ fn build_demo(state: &mut UiState) {
         assert!(!app.state.asset_preview.is_applying());assert!(app.state.pen_after.is_none());assert!(!app.state.session.is_modified());
         let reopened=Session::open_project(&file).unwrap();assert_eq!(reopened.document(),app.state.session.document());assert!(reopened.resources().iter().any(|r|r.name.starts_with("Starter: ")));std::fs::remove_file(file).unwrap();
     }
+
+#[cfg(test)]
+mod launch_tests {
+    use super::*;
+
+    #[test]
+    fn export_path_sets_the_export_folder() {
+        let default = "/home/me/exports";
+        assert_eq!(LaunchOptions::default().export_folder(default), default);
+        let options = LaunchOptions { export_path: Some(PathBuf::from("/work/hero/textures")), ..Default::default() };
+        assert_eq!(options.export_folder(default), PathBuf::from("/work/hero/textures").display().to_string());
+    }
+}
 
 #[cfg(test)]
 mod seal_tests {
