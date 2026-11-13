@@ -214,6 +214,8 @@ pub struct UiState {
     pub parts_clipboard: Option<subcraft_doc::PartMask>,
     /// Quick mask overlay of the 2D view: (quick mask revision, texture).
     pub quick_mask_tex: Option<(u64, egui::TextureHandle)>,
+    /// Texture Set List > Settings: which description lines the rows show.
+    pub set_descriptions: crate::panels::texture_sets::DescriptionDisplay,
     /// Depth of field: the next click on the model sets the focus distance.
     pub picking_focus: bool,
     /// Clicks in the 3D view add the ID map color under the cursor to this ID Color Mask effect.
@@ -416,6 +418,7 @@ impl UiState {
             parts_box: None,
             parts_clipboard: None,
             quick_mask_tex: None,
+            set_descriptions: Default::default(),
             picking_focus: false,
             picking_id_color: None,
             picking_id_palette: false,

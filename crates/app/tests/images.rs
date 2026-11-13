@@ -245,13 +245,22 @@ fn imported_ao_map_adds_the_channel_and_reaches_exports() {
     let ao = texel(&s, ChannelKind::AmbientOcclusion, 0.3, 0.3);
     assert!((ao - 0.4).abs() < 3e-3, "composite AO {ao}");
 
-    // The texture's AO, not the baked one, goes into Unreal's packed map and Unity's mask map.
+    // The texture's AO goes into Unreal's packed map and Unity's mask map, multiplied by the baked AO
+    // (Painter's default Ambient occlusion mixing: 0.4 x 0.9).
     let after = dir.join("after");
     s.export_textures(&after, &unreal).unwrap();
-    assert!((exported_texel(&s, &after, "OcclusionRoughnessMetallic")[0] - 0.4).abs() < 2.0 / 255.0);
+    assert!((exported_texel(&s, &after, "OcclusionRoughnessMetallic")[0] - 0.36).abs() < 2.0 / 255.0);
     let unity = dir.join("unity");
     s.export_textures(&unity, &ExportSettings { template: ExportTemplate::unity_hdrp(), ..Default::default() }).unwrap();
-    assert!((exported_texel(&s, &unity, "MaskMap")[1] - 0.4).abs() < 2.0 / 255.0);
+    assert!((exported_texel(&s, &unity, "MaskMap")[1] - 0.36).abs() < 2.0 / 255.0);
+    // Replace mixing: the texture's AO alone.
+    let mut mixing = s.selected_texture_set().mixing;
+    mixing.ao = subcraft_doc::AoMixing::Replace;
+    s.execute(Command::SetMixing { texture_set: ts, mixing }).unwrap();
+    let replaced = dir.join("replaced");
+    s.export_textures(&replaced, &unreal).unwrap();
+    assert!((exported_texel(&s, &replaced, "OcclusionRoughnessMetallic")[0] - 0.4).abs() < 2.0 / 255.0);
+    s.execute(Command::Undo).unwrap(); // back to Multiply, so the undo below removes the import
 
     // Saved with the project.
     let project = dir.join("ao.subcraft");

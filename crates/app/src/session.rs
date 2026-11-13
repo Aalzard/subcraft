@@ -172,6 +172,8 @@ pub struct Session {
     pub(crate) selection: Selection,
     mask_clipboard: Option<Mask>,
     hidden_sets: std::collections::BTreeSet<TextureSetId>,
+    /// Texture Set List Focus mode: only the selected set is shown (view state).
+    focus_set: bool,
     /// Selected effect of the selected layer's current domain (see [`Session::selected_effect`]).
     effect: Option<EffectId>,
     pub brush: BrushState,
@@ -270,6 +272,7 @@ impl Session {
             selection,
             mask_clipboard: None,
             hidden_sets: Default::default(),
+            focus_set: false,
             effect: None,
             brush: BrushState {
                 alpha: None,
@@ -843,8 +846,19 @@ impl Session {
     }
     pub fn can_paste_mask(&self) -> bool { self.mask_clipboard.is_some() }
 
-    /// Texture sets hidden in the viewport (view state).
-    pub fn is_set_hidden(&self, ts: TextureSetId) -> bool { self.hidden_sets.contains(&ts) }
+    /// Texture sets hidden in the viewport (view state). In Focus mode every set but the selected one is hidden.
+    pub fn is_set_hidden(&self, ts: TextureSetId) -> bool {
+        self.hidden_sets.contains(&ts) || (self.focus_set && ts != self.selection.texture_set)
+    }
+
+    /// Whether the Texture Set List Focus mode is on.
+    pub fn texture_set_focus(&self) -> bool { self.focus_set }
+
+    /// The name of the mesh material a texture set paints: what "Reset name" goes back to.
+    pub fn original_set_name(&self, ts: TextureSetId) -> Option<String> {
+        let slot = self.doc.texture_set(ts)?.material_slot as usize;
+        self.scene().mesh.materials.get(slot).map(|m| m.name.trim().to_string()).filter(|n| !n.is_empty())
+    }
 
     /// Copy layers of the selected texture set into a clip for the in-app clipboard.
     pub fn copy_layers(&self, layers: &[LayerId]) -> Result<crate::clipboard::LayerClip, CommandError> {
@@ -1450,6 +1464,21 @@ impl Session {
                 def.format = format;
                 self.commit(&format!("{} Format", kind.display_name()), None);
             }
+            Command::RenameUserChannel { texture_set, kind, name } => {
+                if !kind.is_user() {
+                    return Err(CommandError::Invalid(format!("{} is not a user channel and keeps its name", kind.display_name())));
+                }
+                let ts = self.doc.texture_set_mut(texture_set).ok_or(CommandError::TextureSetNotFound)?;
+                let name = name.trim().to_string();
+                let changed = if name.is_empty() || name == kind.display_name() {
+                    ts.user_channel_names.remove(&kind).is_some()
+                } else {
+                    ts.user_channel_names.insert(kind, name.clone()).as_deref() != Some(name.as_str())
+                };
+                if changed {
+                    self.commit("Rename Channel", None);
+                }
+            }
             Command::InsertLayerWithChannels { layer, channels, label } => {
                 let ts = self.doc.texture_set_mut(self.selection.texture_set).ok_or(CommandError::TextureSetNotFound)?;
                 for kind in channels {
@@ -1529,7 +1558,8 @@ impl Session {
                     ts.channels.push(ChannelDef::default_for(kind));
                 }
                 let mut at = reference;
-                for layer in clip.instantiate(ts, mesh) {
+                for mut layer in clip.instantiate(ts, mesh) {
+                    layer.name = crate::clipboard::pasted_name(ts, &layer.name);
                     at = Some(ts.insert_above(at, layer));
                 }
                 self.selection.layer = at;
@@ -1572,6 +1602,46 @@ impl Session {
                 if ts.name != name {
                     ts.name = name;
                     self.commit("Rename Texture Set", None);
+                }
+            }
+            Command::ResetTextureSetName(texture_set) => {
+                if self.doc.texture_set(texture_set).is_none() { return Err(CommandError::TextureSetNotFound); }
+                let name = self.original_set_name(texture_set)
+                    .ok_or_else(|| CommandError::Invalid("the mesh material of this texture set has no name".into()))?;
+                return self.execute(Command::RenameTextureSet { texture_set, name });
+            }
+            Command::SetTextureSetDescription { texture_set, description } => {
+                let description = description.trim_end().to_string();
+                let ts = self.doc.texture_set_mut(texture_set).ok_or(CommandError::TextureSetNotFound)?;
+                if ts.description != description {
+                    ts.description = description;
+                    self.commit("Edit Texture Set Description", None);
+                }
+            }
+            Command::SetTextureSetsVisibility(op) => {
+                let all: std::collections::BTreeSet<TextureSetId> = self.doc.texture_sets.iter().map(|t| t.id).collect();
+                let hidden = match op {
+                    crate::command::SetsVisibility::ShowAll => Default::default(),
+                    crate::command::SetsVisibility::HideAll => all,
+                    crate::command::SetsVisibility::Invert => all.difference(&self.hidden_sets).copied().collect(),
+                };
+                if self.focus_set || hidden != self.hidden_sets {
+                    self.hidden_sets = hidden;
+                    self.focus_set = false;
+                    self.revision += 1;
+                }
+            }
+            Command::SetTextureSetFocus(on) => {
+                if self.focus_set != on {
+                    self.focus_set = on;
+                    self.revision += 1;
+                }
+            }
+            Command::SetMixing { texture_set, mixing } => {
+                let ts = self.doc.texture_set_mut(texture_set).ok_or(CommandError::TextureSetNotFound)?;
+                if ts.mixing != mixing {
+                    ts.mixing = mixing;
+                    self.commit("Mixing Settings", None);
                 }
             }
             Command::SetTextureSetHidden { texture_set, hidden } => {
@@ -2824,6 +2894,7 @@ impl Session {
                     udim: ts.udim_number(),
                     channels: &c.channels,
                     mesh_maps: self.mesh_maps.get(&ts.id).map(|m| m.as_map()),
+                    mixing: ts.mixing,
                 })
             })
             .collect()
