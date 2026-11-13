@@ -33,7 +33,7 @@ Layout notes: all navigation is a held modifier plus a mouse drag; the same comb
 | Camera zoom with the mouse wheel | Wheel over the view | (unverified) | done | crates/ui/src/viewport.rs:105 | - |
 | Rotate environment | Shift + RMB drag (horizontal) | editable shortcut | done | crates/ui/src/nav.rs:76 | - |
 | Auto-focus (depth of field focus point) | Ctrl + MMB click on the mesh | needs Post effects + DOF on | done: Display Settings > Camera > Auto-focus keeps the focus on the centre of the view; Ctrl+MMB picks a point | crates/ui/src/viewport.rs | 249 |
-| Texture set selection | Ctrl + Alt + RMB click on the mesh | editable shortcut | missing | - | - |
+| Texture set selection | Ctrl + Alt + RMB click on the mesh | editable shortcut | done: Ctrl+Alt+right-click selects the texture set of the part under the cursor (Painter navigation) | crates/ui/src/viewport.rs (pick_set) | 163 |
 | Texture Set highlight under cursor | Hold Ctrl + Alt over the model (12.2) | hidden while LMB is down or panning | done: while Ctrl+Alt is held, not while painting or navigating; a warm tint | crates/ui/src/viewport.rs, crates/render/src/viewport.wgsl | 258 |
 | Texture Set / UV Tile highlight from the list | Hover a row in the Texture Set list (12.2) | not documented | partial: hovering a Texture Set List row highlights its set; no UV tile highlight | crates/ui/src/panels/texture_sets.rs (set_rows) | 258 |
 | Tablet scroll | Ctrl + Alt + click drag scrolls panels (2019.3) | not documented | missing | - | - |
@@ -164,9 +164,9 @@ Layout notes: the dropdown at the top right of each view switches between Materi
 | Wireframe color | Display settings > Mesh wireframe | not documented | done | crates/ui/src/view_extras.rs:104 | - |
 | Wireframe opacity | Display settings > Mesh wireframe | not documented | partial: range 0.05-1 | crates/ui/src/view_extras.rs:117 | - |
 | Show grid | Display settings > Grid | off (unverified) | partial: default on; toggle in the top strip | crates/ui/src/viewport_bar.rs:310 | - |
-| Grid axis | Display settings > Grid | Y | partial: per-axis guide checkboxes (X, Y, Z) instead of a plane axis | crates/ui/src/viewport_bar.rs:329 | - |
-| Grid color | Display settings > Grid | not documented | missing | - | - |
-| Grid opacity | Display settings > Grid | not documented | missing | - | - |
+| Grid axis | Display settings > Grid | Y | done: Display Settings > Grid > Axis picks the plane the grid lies in (Y is the floor) | crates/ui/src/panels/display_settings.rs (grid_plane) | 181 |
+| Grid color | Display settings > Grid | not documented | done | crates/ui/src/panels/display_settings.rs (grid_color) | 181 |
+| Grid opacity | Display settings > Grid | not documented | done | crates/ui/src/panels/display_settings.rs (grid_opacity) | 181 |
 
 ## Stencil manipulation
 
