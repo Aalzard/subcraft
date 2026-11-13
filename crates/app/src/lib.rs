@@ -25,6 +25,7 @@ pub mod cage_check;
 pub mod launch;
 pub mod layer_tree;
 pub mod flatten;
+pub mod mask_tools;
 pub mod new_project;
 pub mod effect_stack;
 pub mod export_presets;

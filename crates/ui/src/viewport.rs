@@ -431,6 +431,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     let painter = ui.painter_at(rect);
     let tracing = state.recovery.prefs.viewport.path_tracing && !bake_mode;
     let mut pt_error = None;
+    let mask_view = crate::mask_view::active(state);
     match (&state.render_state, &mut state.renderer) {
         (Some(rs), Some(renderer)) => {
             let t0 = web_time::Instant::now();
@@ -442,6 +443,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             params.post = view.post_params_at(state.session.scene().mesh.bounds.diagonal(), state.camera.eye_distance());
             params.view_mode = view.view_mode();
             params.solo_channel = view.solo.filter(|_| view.mesh_map.is_none());
+            params.mask_view = mask_view;
             params.channel_display = view.channel_display();
             params.mip_bias = -(view.mip_bias.min(3) as f32);
             params.highlight_slot = state.highlight_slot.take();
@@ -642,6 +644,11 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         let target = state.session.selected_layer().map(|l| l.name.clone());
         let what = crate::panels::shelf::drop_label(item, mods.alt, target.as_deref().filter(|_| mods.alt), false);
         pill(&painter, rect.center_top() + egui::vec2(0.0, 14.0), egui::Align2::CENTER_TOP, &format!("Release to: {what}"), theme::TEXT);
+    }
+    // Painter's mask view: say what is shown and how to get back; Esc goes back too.
+    if let Some(text) = crate::mask_view::label(state) {
+        pill(&painter, rect.center_top() + egui::vec2(0.0, 40.0), egui::Align2::CENTER_TOP, &text, theme::TEXT);
+        if response.hovered() && ui.input(|i| i.key_pressed(egui::Key::Escape)) { state.mask_view = None; }
     }
     let bake_hint = state.bake.displayed_map.map(|k| format!("Bake preview · {} · close Bake Mesh Maps to return to material", k.display_name()));
     let orbit = scheme.orbit_hint();

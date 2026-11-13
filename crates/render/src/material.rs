@@ -172,6 +172,8 @@ pub struct GpuMaterial {
     pub highlight: bool,
     /// `MaterialParams` uniform (binding 10), created with the bind group.
     pub(crate) params: Option<wgpu::Buffer>,
+    /// A layer's evaluated mask, shown alone on the model while `ViewParams::mask_view` is set.
+    pub mask_view: Option<ChannelTexture>,
 }
 
 impl GpuMaterial {
@@ -186,6 +188,7 @@ impl GpuMaterial {
             shader: Default::default(),
             highlight: false,
             params: None,
+            mask_view: None,
         }
     }
 

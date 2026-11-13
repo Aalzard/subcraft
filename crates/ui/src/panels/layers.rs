@@ -488,7 +488,7 @@ Files: {}", ex.dir().display()));
                 effect_line(ui, thumb.rect, !l.content_effects.is_empty());
                 if let Some(mask) = &l.mask {
                     let thumb = state.layer_previews.image(ui, &state.session, PreviewKey { layer: l.id, channel: ChannelKind::BaseColor, mask: true, effect: None, size: 64 }, thumb_size,
-                        selected && selected_target == LayerTarget::Mask).on_hover_text(tr("Mask · click to edit · Alt+click: UV preview · Shift+click: enable/disable"));
+                        selected && selected_target == LayerTarget::Mask).on_hover_text(tr("Mask · click to edit · Alt+click: show it in the viewport · Shift+click: enable/disable"));
                     if let Some(item) = thumb.dnd_hover_payload::<ShelfDrag>() {
                         ui.painter().rect_stroke(thumb.rect, 0.0, egui::Stroke::new(2.0, ACCENT), egui::StrokeKind::Inside);
                         over_mask = Some(shelf::drop_label(*item, alt, Some(&l.name), true));
@@ -502,7 +502,8 @@ Files: {}", ex.dir().display()));
                         else {
                             cmds.push(Command::SelectLayerTarget { layer: l.id, target: LayerTarget::Mask });
                             if state.tool == crate::state::Tool::Pen { state.tool = crate::state::Tool::Brush; }
-                            if ui.input(|i| i.modifiers.alt) { state.layer_previews.inspect = Some(l.id); }
+                            // Painter: Alt+click shows the mask alone in the viewport (again: back).
+                            if ui.input(|i| i.modifiers.alt) { ui.ctx().data_mut(|d| d.insert_temp(crate::mask_view::toggle_request_id(), l.id)); }
                         }
                     }
                     thumb.context_menu(|ui| super::mask::actions(ui, l.id, mask.enabled, can_paste_mask, &mut cmds));

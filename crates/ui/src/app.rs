@@ -1156,6 +1156,8 @@ impl SubcraftApp {
         if self.follow_layer_selection() {
             ctx.request_repaint();
         }
+        // The panels' mask requests (Alt+click on a mask thumbnail, the mask menu).
+        crate::mask_view::handle_requests(&mut self.state, &ctx, ctx.input(|i| i.time));
     }
 
     fn shortcuts(&mut self, ctx: &egui::Context) {

@@ -123,7 +123,7 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Mask actions", "遮罩操作"),
     ("Mask by ID color", "依 ID 顏色建立遮罩"),
     ("Mask the selected layer to the baked ID map color under the cursor", "以游標下方已烘焙 ID 貼圖的顏色為所選圖層建立遮罩"),
-    ("Mask · click to edit · Alt+click: UV preview · Shift+click: enable/disable", "遮罩 · 點擊編輯 · Alt+點擊：UV 預覽 · Shift+點擊：啟用/停用"),
+    ("Mask · click to edit · Alt+click: show it in the viewport · Shift+click: enable/disable", "遮罩 · 點擊編輯 · Alt+點擊：在視埠中顯示 · Shift+點擊：啟用/停用"),
     ("Masks hide parts of the layer. Start white (all visible) or black (all hidden).", "遮罩可隱藏圖層的一部分。可從白色（全部顯示）或黑色（全部隱藏）開始。"),
     ("Material", "材質"),
     ("Materials", "材質"),
