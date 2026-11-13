@@ -37,8 +37,4 @@ pub use resources::{Resource, ResourceKind, ResourceStore};
 pub use text::TextDecal;
 pub use settings::{NormalFormat, ProjectSettings};
 pub use shader::{MAIN_SHADER, ShaderAssignment, ShaderInstance, ShaderInstanceId, ShaderParams};
-<<<<<<< HEAD
-pub use texture_set::{AlphaMode, AlphaSettings, AoMixing, ChannelDef, ChannelFormat, HeightToNormal, LayerLocation, LayerOpError, MixingSettings, NormalMixing, RESOLUTIONS, TextureSet, UvPadding};
-=======
-pub use texture_set::{AlphaMode, AlphaSettings, ChannelDef, ChannelFormat, IdColorEdit, LayerLocation, LayerOpError, RESOLUTIONS, TextureSet};
->>>>>>> claude/parity-ts-header
+pub use texture_set::{AlphaMode, AlphaSettings, AoMixing, ChannelDef, ChannelFormat, HeightToNormal, IdColorEdit, LayerLocation, LayerOpError, MixingSettings, NormalMixing, RESOLUTIONS, TextureSet, UvPadding};
