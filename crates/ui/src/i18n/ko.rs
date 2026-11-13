@@ -924,4 +924,10 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Degrees about X, Y, Z (applied in that order)", "X, Y, Z 축 기준 각도(이 순서로 적용)"),
     ("Size of the projection box on X, Y, Z; with Shape crop on, a planar projection reaches as deep as its scale along the projection axis", "X, Y, Z 방향의 투영 상자 크기입니다. 모양 자르기를 켜면 평면 투영은 투영 축 방향 스케일만큼의 깊이까지 닿습니다"),
     ("X, Y, Z in units of the model's bounding box; 0 is centred", "모델 경계 상자 단위의 X, Y, Z 값이며 0이 중앙입니다"),
+    ("1 cuts at the angle; lower values fade the projection out before it", "1이면 각도에서 바로 잘리고, 낮을수록 그 전에 투영이 서서히 사라집니다"),
+    ("Backface culling", "뒷면 컬링"),
+    ("Culling angle", "컬링 각도"),
+    ("Culling hardness", "컬링 경도"),
+    ("Project only on the surfaces that face the projection", "투영을 향한 표면에만 투영합니다"),
+    ("Surfaces turned further than this from the projection get nothing", "투영 방향에서 이 각도보다 더 돌아간 표면에는 투영되지 않습니다"),
 ];
