@@ -627,3 +627,27 @@ fn field_keys_differ_for_every_cylinder_angle_and_mirror_position() {
         assert!(positions.insert(mirror(i as f32 * 0.005)), "mirror position {} shares a key", i as f32 * 0.005);
     }
 }
+
+/// QA 2026-11: the cache key of a procedural field left the warp grid out, so a warped fill kept
+/// the pattern of the first grid it was drawn with.
+#[test]
+fn field_keys_differ_for_different_warp_grids() {
+    let params = ProceduralParams::new(ProceduralKind::Clouds);
+    let warp = Projection { mode: ProjectionMode::Warp, planar_axis: 2, ..Projection::default() };
+    let mut grid = warp.warp_grid();
+    let i = grid.index(1, 1);
+    let p = grid.points()[i];
+    assert!(grid.set_point(i, [p[0] + 0.15, p[1], p[2]]));
+    let bent = Projection { warp: Some(grid), ..warp };
+    let mut split = warp.warp_grid();
+    assert!(split.split_column(0));
+    let split = Projection { warp: Some(split), ..warp };
+    let key = |p: &Projection| field::FieldKey::new(&params, p);
+    assert_ne!(key(&warp), key(&bent));
+    assert_ne!(key(&warp), key(&split));
+    assert_ne!(key(&bent), key(&split));
+    assert_eq!(key(&bent), key(&bent.clone()));
+    // In another mode a leftover grid changes nothing.
+    let planar = Projection { mode: ProjectionMode::Planar, planar_axis: 2, ..Projection::default() };
+    assert_eq!(key(&planar), key(&Projection { warp: Some(grid), ..planar }));
+}

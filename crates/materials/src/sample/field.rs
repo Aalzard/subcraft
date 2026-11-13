@@ -117,10 +117,20 @@ impl FieldKey {
 /// Hash of the cylinder angle and the symmetry of a projection; 0 at their defaults.
 fn projection_extra_bits(p: &Projection) -> u32 {
     use subcraft_doc::FillSymmetry;
-    if p.cylinder_angle == 360.0 && p.symmetry.is_none() {
+    // The warp grid moves every texel's coordinates: without it in the key, every grid of a
+    // warped procedural fill shared one cached pattern, and editing the grid changed nothing.
+    let warp = if p.mode == subcraft_doc::ProjectionMode::Warp { p.warp.as_ref() } else { None };
+    if p.cylinder_angle == 360.0 && p.symmetry.is_none() && warp.is_none() {
         return 0;
     }
     let mut values = vec![p.cylinder_angle.to_bits()];
+    if let Some(grid) = warp {
+        values.extend([3, grid.cols() as u32, grid.rows() as u32]);
+        for (i, point) in grid.points().iter().enumerate() {
+            let at = grid.grid_coords(i);
+            values.extend(point.iter().chain(&at).map(|v| v.to_bits()));
+        }
+    }
     match p.symmetry {
         FillSymmetry::None => {}
         FillSymmetry::Mirror { axis, position } => values.extend([1, axis as u32, position.to_bits()]),
