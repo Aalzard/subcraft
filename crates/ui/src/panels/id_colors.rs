@@ -208,7 +208,7 @@ mod tests {
         frame(&mut state, vec![]);
         let typed: Option<String> = ctx.data(|d| d.get_temp(hex_text()));
         assert_eq!(typed.as_deref().map(str::len), Some(8), "the extra digit stays in the field: {typed:?}");
-        assert_eq!(state.id_palette_new, red, "a value that does not parse changes nothing");
+        assert!(same_id(state.id_palette_new, red), "a value that does not parse changes nothing: {:?}", state.id_palette_new);
     }
 
     #[test]
