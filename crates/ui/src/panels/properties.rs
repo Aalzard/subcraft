@@ -895,10 +895,7 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
             match &mut eff.kind {
                 MaskEffectKind::Anchor => {
                     prop_row(ui, tr("Name"), |ui| {
-                        let mut name = eff.name.clone();
-                        let r = ui.text_edit_singleline(&mut name);
-                        if r.lost_focus() && !name.trim().is_empty() && name.trim() != eff.name {
-                            eff.name = name.trim().to_string();
+                        if anchor_name_field(ui, eff.id, &mut eff.name) {
                             changed = true;
                         }
                     });
@@ -1900,3 +1897,50 @@ mod generator_tests {
     }
 }
 
+/// The Name field of a mask anchor point. The text being typed lives in egui memory while the
+/// field has focus: rebuilt from the effect every frame, each typed character was gone by the next
+/// frame and the anchor could not be renamed at all. True when a new name was committed.
+pub(crate) fn anchor_name_field(ui: &mut Ui, id: subcraft_core::EffectId, name: &mut String) -> bool {
+    let buffer = egui::Id::new(("mask_anchor_name", id));
+    let mut text: String = ui.data(|d| d.get_temp(buffer)).unwrap_or_else(|| name.clone());
+    let r = ui.text_edit_singleline(&mut text);
+    if r.has_focus() { ui.data_mut(|d| d.insert_temp(buffer, text.clone())); } else { ui.data_mut(|d| d.remove_temp::<String>(buffer)); }
+    if r.lost_focus() && !text.trim().is_empty() && text.trim() != name.as_str() {
+        *name = text.trim().to_string();
+        return true;
+    }
+    false
+}
+
+#[cfg(test)]
+mod anchor_name_tests {
+    use super::*;
+
+    /// QA 2026-11: typing in a mask anchor's Name field did nothing.
+    #[test]
+    fn typing_a_name_and_pressing_enter_renames_the_anchor() {
+        let ctx = egui::Context::default();
+        let id = subcraft_core::EffectId::new();
+        let mut name = String::from("Anchor 1");
+        let mut renamed = false;
+        let frame = |events: Vec<egui::Event>, name: &mut String, renamed: &mut bool| {
+            let mut out = ctx.run_ui(egui::RawInput { events, screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 200.0))), ..Default::default() }, |ui| {
+                *renamed |= anchor_name_field(ui, id, name);
+            });
+            out.textures_delta.clear();
+        };
+        frame(vec![], &mut name, &mut renamed);
+        let at = egui::pos2(30.0, 12.0);
+        let press = |pressed| egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+        frame(vec![egui::Event::PointerMoved(at), press(true)], &mut name, &mut renamed);
+        frame(vec![press(false)], &mut name, &mut renamed);
+        frame(vec![egui::Event::Text(" edges".into())], &mut name, &mut renamed);
+        frame(vec![], &mut name, &mut renamed);
+        assert!(!renamed, "nothing is committed while typing");
+        frame(vec![egui::Event::Key { key: egui::Key::Enter, physical_key: None, pressed: true, repeat: false, modifiers: Default::default() }], &mut name, &mut renamed);
+        frame(vec![], &mut name, &mut renamed);
+        assert!(renamed, "Enter commits the typed name");
+        // The text lands where the click put the cursor, so only its presence is checked.
+        assert!(name.contains("edges") && name.len() == "Anchor 1 edges".len(), "{name:?}");
+    }
+}
