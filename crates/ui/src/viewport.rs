@@ -9,8 +9,6 @@ use crate::state::{Tool, UiState};
 use crate::theme::{self, ACCENT};
 use crate::icons;
 
-/// Text on a translucent dark plate, anchored at `pos`; returns the plate rect.
-pub(crate) fn pill(painter: &egui::Painter, pos: Pos2, align: egui::Align2, text: &str, color: Color32) -> Rect {
 /// Most border edges tested for visibility when outlining a drop target (one ray each).
 const DROP_OUTLINE_EDGES: usize = 6000;
 
@@ -36,7 +34,8 @@ fn drop_outline(state: &mut UiState, part: subcraft_app::PartKey, camera: &subcr
     edges.iter().filter_map(|[a, b]| Some([to_pos(*a)?, to_pos(*b)?])).collect()
 }
 
-fn pill(painter: &egui::Painter, pos: Pos2, align: egui::Align2, text: &str, color: Color32) -> Rect {
+/// Text on a translucent dark plate, anchored at `pos`; returns the plate rect.
+pub(crate) fn pill(painter: &egui::Painter, pos: Pos2, align: egui::Align2, text: &str, color: Color32) -> Rect {
     let galley = painter.layout_no_wrap(text.to_string(), theme::font(11.5), color);
     let size = galley.size() + egui::vec2(16.0, 10.0);
     let rect = align.anchor_size(pos, size);
