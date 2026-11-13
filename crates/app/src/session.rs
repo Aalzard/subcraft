@@ -2072,10 +2072,15 @@ impl Session {
             }
             Command::EditIdColor { texture_set, from, to } => {
                 if from.iter().chain(&to).any(|v| !v.is_finite()) { return Err(CommandError::Invalid("invalid ID color".into())); }
+                let baked_has_from = self.id_baked.get(&texture_set).is_some_and(|(baked, _)| crate::id_color::image_has_color(baked, from));
                 let ts = self.doc.texture_set_mut(texture_set).ok_or(CommandError::TextureSetNotFound)?;
-                crate::id_color::edit_id_color(ts, from, to);
-                self.commit("Edit ID Color", None);
-                self.sync_id_maps();
+                let before = ts.clone();
+                crate::id_color::edit_id_color(ts, from, to, baked_has_from);
+                // An edit that changes nothing adds no undo step (it used to, and wiped redo).
+                if *ts != before {
+                    self.commit("Edit ID Color", None);
+                    self.sync_id_maps();
+                }
             }
             Command::SetIdColors { layer, effect, colors } => {
                 self.edit_layer_set(layer, "ID Color", None, |ts| {
