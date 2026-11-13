@@ -5726,32 +5726,3 @@ symmetry. `crates/app/tests/uv_tools.rs` covers session routing: the 2D clone so
   `id_sources_the_model_lacks_fall_back_to_generated_colours_with_a_warning`; mesh
   `obj_vertex_colors_and_material_colors_are_read`. Nothing was built or run locally (coordinator's rule after
   the PC's power cuts), and no capture was taken.
-## Raster shadows and specular level (Painter parity chunk 30, remainder after #198; 2026-11-13, branch `claude/parity-shadows`)
-
-* Shadows (`crates/render/src/shadow.rs`, `shadow.wgsl`):
-  * A depth map of the model seen from the key light, an orthographic box around the model's
-    bounding sphere (`light_view_proj`), rendered before the viewport pass with a slope-scaled
-    depth bias.
-  * `viewport.wgsl` compares each pixel with a percentage-closer filter (`shadow_visibility`,
-    normal-offset to avoid self-shadowing) and dims only the key light's direct contribution by
-    the shadow opacity. The environment light keeps its AO shading, so shadows never go black.
-  * Display Settings > Environment > Shadows: Enable (off by default, like Painter), Computation
-    mode and Shadows opacity (0.8 by default; Painter's is undocumented). The modes Intensive,
-    Average and Lightweight map to 4096 / 2048 / 1024 texel maps and the filter width.
-  * Only the shaded material view casts shadows; channel views, baked maps and the bake overlay
-    are unchanged. Image export uses the same settings.
-* Specular level:
-  * The Specular channel is bound to the material (binding 11) and uploaded with the others.
-  * Non-metal reflectance is 0.08 x level, so the default 0.5 gives the 4% the shader always used.
-* zh-Hant and Korean: 10 new texts translated.
-* Tests added:
-  * `crates/render/tests/shadows.rs` (GPU): a floating square shadows the floor under it, and
-    only there. Opacity 0 draws exactly what shadows off draw, half opacity sits in between, and
-    every computation mode shadows the same spot. Specular 0.5 is byte-identical to no Specular
-    channel, with 0 < 0.5 < 1 in brightness.
-  * Unit tests: the light box holds every corner of the bounds from any direction; quality
-    sizes; doc defaults, old indices and survival of Reset look.
-* Not compiled locally (the PC is unstable under load): CI is the first compile. NOT verified:
-  the running app.
-* Not done: shadows from the environment light (only the key light casts them), alpha-tested
-  cut-outs still cast solid shadows, and the path tracer ignores the Specular channel.
