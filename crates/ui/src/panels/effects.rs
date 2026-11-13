@@ -125,8 +125,8 @@ pub(crate) fn add_mask_anchor_items(ui: &mut Ui, layer: LayerId, index: &subcraf
     }
 }
 
-/// Mask effects in Painter's order: generator, paint, fill, levels, filter, color selection,
-/// anchor point; SubCraft's own Invert and Anchor Reference come last.
+/// Mask effects in Painter's order: generator, paint, fill, levels, compare mask, filter, color
+/// selection, anchor point; SubCraft's own Invert and Anchor Reference come last.
 fn add_mask_menu(ui: &mut Ui, layer: &Layer, resolution: u32, index: &subcraft_doc::AnchorIndex, cmds: &mut Vec<Command>) {
     let mut add = |ui: &mut Ui, label: &str, kind: MaskEffectKind| {
         if ui.button(format!("{}  {label}", mask_icon(&kind))).clicked() {
@@ -138,6 +138,7 @@ fn add_mask_menu(ui: &mut Ui, layer: &Layer, resolution: u32, index: &subcraft_d
     add(ui, "Add paint", MaskEffectKind::Paint { image: TiledImage::new(resolution, resolution, 2, [0.0; 4]) });
     add(ui, "Add fill", MaskEffectKind::Fill { value: 1.0, procedural: None, projection: Default::default() });
     add(ui, "Add levels", MaskEffectKind::Levels(Levels::default()));
+    add(ui, "Add compare mask", MaskEffectKind::Compare(Default::default()));
     add_mask_filters(ui, layer.id, cmds);
     let mut add = |ui: &mut Ui, label: &str, kind: MaskEffectKind| {
         if ui.button(format!("{}  {label}", mask_icon(&kind))).clicked() {
@@ -145,7 +146,6 @@ fn add_mask_menu(ui: &mut Ui, layer: &Layer, resolution: u32, index: &subcraft_d
             ui.close();
         }
     };
-    add(ui, "Add compare mask", MaskEffectKind::Compare(Default::default()));
     add(ui, "Add color selection", MaskEffectKind::IdColor(Default::default()));
     add(ui, "Add invert", MaskEffectKind::Invert);
     add_mask_anchor_items(ui, layer.id, index, cmds);
@@ -699,7 +699,7 @@ fn content_editor(ui: &mut Ui, state: &mut UiState, layer: &Layer, e: &ContentEf
             }
             ContentEffectKind::Generator(g) => {
                 hint(ui, "The generator's gray result goes into every channel but Normal; set each channel's blending below.");
-                changed |= super::properties::content_generator_controls(ui, g);
+                changed |= super::properties::content_generator_controls(ui, state, g);
             }
             ContentEffectKind::Anchor => {
                 let index = subcraft_doc::AnchorIndex::build(&state.session.selected_texture_set().layers);

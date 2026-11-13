@@ -68,6 +68,11 @@ impl CompositeCache {
         self.plan.clear();
     }
 
+    /// (entries, bytes, hits) of the cache of the layers' own content and masks.
+    pub fn content_cache_stats(&self) -> (usize, usize, usize) {
+        self.prefix.content.stats()
+    }
+
     /// Statistics of the per-layer result cache.
     pub fn layer_cache_stats(&self) -> crate::PrefixStats {
         self.prefix.stats()
@@ -207,8 +212,9 @@ fn diff_lists(old: &[Arc<Layer>], new: &[Arc<Layer>], resolution: u32) -> Dirty 
     let n = resolution.div_ceil(subcraft_image::TILE_SIZE) as usize;
     // Anchor references (ADR-0045) read other layers' content texel by texel, so a raster edit
     // also changes the readers at the same texels; any filter on a reader's path spreads it.
-    // Conservatively grow by every filter of the set.
-    let readers = if subcraft_doc::anchor::has_references(new) { crate::stages::halo(new) } else { 0 };
+    // Conservatively grow by every filter of the set. Compare Masks reading the layer stack are
+    // readers too (QA 2026-11: a blur after one left the neighbouring tiles stale).
+    let readers = if subcraft_doc::anchor::has_references(new) || crate::stages::has_compare(new) { crate::stages::halo(new) } else { 0 };
     if collect_list(old, new, &mut tiles, n, readers) { Dirty::Tiles(tiles) } else { Dirty::All }
 }
 

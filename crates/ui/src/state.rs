@@ -84,6 +84,8 @@ pub struct UvView {
     pub fill_box: Option<egui::Pos2>,
     /// Geometry mask box started in the 2D view while picking parts (screen point).
     pub parts_box: Option<egui::Pos2>,
+    /// Frame this UV rectangle (centre, size) next time the 2D view is drawn (F on a path).
+    pub frame: Option<(Vec2, Vec2)>,
 }
 
 /// Compositing time spent per frame before the remaining dirty tiles wait for the next frame.
@@ -214,6 +216,8 @@ pub struct UiState {
     /// Clicks in the 3D and 2D views show / hide the selected layer on mesh parts (its geometry
     /// mask, Properties → Parts); a drag boxes several (Ctrl+drag removes them).
     pub picking_parts: bool,
+    /// Warp projection grid editing (mode, selected points, display settings).
+    pub warp: crate::warp_view::WarpEdit,
     /// Geometry mask box started in a view (screen point), while picking parts.
     pub parts_box: Option<egui::Pos2>,
     /// Geometry mask copied from a layer row's menu.
@@ -238,6 +242,9 @@ pub struct UiState {
     /// "Import mesh maps…" from Texture Set Settings.
     pub mesh_map_import: crate::mesh_map_import::MeshMapImportUi,
     pub last_stroke_point: Option<Vec2>,
+    /// The view `last_stroke_point` was painted through. It is a screen position: once the camera
+    /// moves it no longer lies on the stroke's end.
+    pub last_stroke_camera: Option<subcraft_app::Camera>,
     pub uv_edges: HashMap<u32, Vec<[Vec2; 2]>>,
     /// UV units per object unit of each material slot (2D brush cursor size).
     pub uv_density: HashMap<u32, f32>,
@@ -294,7 +301,7 @@ pub struct UiState {
     pub photocraft: Option<subcraft_app::photocraft::Exchange>,
     /// Key of the polygon wireframe currently uploaded to the renderer.
     pub wire_uploaded: Option<crate::view_extras::WireKey>,
-    pub symmetry_uploaded: Option<(usize, [bool; 3], subcraft_paint::RadialSymmetry)>,
+    pub symmetry_uploaded: Option<crate::symmetry_view::GuideKey>,
     pub uv_wireframe: bool,
     pub library: subcraft_app::assets::Library,
     pub shelf: crate::panels::shelf::ShelfUi,
@@ -306,10 +313,24 @@ pub struct UiState {
     pub uploaded_channels: Vec<(subcraft_core::TextureSetId, Vec<ChannelKind>)>,
     /// Channel shown alone that the shader does not otherwise read, as last uploaded.
     pub uploaded_solo: Option<ChannelKind>,
+    /// Base Color tinted red where the quick mask protects the surface, while it is edited.
+    pub quick_mask_tint: subcraft_app::quick_mask_tint::TintCache,
+    /// While a material is dragged with Ctrl over the 3D view: the part it would land on, the
+    /// camera the outline was computed for, and the part's visible border edges (object space).
+    pub drop_outline: Option<(subcraft_app::PartKey, subcraft_app::Camera, Vec<[glam::Vec3; 2]>)>,
     /// Thumbnails of imported images (resources are immutable, so entries never go stale).
     pub image_thumbs: HashMap<subcraft_core::ResourceId, egui::TextureHandle>,
-    /// The user's asset library folder (None if no Documents folder could be found).
+    /// The library new presets and imports go to (Settings > Libraries default; your_assets
+    /// unless changed; None if no Documents folder could be found).
     pub user_library: Option<UserLibrary>,
+    /// Every library on disk the Assets panel reads: your_assets first, then the extra ones.
+    pub libraries: Vec<crate::libraries::NamedLibrary>,
+    /// Files imported for the current session only (not copied to a library).
+    pub session_files: std::collections::HashSet<std::path::PathBuf>,
+    /// The Import resources window.
+    pub import: crate::import_resources::ImportWindow,
+    /// Name / folder typed in Settings > Libraries.
+    pub libraries_form: crate::libraries::LibrariesUi,
     /// Library HDRIs still being prefiltered on a background thread.
     pub env_loader: Option<std::sync::mpsc::Receiver<Result<subcraft_app::assets::Environment, String>>>,
     /// Brush presets from the user library.
@@ -430,9 +451,10 @@ impl UiState {
             render_request: None,
             last_view_size: [1280, 720],
             last_view_rect: egui::Rect::NOTHING,
-            uv: UvView { zoom: 1.0, offset: egui::Vec2::ZERO, source: PreviewSource::Channel(ChannelKind::BaseColor), texture: None, painting: false, last_point: None, fill_box: None, parts_box: None },
+            uv: UvView { zoom: 1.0, offset: egui::Vec2::ZERO, source: PreviewSource::Channel(ChannelKind::BaseColor), texture: None, painting: false, last_point: None, fill_box: None, parts_box: None, frame: None },
             painting: false,
             picking_parts: false,
+            warp: Default::default(),
             parts_box: None,
             parts_clipboard: None,
             quick_mask_tex: None,
@@ -445,6 +467,7 @@ impl UiState {
             id_palette_new: [1.0, 1.0, 1.0],
             mesh_map_import: Default::default(),
             last_stroke_point: None,
+            last_stroke_camera: None,
             pen_pressure: 1.0,
             pen_input: Default::default(),
             uv_edges: HashMap::new(),
@@ -485,8 +508,14 @@ impl UiState {
             uploaded_maps: HashMap::new(),
             uploaded_channels: Vec::new(),
             uploaded_solo: None,
+            quick_mask_tint: Default::default(),
+            drop_outline: None,
             image_thumbs: HashMap::new(),
             user_library: None,
+            libraries: Vec::new(),
+            session_files: Default::default(),
+            import: Default::default(),
+            libraries_form: Default::default(),
             env_loader: None,
             brush_presets: builtin_brush_presets(),
             favorites: Default::default(),
@@ -543,6 +572,7 @@ impl UiState {
             self.env_loader = Some(rx);
         }
         log::info!("asset library: {}", lib.root().display());
+        self.libraries = vec![crate::libraries::NamedLibrary { id: crate::panels::shelf_filter::YOURS.to_string(), lib: lib.clone() }];
         self.user_library = Some(lib);
         self
     }
@@ -724,6 +754,23 @@ impl UiState {
             || self.updater.as_ref().is_some_and(|u| matches!(u.phase, subcraft_app::updater::Phase::Preparing | subcraft_app::updater::Phase::Exiting))
     }
 
+    /// The start of a Shift + click straight line in the 3D view: the end of the last stroke, as
+    /// long as the view has not changed since. After orbiting, zooming or resizing, the remembered
+    /// screen position lies over some other part of the model, and the line started there.
+    pub fn line_start(&mut self, camera: &subcraft_app::Camera) -> Option<Vec2> {
+        if self.last_stroke_camera.as_ref() != Some(camera) {
+            self.last_stroke_point = None;
+            self.last_stroke_camera = None;
+        }
+        self.last_stroke_point
+    }
+
+    /// Remember where a stroke ended, and through which view.
+    pub fn set_line_start(&mut self, point: Vec2, camera: &subcraft_app::Camera) {
+        self.last_stroke_point = Some(point);
+        self.last_stroke_camera = Some(*camera);
+    }
+
     pub fn set_status(&mut self, msg: impl Into<String>, now: f64) {
         let msg = msg.into();
         log::info!("status: {msg}");
@@ -742,6 +789,11 @@ impl UiState {
     /// Start a frame: the compositing budget for this frame's `sync_gpu` calls.
     pub fn begin_frame(&mut self) {
         self.composite_deadline = Some(web_time::Instant::now() + COMPOSITE_FRAME_BUDGET);
+        // The views set these while they are drawn (after the shortcuts read them). A view that
+        // is no longer drawn (F3 / F2 layouts, a closed tab) kept its last value, and F framed
+        // that hidden view instead of the visible one (QA 2026-11).
+        self.hovered_3d = false;
+        self.hovered_2d = false;
         // The multi-selection holds layer ids; Delete / Duplicate act on them wherever they live,
         // so ids kept from another texture set would edit layers the user is no longer looking at.
         let ts = self.session.selection().texture_set;
@@ -818,6 +870,19 @@ impl UiState {
             }
         }
         self.uploaded_solo = solo;
+        // Quick mask edition: Base Color tinted red where the mask protects (3D and 2D views).
+        let quick = session.quick_mask().filter(|q| q.editing).map(|q| (q.texture_set, &q.image));
+        for ts in &session.document().texture_sets {
+            let Some(base) = session.composite(ts.id).and_then(|c| c.channel(ChannelKind::BaseColor)) else { continue };
+            let mask = quick.filter(|(id, _)| *id == ts.id).map(|(_, image)| image);
+            match self.quick_mask_tint.update(ts.id, base, mask, full) {
+                subcraft_app::quick_mask_tint::TintUpload::None => {}
+                subcraft_app::quick_mask_tint::TintUpload::Tinted(img, tiles) => {
+                    renderer.upload_channel(&rs.device, &rs.queue, ts.material_slot, ChannelKind::BaseColor, img, tiles.as_deref());
+                }
+                subcraft_app::quick_mask_tint::TintUpload::Restore => renderer.upload_channel(&rs.device, &rs.queue, ts.material_slot, ChannelKind::BaseColor, base, None),
+            }
+        }
         crate::edit_profile::record("  sync: upload", upload_start.elapsed());
         self.uploaded_composite_generation = session.composite_generation();
         // Baked maps: re-upload when a bake replaced them. Baked AO also shades the viewport

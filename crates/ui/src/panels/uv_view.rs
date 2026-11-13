@@ -27,6 +27,45 @@ pub fn label(s: PreviewSource) -> String {
     }
 }
 
+/// Zoom limits of the 2D view.
+const ZOOM_RANGE: std::ops::RangeInclusive<f32> = 0.2..=20.0;
+
+/// Zoom by `factor` keeping the texture point at `anchor` (a position relative to the view's
+/// centre) where it is. Returns the new zoom and pan offset.
+pub fn zoom_about(zoom: f32, offset: egui::Vec2, anchor: egui::Vec2, factor: f32) -> (f32, egui::Vec2) {
+    let next = (zoom * factor).clamp(*ZOOM_RANGE.start(), *ZOOM_RANGE.end());
+    let ratio = next / zoom;
+    (next, anchor - (anchor - offset) * ratio)
+}
+
+/// What the 2D view shows when the 3D view's display changes with C / Shift+C / M / B / Shift+B:
+/// the mesh map, else the channel shown alone, else (the lit material, which the 2D view cannot
+/// draw) the base colour.
+pub fn source_for(mesh_map: Option<MeshMapKind>, channel: Option<ChannelKind>) -> PreviewSource {
+    match (mesh_map, channel) {
+        (Some(map), _) => PreviewSource::MeshMap(map),
+        (None, Some(kind)) => PreviewSource::Channel(kind),
+        (None, None) => PreviewSource::Channel(ChannelKind::BaseColor),
+    }
+}
+
+/// Axis information in the bottom-right corner: the U and V directions of the texture as drawn
+/// (U to the right, V downwards).
+fn axis_information(painter: &egui::Painter, rect: Rect) {
+    let origin = rect.right_bottom() - egui::vec2(46.0, 46.0);
+    let font = crate::theme::font(10.5);
+    for (dir, name, color) in [(egui::vec2(1.0, 0.0), "U", Color32::from_rgb(226, 92, 92)), (egui::vec2(0.0, 1.0), "V", Color32::from_rgb(120, 200, 110))] {
+        let tip = origin + dir * 26.0;
+        let side = egui::vec2(-dir.y, dir.x);
+        for (width, c) in [(3.0, Color32::from_black_alpha(150)), (1.5, color)] {
+            painter.line_segment([origin, tip], Stroke::new(width, c));
+            painter.line_segment([tip, tip - dir * 6.0 + side * 3.5], Stroke::new(width, c));
+            painter.line_segment([tip, tip - dir * 6.0 - side * 3.5], Stroke::new(width, c));
+        }
+        painter.text(tip + dir * 8.0, egui::Align2::CENTER_CENTER, name, font.clone(), color);
+    }
+}
+
 pub fn show(state: &mut UiState, ui: &mut Ui) {
     let ts = state.session.selected_texture_set();
     let (ts_id, slot, resolution) = (ts.id, ts.material_slot, ts.resolution);
@@ -88,13 +127,20 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     });
     let (rect, response) = ui.allocate_exact_size(ui.available_size(), Sense::click_and_drag());
     state.hovered_2d = response.hovered();
+    let (alt, mods, delta) = ui.input(|i| (i.modifiers.alt, i.modifiers, i.pointer.delta()));
+    // The wheel zooms on the texture point under the cursor; Alt+RMB drag zooms on the point
+    // where the drag began (Painter's 2D view zoom).
     if response.hovered() {
         let scroll = ui.input(|i| i.smooth_scroll_delta.y);
-        if scroll != 0.0 {
-            state.uv.zoom = (state.uv.zoom * (scroll * 0.002).exp()).clamp(0.2, 20.0);
+        if scroll != 0.0 && let Some(cursor) = response.hover_pos() {
+            (state.uv.zoom, state.uv.offset) = zoom_about(state.uv.zoom, state.uv.offset, cursor - rect.center(), (scroll * 0.002).exp());
         }
     }
-    let (alt, mods, delta) = ui.input(|i| (i.modifiers.alt, i.modifiers, i.pointer.delta()));
+    let zoom_drag = alt && !mods.command && !mods.ctrl && response.dragged_by(egui::PointerButton::Secondary);
+    if zoom_drag {
+        let anchor = ui.input(|i| i.pointer.press_origin()).unwrap_or(rect.center());
+        (state.uv.zoom, state.uv.offset) = zoom_about(state.uv.zoom, state.uv.offset, anchor - rect.center(), ((delta.x - delta.y) * 0.01).exp());
+    }
     let typing = ui.ctx().egui_wants_keyboard_input();
     // Hold S and drag to place the stencil over this view, hold N to paint without it: the same
     // keys as the 3D view.
@@ -114,6 +160,11 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             || (response.dragged_by(egui::PointerButton::Primary) && !state.uv.painting && !lmb_adjust && (alt || !clicks)))
     {
         state.uv.offset += response.drag_delta();
+    }
+    if let Some((center, extent)) = state.uv.frame.take() {
+        let (zoom, offset) = uv_frame(rect.width().min(rect.height()) * 0.95, center, extent);
+        state.uv.zoom = zoom;
+        state.uv.offset = offset;
     }
     let side = rect.width().min(rect.height()) * 0.95 * state.uv.zoom;
     let img_rect = Rect::from_center_size(rect.center() + state.uv.offset, egui::vec2(side, side));
@@ -158,6 +209,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         painter.image(id, img_rect, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
     }
     painter.rect_stroke(img_rect, 0.0, Stroke::new(1.0, crate::theme::BORDER_STRONG), egui::StrokeKind::Outside);
+    axis_information(&painter, rect);
     quick_mask_overlay(state, ui, &painter, img_rect);
 
     if state.uv_wireframe {
@@ -268,6 +320,10 @@ fn quick_mask_overlay(state: &mut UiState, ui: &Ui, painter: &egui::Painter, ima
         return;
     };
     let (revision, editing) = (q.revision, q.editing);
+    // While editing, the Base Color texture itself carries the tint (see `UiState::sync_gpu`).
+    if editing && state.uv.source == PreviewSource::Channel(ChannelKind::BaseColor) && state.renderer.is_some() {
+        return;
+    }
     if state.quick_mask_tex.as_ref().is_none_or(|(r, _)| *r != revision) {
         let img = &q.image;
         let n = img.width().min(512).max(1);
@@ -326,7 +382,7 @@ fn brush_controls(state: &mut UiState, ui: &mut Ui) {
     let mut options = state.session.brush.options;
     let (original, original_options) = (settings, options);
     let width = ui.available_width();
-    crate::brush_bar::show(ui, &mut state.tool, &mut settings, &mut options, &mut state.recovery.prefs.viewport.symmetry_guides, width);
+    crate::brush_bar::show(ui, &mut state.tool, &mut settings, &mut options, &mut state.recovery.prefs.viewport, width);
     if state.tool == Tool::PolygonFill {
         let destination = state.session.polygon_fill_destination();
         crate::brush_bar::fill_options(ui, &mut state.fill_mode, None, destination, "fill_mode_2d");
@@ -480,3 +536,68 @@ fn paint_input(state: &mut UiState, ui: &Ui, response: &egui::Response, image: R
         Err(e) => state.set_status(format!("Can't paint here: {e} (select a paint layer)"), now),
     }
 }
+
+/// Zoom and offset of the 2D view (whose unzoomed texture is `base` points wide) that centre UV
+/// `center` and show a UV rectangle of `extent` with a margin, within the view's zoom range.
+pub fn uv_frame(base: f32, center: Vec2, extent: Vec2) -> (f32, egui::Vec2) {
+    let zoom = (1.0 / (extent.max_element().max(1e-3) * 1.3)).clamp(0.2, 20.0);
+    let side = base * zoom;
+    (zoom, egui::vec2(0.5 - center.x, 0.5 - center.y) * side)
+}
+
+#[cfg(test)]
+mod frame_tests {
+    use super::*;
+
+    #[test]
+    fn framing_a_uv_rectangle_centres_it_and_fits_it() {
+        let view = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(500.0, 400.0));
+        let base = 400.0 * 0.95;
+        let (center, extent) = (Vec2::new(0.25, 0.7), Vec2::new(0.1, 0.05));
+        let (zoom, offset) = uv_frame(base, center, extent);
+        let side = base * zoom;
+        let img = egui::Rect::from_center_size(view.center() + offset, egui::vec2(side, side));
+        let at = img.min + egui::vec2(center.x, center.y) * side;
+        assert!((at - view.center()).length() < 1e-3, "the rectangle's centre is the view's centre: {at:?}");
+        assert!(extent.x * side < view.width() && extent.x * side > view.width() * 0.4, "fits with a margin: {}", extent.x * side);
+        // Huge and tiny rectangles stay within the zoom range.
+        assert_eq!(uv_frame(base, center, Vec2::splat(10.0)).0, 0.2);
+        assert_eq!(uv_frame(base, center, Vec2::ZERO).0, 20.0);
+    }
+}
+#[cfg(test)]
+mod navigation_tests {
+    use super::*;
+
+    #[test]
+    fn zooming_keeps_the_texture_point_under_the_anchor() {
+        // A texture point drawn at `anchor` is at (anchor - offset) / zoom in zoom-free units.
+        let point = |zoom: f32, offset: egui::Vec2, anchor: egui::Vec2| (anchor - offset) / zoom;
+        let (zoom, offset, anchor) = (1.5, egui::vec2(40.0, -25.0), egui::vec2(120.0, 80.0));
+        for factor in [1.3, 0.6] {
+            let (z, o) = zoom_about(zoom, offset, anchor, factor);
+            assert!((z - zoom * factor).abs() < 1e-5);
+            let (before, after) = (point(zoom, offset, anchor), point(z, o, anchor));
+            assert!((before - after).length() < 1e-3, "{before:?} moved to {after:?}");
+        }
+        // Zooming on the view centre with no pan leaves the pan alone.
+        assert_eq!(zoom_about(1.0, egui::Vec2::ZERO, egui::Vec2::ZERO, 2.0), (2.0, egui::Vec2::ZERO));
+    }
+
+    #[test]
+    fn zoom_stops_at_its_limits_without_drifting() {
+        let (z, o) = zoom_about(20.0, egui::vec2(10.0, 10.0), egui::vec2(200.0, 50.0), 4.0);
+        assert_eq!((z, o), (20.0, egui::vec2(10.0, 10.0)), "at the limit nothing moves");
+        assert_eq!(zoom_about(0.25, egui::Vec2::ZERO, egui::Vec2::ZERO, 0.1).0, 0.2);
+    }
+
+    #[test]
+    fn the_2d_view_follows_the_3d_display() {
+        use PreviewSource::*;
+        assert_eq!(source_for(None, None), Channel(ChannelKind::BaseColor), "material: base colour");
+        assert_eq!(source_for(None, Some(ChannelKind::Roughness)), Channel(ChannelKind::Roughness));
+        let map = MeshMapKind::ALL[0];
+        assert_eq!(source_for(Some(map), Some(ChannelKind::Roughness)), MeshMap(map), "the mesh map viewer wins");
+    }
+}
+

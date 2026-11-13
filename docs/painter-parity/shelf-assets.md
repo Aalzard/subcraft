@@ -41,7 +41,7 @@ Layout notes: the Assets panel is docked vertically on the left edge by default.
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
 | n: (name) | Search field prefix | - | done | crates/ui/src/panels/shelf_filter.rs | - |
-| s: (library; includes session and project) | Search field prefix | - | partial: starter_assets and your_assets; no session or project library | crates/ui/src/panels/shelf_filter.rs | - |
+| s: (library; includes session and project) | Search field prefix | - | partial: starter_assets, your_assets, extra libraries and session; no project library | crates/ui/src/panels/shelf_filter.rs | - |
 | p: (path) | Search field prefix | - | done | crates/ui/src/panels/shelf_filter.rs | - |
 | u: (usage) | Search field prefix | - | done | crates/ui/src/panels/shelf_filter.rs | - |
 | Usage keyword typed as a plain word (e.g. images) | Search field | - | done | crates/ui/src/panels/shelf_filter.rs | - |
@@ -132,7 +132,7 @@ Layout notes: one row of eight icons under the search field, in the order below.
 | Auto-update: Assets panel | Auto-update menu, Automatic updates | off (unverified) | missing | - | - |
 | Auto-update: Resources used in project | Auto-update menu, Automatic updates | off (unverified) | missing | - | - |
 | Auto-update: Update every x minutes | Auto-update menu | not documented; 0 = every few seconds | missing | - | - |
-| Auto-update: Update assets panel (manual) | Auto-update menu, Manual updates | - | missing (library is read at startup only) | - | - |
+| Auto-update: Update assets panel (manual) | Auto-update menu, Manual updates | - | partial: Refresh libraries in Settings > Libraries; no auto-update menu | crates/ui/src/libraries.rs (refresh_libraries) | - |
 | Auto-update: Update resources used in project (manual) | Auto-update menu, Manual updates | - | missing | - | - |
 | Auto-update: Skip assets when their parameters mismatch | Auto-update menu, Advanced | on (unverified) | missing | - | - |
 | Auto-update: open log icon (warning badge on issues) | Top right of the auto-update menu | - | missing | - | - |
@@ -146,11 +146,11 @@ Layout notes: libraries are the top level of breadcrumbs and of Filter by path. 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
 | All libraries (root) | Breadcrumbs / Filter by path | selected | done | crates/ui/src/panels/shelf.rs (breadcrumbs, filter_by_path) | - |
-| Current session (temporary, lost on quit) | Library list / s:session | - | missing | - | - |
-| Project (resources embedded in the project file) | Library list / s:project | - | missing (project images are embedded but not listed in the shelf) | - | - |
+| Current session (temporary, lost on quit) | Library list / s:session | - | done (imports read in place, not copied) | crates/ui/src/libraries.rs (SESSION) | - |
+| Project (resources embedded in the project file) | Library list / s:project | - | missing (the import window lists it, disabled) | - | - |
 | Your assets (your_assets; Documents folder) | Library list | default write target | done (user library, Documents/SubCraft/Library; "Mine" chip) | crates/assets/src/user_library.rs:60 | - |
 | Starter assets (starter_assets; install folder, read only) | Library list | - | done (built-in content compiled in) | crates/assets/src/lib.rs:36 | - |
-| Custom libraries added in settings | Library list | - | missing (one root, movable with SUBCRAFT_LIBRARY) | - | - |
+| Custom libraries added in settings | Library list | - | done | crates/ui/src/libraries.rs (settings) | - |
 
 ## Using assets: click, double-click and drag and drop
 
@@ -216,23 +216,23 @@ Layout notes: toolbar on top (Add resources, Remove selected resources, usage fi
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Import resources (menu entry) | File > Import resources | - | partial: separate entries "Import texture set", "Import smart material(s)", "Import smart material folder" | crates/ui/src/app.rs:1214 | - |
-| Open from the Assets panel + button | Assets bottom bar | - | partial: opens a file picker | crates/ui/src/panels/shelf.rs:867 | - |
-| Open by dropping files or folders on the Assets panel | Assets panel | - | partial: imports directly, no window | crates/ui/src/panels/shelf.rs:413 | - |
-| Add resources | Window toolbar | - | missing | - | - |
-| Remove selected resources | Window toolbar | - | missing | - | - |
-| Usage filter dropdown (e.g. show undefined only) | Window toolbar | all | missing | - | - |
-| Usage per file | Table column dropdown | preset when the format has one usage or the graph defines it; otherwise undefined | partial: usage decided by the import button used and by file-name classification | crates/ui/src/panels/textures.rs:7 | - |
-| Prefix (sub-folder path) | Table column | filled from the substance category when present | missing | - | - |
-| Filename | Table column | - | missing | - | - |
-| Warning icon on unreadable or incompatible files | Table row | - | partial: import report window lists skipped files | crates/ui/src/files.rs:93 | - |
-| Multi-select rows to set usage on several files | Table | - | missing | - | - |
-| Drop more files onto the window | Window | - | missing | - | - |
-| Import location: Current session | Bottom dropdown | - | missing | - | - |
-| Import location: Project | Bottom dropdown | - | missing | - | - |
-| Import location: Library (the writable library) | Bottom dropdown | remembered default import location | partial: always the user library | crates/assets/src/user_library.rs:94 | - |
-| Import button | Bottom right | - | missing | - | - |
-| Cancel button | Bottom right | (unverified) | missing | - | - |
+| Import resources (menu entry) | File > Import resources | - | done (File > Import resources > Import resources…; the older direct entries stay) | crates/ui/src/app.rs (File menu) | - |
+| Open from the Assets panel + button | Assets bottom bar | - | done | crates/ui/src/panels/shelf.rs (bottom_toolbar) | - |
+| Open by dropping files or folders on the Assets panel | Assets panel | - | done (the Smart Materials type keeps building smart materials from PBR sets) | crates/ui/src/panels/shelf.rs (handle_drops) | - |
+| Add resources | Window toolbar | - | done | crates/ui/src/import_resources.rs | - |
+| Remove selected resources | Window toolbar | - | done | crates/ui/src/import_resources.rs | - |
+| Usage filter dropdown (e.g. show undefined only) | Window toolbar | all | done | crates/ui/src/import_resources.rs | - |
+| Usage per file | Table column dropdown | preset when the format has one usage or the graph defines it; otherwise undefined | done (format with one use preset; images undefined until chosen) | crates/ui/src/import_resources.rs (Usage::guess) | - |
+| Prefix (sub-folder path) | Table column | filled from the substance category when present | done (sub-folder inside the library, becomes the category) | crates/ui/src/import_resources.rs, crates/assets/src/user_library.rs (add_file_to) | - |
+| Filename | Table column | - | done | crates/ui/src/import_resources.rs | - |
+| Warning icon on unreadable or incompatible files | Table row | - | done | crates/ui/src/import_resources.rs (Row::warning) | - |
+| Multi-select rows to set usage on several files | Table | - | done (row checkboxes) | crates/ui/src/import_resources.rs (ImportWindow::set_usage) | - |
+| Drop more files onto the window | Window | - | done | crates/ui/src/import_resources.rs (window) | - |
+| Import location: Current session | Bottom dropdown | - | done | crates/ui/src/import_resources.rs | - |
+| Import location: Project | Bottom dropdown | - | missing (listed, disabled) | - | - |
+| Import location: Library (the writable library) | Bottom dropdown | remembered default import location | done (any library; the default one preselected) | crates/ui/src/import_resources.rs | - |
+| Import button | Bottom right | - | done | crates/ui/src/import_resources.rs | - |
+| Cancel button | Bottom right | (unverified) | done | crates/ui/src/import_resources.rs | - |
 
 ## Importable file formats and usages
 
@@ -255,7 +255,7 @@ Layout notes: toolbar on top (Add resources, Remove selected resources, usage fi
 | SPEXP export preset | Folder export-presets | - | missing | - | #124 |
 | ABR Photoshop brushes (creates brush presets plus their alpha images) | Import resources | - | missing | - | - |
 | SBS files are rejected (must be published as SBSAR) | Import resources | - | n/a | - | - |
-| Custom sub-folders become categories (Filter by path / breadcrumbs) | Library folders | - | missing | - | - |
+| Custom sub-folders become categories (Filter by path / breadcrumbs) | Library folders | - | done | crates/assets/src/user_library.rs (list, subfolder) | - |
 
 ## Library folders on disk
 

@@ -10,6 +10,31 @@ use crate::theme::{self, ACCENT};
 use crate::icons;
 
 /// Text on a translucent dark plate, anchored at `pos`; returns the plate rect.
+/// Most border edges tested for visibility when outlining a drop target (one ray each).
+const DROP_OUTLINE_EDGES: usize = 6000;
+
+/// Screen segments of a part's border, hidden edges left out. The edges and their visibility
+/// are computed once per part and camera (a ray per edge), then only projected.
+fn drop_outline(state: &mut UiState, part: subcraft_app::PartKey, camera: &subcraft_app::Camera, rect: Rect, pixel_scale: Vec2) -> Vec<[Pos2; 2]> {
+    if !state.drop_outline.as_ref().is_some_and(|(k, c, _)| *k == part && c == camera) {
+        let all = state.session.part_outline(part);
+        let stride = all.len().div_ceil(DROP_OUTLINE_EDGES).max(1);
+        let tolerance = state.session.scene().mesh.bounds.diagonal() * 0.01;
+        let visible = all
+            .into_iter()
+            .step_by(stride)
+            .filter(|[a, b]| {
+                let mid = (*a + *b) * 0.5;
+                camera.project(mid).and_then(|s| state.session.pick(camera, s.truncate())).is_some_and(|hit| hit.position.distance(mid) <= tolerance)
+            })
+            .collect();
+        state.drop_outline = Some((part, *camera, visible));
+    }
+    let Some((_, _, edges)) = &state.drop_outline else { return Vec::new() };
+    let to_pos = |p: glam::Vec3| camera.project(p).map(|s| rect.min + egui::vec2(s.x / pixel_scale.x, s.y / pixel_scale.y));
+    edges.iter().filter_map(|[a, b]| Some([to_pos(*a)?, to_pos(*b)?])).collect()
+}
+
 fn pill(painter: &egui::Painter, pos: Pos2, align: egui::Align2, text: &str, color: Color32) -> Rect {
     let galley = painter.layout_no_wrap(text.to_string(), theme::font(11.5), color);
     let size = galley.size() + egui::vec2(16.0, 10.0);
@@ -249,6 +274,14 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
 
     // ----- part picking: clicks show / hide the selected layer on mesh parts ----------------------
     let bake_mode = state.bake.open || state.bake.job.is_some();
+    // Symmetry manipulator: a press on a handle moves the mirror plane / radial axis instead of painting.
+    let symmetry_grab = !bake_mode && !alt && !stencil_edit
+        && crate::symmetry_view::manipulate(state, ui, &response, rect, pixel_scale, &camera, primary_pressed, primary_down, pointer);
+    let primary_pressed = primary_pressed && !symmetry_grab;
+    // Warp projection grid of the selected fill layer: presses on it edit the grid, not paint.
+    let warp_grab = !bake_mode && !alt && !stencil_edit
+        && crate::warp_view::manipulate(state, ui, &response, rect, pixel_scale, &camera, primary_pressed, primary_down, pointer);
+    let primary_pressed = primary_pressed && !warp_grab;
     let parts_picking = !bake_mode && state.picking_parts && state.session.selected_layer().is_some() && !state.painting;
     // ----- ID Color Mask eyedropper: clicks add the ID map color under the cursor ------------
     let id_picking = !bake_mode && !state.painting
@@ -413,7 +446,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         Ok(()) => {
                             state.painting = true;
                             state.session.set_stroke_pressure(stroke_pressure);
-                            let line_from = if mods.shift { state.last_stroke_point } else { None };
+                            let line_from = if mods.shift { state.line_start(&camera) } else { None };
                             // Ctrl+Shift+click: the line snaps to 5 degree steps, as in Painter, and
                             // the next line starts where this one ended (not at the raw click).
                             let end = line_from.map_or(sp, |from| straight_line_end(from, sp, mods.command || mods.ctrl));
@@ -423,7 +456,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                             } else {
                                 let _ = state.session.stroke_to(&camera, sp, false);
                             }
-                            state.last_stroke_point = Some(end);
+                            state.set_line_start(end, &camera);
                         }
                         Err(subcraft_paint::PaintError::NoCloneSource) => state.set_status(crate::keys::native("Ctrl+click the model to set the clone source first"), now),
                         Err(e) => state.set_status(format!("Can't paint here: {e} (select a paint layer)"), now),
@@ -443,7 +476,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             let mut path: Vec<Vec2> = ui.input(|i| i.events.iter().filter_map(|e| if let egui::Event::PointerMoved(q) = e { Some(to_screen(*q)) } else { None }).collect());
             if path.last() != Some(&sp) { path.push(sp); }
             let _ = state.session.stroke_to_many(&camera, &path);
-            state.last_stroke_point = Some(sp);
+            state.set_line_start(sp, &camera);
         }
     } else if state.painting && !primary_down {
         state.session.end_stroke();
@@ -495,11 +528,13 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             params.shadows = view.shadow_params();
             params.highlight_slot = state.highlight_slot.take();
             renderer.set_texture_filtering(&rs.device, view.anisotropy.samples());
-            params.symmetry_guides = view.symmetry_guides && state.session.brush.options.has_symmetry() && !bake_mode;
+            let symmetry_display = view.symmetry_display;
+            params.symmetry_guides = view.symmetry_guides && state.session.brush.options.has_symmetry() && !bake_mode
+                && !(view.symmetry_cursor_hide_painting && state.painting);
             if params.symmetry_guides {
-                let key = (std::sync::Arc::as_ptr(&state.session.scene().mesh) as usize, state.session.brush.options.symmetry, state.session.brush.options.radial);
+                let key = crate::symmetry_view::GuideKey::new(&state.session, &symmetry_display);
                 if state.symmetry_uploaded != Some(key) {
-                    renderer.set_symmetry_guides(&rs.device, &state.session.symmetry_guide_segments());
+                    renderer.set_symmetry_guides(&rs.device, &crate::symmetry_view::guide_lines(&state.session, &symmetry_display));
                     state.symmetry_uploaded = Some(key);
                 }
             }
@@ -638,10 +673,13 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     // ----- overlays ------------------------------------------------------------------------------
     // Symmetry "Show Plane": each active mirror plane as a translucent sheet in its axis colour.
     if !bake_mode && state.recovery.prefs.viewport.symmetry_plane && state.tool != Tool::Pen {
-        let (mirrors, bounds) = (state.session.brush.options.symmetry, state.session.scene().mesh.bounds);
-        for axis in (0..3).filter(|&a| mirrors[a]) {
+        let (options, bounds) = (&state.session.brush.options, state.session.scene().mesh.bounds);
+        for axis in (0..3).filter(|&a| options.symmetry[a]) {
+            // At the plane's axis position (moved with the manipulator or the menu).
+            let plane = options.mirror_plane(axis, bounds.center());
             let corners: Option<Vec<Pos2>> = mirror_plane_corners(&bounds, axis).iter()
-                .map(|&q| camera.project(q).map(|s| rect.min + egui::vec2(s.x / pixel_scale.x, s.y / pixel_scale.y)))
+                .map(|&q| { let mut q = q; q[axis] = plane; q })
+                .map(|q| camera.project(q).map(|s| rect.min + egui::vec2(s.x / pixel_scale.x, s.y / pixel_scale.y)))
                 .collect();
             if let Some(corners) = corners {
                 let c = AXIS_COLORS[axis];
@@ -663,8 +701,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 let ppu = camera.pixels_per_unit(pick.depth);
                 let r_px = state.session.brush_radius_in(ppu, size[1] as f32, density) * ppu / pixel_scale.y;
                 let color = if state.tool == Tool::Eraser { Color32::from_rgb(120, 190, 255) } else { ACCENT };
-                painter.circle_stroke(p, r_px, Stroke::new(1.5, Color32::from_black_alpha(160)));
-                painter.circle_stroke(p, r_px, Stroke::new(1.0, color));
+                let style = state.recovery.prefs.viewport.brush_cursor;
+                brush_mark(&painter, p, r_px, color, style, true);
                 // Symmetry: a second cursor where each copy paints (faint when the copy's point
                 // is hidden behind the model).
                 let prefs = &state.recovery.prefs.viewport;
@@ -674,7 +712,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     for (at, visible) in symmetry_cursors(&camera, options, center, pick.position, |s| state.session.pick(&camera, s).map(|h| h.depth)) {
                         let at = rect.min + egui::vec2(at.x / pixel_scale.x, at.y / pixel_scale.y);
                         let c = if visible { color.gamma_multiply(0.8) } else { color.gamma_multiply(0.3) };
-                        painter.circle_stroke(at, r_px, Stroke::new(1.0, c));
+                        brush_mark(&painter, at, r_px, c, style, false);
                     }
                 }
             }
@@ -685,7 +723,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             }
             // Shift: dotted preview of the straight line from the last stroke point (snapped with
             // Ctrl, exactly where the click would draw it).
-            if mods.shift && !state.painting && let Some(from) = state.last_stroke_point {
+            if mods.shift && !state.painting && let Some(from) = state.line_start(&camera) {
                 let to_pos = |s: Vec2| rect.min + egui::vec2(s.x / pixel_scale.x, s.y / pixel_scale.y);
                 let end = straight_line_end(from, to_screen(p), mods.command || mods.ctrl);
                 painter.extend(egui::Shape::dashed_line(&[to_pos(from), to_pos(end)], Stroke::new(1.2, Color32::from_white_alpha(200)), 5.0, 4.0));
@@ -714,6 +752,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     if let (Some(a), Some(b)) = (state.parts_box, pointer) && crate::view_props::is_box_drag(a, b) {
         crate::view_props::draw_fill_box(&painter, Rect::from_two_pos(a, b), false);
     }
+    crate::symmetry_view::overlay(state, ui, &painter, rect, pixel_scale, &camera, !bake_mode && state.tool != Tool::Pen);
+    if !bake_mode {
+        crate::warp_view::overlay(state, ui, &painter, rect, pixel_scale, &camera);
+    }
     draw_stencil(state, ui, &painter, rect, size);
     // Reset button at the top right of the view while S is held.
     if stencil_edit {
@@ -731,6 +773,20 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     }
     if let Some(item) = drop_hover {
         painter.rect_stroke(rect.shrink(1.0), 0.0, Stroke::new(2.0, ACCENT), egui::StrokeKind::Inside);
+        // The geometry that receives the drop: the part under the cursor with Ctrl (outlined),
+        // otherwise its texture set (highlighted by the renderer).
+        let part_drop = (mods.command || mods.ctrl) && !mods.alt && !matches!(item, crate::panels::shelf::ShelfDrag::Alpha(_) | crate::panels::shelf::ShelfDrag::SmartMask(_));
+        if let Some(p) = pointer {
+            if part_drop && let Some(target) = state.session.surface_target(&camera, to_screen(p), state.parts_kind) {
+                for [a, b] in drop_outline(state, target.part, &camera, rect, pixel_scale) {
+                    painter.line_segment([a, b], Stroke::new(3.0, Color32::from_black_alpha(140)));
+                    painter.line_segment([a, b], Stroke::new(1.6, ACCENT));
+                }
+            } else if let Some(hit) = state.session.pick(&camera, to_screen(p)) {
+                state.highlight_slot = Some(hit.material_slot);
+                ui.ctx().request_repaint();
+            }
+        }
         let target = state.session.selected_layer().map(|l| l.name.clone());
         let mut what = crate::panels::shelf::drop_label(item, mods.alt, target.as_deref().filter(|_| mods.alt), false);
         if (mods.command || mods.ctrl) && !mods.alt && !matches!(item, crate::panels::shelf::ShelfDrag::Alpha(_) | crate::panels::shelf::ShelfDrag::SmartMask(_)) {
@@ -1161,6 +1217,27 @@ pub fn taa_step(s: &mut TaaState, params: &subcraft_render::ViewParams, accumula
 /// Accumulation counts offered for temporal anti-aliasing.
 pub const TAA_ACCUMULATIONS: [u32; 5] = [4, 8, 16, 32, 64];
 
+/// Half length of the crosshair cursor's arms, in points.
+pub const CROSSHAIR_ARM: f32 = 8.0;
+
+/// The brush cursor at `at`: the outline circle of radius `r` or a crosshair (Painter's cursor
+/// display). `strong` adds a dark underlay so the cursor reads on any surface.
+fn brush_mark(painter: &egui::Painter, at: Pos2, r: f32, color: Color32, style: crate::viewport_bar::BrushCursor, strong: bool) {
+    let mut strokes = Vec::new();
+    if strong { strokes.push(Stroke::new(1.5, Color32::from_black_alpha(160))); }
+    strokes.push(Stroke::new(1.0, color));
+    for s in strokes {
+        match style {
+            crate::viewport_bar::BrushCursor::Outline => { painter.circle_stroke(at, r, s); }
+            crate::viewport_bar::BrushCursor::Crosshair => {
+                let (h, v) = (egui::vec2(CROSSHAIR_ARM, 0.0), egui::vec2(0.0, CROSSHAIR_ARM));
+                painter.line_segment([at - h, at + h], s);
+                painter.line_segment([at - v, at + v], s);
+            }
+        }
+    }
+}
+
 /// Most symmetry cursors drawn (radial symmetry can make up to 64 copies).
 const MAX_SYMMETRY_CURSORS: usize = 16;
 
@@ -1352,7 +1429,7 @@ mod tests {
         let off = symmetry_cursors(&camera, &mirror_x, glam::Vec3::new(40.0, 0.0, 0.0), p, |_| Some(10.0));
         assert!(off.is_empty(), "the mirror image at x = 79 is outside the view");
         // Radial symmetry draws at most MAX_SYMMETRY_CURSORS.
-        let many = subcraft_paint::StrokeOptions { radial: subcraft_paint::RadialSymmetry { enabled: true, axis: 2, count: 64, center_offset: [0.0; 3] }, ..Default::default() };
+        let many = subcraft_paint::StrokeOptions { radial: subcraft_paint::RadialSymmetry { enabled: true, axis: 2, count: 64, center_offset: [0.0; 3], flip: false }, ..Default::default() };
         assert_eq!(symmetry_cursors(&camera, &many, glam::Vec3::ZERO, glam::Vec3::new(0.5, 0.0, 0.0), |_| Some(10.0)).len(), MAX_SYMMETRY_CURSORS);
     }
 

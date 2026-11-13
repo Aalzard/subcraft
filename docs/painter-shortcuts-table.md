@@ -18,7 +18,7 @@
 | Manipulator | `+` | Increase manipulator size |  | no equivalent | no manipulator |
 | Manipulator | `-` | Decrease manipulator size |  | no equivalent | no manipulator |
 | Manipulator | `T` | Cycle manipulation spaces |  | no equivalent | no manipulator |
-| Manipulator | `Shift+V` | Toggle warp edition mode |  | no equivalent | no warp mode |
+| Manipulator | `Shift+V` | Toggle warp edition mode |  | mouse / hold key | with a Warp fill layer selected, over the 3D view: Transform warp / Edit vertices |
 | Manipulator | `W` | Translate tool |  | no equivalent | no manipulator |
 | Manipulator | `E` | Rotate tool |  | no equivalent | no manipulator (E stays Eraser) |
 | Manipulator | `R` | Scale tool |  | no equivalent | no manipulator |

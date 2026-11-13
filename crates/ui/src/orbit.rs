@@ -69,6 +69,15 @@ impl OrbitCamera {
         }
     }
 
+    /// Painter's F while editing a path: centre on `bounds` and come close enough to show it
+    /// whole, keeping the direction, projection, field of view and clip-plane scale. A tiny box
+    /// is shown at no less than 2 % of the scene size.
+    pub fn focus_on(&mut self, bounds: &Aabb) {
+        let radius = (bounds.diagonal() * 0.5).max(self.scene_radius * 0.02).max(1e-4);
+        self.target = bounds.center();
+        self.distance = radius / (self.fov_y_deg.to_radians() * 0.5).sin() * 1.1;
+    }
+
     /// Distance from the target to the eye. Orthographic views keep the eye outside the scene
     /// so zooming in never clips the model.
     pub fn eye_distance(&self) -> f32 {
@@ -246,6 +255,30 @@ mod tests {
         tilted.orbit(1.0, 0.0);
         assert_eq!(tilted.roll, 0.0);
         assert!(tilted.view().abs_diff_eq(Mat4::look_at_rh(tilted.eye(), tilted.target, Vec3::Y), 1e-5));
+    }
+
+    #[test]
+    fn focus_on_centres_the_box_and_keeps_the_view_direction() {
+        let scene = Aabb { min: Vec3::splat(-10.0), max: Vec3::splat(10.0) };
+        let mut cam = OrbitCamera::framing(&scene);
+        cam.yaw = 1.0;
+        cam.pitch = 0.4;
+        let before = cam;
+        let path = Aabb { min: Vec3::new(2.0, 3.0, 4.0), max: Vec3::new(4.0, 5.0, 6.0) };
+        cam.focus_on(&path);
+        assert_eq!(cam.target, Vec3::new(3.0, 4.0, 5.0));
+        assert_eq!((cam.yaw, cam.pitch, cam.fov_y_deg, cam.scene_radius, cam.orthographic), (before.yaw, before.pitch, before.fov_y_deg, before.scene_radius, before.orthographic));
+        assert!(cam.distance < before.distance * 0.3, "came closer: {} vs {}", cam.distance, before.distance);
+        // The whole box is in view: every corner projects inside the viewport.
+        let pc = cam.paint_camera([800, 600]);
+        for x in [2.0, 4.0] { for y in [3.0, 5.0] { for z in [4.0, 6.0] {
+            let s = pc.project(Vec3::new(x, y, z)).unwrap();
+            assert!(s.x > 0.0 && s.x < 800.0 && s.y > 0.0 && s.y < 600.0, "corner off screen: {s}");
+        } } }
+        // A single point is not zoomed into infinitely.
+        let mut close = before;
+        close.focus_on(&Aabb { min: Vec3::ONE, max: Vec3::ONE });
+        assert!(close.distance > before.scene_radius * 0.02);
     }
 
     #[test]
