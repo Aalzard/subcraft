@@ -56,6 +56,8 @@ pub(crate) struct Taa {
     history: Option<History>,
     /// History texture holding the latest average.
     latest: usize,
+    /// Frames before the history was last recreated: the average counts from there.
+    base: u32,
 }
 
 impl Taa {
@@ -118,13 +120,17 @@ impl Taa {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        Self { layout, accum, resolve, uniform, history: None, latest: 0 }
+        Self { layout, accum, resolve, uniform, history: None, latest: 0, base: 0 }
     }
 
     /// Fold the frame just drawn into `target` into the average (frame `frame`, from 1) and
     /// put the average back into `target`'s output.
     pub(crate) fn encode(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, encoder: &mut wgpu::CommandEncoder, target: &crate::target::RenderTarget, frame: u32) {
         if self.history.as_ref().is_none_or(|h| h.size != target.size) {
+            // New (zeroed) history: the average restarts with this frame. Counting on from
+            // `frame` blended black into it (QA 2026-11: a resolution-scale change while
+            // accumulating left the image darker until the next restart).
+            self.base = frame.saturating_sub(1);
             let make = || device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("taa history"),
                 size: wgpu::Extent3d { width: target.size[0], height: target.size[1], depth_or_array_layers: 1 },
@@ -141,7 +147,10 @@ impl Taa {
         }
         let history = self.history.as_ref().expect("created above");
         // A new average (frame 1) ignores the history, whatever size or content it had.
-        let weight = frame_weight(frame);
+        if frame <= self.base {
+            self.base = 0;
+        }
+        let weight = frame_weight(frame - self.base);
         queue.write_buffer(&self.uniform, 0, bytemuck::cast_slice(&[weight, 0.0f32, 0.0, 0.0]));
         let (prev, next) = (self.latest, 1 - self.latest);
         let group = |current: &wgpu::TextureView, previous: &wgpu::TextureView| device.create_bind_group(&wgpu::BindGroupDescriptor {

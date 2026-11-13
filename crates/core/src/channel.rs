@@ -34,10 +34,34 @@ pub enum ChannelKind {
     User13,
     User14,
     User15,
+    // The rest of Painter's channel types. Declared after the user channels so the order of
+    // the earlier kinds (and with it every sorted map of channels) stays as it was.
+    AnisotropyAngle,
+    AnisotropyLevel,
+    BlendingMask,
+    CoatColor,
+    CoatNormal,
+    CoatOpacity,
+    CoatRoughness,
+    CoatSpecularLevel,
+    Diffuse,
+    Displacement,
+    Glossiness,
+    Ior,
+    Reflection,
+    Scattering,
+    ScatteringColor,
+    SheenColor,
+    SheenOpacity,
+    SheenRoughness,
+    SpecularColor,
+    SpecularEdgeColor,
+    Translucency,
+    Transmissive,
 }
 
 impl ChannelKind {
-    pub const ALL: [ChannelKind; 25] = [
+    pub const ALL: [ChannelKind; 47] = [
         ChannelKind::BaseColor,
         ChannelKind::Height,
         ChannelKind::Roughness,
@@ -63,6 +87,28 @@ impl ChannelKind {
         ChannelKind::User13,
         ChannelKind::User14,
         ChannelKind::User15,
+        ChannelKind::AnisotropyAngle,
+        ChannelKind::AnisotropyLevel,
+        ChannelKind::BlendingMask,
+        ChannelKind::CoatColor,
+        ChannelKind::CoatNormal,
+        ChannelKind::CoatOpacity,
+        ChannelKind::CoatRoughness,
+        ChannelKind::CoatSpecularLevel,
+        ChannelKind::Diffuse,
+        ChannelKind::Displacement,
+        ChannelKind::Glossiness,
+        ChannelKind::Ior,
+        ChannelKind::Reflection,
+        ChannelKind::Scattering,
+        ChannelKind::ScatteringColor,
+        ChannelKind::SheenColor,
+        ChannelKind::SheenOpacity,
+        ChannelKind::SheenRoughness,
+        ChannelKind::SpecularColor,
+        ChannelKind::SpecularEdgeColor,
+        ChannelKind::Translucency,
+        ChannelKind::Transmissive,
     ];
 
     /// Painter's sixteen user channels, User0 to User15.
@@ -90,6 +136,34 @@ impl ChannelKind {
         Self::USER.contains(&self)
     }
 
+    /// Painter's other channel types (coat, sheen, anisotropy, scattering, the specular /
+    /// glossiness workflow's maps...). They are painted, stored and exported like any channel;
+    /// the viewport shader does not read them.
+    pub const EXTENDED: [ChannelKind; 22] = [
+        ChannelKind::AnisotropyAngle,
+        ChannelKind::AnisotropyLevel,
+        ChannelKind::BlendingMask,
+        ChannelKind::CoatColor,
+        ChannelKind::CoatNormal,
+        ChannelKind::CoatOpacity,
+        ChannelKind::CoatRoughness,
+        ChannelKind::CoatSpecularLevel,
+        ChannelKind::Diffuse,
+        ChannelKind::Displacement,
+        ChannelKind::Glossiness,
+        ChannelKind::Ior,
+        ChannelKind::Reflection,
+        ChannelKind::Scattering,
+        ChannelKind::ScatteringColor,
+        ChannelKind::SheenColor,
+        ChannelKind::SheenOpacity,
+        ChannelKind::SheenRoughness,
+        ChannelKind::SpecularColor,
+        ChannelKind::SpecularEdgeColor,
+        ChannelKind::Translucency,
+        ChannelKind::Transmissive,
+    ];
+
     /// Channels of the default "PBR - Metallic Roughness" project template.
     pub const METAL_ROUGH: [ChannelKind; 5] = [
         ChannelKind::BaseColor,
@@ -103,13 +177,14 @@ impl ChannelKind {
     pub fn components(self) -> usize {
         match self {
             ChannelKind::BaseColor | ChannelKind::Normal | ChannelKind::Emissive => 3,
+            ChannelKind::CoatColor | ChannelKind::CoatNormal | ChannelKind::Diffuse | ChannelKind::ScatteringColor | ChannelKind::SheenColor | ChannelKind::SpecularColor | ChannelKind::SpecularEdgeColor | ChannelKind::Transmissive => 3,
             _ => 1,
         }
     }
 
     /// True for channels holding perceptual color (sRGB-encoded on import/export).
     pub fn is_color(self) -> bool {
-        matches!(self, ChannelKind::BaseColor | ChannelKind::Emissive)
+        matches!(self, ChannelKind::BaseColor | ChannelKind::Emissive | ChannelKind::CoatColor | ChannelKind::Diffuse | ChannelKind::ScatteringColor | ChannelKind::SheenColor | ChannelKind::SpecularColor | ChannelKind::SpecularEdgeColor | ChannelKind::Transmissive)
     }
 
     /// True if values may legitimately leave the 0..1 range.
@@ -128,6 +203,14 @@ impl ChannelKind {
             ChannelKind::Metallic => ChannelValue::scalar(0.0),
             ChannelKind::AmbientOcclusion | ChannelKind::Opacity => ChannelValue::scalar(1.0),
             ChannelKind::Specular => ChannelValue::scalar(0.5),
+            ChannelKind::CoatColor | ChannelKind::ScatteringColor | ChannelKind::SheenColor | ChannelKind::SpecularEdgeColor => ChannelValue::rgb(1.0, 1.0, 1.0),
+            ChannelKind::CoatNormal => ChannelValue::rgb(0.5, 0.5, 1.0),
+            ChannelKind::CoatRoughness => ChannelValue::scalar(0.1),
+            ChannelKind::CoatSpecularLevel | ChannelKind::Ior | ChannelKind::Reflection | ChannelKind::SheenRoughness => ChannelValue::scalar(0.5),
+            ChannelKind::Diffuse => ChannelValue::rgb(0.5, 0.5, 0.5),
+            ChannelKind::Glossiness => ChannelValue::scalar(0.7),
+            ChannelKind::SpecularColor => ChannelValue::rgb(0.04, 0.04, 0.04),
+            ChannelKind::Transmissive => ChannelValue::rgb(0.0, 0.0, 0.0),
             _ => ChannelValue::scalar(0.0),
         }
     }
@@ -170,6 +253,28 @@ impl ChannelKind {
             ChannelKind::User13 => "User 13",
             ChannelKind::User14 => "User 14",
             ChannelKind::User15 => "User 15",
+            ChannelKind::AnisotropyAngle => "Anisotropy Angle",
+            ChannelKind::AnisotropyLevel => "Anisotropy Level",
+            ChannelKind::BlendingMask => "Blending Mask",
+            ChannelKind::CoatColor => "Coat Color",
+            ChannelKind::CoatNormal => "Coat Normal",
+            ChannelKind::CoatOpacity => "Coat Opacity",
+            ChannelKind::CoatRoughness => "Coat Roughness",
+            ChannelKind::CoatSpecularLevel => "Coat Specular Level",
+            ChannelKind::Diffuse => "Diffuse",
+            ChannelKind::Displacement => "Displacement",
+            ChannelKind::Glossiness => "Glossiness",
+            ChannelKind::Ior => "IOR",
+            ChannelKind::Reflection => "Reflection",
+            ChannelKind::Scattering => "Scattering",
+            ChannelKind::ScatteringColor => "Scattering Color",
+            ChannelKind::SheenColor => "Sheen Color",
+            ChannelKind::SheenOpacity => "Sheen Opacity",
+            ChannelKind::SheenRoughness => "Sheen Roughness",
+            ChannelKind::SpecularColor => "Specular",
+            ChannelKind::SpecularEdgeColor => "Specular Edge Color",
+            ChannelKind::Translucency => "Translucency",
+            ChannelKind::Transmissive => "Transmissive",
         }
     }
 
@@ -201,6 +306,28 @@ impl ChannelKind {
             ChannelKind::User13 => "u13",
             ChannelKind::User14 => "u14",
             ChannelKind::User15 => "u15",
+            ChannelKind::AnisotropyAngle => "aniang",
+            ChannelKind::AnisotropyLevel => "anilvl",
+            ChannelKind::BlendingMask => "blend",
+            ChannelKind::CoatColor => "ccol",
+            ChannelKind::CoatNormal => "cnrm",
+            ChannelKind::CoatOpacity => "cop",
+            ChannelKind::CoatRoughness => "crough",
+            ChannelKind::CoatSpecularLevel => "cspec",
+            ChannelKind::Diffuse => "diff",
+            ChannelKind::Displacement => "disp",
+            ChannelKind::Glossiness => "gloss",
+            ChannelKind::Ior => "ior",
+            ChannelKind::Reflection => "refl",
+            ChannelKind::Scattering => "scat",
+            ChannelKind::ScatteringColor => "scatc",
+            ChannelKind::SheenColor => "shc",
+            ChannelKind::SheenOpacity => "shop",
+            ChannelKind::SheenRoughness => "shrough",
+            ChannelKind::SpecularColor => "specc",
+            ChannelKind::SpecularEdgeColor => "spece",
+            ChannelKind::Translucency => "transl",
+            ChannelKind::Transmissive => "transm",
         }
     }
 
@@ -232,6 +359,28 @@ impl ChannelKind {
             ChannelKind::User13 => "user13",
             ChannelKind::User14 => "user14",
             ChannelKind::User15 => "user15",
+            ChannelKind::AnisotropyAngle => "anisotropyangle",
+            ChannelKind::AnisotropyLevel => "anisotropylevel",
+            ChannelKind::BlendingMask => "blendingmask",
+            ChannelKind::CoatColor => "coatcolor",
+            ChannelKind::CoatNormal => "coatnormal",
+            ChannelKind::CoatOpacity => "coatopacity",
+            ChannelKind::CoatRoughness => "coatroughness",
+            ChannelKind::CoatSpecularLevel => "coatspecularlevel",
+            ChannelKind::Diffuse => "diffuse",
+            ChannelKind::Displacement => "displacement",
+            ChannelKind::Glossiness => "glossiness",
+            ChannelKind::Ior => "ior",
+            ChannelKind::Reflection => "reflection",
+            ChannelKind::Scattering => "scattering",
+            ChannelKind::ScatteringColor => "scatteringcolor",
+            ChannelKind::SheenColor => "sheencolor",
+            ChannelKind::SheenOpacity => "sheenopacity",
+            ChannelKind::SheenRoughness => "sheenroughness",
+            ChannelKind::SpecularColor => "specularcolor",
+            ChannelKind::SpecularEdgeColor => "specularedgecolor",
+            ChannelKind::Translucency => "translucency",
+            ChannelKind::Transmissive => "transmissive",
         }
     }
 
@@ -275,6 +424,35 @@ mod tests {
         assert_eq!(ChannelKind::User15.display_name(), "User 15");
         assert!(!ChannelKind::Opacity.is_user());
         assert_eq!(ChannelKind::ALL.iter().filter(|k| k.is_user()).count(), 16);
+    }
+
+    #[test]
+    fn extended_channel_types_have_unique_names_and_painters_colour_management() {
+        use std::collections::BTreeSet;
+        assert_eq!(ChannelKind::ALL.len(), 9 + 16 + ChannelKind::EXTENDED.len());
+        assert_eq!(ChannelKind::EXTENDED.len(), 22);
+        for names in [ChannelKind::ALL.map(ChannelKind::key), ChannelKind::ALL.map(ChannelKind::display_name), ChannelKind::ALL.map(ChannelKind::short_name)] {
+            assert_eq!(names.iter().collect::<BTreeSet<_>>().len(), ChannelKind::ALL.len(), "{names:?}");
+        }
+        assert!(ChannelKind::ALL.iter().all(|k| k.key().chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())), "keys go into file names");
+        // Painter's colour-managed channel types; every other one is data.
+        let colour: Vec<ChannelKind> = ChannelKind::EXTENDED.into_iter().filter(|k| k.is_color()).collect();
+        assert_eq!(colour, [ChannelKind::CoatColor, ChannelKind::Diffuse, ChannelKind::ScatteringColor, ChannelKind::SheenColor,
+            ChannelKind::SpecularColor, ChannelKind::SpecularEdgeColor, ChannelKind::Transmissive]);
+        assert!(colour.iter().all(|k| k.components() == 3));
+        // A normal map is three components of data, flat by default.
+        assert_eq!((ChannelKind::CoatNormal.components(), ChannelKind::CoatNormal.is_color()), (3, false));
+        assert_eq!(ChannelKind::CoatNormal.default_value(), ChannelKind::Normal.default_value());
+        assert!(ChannelKind::EXTENDED.iter().all(|k| !k.is_user() && !k.is_signed()));
+        assert!(ChannelKind::EXTENDED.iter().all(|k| k.default_value().0.iter().all(|v| (0.0..=1.0).contains(v))));
+        // Glossiness is the inverse of the default roughness.
+        assert!((ChannelKind::Glossiness.default_value().x() + ChannelKind::Roughness.default_value().x() - 1.0).abs() < 1e-6);
+        // The two speculars stay apart: the level is the old kind, the colour the new one.
+        assert_eq!((ChannelKind::Specular.display_name(), ChannelKind::SpecularColor.display_name()), ("Specular Level", "Specular"));
+        assert_eq!(ChannelKind::from_key("specular"), Some(ChannelKind::Specular));
+        assert_eq!(ChannelKind::from_key("sheenroughness"), Some(ChannelKind::SheenRoughness));
+        // The earlier kinds sort before the new ones, as they did.
+        assert!(ChannelKind::User15 < ChannelKind::AnisotropyAngle && ChannelKind::BaseColor < ChannelKind::User0);
     }
 
     #[test]
