@@ -68,6 +68,9 @@ pub fn apply_key(prefs: &mut Preferences, action: Action, add: bool, shortcut: S
 /// Store a captured mouse combination; returns the message for the user.
 pub fn apply_mouse(prefs: &mut Preferences, mode: NavMode, combo: MouseCombo) -> String {
     let name = |m: NavMode| MOUSE_ACTIONS.iter().find(|(x, _)| *x == m).map_or("", |(_, n)| *n);
+    if combo.paints() {
+        return format!("{} paints, so it can't move the camera. Hold Alt, or use another mouse button.", combo.label());
+    }
     match prefs.custom_mouse.rebind(mode, combo) {
         Some(other) => format!("{} now does \"{}\" (it was \"{}\").", combo.label(), name(mode), name(other)),
         None => format!("{} now does \"{}\".", combo.label(), name(mode)),
@@ -282,6 +285,21 @@ mod tests {
         assert_eq!(read_key(&[], true), Pressed::Key(Shortcut::key(Key::Tab)), "a plain Tab comes through the Tab flag");
         let release = egui::Event::Key { key: egui::Key::Q, physical_key: None, pressed: false, repeat: false, modifiers: egui::Modifiers::NONE };
         assert_eq!(read_key(&[release], false), Pressed::Nothing, "releases are ignored");
+    }
+
+    /// QA 2026-11: the capture pad stored a plain left click as a camera gesture, and from then on
+    /// every brush stroke also orbited the view.
+    #[test]
+    fn a_camera_gesture_cannot_take_the_paint_button() {
+        let mut prefs = Preferences::default();
+        for combo in [MouseCombo::new(false, false, false, MouseButton::Left), MouseCombo::new(false, true, false, MouseButton::Left), MouseCombo::new(true, false, false, MouseButton::Left)] {
+            let msg = apply_mouse(&mut prefs, NavMode::Orbit, combo);
+            assert!(msg.contains("paints"), "{msg}");
+            assert!(prefs.custom_mouse.is_empty(), "nothing is stored for {}", combo.label());
+        }
+        // Alt+LMB is a camera combination and can be given to another gesture.
+        apply_mouse(&mut prefs, NavMode::Zoom, MouseCombo::new(false, false, true, MouseButton::Left));
+        assert!(!prefs.custom_mouse.is_empty());
     }
 
     #[test]

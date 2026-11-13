@@ -65,16 +65,19 @@ fn erase_in_edition_frees_and_polygon_fill_respects_the_mask() {
     let mut s = session();
     let cam = camera();
     s.toggle_quick_mask();
-    stroke(&mut s, &cam, &[(-0.6, 0.0), (-0.4, 0.0), (-0.2, 0.0)]);
+    // The brush reaches less than 0.5 world units (see the first test), so the far end of this
+    // mask stroke stays out of reach of an eraser dab at its other end.
+    stroke(&mut s, &cam, &[(-0.9, 0.0), (-0.6, 0.0), (-0.3, 0.0), (0.0, 0.0)]);
     s.brush.mode = StrokeMode::Erase;
-    stroke(&mut s, &cam, &[(-0.4, 0.0)]);
-    assert!(mask_at(&s, -0.4, 0.0) < 1e-3, "erase frees the texel");
-    assert!(mask_at(&s, -0.6, 0.0) > 0.99, "the rest of the mask stays");
+    stroke(&mut s, &cam, &[(-0.1, 0.0)]);
+    assert!(mask_at(&s, -0.1, 0.0) < 1e-3, "erase frees the texel: {}", mask_at(&s, -0.1, 0.0));
+    assert!(mask_at(&s, -0.85, 0.0) > 0.99, "the rest of the mask stays: {}", mask_at(&s, -0.85, 0.0));
     s.brush.mode = StrokeMode::Paint;
     s.toggle_quick_mask();
     // A polygon fill over the whole plane skips the masked texels too.
     s.polygon_fill(&cam, screen(&cam, 0.5, 0.5), subcraft_paint::PolygonFillMode::MeshElement).unwrap();
-    assert!(painted(&s, -0.6, 0.0) < 1e-3 && painted(&s, -0.4, 0.0) > 0.99 && painted(&s, 0.5, 0.5) > 0.99);
+    let (masked, freed, free) = (painted(&s, -0.85, 0.0), painted(&s, -0.1, 0.0), painted(&s, 0.6, 0.6));
+    assert!(masked < 1e-3 && freed > 0.99 && free > 0.99, "{masked} {freed} {free}");
 }
 
 #[test]

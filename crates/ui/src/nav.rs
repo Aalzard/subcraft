@@ -149,6 +149,11 @@ impl MouseCombo {
     pub const fn new(ctrl: bool, shift: bool, alt: bool, button: MouseButton) -> Self {
         Self { button, ctrl, shift, alt }
     }
+    /// The left button without Alt belongs to the tools (paint, straight line, snapped line, pick):
+    /// a camera gesture on it would run together with every brush stroke.
+    pub fn paints(&self) -> bool {
+        self.button == MouseButton::Left && !self.alt
+    }
     pub fn label(&self) -> String {
         let mut s = String::new();
         for (on, name) in [(self.ctrl, "Ctrl+"), (self.shift, "Shift+"), (self.alt, "Alt+")] {
@@ -300,7 +305,8 @@ pub fn mode_with(scheme: NavScheme, bindings: &MouseBindings, i: NavInput) -> Na
     if scheme != NavScheme::Painter || bindings.is_empty() {
         return mode_for(scheme, i);
     }
-    if let Some(mode) = MouseCombo::of(i).and_then(|c| bindings.owner(c)) {
+    // A paint combination in a saved file is ignored (the editor refuses to store one).
+    if let Some(mode) = MouseCombo::of(i).filter(|c| !c.paints()).and_then(|c| bindings.owner(c)) {
         return mode;
     }
     match mode_for(scheme, i) {

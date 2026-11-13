@@ -52,6 +52,10 @@ fn a_blend_mode_or_opacity_is_applied_to_all_channels_of_the_layer() {
     let before = steps(&s);
     s.execute(Command::SetBlendAllChannels { layer: l, from: ChannelKind::BaseColor, mode: true, opacity: false }).unwrap();
     assert_eq!(steps(&s), before + 1);
+    // QA 2026-11: applying again changes nothing and must add no step (it used to, and dropped redo).
+    s.execute(Command::Seal).unwrap();
+    s.execute(Command::SetBlendAllChannels { layer: l, from: ChannelKind::BaseColor, mode: true, opacity: false }).unwrap();
+    assert_eq!(steps(&s), before + 1, "a no-op adds no undo step");
     for kind in s.selected_texture_set().channel_kinds().collect::<Vec<_>>() {
         assert_eq!(blend(&s, l, kind).mode, BlendMode::Multiply, "{kind:?}");
         assert_eq!(blend(&s, l, kind).opacity, if kind == ChannelKind::BaseColor { 0.4 } else { 1.0 }, "{kind:?}");

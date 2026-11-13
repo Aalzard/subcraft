@@ -147,6 +147,11 @@ fn main() {
     let mut tiles_total = 0usize;
     let mut tiles_per_frame = Vec::new();
     let mut gen_calls = 0usize;
+    // Per frame: stage times (bin, raster, accumulate, write) and tiles the stroke rewrote.
+    let mut frame_stages: Vec<([f64; 4], usize)> = Vec::new();
+    let mut frame_counts: Vec<[u64; 4]> = Vec::new();
+    let _ = subcraft_paint::stroke::profile::take_counts();
+    let mut stage_total = [0.0f64; 4];
 
     let _ = subcraft_paint::stroke::profile::take();
     s.begin_stroke().unwrap();
@@ -186,6 +191,10 @@ fn main() {
             }
         }
         let t_stroke = t0.elapsed();
+        let stages = subcraft_paint::stroke::profile::take();
+        for (t, v) in stage_total.iter_mut().zip(stages) { *t += v; }
+        frame_stages.push((stages, touched.len()));
+        frame_counts.push(subcraft_paint::stroke::profile::take_counts());
         let now = Instant::now();
         for t in &touched { edit_time.insert(*t, now); }
         let t1 = Instant::now();
@@ -218,7 +227,8 @@ fn main() {
     }
     let settle = ms(t_settle.elapsed());
 
-    let prof = subcraft_paint::stroke::profile::take();
+    let end_stages = subcraft_paint::stroke::profile::take();
+    let prof: [f64; 4] = std::array::from_fn(|i| stage_total[i] + end_stages[i]);
     println!("stage wall ms: {}", subcraft_paint::stroke::profile::NAMES.iter().zip(prof).map(|(n, v)| format!("{n} {v:.0}")).collect::<Vec<_>>().join(", "));
     let total: f64 = stroke_cost.iter().sum();
     println!("stroke_to calls {gen_calls}, stroke total {total:.0} ms ({:.1} ms/call avg); end_stroke {end_ms:.1} ms; settle after release {settle:.0} ms",
@@ -234,4 +244,13 @@ fn main() {
     let mut worst: Vec<(usize, f64)> = frame_cost.iter().copied().enumerate().collect();
     worst.sort_by(|a, b| b.1.total_cmp(&a.1));
     println!("worst frames: {}", worst.iter().take(5).map(|(i, c)| format!("#{i} {c:.1}ms")).collect::<Vec<_>>().join(", "));
+    for (i, c) in worst.iter().take(5) {
+        let (st, tiles) = frame_stages[*i];
+        println!("  #{i}: {c:.1} ms = bin {:.1} + raster {:.1} + accumulate {:.1} + write {:.1}; {tiles} tiles rewritten; {}", st[0], st[1], st[2], st[3],
+            subcraft_paint::stroke::profile::COUNT_NAMES.iter().zip(frame_counts[*i]).map(|(n, v)| format!("{n} {v}")).collect::<Vec<_>>().join(", "));
+    }
+    let sum: [u64; 4] = std::array::from_fn(|k| frame_counts.iter().map(|c| c[k]).sum());
+    println!("whole stroke: {}", subcraft_paint::stroke::profile::COUNT_NAMES.iter().zip(sum).map(|(n, v)| format!("{n} {v}")).collect::<Vec<_>>().join(", "));
+    let busy = frame_stages.iter().filter(|(_, t)| *t > 0).count();
+    println!("frames that rewrote tiles: {busy}/{}; end_stroke stages: raster {:.0}, accumulate {:.0}, write {:.0}", frame_stages.len(), end_stages[1], end_stages[2], end_stages[3]);
 }

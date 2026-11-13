@@ -5477,6 +5477,27 @@ symmetry. `crates/app/tests/uv_tools.rs` covers session routing: the 2D clone so
 * **Not done:** UV Border Distance (needs a distance field across tiles), UV Checker and UV Texel Density (fill-layer
   generators, chunk 35), UV Random Color's Custom Gradient and Light on a fill layer, picking positions from the
   Position map in the viewport.
+### Parity chunk 43 - Compare Mask, Levels, Color Selection (2026-11-12, branch `claude/parity-compare-levels`)
+
+* **Compare Mask** (`MaskEffectKind::Compare`, `crates/doc/src/mask.rs`): Channel, left operand, operation and
+  right operand (Layers Below / This Layer / This Mask / Constant; Lesser than / Within tolerance / Greater than),
+  Constant, Tolerance, Hardness (linear edge `(1 - hardness) * 0.25` wide; SubCraft's choice, Painter does not
+  document it). The stage graph (`crates/compositor/src/stages.rs`) feeds it the accumulation below the layer and the
+  layer's own content in the compared channel: compared channels are built first and each layer's `below` is
+  recorded; a stack below a top-level layer is rebuilt on demand otherwise. Sets with a Compare Mask that reads
+  layers always use the stage graph (not the per-tile or GPU paths). "Add mask with height combination"
+  (`Command::AddHeightCombinationMask`) adds a black mask with a Compare Mask on Height and sets Height blending to
+  Normal in one undo step.
+* **Levels**: per-component R / G / B handles applied after the RGB ones (`Levels::rgb`), Clamp (on by default;
+  off extends past the input handles), Invert (swaps the output handles), Auto (input handles at the input's
+  darkest and brightest values) and an input histogram (`LayerPreviews::input_histogram`, a 128² UV sample of the
+  stage right below the effect). Per-component or unclamped Levels fall back from the GPU path to the CPU. Painter
+  imports keep per-component levels on colour channels.
+* **Color Selection**: Output value and Background color (Transparent / Black / White / Gray); Hardness shown
+  as `1 - softness`. The old Invert switch stays in files and shows only while it is on.
+* **Schema**: new `MaskEffectKindV1::Compare`; new Levels / ID Color fields are skipped when default, so
+  existing files are written unchanged.
+* **Not done:** the Compare Mask's two-operand histogram, histogram handles you can drag, a Luminance component.
 ### Parity chunk 34 - Filter and generator image inputs (2026-11-12, branch `claude/parity-image-inputs`)
 
 * **Custom grunge** (`PainterControls::custom_grunge`): Dirt, Edge wear and Concave generators take an image that
@@ -5646,6 +5667,7 @@ symmetry. `crates/app/tests/uv_tools.rs` covers session routing: the 2D clone so
 * Not done: cameras from Alembic and USD files, camera roll (the orbit camera has none), free
   rotation mode, separate OS windows for undocked views, Shader settings and Log dock buttons
   (no such panels yet).
+
 ### Painter parity chunk 44: flatten and layer export (2026-11-12, branch `claude/parity-chunk44-flatten`)
 
 * **Flatten (Ctrl+M, right-click > Flatten):** `Command::FlattenLayers` evaluates each selected layer or folder on its
@@ -5659,23 +5681,48 @@ symmetry. `crates/app/tests/uv_tools.rs` covers session routing: the 2D clone so
 * **Tests:** `crates/app/tests/flatten.rs` (a folder flattens to the same composite and is hidden, undo; mask baking,
   disabled channels, empty selection; export names, sizes and formats).
 
-### Painter parity chunk 52 - Quick mask, Ctrl + drop per part, drop highlight (2026-11-13, branch `claude/parity-quick-mask`)
+### Session 132 - Import baked mesh maps, curvature along the surface, ray-miss heatmap, ID color editor (2026-11-10, branch `claude/bake-maps-id`, NOT fully verified)
 
-* **Quick mask (U / Y / I):**
-  * `crates/app/src/quick_mask.rs` keeps one grayscale mask per texture set, outside the document and the undo history.
-  * U (both key sets, tool rail button, Viewport menu) turns edition on. Strokes, polygon fills and 2D-view strokes then
-    paint the mask with the current brush, alpha and stencil through a scratch texture set (paint protects, erase frees).
-  * Closed, the mask scales stroke coverage by `1 - mask` (`Stroke::with_quick_mask`, in `restrict_coverage`), so
-    strokes and fills skip what it covers. Y clears it and I inverts it while editing; outside edition, I still isolates
-    the part under the cursor.
-  * While editing, Base Color is uploaded tinted red where the mask covers it (`TintCache`, tile by tile), in the 3D and
-    2D views, with a banner in the 3D view.
-* **Ctrl + drop** of a material or smart material onto the 3D view gives the new layer a part mask of the part under the
-  cursor (`Session::drop_region_at`, `restrict_drop_to_part`); a second undo step.
-* **Drop highlight:** while a shelf item is dragged over the 3D view, the border of the texture set (Ctrl: the part)
-  under the cursor is outlined, hidden edges left out (one ray per edge, cached per region and camera).
-* **Tests:** `crates/app/tests/quick_mask.rs` (edition paints only the mask; the closed mask protects strokes and polygon
-  fill; erase frees; invert / clear only while editing; drop region, outline and part mask); unit tests for
-  inversion and the tint cache. NOT built or run locally (CI only, per the build rule); the app has not been run.
-* **Not done:** the quick mask is not saved with the project and its strokes are not undoable; no Enable toggle separate from
-  Clear; drops of alphas / textures as warp decals; generator / filter drops.
+* **Import mesh maps** (`app::mesh_map_import`, `ui::mesh_map_import`): New Project lists already-baked maps once a
+  model is loaded, and Texture Set Settings has "Import mesh maps…". Files are matched by name suffix (`_normal`,
+  `_world_normal`, `_ao`, `_curvature`, `_position`, `_thickness`, `_id`, `_height`, camelCase and DX/GL markers),
+  to sets by UDIM tile (1001–1999) or the set name in the file name. Values stay raw, DirectX normals get green
+  flipped, and maps are resampled to the set resolution (nearest for ID). Optionally curvature is derived from an
+  imported normal map. Flags: `--mesh-maps a,b,c`.
+* **Curvature from the normal map** (`bake::normal_curvature`, bake setting "Curvature from the normal map"): each
+  texel walks a fixed surface distance in 8 directions across triangle edges (welded positions, so UV seams are
+  crossed), decodes the normal map at each end point with that point's own tangent frame, and sums the change of
+  world normal along the walk. Finding: with a hard-edged low poly, straight-down projection rays give a baked
+  normal that jumps back at every edge, which reads as a dark line on the edge. The test fixture now uses a low cube
+  with averaged corner normals, the usual bevel-bake setup. `bake_maps_demo` still uses the hard-edged cube.
+* **Ray-miss heatmap** (`bake::cage_misses`, `app::cage_check`, bake overlay shader): the bake viewport card has a
+  "Ray misses" toggle that casts the baker's own projection rays in the background and paints texels with no hit
+  red over the low poly, next to the existing high poly and cage overlay. Flags: `--bake-misses`, `--bake-cage f,r`.
+* **ID color editor** (`ui::panels::id_colors`, `app::id_color`): Texture Set Settings lists the ID map's colors
+  with coverage and mask counts, an eyedropper picks in the 3D or 2D view and feeds the selected layer's ID Color
+  mask, and "Apply" recolors an ID. Edits are stored in the document per texture set (`id_color_edits`, project
+  schema field, version unchanged) and every ID Color mask using the old color follows, in one undo step. Flag:
+  `--id-colors`.
+* **Verified:** the whole workspace compiles (release, `cargo test --workspace --no-run`). Bake tests: walker,
+  cage misses, flat-cylinder seam, bake-setting derivation and the existing placement tests pass.
+* **Not verified:** the bevelled-cube and cylinder curvature tests failed on the first run; they were fixed (fixture
+  and grouping, see above) but not re-run. The app, ui and project tests and the scripted captures were not run
+  before the session was stopped for the usage limit. CI on the PR is the first full run.
+
+### Session 133 - ID map colour sources for the bake, issue #117 (2026-11-13, branch `claude/id-map-sources`, stacks on #137, NOT run locally)
+
+* **Asked (issue #117):** choose where the high-poly ID map takes its colours, like Painter: Vertex Color first,
+  then Material Color, Mesh ID / Polygroup (the behaviour so far) and Submesh.
+* **Mesh:** `Mesh::corner_colors` (file vertex colour per triangle corner) and `Mesh::material_colors` (file colour
+  per material slot), filled by `MeshBuilder::push_triangle_colored` / `set_material_color`. Read from OBJ
+  (`v x y z r g b`, MTL `Kd`), glTF (`COLOR_0`, base colour factor) and FBX (vertex colour, PBR base colour or
+  diffuse). Not read from PLY, USD or Alembic yet; not saved in projects (the bake reads the high-poly file).
+* **Bake:** `BakeSettings::id_source` (`IdSource`: VertexColor, MaterialColor, MeshId = default, Submesh = per
+  named object, per material when the file names none). A model without the asked colours falls back to generated
+  colours and the bake reports a warning. Colours come from the high poly when there is one, else the low poly.
+* **UI:** Bake window, "ID colors from" (shown when the ID map is ticked), translated (zh-Hant, ko).
+* **Not done:** Painter's "File ID" (needs several high-poly files, parity chunk 27).
+* **Tests (new, run by CI only):** bake `id_map_takes_its_colours_from_the_chosen_source`,
+  `id_sources_the_model_lacks_fall_back_to_generated_colours_with_a_warning`; mesh
+  `obj_vertex_colors_and_material_colors_are_read`. Nothing was built or run locally (coordinator's rule after
+  the PC's power cuts), and no capture was taken.
