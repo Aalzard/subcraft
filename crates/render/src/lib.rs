@@ -1003,7 +1003,7 @@ impl ViewportRenderer {
                     };
                     entries.push(wgpu::BindGroupEntry { binding: i as u32 + 1, resource: wgpu::BindingResource::TextureView(view) });
                 }
-                entries.extend(alpha_entries(&self.defaults[&ChannelKind::Opacity].view, &self.opaque_params, &self.defaults[&ChannelKind::Specular].view));
+                entries.extend(alpha_entries(&self.defaults[&ChannelKind::Opacity].view, &self.opaque_params, &self.defaults[&ChannelKind::Specular].view, &self.no_overlay.view));
                 baked_normal_groups.insert(*slot, device.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("neutral material"), layout: &self.material_layout, entries: &entries }));
             }
         } else if params.view_mode == ViewMode::BakedNormal && bake_map.is_none() {
