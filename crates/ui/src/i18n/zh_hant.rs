@@ -919,6 +919,8 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Brush outline", "筆刷輪廓"),
     ("Crosshair", "十字準星"),
     ("Shown in the popup over the view (Esc closes it)", "顯示於視圖上方的彈出視窗中 (按 Esc 關閉)"),
+    ("Order-independent transparency", "與順序無關的透明度"),
+    ("Alpha-blended texture sets look the same whatever order their parts are drawn in: overlapping transparent surfaces are averaged by depth and coverage", "無論部件以何種順序繪製，Alpha 混合的紋理集看起來都相同：重疊的透明表面會依深度與覆蓋率平均"),
     ("Invert zoom", "反轉縮放"),
     ("Off: turning the wheel forward zooms in, as in Painter. On: forward zooms out. Applies to the 3D and 2D views.", "關閉：向前轉動滾輪會放大，與 Painter 相同。開啟：向前轉動會縮小。套用於 3D 與 2D 視圖。"),
     ("Hide baking meshes", "隱藏烘焙網格"),

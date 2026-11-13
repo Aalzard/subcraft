@@ -527,6 +527,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             params.background_top = Some(state.recovery.prefs.background_top);
             let view = &state.recovery.prefs.viewport;
             params.antialias = view.antialias;
+            params.oit = view.oit;
             params.exposure = view.exposure_value();
             params.post = view.post_params_at(state.session.scene().mesh.bounds.diagonal(), state.camera.eye_distance());
             params.view_mode = view.view_mode();

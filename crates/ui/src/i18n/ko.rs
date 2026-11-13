@@ -919,6 +919,8 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Crosshair", "십자선"),
     ("Shown in the popup over the view (Esc closes it)", "뷰 위의 팝업에 표시됨 (Esc로 닫기)"),
     ("Zoom speed", "확대/축소 속도"),
+    ("Order-independent transparency", "순서 독립 투명도"),
+    ("Alpha-blended texture sets look the same whatever order their parts are drawn in: overlapping transparent surfaces are averaged by depth and coverage", "파트를 어떤 순서로 그리든 알파 블렌딩된 텍스처 세트가 똑같이 보입니다: 겹치는 투명 표면을 깊이와 커버리지에 따라 평균합니다"),
     ("Invert zoom", "줌 반전"),
     ("Off: turning the wheel forward zooms in, as in Painter. On: forward zooms out. Applies to the 3D and 2D views.", "끄기: 휠을 앞으로 돌리면 Painter처럼 확대됩니다. 켜기: 앞으로 돌리면 축소됩니다. 3D 뷰와 2D 뷰에 적용됩니다."),
     ("Hide baking meshes", "베이크 메시 숨기기"),

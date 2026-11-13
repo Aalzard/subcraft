@@ -322,8 +322,8 @@ fn surface_alpha(uv: vec2<f32>, frag: vec2<f32>) -> f32 {
     return a;
 }
 
-@fragment
-fn fs_main(in: VsOut, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
+// The surface's display colour and coverage (what `fs_main` draws and `fs_oit` accumulates).
+fn shade(in: VsOut, front: bool) -> vec4<f32> {
     let mode = i32(round(g.env_misc.w));
     if (mode > 0) {
         var shade = 1.0;
@@ -404,6 +404,30 @@ fn fs_main(in: VsOut, @builtin(front_facing) front: bool) -> @location(0) vec4<f
     // The highlighted texture set (under the cursor or hovered in the list) is tinted warm.
     let shown = mix(tonemap(color, i32(round(g.post.x)), g.post.y), vec3<f32>(1.0, 0.62, 0.22), 0.3 * mat.shader.w);
     return vec4<f32>(shown, alpha);
+}
+
+@fragment
+fn fs_main(in: VsOut, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
+    return shade(in, front);
+}
+
+// Order-independent transparency (oit.rs): this layer's weighted colour and its coverage, summed
+// in any order and averaged by the composite pass. Weight as `oit::layer_weight`.
+struct OitOut {
+    @location(0) accum: vec4<f32>,
+    @location(1) reveal: vec4<f32>,
+};
+
+@fragment
+fn fs_oit(in: VsOut, @builtin(front_facing) front: bool) -> OitOut {
+    let c = shade(in, front);
+    let a = clamp(c.a, 0.0, 1.0);
+    let z = clamp(in.clip.z, 0.0, 1.0);
+    let w = clamp(a * max(1e-2, 3e3 * pow(1.0 - z, 3.0)), 1e-2, 3e3);
+    var out: OitOut;
+    out.accum = vec4<f32>(c.rgb * a, a) * w;
+    out.reveal = vec4<f32>(a);
+    return out;
 }
 
 // ---- environment behind the model --------------------------------------------------------------
