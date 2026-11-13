@@ -1333,6 +1333,7 @@ impl SubcraftApp {
                         Some((uv_box, _)) => self.state.uv.frame = Some(uv_box),
                         None => {
                             self.state.uv.zoom = 1.0;
+                            self.state.uv.rotation = 0.0;
                             self.state.uv.offset = egui::Vec2::ZERO;
                         }
                     }
