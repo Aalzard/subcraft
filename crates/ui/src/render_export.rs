@@ -7,7 +7,7 @@ use egui::{Context, RichText};
 use subcraft_render::offline;
 
 use crate::state::UiState;
-use crate::theme::TEXT_DIM;
+use crate::theme::TEXT_DIM();
 
 
 /// Output sizes offered for stills and turntables (square-ish; the view's aspect is kept).

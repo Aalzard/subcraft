@@ -18,8 +18,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         for (i, e) in h.entries().iter().enumerate() {
             let undone = i > cursor;
             let resp = striped_list_row(ui, i, i == cursor, egui::Sense::click(), |ui| {
-                ui.add_sized([22.0, 16.0], egui::Label::new(RichText::new(i.to_string()).font(theme::font(10.5)).color(TEXT_FAINT)));
-                let mut text = RichText::new(&e.label).color(if undone { TEXT_FAINT } else if i == cursor { theme::TEXT } else { theme::TEXT_DIM });
+                ui.add_sized([22.0, 16.0], egui::Label::new(RichText::new(i.to_string()).font(theme::font(10.5)).color(TEXT_FAINT())));
+                let mut text = RichText::new(&e.label).color(if undone { TEXT_FAINT() } else if i == cursor { theme::TEXT() } else { theme::TEXT_DIM() });
                 if undone {
                     text = text.italics();
                 }

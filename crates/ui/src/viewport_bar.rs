@@ -439,7 +439,7 @@ pub fn show(ui: &mut Ui, state: &mut crate::state::UiState) {
     let original_options = options;
     let painting = crate::brush_bar::active(state.tool);
     let frame = egui::Frame::new()
-        .fill(BG_2)
+        .fill(BG_2())
         .inner_margin(egui::Margin::symmetric(8, 4))
         .show(ui, |ui| {
             // Keep labels/combos aligned with the fixed 26-point tool/grid icons.
@@ -496,7 +496,7 @@ pub fn show(ui: &mut Ui, state: &mut crate::state::UiState) {
     ui.painter().hline(
         frame.response.rect.x_range(),
         frame.response.rect.bottom(),
-        egui::Stroke::new(1.0, crate::theme::BORDER),
+        egui::Stroke::new(1.0, crate::theme::BORDER()),
     );
     if settings != original {
         let now = ui.input(|i| i.time);
@@ -539,7 +539,7 @@ fn view_controls(ui: &mut Ui, state: &mut crate::state::UiState, width: f32) {
 
 /// Rendering mode settings (the 3D view's Render button menu and Preferences).
 pub fn rendering_settings(ui: &mut Ui, prefs: &mut ViewportPrefs) {
-    ui.label(RichText::new(tr("Rendering mode")).color(TEXT_DIM));
+    ui.label(RichText::new(tr("Rendering mode")).color(TEXT_DIM()));
     egui::Grid::new("pt_settings").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
         ui.label(tr("Bounces"));
         ui.add(egui::Slider::new(&mut prefs.pt_bounces, 1..=16)).on_hover_text(tr("Light bounces after the first hit; more is slower and brighter in enclosed areas"));
@@ -584,7 +584,7 @@ pub fn albedo_filter(ui: &mut Ui, state: &mut crate::state::UiState) {
     let (id, original) = (ts.id, ts.albedo_filter);
     let mut filter = original;
     let label_width = 55.0;
-    ui.add_sized([label_width, ui.spacing().interact_size.y], egui::Label::new(RichText::new(tr("Albedo")).color(TEXT_DIM)));
+    ui.add_sized([label_width, ui.spacing().interact_size.y], egui::Label::new(RichText::new(tr("Albedo")).color(TEXT_DIM())));
     egui::ComboBox::from_id_salt("albedo_filter").width(76.0).selected_text(filter.label()).show_ui(ui, |ui| {
         ui.selectable_value(&mut filter, TextureFilter::Bilinear, tr("Bilinear"));
         ui.selectable_value(&mut filter, TextureFilter::Nearest, tr("Nearest"));
@@ -611,7 +611,7 @@ fn grid_control(ui: &mut Ui, prefs: &mut ViewportPrefs) {
     egui::Popup::context_menu(&response)
         .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
         .show(|ui| {
-            ui.label(RichText::new(tr("Grid & axes")).color(TEXT_DIM));
+            ui.label(RichText::new(tr("Grid & axes")).color(TEXT_DIM()));
             ui.checkbox(&mut prefs.grid, tr("Show grid"));
             ui.separator();
             for (index, text, color) in [
@@ -627,13 +627,13 @@ fn grid_control(ui: &mut Ui, prefs: &mut ViewportPrefs) {
             ui.label(
                 RichText::new(tr("Y is hidden by default"))
                     .small()
-                    .color(TEXT_DIM),
+                    .color(TEXT_DIM()),
             );
         });
 }
 
 pub(crate) fn resolution(ui: &mut Ui, prefs: &mut ViewportPrefs) {
-    ui.add_sized([55.0, ui.spacing().interact_size.y], egui::Label::new(RichText::new(tr("Resolution")).color(TEXT_DIM)));
+    ui.add_sized([55.0, ui.spacing().interact_size.y], egui::Label::new(RichText::new(tr("Resolution")).color(TEXT_DIM())));
     egui::ComboBox::from_id_salt("viewport_resolution")
         .selected_text(format!("{}%", prefs.scale_percent))
         .width(76.0)
@@ -681,12 +681,12 @@ pub(crate) fn view_mode(ui: &mut Ui, prefs: &mut ViewportPrefs, channels: &[subc
         .width(if wide { 150.0 } else { 92.0 })
         .selected_text(shown)
         .show_ui(ui, |ui| {
-            ui.label(RichText::new(tr("Lighting")).color(TEXT_DIM));
+            ui.label(RichText::new(tr("Lighting")).color(TEXT_DIM()));
             if ui.selectable_label(prefs.mesh_map.is_none() && shown_channel.is_none() && mode == ViewMode::Material, ViewMode::Material.label()).clicked() {
                 prefs.show_material();
             }
             ui.separator();
-            ui.label(RichText::new(tr("Single channel")).color(TEXT_DIM));
+            ui.label(RichText::new(tr("Single channel")).color(TEXT_DIM()));
             for &k in channels {
                 if ui.selectable_label(shown_channel == Some(k), k.display_name()).clicked() {
                     prefs.show_channel(k);
@@ -700,7 +700,7 @@ pub(crate) fn view_mode(ui: &mut Ui, prefs: &mut ViewportPrefs, channels: &[subc
                 }
             }
             ui.separator();
-            ui.label(RichText::new(tr("Mesh maps (baked)")).color(TEXT_DIM));
+            ui.label(RichText::new(tr("Mesh maps (baked)")).color(TEXT_DIM()));
             for k in subcraft_core::MeshMapKind::ALL {
                 if ui.selectable_label(prefs.mesh_map == Some(k), k.display_name()).clicked() {
                     prefs.mesh_map = Some(k);
@@ -728,7 +728,7 @@ pub fn cycle_mesh_map_back(prefs: &mut ViewportPrefs) {
 }
 
 fn dim(ui: &mut Ui, text: &str) {
-    ui.label(RichText::new(text).color(TEXT_DIM));
+    ui.label(RichText::new(text).color(TEXT_DIM()));
 }
 
 #[cfg(test)]

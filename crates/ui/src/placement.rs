@@ -45,7 +45,7 @@ pub fn apply_action(p: &mut BakePlacement, action: PlacementAction, low: Box3, h
 }
 
 fn row(ui: &mut Ui, label: &str, add: impl FnOnce(&mut Ui)) {
-    ui.label(RichText::new(label).color(TEXT_DIM));
+    ui.label(RichText::new(label).color(TEXT_DIM()));
     ui.horizontal(add);
     ui.end_row();
 }
@@ -94,12 +94,12 @@ pub fn placement_section(ui: &mut Ui, p: &mut BakePlacement, low: Box3, high: Op
         });
     });
     ui.horizontal(|ui| {
-        ui.label(RichText::new("High poly opacity").color(TEXT_DIM));
+        ui.label(RichText::new("High poly opacity").color(TEXT_DIM()));
         ui.add(egui::Slider::new(opacity, 0.1..=1.0));
         if secondary_button(ui, "Reset placement").clicked() { action = Some(PlacementAction::ResetAll); }
     });
     if let Some(a) = action { *message = apply_action(p, a, low, high, *fit); }
-    if let Some(m) = message { ui.add(egui::Label::new(RichText::new(*m).color(theme::WARNING)).wrap()); }
+    if let Some(m) = message { ui.add(egui::Label::new(RichText::new(*m).color(theme::WARNING())).wrap()); }
     hint(ui, "Slide until the blue high poly sits exactly on the red low poly in the viewport, then press Bake. The file on disk is never changed.");
     *p != before
 }

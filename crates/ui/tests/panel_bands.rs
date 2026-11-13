@@ -41,7 +41,7 @@ fn sections_and_property_rows_are_unbanded_and_spaced_on_the_scale() {
         for s in &out.shapes {
             if let egui::Shape::Text(t) = &s.shape && t.galley.text() == "B" { slider_labels.push(Rect::from_min_size(t.pos, t.galley.size())); }
         }
-        let banded = colors(&out, &theme::ROW_BANDS).into_iter().chain(colors(&out, &theme::SECTION_BANDS)).count();
+        let banded = colors(&out, &theme::ROW_BANDS()).into_iter().chain(colors(&out, &theme::SECTION_BANDS())).count();
         assert_eq!(banded, 0, "no alternating bands behind sections or property rows");
         assert!(rows[0].height() >= theme::CONTROL_H);
         // The label sits on its own line above the slider, which is at least CONTROL_H tall.
@@ -51,7 +51,7 @@ fn sections_and_property_rows_are_unbanded_and_spaced_on_the_scale() {
         assert!((gap - theme::SP_S).abs() < 0.6, "row gap {gap}");
     }
     assert_eq!(slider_labels.len(), 1);
-    for (a, b) in theme::ROW_BANDS[0].to_array().into_iter().zip(theme::ROW_BANDS[1].to_array()).take(3) {
+    for (a, b) in theme::ROW_BANDS()[0].to_array().into_iter().zip(theme::ROW_BANDS()[1].to_array()).take(3) {
         assert!((10..=14).contains(&a.abs_diff(b)), "list bands stay visible but restrained");
     }
 }
@@ -90,9 +90,9 @@ fn parts_history_and_layers_render_full_width_bands_without_document_edits() {
             last = Some(out);
         }
         let out = last.unwrap();
-        let bands = colors(&out, &theme::ROW_BANDS);
-        assert!(bands.iter().any(|(_, c)| *c == theme::ROW_BANDS[0]));
-        assert!(bands.iter().any(|(_, c)| *c == theme::ROW_BANDS[1]));
+        let bands = colors(&out, &theme::ROW_BANDS());
+        assert!(bands.iter().any(|(_, c)| *c == theme::ROW_BANDS()[0]));
+        assert!(bands.iter().any(|(_, c)| *c == theme::ROW_BANDS()[1]));
         assert!(
             bands
                 .iter()
@@ -140,10 +140,10 @@ fn hovering_either_band_brightens_it_and_selection_still_wins() {
         let fills = colors(
             &out,
             &[
-                theme::ROW_BANDS[0],
-                theme::ROW_BANDS[1],
-                theme::BG_3,
-                theme::ACCENT_SOFT,
+                theme::ROW_BANDS()[0],
+                theme::ROW_BANDS()[1],
+                theme::BG_3(),
+                theme::ACCENT_SOFT(),
             ],
         );
         let fill = |index: usize| {
@@ -153,20 +153,20 @@ fn hovering_either_band_brightens_it_and_selection_still_wins() {
                 .unwrap()
                 .1
         };
-        assert_eq!(fill(2), theme::ACCENT_SOFT);
+        assert_eq!(fill(2), theme::ACCENT_SOFT());
         for index in 0..2 {
             let color = fill(index);
             if target == Some(index) {
                 for (hover, base) in color
                     .to_array()
                     .into_iter()
-                    .zip(theme::ROW_BANDS[index].to_array())
+                    .zip(theme::ROW_BANDS()[index].to_array())
                     .take(3)
                 {
                     assert!(hover > base, "hover must brighten either alternating band");
                 }
             } else {
-                assert_eq!(color, theme::ROW_BANDS[index]);
+                assert_eq!(color, theme::ROW_BANDS()[index]);
             }
         }
     }
@@ -213,7 +213,7 @@ fn striped_row_selection_remains_prominent_and_child_buttons_take_the_click() {
             },
         );
         out.textures_delta.clear();
-        assert!(!colors(&out, &[theme::ACCENT_SOFT]).is_empty());
+        assert!(!colors(&out, &[theme::ACCENT_SOFT()]).is_empty());
     }
     assert!(at.distance(Pos2::new(38.0, 22.0)) < 20.0);
     assert!(

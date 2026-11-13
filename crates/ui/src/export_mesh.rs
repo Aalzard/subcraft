@@ -10,7 +10,7 @@ use subcraft_export::scene::SceneFormat;
 
 use crate::i18n::tr;
 use crate::state::UiState;
-use crate::theme::TEXT_DIM;
+use crate::theme::TEXT_DIM();
 use crate::widgets::primary_button;
 
 pub struct ExportMeshUi {

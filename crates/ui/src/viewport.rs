@@ -693,8 +693,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             }
         }
         _ => {
-            painter.rect_filled(rect, 0.0, theme::BG_0);
-            painter.text(rect.center(), egui::Align2::CENTER_CENTER, "No GPU renderer available", theme::font(15.0), theme::TEXT_FAINT);
+            painter.rect_filled(rect, 0.0, theme::BG_0());
+            painter.text(rect.center(), egui::Align2::CENTER_CENTER, "No GPU renderer available", theme::font(15.0), theme::TEXT_FAINT());
         }
     }
 
@@ -738,7 +738,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 } else { 0.0 };
                 let ppu = camera.pixels_per_unit(pick.depth);
                 let r_px = state.session.brush_radius_in(ppu, size[1] as f32, density) * ppu / pixel_scale.y;
-                let color = if state.tool == Tool::Eraser { Color32::from_rgb(120, 190, 255) } else { ACCENT };
+                let color = if state.tool == Tool::Eraser { Color32::from_rgb(120, 190, 255) } else { ACCENT() };
                 let style = state.recovery.prefs.viewport.brush_cursor;
                 let hardness = state.session.brush.settings.hardness;
                 brush_mark(&painter, p, r_px, hardness, color, style, true);
@@ -768,7 +768,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 painter.extend(egui::Shape::dashed_line(&[to_pos(from), to_pos(end)], Stroke::new(1.2, Color32::from_white_alpha(200)), 5.0, 4.0));
             }
         } else if state.tool == Tool::PolygonFill && !picking {
-            painter.circle_filled(p, 3.0, ACCENT);
+            painter.circle_filled(p, 3.0, ACCENT());
         }
         ui.ctx().set_cursor_icon(if alt { egui::CursorIcon::Move } else { egui::CursorIcon::Crosshair });
     }
@@ -807,11 +807,11 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     }
     visualization_overlays(state, &painter, rect, bake_mode);
     if env_hover {
-        painter.rect_stroke(rect.shrink(2.0), 0.0, egui::Stroke::new(2.0, theme::ACCENT), egui::StrokeKind::Inside);
-        painter.text(rect.center_top() + egui::vec2(0.0, 28.0), egui::Align2::CENTER_CENTER, crate::i18n::tr("Use as the environment map"), theme::font(13.0), theme::ACCENT);
+        painter.rect_stroke(rect.shrink(2.0), 0.0, egui::Stroke::new(2.0, theme::ACCENT()), egui::StrokeKind::Inside);
+        painter.text(rect.center_top() + egui::vec2(0.0, 28.0), egui::Align2::CENTER_CENTER, crate::i18n::tr("Use as the environment map"), theme::font(13.0), theme::ACCENT());
     }
     if let Some(item) = drop_hover {
-        painter.rect_stroke(rect.shrink(1.0), 0.0, Stroke::new(2.0, ACCENT), egui::StrokeKind::Inside);
+        painter.rect_stroke(rect.shrink(1.0), 0.0, Stroke::new(2.0, ACCENT()), egui::StrokeKind::Inside);
         // The geometry that receives the drop: the part under the cursor with Ctrl (outlined),
         // otherwise its texture set (highlighted by the renderer).
         let part_drop = (mods.command || mods.ctrl) && !mods.alt && !matches!(item, crate::panels::shelf::ShelfDrag::Alpha(_) | crate::panels::shelf::ShelfDrag::SmartMask(_));
@@ -819,7 +819,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             if part_drop && let Some(target) = state.session.surface_target(&camera, to_screen(p), state.parts_kind) {
                 for [a, b] in drop_outline(state, target.part, &camera, rect, pixel_scale) {
                     painter.line_segment([a, b], Stroke::new(3.0, Color32::from_black_alpha(140)));
-                    painter.line_segment([a, b], Stroke::new(1.6, ACCENT));
+                    painter.line_segment([a, b], Stroke::new(1.6, ACCENT()));
                 }
             } else if let Some(hit) = state.session.pick(&camera, to_screen(p)) {
                 state.highlight_slot = Some(hit.material_slot);
@@ -831,11 +831,11 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         if (mods.command || mods.ctrl) && !mods.alt && !matches!(item, crate::panels::shelf::ShelfDrag::Alpha(_) | crate::panels::shelf::ShelfDrag::SmartMask(_)) {
             what.push_str(", only on the part under the cursor");
         }
-        pill(&painter, rect.center_top() + egui::vec2(0.0, 14.0), egui::Align2::CENTER_TOP, &format!("Release to: {what}"), theme::TEXT);
+        pill(&painter, rect.center_top() + egui::vec2(0.0, 14.0), egui::Align2::CENTER_TOP, &format!("Release to: {what}"), theme::TEXT());
     }
     // Painter's mask view: say what is shown and how to get back; Esc goes back too.
     if let Some(text) = crate::mask_view::label(state) {
-        pill(&painter, rect.center_top() + egui::vec2(0.0, 40.0), egui::Align2::CENTER_TOP, &text, theme::TEXT);
+        pill(&painter, rect.center_top() + egui::vec2(0.0, 40.0), egui::Align2::CENTER_TOP, &text, theme::TEXT());
         if response.hovered() && ui.input(|i| i.key_pressed(egui::Key::Escape)) { state.mask_view = None; }
     }
     let bake_hint = state.bake.displayed_map.map(|k| format!("Bake preview · {} · close Bake Mesh Maps to return to material", k.display_name()));
@@ -846,7 +846,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     } else { String::new() };
     let mut hint_plate = None;
     if bake_mode {
-        pill(&painter, rect.left_bottom() + egui::vec2(10.0, -10.0), egui::Align2::LEFT_BOTTOM, &hint, theme::TEXT_FAINT);
+        pill(&painter, rect.left_bottom() + egui::vec2(10.0, -10.0), egui::Align2::LEFT_BOTTOM, &hint, theme::TEXT_FAINT());
     } else if state.recovery.prefs.viewport.hints {
         let c = crate::viewport_hints::HintContext {
             tool: state.tool,
@@ -867,7 +867,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     // The grid's unit, bottom left while the grid is on: just above the hints when they show.
     let grid_on = state.recovery.prefs.viewport.grid;
     if !bake_mode && grid_on && let Some(step) = subcraft_render::grid_step(state.session.scene().mesh.bounds) {
-        pill(&painter, grid_readout_anchor(rect, hint_plate), egui::Align2::LEFT_BOTTOM, &grid_unit_label(step), theme::TEXT_FAINT);
+        pill(&painter, grid_readout_anchor(rect, hint_plate), egui::Align2::LEFT_BOTTOM, &grid_unit_label(step), theme::TEXT_FAINT());
     }
     let mut right = rect.right_top() + egui::vec2(-10.0, 10.0);
     if state.tool != Tool::Pen && state.session.brush.options.has_symmetry() {
@@ -878,22 +878,22 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             if !axes.is_empty() { axes.push_str(" + "); }
             axes.push_str(&format!("Radial {}×{n}", ["X", "Y", "Z"][(options.radial.axis as usize).min(2)]));
         }
-        let r = pill(&painter, right, egui::Align2::RIGHT_TOP, &format!("{}  Symmetry {axes}", icons::SYMMETRY), ACCENT);
+        let r = pill(&painter, right, egui::Align2::RIGHT_TOP, &format!("{}  Symmetry {axes}", icons::SYMMETRY), ACCENT());
         right.x = r.left() - 6.0;
     }
     if let Some(q) = state.session.quick_mask() {
         let text = if q.editing { "Quick mask · editing · U apply · Y clear" } else { "Quick mask on · U edit · I invert · Y clear" };
-        let r = pill(&painter, right, egui::Align2::RIGHT_TOP, &format!("{}  {text}", icons::SELECTION), ACCENT);
+        let r = pill(&painter, right, egui::Align2::RIGHT_TOP, &format!("{}  {text}", icons::SELECTION), ACCENT());
         right.x = r.left() - 6.0;
     }
     if state.session.hide_excluded() {
-        let r = pill(&painter, right, egui::Align2::RIGHT_TOP, &format!("{}  Excluded geometry hidden · Alt+H", icons::EYE_SLASH), ACCENT);
+        let r = pill(&painter, right, egui::Align2::RIGHT_TOP, &format!("{}  Excluded geometry hidden · Alt+H", icons::EYE_SLASH), ACCENT());
         right.x = r.left() - 6.0;
     }
     if tracing && let Some(s) = state.pt_status {
         let progress = if s.max_samples > 0 { format!("{} / {} samples", s.samples, s.max_samples) } else { format!("{} samples", s.samples) };
         let what = if state.pt_paused { "paused".to_string() } else if s.converged() { "done".to_string() } else { format!("{:.0} samples/s", s.samples_per_second) };
-        let r = pill(&painter, right, egui::Align2::RIGHT_TOP, &format!("{}  Rendering · {progress} · {what}  ·  F10 exit", icons::SUN), ACCENT);
+        let r = pill(&painter, right, egui::Align2::RIGHT_TOP, &format!("{}  Rendering · {progress} · {what}  ·  F10 exit", icons::SUN), ACCENT());
         right.x = r.left() - 6.0;
         if !state.pt_paused && !s.converged() {
             ui.ctx().request_repaint();
@@ -906,20 +906,20 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             (Some(_), _) => "click to show the layer on this part",
             (None, _) => "click parts to show / hide the layer",
         };
-        let r = pill(&painter, right, egui::Align2::RIGHT_TOP, &format!("{}  Picking parts: {what}  ·  Esc done", icons::CURSOR), ACCENT);
+        let r = pill(&painter, right, egui::Align2::RIGHT_TOP, &format!("{}  Picking parts: {what}  ·  Esc done", icons::CURSOR), ACCENT());
         right.x = r.left() - 6.0;
     }
     match state.session.brush.target {
-        subcraft_paint::PaintTarget::MaskBase => { pill(&painter, right, egui::Align2::RIGHT_TOP, &format!("{}  Painting mask", icons::MASK), ACCENT); }
-        subcraft_paint::PaintTarget::MaskEffect(_) => { pill(&painter, right, egui::Align2::RIGHT_TOP, &format!("{}  Painting mask Paint effect", icons::MASK), ACCENT); }
-        subcraft_paint::PaintTarget::ContentEffect(_) => { pill(&painter, right, egui::Align2::RIGHT_TOP, &format!("{}  Painting Paint effect", icons::PAINT_BRUSH), ACCENT); }
+        subcraft_paint::PaintTarget::MaskBase => { pill(&painter, right, egui::Align2::RIGHT_TOP, &format!("{}  Painting mask", icons::MASK), ACCENT()); }
+        subcraft_paint::PaintTarget::MaskEffect(_) => { pill(&painter, right, egui::Align2::RIGHT_TOP, &format!("{}  Painting mask Paint effect", icons::MASK), ACCENT()); }
+        subcraft_paint::PaintTarget::ContentEffect(_) => { pill(&painter, right, egui::Align2::RIGHT_TOP, &format!("{}  Painting Paint effect", icons::PAINT_BRUSH), ACCENT()); }
         subcraft_paint::PaintTarget::Content => {}
     }
     brush_notice(state, ui, &painter, rect, now);
     // Painter's engine progress bar: a thin moving bar at the top while layers are computed;
     // paused (Shift+Esc), a notice instead and nothing moves.
     if state.session.engine_paused() {
-        pill(&painter, rect.center_top() + egui::vec2(0.0, 44.0), egui::Align2::CENTER_TOP, crate::i18n::tr("Computation paused · Shift+Esc to resume"), ACCENT);
+        pill(&painter, rect.center_top() + egui::vec2(0.0, 44.0), egui::Align2::CENTER_TOP, crate::i18n::tr("Computation paused · Shift+Esc to resume"), ACCENT());
     } else if state.session.composites_pending() {
         computing_bar(&painter, rect, now);
         ui.ctx().request_repaint();
@@ -1019,19 +1019,19 @@ fn brush_notice(state: &mut UiState, ui: &Ui, painter: &egui::Painter, rect: Rec
     let Some(notice) = &state.brush_notice else { return };
     let Some(opacity) = notice.opacity(now) else { state.brush_notice = None; return };
     let fade = |c: Color32| c.gamma_multiply(opacity);
-    let galley = painter.layout_no_wrap(format!("Brush: {}", notice.name), theme::font(12.0), fade(theme::TEXT));
+    let galley = painter.layout_no_wrap(format!("Brush: {}", notice.name), theme::font(12.0), fade(theme::TEXT()));
     let thumb = crate::panels::shelf::tip_thumbnail(state, &notice.tip);
     let side = 22.0;
     let inset = if thumb.is_some() { side + 8.0 } else { 0.0 };
     let size = egui::vec2(galley.size().x + inset + 18.0, side.max(galley.size().y) + 10.0);
     let plate = Rect::from_min_size(rect.left_top() + egui::vec2(10.0, 10.0), size);
     painter.rect_filled(plate, 2.0, Color32::from_black_alpha((150.0 * opacity) as u8));
-    painter.rect_filled(Rect::from_min_size(plate.min, egui::vec2(2.0, plate.height())), 0.0, fade(ACCENT));
+    painter.rect_filled(Rect::from_min_size(plate.min, egui::vec2(2.0, plate.height())), 0.0, fade(ACCENT()));
     if let Some(texture) = thumb {
         let image = Rect::from_min_size(plate.min + egui::vec2(9.0, (plate.height() - side) / 2.0), egui::vec2(side, side));
         painter.image(texture, image, Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), fade(Color32::WHITE));
     }
-    painter.galley(plate.min + egui::vec2(9.0 + inset, (plate.height() - galley.size().y) / 2.0), galley, fade(theme::TEXT));
+    painter.galley(plate.min + egui::vec2(9.0 + inset, (plate.height() - galley.size().y) / 2.0), galley, fade(theme::TEXT()));
     ui.ctx().request_repaint();
 }
 
@@ -1069,7 +1069,7 @@ fn computing_bar(painter: &egui::Painter, rect: Rect, now: f64) {
     let x = rect.left() - width + (rect.width() + width) * computing_phase(now);
     let seg = Rect::from_min_max(egui::pos2(x.max(rect.left()), track.top()), egui::pos2((x + width).min(rect.right()), track.bottom()));
     if seg.width() > 0.0 {
-        painter.rect_filled(seg, 0.0, ACCENT);
+        painter.rect_filled(seg, 0.0, ACCENT());
     }
 }
 
@@ -1191,7 +1191,7 @@ fn visualization_overlays(state: &UiState, painter: &egui::Painter, rect: Rect, 
         return;
     }
     if prefs.shown_channel().is_some() && let Some(name) = prefs.channel_component.overlay() {
-        pill(painter, rect.left_top() + egui::vec2(10.0, 10.0), egui::Align2::LEFT_TOP, crate::i18n::tr(name), theme::TEXT);
+        pill(painter, rect.left_top() + egui::vec2(10.0, 10.0), egui::Align2::LEFT_TOP, crate::i18n::tr(name), theme::TEXT());
     }
     // Axis indicator above the Render toggle in the bottom-right corner.
     if prefs.axis_indicator {
@@ -1682,7 +1682,7 @@ fn text_gizmo(state: &mut UiState, ui: &mut Ui, camera: &subcraft_app::Camera, r
     let Some(decal) = state.session.selected_text().cloned() else { return false };
     let Some(c) = pen_position(state, camera, rect, decal.center) else { return false };
     let painter = ui.painter_at(rect);
-    let accent = theme::ACCENT;
+    let accent = theme::ACCENT();
     let corner = c + egui::vec2(36.0, 36.0);
     let top = c + egui::vec2(0.0, -40.0);
     let handles = [
@@ -1698,7 +1698,7 @@ fn text_gizmo(state: &mut UiState, ui: &mut Ui, camera: &subcraft_app::Camera, r
     for (id, pos, r) in handles {
         let resp = ui.interact(Rect::from_center_size(pos, egui::vec2(r * 2.0 + 6.0, r * 2.0 + 6.0)), egui::Id::new(id), egui::Sense::click_and_drag());
         busy |= resp.hovered() || resp.dragged();
-        let fill = if resp.hovered() || resp.dragged() { accent } else { theme::BG_0 };
+        let fill = if resp.hovered() || resp.dragged() { accent } else { theme::BG_0() };
         match id {
             "text_gizmo_move" => { painter.circle_filled(pos, r, fill); painter.circle_stroke(pos, r, egui::Stroke::new(1.5, accent)); }
             "text_gizmo_scale" => { painter.rect_filled(Rect::from_center_size(pos, egui::vec2(r * 2.0, r * 2.0)), 1.0, fill); }

@@ -76,11 +76,11 @@ pub fn window(state: &mut UiState, ctx: &egui::Context, now: f64) {
     egui::Window::new(RichText::new("Auto UV Unwrap").font(theme::font_strong(14.0))).open(&mut open).collapsible(false).default_width(420.0).show(ctx, |ui| {
         let a = &mut state.auto_uv;
         let busy = a.busy();
-        ui.label(RichText::new("Cut the model into islands, flatten them and pack them into 0..1. Painted layers move onto the new layout.").color(TEXT_DIM));
+        ui.label(RichText::new("Cut the model into islands, flatten them and pack them into 0..1. Painted layers move onto the new layout.").color(TEXT_DIM()));
         ui.add_space(6.0);
         if let Some(r) = &a.current {
             let text = if r.usable() { format!("Current UVs: usable ({})", r.summary()) } else { format!("Current UVs: {}", r.summary()) };
-            ui.label(RichText::new(text).color(if r.usable() { TEXT_DIM } else { theme::WARNING }));
+            ui.label(RichText::new(text).color(if r.usable() { TEXT_DIM() } else { theme::WARNING() }));
             ui.add_space(6.0);
         }
         ui.add_enabled_ui(!busy, |ui| {
@@ -129,7 +129,7 @@ pub fn window(state: &mut UiState, ctx: &egui::Context, now: f64) {
         }
         if let Some(e) = &a.error {
             ui.add_space(6.0);
-            ui.label(RichText::new(e).color(theme::WARNING));
+            ui.label(RichText::new(e).color(theme::WARNING()));
         }
     });
     if cancel && let Some(job) = state.auto_uv.job.take() {

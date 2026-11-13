@@ -11,7 +11,7 @@ use subcraft_app::{Command, Session};
 use subcraft_paint::Camera;
 
 use crate::state::UiState;
-use crate::theme::ACCENT;
+use crate::theme::ACCENT();
 
 /// Symmetry display options (Painter's Symmetry settings menu > display) beside the plane,
 /// cursor and hide-while-painting switches of [`crate::viewport_bar::ViewportPrefs`].

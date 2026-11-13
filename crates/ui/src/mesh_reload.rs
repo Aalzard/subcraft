@@ -58,7 +58,7 @@ pub fn start_check(state: &mut UiState) {
 }
 
 fn dim(text: &str) -> RichText {
-    RichText::new(text).color(TEXT_DIM)
+    RichText::new(text).color(TEXT_DIM())
 }
 
 /// Poll the background steps (call every frame).
@@ -153,7 +153,7 @@ pub fn window(state: &mut UiState, ctx: &egui::Context, now: f64) {
                 ui.label(text);
             }
             for name in &p.unmatched_old {
-                ui.label(RichText::new(format!("{name}  no matching material: kept, but not shown on the model")).color(theme::WARNING));
+                ui.label(RichText::new(format!("{name}  no matching material: kept, but not shown on the model")).color(theme::WARNING()));
             }
             for w in &p.warnings {
                 hint(ui, w);
@@ -185,7 +185,7 @@ pub fn window(state: &mut UiState, ctx: &egui::Context, now: f64) {
         }
         if let Some(e) = &r.error {
             ui.add_space(6.0);
-            ui.label(RichText::new(e).color(theme::WARNING));
+            ui.label(RichText::new(e).color(theme::WARNING()));
         }
     });
     if check {

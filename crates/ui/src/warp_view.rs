@@ -16,7 +16,7 @@ use subcraft_core::LayerId;
 use subcraft_doc::{LayerContent, Projection, ProjectionMode, WarpGrid};
 
 use crate::state::UiState;
-use crate::theme::ACCENT;
+use crate::theme::ACCENT();
 
 /// Warp editing state kept across frames (not saved).
 #[derive(Clone, Debug, PartialEq)]

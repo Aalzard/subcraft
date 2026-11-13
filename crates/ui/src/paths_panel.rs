@@ -81,13 +81,13 @@ pub fn show(state: &mut UiState, ui: &Ui, rect: egui::Rect, now: f64) {
             egui::Frame::popup(ui.style()).show(ui, |ui| {
                 ui.set_min_width(190.0);
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("Paths").font(theme::font_strong(12.0)).color(theme::TEXT));
+                    ui.label(RichText::new("Paths").font(theme::font_strong(12.0)).color(theme::TEXT()));
                     if ui.small_button(format!("{} New", icons::PLUS)).on_hover_text("Start a new path on the next click").clicked() {
                         state.pen.new_path();
                     }
                 });
                 if layers.is_empty() {
-                    ui.label(RichText::new("No path yet: click the model to start one").small().color(theme::TEXT_DIM));
+                    ui.label(RichText::new("No path yet: click the model to start one").small().color(theme::TEXT_DIM()));
                 }
                 let mut renaming: Option<(LayerId, String)> = ui.data(|d| d.get_temp(rename_id()));
                 let clip: Option<PathClip> = ui.data(|d| d.get_temp(clip_id()));
@@ -121,7 +121,7 @@ pub fn show(state: &mut UiState, ui: &Ui, rect: egui::Rect, now: f64) {
                             }
                         } else {
                             {
-                                let label = ui.selectable_label(selected == Some(*id), RichText::new(name).color(if *visible { theme::TEXT } else { theme::TEXT_DIM }));
+                                let label = ui.selectable_label(selected == Some(*id), RichText::new(name).color(if *visible { theme::TEXT() } else { theme::TEXT_DIM() }));
                                 if label.double_clicked() {
                                     renaming = Some((*id, name.clone()));
                                 } else if label.clicked() {
@@ -150,7 +150,7 @@ pub fn show(state: &mut UiState, ui: &Ui, rect: egui::Rect, now: f64) {
                         d.remove::<(LayerId, String)>(rename_id());
                     }
                 });
-                ui.label(RichText::new("Double-click to rename · right-click for more").small().color(Color32::from_gray(140)));
+                ui.label(RichText::new("Double-click to rename · right-click for more").small().color(theme::TEXT_FAINT()));
             });
         });
     for (layer, action) in actions {

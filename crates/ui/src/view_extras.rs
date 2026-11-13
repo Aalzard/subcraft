@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use subcraft_mesh::camera::CameraSpec;
 
 use crate::orbit::OrbitCamera;
-use crate::theme::TEXT_DIM;
+use crate::theme::TEXT_DIM();
 use crate::viewport_bar::ViewportPrefs;
 
 /// A saved viewpoint: everything the orbit camera needs, with a name.

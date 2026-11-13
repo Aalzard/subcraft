@@ -62,16 +62,16 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     let tip = state.session.brush.alpha_name.clone();
     let pending = state.asset_preview.pending_brush().map(|(n, p)| (n == tip, p)).filter(|(same, _)| *same).map(|(_, p)| p);
     egui::Frame::new()
-        .fill(theme::BG_2)
-        .stroke(egui::Stroke::new(1.0, theme::ACCENT))
+        .fill(theme::BG_2())
+        .stroke(egui::Stroke::new(1.0, theme::ACCENT()))
         .corner_radius(4.0)
         .inner_margin(egui::Margin::same(8))
         .show(ui, |ui| {
-            ui.label(RichText::new("BRUSH").strong().small().color(theme::ACCENT));
-            ui.label(RichText::new(&title).color(theme::TEXT));
+            ui.label(RichText::new("BRUSH").strong().small().color(theme::ACCENT()));
+            ui.label(RichText::new(&title).color(theme::TEXT()));
             let tip_name = tip.strip_prefix("Starter: ").unwrap_or(&tip);
             if tip_name != title {
-                ui.label(RichText::new(format!("Tip: {tip_name}")).small().color(theme::TEXT_DIM));
+                ui.label(RichText::new(format!("Tip: {tip_name}")).small().color(theme::TEXT_DIM()));
             }
             ui.add_space(4.0);
             // Shrinks with a narrow panel (never widens the card past it).
@@ -91,6 +91,6 @@ pub fn loading_row(ui: &mut Ui, progress: f32) {
     ui.horizontal_wrapped(|ui| {
         ui.add(egui::Spinner::new().size(12.0));
         let pct = if progress > 0.0 { format!(" {:.0}%", progress * 100.0) } else { String::new() };
-        ui.label(RichText::new(format!("Loading full resolution…{pct} (painting uses the preview meanwhile)")).small().color(theme::TEXT_DIM));
+        ui.label(RichText::new(format!("Loading full resolution…{pct} (painting uses the preview meanwhile)")).small().color(theme::TEXT_DIM()));
     });
 }

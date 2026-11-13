@@ -11,7 +11,7 @@ use subcraft_image::FileFormat;
 
 use crate::i18n::tr;
 use crate::state::UiState;
-use crate::theme::TEXT_DIM;
+use crate::theme::TEXT_DIM();
 use crate::widgets::primary_button;
 
 pub struct LayerExportUi {

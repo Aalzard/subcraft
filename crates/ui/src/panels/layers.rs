@@ -83,7 +83,7 @@ struct OpenFolder { depth: usize, x: f32, top: f32, last_child: Option<f32> }
 
 fn close_folder(ui: &Ui, folder: OpenFolder) {
     if let Some(bottom) = folder.last_child {
-        ui.painter().line_segment([egui::pos2(folder.x, folder.top), egui::pos2(folder.x, bottom)], egui::Stroke::new(1.0, TREE_LINE));
+        ui.painter().line_segment([egui::pos2(folder.x, folder.top), egui::pos2(folder.x, bottom)], egui::Stroke::new(1.0, TREE_LINE()));
     }
 }
 
@@ -109,7 +109,7 @@ fn row_target(rect: egui::Rect, pointer: egui::Pos2, layer: &Layer) -> DropTarge
 }
 
 fn drop_marker(ui: &Ui, rect: egui::Rect, target: DropTarget) {
-    let stroke = egui::Stroke::new(2.0, ACCENT);
+    let stroke = egui::Stroke::new(2.0, ACCENT());
     match target {
         DropTarget::Above(_) | DropTarget::RootTop => { ui.painter().line_segment([rect.left_top(), rect.right_top()], stroke); }
         DropTarget::Below(_) | DropTarget::RootBottom => { ui.painter().line_segment([rect.left_bottom(), rect.right_bottom()], stroke); }
@@ -143,7 +143,7 @@ fn layer_drop(ui: &Ui, resp: &egui::Response, ts: &subcraft_doc::TextureSet, tar
     if let Some(drag) = resp.dnd_hover_payload::<LayerDrag>() && can_drop(ts, &drag, multi, target, copy) {
         drop_marker(ui, resp.rect, target);
         if copy {
-            ui.painter().text(resp.rect.right_center() - egui::vec2(6.0, 0.0), egui::Align2::RIGHT_CENTER, "Duplicate here", theme::font(10.0), ACCENT);
+            ui.painter().text(resp.rect.right_center() - egui::vec2(6.0, 0.0), egui::Align2::RIGHT_CENTER, "Duplicate here", theme::font(10.0), ACCENT());
         }
     }
     // Taking a payload of the wrong type clears it too. Preserve shelf/material dragging.
@@ -163,7 +163,7 @@ fn layer_drop(ui: &Ui, resp: &egui::Response, ts: &subcraft_doc::TextureSet, tar
 fn root_drop(ui: &mut Ui, ts: &subcraft_doc::TextureSet, target: DropTarget, multi: &MultiSelect, cmds: &mut Vec<Command>) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 24.0), egui::Sense::hover());
     let label = if target == DropTarget::RootTop { "Top level — top" } else { "Top level — bottom" };
-    ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, label, theme::font(10.0), TEXT_FAINT);
+    ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, label, theme::font(10.0), TEXT_FAINT());
     layer_drop(ui, &resp, ts, target, multi, cmds);
     resp
 }
@@ -225,7 +225,7 @@ pub(crate) fn blend_step(ui: &Ui, combo: &egui::Response, key: egui::Id, modes: 
     } else if !focused {
         return None;
     }
-    ui.painter().rect_stroke(combo.rect, 2.0, egui::Stroke::new(1.0, ACCENT), egui::StrokeKind::Outside);
+    ui.painter().rect_stroke(combo.rect, 2.0, egui::Stroke::new(1.0, ACCENT()), egui::StrokeKind::Outside);
     if ui.ctx().egui_wants_keyboard_input() { return None; }
     let mut step = 0i32;
     ui.input_mut(|i| {
@@ -285,9 +285,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         && ex.texture_set() == state.session.selection().texture_set
     {
         let mut stop = false;
-        egui::Frame::new().fill(theme::ACCENT_SOFT).inner_margin(egui::Margin::symmetric(PAD, 6)).show(ui, |ui| {
+        egui::Frame::new().fill(theme::ACCENT_SOFT()).inner_margin(egui::Margin::symmetric(PAD, 6)).show(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.label(RichText::new(icons::EXPORT).color(ACCENT));
+                ui.label(RichText::new(icons::EXPORT).color(ACCENT()));
                 ui.label(RichText::new(tr("Editing in PhotoCraft")).strong())
                     .on_hover_text(format!("Saves in PhotoCraft come back as one undo step each.
 Files: {}", ex.dir().display()));
@@ -447,8 +447,8 @@ Files: {}", ex.dir().display()));
         // Colour tags of the open folders around the current row: (folder depth, colour).
         let mut tags: Vec<(usize, subcraft_doc::LayerColor)> = Vec::new();
         if let Some(item) = top_zone.dnd_hover_payload::<ShelfDrag>() {
-            ui.painter().rect_stroke(top_zone.rect, 0.0, egui::Stroke::new(2.0, ACCENT), egui::StrokeKind::Inside);
-            ui.painter().text(top_zone.rect.center(), egui::Align2::CENTER_CENTER, shelf::drop_label(*item, alt, Some("the top layer"), false), theme::font(11.0), ACCENT);
+            ui.painter().rect_stroke(top_zone.rect, 0.0, egui::Stroke::new(2.0, ACCENT()), egui::StrokeKind::Inside);
+            ui.painter().text(top_zone.rect.center(), egui::Align2::CENTER_CENTER, shelf::drop_label(*item, alt, Some("the top layer"), false), theme::font(11.0), ACCENT());
         }
         if let Some(item) = top_zone.dnd_release_payload::<ShelfDrag>() {
             // Above everything: aim at the top layer, so the item lands above it.
@@ -489,14 +489,14 @@ Files: {}", ex.dir().display()));
                 if thumb.clicked() { cmds.push(Command::SelectLayerTarget { layer: l.id, target: LayerTarget::Content }); state.picking_parts = false; }
                 // Painter's line under each thumbnail: grey without effects, coloured with at least one.
                 let effect_line = |ui: &Ui, rect: egui::Rect, has: bool| {
-                    ui.painter().hline(rect.x_range(), rect.bottom() + 3.0, egui::Stroke::new(2.0, if has { EFFECT_LINE } else { theme::BORDER_STRONG }));
+                    ui.painter().hline(rect.x_range(), rect.bottom() + 3.0, egui::Stroke::new(2.0, if has { EFFECT_LINE } else { theme::BORDER_STRONG() }));
                 };
                 effect_line(ui, thumb.rect, !l.content_effects.is_empty());
                 if let Some(mask) = &l.mask {
                     let thumb = state.layer_previews.image(ui, &state.session, PreviewKey { layer: l.id, channel: ChannelKind::BaseColor, mask: true, effect: None, size: 64 }, thumb_size,
                         selected && selected_target == LayerTarget::Mask).on_hover_text(tr("Mask · click to edit · Alt+click: show it in the viewport · Shift+click: enable/disable"));
                     if let Some(item) = thumb.dnd_hover_payload::<ShelfDrag>() {
-                        ui.painter().rect_stroke(thumb.rect, 0.0, egui::Stroke::new(2.0, ACCENT), egui::StrokeKind::Inside);
+                        ui.painter().rect_stroke(thumb.rect, 0.0, egui::Stroke::new(2.0, ACCENT()), egui::StrokeKind::Inside);
                         over_mask = Some(shelf::drop_label(*item, alt, Some(&l.name), true));
                     }
                     if egui::DragAndDrop::has_payload_of_type::<ShelfDrag>(ui.ctx())
@@ -505,7 +505,7 @@ Files: {}", ex.dir().display()));
                         // (replace the mask's effects).
                         drop_request = Some((l.id, *item, alt || !matches!(*item, ShelfDrag::SmartMask(_))));
                     }
-                    if !mask.enabled { ui.painter().line_segment([thumb.rect.left_bottom(), thumb.rect.right_top()], egui::Stroke::new(1.5, theme::WARNING)); }
+                    if !mask.enabled { ui.painter().line_segment([thumb.rect.left_bottom(), thumb.rect.right_top()], egui::Stroke::new(1.5, theme::WARNING())); }
                     effect_line(ui, thumb.rect, !mask.effects.is_empty());
                     if thumb.clicked() {
                         if ui.input(|i| i.modifiers.shift) { cmds.push(Command::SetMaskEnabled { layer: l.id, enabled: !mask.enabled }); }
@@ -531,7 +531,7 @@ Files: {}", ex.dir().display()));
                 }
                 if let Some(expanded) = folder {
                     let icon = if expanded { icons::FOLDER_OPEN } else { icons::FOLDER };
-                    let color = if l.visible { FOLDER } else { TEXT_FAINT };
+                    let color = if l.visible { FOLDER() } else { TEXT_FAINT() };
                     ui.label(RichText::new(icon).font(theme::font(16.0)).color(color));
                     let count = descendants(l);
                     badge(ui, &count.to_string(), color).on_hover_text(format!("{count} layer(s) inside"));
@@ -548,7 +548,7 @@ Files: {}", ex.dir().display()));
                 let mut text = row_text(&l.name, selected || l.visible);
                 if folder.is_some() { text = text.strong(); }
                 if !l.visible {
-                    text = text.color(TEXT_FAINT);
+                    text = text.color(TEXT_FAINT());
                 }
                 let name_width = (ui.available_width() - 82.0).max(20.0);
                 ui.allocate_ui_with_layout(egui::vec2(name_width, 38.0), egui::Layout::top_down(egui::Align::Min), |ui| {
@@ -573,10 +573,10 @@ Files: {}", ex.dir().display()));
                     };
                     let problem = anchor_index.as_ref().and_then(|i| i.problems().find(|r| r.site.layer() == l.id)).map(|r| r.status);
                     if let Some(status) = problem {
-                        ui.add(egui::Label::new(RichText::new(format!("{}  {detail}  ·  anchor input ignored", icons::WARNING)).font(theme::font(10.0)).color(theme::WARNING)).truncate())
+                        ui.add(egui::Label::new(RichText::new(format!("{}  {detail}  ·  anchor input ignored", icons::WARNING)).font(theme::font(10.0)).color(theme::WARNING())).truncate())
                             .on_hover_text(status.message());
                     } else {
-                    ui.add(egui::Label::new(RichText::new(detail).font(theme::font(10.0)).color(TEXT_FAINT)).truncate())
+                    ui.add(egui::Label::new(RichText::new(detail).font(theme::font(10.0)).color(TEXT_FAINT())).truncate())
                         .on_hover_text(format!("{} content effects · {} mask effects", l.content_effects.len(), l.mask.as_ref().map_or(0, |m| m.effects.len())));
                     }
                 });
@@ -593,7 +593,7 @@ Files: {}", ex.dir().display()));
                     let combo = egui::ComboBox::from_id_salt(("row_blend", l.id))
                         .width(74.0)
                         .height(420.0)
-                        .selected_text(RichText::new(b.mode.short_label()).font(theme::font(10.5)).color(theme::TEXT_DIM))
+                        .selected_text(RichText::new(b.mode.short_label()).font(theme::font(10.5)).color(theme::TEXT_DIM()))
                         .show_ui(ui, |ui| blend_mode_list(ui, modes.iter().copied(), b.mode));
                     let picked = combo.inner.flatten();
                     let stepped = blend_step(ui, &combo.response, egui::Id::new(("row_blend_focus", l.id)), &modes, b.mode, picked.is_some());
@@ -624,7 +624,7 @@ Files: {}", ex.dir().display()));
                 });
                 };
                 match folder {
-                    Some(_) => tree_row(ui, row_height, Some(FOLDER_BAND), row_selected, egui::Sense::click_and_drag(), content),
+                    Some(_) => tree_row(ui, row_height, Some(FOLDER_BAND()), row_selected, egui::Sense::click_and_drag(), content),
                     None => striped_list_row_height(ui, index, row_selected, row_height, egui::Sense::click_and_drag(), content),
                 }
             }).inner;
@@ -643,7 +643,7 @@ Files: {}", ex.dir().display()));
             let center = resp.rect.center().y;
             if let Some(parent) = open.last_mut() {
                 parent.last_child = Some(center);
-                ui.painter().line_segment([egui::pos2(parent.x, center), egui::pos2(parent.x + 10.0, center)], egui::Stroke::new(1.0, TREE_LINE));
+                ui.painter().line_segment([egui::pos2(parent.x, center), egui::pos2(parent.x + 10.0, center)], egui::Stroke::new(1.0, TREE_LINE()));
             }
             if folder == Some(true) {
                 open.push(OpenFolder { depth: *depth, x: guide_x(resp.rect.left(), *depth), top: center + 8.0, last_child: None });
@@ -672,12 +672,12 @@ Files: {}", ex.dir().display()));
             }
             if let Some(item) = resp.dnd_hover_payload::<ShelfDrag>() {
                 let r = resp.rect;
-                ui.painter().rect_stroke(r, 0.0, egui::Stroke::new(1.5, ACCENT), egui::StrokeKind::Inside);
+                ui.painter().rect_stroke(r, 0.0, egui::Stroke::new(1.5, ACCENT()), egui::StrokeKind::Inside);
                 let text = over_mask.clone().unwrap_or_else(|| shelf::drop_label(*item, alt, Some(&l.name), false));
-                let galley = ui.painter().layout_no_wrap(text, theme::font(11.0), theme::TEXT);
+                let galley = ui.painter().layout_no_wrap(text, theme::font(11.0), theme::TEXT());
                 let pill = egui::Rect::from_min_size(egui::pos2(r.right() - galley.size().x - 14.0, r.top() + 2.0), galley.size() + egui::vec2(8.0, 4.0));
-                ui.painter().rect_filled(pill, 3.0, theme::ACCENT_SOFT);
-                ui.painter().galley(pill.min + egui::vec2(4.0, 2.0), galley, theme::TEXT);
+                ui.painter().rect_filled(pill, 3.0, theme::ACCENT_SOFT());
+                ui.painter().galley(pill.min + egui::vec2(4.0, 2.0), galley, theme::TEXT());
             }
             let has_effects = l.mask.as_ref().is_some_and(|m| !m.effects.is_empty());
             // Painter's order: effects, masks, clipboard, grouping, smart presets; SubCraft's own
@@ -925,17 +925,17 @@ fn generator_rows(ui: &mut Ui, layer: &Layer, mask: &subcraft_doc::Mask, depth: 
         let resp = ui.push_id(("generator_row", e.id), |ui| tree_row(ui, GENERATOR_ROW_HEIGHT, None, false, egui::Sense::click(), |ui| {
             ui.add_space(indent);
             let (eye, tip) = if e.visible { (icons::EYE, "Hide generator") } else { (icons::EYE_SLASH, "Show generator") };
-            if ui.add(egui::Button::new(RichText::new(eye).font(theme::font(13.0)).color(TEXT_DIM)).frame(false)).on_hover_text(tip).clicked() {
+            if ui.add(egui::Button::new(RichText::new(eye).font(theme::font(13.0)).color(TEXT_DIM())).frame(false)).on_hover_text(tip).clicked() {
                 let mut e = (**e).clone();
                 e.visible = !e.visible;
                 cmds.push(Command::SetMaskEffect { layer: layer.id, effect: e });
             }
-            ui.label(RichText::new(icons::MAGIC_WAND).font(theme::font(13.0)).color(if lit { ACCENT } else { TEXT_FAINT }));
-            ui.add(egui::Label::new(RichText::new(&e.name).font(theme::font(11.5)).color(if lit { TEXT_DIM } else { TEXT_FAINT })).truncate().selectable(false));
+            ui.label(RichText::new(icons::MAGIC_WAND).font(theme::font(13.0)).color(if lit { ACCENT() } else { TEXT_FAINT() }));
+            ui.add(egui::Label::new(RichText::new(&e.name).font(theme::font(11.5)).color(if lit { TEXT_DIM() } else { TEXT_FAINT() })).truncate().selectable(false));
             let kind = g.kind.label();
             if !e.name.contains(&kind) {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(RichText::new(kind).font(theme::font(10.0)).color(TEXT_FAINT));
+                    ui.label(RichText::new(kind).font(theme::font(10.0)).color(TEXT_FAINT()));
                 });
             }
         })).inner;
@@ -1011,7 +1011,7 @@ fn instantiate_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
                 ui.checkbox(&mut t.ticked, t.name.as_str());
                 if !t.missing.is_empty() {
                     let names: Vec<&str> = t.missing.iter().map(|k| k.display_name()).collect();
-                    ui.label(RichText::new(icons::WARNING).color(theme::WARNING)).on_hover_text(format!("This texture set has no {} channel: the instance cannot show it there", names.join(", ")));
+                    ui.label(RichText::new(icons::WARNING).color(theme::WARNING())).on_hover_text(format!("This texture set has no {} channel: the instance cannot show it there", names.join(", ")));
                 }
             });
         }
@@ -1085,7 +1085,7 @@ fn parts_of(session: &subcraft_app::Session, kind: subcraft_core::PartKind, slot
 /// count over the total when it is restricted, struck through while the mask is ignored.
 fn geometry_mask_icon(ui: &mut Ui, session: &subcraft_app::Session, l: &Layer, slot: u32) -> egui::Response {
     let (text, color, tip) = match &l.parts {
-        None => (icons::POLYGON.to_string(), TEXT_FAINT, "Geometry mask: the whole model · click to restrict the layer to some meshes or UV islands (click or box them in the 3D / 2D view) · right-click for options".to_string()),
+        None => (icons::POLYGON.to_string(), TEXT_FAINT(), "Geometry mask: the whole model · click to restrict the layer to some meshes or UV islands (click or box them in the 3D / 2D view) · right-click for options".to_string()),
         Some(p) => {
             let all = parts_of(session, p.kind, slot);
             let shown = all.iter().filter(|id| p.parts.contains(id)).count();
@@ -1093,9 +1093,9 @@ fn geometry_mask_icon(ui: &mut Ui, session: &subcraft_app::Session, l: &Layer, s
             if p.enabled && shown == 0 {
                 (format!("{} 0/{}", icons::POLYGON, all.len()), egui::Color32::from_rgb(226, 92, 92), format!("Geometry mask: nothing included, so the layer has no effect · click to include some {what} in the views · right-click for options"))
             } else if p.enabled {
-                (format!("{} {shown}/{}", icons::POLYGON, all.len()), ACCENT, format!("Geometry mask: {shown} of {} {what} · click to edit in the views · right-click for options", all.len()))
+                (format!("{} {shown}/{}", icons::POLYGON, all.len()), ACCENT(), format!("Geometry mask: {shown} of {} {what} · click to edit in the views · right-click for options", all.len()))
             } else {
-                (format!("{} {shown}/{}", icons::POLYGON, all.len()), theme::WARNING, format!("Geometry mask ignored ({shown} of {} {what} chosen) · right-click to use it again", all.len()))
+                (format!("{} {shown}/{}", icons::POLYGON, all.len()), theme::WARNING(), format!("Geometry mask ignored ({shown} of {} {what} chosen) · right-click to use it again", all.len()))
             }
         }
     };
@@ -1110,7 +1110,7 @@ fn geometry_mask_menu(ui: &mut Ui, session: &subcraft_app::Session, clipboard: &
     let id = l.id;
     let kind = l.parts.as_ref().map_or(subcraft_core::PartKind::Connected, |p| p.kind);
     let all = parts_of(session, kind, slot);
-    ui.label(RichText::new("Geometry mask").color(TEXT_DIM));
+    ui.label(RichText::new("Geometry mask").color(TEXT_DIM()));
     if ui.button("Edit in the 3D / 2D view").on_hover_text("Click a mesh part or UV island to show or hide the layer on it; drag a box to add several, Ctrl+drag to remove").clicked() {
         cmds.push(Command::SelectLayer(Some(id)));
         *picking = true;

@@ -74,9 +74,9 @@ fn paint_caption(ui: &Ui, rect: Rect, kind: Caption, hovered: bool, pressed: boo
     let (bg, fg) = match (kind, hovered, pressed) {
         (Caption::Close, true, false) => (Color32::from_rgb(196, 43, 28), Color32::WHITE),
         (Caption::Close, true, true) => (Color32::from_rgb(160, 36, 24), Color32::WHITE),
-        (_, true, false) => (theme::BG_4, theme::TEXT),
-        (_, true, true) => (theme::BG_3, theme::TEXT),
-        _ => (Color32::TRANSPARENT, theme::TEXT_DIM),
+        (_, true, false) => (theme::BG_4(), theme::TEXT()),
+        (_, true, true) => (theme::BG_3(), theme::TEXT()),
+        _ => (Color32::TRANSPARENT, theme::TEXT_DIM()),
     };
     painter.rect_filled(rect, 0.0, bg);
     let c = rect.center();

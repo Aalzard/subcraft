@@ -985,4 +985,9 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Which of the model's vertex color sets the ID map reads (glTF / GLB files can have several)", "ID 貼圖讀取模型的哪一組頂點色彩（glTF / GLB 檔案可有多組）"),
     ("The high poly has no vertex colors.", "高模沒有頂點色彩。"),
     ("The high poly has {} vertex color set(s).", "高模有 {} 組頂點色彩。"),
+    ("Theme", "主題"),
+    ("Dark", "深色"),
+    ("Light", "淺色"),
+    ("Painter-style", "Painter 風格"),
+    ("Colours of the panels and controls. The 3D view background is set under Background color.", "面板與控制項的顏色。3D 視圖背景在背景顏色中設定。"),
 ];

@@ -103,7 +103,7 @@ pub(crate) fn fill_options(ui: &mut Ui, mode: &mut subcraft_paint::PolygonFillMo
         }
         Some(subcraft_app::LayerTarget::Content) => {}
         None => {
-            ui.label(RichText::new("select a paint or fill layer").color(theme::WARNING));
+            ui.label(RichText::new("select a paint or fill layer").color(theme::WARNING()));
         }
     }
 }

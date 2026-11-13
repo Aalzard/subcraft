@@ -44,27 +44,27 @@ pub fn picked(state: &mut UiState, ts: TextureSetId, color: [f32; 3], now: f64) 
 
 pub fn section(state: &mut UiState, ui: &mut Ui) {
     let now = ui.input(|i| i.time);
-    ui.label(RichText::new("ID COLORS").font(theme::font_strong(12.0)).color(TEXT));
+    ui.label(RichText::new("ID COLORS").font(theme::font_strong(12.0)).color(TEXT()));
     ui.add_space(2.0);
     let ts = state.session.selected_texture_set().id;
     let Some(entries) = palette(state, ts) else {
         state.picking_id_palette = false;
-        ui.label(RichText::new("No ID map yet: bake one (Bake Mesh Maps) or import one (Import mesh maps…).").small().color(TEXT_FAINT));
+        ui.label(RichText::new("No ID map yet: bake one (Bake Mesh Maps) or import one (Import mesh maps…).").small().color(TEXT_FAINT()));
         return;
     };
     ui.horizontal(|ui| {
         let on = state.picking_id_palette;
         let text = format!("{}  {}", crate::icons::CROSSHAIR, if on { "Picking… (Esc)" } else { "Pick from the view" });
-        let button = egui::Button::new(RichText::new(text).font(theme::font(12.0)).color(if on { ACCENT } else { TEXT }))
-            .fill(if on { theme::ACCENT_SOFT } else { theme::BG_3 });
+        let button = egui::Button::new(RichText::new(text).font(theme::font(12.0)).color(if on { ACCENT() } else { TEXT() }))
+            .fill(if on { theme::ACCENT_SOFT() } else { theme::BG_3() });
         if ui.add(button).on_hover_text("Click the model in the 3D view or the 2D view: the ID color there is selected here and added to the selected layer's ID Color mask (a new mask if it has none)").clicked() {
             state.picking_id_palette = !on;
             if !on { state.picking_id_color = None; }
         }
-        ui.label(RichText::new(format!("{} color{}", entries.len(), if entries.len() == 1 { "" } else { "s" })).small().color(TEXT_DIM));
+        ui.label(RichText::new(format!("{} color{}", entries.len(), if entries.len() == 1 { "" } else { "s" })).small().color(TEXT_DIM()));
     });
     if entries.len() >= subcraft_app::id_color::MAX_PALETTE {
-        ui.label(RichText::new("Showing the 256 most common colors: this map has more than an ID map usually does.").small().color(theme::WARNING));
+        ui.label(RichText::new("Showing the 256 most common colors: this map has more than an ID map usually does.").small().color(theme::WARNING()));
     }
     ui.add_space(2.0);
     // Swatch grid: click selects.
@@ -75,7 +75,7 @@ pub fn section(state: &mut UiState, ui: &mut Ui) {
             let (rect, response) = ui.allocate_exact_size(vec2(size, size), Sense::click());
             let selected = state.id_palette_selected.is_some_and(|c| same_id(c, e.color));
             ui.painter().rect_filled(rect, 3.0, swatch_color(e.color));
-            let stroke = if selected { egui::Stroke::new(2.0, ACCENT) } else { egui::Stroke::new(1.0, theme::BORDER) };
+            let stroke = if selected { egui::Stroke::new(2.0, ACCENT()) } else { egui::Stroke::new(1.0, theme::BORDER()) };
             ui.painter().rect_stroke(rect, 3.0, stroke, egui::StrokeKind::Outside);
             if e.masks > 0 {
                 ui.painter().circle_filled(rect.right_top() + vec2(-5.0, 5.0), 3.5, Color32::WHITE);
@@ -89,7 +89,7 @@ pub fn section(state: &mut UiState, ui: &mut Ui) {
         }
     });
     let Some(sel) = state.id_palette_selected.filter(|c| entries.iter().any(|e| same_id(e.color, *c))) else {
-        ui.label(RichText::new("Select a color (or pick one from the view) to edit it.").small().color(TEXT_FAINT));
+        ui.label(RichText::new("Select a color (or pick one from the view) to edit it.").small().color(TEXT_FAINT()));
         return;
     };
     let entry = entries.iter().find(|e| same_id(e.color, sel)).cloned().expect("selected color is listed");
@@ -97,12 +97,12 @@ pub fn section(state: &mut UiState, ui: &mut Ui) {
     ui.horizontal(|ui| {
         let (rect, _) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::hover());
         ui.painter().rect_filled(rect, 2.0, swatch_color(sel));
-        ui.label(RichText::new(hex(sel)).monospace().color(TEXT));
-        ui.label(RichText::new(format!("{:.1}% · {} mask{}", 100.0 * entry.coverage, entry.masks, if entry.masks == 1 { "" } else { "s" })).small().color(TEXT_DIM));
+        ui.label(RichText::new(hex(sel)).monospace().color(TEXT()));
+        ui.label(RichText::new(format!("{:.1}% · {} mask{}", 100.0 * entry.coverage, entry.masks, if entry.masks == 1 { "" } else { "s" })).small().color(TEXT_DIM()));
     });
     let mut apply = false;
     ui.horizontal(|ui| {
-        ui.label(RichText::new("New color").small().color(TEXT_DIM));
+        ui.label(RichText::new("New color").small().color(TEXT_DIM()));
         egui::color_picker::color_edit_button_rgb(ui, &mut state.id_palette_new);
         // The text being typed is kept while the field has focus: rebuilt from the color every
         // frame, a partial value ("#3A7FC" after a Backspace) snapped back (QA 2026-11).
@@ -116,7 +116,7 @@ pub fn section(state: &mut UiState, ui: &mut Ui) {
         }
     });
     if let Some(other) = entries.iter().find(|e| !same_id(e.color, sel) && same_id(e.color, state.id_palette_new)) {
-        ui.label(RichText::new(format!("{} is already in the map: applying merges the two IDs ({} more mask{} select both).", hex(other.color), other.masks, if other.masks == 1 { "" } else { "s" })).small().color(theme::WARNING));
+        ui.label(RichText::new(format!("{} is already in the map: applying merges the two IDs ({} more mask{} select both).", hex(other.color), other.masks, if other.masks == 1 { "" } else { "s" })).small().color(theme::WARNING()));
     }
     ui.horizontal(|ui| {
         if ui.button("Mask selected layer by this color").on_hover_text("Add it to the selected layer's ID Color mask, or give the layer one").clicked() {

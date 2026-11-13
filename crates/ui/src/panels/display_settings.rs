@@ -175,7 +175,7 @@ fn jump_buttons(state: &mut UiState, ui: &mut Ui) {
 /// A small heading inside a section; `text` is already translated.
 fn sub_header(ui: &mut Ui, text: &str) {
     ui.add_space(2.0);
-    ui.label(RichText::new(text).color(TEXT_DIM));
+    ui.label(RichText::new(text).color(TEXT_DIM()));
 }
 
 fn grid(ui: &mut Ui, id: &str, body: impl FnOnce(&mut Ui)) {
@@ -371,7 +371,7 @@ fn effect(ui: &mut Ui, id: &str, name: &str, on: &mut bool, stack_on: bool, defa
     let header_id = ui.make_persistent_id(("display_effect", id));
     egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), header_id, default_open)
         .show_header(ui, |ui| {
-            ui.add_enabled(stack_on, egui::Checkbox::new(on, RichText::new(name).color(theme::TEXT)));
+            ui.add_enabled(stack_on, egui::Checkbox::new(on, RichText::new(name).color(theme::TEXT())));
         })
         .body(|ui| {
             let enabled = *on && stack_on;
@@ -512,7 +512,7 @@ pub fn post_effects(state: &mut UiState, ui: &mut Ui) {
         ui.add(egui::Slider::new(&mut d.glow_radius, 0.25..=8.0).logarithmic(true)).on_hover_text(tr("How far the glow spreads"));
         ui.end_row();
     });
-    ui.label(RichText::new(tr("Post effects are viewport effects: exported textures never contain them.")).small().color(TEXT_DIM));
+    ui.label(RichText::new(tr("Post effects are viewport effects: exported textures never contain them.")).small().color(TEXT_DIM()));
     if pick {
         state.picking_focus = true;
     }

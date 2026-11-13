@@ -170,7 +170,7 @@ pub fn window(state: &mut UiState, ctx: &Context) {
             if let Some(error) = &np.error {
                 ui.add_space(6.0);
                 egui::ScrollArea::vertical().id_salt("np_error").max_height(48.0).auto_shrink([false, true]).show(ui, |ui| {
-                    ui.add(egui::Label::new(RichText::new(error).color(egui::Color32::from_rgb(232, 120, 110))).wrap());
+                    ui.add(egui::Label::new(RichText::new(error).color(theme::ERROR())).wrap());
                 });
             }
             ui.add_space(8.0);
@@ -184,7 +184,7 @@ pub fn window(state: &mut UiState, ctx: &Context) {
                     np.open = false;
                 }
                 if !ready {
-                    ui.add(egui::Label::new(RichText::new(hint).color(TEXT_DIM)).wrap());
+                    ui.add(egui::Label::new(RichText::new(hint).color(TEXT_DIM())).wrap());
                 }
             });
         });
@@ -214,12 +214,12 @@ pub fn window(state: &mut UiState, ctx: &Context) {
 }
 
 fn model_section(ui: &mut Ui, np: &mut NewProjectUi, pick: &mut bool) {
-    crate::widgets::card(ui, theme::ACCENT_DIM, |ui| {
+    crate::widgets::card(ui, theme::ACCENT_DIM(), |ui| {
         ui.label(RichText::new("Model").font(theme::font_strong(13.0)));
         ui.add_space(4.0);
         ui.horizontal(|ui| {
             let text = np.model.as_ref().map_or("No model chosen".to_string(), |m| m.path.display().to_string());
-            ui.add(egui::Label::new(RichText::new(text).color(if np.model.is_some() { theme::TEXT } else { TEXT_DIM })).truncate());
+            ui.add(egui::Label::new(RichText::new(text).color(if np.model.is_some() { theme::TEXT() } else { TEXT_DIM() })).truncate());
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.button(if np.model.is_some() { "Change…" } else { "Choose model…" }).on_hover_text("OBJ, FBX, glTF, GLB, USD, PLY, STL or Substance Painter .spp").clicked() {
                     *pick = true;
@@ -230,7 +230,7 @@ fn model_section(ui: &mut Ui, np: &mut NewProjectUi, pick: &mut bool) {
             summary_block(ui, &model.summary);
         } else {
             ui.add_space(4.0);
-            ui.label(RichText::new("OBJ, FBX, glTF, GLB, USD, PLY, STL or Substance Painter .spp with UVs. You will see what is inside before anything is created.").color(TEXT_DIM));
+            ui.label(RichText::new("OBJ, FBX, glTF, GLB, USD, PLY, STL or Substance Painter .spp with UVs. You will see what is inside before anything is created.").color(TEXT_DIM()));
         }
     });
 }
@@ -240,21 +240,21 @@ fn summary_block(ui: &mut Ui, s: &MeshSummary) {
     ui.add(egui::Label::new(RichText::new(format!("{}  ·  {} triangles", s.name, group_digits(s.triangles))).font(theme::font_strong(15.0))).wrap());
     egui::Grid::new("np_summary").num_columns(2).spacing([14.0, 3.0]).show(ui, |ui| {
         let materials = s.materials.iter().map(|(n, t)| format!("{n} ({})", group_digits(*t))).collect::<Vec<_>>().join(", ");
-        ui.label(RichText::new("Materials").color(TEXT_DIM));
+        ui.label(RichText::new("Materials").color(TEXT_DIM()));
         name_list(ui, "np_materials", s.materials.len(), &materials);
         ui.end_row();
         let objects = s.objects.iter().map(|(n, t)| format!("{n} ({})", group_digits(*t))).collect::<Vec<_>>().join(", ");
-        ui.label(RichText::new("Objects").color(TEXT_DIM));
+        ui.label(RichText::new("Objects").color(TEXT_DIM()));
         name_list(ui, "np_objects", s.objects.len(), &objects);
         ui.end_row();
-        ui.label(RichText::new("UV space").color(TEXT_DIM));
+        ui.label(RichText::new("UV space").color(TEXT_DIM()));
         ui.label(match s.uv_bounds {
             Some((lo, hi)) if s.has_uvs => format!("u {:.2} to {:.2}, v {:.2} to {:.2}  ·  {} tile{}", lo.x, hi.x, lo.y, hi.y, s.tiles.len(), if s.tiles.len() == 1 { "" } else { "s" }),
             _ => "none".into(),
         });
         ui.end_row();
         if s.uses_udim() {
-            ui.label(RichText::new("UDIM tiles").color(TEXT_DIM));
+            ui.label(RichText::new("UDIM tiles").color(TEXT_DIM()));
             let tiles = s.tiles.iter().map(|t| format!("{} ({})", t.number, group_digits(t.triangles))).collect::<Vec<_>>().join(", ");
             name_list(ui, "np_tiles", s.tiles.len(), &tiles);
             ui.end_row();
@@ -263,8 +263,8 @@ fn summary_block(ui: &mut Ui, s: &MeshSummary) {
     for w in &s.warnings {
         ui.add_space(3.0);
         ui.horizontal_top(|ui| {
-            ui.label(RichText::new(crate::icons::WARNING).color(WARNING));
-            ui.add(egui::Label::new(RichText::new(w).color(WARNING)).wrap());
+            ui.label(RichText::new(crate::icons::WARNING).color(WARNING()));
+            ui.add(egui::Label::new(RichText::new(w).color(WARNING())).wrap());
         });
     }
 }
@@ -316,7 +316,7 @@ fn project_section(ui: &mut Ui, np: &mut NewProjectUi) {
             }
             ui.end_row();
             ui.label("");
-            ui.add(egui::Label::new(RichText::new(np.settings.template.description()).small().color(TEXT_DIM)).wrap());
+            ui.add(egui::Label::new(RichText::new(np.settings.template.description()).small().color(TEXT_DIM())).wrap());
             ui.end_row();
             ui.label("Resolution");
             egui::ComboBox::from_id_salt("np_resolution").selected_text(format!("{0} x {0}", np.settings.resolution)).show_ui(ui, |ui| {
@@ -351,7 +351,7 @@ fn project_section(ui: &mut Ui, np: &mut NewProjectUi) {
         });
         if let Some(model) = &np.model {
             ui.add_space(6.0);
-            ui.label(RichText::new("Texture sets that will be created").color(TEXT_DIM));
+            ui.label(RichText::new("Texture sets that will be created").color(TEXT_DIM()));
             for set in plan_sets(&model.mesh, &np.settings) {
                 ui.add(egui::Label::new(format!("{}  ·  {} triangles  ·  {} px", set.name, group_digits(set.triangles), np.settings.resolution_for(&set.base))).truncate());
             }
@@ -365,7 +365,7 @@ fn high_poly_section(ui: &mut Ui, np: &mut NewProjectUi, pick: &mut bool) {
         ui.add_space(4.0);
         ui.horizontal(|ui| {
             let text = np.high.as_ref().map_or("None: no baking from a high poly".to_string(), |m| m.path.display().to_string());
-            ui.add(egui::Label::new(RichText::new(text).color(if np.high.is_some() { theme::TEXT } else { TEXT_DIM })).truncate());
+            ui.add(egui::Label::new(RichText::new(text).color(if np.high.is_some() { theme::TEXT() } else { TEXT_DIM() })).truncate());
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if np.high.is_some() && ui.small_button("Remove").clicked() {
                     np.high = None;
@@ -377,18 +377,18 @@ fn high_poly_section(ui: &mut Ui, np: &mut NewProjectUi, pick: &mut bool) {
             });
         });
         if let Some(high) = &np.high {
-            ui.label(RichText::new(format!("{} triangles", group_digits(high.summary.triangles))).color(TEXT_DIM));
+            ui.label(RichText::new(format!("{} triangles", group_digits(high.summary.triangles))).color(TEXT_DIM()));
             if !high.summary.has_uvs {
-                ui.add(egui::Label::new(RichText::new("No UVs: fine for baking, the high poly only needs its shape.").color(TEXT_DIM)).wrap());
+                ui.add(egui::Label::new(RichText::new("No UVs: fine for baking, the high poly only needs its shape.").color(TEXT_DIM())).wrap());
             }
-            ui.add(egui::Label::new(RichText::new("Baking mode opens with this model after the project is created.").color(TEXT_DIM)).wrap());
+            ui.add(egui::Label::new(RichText::new("Baking mode opens with this model after the project is created.").color(TEXT_DIM())).wrap());
         }
     });
 }
 
 fn advanced_section(ui: &mut Ui, np: &mut NewProjectUi) {
     np.advanced = true;
-    ui.label(RichText::new("Channels").color(TEXT_DIM));
+    ui.label(RichText::new("Channels").color(TEXT_DIM()));
     ui.horizontal_wrapped(|ui| {
         for kind in [ChannelKind::BaseColor, ChannelKind::Height, ChannelKind::Roughness, ChannelKind::Metallic, ChannelKind::Normal, ChannelKind::AmbientOcclusion, ChannelKind::Emissive] {
             let mut on = np.settings.has_channel(kind);
@@ -400,7 +400,7 @@ fn advanced_section(ui: &mut Ui, np: &mut NewProjectUi) {
     });
     ui.add_space(6.0);
     if let Some(model) = &np.model {
-        ui.label(RichText::new("Resolution per material (all tiles of a material share it)").color(TEXT_DIM));
+        ui.label(RichText::new("Resolution per material (all tiles of a material share it)").color(TEXT_DIM()));
         let mut bases: Vec<String> = Vec::new();
         for set in plan_sets(&model.mesh, &np.settings) {
             if !bases.contains(&set.base) {
@@ -425,7 +425,7 @@ fn advanced_section(ui: &mut Ui, np: &mut NewProjectUi) {
         }
     }
     ui.add_space(6.0);
-    ui.label(RichText::new("Tangent space: MikkTSpace per vertex, the convention of Unreal, Unity and Blender.").small().color(TEXT_DIM));
+    ui.label(RichText::new("Tangent space: MikkTSpace per vertex, the convention of Unreal, Unity and Blender.").small().color(TEXT_DIM()));
 }
 
 fn create_project(state: &mut UiState, now: f64) {

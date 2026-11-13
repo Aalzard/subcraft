@@ -83,10 +83,10 @@ fn message_id() -> egui::Id {
 
 fn chip(ui: &mut Ui, text: String, custom: bool) -> bool {
     let mut removed = false;
-    egui::Frame::new().fill(theme::BG_3).corner_radius(3.0).inner_margin(egui::Margin::symmetric(5, 1)).show(ui, |ui| {
+    egui::Frame::new().fill(theme::BG_3()).corner_radius(3.0).inner_margin(egui::Margin::symmetric(5, 1)).show(ui, |ui| {
         ui.spacing_mut().item_spacing.x = 3.0;
-        ui.label(RichText::new(text).monospace().color(if custom { theme::WARNING } else { theme::ACCENT }));
-        removed = ui.add(egui::Button::new(RichText::new(crate::icons::X).small().color(theme::TEXT_FAINT)).frame(false)).on_hover_text(tr("Remove this key")).clicked();
+        ui.label(RichText::new(text).monospace().color(if custom { theme::WARNING() } else { theme::ACCENT() }));
+        removed = ui.add(egui::Button::new(RichText::new(crate::icons::X).small().color(theme::TEXT_FAINT())).frame(false)).on_hover_text(tr("Remove this key")).clicked();
     });
     removed
 }
@@ -125,7 +125,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             message = tr("Every shortcut is back to the key set's default.").to_string();
         }
     });
-    ui.label(RichText::new(tr("The keyboard button replaces an action's keys with the next combination you press (Esc cancels), + adds one, × removes one. Right-click a row to put its default back. Changed keys are orange.")).small().color(theme::TEXT_DIM));
+    ui.label(RichText::new(tr("The keyboard button replaces an action's keys with the next combination you press (Esc cancels), + adds one, × removes one. Right-click a row to put its default back. Changed keys are orange.")).small().color(theme::TEXT_DIM()));
     let search_id = egui::Id::new("shortcut_editor_search");
     let mut query: String = ctx.data_mut(|d| d.get_temp::<String>(search_id).unwrap_or_default());
     ui.horizontal(|ui| {
@@ -133,7 +133,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         ui.add(egui::TextEdit::singleline(&mut query).hint_text(tr("action or key")).desired_width(200.0));
     });
     if !message.is_empty() {
-        ui.label(RichText::new(&message).small().color(theme::ACCENT));
+        ui.label(RichText::new(&message).small().color(theme::ACCENT()));
     }
     ui.add_space(4.0);
 
@@ -160,11 +160,11 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 });
                 ui.horizontal(|ui| {
                     if capture == Some(Capture::Key { action: a, add: false }) || capture == Some(Capture::Key { action: a, add: true }) {
-                        ui.label(RichText::new(tr("Press the new combination… (Esc cancels)")).italics().color(theme::WARNING));
+                        ui.label(RichText::new(tr("Press the new combination… (Esc cancels)")).italics().color(theme::WARNING()));
                         return;
                     }
                     if keys.is_empty() {
-                        ui.label(RichText::new(tr("no key")).color(theme::TEXT_FAINT));
+                        ui.label(RichText::new(tr("no key")).color(theme::TEXT_FAINT()));
                     }
                     for (s, name) in keys.iter().zip(names) {
                         if chip(ui, name, custom) {
@@ -200,7 +200,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         ui.add_space(10.0);
         ui.label(RichText::new(tr("Camera mouse gestures")).font(theme::font_strong(12.5)));
         if prefs.nav_scheme != NavScheme::Painter {
-            ui.label(RichText::new(tr("These apply to Painter navigation; Blender navigation keeps its own buttons.")).small().color(theme::WARNING));
+            ui.label(RichText::new(tr("These apply to Painter navigation; Blender navigation keeps its own buttons.")).small().color(theme::WARNING()));
         }
         egui::Grid::new("shortcut_editor_mouse").num_columns(3).spacing([12.0, 4.0]).striped(true).show(ui, |ui| {
             for (mode, name) in MOUSE_ACTIONS {
@@ -216,7 +216,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 });
                 ui.horizontal(|ui| {
                     if capture == Some(Capture::Mouse(mode)) {
-                        let pad = ui.add(egui::Button::new(RichText::new(tr("Click here with the new button, holding Ctrl / Shift / Alt")).color(theme::WARNING)).sense(egui::Sense::click()));
+                        let pad = ui.add(egui::Button::new(RichText::new(tr("Click here with the new button, holding Ctrl / Shift / Alt")).color(theme::WARNING())).sense(egui::Sense::click()));
                         let button = if pad.clicked() { Some(MouseButton::Left) } else if pad.clicked_by(egui::PointerButton::Middle) { Some(MouseButton::Middle) } else if pad.secondary_clicked() { Some(MouseButton::Right) } else { None };
                         if let Some(button) = button {
                             let m = ui.input(|i| i.modifiers);
@@ -226,7 +226,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         return;
                     }
                     let text = if combos.is_empty() { tr("none").to_string() } else { combos.iter().map(MouseCombo::label).collect::<Vec<_>>().join(" / ") };
-                    ui.label(RichText::new(text).monospace().color(if custom { theme::WARNING } else { theme::ACCENT }));
+                    ui.label(RichText::new(text).monospace().color(if custom { theme::WARNING() } else { theme::ACCENT() }));
                 });
                 ui.horizontal(|ui| {
                     if capture == Some(Capture::Mouse(mode)) {
@@ -254,8 +254,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 if !crate::shortcuts_window::matches(&query, &format!("{what} {how}")) {
                     continue;
                 }
-                ui.label(RichText::new(*what).color(theme::TEXT_DIM));
-                ui.label(RichText::new(*how).monospace().color(theme::TEXT_DIM));
+                ui.label(RichText::new(*what).color(theme::TEXT_DIM()));
+                ui.label(RichText::new(*how).monospace().color(theme::TEXT_DIM()));
                 ui.end_row();
             }
         });

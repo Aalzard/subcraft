@@ -77,7 +77,7 @@ pub fn list(state: &mut UiState, ui: &mut Ui) {
 /// The small header of the list: visibility menu, Focus mode, settings menu.
 fn list_header(state: &mut UiState, ui: &mut Ui, cmds: &mut Vec<Command>) {
     let focus = state.session.texture_set_focus();
-    egui::Frame::new().fill(theme::BG_2).inner_margin(egui::Margin::symmetric(6, 3)).show(ui, |ui| {
+    egui::Frame::new().fill(theme::BG_2()).inner_margin(egui::Margin::symmetric(6, 3)).show(ui, |ui| {
         ui.horizontal(|ui| {
             let vis = ui.push_id(visibility_menu_id(), |ui| crate::widgets::icon_button(ui, icons::EYE, "Show or hide all texture sets")).inner;
             egui::Popup::menu(&vis).id(visibility_menu_id().with("popup")).show(|ui| {
@@ -122,7 +122,7 @@ fn set_rows(state: &UiState, ui: &mut Ui, cmds: &mut Vec<Command>, shader_ops: &
         let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), height), egui::Sense::click());
         let inner = rect.shrink2(egui::vec2(2.0, 0.0));
         let painter = ui.painter();
-        painter.rect_filled(inner, 0.0, if resp.hovered() && !selected { theme::BG_3 } else { theme::BG_2 });
+        painter.rect_filled(inner, 0.0, if resp.hovered() && !selected { theme::BG_3() } else { theme::BG_2() });
         if selected { painter.rect_stroke(inner, 0.0, egui::Stroke::new(1.0, ACCENT), egui::StrokeKind::Inside); }
         let top = egui::Rect::from_min_max(inner.min, egui::pos2(inner.max.x, inner.min.y + 24.0));
         if show_description {
@@ -164,7 +164,7 @@ fn set_rows(state: &UiState, ui: &mut Ui, cmds: &mut Vec<Command>, shader_ops: &
             // The size is a dropdown, as in Painter: picking one resizes the set (undoable).
             let size = ui.add_sized([size_w, 18.0], egui::Button::new(RichText::new(size_label(ts.resolution)).font(theme::font(11.5)).color(TEXT_DIM)).frame(false).truncate())
                 .on_hover_text(crate::keys::native("Texture set size: click to change it. Painted strokes are resampled; Ctrl+Z restores them."));
-            if size.hovered() { ui.painter().rect_stroke(size.rect, 2.0, egui::Stroke::new(1.0, theme::BORDER_STRONG), egui::StrokeKind::Inside); }
+            if size.hovered() { ui.painter().rect_stroke(size.rect, 2.0, egui::Stroke::new(1.0, theme::BORDER_STRONG()), egui::StrokeKind::Inside); }
             egui::Popup::menu(&size).id(egui::Id::new(("texture_set_size", ts.id))).show(|ui| {
                 ui.set_min_width(size_w.max(96.0));
                 for r in subcraft_doc::RESOLUTIONS.iter().rev().copied() {
@@ -178,7 +178,7 @@ fn set_rows(state: &UiState, ui: &mut Ui, cmds: &mut Vec<Command>, shader_ops: &
             let shader = state.session.shader_instance_of(ts.id).name;
             let button = ui.add(egui::Button::new(RichText::new(shader).font(theme::font(11.5)).color(TEXT_DIM)).frame(false).truncate())
                 .on_hover_text(tr("Shader instance: click to pick another, make a new one or open Shader Settings"));
-            if button.hovered() { ui.painter().rect_stroke(button.rect, 2.0, egui::Stroke::new(1.0, theme::BORDER_STRONG), egui::StrokeKind::Inside); }
+            if button.hovered() { ui.painter().rect_stroke(button.rect, 2.0, egui::Stroke::new(1.0, theme::BORDER_STRONG()), egui::StrokeKind::Inside); }
             egui::Popup::menu(&button).id(egui::Id::new(("texture_set_shader", ts.id))).show(|ui| {
                 ui.set_min_width(160.0);
                 crate::panels::shader_settings::instance_menu(state, ui, ts.id, shader_ops);
@@ -266,7 +266,7 @@ pub fn settings(state: &mut UiState, ui: &mut Ui) {
     let jump: Option<u8> = ui.data(|d| d.get_temp(jump_id));
     ui.data_mut(|d| d.remove_temp::<u8>(jump_id));
     // Icon tab row: jumps to a section (the panel is one scrolling column, like Painter's).
-    egui::Frame::new().fill(theme::BG_2).inner_margin(egui::Margin::symmetric(6, 3)).show(ui, |ui| {
+    egui::Frame::new().fill(theme::BG_2()).inner_margin(egui::Margin::symmetric(6, 3)).show(ui, |ui| {
         ui.horizontal(|ui| {
             for (i, (icon, tip)) in [(icons::SLIDERS, "General properties and channels"), (icons::SPARKLE, "Channels"), (icons::CUBE_WIRE, "Mesh maps"), (icons::SQUARES, "ID colors")].into_iter().enumerate() {
                 if crate::widgets::icon_button(ui, icon, tip).clicked() { ui.data_mut(|d| d.insert_temp(jump_id, i as u8)); ui.ctx().request_repaint(); }
@@ -598,7 +598,7 @@ fn mesh_maps(state: &mut UiState, ui: &mut Ui, cmds: &mut Vec<Command>, now: f64
     if let Some(job) = &state.bake.job { ui.add(egui::ProgressBar::new(job.fraction()).show_percentage().fill(ACCENT)); }
     let (id, set_name) = { let ts = state.session.selected_texture_set(); (ts.id, ts.name.clone()) };
     if state.session.mesh_maps_stale(id) {
-        ui.label(RichText::new(format!("{}  Baked for an earlier version of the mesh", icons::WARNING)).small().color(theme::WARNING));
+        ui.label(RichText::new(format!("{}  Baked for an earlier version of the mesh", icons::WARNING)).small().color(theme::WARNING()));
     }
     // Every slot is always listed, as in Painter: an empty one is a place to put an image.
     let mut dropped: Option<(MeshMapKind, std::path::PathBuf)> = None;
@@ -659,10 +659,10 @@ fn map_slot(ui: &mut Ui, thumb: Option<&egui::TextureHandle>, title: &str, desc:
     let filled = thumb.is_some();
     let (rect, row) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 44.0), egui::Sense::click());
     let p = ui.painter();
-    p.rect_filled(rect, 2.0, theme::BG_2);
-    p.rect_stroke(rect, 2.0, egui::Stroke::new(1.0, if row.hovered() { TEXT_FAINT } else { theme::BORDER }), egui::StrokeKind::Inside);
+    p.rect_filled(rect, 2.0, theme::BG_2());
+    p.rect_stroke(rect, 2.0, egui::Stroke::new(1.0, if row.hovered() { TEXT_FAINT } else { theme::BORDER() }), egui::StrokeKind::Inside);
     let img = egui::Rect::from_min_size(rect.min + egui::vec2(3.0, 3.0), egui::vec2(38.0, 38.0));
-    p.rect_filled(img, 0.0, theme::FIELD);
+    p.rect_filled(img, 0.0, theme::FIELD());
     if let Some(t) = thumb { p.image(t.id(), img, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), Color32::WHITE); }
     p.text(egui::pos2(img.right() + 8.0, rect.top() + 14.0), egui::Align2::LEFT_CENTER, title, theme::font_strong(12.0), TEXT);
     let desc_color = if filled { TEXT_DIM } else { TEXT_FAINT };

@@ -52,13 +52,13 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     refresh_preview(state, ui.ctx());
     let height = stamp.kind == StampKind::Height;
     egui::Frame::new()
-        .fill(theme::BG_2)
-        .stroke(egui::Stroke::new(1.0, theme::ACCENT))
+        .fill(theme::BG_2())
+        .stroke(egui::Stroke::new(1.0, theme::ACCENT()))
         .corner_radius(4.0)
         .inner_margin(egui::Margin::same(8))
         .show(ui, |ui| {
-            ui.label(RichText::new(if height { "HEIGHT BRUSH" } else { "NORMAL MAP BRUSH" }).strong().small().color(theme::ACCENT));
-            ui.label(RichText::new(&stamp.name).color(theme::TEXT));
+            ui.label(RichText::new(if height { "HEIGHT BRUSH" } else { "NORMAL MAP BRUSH" }).strong().small().color(theme::ACCENT()));
+            ui.label(RichText::new(&stamp.name).color(theme::TEXT()));
             if let Some(t) = &state.stamp_preview.texture {
                 ui.add_space(4.0);
                 let w = ui.available_width().min(PREVIEW[0] as f32).max(1.0);
