@@ -115,6 +115,11 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     {
         state.uv.offset += response.drag_delta();
     }
+    if let Some((center, extent)) = state.uv.frame.take() {
+        let (zoom, offset) = uv_frame(rect.width().min(rect.height()) * 0.95, center, extent);
+        state.uv.zoom = zoom;
+        state.uv.offset = offset;
+    }
     let side = rect.width().min(rect.height()) * 0.95 * state.uv.zoom;
     let img_rect = Rect::from_center_size(rect.center() + state.uv.offset, egui::vec2(side, side));
     let viewport = [rect.width().round().max(1.0) as u32, rect.height().round().max(1.0) as u32];
@@ -478,5 +483,34 @@ fn paint_input(state: &mut UiState, ui: &Ui, response: &egui::Response, image: R
         }
         Err(subcraft_paint::PaintError::NoCloneSource) => state.set_status(crate::keys::native("Ctrl+click inside a UV island to set the clone source first"), now),
         Err(e) => state.set_status(format!("Can't paint here: {e} (select a paint layer)"), now),
+    }
+}
+
+/// Zoom and offset of the 2D view (whose unzoomed texture is `base` points wide) that centre UV
+/// `center` and show a UV rectangle of `extent` with a margin, within the view's zoom range.
+pub fn uv_frame(base: f32, center: Vec2, extent: Vec2) -> (f32, egui::Vec2) {
+    let zoom = (1.0 / (extent.max_element().max(1e-3) * 1.3)).clamp(0.2, 20.0);
+    let side = base * zoom;
+    (zoom, egui::vec2(0.5 - center.x, 0.5 - center.y) * side)
+}
+
+#[cfg(test)]
+mod frame_tests {
+    use super::*;
+
+    #[test]
+    fn framing_a_uv_rectangle_centres_it_and_fits_it() {
+        let view = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(500.0, 400.0));
+        let base = 400.0 * 0.95;
+        let (center, extent) = (Vec2::new(0.25, 0.7), Vec2::new(0.1, 0.05));
+        let (zoom, offset) = uv_frame(base, center, extent);
+        let side = base * zoom;
+        let img = egui::Rect::from_center_size(view.center() + offset, egui::vec2(side, side));
+        let at = img.min + egui::vec2(center.x, center.y) * side;
+        assert!((at - view.center()).length() < 1e-3, "the rectangle's centre is the view's centre: {at:?}");
+        assert!(extent.x * side < view.width() && extent.x * side > view.width() * 0.4, "fits with a margin: {}", extent.x * side);
+        // Huge and tiny rectangles stay within the zoom range.
+        assert_eq!(uv_frame(base, center, Vec2::splat(10.0)).0, 0.2);
+        assert_eq!(uv_frame(base, center, Vec2::ZERO).0, 20.0);
     }
 }

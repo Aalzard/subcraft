@@ -754,4 +754,7 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Hide while painting", "繪製時隱藏"),
     ("Mirror planes", "鏡像平面"),
     ("Each active mirror plane as a translucent sheet in its axis colour", "以座標軸顏色將每個啟用的鏡像平面顯示為半透明平面"),
+    ("Brush cursor", "筆刷游標"),
+    ("Brush outline", "筆刷輪廓"),
+    ("Crosshair", "十字準星"),
 ];

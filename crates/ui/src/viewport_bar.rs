@@ -52,6 +52,8 @@ pub struct ViewportPrefs {
     pub symmetry_cursor_hide_painting: bool,
     /// Painter's symmetry "Show Plane": the active mirror planes as translucent sheets.
     pub symmetry_plane: bool,
+    /// How the brush cursor is drawn in the 3D view (Painter's cursor display).
+    pub brush_cursor: BrushCursor,
     /// Bottom-left list of the mouse / key actions that apply now.
     pub hints: bool,
     /// X / Y / Z orientation indicator in the 3D view's bottom-right corner.
@@ -98,6 +100,25 @@ pub struct ViewportPrefs {
     pub camera_bookmarks: Vec<crate::view_extras::CameraBookmark>,
 }
 
+/// Painter's brush cursor display: the brush outline, or only a crosshair at the brush centre.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum BrushCursor {
+    #[default]
+    Outline,
+    Crosshair,
+}
+
+impl BrushCursor {
+    pub const ALL: [BrushCursor; 2] = [BrushCursor::Outline, BrushCursor::Crosshair];
+
+    pub fn label(self) -> String {
+        match self {
+            BrushCursor::Outline => crate::i18n::tr("Brush outline"),
+            BrushCursor::Crosshair => crate::i18n::tr("Crosshair"),
+        }
+    }
+}
+
 impl Default for ViewportPrefs {
     fn default() -> Self {
         Self {
@@ -110,6 +131,7 @@ impl Default for ViewportPrefs {
             symmetry_cursor: true,
             symmetry_cursor_hide_painting: false,
             symmetry_plane: true,
+            brush_cursor: BrushCursor::Outline,
             hints: true,
             axis_indicator: true,
             display: Default::default(),

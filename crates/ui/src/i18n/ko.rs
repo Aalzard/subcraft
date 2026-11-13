@@ -754,4 +754,7 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Hide while painting", "칠하는 동안 숨기기"),
     ("Mirror planes", "미러 평면"),
     ("Each active mirror plane as a translucent sheet in its axis colour", "활성화된 각 미러 평면을 축 색상의 반투명 면으로 표시합니다"),
+    ("Brush cursor", "브러시 커서"),
+    ("Brush outline", "브러시 윤곽"),
+    ("Crosshair", "십자선"),
 ];

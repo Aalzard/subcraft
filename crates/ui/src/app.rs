@@ -292,6 +292,18 @@ pub fn toggle_shader_settings(dock: &mut DockState<Tab>) {
 }
 
 /// Which views F frames: the one under the pointer, or both (3D, 2D) when it is over neither.
+/// The path being edited: its UV rectangle (centre, size) and the box around its anchors on the
+/// model (None when none of them lands on the surface).
+fn path_bounds(state: &UiState) -> Option<((glam::Vec2, glam::Vec2), Option<subcraft_mesh::Aabb>)> {
+    let path = state.pen.preview(&state.session)?;
+    let uvs: Vec<glam::Vec2> = path.anchors.iter().map(|a| a.position).collect();
+    let (lo, hi) = uvs.iter().fold((glam::Vec2::splat(f32::MAX), glam::Vec2::splat(f32::MIN)), |(lo, hi), &p| (lo.min(p), hi.max(p)));
+    if uvs.is_empty() { return None; }
+    let world: Vec<glam::Vec3> = uvs.iter().filter_map(|&uv| state.session.pen_uv_position(uv)).collect();
+    let world = (!world.is_empty()).then(|| subcraft_mesh::Aabb::from_points(world));
+    Some((((lo + hi) * 0.5, hi - lo), world))
+}
+
 pub fn frame_targets(hovered_3d: bool, hovered_2d: bool) -> (bool, bool) {
     match (hovered_3d, hovered_2d) {
         (false, false) => (true, true),
@@ -1247,13 +1259,23 @@ impl SubcraftApp {
             Action::ResetCamera => {
                 // Painter's F: frame the view under the cursor, or both when it is over neither.
                 let (three, two) = frame_targets(self.state.hovered_3d, self.state.hovered_2d);
+                // While editing a path, F focuses on it instead (Painter 11.0).
+                let path = if self.state.tool == Tool::Pen { path_bounds(&self.state) } else { None };
                 if three {
-                    self.state.camera = OrbitCamera::framing(&self.state.session.scene().mesh.bounds);
+                    match path.and_then(|(_, world)| world) {
+                        Some(world) => self.state.camera.focus_on(&world),
+                        None => self.state.camera = OrbitCamera::framing(&self.state.session.scene().mesh.bounds),
+                    }
                     self.state.orbit_pivot = None;
                 }
                 if two {
-                    self.state.uv.zoom = 1.0;
-                    self.state.uv.offset = egui::Vec2::ZERO;
+                    match path {
+                        Some((uv_box, _)) => self.state.uv.frame = Some(uv_box),
+                        None => {
+                            self.state.uv.zoom = 1.0;
+                            self.state.uv.offset = egui::Vec2::ZERO;
+                        }
+                    }
                 }
             }
             Action::HideUi => self.state.hide_ui = !self.state.hide_ui,
