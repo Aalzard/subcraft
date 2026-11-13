@@ -935,4 +935,8 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Missing seams on hard edges", "하드 에지의 누락된 이음매"),
     ("Every hard edge of the low poly is a UV seam.", "로우 폴리의 모든 하드 에지가 UV 이음매입니다."),
     ("{} hard edge(s) share UVs across the edge: a baked normal map shows a line there. Split the UVs or soften the edge.", "하드 에지 {}개가 양쪽에서 UV를 공유합니다: 베이크한 노멀 맵에 선이 보입니다. UV를 나누거나 에지를 부드럽게 하세요."),
+    ("Cage surface", "케이지 표면"),
+    ("Cage surface opacity", "케이지 표면 불투명도"),
+    ("Show for selected Texture Set only", "선택한 텍스처 세트만 표시"),
+    ("Draw the project mesh and the cage of the selected texture set only", "선택한 텍스처 세트의 프로젝트 메시와 케이지만 그립니다"),
 ];

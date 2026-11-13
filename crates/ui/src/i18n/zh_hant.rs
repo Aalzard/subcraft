@@ -935,4 +935,8 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Missing seams on hard edges", "硬邊缺少接縫"),
     ("Every hard edge of the low poly is a UV seam.", "低模的每條硬邊都是 UV 接縫。"),
     ("{} hard edge(s) share UVs across the edge: a baked normal map shows a line there. Split the UVs or soften the edge.", "{} 條硬邊兩側共用 UV：烘焙的法線貼圖會在該處出現線條。請分割 UV 或將邊軟化。"),
+    ("Cage surface", "包覆表面"),
+    ("Cage surface opacity", "包覆表面不透明度"),
+    ("Show for selected Texture Set only", "僅顯示所選貼圖集"),
+    ("Draw the project mesh and the cage of the selected texture set only", "僅繪製所選貼圖集的專案網格與包覆"),
 ];

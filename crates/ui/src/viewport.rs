@@ -598,6 +598,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             }
             params.bake_high_opacity = state.bake.high_opacity;
             params.bake_vis = state.bake.vis;
+            params.bake_vis.only_slot = state.bake.vis_selected_only.then(|| state.session.selected_texture_set().material_slot);
             params.bake_distances = [state.bake.settings.cage_front, state.bake.settings.cage_rear];
             // The mesh map viewer (View > Mesh maps, B): a baked map raw on the model.
             if !bake_mode { params.bake_map = state.recovery.prefs.viewport.mesh_map; }
