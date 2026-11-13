@@ -1589,6 +1589,8 @@ impl Session {
                 }
                 // Text layers are re-rendered from their outlines instead of resampled.
                 crate::text::refresh_text_rasters(&mut self.doc, &self.resources, &resized);
+                // Pen paths too: their raster is a cache of the path.
+                crate::pen::refresh_path_rasters(&mut self.doc, &self.resources, &resized);
                 if changed {
                     self.commit(&format!("Resolution {resolution}"), None);
                     self.fit_quick_mask();
