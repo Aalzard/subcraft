@@ -1729,12 +1729,16 @@ impl Session {
                 if found.is_empty() {
                     return Err(CommandError::Invalid("Paste as instance: the copied layer is no longer in the project".into()));
                 }
+                // Put back when a later layer is refused: the instances already inserted used to
+                // stay in the document, outside any undo step.
+                let before = ts.layers.clone();
                 for (set, source) in found {
                     let same = set == ts_id;
                     // An instance of an instance follows that one's source: the new layer must stay
                     // out of that layer too.
                     let follows = source.instance_of.unwrap_or(source.id);
                     if at.is_some_and(|a| (same && a != source.id && ts.is_descendant_or_self(a, source.id)) || (a != follows && ts.is_descendant_or_self(a, follows))) {
+                        ts.layers = before;
                         return Err(CommandError::Invalid("An instance cannot go inside its own source: select a layer outside it first".into()));
                     }
                     let mut instance = subcraft_doc::instance::new_instance(&source, ts, same);
