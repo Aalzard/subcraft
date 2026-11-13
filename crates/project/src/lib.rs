@@ -490,7 +490,11 @@ impl<R: Read + Seek> Loader<'_, R> {
                 MaskEffectKind::IdColor(id_color.clone())
             }
             MaskEffectKindV1::Anchor => MaskEffectKind::Anchor,
-            MaskEffectKindV1::AnchorRef { input, levels } => MaskEffectKind::AnchorRef { input: *input, levels: *levels },
+            MaskEffectKindV1::AnchorRef { input, levels } => {
+                // Levels out of range (1e39 reads as infinity) made the whole mask NaN.
+                if !self.trusted && levels.is_some_and(|l| !l.valid()) { return Err(ProjectError::Invalid("invalid anchor reference levels".into())); }
+                MaskEffectKind::AnchorRef { input: *input, levels: *levels }
+            }
             MaskEffectKindV1::Compare { compare } => {
                 if !compare.valid() { return Err(ProjectError::Invalid("invalid compare mask".into())); }
                 MaskEffectKind::Compare(*compare)
@@ -523,6 +527,8 @@ impl<R: Read + Seek> Loader<'_, R> {
                 if *channel == subcraft_core::ChannelKind::Normal {
                     return Err(ProjectError::Invalid("levels effect on the normal channel".into()));
                 }
+                // Only mask Levels were checked: out-of-range content Levels made the channel NaN.
+                if !self.trusted && !levels.valid() { return Err(ProjectError::Invalid("invalid levels".into())); }
                 ContentEffectKind::Levels { channel: *channel, levels: *levels }
             }
             ContentEffectKindV5::Anchor => ContentEffectKind::Anchor,
