@@ -287,8 +287,13 @@ pub const SP_L: f32 = 16.0;
 pub const CONTROL_H: f32 = 24.0;
 /// Width of the quiet numeric field to the right of a slider.
 pub const VALUE_W: f32 = 54.0;
-/// Corner radius of controls, chips and cards.
+/// Corner radius of controls, chips and cards in the Dark theme (see [`radius`]).
 pub const RADIUS: u8 = 4;
+
+/// Corner radius of controls, chips and cards in the theme in use (flatter in Painter-style).
+pub fn radius() -> u8 {
+    palette().radius
+}
 /// Small dimmed row label.
 pub const LABEL_SIZE: f32 = 12.0;
 
@@ -544,6 +549,16 @@ mod tests {
 
     fn differs(a: Color32, b: Color32, by: u8) -> bool {
         a.r().abs_diff(b.r()).max(a.g().abs_diff(b.g())).max(a.b().abs_diff(b.b())) >= by
+    }
+
+    /// QA 2026-11: Painter-style's flatter corners only reached egui's own widgets; buttons and
+    /// chips drawn by SubCraft kept the dark theme's radius.
+    #[test]
+    fn custom_widgets_take_the_theme_radius() {
+        let source = include_str!("widgets.rs");
+        assert!(!source.contains("corner_radius(RADIUS)") && !source.contains("CornerRadius::same(RADIUS)"), "widgets read theme::radius()");
+        assert_eq!(DARK.radius, RADIUS);
+        assert!(PAINTER.radius < RADIUS);
     }
 
     #[test]
