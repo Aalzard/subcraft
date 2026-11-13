@@ -310,3 +310,18 @@ fn the_2d_fill_preview_is_the_element_a_click_would_fill() {
     assert_eq!(paint_alpha(&s, island_uv(&s, 0)), 0.0);
 }
 
+/// QA 2026-11: a quick mask with only erased texels (tiles allocated, all black) counted as
+/// painted: leaving the edit applied it, and every stroke after that painted nothing.
+#[test]
+fn leaving_a_quick_mask_that_was_only_erased_removes_it() {
+    let mut s = session();
+    s.execute(Command::AddLayer(NewLayer::Paint)).unwrap();
+    let a = island_uv(&s, 0);
+    s.perform(Action::QuickMaskToggle).unwrap();
+    s.brush.mode = StrokeMode::Erase;
+    s.polygon_fill_uv(a, PolygonFillMode::UvIsland).unwrap();
+    s.perform(Action::QuickMaskToggle).unwrap();
+    assert!(s.quick_mask().is_none(), "nothing is selected: no restriction left behind");
+    dab_uv(&mut s, a);
+    assert!(paint_alpha(&s, a) > 0.99, "strokes paint again");
+}

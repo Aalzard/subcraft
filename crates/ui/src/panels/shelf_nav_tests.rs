@@ -222,4 +222,15 @@ fn breadcrumbs_and_sections_are_drawn() {
     s.shelf.filter.query = "metal rust".into();
     drawn(&mut s, show);
     assert_eq!(s.shelf.saved, None);
+}
+
+/// QA 2026-11: a library named with non-ASCII letters showed "All libraries" in the breadcrumbs
+/// while one of its folders was selected (paths are lowercased, the comparison was ASCII-only).
+#[test]
+fn breadcrumbs_find_libraries_and_folders_named_with_any_letters() {
+    let place = |library: &str, folder: Option<&str>| Location { library: library.into(), folder: folder.map(Into::into), assets: 1, applicable: 1 };
+    let places = [place("Été", None), place("Été", Some("Ömer Grunges"))];
+    let path = places[1].path();
+    assert_eq!(crumb_place(&path, &places), (Some("Été".to_string()), Some("Ömer Grunges".to_string())));
+    assert_eq!(crumb_place(&places[0].path(), &places), (Some("Été".to_string()), None));
 }
