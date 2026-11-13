@@ -317,7 +317,7 @@ pub(crate) fn handle(state: &mut UiState, purpose: Purpose, paths: &[PathBuf], n
                 Ok(a) => {
                     state.session.set_brush_alpha(&a);
                     // Re-importing a file already in the library just selects it.
-                    if !state.library.alphas.iter().any(|x| x.id == a.id) {
+                    if !state.library.alphas.iter().any(|x| crate::libraries::same_asset((x.id, x.user_file.as_deref()), (a.id, a.user_file.as_deref()))) {
                         state.library.alphas.push(a);
                     }
                 }
@@ -333,7 +333,7 @@ pub(crate) fn handle(state: &mut UiState, purpose: Purpose, paths: &[PathBuf], n
             };
             match imported {
                 Ok(e) => {
-                    state.env.index = match state.library.environments.iter().position(|x| x.id == e.id) {
+                    state.env.index = match state.library.environments.iter().position(|x| crate::libraries::same_asset((x.id, x.user_file.as_deref()), (e.id, e.user_file.as_deref()))) {
                         Some(i) => i,
                         None => {
                             state.library.environments.push(e);
