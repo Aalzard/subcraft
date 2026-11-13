@@ -210,7 +210,7 @@ mod tests {
             opacity: 1.0,
             values: [(ChannelKind::BaseColor, ChannelValue::rgb(1.0, 0.0, 0.0))].into(),
             kind: Default::default(),
-            stamp: None,
+            stamp: None, ribbon: None,
         }
     }
 

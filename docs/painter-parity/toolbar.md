@@ -15,7 +15,7 @@ Layout notes: a narrow vertical strip, top left of the main window by default; i
 | Physical eraser (particles) | Tools toolbar, Eraser second mode; Ctrl + 2 | - | missing | - | - |
 | Path tools button (opens the path type menu) | Tools toolbar, third icon | no default shortcut ("Select paint along path tool" is unbound) | partial: single Pen tool, last in the rail; P by default | crates/ui/src/app.rs:1069 | - |
 | Paint along path | Path tools menu | - | partial: Pen paths are edited in UV space with their own stroke style, not the brush engine on the 3D surface | crates/app/src/pen.rs:1 | - |
-| Ribbon path | Path tools menu | - | missing | - | - |
+| Ribbon path | Path tools menu | - | partial: Path type dropdown in the pen Properties, no Path tools menu | crates/ui/src/pen.rs | - |
 | Filled path | Path tools menu | - | missing | - | - |
 | Erase along path | Path tools menu | - | missing | - | - |
 | Smudge along path | Path tools menu | - | missing | - | - |
@@ -137,7 +137,7 @@ Layout notes: with a Path tool active the left side shows path controls in the o
 | Snap to vertices | Path settings menu, magnet (11.0) | off | missing | - | - |
 | Snap to edges | Path settings menu, magnet (11.0) | off | missing | - | - |
 | Snap to center of edges | Path settings menu, magnet (11.0) | off | missing | - | - |
-| Path type button (switch Paint / Ribbon / Filled / Erase / Smudge) | Contextual toolbar, Path tools | - | missing | - | - |
+| Path type button (switch Paint / Ribbon / Filled / Erase / Smudge) | Contextual toolbar, Path tools | - | partial: Paint, Filled and Ribbon in the pen Properties' Path type dropdown | crates/ui/src/pen.rs | - |
 | Reverse path direction | Contextual toolbar, Path tools | - | missing | - | - |
 | Toggle corner / smooth | Contextual toolbar, Path tools | shortcut unbound | missing | - | - |
 | Custom tangents | Contextual toolbar, Path tools | off | missing | - | - |

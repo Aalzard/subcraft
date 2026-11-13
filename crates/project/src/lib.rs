@@ -161,6 +161,7 @@ impl Writer {
                     values: path.values.iter().map(|(&channel, value)| PenChannelV4 { channel, value: value.0 }).collect(),
                     kind: path.kind,
                     stamp: path.stamp,
+                    ribbon: path.ribbon,
                 }),
                 text: p.text.as_ref().map(|t| TextLayerV16 {
                     text: t.style.text.clone(), font: t.font.clone(), letter_spacing: t.style.letter_spacing, line_spacing: t.style.line_spacing,
@@ -593,6 +594,7 @@ impl<R: Read + Seek> Loader<'_, R> {
                         values: path.values.iter().map(|v| (v.channel, subcraft_core::ChannelValue(v.value))).collect(),
                         kind: path.kind,
                         stamp: path.stamp,
+                        ribbon: path.ribbon,
                     };
                     source.validate().map_err(|e| ProjectError::Invalid(e.into()))?;
                     if source.values.len() != path.values.len() { return Err(ProjectError::Invalid("duplicate pen channels".into())); }
