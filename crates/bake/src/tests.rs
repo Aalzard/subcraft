@@ -620,12 +620,16 @@ fn two_part_high(vertex_colors: bool, material_colors: bool) -> Mesh {
 
 /// The ID map's colour left and right of the middle of the plane, with the bake's warnings.
 fn id_bake(high: &Mesh, source: IdSource) -> ([f32; 3], [f32; 3], Vec<String>) {
+    id_bake_with(high, &BakeSettings { id_source: source, ..settings(&[MeshMapKind::Id]) })
+}
+
+/// [`id_bake`] with explicit settings (which must ask for the ID map).
+fn id_bake_with(high: &Mesh, s: &BakeSettings) -> ([f32; 3], [f32; 3], Vec<String>) {
     let low = primitives::plane(2.0, 4);
     let (lb, hb) = (Bvh::build(&low), Bvh::build(high));
     let input = BakeInput { low: Geometry { mesh: &low, bvh: &lb }, high: Some(Geometry { mesh: high, bvh: &hb }), material_slot: 0 };
-    let s = BakeSettings { id_source: source, ..settings(&[MeshMapKind::Id]) };
     let progress = Progress::new();
-    let maps = bake(&input, &s, &progress).unwrap();
+    let maps = bake(&input, s, &progress).unwrap();
     let id = &maps[&MeshMapKind::Id];
     let (mut left, mut right) = (None, None);
     for t in texels(&low, 0, RES) {
@@ -686,4 +690,250 @@ fn id_sources_the_model_lacks_fall_back_to_generated_colours_with_a_warning() {
     let mirrored = high.transformed(&glam::Mat4::from_scale(Vec3::new(-1.0, 1.0, 1.0)));
     let (l, r, _) = id_bake(&mirrored, IdSource::VertexColor);
     assert!(close(l, [1.0, 1.0, 0.0]) && close(r, [0.0, 1.0, 0.0]), "mirrored: the sides swap, {l:?} {r:?}");
+}
+
+/// Bake a 2 x 2 plane (y = 0, facing up) against `high` with `settings`.
+fn bake_plane(high: &Mesh, settings: &BakeSettings) -> Result<BTreeMap<MeshMapKind, TiledImage>, BakeError> {
+    let low = primitives::plane(2.0, 4);
+    let (lb, hb) = (Bvh::build(&low), Bvh::build(high));
+    let input = BakeInput { low: Geometry { mesh: &low, bvh: &lb }, high: Some(Geometry { mesh: high, bvh: &hb }), material_slot: 0 };
+    bake(&input, settings, &Progress::new())
+}
+
+#[test]
+fn dilation_pads_up_to_its_width_and_diffusion_fills_the_rest() {
+    // One quad whose UVs cover the middle quarter of the texture: texels 24..40 of 64.
+    let mut b = MeshBuilder::new("island");
+    let m = b.material("m");
+    let c = |x: f32, z: f32| corner(Vec3::new(x, 0.0, z), Vec2::new(0.375 + 0.125 * (x + 1.0), 0.375 + 0.125 * (z + 1.0)));
+    b.push_triangle(m, [c(-1.0, -1.0), c(1.0, 1.0), c(1.0, -1.0)]);
+    b.push_triangle(m, [c(-1.0, -1.0), c(-1.0, 1.0), c(1.0, 1.0)]);
+    let mesh = b.build().unwrap();
+    let bvh = Bvh::build(&mesh);
+    let input = BakeInput { low: Geometry { mesh: &mesh, bvh: &bvh }, high: None, material_slot: 0 };
+    let id = |dilation: u32, diffusion: bool| {
+        let s = BakeSettings { size: 64, maps: vec![MeshMapKind::Id], dilation, diffusion, ..Default::default() };
+        bake(&input, &s, &Progress::new()).unwrap().remove(&MeshMapKind::Id).unwrap()
+    };
+    let rgb = |img: &TiledImage, x: u32, y: u32| { let v = img.get(x, y); [v[0], v[1], v[2]] };
+    let neutral = MeshMapKind::Id.neutral_value();
+    let plain = id(4, false);
+    // (36, 30) and the gutter texels below lie on the same triangle's side of the quad's diagonal.
+    let island = rgb(&plain, 36, 30);
+    assert!(!close(island, neutral), "the island has an ID colour: {island:?}");
+    assert_eq!(rgb(&plain, 42, 32), island, "2 texels outside the island: inside the dilation");
+    assert_eq!(rgb(&plain, 60, 32), neutral, "20 texels outside: beyond a dilation of 4, left neutral without diffusion");
+    assert_eq!(rgb(&id(30, false), 60, 32), island, "a wider dilation reaches it");
+    let diffused = id(4, true);
+    assert_eq!(rgb(&diffused, 42, 32), island, "diffusion leaves the dilated texels alone");
+    assert!(close(rgb(&diffused, 60, 32), island), "diffusion spreads the one colour everywhere: {:?}", rgb(&diffused, 60, 32));
+    assert!((BakeSettings::default().dilation, BakeSettings::default().diffusion) == (16, true));
+}
+
+#[test]
+fn antialiasing_supersamples_and_keeps_the_output_size() {
+    let high = two_part_high(true, false);
+    let base = BakeSettings { id_source: IdSource::VertexColor, ..settings(&[MeshMapKind::Id, MeshMapKind::Normal]) };
+    let plain = bake_plane(&high, &base).unwrap();
+    let smooth = bake_plane(&high, &BakeSettings { antialiasing: Antialiasing::X2, ..base.clone() }).unwrap();
+    for kind in [MeshMapKind::Id, MeshMapKind::Normal] {
+        assert_eq!((smooth[&kind].width(), smooth[&kind].height()), (RES, RES), "{kind:?} keeps the asked size");
+    }
+    // Away from the colour border both bakes agree; the flat normal stays a unit vector.
+    for (x, y) in [(20, 40), (100, 88), (30, 20), (110, 100)] {
+        let (a, b) = (plain[&MeshMapKind::Id].get(x, y), smooth[&MeshMapKind::Id].get(x, y));
+        assert!(close([a[0], a[1], a[2]], [b[0], b[1], b[2]]), "ID at {x},{y}: {a:?} {b:?}");
+        let n = smooth[&MeshMapKind::Normal].get(x, y);
+        assert!(close([n[0], n[1], n[2]], [0.5, 0.5, 1.0]), "normal at {x},{y}: {n:?}");
+    }
+    assert_eq!(Antialiasing::ALL.map(Antialiasing::factor), [1, 2, 4, 8]);
+    // The supersampled bake never exceeds the size limit.
+    let factor = |size: u32, antialiasing: Antialiasing| supersampling(&BakeSettings { size, antialiasing, ..Default::default() });
+    assert_eq!((factor(1024, Antialiasing::X8), factor(4096, Antialiasing::X8), factor(MAX_SUPERSAMPLED_SIZE, Antialiasing::X2), factor(2048, Antialiasing::None)), (8, 2, 1, 1));
+}
+
+#[test]
+fn averaged_normals_tilt_the_rays_at_hard_edges_only_when_asked() {
+    let cube = primitives::cube(2.0);
+    let diag = cube.bounds.diagonal();
+    let samples = texels(&cube, 0, 64);
+    assert!(!samples.is_empty());
+    let hard = Cage::new(&cube, 0, 64, &BakeSettings::default(), diag);
+    let averaged = Cage::new(&cube, 0, 64, &BakeSettings { average_normals: true, ..Default::default() }, diag);
+    let mut tilted = 0;
+    for t in &samples {
+        // The cube's own normals: every ray runs straight down its face.
+        let ray = hard.ray(&cube, t);
+        assert!(ray.dir.dot(t.geometric_normal) < -0.999, "hard: {:?} on {:?}", ray.dir, t.geometric_normal);
+        assert!((ray.origin - (t.position + t.geometric_normal * ray.front)).length() < 1e-4);
+        // Averaged: still from outside towards the surface, tilted towards the edges.
+        let ray = averaged.ray(&cube, t);
+        assert!((ray.dir.length() - 1.0).abs() < 1e-4 && ray.dir.dot(t.geometric_normal) < -0.3, "averaged: {:?} on {:?}", ray.dir, t.geometric_normal);
+        assert!((ray.origin + ray.dir * ray.front - t.position).length() < 1e-4, "the ray passes through the low-poly point");
+        if ray.dir.dot(t.geometric_normal) > -0.95 { tilted += 1; }
+    }
+    assert!(tilted * 4 > samples.len(), "rays near the edges lean over them: {tilted} of {}", samples.len());
+    // At a corner the averaged normal is the cube's diagonal, shared by the three faces.
+    let normals = averaged_normals(&cube);
+    for (p, n) in cube.positions.iter().zip(&normals).filter(|(p, _)| p.abs().min_element() > 0.99) {
+        assert!((*n - p.normalize()).length() < 1e-3, "{p:?}: {n:?}");
+    }
+}
+
+#[test]
+fn ignore_backface_skips_high_poly_faces_that_face_away() {
+    // The high poly just under the plane, turned to face down: the rays see its back.
+    let high = two_part_high(false, false).transformed(&glam::Mat4::from_scale(Vec3::new(1.0, -1.0, 1.0)));
+    assert!(high.geometric_normal(0).y < -0.9);
+    let both = settings(&[MeshMapKind::Id]);
+    assert!(bake_plane(&high, &both).is_ok(), "both sides are hit by default");
+    let front_only = BakeSettings { ignore_backface: true, ..both.clone() };
+    assert_eq!(bake_plane(&high, &front_only).err(), Some(BakeError::NoProjection));
+    // Facing up it is hit either way, and the ray-miss check follows the same rule.
+    let up = two_part_high(false, false);
+    assert!(bake_plane(&up, &front_only).is_ok());
+    let low = primitives::plane(2.0, 4);
+    let (lb, hb) = (Bvh::build(&low), Bvh::build(&high));
+    let input = BakeInput { low: Geometry { mesh: &low, bvh: &lb }, high: Some(Geometry { mesh: &high, bvh: &hb }), material_slot: 0 };
+    let misses = cage_misses(&input, &front_only, 32).unwrap();
+    assert_eq!(misses.missed, misses.covered);
+    assert!(cage_misses(&input, &both, 32).unwrap().missed < misses.covered / 2);
+}
+
+#[test]
+fn a_custom_cage_decides_where_the_rays_start() {
+    // The high poly floats half a unit above the plane, far beyond the distance-based cage.
+    let high = two_part_high(false, false).transformed(&glam::Mat4::from_translation(Vec3::new(0.0, 0.5, 0.0)));
+    let distance = settings(&[MeshMapKind::Id, MeshMapKind::Height]);
+    assert_eq!(bake_plane(&high, &distance).err(), Some(BakeError::NoProjection));
+    // A cage: the low poly (same UVs) lifted above the high poly.
+    let cage = primitives::plane(2.0, 4).transformed(&glam::Mat4::from_translation(Vec3::Y));
+    let caged = BakeSettings { cage: Some(CageMesh(std::sync::Arc::new(cage))), ..distance.clone() };
+    let maps = bake_plane(&high, &caged).unwrap();
+    let id = maps[&MeshMapKind::Id].get(30, 40);
+    assert!(!close([id[0], id[1], id[2]], MeshMapKind::Id.neutral_value()), "the high poly is reached: {id:?}");
+    assert!(maps[&MeshMapKind::Height].get(30, 40)[0] > 0.9, "and it stands above the low poly");
+    assert_eq!(caged.cage, caged.clone().cage, "a cage equals itself");
+    assert_ne!(caged.cage, Some(CageMesh(std::sync::Arc::new(primitives::plane(2.0, 4)))));
+}
+
+/// Ambient occlusion at the middle of a 2 x 2 plane that faces down, baked onto itself.
+fn ao_under_plane(ao: AoOptions) -> f32 {
+    let low = primitives::plane(2.0, 4).transformed(&glam::Mat4::from_rotation_x(std::f32::consts::PI));
+    assert!(low.geometric_normal(0).y < -0.9, "the plane faces down");
+    let bvh = Bvh::build(&low);
+    let input = BakeInput { low: Geometry { mesh: &low, bvh: &bvh }, high: None, material_slot: 0 };
+    let s = BakeSettings { ao, use_gpu: false, ..settings(&[MeshMapKind::AmbientOcclusion]) };
+    bake(&input, &s, &Progress::new()).unwrap()[&MeshMapKind::AmbientOcclusion].get(64, 64)[0]
+}
+
+#[test]
+fn ambient_occlusion_options_shape_the_rays() {
+    assert!(AoOptions::default().is_plain());
+    assert_eq!(ao_under_plane(AoOptions::default()), 1.0, "nothing under the plane");
+    // A floor 0.05 diagonals under it: nearly every ray of the hemisphere reaches it.
+    let floor = AoOptions { ground_plane: true, ground_offset: 0.05, ..Default::default() };
+    assert!(!floor.is_plain());
+    let dark = ao_under_plane(floor);
+    assert!(dark < 0.12, "the floor occludes: {dark}");
+    // Uniform rays: more of them graze the horizon and escape.
+    let uniform = ao_under_plane(AoOptions { distribution: RayDistribution::Uniform, ..floor });
+    assert!(uniform > dark + 0.08 && uniform < 0.4, "uniform {uniform} vs cosine {dark}");
+    // A narrow cone only looks straight down: fully occluded.
+    assert!(ao_under_plane(AoOptions { spread_angle: 20.0, ..floor }) < 0.01);
+    // Attenuation: the floor is 0.2 of the maximum distance away, so it counts for less.
+    let linear = ao_under_plane(AoOptions { attenuation: AoAttenuation::Linear, ..floor });
+    let smooth = ao_under_plane(AoOptions { attenuation: AoAttenuation::Smooth, ..floor });
+    assert!(linear > dark + 0.1 && linear < 0.8, "linear {linear}");
+    assert!(smooth > dark && smooth < linear, "smooth {smooth} keeps near occluders darker than linear {linear}");
+    // A minimum distance beyond the floor straight below ignores most of it.
+    let far_only = ao_under_plane(AoOptions { min_distance: 0.1, ..floor });
+    assert!(far_only > dark + 0.5, "min distance {far_only}");
+    assert_eq!((AoAttenuation::None.weight(0.3, 1.0), AoAttenuation::Linear.weight(0.25, 1.0), AoAttenuation::Smooth.weight(0.5, 1.0)), (1.0, 0.75, 0.5));
+}
+
+#[test]
+fn cone_directions_stay_inside_the_cone_and_match_the_cosine_hemisphere() {
+    let n = Vec3::new(0.3, 0.9, -0.2).normalize();
+    let (mut cone, mut hemi) = (Vec::new(), Vec::new());
+    surface::cone_directions(n, 64, 0.37, 180.0, false, &mut cone);
+    surface::cosine_directions(n, 64, 0.37, &mut hemi);
+    for (a, b) in cone.iter().zip(&hemi) { assert!((*a - *b).length() < 1e-4, "{a:?} {b:?}"); }
+    for uniform in [false, true] {
+        surface::cone_directions(n, 64, 0.11, 60.0, uniform, &mut cone);
+        assert_eq!(cone.len(), 64);
+        let limit = 30f32.to_radians().cos() - 1e-4;
+        assert!(cone.iter().all(|d| (d.length() - 1.0).abs() < 1e-4 && d.dot(n) >= limit), "uniform {uniform}");
+    }
+    // Uniform spreads wider on average than cosine weighting.
+    let mean = |uniform: bool| { let mut d = Vec::new(); surface::cone_directions(n, 256, 0.0, 180.0, uniform, &mut d); d.iter().map(|d| d.dot(n)).sum::<f32>() / 256.0 };
+    assert!((mean(false) - 2.0 / 3.0).abs() < 0.02 && (mean(true) - 0.5).abs() < 0.02, "{} {}", mean(false), mean(true));
+}
+
+#[test]
+fn position_map_normalization_and_single_axis() {
+    let mesh = primitives::plane(2.0, 4);
+    let bvh = Bvh::build(&mesh);
+    let input = BakeInput { low: Geometry { mesh: &mesh, bvh: &bvh }, high: None, material_slot: 0 };
+    let position = |position: PositionOptions| {
+        let s = BakeSettings { position, ..settings(&[MeshMapKind::Position]) };
+        bake(&input, &s, &Progress::new()).unwrap().remove(&MeshMapKind::Position).unwrap()
+    };
+    let boxed = position(PositionOptions::default());
+    let sphere = position(PositionOptions { normalization: PositionNormalization::BoundingSphere, ..Default::default() });
+    let z_only = position(PositionOptions { single_axis: Some(2), ..Default::default() });
+    let radius = mesh.bounds.diagonal() * 0.5;
+    for t in texels(&mesh, 0, RES) {
+        let p = t.position;
+        // Rim texels lie just outside the plane, where the map is clamped.
+        if p.x.abs() > 1.0 || p.z.abs() > 1.0 { continue; }
+        let (b, s, z) = (at(&boxed, &t), at(&sphere, &t), at(&z_only, &t));
+        // Box: each axis spans 0..1 (the flat Y axis sits at the box's floor).
+        assert!((b[0] - (p.x + 1.0) * 0.5).abs() < 2e-3 && (b[2] - (p.z + 1.0) * 0.5).abs() < 2e-3, "box {b:?} at {p}");
+        // Sphere: one scale for all axes, the centre at 0.5.
+        let expect = |v: f32| 0.5 + v / (2.0 * radius);
+        assert!((s[0] - expect(p.x)).abs() < 2e-3 && (s[1] - 0.5).abs() < 2e-3 && (s[2] - expect(p.z)).abs() < 2e-3, "sphere {s:?} at {p}");
+        // Single axis: gray, the value of that axis.
+        assert!(z[0] == z[1] && z[1] == z[2] && (z[0] - b[2]).abs() < 1e-6, "single axis {z:?} vs {b:?}");
+    }
+}
+
+#[test]
+fn height_map_can_use_a_manual_range() {
+    let high = two_part_high(false, false);
+    let low = primitives::plane(2.0, 4);
+    let diag = low.bounds.diagonal().max(high.bounds.diagonal());
+    let height = |height: HeightNormalization| {
+        let s = BakeSettings { height, ..settings(&[MeshMapKind::Height]) };
+        bake_plane(&high, &s).unwrap()[&MeshMapKind::Height].get(30, 40)[0]
+    };
+    // The high poly stands 0.005 above the plane. Cage: over the front reach of 0.01 diagonals.
+    let cage = height(HeightNormalization::Cage);
+    assert!((cage - (0.5 + 0.5 * 0.005 / (0.01 * diag))).abs() < 5e-3, "cage {cage}");
+    // Manual: white at 0.02 above.
+    let manual = height(HeightNormalization::Manual { distance: 0.02 / diag });
+    assert!((manual - 0.625).abs() < 5e-3, "manual {manual}");
+    // A range shorter than the offset saturates.
+    assert!(height(HeightNormalization::Manual { distance: 0.004 / diag }) > 0.999);
+}
+
+#[test]
+fn id_colour_generators() {
+    let high = two_part_high(false, false);
+    let ids = |id_generator: IdGenerator| {
+        let s = BakeSettings { id_generator, ..settings(&[MeshMapKind::Id]) };
+        let (l, r, _) = id_bake_with(&high, &s);
+        (l, r)
+    };
+    let gray = |c: [f32; 3]| c[0] == c[1] && c[1] == c[2];
+    let (l, r) = ids(IdGenerator::Grayscale);
+    assert!(gray(l) && gray(r) && !close(l, r), "grayscale {l:?} {r:?}");
+    let (l, r) = ids(IdGenerator::Random);
+    assert!(!gray(l) && !gray(r) && !close(l, r), "random {l:?} {r:?}");
+    let (l, r) = ids(IdGenerator::HueShift);
+    assert!(!gray(l) && !close(l, r), "hue shift {l:?} {r:?}");
+    assert_eq!(BakeSettings::default().id_generator, IdGenerator::HueShift, "the default is the colours so far");
+    assert_eq!(IdGenerator::HueShift.color(3), subcraft_core::color::hsv_to_rgb([(3.0f32 * 0.618_034).fract(), 0.65, 0.9]));
+    // No generator gives black, the ID map's empty value.
+    for g in IdGenerator::ALL { for i in 0..64 { assert!(g.color(i).iter().all(|c| *c >= 0.1 && *c <= 1.0), "{g:?} {i}"); } }
 }

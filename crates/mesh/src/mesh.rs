@@ -129,6 +129,47 @@ impl Mesh {
         self.material_colors.get(slot).copied().flatten()
     }
 
+    /// Several meshes as one (baking against several high-poly files): vertices, triangles,
+    /// materials and objects are appended in order. Nothing is welded or renamed.
+    pub fn merged(parts: &[&Mesh]) -> Mesh {
+        let mut out = Mesh { name: parts.first().map(|m| m.name.clone()).unwrap_or_default(), ..Default::default() };
+        let any_objects = parts.iter().any(|m| !m.tri_object.is_empty());
+        let any_colors = parts.iter().any(|m| !m.corner_colors.is_empty());
+        let any_material_colors = parts.iter().any(|m| !m.material_colors.is_empty());
+        for m in parts {
+            let (v0, t0) = (out.positions.len() as u32, out.triangle_count() as u32);
+            let (m0, o0) = (out.materials.len() as u32, out.objects.len() as u32);
+            out.positions.extend_from_slice(&m.positions);
+            out.normals.extend_from_slice(&m.normals);
+            out.uvs.extend_from_slice(&m.uvs);
+            out.tangents.extend_from_slice(&m.tangents);
+            out.indices.extend(m.indices.iter().map(|i| i + v0));
+            out.tri_material.extend(m.tri_material.iter().map(|slot| slot + m0));
+            if any_objects {
+                if m.tri_object.is_empty() {
+                    out.tri_object.extend(std::iter::repeat_n(None, m.triangle_count()));
+                } else {
+                    out.tri_object.extend(m.tri_object.iter().map(|o| o.map(|o| o + o0)));
+                }
+            }
+            out.objects.extend(m.objects.iter().cloned());
+            out.materials.extend(m.materials.iter().cloned());
+            out.submeshes.extend(m.submeshes.iter().map(|s| Submesh { material: s.material + m0, first_triangle: s.first_triangle + t0, triangle_count: s.triangle_count }));
+            if any_colors {
+                if m.corner_colors.is_empty() {
+                    out.corner_colors.extend(std::iter::repeat_n([1.0; 4], 3 * m.triangle_count()));
+                } else {
+                    out.corner_colors.extend_from_slice(&m.corner_colors);
+                }
+            }
+            if any_material_colors {
+                out.material_colors.extend((0..m.materials.len()).map(|i| m.material_colors.get(i).copied().flatten()));
+            }
+            out.bounds = out.bounds.merge(&m.bounds);
+        }
+        out
+    }
+
     /// A copy with every position moved by `m` (normals by the inverse transpose, tangent
     /// directions by the linear part, winding flipped for mirroring transforms) and the bounds
     /// recomputed. UVs, materials and object identity are untouched.

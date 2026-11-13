@@ -409,8 +409,8 @@ impl Stroke {
             }
             let mut pos = sample.pos;
             if position_jitter > 0.0 {
-                let (a, d) = (rand01(s.seed, k, 3) * std::f32::consts::TAU, rand01(s.seed, k, 4).sqrt());
-                pos += Vec2::new(a.cos(), a.sin()) * d * position_jitter * 2.0 * radius_uv * scale * res;
+                let offset = s.position_jitter_axis.offset(sample.dir, rand01(s.seed, k, 3), rand01(s.seed, k, 4));
+                pos += offset * position_jitter * 2.0 * radius_uv * scale * res;
             }
             stamps.push(Stamp {
                 camera: 0,
@@ -517,8 +517,8 @@ impl Stroke {
             let mut screen = sample.pos;
             if position_jitter > 0.0 {
                 let r_px = radius * ctx.camera.pixels_per_unit(self.depth_hint(ctx));
-                let (a, d) = (rand01(s.seed, k, 3) * std::f32::consts::TAU, rand01(s.seed, k, 4).sqrt());
-                screen += Vec2::new(a.cos(), a.sin()) * d * position_jitter * 2.0 * r_px;
+                let offset = s.position_jitter_axis.offset(sample.dir, rand01(s.seed, k, 3), rand01(s.seed, k, 4));
+                screen += offset * position_jitter * 2.0 * r_px;
             }
             let mut dabs = vec![Dab { screen, radius, flow, angle, roundness: s.roundness, hardness: s.hardness }];
             if s.scatter_count > 0 {

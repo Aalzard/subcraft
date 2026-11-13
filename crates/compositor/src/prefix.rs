@@ -148,6 +148,9 @@ pub(crate) enum Change<'a> {
     Parameters,
     /// Only raster texels of these tiles changed.
     Tiles(&'a BTreeSet<usize>),
+    /// Layer parameters changed that only these channels read (a channel's blend or fill):
+    /// every tile of the changed layers and above, for these channels.
+    Kinds(&'a BTreeSet<ChannelKind>),
 }
 
 pub struct PrefixCache {
@@ -157,6 +160,8 @@ pub struct PrefixCache {
     misses: AtomicUsize,
     /// The layers' own results (see [`ContentCache`]); same lifetime and budget.
     pub(crate) content: ContentCache,
+    /// The channels the pending evaluations are limited to (`None`: every channel).
+    only: Mutex<Option<Vec<ChannelKind>>>,
 }
 
 impl Default for PrefixCache {
@@ -177,7 +182,7 @@ pub struct PrefixStats {
 
 impl PrefixCache {
     pub fn new(budget_bytes: usize) -> Self {
-        Self { inner: Mutex::default(), budget: budget_bytes, hits: AtomicUsize::new(0), misses: AtomicUsize::new(0), content: ContentCache::new(budget_bytes) }
+        Self { inner: Mutex::default(), budget: budget_bytes, hits: AtomicUsize::new(0), misses: AtomicUsize::new(0), content: ContentCache::new(budget_bytes), only: Mutex::new(None) }
     }
 
     fn lock(&self) -> MutexGuard<'_, Inner> {
@@ -206,10 +211,25 @@ impl PrefixCache {
         if k != i.layers.len() || k != layers.len() {
             match change {
                 Change::Tiles(tiles) if i.layers.len() == layers.len() => i.retain(|key| (key.1 as usize) < k || !tiles.contains(&(key.2 as usize))),
+                Change::Kinds(kinds) if i.layers.len() == layers.len() => {
+                    let kinds: BTreeSet<u16> = kinds.iter().map(|k| *k as u16).collect();
+                    i.retain(|key| (key.1 as usize) < k || !kinds.contains(&key.0));
+                }
                 _ => i.retain(|key| (key.1 as usize) < k),
             }
         }
         i.layers = layers.to_vec();
+    }
+
+    /// Limit the evaluations that follow to these channels (`None`: all of them). The caller
+    /// guarantees every other channel of the tiles it evaluates is already up to date.
+    pub(crate) fn set_only(&self, kinds: Option<Vec<ChannelKind>>) {
+        *self.only.lock().unwrap_or_else(|p| p.into_inner()) = kinds;
+    }
+
+    /// See [`PrefixCache::set_only`].
+    pub(crate) fn only(&self) -> Option<Vec<ChannelKind>> {
+        self.only.lock().unwrap_or_else(|p| p.into_inner()).clone()
     }
 
     /// Boundaries (top-level layer indices) to resume from and to store. Stored from now on: as

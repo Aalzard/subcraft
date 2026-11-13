@@ -219,3 +219,32 @@ fn showing_the_brush_rows_does_not_clamp_stored_values() {
     assert_eq!(s.session.brush.settings.position_jitter, 1.5);
     assert_eq!(s.session.brush.settings.spacing, 4.0);
 }
+
+#[test]
+fn position_jitter_axis_dropdown_offers_both_axes_and_one_axis() {
+    use subcraft_paint::JitterAxis;
+    let mut s = state();
+    let ctx = context(&mut s);
+    assert_eq!(s.session.brush.settings.position_jitter_axis, JitterAxis::Both);
+    let out = frame(&mut s, &ctx, vec![]);
+    let (label, jitter) = (text_y(&out, "Position Jitter Axis").expect("the row"), text_y(&out, "Position Jitter").unwrap());
+    assert!(label > jitter, "the axis row sits under Position Jitter");
+    let pos = out.shapes.iter().find_map(|s| match &s.shape {
+        egui::epaint::Shape::Text(t) if t.galley.text() == "Both axes" => Some(t.pos + t.galley.size() * 0.5),
+        _ => None,
+    }).expect("the dropdown shows the current axis");
+    click_at(&mut s, &ctx, pos);
+    let out = frame(&mut s, &ctx, vec![]);
+    let one = out.shapes.iter().filter_map(|s| match &s.shape {
+        egui::epaint::Shape::Text(t) if t.galley.text() == "One axis" => Some(t.pos + t.galley.size() * 0.5),
+        _ => None,
+    }).last().expect("the open list offers One axis");
+    click_at(&mut s, &ctx, one);
+    assert_eq!(s.session.brush.settings.position_jitter_axis, JitterAxis::One);
+    // Saved with the brush; brushes from before the setting keep their look.
+    let json = serde_json::to_string(&s.session.brush.settings).unwrap();
+    assert!(json.contains(r#""position_jitter_axis":"one""#), "{json}");
+    assert_eq!(serde_json::from_str::<subcraft_paint::BrushSettings>(&json).unwrap(), s.session.brush.settings);
+    let old: subcraft_paint::BrushSettings = serde_json::from_str(r#"{"position_jitter":0.5}"#).unwrap();
+    assert_eq!(old.position_jitter_axis, JitterAxis::Both);
+}

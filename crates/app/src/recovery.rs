@@ -43,6 +43,21 @@ pub fn data_dir() -> Option<PathBuf> {
     dirs::data_local_dir().map(|d| d.join("SubCraft"))
 }
 
+static CACHE_DIR: std::sync::RwLock<Option<PathBuf>> = std::sync::RwLock::new(None);
+
+/// Settings > General > Cache folder: where re-creatable files go (the Painter import cache, update
+/// downloads). `None` = the data folder.
+pub fn set_cache_dir(dir: Option<PathBuf>) {
+    if let Ok(mut d) = CACHE_DIR.write() {
+        *d = dir.filter(|p| !p.as_os_str().is_empty());
+    }
+}
+
+/// The cache folder in force: the one chosen in Settings, else the data folder.
+pub fn cache_dir() -> Option<PathBuf> {
+    CACHE_DIR.read().ok().and_then(|d| d.clone()).or_else(data_dir)
+}
+
 /// What a session folder belongs to.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SessionInfo {

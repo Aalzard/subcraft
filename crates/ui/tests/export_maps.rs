@@ -5,7 +5,7 @@ use subcraft_ui::state::UiState;
 
 fn frame(state: &mut UiState, ctx: &egui::Context, events: Vec<egui::Event>, _modifiers: egui::Modifiers) -> egui::FullOutput {
     let mut out = ctx.run_ui(
-        egui::RawInput { events, screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(900.0, 900.0))), ..Default::default() },
+        egui::RawInput { events, screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1000.0, 1400.0))), ..Default::default() },
         |ui| subcraft_ui::dialogs::export_window(state, ui.ctx(), 0.0),
     );
     out.textures_delta.clear();
@@ -17,6 +17,17 @@ fn position(out: &egui::FullOutput, text: &str) -> Option<egui::Pos2> {
         egui::epaint::Shape::Text(t) if t.galley.text() == text => Some(t.pos + t.galley.size() * 0.5),
         _ => None,
     })
+}
+
+/// Every text on screen with its centre, for failure messages.
+fn texts(out: &egui::FullOutput) -> String {
+    let mut v: Vec<String> = out.shapes.iter().filter_map(|s| match &s.shape {
+        egui::epaint::Shape::Text(t) => Some(format!("{:?} @ ({:.0}, {:.0}) clip {:?}", t.galley.text(), t.pos.x, t.pos.y, s.clip_rect)),
+        _ => None,
+    }).collect();
+    v.dedup();
+    v.join("
+")
 }
 
 fn click(state: &mut UiState, ctx: &egui::Context, text: &str, modifiers: egui::Modifiers) {
@@ -53,7 +64,8 @@ fn none_then_one_checkbox_exports_only_that_map_and_all_restores() {
     click(&mut state, &ctx, "None", Default::default());
     assert!(enabled(&mut state).is_empty());
     let out = frame(&mut state, &ctx, vec![], Default::default());
-    assert!(position(&out, "Check at least one map to export.").is_some(), "hint shown when nothing is checked");
+    assert!(position(&out, "Check at least one map to export.").is_some(), "hint shown when nothing is checked; on screen:
+{}", texts(&out));
     click(&mut state, &ctx, "Roughness", Default::default());
     assert_eq!(enabled(&mut state), ["Roughness"]);
     click(&mut state, &ctx, "Invert", Default::default());
@@ -151,4 +163,56 @@ fn baked_mesh_maps_section_exports_the_checked_maps_of_every_set() {
     assert!(files.iter().all(|f| f.contains("_baked_ambient_occlusion.")), "{files:?}");
     assert!(files.iter().any(|f| f.contains("_Body_")) && files.iter().any(|f| f.contains("_Trim_")), "{files:?}");
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+/// Painter's Export window: three tabs, Save settings keeps the settings in the project, Cancel
+/// goes back to how the window opened, and a texture set can have its own file type.
+#[test]
+fn tabs_save_settings_cancel_and_texture_set_overrides() {
+    let (mut state, ctx) = setup();
+    let out = frame(&mut state, &ctx, vec![], Default::default());
+    for text in ["Settings", "Output templates", "List of exports", "Global settings", "Reset all", "Save settings", "Cancel"] {
+        assert!(position(&out, text).is_some(), "{text}; on screen:
+{}", texts(&out));
+    }
+    click(&mut state, &ctx, "List of exports", Default::default());
+    let out = frame(&mut state, &ctx, vec![], Default::default());
+    assert!(position(&out, "Nothing exported yet in this session. Press Export to write the checked maps.").is_some());
+    click(&mut state, &ctx, "Output templates", Default::default());
+    let out = frame(&mut state, &ctx, vec![], Default::default());
+    assert!(position(&out, "Built-in templates are read-only: Duplicate to make an editable copy.").is_some(), "the preset editor");
+    click(&mut state, &ctx, "Settings", Default::default());
+
+    // Save settings writes the window's settings into the project.
+    state.export.settings.size = Some(512);
+    state.export.settings.padding = subcraft_app::Padding::Diffusion(4);
+    click(&mut state, &ctx, "Save settings", Default::default());
+    let saved = state.session.settings().export.clone().expect("saved");
+    assert_eq!((saved.size, saved.padding), (Some(512), Some(subcraft_app::Padding::Diffusion(4))));
+    assert!(state.session.is_modified());
+
+    // Changes after that, then Cancel: back to the saved state and the window closes.
+    state.export.settings.size = Some(128);
+    click(&mut state, &ctx, "Roughness", Default::default());
+    click(&mut state, &ctx, "Cancel", Default::default());
+    assert!(!state.export.open);
+    assert_eq!(state.export.settings.size, Some(512));
+    assert!(enabled(&mut state).contains(&"Roughness".to_string()), "map selection restored");
+
+    // A texture set's own file type: only its files change.
+    state.export.open = true;
+    let id = state.session.document().texture_sets[0].id;
+    let name = state.session.document().texture_sets[0].name.clone();
+    state.export.set_overrides.insert(id, subcraft_doc::ExportOverrides { format: Some(subcraft_app::FileFormat::Tga8), ..Default::default() });
+    frame(&mut state, &ctx, vec![], Default::default());
+    let plan = state.session.export_plan(&state.export.settings.clone());
+    assert!(plan.iter().filter(|(s, _)| *s == name).all(|(_, p)| p.ends_with(".tga")), "{plan:?}");
+    assert!(plan.iter().filter(|(s, _)| *s != name).all(|(_, p)| !p.ends_with(".tga")), "{plan:?}");
+    // Its entry in the list is marked; selecting it shows its own settings.
+    let out = frame(&mut state, &ctx, vec![], Default::default());
+    assert!(position(&out, &format!("{name} *")).is_some());
+    click(&mut state, &ctx, &format!("{name} *"), Default::default());
+    assert_eq!(state.export.selected_set, Some(id));
+    let out = frame(&mut state, &ctx, vec![], Default::default());
+    assert!(position(&out, "Settings left on Global follow Global settings.").is_some());
 }
