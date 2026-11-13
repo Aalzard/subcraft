@@ -44,8 +44,42 @@ struct Walk {
     seen_names: HashSet<String>,
 }
 
+/// Deepest `{ ... }` nesting of a text USD file (strings and `#` comments skipped), or `None` for
+/// a binary file.
+fn text_nesting(bytes: &[u8]) -> Option<usize> {
+    if !bytes.starts_with(b"#usda") {
+        return None;
+    }
+    let (mut depth, mut deepest, mut i) = (0usize, 0usize, 0usize);
+    while i < bytes.len() {
+        match bytes[i] {
+            b'"' => {
+                i += 1;
+                while i < bytes.len() && bytes[i] != b'"' {
+                    if bytes[i] == b'\\' { i += 1; }
+                    i += 1;
+                }
+            }
+            b'#' => while i < bytes.len() && bytes[i] != b'\n' { i += 1; },
+            b'{' => { depth += 1; deepest = deepest.max(depth); }
+            b'}' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+        i += 1;
+    }
+    Some(deepest)
+}
+
 pub fn load_usd(path: &Path, b: &mut MeshBuilder, warnings: &mut Vec<String>) -> R<()> {
     let path_str = path.to_str().ok_or_else(|| ImportError::Usd("non UTF-8 path".into()))?;
+    // The text parser recurses once per nested prim with no limit of its own, and a stack
+    // overflow cannot be caught: it ends the whole app. Refuse such a file before parsing it
+    // (the walk below has the same limit, but it only runs after the parser).
+    if let Ok(bytes) = std::fs::read(path)
+        && text_nesting(&bytes).is_some_and(|d| d > MAX_DEPTH)
+    {
+        return Err(ImportError::Usd(format!("prim tree is nested deeper than {MAX_DEPTH} levels")));
+    }
     let stage = usd::Stage::builder()
         .schema_registry(openusd_schemas::schema_registry())
         .open(path_str)
