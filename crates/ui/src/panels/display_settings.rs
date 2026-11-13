@@ -324,6 +324,18 @@ pub fn camera(state: &mut UiState, ui: &mut Ui) {
             ui.label(tr("Anti-aliasing"));
             ui.checkbox(&mut prefs.antialias, "").on_hover_text(tr("Anti-aliasing · smooth edges (4x MSAA); off is faster"));
             ui.end_row();
+            ui.label(tr("Temporal anti-aliasing"));
+            ui.checkbox(&mut prefs.display.taa, "").on_hover_text(tr("While the view is still, frames drawn with sub-pixel shifts are averaged into a smoother image"));
+            ui.end_row();
+            ui.label(tr("Accumulations"));
+            ui.add_enabled_ui(prefs.display.taa, |ui| {
+                egui::ComboBox::from_id_salt("taa_accumulations").selected_text(prefs.display.taa_accumulations.to_string()).show_ui(ui, |ui| {
+                    for n in crate::viewport::TAA_ACCUMULATIONS {
+                        ui.selectable_value(&mut prefs.display.taa_accumulations, n, n.to_string());
+                    }
+                });
+            }).response.on_hover_text(tr("Frames averaged before the image is final: 16 suits most views, 64 very contrasted ones"));
+            ui.end_row();
         });
     }
     if pick {

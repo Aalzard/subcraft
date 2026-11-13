@@ -615,8 +615,23 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     Err(e) => pt_error = Some(e),
                 }
             }
-            if !traced {
-                renderer.render(&rs.device, &rs.queue, render_size, &params);
+            if traced {
+                state.taa = TaaState::default();
+            } else {
+                // Temporal anti-aliasing: number the frames of the average; once it has its
+                // accumulations the finished image stays on screen until something changes.
+                let scene = (state.session.revision(), state.gpu_changed || state.painting);
+                let accumulations = view.taa.then_some(view.taa_accumulations);
+                let kept = renderer.target().is_some_and(|t| t.size == render_size);
+                match taa_step(&mut state.taa, &params, accumulations, scene) {
+                    None if kept => {}
+                    step => {
+                        params.taa_frame = step.unwrap_or(0);
+                        if step.is_none() { state.taa = TaaState::default(); }
+                        renderer.render(&rs.device, &rs.queue, render_size, &params);
+                        if params.taa_frame > 0 { ui.ctx().request_repaint(); }
+                    }
+                }
             }
             let target = if traced { renderer.path_target() } else { renderer.target() }.expect("rendered above");
             let mut egui_renderer = rs.renderer.write();
@@ -1168,6 +1183,40 @@ fn draw_axis_indicator(painter: &egui::Painter, centre: Pos2, view: glam::Mat4) 
     }
 }
 
+/// Temporal anti-aliasing progress: the view the average belongs to and how many frames it has.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct TaaState {
+    last: Option<subcraft_render::ViewParams>,
+    revision: u64,
+    pub frame: u32,
+}
+
+/// The next temporal anti-aliasing frame for a view drawn with `params`: `Some(n)` draws frame
+/// `n` of the average (1 starts it again, 0 means TAA is off); `None` means the average already
+/// has its `accumulations` frames, so the image on screen is final. `scene` is the document
+/// revision and whether the renderer received anything this frame; any change to it or to
+/// `params` starts a new average.
+pub fn taa_step(s: &mut TaaState, params: &subcraft_render::ViewParams, accumulations: Option<u32>, scene: (u64, bool)) -> Option<u32> {
+    let Some(n) = accumulations.map(|n| n.clamp(1, 256)) else {
+        *s = TaaState::default();
+        return Some(0);
+    };
+    let key = subcraft_render::ViewParams { taa_frame: 0, ..*params };
+    if scene.1 || s.revision != scene.0 || s.last != Some(key) {
+        s.frame = 0;
+    }
+    s.last = Some(key);
+    s.revision = scene.0;
+    if s.frame >= n {
+        return None;
+    }
+    s.frame += 1;
+    Some(s.frame)
+}
+
+/// Accumulation counts offered for temporal anti-aliasing.
+pub const TAA_ACCUMULATIONS: [u32; 5] = [4, 8, 16, 32, 64];
+
 /// Half length of the crosshair cursor's arms, in points.
 pub const CROSSHAIR_ARM: f32 = 8.0;
 
@@ -1314,6 +1363,28 @@ pub(crate) fn draw_stencil(state: &mut UiState, ui: &Ui, painter: &egui::Painter
 mod tests {
     use super::*;
     use crate::state::BrushNotice;
+
+    #[test]
+    fn taa_counts_frames_while_still_restarts_on_change_and_stops_when_done() {
+        let view = subcraft_render::ViewParams::new(glam::Mat4::IDENTITY, glam::Mat4::IDENTITY);
+        let mut s = TaaState::default();
+        assert_eq!(taa_step(&mut s, &view, None, (0, false)), Some(0), "off");
+        let steps: Vec<_> = (0..6).map(|_| taa_step(&mut s, &view, Some(4), (0, false))).collect();
+        assert_eq!(steps, [Some(1), Some(2), Some(3), Some(4), None, None], "four frames, then the image is final");
+        // The frame number itself does not count as a change.
+        let numbered = subcraft_render::ViewParams { taa_frame: 9, ..view };
+        assert_eq!(taa_step(&mut s, &numbered, Some(4), (0, false)), None);
+        // A moved camera, an edit and a GPU upload each start again.
+        let moved = subcraft_render::ViewParams { eye: glam::Vec3::X, ..view };
+        assert_eq!(taa_step(&mut s, &moved, Some(4), (0, false)), Some(1));
+        assert_eq!(taa_step(&mut s, &moved, Some(4), (0, false)), Some(2));
+        assert_eq!(taa_step(&mut s, &moved, Some(4), (1, false)), Some(1), "document revision changed");
+        assert_eq!(taa_step(&mut s, &moved, Some(4), (1, true)), Some(1), "the renderer received new data");
+        assert_eq!(taa_step(&mut s, &moved, Some(4), (1, false)), Some(2));
+        // Turning it off forgets the average.
+        assert_eq!(taa_step(&mut s, &moved, None, (1, false)), Some(0));
+        assert_eq!(s, TaaState::default());
+    }
 
     #[test]
     fn mirror_planes_cut_through_the_centre_and_reach_past_the_model() {

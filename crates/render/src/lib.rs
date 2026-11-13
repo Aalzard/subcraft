@@ -21,6 +21,7 @@ pub mod pace;
 pub mod pathtrace;
 pub mod post;
 pub mod shadow;
+pub mod taa;
 pub mod ray_bake;
 pub mod preview;
 pub mod target;
@@ -146,6 +147,9 @@ pub struct ViewParams {
     pub background: [f32; 3],
     /// 4x MSAA when true, no anti-aliasing (faster) when false.
     pub antialias: bool,
+    /// Temporal anti-aliasing: this frame's number (from 1) in the running average of jittered
+    /// frames; 1 starts a new average, 0 is off (see [`taa`]).
+    pub taa_frame: u32,
     /// Full material shading or one channel shown unlit.
     pub view_mode: ViewMode,
     /// Display-only floor/axes. None for thumbnails, exports and callers that need no guides.
@@ -255,6 +259,7 @@ impl ViewParams {
             height_scale: 0.02,
             background: [0.018, 0.019, 0.022],
             antialias: true,
+            taa_frame: 0,
             view_mode: ViewMode::Material,
             grid: None,
             bake_overlay: false, bake_cage: true, bake_miss_heatmap: false, bake_high_transform: Mat4::IDENTITY, bake_high_opacity: 1.0, bake_distances: [0.01; 2], bake_map: None, symmetry_guides: false, wireframe: false,
@@ -343,6 +348,7 @@ pub struct ViewportRenderer {
     preview: PreviewPass,
     preview_target: Option<PreviewTarget>,
     post: post::PostPass,
+    taa: taa::Taa,
     /// Rendering mode (created on first use), its single-sample target, and why it is unavailable.
     path_tracer: Option<pathtrace::PathTracer>,
     /// Material slots not drawn (hidden texture sets). The path tracer ignores this.
@@ -594,6 +600,7 @@ impl ViewportRenderer {
         let opaque_params = material::params_buffer(device, &subcraft_doc::AlphaSettings::default(), &subcraft_doc::ShaderParams::default(), false);
         Self {
             post,
+            taa: taa::Taa::new(device),
             pipeline_blend,
             opaque_params,
             pipeline_emissive,
@@ -882,6 +889,15 @@ impl ViewportRenderer {
     /// device can allocate) and return the target.
     pub fn render(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, size: [u32; 2], params: &ViewParams) -> &RenderTarget {
         let size = fit_target_size(size, device.limits().max_texture_dimension_2d);
+        // Temporal anti-aliasing: every frame of the average sees the scene shifted by its own
+        // sub-pixel amount (the projection everything below draws with).
+        let jittered;
+        let params = if params.taa_frame > 0 {
+            jittered = ViewParams { proj: taa::jittered_projection(params.proj, taa::jitter_pixels(params.taa_frame), size), ..*params };
+            &jittered
+        } else {
+            params
+        };
         let samples = if params.antialias && caps::get().msaa4 { SAMPLE_COUNT } else { 1 };
         if self.target.as_ref().is_none_or(|t| t.size != size || t.samples != samples) {
             self.target = Some(RenderTarget::new(device, size, samples));
@@ -1101,6 +1117,9 @@ impl ViewportRenderer {
         if (params.post.active() || emission_on) && !params.bake_overlay {
             let draw = self.mesh.as_ref().filter(|_| emission_on).map(|mesh| post::EmissionDraw { pipeline: &self.pipeline_emissive, mesh, materials: &self.materials, hidden: &self.hidden_slots });
             self.post.run(device, queue, &mut encoder, target, &self.globals_bg, self.mesh.as_ref(), draw.as_ref(), params.proj, &params.post);
+        }
+        if params.taa_frame > 0 {
+            self.taa.encode(device, queue, &mut encoder, target, params.taa_frame);
         }
         target.encode_display(&mut encoder);
         queue.submit([encoder.finish()]);
