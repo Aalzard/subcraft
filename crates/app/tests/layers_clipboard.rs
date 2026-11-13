@@ -220,3 +220,40 @@ fn a_channel_added_by_paste_gets_blend_entries_on_the_existing_layers() {
     assert_eq!(ts.find(folder).unwrap().blend.get(&ao).map(|b| b.mode), Some(subcraft_doc::BlendMode::Passthrough), "the folder lets the new channel through");
     assert_eq!(ts.find(paint).unwrap().blend.get(&ao).map(|b| b.mode), Some(subcraft_doc::BlendMode::Normal));
 }
+
+/// QA 2026-11: a copied instance pasted into another texture set or project kept its link. In
+/// another texture set it took its source's rasters at that set's resolution (the saved project
+/// no longer opened); in another project it was a layer that could never be painted.
+#[test]
+fn an_instance_pasted_away_from_its_source_becomes_an_ordinary_layer() {
+    let mut src = session(128);
+    let f = add(&mut src, NewLayer::Fill, "F");
+    src.execute(Command::AddMask { layer: f, white: false }).unwrap();
+    src.execute(Command::PasteAsInstance(vec![f])).unwrap();
+    let instance = src.selection().layer.unwrap();
+    let clip = Arc::new(src.copy_layers(&[instance]).unwrap());
+
+    let mut dst = session(64);
+    dst.execute(Command::PasteLayers(clip.clone())).unwrap();
+    let pasted = dst.selected_layer().unwrap().clone();
+    assert_eq!(pasted.instance_of, None, "no source in this project");
+    assert_eq!(pasted.mask.as_ref().unwrap().base.width(), 64);
+    assert!(!dst.instance_locked(pasted.id));
+
+    // Next to its source it stays an instance.
+    src.execute(Command::PasteLayers(clip)).unwrap();
+    assert_eq!(src.selected_layer().unwrap().instance_of, Some(f));
+
+    // Another texture set of the same project.
+    let mut s = Session::sample();
+    let sets: Vec<_> = s.document().texture_sets.iter().map(|t| t.id).collect();
+    if sets.len() < 2 { return; }
+    let a = add(&mut s, NewLayer::Fill, "A");
+    s.execute(Command::PasteAsInstance(vec![a])).unwrap();
+    let instance = s.selection().layer.unwrap();
+    let clip = Arc::new(s.copy_layers(&[instance]).unwrap());
+    let other = *sets.iter().find(|&&t| t != s.selection().texture_set).unwrap();
+    s.execute(Command::SelectTextureSet(other)).unwrap();
+    s.execute(Command::PasteLayers(clip)).unwrap();
+    assert_eq!(s.selected_layer().unwrap().instance_of, None, "the source is in another texture set");
+}

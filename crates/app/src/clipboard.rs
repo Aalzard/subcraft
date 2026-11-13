@@ -131,7 +131,23 @@ impl LayerClip {
                 }
             }
         }
-        subcraft_doc::duplicate_layers_with_new_ids(&self.layers)
+        fn ids(l: &Layer, out: &mut std::collections::HashSet<subcraft_core::LayerId>) {
+            out.insert(l.id);
+            for c in l.children() {
+                ids(c, out);
+            }
+        }
+        fn detach(l: &mut Layer, ts: &TextureSet, pasted: &std::collections::HashSet<subcraft_core::LayerId>) {
+            if l.instance_of.is_some_and(|s| ts.find(s).is_none() && !pasted.contains(&s)) {
+                l.instance_of = None;
+            }
+            if let Some(c) = l.children_mut() {
+                for c in c.iter_mut() {
+                    detach(Arc::make_mut(c), ts, pasted);
+                }
+            }
+        }
+        let mut out: Vec<Layer> = subcraft_doc::duplicate_layers_with_new_ids(&self.layers)
             .into_iter()
             .map(|mut l| {
                 if self.resolution != ts.resolution {
@@ -143,7 +159,19 @@ impl LayerClip {
                 }
                 l
             })
-            .collect()
+            .collect();
+        // An instance pasted where its source is not (another texture set, another project)
+        // becomes an ordinary copy. Left linked, a source in another texture set gave it rasters
+        // of that set's resolution (a project that no longer opened), and a missing source left a
+        // layer that could never be painted.
+        let mut pasted = std::collections::HashSet::new();
+        for l in &out {
+            ids(l, &mut pasted);
+        }
+        for l in &mut out {
+            detach(l, ts, &pasted);
+        }
+        out
     }
 }
 
