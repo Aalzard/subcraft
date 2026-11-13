@@ -1176,3 +1176,21 @@ fn out_of_range_generator_shape_settings_are_refused_on_load() {
         assert!(matches!(err, ProjectError::Invalid(ref m) if m.contains("shape")), "content effect {content}: {err}");
     }
 }
+
+/// QA 2026-11: Levels on a mask were validated on load, Levels as a content effect were not.
+#[test]
+fn invalid_content_levels_are_refused_on_load() {
+    use subcraft_doc::{ContentEffect, ContentEffectKind};
+    let doc = |gamma: f32| {
+        let mut ts = TextureSet::new("Body", 0, 128);
+        let tc = ts.clone();
+        let mut layer = Layer::new_fill("Fill", &tc);
+        layer.content_effects.push(std::sync::Arc::new(ContentEffect::new(ContentEffectKind::Levels { channel: ChannelKind::Roughness, levels: Levels { gamma, ..Levels::default() } }, &tc)));
+        ts.insert_above(None, layer);
+        Document { texture_sets: vec![ts] }
+    };
+    let read = |d: &Document| read_project(Cursor::new(write_project(Cursor::new(Vec::new()), &primitives::cube(2.), d, &ResourceStore::default(), &MeshMapSet::new()).unwrap().into_inner()));
+    assert!(read(&doc(2.0)).is_ok());
+    let err = read(&doc(-1.0)).unwrap_err();
+    assert!(matches!(err, ProjectError::Invalid(ref m) if m.contains("levels")), "{err}");
+}
