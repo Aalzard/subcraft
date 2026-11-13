@@ -58,7 +58,7 @@ Layout notes: imported cameras come from the mesh file (FBX / Alembic) at projec
 |---|---|---|---|---|---|
 | Import Cameras checkbox | New project window | on (unverified) | done: New project > Cameras, on by default; glTF, GLB and FBX files carry cameras | crates/ui/src/new_project.rs, crates/app/src/session.rs (import_mesh_cameras) | 217 |
 | Import cameras on mesh re-import | Edit > Project configuration | off unless toggled | done: "Import cameras" in File > Reload mesh, off by default | crates/ui/src/mesh_reload.rs | 217 |
-| Imported data: name, transform, FOV, aspect ratio | from FBX / ABC mesh file | - | done: from glTF / GLB and FBX mesh files (and separate camera files); saved with the project; roll is dropped by the orbit camera | crates/mesh/src/camera.rs (cameras_in_mesh_file), crates/doc/src/camera.rs | 217 |
+| Imported data: name, transform, FOV, aspect ratio | from FBX / ABC mesh file | - | done: from glTF / GLB and FBX mesh files (and separate camera files); saved with the project; the roll comes through too (PRNUM) | crates/mesh/src/camera.rs (cameras_in_mesh_file), crates/doc/src/camera.rs | 217 |
 | Camera selection dropdown | 3D view, top right | "Default camera"; hidden if no other camera | done: 3D view, top right, hidden when the project has no imported cameras; also Display Settings > Camera | crates/ui/src/view_extras.rs (camera_dropdown) | 217 |
 | Default camera entry | Camera dropdown | selected, perspective | done: first entry; choosing it brings back the view from before | crates/ui/src/view_extras.rs (select_camera) | 217 |
 | Navigating while an imported camera is active switches to Default camera | 3D view | always | done: unless the camera is locked | crates/ui/src/view_extras.rs (follow_camera) | 217 |
