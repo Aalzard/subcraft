@@ -1208,6 +1208,13 @@ impl SubcraftApp {
         }
     }
 
+    /// The 2D view shows what the 3D view was just switched to (C / Shift+C / M / B / Shift+B
+    /// act on both views, as in Painter).
+    fn sync_uv_source(&mut self) {
+        let prefs = &self.state.recovery.prefs.viewport;
+        self.state.uv.source = crate::panels::uv_view::source_for(prefs.mesh_map, prefs.shown_channel());
+    }
+
     fn perform(&mut self, action: Action, now: f64) {
         if self.state.pen.is_editing() || self.state.pen.is_pending() || self.state.asset_preview.is_applying() {
             if action == Action::Undo { if self.state.asset_preview.is_applying() {self.state.asset_preview.cancel_apply();} else {self.state.pen.undo_pending(&self.state.session);} return; }
@@ -1266,8 +1273,11 @@ impl SubcraftApp {
             Action::View3dOnly => apply_view_layout(&mut self.dock, ViewLayout::Only3d),
             Action::View2dOnly => apply_view_layout(&mut self.dock, ViewLayout::Only2d),
             Action::SwapViews => apply_view_layout(&mut self.dock, ViewLayout::Swap),
-            Action::NextMeshMap => crate::viewport_bar::cycle_mesh_map(&mut self.state.recovery.prefs.viewport),
-            Action::PrevMeshMap => crate::viewport_bar::cycle_mesh_map_back(&mut self.state.recovery.prefs.viewport),
+            Action::NextMeshMap | Action::PrevMeshMap => {
+                let prefs = &mut self.state.recovery.prefs.viewport;
+                if action == Action::NextMeshMap { crate::viewport_bar::cycle_mesh_map(prefs) } else { crate::viewport_bar::cycle_mesh_map_back(prefs) }
+                self.sync_uv_source();
+            }
             Action::InvertMaskGray => {
                 match self.state.session.perform(action) {
                     Ok(_) => {
@@ -1302,8 +1312,12 @@ impl SubcraftApp {
                 // Painter's C / Shift+C: the material, then each channel of the selected texture set.
                 let channels: Vec<_> = self.state.session.selected_texture_set().channel_kinds().collect();
                 self.state.recovery.prefs.viewport.cycle_channel(&channels, action == Action::NextChannel);
+                self.sync_uv_source();
             }
-            Action::DisplayMaterial => self.state.recovery.prefs.viewport.show_material(),
+            Action::DisplayMaterial => {
+                self.state.recovery.prefs.viewport.show_material();
+                self.sync_uv_source();
+            }
             Action::NewProject => self.request(Pending::OpenMesh, now),
             Action::Quit => self.request(Pending::Close, now),
             Action::PenTool => { self.state.tool = Tool::Pen; self.state.picking_parts = false; }
