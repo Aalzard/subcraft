@@ -355,6 +355,9 @@ pub struct ShelfUi {
     pending: Option<(AssetId, subcraft_render::PendingReadback)>,
     /// Thumbnails of the visible tab are still being rendered (scripted screenshots wait).
     pub busy: bool,
+    /// The Display Settings environment mini-shelf is open this frame: render environment
+    /// thumbnails even when the Assets panel shows another type.
+    pub want_environment_thumbs: bool,
 }
 
 /// A thumbnail composite running off the UI thread. The worker also builds the preview scene on
@@ -386,6 +389,7 @@ impl Default for ShelfUi {
             open_sub_library: None,
             drawing_sub_library: None,
             thumbs: HashMap::new(),
+            want_environment_thumbs: false,
             sphere: None,
             baked_sphere: None,
             compositing: None,
@@ -752,6 +756,21 @@ pub fn apply_environment(
             params.light_intensity = 1.2 * intensity;
         }
     }
+}
+
+/// Asset types whose thumbnails are rendered: the Assets panel's visible types, plus the
+/// environments while the Display Settings mini-shelf shows them. The request lasts one frame.
+pub(crate) fn thumbnail_tabs(shelf: &ShelfUi) -> Vec<ShelfTab> {
+    let mut tabs = shelf.tabs();
+    if shelf.want_environment_thumbs && !tabs.contains(&ShelfTab::Environments) {
+        tabs.push(ShelfTab::Environments);
+    }
+    tabs
+}
+
+/// Thumbnail of an asset, once rendered.
+pub(crate) fn thumbnail(shelf: &ShelfUi, id: &AssetId) -> Option<&egui::TextureHandle> {
+    shelf.thumbs.get(id)
 }
 
 /// Thumbnail tile: square image with a hairline frame (accent when hovered / selected), name below.
@@ -1986,7 +2005,7 @@ fn alpha_image(b: &subcraft_image::Bitmap) -> egui::ColorImage {
 }
 
 /// Render one missing thumbnail of the visible tab per frame (keeps the UI responsive).
-fn generate_one_thumbnail(state: &mut UiState, ctx: &egui::Context) {
+pub(crate) fn generate_one_thumbnail(state: &mut UiState, ctx: &egui::Context) {
     // Finish the thumbnail in flight first (the GPU copy is never waited on).
     state.shelf.busy = state.shelf.pending.is_some() || state.shelf.compositing.is_some();
     if let Some((id, pending)) = &state.shelf.pending {
@@ -2036,7 +2055,7 @@ fn generate_one_thumbnail(state: &mut UiState, ctx: &egui::Context) {
         Layer(AssetId, SceneKind, LayerBuilder, Vec<std::sync::Arc<subcraft_doc::Resource>>),
         Environment(usize),
     }
-    let job = state.shelf.tabs().into_iter().find_map(|tab| match tab {
+    let job = thumbnail_tabs(&state.shelf).into_iter().find_map(|tab| match tab {
         // Texture thumbnails come from their own background loader.
         ShelfTab::Textures | ShelfTab::NormalMaps | ShelfTab::Filters => None,
         // Brush presets show their tip's thumbnail.
@@ -2059,6 +2078,8 @@ fn generate_one_thumbnail(state: &mut UiState, ctx: &egui::Context) {
         ShelfTab::Environments => lib.environments.iter().position(|e| missing(&e.id)).map(Job::Environment),
     });
     state.shelf.busy |= job.is_some();
+    // The mini-shelf asks again every frame it is open.
+    state.shelf.want_environment_thumbs = false;
     let Some(job) = job else { return };
     if let Job::Alpha(i) = job {
         let a = &state.library.alphas[i];
@@ -2251,6 +2272,19 @@ mod nav_tests;
 #[cfg(test)]
 mod environment_tests {
     use super::*;
+
+    #[test]
+    fn the_environment_mini_shelf_asks_for_environment_thumbnails() {
+        let mut shelf = ShelfUi::default();
+        shelf.tab = ShelfTab::Materials;
+        shelf.extra_tabs.clear();
+        assert!(!thumbnail_tabs(&shelf).contains(&ShelfTab::Environments), "only the panel's types");
+        shelf.want_environment_thumbs = true;
+        let tabs = thumbnail_tabs(&shelf);
+        assert!(tabs.contains(&ShelfTab::Environments) && tabs.contains(&ShelfTab::Materials));
+        shelf.tab = ShelfTab::Environments;
+        assert_eq!(thumbnail_tabs(&shelf).iter().filter(|t| **t == ShelfTab::Environments).count(), 1, "listed once");
+    }
 
     #[test]
     fn startup_environment_is_glasshouse_lit_from_the_front() {

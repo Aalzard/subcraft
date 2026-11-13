@@ -182,16 +182,33 @@ fn grid(ui: &mut Ui, id: &str, body: impl FnOnce(&mut Ui)) {
     egui::Grid::new(id).num_columns(2).spacing([10.0, 6.0]).show(ui, body);
 }
 
+/// Size and columns of the environment mini-shelf's tiles.
+const ENV_TILE: f32 = 72.0;
+const ENV_SHELF_COLUMNS: usize = 4;
+
 /// Environment map and how it lights the model, in Painter's order: map, opacity, exposure,
 /// rotation, blur, alignment.
 pub fn environment(state: &mut UiState, ui: &mut Ui) {
     grid(ui, "display_env", |ui| {
         ui.label(tr("Environment map"));
         let current = state.library.environments.get(state.env.index).map_or_else(|| "-".to_string(), |e| e.name.clone());
-        let combo = egui::ComboBox::from_id_salt("display_env_map").selected_text(current).width(150.0).show_ui(ui, |ui| {
-            for (i, env) in state.library.environments.iter().enumerate() {
-                ui.selectable_value(&mut state.env.index, i, &env.name);
-            }
+        // Painter's mini-shelf: the environments as thumbnails, one click to choose.
+        let combo = ui.menu_button(format!("{current}  {}", crate::icons::CARET_DOWN), |ui| {
+            state.shelf.want_environment_thumbs = true;
+            // Thumbnails render here too: the Assets panel may be hidden or show another type.
+            crate::panels::shelf::generate_one_thumbnail(state, ui.ctx());
+            ui.set_max_width(ENV_SHELF_COLUMNS as f32 * (ENV_TILE + 8.0));
+            egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    for (i, env) in state.library.environments.iter().enumerate() {
+                        let thumb = crate::panels::shelf::thumbnail(&state.shelf, &env.id);
+                        if crate::panels::shelf::tile(ui, ENV_TILE, thumb, &env.name, i == state.env.index, &env.name).clicked() {
+                            state.env.index = i;
+                            ui.close();
+                        }
+                    }
+                });
+            });
         }).response.on_hover_text(tr("The lighting around the model. Drop a map from Assets > Environments here or on the 3D view."));
         if let Some(env) = combo.dnd_release_payload::<crate::panels::shelf::EnvironmentDrag>()
             && env.0 < state.library.environments.len()
