@@ -118,6 +118,7 @@ impl Writer {
                 MaskEffectKind::IdColor(id) => MaskEffectKindV1::IdColor { id_color: id.clone() },
                 MaskEffectKind::Anchor => MaskEffectKindV1::Anchor,
                 MaskEffectKind::AnchorRef { input, levels } => MaskEffectKindV1::AnchorRef { input: *input, levels: *levels },
+                MaskEffectKind::Compare(c) => MaskEffectKindV1::Compare { compare: *c },
             },
         }
     }
@@ -240,6 +241,7 @@ pub fn write_project_with<W: Write + Seek>(
                 .get(&ts.id)
                 .map(|m| m.iter().map(|(&kind, img)| MeshMapV1 { kind, raster: writer.raster(img) }).collect())
                 .unwrap_or_default(),
+            id_color_edits: ts.id_color_edits.iter().map(|e| crate::schema::IdColorEditV1 { from: e.from, to: e.to }).collect(),
         })
         .collect();
     let (res_entries, res_files) = pack_resources(&referenced_resources(doc), resources);
@@ -470,7 +472,10 @@ impl<R: Read + Seek> Loader<'_, R> {
                 Self::check_generator(generator, self.trusted)?;
                 MaskEffectKind::Generator(*generator)
             }
-            MaskEffectKindV1::Levels { levels } => MaskEffectKind::Levels(*levels),
+            MaskEffectKindV1::Levels { levels } => {
+                if !self.trusted && !levels.valid() { return Err(ProjectError::Invalid("invalid levels".into())); }
+                MaskEffectKind::Levels(*levels)
+            }
             MaskEffectKindV1::Filter { filter } => {
                 if !self.trusted && (!filter.valid() || !filter.supports_mask()) { return Err(ProjectError::Invalid("invalid mask filter".into())); }
                 MaskEffectKind::Filter(*filter)
@@ -485,6 +490,10 @@ impl<R: Read + Seek> Loader<'_, R> {
             }
             MaskEffectKindV1::Anchor => MaskEffectKind::Anchor,
             MaskEffectKindV1::AnchorRef { input, levels } => MaskEffectKind::AnchorRef { input: *input, levels: *levels },
+            MaskEffectKindV1::Compare { compare } => {
+                if !compare.valid() { return Err(ProjectError::Invalid("invalid compare mask".into())); }
+                MaskEffectKind::Compare(*compare)
+            }
         };
         Ok(MaskEffect { id: EffectId(e.id), name: e.name.clone(), visible: e.visible, blend: e.blend, opacity: e.opacity, kind })
     }
@@ -642,6 +651,9 @@ fn read_project_checked<R: Read + Seek>(r: R, trusted: bool) -> Result<ProjectDa
             alpha: t.alpha,
             channels: t.channels.iter().map(|c| ChannelDef { kind: c.kind, format: c.format }).collect(),
             layers: Vec::new(),
+            id_color_edits: t.id_color_edits.iter()
+                .filter(|e| e.from.iter().chain(&e.to).all(|v| v.is_finite()))
+                .map(|e| subcraft_doc::IdColorEdit { from: e.from, to: e.to }).collect(),
         };
         let layers = t.layers.iter().map(|l| loader.layer(l, ts.resolution).map(Arc::new)).collect::<Result<Vec<_>, _>>()?;
         ts.layers = layers;

@@ -693,7 +693,7 @@ fn the_trusted_loader_keeps_filter_parameters_the_checked_loader_rejects() {
 #[test]
 fn schema_15_id_color_mask_roundtrips_has_stable_json_and_older_projects_migrate() {
     use subcraft_doc::IdColorMask;
-    let id = IdColorMask { colors: vec![[0.9, 0.3, 0.25], [0.25, 0.5, 0.9]], tolerance: 0.08, softness: 0.02, invert: true };
+    let id = IdColorMask { colors: vec![[0.9, 0.3, 0.25], [0.25, 0.5, 0.9]], tolerance: 0.08, softness: 0.02, invert: true, ..IdColorMask::default() };
     assert_eq!(
         serde_json::to_string(&MaskEffectKindV1::IdColor { id_color: id.clone() }).unwrap(),
         r#"{"type":"id_color","id_color":{"colors":[[0.9,0.3,0.25],[0.25,0.5,0.9]],"tolerance":0.08,"softness":0.02,"invert":true}}"#
@@ -854,7 +854,7 @@ fn generator_offset_round_trips_and_old_files_have_none() {
 fn painter_generator_controls_round_trip_and_are_absent_in_older_files() {
     let mut g = Generator::new(GeneratorKind::Cavity); g.painter = None;
     assert!(serde_json::to_value(g).unwrap().get("painter").is_none(), "none is not written, so older files are unchanged");
-    g.painter = Some(subcraft_doc::PainterControls { edges_masking: 0.5, ao_masking: 0.25, curvature_weight: 0.75, smoothness: 0.5, grunge_scale: 4.0, grunge_floor: 0.2, grain: 0.35, grunge_map: true });
+    g.painter = Some(subcraft_doc::PainterControls { edges_masking: 0.5, ao_masking: 0.25, curvature_weight: 0.75, smoothness: 0.5, grunge_scale: 4.0, grunge_floor: 0.2, grain: 0.35, grunge_map: true, custom_grunge: None });
     let back: Generator = serde_json::from_value(serde_json::to_value(g).unwrap()).unwrap();
     assert_eq!(back, g);
     let mut json = serde_json::to_value(g).unwrap();

@@ -31,10 +31,14 @@ pub use fill::{FillFiltering, FillSource, ShapeCrop, TRIPLANAR_HARD, UvWrap, Pro
 pub use filter::{BevelCorner, BevelParts, OutlineParts, FULL_SUPPORT, Filter, FlipMode, HslMode, MirrorCorner, MirrorMode, RepeatMode, ThresholdMode, Gradient, GradientStop, MAX_GRADIENT_STOPS, MAX_MEDIAN_RADIUS, MAX_MOSAIC_SIZE, MAX_POSTERIZE_LEVELS, MAX_WARP_SCALE, GRADIENT_PRESETS, OutlinePosition};
 pub use history::{History, HistoryEntry};
 pub use layer::{ChannelBlend, FillChannel, FillContent, GroupContent, Layer, LayerColor, LayerContent, LayerKind, PaintContent, PartMask, changed_paint_tiles, duplicate_layers_with_new_ids, empty_paint_image, same_paint_layout};
-pub use mask::{ShapeSettings, light_angles, light_direction, CurvatureDetail, CurvatureDetailMode, CurvatureMode, EditorCurvature, EditorDirection, EditorDirections, EditorOcclusion, EditorTexture, EditorThickness, GrayscaleType, MaskEditor, EdgeSpread, Generator, MicroDirection, MicroEffect, PainterControls, GeneratorKind, GradientAxis, IdColorMask, Levels, Mask, MaskEffect, MaskEffectKind};
+pub use mask::{CompareMask, CompareOp, CompareOperand, LevelsRange, SelectionBackground, ShapeSettings, light_angles, light_direction, CurvatureDetail, CurvatureDetailMode, CurvatureMode, EditorCurvature, EditorDirection, EditorDirections, EditorOcclusion, EditorTexture, EditorThickness, GrayscaleType, MaskEditor, EdgeSpread, Generator, MicroDirection, MicroEffect, PainterControls, GeneratorKind, GradientAxis, IdColorMask, Levels, Mask, MaskEffect, MaskEffectKind};
 pub use pen::{PenAnchor, PenPath};
 pub use resources::{Resource, ResourceKind, ResourceStore};
 pub use text::TextDecal;
 pub use settings::{NormalFormat, ProjectSettings};
 pub use shader::{MAIN_SHADER, ShaderAssignment, ShaderInstance, ShaderInstanceId, ShaderParams};
+<<<<<<< HEAD
 pub use texture_set::{AlphaMode, AlphaSettings, AoMixing, ChannelDef, ChannelFormat, HeightToNormal, LayerLocation, LayerOpError, MixingSettings, NormalMixing, RESOLUTIONS, TextureSet, UvPadding};
+=======
+pub use texture_set::{AlphaMode, AlphaSettings, ChannelDef, ChannelFormat, IdColorEdit, LayerLocation, LayerOpError, RESOLUTIONS, TextureSet};
+>>>>>>> claude/parity-ts-header

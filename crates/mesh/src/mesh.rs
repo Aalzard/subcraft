@@ -83,6 +83,13 @@ pub struct Mesh {
     pub materials: Vec<MaterialSlot>,
     pub submeshes: Vec<Submesh>,
     pub bounds: Aabb,
+    /// Vertex colour (RGBA as stored in the file) of every triangle corner, three per triangle
+    /// in the order of `indices`; empty when the file had none. Read by the baker (ID map from
+    /// vertex colours). Not saved with projects and not kept by regrouping or unwrapping.
+    pub corner_colors: Vec<[f32; 4]>,
+    /// The file's colour of each material slot (diffuse / base colour), parallel to `materials`;
+    /// empty when no slot has one. Read by the baker (ID map from material colours).
+    pub material_colors: Vec<Option<[f32; 3]>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -111,6 +118,20 @@ impl Mesh {
     /// A copy with every position moved by `m` (normals by the inverse transpose, tangent
     /// directions by the linear part, winding flipped for mirroring transforms) and the bounds
     /// recomputed. UVs, materials and object identity are untouched.
+    /// The file's vertex colour at barycentrics `(u, v)` (weights of vertices 1 and 2) of a
+    /// triangle; `None` when the mesh has no vertex colours.
+    pub fn corner_color(&self, tri: usize, u: f32, v: f32) -> Option<[f32; 4]> {
+        let c = self.corner_colors.get(3 * tri..3 * tri + 3)?;
+        let w = 1.0 - u - v;
+        Some(std::array::from_fn(|i| c[0][i] * w + c[1][i] * u + c[2][i] * v))
+    }
+
+    /// The file's colour of a triangle's material slot, when it has one.
+    pub fn material_color(&self, tri: usize) -> Option<[f32; 3]> {
+        let slot = *self.tri_material.get(tri)? as usize;
+        self.material_colors.get(slot).copied().flatten()
+    }
+
     pub fn transformed(&self, m: &glam::Mat4) -> Mesh {
         let mut out = self.clone();
         let lin = glam::Mat3::from_mat4(*m);
@@ -119,7 +140,10 @@ impl Mesh {
         for p in &mut out.positions { *p = m.transform_point3(*p); }
         for n in &mut out.normals { *n = (nm * *n).normalize_or_zero(); }
         for t in &mut out.tangents { let d = (lin * t.truncate()).normalize_or_zero(); *t = d.extend(if det < 0. { -t.w } else { t.w }); }
-        if det < 0. { for tri in out.indices.chunks_exact_mut(3) { tri.swap(1, 2); } }
+        if det < 0. {
+            for tri in out.indices.chunks_exact_mut(3) { tri.swap(1, 2); }
+            for tri in out.corner_colors.chunks_exact_mut(3) { tri.swap(1, 2); }
+        }
         out.bounds = Aabb::from_points(out.positions.iter().copied());
         out
     }
@@ -254,6 +278,12 @@ pub struct MeshBuilder {
     objects: Vec<MeshObject>,
     tri_object: Vec<Option<u32>>,
     current_object: Option<u32>,
+    /// Vertex colour per accepted corner (white where a triangle had none), parallel to `corners`.
+    corner_colors: Vec<[f32; 4]>,
+    /// Whether any triangle came with vertex colours.
+    any_corner_color: bool,
+    /// File colour per material slot, parallel to `materials`.
+    material_colors: Vec<Option<[f32; 3]>>,
     pub stats: BuildStats,
 }
 
@@ -262,6 +292,8 @@ impl MeshBuilder {
     pub(crate) fn take_corners(&mut self) -> Vec<Corner> {
         self.tri_material.clear();
         self.tri_object.clear();
+        self.corner_colors.clear();
+        self.any_corner_color = false;
         std::mem::take(&mut self.corners)
     }
 }
@@ -287,8 +319,31 @@ impl MeshBuilder {
         }
         let i = self.materials.len() as u32;
         self.materials.push(MaterialSlot { name: name.to_string() });
+        self.material_colors.push(None);
         self.material_lookup.insert(name.to_string(), i);
         i
+    }
+
+    /// The file's colour of a material slot (diffuse / base colour). The first one given stays.
+    pub fn set_material_color(&mut self, material: u32, color: [f32; 3]) {
+        if let Some(slot) = self.material_colors.get_mut(material as usize) {
+            if slot.is_none() && color.iter().all(|c| c.is_finite()) {
+                *slot = Some(color.map(|c| c.clamp(0.0, 1.0)));
+            }
+        }
+    }
+
+    /// [`Self::push_triangle`] with the file's vertex colour (RGBA) of each corner.
+    pub fn push_triangle_colored(&mut self, material: u32, c: [Corner; 3], colors: [[f32; 4]; 3]) {
+        let before = self.tri_material.len();
+        self.push_triangle(material, c);
+        if self.tri_material.len() > before {
+            let n = self.corner_colors.len();
+            for (slot, color) in self.corner_colors[n - 3..].iter_mut().zip(colors) {
+                *slot = color.map(|v| if v.is_finite() { v.clamp(0.0, 1.0) } else { 1.0 });
+            }
+            self.any_corner_color = true;
+        }
     }
 
     pub fn push_triangle(&mut self, material: u32, mut c: [Corner; 3]) {
@@ -310,6 +365,7 @@ impl MeshBuilder {
             self.stats.missing_uv_triangles += 1;
         }
         self.corners.extend_from_slice(&c);
+        self.corner_colors.extend_from_slice(&[[1.0; 4]; 3]);
         self.tri_material.push(material);
         self.tri_object.push(self.current_object);
     }
@@ -350,11 +406,16 @@ impl MeshBuilder {
         let mut corners = Vec::with_capacity(self.corners.len());
         let mut tri_material = Vec::with_capacity(tri_count);
         let mut tri_object = Vec::with_capacity(tri_count);
+        let mut corner_colors = Vec::new();
         for &t in &order {
             corners.extend_from_slice(&self.corners[3 * t..3 * t + 3]);
+            if self.any_corner_color {
+                corner_colors.extend_from_slice(&self.corner_colors[3 * t..3 * t + 3]);
+            }
             tri_material.push(self.tri_material[t]);
             tri_object.push(self.tri_object[t]);
         }
+        let mut material_colors = std::mem::take(&mut self.material_colors);
 
         // Normals: fill missing ones with angle-weighted smooth normals over welded positions.
         let mut normals: Vec<Vec3> = Vec::with_capacity(corners.len());
@@ -407,6 +468,7 @@ impl MeshBuilder {
         }
         mesh.tri_material = tri_material;
         mesh.tri_object = tri_object;
+        mesh.corner_colors = corner_colors;
         mesh.bounds = Aabb::from_points(mesh.positions.iter().copied());
 
         // Submesh ranges.
@@ -433,6 +495,7 @@ impl MeshBuilder {
                 remap[m as usize] = mats.len() as u32;
                 mats.push(mesh.materials[m as usize].clone());
             }
+            material_colors = used.iter().map(|&m| material_colors.get(m as usize).copied().flatten()).collect();
             mesh.materials = mats;
             for m in mesh.tri_material.iter_mut() {
                 *m = remap[*m as usize];
@@ -440,6 +503,9 @@ impl MeshBuilder {
             for s in mesh.submeshes.iter_mut() {
                 s.material = remap[s.material as usize];
             }
+        }
+        if material_colors.iter().any(Option::is_some) {
+            mesh.material_colors = material_colors;
         }
         Ok(mesh)
     }

@@ -85,6 +85,28 @@ fn jpeg_override_keeps_four_component_maps_in_their_own_format() {
     }
 }
 
+// QA 2026-11: the HDR override dropped the fourth component of packed maps like JPEG did, and
+// wrote raw signed height into a format without negative values (everything below 0 became 0).
+#[test]
+fn hdr_keeps_packed_maps_in_their_own_format_and_remaps_signed_height() {
+    let ch = channels();
+    let settings = ExportSettings { template: ExportTemplate::unity_hdrp(), format_override: Some(FileFormat::Hdr32), ..Default::default() };
+    for map in &settings.template.maps {
+        let format = output_format(map, &settings);
+        assert_eq!(format == FileFormat::Hdr32, map.components.len() != 4, "{}", map.suffix);
+    }
+    let mut low = ch.clone();
+    low.insert(ChannelKind::Height, TiledImage::new(RES, RES, 1, [-0.5; 4]));
+    let set = ExportTextureSet { name: "S", material_slot: 0, udim: None, channels: &low, mesh_maps: None };
+    let map = OutputMap::new("H", FileFormat::Hdr32, vec![Source::Height], false);
+    let value = |format| {
+        let mut dense = Dense { set: &set, size: RES, cache: HashMap::new(), normal: None, view: None, mesh_maps: HashMap::new(), alpha: None };
+        evaluate_map(&map, &mut dense, &ExportSettings::default(), format)[0]
+    };
+    assert_eq!(value(FileFormat::Hdr32), 0.25, "remapped: recoverable from a file without negatives");
+    assert_eq!(value(FileFormat::Exr32), -0.5, "EXR keeps the signed value");
+}
+
 fn channels() -> BTreeMap<ChannelKind, TiledImage> {
     let mut m = BTreeMap::new();
     m.insert(ChannelKind::BaseColor, TiledImage::new(RES, RES, 4, [0.5, 0.25, 0.0, 1.0]));
