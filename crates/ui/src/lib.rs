@@ -4,11 +4,13 @@
 //! logic lives in `subcraft-app`.
 
 pub mod app;
+pub mod intro;
 pub mod bake_view;
 pub mod bug_report;
 pub mod clipboard;
 pub mod color_picker;
 mod brush_bar;
+pub mod brush_cursor;
 pub mod keys;
 pub mod linux_backend;
 pub mod shortcuts_window;
@@ -18,6 +20,7 @@ pub mod dialogs;
 pub mod docks;
 pub mod export_mesh;
 pub mod export_presets;
+pub mod layer_export;
 pub mod files;
 pub mod graphics;
 pub mod gpu_probe;

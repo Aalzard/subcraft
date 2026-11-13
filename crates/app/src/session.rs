@@ -1152,6 +1152,19 @@ impl Session {
         Ok(r)
     }
 
+    /// `reference` for an insertion, moved out of any instance it is in (to the outermost
+    /// instance): a layer added inside one was wiped by the next sync with its source, leaving an
+    /// empty undo step (QA 2026-11).
+    fn outside_instances(ts: &TextureSet, reference: Option<LayerId>) -> Option<LayerId> {
+        reference.map(|r| subcraft_doc::instance::root_of(ts, r).unwrap_or(r))
+    }
+
+    /// Whether a layer moved into `parent` would land in an instance (and be replaced by the
+    /// source's content on the next sync, or, the source itself, take the instance with it).
+    fn inside_instance(ts: &TextureSet, parent: Option<LayerId>) -> bool {
+        parent.is_some_and(|p| subcraft_doc::instance::root_of(ts, p).is_some())
+    }
+
     /// The layers of `ts_id` as they are, when `layer` is an instance or inside one.
     fn instance_guard(&self, ts_id: TextureSetId, layer: LayerId) -> Option<Vec<Arc<Layer>>> {
         let ts = self.doc.texture_set(ts_id)?;
@@ -1545,8 +1558,11 @@ impl Session {
                     }
                     NewLayer::Folder => (Layer::new_folder(format!("Folder {}", self.layer_counter), &tc), "New Folder"),
                 };
+                // Never inside an instance (its content is its source's): above it instead.
+                let locked = reference.and_then(|r| subcraft_doc::instance::root_of(ts, r));
+                let reference = locked.or(reference);
                 // Painter: with an empty folder selected, the new layer goes inside it.
-                let empty_folder = reference.filter(|&r| ts.find(r).is_some_and(|l| l.is_folder() && l.children().is_empty()));
+                let empty_folder = reference.filter(|&r| locked.is_none() && ts.find(r).is_some_and(|l| l.is_folder() && l.children().is_empty()));
                 let id = match empty_folder {
                     Some(folder) => ts.insert(Some(folder), 0, layer).map_err(|_| CommandError::LayerNotFound)?,
                     None => ts.insert_above(reference, layer),
@@ -1562,6 +1578,7 @@ impl Session {
                 if ts.find(layer.id).is_some() {
                     layer = layer.duplicate_with_new_ids();
                 }
+                let reference = Self::outside_instances(ts, reference);
                 let id = ts.insert_above(reference, layer);
                 self.selection.layer = Some(id);
                 self.commit(&label, None);
@@ -1767,8 +1784,20 @@ impl Session {
                 if found.is_empty() {
                     return Err(CommandError::LayerNotFound);
                 }
+                // Checked before anything is added: a texture set that is gone (the dialog stays
+                // open over a mesh reload) used to stop the command after instances had already
+                // been put into the sets before it, outside any undo step.
+                if texture_sets.iter().any(|&t| self.doc.texture_set(t).is_none()) {
+                    return Err(CommandError::TextureSetNotFound);
+                }
                 let mut made = false;
+                let mut done = Vec::new();
                 for target in texture_sets {
+                    // A set listed twice gets one instance.
+                    if done.contains(&target) {
+                        continue;
+                    }
+                    done.push(target);
                     let ts = self.doc.texture_set_mut(target).ok_or(CommandError::TextureSetNotFound)?;
                     for (set, source) in &found {
                         if *set == target {
@@ -1826,7 +1855,7 @@ impl Session {
                     ts.channels.push(ChannelDef::default_for(kind));
                     add_blend(&mut ts.layers, kind);
                 }
-                let mut at = reference;
+                let mut at = Self::outside_instances(ts, reference);
                 for mut layer in clip.instantiate(ts, mesh) {
                     layer.name = crate::clipboard::pasted_name(ts, &layer.name);
                     at = Some(ts.insert_above(at, layer));
@@ -1989,6 +2018,7 @@ impl Session {
                 let ts = self.doc.texture_set(texture_set).ok_or(CommandError::TextureSetNotFound)?;
                 if ts.find(layer).is_none() { return Err(CommandError::LayerNotFound); }
                 if let Some(destination) = crate::layer_tree::drop_destination(ts, layer, target) {
+                    if Self::inside_instance(ts, destination.parent) { return Err(CommandError::Invalid(INSTANCE_READ_ONLY.into())); }
                     self.edit_layer_set(layer, "Move Layer", None, |ts| {
                         ts.move_to(layer, destination.parent, destination.index).map_err(|e| CommandError::Invalid(format!("{e:?}")))?;
                         if let Some(parent) = destination.parent
@@ -2023,6 +2053,7 @@ impl Session {
                     let mut at = target;
                     for &id in &moving {
                         if let Some(destination) = crate::layer_tree::drop_destination(ts, id, at) {
+                            if Self::inside_instance(ts, destination.parent) { return Err(CommandError::Invalid(INSTANCE_READ_ONLY.into())); }
                             ts.move_to(id, destination.parent, destination.index).map_err(|e| CommandError::Invalid(format!("{e:?}")))?;
                         }
                         at = DropTarget::Above(id);
@@ -3183,6 +3214,14 @@ impl Session {
         let mut s = settings.clone();
         s.selection = self.export_selection();
         s.udim_folders = self.settings.udim_folders;
+        // `$project` and `$sceneMaterial` in file name patterns.
+        s.project_name = Some(self.export_name());
+        s.scene_materials = self
+            .doc
+            .texture_sets
+            .iter()
+            .filter_map(|ts| self.scene.mesh.materials.get(ts.material_slot as usize).map(|m| (ts.name.clone(), m.name.clone())))
+            .collect();
         if let Some(format) = self.settings.normal_format {
             s.normal_directx = Some(format == subcraft_doc::NormalFormat::DirectX);
         }
@@ -3299,6 +3338,63 @@ impl Session {
         let name = self.export_name();
         let sets = self.export_sets();
         subcraft_export::scene::export_scene(&self.scene.mesh, &name, &sets, &settings, format, dir).map_err(|e| e.to_string())
+    }
+
+    /// The texture set holding `layer`, and a copy of it whose stack is that layer alone (visible).
+    fn isolated(&self, layer: LayerId) -> Option<(&TextureSet, TextureSet, Arc<Layer>)> {
+        let ts = self.doc.texture_sets.iter().find(|ts| ts.find(layer).is_some())?;
+        let mut l = ts.find(layer)?.clone();
+        l.visible = true;
+        let l = Arc::new(l);
+        let mut alone = ts.clone();
+        alone.layers = vec![l.clone()];
+        Some((ts, alone, l))
+    }
+
+    fn composite_of(&self, ts: &TextureSet, stack: &TextureSet) -> Composite {
+        let geo = self.scene.geometry.get(ts.material_slot, ts.resolution);
+        let maps = self.mesh_maps.get(&ts.id).unwrap_or(&self.no_maps);
+        let ctx = EvalContext { geometry: &geo, resources: &self.resources, mesh_maps: maps };
+        subcraft_compositor::composite_full(stack, &ctx)
+    }
+
+    /// Painter's Export flattened: each layer (a folder with its content) composited on its own,
+    /// one file per channel it blends into, named by `pattern`
+    /// (`subcraft_export::layer_export::FLATTENED_PATTERN`).
+    pub fn export_flattened_layers(&self, layers: &[LayerId], dir: &Path, pattern: &str) -> Result<Vec<PathBuf>, String> {
+        let name = self.export_name();
+        let mut out = Vec::new();
+        for &id in layers {
+            let Some((ts, alone, layer)) = self.isolated(id) else { continue };
+            let c = self.composite_of(ts, &alone);
+            let set = subcraft_export::ExportTextureSet { name: &ts.name, material_slot: ts.material_slot, udim: ts.udim_number(), channels: &c.channels, mesh_maps: None, mixing: ts.mixing };
+            let channels: Vec<_> = ts.channels.iter().filter(|d| layer.blend.contains_key(&d.kind)).map(|d| (d.kind, d.format)).collect();
+            out.extend(subcraft_export::layer_export::write_flattened(&self.scene.mesh, &name, &set, &layer.name, &channels, pattern, dir).map_err(|e| e.to_string())?);
+        }
+        Ok(out)
+    }
+
+    /// Painter's Export mask: each layer's mask (its effects evaluated) as one gray file.
+    pub fn export_layer_masks(&self, layers: &[LayerId], dir: &Path, pattern: &str, format: subcraft_image::FileFormat) -> Result<Vec<PathBuf>, String> {
+        let name = self.export_name();
+        let mut out = Vec::new();
+        for &id in layers {
+            let Some((ts, mut alone, layer)) = self.isolated(id) else { continue };
+            let Some(mask) = layer.mask.clone() else { continue };
+            // A white fill through the mask into a channel that starts black reads the mask back.
+            alone.channels = vec![ChannelDef::default_for(ChannelKind::Metallic)];
+            let mut probe = Layer::new_fill("mask", &alone);
+            if let LayerContent::Fill(f) = &mut probe.content {
+                f.channels.insert(ChannelKind::Metallic, subcraft_doc::FillChannel::new(subcraft_doc::FillSource::uniform(subcraft_core::ChannelValue::scalar(1.0))));
+            }
+            probe.mask = Some(mask);
+            alone.layers = vec![Arc::new(probe)];
+            let c = self.composite_of(ts, &alone);
+            let Some(img) = c.channels.get(&ChannelKind::Metallic) else { continue };
+            let set = subcraft_export::ExportTextureSet { name: &ts.name, material_slot: ts.material_slot, udim: ts.udim_number(), channels: &c.channels, mesh_maps: None, mixing: ts.mixing };
+            out.push(subcraft_export::layer_export::write_mask(&self.scene.mesh, &name, &set, &layer.name, img, format, pattern, dir).map_err(|e| e.to_string())?);
+        }
+        Ok(out)
     }
 
     /// File > Export mesh: the mesh alone (optionally displaced by the Height channel) into `dir`.

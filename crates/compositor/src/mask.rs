@@ -577,7 +577,10 @@ fn eval_image(resource: subcraft_core::ResourceId, projection: &Projection, inve
             *o = [0.0; 4];
             continue;
         }
-        let (v, a) = if has_alpha { (1.0, s[3]) } else { (0.2126 * s[0] + 0.7152 * s[1] + 0.0722 * s[2], 1.0) };
+        // The sampled alpha already carries the coverage (backface culling fades it); an image
+        // without alpha takes it here.
+        let c = cover.as_ref().map_or(1.0, |c| c[i]);
+        let (v, a) = if has_alpha { (1.0, s[3]) } else { (0.2126 * s[0] + 0.7152 * s[1] + 0.0722 * s[2], c) };
         *o = [if invert { 1.0 - v } else { v }, a.clamp(0.0, 1.0), 0.0, 0.0];
     }
 }

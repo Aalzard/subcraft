@@ -663,3 +663,30 @@ fn projection_3d_transform_moves_the_sampled_coordinates_and_the_crop_box() {
     let b = super::projection::sample_projected(&straight, [0.0; 2], [1.0, 0.7, 0.6], [1.0, 0.0, 0.0], |q| [q[0], q[1], 0.0, 1.0]);
     assert!((a[0] - b[0]).abs() < 1e-4 && (a[1] - b[1]).abs() < 1e-4, "{a:?} {b:?}");
 }
+
+#[test]
+fn backface_culling_scales_the_coverage_and_follows_the_3d_rotation() {
+    use subcraft_doc::{BackfaceCulling, ProjectionTransform};
+    let hard = Some(BackfaceCulling { angle_deg: 90.0, hardness: 1.0 });
+    let planar = Projection { mode: ProjectionMode::Planar, backface: hard, ..Projection::default() };
+    let sc = planar.rotation_sin_cos();
+    let pos = [0.4, 0.6, 0.5];
+    assert_eq!(projection_coverage(&planar, sc, [0.0; 2], pos, [0.0, 0.0, 1.0]), 1.0);
+    assert_eq!(projection_coverage(&planar, sc, [0.0; 2], pos, [0.0, 0.0, -1.0]), 0.0);
+    // Without culling the back is covered too, and nothing clips.
+    let open = Projection { mode: ProjectionMode::Planar, ..Projection::default() };
+    assert_eq!(projection_coverage(&open, sc, [0.0; 2], pos, [0.0, 0.0, -1.0]), 1.0);
+    assert!(!open.clips() && planar.clips());
+    // Turned half way round about Y, the projection faces the model's back.
+    let turned = Projection { transform3: ProjectionTransform { rotation_deg: [0.0, 180.0, 0.0], ..ProjectionTransform::default() }, ..planar };
+    assert_eq!(projection_coverage(&turned, sc, [0.0; 2], pos, [0.0, 0.0, -1.0]), 1.0);
+    assert_eq!(projection_coverage(&turned, sc, [0.0; 2], pos, [0.0, 0.0, 1.0]), 0.0);
+    // Soft: 75 degrees off the facing direction is half covered at Hardness 0.
+    let soft = Projection { backface: Some(BackfaceCulling { angle_deg: 90.0, hardness: 0.0 }), ..planar };
+    let a = 75f32.to_radians();
+    let w = projection_coverage(&soft, sc, [0.0; 2], pos, [a.sin(), 0.0, a.cos()]);
+    assert!((w - 0.5).abs() < 1e-3, "{w}");
+    // Outside a non-repeating texture the coverage is 0 whatever the facing.
+    let clipped = Projection { uv_wrap: subcraft_doc::UvWrap::None, scale: [2.0, 2.0], ..planar };
+    assert_eq!(projection_coverage(&clipped, sc, [0.0; 2], [0.75, 0.75, 0.3], [0.0, 0.0, 1.0]), 0.0);
+}

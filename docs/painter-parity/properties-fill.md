@@ -115,9 +115,9 @@ Layout notes: Filtering, UV Wrap, then the UV transformations group (Scale mode,
 | Shape crop (cropped to shape / extends outside shape) | Properties > Fill | Projection extends outside shape | done: crops to the projection box, which follows the 3D Offset / Rotation / Scale (the bounding cube until it is moved) | crates/materials/src/sample/bitmap.rs:214 | chunk 9 (part 1) |
 | Depth culling (toggle) | Properties > Fill | not documented | missing | - | - |
 | Depth culling: Hardness | Properties > Fill > Depth culling | not documented | missing | - | - |
-| Backface culling (toggle) | Properties > Fill | not documented | missing | - | - |
-| Backface culling: Angle | Properties > Fill > Backface culling | not documented | missing | - | - |
-| Backface culling: Hardness | Properties > Fill > Backface culling | not documented | missing | - | - |
+| Backface culling (toggle) | Properties > Fill | not documented | done: on bitmap and procedural fills and image masks; planar faces the side its image reads unmirrored from, cylindrical faces outward | crates/ui/src/panels/properties.rs:1649 | chunk 9 (part 2) |
+| Backface culling: Angle | Properties > Fill > Backface culling | not documented | done: 0..180 degrees, default 90 (labelled Culling angle) | crates/ui/src/panels/properties.rs:1649 | chunk 9 (part 2) |
+| Backface culling: Hardness | Properties > Fill > Backface culling | not documented | done: 0..1, default 0.5; below 1 the projection fades over up to 30 degrees before the angle (labelled Culling hardness) | crates/ui/src/panels/properties.rs:1649 | chunk 9 (part 2) |
 | Projection depth follows the transform's Z scale | Properties > Fill > 3D projection | n/a | done with Shape crop on: the box is as deep as its scale along the projection axis; there is no separate depth without the crop | crates/doc/src/fill.rs:211 | chunk 9 (part 1) |
 | 3D projection: Offset X, Y, Z | Properties > Fill > 3D projection | 0, 0, 0 | done: three number fields, bounding-box units, 0 centred; no viewport manipulator yet | crates/ui/src/panels/properties.rs:1586 | chunk 9 (part 1) |
 | 3D projection: Rotation X, Y, Z | Properties > Fill > 3D projection | not documented | done: degrees about X, Y, Z, applied in that order (the axis choice stays as well); no viewport manipulator yet | crates/ui/src/panels/properties.rs:1586 | chunk 9 (part 1) |
@@ -145,8 +145,8 @@ Layout notes: Filtering, UV Wrap, then the UV transformations group (Scale mode,
 | UV wrap (four options) | Properties > Fill | Repeat | done | crates/ui/src/panels/properties.rs:1218 | chunk 46 |
 | Shape crop (two options) | Properties > Fill | Projection extends outside shape | done: crops to the projection box, which follows the 3D Offset / Rotation / Scale (the bounding cube until it is moved) | crates/materials/src/sample/bitmap.rs:214 | chunk 9 (part 1) |
 | Angle (how much of the perimeter is covered) | Properties > Fill | not documented (360 unverified) | done: 1-360 degrees, default 360 | crates/ui/src/panels/properties.rs:1232 | chunk 46 |
-| Backface Culling (toggle) | Properties > Fill | not documented | missing | - | - |
-| Backface Culling: Hardness | Properties > Fill > Backface Culling | not documented | missing | - | - |
+| Backface Culling (toggle) | Properties > Fill | not documented | done: on bitmap and procedural fills and image masks; planar faces the side its image reads unmirrored from, cylindrical faces outward | crates/ui/src/panels/properties.rs:1649 | chunk 9 (part 2) |
+| Backface Culling: Hardness | Properties > Fill > Backface Culling | not documented | done: 0..1, default 0.5; below 1 the projection fades over up to 30 degrees before the angle (labelled Culling hardness) | crates/ui/src/panels/properties.rs:1649 | chunk 9 (part 2) |
 | 3D projection: Offset X, Y, Z | Properties > Fill > 3D projection | 0, 0, 0 | done: three number fields, bounding-box units, 0 centred; no viewport manipulator yet | crates/ui/src/panels/properties.rs:1586 | chunk 9 (part 1) |
 | 3D projection: Rotation X, Y, Z | Properties > Fill > 3D projection | not documented | done: degrees about X, Y, Z, applied in that order (the axis choice stays as well); no viewport manipulator yet | crates/ui/src/panels/properties.rs:1586 | chunk 9 (part 1) |
 | 3D projection: Scale X, Y, Z | Properties > Fill > 3D projection | not documented | done: 0.01..100 per axis; no viewport manipulator yet | crates/ui/src/panels/properties.rs:1586 | chunk 9 (part 1) |

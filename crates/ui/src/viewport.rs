@@ -189,10 +189,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         if middle_pressed && ctrl && !mods.alt && !mods.shift {
             match state.session.pick(&state.camera.paint_camera(size), to_screen(p)) {
                 Some(hit) => {
-                    let orbit = state.camera.eye_distance().max(1e-4);
                     let view = &mut state.recovery.prefs.viewport;
                     view.dof = true;
-                    view.dof_focus = (hit.depth / orbit).clamp(0.2, 3.0);
+                    view.dof_focus_distance = Some(hit.depth.max(1e-4));
                     state.set_status(crate::i18n::tr("Focus set"), now);
                 }
                 None => state.set_status(crate::i18n::tr("Click the model to set the focus"), now),
@@ -221,8 +220,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     if !(state.bake.open || state.bake.job.is_some()) && state.recovery.prefs.viewport.dof && state.recovery.prefs.viewport.dof_autofocus
         && let Some(hit) = state.session.pick(&camera, glam::Vec2::new(size[0] as f32 * 0.5, size[1] as f32 * 0.5))
     {
-        let orbit = state.camera.eye_distance().max(1e-4);
-        state.recovery.prefs.viewport.dof_focus = (hit.depth / orbit).clamp(0.2, 3.0);
+        state.recovery.prefs.viewport.dof_focus_distance = Some(hit.depth.max(1e-4));
     }
 
     // Right-click (no drag): the Properties popup at the cursor, part actions in its header.
@@ -349,15 +347,13 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         && let Some(p) = pointer
         && let Some(hit) = state.session.pick(&camera, to_screen(p))
     {
-        let orbit = state.camera.eye_distance().max(1e-4);
-        state.recovery.prefs.viewport.dof_focus = (hit.depth / orbit).clamp(0.2, 3.0);
+        state.recovery.prefs.viewport.dof_focus_distance = Some(hit.depth.max(1e-4));
         state.set_status(crate::i18n::tr("Focus set"), now);
     }
     let focus_picking = !bake_mode && !state.painting && state.picking_focus && state.recovery.prefs.viewport.dof;
     if focus_picking && primary_pressed && response.hovered() && let Some(p) = pointer {
         if let Some(hit) = state.session.pick(&camera, to_screen(p)) {
-            let orbit = state.camera.eye_distance().max(1e-4);
-            state.recovery.prefs.viewport.dof_focus = (hit.depth / orbit).clamp(0.2, 3.0);
+            state.recovery.prefs.viewport.dof_focus_distance = Some(hit.depth.max(1e-4));
             state.set_status(crate::i18n::tr("Focus set"), now);
         } else {
             state.set_status(crate::i18n::tr("Click the model to set the focus"), now);
@@ -406,6 +402,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     // lift within one frame, and its dab must use the tap's force, not the reset after release.
     let (stroke_pressure, carried) = pen_pressure(&ui.input(|i| i.events.clone()), state.pen_pressure);
     state.pen_pressure = carried;
+    // The toolbar's pressure curve (a mouse reports 1, which every curve keeps).
+    let stroke_pressure = state.recovery.prefs.viewport.pressure_curve.apply(stroke_pressure);
     if !bake_mode && state.tool == Tool::Pen && !picking && !alt && !stencil_edit && !typing && let Some(p) = pointer {
             if primary_pressed && response.hovered() {
                 let hit = state.pen.preview(&state.session).and_then(|path| crate::pen::hit(path, state.pen.selected_anchor(), p, |uv| pen_position(state, &camera, rect, uv)));
@@ -527,6 +525,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             params.background_top = Some(state.recovery.prefs.background_top);
             let view = &state.recovery.prefs.viewport;
             params.antialias = view.antialias;
+            params.oit = view.oit;
             params.exposure = view.exposure_value();
             params.post = view.post_params_at(state.session.scene().mesh.bounds.diagonal(), state.camera.eye_distance());
             params.view_mode = view.view_mode();
@@ -741,7 +740,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 let r_px = state.session.brush_radius_in(ppu, size[1] as f32, density) * ppu / pixel_scale.y;
                 let color = if state.tool == Tool::Eraser { Color32::from_rgb(120, 190, 255) } else { ACCENT };
                 let style = state.recovery.prefs.viewport.brush_cursor;
-                brush_mark(&painter, p, r_px, color, style, true);
+                let hardness = state.session.brush.settings.hardness;
+                brush_mark(&painter, p, r_px, hardness, color, style, true);
                 // Symmetry: a second cursor where each copy paints (faint when the copy's point
                 // is hidden behind the model).
                 let prefs = &state.recovery.prefs.viewport;
@@ -751,7 +751,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     for (at, visible) in symmetry_cursors(&camera, options, center, pick.position, |s| state.session.pick(&camera, s).map(|h| h.depth)) {
                         let at = rect.min + egui::vec2(at.x / pixel_scale.x, at.y / pixel_scale.y);
                         let c = if visible { color.gamma_multiply(0.8) } else { color.gamma_multiply(0.3) };
-                        brush_mark(&painter, at, r_px, c, style, false);
+                        brush_mark(&painter, at, r_px, hardness, c, style, false);
                     }
                 }
             }
@@ -1293,13 +1293,22 @@ pub const CROSSHAIR_ARM: f32 = 8.0;
 
 /// The brush cursor at `at`: the outline circle of radius `r` or a crosshair (Painter's cursor
 /// display). `strong` adds a dark underlay so the cursor reads on any surface.
-fn brush_mark(painter: &egui::Painter, at: Pos2, r: f32, color: Color32, style: crate::viewport_bar::BrushCursor, strong: bool) {
+fn brush_mark(painter: &egui::Painter, at: Pos2, r: f32, hardness: f32, color: Color32, style: crate::viewport_bar::BrushCursor, strong: bool) {
+    // Full preview: the tip's falloff as translucent rings under the outline (main cursor only).
+    if strong && style == crate::viewport_bar::BrushCursor::Full {
+        for (radius, width, strength) in crate::brush_cursor::preview_rings(r, hardness) {
+            if strength > 0.0 && radius > 0.0 {
+                // Slightly wider than their band so neighbours meet without gaps.
+                painter.circle_stroke(at, radius, Stroke::new(width + 0.5, color.gamma_multiply(strength * crate::brush_cursor::PREVIEW_ALPHA)));
+            }
+        }
+    }
     let mut strokes = Vec::new();
     if strong { strokes.push(Stroke::new(1.5, Color32::from_black_alpha(160))); }
     strokes.push(Stroke::new(1.0, color));
     for s in strokes {
         match style {
-            crate::viewport_bar::BrushCursor::Outline => { painter.circle_stroke(at, r, s); }
+            crate::viewport_bar::BrushCursor::Outline | crate::viewport_bar::BrushCursor::Full => { painter.circle_stroke(at, r, s); }
             crate::viewport_bar::BrushCursor::Crosshair => {
                 let (h, v) = (egui::vec2(CROSSHAIR_ARM, 0.0), egui::vec2(0.0, CROSSHAIR_ARM));
                 painter.line_segment([at - h, at + h], s);
