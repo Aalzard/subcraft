@@ -1144,24 +1144,7 @@ pub fn uv_symmetry_copies(ctx: &PaintContext, options: &StrokeOptions, uv: Vec2)
     let Some(t) = triangle_at_uv(mesh, ctx.geometry, uv) else { return Vec::new() };
     let Some((u, v)) = uv_barycentric(mesh, t, uv) else { return Vec::new() };
     let p = mesh.interpolate(t as usize, u, v).position;
-    let center = mesh.bounds.center();
-    let mut points = vec![p];
-    let mirrors = options.symmetry.iter().filter(|&&m| m).count();
-    let radial = &options.radial;
-    let n = radial.effective_count(mirrors);
-    if n > 1 {
-        let pivot = center + Vec3::from_array(radial.center_offset);
-        for k in 1..n {
-            let q = glam::Quat::from_axis_angle(radial.axis_dir(), std::f32::consts::TAU * k as f32 / n as f32);
-            points.push(pivot + q * (p - pivot));
-        }
-    }
-    for axis in 0..3 {
-        if options.symmetry[axis] {
-            let mirrored: Vec<Vec3> = points.iter().map(|&q| { let mut m = q; m[axis] = 2.0 * center[axis] - q[axis]; m }).collect();
-            points.extend(mirrored);
-        }
-    }
+    let points = options.symmetry_points(mesh.bounds.center(), p);
     let slot = ctx.geometry.material_slot;
     let reach = (mesh.bounds.diagonal() * 0.05).max(1e-6);
     let min_gap = 0.5 / ctx.geometry.resolution.max(1) as f32;
