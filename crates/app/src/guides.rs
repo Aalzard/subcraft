@@ -3,10 +3,21 @@
 use glam::Vec3;
 use subcraft_mesh::Mesh;
 
-pub(crate) fn symmetry_sections(mesh: &Mesh) -> [Vec<[Vec3; 2]>; 3] {
+/// One mirror plane's guides: where it cuts the surface, and a rectangle a little larger than the
+/// mesh that shows the plane beyond the surface (also on planar meshes).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct MirrorGuide {
+    pub intersection: Vec<[Vec3; 2]>,
+    pub plane: [Vec3; 4],
+}
+
+/// Guides of the three mirror planes `p[axis] = planes[axis]` (the planes mirrored painting uses).
+pub(crate) fn symmetry_sections(mesh: &Mesh, planes: [f32; 3]) -> [MirrorGuide; 3] {
     let center = mesh.bounds.center();
     let eps = mesh.bounds.diagonal().max(1e-6) * 1e-6;
     std::array::from_fn(|axis| {
+        let mut center = center;
+        center[axis] = planes[axis];
         let mut lines = Vec::new();
         for tri in mesh.indices.as_chunks::<3>().0 {
             let p = tri.map(|i| mesh.positions[i as usize]);
@@ -24,12 +35,16 @@ pub(crate) fn symmetry_sections(mesh: &Mesh) -> [Vec<[Vec3; 2]>; 3] {
         // A quiet rectangle also identifies the plane beyond the surface, including planar meshes.
         let extent = mesh.bounds.extent() * 0.58 + Vec3::splat(mesh.bounds.diagonal() * 0.025);
         let (u, v) = ((axis + 1) % 3, (axis + 2) % 3);
-        let corners = [(-1., -1.), (1., -1.), (1., 1.), (-1., 1.)].map(|(su, sv)| {
+        let plane = [(-1., -1.), (1., -1.), (1., 1.), (-1., 1.)].map(|(su, sv)| {
             let mut p = center; p[u] += su * extent[u]; p[v] += sv * extent[v]; p
         });
-        for i in 0..4 { lines.push([corners[i], corners[(i + 1) % 4]]); }
-        lines
+        MirrorGuide { intersection: lines, plane }
     })
+}
+
+/// The four edges of a plane rectangle.
+pub(crate) fn outline(corners: &[Vec3; 4]) -> [[Vec3; 2]; 4] {
+    std::array::from_fn(|i| [corners[i], corners[(i + 1) % 4]])
 }
 
 /// Radial symmetry guide: the axis line through the (offset) bounds center, a little longer than
@@ -63,7 +78,7 @@ mod tests {
         let mut mesh = subcraft_mesh::primitives::cube(2.);
         for p in &mut mesh.positions { *p += Vec3::new(3., 4., 5.); }
         mesh.bounds = subcraft_mesh::Aabb::from_points(mesh.positions.iter().copied());
-        let radial = subcraft_paint::RadialSymmetry { enabled: true, axis: 1, count: 6, center_offset: [0.5, 0.0, 0.0] };
+        let radial = subcraft_paint::RadialSymmetry { enabled: true, axis: 1, count: 6, center_offset: [0.5, 0.0, 0.0], flip: false };
         let lines = radial_guides(&mesh, &radial, 6);
         assert_eq!(lines.len(), 7);
         let c = Vec3::new(3.5, 4., 5.);
@@ -82,10 +97,27 @@ mod tests {
         let mut mesh = subcraft_mesh::primitives::cube(2.);
         for p in &mut mesh.positions { *p += Vec3::new(3., 4., 5.); }
         mesh.bounds = subcraft_mesh::Aabb::from_points(mesh.positions.iter().copied());
-        let sections = symmetry_sections(&mesh);
+        let center = mesh.bounds.center();
+        let sections = symmetry_sections(&mesh, center.to_array());
         for axis in 0..3 {
-            assert!(sections[axis].len() >= 12);
-            for line in &sections[axis] { for p in line { assert!((p[axis] - mesh.bounds.center()[axis]).abs() < 1e-6); } }
+            assert!(sections[axis].intersection.len() >= 8);
+            for line in &sections[axis].intersection { for p in line { assert!((p[axis] - center[axis]).abs() < 1e-6); } }
+            for p in &sections[axis].plane { assert!((p[axis] - center[axis]).abs() < 1e-6); }
         }
+    }
+
+    #[test]
+    fn a_moved_mirror_plane_cuts_the_surface_where_it_now_is() {
+        let mesh = subcraft_mesh::primitives::cube(2.);
+        // The X plane moved to x = 0.5 (still inside the cube); Y and Z stay at the center.
+        let sections = symmetry_sections(&mesh, [0.5, 0.0, 0.0]);
+        let x = &sections[0];
+        assert!(!x.intersection.is_empty());
+        for line in &x.intersection { for p in line { assert!((p.x - 0.5).abs() < 1e-6, "{p}"); } }
+        for p in &x.plane { assert!((p.x - 0.5).abs() < 1e-6); }
+        // A plane outside the mesh has no intersection, only its rectangle.
+        let outside = symmetry_sections(&mesh, [3.0, 0.0, 0.0]);
+        assert!(outside[0].intersection.is_empty());
+        assert_eq!(outline(&outside[0].plane).len(), 4);
     }
 }

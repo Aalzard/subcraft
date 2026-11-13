@@ -165,26 +165,26 @@ Layout notes: the names below are the channel types Painter offers (from the col
 
 ## Texture Set Settings: Mesh maps
 
-Layout notes: a "Bake Mesh Maps" button, then one slot per mesh map with a thumbnail, the map name and the resource name. The public settings page stops at the section heading, so slot interactions below are marked unverified. SubCraft shows a row only for maps that exist (Height and Bent normals also show an empty "Select ..." slot) and each row has an X to clear it. PR #137 adds an "Import mesh maps..." button and an ID colour list in this section.
+Layout notes: a "Bake Mesh Maps" button, then one slot per mesh map with a thumbnail, the map name and the resource name. The public settings page stops at the section heading, so slot interactions below are marked unverified. SubCraft lists all nine slots; an empty one shows "Select ... map" and takes an image by click or drop, a filled one has an X to clear it. PR #137 adds an "Import mesh maps..." button and an ID colour list in this section.
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
 | Bake Mesh Maps button | Texture Set Settings > Mesh maps | not documented | done | crates/ui/src/panels/texture_sets.rs:246 | - |
-| Slot: Normal | Texture Set Settings > Mesh maps | empty | partial: row appears only once baked | crates/ui/src/panels/texture_sets.rs:111 | #137 |
-| Slot: World space normal | Texture Set Settings > Mesh maps | empty | partial: row appears only once baked | crates/ui/src/panels/texture_sets.rs:112 | #137 |
-| Slot: ID | Texture Set Settings > Mesh maps | empty | partial: row appears only once baked | crates/ui/src/panels/texture_sets.rs:113 | #137 |
-| Slot: Ambient occlusion | Texture Set Settings > Mesh maps | empty | partial: row appears only once baked | crates/ui/src/panels/texture_sets.rs:114 | #137 |
-| Slot: Curvature | Texture Set Settings > Mesh maps | empty | partial: row appears only once baked | crates/ui/src/panels/texture_sets.rs:115 | #137 |
-| Slot: Position | Texture Set Settings > Mesh maps | empty | partial: row appears only once baked | crates/ui/src/panels/texture_sets.rs:116 | #137 |
-| Slot: Thickness | Texture Set Settings > Mesh maps | empty | partial: row appears only once baked | crates/ui/src/panels/texture_sets.rs:117 | #137 |
-| Slot: Height | Texture Set Settings > Mesh maps | empty | partial: empty slot opens the bake window, cannot pick a file | crates/ui/src/panels/texture_sets.rs:260 | #137 |
-| Slot: Bent normals | Texture Set Settings > Mesh maps | empty | partial: empty slot opens the bake window, cannot pick a file | crates/ui/src/panels/texture_sets.rs:260 | #137 |
+| Slot: Normal | Texture Set Settings > Mesh maps | empty | done | crates/ui/src/panels/texture_sets.rs (MESH_MAP_SLOTS, map_slot) | #137 |
+| Slot: World space normal | Texture Set Settings > Mesh maps | empty | done | crates/ui/src/panels/texture_sets.rs (MESH_MAP_SLOTS, map_slot) | #137 |
+| Slot: ID | Texture Set Settings > Mesh maps | empty | done | crates/ui/src/panels/texture_sets.rs (MESH_MAP_SLOTS, map_slot) | #137 |
+| Slot: Ambient occlusion | Texture Set Settings > Mesh maps | empty | done | crates/ui/src/panels/texture_sets.rs (MESH_MAP_SLOTS, map_slot) | #137 |
+| Slot: Curvature | Texture Set Settings > Mesh maps | empty | done | crates/ui/src/panels/texture_sets.rs (MESH_MAP_SLOTS, map_slot) | #137 |
+| Slot: Position | Texture Set Settings > Mesh maps | empty | done | crates/ui/src/panels/texture_sets.rs (MESH_MAP_SLOTS, map_slot) | #137 |
+| Slot: Thickness | Texture Set Settings > Mesh maps | empty | done | crates/ui/src/panels/texture_sets.rs (MESH_MAP_SLOTS, map_slot) | #137 |
+| Slot: Height | Texture Set Settings > Mesh maps | empty | done | crates/ui/src/panels/texture_sets.rs (MESH_MAP_SLOTS, map_slot) | #137 |
+| Slot: Bent normals | Texture Set Settings > Mesh maps | empty | done | crates/ui/src/panels/texture_sets.rs (MESH_MAP_SLOTS, map_slot) | #137 |
 | Slot: Opacity | Texture Set Settings > Mesh maps | empty | missing (the Opacity *channel* is done, see Channels) | - | - |
-| Click a slot to select an image resource | Mesh map slot | (unverified) | missing | - | #137 |
-| Drag a texture from Assets onto a slot | Mesh map slot | (unverified) | missing | - | - |
-| Replace the map in a filled slot | Mesh map slot | (unverified) | missing | - | #137 |
-| Remove (X) the map from a slot | Mesh map slot | (unverified) | done | crates/ui/src/panels/texture_sets.rs:291 | - |
-| Slot context menu | Mesh map slot (right-click) | not documented | missing | - | - |
+| Click a slot to select an image resource | Mesh map slot | (unverified) | partial: opens a file dialog, not a resource picker | crates/ui/src/panels/texture_sets.rs (set_mesh_map_from_file) | #137 |
+| Drag a texture from Assets onto a slot | Mesh map slot | (unverified) | done (also a file from the system file browser) | crates/ui/src/panels/texture_sets.rs (mesh_maps) | - |
+| Replace the map in a filled slot | Mesh map slot | (unverified) | done | crates/ui/src/panels/texture_sets.rs (map_slot) | #137 |
+| Remove (X) the map from a slot | Mesh map slot | (unverified) | done | crates/ui/src/panels/texture_sets.rs (map_slot) | - |
+| Slot context menu | Mesh map slot (right-click) | not documented | partial: Select / Replace image, Bake this map, Remove (Painter's entries are not documented) | crates/ui/src/panels/texture_sets.rs (map_slot) | - |
 | Import baked maps: Add button at project creation | New project > Import baked maps | none | missing | - | #137 |
 | Auto-assign by file name TextureSetName_MeshMapName | New project > Import baked maps | ambient_occlusion, curvature, normal_base, world_space_normals, id, position, thickness | missing | - | #137 |
 | Baked normal follows the project Normal Map Format | Project settings | DirectX or OpenGL | partial: maps are always OpenGL; the setting is an export convention | crates/ui/src/new_project.rs:286 | - |

@@ -155,6 +155,8 @@ pub struct PrefixCache {
     budget: usize,
     hits: AtomicUsize,
     misses: AtomicUsize,
+    /// The layers' own results (see [`ContentCache`]); same lifetime and budget.
+    pub(crate) content: ContentCache,
 }
 
 impl Default for PrefixCache {
@@ -175,7 +177,7 @@ pub struct PrefixStats {
 
 impl PrefixCache {
     pub fn new(budget_bytes: usize) -> Self {
-        Self { inner: Mutex::default(), budget: budget_bytes, hits: AtomicUsize::new(0), misses: AtomicUsize::new(0) }
+        Self { inner: Mutex::default(), budget: budget_bytes, hits: AtomicUsize::new(0), misses: AtomicUsize::new(0), content: ContentCache::new(budget_bytes) }
     }
 
     fn lock(&self) -> MutexGuard<'_, Inner> {
@@ -194,6 +196,7 @@ impl PrefixCache {
     /// Declare the layer list (and evaluator) the next evaluations run against, dropping what the
     /// change made stale.
     pub(crate) fn sync(&self, layers: &[Arc<Layer>], graph: bool, change: Change) {
+        self.content.sync(layers, matches!(change, Change::Everything));
         let mut i = self.lock();
         if i.graph != graph || matches!(change, Change::Everything) {
             *i = Inner { graph, ..Inner::default() };
@@ -300,5 +303,148 @@ impl PrefixCache {
                 i.forget(oldest.1);
             }
         }
+    }
+}
+
+/// What a top-level layer contributes before it is blended: its content after its effects, per
+/// channel, and its mask, per tile.
+///
+/// An edit of one layer changes what every layer above it is blended onto, but not what those
+/// layers are: their content and masks (blurs, medians, generators...) used to be evaluated
+/// again for every tile just to be blended once more, which was most of the cost of an edit low
+/// in a stack. Here they are kept for as long as the layer itself is unchanged.
+///
+/// * Exact: entries are lossless copies ([`Packed`]) of what the evaluation produced.
+/// * Valid by identity: an entry belongs to one `Arc<Layer>`; copy-on-write replaces the `Arc` on
+///   any edit of the layer or of anything inside it. [`ContentCache::sync`] drops the entries of
+///   layers that left the stack and keeps the others alive, so an address is never reused.
+///   Whatever else a result depends on (geometry, resolution, channels, resources, mesh maps)
+///   resets the whole cache, exactly as it resets the prefix entries. Only results that depend on
+///   nothing but the layer are stored: the evaluator decides that (no anchors, no passthrough, no
+///   compare masks).
+/// * Bounded without thrashing: a byte budget; an entry is only evicted once a whole update has
+///   passed without reading it. While every entry is in use, new results are simply not stored,
+///   so a stack larger than the budget keeps hitting on what it holds instead of evicting, tile
+///   after tile, what the next tile is about to read.
+pub(crate) struct ContentCache {
+    inner: Mutex<ContentInner>,
+    budget: usize,
+    hits: AtomicUsize,
+}
+
+/// Which result of a layer: a channel (`ChannelKind as u16`) or [`CONTENT_MASK`].
+pub(crate) type ContentSlot = u16;
+pub(crate) const CONTENT_MASK: ContentSlot = u16::MAX;
+
+type ContentKey = (usize, ContentSlot, u32); // (layer address, slot, tile)
+
+struct ContentEntry {
+    packed: Arc<Packed>,
+    stamp: u64,
+    bytes: usize,
+    /// The update that last read or wrote it.
+    update: u64,
+}
+
+#[derive(Default)]
+struct ContentInner {
+    /// Keeps every layer with entries alive.
+    layers: Vec<Arc<Layer>>,
+    entries: HashMap<ContentKey, ContentEntry>,
+    /// Least recently used first.
+    order: BTreeMap<u64, ContentKey>,
+    bytes: usize,
+    clock: u64,
+    update: u64,
+}
+
+impl ContentInner {
+    fn remove(&mut self, k: &ContentKey) {
+        if let Some(e) = self.entries.remove(k) {
+            self.order.remove(&e.stamp);
+            self.bytes -= e.bytes;
+        }
+    }
+}
+
+impl ContentCache {
+    fn new(budget_bytes: usize) -> Self {
+        Self { inner: Mutex::default(), budget: budget_bytes, hits: AtomicUsize::new(0) }
+    }
+
+    fn lock(&self) -> MutexGuard<'_, ContentInner> {
+        self.inner.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    pub(crate) fn enabled(&self) -> bool {
+        self.budget > 0
+    }
+
+    /// (entries, bytes, hits), for tests and benchmarks.
+    pub(crate) fn stats(&self) -> (usize, usize, usize) {
+        let i = self.lock();
+        (i.entries.len(), i.bytes, self.hits.load(Ordering::Relaxed))
+    }
+
+    /// A new update against `layers` begins; `everything`: nothing stored is valid any more.
+    fn sync(&self, layers: &[Arc<Layer>], everything: bool) {
+        let mut i = self.lock();
+        if everything {
+            let update = i.update;
+            *i = ContentInner { update, ..ContentInner::default() };
+        }
+        i.update += 1;
+        let alive: BTreeSet<usize> = layers.iter().map(|l| Arc::as_ptr(l) as usize).collect();
+        let dead: Vec<ContentKey> = i.entries.keys().filter(|k| !alive.contains(&k.0)).copied().collect();
+        for k in dead {
+            i.remove(&k);
+        }
+        i.layers = layers.to_vec();
+    }
+
+    pub(crate) fn get(&self, layer: usize, slot: ContentSlot, tile: usize) -> Option<Arc<Packed>> {
+        let mut i = self.lock();
+        let k = (layer, slot, tile as u32);
+        i.clock += 1;
+        let (stamp, update) = (i.clock, i.update);
+        let e = i.entries.get_mut(&k)?;
+        let old = std::mem::replace(&mut e.stamp, stamp);
+        e.update = update;
+        let packed = e.packed.clone();
+        i.order.remove(&old);
+        i.order.insert(stamp, k);
+        self.hits.fetch_add(1, Ordering::Relaxed);
+        Some(packed)
+    }
+
+    pub(crate) fn put(&self, layer: usize, slot: ContentSlot, tile: usize, px: &[[f32; 4]]) {
+        if self.budget == 0 {
+            return;
+        }
+        let packed = Arc::new(Packed::pack(px));
+        let bytes = packed.bytes();
+        if bytes > self.budget {
+            return;
+        }
+        let mut i = self.lock();
+        // Only for a layer of the current stack (its `Arc` is held, so the address is its own).
+        if !i.layers.iter().any(|l| Arc::as_ptr(l) as usize == layer) {
+            return;
+        }
+        let k = (layer, slot, tile as u32);
+        i.remove(&k);
+        while i.bytes + bytes > self.budget {
+            let Some((_, &oldest)) = i.order.first_key_value() else { break };
+            // Read during this update or the one before: everything stored is in use.
+            if i.entries.get(&oldest).is_some_and(|e| e.update + 1 >= i.update) {
+                return;
+            }
+            i.remove(&oldest);
+        }
+        i.clock += 1;
+        let (stamp, update) = (i.clock, i.update);
+        i.entries.insert(k, ContentEntry { packed, stamp, bytes, update });
+        i.order.insert(stamp, k);
+        i.bytes += bytes;
     }
 }
