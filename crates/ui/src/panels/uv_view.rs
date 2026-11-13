@@ -315,6 +315,10 @@ fn quick_mask_overlay(state: &mut UiState, ui: &Ui, painter: &egui::Painter, ima
         return;
     };
     let (revision, editing) = (q.revision, q.editing);
+    // While editing, the Base Color texture itself carries the tint (see `UiState::sync_gpu`).
+    if editing && state.uv.source == PreviewSource::Channel(ChannelKind::BaseColor) && state.renderer.is_some() {
+        return;
+    }
     if state.quick_mask_tex.as_ref().is_none_or(|(r, _)| *r != revision) {
         let img = &q.image;
         let n = img.width().min(512).max(1);

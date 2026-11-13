@@ -307,6 +307,11 @@ pub struct UiState {
     pub uploaded_channels: Vec<(subcraft_core::TextureSetId, Vec<ChannelKind>)>,
     /// Channel shown alone that the shader does not otherwise read, as last uploaded.
     pub uploaded_solo: Option<ChannelKind>,
+    /// Base Color tinted red where the quick mask protects the surface, while it is edited.
+    pub quick_mask_tint: subcraft_app::quick_mask_tint::TintCache,
+    /// While a material is dragged with Ctrl over the 3D view: the part it would land on, the
+    /// camera the outline was computed for, and the part's visible border edges (object space).
+    pub drop_outline: Option<(subcraft_app::PartKey, subcraft_app::Camera, Vec<[glam::Vec3; 2]>)>,
     /// Thumbnails of imported images (resources are immutable, so entries never go stale).
     pub image_thumbs: HashMap<subcraft_core::ResourceId, egui::TextureHandle>,
     /// The library new presets and imports go to (Settings > Libraries default; your_assets
@@ -495,6 +500,8 @@ impl UiState {
             uploaded_maps: HashMap::new(),
             uploaded_channels: Vec::new(),
             uploaded_solo: None,
+            quick_mask_tint: Default::default(),
+            drop_outline: None,
             image_thumbs: HashMap::new(),
             user_library: None,
             libraries: Vec::new(),
@@ -854,6 +861,19 @@ impl UiState {
             }
         }
         self.uploaded_solo = solo;
+        // Quick mask edition: Base Color tinted red where the mask protects (3D and 2D views).
+        let quick = session.quick_mask().filter(|q| q.editing).map(|q| (q.texture_set, &q.image));
+        for ts in &session.document().texture_sets {
+            let Some(base) = session.composite(ts.id).and_then(|c| c.channel(ChannelKind::BaseColor)) else { continue };
+            let mask = quick.filter(|(id, _)| *id == ts.id).map(|(_, image)| image);
+            match self.quick_mask_tint.update(ts.id, base, mask, full) {
+                subcraft_app::quick_mask_tint::TintUpload::None => {}
+                subcraft_app::quick_mask_tint::TintUpload::Tinted(img, tiles) => {
+                    renderer.upload_channel(&rs.device, &rs.queue, ts.material_slot, ChannelKind::BaseColor, img, tiles.as_deref());
+                }
+                subcraft_app::quick_mask_tint::TintUpload::Restore => renderer.upload_channel(&rs.device, &rs.queue, ts.material_slot, ChannelKind::BaseColor, base, None),
+            }
+        }
         crate::edit_profile::record("  sync: upload", upload_start.elapsed());
         self.uploaded_composite_generation = session.composite_generation();
         // Baked maps: re-upload when a bake replaced them. Baked AO also shades the viewport
