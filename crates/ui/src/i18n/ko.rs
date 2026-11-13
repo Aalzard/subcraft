@@ -820,4 +820,8 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Brush outline", "브러시 윤곽"),
     ("Crosshair", "십자선"),
     ("Shown in the popup over the view (Esc closes it)", "뷰 위의 팝업에 표시됨 (Esc로 닫기)"),
+    ("Rotation speed", "회전 속도"),
+    ("Zoom speed", "확대/축소 속도"),
+    ("Wheel speed", "휠 속도"),
+    ("Inverse direction", "방향 반전"),
 ];
