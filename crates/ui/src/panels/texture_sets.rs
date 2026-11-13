@@ -222,8 +222,9 @@ pub fn format_badge(kind: ChannelKind, format: ChannelFormat) -> String {
     format!("{prefix}{suffix}")
 }
 
-/// The seven mesh maps Painter lists, in its order, with the description it prints.
-pub const MESH_MAP_ROWS: [(MeshMapKind, &str, &str); 7] = [
+/// The mesh-map slots of a texture set, in Painter's order: the map, the slot's name, and what
+/// a map in it is called.
+pub const MESH_MAP_SLOTS: [(MeshMapKind, &str, &str); 9] = [
     (MeshMapKind::Normal, "Normal", "Normal Map from Mesh"),
     (MeshMapKind::WorldSpaceNormal, "World space normal", "World Space Normals"),
     (MeshMapKind::Id, "ID", "Color Map from Mesh"),
@@ -231,7 +232,32 @@ pub const MESH_MAP_ROWS: [(MeshMapKind, &str, &str); 7] = [
     (MeshMapKind::Curvature, "Curvature", "Curvature Map from Mesh"),
     (MeshMapKind::Position, "Position", "Position"),
     (MeshMapKind::Thickness, "Thickness", "Thickness Map from Mesh"),
+    (MeshMapKind::Height, "Height", "Height Map from Mesh"),
+    (MeshMapKind::BentNormal, "Bent normals", "Bent Normals Map from Mesh"),
 ];
+
+/// Text of an empty slot ("Select height map").
+pub fn empty_slot_label(title: &str) -> String {
+    let name = if title == "ID" { title.to_string() } else { title.to_lowercase() };
+    format!("Select {name} map")
+}
+
+/// Load an image file into one mesh-map slot of a texture set, replacing the map that was there
+/// (the slot's file picker, or an image dropped on the slot). The other slots keep their maps.
+pub(crate) fn set_mesh_map_from_file(state: &mut UiState, texture_set: TextureSetId, kind: MeshMapKind, path: &std::path::Path, now: f64) {
+    let directx = subcraft_app::mesh_map_import::parse_file_name(path).2;
+    let assignment = subcraft_app::mesh_map_import::MeshMapAssignment { texture_set, kind, path: path.to_path_buf(), directx };
+    let report = state.session.import_mesh_maps(&[assignment], false);
+    let slot = MESH_MAP_SLOTS.iter().find(|s| s.0 == kind).map_or("Mesh", |s| s.1);
+    match report.errors.first() {
+        Some(e) => state.set_status(format!("{slot} map: {e}"), now),
+        None => {
+            let file = path.file_name().and_then(|n| n.to_str()).unwrap_or("image");
+            state.set_status(format!("{slot} map set from {file}"), now);
+            state.recovery.autosaver.request_soon();
+        }
+    }
+}
 
 pub fn settings(state: &mut UiState, ui: &mut Ui) {
     let now = ui.input(|i| i.time);
@@ -257,7 +283,7 @@ pub fn settings(state: &mut UiState, ui: &mut Ui) {
             channels(state, ui, &mut cmds);
             section_rule(ui);
             if jump == Some(2) { ui.scroll_to_cursor(Some(egui::Align::TOP)); }
-            mesh_maps(state, ui, &mut cmds);
+            mesh_maps(state, ui, &mut cmds, now);
             section_rule(ui);
             if jump == Some(3) { ui.scroll_to_cursor(Some(egui::Align::TOP)); }
             crate::panels::id_colors::section(state, ui);
@@ -491,7 +517,7 @@ fn mixing_rows(ui: &mut Ui, current: MixingSettings) -> MixingSettings {
     m
 }
 
-fn mesh_maps(state: &mut UiState, ui: &mut Ui, cmds: &mut Vec<Command>) {
+fn mesh_maps(state: &mut UiState, ui: &mut Ui, cmds: &mut Vec<Command>, now: f64) {
     heading(ui, "Mesh maps");
     ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
         if ui.add(egui::Button::new(RichText::new("Bake Mesh Maps").font(theme::font(12.0)).color(TEXT)).min_size(egui::vec2(110.0, 24.0)))
@@ -506,45 +532,96 @@ fn mesh_maps(state: &mut UiState, ui: &mut Ui, cmds: &mut Vec<Command>) {
     if state.session.mesh_maps_stale(id) {
         ui.label(RichText::new(format!("{}  Baked for an earlier version of the mesh", icons::WARNING)).small().color(theme::WARNING));
     }
-    let mut any = false;
-    for (kind, title, what) in MESH_MAP_ROWS {
-        let Some(thumb) = map_thumbnail(state, ui.ctx(), id, kind) else { continue };
-        any = true;
-        map_row(ui, Some(&thumb), title, &format!("{what} {set_name}"), || cmds.push(Command::ClearMeshMap { texture_set: id, kind }));
-    }
-    for (kind, title, what, empty) in [(MeshMapKind::Height, "Height", "Height Map from Mesh", "Select height map"), (MeshMapKind::BentNormal, "Bent normals", "Bent Normals Map from Mesh", "Select bent normals map")] {
-        match map_thumbnail(state, ui.ctx(), id, kind) {
-            Some(thumb) => { any = true; map_row(ui, Some(&thumb), title, &format!("{what} {set_name}"), || cmds.push(Command::ClearMeshMap { texture_set: id, kind })); }
-            None => {
-                if ui.add_sized([ui.available_width(), 38.0], egui::Button::new(RichText::new(empty).font(theme::font(12.0)).color(TEXT_DIM)))
-                    .on_hover_text("Opens Baking mode: pick a high-poly mesh and tick this map").clicked() {
-                    state.bake.open = true;
-                    if !state.bake.settings.maps.contains(&kind) { state.bake.settings.maps.push(kind); }
-                }
+    // Every slot is always listed, as in Painter: an empty one is a place to put an image.
+    let mut dropped: Option<(MeshMapKind, std::path::PathBuf)> = None;
+    for (kind, title, what) in MESH_MAP_SLOTS {
+        let thumb = map_thumbnail(state, ui.ctx(), id, kind);
+        let desc = if thumb.is_some() { format!("{what} {set_name}") } else { empty_slot_label(title) };
+        let (row, action) = map_slot(ui, thumb.as_ref(), title, &desc);
+        match action {
+            Some(SlotAction::Pick) => {
+                let purpose = crate::files::Purpose::MeshMapSlot { texture_set: id, kind };
+                crate::files::pick(ui.ctx(), purpose, crate::files::IMAGES, false, Some("Choose an image for this mesh map"));
             }
+            Some(SlotAction::Clear) => cmds.push(Command::ClearMeshMap { texture_set: id, kind }),
+            Some(SlotAction::Bake) => {
+                state.bake.open = true;
+                if !state.bake.settings.maps.contains(&kind) { state.bake.settings.maps.push(kind); }
+            }
+            None => {}
+        }
+        // An image dragged from Assets, or a file from the system file browser, lands in the slot.
+        use crate::panels::shelf::ShelfDrag;
+        let over = ui.ctx().input(|i| i.pointer.latest_pos()).is_some_and(|p| row.rect.contains(p));
+        let file_over = over && ui.ctx().input(|i| !i.raw.hovered_files.is_empty());
+        let texture_over = row.dnd_hover_payload::<ShelfDrag>().is_some_and(|d| matches!(*d, ShelfDrag::Texture(_)));
+        if file_over || texture_over {
+            ui.painter().rect_stroke(row.rect, 2.0, egui::Stroke::new(1.5, ACCENT), egui::StrokeKind::Inside);
+        }
+        if over && let Some(path) = ui.ctx().input(|i| i.raw.dropped_files.first().map(|f| f.path().to_path_buf())).filter(|p| !p.as_os_str().is_empty()) {
+            state.drops_taken = true;
+            dropped = Some((kind, path));
+        }
+        if let Some(d) = row.dnd_release_payload::<ShelfDrag>()
+            && let ShelfDrag::Texture(i) = *d
+            && let Some(path) = state.textures.items.get(i).map(|t| t.path.clone())
+        {
+            dropped = Some((kind, path));
         }
     }
-    if !any { ui.label(RichText::new("No mesh maps baked yet. Use Bake Mesh Maps.").small().color(TEXT_FAINT)); }
+    if let Some((kind, path)) = dropped {
+        set_mesh_map_from_file(state, id, kind, &path, now);
+    }
 }
 
-fn map_row(ui: &mut Ui, thumb: Option<&egui::TextureHandle>, title: &str, desc: &str, mut clear: impl FnMut()) {
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 44.0), egui::Sense::hover());
+/// What the user asked of a mesh-map slot this frame.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SlotAction {
+    /// Choose an image file for the slot (also replaces the map of a filled slot).
+    Pick,
+    /// Remove the map.
+    Clear,
+    /// Open the bake window with this map ticked.
+    Bake,
+}
+
+/// One mesh-map slot: thumbnail, slot name, and the map's name or the "Select ... map" prompt.
+/// Click picks an image, the cross (filled slots) removes the map, right-click opens the menu.
+fn map_slot(ui: &mut Ui, thumb: Option<&egui::TextureHandle>, title: &str, desc: &str) -> (egui::Response, Option<SlotAction>) {
+    let filled = thumb.is_some();
+    let (rect, row) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 44.0), egui::Sense::click());
     let p = ui.painter();
     p.rect_filled(rect, 2.0, theme::BG_2);
-    p.rect_stroke(rect, 2.0, egui::Stroke::new(1.0, theme::BORDER), egui::StrokeKind::Inside);
+    p.rect_stroke(rect, 2.0, egui::Stroke::new(1.0, if row.hovered() { TEXT_FAINT } else { theme::BORDER }), egui::StrokeKind::Inside);
     let img = egui::Rect::from_min_size(rect.min + egui::vec2(3.0, 3.0), egui::vec2(38.0, 38.0));
     p.rect_filled(img, 0.0, theme::FIELD);
     if let Some(t) = thumb { p.image(t.id(), img, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), Color32::WHITE); }
     p.text(egui::pos2(img.right() + 8.0, rect.top() + 14.0), egui::Align2::LEFT_CENTER, title, theme::font_strong(12.0), TEXT);
-    let mut job = egui::text::LayoutJob::simple_singleline(desc.to_string(), theme::font(11.0), TEXT_DIM);
+    let desc_color = if filled { TEXT_DIM } else { TEXT_FAINT };
+    let mut job = egui::text::LayoutJob::simple_singleline(desc.to_string(), theme::font(11.0), desc_color);
     job.wrap.max_width = rect.right() - img.right() - 40.0; job.wrap.max_rows = 1;
     let galley = p.layout_job(job);
-    p.galley(egui::pos2(img.right() + 8.0, rect.top() + 24.0), galley, TEXT_DIM);
-    let x = egui::Rect::from_center_size(egui::pos2(rect.right() - 16.0, rect.center().y), egui::vec2(20.0, 20.0));
-    let r = ui.interact(x, ui.id().with(("clear_map", title)), egui::Sense::click());
-    ui.painter().text(x.center(), egui::Align2::CENTER_CENTER, icons::X, theme::font(12.0), if r.hovered() { TEXT } else { TEXT_DIM });
-    if r.on_hover_text("Remove this baked map (bake again to get it back)").clicked() { clear(); }
+    p.galley(egui::pos2(img.right() + 8.0, rect.top() + 24.0), galley, desc_color);
+    let mut action = None;
+    let mut over_cross = false;
+    if filled {
+        let x = egui::Rect::from_center_size(egui::pos2(rect.right() - 16.0, rect.center().y), egui::vec2(20.0, 20.0));
+        let r = ui.interact(x, ui.id().with(("clear_map", title)), egui::Sense::click());
+        ui.painter().text(x.center(), egui::Align2::CENTER_CENTER, icons::X, theme::font(12.0), if r.hovered() { TEXT } else { TEXT_DIM });
+        over_cross = r.hovered();
+        if r.on_hover_text("Remove the map from this slot").clicked() { action = Some(SlotAction::Clear); }
+    }
+    if action.is_none() && !over_cross && row.clicked() { action = Some(SlotAction::Pick); }
+    row.context_menu(|ui| {
+        if ui.button(if filled { "Replace image…" } else { "Select image…" }).clicked() { action = Some(SlotAction::Pick); ui.close(); }
+        if ui.button("Bake this map…").clicked() { action = Some(SlotAction::Bake); ui.close(); }
+        if ui.add_enabled(filled, egui::Button::new("Remove")).clicked() { action = Some(SlotAction::Clear); ui.close(); }
+    });
+    let row = if over_cross { row } else {
+        row.on_hover_text(if filled { "Click to replace the image, or drop one here · right-click for more" } else { "Click to choose an image, or drop one here · right-click for more" })
+    };
     ui.add_space(2.0);
+    (row, action)
 }
 
 /// Side of the generated mesh-map thumbnails.
@@ -622,11 +699,66 @@ mod tests {
         for _ in 0..2 { frame(&mut state, &ctx, settings); }
         let t = texts(&frame(&mut state, &ctx, settings));
         assert!(t.iter().any(|s| s == "Curvature") && t.iter().any(|s| s.starts_with("Curvature Map from Mesh")), "{t:?}");
-        assert!(!t.iter().any(|s| s.starts_with("Normal Map from Mesh")), "unbaked maps are not listed");
+        assert!(!t.iter().any(|s| s.starts_with("Normal Map from Mesh")), "an empty slot does not name a map");
+        assert!(t.iter().any(|s| s == "Select normal map"), "the empty slots are still listed: {t:?}");
         let tex = map_thumbnail(&state, &ctx, ts, MeshMapKind::Curvature).unwrap();
         assert_eq!(tex.size(), [THUMB, THUMB]);
         state.run(vec![Command::ClearMeshMap { texture_set: ts, kind: MeshMapKind::Curvature }], 0.0);
         assert!(state.session.mesh_maps(ts).is_none());
+    }
+
+    #[test]
+    fn every_mesh_map_slot_is_listed_before_anything_is_baked() {
+        let mut state = UiState::new(subcraft_app::Session::new(subcraft_mesh::primitives::cube(2.0), 64), None);
+        let ctx = egui::Context::default(); theme::apply(&ctx);
+        for _ in 0..2 { frame(&mut state, &ctx, settings); }
+        let t = texts(&frame(&mut state, &ctx, settings));
+        assert_eq!(MESH_MAP_SLOTS.map(|s| s.0), MeshMapKind::ALL, "one slot per map kind");
+        for (_, title, _) in MESH_MAP_SLOTS {
+            assert!(t.iter().any(|s| s == title), "missing slot {title}: {t:?}");
+            assert!(t.iter().any(|s| *s == empty_slot_label(title)), "missing prompt for {title}: {t:?}");
+        }
+        assert_eq!(empty_slot_label("ID"), "Select ID map");
+        assert_eq!(empty_slot_label("Bent normals"), "Select bent normals map");
+    }
+
+    #[test]
+    fn an_image_file_fills_one_slot_replaces_it_and_keeps_the_other_slots() {
+        let mut state = UiState::new(subcraft_app::Session::new(subcraft_mesh::primitives::cube(2.0), 64), None);
+        let ts = state.session.selection().texture_set;
+        let mut maps = std::collections::BTreeMap::new();
+        maps.insert(MeshMapKind::Curvature, subcraft_image::TiledImage::new(64, 64, 1, [0.7; 4]));
+        state.session.set_mesh_maps(ts, maps);
+        let dir = std::env::temp_dir().join(format!("subcraft-mesh-map-slot-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let write = |name: &str, grey: f32| {
+            let path = dir.join(name);
+            subcraft_image::save_image(&path, 16, 16, 1, &[grey; 256], subcraft_image::FileFormat::Png8).unwrap();
+            path
+        };
+        let ao = |state: &UiState| state.session.mesh_maps(ts).and_then(|m| m.get(MeshMapKind::AmbientOcclusion)).map(|img| (img.width(), img.get(32, 32)[0]));
+        assert_eq!(ao(&state), None);
+
+        set_mesh_map_from_file(&mut state, ts, MeshMapKind::AmbientOcclusion, &write("first.png", 0.25), 0.0);
+        let (w, v) = ao(&state).expect("the slot is filled");
+        assert_eq!(w, 64, "resampled to the texture set's size");
+        assert!((v - 0.25).abs() < 0.01, "{v}");
+        assert!(state.session.mesh_maps(ts).unwrap().get(MeshMapKind::Curvature).is_some(), "the other slots keep their maps");
+
+        // The same slot again: the map is replaced.
+        set_mesh_map_from_file(&mut state, ts, MeshMapKind::AmbientOcclusion, &write("second.png", 0.75), 0.0);
+        let (_, v) = ao(&state).unwrap();
+        assert!((v - 0.75).abs() < 0.01, "{v}");
+
+        // A file that cannot be read leaves the slot as it was.
+        set_mesh_map_from_file(&mut state, ts, MeshMapKind::AmbientOcclusion, &dir.join("missing.png"), 0.0);
+        let (_, v) = ao(&state).unwrap();
+        assert!((v - 0.75).abs() < 0.01, "{v}");
+
+        // The picker's answer goes through the same path.
+        crate::files::handle_for_test(&mut state, crate::files::Purpose::MeshMapSlot { texture_set: ts, kind: MeshMapKind::Thickness }, &[write("thick.png", 0.5)]);
+        assert!(state.session.mesh_maps(ts).unwrap().get(MeshMapKind::Thickness).is_some());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     fn click_frame(state: &mut UiState, ctx: &egui::Context, at: egui::Pos2) {

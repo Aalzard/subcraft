@@ -22,39 +22,39 @@ Layout notes: the Assets panel is docked vertically on the left edge by default.
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Breadcrumb path (All libraries > library > folder ...) | Top line of the filter area | All libraries | partial: static text "All libraries / category", not clickable | crates/ui/src/panels/shelf.rs:802 | - |
-| Arrow between crumbs opens a list of sub-locations | Breadcrumbs | - | missing | - | - |
-| Greyed location when it holds no asset of the selected type | Breadcrumb dropdown | - | missing | - | - |
-| "All libraries" selected when every folder is deselected or a saved search is picked | Breadcrumbs | - | missing | - | - |
+| Breadcrumb path (All libraries > library > folder ...) | Top line of the filter area | All libraries | done | crates/ui/src/panels/shelf.rs (breadcrumbs) | - |
+| Arrow between crumbs opens a list of sub-locations | Breadcrumbs | - | done | crates/ui/src/panels/shelf.rs (crumb_menu) | - |
+| Greyed location when it holds no asset of the selected type | Breadcrumb dropdown | - | done | crates/ui/src/panels/shelf.rs (locations) | - |
+| "All libraries" selected when every folder is deselected or a saved search is picked | Breadcrumbs | - | partial: All libraries when no folder is selected; a saved search shows its own folder | crates/ui/src/panels/shelf.rs (breadcrumbs) | - |
 
 ## Search field
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Search field (matches name, location and tags) | Filter area | empty | partial: matches name and category words only | crates/ui/src/panels/shelf.rs:814 | - |
+| Search field (matches name, location and tags) | Filter area | empty | done | crates/ui/src/panels/shelf_filter.rs (Field::Any) | - |
 | Clear (cross) button | Right end of the search field | - | done | crates/ui/src/panels/shelf.rs:815 | - |
-| Search tag hover shows what the saved search contains | Tag inside the search field | - | missing | - | - |
-| Fuzzy (approximate) matching | Default behaviour | on | partial: substring per word, no fuzzy | crates/ui/src/panels/shelf_filter.rs:22 | - |
+| Search tag hover shows what the saved search contains | Tag inside the search field | - | done | crates/ui/src/panels/shelf.rs (header) | - |
+| Fuzzy (approximate) matching | Default behaviour | on | done (one typo forgiven, two in long words) | crates/ui/src/panels/shelf_filter.rs (approximately_in) | - |
 
 ## Advanced search queries
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| n: (name) | Search field prefix | - | missing | - | - |
-| s: (library; includes session and project) | Search field prefix | - | missing (closest: "Mine" chip) | - | - |
-| p: (path) | Search field prefix | - | missing | - | - |
-| u: (usage) | Search field prefix | - | missing | - | - |
-| Usage keyword typed as a plain word (e.g. images) | Search field | - | missing | - | - |
-| Backslash escaping of spaces | Search field | - | missing | - | - |
-| Quoted phrase | Search field | - | missing | - | - |
-| Or-group after a prefix (n:a,b,c) | Search field | - | missing | - | - |
-| Comma between terms | Search field | - | missing | - | - |
-| Trailing ! (exact / no fuzzy; "contains" suffix) | Search field | - | missing | - | - |
-| Leading - (exclude) | Search field | - | missing | - | - |
-| Suffix # (regex) | Search field | - | missing | - | - |
-| Suffix = (equal) | Search field | - | missing | - | - |
-| Suffix ^ (starts with) | Search field | - | missing | - | - |
-| Suffix & (ends with) | Search field | - | missing | - | - |
+| n: (name) | Search field prefix | - | done | crates/ui/src/panels/shelf_filter.rs | - |
+| s: (library; includes session and project) | Search field prefix | - | partial: starter_assets, your_assets, extra libraries and session; no project library | crates/ui/src/panels/shelf_filter.rs | - |
+| p: (path) | Search field prefix | - | done | crates/ui/src/panels/shelf_filter.rs | - |
+| u: (usage) | Search field prefix | - | done | crates/ui/src/panels/shelf_filter.rs | - |
+| Usage keyword typed as a plain word (e.g. images) | Search field | - | done | crates/ui/src/panels/shelf_filter.rs | - |
+| Backslash escaping of spaces | Search field | - | done | crates/ui/src/panels/shelf_filter.rs | - |
+| Quoted phrase | Search field | - | done | crates/ui/src/panels/shelf_filter.rs | - |
+| Or-group after a prefix (n:a,b,c) | Search field | - | done | crates/ui/src/panels/shelf_filter.rs | - |
+| Comma between terms | Search field | - | done | crates/ui/src/panels/shelf_filter.rs | - |
+| Trailing ! (exact / no fuzzy; "contains" suffix) | Search field | - | done | crates/ui/src/panels/shelf_filter.rs | - |
+| Leading - (exclude) | Search field | - | done | crates/ui/src/panels/shelf_filter.rs | - |
+| Suffix # (regex) | Search field | - | done | crates/ui/src/panels/shelf_filter.rs | - |
+| Suffix = (equal) | Search field | - | done | crates/ui/src/panels/shelf_filter.rs | - |
+| Suffix ^ (starts with) | Search field | - | done | crates/ui/src/panels/shelf_filter.rs | - |
+| Suffix & (ends with) | Search field | - | done | crates/ui/src/panels/shelf_filter.rs | - |
 
 ## Asset type icons
 
@@ -66,53 +66,53 @@ Layout notes: one row of eight icons under the search field, in the order below.
 | Smart materials | Icon 2 | - | done | crates/ui/src/panels/shelf.rs:767 | - |
 | Smart masks | Icon 3 | - | done | crates/ui/src/panels/shelf.rs:768 | - |
 | Filters | Icon 4 | - | done | crates/ui/src/panels/shelf.rs:769 | - |
-| Brushes (brush, particle and tool presets) | Icon 5 | - | partial: brush, tool and material presets and tips; no particle presets | crates/ui/src/panels/shelf.rs:770 | - |
-| Alphas (alphas and brush makers) | Icon 6 | - | partial: alphas are listed inside Brushes, no own icon | crates/ui/src/panels/shelf.rs:673 | - |
+| Brushes (brush, particle and tool presets) | Icon 5 | - | partial: brush, tool and material presets (tips are under Alphas); no particle presets | crates/ui/src/panels/shelf.rs:770 | - |
+| Alphas (alphas and brush makers) | Icon 6 | - | partial: own icon with the user's, built-in and starter tips; no brush makers | crates/ui/src/panels/shelf.rs (ShelfTab::Alphas) | - |
 | Textures (grunges, procedurals, baked maps, hard-surface normals, LUTs) | Icon 7 | - | partial: split into Textures and an extra Normal Maps icon; no procedurals or LUTs | crates/ui/src/panels/shelf.rs:771 | - |
 | Environment maps | Icon 8 | - | done | crates/ui/src/panels/shelf.rs:773 | - |
-| Ctrl+click to multi-select asset types | Icon row | - | missing | - | - |
-| No type selected shows every type | Icon row | (unverified) | missing | - | - |
+| Ctrl+click to multi-select asset types | Icon row | - | done | crates/ui/src/panels/shelf.rs (ShelfNav::click_type) | - |
+| No type selected shows every type | Icon row | (unverified) | partial: one type always stays selected (Ctrl+click can add every type) | crates/ui/src/panels/shelf.rs (ShelfNav::click_type) | - |
 
 ## Filter by path
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Filter by path section (tree of libraries and folders) | Optional section of the filter area | closed (unverified) | partial: flat category chips (All, Mine, material categories) | crates/ui/src/panels/shelf.rs:1116 | - |
-| Hide non-applicable folders | Toggle in the section | on | missing | - | - |
-| Multi-select folders | Tree | (unverified) | missing | - | - |
-| Shift+click to collapse / expand the whole tree | Tree | - | missing | - | - |
+| Filter by path section (tree of libraries and folders) | Optional section of the filter area | closed (unverified) | done | crates/ui/src/panels/shelf.rs (filter_by_path) | - |
+| Hide non-applicable folders | Toggle in the section | on | done | crates/ui/src/panels/shelf.rs (filter_by_path) | - |
+| Multi-select folders | Tree | (unverified) | done (Ctrl+click) | crates/ui/src/panels/shelf.rs (ShelfNav::click_path) | - |
+| Shift+click to collapse / expand the whole tree | Tree | - | done | crates/ui/src/panels/shelf.rs (filter_by_path) | - |
 
 ## Saved searches
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Saved searches section | Optional section of the filter area | closed (unverified) | missing | - | - |
-| Save current search (text + types + path) | Button in the section | (unverified label) | missing | - | - |
-| Click a saved search to apply it | Section list | - | missing | - | - |
-| Right-click > Create new tab | Saved search context menu | - | missing | - | - |
-| Right-click > Rename | Saved search context menu | - | missing | - | - |
-| Right-click > Delete | Saved search context menu | - | missing | - | - |
-| Saved searches stored in Shelf.ini ([filters] size / Nname / Nquery) | Documents folder config file | - | missing | - | - |
+| Saved searches section | Optional section of the filter area | closed (unverified) | done | crates/ui/src/panels/shelf.rs (saved_searches) | - |
+| Save current search (text + types + path) | Button in the section | (unverified label) | done | crates/ui/src/panels/shelf.rs (saved_searches) | - |
+| Click a saved search to apply it | Section list | - | done | crates/ui/src/panels/shelf.rs (saved_searches) | - |
+| Right-click > Create new tab | Saved search context menu | - | done | crates/ui/src/panels/shelf.rs (saved_searches) | - |
+| Right-click > Rename | Saved search context menu | - | done | crates/ui/src/panels/shelf.rs (saved_searches) | - |
+| Right-click > Delete | Saved search context menu | - | done | crates/ui/src/panels/shelf.rs (saved_searches) | - |
+| Saved searches stored in Shelf.ini ([filters] size / Nname / Nquery) | Documents folder config file | - | partial: kept in SubCraft's preferences as name + query in Painter's query form; no Shelf.ini | crates/ui/src/recovery.rs (shelf_saved_searches) | - |
 
 ## Sub-library tabs
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Open current search as a sub-library tab | Bottom bar button | - | missing | - | - |
-| Sub-library tab docks beside the Assets panel, can float or move | Dock system | - | missing | - | - |
-| Reset of a sub-library returns to its original query | Sub-library tab | - | missing | - | - |
-| Closed sub-library must be recreated; survives deletion of its saved search | Behaviour | - | missing | - | - |
+| Open current search as a sub-library tab | Bottom bar button | - | done | crates/ui/src/panels/shelf.rs (bottom_toolbar) | - |
+| Sub-library tab docks beside the Assets panel, can float or move | Dock system | - | done (dock tab beside Assets; can be dragged elsewhere) | crates/ui/src/app.rs (sync_sub_libraries) | - |
+| Reset of a sub-library returns to its original query | Sub-library tab | - | done | crates/ui/src/panels/shelf.rs (header) | - |
+| Closed sub-library must be recreated; survives deletion of its saved search | Behaviour | - | done | crates/ui/src/panels/shelf.rs (close_sub_library) | - |
 
 ## Assets list and view modes
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
 | Thumbnail grid | Assets list | - | done | crates/ui/src/panels/shelf.rs:311 | - |
-| Thumbnail size control | Left-most icon of the bottom bar | Medium | partial: continuous slider 48-160 instead of four presets | crates/ui/src/panels/shelf.rs:899 | - |
-| Thumbnail size: Small | Size menu | - | partial: slider position | crates/ui/src/panels/shelf.rs:899 | - |
-| Thumbnail size: Medium | Size menu | default | partial: slider position | crates/ui/src/panels/shelf.rs:899 | - |
-| Thumbnail size: Large | Size menu | - | partial: slider position | crates/ui/src/panels/shelf.rs:899 | - |
-| List view | Size menu | - | missing | - | - |
+| Thumbnail size control | Left-most icon of the bottom bar | Medium | done (menu) | crates/ui/src/panels/shelf.rs (size_menu) | - |
+| Thumbnail size: Small | Size menu | - | done | crates/ui/src/panels/shelf.rs (PREVIEW_SIZES) | - |
+| Thumbnail size: Medium | Size menu | default | done | crates/ui/src/panels/shelf.rs (PREVIEW_SIZES) | - |
+| Thumbnail size: Large | Size menu | - | done | crates/ui/src/panels/shelf.rs (PREVIEW_SIZES) | - |
+| List view | Size menu | - | done | crates/ui/src/panels/shelf.rs (list_row) | - |
 | Hover tooltip with asset name and info | Assets list | - | done | crates/ui/src/panels/shelf.rs:311 | - |
 | Multi-selection of assets (Ctrl / Shift click) | Assets list | (unverified) | missing | - | - |
 | Material thumbnails rendered on a sphere with displacement | Assets list | - | partial: sphere preview, no displacement | crates/app/src/thumbnails.rs:76 | - |
@@ -125,14 +125,14 @@ Layout notes: one row of eight icons under the search field, in the order below.
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Thumbnail size icon | Bottom bar, left | Medium | partial: slider on the right | crates/ui/src/panels/shelf.rs:899 | - |
+| Thumbnail size icon | Bottom bar, left | Medium | done | crates/ui/src/panels/shelf.rs (size_menu) | - |
 | Import resources (+) button | Bottom bar | - | partial: per-category import button opening a file picker, no import window | crates/ui/src/panels/shelf.rs:867 | - |
-| New sub-library tab button | Bottom bar | - | missing | - | - |
+| New sub-library tab button | Bottom bar | - | done | crates/ui/src/panels/shelf.rs (bottom_toolbar) | - |
 | Auto-update (double arrows) menu button | Bottom bar | - | missing | - | - |
 | Auto-update: Assets panel | Auto-update menu, Automatic updates | off (unverified) | missing | - | - |
 | Auto-update: Resources used in project | Auto-update menu, Automatic updates | off (unverified) | missing | - | - |
 | Auto-update: Update every x minutes | Auto-update menu | not documented; 0 = every few seconds | missing | - | - |
-| Auto-update: Update assets panel (manual) | Auto-update menu, Manual updates | - | missing (library is read at startup only) | - | - |
+| Auto-update: Update assets panel (manual) | Auto-update menu, Manual updates | - | partial: Refresh libraries in Settings > Libraries; no auto-update menu | crates/ui/src/libraries.rs (refresh_libraries) | - |
 | Auto-update: Update resources used in project (manual) | Auto-update menu, Manual updates | - | missing | - | - |
 | Auto-update: Skip assets when their parameters mismatch | Auto-update menu, Advanced | on (unverified) | missing | - | - |
 | Auto-update: open log icon (warning badge on issues) | Top right of the auto-update menu | - | missing | - | - |
@@ -145,12 +145,12 @@ Layout notes: libraries are the top level of breadcrumbs and of Filter by path. 
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| All libraries (root) | Breadcrumbs / Filter by path | selected | partial: label only | crates/ui/src/panels/shelf.rs:802 | - |
-| Current session (temporary, lost on quit) | Library list / s:session | - | missing | - | - |
-| Project (resources embedded in the project file) | Library list / s:project | - | missing (project images are embedded but not listed in the shelf) | - | - |
+| All libraries (root) | Breadcrumbs / Filter by path | selected | done | crates/ui/src/panels/shelf.rs (breadcrumbs, filter_by_path) | - |
+| Current session (temporary, lost on quit) | Library list / s:session | - | done (imports read in place, not copied) | crates/ui/src/libraries.rs (SESSION) | - |
+| Project (resources embedded in the project file) | Library list / s:project | - | missing (the import window lists it, disabled) | - | - |
 | Your assets (your_assets; Documents folder) | Library list | default write target | done (user library, Documents/SubCraft/Library; "Mine" chip) | crates/assets/src/user_library.rs:60 | - |
 | Starter assets (starter_assets; install folder, read only) | Library list | - | done (built-in content compiled in) | crates/assets/src/lib.rs:36 | - |
-| Custom libraries added in settings | Library list | - | missing (one root, movable with SUBCRAFT_LIBRARY) | - | - |
+| Custom libraries added in settings | Library list | - | done | crates/ui/src/libraries.rs (settings) | - |
 
 ## Using assets: click, double-click and drag and drop
 
@@ -216,23 +216,23 @@ Layout notes: toolbar on top (Add resources, Remove selected resources, usage fi
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Import resources (menu entry) | File > Import resources | - | partial: separate entries "Import texture set", "Import smart material(s)", "Import smart material folder" | crates/ui/src/app.rs:1214 | - |
-| Open from the Assets panel + button | Assets bottom bar | - | partial: opens a file picker | crates/ui/src/panels/shelf.rs:867 | - |
-| Open by dropping files or folders on the Assets panel | Assets panel | - | partial: imports directly, no window | crates/ui/src/panels/shelf.rs:413 | - |
-| Add resources | Window toolbar | - | missing | - | - |
-| Remove selected resources | Window toolbar | - | missing | - | - |
-| Usage filter dropdown (e.g. show undefined only) | Window toolbar | all | missing | - | - |
-| Usage per file | Table column dropdown | preset when the format has one usage or the graph defines it; otherwise undefined | partial: usage decided by the import button used and by file-name classification | crates/ui/src/panels/textures.rs:7 | - |
-| Prefix (sub-folder path) | Table column | filled from the substance category when present | missing | - | - |
-| Filename | Table column | - | missing | - | - |
-| Warning icon on unreadable or incompatible files | Table row | - | partial: import report window lists skipped files | crates/ui/src/files.rs:93 | - |
-| Multi-select rows to set usage on several files | Table | - | missing | - | - |
-| Drop more files onto the window | Window | - | missing | - | - |
-| Import location: Current session | Bottom dropdown | - | missing | - | - |
-| Import location: Project | Bottom dropdown | - | missing | - | - |
-| Import location: Library (the writable library) | Bottom dropdown | remembered default import location | partial: always the user library | crates/assets/src/user_library.rs:94 | - |
-| Import button | Bottom right | - | missing | - | - |
-| Cancel button | Bottom right | (unverified) | missing | - | - |
+| Import resources (menu entry) | File > Import resources | - | done (File > Import resources > Import resources…; the older direct entries stay) | crates/ui/src/app.rs (File menu) | - |
+| Open from the Assets panel + button | Assets bottom bar | - | done | crates/ui/src/panels/shelf.rs (bottom_toolbar) | - |
+| Open by dropping files or folders on the Assets panel | Assets panel | - | done (the Smart Materials type keeps building smart materials from PBR sets) | crates/ui/src/panels/shelf.rs (handle_drops) | - |
+| Add resources | Window toolbar | - | done | crates/ui/src/import_resources.rs | - |
+| Remove selected resources | Window toolbar | - | done | crates/ui/src/import_resources.rs | - |
+| Usage filter dropdown (e.g. show undefined only) | Window toolbar | all | done | crates/ui/src/import_resources.rs | - |
+| Usage per file | Table column dropdown | preset when the format has one usage or the graph defines it; otherwise undefined | done (format with one use preset; images undefined until chosen) | crates/ui/src/import_resources.rs (Usage::guess) | - |
+| Prefix (sub-folder path) | Table column | filled from the substance category when present | done (sub-folder inside the library, becomes the category) | crates/ui/src/import_resources.rs, crates/assets/src/user_library.rs (add_file_to) | - |
+| Filename | Table column | - | done | crates/ui/src/import_resources.rs | - |
+| Warning icon on unreadable or incompatible files | Table row | - | done | crates/ui/src/import_resources.rs (Row::warning) | - |
+| Multi-select rows to set usage on several files | Table | - | done (row checkboxes) | crates/ui/src/import_resources.rs (ImportWindow::set_usage) | - |
+| Drop more files onto the window | Window | - | done | crates/ui/src/import_resources.rs (window) | - |
+| Import location: Current session | Bottom dropdown | - | done | crates/ui/src/import_resources.rs | - |
+| Import location: Project | Bottom dropdown | - | missing (listed, disabled) | - | - |
+| Import location: Library (the writable library) | Bottom dropdown | remembered default import location | done (any library; the default one preselected) | crates/ui/src/import_resources.rs | - |
+| Import button | Bottom right | - | done | crates/ui/src/import_resources.rs | - |
+| Cancel button | Bottom right | (unverified) | done | crates/ui/src/import_resources.rs | - |
 
 ## Importable file formats and usages
 
@@ -255,7 +255,7 @@ Layout notes: toolbar on top (Add resources, Remove selected resources, usage fi
 | SPEXP export preset | Folder export-presets | - | missing | - | #124 |
 | ABR Photoshop brushes (creates brush presets plus their alpha images) | Import resources | - | missing | - | - |
 | SBS files are rejected (must be published as SBSAR) | Import resources | - | n/a | - | - |
-| Custom sub-folders become categories (Filter by path / breadcrumbs) | Library folders | - | missing | - | - |
+| Custom sub-folders become categories (Filter by path / breadcrumbs) | Library folders | - | done | crates/assets/src/user_library.rs (list, subfolder) | - |
 
 ## Library folders on disk
 
