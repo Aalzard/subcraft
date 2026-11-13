@@ -250,6 +250,8 @@ pub struct Session {
     recovered: bool,
     /// The mesh was reloaded since the last save.
     mesh_dirty: bool,
+    /// Symmetry axes the L key (Painter's Symmetry on / off) switched off, restored by the next L.
+    saved_symmetry: Option<([bool; 3], bool)>,
 }
 
 /// Everything a project file holds, captured cheaply (shared tiles and resources) so it can be
@@ -339,6 +341,7 @@ impl Session {
             maps_generation: 0,
             recovered: false,
             mesh_dirty: false,
+            saved_symmetry: None,
         }
     }
 
@@ -2468,6 +2471,7 @@ impl Session {
             Action::BrushSmaller => self.brush.settings.size = (self.brush.settings.size / 1.15).max(0.1),
             Action::BrushLarger => self.brush.settings.size = (self.brush.settings.size * 1.15).min(100.0),
             Action::ToggleSymmetryX => self.brush.options.symmetry[0] = !self.brush.options.symmetry[0],
+            Action::ToggleSymmetry => self.brush.options.toggle_symmetry(&mut self.saved_symmetry),
             Action::ToggleLazyMouse => {
                 let o = &mut self.brush.options;
                 o.lazy_distance_px = if o.lazy_distance_px > 0.0 { 0.0 } else { 20.0 };

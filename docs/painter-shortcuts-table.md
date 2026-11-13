@@ -23,7 +23,7 @@
 | Manipulator | `E` | Rotate tool |  | no equivalent | no manipulator (E stays Eraser) |
 | Manipulator | `R` | Scale tool |  | no equivalent | no manipulator |
 | Manipulator | `Shift+W` | Surface tool |  | no equivalent | no equivalent |
-| Tools | `L` | Symmetry | ToggleSymmetryX | added (key was free) | toggles X mirror |
+| Tools | `L` | Symmetry | ToggleSymmetry | added (key was free) | symmetry on / off; the last axes come back, as with the toolbar button |
 | Tools | `Shift+Esc` | Pause engine computation |  | no equivalent | no engine pause |
 | Tools | `1` | Paint tool | BrushTool | added (key was free) | B kept as well in the SubCraft key set |
 | Tools | `Ctrl+1` | Paint tool + Particles |  | no equivalent | no particle tool (scatter lives in brush settings) |
