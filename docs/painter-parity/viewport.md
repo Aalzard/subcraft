@@ -265,15 +265,15 @@ Layout notes: selecting a fill layer or fill effect with a 3D projection shows a
 | Surface manipulator: drag to snap onto the mesh | LMB drag (Planar, Warp) | - | missing | - | - |
 | Precision mode | Ctrl while dragging a manipulator (10.0) | - | missing | - | - |
 | Projection volume / plane preview in the view | 3D view | - | missing | - | - |
-| Toggle warp edition mode (Transform warp / Edit vertices) | Shift + V | Transform warp | missing | - | - |
-| Warp: select a grid point | LMB click on a point | - | missing | - | - |
-| Warp: add to selection | Shift + LMB click | - | missing | - | - |
-| Warp: remove from selection | Ctrl + LMB click | - | missing | - | - |
-| Warp: rectangle selection | LMB drag on empty space | - | missing | - | - |
-| Warp: rectangle add / remove | Shift / Ctrl + LMB drag | - | missing | - | - |
-| Warp: deselect | LMB click away | - | missing | - | - |
-| Warp: quick-move a point on the surface | LMB drag a point | - | missing | - | - |
-| Warp: quick-move a point in camera space | Ctrl + LMB drag a point | - | missing | - | - |
+| Toggle warp edition mode (Transform warp / Edit vertices) | Shift + V | Transform warp | done: Shift+V over the 3D view | crates/ui/src/warp_view.rs | - |
+| Warp: select a grid point | LMB click on a point | - | done | crates/ui/src/warp_view.rs | - |
+| Warp: add to selection | Shift + LMB click | - | done | crates/ui/src/warp_view.rs | - |
+| Warp: remove from selection | Ctrl + LMB click | - | done | crates/ui/src/warp_view.rs | - |
+| Warp: rectangle selection | LMB drag on empty space | - | done | crates/ui/src/warp_view.rs | - |
+| Warp: rectangle add / remove | Shift / Ctrl + LMB drag | - | done | crates/ui/src/warp_view.rs | - |
+| Warp: deselect | LMB click away | - | done | crates/ui/src/warp_view.rs | - |
+| Warp: quick-move a point on the surface | LMB drag a point | - | done | crates/ui/src/warp_view.rs | - |
+| Warp: quick-move a point in camera space | Ctrl + LMB drag a point | - | done: Ctrl+drag, in the view plane | crates/ui/src/warp_view.rs | - |
 | Warp: edit tangents of selected points | Rotation / Scale manipulator on a point | - | missing | - | - |
 | Warp: projection-depth arrows per grid point | 3D view | green arrows | missing | - | - |
 | Warp: cancel a split tool | Escape | - | missing | - | - |

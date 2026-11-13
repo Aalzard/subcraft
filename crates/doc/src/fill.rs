@@ -19,6 +19,9 @@ pub enum ProjectionMode {
     /// Wrapped around a cylinder along `planar_axis` through the centre of the bounding cube
     /// (u = angle around it over [`Projection::cylinder_angle`], v = position along it).
     Cylindrical,
+    /// Planar along `planar_axis` through a grid of movable points ([`Projection::warp`]);
+    /// nothing is projected outside the grid.
+    Warp,
 }
 
 /// Symmetry of a 3D projection: the model position is folded before it is projected, so the
@@ -228,6 +231,9 @@ pub struct Projection {
     /// Mirror / radial symmetry of a 3D projection. Not written when off.
     #[serde(default, skip_serializing_if = "FillSymmetry::is_none")]
     pub symmetry: FillSymmetry,
+    /// Warp mode's grid; `None` is the flat grid of [`Projection::warp_grid`]. Not written when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub warp: Option<crate::warp::WarpGrid>,
 }
 
 fn full_turn() -> f32 {
@@ -254,6 +260,7 @@ impl Default for Projection {
             shape_crop: ShapeCrop::default(),
             cylinder_angle: 360.0,
             symmetry: FillSymmetry::None,
+            warp: None,
         }
     }
 }
@@ -326,7 +333,26 @@ impl Projection {
     /// Whether some texels can fall outside the projected texture (UV wrap or shape crop).
     #[inline]
     pub fn clips(&self) -> bool {
-        self.effective_wrap() != UvWrap::Repeat || self.crops_to_shape()
+        self.effective_wrap() != UvWrap::Repeat || self.crops_to_shape() || self.mode == ProjectionMode::Warp
+    }
+
+    /// The warp grid in use: the stored one, or the flat grid of `planar_axis`.
+    pub fn warp_grid(&self) -> crate::warp::WarpGrid {
+        self.warp.unwrap_or_else(|| crate::warp::WarpGrid::planar(self.planar_axis, crate::warp::DEFAULT_WARP_CELLS, crate::warp::DEFAULT_WARP_CELLS))
+    }
+
+    /// Warp mode: unprojected 2D coordinates of a bounding-cube position through the grid, and
+    /// whether the grid covers it.
+    pub fn warp_coords(&self, pos: [f32; 3]) -> ([f32; 2], bool) {
+        let axis = self.planar_axis.min(2);
+        match &self.warp {
+            Some(grid) => grid.coords(axis, pos),
+            // The flat grid is the unit square of the planar projection.
+            None => {
+                let q = crate::warp::plane_coords(pos, axis);
+                (q, q.iter().all(|v| (-1e-5..=1.0 + 1e-5).contains(v)))
+            }
+        }
     }
 
     /// Apply scale/rotation/offset to a 2D coordinate.

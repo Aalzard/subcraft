@@ -253,6 +253,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     let symmetry_grab = !bake_mode && !alt && !stencil_edit
         && crate::symmetry_view::manipulate(state, ui, &response, rect, pixel_scale, &camera, primary_pressed, primary_down, pointer);
     let primary_pressed = primary_pressed && !symmetry_grab;
+    // Warp projection grid of the selected fill layer: presses on it edit the grid, not paint.
+    let warp_grab = !bake_mode && !alt && !stencil_edit
+        && crate::warp_view::manipulate(state, ui, &response, rect, pixel_scale, &camera, primary_pressed, primary_down, pointer);
+    let primary_pressed = primary_pressed && !warp_grab;
     let parts_picking = !bake_mode && state.picking_parts && state.session.selected_layer().is_some() && !state.painting;
     // ----- ID Color Mask eyedropper: clicks add the ID map color under the cursor ------------
     let id_picking = !bake_mode && !state.painting
@@ -709,6 +713,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         crate::view_props::draw_fill_box(&painter, Rect::from_two_pos(a, b), false);
     }
     crate::symmetry_view::overlay(state, ui, &painter, rect, pixel_scale, &camera, !bake_mode && state.tool != Tool::Pen);
+    if !bake_mode {
+        crate::warp_view::overlay(state, ui, &painter, rect, pixel_scale, &camera);
+    }
     draw_stencil(state, ui, &painter, rect, size);
     // Reset button at the top right of the view while S is held.
     if stencil_edit {
