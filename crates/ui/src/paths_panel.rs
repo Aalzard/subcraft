@@ -137,6 +137,11 @@ pub fn show(state: &mut UiState, ui: &Ui, rect: egui::Rect, now: f64) {
                                     if ui.add_enabled(matches!(clip, Some(PathClip::Properties(_))), egui::Button::new("Paste properties")).clicked() { actions.push((*id, Action::PasteProperties)); ui.close(); }
                                     if ui.button("Copy position").clicked() { actions.push((*id, Action::CopyPosition)); ui.close(); }
                                     if ui.add_enabled(matches!(clip, Some(PathClip::Position(..))), egui::Button::new("Paste position")).clicked() { actions.push((*id, Action::PastePosition)); ui.close(); }
+                                    ui.separator();
+                                    let below = state.session.layer_below_path(*id).is_some();
+                                    let why = "Needs a paint layer below the path";
+                                    if ui.add_enabled(below, egui::Button::new("Erase along path")).on_hover_text("Erase the paint layer below along this path, with the current brush").on_disabled_hover_text(why).clicked() { actions.push((*id, Action::Along(subcraft_paint::StrokeMode::Erase))); ui.close(); }
+                                    if ui.add_enabled(below, egui::Button::new("Smudge along path")).on_hover_text("Smudge the paint layer below along this path, with the current brush").on_disabled_hover_text(why).clicked() { actions.push((*id, Action::Along(subcraft_paint::StrokeMode::Smudge))); ui.close(); }
                                 });
                             }
                         }
@@ -169,6 +174,8 @@ enum Action {
     PasteProperties,
     CopyPosition,
     PastePosition,
+    /// Erase / Smudge along the path on the paint layer below it.
+    Along(subcraft_paint::StrokeMode),
 }
 
 fn perform(state: &mut UiState, ui: &Ui, layer: LayerId, action: Action, now: f64) {
@@ -188,6 +195,13 @@ fn perform(state: &mut UiState, ui: &Ui, layer: LayerId, action: Action, now: f6
             if let Some(path) = path_of(state, layer) {
                 let clip = if action == Action::CopyProperties { PathClip::Properties(path) } else { PathClip::Position(path.anchors.clone(), path.closed) };
                 ui.data_mut(|d| d.insert_temp(clip_id(), clip));
+            }
+        }
+        Action::Along(mode) => {
+            let (Some(path), Some(target)) = (path_of(state, layer), state.session.layer_below_path(layer)) else { return };
+            match state.session.stroke_along_path(target, &path, mode) {
+                Ok(()) => state.set_status(if mode == subcraft_paint::StrokeMode::Erase { "Erased along the path on the layer below" } else { "Smudged along the path on the layer below" }, now),
+                Err(e) => state.set_status(format!("{e:?}"), now),
             }
         }
         Action::PasteProperties | Action::PastePosition => {

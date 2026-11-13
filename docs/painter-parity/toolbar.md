@@ -17,8 +17,8 @@ Layout notes: a narrow vertical strip, top left of the main window by default; i
 | Paint along path | Path tools menu | - | partial: Pen paths are edited in UV space with their own stroke style, not the brush engine on the 3D surface | crates/app/src/pen.rs:1 | - |
 | Ribbon path | Path tools menu | - | partial: Path type dropdown in the pen Properties, no Path tools menu | crates/ui/src/pen.rs | - |
 | Filled path | Path tools menu | - | missing | - | - |
-| Erase along path | Path tools menu | - | missing | - | - |
-| Smudge along path | Path tools menu | - | missing | - | - |
+| Erase along path | Path tools menu | - | partial: Paths panel right-click > Erase along path runs the path once with the current brush on the paint layer below it (one undo step); not a live, editable path type | crates/app/src/path_apply.rs, crates/ui/src/paths_panel.rs | - |
+| Smudge along path | Path tools menu | - | partial: Paths panel right-click > Smudge along path runs the path once with the current brush on the paint layer below it (one undo step); not a live, editable path type | crates/app/src/path_apply.rs, crates/ui/src/paths_panel.rs | - |
 | Projection | Tools toolbar; 3 | - | missing | - | - |
 | Physical projection (particles) | Tools toolbar, Projection second mode; Ctrl + 3 | - | missing | - | - |
 | Polygon Fill | Tools toolbar; 4 | - | done | crates/ui/src/app.rs:1065 | - |
