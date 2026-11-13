@@ -505,7 +505,8 @@ fn fill_hover_overlay(state: &mut UiState, painter: &egui::Painter, image: Frame
 /// excluded geometry grey with diagonal lines; while editing, the part under the cursor (or under
 /// the cursor in the Properties list) is highlighted.
 fn parts_overlay(state: &mut UiState, ui: &Ui, painter: &egui::Painter, image: Frame, picking: bool, pointer: Option<Pos2>) {
-    let list_hover = state.uv_parts.list_hover.take();
+    // Set by the Properties part list every frame; the 3D view reads it too.
+    let list_hover = state.uv_parts.list_hover;
     if !picking && !state.session.hide_excluded() {
         return;
     }

@@ -36,6 +36,7 @@ pub mod nav;
 pub mod orbit;
 pub mod render_export;
 pub mod pen;
+pub mod part_overlay;
 pub mod paths_panel;
 pub mod placement;
 pub mod pen_input;

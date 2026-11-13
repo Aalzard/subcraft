@@ -516,6 +516,16 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     let tracing = state.recovery.prefs.viewport.path_tracing && !bake_mode;
     let mut pt_error = None;
     let mask_view = crate::mask_view::active(state);
+    // Geometry mask and Polygon Fill feedback on the model: left-out geometry greyed while the
+    // mask is edited, the part or the fill element under the cursor tinted.
+    let fill_hover = state.tool == Tool::PolygonFill && !bake_mode && !picking && !alt && !state.painting && state.fill_box.is_none() && response.hovered();
+    let fill_triangle = if fill_hover {
+        let slot = state.session.selected_texture_set().material_slot;
+        pointer.and_then(|p| state.session.pick(&camera, to_screen(p))).filter(|hit| hit.material_slot == slot).map(|hit| hit.triangle)
+    } else {
+        None
+    };
+    let part_overlay = crate::part_overlay::update(state, parts_picking, hovered_part.filter(|_| response.hovered()), fill_triangle);
     match (&state.render_state, &mut state.renderer) {
         (Some(rs), Some(renderer)) => {
             let t0 = web_time::Instant::now();
@@ -540,6 +550,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             // bake preview, environment): TAA restarts on them too (QA 2026-11: a finished average
             // kept the old guide lines after a mirror-plane move).
             let mut overlay_uploaded = false;
+            if let Some(change) = &part_overlay {
+                renderer.set_part_overlay(&rs.device, &rs.queue, change.as_ref().map(|(slot, texels)| (*slot, crate::part_overlay::SIZE, texels.as_slice())));
+                overlay_uploaded = true;
+            }
             let symmetry_display = view.symmetry_display;
             params.symmetry_guides = view.symmetry_guides && state.session.brush.options.has_symmetry() && !bake_mode
                 && !(view.symmetry_cursor_hide_painting && state.painting);
