@@ -243,6 +243,27 @@ fn a_layer_copied_in_one_texture_set_pastes_as_an_instance_in_another() {
     assert!(s.execute(Command::PasteAsInstance(vec![LayerId::new()])).is_err());
 }
 
+/// QA 2026-11: with a texture set in the list that no longer exists, the command failed after
+/// it had already added instances to the sets before it: a change outside any undo step.
+#[test]
+fn instantiating_across_a_missing_texture_set_changes_nothing() {
+    let mut s = two_sets();
+    let (body, trim) = (s.document().texture_sets[0].id, s.document().texture_sets[1].id);
+    s.execute(Command::SelectTextureSet(body)).unwrap();
+    s.execute(Command::AddLayer(NewLayer::Fill)).unwrap();
+    let source = s.selection().layer.unwrap();
+    let before = s.document().clone();
+    let steps = s.history().entries().len();
+    let gone = subcraft_core::TextureSetId::new();
+    assert!(s.execute(Command::InstantiateAcross { layers: vec![source], texture_sets: vec![trim, gone] }).is_err());
+    assert!(s.document() == &before, "nothing was added");
+    assert_eq!(s.history().entries().len(), steps);
+    // A set listed twice gets one instance.
+    let layers = s.document().texture_set(trim).unwrap().layers.len();
+    s.execute(Command::InstantiateAcross { layers: vec![source], texture_sets: vec![trim, trim] }).unwrap();
+    assert_eq!(s.document().texture_set(trim).unwrap().layers.len(), layers + 1);
+}
+
 /// QA 2026-11: with several layers copied, Paste as instance inserted the first instances and
 /// then refused a later one: the error came back with the document already changed, outside
 /// any undo step.
