@@ -8,7 +8,7 @@ fn near(a: f32, b: f32) -> bool {
 }
 
 fn set<'a>(ch: &'a BTreeMap<ChannelKind, TiledImage>, baked: Option<&'a BTreeMap<MeshMapKind, TiledImage>>) -> ExportTextureSet<'a> {
-    ExportTextureSet { name: "P", material_slot: 0, udim: None, channels: ch, mesh_maps: baked }
+    ExportTextureSet { name: "P", material_slot: 0, udim: None, channels: ch, mesh_maps: baked, mixing: subcraft_doc::MixingSettings::LEGACY }
 }
 
 fn user(maps: Vec<OutputMap>) -> ExportTemplate {
@@ -132,7 +132,7 @@ fn per_map_padding_overrides_template_and_window() {
     }
     let mut ch = BTreeMap::new();
     ch.insert(ChannelKind::Roughness, rough);
-    let sets = [ExportTextureSet { name: "C", material_slot: 0, udim: None, channels: &ch, mesh_maps: None }];
+    let sets = [ExportTextureSet { name: "C", material_slot: 0, udim: None, channels: &ch, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY }];
     // A gutter texel exactly 2 texels from the nearest island, and one far from all islands.
     let dist = |i: usize| {
         let (x, y) = ((i as u32 % RES) as i32, (i as u32 / RES) as i32);
@@ -234,13 +234,13 @@ fn patterns_name_files_and_handle_udim_tiles() {
     let tiled = OutputMap { pattern: Some("$mesh_$textureSet_$udim_N".into()), ..OutputMap::new("N", FileFormat::Png8, (0..3).map(|c| Source::Normal { component: c, directx: false }).collect(), false) };
     let classic = OutputMap::new("R", FileFormat::Png8, vec![Source::ch(ChannelKind::Roughness, 0)], false);
     let t = user(vec![base, tiled, classic]);
-    let tile = ExportTextureSet { name: "Hull.1002", material_slot: 0, udim: Some(1002), channels: &ch, mesh_maps: None };
+    let tile = ExportTextureSet { name: "Hull.1002", material_slot: 0, udim: Some(1002), channels: &ch, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY };
     let plain = set(&ch, None);
     let s = ExportSettings { template: t.clone(), ..Default::default() };
     let names: Vec<String> = plan("Ship", &[plain, tile], &s).into_iter().map(|p| p.1).collect();
     assert_eq!(names, ["T_P_D.tga", "Ship_P_N.png", "Ship_P_R.png", "T_Hull_D.1002.tga", "Ship_Hull_1002_N.png", "Ship_Hull_R.1002.png"]);
     let s = ExportSettings { template: t, udim_folders: true, ..Default::default() };
-    let tile = ExportTextureSet { name: "Hull.1002", material_slot: 0, udim: Some(1002), channels: &ch, mesh_maps: None };
+    let tile = ExportTextureSet { name: "Hull.1002", material_slot: 0, udim: Some(1002), channels: &ch, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY };
     let names: Vec<String> = plan("Ship", &[tile], &s).into_iter().map(|p| p.1).collect();
     assert_eq!(names, ["1002/T_Hull_D.tga", "1002/Ship_Hull_1002_N.png", "1002/Ship_Hull_R.png"]);
 }
@@ -252,7 +252,7 @@ fn explicit_classic_pattern_names_files_like_the_builtins() {
     for m in &mut t.maps {
         m.pattern = Some("$mesh_$textureSet_$suffix".into());
     }
-    let sets = [ExportTextureSet { name: "Body Set", material_slot: 0, udim: None, channels: &ch, mesh_maps: None }];
+    let sets = [ExportTextureSet { name: "Body Set", material_slot: 0, udim: None, channels: &ch, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY }];
     let a = plan("My Crate", &sets, &ExportSettings { template: t, ..Default::default() });
     let b = plan("My Crate", &sets, &ExportSettings { template: ExportTemplate::unreal(), ..Default::default() });
     assert_eq!(a, b);

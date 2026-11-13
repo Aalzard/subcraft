@@ -42,7 +42,7 @@ fn converted_maps_follow_their_formulas() {
     let ch = material();
     let mut baked = BTreeMap::new();
     baked.insert(MeshMapKind::AmbientOcclusion, TiledImage::new(RES, RES, 1, [0.5; 4]));
-    let sets = [ExportTextureSet { name: "P", material_slot: 0, udim: None, channels: &ch, mesh_maps: Some(&baked) }];
+    let sets = [ExportTextureSet { name: "P", material_slot: 0, udim: None, channels: &ch, mesh_maps: Some(&baked), mixing: subcraft_doc::MixingSettings::LEGACY }];
     // EXR keeps the linear values exactly (and colour maps are not sRGB-encoded in float files).
     let maps = Converted::ALL.iter().map(|m| conv_map(*m, FileFormat::Exr32)).collect();
     let files = render(&sets, user(maps));
@@ -68,11 +68,11 @@ fn mixed_ao_uses_whichever_ao_exists_and_colour_maps_are_srgb_in_8_bit() {
     ch.remove(&ChannelKind::AmbientOcclusion);
     let mut baked = BTreeMap::new();
     baked.insert(MeshMapKind::AmbientOcclusion, TiledImage::new(RES, RES, 1, [0.5; 4]));
-    let only_baked = [ExportTextureSet { name: "P", material_slot: 0, udim: None, channels: &ch, mesh_maps: Some(&baked) }];
+    let only_baked = [ExportTextureSet { name: "P", material_slot: 0, udim: None, channels: &ch, mesh_maps: Some(&baked), mixing: subcraft_doc::MixingSettings::LEGACY }];
     let ao = |sets: &[ExportTextureSet]| render(sets, user(vec![conv_map(Converted::MixedAo, FileFormat::Exr32)]))[0].1.texel(3, 3, false)[0];
     assert!((ao(&only_baked) - 0.5).abs() < 1e-6, "baked only");
     let full = material();
-    let only_painted = [ExportTextureSet { name: "P", material_slot: 0, udim: None, channels: &full, mesh_maps: None }];
+    let only_painted = [ExportTextureSet { name: "P", material_slot: 0, udim: None, channels: &full, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY }];
     assert!((ao(&only_painted) - 0.6).abs() < 1e-6, "channel only");
     let diffuse = render(&only_painted, user(vec![conv_map(Converted::Diffuse, FileFormat::Png8)]));
     let d = diffuse[0].1.texel(3, 3, false);
@@ -80,7 +80,7 @@ fn mixed_ao_uses_whichever_ao_exists_and_colour_maps_are_srgb_in_8_bit() {
     // A texture set with none of a converted map's inputs doesn't get the file.
     let mut only_height = BTreeMap::new();
     only_height.insert(ChannelKind::Height, TiledImage::new(RES, RES, 1, [0.0; 4]));
-    let none = [ExportTextureSet { name: "P", material_slot: 0, udim: None, channels: &only_height, mesh_maps: None }];
+    let none = [ExportTextureSet { name: "P", material_slot: 0, udim: None, channels: &only_height, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY }];
     assert!(render(&none, user(vec![conv_map(Converted::Glossiness, FileFormat::Png8)])).is_empty());
 }
 
@@ -115,7 +115,7 @@ fn every_builtin_template_is_valid_and_uniquely_named() {
 #[test]
 fn painter_templates_export_a_metal_roughness_material() {
     let ch = material();
-    let sets = [ExportTextureSet { name: "P", material_slot: 0, udim: None, channels: &ch, mesh_maps: None }];
+    let sets = [ExportTextureSet { name: "P", material_slot: 0, udim: None, channels: &ch, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY }];
     for t in crate::builtin_presets::painter().into_iter().filter(|t| t.name != "Mesh Maps") {
         let files = render(&sets, t.clone());
         assert!(!files.is_empty(), "{} writes files", t.name);
@@ -137,7 +137,7 @@ fn document_channels_and_mesh_maps_write_only_what_exists() {
     let mut baked = BTreeMap::new();
     baked.insert(MeshMapKind::Curvature, TiledImage::new(RES, RES, 1, [0.5; 4]));
     baked.insert(MeshMapKind::AmbientOcclusion, TiledImage::new(RES, RES, 1, [0.7; 4]));
-    let sets = [ExportTextureSet { name: "P", material_slot: 0, udim: None, channels: &ch, mesh_maps: Some(&baked) }];
+    let sets = [ExportTextureSet { name: "P", material_slot: 0, udim: None, channels: &ch, mesh_maps: Some(&baked), mixing: subcraft_doc::MixingSettings::LEGACY }];
     let find = |name: &str| ExportTemplate::builtin().into_iter().find(|t| t.name == name).unwrap();
     let names = |t| render(&sets, t).into_iter().map(|f| f.0).collect::<Vec<_>>();
     assert_eq!(names(find("Document channels + Normal + AO (No Alpha)")), ["M_P_BaseColor.png", "M_P_User1.png", "M_P_AO.png"]);
@@ -149,7 +149,7 @@ fn document_channels_and_mesh_maps_write_only_what_exists() {
 #[test]
 fn udim_legacy_templates_name_tiles_explicitly() {
     let ch = material();
-    let sets = [ExportTextureSet { name: "Body.1001", material_slot: 0, udim: Some(1001), channels: &ch, mesh_maps: None }];
+    let sets = [ExportTextureSet { name: "Body.1001", material_slot: 0, udim: Some(1001), channels: &ch, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY }];
     let t = ExportTemplate::builtin().into_iter().find(|t| t.name == "Vray UDIM Legacy (Metallic Roughness)").unwrap();
     let files = render(&sets, t);
     assert!(files.iter().any(|f| f.0 == "M_Body_BaseColor.1001.png"), "{:?}", files.iter().map(|f| &f.0).collect::<Vec<_>>());

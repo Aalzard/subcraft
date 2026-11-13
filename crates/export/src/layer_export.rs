@@ -118,7 +118,7 @@ mod tests {
         ch.insert(ChannelKind::BaseColor, TiledImage::new(32, 32, 4, [0.5, 0.25, 0.0, 1.0]));
         ch.insert(ChannelKind::Roughness, TiledImage::new(32, 32, 1, [0.7; 4]));
         ch.insert(ChannelKind::Height, TiledImage::new(32, 32, 1, [0.25; 4]));
-        let set = ExportTextureSet { name: "Body", material_slot: 0, udim: None, channels: &ch, mesh_maps: None };
+        let set = ExportTextureSet { name: "Body", material_slot: 0, udim: None, channels: &ch, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY };
         let dir = std::env::temp_dir().join(format!("subcraft-flat-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let channels = [(ChannelKind::BaseColor, ChannelFormat::Bit8), (ChannelKind::Roughness, ChannelFormat::Bit16), (ChannelKind::Height, ChannelFormat::Bit16), (ChannelKind::Metallic, ChannelFormat::Bit8)];
@@ -145,7 +145,7 @@ mod tests {
         assert_eq!(flattened_format(ChannelKind::Normal, ChannelFormat::Bit8), FileFormat::Exr32);
         assert_eq!(flattened_format(ChannelKind::Roughness, ChannelFormat::Float16), FileFormat::Exr16);
         let ch = BTreeMap::new();
-        let set = ExportTextureSet { name: "Body.1002", material_slot: 0, udim: Some(1002), channels: &ch, mesh_maps: None };
+        let set = ExportTextureSet { name: "Body.1002", material_slot: 0, udim: Some(1002), channels: &ch, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY };
         assert_eq!(expand_pattern_with(FLATTENED_PATTERN, &vars(&set, "M", "L", "BaseColor")), "Body_L_BaseColor.1002");
         assert_eq!(preview_name(FLATTENED_PATTERN, "Body", "Dirt", ChannelKind::AmbientOcclusion), "Body_Dirt_AmbientOcclusion");
     }

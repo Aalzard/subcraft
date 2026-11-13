@@ -227,13 +227,16 @@ pub fn write_project_with<W: Write + Seek>(
         .map(|ts| TextureSetV1 {
             id: ts.id.0,
             name: ts.name.clone(),
+            description: ts.description.clone(),
             material_slot: ts.material_slot,
             resolution: ts.resolution,
+            mixing: ts.mixing,
             albedo_filter: ts.albedo_filter,
             udim_tile: ts.udim_tile,
             transparent: ts.transparent,
             alpha: ts.alpha,
             channels: ts.channels.iter().map(|c| ChannelDefV1 { kind: c.kind, format: c.format }).collect(),
+            user_channel_names: ts.user_channel_names.clone(),
             layers: ts.layers.iter().map(|l| writer.layer(l)).collect(),
             mesh_maps: mesh_maps
                 .get(&ts.id)
@@ -639,13 +642,16 @@ fn read_project_checked<R: Read + Seek>(r: R, trusted: bool) -> Result<ProjectDa
         let mut ts = TextureSet {
             id: TextureSetId(t.id),
             name: t.name.clone(),
+            description: t.description.clone(),
             material_slot: t.material_slot,
             resolution: t.resolution,
+            mixing: t.mixing,
             albedo_filter: t.albedo_filter,
             udim_tile: t.udim_tile,
             transparent: t.transparent,
             alpha: t.alpha,
             channels: t.channels.iter().map(|c| ChannelDef { kind: c.kind, format: c.format }).collect(),
+            user_channel_names: t.user_channel_names.iter().filter(|(k, n)| k.is_user() && !n.trim().is_empty()).map(|(k, n)| (*k, n.clone())).collect(),
             layers: Vec::new(),
             id_color_edits: t.id_color_edits.iter()
                 .filter(|e| e.from.iter().chain(&e.to).all(|v| v.is_finite()))
