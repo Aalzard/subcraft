@@ -10,7 +10,7 @@ use std::{
 };
 use subcraft_core::{ChannelKind, LayerId};
 use subcraft_doc::{
-    BlendMode, ContentEffect, ContentEffectKind, Filter, Generator, Layer, LayerContent, Mask, MaskEffect,
+    BlendMode, CompareMask, ContentEffect, ContentEffectKind, Filter, Generator, Layer, LayerContent, Mask, MaskEffect,
     MaskEffectKind, TextureSet,
 };
 use subcraft_image::{TILE_SIZE, TILE_TEXELS, TiledImage};
@@ -115,6 +115,9 @@ enum Node<'a> {
         filtered: Option<usize>,
         /// Anchor input (ADR-0045): the anchor's node and its channel (`None`: a mask anchor).
         anchor: Option<(usize, Option<ChannelKind>)>,
+        /// Compare Mask: the composite of the layers below and this layer's own content, in the
+        /// compared channel (`None` when the effect does not read it).
+        compare: [Option<usize>; 2],
     },
     /// A fill channel reading an anchor (ADR-0045): `source`'s `from` channel (`None`: a mask
     /// anchor) as `to`, scaled by the channel's strength.
@@ -267,6 +270,12 @@ pub(crate) struct Graph<'a> {
     /// Anchor points and references (ADR-0045); `None` when no layer reads an anchor, so sets
     /// without references build exactly the graph they always did.
     anchors: Option<Anchors<'a>>,
+    /// Compare Mask operands: per (layer, channel), the accumulation below the layer and the
+    /// layer's own content, recorded while the channel's stack is built.
+    compare_below: HashMap<(LayerId, ChannelKind), usize>,
+    compare_content: HashMap<(LayerId, ChannelKind), usize>,
+    /// The top-level layers, to rebuild a stack below a layer on demand.
+    top: &'a [Arc<Layer>],
 }
 
 /// Anchor bookkeeping of a graph whose texture set has references.
@@ -332,6 +341,9 @@ impl<'a> Graph<'a> {
             tops: Vec::new(),
             prefix: None,
             anchors: None,
+            compare_below: HashMap::new(),
+            compare_content: HashMap::new(),
+            top: &[],
         }
     }
     /// Index the anchors of `layers` when any layer reads one.
@@ -478,7 +490,13 @@ impl<'a> Graph<'a> {
         let mut g = Self::empty(ctx, ts.albedo_filter, cache);
         g.radius_scale = scale;
         g.with_anchors(&ts.layers);
-        for kind in ts.channel_kinds() {
+        g.top = &ts.layers;
+        // Channels a Compare Mask reads are built first, so the stacks below each layer exist
+        // when its mask is built in a later channel.
+        let compared = compared_channels(&ts.layers);
+        let mut kinds: Vec<ChannelKind> = ts.channel_kinds().into_iter().collect();
+        kinds.sort_by_key(|k| !compared.contains(k));
+        for kind in kinds {
             let d = kind.default_value().0;
             let root = g.push(Node::Constant([d[0], d[1], d[2], ts.base_alpha()]));
             let mut below = root;
@@ -553,14 +571,16 @@ impl<'a> Graph<'a> {
                         _ => true,
                     }
             }
-            Node::MaskEffect { input, effect, anchor, filtered } => {
+            Node::MaskEffect { input, effect, anchor, filtered, compare } => {
                 self.uniform[*input]
                     && filtered.is_none_or(|f| self.uniform[f])
                     && anchor.is_none_or(|(a, _)| self.uniform[a])
+                    && compare.iter().flatten().all(|&c| self.uniform[c])
                     && match &effect.kind {
                         MaskEffectKind::Paint { image } => image.allocated_tiles() == 0,
                         MaskEffectKind::Fill { procedural, .. } => procedural.is_none(),
                         MaskEffectKind::Generator(_) | MaskEffectKind::Image { .. } | MaskEffectKind::IdColor(_) => false,
+                        MaskEffectKind::Compare(c) => !c.reads_layers() || compare.iter().any(Option::is_some),
                         _ => true,
                     }
             }
@@ -697,6 +717,44 @@ impl<'a> Graph<'a> {
     fn mask(&mut self, mask: &'a Mask) -> usize {
         self.mask_with_micro(mask, None).0
     }
+    /// The nodes a Compare Mask of `layer` reads: the accumulation below the layer and the
+    /// layer's own content in the compared channel.
+    fn compare_operands(&mut self, layer: &'a Layer, c: &CompareMask) -> [Option<usize>; 2] {
+        use subcraft_doc::CompareOperand as O;
+        let reads = |o: O| c.left == o || c.right == o;
+        let kind = c.channel;
+        let below = reads(O::LayersBelow).then(|| self.layer_below(layer, kind));
+        let own = reads(O::ThisLayer).then(|| self.layer_content(layer, kind));
+        [below, own]
+    }
+    /// The accumulation of `kind` right below `layer`: recorded while that channel was built, or
+    /// rebuilt for a top-level layer; the channel's default value otherwise.
+    fn layer_below(&mut self, layer: &'a Layer, kind: ChannelKind) -> usize {
+        if let Some(&n) = self.compare_below.get(&(layer.id, kind)) {
+            return n;
+        }
+        let d = kind.default_value().0;
+        let base = self.push(Node::Constant([d[0], d[1], d[2], 1.0]));
+        let top = self.top;
+        match top.iter().position(|l| l.id == layer.id) {
+            Some(at) => self.stack(&top[..at], base, kind),
+            None => base,
+        }
+    }
+    /// This layer's own content in `kind` after its content effects (transparent when it has none).
+    fn layer_content(&mut self, layer: &'a Layer, kind: ChannelKind) -> usize {
+        if let Some(&n) = self.compare_content.get(&(layer.id, kind)) {
+            return n;
+        }
+        let base = match &layer.content {
+            LayerContent::Group(_) => self.push(Node::Constant([0.0; 4])),
+            _ => usize::MAX,
+        };
+        let base = self.content_base(layer, kind, base);
+        let n = self.content_effects(layer, kind, base, None);
+        self.compare_content.insert((layer.id, kind), n);
+        n
+    }
     /// The mask chain. With its `owner` known, anchor references in it resolve (ADR-0045).
     fn mask_with_micro(&mut self, mask: &'a Mask, owner: Option<&'a Layer>) -> (usize, Vec<(usize, &'a Generator)>) {
         let mut micro = Vec::new();
@@ -728,11 +786,16 @@ impl<'a> Graph<'a> {
                         }
                         _ => None,
                     };
+                    let compare = match (&effect.kind, owner) {
+                        (MaskEffectKind::Compare(c), Some(layer)) => self.compare_operands(layer, c),
+                        _ => [None, None],
+                    };
                     input = self.push(Node::MaskEffect {
                         input,
                         effect,
                         filtered,
                         anchor,
+                        compare,
                     });
                     if let MaskEffectKind::Generator(g) = &effect.kind
                         && g.micro_active()
@@ -757,6 +820,7 @@ impl<'a> Graph<'a> {
         below
     }
     fn layer(&mut self, layer: &'a Layer, below: usize, kind: ChannelKind) -> usize {
+        self.compare_below.entry((layer.id, kind)).or_insert(below);
         let out = self.layer_inner(layer, below, kind);
         if layer.visible && matches!(kind, ChannelKind::Normal | ChannelKind::Height) && micro_layer(layer) {
             return self.micro(layer, out, kind);
@@ -830,6 +894,9 @@ impl<'a> Graph<'a> {
         if let Some(a) = self.anchors.as_mut() {
             a.sources.insert((layer.id, kind), input);
         }
+        if !passthrough {
+            self.compare_content.entry((layer.id, kind)).or_insert(input);
+        }
         self.push(Node::Layer {
             below,
             input,
@@ -856,13 +923,16 @@ impl<'a> Graph<'a> {
                 let mut read = |i: usize| uses[i] += 1;
                 match node {
                     Node::Constant(_) | Node::Paint(..) | Node::Fill(..) | Node::MaskBase(_) | Node::EditorRaw { .. } => {}
-                    Node::MaskEffect { input, filtered, anchor, .. } => {
+                    Node::MaskEffect { input, filtered, anchor, compare, .. } => {
                         read(*input);
                         if let Some(f) = filtered {
                             read(*f);
                         }
                         if let Some((a, _)) = anchor {
                             read(*a);
+                        }
+                        for &c in compare.iter().flatten() {
+                            read(c);
                         }
                     }
                     Node::ContentEffect { input, filtered, .. } => {
@@ -1117,6 +1187,7 @@ impl<'a> Graph<'a> {
                 effect,
                 filtered,
                 anchor,
+                compare,
             } => {
                 let source = self.get(*input, tile);
                 let mut e = vec![[0.0; 4]; TILE_TEXELS];
@@ -1142,6 +1213,10 @@ impl<'a> Graph<'a> {
                         }
                         _ => unreachable!(),
                     }
+                } else if let MaskEffectKind::Compare(c) = &effect.kind {
+                    let m: Vec<_> = source.iter().map(|v| v[0]).collect();
+                    let [below, own] = (*compare).map(|n| n.map(|n| channel_gray(&self.get(n, tile), c.channel)));
+                    crate::mask::eval_compare(c, &m, below.as_deref(), own.as_deref(), &mut e);
                 } else {
                     let m: Vec<_> = source.iter().map(|v| v[0]).collect();
                     let input = anchor.map(|(node, from)| anchor_gray(&self.get(node, tile), from));
@@ -1803,7 +1878,52 @@ fn anchor_as_channel(px: &mut [[f32; 4]], from: Option<ChannelKind>, to: Channel
 /// Whether evaluation needs the stage graph: neighborhood filters, micro effects or anchor
 /// references (ADR-0045).
 pub(crate) fn needs_graph(layers: &[Arc<Layer>]) -> bool {
-    has_spatial(layers) || subcraft_doc::anchor::has_references(layers)
+    has_spatial(layers) || subcraft_doc::anchor::has_references(layers) || has_compare(layers)
+}
+
+/// The Compare Mask effects of visible layers that read other layers (anywhere in the tree).
+fn compares(layers: &[Arc<Layer>], out: &mut Vec<CompareMask>) {
+    for l in layers.iter().filter(|l| l.visible) {
+        if let Some(m) = l.mask.as_ref().filter(|m| m.enabled) {
+            for e in m.effects.iter().filter(|e| e.visible && e.opacity > 0.0) {
+                if let MaskEffectKind::Compare(c) = &e.kind
+                    && c.reads_layers()
+                {
+                    out.push(*c);
+                }
+            }
+        }
+        if let LayerContent::Group(g) = &l.content {
+            compares(&g.children, out);
+        }
+    }
+}
+
+/// Whether a Compare Mask reads the layer stack: the stage graph (and the CPU) must evaluate it.
+pub(crate) fn has_compare(layers: &[Arc<Layer>]) -> bool {
+    let mut out = Vec::new();
+    compares(layers, &mut out);
+    !out.is_empty()
+}
+
+/// The channels Compare Masks read.
+fn compared_channels(layers: &[Arc<Layer>]) -> Vec<ChannelKind> {
+    let mut out = Vec::new();
+    compares(layers, &mut out);
+    let mut kinds: Vec<ChannelKind> = out.iter().map(|c| c.channel).collect();
+    kinds.sort();
+    kinds.dedup();
+    kinds
+}
+
+/// One gray value per texel of a straight channel tile: the value of a scalar channel, the
+/// luminance of a colour one.
+fn channel_gray(px: &[[f32; 4]], kind: ChannelKind) -> Vec<f32> {
+    if kind.components() >= 3 {
+        px.iter().map(|p| 0.2126 * p[0] + 0.7152 * p[1] + 0.0722 * p[2]).collect()
+    } else {
+        px.iter().map(|p| p[0]).collect()
+    }
 }
 
 pub(crate) fn mask_spatial(mask: &Mask) -> bool {

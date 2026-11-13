@@ -5477,6 +5477,27 @@ symmetry. `crates/app/tests/uv_tools.rs` covers session routing: the 2D clone so
 * **Not done:** UV Border Distance (needs a distance field across tiles), UV Checker and UV Texel Density (fill-layer
   generators, chunk 35), UV Random Color's Custom Gradient and Light on a fill layer, picking positions from the
   Position map in the viewport.
+### Parity chunk 43 - Compare Mask, Levels, Color Selection (2026-11-12, branch `claude/parity-compare-levels`)
+
+* **Compare Mask** (`MaskEffectKind::Compare`, `crates/doc/src/mask.rs`): Channel, left operand, operation and
+  right operand (Layers Below / This Layer / This Mask / Constant; Lesser than / Within tolerance / Greater than),
+  Constant, Tolerance, Hardness (linear edge `(1 - hardness) * 0.25` wide; SubCraft's choice, Painter does not
+  document it). The stage graph (`crates/compositor/src/stages.rs`) feeds it the accumulation below the layer and the
+  layer's own content in the compared channel: compared channels are built first and each layer's `below` is
+  recorded; a stack below a top-level layer is rebuilt on demand otherwise. Sets with a Compare Mask that reads
+  layers always use the stage graph (not the per-tile or GPU paths). "Add mask with height combination"
+  (`Command::AddHeightCombinationMask`) adds a black mask with a Compare Mask on Height and sets Height blending to
+  Normal in one undo step.
+* **Levels**: per-component R / G / B handles applied after the RGB ones (`Levels::rgb`), Clamp (on by default;
+  off extends past the input handles), Invert (swaps the output handles), Auto (input handles at the input's
+  darkest and brightest values) and an input histogram (`LayerPreviews::input_histogram`, a 128² UV sample of the
+  stage right below the effect). Per-component or unclamped Levels fall back from the GPU path to the CPU. Painter
+  imports keep per-component levels on colour channels.
+* **Color Selection**: Output value and Background color (Transparent / Black / White / Gray); Hardness shown
+  as `1 - softness`. The old Invert switch stays in files and shows only while it is on.
+* **Schema**: new `MaskEffectKindV1::Compare`; new Levels / ID Color fields are skipped when default, so
+  existing files are written unchanged.
+* **Not done:** the Compare Mask's two-operand histogram, histogram handles you can drag, a Luminance component.
 ### Parity chunk 34 - Filter and generator image inputs (2026-11-12, branch `claude/parity-image-inputs`)
 
 * **Custom grunge** (`PainterControls::custom_grunge`): Dirt, Edge wear and Concave generators take an image that

@@ -118,6 +118,7 @@ impl Writer {
                 MaskEffectKind::IdColor(id) => MaskEffectKindV1::IdColor { id_color: id.clone() },
                 MaskEffectKind::Anchor => MaskEffectKindV1::Anchor,
                 MaskEffectKind::AnchorRef { input, levels } => MaskEffectKindV1::AnchorRef { input: *input, levels: *levels },
+                MaskEffectKind::Compare(c) => MaskEffectKindV1::Compare { compare: *c },
             },
         }
     }
@@ -469,7 +470,10 @@ impl<R: Read + Seek> Loader<'_, R> {
                 Self::check_generator(generator, self.trusted)?;
                 MaskEffectKind::Generator(*generator)
             }
-            MaskEffectKindV1::Levels { levels } => MaskEffectKind::Levels(*levels),
+            MaskEffectKindV1::Levels { levels } => {
+                if !self.trusted && !levels.valid() { return Err(ProjectError::Invalid("invalid levels".into())); }
+                MaskEffectKind::Levels(*levels)
+            }
             MaskEffectKindV1::Filter { filter } => {
                 if !self.trusted && (!filter.valid() || !filter.supports_mask()) { return Err(ProjectError::Invalid("invalid mask filter".into())); }
                 MaskEffectKind::Filter(*filter)
@@ -484,6 +488,10 @@ impl<R: Read + Seek> Loader<'_, R> {
             }
             MaskEffectKindV1::Anchor => MaskEffectKind::Anchor,
             MaskEffectKindV1::AnchorRef { input, levels } => MaskEffectKind::AnchorRef { input: *input, levels: *levels },
+            MaskEffectKindV1::Compare { compare } => {
+                if !compare.valid() { return Err(ProjectError::Invalid("invalid compare mask".into())); }
+                MaskEffectKind::Compare(*compare)
+            }
         };
         Ok(MaskEffect { id: EffectId(e.id), name: e.name.clone(), visible: e.visible, blend: e.blend, opacity: e.opacity, kind })
     }

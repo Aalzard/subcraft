@@ -282,6 +282,8 @@ pub enum MaskEffectKindV1 {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         levels: Option<Levels>,
     },
+    /// Painter's Compare Mask.
+    Compare { compare: subcraft_doc::CompareMask },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

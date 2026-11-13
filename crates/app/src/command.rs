@@ -160,6 +160,10 @@ pub enum Command {
     AddFillChannel { layer: LayerId, channel: ChannelKind },
     SetFillProjection { layer: LayerId, projection: Projection },
     AddMask { layer: LayerId, white: bool },
+    /// Painter's "Add mask with height combination": a black mask with a Compare Mask on Height
+    /// (this layer above the layers below), and the layer's Height blending set to Normal. Replaces
+    /// an existing mask, like Add Mask. One undo step.
+    AddHeightCombinationMask(LayerId),
     RemoveMask(LayerId),
     CopyMask(LayerId),
     PasteMask(LayerId),

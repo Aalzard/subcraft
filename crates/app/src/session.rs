@@ -1855,6 +1855,18 @@ impl Session {
                     Ok(())
                 })?;
             }
+            Command::AddHeightCombinationMask(layer) => {
+                self.edit_layer_set(layer, "Add Mask with Height Combination", None, |ts| {
+                    let res = ts.resolution;
+                    let l = Self::layer_mut(ts, layer)?;
+                    let mut mask = Mask::new(res, false);
+                    mask.effects.push(Arc::new(MaskEffect::new(subcraft_doc::MaskEffectKind::Compare(subcraft_doc::CompareMask::height_combination()))));
+                    l.mask = Some(mask);
+                    let opacity = l.blend.get(&ChannelKind::Height).map_or(1.0, |b| b.opacity);
+                    l.blend.insert(ChannelKind::Height, subcraft_doc::ChannelBlend { mode: subcraft_doc::BlendMode::Normal, opacity });
+                    Ok(())
+                })?;
+            }
             Command::RemoveMask(layer) => {
                 self.edit_layer_set(layer, "Remove Mask", None, |ts| {
                     Self::layer_mut(ts, layer)?.mask.take().map(|_| ()).ok_or(CommandError::NoMask)
@@ -2050,6 +2062,12 @@ impl Session {
         }
         if let subcraft_doc::MaskEffectKind::IdColor(id) = kind && !id.valid() {
             return Err(CommandError::Invalid("ID Color Mask parameters are invalid".into()));
+        }
+        if let subcraft_doc::MaskEffectKind::Compare(c) = kind && !c.valid() {
+            return Err(CommandError::Invalid("Compare Mask parameters are invalid".into()));
+        }
+        if let subcraft_doc::MaskEffectKind::Levels(l) = kind && !l.valid() {
+            return Err(CommandError::Invalid("Levels parameters are invalid".into()));
         }
         Ok(())
     }
