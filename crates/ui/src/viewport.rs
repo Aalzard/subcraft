@@ -447,6 +447,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     {
                         state.set_status(crate::keys::native_string(format!("This part belongs to texture set \"{name}\": Ctrl+Alt+right-click it to paint there")), now);
                     }
+                    // A held: continue the previous stroke (stroke opacity keeps its cap).
+                    state.session.set_continue_stroke(ui.input(|i| i.key_down(egui::Key::A)));
                     match state.session.begin_stroke() {
                         Ok(()) => {
                             state.painting = true;

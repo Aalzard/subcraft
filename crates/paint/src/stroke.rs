@@ -463,6 +463,14 @@ impl Stroke {
         self.apply_stamps(ts, ctx, std::slice::from_ref(ctx.camera), &stamps, Alignment::Uv, stencil)
     }
 
+    /// Lift the pen without ending the stroke: the next point starts a new path (no line from
+    /// the last one), while the coverage, and with it the stroke-opacity cap, carries on. Used
+    /// to continue the previous stroke.
+    pub fn lift_pen(&mut self) {
+        self.path = ScreenPath::new();
+        self.last_depth = None;
+    }
+
     fn check(&self, ts: &TextureSet, ctx: &PaintContext) -> Result<(), PaintError> {
         if ctx.geometry.resolution != ts.resolution || ts.material_slot != ctx.geometry.material_slot {
             return Err(PaintError::ResolutionMismatch);
