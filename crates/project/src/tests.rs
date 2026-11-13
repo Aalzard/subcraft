@@ -527,7 +527,7 @@ fn schema_4_layers_have_no_content_effects_and_bad_effects_are_rejected() {
     let mut doc = effect_document();
     let layer = Arc::make_mut(&mut doc.texture_sets[0].layers[0]);
     let mut mask = Mask::new(128, false);
-    let input = subcraft_doc::AnchorInput::new(layer.id, ChannelKind::Height);
+    let input = subcraft_doc::AnchorInput::new(subcraft_core::EffectId::new(), ChannelKind::Height);
     mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::AnchorRef { input, levels: Some(bad) })));
     layer.mask = Some(mask);
     assert!(matches!(read_project(Cursor::new(save(&doc))), Err(ProjectError::Invalid(ref m)) if m.contains("levels")));
