@@ -1664,7 +1664,10 @@ impl Session {
                 let mut made = false;
                 for source_id in crate::clipboard::top_level_in_order(ts, &sources) {
                     let Some(source) = ts.find(source_id).cloned() else { continue };
-                    if at.is_some_and(|a| a != source_id && ts.is_descendant_or_self(a, source_id)) {
+                    // An instance of an instance follows that one's source: the new layer must stay
+                    // out of that layer too.
+                    let follows = source.instance_of.unwrap_or(source_id);
+                    if at.is_some_and(|a| (a != source_id && ts.is_descendant_or_self(a, source_id)) || (a != follows && ts.is_descendant_or_self(a, follows))) {
                         return Err(CommandError::Invalid("An instance cannot go inside its own source: select a layer outside it first".into()));
                     }
                     let mut instance = source.clone();
