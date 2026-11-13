@@ -573,7 +573,6 @@ fn spherical_cylindrical_and_symmetric_projections_sample_folded_coordinates() {
     assert!(!crate::sample::projection_covers(&clipped, sc, [0.0; 2], [0.5, 0.5, 0.0]));
 }
 
-<<<<<<< HEAD
 /// Warp projection: untouched it is Planar, it projects only inside its grid, and a moved point
 /// changes what a texel reads.
 #[test]
@@ -605,7 +604,8 @@ fn warp_projection_is_planar_until_bent_and_stops_at_its_grid() {
     let after = sample_projected(&bent, [0.0; 2], pos, [0.0, 0.0, 1.0], coords);
     assert!((before[0] - 0.4).abs() < 1e-5 && after[0] < 0.35, "{before:?} -> {after:?}");
     assert!(projection_covers(&bent, bent.rotation_sin_cos(), [0.0; 2], pos));
-=======
+}
+
 /// QA 2026-11: the cache key of a procedural field lost most of the bits of the cylinder angle
 /// and symmetry settings: angle 120 and 144 shared a key, so a fill at one angle was drawn with
 /// the cached field of the other.
@@ -626,5 +626,4 @@ fn field_keys_differ_for_every_cylinder_angle_and_mirror_position() {
     for i in 0..200 {
         assert!(positions.insert(mirror(i as f32 * 0.005)), "mirror position {} shares a key", i as f32 * 0.005);
     }
->>>>>>> origin/main
 }
