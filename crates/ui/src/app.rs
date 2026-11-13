@@ -1085,7 +1085,7 @@ impl SubcraftApp {
             let presets = state.export.presets(state.user_library.as_ref());
             let found = presets.all().find(|p| p.name == *name || p.key() == name).map(|p| p.key().to_string());
             if let Some(key) = found { state.export.preset = key; }
-            state.export.edit_presets = true;
+            state.export.tab = crate::dialogs::ExportTab::OutputTemplates;
         }
         state.render_window = options.render_window;
         if !options.import_smart.is_empty() {

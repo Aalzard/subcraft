@@ -1,10 +1,13 @@
 //! File dialogs and windows: save / open project, export textures, unsaved-changes prompt.
 
 use crate::i18n::tr;
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use egui::RichText;
 use subcraft_app::{ExportSettings, ExportTemplate, Padding, Session};
+use subcraft_core::TextureSetId;
+use subcraft_doc::{ExportConfig, ExportOverrides};
 
 use crate::state::UiState;
 use crate::theme::{self, TEXT_DIM};
@@ -37,9 +40,19 @@ pub struct ExportUi {
     pub preset: String,
     /// Built-ins + user presets, loaded from the library on first use.
     pub preset_list: Option<subcraft_app::export_presets::ExportPresets>,
-    /// Preset editor open, and its state.
-    pub edit_presets: bool,
+    /// Preset editor state (Output templates tab).
     pub editor: crate::export_presets::PresetEditor,
+    pub tab: ExportTab,
+    /// Texture set shown on the Settings tab; `None` = Global settings.
+    pub selected_set: Option<TextureSetId>,
+    /// Texture sets' own file type, size and padding.
+    pub set_overrides: BTreeMap<TextureSetId, ExportOverrides>,
+    /// List of exports: files written by the last export, and its messages.
+    pub log: Vec<ExportLogLine>,
+    /// The project's saved export settings last applied to the window (`None` = never).
+    loaded_config: Option<Option<ExportConfig>>,
+    /// Settings when the window opened, for Cancel.
+    snapshot: Option<Box<ExportSnapshot>>,
     pub folder: String,
     /// Template name last stored in / read from the project settings.
     pub known_template: String,
@@ -57,7 +70,7 @@ pub struct ExportUi {
 impl Default for ExportUi {
     fn default() -> Self {
         let folder = std::env::current_dir().map(|d| d.join("exports")).unwrap_or_else(|_| PathBuf::from("exports"));
-        Self { open: false, settings: ExportSettings::default(), preset: ExportTemplate::pbr_metal_rough().name, preset_list: None, edit_presets: false, editor: Default::default(), folder: folder.display().to_string(), known_template: String::new(), view_2d_only: false, scene_format: 0, baked: Default::default(), baked_initialized: false, baked_selected_only: false }
+        Self { open: false, settings: ExportSettings::default(), preset: ExportTemplate::pbr_metal_rough().name, preset_list: None, editor: Default::default(), tab: ExportTab::default(), selected_set: None, set_overrides: BTreeMap::new(), log: Vec::new(), loaded_config: None, snapshot: None, folder: folder.display().to_string(), known_template: String::new(), view_2d_only: false, scene_format: 0, baked: Default::default(), baked_initialized: false, baked_selected_only: false }
     }
 }
 
@@ -188,9 +201,99 @@ pub fn unsaved_prompt(state: &mut UiState, ctx: &egui::Context, now: f64) -> Opt
     }
 }
 
+/// Tabs of the Export Textures window (Painter's three).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ExportTab {
+    #[default]
+    Settings,
+    OutputTemplates,
+    ListOfExports,
+}
+
+/// One line of the List of exports tab: a written file (with its texture set) or a message.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ExportLogLine {
+    pub set: Option<String>,
+    pub text: String,
+    pub error: bool,
+}
+
+/// What Cancel goes back to: the window's and the project's export settings when it opened.
+struct ExportSnapshot {
+    settings: ExportSettings,
+    folder: String,
+    preset: String,
+    set_overrides: BTreeMap<TextureSetId, ExportOverrides>,
+    project: subcraft_doc::ProjectSettings,
+}
+
+impl ExportUi {
+    /// The window's settings as saved in a project (Save settings).
+    pub fn config(&self) -> ExportConfig {
+        let s = &self.settings;
+        ExportConfig {
+            folder: Some(self.folder.clone()),
+            format: s.format_override,
+            dither: s.dither,
+            size: s.size,
+            padding: Some(s.padding),
+            height_to_normal: Some(s.height_to_normal),
+            sets: self.set_overrides.iter().filter(|(_, o)| !o.is_empty()).map(|(k, v)| (*k, *v)).collect(),
+        }
+    }
+
+    /// Take `config` (a project's saved settings; `None` = the defaults).
+    pub fn apply_config(&mut self, config: Option<&ExportConfig>) {
+        let d = ExportSettings::default();
+        let c = config.cloned().unwrap_or_default();
+        if let Some(folder) = c.folder {
+            self.folder = folder;
+        }
+        self.settings.format_override = c.format;
+        self.settings.dither = c.dither;
+        self.settings.size = c.size;
+        self.settings.padding = c.padding.unwrap_or(d.padding);
+        if let Some(h) = c.height_to_normal {
+            self.settings.height_to_normal = h;
+        }
+        self.set_overrides = c.sets;
+    }
+
+    /// Reset all: the export settings of a new project (folder and output template kept).
+    pub fn reset(&mut self) {
+        let keep_h2n = self.settings.height_to_normal;
+        self.apply_config(None);
+        self.settings.height_to_normal = keep_h2n;
+        self.selected_set = None;
+    }
+}
+
+/// Export-related project settings (what Cancel restores and Reset all clears).
+fn restore_export_settings(project: &mut subcraft_doc::ProjectSettings, from: &subcraft_doc::ProjectSettings) {
+    project.normal_format = from.normal_format;
+    project.export_template = from.export_template.clone();
+    project.export_maps_off = from.export_maps_off.clone();
+    project.udim_folders = from.udim_folders;
+    project.export = from.export.clone();
+}
+
 pub fn export_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
     if !state.export.open {
+        state.export.snapshot = None;
         return;
+    }
+    // A project's saved export settings (another project opened, or first use).
+    let project_config = state.session.settings().export.clone();
+    if state.export.loaded_config.as_ref() != Some(&project_config) {
+        let first = state.export.loaded_config.is_none();
+        if project_config.is_some() || !first {
+            state.export.apply_config(project_config.as_ref());
+        }
+        state.export.loaded_config = Some(project_config);
+    }
+    if state.export.snapshot.is_none() {
+        let ex = &state.export;
+        state.export.snapshot = Some(Box::new(ExportSnapshot { settings: ex.settings.clone(), folder: ex.folder.clone(), preset: ex.preset.clone(), set_overrides: ex.set_overrides.clone(), project: state.session.settings().clone() }));
     }
     let mut open = true;
     let lib = state.user_library.clone();
@@ -205,141 +308,375 @@ pub fn export_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
     let view = crate::panels::uv_view::export_view(state.uv.source);
     state.export.settings.view_2d = Some(view);
     let view_only = state.export.view_2d_only;
+    // Per texture set overrides by name, for the export crate.
+    let sets: Vec<(TextureSetId, String)> = state.session.document().texture_sets.iter().map(|ts| (ts.id, ts.name.clone())).collect();
+    state.export.settings.set_overrides = sets.iter().filter_map(|(id, name)| state.export.set_overrides.get(id).filter(|o| !o.is_empty()).map(|o| (name.clone(), *o))).collect();
+    if state.export.selected_set.is_some_and(|id| !sets.iter().any(|(s, _)| *s == id)) {
+        state.export.selected_set = None;
+    }
     let title = if view_only { "Export 2D View" } else { "Export Textures" };
-    let width = if state.export.edit_presets && !view_only { 860.0 } else { 520.0 };
-    crate::widgets::window(ctx, window_title(title)).open(&mut open).collapsible(false).default_width(width).show(ctx, |ui| {
-        let ex = &mut state.export;
-        egui::Grid::new("export_grid").num_columns(2).spacing([16.0, 10.0]).show(ui, |ui| {
-            {
-                ui.label(dim("Folder"));
-                ui.horizontal(|ui| {
-                    ui.add(egui::TextEdit::singleline(&mut ex.folder).desired_width(300.0));
-                    if ui.button(tr("Browse…")).clicked()
-                        && let Some(p) = rfd::FileDialog::new().set_directory(&ex.folder).pick_folder()
-                    {
-                        ex.folder = p.display().to_string();
-                    }
-                });
-                ui.end_row();
+    let width = if state.export.tab == ExportTab::OutputTemplates && !view_only { 860.0 } else { 640.0 };
+    let mut action = None;
+    // Opened at a fixed height: a window only grows to its content a step per frame, and the
+    // scrolling tab below fills the height it is given, so the button row would sit outside the
+    // window until it reached full size.
+    // The short 2D View body keeps egui's default (128).
+    let height = if view_only { 128.0 } else { (ctx.content_rect().height() - 96.0).clamp(320.0, 900.0) };
+    crate::widgets::window(ctx, window_title(title)).open(&mut open).collapsible(false).default_width(width).default_height(height).show(ctx, |ui| {
+        if view_only {
+            view_2d_body(ui, state, &lib, view, now);
+            return;
+        }
+        ui.horizontal(|ui| {
+            let ex = &mut state.export;
+            for (tab, label) in [(ExportTab::Settings, tr("Settings")), (ExportTab::OutputTemplates, tr("Output templates")), (ExportTab::ListOfExports, tr("List of exports"))] {
+                ui.selectable_value(&mut ex.tab, tab, RichText::new(label).strong());
             }
-            if view_only {
-                ui.label(dim("Image"));
-                ui.label(format!("{} (as shown in the 2D view)", crate::panels::uv_view::label(state.uv.source)));
-            } else {
-                ui.label(dim("Preset"));
+        });
+        ui.add_space(4.0);
+        divider(ui);
+        ui.add_space(6.0);
+        // The tab scrolls in what is left of the window above the button row (divider, spacing
+        // and a 28 px button row: about 50 px, 64 with margin).
+        let max_h = (ui.available_height() - 64.0).max(120.0);
+        egui::ScrollArea::vertical().id_salt(("export_tab", state.export.tab as u8)).max_height(max_h).show(ui, |ui| match state.export.tab {
+            ExportTab::Settings => settings_tab(ui, state, &lib, &sets, &mut preset_status, now),
+            ExportTab::OutputTemplates => {
+                let ex = &mut state.export;
                 let list = ex.preset_list.get_or_insert_with(|| subcraft_app::export_presets::ExportPresets::load(lib.as_ref()));
                 if let Some(s) = crate::export_presets::preset_bar(ui, list, &mut ex.preset, &mut ex.editor) {
                     preset_status = Some(s);
                 }
-            }
-            ui.end_row();
-            ui.label(dim("File type"));
-            ui.horizontal(|ui| {
-                crate::export_presets::format_combo(ui, "export_format", &mut ex.settings.format_override, &mut ex.settings.dither, Some(tr("Based on output template")));
-            });
-            ui.end_row();
-            ui.label(dim("Size"));
-            ui.horizontal(|ui| {
-                crate::export_presets::size_combo(ui, "export_size", &mut ex.settings.size, tr("Based on each texture set's size"));
-                let preset_size = ex.preset_list.as_ref().and_then(|l| l.find(&ex.preset)).and_then(|p| p.size);
-                if let Some(s) = preset_size {
-                    ui.label(dim(&format!("the preset writes {s} × {s}"))).on_hover_text(tr("This preset chooses its own size; it wins over this setting"));
-                }
-            });
-            ui.end_row();
-            ui.label(dim("Padding"));
-            ui.horizontal(|ui| {
-                let preset_padding = ex.preset_list.as_ref().and_then(|l| l.find(&ex.preset)).and_then(|p| p.padding);
-                if preset_padding.is_some() {
-                    ui.label(dim("set by the preset")).on_hover_text(tr("This preset chooses its own padding; maps without one use it"));
-                    return;
-                }
-                let mut padding = Some(ex.settings.padding);
-                crate::export_presets::padding_combo(ui, "export_padding", &mut padding, None);
-                ex.settings.padding = padding.unwrap_or(Padding::Infinite);
-            });
-            ui.end_row();
-            ui.label(dim("Height to normal"));
-            ui.add(egui::Slider::new(&mut ex.settings.height_to_normal, 0.0..=0.1));
-            ui.end_row();
-        });
-        if !view_only {
-            let header = egui::CollapsingHeader::new(RichText::new("Preset editor").strong()).id_salt("preset_editor").open(Some(ex.edit_presets)).show(ui, |ui| {
-                let list = ex.preset_list.get_or_insert_with(|| subcraft_app::export_presets::ExportPresets::load(lib.as_ref()));
+                ui.add_space(6.0);
                 let key = ex.preset.clone();
-                // Scrolls on its own so the map checklist and Export stay on screen.
-                let max_h = (ui.ctx().content_rect().height() * 0.42).max(260.0);
-                egui::ScrollArea::vertical().id_salt("preset_editor_scroll").max_height(max_h).show(ui, |ui| {
-                    if let Some(s) = crate::export_presets::preset_editor(ui, list, &key, &mut ex.editor, &mesh_name) {
-                        preset_status = Some(s);
-                    }
-                });
-            });
-            if header.header_response.clicked() {
-                ex.edit_presets = !ex.edit_presets;
+                if let Some(s) = crate::export_presets::preset_editor(ui, list, &key, &mut ex.editor, &mesh_name) {
+                    preset_status = Some(s);
+                }
             }
-        }
+            ExportTab::ListOfExports => export_log(ui, &state.export.log),
+        });
+        ui.add_space(6.0);
+        divider(ui);
+        ui.add_space(4.0);
+        // Painter's button row.
+        let ex = &mut state.export;
         ex.settings.template = ex.current_template(lib.as_ref());
         let settings = ex.settings.clone();
-        let folder = PathBuf::from(&ex.folder);
-        if view_only {
-            ui.add_space(6.0);
-            let go = ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| primary_button(ui, format!("{}  Export", crate::icons::EXPORT)).clicked());
-            if go.inner {
-                match state.session.export_view_2d(&folder, view, &settings) {
-                    Ok(files) if files.is_empty() => state.set_status("Nothing to export: the 2D view's source is missing", now),
-                    Ok(files) => state.set_status(format!("Exported {}", files[0].display()), now),
-                    Err(e) => state.set_status(format!("Export failed: {e}"), now),
-                }
-            }
-            return;
-        }
-        ui.add_space(6.0);
-        divider(ui);
-        ui.add_space(4.0);
-        export_options(ui, state);
-        baked_maps_section(ui, state, &folder, &settings, now);
-        ui.add_space(4.0);
-        divider(ui);
-        ui.add_space(4.0);
         let choices = state.session.export_choices(&settings);
         let enabled = choices.iter().filter(|f| f.enabled).count();
-        export_map_list(ui, state, &settings, &choices);
-        let plan_len = enabled;
-        ui.add_space(6.0);
-        let go = ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if plan_len == 0 {
-                ui.label(dim("Check at least one map to export."));
-            }
-            ui.add_enabled_ui(plan_len > 0, |ui| primary_button(ui, format!("{}  Export", crate::icons::EXPORT))).inner.clicked()
-        });
-        ui.separator();
-        let formats = subcraft_export::scene::SceneFormat::ALL;
-        let mut scene_go = false;
         ui.horizontal(|ui| {
-            egui::ComboBox::from_id_salt("scene_format").selected_text(formats[state.export.scene_format.min(formats.len() - 1)].label()).show_ui(ui, |ui| {
-                for (i, f) in formats.iter().enumerate() { ui.selectable_value(&mut state.export.scene_format, i, f.label()); }
+            if state.export.tab == ExportTab::Settings && secondary_button(ui, tr("Reset all")).on_hover_text(tr("Back to a new project's export settings: template file types, texture set sizes, infinite padding, every map checked")).clicked() {
+                action = Some(WindowAction::Reset);
+            }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let export = ui.add_enabled_ui(enabled > 0, |ui| primary_button(ui, format!("{}  Export", crate::icons::EXPORT))).inner;
+                if export.clicked() {
+                    action = Some(WindowAction::Export);
+                }
+                if secondary_button(ui, tr("Save settings")).on_hover_text(tr("Keep these export settings in the project")).clicked() {
+                    action = Some(WindowAction::Save);
+                }
+                if secondary_button(ui, tr("Cancel")).on_hover_text(tr("Close without keeping the changes made since the window opened")).clicked() {
+                    action = Some(WindowAction::Cancel);
+                }
+                if enabled == 0 {
+                    ui.label(dim("Check at least one map to export."));
+                }
             });
-            scene_go = ui.button(tr("Export model + textures")).on_hover_text(tr("Writes the mesh with a textured PBR material (glTF PBR, USD preview surface, or OBJ with separate maps) into the folder")).clicked();
         });
-        if scene_go {
-            let format = formats[state.export.scene_format.min(formats.len() - 1)];
-            match state.session.export_scene(&folder, &settings, format) {
-                Ok(files) => state.set_status(format!("Exported {} files to {}", files.len(), folder.display()), now),
-                Err(e) => state.set_status(format!("Export failed: {e}"), now),
-            }
-        }
-        if go.inner {
-            match state.session.export_textures(&folder, &settings) {
-                Ok(files) => state.set_status(format!("Exported {} files to {}", files.len(), folder.display()), now),
-                Err(e) => state.set_status(format!("Export failed: {e}"), now),
-            }
-        }
     });
     if let Some(s) = preset_status {
         state.set_status(s, now);
     }
+    match action {
+        Some(WindowAction::Export) => run_export(state, now),
+        Some(WindowAction::Save) => {
+            let config = state.export.config();
+            let mut project = state.session.settings().clone();
+            project.export = Some(config);
+            state.session.set_settings(project.clone());
+            state.export.loaded_config = Some(project.export.clone());
+            if let Some(snap) = &mut state.export.snapshot {
+                snap.project = project;
+                snap.settings = state.export.settings.clone();
+                snap.folder = state.export.folder.clone();
+                snap.preset = state.export.preset.clone();
+                snap.set_overrides = state.export.set_overrides.clone();
+            }
+            state.set_status("Export settings saved with the project", now);
+        }
+        Some(WindowAction::Reset) => {
+            state.export.reset();
+            let mut project = state.session.settings().clone();
+            project.normal_format = None;
+            project.udim_folders = false;
+            project.export_maps_off.clear();
+            if project != *state.session.settings() {
+                state.session.set_settings(project);
+            }
+            state.set_status("Export settings reset", now);
+        }
+        Some(WindowAction::Cancel) => {
+            if let Some(snap) = state.export.snapshot.take() {
+                let ex = &mut state.export;
+                ex.settings = snap.settings;
+                ex.folder = snap.folder;
+                ex.preset = snap.preset;
+                ex.set_overrides = snap.set_overrides;
+                let mut project = state.session.settings().clone();
+                restore_export_settings(&mut project, &snap.project);
+                if project != *state.session.settings() {
+                    state.session.set_settings(project);
+                }
+            }
+            open = false;
+        }
+        None => {}
+    }
     state.export.open = open;
+}
+
+enum WindowAction {
+    Export,
+    Save,
+    Reset,
+    Cancel,
+}
+
+/// Export, log the files per texture set, and show the List of exports tab.
+fn run_export(state: &mut UiState, now: f64) {
+    let settings = state.export.settings.clone();
+    let folder = PathBuf::from(&state.export.folder);
+    let plan = state.session.export_plan(&settings);
+    let mut log = Vec::new();
+    match state.session.export_textures(&folder, &settings) {
+        Ok(files) => {
+            for (set, path) in plan {
+                log.push(ExportLogLine { set: Some(set), text: folder.join(path).display().to_string(), error: false });
+            }
+            let text = format!("Exported {} files to {}", files.len(), folder.display());
+            log.push(ExportLogLine { set: None, text: text.clone(), error: false });
+            state.set_status(text, now);
+        }
+        Err(e) => {
+            log.push(ExportLogLine { set: None, text: format!("Export failed: {e}"), error: true });
+            state.set_status(format!("Export failed: {e}"), now);
+        }
+    }
+    state.export.log = log;
+    state.export.tab = ExportTab::ListOfExports;
+}
+
+/// List of exports: written files grouped by texture set, then the messages.
+fn export_log(ui: &mut egui::Ui, log: &[ExportLogLine]) {
+    if log.is_empty() {
+        ui.label(dim(tr("Nothing exported yet in this session. Press Export to write the checked maps.")));
+        return;
+    }
+    egui::ScrollArea::vertical().id_salt("export_log").max_height(380.0).show(ui, |ui| {
+        ui.set_min_width(ui.available_width());
+        let mut current: Option<&str> = None;
+        for line in log.iter().filter(|l| l.set.is_some()) {
+            let set = line.set.as_deref().unwrap_or_default();
+            if current != Some(set) {
+                current = Some(set);
+                ui.add_space(4.0);
+                ui.label(RichText::new(set).strong());
+            }
+            ui.horizontal(|ui| {
+                ui.add_space(14.0);
+                ui.add(egui::Label::new(RichText::new(&line.text).monospace().small().color(TEXT_DIM)).truncate()).on_hover_text(&line.text);
+            });
+        }
+        ui.add_space(8.0);
+        ui.label(caption("Console"));
+        for line in log.iter().filter(|l| l.set.is_none()) {
+            ui.label(if line.error { RichText::new(&line.text).color(theme::WARNING) } else { RichText::new(&line.text) });
+        }
+    });
+}
+
+/// File > Export 2D view: folder, file type, size, padding and Export.
+fn view_2d_body(ui: &mut egui::Ui, state: &mut UiState, lib: &Option<subcraft_app::assets::UserLibrary>, view: subcraft_export::View2d, now: f64) {
+    egui::Grid::new("export_grid").num_columns(2).spacing([16.0, 10.0]).show(ui, |ui| {
+        folder_row(ui, &mut state.export.folder);
+        ui.label(dim("Image"));
+        ui.label(format!("{} (as shown in the 2D view)", crate::panels::uv_view::label(state.uv.source)));
+        ui.end_row();
+        global_rows(ui, &mut state.export, false);
+    });
+    let ex = &mut state.export;
+    ex.settings.template = ex.current_template(lib.as_ref());
+    let settings = ex.settings.clone();
+    let folder = PathBuf::from(&ex.folder);
+    ui.add_space(6.0);
+    let go = ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| primary_button(ui, format!("{}  Export", crate::icons::EXPORT)).clicked());
+    if go.inner {
+        match state.session.export_view_2d(&folder, view, &settings) {
+            Ok(files) if files.is_empty() => state.set_status("Nothing to export: the 2D view's source is missing", now),
+            Ok(files) => state.set_status(format!("Exported {}", files[0].display()), now),
+            Err(e) => state.set_status(format!("Export failed: {e}"), now),
+        }
+    }
+}
+
+fn folder_row(ui: &mut egui::Ui, folder: &mut String) {
+    ui.label(dim("Output directory"));
+    ui.horizontal(|ui| {
+        ui.add(egui::TextEdit::singleline(folder).desired_width(300.0));
+        if ui.button(tr("Browse…")).clicked()
+            && let Some(p) = rfd::FileDialog::new().set_directory(&*folder).pick_folder()
+        {
+            *folder = p.display().to_string();
+        }
+    });
+    ui.end_row();
+}
+
+/// File type, size, padding and height to normal (the Global settings parameters).
+fn global_rows(ui: &mut egui::Ui, ex: &mut ExportUi, with_preset_hints: bool) {
+    ui.label(dim("File type"));
+    ui.horizontal(|ui| {
+        crate::export_presets::format_combo(ui, "export_format", &mut ex.settings.format_override, &mut ex.settings.dither, Some(tr("Based on output template")));
+    });
+    ui.end_row();
+    let preset = with_preset_hints.then(|| ex.preset_list.as_ref().and_then(|l| l.find(&ex.preset)).map(|p| (p.size, p.padding))).flatten();
+    ui.label(dim("Size"));
+    ui.horizontal(|ui| {
+        crate::export_presets::size_combo(ui, "export_size", &mut ex.settings.size, tr("Based on each texture set's size"));
+        if let Some((Some(s), _)) = preset {
+            ui.label(dim(&format!("the preset writes {s} × {s}"))).on_hover_text(tr("This preset chooses its own size; it wins over this setting"));
+        }
+    });
+    ui.end_row();
+    ui.label(dim("Padding"));
+    ui.horizontal(|ui| {
+        if let Some((_, Some(_))) = preset {
+            ui.label(dim("set by the preset")).on_hover_text(tr("This preset chooses its own padding; maps without one use it"));
+            return;
+        }
+        let mut padding = Some(ex.settings.padding);
+        crate::export_presets::padding_combo(ui, "export_padding", &mut padding, None);
+        ex.settings.padding = padding.unwrap_or(Padding::Infinite);
+    });
+    ui.end_row();
+    ui.label(dim("Height to normal"));
+    ui.add(egui::Slider::new(&mut ex.settings.height_to_normal, 0.0..=0.1));
+    ui.end_row();
+}
+
+/// Settings tab: Global settings and the texture sets on the left, their parameters and output
+/// maps on the right.
+fn settings_tab(ui: &mut egui::Ui, state: &mut UiState, lib: &Option<subcraft_app::assets::UserLibrary>, sets: &[(TextureSetId, String)], preset_status: &mut Option<String>, now: f64) {
+    {
+        let ex = &mut state.export;
+        ex.settings.template = ex.current_template(lib.as_ref());
+    }
+    let settings = state.export.settings.clone();
+    let choices = state.session.export_choices(&settings);
+    let mut set_click = None;
+    ui.horizontal_top(|ui| {
+        ui.vertical(|ui| {
+            ui.set_width(170.0);
+            let ex = &mut state.export;
+            ui.selectable_value(&mut ex.selected_set, None, RichText::new(tr("Global settings")).strong());
+            ui.add_space(4.0);
+            for (id, name) in sets {
+                ui.horizontal(|ui| {
+                    let mine: Vec<&subcraft_export::PlannedFile> = choices.iter().filter(|c| c.set == *name).collect();
+                    let mut all_on = !mine.is_empty() && mine.iter().all(|c| c.enabled);
+                    if ui.add_enabled(!mine.is_empty(), egui::Checkbox::without_text(&mut all_on)).on_hover_text(tr("Export this texture set")).clicked() {
+                        set_click = Some((name.clone(), all_on));
+                    }
+                    let overridden = ex.set_overrides.get(id).is_some_and(|o| !o.is_empty());
+                    let label = if overridden { format!("{name} *") } else { name.clone() };
+                    let r = ui.selectable_label(ex.selected_set == Some(*id), label);
+                    let r = if overridden { r.on_hover_text(tr("Has its own export settings")) } else { r };
+                    if r.clicked() {
+                        ex.selected_set = Some(*id);
+                    }
+                });
+            }
+        });
+        ui.separator();
+        ui.vertical(|ui| match state.export.selected_set {
+            None => global_settings(ui, state, lib, &settings, &choices, preset_status, now),
+            Some(id) => {
+                let name = sets.iter().find(|(s, _)| *s == id).map(|(_, n)| n.clone()).unwrap_or_default();
+                set_settings(ui, &mut state.export, id, &name);
+                ui.add_space(6.0);
+                let mine: Vec<subcraft_export::PlannedFile> = choices.iter().filter(|c| c.set == name).cloned().collect();
+                export_map_list(ui, state, &settings, &mine);
+            }
+        });
+    });
+    if let Some((set, on)) = set_click {
+        state.session.edit_export_selection(&settings, |sel, all| sel.set_set_on(&set, all, on));
+    }
+}
+
+fn global_settings(ui: &mut egui::Ui, state: &mut UiState, lib: &Option<subcraft_app::assets::UserLibrary>, settings: &ExportSettings, choices: &[subcraft_export::PlannedFile], preset_status: &mut Option<String>, now: f64) {
+    egui::Grid::new("export_grid").num_columns(2).spacing([16.0, 10.0]).show(ui, |ui| {
+        let ex = &mut state.export;
+        folder_row(ui, &mut ex.folder);
+        ui.label(dim("Output template"));
+        let list = ex.preset_list.get_or_insert_with(|| subcraft_app::export_presets::ExportPresets::load(lib.as_ref()));
+        if let Some(s) = crate::export_presets::preset_bar(ui, list, &mut ex.preset, &mut ex.editor) {
+            *preset_status = Some(s);
+        }
+        ui.end_row();
+        global_rows(ui, ex, true);
+    });
+    ui.add_space(6.0);
+    export_options(ui, state);
+    let folder = PathBuf::from(&state.export.folder);
+    baked_maps_section(ui, state, &folder, settings, now);
+    ui.add_space(4.0);
+    divider(ui);
+    ui.add_space(4.0);
+    export_map_list(ui, state, settings, choices);
+    ui.separator();
+    let formats = subcraft_export::scene::SceneFormat::ALL;
+    let mut scene_go = false;
+    ui.horizontal(|ui| {
+        egui::ComboBox::from_id_salt("scene_format").selected_text(formats[state.export.scene_format.min(formats.len() - 1)].label()).show_ui(ui, |ui| {
+            for (i, f) in formats.iter().enumerate() { ui.selectable_value(&mut state.export.scene_format, i, f.label()); }
+        });
+        scene_go = ui.button(tr("Export model + textures")).on_hover_text(tr("Writes the mesh with a textured PBR material (glTF PBR, USD preview surface, or OBJ with separate maps) into the folder")).clicked();
+    });
+    if scene_go {
+        let format = formats[state.export.scene_format.min(formats.len() - 1)];
+        match state.session.export_scene(&folder, settings, format) {
+            Ok(files) => state.set_status(format!("Exported {} files to {}", files.len(), folder.display()), now),
+            Err(e) => state.set_status(format!("Export failed: {e}"), now),
+        }
+    }
+}
+
+/// A texture set's own file type, size and padding (each "Global" until set).
+fn set_settings(ui: &mut egui::Ui, ex: &mut ExportUi, id: TextureSetId, name: &str) {
+    ui.label(RichText::new(name).strong());
+    ui.label(dim("Settings left on Global follow Global settings."));
+    ui.add_space(4.0);
+    let mut o = ex.set_overrides.get(&id).copied().unwrap_or_default();
+    egui::Grid::new(("export_set", id)).num_columns(2).spacing([16.0, 10.0]).show(ui, |ui| {
+        ui.label(dim("File type"));
+        ui.horizontal(|ui| {
+            crate::export_presets::format_combo(ui, "set_format", &mut o.format, &mut o.dither, Some(tr("Global")));
+        });
+        ui.end_row();
+        ui.label(dim("Size"));
+        crate::export_presets::size_combo(ui, "set_size", &mut o.size, tr("Global"));
+        ui.end_row();
+        ui.label(dim("Padding"));
+        crate::export_presets::padding_combo(ui, "set_padding", &mut o.padding, Some(tr("Global")));
+        ui.end_row();
+    });
+    if o.is_empty() {
+        ex.set_overrides.remove(&id);
+    } else {
+        ex.set_overrides.insert(id, o);
+    }
 }
 
 /// "Baked Mesh Maps": export raw baked maps (Normal, AO, Curvature...) of every texture set at once,
