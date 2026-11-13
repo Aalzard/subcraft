@@ -267,6 +267,8 @@ pub(crate) struct Graph<'a> {
     /// after it and that accumulation's node (`None` while still the channel's base value).
     tops: Vec<(ChannelKind, Vec<Option<(usize, usize)>>)>,
     prefix: Option<Prefix<'a>>,
+    /// Evaluate only these channels' roots (`None`: all); see `PrefixCache::set_only`.
+    only: Option<Vec<ChannelKind>>,
     content: Option<Content<'a>>,
     /// Anchor points and references (ADR-0045); `None` when no layer reads an anchor, so sets
     /// without references build exactly the graph they always did.
@@ -349,6 +351,7 @@ impl<'a> Graph<'a> {
             modes: OnceLock::new(),
             tops: Vec::new(),
             prefix: None,
+            only: None,
             content: None,
             anchors: None,
             compare_below: HashMap::new(),
@@ -543,6 +546,7 @@ impl<'a> Graph<'a> {
             self.prefix = Some(Prefix { cache, marks });
         }
         self.mark_content(&cache.content);
+        self.only = cache.only();
         self
     }
     /// Every input of a node (not only the primary one).
@@ -1779,6 +1783,7 @@ impl<'a> Graph<'a> {
         let out = self
             .roots
             .iter()
+            .filter(|(k, _)| self.only.as_ref().is_none_or(|only| only.contains(k)))
             .map(|&(k, n)| (k, self.get(n, tile)))
             .collect();
         self.scratch_clear();
