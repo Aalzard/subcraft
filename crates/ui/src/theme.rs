@@ -252,8 +252,27 @@ pub fn SECTION_BANDS() -> [Color32; 2] {
     palette().section_bands
 }
 
+/// A colour chosen for dark panels (pastel labels, channel and axis colours), darkened when the
+/// panels are light so it stays readable there. Unchanged on dark themes.
+pub fn on_panel(c: Color32) -> Color32 {
+    on_panel_in(&palette(), c)
+}
+
+/// [`on_panel`] for palette `p`.
+pub fn on_panel_in(p: &Palette, c: Color32) -> Color32 {
+    if p.dark {
+        return c;
+    }
+    let f = |v: u8| (v as f32 * 0.55).round() as u8;
+    Color32::from_rgb(f(c.r()), f(c.g()), f(c.b()))
+}
+
 /// Colour of the left accent bar of a channel card (muted, so the set reads as a family).
 pub fn channel_accent(kind: subcraft_core::ChannelKind) -> Color32 {
+    on_panel(channel_accent_base(kind))
+}
+
+fn channel_accent_base(kind: subcraft_core::ChannelKind) -> Color32 {
     use subcraft_core::ChannelKind::*;
     match kind {
         BaseColor => Color32::from_rgb(214, 150, 70),
@@ -544,6 +563,28 @@ mod tests {
 
     fn differs(a: Color32, b: Color32, by: u8) -> bool {
         a.r().abs_diff(b.r()).max(a.g().abs_diff(b.g())).max(a.b().abs_diff(b.b())) >= by
+    }
+
+    /// QA 2026-11: channel names, R/G/B slot labels, axis labels and red warnings kept the pastel
+    /// colours tuned for dark panels: on the Light theme's panels Emissive was 1.3:1.
+    #[test]
+    fn coloured_labels_read_on_every_panel() {
+        use subcraft_core::ChannelKind;
+        let kinds = [ChannelKind::BaseColor, ChannelKind::Height, ChannelKind::Roughness, ChannelKind::Metallic, ChannelKind::Normal, ChannelKind::AmbientOcclusion, ChannelKind::Emissive, ChannelKind::Opacity];
+        let fixed = [Color32::from_rgb(230, 110, 110), Color32::from_rgb(120, 200, 120), Color32::from_rgb(120, 150, 240), Color32::from_rgb(190, 108, 100), Color32::from_rgb(112, 172, 126), Color32::from_rgb(106, 144, 198), Color32::from_rgb(226, 92, 92), Color32::LIGHT_RED];
+        for kind in ThemeKind::ALL {
+            let p = kind.palette();
+            let colours = kinds.iter().map(|&k| channel_accent_base(k)).chain(fixed);
+            for c in colours {
+                let shown = on_panel_in(&p, c);
+                for bg in [p.bg_1, p.bg_2] {
+                    assert!(contrast(shown, bg) >= 3.0, "{kind:?}: {c:?} shown as {shown:?} on {bg:?}: {}", contrast(shown, bg));
+                }
+                if p.dark {
+                    assert_eq!(shown, c, "dark themes keep the colour");
+                }
+            }
+        }
     }
 
     #[test]

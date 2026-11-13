@@ -621,7 +621,7 @@ fn grid_control(ui: &mut Ui, prefs: &mut ViewportPrefs) {
             ] {
                 ui.checkbox(
                     &mut prefs.grid_axes[index],
-                    RichText::new(text).color(color),
+                    RichText::new(text).color(crate::theme::on_panel(color)),
                 );
             }
             ui.label(

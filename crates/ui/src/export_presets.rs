@@ -653,9 +653,9 @@ fn map_editor(ui: &mut Ui, map: &mut OutputMap, mesh: &str, pending: &mut Option
 
 fn slot_color(slot: &str) -> egui::Color32 {
     match slot {
-        "R" => egui::Color32::from_rgb(230, 110, 110),
-        "G" => egui::Color32::from_rgb(120, 200, 120),
-        "B" => egui::Color32::from_rgb(120, 150, 240),
+        "R" => crate::theme::on_panel(egui::Color32::from_rgb(230, 110, 110)),
+        "G" => crate::theme::on_panel(egui::Color32::from_rgb(120, 200, 120)),
+        "B" => crate::theme::on_panel(egui::Color32::from_rgb(120, 150, 240)),
         _ => TEXT_DIM(),
     }
 }
