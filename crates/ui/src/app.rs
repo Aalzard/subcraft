@@ -1156,6 +1156,10 @@ impl SubcraftApp {
         {
             let _ = dock.set_active_tab(path);
         }
+        let mut state = state;
+        if options.screenshot.is_none() {
+            state.intro = Some(crate::intro::Intro::default());
+        }
         Self {
             inspector_selection: Some(InspectorSelection::current(&state.session)),
             state,
@@ -2294,6 +2298,7 @@ impl eframe::App for SubcraftApp {
             }
         }
         self.state.view_props_swallow = crate::view_props::show(&ctx, &mut self.state);
+        crate::intro::show(&ctx, &mut self.state.intro);
         crate::pen::keyboard(&mut self.state, &ctx, ctx.input(|i| i.time));
         self.shortcuts(&ctx);
         self.state.session.default_uv_scale = self.state.recovery.prefs.default_uv_scale;
