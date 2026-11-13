@@ -769,7 +769,7 @@ pub(crate) fn thumbnail_tabs(shelf: &ShelfUi) -> Vec<ShelfTab> {
 }
 
 /// Thumbnail of an asset, once rendered.
-pub(crate) fn thumbnail(shelf: &ShelfUi, id: &AssetId) -> Option<&egui::TextureHandle> {
+pub(crate) fn thumbnail<'a>(shelf: &'a ShelfUi, id: &AssetId) -> Option<&'a egui::TextureHandle> {
     shelf.thumbs.get(id)
 }
 
