@@ -531,7 +531,6 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Texture filtering", "貼圖過濾"),
     ("The axis the grid is perpendicular to (Y is the floor)", "與格線垂直的座標軸（Y 為地面）"),
     ("The channel is divided by this before it is shown, to bring values above 1 into view", "顯示前會先將通道除以此值，讓大於 1 的值可被看見"),
-    ("The list of mouse and key actions in the bottom-left corner of the 3D view. While it is hidden the grid unit is shown there.", "3D 檢視左下角的滑鼠與按鍵操作清單。隱藏時，該處會顯示格線單位。"),
     ("The stencil image disappears during a stroke, so the paint is seen as it lands", "筆觸進行時模板圖片會消失，讓您看到顏料落下的樣子"),
     ("Tool display", "工具顯示"),
     ("Use +/- color for HDR values", "HDR 值使用 +/- 顏色"),
@@ -939,4 +938,5 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Cage surface opacity", "包覆表面不透明度"),
     ("Show for selected Texture Set only", "僅顯示所選貼圖集"),
     ("Draw the project mesh and the cage of the selected texture set only", "僅繪製所選貼圖集的專案網格與包覆"),
+    ("The list of mouse and key actions in the bottom-left corner of the 3D view. The grid unit is shown just above it.", "3D 檢視左下角的滑鼠與按鍵操作清單。格線單位顯示在其正上方。"),
 ];

@@ -531,7 +531,6 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Texture filtering", "텍스처 필터링"),
     ("The axis the grid is perpendicular to (Y is the floor)", "그리드에 수직인 축(Y는 바닥)"),
     ("The channel is divided by this before it is shown, to bring values above 1 into view", "표시하기 전에 채널을 이 값으로 나누어 1보다 큰 값이 보이게 합니다"),
-    ("The list of mouse and key actions in the bottom-left corner of the 3D view. While it is hidden the grid unit is shown there.", "3D 뷰 왼쪽 아래 모서리의 마우스 및 키 동작 목록입니다. 숨겨져 있으면 그 자리에 그리드 단위가 표시됩니다."),
     ("The stencil image disappears during a stroke, so the paint is seen as it lands", "스트로크하는 동안 스텐실 이미지가 사라져 칠해지는 모습을 볼 수 있습니다"),
     ("Tool display", "도구 표시"),
     ("Use +/- color for HDR values", "HDR 값에 +/- 색상 사용"),
@@ -939,4 +938,5 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Cage surface opacity", "케이지 표면 불투명도"),
     ("Show for selected Texture Set only", "선택한 텍스처 세트만 표시"),
     ("Draw the project mesh and the cage of the selected texture set only", "선택한 텍스처 세트의 프로젝트 메시와 케이지만 그립니다"),
+    ("The list of mouse and key actions in the bottom-left corner of the 3D view. The grid unit is shown just above it.", "3D 뷰 왼쪽 아래 모서리의 마우스 및 키 동작 목록입니다. 그리드 단위는 바로 위에 표시됩니다."),
 ];
