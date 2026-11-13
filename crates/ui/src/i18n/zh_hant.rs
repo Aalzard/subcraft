@@ -920,6 +920,8 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Brush outline", "筆刷輪廓"),
     ("Crosshair", "十字準星"),
     ("Shown in the popup over the view (Esc closes it)", "顯示於視圖上方的彈出視窗中 (按 Esc 關閉)"),
+    ("Invert zoom", "反轉縮放"),
+    ("Off: turning the wheel forward zooms in, as in Painter. On: forward zooms out. Applies to the 3D and 2D views.", "關閉：向前轉動滾輪會放大，與 Painter 相同。開啟：向前轉動會縮小。套用於 3D 與 2D 視圖。"),
     ("Hide baking meshes", "隱藏烘焙網格"),
     ("Show the model as it is painted instead of the high / low overlay", "顯示繪製中的模型，而非高模 / 低模疊加"),
     ("High poly mesh", "高模網格"),

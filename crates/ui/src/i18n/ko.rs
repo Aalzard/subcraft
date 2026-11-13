@@ -920,6 +920,8 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Crosshair", "십자선"),
     ("Shown in the popup over the view (Esc closes it)", "뷰 위의 팝업에 표시됨 (Esc로 닫기)"),
     ("Zoom speed", "확대/축소 속도"),
+    ("Invert zoom", "줌 반전"),
+    ("Off: turning the wheel forward zooms in, as in Painter. On: forward zooms out. Applies to the 3D and 2D views.", "끄기: 휠을 앞으로 돌리면 Painter처럼 확대됩니다. 켜기: 앞으로 돌리면 축소됩니다. 3D 뷰와 2D 뷰에 적용됩니다."),
     ("Hide baking meshes", "베이크 메시 숨기기"),
     ("Show the model as it is painted instead of the high / low overlay", "하이 / 로우 오버레이 대신 칠하는 모델을 표시합니다"),
     ("High poly mesh", "하이 폴리 메시"),
