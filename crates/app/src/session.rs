@@ -2220,7 +2220,7 @@ impl Session {
                 })?;
             }
             Command::SetParts { layer, parts } => {
-                self.edit_layer_set(layer, "Layer Parts", None, |ts| {
+                self.edit_layer_set_if_changed(layer, "Layer Parts", |ts| {
                     Self::layer_mut(ts, layer)?.parts = parts;
                     Ok(())
                 })?;

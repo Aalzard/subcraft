@@ -113,3 +113,20 @@ fn part_mask_survives_save_and_reopen() {
     assert!(red_at(&o, 0.25, 0.5) > 0.99 && red_at(&o, 0.75, 0.5) < 0.9);
     std::fs::remove_dir_all(&dir).ok();
 }
+
+/// QA 2026-11: setting the geometry mask a layer already has (Include all twice, a box over
+/// parts already included) recorded an undo step and wiped the redo branch.
+#[test]
+fn setting_the_same_geometry_mask_again_records_no_undo_step() {
+    use subcraft_app::{Command, NewLayer, Session};
+    let mut s = Session::new(subcraft_mesh::primitives::cube(2.0), 64);
+    s.execute(Command::AddLayer(NewLayer::Fill)).unwrap();
+    let layer = s.selection().layer.unwrap();
+    let parts = Some(subcraft_doc::PartMask::new([0]));
+    let steps = s.history().entries().len();
+    s.execute(Command::SetParts { layer, parts: parts.clone() }).unwrap();
+    assert_eq!(s.history().entries().len(), steps + 1);
+    s.execute(Command::SetParts { layer, parts: parts.clone() }).unwrap();
+    assert_eq!(s.history().entries().len(), steps + 1);
+    assert_eq!(s.selected_texture_set().find(layer).unwrap().parts, parts);
+}
