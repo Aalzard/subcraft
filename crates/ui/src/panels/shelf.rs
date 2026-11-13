@@ -147,6 +147,56 @@ pub fn apply_shelf_item_with(s: &mut UiState, item: ShelfDrag, alt: bool, now: f
     }
 }
 
+/// Whether `item` can go into a mask: Painter shows a ghost mask slot on mask-less rows while
+/// it is dragged.
+pub fn ghost_mask_accepts(item: ShelfDrag) -> bool {
+    match item {
+        ShelfDrag::Alpha(_) | ShelfDrag::SmartMask(_) | ShelfDrag::Texture(_) => true,
+        ShelfDrag::Filter(i) => subcraft_doc::Filter::ALL.get(i).is_some_and(|f| f.supports_mask()),
+        ShelfDrag::Material(_) | ShelfDrag::SmartMaterial(_) | ShelfDrag::Starter(_) => false,
+    }
+}
+
+/// Painter's ghost mask slot: `item` dropped on it gives `layer` a black mask with the item
+/// inside (an alpha or texture as an image effect, a filter, or a smart mask's effects), one
+/// undo step, and selects the new mask.
+pub fn apply_ghost_mask_drop(s: &mut UiState, layer: subcraft_core::LayerId, item: ShelfDrag, now: f64) {
+    use subcraft_app::{Command, LayerTarget};
+    use subcraft_doc::{MaskEffectKind, Projection};
+    let image = |resource| MaskEffectKind::Image { resource, projection: Projection::default(), invert: false };
+    let result: Result<(), String> = match item {
+        ShelfDrag::Alpha(i) => match s.library.alphas.get(i).cloned() {
+            Some(a) => s.session.apply_alpha_to_mask(layer, &a).map_err(|e| e.to_string()),
+            None => Ok(()),
+        },
+        ShelfDrag::SmartMask(i) => match s.library.smart_masks.get(i).cloned() {
+            Some(m) => {
+                s.run(vec![Command::SelectLayer(Some(layer))], now);
+                s.session.apply_smart_mask(&m).map_err(|e| e.to_string())
+            }
+            None => Ok(()),
+        },
+        ShelfDrag::Texture(i) => match s.textures.items.get(i).map(|t| t.path.clone()) {
+            Some(p) => s.session.import_image(&p).and_then(|resource| {
+                s.session.execute(Command::ApplyMaskEffects { layer, effects: vec![image(resource)], label: "Mask image".into() }).map_err(|e| e.to_string())
+            }),
+            None => Ok(()),
+        },
+        ShelfDrag::Filter(i) => match subcraft_doc::Filter::ALL.get(i).copied().filter(|f| f.supports_mask()) {
+            Some(f) => s.session.execute(Command::ApplyMaskEffects { layer, effects: vec![MaskEffectKind::Filter(f)], label: format!("Mask filter: {}", f.label()) }).map_err(|e| e.to_string()),
+            None => Err("This filter does not work on masks".to_string()),
+        },
+        ShelfDrag::Material(_) | ShelfDrag::SmartMaterial(_) | ShelfDrag::Starter(_) => Err("Materials do not go into a mask: drop them on the row".to_string()),
+    };
+    match result {
+        Ok(()) => {
+            s.run(vec![Command::SelectLayer(Some(layer)), Command::SelectLayerTarget { layer, target: LayerTarget::Mask }], now);
+            s.recovery.autosaver.request_soon();
+        }
+        Err(e) => s.set_status(e, now),
+    }
+}
+
 /// A Shelf item dropped into the layer stack (Painter):
 /// * `with_mask` (Ctrl held): a material or texture becomes a new layer with a black mask, ready
 ///   to be painted in;
@@ -2380,6 +2430,47 @@ mod stack_drop_tests {
         // Dropped on a row instead: that row gets the mask, no new layer.
         apply_stack_drop(&mut s, ShelfDrag::SmartMask(0), false, false, false, 0.0);
         assert_eq!(s.session.selected_texture_set().layers.len(), layers + 1);
+    }
+
+    #[test]
+    fn the_ghost_mask_slot_takes_mask_items_and_gives_the_layer_a_black_mask_with_them() {
+        use subcraft_doc::MaskEffectKind;
+        assert!(ghost_mask_accepts(ShelfDrag::Alpha(0)));
+        assert!(ghost_mask_accepts(ShelfDrag::SmartMask(0)));
+        assert!(ghost_mask_accepts(ShelfDrag::Texture(0)));
+        assert!(!ghost_mask_accepts(ShelfDrag::Material(0)));
+        assert!(!ghost_mask_accepts(ShelfDrag::SmartMaterial(0)));
+        let mask_filter = subcraft_doc::Filter::ALL.iter().position(|f| f.supports_mask()).unwrap();
+        assert!(ghost_mask_accepts(ShelfDrag::Filter(mask_filter)));
+        if let Some(i) = subcraft_doc::Filter::ALL.iter().position(|f| !f.supports_mask()) {
+            assert!(!ghost_mask_accepts(ShelfDrag::Filter(i)));
+        }
+        let mut s = state();
+        let layer = s.session.selection().layer.unwrap();
+        assert!(s.session.selected_layer().unwrap().mask.is_none());
+        let steps = s.session.history().entries().len();
+        apply_ghost_mask_drop(&mut s, layer, ShelfDrag::Filter(mask_filter), 0.0);
+        let l = s.session.selected_layer().unwrap();
+        let mask = l.mask.as_ref().expect("a mask was created");
+        assert_eq!(mask.base.get(0, 0)[0], 0.0, "a black mask");
+        assert!(matches!(mask.effects[..], [ref e] if matches!(e.kind, MaskEffectKind::Filter(_))));
+        assert_eq!(s.session.layer_target(), subcraft_app::LayerTarget::Mask, "the new mask is selected");
+        assert_eq!(s.session.history().entries().len(), steps + 1, "one undo step");
+        // A smart mask on another mask-less layer.
+        if !s.library.smart_masks.is_empty() {
+            s.session.execute(subcraft_app::Command::AddLayer(subcraft_app::NewLayer::Fill)).unwrap();
+            let other = s.session.selection().layer.unwrap();
+            s.session.execute(subcraft_app::Command::SelectLayer(Some(layer))).unwrap();
+            apply_ghost_mask_drop(&mut s, other, ShelfDrag::SmartMask(0), 0.0);
+            assert_eq!(s.session.selection().layer, Some(other));
+            let own = s.library.smart_masks[0].effects.len();
+            assert_eq!(s.session.selected_layer().unwrap().mask.as_ref().unwrap().effects.len(), own);
+        }
+        // Materials are refused with a message and change nothing.
+        let steps = s.session.history().entries().len();
+        apply_ghost_mask_drop(&mut s, layer, ShelfDrag::Material(0), 1.0);
+        assert_eq!(s.session.history().entries().len(), steps);
+        assert!(s.status.as_ref().is_some_and(|(m, _)| m.contains("mask")));
     }
 
     #[test]
