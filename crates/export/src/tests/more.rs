@@ -27,7 +27,7 @@ fn all_keys(sets: &[ExportTextureSet], settings: &ExportSettings) -> Vec<MapKey>
 }
 
 fn plain(ch: &BTreeMap<ChannelKind, TiledImage>) -> [ExportTextureSet<'_>; 1] {
-    [ExportTextureSet { name: "Body", material_slot: 0, udim: None, channels: ch, mesh_maps: None }]
+    [ExportTextureSet { name: "Body", material_slot: 0, udim: None, channels: ch, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY }]
 }
 
 #[test]
@@ -131,8 +131,8 @@ fn normal_format_override_flips_the_green_channel() {
 
 fn tiles(ch: &BTreeMap<ChannelKind, TiledImage>) -> Vec<ExportTextureSet<'_>> {
     vec![
-        ExportTextureSet { name: "Body.1001", material_slot: 0, udim: Some(1001), channels: ch, mesh_maps: None },
-        ExportTextureSet { name: "Body.1002", material_slot: 1, udim: Some(1002), channels: ch, mesh_maps: None },
+        ExportTextureSet { name: "Body.1001", material_slot: 0, udim: Some(1001), channels: ch, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY },
+        ExportTextureSet { name: "Body.1002", material_slot: 1, udim: Some(1002), channels: ch, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY },
     ]
 }
 

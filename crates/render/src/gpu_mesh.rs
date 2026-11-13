@@ -39,6 +39,8 @@ pub struct GpuMesh {
     pub vertices: wgpu::Buffer,
     pub indices: wgpu::Buffer,
     pub ranges: Vec<DrawRange>,
+    /// Bounding box of the positions (fits the key light's shadow map).
+    pub bounds: (glam::Vec3, glam::Vec3),
 }
 
 impl GpuMesh {
@@ -66,6 +68,6 @@ impl GpuMesh {
             .iter()
             .map(|s| DrawRange { material_slot: s.material, first_index: s.first_triangle * 3, index_count: s.triangle_count * 3 })
             .collect();
-        Self { vertices, indices, ranges }
+        Self { vertices, indices, ranges, bounds: (mesh.bounds.min, mesh.bounds.max) }
     }
 }
