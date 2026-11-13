@@ -162,6 +162,9 @@ fn the_lens_and_color_stage_matches_the_cpu_reference() {
         ("achromatic aberration", Grade { aberration_achromatic: true, ..fringe }),
         ("sharpen", Grade { sharpen: 1.5, sharpen_diameter: 3.0, ..Grade::default() }),
         ("everything", Grade { vignette: 0.5, sharpen: 0.8, sharpen_diameter: 2.0, gamma: 1.4, ..Grade { aberration: 1.5, ..color } }),
+        ("barrel lens", Grade { lens_power: 0.6, lens_fov: 1.0, lens_roundness: 0.5, lens_smoothness: 0.3, ..Grade::default() }),
+        ("pincushion lens", Grade { lens_power: -0.5, lens_fov: 0.0, lens_roundness: 1.0, lens_smoothness: 0.0, ..Grade::default() }),
+        ("lens with the rest", Grade { lens_power: 0.4, lens_fov: 0.5, lens_roundness: 0.2, lens_smoothness: 0.6, sharpen: 0.5, sharpen_diameter: 2.0, ..color }),
     ];
     for (name, grade) in cases {
         let gpu = frame(grade);

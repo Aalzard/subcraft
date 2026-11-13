@@ -221,6 +221,35 @@ pub fn environment(state: &mut UiState, ui: &mut Ui) {
         }).response.on_hover_text(tr("World: the environment stays put while the camera orbits. Local: it turns with the camera, so the lighting follows the view."));
         ui.end_row();
     });
+    // Painter's Environment settings > Shadows: cast by the key light, in the raster view.
+    let display = &mut state.recovery.prefs.viewport.display;
+    sub_header(ui, tr("Shadows"));
+    grid(ui, "display_shadows", |ui| {
+        ui.label(tr("Enable"));
+        ui.checkbox(&mut display.shadows, "").on_hover_text(tr("The model casts the key light's shadow on itself in the 3D view (the Rendering mode always has shadows)"));
+        ui.end_row();
+        ui.label(tr("Computation mode"));
+        ui.add_enabled_ui(display.shadows, |ui| {
+            egui::ComboBox::from_id_salt("display_shadow_mode").selected_text(shadow_mode_label(display.shadow_mode)).show_ui(ui, |ui| {
+                for m in subcraft_doc::ShadowMode::MENU {
+                    ui.selectable_value(&mut display.shadow_mode, m, shadow_mode_label(m));
+                }
+            }).response.on_hover_text(tr("Intensive is sharper and slower, Lightweight softer and faster"));
+        });
+        ui.end_row();
+        ui.label(tr("Shadows opacity"));
+        ui.add_enabled(display.shadows, egui::Slider::new(&mut display.shadow_opacity, 0.0..=1.0)).on_hover_text(tr("How dark the shadows are: 1 blocks all of the key light"));
+        ui.end_row();
+    });
+}
+
+/// Painter's name of a shadow computation mode, translated.
+fn shadow_mode_label(mode: subcraft_doc::ShadowMode) -> &'static str {
+    match mode {
+        subcraft_doc::ShadowMode::Lightweight => tr("Lightweight"),
+        subcraft_doc::ShadowMode::Average => tr("Average"),
+        subcraft_doc::ShadowMode::Intensive => tr("Intensive"),
+    }
 }
 
 /// Projection, anti-aliasing and the lens (focus distance and aperture of the depth of field).
@@ -261,6 +290,12 @@ pub fn camera(state: &mut UiState, ui: &mut Ui) {
                 ui.selectable_value(&mut prefs.orthographic, true, tr("Orthographic"));
             });
             ui.end_row();
+            ui.label(tr("Camera rotation"));
+            ui.horizontal(|ui| {
+                ui.selectable_value(&mut prefs.free_rotation, false, tr("Constrained")).on_hover_text(tr("Orbit around the world vertical; the horizon stays level"));
+                ui.selectable_value(&mut prefs.free_rotation, true, tr("Free")).on_hover_text(tr("Orbit around the view's own axes: the camera can roll and go over the top"));
+            });
+            ui.end_row();
             ui.label(tr("Field of view"));
             let mut fov = camera.fov_y_deg;
             if ui.add_enabled(!prefs.orthographic, egui::Slider::new(&mut fov, subcraft_doc::display::FOV_RANGE).suffix("°").fixed_decimals(1)).on_hover_text(tr("Vertical field of view. The camera moves so the model keeps its size.")).changed() {
@@ -279,6 +314,9 @@ pub fn camera(state: &mut UiState, ui: &mut Ui) {
             ui.end_row();
             ui.label(tr("Focus point"));
             pick = ui.add_enabled(prefs.dof, egui::Button::new(tr("Pick in 3D view"))).on_hover_text(tr("Click the model in the 3D view to focus on that spot")).clicked();
+            ui.end_row();
+            ui.label(tr("Auto-focus"));
+            ui.add_enabled(prefs.dof, egui::Checkbox::without_text(&mut prefs.display.dof_autofocus)).on_hover_text(tr("Keep the focus on whatever is at the centre of the 3D view"));
             ui.end_row();
             ui.label(tr("Aperture"));
             ui.add_enabled(prefs.dof, egui::Slider::new(&mut prefs.dof_amount, 0.0..=1.0)).on_hover_text(tr("Strength of the depth-of-field blur. Needs Depth of field (Post effects)."));
@@ -380,6 +418,12 @@ pub fn post_effects(state: &mut UiState, ui: &mut Ui) {
     });
     effect(ui, "display_vignette", tr("Vignette"), &mut d.vignette_on, all, false, |ui| {
         slider(ui, tr("Amount"), &mut d.vignette_amount, 0.0..=1.0, tr("How dark the corners get"));
+    });
+    effect(ui, "display_lens", tr("Lens distortion"), &mut d.lens_on, all, false, |ui| {
+        slider(ui, tr("Power"), &mut d.lens_power, -1.0..=1.0, tr("Positive bends the picture like a wide lens, negative like a telephoto"));
+        slider(ui, tr("FOV"), &mut d.lens_fov, 0.0..=1.0, tr("How far a wide-lens distortion zooms in to hide the stretched border"));
+        slider(ui, tr("Edge roundness"), &mut d.lens_roundness, 0.0..=1.0, tr("Shape of the picture's edge: 0 a rectangle, 1 an oval"));
+        slider(ui, tr("Edge smoothness"), &mut d.lens_smoothness, 0.0..=1.0, tr("Softness of that edge"));
     });
     effect(ui, "display_sharpen", tr("Sharpen"), &mut d.sharpen_on, all, false, |ui| {
         slider(ui, tr("Amount"), &mut d.sharpen_amount, 0.0..=2.0, tr("Strength of the sharpening"));
@@ -669,7 +713,11 @@ pub fn visualization(state: &mut UiState, ui: &mut Ui) {
     });
     sub_header(ui, tr("Guides"));
     ui.checkbox(&mut prefs.symmetry_guides, tr("Symmetry guides"));
+    ui.checkbox(&mut prefs.symmetry_cursor, tr("Symmetry cursors")).on_hover_text(tr("A second brush cursor where each symmetry copy of the stroke paints"));
+    ui.add_enabled(prefs.symmetry_cursor, egui::Checkbox::new(&mut prefs.symmetry_cursor_hide_painting, tr("Hide while painting")));
+    ui.checkbox(&mut prefs.symmetry_plane, tr("Mirror planes")).on_hover_text(tr("Each active mirror plane as a translucent sheet in its axis colour"));
     ui.checkbox(&mut prefs.hints, tr("Viewport hints")).on_hover_text(tr("The list of mouse and key actions in the bottom-left corner of the 3D view. While it is hidden the grid unit is shown there."));
+    ui.checkbox(&mut prefs.axis_indicator, tr("Axis indicator")).on_hover_text(tr("The X, Y and Z directions of the scene in the bottom-right corner of the 3D view"));
 }
 
 /// Camera frame aspect ratios offered (name, width / height).
@@ -843,7 +891,7 @@ mod tests {
         for pair in env.windows(2) {
             assert!(y(pair[0]) < y(pair[1]), "{} is above {} (Painter's order)", pair[0], pair[1]);
         }
-        for control in ["Field of view", "Focal length (mm)", "Focus distance", "Aperture", "Anti-aliasing", "Bloom", "Glare", "Tone mapping", "Show mesh wireframe", "Show grid", "Bounces"] {
+        for control in ["Field of view", "Focal length (mm)", "Focus distance", "Aperture", "Anti-aliasing", "Bloom", "Glare", "Tone mapping", "Show mesh wireframe", "Show grid", "Bounces", "Computation mode", "Shadows opacity"] {
             y(control);
         }
         let stack = ["Activate Post Effects", "Depth of field", "Bloom", "Glare", "Lens flare", "Lateral aberration", "Vignette", "Sharpen", "Film grain", "Tone mapping", "Color correction"];

@@ -463,7 +463,8 @@ fn mask_thumbnail_shortcuts_and_properties_dispatch_undoable_mask_actions() {
             ..Default::default()
         },
     );
-    assert_eq!(app.state.layer_previews.inspect, Some(red));
+    // Alt+click shows the mask alone in the viewport.
+    assert_eq!(app.state.mask_view.as_ref().map(|v| v.layer), Some(red));
     assert_eq!(
         app.state.session.layer_target(),
         subcraft_app::LayerTarget::Mask
