@@ -25,9 +25,19 @@ fn vec2(v: &Value, what: &str) -> Res<Vec2> {
     Ok(Vec2::new(n(0)?, n(1)?))
 }
 
-/// The texture set and UV (wrapped into its 0..1 tile) under a pixel of a rendered view.
-fn view_uv(session: &Session, args: &Args, px: Vec2) -> Res<(TextureSetId, Vec2)> {
-    let cam = render::orbit(session, &camera_view(args)?).paint_camera(view_size(args)?);
+/// pen_path's `width` is its line width, so the size of the image its view-space points are in
+/// is `view_width` × `height`. The two used to share `width`: a line width of 0.01 was refused
+/// as an image width, and an image width of 512 made a line as wide as the texture.
+fn pen_view_size(args: &Args) -> Res<[u32; 2]> {
+    let w = args.u32("view_width")?.unwrap_or(768).clamp(16, 4096);
+    let h = args.u32("height")?.unwrap_or(w).clamp(16, 4096);
+    Ok([w, h])
+}
+
+/// The texture set and UV (wrapped into its 0..1 tile) under a pixel of a rendered view of
+/// `size` pixels.
+fn view_uv(session: &Session, args: &Args, px: Vec2, size: [u32; 2]) -> Res<(TextureSetId, Vec2)> {
+    let cam = render::orbit(session, &camera_view(args)?).paint_camera(size);
     let pick = session.pick(&cam, px).ok_or_else(|| format!("pixel [{}, {}] does not show the model (pick tells)", px.x, px.y))?;
     let mesh = &session.scene().mesh;
     let i = &mesh.indices[pick.triangle as usize * 3..][..3];
@@ -103,7 +113,7 @@ pub fn pen_path(server: &mut Server, args: &Args) -> Res<Reply> {
         for p in pts {
             let p = vec2(p, "a point")?;
             let uv = if view {
-                let (ts, uv) = view_uv(session, args, p)?;
+                let (ts, uv) = view_uv(session, args, p, pen_view_size(args)?)?;
                 if ts_from_points.is_some_and(|t| t != ts) {
                     return Err("the points land on different texture sets; a path stays on one".into());
                 }
@@ -257,7 +267,7 @@ fn apply_text_args(session: &mut Session, ts: TextureSetId, args: &Args, decal: 
 fn text_position(session: &Session, args: &Args) -> Res<Option<(Option<TextureSetId>, Vec2)>> {
     if in_view(args)? {
         let p = vec2(args.get("point").ok_or("space view needs `point` [x, y] in the rendered image")?, "point")?;
-        let (ts, uv) = view_uv(session, args, p)?;
+        let (ts, uv) = view_uv(session, args, p, view_size(args)?)?;
         return Ok(Some((Some(ts), uv)));
     }
     Ok(args.get("position").map(|p| vec2(p, "position")).transpose()?.map(|uv| (None, uv)))

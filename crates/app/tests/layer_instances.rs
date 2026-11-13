@@ -399,3 +399,33 @@ fn nothing_lands_inside_an_instance_folder() {
     assert_eq!(s.document(), &doc);
     assert!(s.selected_texture_set().find(folder).is_some() && s.selected_texture_set().find(instance).is_some());
 }
+
+/// QA 2026-11: a folder instance whose source holds an instance of another layer kept a live
+/// instance in its copy: "make every instance independent" left that copy locked.
+#[test]
+fn making_instances_independent_frees_instances_copied_inside_them() {
+    let (mut s, fill) = session();
+    s.execute(Command::AddLayer(NewLayer::Fill)).unwrap();
+    let inner = s.selection().layer.unwrap();
+    s.execute(Command::GroupLayers(vec![inner])).unwrap();
+    let folder = s.selection().layer.unwrap();
+    // An instance of the fill inside the folder, then an instance of the folder.
+    s.execute(Command::SelectLayer(Some(inner))).unwrap();
+    s.execute(Command::PasteAsInstance(vec![fill])).unwrap();
+    let nested = s.selection().layer.unwrap();
+    assert!(s.selected_texture_set().is_descendant_or_self(nested, folder), "the instance of the fill is in the folder");
+    s.execute(Command::SelectLayer(Some(folder))).unwrap();
+    s.execute(Command::PasteAsInstance(vec![folder])).unwrap();
+    let copy = s.selection().layer.unwrap();
+    let copied: Vec<LayerId> = s.selected_texture_set().find(copy).unwrap().children().iter().map(|l| l.id).collect();
+    assert_eq!(copied.len(), 2);
+    let steps = s.history().entries().len();
+    s.execute(Command::BreakInstances(Vec::new())).unwrap();
+    assert_eq!(s.history().entries().len(), steps + 1, "one step");
+    assert!(s.all_instances().is_empty(), "no instance left: {:?}", s.all_instances());
+    for id in copied.iter().copied().chain([copy, nested]) {
+        assert!(!s.instance_locked(id), "{id:?} can be edited");
+    }
+    s.execute(Command::Undo).unwrap();
+    assert!(s.instance_locked(copy) && s.instance_locked(nested));
+}

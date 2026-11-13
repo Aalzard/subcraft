@@ -994,4 +994,9 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Painter-style", "Painter 스타일"),
     ("Colours of the panels and controls. The 3D view background is set under Background color.", "패널과 컨트롤의 색입니다. 3D 뷰 배경은 배경색에서 설정합니다."),
     ("Auto-rebake: bake this map again whenever the bake settings change", "자동 다시 베이크: 베이크 설정이 바뀔 때마다 이 맵을 다시 베이크합니다"),
+    ("Neutral material", "중립 재질"),
+    ("Show the model in one neutral material shaded by its baked normal and ambient occlusion maps, instead of its painted channels (when the high / low overlay is hidden or after a bake)", "칠한 채널 대신 베이크한 노멀과 앰비언트 오클루전 맵으로 음영을 준 하나의 중립 재질로 모델을 표시합니다 (하이 / 로우 오버레이를 숨겼을 때나 베이크 후)"),
+    ("Color", "색상"),
+    ("Roughness", "거칠기"),
+    ("Metallic", "금속성"),
 ];

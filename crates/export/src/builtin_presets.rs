@@ -5,8 +5,8 @@
 //! renderer's material inputs (metal / roughness channels, converted maps where the target wants
 //! specular / glossiness); file suffixes and formats are SubCraft's reading of those targets and
 //! have not been checked file-by-file against Painter's own preset files. Templates that need
-//! data SubCraft does not have (Dota 2's mask maps, Unreal SSS's scattering) or alpha packing
-//! (the "+ Alpha" / "+ Opacity" templates of #145 cover alpha) are not here.
+//! data SubCraft does not have (Dota 2's mask maps, Unreal SSS's scattering) are not here; the
+//! other "+ Alpha" / "+ Opacity" templates of #145 are in `template.rs`.
 
 use subcraft_core::{ChannelKind, MeshMapKind};
 use subcraft_image::FileFormat;
@@ -119,6 +119,9 @@ pub fn painter() -> Vec<ExportTemplate> {
     gltf_disp.maps.push(m("Height", Png16, vec![Source::Height], false));
     vec![
         document_channels(),
+        // Base Color with the effective opacity as alpha, and Opacity as its own file like the
+        // other document channels.
+        document_channels().with_alpha("Document channels + Normal + AO (With Alpha)", true),
         gltf_disp,
         t("Amazon Lumberyard", vec![
             m("diff", Png8, conv(Converted::Diffuse), true),

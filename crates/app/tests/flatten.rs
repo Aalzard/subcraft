@@ -108,4 +108,20 @@ fn export_flattened_writes_one_file_per_channel_named_by_the_pattern() {
     assert_eq!(subcraft_app::flatten::format_for(ChannelKind::Normal).extension(), "exr");
     assert_eq!(subcraft_app::flatten::format_for(ChannelKind::BaseColor).extension(), "png");
     assert_eq!(subcraft_app::flatten::file_name("$layerName-$srcMap", "S", "A/B", ChannelKind::AmbientOcclusion), "A_B-AmbientOcclusion");
+}
+
+/// QA 2026-11: Export flattened wrote a file for every channel of the set (every layer has a
+/// blend entry for each), not only the channels the layer gives.
+#[test]
+fn export_flattened_layers_writes_only_the_channels_the_layer_gives() {
+    let mut s = session();
+    let l = fill(&mut s, [0.5, 0.2, 0.1], 0.7);
+    s.execute(Command::SetBlendMode { layer: l, channel: ChannelKind::Roughness, mode: subcraft_doc::BlendMode::Disable }).unwrap();
+    let dir = std::env::temp_dir().join(format!("subcraft-flatten-layers-{}", l.0));
+    std::fs::create_dir_all(&dir).unwrap();
+    let written = s.export_flattened_layers(&[l], &dir, subcraft_export::layer_export::FLATTENED_PATTERN).unwrap();
+    let names: Vec<String> = written.iter().map(|p| p.file_name().unwrap().to_string_lossy().into_owned()).collect();
+    assert_eq!(names.len(), 1, "Base Color only (Roughness is disabled, the rest are off): {names:?}");
+    assert!(names[0].contains("BaseColor"), "{names:?}");
+    std::fs::remove_dir_all(&dir).ok();
 }

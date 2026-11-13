@@ -2310,6 +2310,7 @@ impl eframe::App for SubcraftApp {
         if take_tab_press(&mut raw_input.events, _ctx.egui_wants_keyboard_input()) {
             self.state.tab_pressed = true;
         }
+        self.state.tablet.drain_into(_ctx, raw_input);
         let log = crate::pen_input::input_log_enabled();
         if log {
             for e in raw_input.events.iter().filter_map(crate::pen_input::describe) {
@@ -2325,6 +2326,7 @@ impl eframe::App for SubcraftApp {
     }
 
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
+        self.state.tablet.start_once(_frame, ui.ctx());
         // A lost graphics device: draw nothing more (the renderer would panic on it).
         if crate::device_lost::frame_gate(&mut self.state) == crate::device_lost::Gate::Stop { return; }
         let ctx = ui.ctx().clone();
@@ -2573,6 +2575,7 @@ impl eframe::App for SubcraftApp {
 
     /// Clean exit: the recovery folder of this session is no longer needed.
     fn on_exit(&mut self) {
+        self.state.tablet.shutdown();
         self.state.recovery.autosaver.finish_clean();
     }
 }

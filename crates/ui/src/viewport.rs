@@ -285,6 +285,11 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     let warp_grab = !bake_mode && !alt && !stencil_edit
         && crate::warp_view::manipulate(state, ui, &response, rect, pixel_scale, &camera, primary_pressed, primary_down, pointer);
     let primary_pressed = primary_pressed && !warp_grab;
+    // Manipulator of the selected fill layer's 3D projection: presses on its handles move,
+    // turn or scale the projection box.
+    let gizmo_grab = !bake_mode && !alt && !stencil_edit
+        && crate::projection_gizmo::manipulate(state, ui, &response, rect, pixel_scale, &camera, primary_pressed, primary_down, pointer);
+    let primary_pressed = primary_pressed && !gizmo_grab;
     let parts_picking = !bake_mode && state.picking_parts && state.session.selected_layer().is_some() && !state.painting;
     // ----- ID Color Mask eyedropper: clicks add the ID map color under the cursor ------------
     let id_picking = !bake_mode && !state.painting
@@ -406,8 +411,39 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     let stroke_pressure = state.recovery.prefs.viewport.pressure_curve.apply(stroke_pressure);
     if !bake_mode && state.tool == Tool::Pen && !picking && !alt && !stencil_edit && !typing && let Some(p) = pointer {
             if primary_pressed && response.hovered() {
-                let hit = state.pen.preview(&state.session).and_then(|path| crate::pen::hit(path, state.pen.selected_anchor(), p, |uv| pen_position(state, &camera, rect, uv)));
-                if let Err(e) = state.pen.begin_surface(&mut state.session, &camera, to_screen(p), hit) { state.set_status(format!("Pen: {e}"), now); }
+                let map = |uv: Vec2| pen_position(state, &camera, rect, uv);
+                let hit = state.pen.preview(&state.session).and_then(|path| crate::pen::hit(path, state.pen.selected_anchor(), p, map));
+                let anchor = hit.filter(|h| h.handle == subcraft_app::pen::Handle::Anchor).map(|h| h.anchor);
+                // A second press on the same point within a double-click: corner / smooth.
+                let last_id = egui::Id::new("pen_last_press");
+                let last: Option<(subcraft_core::AnchorId, f64)> = ui.data(|d| d.get_temp(last_id));
+                let double = anchor.is_some_and(|a| last.is_some_and(|(l, t)| l == a && now - t < 0.4));
+                ui.data_mut(|d| match anchor {
+                    Some(a) => {
+                        d.insert_temp(last_id, (a, now));
+                    }
+                    None => {
+                        d.remove::<(subcraft_core::AnchorId, f64)>(last_id);
+                    }
+                });
+                // A click on the curve itself (not a point) inserts a point there.
+                let on_curve = if hit.is_none() { state.pen.preview(&state.session).and_then(|path| crate::pen::curve_hit(path, p, map)) } else { None };
+                // A click on another path's curve selects that path.
+                let other = if hit.is_none() && on_curve.is_none() {
+                    let current = state.session.selection().layer;
+                    crate::paths_panel::path_layers(state).into_iter().filter(|(id, _, visible)| *visible && Some(*id) != current).find_map(|(id, _, _)| {
+                        crate::paths_panel::path_of(state, id).and_then(|path| crate::pen::curve_hit(&path, p, map)).map(|_| id)
+                    })
+                } else { None };
+                let ctrl = mods.ctrl || mods.command;
+                let result = match (anchor, on_curve, other) {
+                    (Some(a), _, _) if double => state.pen.toggle_point(&state.session, a),
+                    (Some(a), _, _) if !ctrl && state.pen.closes_on(&state.session, a) => state.pen.close_path(&state.session),
+                    (None, Some((segment, t)), _) => state.pen.insert_point(&state.session, segment, t),
+                    (None, None, Some(layer)) => state.session.execute(subcraft_app::Command::SelectLayer(Some(layer))),
+                    _ => state.pen.begin_surface(&mut state.session, &camera, to_screen(p), hit),
+                };
+                if let Err(e) = result { state.set_status(format!("Pen: {e}"), now); }
             } else if primary_down && state.pen.is_editing() {
                 state.pen.drag_surface(&state.session, &camera, to_screen(p), mods.shift);
             }
@@ -447,6 +483,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     {
                         state.set_status(crate::keys::native_string(format!("This part belongs to texture set \"{name}\": Ctrl+Alt+right-click it to paint there")), now);
                     }
+                    // A held: continue the previous stroke (stroke opacity keeps its cap).
+                    state.session.set_continue_stroke(ui.input(|i| i.key_down(egui::Key::A)));
                     match state.session.begin_stroke() {
                         Ok(()) => {
                             state.painting = true;
@@ -516,6 +554,16 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     let tracing = state.recovery.prefs.viewport.path_tracing && !bake_mode;
     let mut pt_error = None;
     let mask_view = crate::mask_view::active(state);
+    // Geometry mask and Polygon Fill feedback on the model: left-out geometry greyed while the
+    // mask is edited, the part or the fill element under the cursor tinted.
+    let fill_hover = state.tool == Tool::PolygonFill && !bake_mode && !picking && !alt && !state.painting && state.fill_box.is_none() && response.hovered();
+    let fill_triangle = if fill_hover {
+        let slot = state.session.selected_texture_set().material_slot;
+        pointer.and_then(|p| state.session.pick(&camera, to_screen(p))).filter(|hit| hit.material_slot == slot).map(|hit| hit.triangle)
+    } else {
+        None
+    };
+    let part_overlay = crate::part_overlay::update(state, parts_picking, hovered_part.filter(|_| response.hovered()), fill_triangle);
     match (&state.render_state, &mut state.renderer) {
         (Some(rs), Some(renderer)) => {
             let t0 = web_time::Instant::now();
@@ -540,6 +588,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             // bake preview, environment): TAA restarts on them too (QA 2026-11: a finished average
             // kept the old guide lines after a mirror-plane move).
             let mut overlay_uploaded = false;
+            if let Some(change) = &part_overlay {
+                renderer.set_part_overlay(&rs.device, &rs.queue, change.as_ref().map(|(slot, texels)| (*slot, crate::part_overlay::SIZE, texels.as_slice())));
+                overlay_uploaded = true;
+            }
             let symmetry_display = view.symmetry_display;
             params.symmetry_guides = view.symmetry_guides && state.session.brush.options.has_symmetry() && !bake_mode
                 && !(view.symmetry_cursor_hide_painting && state.painting);
@@ -561,6 +613,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 if !state.bake.preview_uploaded {
                     renderer.set_bake_preview(&rs.device, Some((&state.session.scene().mesh, high)));
                     state.bake.preview_uploaded = true;
+                    state.bake.cage_normals_uploaded = None;
                     state.bake.miss_uploaded = false;
                     overlay_uploaded = true;
                 }
@@ -582,6 +635,12 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     state.bake.seams_uploaded = true;
                 }
             }
+            // The cage is drawn along the normals the bake's rays follow (issue #307).
+            if let Some(averaged) = state.bake.cage_normals_due() {
+                let low = &state.session.scene().mesh;
+                let normals = averaged.then(|| subcraft_bake::averaged_normals(low));
+                renderer.set_bake_cage_normals(&rs.device, low, normals.as_deref());
+            }
             params.bake_overlay = state.bake.overlay_active();
             if state.bake.preview_mesh.is_some() && !state.bake.miss_uploaded && let Some(r) = &state.bake.cage_result {
                 let maps: Vec<(u32, &subcraft_image::TiledImage)> = r.maps.iter().map(|(_, slot, img)| (*slot, img)).collect();
@@ -598,6 +657,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             params.bake_high_opacity = state.bake.high_opacity;
             params.bake_vis = state.bake.vis;
             params.bake_vis.only_slot = state.bake.vis_selected_only.then(|| state.session.selected_texture_set().material_slot);
+            // The neutral material only belongs to Baking mode.
+            params.bake_vis.neutral_material &= bake_mode;
             params.bake_distances = [state.bake.settings.cage_front, state.bake.settings.cage_rear];
             // The mesh map viewer (View > Mesh maps, B): a baked map raw on the model.
             if !bake_mode { params.bake_map = state.recovery.prefs.viewport.mesh_map; }
@@ -725,6 +786,16 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     if !bake_mode {
         crate::paths_panel::show(state, ui, rect, now);
     }
+    // Paths panel hover: that path drawn over the view.
+    if state.tool == Tool::Pen && let Some(id) = crate::paths_panel::hovered(ui) && state.session.selection().layer != Some(id)
+        && let Some(path) = crate::paths_panel::path_of(state, id) && let Ok(points) = path.polyline(0.002)
+    {
+        for pair in points.windows(2) {
+            if let (Some(a), Some(b)) = (pen_position(state, &camera, rect, pair[0]), pen_position(state, &camera, rect, pair[1])) {
+                painter.line_segment([a, b], Stroke::new(3.0, Color32::from_rgba_unmultiplied(255, 255, 255, 170)));
+            }
+        }
+    }
     if state.tool == Tool::Pen && let Some(path) = state.pen.preview(&state.session) {
         crate::pen::draw(&painter, path, state.pen.selected_anchor(), |uv| pen_position(state, &camera, rect, uv));
     }
@@ -794,6 +865,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     crate::symmetry_view::overlay(state, ui, &painter, rect, pixel_scale, &camera, !bake_mode && state.tool != Tool::Pen);
     if !bake_mode {
         crate::warp_view::overlay(state, ui, &painter, rect, pixel_scale, &camera);
+        crate::projection_gizmo::overlay(state, &painter, rect, pixel_scale, &camera);
     }
     draw_stencil(state, ui, &painter, rect, size);
     // Reset button at the top right of the view while S is held.

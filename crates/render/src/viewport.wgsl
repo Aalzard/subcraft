@@ -67,6 +67,18 @@ struct MaterialParams {
 @group(1) @binding(10) var<uniform> mat: MaterialParams;
 // Specular level: the reflectance of non-metals (0.5 = 4%).
 @group(1) @binding(11) var t_specular: texture_2d<f32>;
+// Part overlay (geometry mask editing, Polygon Fill): a UV-space mask over the texture set.
+// R: geometry the mask leaves out, drawn grey with diagonal lines; G: the part or the fill
+// element under the cursor, tinted. Empty (0, 0) where there is nothing to show.
+@group(1) @binding(12) var t_overlay: texture_2d<f32>;
+
+fn part_overlay(color: vec3<f32>, uv: vec2<f32>, pixel: vec2<f32>) -> vec3<f32> {
+    let o = textureSampleLevel(t_overlay, samp, uv, 0.0).rg;
+    let stripe = step(0.72, fract((pixel.x + pixel.y) / 9.0));
+    let grey = mix(vec3<f32>(0.40), vec3<f32>(0.14), stripe);
+    let greyed = mix(color, grey, 0.85 * o.r);
+    return mix(greyed, vec3<f32>(1.0, 0.62, 0.22), 0.4 * o.g);
+}
 
 // How much key light reaches `world` (a point on a surface with geometric normal `n`): 1 lit,
 // down to 1 - opacity in full shadow. Percentage-closer filter over the shadow map's texels.
@@ -335,7 +347,8 @@ fn shade(in: VsOut, front: bool) -> vec4<f32> {
             }
             shade = 0.35 + 0.65 * max(dot(facing, normalize(g.light_dir.xyz)), 0.0);
         }
-        return channel_view(mode, in.uv, shade);
+        let shown_channel = channel_view(mode, in.uv, shade);
+        return vec4<f32>(part_overlay(shown_channel.rgb, in.uv, in.clip.xy), shown_channel.a);
     }
     let base = material_sample(t_base, albedo_samp, in.uv).rgb;
     let rough = clamp(material_sample(t_rough, samp, in.uv).r, 0.04, 1.0);
@@ -394,7 +407,7 @@ fn shade(in: VsOut, front: bool) -> vec4<f32> {
     let alpha = surface_alpha(in.uv, in.clip.xy);
     // The highlighted texture set (under the cursor or hovered in the list) is tinted warm.
     let shown = mix(tonemap(color, i32(round(g.post.x)), g.post.y), vec3<f32>(1.0, 0.62, 0.22), 0.3 * mat.shader.w);
-    return vec4<f32>(shown, alpha);
+    return vec4<f32>(part_overlay(shown, in.uv, in.clip.xy), alpha);
 }
 
 @fragment

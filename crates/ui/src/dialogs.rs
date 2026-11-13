@@ -967,6 +967,9 @@ pub struct BakeUi {
     pub cage_result: Option<subcraft_app::cage_check::CageCheckResult>,
     /// The current `cage_result` is on the GPU.
     pub miss_uploaded: bool,
+    /// Whether the overlay's cage on the GPU follows the averaged normals (`None`: not set since
+    /// the overlay meshes were uploaded).
+    pub cage_normals_uploaded: Option<bool>,
     /// `open` as of the last `poll_bake`, to notice Baking mode being entered.
     was_open: bool,
     /// The project's saved bake settings as last read or written (`None` = never synced yet).
@@ -983,7 +986,7 @@ impl Default for BakeUi {
             high_poly: String::new(), extra_high: Vec::new(), cage_file: String::new(), skip_sets: Default::default(), selected_baker: None, log_tab: BakeLogTab::default(), job_maps: Vec::new(), size_chosen: false, job: None, result: None, report: String::new(), notices: Vec::new(), log: Vec::new(), map_rows: Vec::new(),
             preview: true, cage: true, fit_mode: Default::default(), high_opacity: 0.55, vis: Default::default(), vis_selected_only: false, seam_edges: None, seams_uploaded: false, placement_message: None, live_maps: true, displayed_map: None, follow_maps: true, preview_mesh: None,
             preview_job: None, preview_source: None, preview_path: String::new(), preview_scene: None, preview_error: None, preview_uploaded: false, preview_checked_at: 0.,
-            miss_heatmap: false, cage_job: None, cage_result: None, miss_uploaded: false, was_open: false, synced: None, baseline: None,
+            miss_heatmap: false, cage_job: None, cage_result: None, miss_uploaded: false, cage_normals_uploaded: None, was_open: false, synced: None, baseline: None,
             auto_rebake: Default::default(), auto_key: None, auto_due: None }
     }
 }
@@ -992,6 +995,15 @@ impl Default for BakeUi {
 pub const MISS_MAP_SIZE: u32 = 512;
 
 impl BakeUi {
+    /// Issue #307: whether the overlay's cage must be drawn again, and along averaged normals
+    /// (`Some(true)`) or the low poly's own (`Some(false)`), to match the Average normals toggle.
+    /// Marks it as done.
+    pub fn cage_normals_due(&mut self) -> Option<bool> {
+        if self.preview_mesh.is_none() { return None; }
+        let want = self.settings.average_normals;
+        (self.cage_normals_uploaded != Some(want)).then(|| { self.cage_normals_uploaded = Some(want); want })
+    }
+
     /// The window's settings as the project file stores them.
     pub fn config(&self) -> subcraft_doc::BakeConfig {
         let files = subcraft_app::bake_config::BakeFilesConfig {
@@ -1764,6 +1776,16 @@ fn visualization_settings(ui: &mut egui::Ui, b: &mut BakeUi) {
             if b.vis.show_cage_surface {
                 crate::widgets::slider_row(ui, tr("Cage surface opacity"), egui::Slider::new(&mut b.vis.cage_surface_opacity, 0.0..=1.0));
             }
+            ui.checkbox(&mut b.vis.neutral_material, tr("Neutral material"))
+                .on_hover_text(tr("Show the model in one neutral material shaded by its baked normal and ambient occlusion maps, instead of its painted channels (when the high / low overlay is hidden or after a bake)"));
+            if b.vis.neutral_material {
+                ui.horizontal(|ui| {
+                    ui.label(dim(tr("Color")));
+                    egui::color_picker::color_edit_button_rgb(ui, &mut b.vis.neutral_color);
+                });
+                crate::widgets::slider_row(ui, tr("Roughness"), egui::Slider::new(&mut b.vis.neutral_roughness, 0.0..=1.0));
+                crate::widgets::slider_row(ui, tr("Metallic"), egui::Slider::new(&mut b.vis.neutral_metallic, 0.0..=1.0));
+            }
             ui.checkbox(&mut b.vis_selected_only, tr("Show for selected Texture Set only"))
                 .on_hover_text(tr("Draw the project mesh and the cage of the selected texture set only"));
             color_row(ui, Some(&mut b.vis.show_seams), tr("Missing seams on hard edges"), &mut b.vis.seam_color);
@@ -2255,7 +2277,11 @@ mod bake_tests {
         frame(&mut state, vec![button(false)]);
         for _ in 0..12 { frame(&mut state, vec![]); }
         let output = frame(&mut state, vec![]);
-        for text in ["Hide baking meshes", "High poly mesh", "Project mesh", "Cage wireframe", "Cage wireframe opacity", "Missing seams on hard edges", "Cage surface", "Show for selected Texture Set only"] { assert!(has_text(&output, text), "{text}"); }
+        for text in ["Hide baking meshes", "High poly mesh", "Project mesh", "Cage wireframe", "Cage wireframe opacity", "Missing seams on hard edges", "Cage surface", "Show for selected Texture Set only", "Neutral material"] { assert!(has_text(&output, text), "{text}"); }
+        assert!(!has_text(&output, "Metallic"), "the neutral material's settings show when it is on");
+        state.bake.vis.neutral_material = true;
+        assert!(has_text(&frame(&mut state, vec![]), "Metallic"));
+        state.bake.vis.neutral_material = false;
         assert!(!has_text(&output, "Cage surface opacity"));
         state.bake.vis.show_cage_surface = true;
         assert!(has_text(&frame(&mut state, vec![]), "Cage surface opacity"));
@@ -2272,6 +2298,23 @@ mod bake_tests {
         assert!(!has_text(&output, "Reset colors"), "nothing to reset yet");
         state.bake.vis.high_color = [0.1, 0.8, 0.1];
         assert!(has_text(&frame(&mut state, vec![]), "Reset colors"));
+    }
+
+    /// Issue #307: the overlay's cage follows the Average normals toggle.
+    #[test]
+    fn the_cage_preview_is_redrawn_when_average_normals_changes() {
+        let mut b = BakeUi::default();
+        assert_eq!(b.cage_normals_due(), None, "no overlay without a high poly");
+        b.preview_mesh = Some(std::sync::Arc::new(subcraft_mesh::primitives::cube(2.)));
+        let first = b.settings.average_normals;
+        assert_eq!(b.cage_normals_due(), Some(first), "drawn once for the current toggle");
+        assert_eq!(b.cage_normals_due(), None);
+        b.settings.average_normals = !first;
+        assert_eq!(b.cage_normals_due(), Some(!first), "redrawn when it changes");
+        assert_eq!(b.cage_normals_due(), None);
+        // New overlay meshes (another high poly) start from the low poly's own normals.
+        b.cage_normals_uploaded = None;
+        assert_eq!(b.cage_normals_due(), Some(!first));
     }
 
     #[test]

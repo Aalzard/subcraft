@@ -11,7 +11,7 @@ use std::f32::consts::TAU;
 use egui::{Color32, CornerRadius, Id, Pos2, Rect, Response, RichText, Sense, Stroke, Ui, Vec2};
 use subcraft_core::color::{linear3_to_srgb, srgb3_to_linear};
 
-use crate::theme::{self, BORDER_STRONG, CONTROL_H, RADIUS, TEXT, TEXT_DIM, TEXT_FAINT};
+use crate::theme::{self, BORDER_STRONG, CONTROL_H, TEXT, TEXT_DIM, TEXT_FAINT};
 use crate::widgets::{self, Edit};
 
 /// Recent colours kept in the preferences.
@@ -214,7 +214,7 @@ pub fn color_button(ui: &mut Ui, id_salt: impl std::hash::Hash + std::fmt::Debug
 
 fn paint_swatch(ui: &Ui, rect: Rect, linear: [f32; 3], hovered: bool) {
     let stroke = if hovered { Stroke::new(1.0, TEXT()) } else { Stroke::new(1.0, BORDER_STRONG()) };
-    ui.painter().rect(rect, CornerRadius::same(RADIUS), swatch_color(linear), stroke, egui::StrokeKind::Inside);
+    ui.painter().rect(rect, CornerRadius::same(theme::radius()), swatch_color(linear), stroke, egui::StrokeKind::Inside);
 }
 
 /// The whole picker. `rgb` is linear.
@@ -388,7 +388,7 @@ fn old_new(ui: &mut Ui, t: &mut Target<'_>) {
     let (left, right) = rect.split_left_right_at_fraction(0.5);
     let old = ui.interact(left, ui.id().with("old_swatch"), Sense::click());
     let painter = ui.painter();
-    let r = RADIUS;
+    let r = theme::radius();
     painter.rect_filled(left, CornerRadius { nw: r, sw: r, ne: 0, se: 0 }, swatch_color(t.st.old));
     painter.rect_filled(right, CornerRadius { nw: 0, sw: 0, ne: r, se: r }, swatch_color(*t.value));
     painter.rect_stroke(rect, CornerRadius::same(r), Stroke::new(1.0, BORDER_STRONG()), egui::StrokeKind::Inside);
