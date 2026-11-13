@@ -1933,6 +1933,7 @@ impl Session {
                 })?;
             }
             Command::SetFillProjection { layer, projection } => {
+                if !projection.valid() { return Err(CommandError::Invalid("Projection values are invalid".into())); }
                 let key = format!("projection:{layer}");
                 self.edit_layer_set(layer, "Projection", Some(key), |ts| {
                     let LayerContent::Fill(f) = &mut Self::layer_mut(ts, layer)?.content else { return Err(CommandError::NotAFillLayer) };
