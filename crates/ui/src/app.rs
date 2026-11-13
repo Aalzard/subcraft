@@ -40,6 +40,9 @@ pub enum Tab {
     /// Painter's SHADER SETTINGS panel. Optional: closed until the Window menu or a texture
     /// set's shader menu opens it.
     ShaderSettings,
+    /// Painter's LOG panel (General / Assets messages). Optional: closed until Window > Views
+    /// opens it.
+    Log,
 }
 
 impl Tab {
@@ -58,6 +61,7 @@ impl Tab {
             Tab::DisplaySettings => tr("Display Settings"),
             Tab::SubLibrary(_) => tr("Assets"),
             Tab::ShaderSettings => tr("Shader Settings"),
+            Tab::Log => tr("Log"),
         }
     }
 
@@ -74,6 +78,7 @@ impl Tab {
             Tab::Shelf | Tab::SubLibrary(_) => icons::SQUARES,
             Tab::DisplaySettings => icons::SUN,
             Tab::ShaderSettings => icons::SPARKLE,
+            Tab::Log => icons::INFO,
         }
     }
 }
@@ -1780,7 +1785,7 @@ impl SubcraftApp {
                 ui.set_min_width(240.0);
                 ui.menu_button(format!("{}   {}", icons::SQUARES, tr("Views")), |ui| {
                     ui.set_min_width(220.0);
-                    for tab in [Tab::Shelf, Tab::Layers, Tab::Properties, Tab::TextureSetList, Tab::TextureSetSettings, Tab::History, Tab::Parts, Tab::Viewport, Tab::UvView] {
+                    for tab in [Tab::Shelf, Tab::Layers, Tab::Properties, Tab::TextureSetList, Tab::TextureSetSettings, Tab::History, Tab::Log, Tab::Parts, Tab::Viewport, Tab::UvView] {
                         if ui.add(egui::Button::new(format!("{}   {}", tab.icon(), tab.title())).selected(is_front(&self.dock, tab))).clicked() {
                             crate::docks::open(&mut self.dock, tab);
                             self.state.hide_ui = false;
@@ -1897,6 +1902,10 @@ impl SubcraftApp {
                     && item(ui, icons::FOLDER_OPEN, tr("Show log files"), "")
                 {
                     crate::panels::shelf::show_in_folder(&log);
+                    ui.close();
+                }
+                if item(ui, icons::DOWNLOAD, tr("Export log…"), "") {
+                    crate::panels::log::export_log(&mut self.state, now);
                     ui.close();
                 }
             });
@@ -2176,6 +2185,7 @@ impl egui_dock::TabViewer for Viewer<'_> {
             Tab::DisplaySettings => crate::edit_profile::time_tab("  tab Display settings", || panels::display_settings::show(self.state, ui)),
             Tab::SubLibrary(id) => crate::edit_profile::time_tab("  tab Sub-library", || panels::shelf::show_sub_library(self.state, ui, *id)),
             Tab::ShaderSettings => crate::edit_profile::time_tab("  tab Shader settings", || panels::shader_settings::show(self.state, ui)),
+            Tab::Log => crate::edit_profile::time_tab("  tab Log", || panels::log::show(self.state, ui)),
         }
     }
 

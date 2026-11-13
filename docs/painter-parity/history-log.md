@@ -29,10 +29,10 @@ Layout notes: a dockable window with two tabs, General and Assets. Each tab is a
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Log window (dockable) | Window > Views > Log | not documented | missing | - | - |
-| General tab | Log | first tab | missing | - | - |
-| Assets tab | Log | second tab | missing | - | - |
-| Status, progress, warning and error messages from the application | Log > General | - | partial: written to the log file and shown one at a time in the status bar, no list | crates/app/src/diagnostics.rs:157 | - |
+| Log window (dockable) | Window > Views > Log | not documented | done: a dock panel, closed until Window > Views > Log or the Docks toolbar opens it | crates/ui/src/panels/log.rs, crates/ui/src/app.rs (Tab::Log) | - |
+| General tab | Log | first tab | done: every message the application logs that is not an asset message | crates/ui/src/panels/log.rs, crates/app/src/log_buffer.rs (LogTab) | - |
+| Assets tab | Log | second tab | done: messages from the asset library, the Assets panel, libraries and resource import | crates/ui/src/panels/log.rs, crates/app/src/log_buffer.rs (LogTab::for_target) | - |
+| Status, progress, warning and error messages from the application | Log > General | - | partial: every logged message is listed (newest 2000); status-bar-only messages that are not logged do not appear | crates/app/src/diagnostics.rs (log_entries) | - |
 | Project and scene messages | Log > General | - | partial: status bar and log file only | crates/ui/src/app.rs:1333 | - |
 | Export details (written files, problems) | Log > General | - | partial: result shown in the Export window and status bar | crates/ui/src/dialogs.rs:161 | - |
 | Baking messages | Log > General (unverified) | - | partial: own log section inside the Bake window | crates/ui/src/dialogs.rs:788 | - |
@@ -43,10 +43,10 @@ Layout notes: a dockable window with two tabs, General and Assets. Each tab is a
 | "Could not be updated in Assets panel" issue entry | Log > Assets | - | missing | - | - |
 | "file doesn't exist, can't reload resource" issue entry | Log > Assets | - | missing | - | - |
 | Log shortcut button with warning badge in the auto-update menu | Assets > auto-update menu | - | missing | - | - |
-| Severity shown per message (info / warning / error) | Log | (unverified) | partial: level is written in the log file lines | crates/app/src/diagnostics.rs:186 | - |
-| Clear the log | Log (unverified) | (unverified) | missing | - | - |
+| Severity shown per message (info / warning / error) | Log | (unverified) | done: icon and colour per message, warning / error count on each tab, filter (all, warnings and errors, errors only) | crates/ui/src/panels/log.rs | - |
+| Clear the log | Log (unverified) | (unverified) | done: Clear hides the messages so far; the log file keeps them | crates/ui/src/panels/log.rs | - |
 | Show log (opens the session log file in a text editor) | Help > Show log | - | partial: opens the log folder with the file selected | crates/ui/src/app.rs:1295 | - |
-| Export log (save a copy for support) | Help > Export log | - | partial: Copy diagnostic info puts the log tail on the clipboard | crates/ui/src/bug_report.rs:105 | - |
+| Export log (save a copy for support) | Help > Export log | - | done: Help > Export log… and the Log's Export… save a copy of this session's log file | crates/ui/src/panels/log.rs (export_log), crates/app/src/log_buffer.rs (export) | - |
 | Log file kept in the application data folder | App data (local) | - | done | crates/app/src/diagnostics.rs:238 | - |
 | Log attached when reporting a bug | Help > Report a bug | - | partial: bug report links the log path and can copy its tail; user attaches it | crates/ui/src/bug_report.rs:101 | - |
 | Scripting can write to the log (alg.log.info and similar) | Scripting API | - | missing | - | - |
