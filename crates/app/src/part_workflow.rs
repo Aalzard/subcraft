@@ -38,11 +38,14 @@ impl PartAction {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub enum LayerAction { AddPaint, AddFill, WhiteMask, BlackMask, Generator(GeneratorKind), IdColorMask, MaskFill, MaskPaint }
+pub enum LayerAction { AddPaint, AddFill, WhiteMask, BlackMask, Generator(GeneratorKind), IdColorMask, MaskFill, MaskPaint, HeightCombinationMask }
 
 #[derive(Default)]
 pub(crate) struct PartView {
     hidden: BTreeSet<PartKey>, isolated: Option<PartKey>,
+    /// Painter's "hide / ignore excluded geometry" (Alt+H) is on, and the geometry mask it hides
+    /// by right now (material slot, mask): what the selected layer's geometry mask leaves out.
+    hide_excluded: bool, excluded: Option<(u32, PartMask)>,
     pub scene: Option<Scene>, revision: u64,
     catalog: [OnceLock<Vec<PartInfo>>; 4],
     visible: [OnceLock<BTreeSet<u32>>; 4],
@@ -52,7 +55,7 @@ impl PartView {
     /// Forget hidden / isolated parts of the previous mesh; the bumped revision makes viewers
     /// upload the new geometry.
     pub(crate) fn reset_for_new_mesh(&mut self) {
-        *self = PartView { revision: self.revision + 1, ..Default::default() };
+        *self = PartView { revision: self.revision + 1, hide_excluded: self.hide_excluded, ..Default::default() };
     }
 }
 
@@ -64,6 +67,7 @@ impl Session {
             LayerAction::AddPaint => self.execute(Command::AddLayer(crate::NewLayer::Paint)),
             LayerAction::AddFill => self.execute(Command::AddLayer(crate::NewLayer::Fill)),
             LayerAction::WhiteMask | LayerAction::BlackMask => self.execute(Command::AddMask { layer, white: matches!(action, LayerAction::WhiteMask) }),
+            LayerAction::HeightCombinationMask => self.execute(Command::AddHeightCombinationMask(layer)),
             _ => {
                 let kind = match action {
                     LayerAction::Generator(kind) => MaskEffectKind::Generator(Generator::new(kind)),
@@ -140,17 +144,49 @@ impl Session {
     pub fn show_all_parts(&mut self) {
         if !self.has_hidden_parts() { return; }
         self.part_view.hidden.clear(); self.part_view.isolated = None;
+        // Geometry hidden by Alt+H stays hidden: it follows the layer's mask, not these clicks.
         self.refresh_part_view();
     }
 
-    /// Rebuild the picking / painting scene after parts or texture sets were hidden or shown.
+    /// Rebuild the picking / painting scene after parts or texture sets were hidden or shown, or
+    /// the geometry hidden by Alt+H changed.
     pub(crate) fn refresh_part_view(&mut self) {
-        if self.has_hidden_parts() || self.document().texture_sets.iter().any(|ts| self.is_set_hidden(ts.id)) {
+        if self.has_hidden_parts() || self.part_view.excluded.is_some() || self.document().texture_sets.iter().any(|ts| self.is_set_hidden(ts.id)) {
             self.rebuild_part_view();
         } else if self.part_view.scene.is_some() {
             self.part_view.scene = None;
             self.part_view.visible = Default::default();
             self.part_view.revision += 1;
+        }
+    }
+
+    /// Whether Painter's "hide / ignore excluded geometry" (Alt+H) is on.
+    pub fn hide_excluded(&self) -> bool { self.part_view.hide_excluded }
+
+    /// The selected layer's geometry mask and its material slot, when it is on (the geometry it
+    /// leaves out is what Alt+H hides).
+    fn excluded_mask(&self) -> Option<(u32, PartMask)> {
+        let parts = self.selected_layer()?.parts.as_ref().filter(|p| p.enabled)?.clone();
+        Some((self.selected_texture_set().material_slot, parts))
+    }
+
+    /// Whether the selected layer has a geometry mask (so Alt+H has something to hide).
+    pub fn has_excluded_geometry(&self) -> bool { self.excluded_mask().is_some() }
+
+    /// Alt+H: hide (again: show) the geometry the selected layer's geometry mask leaves out, so
+    /// strokes reach what it covered. View state only; it follows the selection and the mask.
+    pub fn toggle_hide_excluded(&mut self) {
+        self.part_view.hide_excluded = !self.part_view.hide_excluded;
+        self.sync_excluded_view();
+    }
+
+    /// Keep the Alt+H view on the selected layer's geometry mask (call once per frame; it only
+    /// rebuilds the view when the layer or its mask changed).
+    pub fn sync_excluded_view(&mut self) {
+        let want = if self.part_view.hide_excluded { self.excluded_mask() } else { None };
+        if want != self.part_view.excluded {
+            self.part_view.excluded = want;
+            self.refresh_part_view();
         }
     }
 
@@ -160,9 +196,11 @@ impl Session {
         // Texture sets hidden in the viewport (eye, Alt+Q isolation) are gone for picking and
         // painting too: invisible geometry used to take the orbit pivot and block strokes.
         let hidden_slots: Vec<u32> = self.document().texture_sets.iter().filter(|ts| self.is_set_hidden(ts.id)).map(|ts| ts.material_slot).collect();
+        let excluded = self.part_view.excluded.as_ref();
         for t in 0..mesh.triangle_count() {
             let hidden = self.part_view.hidden.iter().any(|key| geo.triangle_region(t, key.kind) == Some(key.id))
-                || mesh.tri_material.get(t).is_some_and(|m| hidden_slots.contains(m));
+                || mesh.tri_material.get(t).is_some_and(|m| hidden_slots.contains(m))
+                || excluded.is_some_and(|(slot, mask)| mesh.tri_material[t] == *slot && mask.factor(geo.triangle_region(t, mask.kind)) <= 0.0);
             let outside = self.part_view.isolated.is_some_and(|key| geo.triangle_region(t, key.kind) != Some(key.id));
             // Retain triangle numbering and material ranges. Degenerate faces don't draw, hit or
             // occlude; project geometry and its masks/bakes remain intact.
@@ -182,11 +220,11 @@ impl Session {
         match action {
             PartAction::Hide => {
                 if !self.part_view.hidden.remove(&target.part) { self.part_view.hidden.insert(target.part); }
-                self.rebuild_part_view(); return Ok(());
+                self.refresh_part_view(); return Ok(());
             }
             PartAction::Isolate => {
                 self.part_view.isolated = if self.part_view.isolated == Some(target.part) { None } else { Some(target.part) };
-                self.part_view.hidden.remove(&target.part); self.rebuild_part_view(); return Ok(());
+                self.part_view.hidden.remove(&target.part); self.refresh_part_view(); return Ok(());
             }
             PartAction::PickColor | PartAction::PickMaterial => {
                 self.sample_material_at(target.texture_set, target.uv, action == PartAction::PickMaterial); return Ok(());

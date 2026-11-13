@@ -266,6 +266,10 @@ pub fn camera_menu(ui: &mut Ui, state: &mut crate::state::UiState) {
             ui.close();
             return Action::Save;
         }
+        ui.separator();
+        let free = &mut state.recovery.prefs.viewport.free_rotation;
+        ui.radio_value(free, false, crate::i18n::tr("Constrained rotation")).on_hover_text(crate::i18n::tr("Orbit around the world vertical; the horizon stays level"));
+        ui.radio_value(free, true, crate::i18n::tr("Free rotation")).on_hover_text(crate::i18n::tr("Orbit around the view's own axes: the camera can roll and go over the top"));
         let mut action = Action::None;
         let bookmarks = &state.recovery.prefs.viewport.camera_bookmarks;
         if !bookmarks.is_empty() {

@@ -77,6 +77,9 @@ pub enum Command {
     RemoveChannel { texture_set: TextureSetId, kind: ChannelKind },
     /// Change a channel's storage format (export bit depth).
     SetChannelFormat { texture_set: TextureSetId, kind: ChannelKind, format: subcraft_doc::ChannelFormat },
+    /// Name a user channel (User0-User15) of a texture set; an empty name goes back to "User N".
+    /// One undo step.
+    RenameUserChannel { texture_set: TextureSetId, kind: ChannelKind, name: String },
     /// [`Command::InsertLayer`] that first adds these channels to the selected texture set when it
     /// lacks them (an imported texture set brings an Ambient Occlusion map). One undo step.
     InsertLayerWithChannels { layer: Box<Layer>, channels: Vec<ChannelKind>, label: String },
@@ -106,14 +109,35 @@ pub enum Command {
     /// of that stack, else on top.
     PasteEffects { layer: LayerId, clip: std::sync::Arc<crate::clipboard::EffectClip> },
     RenameTextureSet { texture_set: TextureSetId, name: String },
+    /// Texture Set Settings > Channels mixing dropdowns (normal, height to normal, AO, UV padding).
+    /// One undo step.
+    SetMixing { texture_set: TextureSetId, mixing: subcraft_doc::MixingSettings },
+    /// Rename a texture set back to the name of the mesh material it paints (Painter's "Reset name
+    /// to original name"). One undo step; no-op when the name is already the original.
+    ResetTextureSetName(TextureSetId),
+    /// Set the description shown under the name in the Texture Set List. One undo step.
+    SetTextureSetDescription { texture_set: TextureSetId, description: String },
+    /// The Texture Set List visibility menu: Show All, Hide All, Invert Show/Hide. View state only,
+    /// like `SetTextureSetHidden`; it also leaves Focus mode.
+    SetTextureSetsVisibility(SetsVisibility),
+    /// Painter's Focus mode: only the selected texture set is shown, and the view follows the
+    /// selection until it is turned off. View state only.
+    SetTextureSetFocus(bool),
     /// Show or hide a texture set's part of the model in the viewport. View state only: not saved,
     /// no undo step.
     SetTextureSetHidden { texture_set: TextureSetId, hidden: bool },
     /// Forget one baked mesh map of a texture set (Texture Set Settings > Mesh maps > X). Not an
     /// undo step; bake again to get it back. No-op when the map is not baked.
     ClearMeshMap { texture_set: TextureSetId, kind: subcraft_core::MeshMapKind },
+    /// ID color editor: show ID map color `from` as `to` in this texture set, and switch every
+    /// ID Color mask of the set that uses `from` to `to` (one undo step).
+    EditIdColor { texture_set: TextureSetId, from: [f32; 3], to: [f32; 3] },
     /// Wrap the layer into a new folder.
     GroupLayer(LayerId),
+    /// Painter's flatten (Ctrl+M): each layer or folder (not those inside another of them)
+    /// evaluated into a new paint layer of rasters right above it; the source stays, hidden.
+    /// The new layer becomes the selection. One undo step.
+    FlattenLayers(Vec<LayerId>),
     /// Show only this texture set's part of the model, or everything again when it is already
     /// the only one shown (Painter's Alt+Q). View state only, like `SetTextureSetHidden`.
     IsolateTextureSet(TextureSetId),
@@ -153,11 +177,21 @@ pub enum Command {
     AddFillChannel { layer: LayerId, channel: ChannelKind },
     SetFillProjection { layer: LayerId, projection: Projection },
     AddMask { layer: LayerId, white: bool },
+    /// Painter's "Add mask with height combination": a black mask with a Compare Mask on Height
+    /// (this layer above the layers below), and the layer's Height blending set to Normal. Replaces
+    /// an existing mask, like Add Mask. One undo step.
+    AddHeightCombinationMask(LayerId),
     RemoveMask(LayerId),
     CopyMask(LayerId),
     PasteMask(LayerId),
     /// Non-destructive inversion of the evaluated mask, appended as an editable effect.
     InvertMask(LayerId),
+    /// Painter's "Invert mask background": invert the mask's painted base (white and black
+    /// swap, painted strokes included); its effects stay as they are.
+    InvertMaskBase(LayerId),
+    /// Painter's "Clear mask": remove what was painted into the mask's base, back to its plain
+    /// background value; its effects stay.
+    ClearMask(LayerId),
     /// Destination is a bottom-to-top index in this mask's own effect stack.
     MoveMaskEffect { layer: LayerId, effect: EffectId, index: usize },
     DuplicateMaskEffect { layer: LayerId, effect: EffectId },
@@ -200,3 +234,12 @@ impl std::fmt::Display for CommandError {
 }
 
 impl std::error::Error for CommandError {}
+
+/// Entries of the Texture Set List visibility menu.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SetsVisibility {
+    ShowAll,
+    HideAll,
+    /// Shown sets become hidden and hidden sets shown.
+    Invert,
+}

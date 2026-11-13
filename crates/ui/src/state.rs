@@ -80,6 +80,10 @@ pub struct UvView {
     pub painting: bool,
     /// UV of the last 2D stroke point (Shift+click draws a line from it).
     pub last_point: Option<Vec2>,
+    /// Polygon fill drag started in the 2D view (screen points), as [`UiState::fill_box`].
+    pub fill_box: Option<egui::Pos2>,
+    /// Geometry mask box started in the 2D view while picking parts (screen point).
+    pub parts_box: Option<egui::Pos2>,
 }
 
 /// Compositing time spent per frame before the remaining dirty tiles wait for the next frame.
@@ -92,6 +96,12 @@ pub struct UiState {
     /// lists every stale tile; `--profile-edits` uses it to tell a visible update from a slice).
     pub last_sync_tiles: usize,
     pub layer_previews: crate::layer_previews::PreviewUi,
+    /// A layer's mask shown alone in the 3D view (Alt+click on its mask thumbnail).
+    pub mask_view: Option<crate::mask_view::MaskView>,
+    /// Layers waiting in the "Export flattened" window, and the file name pattern (kept for
+    /// the next export in this session).
+    pub flatten_export: Option<Vec<subcraft_core::LayerId>>,
+    pub flatten_pattern: String,
     pub graphics: crate::graphics::GraphicsUi,
     pub asset_preview: crate::asset_preview::AssetPreviewUi,
     pub welcome: crate::welcome::WelcomeUi,
@@ -137,6 +147,16 @@ pub struct UiState {
     pub text: crate::text_panel::TextUi,
     pub pen_after: Option<crate::pen::After>,
     pub fill_mode: PolygonFillMode,
+    /// Polygon fill boxes in the 3D view pick only what the camera sees (no back faces, nothing
+    /// hidden behind the model). Off: every triangle under the box, x-ray style.
+    pub fill_visible_only: bool,
+    /// Polygon fill drag in progress: where the primary button went down (screen points). A
+    /// release close by is a click fill there, a longer drag a box fill.
+    pub fill_box: Option<egui::Pos2>,
+    /// The floating Properties popup a right-click in a view opened.
+    pub view_props: Option<crate::view_props::ViewProps>,
+    /// This frame's primary press closed that popup: the views don't paint or fill with it.
+    pub view_props_swallow: bool,
     /// Channel whose blend mode/opacity the layer stack shows.
     pub active_channel: ChannelKind,
     pub status: Option<(String, f64)>,
@@ -187,12 +207,32 @@ pub struct UiState {
     pub pen_pressure: f32,
     /// Pen / touch contact to primary-button mapping applied to raw input.
     pub pen_input: crate::pen_input::PenInputFixer,
-    /// Clicks in the 3D view show / hide the selected layer on mesh parts (Properties → Parts).
+    /// Clicks in the 3D and 2D views show / hide the selected layer on mesh parts (its geometry
+    /// mask, Properties → Parts); a drag boxes several (Ctrl+drag removes them).
     pub picking_parts: bool,
+    /// Geometry mask box started in a view (screen point), while picking parts.
+    pub parts_box: Option<egui::Pos2>,
+    /// Geometry mask copied from a layer row's menu.
+    pub parts_clipboard: Option<subcraft_doc::PartMask>,
+    /// Quick mask overlay of the 2D view: (quick mask revision, texture).
+    pub quick_mask_tex: Option<(u64, egui::TextureHandle)>,
+    /// Texture Set List > Settings: which description lines the rows show.
+    pub set_descriptions: crate::panels::texture_sets::DescriptionDisplay,
     /// Depth of field: the next click on the model sets the focus distance.
     pub picking_focus: bool,
     /// Clicks in the 3D view add the ID map color under the cursor to this ID Color Mask effect.
     pub picking_id_color: Option<(subcraft_core::LayerId, subcraft_core::EffectId)>,
+    /// ID color editor eyedropper: clicks in the 3D or 2D view pick an ID map color, select it in
+    /// the editor and feed it to the selected layer's ID Color mask.
+    pub picking_id_palette: bool,
+    /// Color selected in the ID color editor (as shown in the ID map).
+    pub id_palette_selected: Option<[f32; 3]>,
+    /// The editor's palette, keyed by (texture set, maps generation, document revision).
+    pub id_palette_cache: Option<((subcraft_core::TextureSetId, u64, u64), Vec<subcraft_app::id_color::IdPaletteEntry>)>,
+    /// The color being typed / picked as the replacement of `id_palette_selected`.
+    pub id_palette_new: [f32; 3],
+    /// "Import mesh maps…" from Texture Set Settings.
+    pub mesh_map_import: crate::mesh_map_import::MeshMapImportUi,
     pub last_stroke_point: Option<Vec2>,
     pub uv_edges: HashMap<u32, Vec<[Vec2; 2]>>,
     /// UV units per object unit of each material slot (2D brush cursor size).
@@ -227,6 +267,15 @@ pub struct UiState {
     pub dropped_model: Option<std::path::PathBuf>,
     /// Key light rotation around the model (radians), set with Shift+MMB drag (Painter navigation).
     pub light_yaw: f32,
+    /// Tilt of the key light (radians added to its elevation; below the horizon lights the model
+    /// from underneath).
+    pub light_pitch: f32,
+    /// Which view the pointer was over last frame (F frames that one, or both when neither).
+    pub hovered_3d: bool,
+    pub hovered_2d: bool,
+    /// Material slot to draw highlighted next frame (the texture set under the cursor with
+    /// Ctrl+Alt, or hovered in the Texture Set List); taken by the 3D view each frame.
+    pub highlight_slot: Option<u32>,
     /// The Shelf took this frame's dropped files (the window-wide drop handler skips them).
     pub drops_taken: bool,
     /// The user already agreed to close without saving.
@@ -311,6 +360,9 @@ impl UiState {
             composite_deadline: None,
             last_sync_tiles: 0,
             layer_previews: Default::default(),
+            mask_view: None,
+            flatten_export: None,
+            flatten_pattern: subcraft_app::flatten::DEFAULT_PATTERN.to_string(),
             graphics,
             asset_preview: Default::default(),
             welcome: Default::default(),
@@ -343,6 +395,10 @@ impl UiState {
             text: Default::default(),
             pen_after: None,
             fill_mode: PolygonFillMode::UvIsland,
+            fill_visible_only: true,
+            fill_box: None,
+            view_props: None,
+            view_props_swallow: false,
             active_channel: ChannelKind::BaseColor,
             status: None,
             import_report: Vec::new(),
@@ -368,11 +424,20 @@ impl UiState {
             render_request: None,
             last_view_size: [1280, 720],
             last_view_rect: egui::Rect::NOTHING,
-            uv: UvView { zoom: 1.0, offset: egui::Vec2::ZERO, source: PreviewSource::Channel(ChannelKind::BaseColor), texture: None, painting: false, last_point: None },
+            uv: UvView { zoom: 1.0, offset: egui::Vec2::ZERO, source: PreviewSource::Channel(ChannelKind::BaseColor), texture: None, painting: false, last_point: None, fill_box: None, parts_box: None },
             painting: false,
             picking_parts: false,
+            parts_box: None,
+            parts_clipboard: None,
+            quick_mask_tex: None,
+            set_descriptions: Default::default(),
             picking_focus: false,
             picking_id_color: None,
+            picking_id_palette: false,
+            id_palette_selected: None,
+            id_palette_cache: None,
+            id_palette_new: [1.0, 1.0, 1.0],
+            mesh_map_import: Default::default(),
             last_stroke_point: None,
             pen_pressure: 1.0,
             pen_input: Default::default(),
@@ -390,6 +455,10 @@ impl UiState {
             confirm: None,
             dropped_model: None,
             light_yaw: 0.0,
+            light_pitch: 0.0,
+            hovered_3d: false,
+            hovered_2d: false,
+            highlight_slot: None,
             drops_taken: false,
             multi: Default::default(),
             multi_texture_set: None,
@@ -586,6 +655,9 @@ impl UiState {
         self.painting = false;
         self.last_stroke_point = None;
         self.orbit_pivot = None;
+        // The reloaded file brings its own cameras: an index into the old list would show the new
+        // camera's name over the old camera's view.
+        self.active_camera = None;
     }
 
     /// One Shelf click makes the brush usable at once: the app applies it, and Fill, Eyedropper
@@ -675,6 +747,7 @@ impl UiState {
 
     /// Re-evaluate composites (within the frame budget) and upload changed tiles to the GPU.
     pub fn sync_gpu(&mut self) {
+        crate::mask_view::sync(self);
         let (Some(rs), Some(renderer)) = (&self.render_state, &mut self.renderer) else {
             self.session.update_composites();
             return;
@@ -704,7 +777,8 @@ impl UiState {
         let upload = |renderer: &mut ViewportRenderer, ts: subcraft_core::TextureSetId, slot: u32, changed: Option<&subcraft_app::ChangedTiles>| {
             let Some(c) = session.composite(ts) else { return };
             // Opacity is not shaded but drives the alpha modes (issue #145).
-            for k in SHADED_CHANNELS.into_iter().chain([ChannelKind::Opacity]) {
+            // Opacity drives the alpha modes (issue #145), Specular the reflectance of non-metals.
+            for k in SHADED_CHANNELS.into_iter().chain([ChannelKind::Opacity, ChannelKind::Specular]) {
                 let Some(img) = c.channel(k) else { continue };
                 match changed {
                     None => renderer.upload_channel(&rs.device, &rs.queue, slot, k, img, None),

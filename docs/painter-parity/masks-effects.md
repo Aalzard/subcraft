@@ -13,7 +13,7 @@ Layout notes: a mask is added from the Create Mask button in the Layers header o
 | Add black mask | Create Mask menu / layer context menu | background Black | done | crates/app/src/command.rs:114 | - |
 | Add bitmap mask (pick an image; becomes a mask with a fill effect holding the bitmap) | Create Mask menu / layer context menu | n/a | done (image effect on a black mask) | crates/ui/src/panels/layers.rs:57 | - |
 | Add mask with color selection (black mask plus a Color Selection effect) | Create Mask menu / layer context menu | n/a | done | crates/ui/src/panels/layers.rs:61 | - |
-| Add mask with height combination (mask plus Compare Mask on Height; Height blend switched to Normal) | Create Mask menu / layer context menu | n/a | missing | - | - |
+| Add mask with height combination (mask plus Compare Mask on Height; Height blend switched to Normal) | Create Mask menu / layer context menu | n/a | done | crates/ui/src/panels/layers.rs:70 | chunk 43 |
 | Mask on a folder (applies to every layer inside) | Folder row | n/a | done | crates/ui/src/panels/layers.rs:457 | - |
 | Mask created automatically when a material is dropped with Ctrl held | Assets > Layer stack | n/a | missing | - | - |
 | Mask created automatically when a resource is dropped on the ghost mask slot | Layer stack (while dragging) | n/a | missing | - | - |
@@ -27,9 +27,9 @@ Layout notes: a mask is added from the Create Mask button in the Layers header o
 |---|---|---|---|---|---|
 | Click the mask thumbnail to edit the mask and show its effect stack | Layer row | n/a | done | crates/ui/src/panels/layers.rs:310 | - |
 | Click the content thumbnail to return to the layer content | Layer row | n/a | done | crates/ui/src/panels/layers.rs:296 | - |
-| Alt + left click: show the mask alone in the viewport | Mask thumbnail | off | partial: opens a floating UV preview window; the 3D viewport is not switched | crates/ui/src/panels/layers.rs:312 | - |
+| Alt + left click: show the mask alone in the viewport | Mask thumbnail | off | done | crates/ui/src/panels/layers.rs:481 | - |
 | Mask display also reachable from the viewport display dropdown | Viewport display mode | n/a | missing | - | - |
-| Alt + click again deselects effects / leaves mask view | Mask thumbnail | n/a | partial: the preview window is closed by its own button | crates/ui/src/layer_previews.rs:138 | - |
+| Alt + click again deselects effects / leaves mask view | Mask thumbnail | n/a | done (also Esc over the viewport) | crates/ui/src/mask_view.rs:20 | - |
 | Shift + left click: disable or re-enable the mask | Mask thumbnail | enabled | done | crates/ui/src/panels/layers.rs:308 | - |
 | Disabled mask is marked on the thumbnail | Mask thumbnail | n/a | done | crates/ui/src/panels/layers.rs:306 | - |
 | Red line under the mask thumbnail when the mask has effects | Mask thumbnail | grey | partial: "N fx" text under the layer name | crates/ui/src/panels/layers.rs:339 | - |
@@ -47,18 +47,18 @@ Layout notes: Adobe documents the entries Toggle mask, Copy mask content, Paste 
 | Add paint | Mask context menu | n/a | partial: "+ Add > Paint" and row menu "Add paint mask effect" | crates/ui/src/panels/effects.rs:125 | - |
 | Add fill | Mask context menu | n/a | partial: "+ Add > Fill" and row menu "Add fill mask effect" | crates/ui/src/panels/effects.rs:126 | - |
 | Add levels | Mask context menu | n/a | partial: "+ Add > Levels" only | crates/ui/src/panels/effects.rs:128 | - |
-| Add compare mask | Mask context menu | n/a | missing | - | - |
+| Add compare mask | Mask context menu | n/a | partial: in the mask stack's Add effect menu | crates/ui/src/panels/effects.rs:146 | chunk 43 |
 | Add filter | Mask context menu | n/a | partial: "+ Add > Filter" submenu only | crates/ui/src/panels/effects.rs:94 | - |
 | Add color selection | Mask context menu | n/a | partial: "+ Add > ID Color Mask" | crates/ui/src/panels/effects.rs:130 | - |
 | Add anchor point | Mask context menu | n/a | partial: "+ Add > Anchor Point" only | crates/ui/src/panels/effects.rs:106 | - |
 | Toggle mask | Mask context menu | Shift + click | done ("Disable mask" / "Enable mask") | crates/ui/src/panels/mask.rs:19 | - |
 | Remove mask | Mask context menu | (unverified) | done | crates/ui/src/panels/mask.rs:49 | - |
 | Invert mask (inverts the painted content) | Mask context menu | (unverified) | partial: appends an Invert effect instead of inverting the pixels | crates/ui/src/panels/mask.rs:33 | - |
-| Invert mask background (flips white/black base, keeps effects) | Mask context menu | n/a | missing | - | - |
-| Clear mask | Mask context menu | (unverified) | missing | - | - |
+| Invert mask background (flips white/black base, keeps effects) | Mask context menu | n/a | partial: inverts the painted base, strokes included (the base does not keep background and paint apart); effects stay | crates/app/src/session.rs:1787 | - |
+| Clear mask | Mask context menu | (unverified) | done (removes the painting; effects stay) | crates/app/src/session.rs:1807 | - |
 | Copy mask content | Mask context menu | n/a | done ("Copy mask") | crates/ui/src/panels/mask.rs:37 | - |
 | Paste into mask | Mask context menu | n/a | done ("Paste mask"; also offered on mask-less layers) | crates/ui/src/panels/mask.rs:41 | - |
-| Export mask to file | Mask context menu | (unverified) | missing | - | - |
+| Export mask to file | Mask context menu | (unverified) | done (PNG / TGA / EXR / TIFF at the set's resolution, effects included) | crates/app/src/mask_tools.rs:37 | - |
 | Create smart mask | Mask context menu | n/a | partial: on the layer row menu, only when the mask has effects | crates/ui/src/panels/layers.rs:480 | - |
 | Preview mask (SubCraft extra, same as Alt + click) | n/a | n/a | done | crates/ui/src/panels/mask.rs:14 | - |
 
@@ -121,7 +121,7 @@ Layout notes: entries carry an icon each. Compare Mask and Color Selection are o
 | Add paint (content or mask) | Add effect menu | n/a | done | crates/ui/src/panels/effects.rs:67 | - |
 | Add fill (content or mask) | Add effect menu | n/a | done | crates/ui/src/panels/effects.rs:68 | - |
 | Add levels (content or mask) | Add effect menu | n/a | done | crates/ui/src/panels/effects.rs:69 | - |
-| Add compare mask (mask only) | Add effect menu | n/a | missing | - | - |
+| Add compare mask (mask only) | Add effect menu | n/a | done | crates/ui/src/panels/effects.rs:146 | chunk 43 |
 | Add filter (content or mask) | Add effect menu | empty slot until a filter is picked | partial: a submenu of built-in filters instead of an empty slot with a picker | crates/ui/src/panels/effects.rs:82 | - |
 | Add color selection (mask only) | Add effect menu | n/a | done | crates/ui/src/panels/effects.rs:142 | - |
 | Add anchor point (content or mask) | Add effect menu | n/a | done | crates/ui/src/panels/effects.rs:78 | - |
@@ -197,18 +197,18 @@ Layout notes: Properties shows, top to bottom: the Affected channel dropdown (co
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
 | Affected channel (one channel per Levels effect) | Properties > Levels | first compatible channel | done (Normal excluded) | crates/ui/src/panels/effects.rs:411 | - |
-| Colour component dropdown (full RGB or R, G, B separately; Luminance for some channels) | Properties > Levels, top right | RGB | missing | - | - |
-| Histogram display of the input | Properties > Levels | n/a | missing | - | - |
+| Colour component dropdown (full RGB or R, G, B separately; Luminance for some channels) | Properties > Levels, top right | RGB | done: RGB / R / G / B on colour channels (no Luminance entry) | crates/ui/src/panels/properties.rs:878 | chunk 43 |
+| Histogram display of the input | Properties > Levels | n/a | done: input histogram (128² UV sample) with the handles marked | crates/ui/src/panels/properties.rs:878 | chunk 43 |
 | Input low handle (shadows) | Properties > Levels, above histogram | 0; 0-1 | done (slider "In low") | crates/ui/src/panels/effects.rs:418 | - |
-| Midtone handle (gamma) | Properties > Levels, above histogram | 1.0 (0.5 handle position); range not documented | partial: "Gamma" slider 0.1-4 | crates/ui/src/panels/effects.rs:420 | - |
+| Midtone handle (gamma) | Properties > Levels, above histogram | 1.0 (0.5 handle position); range not documented | partial: "Gamma" slider 0.1-4 (no handle on the histogram) | crates/ui/src/panels/properties.rs:878 | chunk 43 |
 | Input high handle (highlights) | Properties > Levels, above histogram | 1; 0-1 | done (slider "In high") | crates/ui/src/panels/effects.rs:419 | - |
 | Output low handle (black point) | Properties > Levels, below histogram | 0; 0-1 | done (slider "Out low") | crates/ui/src/panels/effects.rs:421 | - |
 | Output high handle (white point) | Properties > Levels, below histogram | 1; 0-1 | done (slider "Out high") | crates/ui/src/panels/effects.rs:422 | - |
 | Swapping the output handles inverts the image | Properties > Levels | n/a | done (out low above out high) | crates/doc/src/mask.rs:29 | - |
-| Per-component values (separate R, G, B levels) | Properties > Levels | (0,0,0) / (1,1,1) / gamma (1,1,1) | missing | - | - |
-| Auto button | Properties > Levels | (unverified) | missing | - | - |
-| Invert button | Properties > Levels | (unverified) | missing | - | - |
-| Clamp checkbox | Properties > Levels, bottom right | off (API default); should be on for non-HDR channels | missing (non-HDR results are always clamped) | - | - |
+| Per-component values (separate R, G, B levels) | Properties > Levels | (0,0,0) / (1,1,1) / gamma (1,1,1) | done | crates/ui/src/panels/properties.rs:878 | chunk 43 |
+| Auto button | Properties > Levels | (unverified) | done: input handles at the input's darkest and brightest values | crates/ui/src/panels/properties.rs:878 | chunk 43 |
+| Invert button | Properties > Levels | (unverified) | done: swaps the output handles | crates/ui/src/panels/properties.rs:878 | chunk 43 |
+| Clamp checkbox | Properties > Levels, bottom right | off (API default); should be on for non-HDR channels | done: on by default (older projects unchanged); off extends past the input handles | crates/ui/src/panels/properties.rs:878 | chunk 43 |
 | Levels on a mask (single greyscale channel, no Affected channel) | Properties > Levels | n/a | done | crates/ui/src/panels/properties.rs:656 | - |
 | Blending mode and opacity | Effect row | Normal; 100 | done (in Properties) | crates/ui/src/panels/properties.rs:505 | - |
 | Levels on a folder | Effect stack | n/a | done | crates/ui/src/panels/effects.rs:72 | - |
@@ -219,24 +219,24 @@ Layout notes: mask-only effect. Properties shows the Channel dropdown, then one 
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Compare Mask effect (mask only) | Add effect > Add compare mask | n/a | missing | - | - |
-| Channel (which channel is compared; from Texture Set Settings) | Properties > Compare Mask | Height when created by "height combination"; otherwise not documented | missing | - | - |
-| Left operand: Layers Below | Properties > Compare, left dropdown | not documented | missing | - | - |
-| Left operand: This Layer | Properties > Compare, left dropdown | not documented | missing | - | - |
-| Left operand: This Mask | Properties > Compare, left dropdown | not documented | missing | - | - |
-| Left operand: Constant | Properties > Compare, left dropdown | not documented | missing | - | - |
-| Operation: Lesser than | Properties > Compare, middle dropdown | not documented | missing | - | - |
-| Operation: Within tolerance | Properties > Compare, middle dropdown | not documented | missing | - | - |
-| Operation: Greater than | Properties > Compare, middle dropdown | not documented | missing | - | - |
-| Right operand: Layers Below | Properties > Compare, right dropdown | not documented | missing | - | - |
-| Right operand: This Layer | Properties > Compare, right dropdown | not documented | missing | - | - |
-| Right operand: This Mask | Properties > Compare, right dropdown | not documented | missing | - | - |
-| Right operand: Constant | Properties > Compare, right dropdown | not documented | missing | - | - |
-| Constant (value used by a Constant operand) | Properties > Compare Mask | default not documented; 0-1 | missing | - | - |
-| Tolerance (used by Within tolerance) | Properties > Compare Mask | default not documented; 0-1 | missing | - | - |
-| Hardness (edge softness of the result) | Properties > Compare Mask | default not documented; 0-1 | missing | - | - |
+| Compare Mask effect (mask only) | Add effect > Add compare mask | n/a | done | crates/doc/src/mask.rs:198 | chunk 43 |
+| Channel (which channel is compared; from Texture Set Settings) | Properties > Compare Mask | Height when created by "height combination"; otherwise not documented | done: Height when created by height combination | crates/ui/src/panels/properties.rs:957 | chunk 43 |
+| Left operand: Layers Below | Properties > Compare, left dropdown | not documented | done | crates/ui/src/panels/properties.rs:957 | chunk 43 |
+| Left operand: This Layer | Properties > Compare, left dropdown | not documented | done | crates/ui/src/panels/properties.rs:957 | chunk 43 |
+| Left operand: This Mask | Properties > Compare, left dropdown | not documented | done | crates/ui/src/panels/properties.rs:957 | chunk 43 |
+| Left operand: Constant | Properties > Compare, left dropdown | not documented | done | crates/ui/src/panels/properties.rs:957 | chunk 43 |
+| Operation: Lesser than | Properties > Compare, middle dropdown | not documented | done | crates/ui/src/panels/properties.rs:957 | chunk 43 |
+| Operation: Within tolerance | Properties > Compare, middle dropdown | not documented | done | crates/ui/src/panels/properties.rs:957 | chunk 43 |
+| Operation: Greater than | Properties > Compare, middle dropdown | not documented | done | crates/ui/src/panels/properties.rs:957 | chunk 43 |
+| Right operand: Layers Below | Properties > Compare, right dropdown | not documented | done | crates/ui/src/panels/properties.rs:957 | chunk 43 |
+| Right operand: This Layer | Properties > Compare, right dropdown | not documented | done | crates/ui/src/panels/properties.rs:957 | chunk 43 |
+| Right operand: This Mask | Properties > Compare, right dropdown | not documented | done | crates/ui/src/panels/properties.rs:957 | chunk 43 |
+| Right operand: Constant | Properties > Compare, right dropdown | not documented | done | crates/ui/src/panels/properties.rs:957 | chunk 43 |
+| Constant (value used by a Constant operand) | Properties > Compare Mask | default not documented; 0-1 | done: default 0.5 | crates/ui/src/panels/properties.rs:957 | chunk 43 |
+| Tolerance (used by Within tolerance) | Properties > Compare Mask | default not documented; 0-1 | done: default 0.1 | crates/ui/src/panels/properties.rs:957 | chunk 43 |
+| Hardness (edge softness of the result) | Properties > Compare Mask | default not documented; 0-1 | done: default 0.9; linear edge (1 - hardness) x 0.25 wide (SubCraft choice, not documented) | crates/ui/src/panels/properties.rs:957 | chunk 43 |
 | Source channels histogram (both operands overlaid) | Properties > Compare Mask | n/a | missing | - | - |
-| "Add mask with height combination" shortcut | Layer context menu / Create Mask menu | sets Height blend to Normal | missing | - | - |
+| "Add mask with height combination" shortcut | Layer context menu / Create Mask menu | sets Height blend to Normal | done: Height blending set to Normal | crates/ui/src/panels/layers.rs:70 | chunk 43 |
 
 ## Color Selection effect
 
@@ -249,13 +249,13 @@ Layout notes: mask-only effect that selects areas of an ID map by colour. Proper
 | Pick color button (eyedropper in 3D or 2D view) | Properties > Color selection | n/a | partial: 3D view only | crates/ui/src/panels/properties.rs:711 | - |
 | Several picked colours in one effect | Properties > Color selection | empty | done (up to 64) | crates/ui/src/panels/properties.rs:698 | - |
 | Remove a picked colour | Properties > Color selection | n/a | done | crates/ui/src/panels/properties.rs:703 | - |
-| Hardness | Properties > Color selection | default not documented; 0-1 | partial: "Softness" (inverse sense), default 0 | crates/ui/src/panels/properties.rs:720 | - |
+| Hardness | Properties > Color selection | default not documented; 0-1 | done: stored as softness = 1 - hardness, default 1 | crates/ui/src/panels/properties.rs:824 | chunk 43 |
 | Tolerance | Properties > Color selection | default not documented; 0-1 | done (default 0.05) | crates/ui/src/panels/properties.rs:719 | - |
-| Output value (grey level written where colours match) | Properties > Color selection | default not documented; 0-1 | missing | - | - |
-| Background color: Transparent | Properties > Color selection | not documented | missing | - | - |
-| Background color: Black | Properties > Color selection | not documented | partial: unmatched areas are always black | crates/doc/src/mask.rs:317 | - |
-| Background color: White | Properties > Color selection | not documented | partial: "Invert" checkbox gives the white-background result | crates/ui/src/panels/properties.rs:721 | - |
-| Background color: Gray | Properties > Color selection | not documented | missing | - | - |
+| Output value (grey level written where colours match) | Properties > Color selection | default not documented; 0-1 | done: default 1 | crates/ui/src/panels/properties.rs:824 | chunk 43 |
+| Background color: Transparent | Properties > Color selection | not documented | done | crates/ui/src/panels/properties.rs:824 | chunk 43 |
+| Background color: Black | Properties > Color selection | not documented | done (default) | crates/ui/src/panels/properties.rs:824 | chunk 43 |
+| Background color: White | Properties > Color selection | not documented | done (the older Invert switch still shows while on) | crates/ui/src/panels/properties.rs:824 | chunk 43 |
+| Background color: Gray | Properties > Color selection | not documented | done: 0.5 | crates/ui/src/panels/properties.rs:824 | chunk 43 |
 | Blending mode and opacity | Effect row | Normal; 100 | done (in Properties) | crates/ui/src/panels/properties.rs:505 | - |
 | Warning when no ID map is baked | Properties > Color selection | n/a | done | crates/ui/src/panels/properties.rs:692 | - |
 | Created automatically by Ctrl-dropping a resource on the mesh (selection from the clicked ID colour) | Assets > Viewport | n/a | partial: viewport part menu "Mask by ID color" on the selected layer | crates/ui/src/panels/parts.rs:19 | - |

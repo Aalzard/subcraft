@@ -145,7 +145,7 @@ Layout notes: these act only while the pointer is over the layer stack.
 | Group layer | Layer stack | Ctrl+G | done (no selection: adds an empty folder) | crates/app/src/session.rs:1908 | - |
 | Copy layer content | Layer stack | Ctrl+Shift+C (Option+Cmd+C) | done | crates/ui/src/clipboard.rs:66 | - |
 | Paste layer content | Layer stack | Ctrl+Shift+V (Option+Cmd+V) | done | crates/ui/src/clipboard.rs:66 | - |
-| Display mask in viewport | Layer stack, mask thumbnail | Alt+Mouse left | partial: opens a preview inspector window, viewport does not switch to the mask | crates/ui/src/panels/layers.rs:312 | - |
+| Display mask in viewport | Layer stack, mask thumbnail | Alt+Mouse left | done | crates/ui/src/panels/layers.rs:481 | - |
 | Disable/Enable mask | Layer stack, mask thumbnail | Shift+Mouse left | done | crates/ui/src/panels/layers.rs:308 | - |
 | Drag and drop material onto one part of the model | Assets to viewport | Ctrl+Drag and drop | missing | - | - |
 | Manipulator constraint/snapping | Viewport manipulator | Shift | missing | - | - |
@@ -155,7 +155,7 @@ Layout notes: these act only while the pointer is over the layer stack.
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Merge selected layers | Layer stack | Ctrl+M | missing | - | - |
+| Merge selected layers | Layer stack | Ctrl+M | done | crates/ui/src/panels/layers.rs:797 | - |
 | Paste as instance | Layer stack | Ctrl+Shift+V after Ctrl+C | missing | - | - |
 | Instantiate across texture sets | Layer stack | Ctrl+Shift+D (release notes) | missing | - | - |
 | Duplicate layers by dragging | Layer stack | Ctrl + drag and drop | done | crates/ui/src/panels/layers.rs:136 | - |

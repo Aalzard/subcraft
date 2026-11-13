@@ -106,6 +106,94 @@ impl AlphaSettings {
 
 pub const RESOLUTIONS: [u32; 6] = [128, 256, 512, 1024, 2048, 4096];
 
+/// Texture Set Settings > Channels: how the Normal channel takes the normal made from Height.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NormalMixing {
+    /// The height detail is added on top of the Normal channel.
+    #[default]
+    Combine,
+    /// The Normal channel alone: height does not change the normals.
+    Replace,
+}
+
+/// How the Height channel is turned into normals.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HeightToNormal {
+    /// 3x3 Sobel filter: smoother slopes.
+    #[default]
+    Smooth,
+    /// Central differences of the direct neighbours: crisper edges.
+    Sharp,
+}
+
+/// How the Ambient Occlusion channel and the baked ambient occlusion map are put together.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AoMixing {
+    /// Channel times baked map.
+    #[default]
+    Multiply,
+    /// The channel alone (the baked map is used only when the set has no AO channel).
+    Replace,
+}
+
+/// How texels outside the UV islands are filled.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UvPadding {
+    /// Painter's default: from the neighbour across the seam on the mesh.
+    #[default]
+    Space3d,
+    /// From the nearest texel in the texture.
+    Space2d,
+}
+
+/// Mixing settings of a texture set (Painter's Texture Set Settings > Channels dropdowns).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct MixingSettings {
+    #[serde(default)]
+    pub normal: NormalMixing,
+    #[serde(default)]
+    pub height_to_normal: HeightToNormal,
+    #[serde(default)]
+    pub ao: AoMixing,
+    #[serde(default)]
+    pub uv_padding: UvPadding,
+}
+
+impl MixingSettings {
+    /// What SubCraft did before these settings existed; projects saved without them load with it,
+    /// so their exports do not change.
+    pub const LEGACY: MixingSettings = MixingSettings {
+        normal: NormalMixing::Combine,
+        height_to_normal: HeightToNormal::Sharp,
+        ao: AoMixing::Replace,
+        uv_padding: UvPadding::Space2d,
+    };
+}
+
+impl NormalMixing {
+    pub const ALL: [NormalMixing; 2] = [NormalMixing::Combine, NormalMixing::Replace];
+    pub fn label(self) -> &'static str { match self { NormalMixing::Combine => "Combine", NormalMixing::Replace => "Replace" } }
+}
+
+impl HeightToNormal {
+    pub const ALL: [HeightToNormal; 2] = [HeightToNormal::Smooth, HeightToNormal::Sharp];
+    pub fn label(self) -> &'static str { match self { HeightToNormal::Smooth => "Smooth (Sobel)", HeightToNormal::Sharp => "Sharp" } }
+}
+
+impl AoMixing {
+    pub const ALL: [AoMixing; 2] = [AoMixing::Multiply, AoMixing::Replace];
+    pub fn label(self) -> &'static str { match self { AoMixing::Multiply => "Multiply", AoMixing::Replace => "Replace" } }
+}
+
+impl UvPadding {
+    pub const ALL: [UvPadding; 2] = [UvPadding::Space3d, UvPadding::Space2d];
+    pub fn label(self) -> &'static str { match self { UvPadding::Space3d => "3D Space Neighbor", UvPadding::Space2d => "2D Space Neighbor" } }
+}
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum LayerOpError {
     NotFound,
@@ -125,12 +213,18 @@ pub struct LayerLocation {
 pub struct TextureSet {
     pub id: TextureSetId,
     pub name: String,
+    /// Free text shown under the name in the Texture Set List (Painter's description). Empty by default.
+    pub description: String,
     /// Index of the mesh material slot this texture set paints.
     pub material_slot: u32,
     pub resolution: u32,
+    /// Normal / height / AO mixing and UV padding (Texture Set Settings > Channels).
+    pub mixing: MixingSettings,
     /// Base Color bitmap reconstruction, used for compositing, painting and display.
     pub albedo_filter: subcraft_image::TextureFilter,
     pub channels: Vec<ChannelDef>,
+    /// Names given to user channels (Painter lets User0-User15 be renamed). Missing = "User N".
+    pub user_channel_names: std::collections::BTreeMap<ChannelKind, String>,
     /// Bottom-to-top.
     pub layers: Vec<Arc<Layer>>,
     /// The UDIM tile (`[column, row]` in stored UV space, see `subcraft_mesh::regroup`) this set
@@ -141,6 +235,17 @@ pub struct TextureSet {
     pub transparent: bool,
     /// How the viewport draws opacity.
     pub alpha: AlphaSettings,
+    /// ID map colors the user changed in the ID color editor, applied over the baked / imported
+    /// ID map (`from` is the color in that map). Part of the document, so undo restores the map
+    /// colors together with the ID Color masks that were updated with them.
+    pub id_color_edits: Vec<IdColorEdit>,
+}
+
+/// One edited ID color: texels of `from` in the baked ID map show `to`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct IdColorEdit {
+    pub from: [f32; 3],
+    pub to: [f32; 3],
 }
 
 impl TextureSet {
@@ -148,14 +253,18 @@ impl TextureSet {
         Self {
             id: TextureSetId::new(),
             name: name.into(),
+            description: String::new(),
             material_slot,
             resolution,
+            mixing: MixingSettings::default(),
             albedo_filter: Default::default(),
             channels: ChannelKind::METAL_ROUGH.iter().map(|&k| ChannelDef::default_for(k)).collect(),
+            user_channel_names: Default::default(),
             layers: Vec::new(),
             udim_tile: None,
             transparent: false,
             alpha: AlphaSettings::default(),
+            id_color_edits: Vec::new(),
         }
     }
 
@@ -170,6 +279,11 @@ impl TextureSet {
             (Some(_), Some((base, tail))) if tail.len() == 4 && tail.bytes().all(|b| b.is_ascii_digit()) => base,
             _ => &self.name,
         }
+    }
+
+    /// The channel's name in this set: a user channel's given name, else the standard name.
+    pub fn channel_label(&self, kind: ChannelKind) -> String {
+        self.user_channel_names.get(&kind).cloned().unwrap_or_else(|| kind.display_name().to_string())
     }
 
     /// Alpha the layer stack starts from: 0 for a transparent set, 1 otherwise.

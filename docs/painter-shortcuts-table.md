@@ -40,7 +40,7 @@
 | Tools | `X` | Invert grayscale tool | InvertMaskGray | Painter preset only (conflict) | mask brush value g becomes 1 - g; X stays symmetry in the SubCraft key set |
 | Tools | `P` | Pick stroke material | EyedropperTool | Painter preset only (conflict) | Eyedropper tool; Pen paths moves to Shift+P in this preset |
 | Tools | `D` | Lazy Mouse | ToggleLazyMouse | added (key was free) | toggles a 20 px rope |
-| Tools | `Alt+H` | Hide/ignore excluded geometry |  | no equivalent | no equivalent |
+| Tools | `Alt+H` | Hide/ignore excluded geometry | HideExcludedGeometry | added (key was free) | hides what the selected layer's geometry mask leaves out; strokes reach what it covered |
 | Tools | `N (hold)` | Ignore stencil mask |  | mouse / hold key | already worked |
 | Tools | `A` | Resume previous stroke |  | no equivalent | no equivalent |
 | Tools | `V (hold) + LMB` | Set Clone tool source |  | mouse / hold key | added; Ctrl+click still works |
@@ -53,9 +53,9 @@
 | Viewport | `Shift+B` | Display previous mesh map | PrevMeshMap | added (key was free) |  |
 | Viewport | `Space` | Toggle animation |  | no equivalent | no animation |
 | Viewport | `F` | Center the whole mesh | ResetCamera | added (key was free) | Home kept as well |
-| Viewport | `U` | Toggle quick mask edition |  | no equivalent | no quick mask |
-| Viewport | `Y` | Clear quick mask |  | no equivalent | no quick mask |
-| Viewport | `I` | Invert quick mask |  | no equivalent | no quick mask (I over the model isolates a part) |
+| Viewport | `U` | Toggle quick mask edition | QuickMaskToggle | added (key was free) | strokes paint the quick mask; U again restricts painting to it |
+| Viewport | `Y` | Clear quick mask | QuickMaskClear | added (key was free) |  |
+| Viewport | `I` | Invert quick mask | QuickMaskInvert | added (key was free) | without a quick mask, I over the model isolates the part under the cursor |
 | Viewport | `F1` | Viewport layout 3D/2D | View3dAnd2d | added (key was free) | 2D view in its own pane beside the 3D view |
 | Viewport | `F2` | Viewport layout 3D only | View3dOnly | Painter preset only (conflict) | F2 renames the selected layer in the SubCraft key set |
 | Viewport | `F3` | Viewport layout 2D only | View2dOnly | added (key was free) |  |
@@ -78,7 +78,7 @@
 | Mouse | `Shift+RMB` | Rotate environment |  | mouse / hold key | added: drag left-right turns the environment and its lighting (Shift+MMB turns only the key light) |
 | Mouse | `Ctrl+MMB` | Auto-focus (Depth of Field) |  | mouse / hold key | added: focuses the point under the cursor (turns depth of field on) |
 | Mouse | `Ctrl+Alt+RMB` | Texture set selection |  | mouse / hold key | added: selects the texture set under the cursor |
-| Mouse | `RMB` | Context menu |  | mouse / hold key | already worked (part actions; the Properties popup at the cursor is PR #131) |
+| Mouse | `RMB` | Context menu |  | mouse / hold key | added: a click without dragging opens the Properties popup at the cursor (3D and 2D views); its header holds the part actions |
 | Layers | `Ctrl+C / X / V` | Copy / cut / paste layer |  | mouse / hold key | already worked |
 | Layers | `Delete` | Delete layer | DeleteLayer | already the same |  |
 | Layers | `Ctrl+D` | Duplicate layer | DuplicateLayer | already the same |  |

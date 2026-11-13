@@ -374,6 +374,34 @@ fn alignment_compat<'de, D: Deserializer<'de>>(d: D) -> Result<EnvAlignment, D::
     compat(d, &EnvAlignment::ALL)
 }
 
+/// Painter's shadow computation modes: cheaper and softer to finer and slower.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ShadowMode {
+    #[default]
+    Lightweight,
+    Average,
+    Intensive,
+}
+
+impl ShadowMode {
+    /// Storage order (an index in old files); Painter's menu lists them Intensive first.
+    pub const ALL: [ShadowMode; 3] = [ShadowMode::Lightweight, ShadowMode::Average, ShadowMode::Intensive];
+    pub const MENU: [ShadowMode; 3] = [ShadowMode::Intensive, ShadowMode::Average, ShadowMode::Lightweight];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            ShadowMode::Lightweight => "Lightweight",
+            ShadowMode::Average => "Average",
+            ShadowMode::Intensive => "Intensive",
+        }
+    }
+}
+
+fn shadow_mode_compat<'de, D: Deserializer<'de>>(d: D) -> Result<ShadowMode, D::Error> {
+    compat(d, &ShadowMode::ALL)
+}
+
 /// Sensor height (mm) behind the focal-length readout: a full-frame 36 x 24 mm sensor.
 pub const SENSOR_HEIGHT_MM: f32 = 24.0;
 /// Field-of-view range of the camera (vertical, degrees).
@@ -406,11 +434,15 @@ pub fn lenient_display<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Display
     let serde_json::Value::Object(mut merged) = serde_json::to_value(DisplaySettings::default()).map_err(serde::de::Error::custom)? else {
         return Ok(Some(DisplaySettings::default()));
     };
+    // Every stored key is tried, including the ones the defaults do not write at all (an
+    // environment map: `None` is skipped when saving), which used to be dropped here.
     for (key, value) in stored {
-        let Some(slot) = merged.get_mut(&key) else { continue };
-        let default = std::mem::replace(slot, value);
+        let previous = merged.insert(key.clone(), value);
         if serde_json::from_value::<DisplaySettings>(serde_json::Value::Object(merged.clone())).is_err() {
-            merged.insert(key, default);
+            match previous {
+                Some(default) => merged.insert(key, default),
+                None => merged.remove(&key),
+            };
         }
     }
     Ok(Some(serde_json::from_value(serde_json::Value::Object(merged)).unwrap_or_default()))
@@ -435,6 +467,11 @@ pub struct DisplaySettings {
     pub env_blur: f32,
     #[serde(deserialize_with = "alignment_compat")]
     pub env_alignment: EnvAlignment,
+    /// Raster shadows of the key light: on/off (off, like Painter), opacity and computation mode.
+    pub shadows: bool,
+    pub shadow_opacity: f32,
+    #[serde(deserialize_with = "shadow_mode_compat")]
+    pub shadow_mode: ShadowMode,
 
     // ----- camera ------------------------------------------------------------------------------
     /// Vertical field of view, degrees.
@@ -447,6 +484,8 @@ pub struct DisplaySettings {
     pub dof_amount: f32,
     pub dof_focus: f32,
     pub dof_range: f32,
+    /// Focus on whatever is at the centre of the view, every frame (Painter's auto-focus).
+    pub dof_autofocus: bool,
 
     // ----- post effects ------------------------------------------------------------------------
     /// Master switch ("Activate Post Effects"): off shows the plain render with the default
@@ -509,6 +548,13 @@ pub struct DisplaySettings {
     pub aberration_achromatic: bool,
     pub vignette_on: bool,
     pub vignette_amount: f32,
+    /// Lens distortion (Painter's pre-12.0 effect): power (negative = pincushion), FOV (zoom that
+    /// hides the stretched border), edge roundness and edge smoothness.
+    pub lens_on: bool,
+    pub lens_power: f32,
+    pub lens_fov: f32,
+    pub lens_roundness: f32,
+    pub lens_smoothness: f32,
     pub sharpen_on: bool,
     pub sharpen_amount: f32,
     /// Sharpen diameter in pixels.
@@ -574,12 +620,16 @@ impl Default for DisplaySettings {
             env_rotation: 0.0,
             env_blur: 0.5,
             env_alignment: EnvAlignment::World,
+            shadows: false,
+            shadow_opacity: 0.8,
+            shadow_mode: ShadowMode::Lightweight,
             fov: 40.0,
             antialias: true,
             dof: false,
             dof_amount: 0.5,
             dof_focus: 1.0,
             dof_range: 10.0,
+            dof_autofocus: false,
             post_effects: true,
             tone_mapping_on: true,
             tone_map: ToneMap::Aces,
@@ -617,6 +667,11 @@ impl Default for DisplaySettings {
             aberration_achromatic: false,
             vignette_on: false,
             vignette_amount: 0.5,
+            lens_on: false,
+            lens_power: 0.3,
+            lens_fov: 1.0,
+            lens_roundness: 0.5,
+            lens_smoothness: 0.2,
             sharpen_on: false,
             sharpen_amount: 0.5,
             sharpen_diameter: 2.0,
@@ -665,7 +720,7 @@ impl DisplaySettings {
             ($($field:ident),* $(,)?) => { $( d.$field = std::mem::take(&mut self.$field); )* };
         }
         keep!(
-            env_map, env_opacity, env_exposure, env_rotation, env_blur, env_alignment, fov, antialias, wireframe, wire_color, wire_opacity,
+            env_map, env_opacity, env_exposure, env_rotation, env_blur, env_alignment, shadows, shadow_opacity, shadow_mode, fov, antialias, wireframe, wire_color, wire_opacity,
             wire_angle, grid, grid_axes, grid_plane, grid_color, grid_opacity, solo_unlit, hdr_scale, hdr_signed_colors, hdr_positive,
             hdr_negative, channel_component, anisotropy, mip_bias, camera_frame, camera_frame_ratio, gate_opacity,
         );
@@ -746,6 +801,20 @@ mod tests {
     }
 
     #[test]
+    fn shadows_are_off_by_default_load_from_old_indices_and_survive_reset_look() {
+        let d = DisplaySettings::default();
+        assert_eq!((d.shadows, d.shadow_mode), (false, ShadowMode::Lightweight));
+        let read: DisplaySettings = serde_json::from_str(r#"{"shadows":true,"shadow_mode":2,"shadow_opacity":0.4}"#).unwrap();
+        assert_eq!((read.shadows, read.shadow_mode, read.shadow_opacity), (true, ShadowMode::Intensive, 0.4));
+        let odd: DisplaySettings = serde_json::from_str(r#"{"shadow_mode":"cascaded"}"#).unwrap();
+        assert_eq!(odd.shadow_mode, ShadowMode::Lightweight);
+        let mut kept = DisplaySettings { shadows: true, shadow_mode: ShadowMode::Average, shadow_opacity: 0.3, bloom: 1.0, ..Default::default() };
+        kept.reset_post_effects();
+        assert_eq!((kept.shadows, kept.shadow_mode, kept.shadow_opacity, kept.bloom), (true, ShadowMode::Average, 0.3, 0.0), "shadows are environment settings, not post effects");
+        assert_eq!(ShadowMode::MENU, [ShadowMode::Intensive, ShadowMode::Average, ShadowMode::Lightweight]);
+    }
+
+    #[test]
     fn resetting_the_post_effects_keeps_the_visualisation_settings() {
         let kept = DisplaySettings {
             wireframe: true, grid: false, antialias: false, env_map: Some("Studio".into()), env_opacity: 0.6, fov: 55.0, grid_plane: GridAxis::Z,
@@ -781,5 +850,18 @@ mod lenient_tests {
         let full = DisplaySettings { bloom: 0.3, exposure: 2.0, ..Default::default() };
         let back: Holder = serde_json::from_str(&format!(r#"{{"display": {}}}"#, serde_json::to_string(&full).unwrap())).unwrap();
         assert_eq!(back.display, Some(full), "a valid block round-trips unchanged");
+    }
+
+    /// QA 2026-11: the fallback started from the defaults, which never write `env_map`, so the
+    /// chosen environment map was dropped whenever another value had to take its default (and
+    /// the next save lost it for good).
+    #[test]
+    fn the_environment_map_survives_an_unreadable_neighbour() {
+        let h: Holder = serde_json::from_str(r#"{"display": {"env_map": "Studio", "exposure": null, "bloom": 0.5}}"#).unwrap();
+        let d = h.display.unwrap();
+        assert_eq!(d.env_map.as_deref(), Some("Studio"));
+        assert_eq!((d.bloom, d.exposure), (0.5, DisplaySettings::default().exposure));
+        let bad: Holder = serde_json::from_str(r#"{"display": {"env_map": 7, "exposure": null}}"#).unwrap();
+        assert_eq!(bad.display.unwrap().env_map, None, "an unreadable map name is left out, not fatal");
     }
 }

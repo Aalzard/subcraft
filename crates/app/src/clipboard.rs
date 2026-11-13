@@ -66,6 +66,23 @@ pub fn top_level_in_order(ts: &TextureSet, ids: &[LayerId]) -> Vec<LayerId> {
     out
 }
 
+/// Name of a pasted layer: its own while no layer of `ts` has it, else "name copy", then
+/// "name copy 2", "name copy 3"... (Painter renames pasted duplicates).
+pub fn pasted_name(ts: &TextureSet, name: &str) -> String {
+    let mut taken = std::collections::HashSet::new();
+    ts.walk(|l, _| {
+        taken.insert(l.name.clone());
+    });
+    if !taken.contains(name) {
+        return name.to_string();
+    }
+    let base = format!("{name} copy");
+    if !taken.contains(&base) {
+        return base;
+    }
+    (2..).map(|n| format!("{base} {n}")).find(|n| !taken.contains(n)).expect("some number is free")
+}
+
 fn collect_resources(layers: &[Layer], store: &ResourceStore) -> Vec<Arc<Resource>> {
     let mut wanted = Vec::new();
     for l in layers {
@@ -171,6 +188,9 @@ impl EffectClip {
                 for resource in g.resources() {
                     if !wanted.contains(&resource) { wanted.push(resource); }
                 }
+            }
+            if let MaskEffectKind::Filter(f) = e.kind && let Some(resource) = f.resource() && !wanted.contains(&resource) {
+                wanted.push(resource);
             }
         }
         let resources = wanted.into_iter().filter_map(|id| store.get(id).cloned()).collect();

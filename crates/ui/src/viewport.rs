@@ -58,6 +58,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     crate::viewport_bar::show(ui, state);
     state.camera.orthographic = state.recovery.prefs.viewport.orthographic;
     let (rect, response) = ui.allocate_exact_size(ui.available_size(), Sense::click_and_drag());
+    state.hovered_3d = response.hovered();
     let ppp = ui.ctx().pixels_per_point();
     let size = physical_size([rect.width(), rect.height()], ppp);
     if size[0] < 8 || size[1] < 8 {
@@ -66,6 +67,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     state.last_view_size = size;
     state.last_view_rect = rect;
     let now = ui.input(|i| i.time);
+    // Alt+H follows the selected layer's geometry mask.
+    state.session.sync_excluded_view();
     // The render target is rounded to whole physical pixels. Map through that exact size,
     // rather than DPI alone, to keep picking/painting stable at fractional UI zoom factors.
     let pixel_scale = Vec2::new(size[0] as f32 / rect.width(), size[1] as f32 / rect.height());
@@ -73,40 +76,13 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     let (mods, scroll, delta, primary_pressed, primary_down, pointer) = ui.input(|i| {
         (i.modifiers, i.smooth_scroll_delta.y, i.pointer.delta(), i.pointer.primary_pressed(), i.pointer.primary_down(), i.pointer.latest_pos())
     });
+    // The press that closed the right-click Properties popup only closes it.
+    let primary_pressed = primary_pressed && !state.view_props_swallow;
 
     // ----- stencil: hold S + drag (LMB rotate, MMB move, RMB scale); hold N to bypass ------------
     // Shift is the only modifier allowed with S: it snaps the rotation to quarter turns.
-    let (s_down, n_down) = ui.input(|i| (i.key_down(egui::Key::S) && !(i.modifiers.ctrl || i.modifiers.command || i.modifiers.alt), i.key_down(egui::Key::N) && !i.modifiers.any()));
     let typing = ui.ctx().egui_wants_keyboard_input();
-    state.session.brush.stencil_bypass = n_down && !typing;
-    let stencil_edit = s_down && !typing && state.session.brush.stencil.is_some();
-    if stencil_edit && response.hovered() {
-        let mut st = (**state.session.brush.stencil.as_ref().expect("checked above")).clone();
-        let mut changed = false;
-        // The free angle of the drag is kept apart so a snapped rotation follows the whole
-        // gesture, not each small mouse step.
-        let free_id = egui::Id::new("stencil-free-rotation");
-        if response.dragged_by(PointerButton::Primary) {
-            let free = ui.data(|d| d.get_temp::<f32>(free_id)).unwrap_or(st.rotation) + delta.x * 0.01;
-            ui.data_mut(|d| d.insert_temp(free_id, free));
-            st.rotation = stencil_drag_rotation(free, mods.shift);
-            changed = true;
-        } else {
-            ui.data_mut(|d| d.remove::<f32>(free_id));
-        }
-        if response.dragged_by(PointerButton::Middle) {
-            st.center += Vec2::new(delta.x / rect.width(), delta.y / rect.height());
-            changed = true;
-        }
-        if response.dragged_by(PointerButton::Secondary) {
-            st.scale = (st.scale * (-delta.y * 0.01).exp()).clamp(0.02, 8.0);
-            changed = true;
-        }
-        if changed {
-            state.session.brush.stencil = Some(std::sync::Arc::new(st));
-        }
-        ui.ctx().set_cursor_icon(egui::CursorIcon::AllScroll);
-    }
+    let stencil_edit = stencil_input(state, ui, &response, rect, mods, delta);
 
     // ----- navigation: scheme from Preferences; mode changes mid-drag take over seamlessly -----
     use crate::nav::{NavDrag, NavInput, NavMode};
@@ -151,6 +127,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 Some((mode, d)) => {
                     if mode != NavMode::OrbitSnap { state.orbit_free = None; }
                     match mode {
+                        NavMode::Orbit if state.recovery.prefs.viewport.free_rotation => state.camera.free_orbit_around(pivot, d.x, d.y),
                         NavMode::Orbit => state.camera.orbit_around(pivot, d.x, d.y),
                         NavMode::OrbitSnap => {
                             let (yaw, pitch) = state.orbit_free.unwrap_or((state.camera.yaw, state.camera.pitch));
@@ -161,7 +138,12 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         }
                         NavMode::Pan => state.camera.pan(d.x * pixel_scale.x, d.y * pixel_scale.y, size[1] as f32),
                         NavMode::Zoom => state.camera.zoom((d.y * 0.01).exp()),
-                        NavMode::Light => state.light_yaw = (state.light_yaw + d.x * 0.01).rem_euclid(std::f32::consts::TAU),
+                        NavMode::Light => {
+                            // Sideways turns the key light around the model, up and down tilts it
+                            // (down to below the horizon: light from underneath).
+                            state.light_yaw = (state.light_yaw + d.x * 0.01).rem_euclid(std::f32::consts::TAU);
+                            state.light_pitch = (state.light_pitch - d.y * 0.01).clamp(-std::f32::consts::PI, std::f32::consts::PI);
+                        }
                         NavMode::Environment => state.env.rotation_deg = crate::panels::shelf::wrap_rotation(state.env.rotation_deg + d.x * 0.5),
                         NavMode::None => {}
                     }
@@ -200,53 +182,32 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     }
 
     // ----- Painter-style brush gestures: Ctrl+RMB drag = size / hardness, Ctrl+LMB drag = flow / angle -----
-    let gesture_ok = mods.command && !mods.alt && !stencil_edit && !typing && !(state.bake.open || state.bake.job.is_some());
-    let brush_tool = matches!(state.tool, Tool::Brush | Tool::Eraser | Tool::Smudge | Tool::Clone);
-    // Ctrl+Shift+LMB is the snapped straight line, so the flow / angle drag needs Shift up.
-    let lmb_adjust = gesture_ok && !mods.shift && matches!(state.tool, Tool::Brush | Tool::Eraser | Tool::Smudge);
-    if gesture_ok && brush_tool && !state.painting {
-        let s = &mut state.session.brush.settings;
-        if response.dragged_by(PointerButton::Secondary) {
-            s.size = (s.size * (delta.x * 0.01).exp()).clamp(0.1, 100.0);
-            s.hardness = (s.hardness - delta.y * 0.005).clamp(0.0, 1.0);
-        } else if lmb_adjust && response.dragged_by(PointerButton::Primary) {
-            s.flow = (s.flow + delta.x * 0.003).clamp(0.01, 1.0);
-            s.angle_deg = (s.angle_deg + delta.y * 0.5).rem_euclid(360.0);
-        }
-    }
+    let gesture_ok = !stencil_edit && !typing && !(state.bake.open || state.bake.job.is_some());
+    let lmb_adjust = brush_gestures(state, &response, mods, delta, gesture_ok && !state.painting);
     let v_down = ui.input(|i| i.key_down(egui::Key::V)) && !typing && !mods.any();
 
     // Imported cameras: a locked one ignores the navigation above, an unlocked one hands over.
     crate::view_extras::follow_camera(state);
     let camera = state.camera.paint_camera(size);
-
-    if response.secondary_clicked() && !alt && !stencil_edit {
-        state.context_part = pointer.and_then(|p| state.session.surface_target(&camera, to_screen(p), state.parts_kind));
+    // Auto-focus: the depth of field focuses on whatever is at the centre of the view.
+    if !(state.bake.open || state.bake.job.is_some()) && state.recovery.prefs.viewport.dof && state.recovery.prefs.viewport.dof_autofocus
+        && let Some(hit) = state.session.pick(&camera, glam::Vec2::new(size[0] as f32 * 0.5, size[1] as f32 * 0.5))
+    {
+        let orbit = state.camera.eye_distance().max(1e-4);
+        state.recovery.prefs.viewport.dof_focus = (hit.depth / orbit).clamp(0.2, 3.0);
     }
-    let mut part_action = None;
-    // Ctrl+Alt+RMB selected a texture set above: no menu for that click.
-    if !(pick_set && response.secondary_clicked()) { response.context_menu(|ui| {
-        if let Some(target) = state.context_part {
-            ui.label(target.part.kind.label());
-            ui.menu_button("Target", |ui| {
-                for kind in subcraft_core::PartKind::ALL {
-                    if ui.selectable_label(state.parts_kind == kind, kind.label()).clicked()
-                        && let Some(next) = state.session.target_kind(target, kind) {
-                        state.context_part = Some(next); state.parts_kind = kind;
-                    }
-                }
-            });
-            if let Some(action) = crate::panels::parts::menu(ui, state.context_part.unwrap_or(target), state.session.selection().layer.is_some() && state.session.selection().texture_set == target.texture_set) {
-                part_action = Some((state.context_part.unwrap_or(target), action));
-            }
-        } else { ui.label("Right-click the model to texture a part."); }
-        if state.session.has_hidden_parts() && ui.button("Show all parts").clicked() { state.session.show_all_parts(); ui.close(); }
-        if ui.button("Eyedropper tool").clicked() { state.tool = Tool::Eyedropper; ui.close(); }
-    }); }
-    if let Some((target, action)) = part_action { crate::panels::parts::apply(state, target, action, now); }
+
+    // Right-click (no drag): the Properties popup at the cursor, part actions in its header.
+    if response.secondary_clicked() && !stencil_edit && !pick_set && crate::view_props::opens(state, mods) && let Some(p) = pointer {
+        state.context_part = state.session.surface_target(&camera, to_screen(p), state.parts_kind);
+        crate::view_props::open(state, p, crate::view_props::View::View3d);
+    }
     if response.hovered() && !typing && !mods.any() {
         let target = pointer.and_then(|p| state.session.surface_target(&camera, to_screen(p), state.parts_kind));
+        // With a quick mask, I inverts it (Painter) instead of isolating the part under the cursor.
+        let quick = state.session.quick_mask().is_some();
         for (key, action) in [(egui::Key::I, subcraft_app::PartAction::Isolate), (egui::Key::H, subcraft_app::PartAction::Hide)] {
+            if quick && key == egui::Key::I { continue; }
             if ui.input(|i| i.key_pressed(key)) && let Some(target) = target { crate::panels::parts::apply(state, target, action, now); }
         }
         if ui.input(|i| i.key_pressed(egui::Key::Escape)) { state.session.show_all_parts(); }
@@ -260,8 +221,21 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         {
             let _ = state.session.execute(subcraft_app::Command::SelectTextureSet(ts));
         }
+        // Ctrl (Painter): the new layer shows only on the part under the cursor (geometry mask).
+        let part = if (mods.command || mods.ctrl) && !mods.alt { pointer.and_then(|p| state.session.surface_target(&camera, to_screen(p), state.parts_kind)) } else { None };
+        let before = state.session.selection().layer;
         // Alt: apply in place to the selected layer (alphas: brush tip unless Alt).
         crate::panels::shelf::apply_shelf_item_with(state, *item, mods.alt, now);
+        let added = state.session.selection().layer.filter(|l| Some(*l) != before);
+        if let (Some(target), Some(layer)) = (part, added)
+            && state.session.selection().texture_set == target.texture_set
+        {
+            let parts = subcraft_doc::PartMask::for_kind(target.part.kind, [target.part.id]);
+            match state.session.execute(subcraft_app::Command::SetParts { layer, parts: Some(parts) }) {
+                Ok(()) => state.set_status(format!("Added on one {} only (its geometry mask)", target.part.kind.label().trim_end_matches('s').to_lowercase()), now),
+                Err(e) => state.set_status(e.to_string(), now),
+            }
+        }
     }
     // An environment tile dropped on the view becomes the environment map.
     if let Some(env) = response.dnd_release_payload::<crate::panels::shelf::EnvironmentDrag>()
@@ -293,6 +267,21 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         }
     }
     if id_picking && response.hovered() { ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair); }
+    // ----- ID color editor eyedropper: clicks select the ID color under the cursor --------------
+    let palette_picking = !bake_mode && !state.painting && !id_picking && state.picking_id_palette;
+    if state.picking_id_palette && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+        state.picking_id_palette = false;
+    }
+    if palette_picking && primary_pressed && response.hovered() && !alt && !stencil_edit && let Some(p) = pointer {
+        match state.session.id_color_under(&camera, to_screen(p)) {
+            Some((ts, color)) => {
+                if state.session.selection().texture_set != ts { let _ = state.session.execute(subcraft_app::Command::SelectTextureSet(ts)); }
+                crate::panels::id_colors::picked(state, ts, color, now);
+            }
+            None => state.set_status("No ID color there: missed the model, or this part has no ID map.", now),
+        }
+    }
+    if palette_picking && response.hovered() { ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair); }
     // ----- text tool: the next click places the selected text layer or stamps the draft text ------
     let text_armed = !bake_mode && !state.painting && state.text.armed.is_some();
     if text_armed && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
@@ -340,20 +329,35 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         state.picking_focus = false;
     }
     let gizmo_busy = !bake_mode && !state.painting && !text_armed && text_gizmo(state, ui, &camera, rect, size_scale(rect, &camera), now);
-    let picking = parts_picking || id_picking || text_armed || focus_picking || gizmo_busy;
+    let picking = parts_picking || id_picking || palette_picking || text_armed || focus_picking || gizmo_busy;
     if state.picking_parts && (!picking || ui.input(|i| i.key_pressed(egui::Key::Escape))) {
         state.picking_parts = false;
     }
     let hovered_part = if parts_picking { pointer.and_then(|p| state.session.part_at(&camera, to_screen(p))) } else { None };
-    if parts_picking && primary_pressed && response.hovered() && !alt && !stencil_edit {
-        let layer = state.session.selected_layer().map(|l| l.id);
-        match (layer, hovered_part) {
-            (Some(layer), Some(part)) => {
-                if let Err(e) = state.session.toggle_layer_part(layer, part) {
-                    state.set_status(format!("Parts: {e}"), now);
-                }
+    // Geometry mask editing: a click shows / hides the layer on the part under the cursor, a drag
+    // adds every part the box touches (Ctrl+drag removes them).
+    if parts_picking && primary_pressed && response.hovered() && !alt && !stencil_edit && let Some(p) = pointer {
+        state.parts_box = Some(p);
+    }
+    if let Some(start) = state.parts_box {
+        if !parts_picking || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+            state.parts_box = None;
+        } else if !primary_down {
+            state.parts_box = None;
+            let end = pointer.unwrap_or(start);
+            if let Some(layer) = state.session.selected_layer().map(|l| l.id) {
+                let result = if crate::view_props::is_box_drag(start, end) {
+                    let parts = state.session.parts_in_screen_box(&camera, to_screen(start), to_screen(end));
+                    if parts.is_empty() { Err("the box touched no part of the selected texture set".to_string()) }
+                    else { state.session.set_layer_parts(layer, &parts, !(mods.command || mods.ctrl)).map_err(|e| e.to_string()) }
+                } else {
+                    match state.session.part_at(&camera, to_screen(start)) {
+                        Some(part) => state.session.toggle_layer_part(layer, part).map_err(|e| e.to_string()),
+                        None => Err("click a part of the selected texture set".to_string()),
+                    }
+                };
+                if let Err(e) = result { state.set_status(format!("Parts: {e}"), now); }
             }
-            _ => state.set_status("Click a part of the selected texture set", now),
         }
     }
 
@@ -385,12 +389,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     if state.session.set_clone_source(&camera, sp) { state.set_status("Clone source set: now paint where the copy should go", now); }
                     else { state.set_status(crate::keys::native("Ctrl+click the model to set the clone source"), now); }
                 }
-                Tool::PolygonFill => {
-                    state.session.brush.mode = StrokeMode::Paint;
-                    if let Err(e) = state.session.polygon_fill(&camera, sp, state.fill_mode) {
-                        state.set_status(format!("Polygon fill: {e}"), now);
-                    }
-                }
+                Tool::PolygonFill => state.fill_box = Some(p),
                 _ => {
                     if let Err(e) = state.session.prepare_surface_paint(&camera, sp) { state.set_status(format!("Parts: {e}"), now); }
                     state.session.brush.mode = match state.tool {
@@ -403,6 +402,13 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         state.gpu_dirty = true;
                         state.set_status(format!("Painting on a new paint layer, \"{name}\" (the selected layer was not a paint layer)"), now);
                     }
+                    // Painter warns when the stroke starts on another texture set's part.
+                    if let Some(hit) = state.session.pick(&camera, sp)
+                        && hit.material_slot != state.session.selected_texture_set().material_slot
+                        && let Some(name) = state.session.document().texture_set_for_slot(hit.material_slot).map(|t| t.name.clone())
+                    {
+                        state.set_status(crate::keys::native_string(format!("This part belongs to texture set \"{name}\": Ctrl+Alt+right-click it to paint there")), now);
+                    }
                     match state.session.begin_stroke() {
                         Ok(()) => {
                             state.painting = true;
@@ -410,10 +416,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                             let line_from = if mods.shift { state.last_stroke_point } else { None };
                             // Ctrl+Shift+click: the line snaps to 5 degree steps, as in Painter, and
                             // the next line starts where this one ended (not at the raw click).
-                            let end = match line_from {
-                                Some(from) if mods.command || mods.ctrl => crate::nav::snap_line_end(from, sp, 5.0),
-                                _ => sp,
-                            };
+                            let end = line_from.map_or(sp, |from| straight_line_end(from, sp, mods.command || mods.ctrl));
                             if let Some(from) = line_from {
                                 let _ = state.session.stroke_to(&camera, from, true);
                                 let _ = state.session.stroke_to(&camera, end, true);
@@ -447,11 +450,34 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         state.painting = false;
     }
 
+    // ----- polygon fill: a click fills the element under the cursor, a drag every element in the box -----
+    let fill_rect = state.fill_box.zip(pointer).map(|(a, b)| Rect::from_two_pos(a, b));
+    if state.fill_box.is_some() && (state.tool != Tool::PolygonFill || bake_mode || ui.input(|i| i.key_pressed(egui::Key::Escape))) {
+        state.fill_box = None;
+    } else if let Some(start) = state.fill_box
+        && !primary_down
+    {
+        state.fill_box = None;
+        let end = pointer.unwrap_or(start);
+        state.session.brush.mode = StrokeMode::Paint;
+        let result = if crate::view_props::is_box_drag(start, end) {
+            state.session.polygon_fill_box(&camera, to_screen(start), to_screen(end), state.fill_mode, state.fill_visible_only)
+        } else {
+            state.session.polygon_fill(&camera, to_screen(start), state.fill_mode)
+        };
+        match result {
+            Ok(tiles) if tiles.is_empty() && crate::view_props::is_box_drag(start, end) => state.set_status("Polygon fill: the box touched no triangle of this texture set", now),
+            Ok(_) => {}
+            Err(e) => state.set_status(format!("Polygon fill: {e}"), now),
+        }
+    }
+
     // ----- render --------------------------------------------------------------------------------
     state.sync_gpu();
     let painter = ui.painter_at(rect);
     let tracing = state.recovery.prefs.viewport.path_tracing && !bake_mode;
     let mut pt_error = None;
+    let mask_view = crate::mask_view::active(state);
     match (&state.render_state, &mut state.renderer) {
         (Some(rs), Some(renderer)) => {
             let t0 = web_time::Instant::now();
@@ -463,8 +489,11 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             params.post = view.post_params_at(state.session.scene().mesh.bounds.diagonal(), state.camera.eye_distance());
             params.view_mode = view.view_mode();
             params.solo_channel = view.solo.filter(|_| view.mesh_map.is_none());
+            params.mask_view = mask_view;
             params.channel_display = view.channel_display();
             params.mip_bias = -(view.mip_bias.min(3) as f32);
+            params.shadows = view.shadow_params();
+            params.highlight_slot = state.highlight_slot.take();
             renderer.set_texture_filtering(&rs.device, view.anisotropy.samples());
             params.symmetry_guides = view.symmetry_guides && state.session.brush.options.has_symmetry() && !bake_mode;
             if params.symmetry_guides {
@@ -482,12 +511,19 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 if !state.bake.preview_uploaded {
                     renderer.set_bake_preview(&rs.device, Some((&state.session.scene().mesh, high)));
                     state.bake.preview_uploaded = true;
+                    state.bake.miss_uploaded = false;
                 }
             } else if !state.bake.preview_uploaded {
                 renderer.set_bake_preview(&rs.device, None);
                 state.bake.preview_uploaded = true;
             }
             params.bake_overlay = state.bake.overlay_active();
+            if state.bake.preview_mesh.is_some() && !state.bake.miss_uploaded && let Some(r) = &state.bake.cage_result {
+                let maps: Vec<(u32, &subcraft_image::TiledImage)> = r.maps.iter().map(|(_, slot, img)| (*slot, img)).collect();
+                renderer.set_bake_miss_maps(&rs.device, &rs.queue, &maps);
+                state.bake.miss_uploaded = true;
+            }
+            params.bake_miss_heatmap = state.bake.heatmap_shown();
             params.bake_cage = state.bake.cage;
             if let Some(high) = &state.bake.preview_mesh {
                 let low = state.session.scene().mesh.bounds;
@@ -517,8 +553,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 &rs.queue,
             );
             // Shift+MMB turns the key light around the model (on top of following the camera).
-            if state.light_yaw != 0.0 {
-                params.light_dir = glam::Quat::from_rotation_y(state.light_yaw) * params.light_dir;
+            if state.light_yaw != 0.0 || state.light_pitch != 0.0 {
+                params.light_dir = lit_direction(params.light_dir, state.light_yaw, state.light_pitch);
             }
             // Rendering mode: path trace instead of rasterizing; any failure falls back to raster.
             let pt_settings = view.path_trace_settings(state.pt_paused);
@@ -585,6 +621,19 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     }
 
     // ----- overlays ------------------------------------------------------------------------------
+    // Symmetry "Show Plane": each active mirror plane as a translucent sheet in its axis colour.
+    if !bake_mode && state.recovery.prefs.viewport.symmetry_plane && state.tool != Tool::Pen {
+        let (mirrors, bounds) = (state.session.brush.options.symmetry, state.session.scene().mesh.bounds);
+        for axis in (0..3).filter(|&a| mirrors[a]) {
+            let corners: Option<Vec<Pos2>> = mirror_plane_corners(&bounds, axis).iter()
+                .map(|&q| camera.project(q).map(|s| rect.min + egui::vec2(s.x / pixel_scale.x, s.y / pixel_scale.y)))
+                .collect();
+            if let Some(corners) = corners {
+                let c = AXIS_COLORS[axis];
+                painter.add(egui::Shape::convex_polygon(corners, c.gamma_multiply(0.12), Stroke::new(1.0, c.gamma_multiply(0.6))));
+            }
+        }
+    }
     if state.tool == Tool::Pen && let Some(path) = state.pen.preview(&state.session) {
         crate::pen::draw(&painter, path, state.pen.selected_anchor(), |uv| pen_position(state, &camera, rect, uv));
     }
@@ -601,6 +650,30 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 let color = if state.tool == Tool::Eraser { Color32::from_rgb(120, 190, 255) } else { ACCENT };
                 painter.circle_stroke(p, r_px, Stroke::new(1.5, Color32::from_black_alpha(160)));
                 painter.circle_stroke(p, r_px, Stroke::new(1.0, color));
+                // Symmetry: a second cursor where each copy paints (faint when the copy's point
+                // is hidden behind the model).
+                let prefs = &state.recovery.prefs.viewport;
+                if prefs.symmetry_cursor && !(prefs.symmetry_cursor_hide_painting && state.painting) {
+                    let options = &state.session.brush.options;
+                    let center = state.session.scene().mesh.bounds.center();
+                    for (at, visible) in symmetry_cursors(&camera, options, center, pick.position, |s| state.session.pick(&camera, s).map(|h| h.depth)) {
+                        let at = rect.min + egui::vec2(at.x / pixel_scale.x, at.y / pixel_scale.y);
+                        let c = if visible { color.gamma_multiply(0.8) } else { color.gamma_multiply(0.3) };
+                        painter.circle_stroke(at, r_px, Stroke::new(1.0, c));
+                    }
+                }
+            }
+            // Lazy mouse: the grey ring the cursor moves in before the brush follows.
+            let lazy = state.session.brush.options.lazy_distance_px;
+            if lazy > 0.0 {
+                painter.circle_stroke(p, lazy / pixel_scale.y, Stroke::new(1.0, Color32::from_gray(150)));
+            }
+            // Shift: dotted preview of the straight line from the last stroke point (snapped with
+            // Ctrl, exactly where the click would draw it).
+            if mods.shift && !state.painting && let Some(from) = state.last_stroke_point {
+                let to_pos = |s: Vec2| rect.min + egui::vec2(s.x / pixel_scale.x, s.y / pixel_scale.y);
+                let end = straight_line_end(from, to_screen(p), mods.command || mods.ctrl);
+                painter.extend(egui::Shape::dashed_line(&[to_pos(from), to_pos(end)], Stroke::new(1.2, Color32::from_white_alpha(200)), 5.0, 4.0));
             }
         } else if state.tool == Tool::PolygonFill && !picking {
             painter.circle_filled(p, 3.0, ACCENT);
@@ -620,6 +693,12 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             painter.circle_stroke(from, 6.0, Stroke::new(1.5, cross));
         }
     }
+    if let Some(r) = fill_rect.filter(|r| state.fill_box.is_some() && crate::view_props::is_box_drag(r.min, r.max)) {
+        crate::view_props::draw_fill_box(&painter, r, state.fill_visible_only);
+    }
+    if let (Some(a), Some(b)) = (state.parts_box, pointer) && crate::view_props::is_box_drag(a, b) {
+        crate::view_props::draw_fill_box(&painter, Rect::from_two_pos(a, b), false);
+    }
     draw_stencil(state, ui, &painter, rect, size);
     // Reset button at the top right of the view while S is held.
     if stencil_edit {
@@ -638,8 +717,16 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     if let Some(item) = drop_hover {
         painter.rect_stroke(rect.shrink(1.0), 0.0, Stroke::new(2.0, ACCENT), egui::StrokeKind::Inside);
         let target = state.session.selected_layer().map(|l| l.name.clone());
-        let what = crate::panels::shelf::drop_label(item, mods.alt, target.as_deref().filter(|_| mods.alt), false);
+        let mut what = crate::panels::shelf::drop_label(item, mods.alt, target.as_deref().filter(|_| mods.alt), false);
+        if (mods.command || mods.ctrl) && !mods.alt && !matches!(item, crate::panels::shelf::ShelfDrag::Alpha(_) | crate::panels::shelf::ShelfDrag::SmartMask(_)) {
+            what.push_str(", only on the part under the cursor");
+        }
         pill(&painter, rect.center_top() + egui::vec2(0.0, 14.0), egui::Align2::CENTER_TOP, &format!("Release to: {what}"), theme::TEXT);
+    }
+    // Painter's mask view: say what is shown and how to get back; Esc goes back too.
+    if let Some(text) = crate::mask_view::label(state) {
+        pill(&painter, rect.center_top() + egui::vec2(0.0, 40.0), egui::Align2::CENTER_TOP, &text, theme::TEXT);
+        if response.hovered() && ui.input(|i| i.key_pressed(egui::Key::Escape)) { state.mask_view = None; }
     }
     let bake_hint = state.bake.displayed_map.map(|k| format!("Bake preview · {} · close Bake Mesh Maps to return to material", k.display_name()));
     let orbit = scheme.orbit_hint();
@@ -678,6 +765,15 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         let r = pill(&painter, right, egui::Align2::RIGHT_TOP, &format!("{}  Symmetry {axes}", icons::SYMMETRY), ACCENT);
         right.x = r.left() - 6.0;
     }
+    if let Some(q) = state.session.quick_mask() {
+        let text = if q.editing { "Quick mask · editing · U apply · Y clear" } else { "Quick mask on · U edit · I invert · Y clear" };
+        let r = pill(&painter, right, egui::Align2::RIGHT_TOP, &format!("{}  {text}", icons::SELECTION), ACCENT);
+        right.x = r.left() - 6.0;
+    }
+    if state.session.hide_excluded() {
+        let r = pill(&painter, right, egui::Align2::RIGHT_TOP, &format!("{}  Excluded geometry hidden · Alt+H", icons::EYE_SLASH), ACCENT);
+        right.x = r.left() - 6.0;
+    }
     if tracing && let Some(s) = state.pt_status {
         let progress = if s.max_samples > 0 { format!("{} / {} samples", s.samples, s.max_samples) } else { format!("{} samples", s.samples) };
         let what = if state.pt_paused { "paused".to_string() } else if s.converged() { "done".to_string() } else { format!("{:.0} samples/s", s.samples_per_second) };
@@ -704,7 +800,21 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         subcraft_paint::PaintTarget::Content => {}
     }
     brush_notice(state, ui, &painter, rect, now);
+    // Painter's engine progress bar: a thin moving bar at the top while layers are computed.
+    if state.session.composites_pending() {
+        computing_bar(&painter, rect, now);
+        ui.ctx().request_repaint();
+    }
     rendering_toggle(state, ui, rect, bake_mode);
+    // Texture set highlight under the cursor while Ctrl+Alt (texture set selection) is held, not
+    // while painting or navigating.
+    if !bake_mode && (mods.ctrl || mods.command) && mods.alt && !state.painting && state.nav_drag.is_none()
+        && let Some(p) = response.hover_pos()
+        && let Some(hit) = state.session.pick(&state.camera.paint_camera(size), to_screen(p))
+    {
+        state.highlight_slot = Some(hit.material_slot);
+        ui.ctx().request_repaint();
+    }
     camera_corner(state, ui, rect, bake_mode);
     if state.painting || response.dragged() {
         ui.ctx().request_repaint();
@@ -794,6 +904,60 @@ fn pen_position(state: &UiState, camera: &subcraft_app::Camera, rect: Rect, uv: 
     let tolerance = state.session.scene().mesh.bounds.diagonal() * 0.03;
     if pick.material_slot != state.session.selected_texture_set().material_slot || pick.position.distance(position) > tolerance { return None; }
     Some(rect.min + egui::vec2(screen.x * rect.width() / camera.viewport[0] as f32, screen.y * rect.height() / camera.viewport[1] as f32))
+}
+
+/// The key light direction `base` turned `yaw` radians around the vertical and tilted `pitch`
+/// radians up (negative: down, below the horizon lights the model from underneath).
+pub fn lit_direction(base: glam::Vec3, yaw: f32, pitch: f32) -> glam::Vec3 {
+    let turned = glam::Quat::from_rotation_y(yaw) * base.normalize_or(glam::Vec3::Y);
+    let flat = glam::Vec2::new(turned.x, turned.z);
+    let flat = if flat.length() > 1e-5 { flat.normalize() } else { glam::Vec2::new(1.0, 0.0) };
+    let limit = std::f32::consts::FRAC_PI_2 - 0.02;
+    let elevation = (turned.y.clamp(-1.0, 1.0).asin() + pitch).clamp(-limit, limit);
+    glam::Vec3::new(flat.x * elevation.cos(), elevation.sin(), flat.y * elevation.cos())
+}
+
+/// Position (0..1) of the moving segment of the progress bar at time `now` (seconds).
+pub fn computing_phase(now: f64) -> f32 {
+    (now * 0.8).rem_euclid(1.0) as f32
+}
+
+fn computing_bar(painter: &egui::Painter, rect: Rect, now: f64) {
+    let track = Rect::from_min_size(rect.left_top(), egui::vec2(rect.width(), 2.0));
+    painter.rect_filled(track, 0.0, Color32::from_white_alpha(18));
+    let width = rect.width() * 0.25;
+    let x = rect.left() - width + (rect.width() + width) * computing_phase(now);
+    let seg = Rect::from_min_max(egui::pos2(x.max(rect.left()), track.top()), egui::pos2((x + width).min(rect.right()), track.bottom()));
+    if seg.width() > 0.0 {
+        painter.rect_filled(seg, 0.0, ACCENT);
+    }
+}
+
+#[cfg(test)]
+mod light_tests {
+    use super::{computing_phase, lit_direction};
+    use glam::Vec3;
+
+    #[test]
+    fn the_key_light_turns_tilts_and_reaches_under_the_model() {
+        let base = Vec3::new(0.65, 0.75, 0.35).normalize();
+        assert!((lit_direction(base, 0.0, 0.0) - base).length() < 1e-5, "no turn, no tilt: unchanged");
+        let turned = lit_direction(base, std::f32::consts::FRAC_PI_2, 0.0);
+        assert!((turned.y - base.y).abs() < 1e-5 && (turned.length() - 1.0).abs() < 1e-5, "turning keeps the height");
+        let under = lit_direction(base, 0.0, -2.0);
+        assert!(under.y < -0.5, "tilted down past the horizon the light comes from underneath: {under:?}");
+        let top = lit_direction(base, 0.0, 10.0);
+        assert!(top.y > 0.99 && top.y < 1.0, "the tilt stops just short of straight up (the direction stays defined): {top:?}");
+        let straight_up = lit_direction(Vec3::Y, 1.0, -0.5);
+        assert!(straight_up.is_finite() && straight_up.y < 1.0);
+    }
+
+    #[test]
+    fn the_progress_segment_sweeps_and_wraps() {
+        assert_eq!(computing_phase(0.0), 0.0);
+        assert!((computing_phase(0.5) - 0.4).abs() < 1e-6);
+        assert!(computing_phase(1.25) < 0.05, "wraps back to the start");
+    }
 }
 
 /// Rotation of a stencil being dragged: the free angle, or its nearest quarter turn with Shift.
@@ -889,10 +1053,82 @@ fn visualization_overlays(state: &UiState, painter: &egui::Painter, rect: Rect, 
     if prefs.shown_channel().is_some() && let Some(name) = prefs.channel_component.overlay() {
         pill(painter, rect.left_top() + egui::vec2(10.0, 10.0), egui::Align2::LEFT_TOP, crate::i18n::tr(name), theme::TEXT);
     }
+    // Axis indicator above the Render toggle in the bottom-right corner.
+    if prefs.axis_indicator {
+        draw_axis_indicator(painter, rect.right_bottom() + egui::vec2(-44.0, -78.0), state.camera.view());
+    }
     // The grid's unit, where the hints are not (they own the bottom-left corner when shown).
     if prefs.grid && !prefs.hints && let Some(step) = subcraft_render::grid_step(state.session.scene().mesh.bounds) {
         pill(painter, rect.left_bottom() + egui::vec2(10.0, -10.0), egui::Align2::LEFT_BOTTOM, &grid_unit_label(step), theme::TEXT_FAINT);
     }
+}
+
+/// End of a Shift+click straight line from `from` towards the cursor: Ctrl snaps it to 5 degree
+/// steps, as in Painter. The stroke and its dotted preview both use it.
+pub fn straight_line_end(from: Vec2, cursor: Vec2, snap: bool) -> Vec2 {
+    if snap { crate::nav::snap_line_end(from, cursor, 5.0) } else { cursor }
+}
+
+/// The world X, Y and Z axes as seen through `view`: axis index, screen direction (y down, length
+/// up to 1) and view depth, farthest first so nearer axes draw over it.
+pub fn axis_indicator(view: glam::Mat4) -> [(usize, egui::Vec2, f32); 3] {
+    let mut axes = [0, 1, 2].map(|i| {
+        let d = view.transform_vector3([glam::Vec3::X, glam::Vec3::Y, glam::Vec3::Z][i]);
+        (i, egui::vec2(d.x, -d.y), d.z)
+    });
+    // The view looks down -Z: the most negative depth is the farthest.
+    axes.sort_by(|a, b| a.2.total_cmp(&b.2));
+    axes
+}
+
+/// Red X, green Y, blue Z (axis indicator, mirror planes).
+const AXIS_COLORS: [Color32; 3] = [Color32::from_rgb(232, 84, 84), Color32::from_rgb(116, 204, 92), Color32::from_rgb(86, 146, 240)];
+
+/// Corners of the mirror plane of `axis` (0 = X) through the centre of `bounds`, in order around
+/// it, reaching 10 % past the model each way (and never thinner than 5 % of its size, so a flat
+/// model still shows a plane).
+pub fn mirror_plane_corners(bounds: &subcraft_mesh::Aabb, axis: usize) -> [glam::Vec3; 4] {
+    let c = bounds.center();
+    let half = ((bounds.max - bounds.min) * 0.55).max(glam::Vec3::splat(bounds.diagonal() * 0.05));
+    let (u, v) = ((axis + 1) % 3, (axis + 2) % 3);
+    [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)].map(|(a, b): (f32, f32)| {
+        let mut p = c;
+        p[u] += a * half[u];
+        p[v] += b * half[v];
+        p
+    })
+}
+
+/// Painter's orientation indicator: red X, green Y, blue Z from a common centre.
+fn draw_axis_indicator(painter: &egui::Painter, centre: Pos2, view: glam::Mat4) {
+    painter.circle_filled(centre, 32.0, Color32::from_black_alpha(60));
+    for (i, d, depth) in axis_indicator(view) {
+        let tip = centre + d * 22.0;
+        // Axes pointing away are drawn dimmer.
+        let color = if depth < -0.05 { AXIS_COLORS[i].gamma_multiply(0.55) } else { AXIS_COLORS[i] };
+        painter.line_segment([centre, tip], Stroke::new(2.0, color));
+        painter.circle_filled(tip, 7.0, color);
+        painter.text(tip, egui::Align2::CENTER_CENTER, ["X", "Y", "Z"][i], egui::FontId::proportional(9.5), Color32::from_gray(20));
+    }
+}
+
+/// Most symmetry cursors drawn (radial symmetry can make up to 64 copies).
+const MAX_SYMMETRY_CURSORS: usize = 16;
+
+/// Screen positions (physical pixels) of the symmetry copies of the brush point `p`, without
+/// the brush itself, and whether each is visible: `depth_at` gives the depth of the model under
+/// a screen point, and a copy farther than that (beyond a small tolerance) is behind it.
+pub fn symmetry_cursors(camera: &subcraft_app::Camera, options: &subcraft_paint::StrokeOptions, center: glam::Vec3, p: glam::Vec3, depth_at: impl Fn(Vec2) -> Option<f32>) -> Vec<(Vec2, bool)> {
+    let tolerance = |d: f32| d * 0.01 + 1e-4;
+    options.symmetry_points(center, p).into_iter().skip(1).take(MAX_SYMMETRY_CURSORS).filter_map(|q| {
+        let s = camera.project(q)?;
+        let at = Vec2::new(s.x, s.y);
+        let inside = at.x >= 0.0 && at.y >= 0.0 && at.x <= camera.viewport[0] as f32 && at.y <= camera.viewport[1] as f32;
+        if !inside { return None; }
+        let depth = camera.view.transform_point3(q).z.abs();
+        let visible = depth_at(at).is_some_and(|d| depth <= d + tolerance(d));
+        Some((at, visible))
+    }).collect()
 }
 
 /// Bottom-left readout of the grid spacing, in scene units.
@@ -903,7 +1139,68 @@ pub fn grid_unit_label(step: f32) -> String {
 
 /// Semi-transparent stencil image over the 3D view (hidden while N bypasses it), repeated along
 /// its tiled axes.
-fn draw_stencil(state: &mut UiState, ui: &Ui, painter: &egui::Painter, rect: Rect, size: [u32; 2]) {
+/// Stencil keys shared by the 3D and 2D views: hold N to paint without it; hold S and drag to
+/// place it (LMB rotate, Shift snaps to quarter turns; MMB move; RMB scale). `rect` is the view
+/// the stencil is laid over. Returns whether S is editing the stencil (drags belong to it).
+pub(crate) fn stencil_input(state: &mut UiState, ui: &Ui, response: &egui::Response, rect: Rect, mods: egui::Modifiers, delta: egui::Vec2) -> bool {
+    // Shift is the only modifier allowed with S: it snaps the rotation to quarter turns.
+    let (s_down, n_down) = ui.input(|i| (i.key_down(egui::Key::S) && !(i.modifiers.ctrl || i.modifiers.command || i.modifiers.alt), i.key_down(egui::Key::N) && !i.modifiers.any()));
+    let typing = ui.ctx().egui_wants_keyboard_input();
+    state.session.brush.stencil_bypass = n_down && !typing;
+    let stencil_edit = s_down && !typing && state.session.brush.stencil.is_some();
+    if stencil_edit && response.hovered() {
+        let mut st = (**state.session.brush.stencil.as_ref().expect("checked above")).clone();
+        let mut changed = false;
+        // The free angle of the drag is kept apart so a snapped rotation follows the whole
+        // gesture, not each small mouse step.
+        let free_id = egui::Id::new("stencil-free-rotation");
+        if response.dragged_by(PointerButton::Primary) {
+            let free = ui.data(|d| d.get_temp::<f32>(free_id)).unwrap_or(st.rotation) + delta.x * 0.01;
+            ui.data_mut(|d| d.insert_temp(free_id, free));
+            st.rotation = stencil_drag_rotation(free, mods.shift);
+            changed = true;
+        } else {
+            ui.data_mut(|d| d.remove::<f32>(free_id));
+        }
+        if response.dragged_by(PointerButton::Middle) {
+            st.center += Vec2::new(delta.x / rect.width(), delta.y / rect.height());
+            changed = true;
+        }
+        if response.dragged_by(PointerButton::Secondary) {
+            st.scale = (st.scale * (-delta.y * 0.01).exp()).clamp(0.02, 8.0);
+            changed = true;
+        }
+        if changed {
+            state.session.brush.stencil = Some(std::sync::Arc::new(st));
+        }
+        ui.ctx().set_cursor_icon(egui::CursorIcon::AllScroll);
+    }
+    stencil_edit
+}
+
+/// Painter's brush gestures, shared by the 3D and 2D views: Ctrl+RMB drag = size (left-right) /
+/// hardness (up-down), Ctrl+LMB drag = flow / angle. `allowed` is false while the view's own
+/// state rules them out (a stroke, the stencil, a text field). Returns whether Ctrl+LMB belongs
+/// to the flow / angle drag (so the press must not start a stroke).
+pub(crate) fn brush_gestures(state: &mut UiState, response: &egui::Response, mods: egui::Modifiers, delta: egui::Vec2, allowed: bool) -> bool {
+    let gesture_ok = allowed && mods.command && !mods.alt;
+    let brush_tool = matches!(state.tool, Tool::Brush | Tool::Eraser | Tool::Smudge | Tool::Clone);
+    // Ctrl+Shift+LMB is the snapped straight line, so the flow / angle drag needs Shift up.
+    let lmb_adjust = gesture_ok && !mods.shift && matches!(state.tool, Tool::Brush | Tool::Eraser | Tool::Smudge);
+    if gesture_ok && brush_tool {
+        let s = &mut state.session.brush.settings;
+        if response.dragged_by(PointerButton::Secondary) {
+            s.size = (s.size * (delta.x * 0.01).exp()).clamp(0.1, 100.0);
+            s.hardness = (s.hardness - delta.y * 0.005).clamp(0.0, 1.0);
+        } else if lmb_adjust && response.dragged_by(PointerButton::Primary) {
+            s.flow = (s.flow + delta.x * 0.003).clamp(0.01, 1.0);
+            s.angle_deg = (s.angle_deg + delta.y * 0.5).rem_euclid(360.0);
+        }
+    }
+    lmb_adjust
+}
+
+pub(crate) fn draw_stencil(state: &mut UiState, ui: &Ui, painter: &egui::Painter, rect: Rect, size: [u32; 2]) {
     let Some(st) = state.session.brush.stencil.clone() else {
         state.stencil_tex = None;
         return;
@@ -940,6 +1237,86 @@ fn draw_stencil(state: &mut UiState, ui: &Ui, painter: &egui::Painter, rect: Rec
 mod tests {
     use super::*;
     use crate::state::BrushNotice;
+
+    #[test]
+    fn mirror_planes_cut_through_the_centre_and_reach_past_the_model() {
+        let b = subcraft_mesh::Aabb { min: glam::Vec3::new(-1.0, 0.0, -2.0), max: glam::Vec3::new(3.0, 2.0, 2.0) };
+        let x = mirror_plane_corners(&b, 0);
+        assert!(x.iter().all(|p| p.x == 1.0), "the X plane sits at the centre x: {x:?}");
+        assert_eq!((x[0].y, x[2].y, x[0].z, x[2].z), (1.0 - 1.1, 1.0 + 1.1, -2.2, 2.2), "10 % past the model");
+        let y = mirror_plane_corners(&b, 1);
+        assert!(y.iter().all(|p| p.y == 1.0));
+        // Corners go around the rectangle: opposite corners share no coordinate in the plane.
+        for c in [x, y, mirror_plane_corners(&b, 2)] {
+            let (d1, d2) = (c[2] - c[0], c[3] - c[1]);
+            assert!((d1.length() - d2.length()).abs() < 1e-5 && d1.dot(d2).abs() < d1.length_squared(), "{c:?}");
+        }
+        // A flat model (no thickness along Y) still gets a visible Z plane height.
+        let flat = subcraft_mesh::Aabb { min: glam::Vec3::new(-1.0, 0.0, -1.0), max: glam::Vec3::new(1.0, 0.0, 1.0) };
+        let z = mirror_plane_corners(&flat, 2);
+        assert!((z[2].y - z[0].y) > 0.1, "{z:?}");
+    }
+
+    #[test]
+    fn symmetry_cursors_sit_on_the_mirrored_points_and_know_when_they_are_hidden() {
+        let camera = subcraft_app::Camera {
+            view: glam::Mat4::look_at_rh(glam::Vec3::new(0.0, 0.0, 10.0), glam::Vec3::ZERO, glam::Vec3::Y),
+            proj: glam::Mat4::perspective_rh(40f32.to_radians(), 1.0, 0.1, 100.0),
+            viewport: [400, 400],
+        };
+        let mirror_x = subcraft_paint::StrokeOptions { symmetry: [true, false, false], ..Default::default() };
+        let p = glam::Vec3::new(1.0, 0.5, 0.0);
+        // Nothing in front: the copy is visible, at the mirror image of the brush on screen.
+        let cursors = symmetry_cursors(&camera, &mirror_x, glam::Vec3::ZERO, p, |_| Some(10.0));
+        assert_eq!(cursors.len(), 1);
+        let brush = camera.project(p).unwrap();
+        let (at, visible) = cursors[0];
+        assert!(visible);
+        assert!((at.x - (400.0 - brush.x)).abs() < 1e-2 && (at.y - brush.y).abs() < 1e-2, "{at} vs brush {brush}");
+        // The model is nearer there: the copy is behind it.
+        let hidden = symmetry_cursors(&camera, &mirror_x, glam::Vec3::ZERO, p, |_| Some(5.0));
+        assert!(!hidden[0].1);
+        // No symmetry, no cursors; a copy off screen is left out.
+        assert!(symmetry_cursors(&camera, &Default::default(), glam::Vec3::ZERO, p, |_| Some(10.0)).is_empty());
+        let off = symmetry_cursors(&camera, &mirror_x, glam::Vec3::new(40.0, 0.0, 0.0), p, |_| Some(10.0));
+        assert!(off.is_empty(), "the mirror image at x = 79 is outside the view");
+        // Radial symmetry draws at most MAX_SYMMETRY_CURSORS.
+        let many = subcraft_paint::StrokeOptions { radial: subcraft_paint::RadialSymmetry { enabled: true, axis: 2, count: 64, center_offset: [0.0; 3] }, ..Default::default() };
+        assert_eq!(symmetry_cursors(&camera, &many, glam::Vec3::ZERO, glam::Vec3::new(0.5, 0.0, 0.0), |_| Some(10.0)).len(), MAX_SYMMETRY_CURSORS);
+    }
+
+    #[test]
+    fn the_axis_indicator_follows_the_camera_and_draws_far_axes_first() {
+        // Looking straight down -Z: X to the right, Y up, Z towards the viewer (a dot, drawn last).
+        let front = glam::Mat4::look_at_rh(glam::Vec3::new(0.0, 0.0, 5.0), glam::Vec3::ZERO, glam::Vec3::Y);
+        let axes = axis_indicator(front);
+        let get = |i: usize| axes.iter().find(|a| a.0 == i).copied().unwrap();
+        assert!((get(0).1 - egui::vec2(1.0, 0.0)).length() < 1e-5, "X points right");
+        assert!((get(1).1 - egui::vec2(0.0, -1.0)).length() < 1e-5, "Y points up the screen");
+        assert!(get(2).1.length() < 1e-5 && get(2).2 > 0.9, "Z faces the viewer");
+        assert_eq!(axes[2].0, 2, "the axis towards the viewer is drawn last");
+        // Orbiting to the right side (+X): Z now points left, X at the viewer.
+        let side = glam::Mat4::look_at_rh(glam::Vec3::new(5.0, 0.0, 0.0), glam::Vec3::ZERO, glam::Vec3::Y);
+        let axes = axis_indicator(side);
+        let get = |i: usize| axes.iter().find(|a| a.0 == i).copied().unwrap();
+        assert!((get(2).1 - egui::vec2(-1.0, 0.0)).length() < 1e-5, "Z points left from the +X side: {:?}", get(2).1);
+        assert_eq!(axes[2].0, 0);
+        // The orbit camera's three-quarter view: every axis visible, depths sorted.
+        let b = subcraft_mesh::Aabb { min: glam::Vec3::splat(-1.0), max: glam::Vec3::splat(1.0) };
+        let axes = axis_indicator(crate::orbit::OrbitCamera::framing(&b).view());
+        assert!(axes.windows(2).all(|w| w[0].2 <= w[1].2));
+        assert!(axes.iter().all(|a| a.1.length() > 0.2 && a.1.length() <= 1.0 + 1e-5));
+    }
+
+    #[test]
+    fn the_straight_line_preview_ends_where_the_click_draws() {
+        let from = Vec2::new(100.0, 100.0);
+        let cursor = Vec2::new(200.0, 104.0);
+        assert_eq!(straight_line_end(from, cursor, false), cursor);
+        let snapped = straight_line_end(from, cursor, true);
+        assert_eq!(snapped, crate::nav::snap_line_end(from, cursor, 5.0));
+        assert!((snapped.y - from.y).abs() < 1e-3, "a near-horizontal line snaps flat: {snapped}");
+    }
 
     #[test]
     fn the_camera_frame_is_the_largest_centred_picture_of_its_ratio() {

@@ -58,6 +58,10 @@ pub struct DocumentV1 {
     pub settings: subcraft_doc::ProjectSettings,
 }
 
+fn legacy_mixing() -> subcraft_doc::MixingSettings {
+    subcraft_doc::MixingSettings::LEGACY
+}
+
 fn is_default_settings(s: &subcraft_doc::ProjectSettings) -> bool {
     *s == subcraft_doc::ProjectSettings::default()
 }
@@ -66,11 +70,18 @@ fn is_default_settings(s: &subcraft_doc::ProjectSettings) -> bool {
 pub struct TextureSetV1 {
     pub id: Uuid,
     pub name: String,
+    /// Texture Set List description. Additive and optional: absent means empty, older readers ignore it.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub description: String,
     pub material_slot: u32,
     pub resolution: u32,
     /// Schema 6 migration: older files retain their original bilinear reconstruction.
     #[serde(default)]
     pub albedo_filter: subcraft_image::TextureFilter,
+    /// Mixing settings. Additive and optional: absent (files written before them) loads as
+    /// `MixingSettings::LEGACY`, the behaviour those files were made with.
+    #[serde(default = "legacy_mixing")]
+    pub mixing: subcraft_doc::MixingSettings,
     /// Schema 13: UDIM tile `[column, row]` this set paints (absent = ordinary set).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub udim_tile: Option<[i32; 2]>,
@@ -81,11 +92,23 @@ pub struct TextureSetV1 {
     #[serde(default, skip_serializing_if = "subcraft_doc::AlphaSettings::is_default")]
     pub alpha: subcraft_doc::AlphaSettings,
     pub channels: Vec<ChannelDefV1>,
+    /// Names of renamed user channels. Additive and optional: absent = none renamed.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub user_channel_names: std::collections::BTreeMap<ChannelKind, String>,
     /// Bottom-to-top.
     pub layers: Vec<LayerV1>,
     /// Baked mesh maps (optional; absent in files written before baking existed).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub mesh_maps: Vec<MeshMapV1>,
+    /// ID color editor changes over the stored ID map (optional; absent = none).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub id_color_edits: Vec<IdColorEditV1>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct IdColorEditV1 {
+    pub from: [f32; 3],
+    pub to: [f32; 3],
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -273,6 +296,8 @@ pub enum MaskEffectKindV1 {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         levels: Option<Levels>,
     },
+    /// Painter's Compare Mask.
+    Compare { compare: subcraft_doc::CompareMask },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -282,4 +307,17 @@ pub struct ResourceV1 {
     pub kind: subcraft_doc::ResourceKind,
     /// Path of the stored file inside the container (original encoded bytes).
     pub file: String,
+}
+
+#[cfg(test)]
+mod mixing_tests {
+    #[test]
+    fn texture_sets_saved_before_mixing_load_with_the_legacy_settings() {
+        let json = r#"{"id":"00000000-0000-0000-0000-000000000001","name":"A","material_slot":0,"resolution":256,"channels":[],"layers":[]}"#;
+        let ts: super::TextureSetV1 = serde_json::from_str(json).unwrap();
+        assert_eq!(ts.mixing, subcraft_doc::MixingSettings::LEGACY);
+        assert_eq!(ts.description, "");
+        let back: super::TextureSetV1 = serde_json::from_str(&serde_json::to_string(&super::TextureSetV1 { mixing: subcraft_doc::MixingSettings::default(), ..ts }).unwrap()).unwrap();
+        assert_eq!(back.mixing, subcraft_doc::MixingSettings::default(), "saved settings load back");
+    }
 }

@@ -86,6 +86,13 @@ impl From<BTreeMap<String, Vec<String>>> for CustomKeys {
                     parsed.push(s);
                 }
             }
+            // Keys this build cannot read (a newer key name, a hand edit) leave the action on its
+            // default keys; only a list saved empty means "no key". An empty list here used to
+            // unbind the action, Ctrl+Z included.
+            if parsed.is_empty() && !list.is_empty() {
+                log::warn!("unreadable saved shortcuts {list:?} for \"{id}\"; using its default keys");
+                continue;
+            }
             keys.entries.push((action, parsed));
         }
         // Two actions saved with the same key: the first (by name) keeps it.
@@ -258,6 +265,18 @@ mod tests {
         }
     }
 
+    /// QA 2026-11: a saved shortcut this build cannot read unbound the action instead of leaving
+    /// its default keys.
+    #[test]
+    fn unreadable_saved_keys_keep_the_default_and_an_empty_list_still_unbinds() {
+        let custom: CustomKeys = serde_json::from_str(r#"{"Undo": ["Ctrl+Hyperspace"], "Redo": [], "Save": ["Ctrl+Nope", "Ctrl+S"]}"#).unwrap();
+        let km = Keymap::new(KeymapPreset::SubCraft, custom);
+        assert_eq!(km.shortcuts(Action::Undo), actions::shortcuts_in(KeymapPreset::SubCraft, Action::Undo), "unreadable: default keys");
+        assert!(!km.is_custom(Action::Undo));
+        assert!(km.shortcuts(Action::Redo).is_empty(), "saved empty: the user removed every key");
+        assert_eq!(km.shortcuts(Action::Save), [Shortcut::ctrl(Key::S)], "the readable key of a list is kept");
+    }
+
     #[test]
     fn without_rebinds_the_keymap_is_the_key_set() {
         for preset in KeymapPreset::ALL {
@@ -307,8 +326,8 @@ mod tests {
     fn an_action_without_a_default_key_can_get_one_and_a_key_can_be_removed() {
         let mut km = Keymap::from(KeymapPreset::SubCraft);
         assert!(km.shortcuts(Action::EyedropperTool).is_empty());
-        assert_eq!(km.bind(Action::EyedropperTool, Shortcut::key(Key::I)), None);
-        assert_eq!(km.action_for(Shortcut::key(Key::I)), Some(Action::EyedropperTool));
+        assert_eq!(km.bind(Action::EyedropperTool, Shortcut::key(Key::J)), None);
+        assert_eq!(km.action_for(Shortcut::key(Key::J)), Some(Action::EyedropperTool));
         km.unbind(Action::ResetCamera, Shortcut::key(Key::Home));
         assert_eq!(km.shortcuts(Action::ResetCamera), [Shortcut::key(Key::F)]);
         assert_eq!(km.action_for(Shortcut::key(Key::Home)), None);

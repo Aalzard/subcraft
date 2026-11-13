@@ -47,6 +47,7 @@ fn bounded_tiles_are_bit_exact_to_full_triangle_kernel_for_seams_alpha_and_mirro
                     backface_cos: Some(0.0),
                     alpha: tip,
                     stencil: None,
+                    stencil_uv: None,
                 };
                 let mut stamps = Vec::new();
                 for x in [150.0, 210.0, 256.0, 300.0, 370.0] {

@@ -4999,6 +4999,45 @@ rotating one slot when a tile is full (helps cyclic stacks, but the 40-layer sta
   --window-size 1600x1000 --screenshot` shows the Export window with the editor open, no errors; the checklist lists
   the pattern-based names (`T_DefaultMaterial_BaseColor.png`, `..._ORM.png`, `..._N.tif`).
 
+### Session 122 - Right-click Properties popup, curvature modes and detail sizes, polygon fill box / modes (2026-11-10, branch `claude/view-ux-curvature`)
+
+**Status:** built and tested (release). Not yet done: app screenshots and the 4K timing of the new detail sizes.
+The default Curvature path is unchanged: Some(default) and None give the baked map bit for bit (tested).
+
+* **Right-click Properties popup** (`ui/src/view_props.rs`): a right-click without dragging in the 3D or 2D view
+  opens the current Properties panel content at the cursor (brush settings while painting; fill, generator or
+  effect settings for the selection). The 3D view's part actions move from the old context menu into the popup
+  header. Esc, the X button or a click outside closes it, and that click doesn't paint. Right-drag orbit (Painter
+  scheme), Alt+RMB, Shift+RMB and Ctrl+RMB still navigate, because only egui's `secondary_clicked` (no drag) opens
+  the popup. The shortcut overlay, viewport hints and the actions list are updated.
+* **Curvature generator:**
+  * `doc::CurvatureDetail` holds a mode (Both / Edges only / Cavities only) and fine, medium and coarse weights
+    (0..2). It is stored as `Generator.curvature: Option<_>`, so older files read it as None (the old behaviour).
+  * `compositor/src/curvature.rs` builds box-filtered 256² and 64² grids, smoothed with [1 2 1] and sampled
+    bilinearly. They are cached per baked map (LRU of 8). Default or None settings skip all of it and give the
+    baked map bit for bit.
+  * The UI adds a Mode combo and Fine / Medium / Coarse sliders.
+  * The 4K bench gets letters `v` (default) and `w` (Edges, all sizes).
+* **Polygon fill:**
+  * New Polygon mode (quads and ngons recovered by `mesh::topology::polygons`) and Object mode, beside Triangle,
+    Mesh and UV island.
+  * LMB drag makes a box selection in 3D and in the 2D view.
+  * "Visible polygons only" (default on, eye toggle) keeps front faces hit by rays through the box. Off is x-ray.
+  * Each box is one "Polygon Fill" undo step.
+  * The core is in `paint/src/select.rs`, plus `Session::polygon_fill_box` / `polygon_fill_uv_box`.
+* **Tests (release, own target on D:, 2026-11-12), all pass:**
+  * mesh lib 88 (incl. `polygons_group_the_triangles_of_each_face`); doc lib 22 (curvature round trip)
+  * compositor lib 15 (curvature grid unit tests) and `tests/curvature_generator.rs` 4
+  * paint lib 32 and `tests/polygon_select.rs` 6; app lib 97 and `tests/polygon_fill_box.rs` 2
+  * ui lib 133 (incl. `view_props` unit tests and the i18n check) and `tests/view_props.rs` 4 (real egui input)
+* **Fixes found by the tests:** the medium-scale test needed a 1024 map (at 256 the 256-cell grid is one cell per texel);
+  grid smoothing mirrors at the edges instead of clamping; translations for the three detail labels (zh-Hant, ko);
+  test-only fixes (half-float tolerance, field-key check, capitalised section headers, Alt released after the click).
+* **With an anchor input** a Curvature generator applies Mode and Fine only; Medium/Coarse would average the baked map.
+* **Still to do:**
+  * Run the 4K bench (`generator_4k 4096 vw`) for the detail sizes.
+  * Scripted captures: `fill-box`, `fill-modes`, `view-props-brush`, `view-props-uv` (`--view-2d`),
+    `curvature-both|edges|cavities|sizes[-props]`.
 ### Session 121 - Painter parity chunk 5: Brush block in Properties (2026-11-11, branch `claude/parity-brush-block`)
 
 * **Done:** Properties for a paint tool follow Painter's order: Brush, Alpha, Stencil, Material. Brush block: Size, Flow
@@ -5319,6 +5358,33 @@ the app kept drawing on the dead device. Safe mode works; 0.3.3's marker only he
 * **Tests:** `crates/app/tests/layer_polish_parity.rs`, `crates/ui/tests/layer_polish.rs`, a project round trip of
   colour tags, a blend group test, a layer-content clipboard test. Compile-checked locally; CI runs the tests.
 
+### Session - 2D view painting parity, Painter chunk 32 (2026-11-12, branch `claude/paint-2d-parts`, stacks on #131)
+
+**Status:** the release build of `subcraft-ui` passes. The new paint tests passed after their setup was fixed:
+five of seven on the first run, then smudge, clone, refused clone, symmetry and stencil-off. The final rerun of
+the stencil test and the app-level `uv_tools` tests was stopped when the shared build gate was overloaded, so
+GitHub CI runs them. Earlier local runs passed: paint `paint`, `uv_paint`, `tile_bounds`; app lib, `session`,
+`part_workflow`, `polygon_fill_box`. Not tried in the running app yet.
+
+Every paint tool now works in the 2D view the same way as in the 3D view:
+* **Smudge** carries the paint in UV space (`Stroke::smudge_stamps` takes the alignment). Before, it painted with the brush colour.
+* **Clone** works in UV space. Ctrl+click or V+click sets the source (`Session::set_clone_source_uv`). That source is
+  also the 3D source, and the reverse is true too. The first dab fixes the UV offset. Absolute mode resets it on every stroke.
+* **Eyedropper:** click picks the colour, Shift+click picks the material, read from the texture under the cursor.
+* **Stencil:** it is laid over the 2D view. `kernel::UvView` tells the stroke where the texture sits in the view, and
+  `KernelInput::stencil_factor` masks texels through it. S + drag places it and N ignores it. This code is shared
+  with the 3D view (`viewport::stencil_input`).
+* **Symmetry** (mirror and radial): each dab's surface point is mirrored in object space, then snapped to the nearest
+  surface of the same texture set. That point's UV is where the copy lands (`stroke::uv_symmetry_copies`).
+* **Ctrl+RMB / Ctrl+LMB brush gestures** (`viewport::brush_gestures`, shared with the 3D view). **Ctrl+Shift+click**
+  snaps a line to 5° steps, with a dotted preview while Shift is held. Pen pressure works in UV too.
+* **UV wireframe:** it uses the mesh wireframe colour and opacity. Right-click the grid toggle to change them.
+* **Left tool rail:** a 2D view button toggles 3D | 2D and 3D only. F1-F4 already came from #164.
+* `docs/painter-shortcuts-table.md` is regenerated: the RMB row from #131.
+* The merge with main renames #131's curvature mode to `CurvatureDetailMode`, because main added a Mask Editor `CurvatureMode`.
+
+Tests: `crates/paint/tests/uv_tools.rs` covers smudge, clone, refused clone, the stencil through the 2D view and
+symmetry. `crates/app/tests/uv_tools.rs` covers session routing: the 2D clone source, smudge and the eyedropper.
 ### Issue #145: transparent textures (2026-11-12, branch `claude/transparency`)
 
 * **Opacity channel:** already in the channel vocabulary (linear 0-1, default 1); now removable from Texture Set
@@ -5411,6 +5477,40 @@ the app kept drawing on the dead device. Safe mode works; 0.3.3's marker only he
 * **Not done:** UV Border Distance (needs a distance field across tiles), UV Checker and UV Texel Density (fill-layer
   generators, chunk 35), UV Random Color's Custom Gradient and Light on a fill layer, picking positions from the
   Position map in the viewport.
+### Parity chunk 43 - Compare Mask, Levels, Color Selection (2026-11-12, branch `claude/parity-compare-levels`)
+
+* **Compare Mask** (`MaskEffectKind::Compare`, `crates/doc/src/mask.rs`): Channel, left operand, operation and
+  right operand (Layers Below / This Layer / This Mask / Constant; Lesser than / Within tolerance / Greater than),
+  Constant, Tolerance, Hardness (linear edge `(1 - hardness) * 0.25` wide; SubCraft's choice, Painter does not
+  document it). The stage graph (`crates/compositor/src/stages.rs`) feeds it the accumulation below the layer and the
+  layer's own content in the compared channel: compared channels are built first and each layer's `below` is
+  recorded; a stack below a top-level layer is rebuilt on demand otherwise. Sets with a Compare Mask that reads
+  layers always use the stage graph (not the per-tile or GPU paths). "Add mask with height combination"
+  (`Command::AddHeightCombinationMask`) adds a black mask with a Compare Mask on Height and sets Height blending to
+  Normal in one undo step.
+* **Levels**: per-component R / G / B handles applied after the RGB ones (`Levels::rgb`), Clamp (on by default;
+  off extends past the input handles), Invert (swaps the output handles), Auto (input handles at the input's
+  darkest and brightest values) and an input histogram (`LayerPreviews::input_histogram`, a 128² UV sample of the
+  stage right below the effect). Per-component or unclamped Levels fall back from the GPU path to the CPU. Painter
+  imports keep per-component levels on colour channels.
+* **Color Selection**: Output value and Background color (Transparent / Black / White / Gray); Hardness shown
+  as `1 - softness`. The old Invert switch stays in files and shows only while it is on.
+* **Schema**: new `MaskEffectKindV1::Compare`; new Levels / ID Color fields are skipped when default, so
+  existing files are written unchanged.
+* **Not done:** the Compare Mask's two-operand histogram, histogram handles you can drag, a Luminance component.
+### Parity chunk 34 - Filter and generator image inputs (2026-11-12, branch `claude/parity-image-inputs`)
+
+* **Custom grunge** (`PainterControls::custom_grunge`): Dirt, Edge wear and Concave generators take an image that
+  replaces their breakup noise, projected tri-planar on the model at the pattern size (`custom_grunge` in
+  `crates/compositor/src/mask.rs`), with the grunge-map style tail. Picked in Properties (`Purpose::GeneratorGrunge`);
+  counted as a resource of the generator (save, fragments, clipboard).
+* **Gradient Dynamic** filter (`Filter::GradientDynamic`): each value (luminance on colour channels) picks the colour
+  of its Gradient Source image along one row (or column, Gradient Orientation) at Gradient Input Position; masks and
+  scalar channels use its luminance. Evaluated by the compositor in content and mask stacks (it reads an image);
+  the image slot is picked from Properties (`Purpose::FilterImage`). Filters report their image through
+  `Filter::resource`.
+* **Not done:** anchors as image inputs for these slots, Warp's Custom Noise and Blur Slope, the Directional
+  Distance / Bevel Smooth distance maps, Custom grunge 2 of Metal Edge Wear, a mini shelf for picking resources.
 ### Parity chunk 35 - Generators on content, random seed (2026-11-12, branch `claude/parity-content-generators`)
 
 * **Generator content effect** (`ContentEffectKind::Generator`, `crates/doc/src/effect.rs`): "Add generator" in a
@@ -5567,3 +5667,62 @@ the app kept drawing on the dead device. Safe mode works; 0.3.3's marker only he
 * Not done: cameras from Alembic and USD files, camera roll (the orbit camera has none), free
   rotation mode, separate OS windows for undocked views, Shader settings and Log dock buttons
   (no such panels yet).
+
+### Painter parity chunk 44: flatten and layer export (2026-11-12, branch `claude/parity-chunk44-flatten`)
+
+* **Flatten (Ctrl+M, right-click > Flatten):** `Command::FlattenLayers` evaluates each selected layer or folder on its
+  own (`Session::flattened`, through the compositor's content preview at full resolution) into a paint layer of rasters
+  right above it, with the source's blending (Passthrough becomes Normal), colour tag, part mask and a mask whose
+  effects are baked into its base. The source stays, hidden. One undo step; an empty selection says so in the status
+  line. A Passthrough folder is flattened as an isolated folder.
+* **Export flattened to files:** right-click > Export flattened to files: a pattern field (`$textureSet_$layerName_$srcMap`,
+  kept for the session) and a folder picker. One image per channel, EXR for Height and Normal, 8-bit PNG otherwise,
+  1 px padding, plus the mask as PNG; several selected layers export in one go.
+* **Tests:** `crates/app/tests/flatten.rs` (a folder flattens to the same composite and is hidden, undo; mask baking,
+  disabled channels, empty selection; export names, sizes and formats).
+
+### Session 132 - Import baked mesh maps, curvature along the surface, ray-miss heatmap, ID color editor (2026-11-10, branch `claude/bake-maps-id`, NOT fully verified)
+
+* **Import mesh maps** (`app::mesh_map_import`, `ui::mesh_map_import`): New Project lists already-baked maps once a
+  model is loaded, and Texture Set Settings has "Import mesh maps…". Files are matched by name suffix (`_normal`,
+  `_world_normal`, `_ao`, `_curvature`, `_position`, `_thickness`, `_id`, `_height`, camelCase and DX/GL markers),
+  to sets by UDIM tile (1001–1999) or the set name in the file name. Values stay raw, DirectX normals get green
+  flipped, and maps are resampled to the set resolution (nearest for ID). Optionally curvature is derived from an
+  imported normal map. Flags: `--mesh-maps a,b,c`.
+* **Curvature from the normal map** (`bake::normal_curvature`, bake setting "Curvature from the normal map"): each
+  texel walks a fixed surface distance in 8 directions across triangle edges (welded positions, so UV seams are
+  crossed), decodes the normal map at each end point with that point's own tangent frame, and sums the change of
+  world normal along the walk. Finding: with a hard-edged low poly, straight-down projection rays give a baked
+  normal that jumps back at every edge, which reads as a dark line on the edge. The test fixture now uses a low cube
+  with averaged corner normals, the usual bevel-bake setup. `bake_maps_demo` still uses the hard-edged cube.
+* **Ray-miss heatmap** (`bake::cage_misses`, `app::cage_check`, bake overlay shader): the bake viewport card has a
+  "Ray misses" toggle that casts the baker's own projection rays in the background and paints texels with no hit
+  red over the low poly, next to the existing high poly and cage overlay. Flags: `--bake-misses`, `--bake-cage f,r`.
+* **ID color editor** (`ui::panels::id_colors`, `app::id_color`): Texture Set Settings lists the ID map's colors
+  with coverage and mask counts, an eyedropper picks in the 3D or 2D view and feeds the selected layer's ID Color
+  mask, and "Apply" recolors an ID. Edits are stored in the document per texture set (`id_color_edits`, project
+  schema field, version unchanged) and every ID Color mask using the old color follows, in one undo step. Flag:
+  `--id-colors`.
+* **Verified:** the whole workspace compiles (release, `cargo test --workspace --no-run`). Bake tests: walker,
+  cage misses, flat-cylinder seam, bake-setting derivation and the existing placement tests pass.
+* **Not verified:** the bevelled-cube and cylinder curvature tests failed on the first run; they were fixed (fixture
+  and grouping, see above) but not re-run. The app, ui and project tests and the scripted captures were not run
+  before the session was stopped for the usage limit. CI on the PR is the first full run.
+
+### Session 133 - ID map colour sources for the bake, issue #117 (2026-11-13, branch `claude/id-map-sources`, stacks on #137, NOT run locally)
+
+* **Asked (issue #117):** choose where the high-poly ID map takes its colours, like Painter: Vertex Color first,
+  then Material Color, Mesh ID / Polygroup (the behaviour so far) and Submesh.
+* **Mesh:** `Mesh::corner_colors` (file vertex colour per triangle corner) and `Mesh::material_colors` (file colour
+  per material slot), filled by `MeshBuilder::push_triangle_colored` / `set_material_color`. Read from OBJ
+  (`v x y z r g b`, MTL `Kd`), glTF (`COLOR_0`, base colour factor) and FBX (vertex colour, PBR base colour or
+  diffuse). Not read from PLY, USD or Alembic yet; not saved in projects (the bake reads the high-poly file).
+* **Bake:** `BakeSettings::id_source` (`IdSource`: VertexColor, MaterialColor, MeshId = default, Submesh = per
+  named object, per material when the file names none). A model without the asked colours falls back to generated
+  colours and the bake reports a warning. Colours come from the high poly when there is one, else the low poly.
+* **UI:** Bake window, "ID colors from" (shown when the ID map is ticked), translated (zh-Hant, ko).
+* **Not done:** Painter's "File ID" (needs several high-poly files, parity chunk 27).
+* **Tests (new, run by CI only):** bake `id_map_takes_its_colours_from_the_chosen_source`,
+  `id_sources_the_model_lacks_fall_back_to_generated_colours_with_a_warning`; mesh
+  `obj_vertex_colors_and_material_colors_are_read`. Nothing was built or run locally (coordinator's rule after
+  the PC's power cuts), and no capture was taken.

@@ -8,7 +8,7 @@ fn near(a: f32, b: f32) -> bool {
 }
 
 fn set<'a>(ch: &'a BTreeMap<ChannelKind, TiledImage>, baked: Option<&'a BTreeMap<MeshMapKind, TiledImage>>) -> ExportTextureSet<'a> {
-    ExportTextureSet { name: "P", material_slot: 0, udim: None, channels: ch, mesh_maps: baked }
+    ExportTextureSet { name: "P", material_slot: 0, udim: None, channels: ch, mesh_maps: baked, mixing: subcraft_doc::MixingSettings::LEGACY }
 }
 
 fn user(maps: Vec<OutputMap>) -> ExportTemplate {
@@ -132,7 +132,7 @@ fn per_map_padding_overrides_template_and_window() {
     }
     let mut ch = BTreeMap::new();
     ch.insert(ChannelKind::Roughness, rough);
-    let sets = [ExportTextureSet { name: "C", material_slot: 0, udim: None, channels: &ch, mesh_maps: None }];
+    let sets = [ExportTextureSet { name: "C", material_slot: 0, udim: None, channels: &ch, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY }];
     // A gutter texel exactly 2 texels from the nearest island, and one far from all islands.
     let dist = |i: usize| {
         let (x, y) = ((i as u32 % RES) as i32, (i as u32 / RES) as i32);
@@ -234,13 +234,13 @@ fn patterns_name_files_and_handle_udim_tiles() {
     let tiled = OutputMap { pattern: Some("$mesh_$textureSet_$udim_N".into()), ..OutputMap::new("N", FileFormat::Png8, (0..3).map(|c| Source::Normal { component: c, directx: false }).collect(), false) };
     let classic = OutputMap::new("R", FileFormat::Png8, vec![Source::ch(ChannelKind::Roughness, 0)], false);
     let t = user(vec![base, tiled, classic]);
-    let tile = ExportTextureSet { name: "Hull.1002", material_slot: 0, udim: Some(1002), channels: &ch, mesh_maps: None };
+    let tile = ExportTextureSet { name: "Hull.1002", material_slot: 0, udim: Some(1002), channels: &ch, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY };
     let plain = set(&ch, None);
     let s = ExportSettings { template: t.clone(), ..Default::default() };
     let names: Vec<String> = plan("Ship", &[plain, tile], &s).into_iter().map(|p| p.1).collect();
     assert_eq!(names, ["T_P_D.tga", "Ship_P_N.png", "Ship_P_R.png", "T_Hull_D.1002.tga", "Ship_Hull_1002_N.png", "Ship_Hull_R.1002.png"]);
     let s = ExportSettings { template: t, udim_folders: true, ..Default::default() };
-    let tile = ExportTextureSet { name: "Hull.1002", material_slot: 0, udim: Some(1002), channels: &ch, mesh_maps: None };
+    let tile = ExportTextureSet { name: "Hull.1002", material_slot: 0, udim: Some(1002), channels: &ch, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY };
     let names: Vec<String> = plan("Ship", &[tile], &s).into_iter().map(|p| p.1).collect();
     assert_eq!(names, ["1002/T_Hull_D.tga", "1002/Ship_Hull_1002_N.png", "1002/Ship_Hull_R.png"]);
 }
@@ -252,7 +252,7 @@ fn explicit_classic_pattern_names_files_like_the_builtins() {
     for m in &mut t.maps {
         m.pattern = Some("$mesh_$textureSet_$suffix".into());
     }
-    let sets = [ExportTextureSet { name: "Body Set", material_slot: 0, udim: None, channels: &ch, mesh_maps: None }];
+    let sets = [ExportTextureSet { name: "Body Set", material_slot: 0, udim: None, channels: &ch, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY }];
     let a = plan("My Crate", &sets, &ExportSettings { template: t, ..Default::default() });
     let b = plan("My Crate", &sets, &ExportSettings { template: ExportTemplate::unreal(), ..Default::default() });
     assert_eq!(a, b);
@@ -268,6 +268,39 @@ fn problems_catch_duplicate_and_unsafe_suffixes() {
     t.maps[0].components.clear();
     t.name = " ".into();
     assert_eq!(t.problems().len(), 3, "{:?}", t.problems());
+}
+
+/// QA 2026-11: presets read from a file were exported unchecked: an unsafe suffix aborted the
+/// export partway (or named a hidden NTFS stream) and a huge size tried to allocate gigabytes.
+#[test]
+fn a_preset_with_problems_writes_nothing() {
+    let ch = distinct_channels();
+    let sets = [set(&ch, None)];
+    let mesh = primitives::plane(2.0, 1);
+    let good = OutputMap::new("Rough", FileFormat::Png8, vec![Source::Height], false);
+    let bad = |edit: &dyn Fn(&mut ExportTemplate)| {
+        let mut t = user(vec![good.clone(), OutputMap::new("Base", FileFormat::Png8, vec![Source::Height], false)]);
+        edit(&mut t);
+        let mut written = 0;
+        let s = ExportSettings { template: t, ..Default::default() };
+        let r = render_maps(&mesh, "M", &sets, &s, |_, _| {
+            written += 1;
+            Ok(())
+        });
+        (r, written)
+    };
+    for edit in [
+        &(|t: &mut ExportTemplate| t.maps[1].suffix = "Base:Color".into()) as &dyn Fn(&mut ExportTemplate),
+        &|t: &mut ExportTemplate| t.maps[1].size = Some(100_000),
+        &|t: &mut ExportTemplate| t.size = Some(100_000),
+        &|t: &mut ExportTemplate| t.maps[1].components = vec![Source::Height; 5],
+    ] {
+        let (r, written) = bad(edit);
+        assert!(matches!(r, Err(ExportError::Template(_))), "{r:?}");
+        assert_eq!(written, 0, "nothing is written, not even the valid map before it");
+    }
+    let (r, written) = bad(&|_| {});
+    assert!(r.is_ok() && written == 2, "a valid preset exports: {r:?}");
 }
 
 #[test]

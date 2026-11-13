@@ -41,7 +41,7 @@ fn near(a: f32, b: f32, tol: f32) -> bool {
 fn opacity_preset_writes_rgba_base_color_and_a_grey_opacity_map() {
     let mesh = primitives::plane(2.0, 1);
     let ch = transparent_channels(true);
-    let sets = [ExportTextureSet { name: "Glass", material_slot: 0, udim: None, channels: &ch, mesh_maps: None }];
+    let sets = [ExportTextureSet { name: "Glass", material_slot: 0, udim: None, channels: &ch, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY }];
     let settings = ExportSettings { template: ExportTemplate::pbr_metal_rough_opacity(), padding: Padding::None, ..Default::default() };
     let dir = tmp("alpha-png");
     let files = export(&mesh, "M", &sets, &settings, &dir).unwrap();
@@ -67,7 +67,7 @@ fn opacity_preset_writes_rgba_base_color_and_a_grey_opacity_map() {
 fn rgba_alpha_survives_tga_and_exr() {
     let mesh = primitives::plane(2.0, 1);
     let ch = transparent_channels(true);
-    let sets = [ExportTextureSet { name: "Glass", material_slot: 0, udim: None, channels: &ch, mesh_maps: None }];
+    let sets = [ExportTextureSet { name: "Glass", material_slot: 0, udim: None, channels: &ch, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY }];
     for (format, tol) in [(FileFormat::Tga8, 1.0 / 255.0), (FileFormat::Png16, 1.0 / 65535.0), (FileFormat::Exr32, 1e-3)] {
         let settings = ExportSettings { template: ExportTemplate::pbr_metal_rough_opacity(), padding: Padding::None, format_override: Some(format), ..Default::default() };
         let dir = tmp(&format!("alpha-roundtrip-{}", format.extension()));
@@ -89,7 +89,7 @@ fn rgba_alpha_survives_tga_and_exr() {
 fn transparent_texels_take_the_nearest_visible_colour_and_keep_alpha_zero() {
     let mesh = primitives::plane(2.0, 1);
     let ch = transparent_channels(false);
-    let sets = [ExportTextureSet { name: "Decal", material_slot: 0, udim: None, channels: &ch, mesh_maps: None }];
+    let sets = [ExportTextureSet { name: "Decal", material_slot: 0, udim: None, channels: &ch, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY }];
     let settings = ExportSettings { template: ExportTemplate::godot_alpha(), padding: Padding::None, ..Default::default() };
     let dir = tmp("alpha-bleed");
     let files = export(&mesh, "M", &sets, &settings, &dir).unwrap();
@@ -111,7 +111,7 @@ fn transparent_texels_take_the_nearest_visible_colour_and_keep_alpha_zero() {
 fn opaque_sets_export_alpha_one_and_no_opacity_map() {
     let mesh = primitives::plane(2.0, 1);
     let ch = channels();
-    let sets = [ExportTextureSet { name: "Body", material_slot: 0, udim: None, channels: &ch, mesh_maps: None }];
+    let sets = [ExportTextureSet { name: "Body", material_slot: 0, udim: None, channels: &ch, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY }];
     let settings = ExportSettings { template: ExportTemplate::pbr_metal_rough_opacity(), ..Default::default() };
     let names: Vec<String> = plan("M", &sets, &settings).into_iter().map(|(_, p)| p).collect();
     assert!(!names.iter().any(|n| n.contains("Opacity")), "nothing to write: {names:?}");
@@ -128,7 +128,7 @@ fn padding_keeps_alpha_edges_inside_islands() {
     // The crate has gutters between its islands; padding must only write gutter texels.
     let mesh = primitives::sample_crate();
     let ch = transparent_channels(false);
-    let sets = [ExportTextureSet { name: "Body", material_slot: 0, udim: None, channels: &ch, mesh_maps: None }];
+    let sets = [ExportTextureSet { name: "Body", material_slot: 0, udim: None, channels: &ch, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY }];
     let covered = coverage(&mesh, 0, RES);
     assert!(covered.iter().any(|c| !c) && covered.iter().any(|c| *c));
     let source = ch[&ChannelKind::BaseColor].to_dense();
@@ -159,13 +159,27 @@ fn padding_keeps_alpha_edges_inside_islands() {
 fn base_color_component_a_is_the_stack_coverage() {
     // Painter's "With Alpha" templates read the A of a document channel.
     let ch = transparent_channels(true);
-    let set = ExportTextureSet { name: "S", material_slot: 0, udim: None, channels: &ch, mesh_maps: None };
+    let set = ExportTextureSet { name: "S", material_slot: 0, udim: None, channels: &ch, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY };
     let map = OutputMap::new("C", FileFormat::Png8, vec![Source::ch(ChannelKind::BaseColor, 3), Source::ch(ChannelKind::Emissive, 3)], false);
     let mut dense = Dense { set: &set, size: RES, cache: HashMap::new(), normal: None, view: None, mesh_maps: HashMap::new(), alpha: None };
     let data = evaluate_map(&map, &mut dense, &ExportSettings::default(), FileFormat::Png8);
     let at = |x: u32, y: u32, c: usize| data[((y * RES + x) as usize) * 2 + c];
     assert_eq!((at(10, 10, 0), at(110, 10, 0)), (1.0, 0.0), "coverage, not opacity");
     assert_eq!(at(110, 10, 1), 1.0, "a channel the set lacks is fully covered");
+}
+
+/// QA 2026-11: in an sRGB map, the A component of a colour channel (its coverage) was
+/// sRGB-encoded like the colour: half coverage came out as 0.735 (188 in 8 bits), not 0.5.
+#[test]
+fn coverage_in_an_srgb_map_is_not_colour_encoded() {
+    let ch = transparent_channels(false);
+    let set = ExportTextureSet { name: "S", material_slot: 0, udim: None, channels: &ch, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY };
+    let map = OutputMap::new("C", FileFormat::Png8, vec![Source::ch(ChannelKind::BaseColor, 1), Source::ch(ChannelKind::BaseColor, 3)], true);
+    let mut dense = Dense { set: &set, size: RES, cache: HashMap::new(), normal: None, view: None, mesh_maps: HashMap::new(), alpha: None };
+    let data = evaluate_map(&map, &mut dense, &ExportSettings::default(), FileFormat::Png8);
+    let at = |x: u32, y: u32, c: usize| data[((y * RES + x) as usize) * 2 + c];
+    assert!(near(at(70, 10, 1), 0.5, 1e-6), "half coverage stays 0.5, got {}", at(70, 10, 1));
+    assert!(near(at(110, 10, 0), linear_to_srgb(0.5), 1e-6), "the colour component is still encoded");
 }
 
 #[test]
