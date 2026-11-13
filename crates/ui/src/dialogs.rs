@@ -915,6 +915,8 @@ pub struct BakeUi {
     pub cage_result: Option<subcraft_app::cage_check::CageCheckResult>,
     /// The current `cage_result` is on the GPU.
     pub miss_uploaded: bool,
+    /// `open` as of the last `poll_bake`, to notice Baking mode being entered.
+    was_open: bool,
     /// The project's saved bake settings as last read or written (`None` = never synced yet).
     synced: Option<Option<subcraft_doc::BakeConfig>>,
     /// What the window showed when the project had no saved bake settings: written only once it differs.
@@ -929,7 +931,7 @@ impl Default for BakeUi {
             high_poly: String::new(), extra_high: Vec::new(), cage_file: String::new(), skip_sets: Default::default(), selected_baker: None, log_tab: BakeLogTab::default(), job_maps: Vec::new(), size_chosen: false, job: None, result: None, report: String::new(), notices: Vec::new(), log: Vec::new(), map_rows: Vec::new(),
             preview: true, cage: true, fit_mode: Default::default(), high_opacity: 0.55, vis: Default::default(), vis_selected_only: false, seam_edges: None, seams_uploaded: false, placement_message: None, live_maps: true, displayed_map: None, follow_maps: true, preview_mesh: None,
             preview_job: None, preview_source: None, preview_path: String::new(), preview_scene: None, preview_error: None, preview_uploaded: false, preview_checked_at: 0.,
-            miss_heatmap: false, cage_job: None, cage_result: None, miss_uploaded: false, synced: None, baseline: None }
+            miss_heatmap: false, cage_job: None, cage_result: None, miss_uploaded: false, was_open: false, synced: None, baseline: None }
     }
 }
 
@@ -1035,6 +1037,13 @@ fn sync_bake_config(state: &mut UiState) {
 pub fn poll_bake(state: &mut UiState, ctx: &egui::Context, now: f64) {
     sync_bake_config(state);
     let b = &mut state.bake;
+    // Entering Baking mode again after a bake: show the high / low overlay again (issue #323).
+    // A finished bake hides it so its maps show on the model, until the mode is left.
+    if b.open && !b.was_open && b.job.is_none() {
+        b.result = None;
+        b.displayed_map = None;
+    }
+    b.was_open = b.open;
     let scene = &state.session.scene().mesh;
     let scene_changed = b.preview_scene.as_ref().is_some_and(|m| !std::sync::Arc::ptr_eq(m, scene));
     if b.preview_scene.is_none() { b.preview_scene = Some(scene.clone()); }
@@ -1869,6 +1878,32 @@ mod bake_tests {
         poll_bake(&mut state, &ctx, 1.);
         assert!(state.bake.preview_mesh.is_none());
         assert!(state.bake.result.is_none());
+    }
+
+    /// Issue #323: after a bake, leaving Baking mode and entering it again showed the model
+    /// with its maps instead of the high / low overlay, even after picking the high poly again.
+    #[test]
+    fn reentering_baking_mode_after_a_bake_shows_the_overlay_again() {
+        let ctx = egui::Context::default();
+        let mut state = UiState::new(Session::new(subcraft_mesh::primitives::plane(2., 1), 128), None);
+        state.bake.open = true;
+        state.bake.preview_path = "high.obj".into();
+        state.bake.high_poly = "high.obj".into();
+        state.bake.preview_scene = Some(state.session.scene().mesh.clone());
+        state.bake.preview_mesh = Some(std::sync::Arc::new(subcraft_mesh::primitives::cube(2.)));
+        poll_bake(&mut state, &ctx, 0.);
+        assert!(state.bake.overlay_active(), "the overlay before baking");
+        // A bake finished: its maps show on the model while the mode stays open.
+        state.bake.result = Some(Ok(1));
+        poll_bake(&mut state, &ctx, 1.);
+        assert!(!state.bake.overlay_active() && state.bake.result.is_some(), "after the bake, the maps on the model");
+        // Leave and come back.
+        state.bake.open = false;
+        poll_bake(&mut state, &ctx, 2.);
+        state.bake.open = true;
+        poll_bake(&mut state, &ctx, 3.);
+        assert!(state.bake.overlay_active(), "the overlay is back");
+        assert!(state.bake.preview_mesh.is_some(), "the high poly stays loaded, no reload needed");
     }
 
     /// Issue #320: the Bake window's settings are saved with the project and come back with it.
