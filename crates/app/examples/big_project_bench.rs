@@ -85,6 +85,12 @@ const KINDS: [ProceduralKind; 7] = [
     ProceduralKind::WoodRings, ProceduralKind::Brushed, ProceduralKind::Dirt,
 ];
 
+/// `SUBCRAFT_BENCH_PLAIN=1`: no neighborhood filters (blur, sharpen, median), so the set takes the
+/// per-tile evaluator (and the GPU blend where there is one) instead of the stage graph.
+fn plain() -> bool {
+    std::env::var_os("SUBCRAFT_BENCH_PLAIN").is_some()
+}
+
 /// Layers added bottom to top; returns every layer id in creation order.
 pub fn build_stack(s: &mut Session, layers: usize) -> Vec<LayerId> {
     let mut ids = Vec::new();
@@ -134,6 +140,7 @@ pub fn build_stack(s: &mut Session, layers: usize) -> Vec<LayerId> {
                     g.noise_amount = 0.35;
                     g
                 }),
+                _ if plain() => MaskEffectKind::Levels(Levels { out_low: 0.2, ..Levels::default() }),
                 _ => MaskEffectKind::Filter(Filter::Blur { radius: 6.0 }),
             };
             run(s, Command::AddMaskEffect { layer: id, kind });
@@ -159,7 +166,7 @@ pub fn build_stack(s: &mut Session, layers: usize) -> Vec<LayerId> {
             3 => Some((ChannelKind::Roughness, Filter::Median { radius: 2.0 })),
             _ => None,
         };
-        if let Some((channel, filter)) = filter.filter(|_| !paint_layer) {
+        if let Some((channel, filter)) = filter.filter(|(_, f)| !paint_layer && !(plain() && !matches!(f, Filter::GradientMap { .. }))) {
             run(s, Command::AddContentEffect { layer: id, kind: ContentEffectKind::Filter { channel, filter } });
         }
     }

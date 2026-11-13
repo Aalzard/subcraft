@@ -74,3 +74,27 @@ pub fn cosine_directions(n: Vec3, count: u32, rotation: f32, out: &mut Vec<Vec3>
         out.push(d.normalize_or(n));
     }
 }
+
+/// Directions in a cone around `n` with a full opening angle of `spread_degrees` (180 = the
+/// hemisphere): Hammersley points rotated per texel, cosine-weighted or uniform over the cone's
+/// solid angle.
+pub fn cone_directions(n: Vec3, count: u32, rotation: f32, spread_degrees: f32, uniform: bool, out: &mut Vec<Vec3>) {
+    out.clear();
+    let (t, b) = n.any_orthonormal_pair();
+    let half = (spread_degrees.clamp(1.0, 180.0) * 0.5).to_radians();
+    let (sin_max, cos_max) = (half.sin(), half.cos());
+    for i in 0..count {
+        let u = (i as f32 + 0.5) / count as f32;
+        let v = (i.reverse_bits() as f32 / 4_294_967_296.0 + rotation).fract();
+        // Cosine weighting: sin² of the angle is uniform; uniform: its cosine is.
+        let (sin, cos) = if uniform {
+            let c = 1.0 - u * (1.0 - cos_max);
+            ((1.0 - c * c).max(0.0).sqrt(), c)
+        } else {
+            let s2 = u * sin_max * sin_max;
+            (s2.sqrt(), (1.0 - s2).max(0.0).sqrt())
+        };
+        let phi = std::f32::consts::TAU * v;
+        out.push((t * (sin * phi.cos()) + b * (sin * phi.sin()) + n * cos).normalize_or(n));
+    }
+}

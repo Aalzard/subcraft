@@ -133,6 +133,44 @@ pub fn dilate_width(
     cov
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Padding {
+    /// No padding: gutter texels keep their composite values.
+    None,
+    /// Grow islands by this many texels; the rest of the gutter keeps its composite values.
+    Texels(u32),
+    /// Fill the whole gutter with the nearest island texel (best for mipmaps).
+    Infinite,
+    /// Painter's "Dilation + default background color": grow islands by this many texels, then
+    /// fill the rest of the gutter with each output's default (the value an empty texture set
+    /// exports: flat normal, white occlusion, black base color...).
+    Background(u32),
+    /// Painter's "Dilation + diffusion": grow islands by this many texels, then fill the rest of
+    /// the gutter with a smooth blend of the surrounding islands.
+    Diffusion(u32),
+}
+
+impl Padding {
+    /// Dilation distance of the modes that have one.
+    pub fn distance(self) -> Option<u32> {
+        match self {
+            Padding::Texels(n) | Padding::Background(n) | Padding::Diffusion(n) => Some(n),
+            Padding::None | Padding::Infinite => None,
+        }
+    }
+
+    /// The same mode with another dilation distance (modes without one are unchanged).
+    pub fn with_distance(self, n: u32) -> Padding {
+        match self {
+            Padding::Texels(_) => Padding::Texels(n),
+            Padding::Background(_) => Padding::Background(n),
+            Padding::Diffusion(_) => Padding::Diffusion(n),
+            other => other,
+        }
+    }
+}
+
 /// Fill every texel outside `known` with a smooth blend of the known texels around it
 /// (push-pull: average the known values down a pyramid, then interpolate back up). Known texels
 /// are unchanged. This is Painter's "diffusion" padding: gutters fade between neighbouring
