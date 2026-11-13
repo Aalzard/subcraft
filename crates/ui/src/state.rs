@@ -818,6 +818,12 @@ impl UiState {
             if self.multi_texture_set.is_some() { self.multi.clear(); }
             self.multi_texture_set = Some(ts);
         }
+        // A layer selected from outside the layer list (the Paths panel, a new pen path) is not
+        // in the multi-selection: kept, Delete / Ctrl+D / Ctrl+G acted on the old rows instead of
+        // the layer that is highlighted.
+        if self.multi.is_multi() && self.session.selection().layer.is_some_and(|l| !self.multi.contains(l)) {
+            self.multi.clear();
+        }
     }
 
     /// Re-evaluate composites (within the frame budget) and upload changed tiles to the GPU.
