@@ -37,6 +37,7 @@ pub struct TileGeometry {
 struct RegionIds {
     parts: Vec<u32>,
     islands: OnceLock<Vec<u32>>,
+    polygons: OnceLock<Vec<u32>>,
     mesh: Arc<Mesh>,
 }
 
@@ -208,12 +209,18 @@ impl TextureSetGeometry {
     fn regions(&self) -> &Arc<RegionIds> {
         self.parts.get_or_init(|| Arc::new(RegionIds {
             parts: subcraft_mesh::topology::mesh_elements(&self.mesh),
-            islands: OnceLock::new(), mesh: self.mesh.clone(),
+            islands: OnceLock::new(), polygons: OnceLock::new(), mesh: self.mesh.clone(),
         }))
     }
 
     pub fn triangle_islands(&self) -> &[u32] {
         self.regions().islands.get_or_init(|| subcraft_mesh::topology::uv_islands(&self.mesh))
+    }
+
+    /// Source polygon (quad / n-gon) of every triangle ([`subcraft_mesh::topology::polygons`]),
+    /// recovered with the 3D wireframe's default 30 degree angle limit.
+    pub fn triangle_polygons(&self) -> &[u32] {
+        self.regions().polygons.get_or_init(|| subcraft_mesh::topology::polygons(&self.mesh, 30.0))
     }
 
     pub fn triangle_region(&self, triangle: usize, kind: subcraft_core::PartKind) -> Option<u32> {

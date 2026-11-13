@@ -406,11 +406,15 @@ pub fn lenient_display<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Display
     let serde_json::Value::Object(mut merged) = serde_json::to_value(DisplaySettings::default()).map_err(serde::de::Error::custom)? else {
         return Ok(Some(DisplaySettings::default()));
     };
+    // Every stored key is tried, including the ones the defaults do not write at all (an
+    // environment map: `None` is skipped when saving), which used to be dropped here.
     for (key, value) in stored {
-        let Some(slot) = merged.get_mut(&key) else { continue };
-        let default = std::mem::replace(slot, value);
+        let previous = merged.insert(key.clone(), value);
         if serde_json::from_value::<DisplaySettings>(serde_json::Value::Object(merged.clone())).is_err() {
-            merged.insert(key, default);
+            match previous {
+                Some(default) => merged.insert(key, default),
+                None => merged.remove(&key),
+            };
         }
     }
     Ok(Some(serde_json::from_value(serde_json::Value::Object(merged)).unwrap_or_default()))
@@ -796,5 +800,18 @@ mod lenient_tests {
         let full = DisplaySettings { bloom: 0.3, exposure: 2.0, ..Default::default() };
         let back: Holder = serde_json::from_str(&format!(r#"{{"display": {}}}"#, serde_json::to_string(&full).unwrap())).unwrap();
         assert_eq!(back.display, Some(full), "a valid block round-trips unchanged");
+    }
+
+    /// QA 2026-11: the fallback started from the defaults, which never write `env_map`, so the
+    /// chosen environment map was dropped whenever another value had to take its default (and
+    /// the next save lost it for good).
+    #[test]
+    fn the_environment_map_survives_an_unreadable_neighbour() {
+        let h: Holder = serde_json::from_str(r#"{"display": {"env_map": "Studio", "exposure": null, "bloom": 0.5}}"#).unwrap();
+        let d = h.display.unwrap();
+        assert_eq!(d.env_map.as_deref(), Some("Studio"));
+        assert_eq!((d.bloom, d.exposure), (0.5, DisplaySettings::default().exposure));
+        let bad: Holder = serde_json::from_str(r#"{"display": {"env_map": 7, "exposure": null}}"#).unwrap();
+        assert_eq!(bad.display.unwrap().env_map, None, "an unreadable map name is left out, not fatal");
     }
 }

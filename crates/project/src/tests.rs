@@ -693,7 +693,7 @@ fn the_trusted_loader_keeps_filter_parameters_the_checked_loader_rejects() {
 #[test]
 fn schema_15_id_color_mask_roundtrips_has_stable_json_and_older_projects_migrate() {
     use subcraft_doc::IdColorMask;
-    let id = IdColorMask { colors: vec![[0.9, 0.3, 0.25], [0.25, 0.5, 0.9]], tolerance: 0.08, softness: 0.02, invert: true };
+    let id = IdColorMask { colors: vec![[0.9, 0.3, 0.25], [0.25, 0.5, 0.9]], tolerance: 0.08, softness: 0.02, invert: true, ..IdColorMask::default() };
     assert_eq!(
         serde_json::to_string(&MaskEffectKindV1::IdColor { id_color: id.clone() }).unwrap(),
         r#"{"type":"id_color","id_color":{"colors":[[0.9,0.3,0.25],[0.25,0.5,0.9]],"tolerance":0.08,"softness":0.02,"invert":true}}"#
@@ -854,7 +854,7 @@ fn generator_offset_round_trips_and_old_files_have_none() {
 fn painter_generator_controls_round_trip_and_are_absent_in_older_files() {
     let mut g = Generator::new(GeneratorKind::Cavity); g.painter = None;
     assert!(serde_json::to_value(g).unwrap().get("painter").is_none(), "none is not written, so older files are unchanged");
-    g.painter = Some(subcraft_doc::PainterControls { edges_masking: 0.5, ao_masking: 0.25, curvature_weight: 0.75, smoothness: 0.5, grunge_scale: 4.0, grunge_floor: 0.2, grain: 0.35, grunge_map: true });
+    g.painter = Some(subcraft_doc::PainterControls { edges_masking: 0.5, ao_masking: 0.25, curvature_weight: 0.75, smoothness: 0.5, grunge_scale: 4.0, grunge_floor: 0.2, grain: 0.35, grunge_map: true, custom_grunge: None });
     let back: Generator = serde_json::from_value(serde_json::to_value(g).unwrap()).unwrap();
     assert_eq!(back, g);
     let mut json = serde_json::to_value(g).unwrap();
@@ -1079,4 +1079,38 @@ fn imported_cameras_are_saved_with_the_project_and_old_projects_have_none() {
     let read = read_project(Cursor::new(bytes)).unwrap();
     assert_eq!(read.settings.cameras, cameras);
     assert_eq!(read.settings, settings);
+}
+
+/// QA 2026-11: the shape settings of the position / UV generators were never validated on load
+/// (a huge radius reads as infinity and makes the mask NaN), and content generators were not
+/// validated at all.
+#[test]
+fn out_of_range_generator_shape_settings_are_refused_on_load() {
+    use subcraft_doc::{ContentEffect, ContentEffectKind, Generator, GeneratorKind, Mask, MaskEffect, MaskEffectKind};
+    let generator = |radius: f32| {
+        let mut g = Generator::new(GeneratorKind::Cavity);
+        g.set_kind(GeneratorKind::Distance3D);
+        g.shape.as_mut().expect("a 3D Distance generator has shape settings").radius = radius;
+        g
+    };
+    let doc = |radius: f32, content: bool| {
+        let mut ts = TextureSet::new("Body", 0, 128);
+        let tc = ts.clone();
+        let mut layer = Layer::new_fill("Fill", &tc);
+        if content {
+            layer.content_effects.push(std::sync::Arc::new(ContentEffect::new(ContentEffectKind::Generator(generator(radius)), &tc)));
+        } else {
+            let mut mask = Mask::new(128, false);
+            mask.effects.push(std::sync::Arc::new(MaskEffect::new(MaskEffectKind::Generator(generator(radius)))));
+            layer.mask = Some(mask);
+        }
+        ts.insert_above(None, layer);
+        Document { texture_sets: vec![ts] }
+    };
+    let read = |d: &Document| read_project(Cursor::new(write_project(Cursor::new(Vec::new()), &primitives::cube(2.), d, &ResourceStore::default(), &MeshMapSet::new()).unwrap().into_inner()));
+    for content in [false, true] {
+        assert!(read(&doc(0.5, content)).is_ok(), "valid settings load (content effect: {content})");
+        let err = read(&doc(1.0e30, content)).unwrap_err();
+        assert!(matches!(err, ProjectError::Invalid(ref m) if m.contains("shape")), "content effect {content}: {err}");
+    }
 }
