@@ -1345,6 +1345,7 @@ impl<'a> Graph<'a> {
                     Filter::Bevel { threshold, .. }
                     | Filter::MaskOutline { threshold, .. }
                     | Filter::BevelShape { threshold, .. }
+                    | Filter::BevelSmooth { threshold, .. }
                     | Filter::MaskOutlineShape { threshold, .. } => *threshold,
                     _ => unreachable!(),
                 };
@@ -1489,6 +1490,14 @@ impl<'a> Graph<'a> {
                                 grid.pixel(px, py)
                             };
                             pw::fxaa(read, alpha, *kind)
+                        }
+                        Filter::DirectionalDistance { distance, angle_deg, contrast } => {
+                            // Beyond the texture there is nothing to spread from.
+                            let read = |dx: i32, dy: i32| {
+                                let (px, py) = (x as i32 + dx, y as i32 + dy);
+                                if px < 0 || py < 0 || px >= res as i32 || py >= res as i32 { [0.0; 4] } else { grid.pixel(px as u32, py as u32) }
+                            };
+                            pw::directional_distance(read, distance, angle_deg, contrast, *kind)
                         }
                         Filter::Mirror { mode, offset, invert_x, invert_y, corner } => {
                             let uv = [(x as f32 + 0.5) / res as f32, (y as f32 + 0.5) / res as f32];
@@ -1777,6 +1786,7 @@ fn spatial_value(
     match filter {
         Filter::Bevel { .. } | Filter::MaskOutline { .. } | Filter::Median { .. } => blurred,
         Filter::BevelShape { .. } | Filter::MaskOutlineShape { .. } | Filter::Fxaa { .. } => blurred,
+        Filter::BevelSmooth { .. } | Filter::DirectionalDistance { .. } => blurred,
         Filter::DropShadow { spread, opacity, color, .. } => under(source, blurred, spread, opacity, false, color, kind),
         Filter::OuterGlow { spread, opacity, color, precise, .. } => under(source, blurred, spread, opacity, precise, color, kind),
         Filter::Blur { radius: 0.0 }
