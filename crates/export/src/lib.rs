@@ -148,6 +148,8 @@ pub enum ExportError {
     Write(PathBuf, String),
     #[error("could not create texture archive: {0}")]
     Archive(String),
+    #[error("the export preset cannot be used: {0}")]
+    Template(String),
 }
 
 /// File-system friendly name part.
@@ -249,7 +251,8 @@ pub(crate) fn output_path(mesh_name: &str, set: &ExportTextureSet, suffix: &str,
 /// used to drop the fourth component (Unity's smoothness in a mask map) without a word.
 pub(crate) fn output_format(map: &OutputMap, settings: &ExportSettings) -> FileFormat {
     match settings.format_override {
-        Some(FileFormat::Jpeg) if map.components.len() == 4 && map.format != FileFormat::Jpeg => map.format,
+        // Radiance HDR stores RGB only as well.
+        Some(f @ (FileFormat::Jpeg | FileFormat::Hdr32)) if map.components.len() == 4 && map.format != f => map.format,
         Some(format) => format,
         None => map.format,
     }
@@ -497,7 +500,9 @@ fn evaluate_map(map: &OutputMap, dense: &mut Dense, settings: &ExportSettings, f
                 let (cc, data) = dense.channel(ChannelKind::Height);
                 for i in 0..n {
                     let h = data[i * cc];
-                    out[i * comps + ci] = if format.is_float() { h } else { h * 0.5 + 0.5 };
+                    // Radiance HDR is a float format without negative values: signed height is
+                    // remapped like the integer formats (raw, everything below 0 was written as 0).
+                    out[i * comps + ci] = if format.is_float() && format != FileFormat::Hdr32 { h } else { h * 0.5 + 0.5 };
                 }
             }
             Source::Gray { kind, invert } => {
@@ -681,6 +686,12 @@ pub fn resample(data: &[f32], comps: usize, src: u32, dst: u32) -> Vec<f32> {
 
 /// Directory and archive exports share rendering, encoding, templates and padding.
 pub(crate) fn render_maps(mesh: &Mesh, mesh_name: &str, sets: &[ExportTextureSet], settings: &ExportSettings, mut write: impl FnMut(&str,&[u8])->Result<(),ExportError>) -> Result<usize,ExportError> {
+    // Presets read from a file or imported were never checked (only the editor checks them): a
+    // suffix such as `Base:Color` named an NTFS stream or aborted the export halfway, and a size
+    // of 100000 tried to allocate 120 GB. Nothing is written when the preset has a problem.
+    if let Some(problem) = settings.template.problems().into_iter().next() {
+        return Err(ExportError::Template(problem));
+    }
     let mut count=0;
     for set in sets {
         let Some(size) = set.channels.values().next().map(|i| i.width()) else { continue };

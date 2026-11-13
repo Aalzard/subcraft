@@ -190,6 +190,18 @@ fn delete_and_ctrl_d_act_on_the_selected_effect_before_the_layer() {
     assert_eq!(s.selected_texture_set().layers.len(), 1);
 }
 
+/// QA 2026-11: a NaN alpha threshold survived clamp, was saved as null and the project no longer
+/// opened.
+#[test]
+fn a_nan_alpha_threshold_is_refused() {
+    let mut s = session();
+    let texture_set = s.selection().texture_set;
+    let doc = s.document().clone();
+    let alpha = subcraft_doc::AlphaSettings { threshold: f32::NAN, ..Default::default() };
+    assert!(s.execute(Command::SetAlphaSettings { texture_set, alpha }).is_err());
+    assert_eq!(s.document(), &doc);
+}
+
 #[test]
 fn effects_are_renamed_in_either_stack() {
     let mut s = session();
@@ -201,6 +213,11 @@ fn effects_are_renamed_in_either_stack() {
     let layer = s.selected_texture_set().find(l).unwrap();
     assert_eq!(layer.content_effects[0].name, "Rust tint");
     assert_eq!(layer.mask.as_ref().unwrap().effects[0].name, "Flip");
+
+    // QA 2026-11: the same name (after trimming) added an empty "Rename Effect" step.
+    let entries = s.history().entries().len();
+    s.execute(Command::RenameEffect { layer: l, target: LayerTarget::Content, effect: e[0], name: "Rust tint ".into() }).unwrap();
+    assert_eq!(s.history().entries().len(), entries, "renaming to the same name adds no undo step");
 
     let doc = s.document().clone();
     assert!(s.execute(Command::RenameEffect { layer: l, target: LayerTarget::Content, effect: e[0], name: "   ".into() }).is_err());

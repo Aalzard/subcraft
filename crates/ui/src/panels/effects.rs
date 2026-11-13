@@ -48,6 +48,7 @@ fn mask_icon(kind: &MaskEffectKind) -> &'static str {
         MaskEffectKind::Invert => icons::INTERSECT,
         MaskEffectKind::Image { .. } => icons::IMAGE,
         MaskEffectKind::IdColor(_) => icons::SELECTION,
+        MaskEffectKind::Compare(_) => icons::STACK,
         MaskEffectKind::Anchor => icons::CROSSHAIR,
         MaskEffectKind::AnchorRef { .. } => icons::CURVE,
     }
@@ -144,6 +145,7 @@ fn add_mask_menu(ui: &mut Ui, layer: &Layer, resolution: u32, index: &subcraft_d
             ui.close();
         }
     };
+    add(ui, "Add compare mask", MaskEffectKind::Compare(Default::default()));
     add(ui, "Add color selection", MaskEffectKind::IdColor(Default::default()));
     add(ui, "Add invert", MaskEffectKind::Invert);
     add_mask_anchor_items(ui, layer.id, index, cmds);
@@ -692,11 +694,8 @@ fn content_editor(ui: &mut Ui, state: &mut UiState, layer: &Layer, e: &ContentEf
                         }
                     });
                 });
-                changed |= slider_row(ui, "In low", egui::Slider::new(&mut levels.in_low, 0.0..=1.0)).changed();
-                changed |= slider_row(ui, "In high", egui::Slider::new(&mut levels.in_high, 0.0..=1.0)).changed();
-                changed |= slider_row(ui, "Gamma", egui::Slider::new(&mut levels.gamma, 0.1..=4.0)).changed();
-                changed |= slider_row(ui, "Out low", egui::Slider::new(&mut levels.out_low, 0.0..=1.0)).changed();
-                changed |= slider_row(ui, "Out high", egui::Slider::new(&mut levels.out_high, 0.0..=1.0)).changed();
+                let key = subcraft_app::layer_previews::PreviewKey { layer: layer.id, channel: *channel, mask: false, effect: Some(eff.id), size: 0 };
+                changed |= super::properties::levels_editor(ui, state, key, levels, channel.components() >= 3);
             }
             ContentEffectKind::Generator(g) => {
                 hint(ui, "The generator's gray result goes into every channel but Normal; set each channel's blending below.");
