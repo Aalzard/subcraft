@@ -407,6 +407,10 @@ Files: {}", ex.dir().display()));
     let mut open_text: Option<(subcraft_core::LayerId, crate::text_panel::Window)> = None;
     let mut grouped = false;
     let mut export_flattened: Option<Vec<LayerId>> = None;
+    let mut instantiate: Option<Vec<LayerId>> = None;
+    // Sources of instances are marked on their row.
+    let instance_counts = subcraft_doc::instance::counts(state.session.document());
+    let several_sets = state.session.document().texture_sets.len() > 1;
     let alt = ui.input(|i| i.modifiers.alt);
     let mut open: Vec<OpenFolder> = Vec::new();
     let mut list = Vec::new();
@@ -561,7 +565,10 @@ Files: {}", ex.dir().display()));
                     // Painter's instance icon: what the link looks like.
                     let detail = match l.instance_of.and_then(|_| state.session.instance_state(l.id)) {
                         Some(link) => format!("{}  ·  {detail}", instance_label(link)),
-                        None => detail,
+                        None => match instance_counts.get(&l.id) {
+                            Some(n) => format!("{}  ·  {detail}", source_label(*n)),
+                            None => detail,
+                        },
                     };
                     let problem = anchor_index.as_ref().and_then(|i| i.problems().find(|r| r.site.layer() == l.id)).map(|r| r.status);
                     if let Some(status) = problem {
@@ -713,6 +720,10 @@ Files: {}", ex.dir().display()));
                 if ui.add_enabled(have_layer_clip, egui::Button::new("Paste as instance")).on_hover_text("Adds a layer that follows the copied one: its content, effects and mask stay those of the source").clicked() {
                     aim(&mut cmds); crate::clipboard::request(ui.ctx(), crate::clipboard::Request::PasteAsInstance); ui.close();
                 }
+                if ui.add_enabled(several_sets, egui::Button::new("Instantiate across texture sets…")).on_hover_text("Adds an instance of this layer to other texture sets").on_disabled_hover_text("The project has one texture set").clicked() {
+                    instantiate = Some(if in_multi { multi_ids.clone() } else { vec![l.id] });
+                    ui.close();
+                }
                 if ui.add(egui::Button::new(format!("Duplicate{suffix}")).shortcut_text(crate::keys::native("Ctrl+D"))).clicked() {
                     cmds.push(if in_multi { Command::DuplicateLayers(multi_ids.clone()) } else { Command::DuplicateLayer(l.id) });
                     ui.close();
@@ -860,8 +871,10 @@ Files: {}", ex.dir().display()));
         else { cmds.push(Command::FlattenLayers(targets)); }
     }
     if let Some(layers) = export_flattened { state.flatten_export = Some(layers); }
+    if let Some(layers) = instantiate { state.instantiate = Some(InstantiateDialog::new(&state.session, layers)); }
     state.run(cmds, now);
     flatten_export_window(state, ui.ctx(), now);
+    instantiate_window(state, ui.ctx(), now);
     // The grouped layers are inside the new folder, which is now the selection.
     if grouped || duplicated { state.multi.clear(); }
     if let Some((layer, action)) = layer_action {
@@ -965,6 +978,75 @@ fn flatten_export_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
     }
     state.flatten_export = None;
     state.set_status(format!("Exported {files} flattened image(s) to {}", folder.display()), now);
+}
+
+/// Row text of a layer that instances follow.
+pub fn source_label(instances: usize) -> String {
+    if instances == 1 { "Source of 1 instance".to_string() } else { format!("Source of {instances} instances") }
+}
+
+/// One texture set in the "Instantiate across texture sets" window.
+pub struct InstantiateTarget {
+    pub texture_set: subcraft_core::TextureSetId,
+    pub name: String,
+    pub ticked: bool,
+    /// Channels the layers use that this set does not have (Painter's warning mark).
+    pub missing: Vec<ChannelKind>,
+}
+
+/// Painter's "Instantiate across texture sets" window: a checkbox per other texture set.
+pub struct InstantiateDialog {
+    pub layers: Vec<LayerId>,
+    pub targets: Vec<InstantiateTarget>,
+}
+
+impl InstantiateDialog {
+    /// Every texture set except the one holding the layers, unticked.
+    pub fn new(session: &subcraft_app::Session, layers: Vec<LayerId>) -> Self {
+        let own = session.selection().texture_set;
+        let targets = session
+            .document()
+            .texture_sets
+            .iter()
+            .filter(|ts| ts.id != own)
+            .map(|ts| InstantiateTarget { texture_set: ts.id, name: ts.name.clone(), ticked: false, missing: session.instance_channel_gaps(&layers, ts.id) })
+            .collect();
+        Self { layers, targets }
+    }
+
+    /// The command for the ticked sets; `None` while nothing is ticked.
+    pub fn command(&self) -> Option<Command> {
+        let texture_sets: Vec<_> = self.targets.iter().filter(|t| t.ticked).map(|t| t.texture_set).collect();
+        (!texture_sets.is_empty()).then(|| Command::InstantiateAcross { layers: self.layers.clone(), texture_sets })
+    }
+}
+
+fn instantiate_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
+    let Some(dialog) = state.instantiate.as_mut() else { return };
+    let mut open = true;
+    let mut run = None;
+    egui::Window::new("Instantiate across texture sets").open(&mut open).collapsible(false).resizable(false).default_width(340.0).show(ctx, |ui| {
+        ui.label(format!("{} layer(s): an instance is added on top of each ticked texture set", dialog.layers.len()));
+        for t in dialog.targets.iter_mut() {
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut t.ticked, t.name.as_str());
+                if !t.missing.is_empty() {
+                    let names: Vec<&str> = t.missing.iter().map(|k| k.display_name()).collect();
+                    ui.label(RichText::new(icons::WARNING).color(theme::WARNING)).on_hover_text(format!("This texture set has no {} channel: the instance cannot show it there", names.join(", ")));
+                }
+            });
+        }
+        ui.horizontal(|ui| {
+            let command = dialog.command();
+            if ui.add_enabled(command.is_some(), egui::Button::new("OK")).clicked() { run = command; }
+        });
+    });
+    if let Some(command) = run {
+        state.instantiate = None;
+        state.run(vec![command], now);
+    } else if !open {
+        state.instantiate = None;
+    }
 }
 
 /// Row text of an instance layer's link.
@@ -1106,5 +1188,40 @@ mod smart_material_search_tests {
         assert_eq!(smart_material_matches(names.iter().copied(), "steel"), [0, 1]);
         assert_eq!(smart_material_matches(names.iter().copied(), "STEEL paint"), [1]);
         assert!(smart_material_matches(names.iter().copied(), "glass").is_empty());
+    }
+}
+
+#[cfg(test)]
+mod instantiate_dialog_tests {
+    use super::*;
+    use subcraft_app::Session;
+
+    #[test]
+    fn the_dialog_lists_the_other_texture_sets_unticked_and_runs_only_when_one_is_ticked() {
+        use glam::{Vec2, Vec3};
+        use subcraft_mesh::{Corner, MeshBuilder};
+        let mut b = MeshBuilder::new("Parts");
+        for (i, name) in ["Body", "Glass", "Trim"].into_iter().enumerate() {
+            let m = b.material(name);
+            let origin = Vec3::new(2.0 * i as f32, 0.0, 0.0);
+            let c = |x: f32, z: f32| Corner { position: origin + Vec3::new(x, 0.0, z), normal: Some(Vec3::Y), uv: Some(Vec2::new(x, z) * 0.9 + Vec2::splat(0.05)) };
+            b.push_triangle(m, [c(0.0, 0.0), c(0.0, 1.0), c(1.0, 1.0)]);
+            b.push_triangle(m, [c(0.0, 0.0), c(1.0, 1.0), c(1.0, 0.0)]);
+        }
+        let mut s = Session::new(b.build().unwrap(), 64);
+        let layer = s.selection().layer.unwrap();
+        let own = s.selection().texture_set;
+        let mut dialog = InstantiateDialog::new(&s, vec![layer]);
+        assert_eq!(dialog.targets.len(), 2);
+        assert!(dialog.targets.iter().all(|t| t.texture_set != own && !t.ticked && t.missing.is_empty()));
+        assert!(dialog.command().is_none(), "OK stays disabled");
+        dialog.targets[1].ticked = true;
+        let target = dialog.targets[1].texture_set;
+        s.execute(dialog.command().unwrap()).unwrap();
+        let top = s.document().texture_set(target).unwrap().layers.last().unwrap().clone();
+        assert_eq!(top.instance_of, Some(layer));
+        assert_eq!(subcraft_doc::instance::counts(s.document()).get(&layer), Some(&1));
+        assert_eq!(source_label(1), "Source of 1 instance");
+        assert_eq!(source_label(3), "Source of 3 instances");
     }
 }

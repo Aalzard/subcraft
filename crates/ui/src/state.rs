@@ -107,6 +107,8 @@ pub struct UiState {
     /// Layers waiting in the "Export flattened" window, and the file name pattern (kept for
     /// the next export in this session).
     pub flatten_export: Option<Vec<subcraft_core::LayerId>>,
+    /// The open "Instantiate across texture sets" window.
+    pub instantiate: Option<crate::panels::layers::InstantiateDialog>,
     pub flatten_pattern: String,
     pub graphics: crate::graphics::GraphicsUi,
     pub asset_preview: crate::asset_preview::AssetPreviewUi,
@@ -391,6 +393,7 @@ impl UiState {
             layer_previews: Default::default(),
             mask_view: None,
             flatten_export: None,
+            instantiate: None,
             flatten_pattern: subcraft_app::flatten::DEFAULT_PATTERN.to_string(),
             graphics,
             asset_preview: Default::default(),
