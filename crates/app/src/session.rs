@@ -2097,7 +2097,8 @@ impl Session {
                 })?;
             }
             Command::ClearMask(layer) => {
-                self.edit_layer_set(layer, "Clear Mask", None, |ts| {
+                // Clearing a mask with nothing painted adds no undo step (it wiped redo).
+                self.edit_layer_set_if_changed(layer, "Clear Mask", |ts| {
                     let mask = Self::layer_mut(ts, layer)?.mask.as_mut().ok_or(CommandError::NoMask)?;
                     let (w, h, comps, fill) = (mask.base.width(), mask.base.height(), mask.base.comps(), mask.base.fill());
                     mask.base = subcraft_image::TiledImage::new(w, h, comps, fill);
