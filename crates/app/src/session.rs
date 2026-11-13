@@ -1629,12 +1629,14 @@ impl Session {
                     self.hidden_sets = hidden;
                     self.focus_set = false;
                     self.revision += 1;
+                    self.refresh_part_view();
                 }
             }
             Command::SetTextureSetFocus(on) => {
                 if self.focus_set != on {
                     self.focus_set = on;
                     self.revision += 1;
+                    self.refresh_part_view();
                 }
             }
             Command::SetMixing { texture_set, mixing } => {
