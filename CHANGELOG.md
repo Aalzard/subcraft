@@ -6,6 +6,8 @@ What changed in SubCraft, newest first. Download the latest build from the
 ## Unreleased
 
 ### Added
+- **Colour space per file** in the Export window's list of maps, like Painter's: sRGB, Linear (float files)
+  or Raw (data such as normals and roughness).
 - **Export flattened / Export mask** from the layer stack, like Painter: right-click a layer or folder (or a
   multi-selection) to write it on its own, one file per channel (`$textureSet_$layerName_$srcMap`, height and
   normal as EXR, 1 texel of padding), or its mask as a gray image.
