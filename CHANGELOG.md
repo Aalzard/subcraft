@@ -6,6 +6,8 @@ What changed in SubCraft, newest first. Download the latest build from the
 ## Unreleased
 
 ### Added
+- **`--export-path <folder>`** launch argument, like Painter's: the Export window's default output folder
+  (a project's own saved export folder still wins).
 - **Converted maps** in the preset editor, like Painter's: Diffuse, Specular, Reflection, Glossiness,
   Glossiness squared, Mixed AO, f0 and 1/ior, computed from the metal / roughness channels. Painter
   presets that use them import without losing those maps.

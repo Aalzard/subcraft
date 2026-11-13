@@ -161,6 +161,7 @@ impl Writer {
                     values: path.values.iter().map(|(&channel, value)| PenChannelV4 { channel, value: value.0 }).collect(),
                     kind: path.kind,
                     stamp: path.stamp,
+                    ribbon: path.ribbon,
                 }),
                 text: p.text.as_ref().map(|t| TextLayerV16 {
                     text: t.style.text.clone(), font: t.font.clone(), letter_spacing: t.style.letter_spacing, line_spacing: t.style.line_spacing,
@@ -603,6 +604,7 @@ impl<R: Read + Seek> Loader<'_, R> {
                         values: path.values.iter().map(|v| (v.channel, subcraft_core::ChannelValue(v.value))).collect(),
                         kind: path.kind,
                         stamp: path.stamp,
+                        ribbon: path.ribbon,
                     };
                     source.validate().map_err(|e| ProjectError::Invalid(e.into()))?;
                     if source.values.len() != path.values.len() { return Err(ProjectError::Invalid("duplicate pen channels".into())); }
@@ -754,17 +756,6 @@ fn read_project_checked<R: Read + Seek>(r: R, trusted: bool, decoded: BTreeMap<S
             mesh_maps.insert(ts.id, maps);
         }
         texture_sets.push(ts);
-    }
-    // An instance's source is a layer of its own set: one in another set bypassed the raster
-    // checks (its rasters are copied in at the other set's size and channels). QA 2026-11.
-    if !trusted {
-        for ts in &texture_sets {
-            let mut foreign = false;
-            ts.walk(|l, _| foreign |= l.instance_of.is_some_and(|s| ts.find(s).is_none() && texture_sets.iter().any(|o| o.find(s).is_some())));
-            if foreign {
-                return Err(ProjectError::Invalid(format!("texture set {}: an instance's source is in another texture set", ts.name)));
-            }
-        }
     }
 
     let resources = unpack_resources(&mut loader, &doc.resources)?;

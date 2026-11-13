@@ -97,7 +97,7 @@ Layout notes: one scrolling column: General properties (Name, Description, Size 
 | Add menu category: Supported channels | Add channel popup | not documented | done | crates/ui/src/panels/texture_sets.rs (add_menu_groups) | - |
 | Add menu category: Unsupported channels | Add channel popup | not documented | done | crates/ui/src/panels/texture_sets.rs (add_menu_groups) | - |
 | Add menu category: User channels | Add channel popup | not documented | done | crates/ui/src/panels/texture_sets.rs (add_menu_groups) | - |
-| Select several channels at once (window) | Add channel | not documented | missing | - | - |
+| Select several channels at once (window) | Add channel | not documented | done: Add channel > Add several channels opens a window of tick boxes; one undo step | crates/ui/src/panels/texture_sets.rs (channels); crates/app/src/command.rs (AddChannels) | - |
 | Remove channel (paint data kept, can be re-added) | Texture Set Settings > channel row | not documented | done | crates/ui/src/panels/texture_sets.rs (channels) | - |
 | Channel name | Texture Set Settings > channel row | not documented | done | crates/ui/src/panels/texture_sets.rs:231 | - |
 | Rename a user channel by double-click | Texture Set Settings > channel row | not documented | done | crates/app/src/session.rs (Command::RenameUserChannel) | - |
@@ -113,7 +113,7 @@ Layout notes: one scrolling column: General properties (Name, Description, Size 
 | Format L32F | Channel settings menu | not documented | partial: menu on the channel gear; L or RGB is fixed per channel | crates/ui/src/panels/texture_sets.rs (CHANNEL_FORMATS) | - |
 | Format RGB32F | Channel settings menu | not documented | partial: menu on the channel gear; L or RGB is fixed per channel | crates/ui/src/panels/texture_sets.rs (CHANNEL_FORMATS) | - |
 | Color channel toggle (colour managed; editable on user channels only) | Channel settings menu | off for user channels | missing | - | - |
-| Color managed indicator icon | Texture Set Settings > channel row | fixed per channel | missing | - | - |
+| Color managed indicator icon | Texture Set Settings > channel row | fixed per channel | done: a mark beside the name of each colour channel, with a tooltip | crates/ui/src/panels/texture_sets.rs (COLOR_MANAGED_ICON) | - |
 
 ## Texture Set Settings: channel types
 

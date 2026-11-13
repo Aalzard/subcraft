@@ -20,6 +20,7 @@
 pub mod curvature;
 pub mod name_match;
 pub mod normal_curvature;
+pub mod seam_check;
 pub mod surface;
 
 use std::collections::BTreeMap;
