@@ -3,7 +3,7 @@ use subcraft_core::{ChannelKind, ChannelValue};
 use subcraft_doc::{Layer, LayerContent, LayerKind, PenAnchor, PenPath, TextureSet};
 
 fn path() -> PenPath {
-    PenPath { anchors: vec![PenAnchor::new(Vec2::new(0.1, 0.5)), PenAnchor::new(Vec2::new(0.9, 0.5))], closed: false, radius: 0.02, opacity: 1.0, hardness: 1.0, values: [(ChannelKind::BaseColor, ChannelValue::rgb(1.0, 0.0, 0.0))].into(), kind: Default::default(), stamp: None }
+    PenPath { anchors: vec![PenAnchor::new(Vec2::new(0.1, 0.5)), PenAnchor::new(Vec2::new(0.9, 0.5))], closed: false, radius: 0.02, opacity: 1.0, hardness: 1.0, values: [(ChannelKind::BaseColor, ChannelValue::rgb(1.0, 0.0, 0.0))].into(), kind: Default::default(), stamp: None, ribbon: None }
 }
 
 #[test]
@@ -55,5 +55,27 @@ fn a_stamped_path_checks_its_spacing_and_keeps_its_tip_with_the_project() {
     let mut used = Vec::new();
     layer.collect_resources(&mut used);
     assert_eq!(used, vec![tip], "saving keeps the stamped tip image");
+}
+
+#[test]
+fn a_ribbon_checks_its_tiling_and_its_image_is_kept_with_the_project() {
+    let mut p = path();
+    p.kind = subcraft_doc::PathKind::Ribbon;
+    p.ribbon = Some(subcraft_doc::PathRibbon { tiles: 0.0, ..Default::default() });
+    assert!(p.validate().is_err(), "tiling below 0.05");
+    let (image, tip) = (subcraft_core::ResourceId::new(), subcraft_core::ResourceId::new());
+    p.ribbon = Some(subcraft_doc::PathRibbon { image: Some(image), ..Default::default() });
+    p.stamp = Some(subcraft_doc::PathStamp { alpha: Some(tip), ..Default::default() });
+    assert!(p.validate().is_ok());
+    assert_eq!(p.image_resource(), Some(image), "a ribbon draws with its image");
+    p.kind = subcraft_doc::PathKind::Paint;
+    assert_eq!(p.image_resource(), Some(tip), "a stamped stroke with its tip");
+    let ts = TextureSet::new("Body", 0, 64);
+    let mut layer = Layer::new_paint("Pen path", &ts);
+    let LayerContent::Paint(content) = &mut layer.content else { unreachable!() };
+    content.path = Some(p);
+    let mut used = Vec::new();
+    layer.collect_resources(&mut used);
+    assert_eq!(used, vec![tip, image], "both images survive a save, whichever type is shown");
 }
 

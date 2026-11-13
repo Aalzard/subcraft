@@ -10,9 +10,10 @@ use crate::app::Tab;
 use crate::i18n::tr;
 
 /// Panels the Docks toolbar offers, in its order (the 3D and 2D views are never closed).
-pub const DOCKABLE: [Tab; 9] = [
+pub const DOCKABLE: [Tab; 10] = [
     Tab::DisplaySettings,
     Tab::ShaderSettings,
+    Tab::Log,
     Tab::History,
     Tab::Properties,
     Tab::Layers,
@@ -174,19 +175,19 @@ mod tests {
     #[test]
     fn the_toolbar_lists_closed_panels_and_pops_them_up_and_away() {
         let mut dock = default_layout();
-        assert_eq!(closed(&dock), vec![Tab::DisplaySettings, Tab::ShaderSettings], "the two optional panels start closed");
+        assert_eq!(closed(&dock), vec![Tab::DisplaySettings, Tab::ShaderSettings, Tab::Log], "the three optional panels start closed");
         // Pop it up: it floats alone in a new window.
         let s = float(&mut dock, Tab::DisplaySettings, Pos2::new(100.0, 50.0), POPUP_SIZE);
         assert!(!s.is_main() && is_floating(&dock, Tab::DisplaySettings));
-        assert_eq!(closed(&dock), vec![Tab::ShaderSettings]);
+        assert_eq!(closed(&dock), vec![Tab::ShaderSettings, Tab::Log]);
         // Closing it again removes the emptied window and brings its button back.
         let surfaces = dock.surfaces_count();
         close(&mut dock, Tab::DisplaySettings);
-        assert_eq!(closed(&dock), vec![Tab::DisplaySettings, Tab::ShaderSettings]);
+        assert_eq!(closed(&dock), vec![Tab::DisplaySettings, Tab::ShaderSettings, Tab::Log]);
         assert!(dock.surfaces_count() <= surfaces);
         // Any core panel can be closed and comes back through the toolbar.
         close(&mut dock, Tab::History);
-        assert_eq!(closed(&dock), vec![Tab::DisplaySettings, Tab::ShaderSettings, Tab::History]);
+        assert_eq!(closed(&dock), vec![Tab::DisplaySettings, Tab::ShaderSettings, Tab::Log, Tab::History]);
         float(&mut dock, Tab::History, Pos2::ZERO, POPUP_SIZE);
         redock(&mut dock, Tab::History);
         assert_eq!(surface_of(&dock, Tab::History), Some(SurfaceIndex::main()), "docked beside Properties");

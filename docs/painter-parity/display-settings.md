@@ -107,7 +107,7 @@ a trailing asterisk.
 | Display ratio (read-only; "Unspecified" when absent) | Display Settings > Camera | Unspecified | missing | - | - |
 | Field of View (degrees) | Display Settings > Camera | not documented | done: 5-120 degrees; the camera dollies to keep the model its size | crates/ui/src/panels/display_settings.rs (camera, set_fov) | 165 |
 | Focal length (mm) | Display Settings > Camera | not documented | done: full-frame (24 mm high) equivalent of the field of view | crates/doc/src/display.rs (focal_length_mm) | 165 |
-| Focus Distance | Display Settings > Camera | not documented | partial: a multiple of the orbit distance (0.2-3), not scene units | crates/ui/src/panels/display_settings.rs (camera) | 161 |
+| Focus Distance | Display Settings > Camera | not documented | done: scene units from the camera (logarithmic, 1 % to 20x the model size); settings saved before keep their relative focus until it is set | crates/doc/src/display.rs (focus_distance) | 397 |
 | Set focus distance by clicking the mesh | 3D view, Ctrl+Middle mouse click | Ctrl+MMB | done: Ctrl+MMB, and the "Pick in 3D view" button | crates/ui/src/viewport.rs | 165 |
 | Aperture | Display Settings > Camera | not documented | partial: blur amount 0-1 (default 0.5), not a physical aperture | crates/ui/src/panels/display_settings.rs (camera) | 161 |
 | Camera Perspective | Shortcut F5 (also viewport projection control) | perspective | done | crates/app/src/actions.rs:210 | - |
@@ -293,8 +293,8 @@ linear/raw. Hidden or superseded in colour-managed (OCIO/ACE) projects (unverifi
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Order-independent transparency | Display Settings > Render settings | off | missing: the viewport shader does not render opacity at all | - | - |
-| Sort capacity | Display Settings > Render settings | High (4x); options Low (1x), Medium (2x), High (4x), Very high (8x), Ultra (16x) | missing | - | - |
+| Order-independent transparency | Display Settings > Render settings | off | done: weighted blended OIT for alpha-blended texture sets (off by default); also used by Render export | crates/render/src/oit.rs | 334 |
+| Sort capacity | Display Settings > Render settings | High (4x); options Low (1x), Medium (2x), High (4x), Very high (8x), Ultra (16x) | partial: not offered; the weighted blended OIT keeps no per-pixel list, so it has no capacity to set | - | 334 |
 
 ## Viewport settings: Texture filtering
 

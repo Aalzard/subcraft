@@ -88,13 +88,13 @@ fn schema_8_spread_roundtrips_and_schema_7_preserves_legacy_evaluation() {
 #[test]
 fn pen_schema_has_explicit_stable_fields_and_rejects_duplicate_anchors() {
     let id = uuid::Uuid::new_v4();
-    let path = PenPathV4 { anchors: vec![PenAnchorV4 { id, position: [0.2, 0.3], incoming: [0.0, -0.1], outgoing: [0.0, 0.1] }], closed: false, radius: 0.02, hardness: 0.5, opacity: 1.0, values: vec![PenChannelV4 { channel: ChannelKind::BaseColor, value: [1.0, 0.0, 0.0] }], kind: Default::default(), stamp: None };
+    let path = PenPathV4 { anchors: vec![PenAnchorV4 { id, position: [0.2, 0.3], incoming: [0.0, -0.1], outgoing: [0.0, 0.1] }], closed: false, radius: 0.02, hardness: 0.5, opacity: 1.0, values: vec![PenChannelV4 { channel: ChannelKind::BaseColor, value: [1.0, 0.0, 0.0] }], kind: Default::default(), stamp: None, ribbon: None };
     let json = serde_json::to_value(&path).unwrap();
     assert_eq!(json["anchors"][0]["id"], id.to_string()); assert_eq!(json["anchors"][0]["outgoing"], serde_json::json!([0.0, 0.1f32]));
     assert_eq!(json["values"][0]["channel"], "base_color");
     let mut layer = Layer::new_paint("Pen", &TextureSet::new("Body", 0, 128));
     let LayerContent::Paint(p) = &mut layer.content else { panic!() };
-    let mut source = subcraft_doc::PenPath { anchors: vec![subcraft_doc::PenAnchor { id: subcraft_core::AnchorId(id), position: [0.2, 0.3].into(), incoming: [0.0, -0.1].into(), outgoing: [0.0, 0.1].into() }], closed: false, radius: 0.02, hardness: 0.5, opacity: 1.0, values: [(ChannelKind::BaseColor, ChannelValue::rgb(1.0, 0.0, 0.0))].into(), kind: Default::default(), stamp: None };
+    let mut source = subcraft_doc::PenPath { anchors: vec![subcraft_doc::PenAnchor { id: subcraft_core::AnchorId(id), position: [0.2, 0.3].into(), incoming: [0.0, -0.1].into(), outgoing: [0.0, 0.1].into() }], closed: false, radius: 0.02, hardness: 0.5, opacity: 1.0, values: [(ChannelKind::BaseColor, ChannelValue::rgb(1.0, 0.0, 0.0))].into(), kind: Default::default(), stamp: None, ribbon: None };
     source.anchors.push(source.anchors[0].clone()); p.path = Some(source);
     let mut ts = TextureSet::new("Body", 0, 128); ts.insert_above(None, layer);
     let bytes = write_project(Cursor::new(Vec::new()), &primitives::cube(2.0), &Document { texture_sets: vec![ts] }, &ResourceStore::default(), &MeshMapSet::new()).unwrap().into_inner();
@@ -721,7 +721,7 @@ fn the_trusted_loader_keeps_filter_parameters_the_checked_loader_rejects() {
     let doc = Document { texture_sets: vec![ts] };
     let bytes = write_project(Cursor::new(Vec::new()), &mesh, &doc, &ResourceStore::default(), &MeshMapSet::new()).unwrap().into_inner();
     assert!(matches!(read_project(Cursor::new(bytes.clone())), Err(ProjectError::Invalid(_))));
-    assert_eq!(read_project_checked(Cursor::new(bytes), true).unwrap().document, doc);
+    assert_eq!(read_project_checked(Cursor::new(bytes), true, std::collections::BTreeMap::new()).unwrap().document, doc);
 }
 
 #[test]
@@ -1208,4 +1208,58 @@ fn invalid_content_levels_are_refused_on_load() {
     assert!(read(&doc(2.0)).is_ok());
     let err = read(&doc(-1.0)).unwrap_err();
     assert!(matches!(err, ProjectError::Invalid(ref m) if m.contains("levels")), "{err}");
+}
+
+/// Opening a file inflates and decodes its rasters on all cores first; what comes back is
+/// exactly what the sequential reader gives for the same bytes (document, rasters, mesh maps),
+/// and a damaged raster is still reported by the loader, with the same error.
+#[test]
+fn file_load_matches_the_sequential_reader() {
+    let dir = std::env::temp_dir().join(format!("subcraft-load-test-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("rich.subcraft");
+    let mesh = primitives::sample_crate();
+    let doc = rich_document();
+    let mut maps = MeshMapSet::new();
+    let mut ao = TiledImage::new(256, 256, 1, [1.0; 4]);
+    ao.set(10, 10, [0.25; 4]);
+    let mut inner = std::collections::BTreeMap::new();
+    inner.insert(subcraft_core::MeshMapKind::AmbientOcclusion, ao);
+    maps.insert(doc.texture_sets[0].id, inner);
+    save_project(&path, &mesh, &doc, &ResourceStore::default(), &maps).unwrap();
+
+    let bytes = std::fs::read(&path).unwrap();
+    let rasters = decode_rasters(&path);
+    if std::thread::available_parallelism().is_ok_and(|n| n.get() > 1) {
+        assert!(rasters.len() >= 4, "the parallel pass decoded the rasters ({})", rasters.len());
+    }
+    let sequential = read_project(Cursor::new(bytes.clone())).unwrap();
+    for file in [load_project(&path).unwrap(), load_project_trusted(&path).unwrap()] {
+        assert_eq!(file.document, sequential.document);
+        assert_eq!(file.document, doc);
+        assert_eq!(file.mesh_maps, sequential.mesh_maps);
+        assert_eq!(file.mesh_maps, maps);
+        assert_eq!(file.mesh.positions, sequential.mesh.positions);
+    }
+
+    // One raster truncated: the parallel pass skips it, the loader reports it as before.
+    let mut src = zip::ZipArchive::new(Cursor::new(bytes)).unwrap();
+    let mut out = zip::ZipWriter::new(Cursor::new(Vec::new()));
+    for i in 0..src.len() {
+        let mut f = src.by_index(i).unwrap();
+        let name = f.name().unwrap().to_string();
+        let mut data = Vec::new();
+        f.read_to_end(&mut data).unwrap();
+        if name == "rasters/00001.tiles" {
+            data.truncate(data.len() / 2);
+        }
+        out.start_file(name, SimpleFileOptions::default()).unwrap();
+        out.write_all(&data).unwrap();
+    }
+    let damaged = out.finish().unwrap().into_inner();
+    std::fs::write(&path, &damaged).unwrap();
+    let expected = read_project(Cursor::new(damaged)).unwrap_err().to_string();
+    assert!(expected.contains("truncated"), "{expected}");
+    assert_eq!(load_project(&path).unwrap_err().to_string(), expected);
+    std::fs::remove_dir_all(&dir).unwrap();
 }

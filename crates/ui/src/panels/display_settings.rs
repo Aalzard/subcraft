@@ -280,6 +280,8 @@ pub fn camera(state: &mut UiState, ui: &mut Ui) {
         });
     }
     let mut pick = false;
+    // Focus distances offered: from very close to well past the model.
+    let scene = state.session.scene().mesh.bounds.diagonal().max(1e-3);
     {
         let camera = &mut state.camera;
         let prefs = &mut state.recovery.prefs.viewport;
@@ -310,7 +312,10 @@ pub fn camera(state: &mut UiState, ui: &mut Ui) {
             }
             ui.end_row();
             ui.label(tr("Focus distance"));
-            ui.add_enabled(prefs.dof, egui::Slider::new(&mut prefs.dof_focus, 0.2..=3.0).logarithmic(true)).on_hover_text(tr("1 is the point the camera orbits around; it follows zooming. Ctrl + middle click in the 3D view focuses on the point under the cursor. Needs Depth of field (Post effects)."));
+            let mut focus = prefs.focus_distance(camera.eye_distance());
+            if ui.add_enabled(prefs.dof, egui::Slider::new(&mut focus, scene * 0.01..=scene * 20.0).logarithmic(true)).on_hover_text(tr("Distance from the camera, in scene units, that is sharp; it stays put while zooming. Ctrl + middle click in the 3D view focuses on the point under the cursor. Needs Depth of field (Post effects).")).changed() {
+                prefs.dof_focus_distance = Some(focus);
+            }
             ui.end_row();
             ui.label(tr("Focus point"));
             pick = ui.add_enabled(prefs.dof, egui::Button::new(tr("Pick in 3D view"))).on_hover_text(tr("Click the model in the 3D view to focus on that spot")).clicked();
@@ -503,6 +508,8 @@ pub fn render(state: &mut UiState, ui: &mut Ui) {
     let prefs = &mut state.recovery.prefs.viewport;
     let tracing = prefs.path_tracing;
     ui.horizontal(|ui| crate::viewport_bar::resolution(ui, prefs));
+    ui.checkbox(&mut prefs.display.oit, tr("Order-independent transparency"))
+        .on_hover_text(tr("Alpha-blended texture sets look the same whatever order their parts are drawn in: overlapping transparent surfaces are averaged by depth and coverage"));
     crate::viewport_bar::rendering_settings(ui, prefs);
 
     // Painter's Iray status block: what the Rendering mode is doing right now.
@@ -736,7 +743,7 @@ pub fn visualization(state: &mut UiState, ui: &mut Ui) {
         });
     });
     ui.checkbox(&mut prefs.symmetry_plane, tr("Mirror planes")).on_hover_text(tr("Each active mirror plane as a translucent sheet in its axis colour"));
-    ui.checkbox(&mut prefs.hints, tr("Viewport hints")).on_hover_text(tr("The list of mouse and key actions in the bottom-left corner of the 3D view. While it is hidden the grid unit is shown there."));
+    ui.checkbox(&mut prefs.hints, tr("Viewport hints")).on_hover_text(tr("The list of mouse and key actions in the bottom-left corner of the 3D view. The grid unit is shown just above it."));
     ui.checkbox(&mut prefs.axis_indicator, tr("Axis indicator")).on_hover_text(tr("The X, Y and Z directions of the scene in the bottom-right corner of the 3D view"));
 }
 

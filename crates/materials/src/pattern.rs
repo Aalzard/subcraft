@@ -102,6 +102,8 @@ struct Line {
     dir: Vec2,
     half: f32,
     w: f32,
+    /// Squared distance from `c` beyond which the segment contributes exactly 0 (with a margin).
+    reach2: f32,
 }
 
 /// Last cells' segments on this thread, keyed by `(cx, cy, period, seed)`: neighboring texels
@@ -129,7 +131,11 @@ fn line_cell(cx: i32, cy: i32, period: i32, seed: u32) -> [Line; 3] {
         let ang = hash_f(wx, wy, s ^ 0x123) * std::f32::consts::PI;
         let len = 0.3 + hash_f(wx, wy, s ^ 0x777) * 0.9;
         let w = 0.012 + hash_f(wx, wy, s ^ 0x999) * 0.01;
-        Line { c: Vec2::new(cx as f32 + ox, cy as f32 + oy), dir: Vec2::new(ang.cos(), ang.sin()), half: len * 0.5, w }
+        let half = len * 0.5;
+        // A point farther from the centre than `half + w` is farther than `w` from the segment
+        // (which reaches `half` from its centre), so its line value is `(1 - 1) * fade = 0`.
+        // The 1% margin (0.5% in distance) is far beyond any rounding of these sums.
+        Line { c: Vec2::new(cx as f32 + ox, cy as f32 + oy), dir: Vec2::new(ang.cos(), ang.sin()), half, w, reach2: (half + w) * (half + w) * 1.01 }
     })
 }
 
@@ -151,6 +157,10 @@ fn scratches(q: Vec2, period: i32, seed: u32) -> f32 {
                 }
                 for l in &cell.lines {
                     let d = q - l.c;
+                    // Out of reach: the value below would be exactly 0, which never raises `best`.
+                    if d.length_squared() > l.reach2 {
+                        continue;
+                    }
                     let t = d.dot(l.dir).clamp(-l.half, l.half);
                     let dist = (d - l.dir * t).length();
                     let fade = 1.0 - (t.abs() / l.half).powi(4);

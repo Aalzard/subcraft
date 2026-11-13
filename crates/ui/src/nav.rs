@@ -412,16 +412,43 @@ impl CameraSpeed {
         (dy * 0.01 * Self::clamped(self.zoom) * sign).exp()
     }
 
-    /// Distance factor of a wheel turn of `scroll` points (up zooms in unless inverted).
+    /// Distance factor of a wheel step in the 3D view. `scroll` is egui's: > 0 when the wheel
+    /// turns forward (away from you). As in Painter, forward comes closer (zooms in) unless
+    /// "Invert zoom" is on.
     pub fn wheel_zoom(&self, scroll: f32) -> f32 {
         let sign = if self.wheel_invert { -1.0 } else { 1.0 };
         (-scroll * 0.0015 * Self::clamped(self.wheel) * sign).exp()
+    }
+
+    /// Magnification factor of a wheel step in the 2D view: the same direction, speed and
+    /// "Invert zoom" as the 3D view (forward = bigger).
+    pub fn wheel_magnify_2d(&self, scroll: f32) -> f32 {
+        let sign = if self.wheel_invert { -1.0 } else { 1.0 };
+        (scroll * 0.002 * Self::clamped(self.wheel) * sign).exp()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Discord report (2026-11): the wheel was said to zoom the wrong way. Painter (and Designer:
+    /// "Mouse wheel up: Zoom in") zoom in when the wheel turns forward; egui reports that as a
+    /// positive scroll. Both views must agree, and "Invert zoom" must flip both.
+    #[test]
+    fn wheel_forward_zooms_in_in_both_views_and_invert_zoom_flips_both() {
+        let forward = 120.0;
+        let d = CameraSpeed::default();
+        assert!(d.wheel_zoom(forward) < 1.0, "3D: forward brings the camera closer");
+        assert!(d.wheel_magnify_2d(forward) > 1.0, "2D: forward makes the UV view bigger");
+        assert!(d.wheel_zoom(-forward) > 1.0 && d.wheel_magnify_2d(-forward) < 1.0, "backward zooms out in both");
+        let inv = CameraSpeed { wheel_invert: true, ..d };
+        assert!(inv.wheel_zoom(forward) > 1.0, "3D inverted: forward moves away");
+        assert!(inv.wheel_magnify_2d(forward) < 1.0, "2D inverted: forward makes the view smaller");
+        assert!((d.wheel_magnify_2d(forward) - (forward * 0.002f32).exp()).abs() < 1e-6, "speed 1 keeps the old 2D step");
+        let slow = CameraSpeed { wheel: 0.5, ..d };
+        assert!((slow.wheel_magnify_2d(forward).ln() - forward * 0.001).abs() < 1e-5, "the wheel speed applies to the 2D view");
+    }
 
     #[test]
     fn camera_speeds_scale_and_invert_the_navigation() {

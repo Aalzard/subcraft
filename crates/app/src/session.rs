@@ -250,6 +250,8 @@ pub struct Session {
     recovered: bool,
     /// The mesh was reloaded since the last save.
     mesh_dirty: bool,
+    /// Symmetry axes the L key (Painter's Symmetry on / off) switched off, restored by the next L.
+    saved_symmetry: Option<([bool; 3], bool)>,
 }
 
 /// Everything a project file holds, captured cheaply (shared tiles and resources) so it can be
@@ -339,6 +341,7 @@ impl Session {
             maps_generation: 0,
             recovered: false,
             mesh_dirty: false,
+            saved_symmetry: None,
         }
     }
 
@@ -1135,6 +1138,19 @@ impl Session {
         Ok(r)
     }
 
+    /// `reference` for an insertion, moved out of any instance it is in (to the outermost
+    /// instance): a layer added inside one was wiped by the next sync with its source, leaving an
+    /// empty undo step (QA 2026-11).
+    fn outside_instances(ts: &TextureSet, reference: Option<LayerId>) -> Option<LayerId> {
+        reference.map(|r| subcraft_doc::instance::root_of(ts, r).unwrap_or(r))
+    }
+
+    /// Whether a layer moved into `parent` would land in an instance (and be replaced by the
+    /// source's content on the next sync, or, the source itself, take the instance with it).
+    fn inside_instance(ts: &TextureSet, parent: Option<LayerId>) -> bool {
+        parent.is_some_and(|p| subcraft_doc::instance::root_of(ts, p).is_some())
+    }
+
     /// The layers of `ts_id` as they are, when `layer` is an instance or inside one.
     fn instance_guard(&self, ts_id: TextureSetId, layer: LayerId) -> Option<Vec<Arc<Layer>>> {
         let ts = self.doc.texture_set(ts_id)?;
@@ -1528,8 +1544,11 @@ impl Session {
                     }
                     NewLayer::Folder => (Layer::new_folder(format!("Folder {}", self.layer_counter), &tc), "New Folder"),
                 };
+                // Never inside an instance (its content is its source's): above it instead.
+                let locked = reference.and_then(|r| subcraft_doc::instance::root_of(ts, r));
+                let reference = locked.or(reference);
                 // Painter: with an empty folder selected, the new layer goes inside it.
-                let empty_folder = reference.filter(|&r| ts.find(r).is_some_and(|l| l.is_folder() && l.children().is_empty()));
+                let empty_folder = reference.filter(|&r| locked.is_none() && ts.find(r).is_some_and(|l| l.is_folder() && l.children().is_empty()));
                 let id = match empty_folder {
                     Some(folder) => ts.insert(Some(folder), 0, layer).map_err(|_| CommandError::LayerNotFound)?,
                     None => ts.insert_above(reference, layer),
@@ -1545,6 +1564,7 @@ impl Session {
                 if ts.find(layer.id).is_some() {
                     layer = layer.duplicate_with_new_ids();
                 }
+                let reference = Self::outside_instances(ts, reference);
                 let id = ts.insert_above(reference, layer);
                 self.selection.layer = Some(id);
                 self.commit(&label, None);
@@ -1607,6 +1627,28 @@ impl Session {
                 add_blend(&mut ts.layers, kind);
                 self.brush.material.set(kind, kind.default_paint_value());
                 self.commit(&format!("Add {} Channel", kind.display_name()), None);
+            }
+            Command::AddChannels { texture_set, kinds } => {
+                let ts = self.doc.texture_set_mut(texture_set).ok_or(CommandError::TextureSetNotFound)?;
+                let mut added: Vec<ChannelKind> = Vec::new();
+                for kind in kinds {
+                    if !ts.has_channel(kind) {
+                        ts.channels.push(ChannelDef::default_for(kind));
+                        add_blend(&mut ts.layers, kind);
+                        added.push(kind);
+                    }
+                }
+                if added.is_empty() {
+                    return Ok(());
+                }
+                for &kind in &added {
+                    self.brush.material.set(kind, kind.default_paint_value());
+                }
+                let label = match added.as_slice() {
+                    [one] => format!("Add {} Channel", one.display_name()),
+                    many => format!("Add {} Channels", many.len()),
+                };
+                self.commit(&label, None);
             }
             Command::RemoveChannel { texture_set, kind } => {
                 let ts = self.doc.texture_set_mut(texture_set).ok_or(CommandError::TextureSetNotFound)?;
@@ -1704,9 +1746,16 @@ impl Session {
                 if found.is_empty() {
                     return Err(CommandError::Invalid("Paste as instance: the copied layer is no longer in the project".into()));
                 }
+                // Put back when a later layer is refused: the instances already inserted used to
+                // stay in the document, outside any undo step.
+                let before = ts.layers.clone();
                 for (set, source) in found {
                     let same = set == ts_id;
-                    if same && at.is_some_and(|a| a != source.id && ts.is_descendant_or_self(a, source.id)) {
+                    // An instance of an instance follows that one's source: the new layer must stay
+                    // out of that layer too.
+                    let follows = source.instance_of.unwrap_or(source.id);
+                    if at.is_some_and(|a| (same && a != source.id && ts.is_descendant_or_self(a, source.id)) || (a != follows && ts.is_descendant_or_self(a, follows))) {
+                        ts.layers = before;
                         return Err(CommandError::Invalid("An instance cannot go inside its own source: select a layer outside it first".into()));
                     }
                     let mut instance = subcraft_doc::instance::new_instance(&source, ts, same);
@@ -1721,8 +1770,20 @@ impl Session {
                 if found.is_empty() {
                     return Err(CommandError::LayerNotFound);
                 }
+                // Checked before anything is added: a texture set that is gone (the dialog stays
+                // open over a mesh reload) used to stop the command after instances had already
+                // been put into the sets before it, outside any undo step.
+                if texture_sets.iter().any(|&t| self.doc.texture_set(t).is_none()) {
+                    return Err(CommandError::TextureSetNotFound);
+                }
                 let mut made = false;
+                let mut done = Vec::new();
                 for target in texture_sets {
+                    // A set listed twice gets one instance.
+                    if done.contains(&target) {
+                        continue;
+                    }
+                    done.push(target);
                     let ts = self.doc.texture_set_mut(target).ok_or(CommandError::TextureSetNotFound)?;
                     for (set, source) in &found {
                         if *set == target {
@@ -1780,7 +1841,7 @@ impl Session {
                     ts.channels.push(ChannelDef::default_for(kind));
                     add_blend(&mut ts.layers, kind);
                 }
-                let mut at = reference;
+                let mut at = Self::outside_instances(ts, reference);
                 for mut layer in clip.instantiate(ts, mesh) {
                     layer.name = crate::clipboard::pasted_name(ts, &layer.name);
                     at = Some(ts.insert_above(at, layer));
@@ -1939,6 +2000,7 @@ impl Session {
                 let ts = self.doc.texture_set(texture_set).ok_or(CommandError::TextureSetNotFound)?;
                 if ts.find(layer).is_none() { return Err(CommandError::LayerNotFound); }
                 if let Some(destination) = crate::layer_tree::drop_destination(ts, layer, target) {
+                    if Self::inside_instance(ts, destination.parent) { return Err(CommandError::Invalid(INSTANCE_READ_ONLY.into())); }
                     self.edit_layer_set(layer, "Move Layer", None, |ts| {
                         ts.move_to(layer, destination.parent, destination.index).map_err(|e| CommandError::Invalid(format!("{e:?}")))?;
                         if let Some(parent) = destination.parent
@@ -1973,6 +2035,7 @@ impl Session {
                     let mut at = target;
                     for &id in &moving {
                         if let Some(destination) = crate::layer_tree::drop_destination(ts, id, at) {
+                            if Self::inside_instance(ts, destination.parent) { return Err(CommandError::Invalid(INSTANCE_READ_ONLY.into())); }
                             ts.move_to(id, destination.parent, destination.index).map_err(|e| CommandError::Invalid(format!("{e:?}")))?;
                         }
                         at = DropTarget::Above(id);
@@ -2468,6 +2531,7 @@ impl Session {
             Action::BrushSmaller => self.brush.settings.size = (self.brush.settings.size / 1.15).max(0.1),
             Action::BrushLarger => self.brush.settings.size = (self.brush.settings.size * 1.15).min(100.0),
             Action::ToggleSymmetryX => self.brush.options.symmetry[0] = !self.brush.options.symmetry[0],
+            Action::ToggleSymmetry => self.brush.options.toggle_symmetry(&mut self.saved_symmetry),
             Action::ToggleLazyMouse => {
                 let o = &mut self.brush.options;
                 o.lazy_distance_px = if o.lazy_distance_px > 0.0 { 0.0 } else { 20.0 };
@@ -2664,7 +2728,11 @@ impl Session {
             Some(q) if q.editing => {
                 q.editing = false;
                 q.revision += 1;
-                let empty = q.image.allocated_tiles() == 0 && q.image.fill()[0] <= 0.0;
+                // Erased texels keep their tile: a mask painted and erased again, or only erased,
+                // has tiles and selects nothing. Counted as painted, it was applied and every
+                // stroke after it painted nothing, with no message.
+                let painted = (0..q.image.tile_count()).any(|i| q.image.tile(i).is_some_and(|t| t.data.iter().any(|v| v.to_f32() > 0.0)));
+                let empty = !painted && q.image.fill()[0] <= 0.0;
                 if empty {
                     self.quick_mask = None;
                 }

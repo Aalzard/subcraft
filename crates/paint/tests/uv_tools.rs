@@ -126,7 +126,7 @@ fn a_stencil_masks_uv_strokes_where_it_lies_over_the_2d_view() {
     let r = small_radius_uv(&sc);
     // Texture drawn 512 px large at the view origin; a stencil covering the whole view, white on
     // its left half, black on its right half, so the split runs through the dab's centre.
-    let view = UvView { origin: Vec2::ZERO, side: 512.0, viewport: [512, 512] };
+    let view = UvView { origin: Vec2::ZERO, side: 512.0, viewport: [512, 512], rotation: 0.0 };
     let split = view.to_view(center).x / 512.0;
     let n = 512usize;
     let mut data = vec![0u8; n * n];
@@ -247,3 +247,18 @@ fn without_symmetry_there_are_no_uv_copies() {
     let options = StrokeOptions { symmetry: [true, true, true], ..StrokeOptions::default() };
     assert!(uv_symmetry_copies(&ctx, &options, Vec2::new(-1.0, -1.0)).is_empty());
 }
+
+#[test]
+fn a_turned_2d_view_maps_texture_positions_through_its_rotation() {
+    let view = UvView { origin: Vec2::new(40.0, 10.0), side: 200.0, viewport: [300, 240], rotation: std::f32::consts::FRAC_PI_2 };
+    // A quarter turn clockwise: the texture's right edge points down the screen.
+    let centre = Vec2::new(140.0, 110.0);
+    assert!((view.to_view(Vec2::splat(0.5)) - centre).length() < 1e-3);
+    assert!((view.to_view(Vec2::new(1.0, 0.5)) - (centre + Vec2::new(0.0, 100.0))).length() < 1e-3);
+    for uv in [Vec2::new(0.1, 0.9), Vec2::new(0.75, 0.2)] {
+        assert!((view.to_uv(view.to_view(uv)) - uv).length() < 1e-4, "{uv}");
+    }
+    let turned = UvView { rotation: 0.6, ..view };
+    assert!((turned.to_uv(turned.to_view(Vec2::new(0.3, 0.8))) - Vec2::new(0.3, 0.8)).length() < 1e-4);
+}
+
