@@ -200,6 +200,8 @@ pub struct Session {
     /// Selected effect of the selected layer's current domain (see [`Session::selected_effect`]).
     effect: Option<EffectId>,
     pub brush: BrushState,
+    /// Settings > General > Default UV scale for materials: the UV tiling of new fill layers.
+    pub default_uv_scale: f32,
     stroke: Option<ActiveStroke>,
     /// Clone tool: object-space source point, and the screen offset the first stroke fixed.
     clone_source: Option<Vec3>,
@@ -294,6 +296,7 @@ impl Session {
             doc,
             selection,
             mask_clipboard: None,
+            default_uv_scale: 1.0,
             hidden_sets: Default::default(),
             focus_set: false,
             effect: None,
@@ -1426,7 +1429,14 @@ impl Session {
                 let tc = ts.clone();
                 let (layer, label) = match kind {
                     NewLayer::Paint => (Layer::new_paint(format!("Layer {}", self.layer_counter), &tc), "New Paint Layer"),
-                    NewLayer::Fill => (Layer::new_fill(format!("Fill {}", self.layer_counter), &tc), "New Fill Layer"),
+                    NewLayer::Fill => {
+                        let mut fill = Layer::new_fill(format!("Fill {}", self.layer_counter), &tc);
+                        let s = if self.default_uv_scale.is_finite() && self.default_uv_scale > 0.0 { self.default_uv_scale } else { 1.0 };
+                        if let subcraft_doc::LayerContent::Fill(f) = &mut fill.content {
+                            f.projection.scale = [s, s];
+                        }
+                        (fill, "New Fill Layer")
+                    }
                     NewLayer::Folder => (Layer::new_folder(format!("Folder {}", self.layer_counter), &tc), "New Folder"),
                 };
                 // Painter: with an empty folder selected, the new layer goes inside it.
