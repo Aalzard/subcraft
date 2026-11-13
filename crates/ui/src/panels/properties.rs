@@ -2022,8 +2022,10 @@ mod material_button_tests {
         let ctx = egui::Context::default();
         crate::theme::apply(&ctx);
         let states = [(ChannelKind::BaseColor, true), (ChannelKind::Roughness, false), (ChannelKind::Opacity, true)];
+        let mut first = ctx.run_ui(Default::default(), |ui| { let _ = material_buttons(ui, &states, &[]); });
+        first.textures_delta.clear();
         let mut out = ctx.run_ui(Default::default(), |ui| { let _ = material_buttons(ui, &states, &[]); });
-        out = { let _ = out; ctx.run_ui(Default::default(), |ui| { let _ = material_buttons(ui, &states, &[]); }) };
+        out.textures_delta.clear();
         let has = |t: &str| out.shapes.iter().any(|s| matches!(&s.shape, egui::Shape::Text(g) if g.galley.text() == t));
         assert!(has(ChannelKind::Opacity.short_name()), "Opacity gets a toggle on fill layers");
         assert!(has(ChannelKind::BaseColor.short_name()));
