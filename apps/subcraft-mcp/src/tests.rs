@@ -269,3 +269,25 @@ fn flatten_instantiate_and_channel_removal() {
     let msg = fails(&mut server, "texture_set_update", json!({ "texture_set": "Body", "remove_channels": ["emissive"] }));
     assert!(msg.to_lowercase().contains("emissive"), "{msg}");
 }
+
+/// QA 2026-11: numbers the document cannot hold were accepted. `1e39` became infinity, saved as
+/// `null`; a zero projection scale saved fine. Either way the project then failed to open.
+#[test]
+fn out_of_range_numbers_are_refused_before_they_reach_the_project() {
+    let dir = TempDir::new("numbers");
+    let mut server = Server::new();
+    sample(&mut server);
+    let e = fails(&mut server, "layer_add", json!({ "type": "fill", "name": "F", "texture_set": "Body", "fill": { "roughness": 1e39 } }));
+    assert!(e.contains("fill.roughness"), "{e}");
+    ok(&mut server, "layer_add", json!({ "type": "fill", "name": "F", "texture_set": "Body" }));
+    let e = fails(&mut server, "fill_set", json!({ "layer": "F", "texture_set": "Body", "projection": { "mode": "planar", "transform3": { "scale": [0.0, 1.0, 1.0] } } }));
+    assert!(e.contains("projection"), "{e}");
+    let e = fails(&mut server, "fill_set", json!({ "layer": "F", "texture_set": "Body", "projection": { "mode": "planar", "backface": { "angle_deg": 200.0, "hardness": 1.0 } } }));
+    assert!(e.contains("projection"), "{e}");
+    ok(&mut server, "fill_set", json!({ "layer": "F", "texture_set": "Body", "projection": { "mode": "planar", "transform3": { "scale": [0.5, 1.0, 1.0] } } }));
+    // Nothing refused reached the document: it saves and opens again.
+    let file = dir.join("numbers.subcraft");
+    ok(&mut server, "project_save", json!({ "path": file }));
+    ok(&mut server, "project_open", json!({ "path": file }));
+    assert!(layer_names(&mut server, "Body").contains(&"F".to_string()));
+}
