@@ -25,6 +25,15 @@ pub struct BakeRequest {
     pub texture_sets: Vec<(TextureSetId, u32)>,
 }
 
+/// Files of a bake beside the request's high poly.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct BakeFiles {
+    /// More high-poly files, baked together with the request's one as a single high poly.
+    pub extra_high_polys: Vec<PathBuf>,
+    /// A custom cage mesh: the low poly pushed outwards, with the low poly's UVs.
+    pub cage: Option<PathBuf>,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BakeLogLevel { Info, Warning, Error }
 
@@ -117,6 +126,11 @@ impl BakeJob {
     }
 
     pub(crate) fn start_prepared(low: Arc<Mesh>, low_bvh: Arc<Bvh>, request: BakeRequest, prepared: Option<BakePreviewMesh>) -> Self {
+        Self::start_with_files(low, low_bvh, request, prepared, BakeFiles::default())
+    }
+
+    pub(crate) fn start_with_files(low: Arc<Mesh>, low_bvh: Arc<Bvh>, request: BakeRequest, prepared: Option<BakePreviewMesh>, files: BakeFiles) -> Self {
+        let mut request = request;
         let (tx, rx) = channel();
         let high_poly = request.high_poly.is_some();
         let sets_total = request.texture_sets.len();
@@ -163,6 +177,43 @@ impl BakeJob {
                 }
                 None => None,
             };
+            // More high-poly files: one high poly made of all of them.
+            let high_mesh = match high_mesh {
+                Some(first) if !files.extra_high_polys.is_empty() => {
+                    let mut parts = vec![first];
+                    for path in &files.extra_high_polys {
+                        *st.lock().expect("stage lock") = format!("Loading high poly {}", path.display());
+                        say(BakeLogLevel::Info, format!("High poly: {}", path.display()));
+                        match import_mesh_for_baking(path) {
+                            Ok(r) => parts.push(Arc::new(r.mesh)),
+                            Err(e) => {
+                                say(BakeLogLevel::Error, format!("High poly {} could not be loaded: {e}", path.display()));
+                                let _ = tx.send(Message::Failed(format!("high poly: {e}")));
+                                let _ = tx.send(Message::Finished);
+                                return;
+                            }
+                        }
+                    }
+                    let refs: Vec<&Mesh> = parts.iter().map(|m| m.as_ref()).collect();
+                    Some(Arc::new(Mesh::merged(&refs)))
+                }
+                other => other,
+            };
+            if let Some(path) = files.cage.as_ref().filter(|_| high_mesh.is_some()) {
+                *st.lock().expect("stage lock") = format!("Loading cage {}", path.display());
+                match import_mesh_for_baking(path) {
+                    Ok(r) => {
+                        say(BakeLogLevel::Info, format!("Cage: {}", path.display()));
+                        request.settings.cage = Some(subcraft_bake::CageMesh(Arc::new(r.mesh)));
+                    }
+                    Err(e) => {
+                        say(BakeLogLevel::Error, format!("Cage {} could not be loaded: {e}", path.display()));
+                        let _ = tx.send(Message::Failed(format!("cage: {e}")));
+                        let _ = tx.send(Message::Finished);
+                        return;
+                    }
+                }
+            }
             if p.is_cancelled() { say(BakeLogLevel::Warning, "Bake cancelled.".into()); let _ = tx.send(Message::Failed("bake cancelled".into())); let _ = tx.send(Message::Finished); return; }
             *st.lock().expect("stage lock") = "Building high-poly BVH".into();
             let high_mesh = high_mesh.map(|mesh| {
