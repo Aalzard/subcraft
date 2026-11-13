@@ -226,7 +226,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     crate::view_extras::follow_camera(state);
     let camera = state.camera.paint_camera(size);
     // Auto-focus: the depth of field focuses on whatever is at the centre of the view.
-    if !bake_mode && state.recovery.prefs.viewport.dof && state.recovery.prefs.viewport.dof_autofocus
+    if !(state.bake.open || state.bake.job.is_some()) && state.recovery.prefs.viewport.dof && state.recovery.prefs.viewport.dof_autofocus
         && let Some(hit) = state.session.pick(&camera, glam::Vec2::new(size[0] as f32 * 0.5, size[1] as f32 * 0.5))
     {
         let orbit = state.camera.eye_distance().max(1e-4);
