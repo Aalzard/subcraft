@@ -585,8 +585,7 @@ mod tests {
             let ctx = egui::Context::default();
             apply_visuals(&ctx, kind);
             for theme in [egui::Theme::Dark, egui::Theme::Light] {
-                ctx.set_theme(theme);
-                assert_eq!(ctx.style().visuals.panel_fill, p.bg_1, "{kind:?} in egui's {theme:?} slot");
+                assert_eq!(ctx.style_of(theme).visuals.panel_fill, p.bg_1, "{kind:?} in egui's {theme:?} slot");
             }
         }
         let flat = visuals(&PAINTER).widgets.inactive.corner_radius;
