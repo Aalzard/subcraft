@@ -180,8 +180,8 @@ fn extra_file_types_export_and_read_back() {
 fn texture_set_overrides_replace_the_global_settings_for_that_set_only() {
     let ch = distinct_channels();
     let sets = [
-        ExportTextureSet { name: "Body", material_slot: 0, udim: None, channels: &ch, mesh_maps: None },
-        ExportTextureSet { name: "Trim", material_slot: 0, udim: None, channels: &ch, mesh_maps: None },
+        ExportTextureSet { name: "Body", material_slot: 0, udim: None, channels: &ch, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY },
+        ExportTextureSet { name: "Trim", material_slot: 0, udim: None, channels: &ch, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY },
     ];
     let mesh = primitives::plane(2.0, 1);
     let map = OutputMap::new("Rough", FileFormat::Png8, vec![Source::ch(ChannelKind::Roughness, 0)], false);
