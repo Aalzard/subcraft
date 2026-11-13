@@ -90,10 +90,19 @@ impl FillSymmetry {
                 let mut p = pos;
                 p[b] = center[b] + r * target.cos();
                 p[c] = center[c] + r * target.sin();
-                let (s, co) = (target - theta).sin_cos();
                 let mut n = normal;
-                n[b] = normal[b] * co - normal[c] * s;
-                n[c] = normal[b] * s + normal[c] * co;
+                if mirrored {
+                    // The same reflection for the normal (across the line at half of
+                    // `theta + target`). Rotated instead, its tangential part had the wrong sign,
+                    // so backface culling and tri-planar weights were inverted in flipped copies.
+                    let (s, co) = (target + theta).sin_cos();
+                    n[b] = normal[b] * co + normal[c] * s;
+                    n[c] = normal[b] * s - normal[c] * co;
+                } else {
+                    let (s, co) = (target - theta).sin_cos();
+                    n[b] = normal[b] * co - normal[c] * s;
+                    n[c] = normal[b] * s + normal[c] * co;
+                }
                 (p, n)
             }
         }
@@ -623,6 +632,20 @@ mod tests {
         let t = 0.1f32;
         let (p, q) = (f.fold(at(quarter + t), [0.0; 3]).0, at(quarter - t));
         assert!((0..3).all(|i| (p[i] - q[i]).abs() < 1e-5), "{p:?} {q:?}");
+        // QA 2026-11: the normal is mirrored with the position. It was rotated, which flips its
+        // tangential part: planar backface culling was inverted in every flipped copy.
+        let close = |a: [f32; 3], b: [f32; 3]| (0..3).all(|i| (a[i] - b[i]).abs() < 1e-5);
+        let n = f.fold(at(quarter + t), [0.0, 0.0, -1.0]).1;
+        assert!(close(n, [0.0, 0.0, 1.0]), "a normal facing -Z just past the mirror faces +Z in the first copy: {n:?}");
+        let outward = |angle: f32| [angle.sin(), 0.0, angle.cos()];
+        for (sym, angle, read) in [(f, quarter + t, quarter - t), (f, 2.0 * quarter + t, t), (r, quarter + t, t)] {
+            let n = sym.fold(at(angle), outward(angle)).1;
+            assert!(close(n, outward(read)), "an outward normal stays outward at {read}: {n:?}");
+            let along = |a: f32| [a.cos(), 0.0, -a.sin()];
+            let m = sym.fold(at(angle), along(angle)).1;
+            let expected = if sym == f && ((angle / quarter).floor() as i64) % 2 == 1 { along(read).map(|v| -v) } else { along(read) };
+            assert!(close(m, expected), "the tangent direction reverses only in a flipped copy: {m:?} vs {expected:?}");
+        }
         // Symmetry does nothing on a UV projection; defaults are not written.
         let uv = Projection { symmetry: m, ..Projection::default() };
         assert!(uv.effective_symmetry().is_none() && Projection { mode: ProjectionMode::Planar, ..uv }.effective_symmetry() == m);
