@@ -1767,11 +1767,6 @@ impl Session {
                 if found.is_empty() {
                     return Err(CommandError::LayerNotFound);
                 }
-                // Every target first: a missing one (deleted while the dialog was open) used to stop
-                // halfway, leaving instances with no undo step of their own.
-                if texture_sets.iter().any(|&t| self.doc.texture_set(t).is_none()) {
-                    return Err(CommandError::TextureSetNotFound);
-                }
                 let mut made = false;
                 for target in texture_sets {
                     let ts = self.doc.texture_set_mut(target).ok_or(CommandError::TextureSetNotFound)?;
