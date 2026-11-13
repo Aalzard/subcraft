@@ -175,3 +175,27 @@ fn extra_file_types_export_and_read_back() {
         assert!((hdr[c] - base[c]).abs() < 0.02 * base[c].max(0.05), "RGBE: {hdr:?} vs {base:?}");
     }
 }
+
+#[test]
+fn texture_set_overrides_replace_the_global_settings_for_that_set_only() {
+    let ch = distinct_channels();
+    let sets = [
+        ExportTextureSet { name: "Body", material_slot: 0, udim: None, channels: &ch, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY },
+        ExportTextureSet { name: "Trim", material_slot: 0, udim: None, channels: &ch, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY },
+    ];
+    let mesh = primitives::plane(2.0, 1);
+    let map = OutputMap::new("Rough", FileFormat::Png8, vec![Source::ch(ChannelKind::Roughness, 0)], false);
+    let mut s = ExportSettings { template: user(vec![map]), size: Some(64), ..Default::default() };
+    s.set_overrides.insert("Trim".into(), subcraft_doc::ExportOverrides { format: Some(FileFormat::Tiff16), size: Some(32), ..Default::default() });
+    let files = render(&mesh, &sets, &s);
+    let names: Vec<&str> = files.iter().map(|f| f.0.as_str()).collect();
+    assert_eq!(names, ["M_Body_Rough.png", "M_Trim_Rough.tif"]);
+    assert_eq!((files[0].1.width, files[1].1.width), (64, 32), "global size for Body, Trim's own");
+    assert!(matches!(files[1].1.data, BitmapData::U16(_)));
+    // The plan shows the same names.
+    let plan: Vec<String> = plan_all("M", &sets, &s).into_iter().map(|f| f.path).collect();
+    assert_eq!(plan, ["M_Body_Rough.png", "M_Trim_Rough.tif"]);
+    // An empty override changes nothing.
+    s.set_overrides.insert("Trim".into(), Default::default());
+    assert!(matches!(s.for_set("Trim"), std::borrow::Cow::Borrowed(_)));
+}

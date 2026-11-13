@@ -49,6 +49,8 @@ pub enum PaintError {
     ResolutionMismatch,
     /// Clone strokes need a source point (Ctrl+click on the model).
     NoCloneSource,
+    /// The layer is an instance of another layer: strokes go into the source.
+    Instance,
 }
 
 impl std::fmt::Display for PaintError {
@@ -63,6 +65,7 @@ impl std::fmt::Display for PaintError {
             PaintError::NothingToPaint => "no enabled brush channel in this texture set",
             PaintError::ResolutionMismatch => "resolution mismatch",
             PaintError::NoCloneSource => "set a clone source first: Ctrl+click the model",
+            PaintError::Instance => "this layer is an instance: paint on its source layer",
         };
         f.write_str(s)
     }

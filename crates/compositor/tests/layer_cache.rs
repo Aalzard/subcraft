@@ -310,3 +310,89 @@ fn passthrough_and_masked_layers_stay_exact_with_cached_content() {
     cache.update(&ts, &fx.ctx());
     assert_exact(&cache, &ts, &fx, "a mask generator level");
 }
+
+/// An edit of one channel's blend or fill only re-evaluates the channels that can read it, on
+/// both evaluators, and the composite is still exactly a full recomposite. Anything else (a
+/// mask, visibility) evaluates every channel.
+#[test]
+fn a_single_channel_edit_only_reevaluates_that_channel() {
+    for filters in [false, true] {
+        let fx = Fixture::new();
+        let (mut ts, ids) = stack(filters);
+        let mut cache = CompositeCache::new();
+        cache.update(&ts, &fx.ctx());
+        assert_eq!(cache.limited_to(), None);
+
+        // Base Color opacity of the bottom layer.
+        ts.find_mut(ids[0]).unwrap().blend.get_mut(&ChannelKind::BaseColor).unwrap().opacity = 0.4;
+        cache.update(&ts, &fx.ctx());
+        assert_eq!(cache.limited_to(), Some(vec![ChannelKind::BaseColor]), "filters {filters}");
+        assert_exact(&cache, &ts, &fx, "a Base Color opacity");
+
+        // The Roughness pattern of a fill in the middle.
+        let LayerContent::Fill(fc) = &mut ts.find_mut(ids[3]).unwrap().content else { unreachable!() };
+        fc.channels.insert(ChannelKind::Roughness, FillChannel::new(procedural(ProceduralKind::Cells, 9.0, 0.1)));
+        cache.update(&ts, &fx.ctx());
+        assert_eq!(cache.limited_to(), Some(vec![ChannelKind::Roughness]), "filters {filters}");
+        assert_exact(&cache, &ts, &fx, "a Roughness fill");
+
+        // Two layers, two channels, in one step.
+        ts.find_mut(ids[1]).unwrap().blend.get_mut(&ChannelKind::BaseColor).unwrap().mode = BlendMode::Screen;
+        ts.find_mut(ids[6]).unwrap().blend.get_mut(&ChannelKind::Roughness).unwrap().opacity = 0.5;
+        cache.update(&ts, &fx.ctx());
+        assert_eq!(cache.limited_to().map(|mut k| { k.sort(); k }), Some({ let mut k = vec![ChannelKind::BaseColor, ChannelKind::Roughness]; k.sort(); k }), "filters {filters}");
+        assert_exact(&cache, &ts, &fx, "two channels of two layers");
+
+        // Not confined to channels: every channel.
+        ts.find_mut(ids[4]).unwrap().visible = false;
+        cache.update(&ts, &fx.ctx());
+        assert_eq!(cache.limited_to(), None);
+        assert_exact(&cache, &ts, &fx, "hiding a layer");
+    }
+}
+
+/// Edits arriving while tiles are still pending: the pending tiles are evaluated for everything
+/// those edits can have changed (the union of their channels; all channels after a stroke or
+/// any other kind of edit), so the composite converges exactly.
+#[test]
+fn channel_limited_edits_accumulate_while_tiles_are_pending() {
+    use std::time::Duration;
+    for filters in [false, true] {
+        let fx = Fixture::new();
+        let (mut ts, ids) = stack(filters);
+        let mut cache = CompositeCache::new();
+        cache.update(&ts, &fx.ctx());
+
+        // Queued only (a zero budget evaluates nothing), then another channel on another layer.
+        ts.find_mut(ids[1]).unwrap().blend.get_mut(&ChannelKind::BaseColor).unwrap().opacity = 0.3;
+        cache.update_within(&ts, &fx.ctx(), Some(Duration::ZERO));
+        assert!(cache.has_pending());
+        ts.find_mut(ids[4]).unwrap().blend.get_mut(&ChannelKind::Roughness).unwrap().opacity = 0.6;
+        cache.update_within(&ts, &fx.ctx(), Some(Duration::ZERO));
+        assert_eq!(cache.limited_to().map(|mut k| { k.sort(); k }), Some({ let mut k = vec![ChannelKind::BaseColor, ChannelKind::Roughness]; k.sort(); k }));
+        cache.update(&ts, &fx.ctx());
+        assert_exact(&cache, &ts, &fx, "two queued single-channel edits");
+
+        // A queued single-channel edit, then a stroke: every channel of the pending tiles.
+        ts.find_mut(ids[0]).unwrap().blend.get_mut(&ChannelKind::BaseColor).unwrap().opacity = 0.8;
+        cache.update_within(&ts, &fx.ctx(), Some(Duration::ZERO));
+        let LayerContent::Paint(pc) = &mut ts.find_mut(ids[2]).unwrap().content else { unreachable!() };
+        let img = pc.channel_mut(ChannelKind::Roughness, RES);
+        for y in 100..140 {
+            for x in 60..200 {
+                img.set(x, y, [0.7, 0.7, 0.7, 1.0]);
+            }
+        }
+        cache.update_within(&ts, &fx.ctx(), Some(Duration::ZERO));
+        assert_eq!(cache.limited_to(), None);
+        cache.update(&ts, &fx.ctx());
+        assert_exact(&cache, &ts, &fx, "a single-channel edit, then a stroke");
+
+        // A queued single-channel edit, then a mask-wide one.
+        ts.find_mut(ids[3]).unwrap().blend.get_mut(&ChannelKind::BaseColor).unwrap().opacity = 0.25;
+        cache.update_within(&ts, &fx.ctx(), Some(Duration::ZERO));
+        ts.find_mut(ids[5]).unwrap().visible = false;
+        cache.update(&ts, &fx.ctx());
+        assert_exact(&cache, &ts, &fx, "a single-channel edit, then a hidden layer");
+    }
+}

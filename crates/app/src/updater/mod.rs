@@ -154,7 +154,7 @@ pub fn copy_verified(mut reader: impl Read, path: &Path, asset: &Asset, mut prog
     } file.sync_all().map_err(|e| e.to_string())?; drop(file); verify_file(path, asset)
     })(); if result.is_err() { let _ = std::fs::remove_file(path); } result
 }
-pub fn cache_dir() -> Result<PathBuf, String> { crate::recovery::data_dir().map(|p| p.join("updates")).ok_or("No writable update cache folder".into()) }
+pub fn cache_dir() -> Result<PathBuf, String> { crate::recovery::cache_dir().map(|p| p.join("updates")).ok_or("No writable update cache folder".into()) }
 /// Keep project checkpoints, but discard the large payloads of completed jobs.
 pub fn compact_finished_cache(root: &Path) {
     let Ok(root) = root.canonicalize() else { return };
