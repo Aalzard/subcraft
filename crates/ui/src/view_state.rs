@@ -63,7 +63,7 @@ mod tests {
     use subcraft_app::Session;
 
     fn state() -> UiState {
-        UiState::new(Session::new(subcraft_mesh::primitives::cube(2.0), 64), None)
+        UiState::new(Session::new(subcraft_mesh::primitives::cube(2.0), 128), None)
     }
 
     #[test]
