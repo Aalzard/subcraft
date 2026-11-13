@@ -267,8 +267,8 @@ Layout notes: this page is still in the help but the effect is not in the 12.0 e
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Temporal Anti-Aliasing (enable) | Display Settings > Camera | not documented | done: Display Settings > Camera > Temporal anti-aliasing (off by default, on top of the 4x MSAA): Halton-jittered frames averaged while the view is still; any change restarts it and the finished image stays without re-rendering | crates/render/src/taa.rs, crates/ui/src/viewport.rs (taa_step) | 161, PRNUM |
-| Accumulations | Display Settings > Temporal anti-aliasing | 16 recommended; 64 for high contrast (full option list not documented) | done: 4, 8, 16 (default), 32, 64 | crates/ui/src/panels/display_settings.rs (camera) | PRNUM |
+| Temporal Anti-Aliasing (enable) | Display Settings > Camera | not documented | done: Display Settings > Camera > Temporal anti-aliasing (off by default, on top of the 4x MSAA): Halton-jittered frames averaged while the view is still; any change restarts it and the finished image stays without re-rendering | crates/render/src/taa.rs, crates/ui/src/viewport.rs (taa_step) | 161, 294 |
+| Accumulations | Display Settings > Temporal anti-aliasing | 16 recommended; 64 for high contrast (full option list not documented) | done: 4, 8, 16 (default), 32, 64 | crates/ui/src/panels/display_settings.rs (camera) | 294 |
 
 ## Camera settings: Subsurface scattering
 
