@@ -104,9 +104,12 @@ pub fn section(state: &mut UiState, ui: &mut Ui) {
     ui.horizontal(|ui| {
         ui.label(RichText::new("New color").small().color(TEXT_DIM));
         egui::color_picker::color_edit_button_rgb(ui, &mut state.id_palette_new);
-        let mut text = hex(state.id_palette_new);
-        let r = ui.add(egui::TextEdit::singleline(&mut text).desired_width(70.0).font(egui::TextStyle::Monospace));
+        // The text being typed is kept while the field has focus: rebuilt from the color every
+        // frame, a partial value ("#3A7FC" after a Backspace) snapped back (QA 2026-11).
+        let mut text: String = ui.data(|d| d.get_temp(hex_text())).unwrap_or_else(|| hex(state.id_palette_new));
+        let r = ui.add(egui::TextEdit::singleline(&mut text).id(hex_field()).desired_width(70.0).font(egui::TextStyle::Monospace));
         if r.changed() && let Some(c) = parse_hex(&text) { state.id_palette_new = c; }
+        if r.has_focus() { ui.data_mut(|d| d.insert_temp(hex_text(), text)); } else { ui.data_mut(|d| d.remove_temp::<String>(hex_text())); }
         let differs = !same_id(state.id_palette_new, sel);
         if ui.add_enabled(differs, egui::Button::new("Apply")).on_hover_text("Recolor this ID in the map; every ID Color mask using it follows (one undo step)").clicked() {
             apply = true;
@@ -133,6 +136,15 @@ pub fn section(state: &mut UiState, ui: &mut Ui) {
             Err(e) => state.set_status(format!("ID color: {e}"), now),
         }
     }
+}
+
+/// The new color's hex field.
+pub fn hex_field() -> egui::Id {
+    egui::Id::new("id_palette_hex_field")
+}
+/// The text typed in the hex field while it has focus.
+fn hex_text() -> egui::Id {
+    egui::Id::new("id_palette_hex_text")
 }
 
 pub fn parse_hex(text: &str) -> Option<[f32; 3]> {
@@ -169,6 +181,34 @@ mod tests {
         assert_eq!(state.id_palette_selected, Some(blue));
         assert!(state.session.selected_id_color_effect().is_some(), "the selected layer got an ID Color mask");
         assert_eq!(palette(&mut state, ts).unwrap().iter().find(|e| same_id(e.color, blue)).unwrap().masks, 1);
+    }
+
+    /// QA 2026-11: the hex field was rebuilt from the color every frame, so anything that did
+    /// not parse yet (a partly typed value) was thrown away.
+    #[test]
+    fn the_hex_field_keeps_a_partly_typed_value() {
+        let mut state = UiState::new(subcraft_app::Session::new(subcraft_mesh::primitives::plane(2.0, 2), 64), None);
+        let ts = state.session.selected_texture_set().id;
+        let mut img = subcraft_image::TiledImage::new(64, 64, 3, [0.0; 4]);
+        for y in 0..64 { for x in 0..64 { img.set(x, y, if x < 16 { [0.2, 0.6, 0.9, 1.0] } else { [0.9, 0.3, 0.3, 1.0] }); } }
+        state.session.set_mesh_maps(ts, std::collections::BTreeMap::from([(subcraft_core::MeshMapKind::Id, img)]));
+        let red = state.session.id_map_color(ts, glam::Vec2::new(0.5, 0.5)).unwrap();
+        state.id_palette_selected = Some(red);
+        state.id_palette_new = red;
+        let ctx = egui::Context::default();
+        crate::theme::apply(&ctx);
+        let frame = |state: &mut UiState, events: Vec<egui::Event>| {
+            let mut out = ctx.run_ui(egui::RawInput { events, screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 600.0))), ..Default::default() }, |ui| section(state, ui));
+            out.textures_delta.clear();
+        };
+        frame(&mut state, vec![]);
+        ctx.memory_mut(|m| m.request_focus(hex_field()));
+        frame(&mut state, vec![]);
+        frame(&mut state, vec![egui::Event::Text("1".into())]);
+        frame(&mut state, vec![]);
+        let typed: Option<String> = ctx.data(|d| d.get_temp(hex_text()));
+        assert_eq!(typed.as_deref().map(str::len), Some(8), "the extra digit stays in the field: {typed:?}");
+        assert_eq!(state.id_palette_new, red, "a value that does not parse changes nothing");
     }
 
     #[test]
