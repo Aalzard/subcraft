@@ -978,4 +978,8 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Warnings and errors", "경고 및 오류"),
     ("{} warning(s), {} error(s) since the last Clear", "마지막으로 지운 뒤 경고 {}개, 오류 {}개"),
     ("Distance from the camera, in scene units, that is sharp; it stays put while zooming. Ctrl + middle click in the 3D view focuses on the point under the cursor. Needs Depth of field (Post effects).", "카메라로부터 선명하게 보이는 거리(장면 단위)이며, 확대/축소해도 그대로 유지됩니다. 3D 뷰에서 Ctrl + 가운데 클릭하면 커서 아래 지점에 초점을 맞춥니다. 피사계 심도(후처리 효과)가 필요합니다."),
+    ("Vertex color set", "버텍스 컬러 세트"),
+    ("Which of the model's vertex color sets the ID map reads (glTF / GLB files can have several)", "ID 맵이 모델의 어느 버텍스 컬러 세트를 읽을지 (glTF / GLB 파일은 여러 개를 가질 수 있습니다)"),
+    ("The high poly has no vertex colors.", "하이 폴리에 버텍스 컬러가 없습니다."),
+    ("The high poly has {} vertex color set(s).", "하이 폴리에 버텍스 컬러 세트가 {}개 있습니다."),
 ];
