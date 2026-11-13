@@ -975,7 +975,21 @@ impl Session {
         if layers.iter().any(|&l| self.texture_set_of(l) != Some(set)) {
             return Err(CommandError::Invalid("The selected layers are in different texture sets".into()));
         }
+        // Layers inside an instance are its source's: the next sync undoes any change to them
+        // (QA 2026-11: hiding or deleting several left an empty undo step; grouping one out of
+        // an instance gave two layers with the same id). The instance itself is fine.
+        if layers.iter().any(|&l| self.inside_instance_content(l)) {
+            return Err(CommandError::Invalid(INSTANCE_READ_ONLY.into()));
+        }
         Ok(set)
+    }
+
+    /// Whether `layer` is inside an instance (not the instance layer itself).
+    fn inside_instance_content(&self, layer: LayerId) -> bool {
+        self.texture_set_of(layer)
+            .and_then(|ts| self.doc.texture_set(ts))
+            .and_then(|ts| subcraft_doc::instance::root_of(ts, layer))
+            .is_some_and(|root| root != layer)
     }
     pub fn resources(&self) -> &ResourceStore {
         &self.resources
@@ -1985,6 +1999,10 @@ impl Session {
                 let set = self.texture_set_of(first).ok_or(CommandError::LayerNotFound)?;
                 if ids.iter().any(|&id| self.texture_set_of(id) != Some(set)) {
                     return Err(CommandError::Invalid("the layers to group are in different texture sets".into()));
+                }
+                // The guard below covers `first` only.
+                if ids.iter().any(|&id| self.inside_instance_content(id)) {
+                    return Err(CommandError::Invalid(INSTANCE_READ_ONLY.into()));
                 }
                 let folder = self.edit_layer_set(first, "Group Layers", None, |ts| {
                     // Bottom to top, as stored. A layer inside another selected folder moves with that folder.

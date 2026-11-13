@@ -285,6 +285,39 @@ fn a_refused_paste_as_instance_changes_nothing() {
     }
 }
 
+/// QA 2026-11: multi-select commands acted on layers inside an instance (the sync undid them:
+/// an empty undo step, or a duplicated layer id after grouping one out of the instance).
+#[test]
+fn multi_select_commands_refuse_layers_inside_an_instance() {
+    let mut s = Session::new(subcraft_mesh::primitives::plane(2.0, 2), 128);
+    s.execute(Command::AddLayer(NewLayer::Folder)).unwrap();
+    let folder = s.selection().layer.unwrap();
+    s.execute(Command::AddLayer(NewLayer::Fill)).unwrap();
+    // The fill went inside the empty folder; with the folder selected, its instance lands above it.
+    s.execute(Command::SelectLayer(Some(folder))).unwrap();
+    s.execute(Command::PasteAsInstance(vec![folder])).unwrap();
+    let instance = s.selection().layer.unwrap();
+    let child = s.selected_texture_set().find(instance).unwrap().children()[0].id;
+    s.execute(Command::AddLayer(NewLayer::Paint)).unwrap();
+    let plain = s.selection().layer.unwrap();
+    let doc = s.document().clone();
+    let steps = s.history().entries().len();
+    for cmd in [
+        Command::SetLayersVisible { layers: vec![plain, child], visible: false },
+        Command::DeleteLayers(vec![plain, child]),
+        Command::DuplicateLayers(vec![child]),
+        Command::GroupLayers(vec![plain, child]),
+    ] {
+        let err = s.execute(cmd).unwrap_err();
+        assert!(err.to_string().contains("instance"), "{err}");
+    }
+    assert_eq!(s.document(), &doc);
+    assert_eq!(s.history().entries().len(), steps);
+    // The instance itself is the user's: hiding it with another layer works.
+    s.execute(Command::SetLayersVisible { layers: vec![plain, instance], visible: false }).unwrap();
+    assert!(!s.selected_texture_set().find(instance).unwrap().visible);
+}
+
 /// QA 2026-11: a layer added, pasted or dropped into an instance folder was wiped by the next
 /// sync with the source (an empty undo step); dropping the source itself in deleted both.
 #[test]
