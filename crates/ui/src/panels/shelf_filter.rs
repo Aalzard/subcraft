@@ -194,8 +194,10 @@ impl Term {
             Field::Path => p.matches(&path),
             Field::Library => p.matches(e.library) || p.matches(library_name(e.library)),
             Field::Usage => {
-                // `u:textures` and `u:texture` are the same usage.
-                let canon = canonical_usage(&p.text).map(|u| Pattern { text: u.into(), mode: if p.mode == Mode::Approximate { Mode::Equal } else { p.mode }, regex: None });
+                // `u:textures` and `u:texture` are the same usage. A regular expression is used as
+                // typed (QA 2026-11: `u:texture#` was rebuilt without its compiled expression and
+                // matched nothing).
+                let canon = (p.mode != Mode::Regex).then(|| canonical_usage(&p.text)).flatten().map(|u| Pattern { text: u.into(), mode: if p.mode == Mode::Approximate { Mode::Equal } else { p.mode }, regex: None });
                 canon.as_ref().unwrap_or(p).matches(e.usage)
             }
             Field::Any => p.matches(e.name) || p.matches(&path) || e.tags.iter().any(|t| p.matches(t)),
@@ -501,6 +503,7 @@ mod tests {
         assert!(q("s:yours", &mine), "the library's display name counts");
         assert!(q("u:basematerial", &steel) && q("u:materials", &steel), "plural usage words are the same usage");
         assert!(!q("u:texture", &steel) && q("u:images", &mine));
+        assert!(q("u:texture#", &mine) && q("u:^tex#", &mine) && !q("u:texture#", &steel), "a usage regex is applied as typed");
         assert!(q("N:STEEL", &steel), "prefixes ignore case");
     }
 

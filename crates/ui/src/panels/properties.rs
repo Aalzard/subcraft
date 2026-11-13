@@ -69,6 +69,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     let part_kind = layer.parts.as_ref().map_or(subcraft_core::PartKind::Connected, |p| p.kind);
     let mesh_parts = state.session.parts(part_kind).iter().filter(|p| p.materials.contains(&state.session.selected_texture_set().material_slot)).cloned().collect::<Vec<_>>();
     let mut picking = state.picking_parts;
+    // The part whose row is under the cursor in the list: the 2D view highlights it.
+    let mut hovered_part: Option<u32> = None;
 
     egui::ScrollArea::vertical().id_salt("props").auto_shrink([false, false]).show(ui, |ui| panel(ui, |ui| {
         // Name, with the layer type as an icon.
@@ -144,11 +146,40 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                             }
                         });
                         egui::ScrollArea::vertical().id_salt("part-list").max_height(160.0).min_scrolled_height(0.0).show(ui, |ui| {
+                            // Press a box and drag over others to give them the same state (Painter);
+                            // Alt+click keeps only that row.
+                            let drag_id = egui::Id::new("part-list-drag");
+                            let (down, released, alt) = ui.input(|i| (i.pointer.primary_down(), i.pointer.primary_released(), i.modifiers.alt));
+                            let mut drag: Option<bool> = ui.data(|d| d.get_temp(drag_id));
+                            if !down && !released {
+                                drag = None;
+                            }
                             for m in &mesh_parts {
-                                let mut on = p.parts.contains(&m.id);
-                                if ui.checkbox(&mut on, format!("{}  ·  {} triangles", m.name, m.triangles)).changed() {
+                                let was = p.parts.contains(&m.id);
+                                let mut on = was;
+                                let r = ui.checkbox(&mut on, format!("{}  ·  {} triangles", m.name, m.triangles))
+                                    .on_hover_text("Drag over several boxes to set them together · Alt+click: only this one");
+                                if r.contains_pointer() {
+                                    hovered_part = Some(m.id);
+                                }
+                                if alt {
+                                    if r.clicked() {
+                                        part_cmds.push(Command::SetParts { layer: id, parts: Some(PartMask::for_kind(part_kind, [m.id])) });
+                                    }
+                                    continue;
+                                }
+                                if drag.is_none() && down && r.is_pointer_button_down_on() {
+                                    drag = Some(!was);
+                                }
+                                // While a drag runs it sets the rows; the click that ends it must not toggle back.
+                                let want = match drag {
+                                    Some(target) if r.contains_pointer() => target,
+                                    Some(_) => was,
+                                    None => on,
+                                };
+                                if want != was {
                                     let mut next = p.clone();
-                                    if on {
+                                    if want {
                                         next.parts.insert(m.id);
                                     } else {
                                         next.parts.remove(&m.id);
@@ -156,6 +187,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                                     next.enabled = true;
                                     part_cmds.push(Command::SetParts { layer: id, parts: Some(next) });
                                 }
+                            }
+                            match drag {
+                                Some(target) => ui.data_mut(|d| { d.insert_temp(drag_id, target); }),
+                                None => ui.data_mut(|d| { d.remove::<bool>(drag_id); }),
                             }
                         });
                     }
@@ -406,6 +441,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         );
         cmds.extend(head_cmds);
     }));
+    state.uv_parts.list_hover = hovered_part;
     if picking != state.picking_parts {
         state.picking_parts = picking;
         if picking {
@@ -1581,6 +1617,33 @@ fn wrapped_projection_rows(ui: &mut Ui, proj: &mut Projection) -> bool {
         .changed()
 }
 
+/// Painter's "3D projection" group: Offset, Rotation and Scale of the projection box, for the
+/// 3D projections that have one (tri-planar, planar, spherical, cylindrical).
+fn transform3_group(ui: &mut Ui, proj: &mut Projection) -> bool {
+    use subcraft_doc::ProjectionTransform as T;
+    if !proj.has_transform3() {
+        return false;
+    }
+    let before = proj.transform3;
+    fn row(ui: &mut Ui, label: &str, values: &mut [f32; 3], speed: f64, range: std::ops::RangeInclusive<f32>, suffix: &str, hover: &str) {
+        prop_row(ui, label, |ui| {
+            for v in values.iter_mut() {
+                ui.add(egui::DragValue::new(v).speed(speed).range(range.clone()).max_decimals(3).suffix(suffix)).on_hover_text(hover);
+            }
+        });
+    }
+    egui::CollapsingHeader::new(RichText::new(tr("3D projection")).font(theme::font_strong(12.0)).color(theme::TEXT)).id_salt("fill_transform3").default_open(false).show(ui, |ui| {
+        let t = &mut proj.transform3;
+        row(ui, tr("Offset"), &mut t.offset, 0.005, -T::MAX_OFFSET..=T::MAX_OFFSET, "", tr("X, Y, Z in units of the model's bounding box; 0 is centred"));
+        row(ui, tr("Rotation"), &mut t.rotation_deg, 0.5, -360.0..=360.0, "\u{00b0}", tr("Degrees about X, Y, Z (applied in that order)"));
+        row(ui, tr("Scale"), &mut t.scale, 0.005, T::MIN_SCALE..=T::MAX_SCALE, "", tr("Size of the projection box on X, Y, Z; with Shape crop on, a planar projection reaches as deep as its scale along the projection axis"));
+        if ui.add_enabled(!t.is_identity(), egui::Button::new(tr("Reset")).small()).clicked() {
+            *t = T::default();
+        }
+    });
+    proj.transform3 != before
+}
+
 /// Painter's Symmetry group of a fill projection (3D projections only): Enable symmetry, the
 /// type (Mirror / Radial) and its settings.
 fn symmetry_group(ui: &mut Ui, proj: &mut Projection) -> bool {
@@ -1653,6 +1716,7 @@ pub(crate) fn fill_properties(ui: &mut Ui, proj: &mut Projection) -> bool {
         changed |= hardness_row(ui, proj);
     }
     changed |= wrapped_projection_rows(ui, proj);
+    changed |= transform3_group(ui, proj);
     changed |= symmetry_group(ui, proj);
     ui.add_space(4.0);
     egui::CollapsingHeader::new(RichText::new(tr("UV transformations")).font(theme::font_strong(12.0)).color(theme::TEXT)).default_open(true).show(ui, |ui| {
@@ -1797,6 +1861,7 @@ pub(crate) fn projection_editor(ui: &mut Ui, proj: &mut Projection) -> bool {
         });
     }
     changed |= wrapped_projection_rows(ui, proj);
+    changed |= transform3_group(ui, proj);
     changed |= symmetry_group(ui, proj);
     let default = reset_transform(proj);
     if *proj != default && ui.small_button(tr("Reset tiling, offset and rotation")).clicked() {
