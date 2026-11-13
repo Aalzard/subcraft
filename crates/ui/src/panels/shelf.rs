@@ -65,7 +65,7 @@ pub fn drop_label(item: ShelfDrag, alt: bool, target: Option<&str>, on_mask: boo
     let t = target.map_or(String::new(), |n| format!(" \"{n}\""));
     match item {
         ShelfDrag::Material(_) if alt => format!("Replace the material of{t}"),
-        ShelfDrag::Material(_) => format!("Add material layer above{t}"),
+        ShelfDrag::Material(_) => format!("Add material layer above{t} (Ctrl: with a black mask)"),
         ShelfDrag::SmartMaterial(_) if alt => "Smart materials are added as a folder: release Alt".to_string(),
         ShelfDrag::SmartMaterial(_) => format!("Add smart material above{t}"),
         ShelfDrag::SmartMask(_) => format!("Apply mask to{t}"),
@@ -142,6 +142,29 @@ pub fn apply_shelf_item_with(s: &mut UiState, item: ShelfDrag, alt: bool, now: f
     match result {
         Ok(()) => s.recovery.autosaver.request_soon(),
         Err(e) => s.set_status(e, now),
+    }
+}
+
+/// A Shelf item dropped into the layer stack (Painter):
+/// * `with_mask` (Ctrl held): a material or texture becomes a new layer with a black mask, ready
+///   to be painted in;
+/// * `as_new_layer` (a smart mask dropped on the top zone instead of a row): a new fill layer
+///   carrying that mask;
+/// * otherwise the same as [`apply_shelf_item_with`].
+pub fn apply_stack_drop(s: &mut UiState, item: ShelfDrag, alt: bool, with_mask: bool, as_new_layer: bool, now: f64) {
+    use subcraft_app::{Command, LayerTarget, NewLayer};
+    if as_new_layer && matches!(item, ShelfDrag::SmartMask(_)) {
+        s.run(vec![Command::AddLayer(NewLayer::Fill)], now);
+        apply_shelf_item_with(s, item, false, now);
+        return;
+    }
+    let makes_layer = !alt && matches!(item, ShelfDrag::Material(_) | ShelfDrag::Texture(_));
+    let before = s.session.selection().layer;
+    apply_shelf_item_with(s, item, alt, now);
+    if with_mask && makes_layer
+        && let Some(layer) = s.session.selection().layer.filter(|l| Some(*l) != before)
+    {
+        s.run(vec![Command::AddMask { layer, white: false }, Command::SelectLayerTarget { layer, target: LayerTarget::Mask }], now);
     }
 }
 
@@ -2233,5 +2256,59 @@ mod environment_tests {
         for (deg, wrapped) in [(194.4f32, -165.6f32), (-190.0, 170.0), (90.0, 90.0), (540.0, -180.0)] {
             assert!((wrap_rotation(deg) - wrapped).abs() < 1e-3, "{deg} -> {}", wrap_rotation(deg));
         }
+    }
+}
+
+#[cfg(test)]
+mod stack_drop_tests {
+    use super::*;
+    use subcraft_app::{LayerTarget, Session};
+
+    fn state() -> UiState {
+        UiState::new(Session::new(subcraft_mesh::primitives::cube(2.0), 64), None)
+    }
+
+    #[test]
+    fn ctrl_dropping_a_material_adds_its_layer_with_a_black_mask_selected() {
+        let mut s = state();
+        assert!(!s.library.materials.is_empty());
+        let layers = s.session.selected_texture_set().layers.len();
+        apply_stack_drop(&mut s, ShelfDrag::Material(0), false, true, false, 0.0);
+        let ts = s.session.selected_texture_set();
+        assert_eq!(ts.layers.len(), layers + 1);
+        let new = s.session.selected_layer().unwrap();
+        let mask = new.mask.as_ref().expect("Ctrl adds a mask");
+        assert_eq!(mask.base.fill()[0], 0.0, "a black mask");
+        assert_eq!(s.session.layer_target(), LayerTarget::Mask);
+
+        // Without Ctrl: a plain material layer.
+        apply_stack_drop(&mut s, ShelfDrag::Material(0), false, false, false, 0.0);
+        assert!(s.session.selected_layer().unwrap().mask.is_none());
+        assert_eq!(s.session.selected_texture_set().layers.len(), layers + 2);
+        // Alt replaces in place: Ctrl adds nothing then.
+        let count = s.session.selected_texture_set().layers.len();
+        apply_stack_drop(&mut s, ShelfDrag::Material(0), true, true, false, 0.0);
+        assert_eq!(s.session.selected_texture_set().layers.len(), count);
+        assert!(s.session.selected_layer().unwrap().mask.is_none());
+    }
+
+    #[test]
+    fn a_smart_mask_dropped_above_the_stack_makes_a_fill_layer_with_that_mask() {
+        let mut s = state();
+        if s.library.smart_masks.is_empty() {
+            return;
+        }
+        let layers = s.session.selected_texture_set().layers.len();
+        let below = s.session.selection().layer.unwrap();
+        apply_stack_drop(&mut s, ShelfDrag::SmartMask(0), false, false, true, 0.0);
+        let ts = s.session.selected_texture_set();
+        assert_eq!(ts.layers.len(), layers + 1, "a new layer");
+        let new = s.session.selected_layer().unwrap();
+        assert!(matches!(new.content, LayerContent::Fill(_)));
+        assert!(new.mask.as_ref().is_some_and(|m| !m.effects.is_empty()), "it carries the smart mask");
+        assert!(ts.find(below).unwrap().mask.is_none(), "the layer below is untouched");
+        // Dropped on a row instead: that row gets the mask, no new layer.
+        apply_stack_drop(&mut s, ShelfDrag::SmartMask(0), false, false, false, 0.0);
+        assert_eq!(s.session.selected_texture_set().layers.len(), layers + 1);
     }
 }

@@ -317,6 +317,14 @@ pub fn toggle_shader_settings(dock: &mut DockState<Tab>) {
     }
 }
 
+/// Which views F frames: the one under the pointer, or both (3D, 2D) when it is over neither.
+pub fn frame_targets(hovered_3d: bool, hovered_2d: bool) -> (bool, bool) {
+    match (hovered_3d, hovered_2d) {
+        (false, false) => (true, true),
+        other => other,
+    }
+}
+
 /// Whether the 2D view sits beside the 3D view (its own pane) instead of behind it as a tab.
 pub fn is_side_by_side(dock: &DockState<Tab>) -> bool {
     match (dock.find_tab(&Tab::Viewport), dock.find_tab(&Tab::UvView)) {
@@ -441,6 +449,12 @@ pub fn parse_size(text: &str) -> Option<[f32; 2]> {
 #[cfg(test)]
 mod layout_tests {
     use super::*;
+    #[test]
+    fn f_frames_the_view_under_the_pointer_or_both() {
+        assert_eq!(frame_targets(true, false), (true, false));
+        assert_eq!(frame_targets(false, true), (false, true));
+        assert_eq!(frame_targets(false, false), (true, true), "over a panel: both views");
+    }
     #[test]
     fn default_layout_is_valid_and_broken_ones_are_rejected() {
         assert!(layout_is_valid(&default_layout()));
@@ -1184,6 +1198,8 @@ impl SubcraftApp {
         if self.follow_layer_selection() {
             ctx.request_repaint();
         }
+        // The panels' mask requests (Alt+click on a mask thumbnail, the mask menu).
+        crate::mask_view::handle_requests(&mut self.state, &ctx, ctx.input(|i| i.time));
     }
 
     fn shortcuts(&mut self, ctx: &egui::Context) {
@@ -1257,8 +1273,16 @@ impl SubcraftApp {
                 self.state.multi.select_all(&rows);
             }
             Action::ResetCamera => {
-                self.state.camera = OrbitCamera::framing(&self.state.session.scene().mesh.bounds);
-                self.state.orbit_pivot = None;
+                // Painter's F: frame the view under the cursor, or both when it is over neither.
+                let (three, two) = frame_targets(self.state.hovered_3d, self.state.hovered_2d);
+                if three {
+                    self.state.camera = OrbitCamera::framing(&self.state.session.scene().mesh.bounds);
+                    self.state.orbit_pivot = None;
+                }
+                if two {
+                    self.state.uv.zoom = 1.0;
+                    self.state.uv.offset = egui::Vec2::ZERO;
+                }
             }
             Action::HideUi => self.state.hide_ui = !self.state.hide_ui,
             Action::PaintingMode => {
@@ -1328,6 +1352,37 @@ impl SubcraftApp {
                 self.state.export.open = true;
                 self.state.export.view_2d_only = false;
                 self.state.export.settings.height_to_normal = self.state.height_scale;
+            }
+            Action::HideExcludedGeometry => {
+                let session = &mut self.state.session;
+                session.toggle_hide_excluded();
+                let msg = match (session.hide_excluded(), session.has_excluded_geometry()) {
+                    (true, true) => "Hiding the geometry this layer's geometry mask leaves out (Alt+H shows it again)",
+                    (true, false) => "Excluded geometry will be hidden once the layer has a geometry mask (Alt+H turns this off)",
+                    (false, _) => "Showing all geometry",
+                };
+                self.state.set_status(msg, now);
+            }
+            Action::QuickMaskToggle => {
+                self.state.session.toggle_quick_mask();
+                let msg = match self.state.session.quick_mask() {
+                    Some(q) if q.editing => "Quick mask: paint where strokes may land (U applies it, Y clears it)",
+                    Some(_) => "Quick mask applied: strokes land only on its painted areas (U edits, I inverts, Y clears)",
+                    None => "Quick mask removed (nothing was painted)",
+                };
+                self.state.set_status(msg, now);
+            }
+            Action::QuickMaskClear => {
+                if self.state.session.quick_mask().is_some() {
+                    self.state.session.clear_quick_mask();
+                    self.state.set_status("Quick mask cleared: strokes paint everywhere again", now);
+                }
+            }
+            // Without a quick mask, I belongs to the 3D view (isolate the part under the cursor).
+            Action::QuickMaskInvert => {
+                if self.state.session.invert_quick_mask() {
+                    self.state.set_status("Quick mask inverted", now);
+                }
             }
             _ => {
                 if let Err(e) = self.state.session.perform(action) {
@@ -1432,6 +1487,16 @@ impl SubcraftApp {
             let on_mask = target.is_mask();
             if ui.add_enabled_ui(*tool != Tool::Pen, |ui| tool_button(ui, icons::MASK, on_mask, "Paint the layer's mask instead of its content (Brush tool)")).inner.clicked() {
                 *target = if on_mask { subcraft_paint::PaintTarget::Content } else { subcraft_paint::PaintTarget::MaskBase };
+            }
+            // Painter's quick mask: a temporary selection painted with the usual tools.
+            let quick = self.state.session.quick_mask().map(|q| q.editing);
+            let quick_tip = match quick {
+                Some(true) => tip(km, "Quick mask: editing (strokes paint the mask; click or press the key to apply it)", Action::QuickMaskToggle),
+                Some(false) => tip(km, "Quick mask: on, strokes land only on its painted areas (click to edit it; I inverts, Y clears)", Action::QuickMaskToggle),
+                None => tip(km, "Quick mask: paint a temporary selection, then paint only inside it", Action::QuickMaskToggle),
+            };
+            if tool_button(ui, icons::SELECTION, quick.is_some(), &quick_tip).clicked() {
+                self.perform(Action::QuickMaskToggle, ui.input(|i| i.time));
             }
             ui.add_space(6.0);
             rail_divider(ui);

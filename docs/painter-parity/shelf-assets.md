@@ -164,7 +164,7 @@ Layout notes: rows are grouped by asset type, then by target (viewport, layer st
 | Material: drag onto a material slot in Properties | Properties | (unverified) | partial: Alt+drop or Alt+click replaces the selected fill layer's material | crates/app/src/shelf_apply.rs:29 | - |
 | Smart material: drag into the layer stack | Layer stack | - | done | crates/ui/src/panels/layers.rs:411 | - |
 | Smart material: drag onto the viewport | Viewport | (unverified) | done | crates/ui/src/viewport.rs:190 | - |
-| Smart material: add from the layer stack Smart Material button (mini-shelf) | Layer stack toolbar | - | missing | - | - |
+| Smart material: add from the layer stack Smart Material button (mini-shelf) | Layer stack toolbar | - | done (a searchable list, no thumbnails) | crates/ui/src/panels/layers.rs:332 | - |
 | Smart mask: drag onto a layer (adds to its mask effect stack) | Layer stack | - | done | crates/ui/src/panels/layers.rs:411 | - |
 | Smart mask: several drops accumulate | Layer stack | - | missing (unverified in code: a drop replaces the mask) | - | - |
 | Smart mask: Ctrl+drag replaces the whole effect stack | Layer stack | - | missing | - | - |
@@ -351,7 +351,7 @@ Layout notes: a mini-shelf is a small floating asset browser, pre-filtered to on
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
 | Mini-shelf search field | Top of every mini-shelf | usage query followed by a space | partial: on the brush alpha slot only; plain name search, no usage query | crates/ui/src/panels/brush_rows.rs (mini_browser) | - |
-| Smart Material button mini-shelf | Layer stack toolbar | - | missing | - | - |
+| Smart Material button mini-shelf | Layer stack toolbar | - | partial: searchable list without thumbnails | crates/ui/src/panels/layers.rs:332 | - |
 | Filter selection mini-shelf | Properties of a filter effect | - | partial: searchable list without thumbnails | crates/ui/src/panels/filter.rs:23 | - |
 | Generator selection mini-shelf | Properties of a generator effect | (unverified) | partial: plain menu in the layer context menu | crates/ui/src/panels/layers.rs:470 | - |
 | Fill channel resource slot mini-shelf | Properties of a fill layer / fill effect | - | partial: file picker and anchor picker, no library browser | crates/ui/src/panels/properties.rs:760 | - |
