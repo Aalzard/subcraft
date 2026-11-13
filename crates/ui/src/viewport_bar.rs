@@ -111,7 +111,7 @@ pub enum BrushCursor {
 impl BrushCursor {
     pub const ALL: [BrushCursor; 2] = [BrushCursor::Outline, BrushCursor::Crosshair];
 
-    pub fn label(self) -> String {
+    pub fn label(self) -> &'static str {
         match self {
             BrushCursor::Outline => crate::i18n::tr("Brush outline"),
             BrushCursor::Crosshair => crate::i18n::tr("Crosshair"),
