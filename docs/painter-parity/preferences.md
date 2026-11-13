@@ -45,11 +45,11 @@ Layout notes: Edit > Settings opens one window with three sections chosen on the
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Rotation speed | Settings > General > Camera | multiplier; not documented | done: 0.1-5x (default 1), every orbit mode | crates/ui/src/nav.rs (CameraSpeed) | PRNUM |
-| Zoom speed | Settings > General > Camera | multiplier; not documented | done: 0.1-5x (default 1) for the zoom drag | crates/ui/src/nav.rs (CameraSpeed) | PRNUM |
-| Zoom speed: Inverse direction | Settings > General > Camera | not documented | done | crates/ui/src/nav.rs (CameraSpeed) | PRNUM |
-| Wheel speed | Settings > General > Camera | multiplier; not documented | done: 0.1-5x (default 1) for the mouse wheel in the 3D view | crates/ui/src/nav.rs (CameraSpeed) | PRNUM |
-| Wheel speed: Inverse direction | Settings > General > Camera | not documented | done | crates/ui/src/nav.rs (CameraSpeed) | PRNUM |
+| Rotation speed | Settings > General > Camera | multiplier; not documented | done: 0.1-5x (default 1), every orbit mode | crates/ui/src/nav.rs (CameraSpeed) | 306 |
+| Zoom speed | Settings > General > Camera | multiplier; not documented | done: 0.1-5x (default 1) for the zoom drag | crates/ui/src/nav.rs (CameraSpeed) | 306 |
+| Zoom speed: Inverse direction | Settings > General > Camera | not documented | done | crates/ui/src/nav.rs (CameraSpeed) | 306 |
+| Wheel speed | Settings > General > Camera | multiplier; not documented | done: 0.1-5x (default 1) for the mouse wheel in the 3D view | crates/ui/src/nav.rs (CameraSpeed) | 306 |
+| Wheel speed: Inverse direction | Settings > General > Camera | not documented | done | crates/ui/src/nav.rs (CameraSpeed) | 306 |
 
 ## General: Baking options
 
