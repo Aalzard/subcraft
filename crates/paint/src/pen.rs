@@ -314,7 +314,6 @@ impl PenRasterizer {
         let (res, across, opacity) = (self.resolution, self.resolution.div_ceil(TILE_SIZE), self.path.opacity);
         let radius = (self.path.radius * res as f32).max(1e-3);
         let (points, bins, image) = (&self.points, &self.bins, self.alpha.as_deref());
-        let last = points.len().saturating_sub(2);
         let open = !self.path.is_closed();
         let mut arc = Vec::with_capacity(points.len());
         let mut total = 0.0f32;
@@ -322,7 +321,14 @@ impl PenRasterizer {
             if i > 0 { total += p.distance(points[i - 1]); }
             arc.push(total);
         }
+        let length = total;
         let total = total.max(1e-3);
+        // The planes that cut the ends square: through the first and last point, across the
+        // first and last segments that have a length.
+        let direction = |d: Vec2| d.length_squared() > 1e-12;
+        let start_dir = points.windows(2).map(|w| w[1] - w[0]).find(|&d| direction(d)).unwrap_or(Vec2::X);
+        let end_dir = points.windows(2).rev().map(|w| w[1] - w[0]).find(|&d| direction(d)).unwrap_or(Vec2::X);
+        let (first, final_point) = (points.first().copied().unwrap_or_default(), points.last().copied().unwrap_or_default());
         let aspect = image.map_or(1.0, |b| b.width as f32 / b.height.max(1) as f32);
         let copy_length = match settings.mode {
             subcraft_doc::RibbonMode::Stretch => total / settings.tiles.max(1e-3),
@@ -342,10 +348,7 @@ impl PenRasterizer {
                 for &i in &bins[tile] {
                     let a = points[i]; let d = points[i + 1] - a;
                     let len2 = d.length_squared();
-                    let raw_t = if len2 > 1e-12 { (p - a).dot(d) / len2 } else { 0.0 };
-                    // Square ends: nothing before the first point or after the last one.
-                    if open && ((i == 0 && raw_t < 0.0) || (i == last && raw_t > 1.0)) { continue; }
-                    let t = raw_t.clamp(0.0, 1.0);
+                    let t = if len2 > 1e-12 { ((p - a).dot(d) / len2).clamp(0.0, 1.0) } else { 0.0 };
                     let dist = p.distance(a + d * t);
                     if best.is_none_or(|b| dist < b.0) {
                         let side = if len2 > 1e-12 { d.perp_dot(p - a) / len2.sqrt() } else { 0.0 };
@@ -353,6 +356,13 @@ impl PenRasterizer {
                     }
                 }
                 let Some((dist, i, t, side)) = best else { continue };
+                // Square ends: nothing before the first point or after the last one. Skipping only
+                // the first and last segments left a round cap around the second point whenever
+                // the first segment was shorter than the width (every curved end).
+                if open {
+                    let s = arc[i] + (arc[i + 1] - arc[i]) * t;
+                    if (s <= 1e-4 && (p - first).dot(start_dir) < 0.0) || (s >= length - 1e-4 && (p - final_point).dot(end_dir) > 0.0) { continue; }
+                }
                 let edge = (radius + 0.5 - dist).clamp(0.0, 1.0);
                 if edge <= 0.0 { continue; }
                 let along = (arc[i] + (arc[i + 1] - arc[i]) * t) / copy_length;
@@ -470,6 +480,34 @@ mod run_tests {
         // Spacing outside its range is refused by validation.
         path.stamp = Some(subcraft_doc::PathStamp { alpha: None, spacing: 0.0, follow: true });
         assert!(PenRasterizer::new(&path, 256).is_err());
+    }
+
+    /// QA 2026-11: only a one-segment ribbon had square ends. With a first (or last) segment
+    /// shorter than the width, as at every curved end, the texels behind the start were measured
+    /// against the second point and got a round cap.
+    #[test]
+    fn a_ribbon_is_cut_square_even_when_its_end_segment_is_short() {
+        use subcraft_doc::PathKind;
+        let render = |points: &[(f32, f32)]| {
+            let anchors = points.iter().map(|&(x, y)| PenAnchor::new(Vec2::new(x, y))).collect();
+            let values = [(ChannelKind::BaseColor, ChannelValue::rgb(0.0, 1.0, 0.0))].into_iter().collect();
+            let path = PenPath { anchors, closed: false, radius: 0.05, hardness: 1.0, opacity: 1.0, values, kind: PathKind::Ribbon, stamp: None, ribbon: None };
+            let mut r = PenRasterizer::new(&path, 256).unwrap();
+            r.step(1);
+            assert!(r.is_done());
+            r.finish().unwrap().remove(&ChannelKind::BaseColor).unwrap()
+        };
+        // Points at x = 76.8, 81.92 and 179.2 texels; 12.8 texels either side of y = 128.
+        let short_start = render(&[(0.30, 0.5), (0.32, 0.5), (0.70, 0.5)]);
+        assert_eq!(short_start.get(70, 128)[3], 0.0, "nothing before the start");
+        assert!(short_start.get(80, 128)[3] > 0.99 && short_start.get(78, 138)[3] > 0.99, "the strip starts at the first point, full width");
+        let short_end = render(&[(0.30, 0.5), (0.68, 0.5), (0.70, 0.5)]);
+        assert_eq!(short_end.get(186, 128)[3], 0.0, "nothing after the end");
+        assert!(short_end.get(178, 128)[3] > 0.99 && short_end.get(177, 138)[3] > 0.99);
+        // Two anchors in the same place at the start: still square.
+        let doubled = render(&[(0.30, 0.5), (0.30, 0.5), (0.70, 0.5)]);
+        assert_eq!(doubled.get(70, 128)[3], 0.0);
+        assert_eq!(doubled.get(72, 132)[3], 0.0);
     }
 
     #[test]
