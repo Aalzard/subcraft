@@ -647,6 +647,9 @@ impl UiState {
         // The mask being shown belongs to the old project: left on, the new model was drawn all
         // black as "Mask of" a layer that does not exist, until the next edit.
         self.mask_view = None;
+        // A copied geometry mask lists parts of the old mesh: pasted on another one it limited
+        // the layer to unrelated parts, usually hiding it.
+        self.parts_clipboard = None;
         self.multi.clear();
         self.layer_previews = Default::default();
         self.asset_preview.cancel_apply();
