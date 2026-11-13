@@ -33,8 +33,17 @@ pub struct NamedLibrary {
     pub lib: UserLibrary,
 }
 
-/// Why a new library cannot be added, or `None` when it can.
-pub fn check_new_library(name: &str, path: &str, existing: &[LibraryPath]) -> Option<&'static str> {
+/// Whether two library folders are the same or one holds the other (compared as written, letter
+/// case ignored: the folder may not exist yet).
+fn folders_overlap(a: &str, b: &str) -> bool {
+    let norm = |p: &str| PathBuf::from(p.trim().to_lowercase());
+    let (a, b) = (norm(a), norm(b));
+    a.starts_with(&b) || b.starts_with(&a)
+}
+
+/// Why a new library cannot be added, or `None` when it can. `yours`: the default library's
+/// folder.
+pub fn check_new_library(name: &str, path: &str, existing: &[LibraryPath], yours: Option<&Path>) -> Option<&'static str> {
     let name = name.trim();
     if name.is_empty() {
         return Some("Give the library a name");
@@ -45,8 +54,13 @@ pub fn check_new_library(name: &str, path: &str, existing: &[LibraryPath]) -> Op
     if RESERVED.iter().any(|r| r.eq_ignore_ascii_case(name)) || existing.iter().any(|l| l.name.trim().eq_ignore_ascii_case(name)) {
         return Some("A library already has this name");
     }
-    if name.contains(['/', '"', ',']) {
-        return Some("A library name cannot hold / , or quotes");
+    // A backslash is the query's escape, even inside quotes: `s:"a\b"` read as `ab`.
+    if name.contains(['/', '\\', '"', ',']) {
+        return Some("A library name cannot hold / \\ , or quotes");
+    }
+    // Nested or shared folders listed every asset twice (QA 2026-11).
+    if yours.is_some_and(|y| folders_overlap(path, &y.to_string_lossy())) || existing.iter().any(|l| folders_overlap(path, &l.path)) {
+        return Some("This folder is, holds or is inside another library");
     }
     None
 }
@@ -299,7 +313,7 @@ pub fn settings(ui: &mut egui::Ui, prefs: &mut crate::recovery::Preferences, you
         {
             form.path = dir.display().to_string();
         }
-        let problem = check_new_library(&form.name, &form.path, &prefs.extra_libraries);
+        let problem = check_new_library(&form.name, &form.path, &prefs.extra_libraries, yours);
         let add = ui.add_enabled(problem.is_none(), egui::Button::new(crate::icons::PLUS));
         let add = match problem {
             Some(why) => add.on_disabled_hover_text(tr(why)),
@@ -346,12 +360,20 @@ mod tests {
     #[test]
     fn new_library_names_must_be_free_and_plain() {
         let existing = vec![LibraryPath { name: "Studio".into(), path: "D:/lib".into() }];
-        assert_eq!(check_new_library("", "x", &existing), Some("Give the library a name"));
-        assert_eq!(check_new_library("Kit", " ", &existing), Some("Choose the library folder"));
-        assert_eq!(check_new_library("studio", "x", &existing), Some("A library already has this name"));
-        assert_eq!(check_new_library("your_assets", "x", &existing), Some("A library already has this name"));
-        assert_eq!(check_new_library("a/b", "x", &existing), Some("A library name cannot hold / , or quotes"));
-        assert_eq!(check_new_library("Kit", "x", &existing), None);
+        let yours = Path::new("C:/Users/me/Documents/SubCraft/Library");
+        let check = |name: &str, path: &str| check_new_library(name, path, &existing, Some(yours));
+        assert_eq!(check("", "x"), Some("Give the library a name"));
+        assert_eq!(check("Kit", " "), Some("Choose the library folder"));
+        assert_eq!(check("studio", "x"), Some("A library already has this name"));
+        assert_eq!(check("your_assets", "x"), Some("A library already has this name"));
+        assert_eq!(check("a/b", "x"), Some("A library name cannot hold / \\ , or quotes"));
+        assert_eq!(check("Kit", "x"), None);
+        // QA 2026-11: a backslash broke s: queries; overlapping folders loaded everything twice.
+        assert_eq!(check("a\\b", "x"), Some("A library name cannot hold / \\ , or quotes"));
+        for overlapping in ["D:/lib", "d:/LIB/sub", "D:/", "C:/Users/me/Documents/SubCraft/Library/Kit", "C:/Users/me/Documents/SubCraft"] {
+            assert_eq!(check("Kit", overlapping), Some("This folder is, holds or is inside another library"), "{overlapping}");
+        }
+        assert_eq!(check("Kit", "D:/library"), None, "a sibling folder whose name starts the same is fine");
     }
 
     #[test]
