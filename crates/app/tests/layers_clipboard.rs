@@ -201,3 +201,22 @@ fn top_level_in_order_drops_descendants_and_unknown_ids() {
     let clip = LayerClip::capture(&ts, &[c, f], &Default::default(), (0, 0)).unwrap();
     assert_eq!(clip.layers.len(), 1, "a folder carries its child; the child is not copied twice");
 }
+
+/// QA 2026-11: a channel the texture set gained through a paste got no blend entry on the layers
+/// already there. A missing entry means "off", so a layer pasted into an existing folder had its
+/// new channel switched off by that folder.
+#[test]
+fn a_channel_added_by_paste_gets_blend_entries_on_the_existing_layers() {
+    let ao = ChannelKind::AmbientOcclusion;
+    let mut src = session(64);
+    src.execute(Command::AddChannel { texture_set: src.selection().texture_set, kind: ao }).unwrap();
+    let f = add(&mut src, NewLayer::Fill, "F");
+    let clip = Arc::new(src.copy_layers(&[f]).unwrap());
+    let mut dst = session(64);
+    let folder = add(&mut dst, NewLayer::Folder, "Folder");
+    let paint = add(&mut dst, NewLayer::Paint, "Paint");
+    dst.execute(Command::PasteLayers(clip)).unwrap();
+    let ts = dst.selected_texture_set();
+    assert_eq!(ts.find(folder).unwrap().blend.get(&ao).map(|b| b.mode), Some(subcraft_doc::BlendMode::Passthrough), "the folder lets the new channel through");
+    assert_eq!(ts.find(paint).unwrap().blend.get(&ao).map(|b| b.mode), Some(subcraft_doc::BlendMode::Normal));
+}

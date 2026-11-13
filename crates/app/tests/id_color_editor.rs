@@ -134,6 +134,29 @@ fn merging_two_colors_selects_both_regions_for_masks_of_either() {
     assert_eq!(selected(&mut s).iter().filter(|b| **b).count(), (RES * RES) as usize, "both halves now carry the picked color");
 }
 
+/// QA 2026-11: after merging BLUE into RED, editing RED changed only the former BLUE region
+/// while the masks switched to the new color (and lost the original RED region). Editing the
+/// shown color now changes every texel showing it; a no-op edit adds no undo step.
+#[test]
+fn editing_a_merged_color_changes_every_texel_showing_it() {
+    let (mut s, layer, effect) = setup();
+    let ts = s.selection().texture_set;
+    let red = s.pick_id_color_uv(layer, effect, Vec2::new(0.25, 0.5)).unwrap().unwrap();
+    let blue = s.id_palette(ts).unwrap().into_iter().find(|e| same_id(e.color, BLUE)).unwrap().color;
+    s.edit_id_color(ts, blue, red).unwrap();
+    s.edit_id_color(ts, red, GOLD).unwrap();
+    let palette = s.id_palette(ts).unwrap();
+    assert!(palette.len() == 1 && same_id(palette[0].color, GOLD), "{palette:?}");
+    assert!(same_id(mask_colors(&s, layer)[0], GOLD));
+    assert_eq!(selected(&mut s).iter().filter(|b| **b).count(), (RES * RES) as usize, "the mask still selects both halves");
+    let entries = s.history().entries().len();
+    s.edit_id_color(ts, GOLD, GOLD).unwrap();
+    assert_eq!(s.history().entries().len(), entries, "a no-op edit adds no undo step");
+    // Back to the baked colors in two steps: nothing left over.
+    s.edit_id_color(ts, GOLD, red).unwrap();
+    assert!(s.selected_texture_set().id_color_edits.iter().all(|e| !same_id(e.from, red)), "{:?}", s.selected_texture_set().id_color_edits);
+}
+
 #[test]
 fn edits_are_saved_over_the_baked_map_and_survive_reopening_and_rebaking() {
     let (mut s, layer, effect) = setup();

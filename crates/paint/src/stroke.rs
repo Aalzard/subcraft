@@ -430,11 +430,16 @@ impl Stroke {
                 bitangent: Vec3::Y,
             });
         }
+        // Each symmetry copy is numbered like the 3D path's mirrored cameras, so smudge carries
+        // one colour per copy (QA 2026-11: shared, the paint picked up on one side of the mirror
+        // was dragged onto the other).
+        let mut copies = 1;
         if self.options.has_symmetry() {
             let mirrored: Vec<Stamp> = stamps.iter().flat_map(|st| {
-                let copies = uv_symmetry_copies(ctx, &self.options, st.uv);
-                copies.into_iter().map(move |uv| Stamp { uv, screen: uv * res, ..*st })
+                let copies = uv_symmetry_copies_indexed(ctx, &self.options, st.uv);
+                copies.into_iter().map(move |(camera, uv)| Stamp { camera, uv, screen: uv * res, ..*st })
             }).collect();
+            copies = mirrored.iter().map(|st| st.camera + 1).max().unwrap_or(1);
             stamps.extend(mirrored);
         }
         if self.mode == StrokeMode::Clone {
@@ -444,7 +449,13 @@ impl Stroke {
             }
         }
         if self.mode == StrokeMode::Smudge {
-            return self.smudge_stamps(ts, ctx, std::slice::from_ref(ctx.camera), &stamps, Alignment::Uv);
+            // The 2D view has no projection: every copy uses the view camera.
+            let cameras = vec![*ctx.camera; copies];
+            return self.smudge_stamps(ts, ctx, &cameras, &stamps, Alignment::Uv);
+        }
+        // Plain stamps don't carry anything: one camera (rasterised once per tile).
+        for st in &mut stamps {
+            st.camera = 0;
         }
         let stencil = self.uv_view.is_some();
         self.apply_stamps(ts, ctx, std::slice::from_ref(ctx.camera), &stamps, Alignment::Uv, stencil)
@@ -460,25 +471,7 @@ impl Stroke {
     /// View camera, its radial copies, then every symmetry mirror of those (all combinations of
     /// enabled planes). Without radial symmetry the list is exactly the mirror list (ADR 0043).
     fn cameras(&self, ctx: &PaintContext) -> Vec<Camera> {
-        let center = ctx.mesh.bounds.center();
-        let mut cams = vec![*ctx.camera];
-        let mirrors = self.options.symmetry.iter().filter(|&&m| m).count();
-        let radial = &self.options.radial;
-        let n = radial.effective_count(mirrors);
-        if n > 1 {
-            let pivot = center + Vec3::from_array(radial.center_offset);
-            for k in 1..n {
-                let angle = std::f32::consts::TAU * k as f32 / n as f32;
-                cams.push(ctx.camera.rotated(radial.axis_dir(), pivot, angle));
-            }
-        }
-        for axis in 0..3 {
-            if self.options.symmetry[axis] {
-                let mirrored: Vec<Camera> = cams.iter().map(|c| c.mirrored(axis, center[axis])).collect();
-                cams.extend(mirrored);
-            }
-        }
-        cams
+        self.options.copy_cameras(ctx.camera, ctx.mesh.bounds.center())
     }
 
     fn depth_hint(&self, ctx: &PaintContext) -> f32 {
@@ -1140,6 +1133,12 @@ fn uv_at(mesh: &Mesh, t: u32, u: f32, v: f32) -> Vec2 {
 /// texture set, whose UV is the copy's position. Copies that find no surface nearby (within 5 %
 /// of the model size) or land on the dab itself are left out.
 pub fn uv_symmetry_copies(ctx: &PaintContext, options: &StrokeOptions, uv: Vec2) -> Vec<Vec2> {
+    uv_symmetry_copies_indexed(ctx, options, uv).into_iter().map(|(_, c)| c).collect()
+}
+
+/// [`uv_symmetry_copies`] with the number of the symmetry copy each one is (1.., in the order of
+/// [`StrokeOptions::symmetry_points`]; 0 is the stroke itself).
+fn uv_symmetry_copies_indexed(ctx: &PaintContext, options: &StrokeOptions, uv: Vec2) -> Vec<(usize, Vec2)> {
     let mesh = ctx.mesh;
     let Some(t) = triangle_at_uv(mesh, ctx.geometry, uv) else { return Vec::new() };
     let Some((u, v)) = uv_barycentric(mesh, t, uv) else { return Vec::new() };
@@ -1148,10 +1147,10 @@ pub fn uv_symmetry_copies(ctx: &PaintContext, options: &StrokeOptions, uv: Vec2)
     let slot = ctx.geometry.material_slot;
     let reach = (mesh.bounds.diagonal() * 0.05).max(1e-6);
     let min_gap = 0.5 / ctx.geometry.resolution.max(1) as f32;
-    points[1..].iter().filter_map(|&q| {
+    points.iter().enumerate().skip(1).filter_map(|(i, &q)| {
         let hit = ctx.bvh.closest_point(q, reach, |tri| mesh.tri_material[tri as usize] == slot)?;
         let c = uv_at(mesh, hit.tri, hit.u, hit.v);
-        (c.is_finite() && (c - uv).length() > min_gap).then_some(c)
+        (c.is_finite() && (c - uv).length() > min_gap).then_some((i, c))
     }).collect()
 }
 

@@ -495,7 +495,11 @@ Files: {}", ex.dir().display()));
                         over_mask = Some(shelf::drop_label(*item, alt, Some(&l.name), true));
                     }
                     if egui::DragAndDrop::has_payload_of_type::<ShelfDrag>(ui.ctx())
-                        && let Some(item) = thumb.dnd_release_payload::<ShelfDrag>() { drop_request = Some((l.id, *item, true)); }
+                        && let Some(item) = thumb.dnd_release_payload::<ShelfDrag>() {
+                        // On a mask everything applies in place; a smart mask keeps Alt's own meaning
+                        // (replace the mask's effects).
+                        drop_request = Some((l.id, *item, alt || !matches!(*item, ShelfDrag::SmartMask(_))));
+                    }
                     if !mask.enabled { ui.painter().line_segment([thumb.rect.left_bottom(), thumb.rect.right_top()], egui::Stroke::new(1.5, theme::WARNING)); }
                     effect_line(ui, thumb.rect, !mask.effects.is_empty());
                     if thumb.clicked() {
@@ -507,7 +511,17 @@ Files: {}", ex.dir().display()));
                             if ui.input(|i| i.modifiers.alt) { ui.ctx().data_mut(|d| d.insert_temp(crate::mask_view::toggle_request_id(), l.id)); }
                         }
                     }
-                    thumb.context_menu(|ui| super::mask::actions(ui, l.id, mask.enabled, can_paste_mask, &mut cmds));
+                    // Painter's mask menu: the add-effect entries, the mask actions, Create smart mask.
+                    thumb.context_menu(|ui| {
+                        let row_channels: Vec<ChannelKind> = ts.channel_kinds().collect();
+                        super::effects::add_effect_menu(ui, l, true, &row_channels, active, ts.resolution, &state.session, &mut cmds);
+                        ui.separator();
+                        super::mask::actions(ui, l.id, mask.enabled, can_paste_mask, &mut cmds);
+                        if ui.add_enabled(!mask.effects.is_empty(), egui::Button::new(format!("{}  Create smart mask", icons::MASK))).on_disabled_hover_text(tr("Needs a mask with at least one effect")).clicked() {
+                            save_request = Some((l.id, true));
+                            ui.close();
+                        }
+                    });
                 }
                 if let Some(expanded) = folder {
                     let icon = if expanded { icons::FOLDER_OPEN } else { icons::FOLDER };

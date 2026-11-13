@@ -582,12 +582,12 @@ Layout notes: Grayscale falloff from UV island borders (uses the engine's mesh-b
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| UV Border Distance (generator) | Properties > Generator | used on: mask or fill | missing | - | - |
-| Invert | Properties > Generator > Parameters | not documented (toggle) | missing | - | - |
-| Balance | Properties > Generator > Parameters | not documented | missing | - | - |
-| Contrast | Properties > Generator > Parameters | not documented | missing | - | - |
-| Smoothness | Properties > Generator > Parameters | not documented | missing | - | - |
-| Distance | Properties > Generator > Parameters | not documented | missing | - | - |
+| UV Border Distance (generator) | Properties > Generator | used on: mask or fill | done: distance to the nearest island border, up to 64 px (one tile) | crates/compositor/src/mask.rs:288 | UV generators |
+| Invert | Properties > Generator > Parameters | not documented (toggle) | done | crates/ui/src/panels/properties.rs:458 | UV generators |
+| Balance | Properties > Generator > Parameters | not documented | done | crates/ui/src/panels/properties.rs:458 | UV generators |
+| Contrast | Properties > Generator > Parameters | not documented | done | crates/ui/src/panels/properties.rs:458 | UV generators |
+| Smoothness | Properties > Generator > Parameters | not documented | done | crates/ui/src/panels/properties.rs:458 | UV generators |
+| Distance | Properties > Generator > Parameters | not documented | done: pixels, default 16 | crates/ui/src/panels/properties.rs:458 | UV generators |
 
 ## UV Checker
 
@@ -595,14 +595,14 @@ Layout notes: Colour checker for inspecting UVs, used on a fill layer.
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| UV Checker (generator) | Properties > Generator | used on: fill layer | missing | - | - |
-| Seed | Properties > Generator > Parameters | not documented; Random button and pencil field | missing | - | - |
-| Checker Color Mode | Properties > Generator > Parameters | not documented; options Uniform / Random (per UV island) | missing | - | - |
-| Checker Color | Properties > Generator > Parameters | not documented | missing | - | - |
-| Checker Grid Tile | Properties > Generator > Parameters | not documented | missing | - | - |
-| Checker Grid Opacity | Properties > Generator > Parameters | not documented; 0 hides the grid | missing | - | - |
-| UV Borders Color | Properties > Generator > Parameters | not documented | missing | - | - |
-| UV Borders Width | Properties > Generator > Parameters | not documented | missing | - | - |
+| UV Checker (generator) | Properties > Generator | used on: fill layer | done: colour on layer content (Add content generator), its brightness in a mask | crates/compositor/src/mask.rs:245 | UV generators |
+| Seed | Properties > Generator > Parameters | not documented; Random button and pencil field | done | crates/ui/src/panels/properties.rs:458 | UV generators |
+| Checker Color Mode | Properties > Generator > Parameters | not documented; options Uniform / Random (per UV island) | done | crates/ui/src/panels/properties.rs:458 | UV generators |
+| Checker Color | Properties > Generator > Parameters | not documented | done | crates/ui/src/panels/properties.rs:458 | UV generators |
+| Checker Grid Tile | Properties > Generator > Parameters | not documented | done | crates/ui/src/panels/properties.rs:458 | UV generators |
+| Checker Grid Opacity | Properties > Generator > Parameters | not documented; 0 hides the grid | done | crates/ui/src/panels/properties.rs:458 | UV generators |
+| UV Borders Color | Properties > Generator > Parameters | not documented | done | crates/ui/src/panels/properties.rs:458 | UV generators |
+| UV Borders Width | Properties > Generator > Parameters | not documented | done | crates/ui/src/panels/properties.rs:458 | UV generators |
 
 ## UV Random Color
 
@@ -610,7 +610,7 @@ Layout notes: One flat colour per UV island; usable as a mask or as fill colour.
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| UV Random Color (generator) | Properties > Generator | used on: mask or fill | partial: as a mask, one random gray per UV island | crates/doc/src/mask.rs:91 | chunk 49 |
+| UV Random Color (generator) | Properties > Generator | used on: mask or fill | done: one random gray per island in a mask, one random colour per island on layer content | crates/compositor/src/mask.rs:245 | UV generators |
 | Custom Gradient | Properties > Generator > Image inputs | gradient map for the colour range | missing | - | - |
 | Seed | Properties > Generator > Parameters | not documented; Random button and pencil field | done: Random button and number field | crates/ui/src/panels/properties.rs:427 | chunk 49 |
 | Color Source Mode | Properties > Generator > Parameters | not documented; options Random / Custom Gradient | partial: Random only (Custom Gradient needs image inputs) | crates/ui/src/panels/properties.rs:427 | chunk 49 |
@@ -621,10 +621,10 @@ Layout notes: Colour gradient from low to high texel density; used on a fill lay
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| UV Texel Density (generator) | Properties > Generator | used on: fill layer | missing | - | - |
-| Color Low | Properties > Generator > Parameters | not documented | missing | - | - |
-| Color Medium | Properties > Generator > Parameters | not documented | missing | - | - |
-| Color High | Properties > Generator > Parameters | not documented | missing | - | - |
+| UV Texel Density (generator) | Properties > Generator | used on: fill layer | done: relative to the texture spanning the model's longest side once; two octaves below / above are Low / High | crates/compositor/src/mask.rs:245 | UV generators |
+| Color Low | Properties > Generator > Parameters | not documented | done | crates/ui/src/panels/properties.rs:458 | UV generators |
+| Color Medium | Properties > Generator > Parameters | not documented | done | crates/ui/src/panels/properties.rs:458 | UV generators |
+| Color High | Properties > Generator > Parameters | not documented | done | crates/ui/src/panels/properties.rs:458 | UV generators |
 
 ## World Space Normals
 

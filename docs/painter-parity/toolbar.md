@@ -90,13 +90,13 @@ Layout notes: the Contextual toolbar is fixed above the viewports and cannot be 
 |---|---|---|---|---|---|
 | Symmetry type: Mirror | Symmetry settings menu | Mirror | done | crates/ui/src/brush_bar.rs:68 | - |
 | Axis | Symmetry settings menu | X (unverified) | partial: X, Y and Z are independent toggles (several at once) | crates/ui/src/brush_bar.rs:70 | - |
-| Axis position | Symmetry settings menu | 0 (unverified) | missing | - | - |
-| Show Plane | Symmetry settings menu > display | not documented | partial: one "Show symmetry guides" checkbox for all guides | crates/ui/src/brush_bar.rs:83 | - |
-| Show Intersection | Symmetry settings menu > display | not documented | missing | - | - |
-| Show Cursor | Symmetry settings menu > display | not documented | missing | - | - |
-| Hide While Painting | Symmetry settings menu > display | not documented | missing | - | - |
-| Enable manipulator | Symmetry settings menu > display | off | missing | - | - |
-| Manipulator Size | Symmetry settings menu > display | not documented | missing | - | - |
+| Axis position | Symmetry settings menu | 0 (unverified) | done: per enabled axis, plus Reset; the manipulator drags it | crates/ui/src/brush_bar.rs (mirror_positions) | - |
+| Show Plane | Symmetry settings menu > display | not documented | done (under the Show symmetry guides switch) | crates/ui/src/brush_bar.rs (symmetry_display) | - |
+| Show Intersection | Symmetry settings menu > display | not documented | done | crates/ui/src/brush_bar.rs (symmetry_display) | - |
+| Show Cursor | Symmetry settings menu > display | not documented | done | crates/ui/src/brush_bar.rs (symmetry_display) | - |
+| Hide While Painting | Symmetry settings menu > display | not documented | done | crates/ui/src/brush_bar.rs (symmetry_display) | - |
+| Enable manipulator | Symmetry settings menu > display | off | done | crates/ui/src/brush_bar.rs (symmetry_display) | - |
+| Manipulator Size | Symmetry settings menu > display | not documented | done: 0.25 to 4 | crates/ui/src/brush_bar.rs (symmetry_display) | - |
 
 ## Contextual toolbar: Symmetry settings menu (Radial)
 
@@ -105,16 +105,16 @@ Layout notes: the Contextual toolbar is fixed above the viewports and cannot be 
 | Symmetry type: Radial | Symmetry settings menu | off | done | crates/ui/src/brush_bar.rs:106 | - |
 | Axis | Symmetry settings menu | not documented | done | crates/ui/src/brush_bar.rs:112 | - |
 | Count (number of copies) | Symmetry settings menu | (unverified) | done | crates/ui/src/brush_bar.rs:124 | - |
-| Flip copy | Symmetry settings menu | off | missing | - | - |
+| Flip copy | Symmetry settings menu | off | done: every other copy mirrored across the plane through the axis and the first copy | crates/paint/src/settings.rs (copy_cameras) | - |
 | Axis position X | Symmetry settings menu | 0 (unverified) | done | crates/ui/src/brush_bar.rs:129 | - |
 | Axis position Y | Symmetry settings menu | 0 (unverified) | done | crates/ui/src/brush_bar.rs:129 | - |
 | Axis position Z | Symmetry settings menu | 0 (unverified) | done | crates/ui/src/brush_bar.rs:129 | - |
-| Show Axis | Symmetry settings menu > display | not documented | partial: shared "Show symmetry guides" checkbox | crates/ui/src/brush_bar.rs:83 | - |
-| Show Intersection | Symmetry settings menu > display | not documented | missing | - | - |
-| Show Cursor (brush tool) | Symmetry settings menu > display | not documented | missing | - | - |
-| Hide While Painting (brush tool) | Symmetry settings menu > display | not documented | missing | - | - |
-| Show Axis position manipulator | Symmetry settings menu > display | off | missing | - | - |
-| Manipulator Size | Symmetry settings menu > display | not documented | missing | - | - |
+| Show Axis | Symmetry settings menu > display | not documented | done | crates/ui/src/brush_bar.rs (symmetry_display) | - |
+| Show Intersection | Symmetry settings menu > display | not documented | partial: the Intersection switch covers mirror planes; the radial axis / mesh point is not drawn | crates/ui/src/brush_bar.rs (symmetry_display) | - |
+| Show Cursor (brush tool) | Symmetry settings menu > display | not documented | done | crates/ui/src/brush_bar.rs (symmetry_display) | - |
+| Hide While Painting (brush tool) | Symmetry settings menu > display | not documented | done | crates/ui/src/brush_bar.rs (symmetry_display) | - |
+| Show Axis position manipulator | Symmetry settings menu > display | off | done: drags the radial pivot | crates/ui/src/brush_bar.rs (symmetry_display) | - |
+| Manipulator Size | Symmetry settings menu > display | not documented | done | crates/ui/src/brush_bar.rs (symmetry_display) | - |
 | Symmetry button greyed out for unsupported fill projections | Contextual toolbar with a fill layer | - | missing | - | - |
 
 ## Contextual toolbar: Path tools
@@ -177,19 +177,19 @@ Layout notes: shown when a fill layer or fill effect uses Tri-planar, Planar, Sp
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Warp edition menu | Contextual toolbar, Warp | - | missing | - | - |
-| Transform warp | Warp edition menu; Shift + V toggles | default | missing | - | - |
-| Edit vertices | Warp edition menu; Shift + V toggles | - | missing | - | - |
-| Split warp crosswise | Warp edition menu | - | missing | - | - |
-| Split warp horizontally | Warp edition menu | - | missing | - | - |
-| Split warp vertically | Warp edition menu | - | missing | - | - |
-| Warp projection settings menu | Contextual toolbar, Warp | - | missing | - | - |
-| Rows and columns | Warp projection settings | editable only before any point is moved | missing | - | - |
-| Handle size | Warp projection settings | not documented | missing | - | - |
-| Grid color | Warp projection settings | not documented | missing | - | - |
+| Warp edition menu | Contextual toolbar, Warp | - | partial: the Edit row in Properties, not on the contextual toolbar | crates/ui/src/warp_view.rs | - |
+| Transform warp | Warp edition menu; Shift + V toggles | default | done: Shift+V toggles | crates/ui/src/warp_view.rs | - |
+| Edit vertices | Warp edition menu; Shift + V toggles | - | done: Shift+V toggles | crates/ui/src/warp_view.rs | - |
+| Split warp crosswise | Warp edition menu | - | partial: through the middle cells, from Properties | crates/ui/src/panels/properties.rs (warp_rows) | - |
+| Split warp horizontally | Warp edition menu | - | partial: through the middle cells, from Properties | crates/ui/src/panels/properties.rs (warp_rows) | - |
+| Split warp vertically | Warp edition menu | - | partial: through the middle cells, from Properties | crates/ui/src/panels/properties.rs (warp_rows) | - |
+| Warp projection settings menu | Contextual toolbar, Warp | - | partial: rows in Properties | crates/ui/src/panels/properties.rs (warp_rows) | - |
+| Rows and columns | Warp projection settings | editable only before any point is moved | done: locked once a point moved | crates/ui/src/panels/properties.rs (warp_rows) | - |
+| Handle size | Warp projection settings | not documented | done | crates/ui/src/warp_view.rs | - |
+| Grid color | Warp projection settings | not documented | done | crates/ui/src/warp_view.rs | - |
 | Automatic tangents | Contextual toolbar, Warp | not documented | missing | - | - |
 | Warp to geometry | Contextual toolbar, Warp (12.0) | not documented | missing | - | - |
-| Reset menu | Contextual toolbar, Warp | - | missing | - | - |
+| Reset menu | Contextual toolbar, Warp | - | partial: Reset grid button in Properties | crates/ui/src/panels/properties.rs (warp_rows) | - |
 | Restore the global transformation | Reset menu | - | missing | - | - |
 | Reset all vertices | Reset menu | - | missing | - | - |
 | Reset selected vertices | Reset menu | - | missing | - | - |

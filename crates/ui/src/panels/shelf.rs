@@ -68,7 +68,8 @@ pub fn drop_label(item: ShelfDrag, alt: bool, target: Option<&str>, on_mask: boo
         ShelfDrag::Material(_) => format!("Add material layer above{t} (Ctrl: with a black mask)"),
         ShelfDrag::SmartMaterial(_) if alt => "Smart materials are added as a folder: release Alt".to_string(),
         ShelfDrag::SmartMaterial(_) => format!("Add smart material above{t}"),
-        ShelfDrag::SmartMask(_) => format!("Apply mask to{t}"),
+        ShelfDrag::SmartMask(_) if alt => format!("Replace the mask effects of{t}"),
+        ShelfDrag::SmartMask(_) => format!("Apply mask to{t} (Ctrl or Alt: replace its effects)"),
         ShelfDrag::Texture(_) | ShelfDrag::Starter(_) if alt => format!("Use this image in the active channel of{t}"),
         ShelfDrag::Texture(_) | ShelfDrag::Starter(_) => format!("Add texture layer above{t}"),
         ShelfDrag::Alpha(_) if on_mask || target.is_some() => format!("Use this alpha in the mask of{t}"),
@@ -85,7 +86,8 @@ pub fn drop_label(item: ShelfDrag, alt: bool, target: Option<&str>, on_mask: boo
 /// * Alpha: becomes an image effect of the selected layer's mask (adds the mask); without Alt it
 ///   is the brush tip.
 /// * Smart material: no in-place form; says so instead of doing nothing.
-/// * Smart mask: always applies to the selected layer.
+/// * Smart mask: always applies to the selected layer; with Alt the mask's previous effects are
+///   removed first.
 pub fn apply_shelf_item_with(s: &mut UiState, item: ShelfDrag, alt: bool, now: f64) {
     let layer = s.session.selection().layer;
     let selected_fill = s.session.selected_layer().is_some_and(|l| matches!(l.content, LayerContent::Fill(_)));
@@ -106,7 +108,7 @@ pub fn apply_shelf_item_with(s: &mut UiState, item: ShelfDrag, alt: bool, now: f
             None => Ok(()),
         },
         ShelfDrag::SmartMask(i) => match s.library.smart_masks.get(i).cloned() {
-            Some(m) => s.session.apply_smart_mask(&m).map_err(|e| format!("{e} (select a layer first)")),
+            Some(m) => s.session.apply_smart_mask_with(&m, alt).map_err(|e| format!("{e} (select a layer first)")),
             None => Ok(()),
         },
         ShelfDrag::Texture(i) if alt => match (s.textures.items.get(i).map(|t| t.path.clone()), layer) {
@@ -150,6 +152,7 @@ pub fn apply_shelf_item_with(s: &mut UiState, item: ShelfDrag, alt: bool, now: f
 ///   to be painted in;
 /// * `as_new_layer` (a smart mask dropped on the top zone instead of a row): a new fill layer
 ///   carrying that mask;
+/// * `with_mask` or `alt` on a smart mask: it replaces the mask's effects instead of adding to them;
 /// * otherwise the same as [`apply_shelf_item_with`].
 pub fn apply_stack_drop(s: &mut UiState, item: ShelfDrag, alt: bool, with_mask: bool, as_new_layer: bool, now: f64) {
     use subcraft_app::{Command, LayerTarget, NewLayer};
@@ -160,6 +163,7 @@ pub fn apply_stack_drop(s: &mut UiState, item: ShelfDrag, alt: bool, with_mask: 
     }
     let makes_layer = !alt && matches!(item, ShelfDrag::Material(_) | ShelfDrag::Texture(_));
     let before = s.session.selection().layer;
+    let alt = alt || (with_mask && matches!(item, ShelfDrag::SmartMask(_)));
     apply_shelf_item_with(s, item, alt, now);
     if with_mask && makes_layer
         && let Some(layer) = s.session.selection().layer.filter(|l| Some(*l) != before)
@@ -168,7 +172,7 @@ pub fn apply_stack_drop(s: &mut UiState, item: ShelfDrag, alt: bool, with_mask: 
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ShelfTab {
     Textures,
     /// Tangent-space normal maps (the starter pack's and the user's), apart from color textures.
@@ -178,8 +182,130 @@ pub enum ShelfTab {
     SmartMasks,
     /// Filters: click adds one to the selected layer, or swaps the selected filter's type.
     Filters,
+    /// Brush, tool and material presets.
     Brushes,
+    /// Brush tips (Painter's Alphas type): the user's, the built-in ones and the starter pack's.
+    Alphas,
     Environments,
+}
+
+impl ShelfTab {
+    /// Usage keyword of the type (`u:` in a search).
+    pub fn usage(self) -> &'static str {
+        match self {
+            ShelfTab::Materials => "basematerial",
+            ShelfTab::SmartMaterials => "smartmaterial",
+            ShelfTab::SmartMasks => "smartmask",
+            ShelfTab::Filters => "filter",
+            ShelfTab::Brushes => "brush",
+            ShelfTab::Alphas => "alpha",
+            ShelfTab::Textures => "texture",
+            ShelfTab::NormalMaps => "normalmap",
+            ShelfTab::Environments => "environment",
+        }
+    }
+
+    pub fn from_usage(usage: &str) -> Option<Self> {
+        CATEGORIES.iter().map(|c| c.0).find(|t| t.usage() == usage)
+    }
+}
+
+/// Thumbnail sizes of the size menu (UI points), as Painter's Small / Medium / Large.
+pub const PREVIEW_SIZES: [(&str, u32); 3] = [("Small", 60), ("Medium", 88), ("Large", 144)];
+
+/// What the Shelf shows: the asset types, the search and the selected folders. The main Assets
+/// panel and every sub-library tab have their own.
+#[derive(Clone, Debug)]
+pub struct ShelfNav {
+    pub tab: ShelfTab,
+    /// Types added with Ctrl+click, besides `tab`.
+    pub extra_tabs: Vec<ShelfTab>,
+    pub filter: crate::panels::shelf_filter::ShelfFilter,
+    filter_tab: ShelfTab,
+    /// Selected folders (`/library/` or `/library/folder/`, lowercase); empty is All libraries.
+    pub paths: Vec<String>,
+    /// Name of the saved search last applied, while the search still is that one.
+    pub saved: Option<String>,
+}
+
+impl ShelfNav {
+    fn new(tab: ShelfTab) -> Self {
+        Self { tab, extra_tabs: Vec::new(), filter: Default::default(), filter_tab: tab, paths: Vec::new(), saved: None }
+    }
+
+    /// Selected types in Painter's icon order.
+    pub fn tabs(&self) -> Vec<ShelfTab> {
+        CATEGORIES.iter().map(|c| c.0).filter(|t| *t == self.tab || self.extra_tabs.contains(t)).collect()
+    }
+
+    /// Click on a type icon: only that type; with Ctrl, add or remove it (one always stays).
+    pub fn click_type(&mut self, tab: ShelfTab, ctrl: bool) {
+        if !ctrl {
+            self.tab = tab;
+            self.extra_tabs.clear();
+        } else if tab == self.tab {
+            if !self.extra_tabs.is_empty() {
+                self.tab = self.extra_tabs.remove(0);
+            }
+        } else if let Some(i) = self.extra_tabs.iter().position(|t| *t == tab) {
+            self.extra_tabs.remove(i);
+        } else {
+            self.extra_tabs.push(tab);
+        }
+    }
+
+    /// Click on a folder: only that folder; with Ctrl, add or remove it.
+    pub fn click_path(&mut self, path: String, ctrl: bool) {
+        let path = path.to_lowercase();
+        if !ctrl {
+            self.paths = vec![path];
+        } else if let Some(i) = self.paths.iter().position(|p| *p == path) {
+            self.paths.remove(i);
+        } else {
+            self.paths.push(path);
+        }
+    }
+
+    /// True when `e` is in a selected folder (or none is selected).
+    pub fn in_paths(&self, e: &crate::panels::shelf_filter::Entry) -> bool {
+        let path = e.path().to_lowercase();
+        self.paths.is_empty() || self.paths.iter().any(|p| path.starts_with(p.as_str()))
+    }
+
+    /// The whole search as one query (Painter's saved-search form).
+    pub fn query(&self) -> String {
+        let usages: Vec<&str> = self.tabs().iter().map(|t| t.usage()).collect();
+        crate::panels::shelf_filter::compose(&self.filter.query, &usages, &self.paths)
+    }
+
+    /// Show what a saved query selects: its types, folders and text.
+    pub fn apply_query(&mut self, query: &str) {
+        let parts = crate::panels::shelf_filter::decompose(query);
+        let tabs: Vec<ShelfTab> = parts.usages.iter().filter_map(|u| ShelfTab::from_usage(u)).collect();
+        if let Some((first, rest)) = tabs.split_first() {
+            self.tab = *first;
+            self.extra_tabs = rest.to_vec();
+        }
+        self.filter = crate::panels::shelf_filter::ShelfFilter { query: parts.text, ..Default::default() };
+        self.filter_tab = self.tab;
+        self.paths = parts.paths;
+    }
+}
+
+/// A search saved in the Saved searches section (Painter's Shelf.ini `[filters]` entries).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SavedSearch {
+    pub name: String,
+    pub query: String,
+}
+
+/// A sub-library: a dock tab of its own showing one search.
+pub struct SubLibrary {
+    pub id: u32,
+    pub name: String,
+    /// The query it was made from: Reset returns to it.
+    pub query: String,
+    pub nav: ShelfNav,
 }
 
 /// Size of the grayscale alpha thumbnails.
@@ -198,8 +324,27 @@ enum SceneKind {
 
 pub struct ShelfUi {
     pub tab: ShelfTab,
+    /// Types added with Ctrl+click, besides `tab`.
+    pub extra_tabs: Vec<ShelfTab>,
     pub filter: crate::panels::shelf_filter::ShelfFilter,
     filter_tab: ShelfTab,
+    /// Selected folders (Breadcrumbs / Filter by path); empty is All libraries.
+    pub paths: Vec<String>,
+    /// Saved search last applied (its tag shows in the search field while it still applies).
+    pub saved: Option<String>,
+    /// Optional sections of the filter area.
+    pub show_paths: bool,
+    pub show_saved: bool,
+    /// Filter by path: hide folders without a matching asset.
+    pub hide_empty_folders: bool,
+    /// Libraries folded in the Filter by path tree.
+    pub folded: std::collections::HashSet<String>,
+    pub sub_libraries: Vec<SubLibrary>,
+    next_sub_library: u32,
+    /// A sub-library tab to dock beside the Assets panel (the app picks it up).
+    pub open_sub_library: Option<u32>,
+    /// Sub-library being drawn (Reset shows in its header), `None` for the main panel.
+    drawing_sub_library: Option<u32>,
     thumbs: HashMap<AssetId, egui::TextureHandle>,
     sphere: Option<Arc<PreviewScene>>,
     baked_sphere: Option<Arc<PreviewScene>>,
@@ -227,8 +372,19 @@ impl Default for ShelfUi {
     fn default() -> Self {
         Self {
             tab: ShelfTab::SmartMaterials,
+            extra_tabs: Vec::new(),
             filter: Default::default(),
             filter_tab: ShelfTab::SmartMaterials,
+            paths: Vec::new(),
+            saved: None,
+            show_paths: false,
+            show_saved: false,
+            hide_empty_folders: true,
+            folded: Default::default(),
+            sub_libraries: Vec::new(),
+            next_sub_library: 1,
+            open_sub_library: None,
+            drawing_sub_library: None,
             thumbs: HashMap::new(),
             sphere: None,
             baked_sphere: None,
@@ -244,9 +400,249 @@ impl ShelfUi {
     /// Show `tab` with a search query (launch options; tab switches otherwise reset the search).
     pub fn open(&mut self, tab: ShelfTab, query: &str) {
         self.tab = tab;
+        self.extra_tabs.clear();
         self.filter_tab = tab;
         self.filter = crate::panels::shelf_filter::ShelfFilter { query: query.into(), ..Default::default() };
+        self.paths.clear();
+        self.saved = None;
     }
+
+    /// The navigation shown now, taken out of (and later put back into) the panel.
+    fn take_nav(&mut self) -> ShelfNav {
+        ShelfNav {
+            tab: self.tab,
+            extra_tabs: std::mem::take(&mut self.extra_tabs),
+            filter: std::mem::take(&mut self.filter),
+            filter_tab: self.filter_tab,
+            paths: std::mem::take(&mut self.paths),
+            saved: self.saved.take(),
+        }
+    }
+
+    fn put_nav(&mut self, nav: ShelfNav) {
+        self.tab = nav.tab;
+        self.extra_tabs = nav.extra_tabs;
+        self.filter = nav.filter;
+        self.filter_tab = nav.filter_tab;
+        self.paths = nav.paths;
+        self.saved = nav.saved;
+    }
+
+    /// The panel's navigation as a [`ShelfNav`] (a copy).
+    pub fn nav(&self) -> ShelfNav {
+        ShelfNav {
+            tab: self.tab,
+            extra_tabs: self.extra_tabs.clone(),
+            filter: self.filter.clone(),
+            filter_tab: self.filter_tab,
+            paths: self.paths.clone(),
+            saved: self.saved.clone(),
+        }
+    }
+
+    fn set_nav(&mut self, nav: ShelfNav) {
+        self.put_nav(nav);
+    }
+
+    /// Selected types in Painter's icon order.
+    pub fn tabs(&self) -> Vec<ShelfTab> {
+        self.nav().tabs()
+    }
+
+    /// New sub-library tab showing `query`, named `name`. Returns its id.
+    pub fn add_sub_library(&mut self, name: String, query: String) -> u32 {
+        let id = self.next_sub_library;
+        self.next_sub_library += 1;
+        let mut nav = ShelfNav::new(self.tab);
+        nav.apply_query(&query);
+        nav.saved = Some(name.clone());
+        self.sub_libraries.push(SubLibrary { id, name, query, nav });
+        self.open_sub_library = Some(id);
+        id
+    }
+
+    pub fn sub_library_name(&self, id: u32) -> Option<&str> {
+        self.sub_libraries.iter().find(|s| s.id == id).map(|s| s.name.as_str())
+    }
+
+    /// A closed sub-library is gone (Painter: it has to be made again).
+    pub fn close_sub_library(&mut self, id: u32) {
+        self.sub_libraries.retain(|s| s.id != id);
+    }
+}
+
+/// One asset of a type as the search, the breadcrumbs and Filter by path see it.
+#[derive(Clone, Debug)]
+pub struct Item {
+    /// Index into the type's own list, or into the starter pack when `starter`.
+    pub index: usize,
+    pub starter: bool,
+    pub name: String,
+    pub usage: &'static str,
+    /// Library id: `starter_assets`, `your_assets`, an extra library's name, or `session`.
+    pub library: String,
+    /// Folder inside the library: a sub-folder of a library file, else the asset's category.
+    pub folder: Option<String>,
+    pub tags: Vec<String>,
+    pub tileable: bool,
+}
+
+impl Item {
+    pub fn entry(&self) -> crate::panels::shelf_filter::Entry<'_> {
+        crate::panels::shelf_filter::Entry { name: &self.name, usage: self.usage, library: &self.library, folder: self.folder.as_deref(), tags: &self.tags, tileable: self.tileable }
+    }
+}
+
+/// Every asset of type `tab`, in the order the Shelf draws them.
+pub fn items(state: &UiState, tab: ShelfTab) -> Vec<Item> {
+    use crate::panels::shelf_filter::STARTER;
+    use subcraft_app::assets::UserAssetKind as K;
+    let usage = tab.usage();
+    let lib = |file: Option<&std::path::Path>| state.library_of(file);
+    // A library file's sub-folder is its folder; otherwise its category.
+    let folder = |kind: K, file: Option<&std::path::Path>, category: Option<&str>| state.library_subfolder(kind, file).or_else(|| category.map(String::from));
+    let item = |index, name: &str, library: String, folder: Option<String>, tags: Vec<String>| Item { index, starter: false, name: name.to_string(), usage, library, folder, tags, tileable: false };
+    let starters = |kind: subcraft_assets::starter::Kind| {
+        subcraft_assets::starter::ENTRIES.iter().enumerate().filter(move |(_, e)| e.kind == kind).map(move |(i, e)| Item {
+            index: i,
+            starter: true,
+            name: e.name.to_string(),
+            usage,
+            library: STARTER.to_string(),
+            folder: Some("Starter pack".into()),
+            tags: Vec::new(),
+            tileable: e.tileable(),
+        })
+    };
+    match tab {
+        ShelfTab::Textures | ShelfTab::NormalMaps => {
+            let normals = tab == ShelfTab::NormalMaps;
+            let kind = if normals { subcraft_assets::starter::Kind::Normal } else { subcraft_assets::starter::Kind::Texture };
+            let mut out: Vec<Item> = starters(kind).collect();
+            out.extend(state.textures.items.iter().enumerate().filter(|(_, t)| (t.category == "Normal") == normals).map(|(i, t)| item(i, &t.name, lib(Some(t.path.as_path())), folder(K::Texture, Some(t.path.as_path()), Some(t.category)), vec![t.category.to_string()])));
+            out
+        }
+        ShelfTab::Materials => state.library.materials.iter().enumerate().map(|(i, m)| item(i, &m.name, STARTER.to_string(), Some(m.category.to_string()), vec![m.category.to_string()])).collect(),
+        ShelfTab::SmartMaterials => state.library.smart_materials.iter().enumerate().map(|(i, m)| {
+            let category = subcraft_app::assets::smart_material_info(&m.name).map(|i| i.category);
+            item(i, &m.name, lib(m.user_file.as_deref()), folder(K::SmartMaterial, m.user_file.as_deref(), category), category.into_iter().map(String::from).collect())
+        }).collect(),
+        ShelfTab::SmartMasks => state.library.smart_masks.iter().enumerate().map(|(i, m)| {
+            let category = subcraft_app::assets::smart_mask_info(&m.name).map(|i| i.category);
+            item(i, &m.name, lib(m.user_file.as_deref()), folder(K::SmartMask, m.user_file.as_deref(), category), category.into_iter().map(String::from).collect())
+        }).collect(),
+        ShelfTab::Brushes => preset_order(&state.brush_presets, &state.favorites).into_iter().map(|i| {
+            let p = &state.brush_presets[i];
+            let folder = match p.kind {
+                subcraft_app::brush_preset::PresetKind::Brush => "Brush presets",
+                subcraft_app::brush_preset::PresetKind::Tool => "Tool presets",
+                subcraft_app::brush_preset::PresetKind::Material => "Material presets",
+            };
+            item(i, &p.name, lib(p.user_file.as_deref()), Some(folder.to_string()), vec!["preset".into()])
+        }).collect(),
+        ShelfTab::Alphas => {
+            let mut out: Vec<Item> = state.library.alphas.iter().enumerate().filter(|(_, a)| !a.name.starts_with("Starter: ")).map(|(i, a)| item(i, &a.name, lib(a.user_file.as_deref()), folder(K::Alpha, a.user_file.as_deref(), None), Vec::new())).collect();
+            out.extend(starters(subcraft_assets::starter::Kind::Alpha));
+            out
+        }
+        ShelfTab::Filters => subcraft_doc::Filter::ALL.iter().enumerate().map(|(i, f)| item(i, f.label(), STARTER.to_string(), None, Vec::new())).collect(),
+        ShelfTab::Environments => state.library.environments.iter().enumerate().map(|(i, e)| item(i, &e.name, lib(e.user_file.as_deref()), folder(K::Environment, e.user_file.as_deref(), None), Vec::new())).collect(),
+    }
+}
+
+/// The search of the panel being drawn, parsed once per frame.
+pub struct Search {
+    pub nav: ShelfNav,
+    pub query: crate::panels::shelf_filter::Query,
+}
+
+impl Search {
+    pub fn of(state: &UiState) -> Self {
+        let nav = state.shelf.nav();
+        let query = crate::panels::shelf_filter::Query::parse(&nav.filter.query);
+        Self { nav, query }
+    }
+
+    /// Passes the chip and the text query (folders aside).
+    pub fn matches(&self, item: &Item) -> bool {
+        self.nav.filter.matches_entry(&item.entry(), &self.query)
+    }
+
+    /// Shown: passes the search and lies in a selected folder.
+    pub fn shows(&self, item: &Item) -> bool {
+        self.matches(item) && self.nav.in_paths(&item.entry())
+    }
+}
+
+/// A folder of the libraries: how many assets it holds, and how many of them the selected types
+/// and the search would show.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Location {
+    pub library: String,
+    pub folder: Option<String>,
+    pub assets: usize,
+    pub applicable: usize,
+}
+
+impl Location {
+    pub fn path(&self) -> String {
+        crate::panels::shelf_filter::folder_path(&self.library, self.folder.as_deref()).to_lowercase()
+    }
+}
+
+/// Every library and folder holding assets (libraries first, folders in first-seen order).
+pub fn locations(state: &UiState, search: &Search) -> Vec<Location> {
+    use crate::panels::shelf_filter::LIBRARIES;
+    let selected = search.nav.tabs();
+    // The fixed libraries, then the extra ones in the order of the settings.
+    let mut out: Vec<Location> = Vec::new();
+    for id in LIBRARIES.iter().map(|l| l.0.to_string()).chain(state.libraries.iter().map(|l| l.id.clone())) {
+        if !out.iter().any(|l| l.library == id) {
+            out.push(Location { library: id, folder: None, assets: 0, applicable: 0 });
+        }
+    }
+    for tab in CATEGORIES.iter().map(|c| c.0) {
+        let applies = selected.contains(&tab);
+        for it in items(state, tab) {
+            let hit = applies && search.matches(&it);
+            match out.iter_mut().find(|l| l.library == it.library && l.folder.is_none()) {
+                Some(l) => {
+                    l.assets += 1;
+                    l.applicable += usize::from(hit);
+                }
+                None => out.push(Location { library: it.library.clone(), folder: None, assets: 1, applicable: usize::from(hit) }),
+            }
+            if let Some(folder) = &it.folder {
+                match out.iter_mut().find(|l| l.library == it.library && l.folder.as_deref().is_some_and(|f| f.eq_ignore_ascii_case(folder))) {
+                    Some(l) => {
+                        l.assets += 1;
+                        l.applicable += usize::from(hit);
+                    }
+                    None => out.push(Location { library: it.library.clone(), folder: Some(folder.clone()), assets: 1, applicable: usize::from(hit) }),
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Draw sub-library `id`: the Shelf with that tab's own types, search and folders.
+pub fn show_sub_library(state: &mut UiState, ui: &mut Ui, id: u32) {
+    let Some(i) = state.shelf.sub_libraries.iter().position(|s| s.id == id) else {
+        ui.label(RichText::new(tr("This sub-library was closed. Make a new one from the Assets panel.")).color(theme::TEXT_FAINT));
+        return;
+    };
+    let main = state.shelf.take_nav();
+    let nav = state.shelf.sub_libraries[i].nav.clone();
+    state.shelf.put_nav(nav);
+    state.shelf.drawing_sub_library = Some(id);
+    show(state, ui);
+    state.shelf.drawing_sub_library = None;
+    let nav = state.shelf.take_nav();
+    if let Some(s) = state.shelf.sub_libraries.iter_mut().find(|s| s.id == id) {
+        s.nav = nav;
+    }
+    state.shelf.put_nav(main);
 }
 
 /// Viewport environment selection.
@@ -360,6 +756,9 @@ pub fn apply_environment(
 
 /// Thumbnail tile: square image with a hairline frame (accent when hovered / selected), name below.
 pub(crate) fn tile(ui: &mut Ui, side: f32, thumb: Option<&egui::TextureHandle>, name: &str, selected: bool, tooltip: &str) -> egui::Response {
+    if ui.data(|d| d.get_temp::<bool>(egui::Id::new("shelf_list_view"))).unwrap_or(false) {
+        return list_row(ui, thumb, name, selected, tooltip);
+    }
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(side, side + 22.0), egui::Sense::click_and_drag());
     if resp.dragged()
         && egui::DragAndDrop::has_payload_of_type::<ShelfDrag>(ui.ctx())
@@ -409,6 +808,41 @@ pub(crate) fn tile(ui: &mut Ui, side: f32, thumb: Option<&egui::TextureHandle>, 
     let galley = painter.layout_job(job);
     let text_pos = egui::pos2(rect.center().x - galley.size().x / 2.0, img.bottom() + 5.0);
     painter.galley(text_pos, galley, color);
+    resp.on_hover_text(tooltip).on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
+/// Height of a List view row.
+pub const LIST_ROW: f32 = 30.0;
+
+/// List view: one full-width row per asset, a small thumbnail then the name.
+fn list_row(ui: &mut Ui, thumb: Option<&egui::TextureHandle>, name: &str, selected: bool, tooltip: &str) -> egui::Response {
+    let width = ui.max_rect().width().max(40.0);
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(width, LIST_ROW), egui::Sense::click_and_drag());
+    if resp.dragged() && egui::DragAndDrop::has_payload_of_type::<ShelfDrag>(ui.ctx()) {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+    }
+    let painter = ui.painter();
+    if selected {
+        painter.rect_filled(rect, 2.0, theme::ACCENT_SOFT);
+    } else if resp.hovered() {
+        painter.rect_filled(rect, 2.0, theme::BG_3);
+    }
+    let img = egui::Rect::from_min_size(rect.min + egui::vec2(3.0, 3.0), egui::vec2(LIST_ROW - 6.0, LIST_ROW - 6.0));
+    painter.rect_filled(img, 0.0, theme::FIELD);
+    match thumb {
+        Some(t) => {
+            painter.image(t.id(), img, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), Color32::WHITE);
+        }
+        None => {
+            let icon = ui.data(|d| d.get_temp::<&'static str>(egui::Id::new("shelf_fallback_icon"))).unwrap_or(crate::icons::IMAGE);
+            painter.text(img.center(), egui::Align2::CENTER_CENTER, icon, theme::font(13.0), theme::TEXT_FAINT);
+        }
+    }
+    let color = if selected { theme::ACCENT } else if resp.hovered() { theme::TEXT } else { theme::TEXT_DIM };
+    let mut job = egui::text::LayoutJob::simple(name.to_string(), theme::font(11.5), color, (rect.width() - LIST_ROW - 8.0).max(1.0));
+    job.wrap.max_rows = 1;
+    let galley = painter.layout_job(job);
+    painter.galley(egui::pos2(img.right() + 8.0, rect.center().y - galley.size().y / 2.0), galley, color);
     resp.on_hover_text(tooltip).on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
@@ -472,14 +906,17 @@ fn handle_drops(state: &mut UiState, ui: &Ui, now: f64) {
         return;
     }
     state.drops_taken = true;
-    let smart_tab = state.shelf.tab == ShelfTab::SmartMaterials;
     let paths: Vec<std::path::PathBuf> = dropped
         .into_iter()
-        .filter(|p| smart_tab || p.is_dir() || p.extension().is_some_and(|e| e.eq_ignore_ascii_case("scsmart")))
         .filter(|p| !p.extension().is_some_and(|e| e.eq_ignore_ascii_case("spsm")))
         .collect();
-    if !paths.is_empty() {
+    if paths.is_empty() {
+    } else if state.shelf.tab == ShelfTab::SmartMaterials && state.shelf.extra_tabs.is_empty() {
+        // On Smart Materials, .scsmart files, folders and PBR texture sets become smart materials.
         crate::files::import_smart_materials(state, &paths, now);
+    } else {
+        // Painter: files dropped on the Assets panel open Import resources with them listed.
+        crate::import_resources::open_with(state, &paths);
     }
     // Painter smart materials go onto the selected texture set, as when dropped on the viewport.
     for path in ui.ctx().input(|i| i.raw.dropped_files.iter().map(|f| f.path().to_path_buf()).collect::<Vec<_>>()) {
@@ -686,6 +1123,25 @@ pub(crate) fn tip_thumbnail(state: &UiState, tip: &str) -> Option<egui::TextureI
 /// Icon of the Normal Maps tab. The icon font has no bumpy-surface glyph, so it is drawn: a
 /// rounded tile with a wavy relief line, in the weight of the font icons.
 const BUMPS: &str = "bumps-icon";
+/// Icon of the Alphas type, drawn too: a soft round brush tip (bright centre fading out).
+const ALPHA: &str = "alpha-icon";
+
+fn draw_alpha(painter: &egui::Painter, center: egui::Pos2, color: Color32) {
+    for (r, a) in [(7.0, 0.25), (5.0, 0.5), (3.0, 1.0)] {
+        painter.circle_filled(center, r, color.gamma_multiply(a));
+    }
+}
+
+/// A type icon: a font glyph, or one of the drawn ones.
+fn draw_category_icon(painter: &egui::Painter, center: egui::Pos2, icon: &str, color: Color32) {
+    match icon {
+        BUMPS => draw_bumps(painter, center, color),
+        ALPHA => draw_alpha(painter, center, color),
+        glyph => {
+            painter.text(center, egui::Align2::CENTER_CENTER, glyph, theme::font(16.0), color);
+        }
+    }
+}
 
 fn draw_bumps(painter: &egui::Painter, center: egui::Pos2, color: Color32) {
     let stroke = egui::Stroke::new(1.5, color);
@@ -731,7 +1187,19 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     ui.data_mut(|d| d.insert_temp(egui::Id::new("shelf_fallback_icon"), fallback));
     let mut action: Option<Box<dyn FnOnce(&mut UiState)>> = None;
     let mut lib_status: Option<String> = None;
-    let filter = state.shelf.filter.clone();
+    let search = Search::of(state);
+    let filter = search.nav.filter.clone();
+    let tabs = search.nav.tabs();
+    // What each selected type shows: its own assets, and the starter pack's.
+    let visible: HashMap<ShelfTab, (std::collections::HashSet<usize>, std::collections::HashSet<usize>)> = tabs
+        .iter()
+        .map(|&tab| {
+            let (starters, own): (Vec<Item>, Vec<Item>) = items(state, tab).into_iter().filter(|it| search.shows(it)).partition(|it| it.starter);
+            (tab, (own.iter().map(|it| it.index).collect(), starters.iter().map(|it| it.index).collect()))
+        })
+        .collect();
+    let list_view = state.recovery.prefs.shelf_list_view;
+    ui.data_mut(|d| d.insert_temp(egui::Id::new("shelf_list_view"), list_view));
     let mut shown = 0usize;
     // Alt at the moment of the click: apply in place to the selected layer instead of adding one.
     let alt = ui.input(|i| i.modifiers.alt);
@@ -743,16 +1211,26 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         egui::Frame::new().inner_margin(egui::Margin::same(theme::PAD)).show(ui, |ui| ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing = egui::vec2(10.0, 10.0);
             ui.set_max_width((grid_width - 2.0 * f32::from(theme::PAD)).max(0.0));
-            // Brushes: the built-in and user presets come first, the CC0 starter tips after them.
-            if state.shelf.tab != ShelfTab::Brushes { shown += crate::asset_preview::shelf(state,ui,tile_size); }
+            for tab in tabs.iter().copied() {
+            let (own, starters) = &visible[&tab];
+            let pass = |i: usize| own.contains(&i);
+            // Several types: a small heading names each one.
+            if tabs.len() > 1 && (!own.is_empty() || !starters.is_empty()) {
+                ui.end_row();
+                ui.label(RichText::new(category_name(tab)).font(theme::font_strong(11.0)).color(theme::TEXT_DIM));
+                ui.end_row();
+            }
+            ui.data_mut(|d| d.insert_temp(egui::Id::new("shelf_fallback_icon"), category_icon(tab)));
+            // Alphas: the user's and built-in tips come first, the CC0 starter tips after them.
+            if tab != ShelfTab::Alphas { shown += crate::asset_preview::shelf(state, ui, tile_size, tab, starters); }
             let thumbs = &state.shelf.thumbs;
-            match state.shelf.tab {
+            match tab {
                 ShelfTab::Textures | ShelfTab::NormalMaps => {
-                    let normals = state.shelf.tab == ShelfTab::NormalMaps;
                     for (i, t) in state.textures.items.iter().enumerate() {
-                        if (t.category == "Normal") != normals || !filter.matches(&t.name, Some(t.category), true) {
+                        if !pass(i) {
                             continue;
                         }
+                        let normals = tab == ShelfTab::NormalMaps;
                         shown += 1;
                         // Normal maps and height maps are stamp brushes on a click (Substance Painter:
                         // a click on a brush resource makes it the active brush).
@@ -789,7 +1267,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 }
                 ShelfTab::Materials => {
                     for (i, m) in state.library.materials.iter().enumerate() {
-                        if !filter.matches(&m.name, Some(m.category), false) {
+                        if !pass(i) {
                             continue;
                         }
                         shown += 1;
@@ -803,7 +1281,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 ShelfTab::SmartMaterials => {
                     for (i, m) in state.library.smart_materials.iter().enumerate() {
                         let info = subcraft_app::assets::smart_material_info(&m.name);
-                        if !filter.matches(&m.name, info.map(|i| i.category), m.user_file.is_some()) {
+                        if !pass(i) {
                             continue;
                         }
                         shown += 1;
@@ -828,7 +1306,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 ShelfTab::SmartMasks => {
                     for (i, m) in state.library.smart_masks.iter().enumerate() {
                         let info = subcraft_app::assets::smart_mask_info(&m.name);
-                        if !filter.matches(&m.name, info.map(|i| i.category), m.user_file.is_some()) {
+                        if !pass(i) {
                             continue;
                         }
                         shown += 1;
@@ -853,7 +1331,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 ShelfTab::Brushes => {
                     for i in preset_order(&state.brush_presets, &state.favorites) {
                         let p = &state.brush_presets[i];
-                        if !filter.matches(&p.name, Some("preset"), true) {
+                        if !pass(i) {
                             continue;
                         }
                         shown += 1;
@@ -886,9 +1364,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                             action = Some(a);
                         }
                     }
+                }
+                ShelfTab::Alphas => {
                     for (i, a) in state.library.alphas.iter().enumerate() {
-                        if a.name.starts_with("Starter: ") {continue;}
-                        if !filter.matches(&a.name, None, a.user_file.is_some()) {
+                        if !pass(i) {
                             continue;
                         }
                         shown += 1;
@@ -914,16 +1393,16 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 }
                 ShelfTab::Filters => {
                     let selected = selected_filter(&state.session);
-                    for (index, f) in subcraft_doc::Filter::ALL.into_iter().enumerate() {
+                    for (i, f) in subcraft_doc::Filter::ALL.into_iter().enumerate() {
                         let label = f.label();
-                        if !filter.matches(label, None, false) {
+                        if !pass(i) {
                             continue;
                         }
                         shown += 1;
                         let fits = state.session.shelf_filter_command(f).is_some();
                         let tip = if fits { "Click: add to the selected layer, or swap the selected filter to this one. Drag into the layer stack: a new filter layer (Passthrough) that filters everything below" } else { "Select a layer first (some filters work on color channels or masks only). Drag into the layer stack: a new filter layer" };
                         let resp = tile(ui, tile_size, None, label, selected.as_deref() == Some(label), tip);
-                        resp.dnd_set_drag_payload(ShelfDrag::Filter(index));
+                        resp.dnd_set_drag_payload(ShelfDrag::Filter(i));
                         if resp.clicked() && fits {
                             action = Some(Box::new(move |s: &mut UiState| {
                                 if let Some(cmd) = s.session.shelf_filter_command(f) {
@@ -935,7 +1414,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 }
                 ShelfTab::Environments => {
                     for (i, e) in state.library.environments.iter().enumerate() {
-                        if !filter.matches(&e.name, None, e.user_file.is_some()) {
+                        if !pass(i) {
                             continue;
                         }
                         shown += 1;
@@ -967,9 +1446,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     }
                 }
             }
-            if state.shelf.tab == ShelfTab::Brushes { shown += crate::asset_preview::shelf(state,ui,tile_size); }
+            if tab == ShelfTab::Alphas { shown += crate::asset_preview::shelf(state, ui, tile_size, tab, starters); }
+            }
             if shown == 0 {
-                let msg = if filter.is_active() { "No matches. Clear the search or pick another filter." } else { "Nothing here yet." };
+                let msg = if filter.is_active() || !search.nav.paths.is_empty() { "No matches. Clear the search or pick another filter." } else { "Nothing here yet." };
                 ui.label(RichText::new(msg).color(theme::TEXT_FAINT));
             }
         }));
@@ -982,19 +1462,20 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     if let Some(msg) = lib_status {
         state.set_status(msg, now);
     }
-    if state.shelf.tab != ShelfTab::Brushes || state.shelf.thumbs.len() < state.library.alphas.len() {
+    if !matches!(state.shelf.tab, ShelfTab::Brushes | ShelfTab::Alphas) || state.shelf.thumbs.len() < state.library.alphas.len() {
         ui.ctx().request_repaint_after(std::time::Duration::from_millis(30));
     }
 }
 
 /// Painter's category icon row, in its order. The shelf has no filter, generator or text assets
 /// (those are made from the layer menus), so those categories are not listed.
-const CATEGORIES: [(ShelfTab, &str, &str); 8] = [
+const CATEGORIES: [(ShelfTab, &str, &str); 9] = [
     (ShelfTab::Materials, crate::icons::DROP, "Materials"),
     (ShelfTab::SmartMaterials, crate::icons::SPARKLE, "Smart Materials"),
     (ShelfTab::SmartMasks, crate::icons::MASK, "Smart Masks"),
     (ShelfTab::Filters, crate::icons::SLIDERS, "Filters"),
     (ShelfTab::Brushes, crate::icons::PAINT_BRUSH, "Brushes"),
+    (ShelfTab::Alphas, ALPHA, "Alphas"),
     (ShelfTab::Textures, crate::icons::IMAGE, "Textures"),
     (ShelfTab::NormalMaps, BUMPS, "Normal Maps"),
     (ShelfTab::Environments, crate::icons::SUN, "Environments"),
@@ -1003,6 +1484,7 @@ const CATEGORIES: [(ShelfTab, &str, &str); 8] = [
 fn category_icon(tab: ShelfTab) -> &'static str {
     match tab {
         ShelfTab::NormalMaps => crate::icons::GRID,
+        ShelfTab::Alphas => crate::icons::PAINT_BRUSH,
         other => CATEGORIES.iter().find(|c| c.0 == other).map_or(crate::icons::IMAGE, |c| c.1),
     }
 }
@@ -1014,21 +1496,45 @@ fn category_name(tab: ShelfTab) -> &'static str {
         ShelfTab::SmartMasks => tr("Smart Masks"),
         ShelfTab::Filters => tr("Filters"),
         ShelfTab::Brushes => tr("Brushes"),
+        ShelfTab::Alphas => tr("Alphas"),
         ShelfTab::Textures => tr("Textures"),
         ShelfTab::NormalMaps => tr("Normal Maps"),
         ShelfTab::Environments => tr("Environments"),
     }
 }
 
-/// Breadcrumb, search box and the row of category icons (always icons, never a dropdown).
+/// Breadcrumbs, search box (with the tag of an applied saved search), the row of type icons
+/// (Ctrl+click selects several) and the optional Filter by path / Saved searches sections.
 fn header(state: &mut UiState, ui: &mut Ui) {
+    let search = Search::of(state);
+    let places = locations(state, &search);
+    let mut nav = search.nav.clone();
+    let ctrl = ui.input(|i| i.modifiers.command);
     ui.add_space(6.0);
     ui.horizontal(|ui| {
         ui.add_space(8.0);
-        ui.label(RichText::new(crate::icons::CARET_RIGHT).font(theme::font(11.0)).color(theme::TEXT_DIM));
-        ui.label(RichText::new(tr("All libraries")).font(theme::font_strong(12.0)).color(theme::TEXT));
-        ui.label(RichText::new("/").color(theme::TEXT_FAINT));
-        ui.label(RichText::new(category_name(state.shelf.tab)).font(theme::font(12.0)).color(theme::TEXT_DIM));
+        breadcrumbs(ui, &mut nav, &places);
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.add_space(6.0);
+            let mut closed = false;
+            if let Some(id) = state.shelf.drawing_sub_library
+                && crate::widgets::icon_button(ui, crate::icons::X, tr("Close this sub-library")).clicked()
+            {
+                state.shelf.close_sub_library(id);
+                closed = true;
+            }
+            if !closed
+                && let Some(id) = state.shelf.drawing_sub_library
+                && crate::widgets::icon_button(ui, crate::icons::UNDO, tr("Reset: back to the search this tab was made from")).clicked()
+                && let Some(s) = state.shelf.sub_libraries.iter().find(|s| s.id == id)
+            {
+                let (name, query) = (s.name.clone(), s.query.clone());
+                nav.apply_query(&query);
+                nav.saved = Some(name);
+            }
+            section_toggle(ui, &mut state.shelf.show_saved, crate::icons::SAVE, tr("Saved searches"));
+            section_toggle(ui, &mut state.shelf.show_paths, crate::icons::FOLDER, tr("Filter by path"));
+        });
     });
     ui.add_space(4.0);
     egui::Frame::new().inner_margin(egui::Margin::symmetric(8, 0)).show(ui, |ui| {
@@ -1037,28 +1543,302 @@ fn header(state: &mut UiState, ui: &mut Ui) {
             let stroke = egui::Stroke::new(1.6, theme::TEXT_DIM);
             ui.painter().circle_stroke(r.center() - egui::vec2(1.5, 1.5), 5.0, stroke);
             ui.painter().line_segment([r.center() + egui::vec2(2.0, 2.0), r.center() + egui::vec2(6.5, 6.5)], stroke);
-            let filter = &mut state.shelf.filter;
-            ui.add(egui::TextEdit::singleline(&mut filter.query).hint_text(tr("Search…")).desired_width(ui.available_width() - 28.0));
-            if !filter.query.is_empty() && crate::widgets::icon_button(ui, crate::icons::X, "Clear search").clicked() { filter.query.clear(); }
+            // The saved search in use, as a tag: hover shows what it holds, a click drops it.
+            if let Some(name) = nav.saved.clone() {
+                let tag = egui::Button::new(RichText::new(format!("{name}  {}", crate::icons::X)).font(theme::font(11.0)).color(theme::ACCENT)).fill(theme::ACCENT_SOFT).stroke(egui::Stroke::NONE);
+                let query = nav.query();
+                if ui.add(tag).on_hover_text(format!("{}\n{query}", tr("Saved search (click to clear it):"))).clicked() {
+                    nav = ShelfNav::new(nav.tab);
+                }
+            }
+            ui.add(egui::TextEdit::singleline(&mut nav.filter.query).hint_text(tr("Search…")).desired_width(ui.available_width() - 28.0))
+                .on_hover_text(tr("n: name, s: library, p: path, u: usage. Suffix ! contains, = equal, ^ starts, & ends, # regex; - excludes; quotes keep spaces"));
+            if !nav.filter.query.is_empty() && crate::widgets::icon_button(ui, crate::icons::X, "Clear search").clicked() {
+                nav.filter.query.clear();
+            }
         });
     });
     ui.add_space(4.0);
     egui::Frame::new().inner_margin(egui::Margin::symmetric(8, 0)).show(ui, |ui| {
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing.x = 3.0;
+            let selected_tabs = nav.tabs();
             for (tab, icon, _) in CATEGORIES {
-                let selected = state.shelf.tab == tab;
+                let selected = selected_tabs.contains(&tab);
                 let (rect, resp) = ui.allocate_exact_size(egui::vec2(28.0, 26.0), egui::Sense::click());
                 let painter = ui.painter();
-                if selected { painter.rect_filled(rect, 2.0, theme::BG_4); } else if resp.hovered() { painter.rect_filled(rect, 2.0, theme::BG_3); }
+                if selected {
+                    painter.rect_filled(rect, 2.0, theme::BG_4);
+                } else if resp.hovered() {
+                    painter.rect_filled(rect, 2.0, theme::BG_3);
+                }
                 let color = if selected { theme::TEXT } else { theme::TEXT_DIM };
-                if icon == BUMPS { draw_bumps(painter, rect.center(), color); }
-                else { painter.text(rect.center(), egui::Align2::CENTER_CENTER, icon, theme::font(16.0), color); }
-                if resp.on_hover_text(category_name(tab)).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() { state.shelf.tab = tab; }
+                draw_category_icon(painter, rect.center(), icon, color);
+                let hint = format!("{}\n{}", category_name(tab), tr("Ctrl+click: show several types"));
+                if resp.on_hover_text(hint).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+                    nav.click_type(tab, ctrl);
+                }
             }
         });
     });
     ui.add_space(4.0);
+    if state.shelf.show_paths {
+        filter_by_path(state, ui, &mut nav, &places, ctrl);
+    }
+    if state.shelf.show_saved {
+        saved_searches(state, ui, &mut nav);
+    }
+    // A saved search stays tagged only while the search still is that one.
+    if let Some(name) = nav.saved.clone() {
+        let query = nav.query();
+        let saved = state.recovery.prefs.shelf_saved_searches.iter().any(|s| s.name == name && same_search(&s.query, &query));
+        let tab = state.shelf.drawing_sub_library.and_then(|id| state.shelf.sub_libraries.iter().find(|s| s.id == id)).is_some_and(|s| s.name == name && same_search(&s.query, &query));
+        if !saved && !tab {
+            nav.saved = None;
+        }
+    }
+    state.shelf.set_nav(nav);
+}
+
+/// The Shelf still shows saved query `saved`: same folders and text, and the same types unless
+/// the saved query names none (then it leaves the types as they were).
+pub fn same_search(saved: &str, now: &str) -> bool {
+    use crate::panels::shelf_filter::decompose;
+    let (mut a, mut b) = (decompose(saved), decompose(now));
+    for p in [&mut a, &mut b] {
+        p.usages.sort();
+        p.paths.sort();
+    }
+    (a.usages.is_empty() || a.usages == b.usages) && a.paths == b.paths && a.text.trim() == b.text.trim()
+}
+
+/// A small toggle button for an optional section of the filter area.
+fn section_toggle(ui: &mut Ui, on: &mut bool, icon: &str, label: &str) {
+    let text = RichText::new(icon).font(theme::font(13.0)).color(if *on { theme::ACCENT } else { theme::TEXT_DIM });
+    let b = egui::Button::new(text).fill(if *on { theme::ACCENT_SOFT } else { Color32::TRANSPARENT }).stroke(egui::Stroke::NONE);
+    if ui.add(b).on_hover_text(label).clicked() {
+        *on = !*on;
+    }
+}
+
+/// `All libraries ▸ library ▸ folder`: each crumb goes back to that level, each arrow lists the
+/// places below it (greyed when none of their assets is of a selected type).
+fn breadcrumbs(ui: &mut Ui, nav: &mut ShelfNav, places: &[Location]) {
+    use crate::panels::shelf_filter::library_name;
+    let current = (nav.paths.len() == 1).then(|| nav.paths[0].clone());
+    let (library, folder): (Option<String>, Option<String>) = match current.as_deref() {
+        Some(p) => {
+            let p = p.trim_matches('/');
+            let (l, f) = p.split_once('/').map_or((p, None), |(l, f)| (l, Some(f.to_string())));
+            (places.iter().find(|x| x.library.eq_ignore_ascii_case(l)).map(|x| x.library.clone()), f)
+        }
+        None => (None, None),
+    };
+    let crumb = |ui: &mut Ui, text: &str, last: bool| {
+        let color = if last { theme::TEXT } else { theme::TEXT_DIM };
+        let font = if last { theme::font_strong(12.0) } else { theme::font(12.0) };
+        ui.add(egui::Label::new(RichText::new(text).font(font).color(color)).sense(egui::Sense::click())).on_hover_cursor(egui::CursorIcon::PointingHand).clicked()
+    };
+    if crumb(ui, tr("All libraries"), library.is_none()) {
+        nav.paths.clear();
+    }
+    crumb_menu(ui, "root", places.iter().filter(|p| p.folder.is_none() && p.assets > 0).collect(), nav, |p| library_name(&p.library).to_string());
+    if let Some(lib) = library.as_deref() {
+        if crumb(ui, library_name(lib), folder.is_none()) {
+            nav.paths = vec![crate::panels::shelf_filter::folder_path(lib, None).to_lowercase()];
+        }
+        crumb_menu(ui, lib, places.iter().filter(|p| p.library == lib && p.folder.is_some()).collect(), nav, |p| p.folder.clone().unwrap_or_default());
+        if let Some(f) = &folder {
+            let name = places.iter().find(|p| p.library == lib && p.folder.as_deref().is_some_and(|x| x.eq_ignore_ascii_case(f))).and_then(|p| p.folder.clone()).unwrap_or_else(|| f.clone());
+            crumb(ui, &name, true);
+        }
+    } else if nav.paths.len() > 1 {
+        ui.label(RichText::new(format!("({} {})", nav.paths.len(), tr("places"))).font(theme::font(11.0)).color(theme::TEXT_FAINT));
+    }
+}
+
+/// The arrow after a crumb and the menu of the places below it.
+fn crumb_menu(ui: &mut Ui, id: &str, children: Vec<&Location>, nav: &mut ShelfNav, label: impl Fn(&Location) -> String) {
+    let resp = ui.add(egui::Label::new(RichText::new(crate::icons::CARET_RIGHT).font(theme::font(11.0)).color(theme::TEXT_DIM)).sense(egui::Sense::click()));
+    let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
+    egui::Popup::menu(&resp).id(ui.make_persistent_id(("shelf-crumb", id))).show(|ui| {
+        if children.is_empty() {
+            ui.label(RichText::new(tr("No folders")).color(theme::TEXT_FAINT));
+        }
+        for place in children {
+            let color = if place.applicable > 0 { theme::TEXT } else { theme::TEXT_FAINT };
+            if ui.button(RichText::new(label(place)).color(color)).clicked() {
+                nav.paths = vec![place.path()];
+                ui.close();
+            }
+        }
+    });
+}
+
+/// Filter by path: libraries and their folders. Click selects one place, Ctrl+click several;
+/// Shift+click on a library's arrow folds or unfolds every library.
+fn filter_by_path(state: &mut UiState, ui: &mut Ui, nav: &mut ShelfNav, places: &[Location], ctrl: bool) {
+    use crate::panels::shelf_filter::library_name;
+    egui::Frame::new().inner_margin(egui::Margin::symmetric(8, 2)).show(ui, |ui| {
+        ui.horizontal(|ui| {
+            ui.label(RichText::new(tr("Filter by path")).font(theme::font_strong(11.0)).color(theme::TEXT_DIM));
+            ui.checkbox(&mut state.shelf.hide_empty_folders, RichText::new(tr("Hide non-applicable folders")).font(theme::font(11.0)));
+        });
+        let hide = state.shelf.hide_empty_folders;
+        let shift = ui.input(|i| i.modifiers.shift);
+        for lib in places.iter().filter(|p| p.folder.is_none() && (!hide || p.applicable > 0)) {
+            let folded = state.shelf.folded.contains(&lib.library);
+            ui.horizontal(|ui| {
+                let caret = if folded { crate::icons::CARET_RIGHT } else { crate::icons::CARET_DOWN };
+                if ui.add(egui::Label::new(RichText::new(caret).font(theme::font(11.0)).color(theme::TEXT_DIM)).sense(egui::Sense::click())).clicked() {
+                    if shift {
+                        // Shift: every library follows this one.
+                        for l in places.iter().filter(|p| p.folder.is_none()) {
+                            if folded {
+                                state.shelf.folded.remove(&l.library);
+                            } else {
+                                state.shelf.folded.insert(l.library.clone());
+                            }
+                        }
+                    } else if folded {
+                        state.shelf.folded.remove(&lib.library);
+                    } else {
+                        state.shelf.folded.insert(lib.library.clone());
+                    }
+                }
+                place_row(ui, nav, lib, library_name(&lib.library), ctrl);
+            });
+            if folded {
+                continue;
+            }
+            for folder in places.iter().filter(|p| p.library == lib.library && p.folder.is_some() && (!hide || p.applicable > 0)) {
+                ui.horizontal(|ui| {
+                    ui.add_space(18.0);
+                    place_row(ui, nav, folder, folder.folder.as_deref().unwrap_or_default(), ctrl);
+                });
+            }
+        }
+    });
+    crate::widgets::divider(ui);
+}
+
+/// One library or folder of Filter by path: selected rows are highlighted; the count is what the
+/// selected types and the search show there.
+fn place_row(ui: &mut Ui, nav: &mut ShelfNav, place: &Location, name: &str, ctrl: bool) {
+    let path = place.path();
+    let selected = nav.paths.contains(&path);
+    let color = if place.applicable > 0 { theme::TEXT } else { theme::TEXT_FAINT };
+    let text = RichText::new(format!("{name}  ({})", place.applicable)).font(theme::font(11.5)).color(if selected { theme::ACCENT } else { color });
+    if ui.selectable_label(selected, text).clicked() {
+        nav.click_path(path, ctrl);
+    }
+}
+
+/// Saved searches: save the current one, click to apply, right-click to open it as a tab,
+/// rename or delete it.
+fn saved_searches(state: &mut UiState, ui: &mut Ui, nav: &mut ShelfNav) {
+    let mut remove = None;
+    let mut rename: Option<(usize, String)> = None;
+    let mut open_tab = None;
+    egui::Frame::new().inner_margin(egui::Margin::symmetric(8, 2)).show(ui, |ui| {
+        ui.horizontal(|ui| {
+            ui.label(RichText::new(tr("Saved searches")).font(theme::font_strong(11.0)).color(theme::TEXT_DIM));
+            ui.menu_button(RichText::new(format!("{}  {}", crate::icons::PLUS, tr("Save current search"))).font(theme::font(11.0)), |ui| {
+                let id = egui::Id::new("shelf-save-search");
+                let mut name = ui.data(|d| d.get_temp::<String>(id)).unwrap_or_else(|| default_search_name(nav));
+                let edit = ui.add(egui::TextEdit::singleline(&mut name).desired_width(180.0));
+                let enter = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                ui.data_mut(|d| d.insert_temp(id, name.clone()));
+                if (ui.button(tr("Save")).clicked() || enter) && !name.trim().is_empty() {
+                    ui.data_mut(|d| d.remove::<String>(id));
+                    nav.saved = Some(save_search(&mut state.recovery.prefs.shelf_saved_searches, name.trim(), nav.query()));
+                    ui.close();
+                }
+            });
+        });
+        if state.recovery.prefs.shelf_saved_searches.is_empty() {
+            ui.label(RichText::new(tr("No saved searches yet.")).font(theme::font(11.0)).color(theme::TEXT_FAINT));
+        }
+        for (i, s) in state.recovery.prefs.shelf_saved_searches.iter().enumerate() {
+            let selected = nav.saved.as_deref() == Some(s.name.as_str());
+            let resp = ui.selectable_label(selected, RichText::new(&s.name).font(theme::font(11.5))).on_hover_text(&s.query);
+            if resp.clicked() {
+                nav.apply_query(&s.query);
+                nav.saved = Some(s.name.clone());
+            }
+            resp.context_menu(|ui| {
+                if ui.button(tr("Create new tab")).clicked() {
+                    open_tab = Some(i);
+                    ui.close();
+                }
+                ui.menu_button(tr("Rename"), |ui| {
+                    let id = egui::Id::new(("shelf-rename-search", i));
+                    let mut name = ui.data(|d| d.get_temp::<String>(id)).unwrap_or_else(|| s.name.clone());
+                    let edit = ui.add(egui::TextEdit::singleline(&mut name).desired_width(180.0));
+                    let enter = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                    ui.data_mut(|d| d.insert_temp(id, name.clone()));
+                    if (ui.button(tr("Rename")).clicked() || enter) && !name.trim().is_empty() {
+                        ui.data_mut(|d| d.remove::<String>(id));
+                        rename = Some((i, name.trim().to_string()));
+                        ui.close();
+                    }
+                });
+                if ui.button(format!("{}  {}", crate::icons::TRASH, tr("Delete"))).clicked() {
+                    remove = Some(i);
+                    ui.close();
+                }
+            });
+        }
+    });
+    let saved = &mut state.recovery.prefs.shelf_saved_searches;
+    if let Some((i, name)) = rename {
+        let renamed = rename_search(saved, i, &name);
+        if nav.saved.as_ref().is_some_and(|n| renamed.as_ref().is_some_and(|(old, _)| old == n)) {
+            nav.saved = renamed.map(|(_, new)| new);
+        }
+    }
+    if let Some(i) = remove.filter(|i| *i < saved.len()) {
+        // Sub-library tabs made from it stay open (Painter keeps them until closed).
+        saved.remove(i);
+    }
+    if let Some(s) = open_tab.and_then(|i| saved.get(i)).cloned() {
+        state.shelf.add_sub_library(s.name, s.query);
+    }
+    crate::widgets::divider(ui);
+}
+
+/// Add a saved search named `name` (or `name 2`... when taken). Returns the name it got.
+pub fn save_search(saved: &mut Vec<SavedSearch>, name: &str, query: String) -> String {
+    let name = unique_search_name(saved, name);
+    saved.push(SavedSearch { name: name.clone(), query });
+    name
+}
+
+/// Rename saved search `i` (kept distinct from the others). Returns the old and new names.
+pub fn rename_search(saved: &mut [SavedSearch], i: usize, name: &str) -> Option<(String, String)> {
+    let others: Vec<SavedSearch> = saved.iter().enumerate().filter(|(k, _)| *k != i).map(|(_, s)| s.clone()).collect();
+    let new = unique_search_name(&others, name);
+    let s = saved.get_mut(i)?;
+    let old = std::mem::replace(&mut s.name, new.clone());
+    Some((old, new))
+}
+
+/// Name proposed for a new saved search: the typed text, else the selected types.
+fn default_search_name(nav: &ShelfNav) -> String {
+    let text = nav.filter.query.trim();
+    if !text.is_empty() {
+        return text.to_string();
+    }
+    nav.tabs().iter().map(|t| category_name(*t)).collect::<Vec<_>>().join(" + ")
+}
+
+/// `name`, or `name 2`, `name 3`... when a saved search already has it.
+fn unique_search_name(saved: &[SavedSearch], name: &str) -> String {
+    let taken = |n: &str| saved.iter().any(|s| s.name.eq_ignore_ascii_case(n));
+    if !taken(name) {
+        return name.to_string();
+    }
+    (2..).map(|k| format!("{name} {k}")).find(|n| !taken(n)).unwrap_or_default()
 }
 
 /// Rotation / intensity of the viewport environment (only on the Environments category).
@@ -1079,8 +1859,8 @@ fn env_controls(state: &mut UiState, ui: &mut Ui) {
     });
 }
 
-/// Bottom icon toolbar: the category's import / library-folder actions on the left, the
-/// preview-size slider on the right.
+/// Bottom icon toolbar, as Painter's: the thumbnail size menu first, then the type's import /
+/// library-folder actions and the new sub-library tab button.
 fn bottom_toolbar(state: &mut UiState, ui: &mut Ui) {
     use crate::widgets::icon_button;
     crate::widgets::divider(ui);
@@ -1090,6 +1870,10 @@ fn bottom_toolbar(state: &mut UiState, ui: &mut Ui) {
     egui::Frame::new().inner_margin(egui::Margin::symmetric(8, 3)).show(ui, |ui| {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 4.0;
+            size_menu(ui, &mut state.recovery.prefs);
+            if icon_button(ui, crate::icons::PLUS, tr("Import resources…")).clicked() {
+                state.import.open = true;
+            }
             match state.shelf.tab {
                 ShelfTab::Textures | ShelfTab::NormalMaps => {
                     if icon_button(ui, crate::icons::DOWNLOAD, "Import textures…").clicked() { pick = Some((crate::files::Purpose::ShelfTextures, crate::files::IMAGES, true)); }
@@ -1098,7 +1882,7 @@ fn bottom_toolbar(state: &mut UiState, ui: &mut Ui) {
                 ShelfTab::Materials => {
                     if icon_button(ui, crate::icons::DOWNLOAD, tr("Select a texture's maps (color, roughness, normal…) to make one fill layer.")).clicked() { crate::panels::layers::import_texture_set_dialog(ui.ctx()); }
                 }
-                ShelfTab::Brushes => {
+                ShelfTab::Alphas => {
                     if icon_button(ui, crate::icons::DOWNLOAD, "Import alpha…").clicked() { pick = Some((crate::files::Purpose::Alpha, crate::files::ALPHAS, false)); }
                     folder = Some(subcraft_app::assets::UserAssetKind::Alpha);
                 }
@@ -1110,7 +1894,7 @@ fn bottom_toolbar(state: &mut UiState, ui: &mut Ui) {
                     if icon_button(ui, crate::icons::DOWNLOAD, tr("Import smart materials (.scsmart) or PBR texture sets (Color, NormalGL, Roughness…)")).clicked() { import_smart_dialog(ui.ctx()); }
                     if icon_button(ui, crate::icons::FOLDER_OPEN, tr("Import a folder of .scsmart files or PBR texture sets")).clicked() { import_smart_folder_dialog(ui.ctx()); }
                 }
-                ShelfTab::SmartMasks | ShelfTab::Filters => {}
+                ShelfTab::SmartMasks | ShelfTab::Filters | ShelfTab::Brushes => {}
             }
             if let Some(kind) = folder && let Some(lib) = &state.user_library {
                 let dir = lib.folder(kind);
@@ -1119,15 +1903,58 @@ fn bottom_toolbar(state: &mut UiState, ui: &mut Ui) {
                     show_in_folder(&dir);
                 }
             }
-            ui.add_space(6.0);
-            ui.label(RichText::new("Preview size").font(theme::font(10.5)).color(theme::TEXT_FAINT));
-            let v = &mut state.recovery.prefs.shelf_preview_size;
-            *v = (*v).clamp(48, 160);
-            ui.spacing_mut().slider_width = (ui.available_width() - 12.0).clamp(24.0, 90.0);
-            ui.add(egui::Slider::new(v, 48..=160).show_value(false)).on_hover_text("Preview size in UI points; texture resolution stays unchanged");
+            if icon_button(ui, crate::icons::SQUARES, tr("New sub-library tab: the current search in a tab of its own")).clicked() {
+                let nav = state.shelf.nav();
+                let name = nav.saved.clone().unwrap_or_else(|| default_search_name(&nav));
+                state.shelf.add_sub_library(name, nav.query());
+            }
         });
     });
     if let Some((purpose, filter, multi)) = pick { crate::files::pick(ui.ctx(), purpose, filter, multi, None); }
+}
+
+/// Name of the thumbnail size the preferences hold (the nearest preset for an older free size).
+pub fn preview_size_name(prefs: &crate::recovery::Preferences) -> &'static str {
+    if prefs.shelf_list_view {
+        return "List";
+    }
+    PREVIEW_SIZES.iter().min_by_key(|(_, s)| s.abs_diff(prefs.shelf_preview_size)).map_or("Medium", |p| p.0)
+}
+
+/// Pick a size of the size menu: Small, Medium, Large or List.
+pub fn set_preview_size(prefs: &mut crate::recovery::Preferences, name: &str) {
+    match PREVIEW_SIZES.iter().find(|p| p.0 == name) {
+        Some((_, size)) => {
+            prefs.shelf_preview_size = *size;
+            prefs.shelf_list_view = false;
+        }
+        None => prefs.shelf_list_view = true,
+    }
+}
+
+/// A size of the size menu in the interface language.
+fn size_label(name: &str) -> &'static str {
+    match name {
+        "Small" => tr("Small"),
+        "Medium" => tr("Medium"),
+        "Large" => tr("Large"),
+        _ => tr("List"),
+    }
+}
+
+/// The thumbnail size menu (Painter's left-most bottom icon): Small, Medium (default), Large, List.
+fn size_menu(ui: &mut Ui, prefs: &mut crate::recovery::Preferences) {
+    let current = preview_size_name(prefs);
+    let label = RichText::new(format!("{}  {}", crate::icons::GRID, size_label(current))).font(theme::font(11.0)).color(theme::TEXT_DIM);
+    let resp = ui.menu_button(label, |ui| {
+        for name in ["Small", "Medium", "Large", "List"] {
+            if ui.radio(current == name, size_label(name)).clicked() {
+                set_preview_size(prefs, name);
+                ui.close();
+            }
+        }
+    });
+    resp.response.on_hover_text(tr("Thumbnail size"));
 }
 
 /// Grayscale bitmap → egui image.
@@ -1196,10 +2023,11 @@ fn generate_one_thumbnail(state: &mut UiState, ctx: &egui::Context) {
         Layer(AssetId, SceneKind, LayerBuilder, Vec<std::sync::Arc<subcraft_doc::Resource>>),
         Environment(usize),
     }
-    let job = match state.shelf.tab {
+    let job = state.shelf.tabs().into_iter().find_map(|tab| match tab {
         // Texture thumbnails come from their own background loader.
         ShelfTab::Textures | ShelfTab::NormalMaps | ShelfTab::Filters => None,
-        ShelfTab::Brushes => lib.alphas.iter().position(|a| missing(&a.id)).map(Job::Alpha),
+        // Brush presets show their tip's thumbnail.
+        ShelfTab::Brushes | ShelfTab::Alphas => lib.alphas.iter().position(|a| missing(&a.id)).map(Job::Alpha),
         ShelfTab::Materials => lib.materials.iter().find(|m| missing(&m.id)).map(|m| {
             let m = m.clone();
             let (ids, images) = subcraft_assets::presets::decode_images(&m.images);
@@ -1216,7 +2044,7 @@ fn generate_one_thumbnail(state: &mut UiState, ctx: &egui::Context) {
             Job::Layer(m.id, SceneKind::BakedSphere, Box::new(move |ts| mask_preview_layer(ts, &m.effects)), Vec::new())
         }),
         ShelfTab::Environments => lib.environments.iter().position(|e| missing(&e.id)).map(Job::Environment),
-    };
+    });
     state.shelf.busy |= job.is_some();
     let Some(job) = job else { return };
     if let Job::Alpha(i) = job {
@@ -1370,7 +2198,7 @@ fn filter_row(state: &mut UiState, ui: &mut Ui) {
             chips.push((Chip::Category(c.clone()), c));
         }
     }
-    if matches!(state.shelf.tab,ShelfTab::NormalMaps|ShelfTab::Brushes) {chips.push((Chip::Category("Starter pack".into()),"Starter pack".into()));}
+    if matches!(state.shelf.tab,ShelfTab::NormalMaps|ShelfTab::Alphas) {chips.push((Chip::Category("Starter pack".into()),"Starter pack".into()));}
     egui::Frame::new().inner_margin(egui::Margin { left: theme::PAD, right: theme::PAD, top: 4, bottom: 6 }).show(ui, |ui| {
         ui.horizontal_wrapped(|ui| {
             let filter = &mut state.shelf.filter;
@@ -1402,6 +2230,10 @@ fn selected_filter(session: &subcraft_app::Session) -> Option<String> {
         _ => None,
     }
 }
+
+#[cfg(test)]
+#[path = "shelf_nav_tests.rs"]
+mod nav_tests;
 
 #[cfg(test)]
 mod environment_tests {
@@ -1501,5 +2333,29 @@ mod stack_drop_tests {
         // Dropped on a row instead: that row gets the mask, no new layer.
         apply_stack_drop(&mut s, ShelfDrag::SmartMask(0), false, false, false, 0.0);
         assert_eq!(s.session.selected_texture_set().layers.len(), layers + 1);
+    }
+
+    #[test]
+    fn a_smart_mask_dropped_with_ctrl_or_alt_replaces_the_effects_of_the_mask() {
+        let mut s = state();
+        if s.library.smart_masks.is_empty() {
+            return;
+        }
+        let own = s.library.smart_masks[0].effects.len();
+        let count = |s: &UiState| s.session.selected_layer().unwrap().mask.as_ref().map_or(0, |m| m.effects.len());
+        apply_stack_drop(&mut s, ShelfDrag::SmartMask(0), false, false, false, 0.0);
+        assert_eq!(count(&s), own);
+        // A plain drop adds to what is there.
+        apply_stack_drop(&mut s, ShelfDrag::SmartMask(0), false, false, false, 0.0);
+        assert_eq!(count(&s), own * 2);
+        // Ctrl replaces the whole stack, and so does Alt.
+        apply_stack_drop(&mut s, ShelfDrag::SmartMask(0), false, true, false, 0.0);
+        assert_eq!(count(&s), own);
+        apply_stack_drop(&mut s, ShelfDrag::SmartMask(0), false, false, false, 0.0);
+        apply_stack_drop(&mut s, ShelfDrag::SmartMask(0), true, false, false, 0.0);
+        assert_eq!(count(&s), own);
+        // One undo step brings the replaced effects back.
+        s.session.execute(subcraft_app::Command::Undo).unwrap();
+        assert_eq!(count(&s), own * 2);
     }
 }
