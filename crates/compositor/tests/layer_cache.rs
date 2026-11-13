@@ -188,3 +188,41 @@ fn top_edit_reuses_cache_and_budget_is_respected() {
     assert!(cache.layer_cache_stats().hits >= hits + 16, "every tile resumed from a cached boundary");
     assert_exact(&cache, &ts, &fx, "a top-layer opacity change");
 }
+
+/// Adding a layer on top moves every planned boundary (they are spaced from the top), but the
+/// boundaries stored before are still exact: every tile resumes from one of them instead of
+/// re-blending the whole stack, and so does the first paint on the new layer.
+#[test]
+fn a_new_top_layer_resumes_from_the_boundaries_stored_before() {
+    let fx = Fixture::new();
+    let (mut ts, _) = stack(true);
+    let mut cache = CompositeCache::new();
+    // Tight: boundaries are spaced apart, so the plan for one more layer shares none of them.
+    cache.set_layer_cache_budget(6 << 20);
+    cache.update(&ts, &fx.ctx());
+    let hits = cache.layer_cache_stats().hits;
+
+    let tc = ts.clone();
+    let top = ts.insert_above(None, Layer::new_paint("New", &tc));
+    cache.update(&ts, &fx.ctx());
+    assert!(cache.layer_cache_stats().hits >= hits + 16, "every tile resumed below the new layer");
+    assert_exact(&cache, &ts, &fx, "a new top layer");
+
+    let hits = cache.layer_cache_stats().hits;
+    let LayerContent::Paint(pc) = &mut ts.find_mut(top).unwrap().content else { unreachable!() };
+    let img = pc.channel_mut(ChannelKind::BaseColor, RES);
+    for y in 100..140 {
+        for x in 60..200 {
+            img.set(x, y, [0.1, 0.8, 0.3, 1.0]);
+        }
+    }
+    cache.update(&ts, &fx.ctx());
+    assert!(cache.layer_cache_stats().hits > hits, "the stroke's tiles resumed from a cached boundary");
+    assert_exact(&cache, &ts, &fx, "a stroke on the new top layer");
+    assert!(cache.layer_cache_stats().bytes <= 6 << 20);
+
+    // Removing it again, and an edit at the bottom (drops every boundary), stay exact.
+    ts.remove(top).unwrap();
+    cache.update(&ts, &fx.ctx());
+    assert_exact(&cache, &ts, &fx, "the top layer removed");
+}

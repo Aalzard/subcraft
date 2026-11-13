@@ -24,6 +24,7 @@ pub mod i18n;
 pub mod icons;
 pub mod auto_uv;
 pub mod mesh_reload;
+pub mod mesh_map_import;
 pub mod new_project;
 pub mod nav;
 pub mod orbit;

@@ -239,6 +239,21 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         }
     }
     if id_picking && response.hovered() { ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair); }
+    // ----- ID color editor eyedropper: clicks select the ID color under the cursor --------------
+    let palette_picking = !bake_mode && !state.painting && !id_picking && state.picking_id_palette;
+    if state.picking_id_palette && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+        state.picking_id_palette = false;
+    }
+    if palette_picking && primary_pressed && response.hovered() && !alt && !stencil_edit && let Some(p) = pointer {
+        match state.session.id_color_under(&camera, to_screen(p)) {
+            Some((ts, color)) => {
+                if state.session.selection().texture_set != ts { let _ = state.session.execute(subcraft_app::Command::SelectTextureSet(ts)); }
+                crate::panels::id_colors::picked(state, ts, color, now);
+            }
+            None => state.set_status("No ID color there: missed the model, or this part has no ID map.", now),
+        }
+    }
+    if palette_picking && response.hovered() { ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair); }
     // ----- text tool: the next click places the selected text layer or stamps the draft text ------
     let text_armed = !bake_mode && !state.painting && state.text.armed.is_some();
     if text_armed && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
@@ -286,7 +301,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         state.picking_focus = false;
     }
     let gizmo_busy = !bake_mode && !state.painting && !text_armed && text_gizmo(state, ui, &camera, rect, size_scale(rect, &camera), now);
-    let picking = parts_picking || id_picking || text_armed || focus_picking || gizmo_busy;
+    let picking = parts_picking || id_picking || palette_picking || text_armed || focus_picking || gizmo_busy;
     if state.picking_parts && (!picking || ui.input(|i| i.key_pressed(egui::Key::Escape))) {
         state.picking_parts = false;
     }
@@ -447,12 +462,19 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 if !state.bake.preview_uploaded {
                     renderer.set_bake_preview(&rs.device, Some((&state.session.scene().mesh, high)));
                     state.bake.preview_uploaded = true;
+                    state.bake.miss_uploaded = false;
                 }
             } else if !state.bake.preview_uploaded {
                 renderer.set_bake_preview(&rs.device, None);
                 state.bake.preview_uploaded = true;
             }
             params.bake_overlay = state.bake.overlay_active();
+            if state.bake.preview_mesh.is_some() && !state.bake.miss_uploaded && let Some(r) = &state.bake.cage_result {
+                let maps: Vec<(u32, &subcraft_image::TiledImage)> = r.maps.iter().map(|(_, slot, img)| (*slot, img)).collect();
+                renderer.set_bake_miss_maps(&rs.device, &rs.queue, &maps);
+                state.bake.miss_uploaded = true;
+            }
+            params.bake_miss_heatmap = state.bake.heatmap_shown();
             params.bake_cage = state.bake.cage;
             if let Some(high) = &state.bake.preview_mesh {
                 let low = state.session.scene().mesh.bounds;

@@ -56,3 +56,13 @@ fn the_orbit_pivot_does_not_outlive_its_model() {
     state.set_session(Session::new(primitives::cube(200.0), 64));
     assert!(state.orbit_pivot.is_none());
 }
+
+/// QA 2026-11: after File > Reload mesh the selected imported camera kept its index, so the
+/// dropdown showed the new file's camera name while the view was still the old camera's.
+#[test]
+fn reloading_the_mesh_deselects_the_imported_camera() {
+    let mut state = state();
+    state.active_camera = Some(0);
+    state.mesh_reloaded();
+    assert_eq!(state.active_camera, None);
+}
