@@ -39,6 +39,7 @@ pub mod panels;
 pub mod recovery;
 pub mod spp_import;
 pub mod state;
+pub mod symmetry_view;
 pub mod layer_previews;
 pub mod mask_view;
 pub mod edit_profile;

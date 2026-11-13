@@ -293,7 +293,7 @@ pub struct UiState {
     pub photocraft: Option<subcraft_app::photocraft::Exchange>,
     /// Key of the polygon wireframe currently uploaded to the renderer.
     pub wire_uploaded: Option<crate::view_extras::WireKey>,
-    pub symmetry_uploaded: Option<(usize, [bool; 3], subcraft_paint::RadialSymmetry)>,
+    pub symmetry_uploaded: Option<crate::symmetry_view::GuideKey>,
     pub uv_wireframe: bool,
     pub library: subcraft_app::assets::Library,
     pub shelf: crate::panels::shelf::ShelfUi,

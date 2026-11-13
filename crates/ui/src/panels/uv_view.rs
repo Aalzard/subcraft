@@ -326,7 +326,7 @@ fn brush_controls(state: &mut UiState, ui: &mut Ui) {
     let mut options = state.session.brush.options;
     let (original, original_options) = (settings, options);
     let width = ui.available_width();
-    crate::brush_bar::show(ui, &mut state.tool, &mut settings, &mut options, &mut state.recovery.prefs.viewport.symmetry_guides, width);
+    crate::brush_bar::show(ui, &mut state.tool, &mut settings, &mut options, &mut state.recovery.prefs.viewport, width);
     if state.tool == Tool::PolygonFill {
         let destination = state.session.polygon_fill_destination();
         crate::brush_bar::fill_options(ui, &mut state.fill_mode, None, destination, "fill_mode_2d");

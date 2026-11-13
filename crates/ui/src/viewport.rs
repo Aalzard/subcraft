@@ -249,6 +249,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
 
     // ----- part picking: clicks show / hide the selected layer on mesh parts ----------------------
     let bake_mode = state.bake.open || state.bake.job.is_some();
+    // Symmetry manipulator: a press on a handle moves the mirror plane / radial axis instead of painting.
+    let symmetry_grab = !bake_mode && !alt && !stencil_edit
+        && crate::symmetry_view::manipulate(state, ui, &response, rect, pixel_scale, &camera, primary_pressed, primary_down, pointer);
+    let primary_pressed = primary_pressed && !symmetry_grab;
     let parts_picking = !bake_mode && state.picking_parts && state.session.selected_layer().is_some() && !state.painting;
     // ----- ID Color Mask eyedropper: clicks add the ID map color under the cursor ------------
     let id_picking = !bake_mode && !state.painting
@@ -495,11 +499,13 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             params.shadows = view.shadow_params();
             params.highlight_slot = state.highlight_slot.take();
             renderer.set_texture_filtering(&rs.device, view.anisotropy.samples());
-            params.symmetry_guides = view.symmetry_guides && state.session.brush.options.has_symmetry() && !bake_mode;
+            let symmetry_display = view.symmetry_display;
+            params.symmetry_guides = view.symmetry_guides && state.session.brush.options.has_symmetry() && !bake_mode
+                && !(view.symmetry_cursor_hide_painting && state.painting);
             if params.symmetry_guides {
-                let key = (std::sync::Arc::as_ptr(&state.session.scene().mesh) as usize, state.session.brush.options.symmetry, state.session.brush.options.radial);
+                let key = crate::symmetry_view::GuideKey::new(&state.session, &symmetry_display);
                 if state.symmetry_uploaded != Some(key) {
-                    renderer.set_symmetry_guides(&rs.device, &state.session.symmetry_guide_segments());
+                    renderer.set_symmetry_guides(&rs.device, &crate::symmetry_view::guide_lines(&state.session, &symmetry_display));
                     state.symmetry_uploaded = Some(key);
                 }
             }
@@ -623,10 +629,13 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     // ----- overlays ------------------------------------------------------------------------------
     // Symmetry "Show Plane": each active mirror plane as a translucent sheet in its axis colour.
     if !bake_mode && state.recovery.prefs.viewport.symmetry_plane && state.tool != Tool::Pen {
-        let (mirrors, bounds) = (state.session.brush.options.symmetry, state.session.scene().mesh.bounds);
-        for axis in (0..3).filter(|&a| mirrors[a]) {
+        let (options, bounds) = (&state.session.brush.options, state.session.scene().mesh.bounds);
+        for axis in (0..3).filter(|&a| options.symmetry[a]) {
+            // At the plane's axis position (moved with the manipulator or the menu).
+            let plane = options.mirror_plane(axis, bounds.center());
             let corners: Option<Vec<Pos2>> = mirror_plane_corners(&bounds, axis).iter()
-                .map(|&q| camera.project(q).map(|s| rect.min + egui::vec2(s.x / pixel_scale.x, s.y / pixel_scale.y)))
+                .map(|&q| { let mut q = q; q[axis] = plane; q })
+                .map(|q| camera.project(q).map(|s| rect.min + egui::vec2(s.x / pixel_scale.x, s.y / pixel_scale.y)))
                 .collect();
             if let Some(corners) = corners {
                 let c = AXIS_COLORS[axis];
@@ -699,6 +708,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     if let (Some(a), Some(b)) = (state.parts_box, pointer) && crate::view_props::is_box_drag(a, b) {
         crate::view_props::draw_fill_box(&painter, Rect::from_two_pos(a, b), false);
     }
+    crate::symmetry_view::overlay(state, ui, &painter, rect, pixel_scale, &camera, !bake_mode && state.tool != Tool::Pen);
     draw_stencil(state, ui, &painter, rect, size);
     // Reset button at the top right of the view while S is held.
     if stencil_edit {
@@ -1281,7 +1291,7 @@ mod tests {
         let off = symmetry_cursors(&camera, &mirror_x, glam::Vec3::new(40.0, 0.0, 0.0), p, |_| Some(10.0));
         assert!(off.is_empty(), "the mirror image at x = 79 is outside the view");
         // Radial symmetry draws at most MAX_SYMMETRY_CURSORS.
-        let many = subcraft_paint::StrokeOptions { radial: subcraft_paint::RadialSymmetry { enabled: true, axis: 2, count: 64, center_offset: [0.0; 3] }, ..Default::default() };
+        let many = subcraft_paint::StrokeOptions { radial: subcraft_paint::RadialSymmetry { enabled: true, axis: 2, count: 64, center_offset: [0.0; 3], flip: false }, ..Default::default() };
         assert_eq!(symmetry_cursors(&camera, &many, glam::Vec3::ZERO, glam::Vec3::new(0.5, 0.0, 0.0), |_| Some(10.0)).len(), MAX_SYMMETRY_CURSORS);
     }
 
