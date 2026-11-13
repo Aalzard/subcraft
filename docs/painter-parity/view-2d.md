@@ -102,7 +102,7 @@ Layout notes: every paint tool works in the 2D view except the Path tools, which
 | Stencil translation | S + MMB drag | - | done | crates/ui/src/viewport.rs | - |
 | Stencil zoom | S + RMB drag | - | done | crates/ui/src/viewport.rs | - |
 | Ignore stencil mask | hold N | - | done | crates/ui/src/viewport.rs | - |
-| Quick mask editing in the 2D view | U / Y / I | - | missing | - | - |
+| Quick mask editing in the 2D view | U / Y / I | - | done: red tint over the protected areas | crates/ui/src/panels/uv_view.rs | - |
 | Brush Size Space "Texture" follows the 2D zoom | Properties > Brush > Size Space | Object | missing | - | - |
 | Right-click: floating Properties at the cursor | RMB click in the 2D view | - | missing | - | #131 |
 | Path tools show a "not supported in 2D" message | 2D view with a Path tool | - | partial: the reverse, Pen paths are drawn and edited in the 2D view | crates/ui/src/panels/uv_view.rs:130 | - |

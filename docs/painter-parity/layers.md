@@ -281,30 +281,30 @@ Layout notes: the geometry mask is a second, list-based mask on every layer and 
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Geometry mask on every layer and folder | Layer row icon | everything included | partial: "Parts" on a layer, edited in Properties | crates/app/src/command.rs:133 | - |
-| Icon state: nothing excluded | Layer row icon | default | missing | - | - |
-| Icon state: mesh names excluded (shows number still included) | Layer row icon | n/a | partial: text "Visible on N of M parts" in Properties | crates/ui/src/panels/properties.rs:113 | - |
+| Geometry mask on every layer and folder | Layer row icon | everything included | done: polygon icon on every layer row | crates/ui/src/panels/layers.rs | - |
+| Icon state: nothing excluded | Layer row icon | default | done: dim icon | crates/ui/src/panels/layers.rs | - |
+| Icon state: mesh names excluded (shows number still included) | Layer row icon | n/a | done: included / total beside the icon | crates/ui/src/panels/layers.rs | - |
 | Icon state: UV tiles excluded (shows number still included) | Layer row icon | n/a | missing | - | - |
-| Icon state: nothing included (layer has no effect) | Layer row icon | n/a | missing | - | - |
-| Click the icon to enter geometry-mask editing | Layer row icon | n/a | partial: "Pick parts in the 3D view" button | crates/ui/src/panels/properties.rs:105 | - |
-| Leave editing by clicking the content or mask thumbnail (folder thumbnail for folders) | Layer row | n/a | partial: "Done picking" button | crates/ui/src/panels/properties.rs:105 | - |
+| Icon state: nothing included (layer has no effect) | Layer row icon | n/a | partial: shows 0 / total, no separate icon | crates/ui/src/panels/layers.rs | - |
+| Click the icon to enter geometry-mask editing | Layer row icon | n/a | done | crates/ui/src/panels/layers.rs | - |
+| Leave editing by clicking the content or mask thumbnail (folder thumbnail for folders) | Layer row | n/a | partial: Done in the geometry mask bar of the views, or Esc | crates/ui/src/panels/parts.rs | - |
 | Masking type dropdown: UV Tiles | Properties > Geometry mask | disabled when the project has no UV tiles | missing | - | - |
-| Masking type dropdown: Mesh names | Properties > Geometry mask | Mesh names | partial: part kind comes from the Parts panel (objects, connected pieces, UV islands) | crates/ui/src/panels/parts.rs:51 | - |
+| Masking type dropdown: Mesh names | Properties > Geometry mask | Mesh names | done: geometry mask bar of the views (connected pieces, UV islands, objects, material IDs) | crates/ui/src/panels/parts.rs | - |
 | Count of included items over total | Properties > Geometry mask | n/a | done | crates/ui/src/panels/properties.rs:113 | - |
 | Selection menu: all | Properties > Geometry mask | n/a | done | crates/ui/src/panels/properties.rs:118 | - |
 | Selection menu: none | Properties > Geometry mask | n/a | done | crates/ui/src/panels/properties.rs:121 | - |
 | Selection menu: invert | Properties > Geometry mask | n/a | done | crates/ui/src/panels/properties.rs:124 | - |
 | Checkbox list of mesh names / UV tiles | Properties > Geometry mask | all checked | done | crates/ui/src/panels/properties.rs:129 | - |
-| Click and drag over checkboxes to toggle several | Properties > Geometry mask | n/a | missing | - | - |
-| Alt + click a row to isolate it | Properties > Geometry mask | n/a | missing | - | - |
-| Hovering a list row highlights that geometry in the viewports | Properties > Geometry mask | n/a | missing | - | - |
-| Click geometry in the 3D or 2D view to toggle it | Viewport (edit mode) | n/a | partial: 3D view picking only | crates/ui/src/panels/properties.rs:105 | - |
-| Rectangle selection in both viewports | Viewport (edit mode) | n/a | missing | - | - |
-| Excluded geometry drawn grey with diagonal lines while editing | Viewport (edit mode) | n/a | missing | - | - |
+| Click and drag over checkboxes to toggle several | Properties > Geometry mask | n/a | done | crates/ui/src/panels/properties.rs | - |
+| Alt + click a row to isolate it | Properties > Geometry mask | n/a | done | crates/ui/src/panels/properties.rs | - |
+| Hovering a list row highlights that geometry in the viewports | Properties > Geometry mask | n/a | partial: highlighted in the 2D view only | crates/ui/src/panels/uv_view.rs | - |
+| Click geometry in the 3D or 2D view to toggle it | Viewport (edit mode) | n/a | done | crates/ui/src/panels/uv_view.rs | - |
+| Rectangle selection in both viewports | Viewport (edit mode) | n/a | done: drag adds, Ctrl+drag removes | crates/ui/src/panels/uv_view.rs | - |
+| Excluded geometry drawn grey with diagonal lines while editing | Viewport (edit mode) | n/a | partial: 2D view only; the 3D view hides it with Alt+H | crates/ui/src/panels/uv_view.rs | - |
 | Right-click icon > Copy geometry mask | Layer row icon menu | n/a | done | crates/ui/src/panels/layers.rs | - |
 | Right-click icon > Paste into geometry mask | Layer row icon menu | n/a | done | crates/ui/src/panels/layers.rs | - |
-| Right-click icon > Include all | Layer row icon menu | n/a | partial: "All" button in Properties | crates/ui/src/panels/properties.rs:118 | - |
-| Right-click icon > Exclude all | Layer row icon menu | n/a | partial: "None" button in Properties | crates/ui/src/panels/properties.rs:121 | - |
+| Right-click icon > Include all | Layer row icon menu | n/a | done | crates/ui/src/panels/layers.rs | - |
+| Right-click icon > Exclude all | Layer row icon menu | n/a | done | crates/ui/src/panels/layers.rs | - |
 | Hide/ignore excluded geometry button (paint through hidden parts) | Viewport contextual toolbar | off; Alt+H | done: hides what the selected layer's geometry mask leaves out and follows the selection | crates/ui/src/viewport_bar.rs | - |
 | Mask is dynamic: strokes are recomputed when the include list changes | Engine | n/a | partial: the part mask multiplies the layer result; strokes are not reprojected | crates/doc/src/layer.rs:134 | - |
 | Survives mesh re-import by name / tile number | Engine | n/a | partial: part ids are stable for a stored mesh only | crates/doc/src/layer.rs:137 | - |

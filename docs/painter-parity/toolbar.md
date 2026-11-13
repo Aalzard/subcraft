@@ -148,7 +148,7 @@ Layout notes: with a Path tool active the left side shows path controls in the o
 | Rotate manipulator toggle (several points) | Contextual toolbar, Path tools (11.0) | - | missing | - | - |
 | Scale manipulator toggle (several points) | Contextual toolbar, Path tools (11.0) | - | missing | - | - |
 | Symmetry | Contextual toolbar, Path tools | off | missing | - | - |
-| Hide / ignore excluded geometry | Contextual toolbar, Path tools | off | missing | - | - |
+| Hide / ignore excluded geometry | Contextual toolbar, Path tools | off | done: button at the start of the channel row | crates/ui/src/viewport_bar.rs | - |
 
 ## Contextual toolbar: fill projection manipulators (3D projections)
 

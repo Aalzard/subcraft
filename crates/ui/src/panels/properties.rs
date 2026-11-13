@@ -56,6 +56,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     let part_kind = layer.parts.as_ref().map_or(subcraft_core::PartKind::Connected, |p| p.kind);
     let mesh_parts = state.session.parts(part_kind).iter().filter(|p| p.materials.contains(&state.session.selected_texture_set().material_slot)).cloned().collect::<Vec<_>>();
     let mut picking = state.picking_parts;
+    // The part whose row is under the cursor in the list: the 2D view highlights it.
+    let mut hovered_part: Option<u32> = None;
 
     egui::ScrollArea::vertical().id_salt("props").auto_shrink([false, false]).show(ui, |ui| panel(ui, |ui| {
         // Name, with the layer type as an icon.
@@ -131,11 +133,40 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                             }
                         });
                         egui::ScrollArea::vertical().id_salt("part-list").max_height(160.0).min_scrolled_height(0.0).show(ui, |ui| {
+                            // Press a box and drag over others to give them the same state (Painter);
+                            // Alt+click keeps only that row.
+                            let drag_id = egui::Id::new("part-list-drag");
+                            let (down, released, alt) = ui.input(|i| (i.pointer.primary_down(), i.pointer.primary_released(), i.modifiers.alt));
+                            let mut drag: Option<bool> = ui.data(|d| d.get_temp(drag_id));
+                            if !down && !released {
+                                drag = None;
+                            }
                             for m in &mesh_parts {
-                                let mut on = p.parts.contains(&m.id);
-                                if ui.checkbox(&mut on, format!("{}  ·  {} triangles", m.name, m.triangles)).changed() {
+                                let was = p.parts.contains(&m.id);
+                                let mut on = was;
+                                let r = ui.checkbox(&mut on, format!("{}  ·  {} triangles", m.name, m.triangles))
+                                    .on_hover_text("Drag over several boxes to set them together · Alt+click: only this one");
+                                if r.contains_pointer() {
+                                    hovered_part = Some(m.id);
+                                }
+                                if alt {
+                                    if r.clicked() {
+                                        part_cmds.push(Command::SetParts { layer: id, parts: Some(PartMask::for_kind(part_kind, [m.id])) });
+                                    }
+                                    continue;
+                                }
+                                if drag.is_none() && down && r.is_pointer_button_down_on() {
+                                    drag = Some(!was);
+                                }
+                                // While a drag runs it sets the rows; the click that ends it must not toggle back.
+                                let want = match drag {
+                                    Some(target) if r.contains_pointer() => target,
+                                    Some(_) => was,
+                                    None => on,
+                                };
+                                if want != was {
                                     let mut next = p.clone();
-                                    if on {
+                                    if want {
                                         next.parts.insert(m.id);
                                     } else {
                                         next.parts.remove(&m.id);
@@ -143,6 +174,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                                     next.enabled = true;
                                     part_cmds.push(Command::SetParts { layer: id, parts: Some(next) });
                                 }
+                            }
+                            match drag {
+                                Some(target) => ui.data_mut(|d| d.insert_temp(drag_id, target)),
+                                None => ui.data_mut(|d| d.remove::<bool>(drag_id)),
                             }
                         });
                     }
@@ -390,6 +425,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         );
         cmds.extend(head_cmds);
     }));
+    state.uv_parts.list_hover = hovered_part;
     if picking != state.picking_parts {
         state.picking_parts = picking;
         if picking {

@@ -214,6 +214,8 @@ pub struct UiState {
     pub parts_box: Option<egui::Pos2>,
     /// Geometry mask copied from a layer row's menu.
     pub parts_clipboard: Option<subcraft_doc::PartMask>,
+    /// Geometry mask overlay of the 2D view (excluded islands, hovered part).
+    pub uv_parts: crate::panels::uv_view::PartsOverlay,
     /// Quick mask overlay of the 2D view: (quick mask revision, texture).
     pub quick_mask_tex: Option<(u64, egui::TextureHandle)>,
     /// Texture Set List > Settings: which description lines the rows show.
@@ -429,6 +431,7 @@ impl UiState {
             picking_parts: false,
             parts_box: None,
             parts_clipboard: None,
+            uv_parts: Default::default(),
             quick_mask_tex: None,
             set_descriptions: Default::default(),
             picking_focus: false,

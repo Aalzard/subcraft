@@ -166,6 +166,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     }
     painter.rect_stroke(img_rect, 0.0, Stroke::new(1.0, crate::theme::BORDER_STRONG), egui::StrokeKind::Outside);
     quick_mask_overlay(state, ui, &painter, img_rect);
+    parts_overlay(state, ui, &painter, img_rect, picking, response.hover_pos());
 
     if state.uv_wireframe {
         let mesh = state.session.scene().mesh.clone();
@@ -264,6 +265,93 @@ fn parts_input(state: &mut UiState, ui: &Ui, response: &egui::Response, image: R
     };
     if let Err(e) = result {
         state.set_status(format!("Parts: {e}"), now);
+    }
+}
+
+/// Cached geometry of the 2D view's geometry mask overlay.
+#[derive(Default)]
+pub struct PartsOverlay {
+    excluded_key: Option<(subcraft_core::TextureSetId, subcraft_core::LayerId, subcraft_doc::PartMask)>,
+    excluded: Vec<[Vec2; 3]>,
+    hover_key: Option<(subcraft_core::TextureSetId, subcraft_core::PartKind, u32)>,
+    hover: Vec<[Vec2; 3]>,
+    hatch: Option<egui::TextureHandle>,
+    /// The part whose row is under the cursor in the Properties list (set there every frame).
+    pub list_hover: Option<u32>,
+}
+
+/// Size of one hatch pattern repeat, in points.
+const HATCH: f32 = 8.0;
+
+/// Grey with dark diagonal lines: Painter's look for geometry a geometry mask leaves out.
+fn hatch_image() -> egui::ColorImage {
+    let n = HATCH as usize;
+    let mut rgba = Vec::with_capacity(n * n * 4);
+    for y in 0..n {
+        for x in 0..n {
+            let px: [u8; 4] = if (x + y) % n < 2 { [30, 30, 30, 210] } else { [120, 120, 120, 150] };
+            rgba.extend_from_slice(&px);
+        }
+    }
+    egui::ColorImage::from_rgba_unmultiplied([n, n], &rgba)
+}
+
+/// UV triangles as one screen mesh: a flat `color`, or the hatch texture repeated in screen space.
+fn triangles_mesh(tris: &[[Vec2; 3]], to_px: impl Fn(Vec2) -> Pos2, clip: Rect, color: Color32, texture: Option<egui::TextureId>) -> egui::Shape {
+    let mut mesh = egui::Mesh::default();
+    if let Some(t) = texture {
+        mesh.texture_id = t;
+    }
+    for tri in tris {
+        let p = [to_px(tri[0]), to_px(tri[1]), to_px(tri[2])];
+        if !Rect::from_points(&p).intersects(clip) {
+            continue;
+        }
+        let i = mesh.vertices.len() as u32;
+        for q in p {
+            let uv = if texture.is_some() { egui::pos2(q.x / HATCH, q.y / HATCH) } else { egui::epaint::WHITE_UV };
+            mesh.vertices.push(egui::epaint::Vertex { pos: q, uv, color });
+        }
+        mesh.add_triangle(i, i + 1, i + 2);
+    }
+    egui::Shape::mesh(mesh)
+}
+
+/// The geometry mask over the 2D view, while it is edited or Alt+H hides what it leaves out:
+/// excluded geometry grey with diagonal lines; while editing, the part under the cursor (or under
+/// the cursor in the Properties list) is highlighted.
+fn parts_overlay(state: &mut UiState, ui: &Ui, painter: &egui::Painter, image: Rect, picking: bool, pointer: Option<Pos2>) {
+    let list_hover = state.uv_parts.list_hover.take();
+    if !picking && !state.session.hide_excluded() {
+        return;
+    }
+    let ts = state.session.selected_texture_set().id;
+    let key = state.session.selected_layer().and_then(|l| l.parts.clone().filter(|p| p.enabled).map(|p| (ts, l.id, p)));
+    if key != state.uv_parts.excluded_key {
+        state.uv_parts.excluded = if key.is_some() { state.session.excluded_uv_triangles() } else { Vec::new() };
+        state.uv_parts.excluded_key = key;
+    }
+    let side = image.width();
+    let to_px = |uv: Vec2| image.min + egui::vec2(uv.x, uv.y) * side;
+    let clip = painter.clip_rect();
+    if !state.uv_parts.excluded.is_empty() {
+        let options = egui::TextureOptions { wrap_mode: egui::TextureWrapMode::Repeat, ..egui::TextureOptions::NEAREST };
+        let hatch = state.uv_parts.hatch.get_or_insert_with(|| ui.ctx().load_texture("geometry-mask-hatch", hatch_image(), options)).id();
+        painter.add(triangles_mesh(&state.uv_parts.excluded, to_px, clip, Color32::WHITE, Some(hatch)));
+    }
+    if !picking {
+        return;
+    }
+    let under_cursor = pointer.filter(|p| image.contains(*p)).and_then(|p| state.session.part_at_uv(Vec2::new((p.x - image.left()) / side, (p.y - image.top()) / side)));
+    let part = list_hover.or(under_cursor);
+    let hover_key = part.map(|p| (ts, state.session.mask_kind(), p));
+    if hover_key != state.uv_parts.hover_key {
+        state.uv_parts.hover = part.map_or_else(Vec::new, |p| state.session.part_uv_triangles(p));
+        state.uv_parts.hover_key = hover_key;
+    }
+    if !state.uv_parts.hover.is_empty() {
+        let tint = Color32::from_rgba_unmultiplied(crate::theme::ACCENT.r(), crate::theme::ACCENT.g(), crate::theme::ACCENT.b(), 70);
+        painter.add(triangles_mesh(&state.uv_parts.hover, to_px, clip, tint, None));
     }
 }
 

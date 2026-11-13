@@ -61,7 +61,7 @@ Layout notes: Painter lists editable shortcuts in Settings > Shortcuts as one lo
 | Invert grayscale tool | Settings > Shortcuts | X | partial: Painter key set only (X is symmetry in the SubCraft set) | crates/app/src/actions.rs (Action::InvertMaskGray) | #164 |
 | Pick stroke material | Settings > Shortcuts | P | partial: only in the Substance Painter key set; default set has no key (P is Pen paths) | crates/app/src/actions.rs:204 | - |
 | Lazy Mouse | Settings > Shortcuts | D | done | crates/app/src/actions.rs:208 | - |
-| Hide/ignore excluded geometry | Settings > Shortcuts | Alt+H | missing | - | - |
+| Hide/ignore excluded geometry | Settings > Shortcuts | Alt+H | done | crates/app/src/actions.rs | - |
 | Reload mesh | Settings > Shortcuts | Ctrl+Shift+R (release notes) | missing | - | - |
 | Break tangent (path) | Settings > Shortcuts | unassigned (release notes) | missing | - | - |
 | Show/hide viewport visualization (baking mode) | Settings > Shortcuts | unassigned (release notes) | missing | - | - |

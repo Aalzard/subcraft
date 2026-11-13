@@ -235,3 +235,29 @@ fn a_mask_started_by_kind_includes_everything_and_2d_clicks_default_to_uv_island
     assert_eq!(s.selected_layer().unwrap().parts.as_ref().unwrap().parts.len(), 6);
 }
 
+#[test]
+fn the_2d_overlay_gets_the_excluded_geometry_and_the_part_under_the_cursor() {
+    let mut s = session();
+    s.execute(Command::AddLayer(NewLayer::Fill)).unwrap();
+    let layer = s.selection().layer.unwrap();
+    assert!(s.excluded_uv_triangles().is_empty(), "no geometry mask: nothing is left out");
+    s.set_new_mask_kind(PartKind::UvIsland);
+    s.toggle_layer_part(layer, 4).unwrap();
+    let shown = s.part_uv_triangles(4);
+    let excluded = s.excluded_uv_triangles();
+    assert!(!shown.is_empty());
+    assert_eq!(shown.len() + excluded.len(), s.scene().mesh.triangle_count(), "every triangle is shown or left out");
+    let inside = |uv: Vec2| move |t: &[Vec2; 3]| {
+        let d = |a: Vec2, b: Vec2| (b - a).perp_dot(uv - a);
+        let (x, y, z) = (d(t[0], t[1]), d(t[1], t[2]), d(t[2], t[0]));
+        (x >= 0.0 && y >= 0.0 && z >= 0.0) || (x <= 0.0 && y <= 0.0 && z <= 0.0)
+    };
+    let (kept, other) = (island_uv(&s, 4), island_uv(&s, 1));
+    assert!(shown.iter().any(inside(kept)) && !excluded.iter().any(inside(kept)), "the included island is not greyed");
+    assert!(excluded.iter().any(inside(other)), "an island the mask leaves out is greyed");
+    // Ignored temporarily: nothing is greyed.
+    let p = s.selected_layer().unwrap().parts.clone().unwrap();
+    s.execute(Command::SetParts { layer, parts: Some(PartMask { enabled: false, ..p }) }).unwrap();
+    assert!(s.excluded_uv_triangles().is_empty());
+}
+
