@@ -897,7 +897,9 @@ pub fn import_smart_folder_dialog(ctx: &egui::Context) {
 /// the Smart Materials tab. Draws a hint while files hover over it.
 fn handle_drops(state: &mut UiState, ui: &Ui, now: f64) {
     let rect = ui.max_rect();
-    let over = ui.ctx().input(|i| i.pointer.latest_pos()).is_some_and(|p| rect.contains(p));
+    // Not where the Import resources window floats over the panel: files dropped there are the
+    // window's (QA 2026-11: on Smart Materials they were also imported straight away).
+    let over = ui.ctx().input(|i| i.pointer.latest_pos()).is_some_and(|p| rect.contains(p) && !state.import.covers(p));
     if over && ui.ctx().input(|i| !i.raw.hovered_files.is_empty()) {
         ui.painter().rect_stroke(rect.shrink(2.0), 4.0, egui::Stroke::new(2.0, theme::ACCENT), egui::StrokeKind::Inside);
     }
@@ -1621,17 +1623,29 @@ fn section_toggle(ui: &mut Ui, on: &mut bool, icon: &str, label: &str) {
     }
 }
 
+/// Library and folder of a selected path (lowercased, see [`Location::path`]) as the places name
+/// them. Compared lowercased like the path: an ASCII-only comparison missed a library named
+/// with other letters ("Été"), and the breadcrumbs showed "All libraries" (QA 2026-11).
+fn crumb_place(path: &str, places: &[Location]) -> (Option<String>, Option<String>) {
+    let p = path.trim_matches('/');
+    let (l, f) = p.split_once('/').map_or((p, None), |(l, f)| (l, Some(f)));
+    let library = places.iter().find(|x| x.library.to_lowercase() == l.to_lowercase()).map(|x| x.library.clone());
+    let folder = f.map(|f| {
+        library.as_deref()
+            .and_then(|lib| places.iter().find(|x| x.library == lib && x.folder.as_deref().is_some_and(|x| x.to_lowercase() == f.to_lowercase())))
+            .and_then(|x| x.folder.clone())
+            .unwrap_or_else(|| f.to_string())
+    });
+    (library, folder)
+}
+
 /// `All libraries ▸ library ▸ folder`: each crumb goes back to that level, each arrow lists the
 /// places below it (greyed when none of their assets is of a selected type).
 fn breadcrumbs(ui: &mut Ui, nav: &mut ShelfNav, places: &[Location]) {
     use crate::panels::shelf_filter::library_name;
     let current = (nav.paths.len() == 1).then(|| nav.paths[0].clone());
     let (library, folder): (Option<String>, Option<String>) = match current.as_deref() {
-        Some(p) => {
-            let p = p.trim_matches('/');
-            let (l, f) = p.split_once('/').map_or((p, None), |(l, f)| (l, Some(f.to_string())));
-            (places.iter().find(|x| x.library.eq_ignore_ascii_case(l)).map(|x| x.library.clone()), f)
-        }
+        Some(p) => crumb_place(p, places),
         None => (None, None),
     };
     let crumb = |ui: &mut Ui, text: &str, last: bool| {
@@ -1649,8 +1663,7 @@ fn breadcrumbs(ui: &mut Ui, nav: &mut ShelfNav, places: &[Location]) {
         }
         crumb_menu(ui, lib, places.iter().filter(|p| p.library == lib && p.folder.is_some()).collect(), nav, |p| p.folder.clone().unwrap_or_default());
         if let Some(f) = &folder {
-            let name = places.iter().find(|p| p.library == lib && p.folder.as_deref().is_some_and(|x| x.eq_ignore_ascii_case(f))).and_then(|p| p.folder.clone()).unwrap_or_else(|| f.clone());
-            crumb(ui, &name, true);
+            crumb(ui, f, true);
         }
     } else if nav.paths.len() > 1 {
         ui.label(RichText::new(format!("({} {})", nav.paths.len(), tr("places"))).font(theme::font(11.0)).color(theme::TEXT_FAINT));

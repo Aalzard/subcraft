@@ -125,3 +125,24 @@ fn shift_drag_breaks_a_handle_and_alt_drag_pans_without_editing_the_path() {
     frame(&mut state, &ctx, vec![button(end, false)], Modifiers::ALT, false);
     assert_ne!(state.uv.offset, egui::Vec2::ZERO); assert_eq!(state.session.document(), &before);
 }
+
+/// QA 2026-11: with a pen point selected, Delete was taken for the path even after another layer
+/// was selected: it removed no point and never reached the Delete Layer shortcut.
+#[test]
+fn delete_is_left_alone_when_the_selected_point_is_not_in_the_selected_layer() {
+    let (mut state, ctx) = setup(); gesture(&mut state, &ctx, Vec2::splat(0.4), Vec2::splat(0.4));
+    assert!(state.pen.selected_anchor().is_some());
+    let delete_left = |state: &mut UiState| {
+        let mut left = false;
+        let input = egui::RawInput { events: vec![key(egui::Key::Delete)], screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(800.0, 600.0))), ..Default::default() };
+        let mut output = ctx.run_ui(input, |ui| {
+            let now = ui.input(|i| i.time); pen::keyboard(state, ui.ctx(), now);
+            left = ui.input(|i| i.key_pressed(egui::Key::Delete));
+        });
+        output.textures_delta.clear(); left
+    };
+    state.session.execute(subcraft_app::Command::AddLayer(subcraft_app::NewLayer::Fill)).unwrap();
+    let before = state.session.document().clone();
+    assert!(delete_left(&mut state), "Delete is left for the layer shortcut");
+    assert_eq!(state.session.document(), &before);
+}

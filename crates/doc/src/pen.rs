@@ -30,15 +30,66 @@ pub enum PathKind {
     /// The interior of the path (always closed), filled with the path's values; width and
     /// hardness are not used.
     Filled,
+    /// An image laid along the curve over the path's width ([`PenPath::ribbon`]).
+    Ribbon,
 }
 
 impl PathKind {
-    pub const ALL: [PathKind; 2] = [PathKind::Paint, PathKind::Filled];
+    pub const ALL: [PathKind; 3] = [PathKind::Paint, PathKind::Filled, PathKind::Ribbon];
     pub fn label(self) -> &'static str {
         match self {
             PathKind::Paint => "Paint along path",
             PathKind::Filled => "Filled path",
+            PathKind::Ribbon => "Ribbon path",
         }
+    }
+}
+
+/// How a ribbon's image runs along the path (Painter's Stretching & Tiling mode).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RibbonMode {
+    /// `tiles` copies of the image over the whole length.
+    #[default]
+    Stretch,
+    /// Copies keep the image's aspect ratio at the path's width (scaled by `tiles`).
+    KeepAspect,
+}
+
+impl RibbonMode {
+    pub const ALL: [RibbonMode; 2] = [RibbonMode::Stretch, RibbonMode::KeepAspect];
+    pub fn label(self) -> &'static str {
+        match self {
+            RibbonMode::Stretch => "Stretch along path",
+            RibbonMode::KeepAspect => "Keep aspect ratio",
+        }
+    }
+}
+
+/// Ribbon path settings: the image laid along the curve and how it repeats.
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct PathRibbon {
+    /// The image (a project resource); `None` is a solid strip.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image: Option<subcraft_core::ResourceId>,
+    pub mode: RibbonMode,
+    /// Stretch: copies over the length. Keep aspect ratio: aspect-ratio factor of each copy.
+    pub tiles: f32,
+    /// Mirror every second copy along the path.
+    pub mirror: bool,
+    /// Flip the image across the path.
+    pub flip: bool,
+    /// Base Color takes the image's colour (otherwise the path's value tinted by nothing).
+    pub color_from_image: bool,
+}
+
+impl PathRibbon {
+    pub const TILES: std::ops::RangeInclusive<f32> = 0.05..=256.0;
+}
+
+impl Default for PathRibbon {
+    fn default() -> Self {
+        Self { image: None, mode: RibbonMode::Stretch, tiles: 1.0, mirror: false, flip: false, color_from_image: true }
     }
 }
 
@@ -79,10 +130,21 @@ pub struct PenPath {
     pub kind: PathKind,
     /// Brush tip stamped along the curve (Paint along path only).
     pub stamp: Option<PathStamp>,
+    /// Ribbon settings (Ribbon path only; `None` uses the defaults).
+    pub ribbon: Option<PathRibbon>,
 }
 
 impl PenPath {
     pub const MAX_ANCHORS: usize = 256;
+
+    /// The image resource the path draws with: the stamped tip, or the ribbon image.
+    pub fn image_resource(&self) -> Option<subcraft_core::ResourceId> {
+        match self.kind {
+            PathKind::Paint => self.stamp.and_then(|s| s.alpha),
+            PathKind::Ribbon => self.ribbon.and_then(|r| r.image),
+            PathKind::Filled => None,
+        }
+    }
 
     /// Whether the curve returns to its first anchor (a filled path always does).
     pub fn is_closed(&self) -> bool {
@@ -96,6 +158,7 @@ impl PenPath {
             || !self.opacity.is_finite() || !(0.0..=1.0).contains(&self.opacity)
         { return Err("invalid pen width, hardness or opacity"); }
         if self.stamp.is_some_and(|s| !s.spacing.is_finite() || !PathStamp::SPACING.contains(&s.spacing)) { return Err("pen stamp spacing must be between 2 % and 400 % of the tip"); }
+        if self.ribbon.is_some_and(|r| !r.tiles.is_finite() || !PathRibbon::TILES.contains(&r.tiles)) { return Err("ribbon tiling must be between 0.05 and 256"); }
         if self.values.is_empty() || self.values.values().any(|v| !v.0.iter().all(|x| x.is_finite() && x.abs() <= 65504.0)) { return Err("pen channels must contain finite, representable values"); }
         let mut ids = BTreeSet::new();
         for a in &self.anchors {
