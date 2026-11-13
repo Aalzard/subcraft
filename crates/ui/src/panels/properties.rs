@@ -189,7 +189,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                                 }
                             }
                             match drag {
-                                Some(target) => ui.data_mut(|d| d.insert_temp(drag_id, target)),
+                                Some(target) => ui.data_mut(|d| { d.insert_temp(drag_id, target); }),
                                 None => ui.data_mut(|d| { d.remove::<bool>(drag_id); }),
                             }
                         });
