@@ -59,6 +59,8 @@ pub struct Preferences {
     /// Orbit around the point of the model under the cursor (as Painter does) instead of the
     /// centre of the view.
     pub orbit_around_cursor: bool,
+    /// Settings > General > Camera: rotation, zoom and wheel speeds and directions.
+    pub camera_speed: crate::nav::CameraSpeed,
     /// Window > Toolbars: the tool rail and the status bar.
     pub show_tools_toolbar: bool,
     pub show_status_bar: bool,
@@ -122,6 +124,7 @@ impl Default for Preferences {
             use_gpu_baking: true,
             nav_scheme: Default::default(),
             orbit_around_cursor: true,
+            camera_speed: Default::default(),
             show_tools_toolbar: true,
             show_status_bar: true,
             keymap: Default::default(),
@@ -390,6 +393,21 @@ pub fn preferences_window(state: &mut UiState, ctx: &egui::Context) {
         }
         ui.checkbox(&mut rec.prefs.orbit_around_cursor, "Orbit around the point under the cursor")
             .on_hover_text("Starting an orbit over the model turns the view around that point of the surface, as Substance Painter does. Over the background the last point is kept. Off: the view always turns around its centre. F frames the model and forgets the point.");
+        let speed = &mut rec.prefs.camera_speed;
+        egui::Grid::new("camera_speed").num_columns(3).spacing([8.0, 4.0]).show(ui, |ui| {
+            ui.label(tr("Rotation speed"));
+            ui.add(egui::Slider::new(&mut speed.rotation, crate::nav::CAMERA_SPEED_RANGE).logarithmic(true));
+            ui.label("");
+            ui.end_row();
+            ui.label(tr("Zoom speed"));
+            ui.add(egui::Slider::new(&mut speed.zoom, crate::nav::CAMERA_SPEED_RANGE).logarithmic(true));
+            ui.checkbox(&mut speed.zoom_invert, tr("Inverse direction"));
+            ui.end_row();
+            ui.label(tr("Wheel speed"));
+            ui.add(egui::Slider::new(&mut speed.wheel, crate::nav::CAMERA_SPEED_RANGE).logarithmic(true));
+            ui.checkbox(&mut speed.wheel_invert, tr("Inverse direction"));
+            ui.end_row();
+        });
         ui.horizontal(|ui| {
             ui.label(tr("Keyboard shortcuts"));
             ui.label(RichText::new(rec.prefs.keymap.label()).color(theme::ACCENT));

@@ -824,4 +824,8 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Brush outline", "筆刷輪廓"),
     ("Crosshair", "十字準星"),
     ("Shown in the popup over the view (Esc closes it)", "顯示於視圖上方的彈出視窗中 (按 Esc 關閉)"),
+    ("Rotation speed", "旋轉速度"),
+    ("Zoom speed", "縮放速度"),
+    ("Wheel speed", "滾輪速度"),
+    ("Inverse direction", "反轉方向"),
 ];
