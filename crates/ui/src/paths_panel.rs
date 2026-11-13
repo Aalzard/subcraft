@@ -102,14 +102,20 @@ pub fn show(state: &mut UiState, ui: &Ui, rect: egui::Rect, now: f64) {
                             let mut finished = None;
                             if let Some((_, text)) = renaming.as_mut() {
                                 let r = ui.add(egui::TextEdit::singleline(text).desired_width(120.0));
-                                r.request_focus();
+                                // Focus is taken when the field appears, not on every frame: taken
+                                // back right after Enter, Escape or a click elsewhere gave it up,
+                                // the field never lost it, so a rename could be neither confirmed
+                                // nor cancelled and the field kept the keyboard for good.
                                 if r.lost_focus() {
                                     finished = Some(ui.input(|i| !i.key_pressed(egui::Key::Escape)).then(|| text.trim().to_string()));
+                                } else if !r.has_focus() {
+                                    r.request_focus();
                                 }
                             }
-                            if let Some(name) = finished {
-                                if let Some(name) = name {
-                                    actions.push((*id, Action::Rename(name)));
+                            if let Some(new) = finished {
+                                // The same name is not an edit (no undo step).
+                                if let Some(new) = new.filter(|n| n != name) {
+                                    actions.push((*id, Action::Rename(new)));
                                 }
                                 renaming = None;
                             }
@@ -210,8 +216,42 @@ mod tests {
             opacity: 1.0,
             values: [(ChannelKind::BaseColor, ChannelValue::rgb(1.0, 0.0, 0.0))].into(),
             kind: Default::default(),
-            stamp: None,
+            stamp: None, ribbon: None,
         }
+    }
+
+    /// QA 2026-11: the rename field took the focus back on every frame, so it never saw it
+    /// lost: Enter did not rename the path and the field kept the keyboard for good.
+    #[test]
+    fn enter_confirms_a_rename_and_gives_the_keyboard_back() {
+        let mut state = UiState::new(subcraft_app::Session::new(subcraft_mesh::primitives::cube(2.0), 64), None);
+        state.tool = Tool::Pen;
+        let mut layer = subcraft_doc::Layer::new_paint("Pen path", state.session.selected_texture_set());
+        let LayerContent::Paint(p) = &mut layer.content else { panic!("paint layer") };
+        p.path = Some(path(&[(0.2, 0.2), (0.6, 0.6)], 0.01));
+        let id = layer.id;
+        state.session.execute(Command::InsertLayer { layer: Box::new(layer), label: "Pen path".into() }).unwrap();
+        let ctx = egui::Context::default();
+        crate::theme::apply(&ctx);
+        let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0));
+        let frame = |state: &mut UiState, events: Vec<egui::Event>| {
+            let input = egui::RawInput { events, screen_rect: Some(rect), ..Default::default() };
+            let mut out = ctx.run_ui(input, |ui| show(state, ui, rect, 0.0));
+            out.textures_delta.clear();
+        };
+        frame(&mut state, vec![]);
+        ctx.data_mut(|d| d.insert_temp(rename_id(), (id, "Pen path".to_string())));
+        frame(&mut state, vec![]);
+        frame(&mut state, vec![egui::Event::Text("Rim".into())]);
+        let steps = state.session.history().entries().len();
+        frame(&mut state, vec![egui::Event::Key { key: egui::Key::Enter, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE }]);
+        frame(&mut state, vec![]);
+        frame(&mut state, vec![]);
+        let name = state.session.selected_texture_set().find(id).unwrap().name.clone();
+        assert!(name.contains("Rim"), "the typed name is applied: {name:?}");
+        assert_eq!(state.session.history().entries().len(), steps + 1);
+        assert!(ctx.data(|d| d.get_temp::<(LayerId, String)>(rename_id())).is_none(), "the field is closed");
+        assert!(!ctx.egui_wants_keyboard_input(), "and the keyboard is free again");
     }
 
     #[test]

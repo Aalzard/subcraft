@@ -101,3 +101,23 @@ fn replacing_the_session_forgets_the_copied_geometry_mask() {
     state.set_session(Session::new(primitives::cube(2.0), 64));
     assert!(state.parts_clipboard.is_none());
 }
+
+/// QA 2026-11: selecting a path in the Paths panel (or drawing a new one) left the layer list's
+/// multi-selection as it was, and Delete then removed those layers instead of the selected one.
+#[test]
+fn selecting_a_layer_outside_the_multi_selection_clears_it() {
+    let mut state = state();
+    let add = |state: &mut UiState| {
+        state.session.execute(Command::AddLayer(subcraft_app::NewLayer::Paint)).unwrap();
+        state.session.selection().layer.unwrap()
+    };
+    let (a, b, c) = (add(&mut state), add(&mut state), add(&mut state));
+    state.session.execute(Command::SelectLayer(Some(b))).unwrap();
+    state.begin_frame();
+    state.multi.ids = vec![a, b];
+    state.begin_frame();
+    assert_eq!(state.multi.ids, vec![a, b], "the selected layer is one of them");
+    state.session.execute(Command::SelectLayer(Some(c))).unwrap();
+    state.begin_frame();
+    assert!(state.multi.ids.is_empty());
+}
