@@ -59,8 +59,17 @@ fn sample(server: &mut Server) {
 }
 
 fn layer_names(server: &mut Server, texture_set: &str) -> Vec<String> {
+    fn walk(nodes: &Value, out: &mut Vec<String>) {
+        for l in nodes.as_array().into_iter().flatten() {
+            out.extend(l["name"].as_str().map(str::to_string));
+            walk(&l["children"], out);
+        }
+    }
     let list = ok(server, "layers_list", json!({ "texture_set": texture_set }));
-    list["texture_sets"][0]["layers"].as_array().unwrap().iter().map(|l| l["name"].as_str().unwrap().to_string()).collect()
+    assert_eq!(list["texture_set"], json!(texture_set), "{list}");
+    let mut names = Vec::new();
+    walk(&list["layers"], &mut names);
+    names
 }
 
 #[test]
