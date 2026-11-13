@@ -411,6 +411,8 @@ fn channels(state: &mut UiState, ui: &mut Ui, cmds: &mut Vec<Command>) {
     heading(ui, "Channels");
     let (id, defs, names) = { let ts = state.session.selected_texture_set(); (ts.id, ts.channels.clone(), ts.user_channel_names.clone()) };
     let label = |k: ChannelKind| names.get(&k).cloned().unwrap_or_else(|| k.display_name().to_string());
+    // The channels ticked in the "Add channels" window while it is open.
+    let mut several: Option<Vec<ChannelKind>> = ui.data(|d| d.get_temp(add_several_id()));
     ui.horizontal(|ui| {
         ui.label(RichText::new("Channels").font(theme::font(11.5)).color(TEXT_DIM));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -418,6 +420,10 @@ fn channels(state: &mut UiState, ui: &mut Ui, cmds: &mut Vec<Command>) {
             egui::Popup::menu(&r).id(add_channel_id().with("popup")).show(|ui| {
                 let groups = add_menu_groups(&defs.iter().map(|d| d.kind).collect::<Vec<_>>());
                 if groups.iter().all(|(_, kinds)| kinds.is_empty()) { ui.label("Every channel is already in this texture set"); }
+                else {
+                    if ui.button("Add several channels…").on_hover_text("Tick the channels to add; they are added together as one undo step").clicked() { several = Some(Vec::new()); ui.close(); }
+                    ui.separator();
+                }
                 for (title, kinds) in groups {
                     if kinds.is_empty() { continue; }
                     ui.label(RichText::new(title).small().color(TEXT_FAINT));
@@ -448,6 +454,10 @@ fn channels(state: &mut UiState, ui: &mut Ui, cmds: &mut Vec<Command>) {
                     let r = r.on_hover_text("Double-click to rename this user channel");
                     if r.double_clicked() { rename = Some((id, d.kind, label(d.kind), true)); }
                 }
+                if d.kind.is_color() {
+                    ui.add(egui::Label::new(RichText::new(COLOR_MANAGED_ICON).font(theme::font(11.0)).color(TEXT_FAINT)).selectable(false))
+                        .on_hover_text("Colour managed: a colour channel, read and written as sRGB. The other channels hold data and are never colour-transformed");
+                }
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let x = ui.push_id(("remove_channel", d.kind), |ui| ui.add_enabled(!last, egui::Button::new(RichText::new(icons::X).font(theme::font(12.0))).frame(false))).inner;
@@ -469,6 +479,38 @@ fn channels(state: &mut UiState, ui: &mut Ui, cmds: &mut Vec<Command>) {
         });
     }
     ui.data_mut(|d| match rename { Some(r) => { d.insert_temp(rename_id, r); }, None => { d.remove::<(TextureSetId, ChannelKind, String, bool)>(rename_id); } });
+    // "Add channels" window: tick several channels and add them in one go.
+    if let Some(ticked) = several.as_mut() {
+        let present: Vec<ChannelKind> = defs.iter().map(|d| d.kind).collect();
+        let (mut open, mut add, mut cancel) = (true, false, false);
+        egui::Window::new("Add channels").open(&mut open).collapsible(false).resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .show(ui.ctx(), |ui| {
+                egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
+                    for (title, kinds) in add_menu_groups(&present) {
+                        if kinds.is_empty() { continue; }
+                        ui.label(RichText::new(title).small().color(TEXT_FAINT));
+                        for k in kinds {
+                            let mut on = ticked.contains(&k);
+                            if ui.checkbox(&mut on, label(k)).changed() { tick_channel(ticked, k, on); }
+                        }
+                        ui.add_space(4.0);
+                    }
+                });
+                ui.separator();
+                ui.horizontal(|ui| {
+                    if ui.add_enabled(!ticked.is_empty(), egui::Button::new(RichText::new(add_several_label(ticked.len())).strong())).clicked() { add = true; }
+                    if ui.button("Cancel").clicked() { cancel = true; }
+                });
+            });
+        if add {
+            cmds.push(Command::AddChannels { texture_set: id, kinds: in_channel_order(ticked) });
+            several = None;
+        } else if cancel || !open {
+            several = None;
+        }
+    }
+    ui.data_mut(|d| match several { Some(t) => { d.insert_temp(add_several_id(), t); }, None => { d.remove::<Vec<ChannelKind>>(add_several_id()); } });
     ui.add_space(6.0);
     let current = state.session.selected_texture_set().mixing;
     let picked = mixing_rows(ui, current);
@@ -477,6 +519,32 @@ fn channels(state: &mut UiState, ui: &mut Ui, cmds: &mut Vec<Command>) {
 
 /// Formats offered by a channel's settings menu.
 pub const CHANNEL_FORMATS: [ChannelFormat; 4] = [ChannelFormat::Bit8, ChannelFormat::Bit16, ChannelFormat::Float16, ChannelFormat::Float32];
+
+/// Glyph beside a colour-managed channel's name.
+pub const COLOR_MANAGED_ICON: &str = icons::DROP;
+
+/// Id under which the "Add channels" window keeps its ticked channels while it is open.
+pub fn add_several_id() -> egui::Id { egui::Id::new("tss_add_several") }
+
+/// Text of the window's confirm button.
+pub fn add_several_label(count: usize) -> String {
+    match count {
+        0 => "Add channels".to_string(),
+        1 => "Add 1 channel".to_string(),
+        n => format!("Add {n} channels"),
+    }
+}
+
+/// Tick or untick a channel in the "Add channels" window.
+pub fn tick_channel(ticked: &mut Vec<ChannelKind>, kind: ChannelKind, on: bool) {
+    ticked.retain(|k| *k != kind);
+    if on { ticked.push(kind); }
+}
+
+/// The ticked channels in the standard channel order, whatever order they were ticked in.
+pub fn in_channel_order(ticked: &[ChannelKind]) -> Vec<ChannelKind> {
+    ChannelKind::ALL.into_iter().filter(|k| ticked.contains(k)).collect()
+}
 
 /// Id of the add-channel button (tests click it).
 pub fn add_channel_id() -> egui::Id { egui::Id::new("tss_add_channel") }
@@ -851,6 +919,52 @@ mod tests {
         assert_eq!(state.session.selected_texture_set().mixing.normal, NormalMixing::Replace);
         state.session.perform(subcraft_app::Action::Undo).unwrap();
         assert_eq!(state.session.selected_texture_set().mixing, MixingSettings::default());
+    }
+
+    #[test]
+    fn add_channels_window_lists_the_missing_channels_and_adds_the_ticked_ones_in_order() {
+        let mut ticked = Vec::new();
+        tick_channel(&mut ticked, ChannelKind::User2, true);
+        tick_channel(&mut ticked, ChannelKind::Emissive, true);
+        tick_channel(&mut ticked, ChannelKind::Emissive, true);
+        tick_channel(&mut ticked, ChannelKind::Opacity, true);
+        tick_channel(&mut ticked, ChannelKind::Opacity, false);
+        assert_eq!(ticked, [ChannelKind::User2, ChannelKind::Emissive], "ticked once, unticked gone");
+        assert_eq!(in_channel_order(&ticked), [ChannelKind::Emissive, ChannelKind::User2]);
+        assert_eq!([add_several_label(0), add_several_label(1), add_several_label(3)], ["Add channels", "Add 1 channel", "Add 3 channels"]);
+
+        // The open window shows the groups, the channels the set lacks, and the count on its button.
+        let mut state = UiState::new(subcraft_app::Session::new(subcraft_mesh::primitives::cube(2.0), 64), None);
+        let ctx = egui::Context::default(); theme::apply(&ctx);
+        for _ in 0..2 { frame(&mut state, &ctx, settings); }
+        assert!(!texts(&frame(&mut state, &ctx, settings)).iter().any(|s| s == "Add 2 channels"), "closed until asked for");
+        ctx.data_mut(|d| d.insert_temp(add_several_id(), ticked.clone()));
+        for _ in 0..2 { frame(&mut state, &ctx, settings); }
+        let t = texts(&frame(&mut state, &ctx, settings));
+        for want in ["Add channels", "Add 2 channels", "Cancel", "Supported channels", "Unsupported channels", "Emissive"] {
+            assert!(t.iter().any(|s| s == want), "missing {want}: {t:?}");
+        }
+        // The command it sends adds them as one undo step.
+        let ts = state.session.selection().texture_set;
+        let steps = state.session.history().entries().len();
+        state.run(vec![Command::AddChannels { texture_set: ts, kinds: in_channel_order(&ticked) }], 0.0);
+        assert!(state.session.selected_texture_set().has_channel(ChannelKind::Emissive) && state.session.selected_texture_set().has_channel(ChannelKind::User2));
+        assert_eq!(state.session.history().entries().len(), steps + 1);
+    }
+
+    #[test]
+    fn colour_channels_carry_the_colour_managed_mark_and_data_channels_do_not() {
+        let mut state = UiState::new(subcraft_app::Session::new(subcraft_mesh::primitives::cube(2.0), 64), None);
+        let ctx = egui::Context::default(); theme::apply(&ctx);
+        let marks = |state: &mut UiState| {
+            for _ in 0..2 { frame(state, &ctx, settings); }
+            texts(&frame(state, &ctx, settings)).iter().filter(|s| *s == COLOR_MANAGED_ICON).count()
+        };
+        // The default set: Base Color is the one colour channel.
+        assert_eq!(marks(&mut state), 1);
+        let ts = state.session.selection().texture_set;
+        state.run(vec![Command::AddChannels { texture_set: ts, kinds: vec![ChannelKind::Emissive, ChannelKind::AmbientOcclusion, ChannelKind::User0] }], 0.0);
+        assert_eq!(marks(&mut state), 2, "Emissive is colour, Ambient Occlusion and the user channel are data");
     }
 
     #[test]

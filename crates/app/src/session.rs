@@ -1608,6 +1608,28 @@ impl Session {
                 self.brush.material.set(kind, kind.default_paint_value());
                 self.commit(&format!("Add {} Channel", kind.display_name()), None);
             }
+            Command::AddChannels { texture_set, kinds } => {
+                let ts = self.doc.texture_set_mut(texture_set).ok_or(CommandError::TextureSetNotFound)?;
+                let mut added: Vec<ChannelKind> = Vec::new();
+                for kind in kinds {
+                    if !ts.has_channel(kind) {
+                        ts.channels.push(ChannelDef::default_for(kind));
+                        add_blend(&mut ts.layers, kind);
+                        added.push(kind);
+                    }
+                }
+                if added.is_empty() {
+                    return Ok(());
+                }
+                for &kind in &added {
+                    self.brush.material.set(kind, kind.default_paint_value());
+                }
+                let label = match added.as_slice() {
+                    [one] => format!("Add {} Channel", one.display_name()),
+                    many => format!("Add {} Channels", many.len()),
+                };
+                self.commit(&label, None);
+            }
             Command::RemoveChannel { texture_set, kind } => {
                 let ts = self.doc.texture_set_mut(texture_set).ok_or(CommandError::TextureSetNotFound)?;
                 if !ts.has_channel(kind) {
