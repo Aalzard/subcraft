@@ -868,6 +868,11 @@ impl SubcraftApp {
         }
         let prefs = cc.storage.and_then(|s| s.get_string(crate::recovery::PREFS_KEY)).map(|j| crate::recovery::Preferences::from_json_lenient(&j)).unwrap_or_default();
         state.recovery = crate::recovery::RecoveryUi::start(&state.session, prefs, options.autosave_interval);
+        // Settings > Libraries: extra library folders, and which library is the default.
+        let (extra, default) = (state.recovery.prefs.extra_libraries.clone(), state.recovery.prefs.default_library.clone());
+        if !extra.is_empty() || default != crate::panels::shelf_filter::YOURS {
+            state.set_libraries(&extra, &default);
+        }
         if subcraft_app::safe_mode::active() == Some(&subcraft_app::safe_mode::Reason::GpuLostLastRun) {
             // The GPU reset last run: keep the heavy GPU work off from now on (saved with the
             // preferences) so the next normal start does not reset it again (issue #119).
@@ -1579,6 +1584,10 @@ impl SubcraftApp {
                 ui.separator();
                 ui.menu_button(format!("{}   {}", icons::IMAGE, tr("Import resources")), |ui| {
                     ui.set_min_width(220.0);
+                    if item(ui, icons::PLUS, tr("Import resources…"), "") {
+                        ui.close();
+                        self.state.import.open = true;
+                    }
                     if item(ui, icons::IMAGE, tr("Import texture set…"), "") {
                         ui.close();
                         crate::panels::layers::import_texture_set_dialog(ui.ctx());
@@ -2335,6 +2344,7 @@ impl eframe::App for SubcraftApp {
         crate::spp_import::poll(&mut self.state, &ctx, now);
         crate::files::poll(&mut self.state, now);
         crate::files::import_report_window(&mut self.state, &ctx);
+        crate::import_resources::window(&mut self.state, &ctx);
         crate::clipboard::shortcut_requests(&ctx);
         crate::clipboard::process(&mut self.state, &ctx, now);
         // Files dropped anywhere else on the window (the Shelf handles its own).

@@ -307,8 +307,17 @@ pub struct UiState {
     pub uploaded_solo: Option<ChannelKind>,
     /// Thumbnails of imported images (resources are immutable, so entries never go stale).
     pub image_thumbs: HashMap<subcraft_core::ResourceId, egui::TextureHandle>,
-    /// The user's asset library folder (None if no Documents folder could be found).
+    /// The library new presets and imports go to (Settings > Libraries default; your_assets
+    /// unless changed; None if no Documents folder could be found).
     pub user_library: Option<UserLibrary>,
+    /// Every library on disk the Assets panel reads: your_assets first, then the extra ones.
+    pub libraries: Vec<crate::libraries::NamedLibrary>,
+    /// Files imported for the current session only (not copied to a library).
+    pub session_files: std::collections::HashSet<std::path::PathBuf>,
+    /// The Import resources window.
+    pub import: crate::import_resources::ImportWindow,
+    /// Name / folder typed in Settings > Libraries.
+    pub libraries_form: crate::libraries::LibrariesUi,
     /// Library HDRIs still being prefiltered on a background thread.
     pub env_loader: Option<std::sync::mpsc::Receiver<Result<subcraft_app::assets::Environment, String>>>,
     /// Brush presets from the user library.
@@ -485,6 +494,10 @@ impl UiState {
             uploaded_solo: None,
             image_thumbs: HashMap::new(),
             user_library: None,
+            libraries: Vec::new(),
+            session_files: Default::default(),
+            import: Default::default(),
+            libraries_form: Default::default(),
             env_loader: None,
             brush_presets: builtin_brush_presets(),
             favorites: Default::default(),
@@ -541,6 +554,7 @@ impl UiState {
             self.env_loader = Some(rx);
         }
         log::info!("asset library: {}", lib.root().display());
+        self.libraries = vec![crate::libraries::NamedLibrary { id: crate::panels::shelf_filter::YOURS.to_string(), lib: lib.clone() }];
         self.user_library = Some(lib);
         self
     }
