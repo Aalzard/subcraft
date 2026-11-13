@@ -86,4 +86,15 @@ fn transparent_layers_do_not_depend_on_their_order_with_oit() {
         r.render(&device, &queue, [N, N], &ViewParams { oit, ..params }).read_rgba8(&device, &queue)
     };
     assert_eq!(opaque(true), opaque(false));
+    // QA 2026-11: OIT is for the material view only; a channel view is unchanged by the switch.
+    let channel = |oit: bool| {
+        let mut r = ViewportRenderer::new(&device, &queue);
+        r.set_mesh(&device, &two_squares(true));
+        r.upload_channel(&device, &queue, 0, ChannelKind::BaseColor, &base, None);
+        r.upload_channel(&device, &queue, 0, ChannelKind::Opacity, &TiledImage::new(64, 64, 1, [0.5; 4]), None);
+        r.set_alpha(0, AlphaSettings { mode: AlphaMode::Blend, threshold: 0.33, dithering: false });
+        let p = ViewParams { oit, view_mode: subcraft_render::ViewMode::BaseColor, ..params };
+        r.render(&device, &queue, [N, N], &p).read_rgba8(&device, &queue)
+    };
+    assert_eq!(channel(true), channel(false));
 }

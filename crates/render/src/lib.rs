@@ -1074,7 +1074,9 @@ impl ViewportRenderer {
             self.grid.prepare(device, queue, params.proj * params.view, params.eye, grid);
         }
         // Order-independent transparency: only for the material view with a blended set shown.
-        let oit_on = params.oit && !params.bake_overlay && bake_map.is_none() && solo.is_none() && self.mesh.is_some()
+        // (QA 2026-11: the channel views shade opaque, so OIT replaced every pixel with the average
+        // of all blended layers, front and back faces included.)
+        let oit_on = params.oit && params.view_mode.shader_mode() == 0 && !params.bake_overlay && bake_map.is_none() && solo.is_none() && self.mesh.is_some()
             && self.materials.iter().any(|(slot, m)| m.blends() && !self.hidden_slots.contains(slot));
         if oit_on {
             self.oit.ensure(device, size, samples);
