@@ -41,15 +41,18 @@ enum RowAction {
     Delete,
 }
 
-/// One template in the list: click selects it (and closes the list), and the right-click menu
-/// offers Rename, Duplicate and Delete like Painter's list (built-ins can only be duplicated).
+/// One template in the list column: click selects it, double-click renames a user preset, and the
+/// right-click menu offers Rename, Duplicate and Delete like Painter's list (built-ins can only be
+/// duplicated).
 fn template_row(ui: &mut Ui, p: &ExportTemplate, key: &mut String, action: &mut Option<(String, RowAction)>) {
     let r = ui.selectable_label(*key == p.key(), &p.name);
     if r.clicked() {
         *key = p.key().to_string();
-        ui.close();
     }
     let user = !p.is_builtin();
+    if user && r.double_clicked() {
+        *action = Some((p.key().to_string(), RowAction::Rename));
+    }
     r.context_menu(|ui| {
         if ui.add_enabled(user, egui::Button::new(tr("Rename…"))).on_disabled_hover_text(tr("Built-in templates can't be renamed")).clicked() {
             *action = Some((p.key().to_string(), RowAction::Rename));
@@ -70,20 +73,66 @@ fn dim(text: &str) -> RichText {
     RichText::new(text).color(TEXT_DIM)
 }
 
+/// Painter's template list (the Output templates tab's left column): built-ins, then My presets.
+/// A right-click menu per template (Rename, Duplicate, Delete) and double-click to rename; the
+/// rename field and the delete question show under the picker row (`preset_bar`). Returns a
+/// status message.
+pub fn template_list(ui: &mut Ui, presets: &mut ExportPresets, key: &mut String, ed: &mut PresetEditor) -> Option<String> {
+    let mut action: Option<(String, RowAction)> = None;
+    egui::ScrollArea::vertical().id_salt("template_list").auto_shrink([false, true]).show(ui, |ui| {
+        ui.label(caption("Built-in (read-only)"));
+        for p in presets.builtin() {
+            template_row(ui, p, key, &mut action);
+        }
+        ui.separator();
+        ui.label(caption("My presets"));
+        if presets.user().is_empty() {
+            ui.label(dim("None yet: duplicate a built-in or click New"));
+        }
+        for p in presets.user() {
+            template_row(ui, p, key, &mut action);
+        }
+    });
+    let (k, what) = action?;
+    match what {
+        RowAction::Duplicate => Some(match presets.duplicate(&k) {
+            Ok(p) => {
+                *key = p.key().to_string();
+                ed.map = 0;
+                format!("Created preset \"{}\"", p.name)
+            }
+            Err(e) => format!("Preset: {e}"),
+        }),
+        RowAction::Rename => {
+            if let Some(p) = presets.find(&k) {
+                ed.rename = p.id.clone().map(|id| (id, p.name.clone()));
+                *key = k;
+            }
+            None
+        }
+        RowAction::Delete => {
+            if let Some(p) = presets.find(&k) {
+                ed.confirm_delete = p.id.clone();
+                *key = k;
+            }
+            None
+        }
+    }
+}
+
 
 /// Preset picker row with New / Duplicate / Delete / Import / Export. Returns a status message.
 pub fn preset_bar(ui: &mut Ui, presets: &mut ExportPresets, key: &mut String, ed: &mut PresetEditor) -> Option<String> {
     let mut status = None;
     let current = presets.find(key).cloned().unwrap_or_else(|| presets.builtin()[0].clone());
     *key = current.key().to_string();
-    let mut action: Option<(String, RowAction)> = None;
     ui.horizontal(|ui| {
-        // Closed by clicks outside only, so a right-click on a template opens its menu instead of
-        // closing the list; a left click on a template closes it (`template_row`).
-        egui::ComboBox::from_id_salt("export_preset").width(230.0).selected_text(&current.name).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show_ui(ui, |ui| {
+        egui::ComboBox::from_id_salt("export_preset").width(230.0).selected_text(&current.name).show_ui(ui, |ui| {
             ui.label(caption("Built-in (read-only)"));
             for p in presets.builtin() {
-                template_row(ui, p, key, &mut action);
+                if ui.selectable_label(*key == p.key(), &p.name).clicked() {
+                    *key = p.key().to_string();
+                }
             }
             ui.separator();
             ui.label(caption("My presets"));
@@ -91,7 +140,9 @@ pub fn preset_bar(ui: &mut Ui, presets: &mut ExportPresets, key: &mut String, ed
                 ui.label(dim("None yet: duplicate a built-in or click New"));
             }
             for p in presets.user() {
-                template_row(ui, p, key, &mut action);
+                if ui.selectable_label(*key == p.key(), &p.name).clicked() {
+                    *key = p.key().to_string();
+                }
             }
         });
         let mut select = |r: Result<ExportTemplate, String>, what: &str| match r {
@@ -111,35 +162,10 @@ pub fn preset_bar(ui: &mut Ui, presets: &mut ExportPresets, key: &mut String, ed
         }
         let deletable = !current.is_builtin();
         if ui.add_enabled(deletable, egui::Button::new(tr("Rename…"))).on_disabled_hover_text(tr("Built-in templates can't be renamed")).clicked() {
-            action = Some((current.key().to_string(), RowAction::Rename));
+            ed.rename = current.id.clone().map(|id| (id, current.name.clone()));
         }
         if ui.add_enabled(deletable, egui::Button::new(tr("Delete"))).on_disabled_hover_text(tr("Built-in templates can't be deleted")).clicked() {
             ed.confirm_delete = current.id.clone();
-        }
-        // The list's right-click menu acts on that template, which becomes the selected one.
-        if let Some((k, what)) = action.take() {
-            match what {
-                RowAction::Duplicate => match presets.duplicate(&k) {
-                    Ok(p) => {
-                        status = Some(format!("Created preset \"{}\"", p.name));
-                        *key = p.key().to_string();
-                        ed.map = 0;
-                    }
-                    Err(e) => status = Some(format!("Preset: {e}")),
-                },
-                RowAction::Rename => {
-                    if let Some(p) = presets.find(&k) {
-                        ed.rename = p.id.clone().map(|id| (id, p.name.clone()));
-                        *key = k;
-                    }
-                }
-                RowAction::Delete => {
-                    if let Some(p) = presets.find(&k) {
-                        ed.confirm_delete = p.id.clone();
-                        *key = k;
-                    }
-                }
-            }
         }
         if ui.button(tr("Import…")).on_hover_text(tr("SubCraft preset (.json) or Substance 3D Painter export preset (.spexp / export JSON)")).clicked()
             && let Some(path) = rfd::FileDialog::new().add_filter("Export preset", &["json", "spexp"]).pick_file()

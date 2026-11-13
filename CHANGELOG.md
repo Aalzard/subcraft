@@ -18,8 +18,9 @@ What changed in SubCraft, newest first. Download the latest build from the
   Amazon Lumberyard, Keyshot, Lens Studio, Maxwell, Redshift, Renderman, Shade 3D, Spark AR, V-Ray, Unity
   HDRP / URP Specular, PBR Specular Glossiness (converted), Roblox MaterialVariant, glTF + displacement,
   Mesh Maps and Document channels + Normal + AO.
-- **Right-click an output template** for Rename…, Duplicate and Delete, like Painter's list (built-ins
-  can only be duplicated). A Rename… button sits beside New, Duplicate and Delete.
+- **Output templates list** in the Output templates tab's left column, like Painter's: right-click a
+  template for Rename…, Duplicate and Delete (built-ins can only be duplicated), double-click a user
+  preset to rename it. A Rename… button sits beside New, Duplicate and Delete.
 
 ## 0.3.7 - 2026-11-13
 

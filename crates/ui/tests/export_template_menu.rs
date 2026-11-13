@@ -1,10 +1,10 @@
-//! Painter's output template list actions: right-click a template for Rename, Duplicate and
-//! Delete (built-ins can only be duplicated). Real egui pointer and keyboard events on the
-//! template picker; no desktop mouse.
+//! Painter's output template list (the Output templates tab's left column): right-click a
+//! template for Rename, Duplicate and Delete (built-ins can only be duplicated), double-click a
+//! user preset to rename it. Real egui pointer and keyboard events; no desktop mouse.
 use egui::{Event, Modifiers, PointerButton, Pos2, Rect};
 use subcraft_app::export_presets::ExportPresets;
 use subcraft_assets::UserLibrary;
-use subcraft_ui::export_presets::{PresetEditor, preset_bar};
+use subcraft_ui::export_presets::{PresetEditor, preset_bar, template_list};
 
 struct Ui {
     ctx: egui::Context,
@@ -14,7 +14,11 @@ struct Ui {
     status: Option<String>,
 }
 
+/// The list starts below the picker row (and the rename / delete row under it).
+const LIST_TOP: f32 = 110.0;
+
 impl Ui {
+    /// One frame of the tab: the picker row, then the list, as the Export window draws them.
     fn frame(&mut self, events: Vec<Event>) -> egui::FullOutput {
         let (presets, key, ed, status) = (&mut self.presets, &mut self.key, &mut self.ed, &mut self.status);
         let mut out = self.ctx.run_ui(
@@ -23,14 +27,18 @@ impl Ui {
                 if let Some(s) = preset_bar(ui, presets, key, ed) {
                     *status = Some(s);
                 }
+                ui.add_space(LIST_TOP - ui.cursor().top().min(LIST_TOP));
+                if let Some(s) = template_list(ui, presets, key, ed) {
+                    *status = Some(s);
+                }
             },
         );
         out.textures_delta.clear();
         out
     }
 
-    /// Texts drawn this frame whose centre is inside their clip rect (the combo list is a
-    /// scroll area: rows scrolled out of it are clipped or not drawn).
+    /// Texts drawn this frame whose centre is inside their clip rect (list rows scrolled out
+    /// of view are clipped or not drawn).
     fn texts(&mut self) -> Vec<(String, Pos2)> {
         let out = self.frame(vec![]);
         out.shapes.iter().filter_map(|s| match &s.shape {
@@ -42,7 +50,7 @@ impl Ui {
         }).collect()
     }
 
-    /// Centre of the last-drawn visible text `label` (popups and menus are drawn last).
+    /// Centre of the last-drawn visible text `label` (menus are drawn last).
     fn find(&mut self, label: &str) -> Option<Pos2> {
         self.texts().into_iter().filter(|(t, _)| t == label).map(|(_, p)| p).last()
     }
@@ -67,23 +75,13 @@ impl Ui {
         self.frame(vec![]);
     }
 
-    /// Open the template list; returns the picker button's centre.
-    fn open_list(&mut self) -> Pos2 {
-        let current = self.presets.find(&self.key).unwrap().name.clone();
-        let button = self.at(&current);
-        self.press(button, PointerButton::Primary);
-        self.frame(vec![]);
-        assert!(self.find("BUILT-IN (READ-ONLY)").is_some() || self.find("MY PRESETS").is_some(), "the list opens: {:?}", self.texts());
-        button
-    }
-
-    /// Scroll the open list (mouse wheel over it) until the row `name` is visible; its centre.
-    fn reveal(&mut self, button: Pos2, name: &str) -> Pos2 {
-        let over = egui::pos2(button.x, button.y + 80.0);
+    /// Scroll the list (mouse wheel over it) until the row `name` is visible; its centre.
+    fn reveal(&mut self, name: &str) -> Pos2 {
+        let over = egui::pos2(100.0, LIST_TOP + 200.0);
         let wheel = |y: f32| Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: egui::vec2(0.0, y), phase: egui::TouchPhase::Move, modifiers: Modifiers::NONE };
         // Down first, then back up (the list remembers where it was scrolled to).
         for step in 0..120 {
-            let row = self.texts().into_iter().filter(|(t, p)| t == name && p.y > button.y + 10.0).map(|(_, p)| p).last();
+            let row = self.texts().into_iter().filter(|(t, p)| t == name && p.y > LIST_TOP).map(|(_, p)| p).last();
             if let Some(p) = row {
                 return p;
             }
@@ -96,14 +94,19 @@ impl Ui {
         panic!("{name:?} never shows in the list: {:?}", self.texts())
     }
 
-    /// Open the picker and right-click the template `name` in its list; the menu opens.
+    /// Right-click the template `name` in the list; its menu opens.
     fn menu_on(&mut self, name: &str) {
-        let button = self.open_list();
-        let row = self.reveal(button, name);
+        let row = self.reveal(name);
         self.press(row, PointerButton::Secondary);
         self.frame(vec![]);
         let texts = self.texts();
-        assert!(texts.iter().filter(|(t, _)| t == "Duplicate").count() >= 2, "the menu opens over the list: {texts:?}");
+        assert!(texts.iter().filter(|(t, _)| t == "Duplicate").count() >= 2, "the menu opens: {texts:?}");
+    }
+
+    /// The rename field's text, on the "Rename preset" row.
+    fn rename_field(&mut self, text: &str) -> Pos2 {
+        let label = self.at("Rename preset");
+        self.texts().into_iter().filter(|(t, p)| t == text && (p.y - label.y).abs() < 6.0).map(|(_, p)| p).last().expect("the rename field")
     }
 
     fn user_names(&self) -> Vec<String> {
@@ -126,6 +129,10 @@ fn setup(name: &str) -> (std::path::PathBuf, Ui) {
     (dir, ui)
 }
 
+fn key(key: egui::Key, modifiers: Modifiers) -> Event {
+    Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers }
+}
+
 #[test]
 fn right_click_renames_duplicates_and_deletes_templates() {
     let (dir, mut ui) = setup("menu");
@@ -135,12 +142,11 @@ fn right_click_renames_duplicates_and_deletes_templates() {
     // Right-click > Rename… on the user preset, type a new name, Enter.
     ui.menu_on(copy);
     ui.click("Rename…", PointerButton::Primary);
-    assert!(ui.find("Rename preset").is_some(), "the rename field opens");
-    let field = ui.at(copy);
+    let field = ui.rename_field(copy);
     ui.press(field, PointerButton::Primary);
-    ui.frame(vec![Event::Key { key: egui::Key::A, physical_key: None, pressed: true, repeat: false, modifiers: Modifiers::COMMAND }]);
+    ui.frame(vec![key(egui::Key::A, Modifiers::COMMAND)]);
     ui.frame(vec![Event::Text("Hero maps".into())]);
-    ui.frame(vec![Event::Key { key: egui::Key::Enter, physical_key: None, pressed: true, repeat: false, modifiers: Modifiers::NONE }]);
+    ui.frame(vec![key(egui::Key::Enter, Modifiers::NONE)]);
     ui.frame(vec![]);
     assert_eq!(ui.user_names(), ["Hero maps"], "status: {:?}", ui.status);
     assert!(ui.find("Rename preset").is_none(), "the field closes");
@@ -155,29 +161,44 @@ fn right_click_renames_duplicates_and_deletes_templates() {
     ui.menu_on("PBR Metallic Roughness");
     ui.click("Rename…", PointerButton::Primary);
     assert!(ui.find("Rename preset").is_none(), "no rename field for a built-in");
-    ui.frame(vec![Event::Key { key: egui::Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: Modifiers::NONE }]);
+    ui.frame(vec![key(egui::Key::Escape, Modifiers::NONE)]);
     ui.frame(vec![]);
 
     // Right-click > Delete asks first; confirming removes the file.
     ui.menu_on("Hero maps");
     ui.click("Delete", PointerButton::Primary);
     let ask = ui.texts().into_iter().any(|(t, _)| t.starts_with("Delete preset \"Hero maps\""));
-    assert!(ask, "asks before deleting");
-    ui.click("Delete", PointerButton::Primary);
+    assert!(ask, "asks before deleting: {:?}", ui.texts());
+    // The question's Delete button is on its own row, under the picker's Delete.
+    let picker = ui.texts().into_iter().filter(|(t, _)| t == "Delete").map(|(_, p)| p.y).fold(f32::MAX, f32::min);
+    let confirm = ui.texts().into_iter().filter(|(t, p)| t == "Delete" && p.y > picker + 5.0 && p.y < LIST_TOP).map(|(_, p)| p).next().expect("the question's Delete");
+    ui.press(confirm, PointerButton::Primary);
+    ui.frame(vec![]);
     assert_eq!(ui.user_names(), ["PBR Metallic Roughness copy"], "status: {:?}", ui.status);
     assert_eq!(ExportPresets::load(Some(&UserLibrary::new(dir.clone()))).user().len(), 1, "the file is gone");
     std::fs::remove_dir_all(&dir).ok();
 }
 
 #[test]
-fn a_left_click_picks_a_template_and_closes_the_list() {
+fn click_picks_and_double_click_renames() {
     let (dir, mut ui) = setup("pick");
     let copy = "Unreal Engine (ORM packed) copy";
-    let button = ui.open_list();
-    let row = ui.reveal(button, "PBR Metallic Roughness");
+    let row = ui.reveal("PBR Metallic Roughness");
     ui.press(row, PointerButton::Primary);
     ui.frame(vec![]);
     assert_eq!(ui.presets.find(&ui.key).unwrap().name, "PBR Metallic Roughness");
-    assert!(ui.find("BUILT-IN (READ-ONLY)").is_none() && ui.find("MY PRESETS").is_none(), "picking closes the list");
+    // Double-click on a built-in does nothing; on a user preset it opens the rename field.
+    ui.press(row, PointerButton::Primary);
+    ui.press(row, PointerButton::Primary);
+    ui.frame(vec![]);
+    assert!(ui.find("Rename preset").is_none(), "built-ins can't be renamed");
+    let row = ui.reveal(copy);
+    ui.press(row, PointerButton::Primary);
+    ui.press(row, PointerButton::Primary);
+    ui.frame(vec![]);
+    assert!(ui.find("Rename preset").is_some(), "double-click opens the rename field: {:?}", ui.texts());
+    ui.click("Cancel", PointerButton::Primary);
+    assert!(ui.find("Rename preset").is_none());
+    assert_eq!(ui.user_names(), [copy], "Cancel keeps the name");
     std::fs::remove_dir_all(&dir).ok();
 }
