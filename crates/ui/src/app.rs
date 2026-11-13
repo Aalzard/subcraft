@@ -2446,6 +2446,7 @@ impl eframe::App for SubcraftApp {
         crate::asset_preview::show(&mut self.state,&ctx);
         crate::render_export::window(&mut self.state, &ctx);
         panels::display_settings::sync_project(&mut self.state);
+        crate::view_state::sync(&mut self.state);
         crate::new_project::window(&mut self.state, &ctx);
         crate::mesh_map_import::window(&mut self.state, &ctx, now);
         crate::render_export::handle_request(&mut self.state, ctx.input(|i| i.time));

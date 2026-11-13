@@ -52,6 +52,7 @@ pub mod viewport;
 pub mod viewport_hints;
 pub mod viewport_bar;
 pub mod view_extras;
+pub mod view_state;
 pub mod view_props;
 pub mod warp_view;
 pub mod widgets;

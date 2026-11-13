@@ -25,7 +25,7 @@ pub mod warp;
 
 pub use anchor::{AnchorDomain, AnchorIndex, AnchorInfo, AnchorInput, AnchorRef, RefSite, RefStatus};
 pub use blend::BlendMode;
-pub use camera::SceneCamera;
+pub use camera::{SceneCamera, ViewState};
 pub use display::{Anisotropy, ChannelComponent, DisplaySettings, EnvAlignment, FlareCamera, GlareShape, GridAxis, GrainType, ShadowMode, ToneMap};
 pub use document::Document;
 pub use effect::{ContentEffect, ContentEffectKind};
