@@ -825,7 +825,7 @@ mod tests {
         assert!(!Filter::Mosaic { size: 0 }.valid() && !Filter::Mosaic { size: 65 }.valid());
         assert!(!Filter::DirectionalWarp { intensity: 4.0, angle_deg: 200.0 }.valid());
         for (f, color_only) in [(Filter::Grayscale, true), (Filter::ALL[19], true), (Filter::ALL[20], true)] {
-            assert_eq!(f.supports_channel(ChannelKind::BaseColor), true);
+            assert!(f.supports_channel(ChannelKind::BaseColor));
             assert_eq!(f.supports_channel(ChannelKind::Roughness), !color_only, "{f:?}");
             assert!(!f.supports_mask());
         }

@@ -43,7 +43,7 @@ Layout notes: all navigation is a held modifier plus a mouse drag; the same comb
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
 | Center the whole mesh | F | focuses only the view under the cursor; both when the cursor is outside | done: F frames the view under the cursor, both views when it is elsewhere | crates/ui/src/app.rs (frame_targets) | 249 |
-| Focus on the selected path | F while editing a path (11.0) | not documented | missing | - | - |
+| Focus on the selected path | F while editing a path (11.0) | not documented | done: with the Pen tool, F centres the 3D view on the path (same direction, closer) and frames its UV rectangle in the 2D view | crates/ui/src/orbit.rs (focus_on), crates/ui/src/panels/uv_view.rs (uv_frame) | 265 |
 | Camera Perspective | F5 | default mode | done | crates/app/src/actions.rs:210 | - |
 | Camera Orthographic | F6 | off | done | crates/app/src/actions.rs:211 | - |
 | Free rotation (roll allowed) | Contextual toolbar > Camera Rotation Mode | off | done: Camera menu or Display Settings > Camera > Camera rotation: Free orbits about the view's own axes (rolls, goes over the top); Constrained levels the horizon again | crates/ui/src/orbit.rs (free_orbit) | 258 |
@@ -153,8 +153,8 @@ Layout notes: the dropdown at the top right of each view switches between Materi
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
 | Brush cursor: Full preview (brush alpha / material projected) | 3D view; chosen in Contextual toolbar | default (unverified) | missing | - | - |
-| Brush cursor: Brush outline | 3D view; chosen in Contextual toolbar | - | partial: screen-space circle of the brush radius, the only style | crates/ui/src/viewport.rs:491 | - |
-| Brush cursor: Crosshair | 3D view; chosen in Contextual toolbar | - | missing | - | - |
+| Brush cursor: Brush outline | 3D view; chosen in Contextual toolbar | - | done: screen-space circle of the brush radius (default); Display Settings > Viewport > Brush cursor | crates/ui/src/viewport.rs (brush_mark) | 265 |
+| Brush cursor: Crosshair | 3D view; chosen in Contextual toolbar | - | done: Display Settings > Viewport > Brush cursor > Crosshair (also for the symmetry cursors); not in the top strip | crates/ui/src/viewport.rs (brush_mark) | 265 |
 | Lazy mouse ring around the cursor | 3D view when Lazy mouse is on | grey circle | done: grey ring of the lazy distance around the cursor | crates/ui/src/viewport.rs (overlays) | 261 |
 | Clone source marker | 3D view with the Clone tool | - | done | crates/ui/src/viewport.rs:499 | - |
 | Fill layer cursor (no brush) | 3D view with a fill layer selected | - | missing | - | - |
@@ -211,7 +211,7 @@ Layout notes: display options (plane, intersection, cursor, manipulator) are onl
 | Toggle quick mask edition | U | off | done: also the selection button on the tool rail | crates/app/src/session.rs | - |
 | Clear quick mask | Y | - | done | crates/app/src/session.rs | - |
 | Invert quick mask | I | - | done (without a quick mask, I still isolates the part under the cursor) | crates/app/src/session.rs | - |
-| Quick mask overlay tint in the view | 3D view while editing | not documented | partial: red tint in the 2D view; the 3D view shows a status pill only | crates/ui/src/panels/uv_view.rs | - |
+| Quick mask overlay tint in the view | 3D view while editing | not documented | done: while editing, Base Color is uploaded tinted red where the mask protects, so the 3D and 2D views both show it (tile by tile); the 2D view keeps its light overlay once applied | crates/app/src/quick_mask_tint.rs, crates/ui/src/state.rs (sync_gpu) | 260 |
 
 ## Geometry hide / isolate
 
@@ -231,7 +231,7 @@ Layout notes: while dragging over the 3D view Painter highlights the Texture Set
 | Drop material from Assets onto the mesh: new fill layer on the Texture Set under the cursor | Assets > 3D view | - | done | crates/ui/src/viewport.rs:190 | - |
 | Drop smart material onto the mesh | Assets > 3D view | - | done | crates/ui/src/panels/shelf.rs:63 | - |
 | Ctrl + drop material: restrict to the mesh part under the cursor (geometry mask) | Assets > 3D view | - | done: uses the part kind chosen in Parts | crates/ui/src/viewport.rs | - |
-| Highlight of the target mesh while dragging | 3D view | - | partial: text label of the action and target near the cursor, no mesh highlight | crates/ui/src/viewport.rs:513 | - |
+| Highlight of the target mesh while dragging | 3D view | - | done: the texture set under the cursor is highlighted (renderer slot highlight); with Ctrl, the part is outlined, hidden edges left out | crates/ui/src/viewport.rs (drop_outline), crates/app/src/region_outline.rs | 260 |
 | Drop alpha / procedural / texture: warp-projected decal layer with channel chooser | Assets > 3D view | menu on release | partial: texture becomes a new UV fill layer; alpha becomes brush tip; no warp decal or channel menu | crates/ui/src/panels/shelf.rs:65 | - |
 | Alt + drop material: decal with warp projection | Assets > 3D view | - | partial: Alt replaces the selected fill layer's material instead | crates/ui/src/panels/shelf.rs:60 | - |
 | Drop smart mask onto the mesh | Assets > 3D view | - | partial: applied to the selected layer, not as a new layer | crates/ui/src/panels/shelf.rs:64 | - |
@@ -265,15 +265,15 @@ Layout notes: selecting a fill layer or fill effect with a 3D projection shows a
 | Surface manipulator: drag to snap onto the mesh | LMB drag (Planar, Warp) | - | missing | - | - |
 | Precision mode | Ctrl while dragging a manipulator (10.0) | - | missing | - | - |
 | Projection volume / plane preview in the view | 3D view | - | missing | - | - |
-| Toggle warp edition mode (Transform warp / Edit vertices) | Shift + V | Transform warp | missing | - | - |
-| Warp: select a grid point | LMB click on a point | - | missing | - | - |
-| Warp: add to selection | Shift + LMB click | - | missing | - | - |
-| Warp: remove from selection | Ctrl + LMB click | - | missing | - | - |
-| Warp: rectangle selection | LMB drag on empty space | - | missing | - | - |
-| Warp: rectangle add / remove | Shift / Ctrl + LMB drag | - | missing | - | - |
-| Warp: deselect | LMB click away | - | missing | - | - |
-| Warp: quick-move a point on the surface | LMB drag a point | - | missing | - | - |
-| Warp: quick-move a point in camera space | Ctrl + LMB drag a point | - | missing | - | - |
+| Toggle warp edition mode (Transform warp / Edit vertices) | Shift + V | Transform warp | done: Shift+V over the 3D view | crates/ui/src/warp_view.rs | - |
+| Warp: select a grid point | LMB click on a point | - | done | crates/ui/src/warp_view.rs | - |
+| Warp: add to selection | Shift + LMB click | - | done | crates/ui/src/warp_view.rs | - |
+| Warp: remove from selection | Ctrl + LMB click | - | done | crates/ui/src/warp_view.rs | - |
+| Warp: rectangle selection | LMB drag on empty space | - | done | crates/ui/src/warp_view.rs | - |
+| Warp: rectangle add / remove | Shift / Ctrl + LMB drag | - | done | crates/ui/src/warp_view.rs | - |
+| Warp: deselect | LMB click away | - | done | crates/ui/src/warp_view.rs | - |
+| Warp: quick-move a point on the surface | LMB drag a point | - | done | crates/ui/src/warp_view.rs | - |
+| Warp: quick-move a point in camera space | Ctrl + LMB drag a point | - | done: Ctrl+drag, in the view plane | crates/ui/src/warp_view.rs | - |
 | Warp: edit tangents of selected points | Rotation / Scale manipulator on a point | - | missing | - | - |
 | Warp: projection-depth arrows per grid point | 3D view | green arrows | missing | - | - |
 | Warp: cancel a split tool | Escape | - | missing | - | - |

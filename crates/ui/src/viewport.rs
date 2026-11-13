@@ -11,6 +11,32 @@ use crate::icons;
 
 /// Text on a translucent dark plate, anchored at `pos`; returns the plate rect.
 pub(crate) fn pill(painter: &egui::Painter, pos: Pos2, align: egui::Align2, text: &str, color: Color32) -> Rect {
+/// Most border edges tested for visibility when outlining a drop target (one ray each).
+const DROP_OUTLINE_EDGES: usize = 6000;
+
+/// Screen segments of a part's border, hidden edges left out. The edges and their visibility
+/// are computed once per part and camera (a ray per edge), then only projected.
+fn drop_outline(state: &mut UiState, part: subcraft_app::PartKey, camera: &subcraft_app::Camera, rect: Rect, pixel_scale: Vec2) -> Vec<[Pos2; 2]> {
+    if !state.drop_outline.as_ref().is_some_and(|(k, c, _)| *k == part && c == camera) {
+        let all = state.session.part_outline(part);
+        let stride = all.len().div_ceil(DROP_OUTLINE_EDGES).max(1);
+        let tolerance = state.session.scene().mesh.bounds.diagonal() * 0.01;
+        let visible = all
+            .into_iter()
+            .step_by(stride)
+            .filter(|[a, b]| {
+                let mid = (*a + *b) * 0.5;
+                camera.project(mid).and_then(|s| state.session.pick(camera, s.truncate())).is_some_and(|hit| hit.position.distance(mid) <= tolerance)
+            })
+            .collect();
+        state.drop_outline = Some((part, *camera, visible));
+    }
+    let Some((_, _, edges)) = &state.drop_outline else { return Vec::new() };
+    let to_pos = |p: glam::Vec3| camera.project(p).map(|s| rect.min + egui::vec2(s.x / pixel_scale.x, s.y / pixel_scale.y));
+    edges.iter().filter_map(|[a, b]| Some([to_pos(*a)?, to_pos(*b)?])).collect()
+}
+
+fn pill(painter: &egui::Painter, pos: Pos2, align: egui::Align2, text: &str, color: Color32) -> Rect {
     let galley = painter.layout_no_wrap(text.to_string(), theme::font(11.5), color);
     let size = galley.size() + egui::vec2(16.0, 10.0);
     let rect = align.anchor_size(pos, size);
@@ -253,6 +279,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     let symmetry_grab = !bake_mode && !alt && !stencil_edit
         && crate::symmetry_view::manipulate(state, ui, &response, rect, pixel_scale, &camera, primary_pressed, primary_down, pointer);
     let primary_pressed = primary_pressed && !symmetry_grab;
+    // Warp projection grid of the selected fill layer: presses on it edit the grid, not paint.
+    let warp_grab = !bake_mode && !alt && !stencil_edit
+        && crate::warp_view::manipulate(state, ui, &response, rect, pixel_scale, &camera, primary_pressed, primary_down, pointer);
+    let primary_pressed = primary_pressed && !warp_grab;
     let parts_picking = !bake_mode && state.picking_parts && state.session.selected_layer().is_some() && !state.painting;
     // ----- ID Color Mask eyedropper: clicks add the ID map color under the cursor ------------
     let id_picking = !bake_mode && !state.painting
@@ -657,8 +687,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 let ppu = camera.pixels_per_unit(pick.depth);
                 let r_px = state.session.brush_radius_in(ppu, size[1] as f32, density) * ppu / pixel_scale.y;
                 let color = if state.tool == Tool::Eraser { Color32::from_rgb(120, 190, 255) } else { ACCENT };
-                painter.circle_stroke(p, r_px, Stroke::new(1.5, Color32::from_black_alpha(160)));
-                painter.circle_stroke(p, r_px, Stroke::new(1.0, color));
+                let style = state.recovery.prefs.viewport.brush_cursor;
+                brush_mark(&painter, p, r_px, color, style, true);
                 // Symmetry: a second cursor where each copy paints (faint when the copy's point
                 // is hidden behind the model).
                 let prefs = &state.recovery.prefs.viewport;
@@ -668,7 +698,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     for (at, visible) in symmetry_cursors(&camera, options, center, pick.position, |s| state.session.pick(&camera, s).map(|h| h.depth)) {
                         let at = rect.min + egui::vec2(at.x / pixel_scale.x, at.y / pixel_scale.y);
                         let c = if visible { color.gamma_multiply(0.8) } else { color.gamma_multiply(0.3) };
-                        painter.circle_stroke(at, r_px, Stroke::new(1.0, c));
+                        brush_mark(&painter, at, r_px, c, style, false);
                     }
                 }
             }
@@ -709,6 +739,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         crate::view_props::draw_fill_box(&painter, Rect::from_two_pos(a, b), false);
     }
     crate::symmetry_view::overlay(state, ui, &painter, rect, pixel_scale, &camera, !bake_mode && state.tool != Tool::Pen);
+    if !bake_mode {
+        crate::warp_view::overlay(state, ui, &painter, rect, pixel_scale, &camera);
+    }
     draw_stencil(state, ui, &painter, rect, size);
     // Reset button at the top right of the view while S is held.
     if stencil_edit {
@@ -726,6 +759,20 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     }
     if let Some(item) = drop_hover {
         painter.rect_stroke(rect.shrink(1.0), 0.0, Stroke::new(2.0, ACCENT), egui::StrokeKind::Inside);
+        // The geometry that receives the drop: the part under the cursor with Ctrl (outlined),
+        // otherwise its texture set (highlighted by the renderer).
+        let part_drop = (mods.command || mods.ctrl) && !mods.alt && !matches!(item, crate::panels::shelf::ShelfDrag::Alpha(_) | crate::panels::shelf::ShelfDrag::SmartMask(_));
+        if let Some(p) = pointer {
+            if part_drop && let Some(target) = state.session.surface_target(&camera, to_screen(p), state.parts_kind) {
+                for [a, b] in drop_outline(state, target.part, &camera, rect, pixel_scale) {
+                    painter.line_segment([a, b], Stroke::new(3.0, Color32::from_black_alpha(140)));
+                    painter.line_segment([a, b], Stroke::new(1.6, ACCENT));
+                }
+            } else if let Some(hit) = state.session.pick(&camera, to_screen(p)) {
+                state.highlight_slot = Some(hit.material_slot);
+                ui.ctx().request_repaint();
+            }
+        }
         let target = state.session.selected_layer().map(|l| l.name.clone());
         let mut what = crate::panels::shelf::drop_label(item, mods.alt, target.as_deref().filter(|_| mods.alt), false);
         if (mods.command || mods.ctrl) && !mods.alt && !matches!(item, crate::panels::shelf::ShelfDrag::Alpha(_) | crate::panels::shelf::ShelfDrag::SmartMask(_)) {
@@ -1119,6 +1166,27 @@ fn draw_axis_indicator(painter: &egui::Painter, centre: Pos2, view: glam::Mat4) 
         painter.line_segment([centre, tip], Stroke::new(2.0, color));
         painter.circle_filled(tip, 7.0, color);
         painter.text(tip, egui::Align2::CENTER_CENTER, ["X", "Y", "Z"][i], egui::FontId::proportional(9.5), Color32::from_gray(20));
+    }
+}
+
+/// Half length of the crosshair cursor's arms, in points.
+pub const CROSSHAIR_ARM: f32 = 8.0;
+
+/// The brush cursor at `at`: the outline circle of radius `r` or a crosshair (Painter's cursor
+/// display). `strong` adds a dark underlay so the cursor reads on any surface.
+fn brush_mark(painter: &egui::Painter, at: Pos2, r: f32, color: Color32, style: crate::viewport_bar::BrushCursor, strong: bool) {
+    let mut strokes = Vec::new();
+    if strong { strokes.push(Stroke::new(1.5, Color32::from_black_alpha(160))); }
+    strokes.push(Stroke::new(1.0, color));
+    for s in strokes {
+        match style {
+            crate::viewport_bar::BrushCursor::Outline => { painter.circle_stroke(at, r, s); }
+            crate::viewport_bar::BrushCursor::Crosshair => {
+                let (h, v) = (egui::vec2(CROSSHAIR_ARM, 0.0), egui::vec2(0.0, CROSSHAIR_ARM));
+                painter.line_segment([at - h, at + h], s);
+                painter.line_segment([at - v, at + v], s);
+            }
+        }
     }
 }
 

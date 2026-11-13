@@ -214,6 +214,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     if fill_properties(ui, &mut proj) {
                         cmds.push(Command::SetFillProjection { layer: id, projection: proj });
                     }
+                    if proj.mode == ProjectionMode::Warp {
+                        crate::warp_view::settings_ui(ui, &mut state.warp);
+                    }
                 }
                 block_header(ui, tr("Material"));
                 {
@@ -892,10 +895,7 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
             match &mut eff.kind {
                 MaskEffectKind::Anchor => {
                     prop_row(ui, tr("Name"), |ui| {
-                        let mut name = eff.name.clone();
-                        let r = ui.text_edit_singleline(&mut name);
-                        if r.lost_focus() && !name.trim().is_empty() && name.trim() != eff.name {
-                            eff.name = name.trim().to_string();
+                        if anchor_name_field(ui, eff.id, &mut eff.name) {
                             changed = true;
                         }
                     });
@@ -1523,6 +1523,54 @@ pub(crate) fn projection_options(ui: &mut Ui, proj: &mut Projection) -> bool {
     changed
 }
 
+/// Warp projection: grid size (while no point was moved, as in Painter), the split tools and
+/// a reset. The points themselves are edited in the 3D view.
+pub(crate) fn warp_rows(ui: &mut Ui, proj: &mut Projection) -> bool {
+    use subcraft_doc::{MAX_WARP_SIDE, WarpGrid};
+    if proj.mode != ProjectionMode::Warp {
+        return false;
+    }
+    let axis = proj.planar_axis.min(2);
+    let mut grid = proj.warp_grid();
+    let before = grid;
+    let max = (MAX_WARP_SIDE - 1) as u8;
+    let flat = grid.is_flat(axis);
+    prop_row(ui, "Grid", |ui| {
+        let (mut cols, mut rows) = (grid.cols(), grid.rows());
+        ui.add_enabled_ui(flat, |ui| {
+            let c = ui.add(egui::DragValue::new(&mut cols).range(1..=max).prefix("columns ")).on_disabled_hover_text("Fixed once a point was moved or the grid was split; Reset grid to change it");
+            let r = ui.add(egui::DragValue::new(&mut rows).range(1..=max).prefix("rows "));
+            if c.changed() || r.changed() {
+                grid = WarpGrid::planar(axis, cols, rows);
+            }
+        });
+    });
+    prop_row(ui, "Split", |ui| {
+        let (mid_c, mid_r) = (grid.cols() as usize / 2, grid.rows() as usize / 2);
+        if ui.small_button("Crosswise").on_hover_text("A row and a column through the middle cells").clicked() {
+            grid.split_column(mid_c);
+            grid.split_row(mid_r);
+        }
+        if ui.small_button("Horizontally").on_hover_text("A row through the middle cells").clicked() {
+            grid.split_row(mid_r);
+        }
+        if ui.small_button("Vertically").on_hover_text("A column through the middle cells").clicked() {
+            grid.split_column(mid_c);
+        }
+    });
+    let mut changed = false;
+    if grid != before {
+        proj.warp = Some(grid);
+        changed = true;
+    }
+    if proj.warp.is_some() && ui.small_button("Reset grid").on_hover_text("Back to the flat grid of the planar projection").clicked() {
+        proj.warp = None;
+        changed = true;
+    }
+    ui.label(RichText::new("Drag the grid points in the 3D view · Shift+V: Transform warp / Edit vertices").small().color(TEXT_DIM));
+    changed
+}
+
 /// Cylindrical projection: the Angle row (how much of the perimeter one tile covers).
 fn wrapped_projection_rows(ui: &mut Ui, proj: &mut Projection) -> bool {
     if proj.mode != ProjectionMode::Cylindrical {
@@ -1598,8 +1646,9 @@ pub(crate) fn fill_properties(ui: &mut Ui, proj: &mut Projection) -> bool {
     let mut changed = false;
     changed |= dropdown_row(ui, "projection", tr("Projection"), &mut proj.mode,
         &[(ProjectionMode::Uv, "UV projection"), (ProjectionMode::Triplanar, "Tri-planar projection"), (ProjectionMode::Planar, "Planar projection"),
-            (ProjectionMode::Spherical, "Spherical projection"), (ProjectionMode::Cylindrical, "Cylindrical projection")], true, "");
+            (ProjectionMode::Spherical, "Spherical projection"), (ProjectionMode::Cylindrical, "Cylindrical projection"), (ProjectionMode::Warp, "Warp projection")], true, "");
     changed |= projection_options(ui, proj);
+    changed |= warp_rows(ui, proj);
     if proj.mode == ProjectionMode::Triplanar {
         changed |= hardness_row(ui, proj);
     }
@@ -1648,7 +1697,7 @@ pub(crate) fn fill_properties(ui: &mut Ui, proj: &mut Projection) -> bool {
                 changed |= ui.add(egui::Slider::new(&mut proj.offset[1], -1.0..=1.0).clamping(egui::SliderClamping::Never).max_decimals(3)).changed();
             });
         }
-        if matches!(proj.mode, ProjectionMode::Planar | ProjectionMode::Spherical | ProjectionMode::Cylindrical) {
+        if matches!(proj.mode, ProjectionMode::Planar | ProjectionMode::Spherical | ProjectionMode::Cylindrical | ProjectionMode::Warp) {
             prop_row(ui, tr("Axis"), |ui| { changed |= segmented(ui, &mut proj.planar_axis, &[(0u8, "X"), (1, "Y"), (2, "Z")]); });
         }
         let default = reset_transform(proj);
@@ -1698,7 +1747,7 @@ pub(crate) fn material_buttons(ui: &mut Ui, states: &[(ChannelKind, bool)], adda
 pub(crate) fn projection_editor(ui: &mut Ui, proj: &mut Projection) -> bool {
     let mut changed = false;
     prop_row(ui, tr("Mode"), |ui| {
-        changed |= segmented(ui, &mut proj.mode, &[(ProjectionMode::Uv, "UV"), (ProjectionMode::Triplanar, "Tri-planar"), (ProjectionMode::Planar, "Planar"), (ProjectionMode::Spherical, "Sphere"), (ProjectionMode::Cylindrical, "Cylinder")]);
+        changed |= segmented(ui, &mut proj.mode, &[(ProjectionMode::Uv, "UV"), (ProjectionMode::Triplanar, "Tri-planar"), (ProjectionMode::Planar, "Planar"), (ProjectionMode::Spherical, "Sphere"), (ProjectionMode::Cylindrical, "Cylinder"), (ProjectionMode::Warp, "Warp")]);
     });
     // Tiling: X and Y linked by default (lock), separate when unlocked. The lock is UI state,
     // remembered per editor; it starts unlocked if the two values already differ.
@@ -1742,7 +1791,7 @@ pub(crate) fn projection_editor(ui: &mut Ui, proj: &mut Projection) -> bool {
     if proj.mode == ProjectionMode::Triplanar {
         changed |= hardness_row(ui, proj);
     }
-    if matches!(proj.mode, ProjectionMode::Planar | ProjectionMode::Spherical | ProjectionMode::Cylindrical) {
+    if matches!(proj.mode, ProjectionMode::Planar | ProjectionMode::Spherical | ProjectionMode::Cylindrical | ProjectionMode::Warp) {
         prop_row(ui, tr("Axis"), |ui| {
             changed |= segmented(ui, &mut proj.planar_axis, &[(0u8, "X"), (1, "Y"), (2, "Z")]);
         });
@@ -1848,3 +1897,50 @@ mod generator_tests {
     }
 }
 
+/// The Name field of a mask anchor point. The text being typed lives in egui memory while the
+/// field has focus: rebuilt from the effect every frame, each typed character was gone by the next
+/// frame and the anchor could not be renamed at all. True when a new name was committed.
+pub(crate) fn anchor_name_field(ui: &mut Ui, id: subcraft_core::EffectId, name: &mut String) -> bool {
+    let buffer = egui::Id::new(("mask_anchor_name", id));
+    let mut text: String = ui.data(|d| d.get_temp(buffer)).unwrap_or_else(|| name.clone());
+    let r = ui.text_edit_singleline(&mut text);
+    if r.has_focus() { ui.data_mut(|d| d.insert_temp(buffer, text.clone())); } else { ui.data_mut(|d| d.remove_temp::<String>(buffer)); }
+    if r.lost_focus() && !text.trim().is_empty() && text.trim() != name.as_str() {
+        *name = text.trim().to_string();
+        return true;
+    }
+    false
+}
+
+#[cfg(test)]
+mod anchor_name_tests {
+    use super::*;
+
+    /// QA 2026-11: typing in a mask anchor's Name field did nothing.
+    #[test]
+    fn typing_a_name_and_pressing_enter_renames_the_anchor() {
+        let ctx = egui::Context::default();
+        let id = subcraft_core::EffectId::new();
+        let mut name = String::from("Anchor 1");
+        let mut renamed = false;
+        let frame = |events: Vec<egui::Event>, name: &mut String, renamed: &mut bool| {
+            let mut out = ctx.run_ui(egui::RawInput { events, screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 200.0))), ..Default::default() }, |ui| {
+                *renamed |= anchor_name_field(ui, id, name);
+            });
+            out.textures_delta.clear();
+        };
+        frame(vec![], &mut name, &mut renamed);
+        let at = egui::pos2(30.0, 12.0);
+        let press = |pressed| egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+        frame(vec![egui::Event::PointerMoved(at), press(true)], &mut name, &mut renamed);
+        frame(vec![press(false)], &mut name, &mut renamed);
+        frame(vec![egui::Event::Text(" edges".into())], &mut name, &mut renamed);
+        frame(vec![], &mut name, &mut renamed);
+        assert!(!renamed, "nothing is committed while typing");
+        frame(vec![egui::Event::Key { key: egui::Key::Enter, physical_key: None, pressed: true, repeat: false, modifiers: Default::default() }], &mut name, &mut renamed);
+        frame(vec![], &mut name, &mut renamed);
+        assert!(renamed, "Enter commits the typed name");
+        // The text lands where the click put the cursor, so only its presence is checked.
+        assert!(name.contains("edges") && name.len() == "Anchor 1 edges".len(), "{name:?}");
+    }
+}
