@@ -213,21 +213,24 @@ fn bilinear(bmp: &Bitmap, p: [f32; 2], repeat: [bool; 2], linearize: bool) -> [f
 #[inline]
 pub fn projection_covers(projection: &Projection, sc: (f32, f32), uv: [f32; 2], pos: [f32; 3]) -> bool {
     const EPS: f32 = 1e-4;
-    if projection.crops_to_shape() && !pos.iter().all(|c| (-EPS..=1.0 + EPS).contains(c)) {
+    // The position in the projection box's frame (symmetry, then the 3D transform).
+    let local = projection.local(pos, [0.0; 3]).0;
+    // The box is the bounding cube until it is moved, turned or scaled; then the crop follows
+    // the box (and the symmetric copies with it).
+    let shape = if projection.effective_transform3().is_identity() { pos } else { local };
+    if projection.crops_to_shape() && !shape.iter().all(|c| (-EPS..=1.0 + EPS).contains(c)) {
         return false;
     }
+    let pos = local;
     match projection.mode {
         ProjectionMode::Uv => projection.uv_wrap.covers(projection.transform_2d_sc(sc, uv)),
         ProjectionMode::Planar => {
-            let pos = projection.effective_symmetry().fold(pos, [0.0; 3]).0;
             projection.uv_wrap.covers(projection.transform_2d_sc(sc, planar_coords(pos, projection.planar_axis)))
         }
         ProjectionMode::Spherical | ProjectionMode::Cylindrical => {
-            let pos = projection.effective_symmetry().fold(pos, [0.0; 3]).0;
             projection.uv_wrap.covers(projection.transform_2d_sc(sc, projection.wrapped_coords(pos)))
         }
         ProjectionMode::Warp => {
-            let pos = projection.effective_symmetry().fold(pos, [0.0; 3]).0;
             let (q, inside) = projection.warp_coords(pos);
             inside && projection.uv_wrap.covers(projection.transform_2d_sc(sc, q))
         }

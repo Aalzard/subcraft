@@ -49,7 +49,7 @@ Layout notes: left to right a Painter row has the visibility eye, the content th
 | Right-click opacity > Apply to all channels | Layer row, opacity | n/a | done | crates/ui/src/panels/layers.rs:547 | - |
 | Folder disclosure arrow (open/close group) | Folder row | open | done | crates/ui/src/panels/layers.rs:286 | - |
 | Folder closes when moved in or out of another folder (fixed in recent versions: state kept) | Folder row | state kept | done | crates/app/src/layer_tree.rs:17 | - |
-| Instance icon (none / source / target; click opens the instance list) | Layer row, right | hidden when not instanced | partial: instances show "Instance" under their name; sources are not marked and there is no instance list | crates/ui/src/panels/layers.rs:967 | - |
+| Instance icon (none / source / target; click opens the instance list) | Layer row, right | hidden when not instanced | partial: text under the name ("Instance", "Source of N instances"); no click-to-list | crates/ui/src/panels/layers.rs:980 | - |
 | Geometry mask icon (click to edit, shows count of included items) | Layer row, far right | all geometry included | done: polygon icon with included/total, click to pick parts in the 3D / 2D view, right-click menu | crates/ui/src/panels/layers.rs | - |
 | Gamma-corrected alpha "i" icon | Layer row | off | missing | - | - |
 | Layer colour stripe (from Set color) | Layer row | none | done (at the right edge of the row; dimmed inside a tagged folder) | crates/ui/src/panels/layers.rs:559 | - |
@@ -63,7 +63,7 @@ Layout notes: left to right a Painter row has the visibility eye, the content th
 | Paint layer (brush, particles, polygon fill, smudge, clone) | Layer stack | n/a | done | crates/doc/src/layer.rs:157 | - |
 | Fill layer (material / per-channel sources with projection) | Layer stack | n/a | done | crates/ui/src/panels/properties.rs:193 | - |
 | Folder / group (holds layers, can carry a mask and geometry mask) | Layer stack | n/a | done | crates/ui/src/panels/layers.rs:284 | - |
-| Instance layer (read-only copy driven by a source layer) | Layer stack | n/a | partial: inside one texture set | crates/doc/src/instance.rs:161 | - |
+| Instance layer (read-only copy driven by a source layer) | Layer stack | n/a | done | crates/doc/src/instance.rs:243 | - |
 | Every layer is multi-channel (one blend mode and opacity per channel) | Layer stack | n/a | done | crates/app/src/command.rs:102 | - |
 | Painting writes to all enabled tool channels whatever the view-mode channel is | Layer stack | n/a | done | crates/app/src/command.rs:109 | - |
 
@@ -162,7 +162,7 @@ Layout notes: these are Painter's non-editable shortcuts; copy/paste only fire w
 | Copy layer content (painting and effects) | Layer stack | Ctrl+Shift+C | done | crates/ui/src/clipboard.rs:140 | - |
 | Paste layer content | Layer stack | Ctrl+Shift+V | done | crates/app/src/session.rs:1561 | - |
 | Paste as instance | Layer stack | Ctrl+Shift+V (per instancing page) | partial: menu entry only (Ctrl+Shift+V is Paste layer content) | crates/ui/src/panels/layers.rs:710 | - |
-| Instantiate across texture sets | Layer stack | Ctrl+Shift+D (2017.4 release notes) | missing | - | - |
+| Instantiate across texture sets | Layer stack | Ctrl+Shift+D (2017.4 release notes) | partial: menu entry, no shortcut | crates/ui/src/panels/layers.rs:1020 | - |
 | Merge / flatten the selected group | Layer stack | Ctrl+M | done | crates/ui/src/panels/layers.rs:797 | - |
 | Display mask in viewport | Mask thumbnail | Alt + left click | done | crates/ui/src/panels/layers.rs:481 | - |
 | Disable / enable mask | Mask thumbnail | Shift + left click | done | crates/ui/src/panels/layers.rs:308 | - |
@@ -193,10 +193,10 @@ Layout notes: Painter's menu is, top to bottom: effect entries (with icons), mas
 | Cut layer(s) | Layer context menu | Ctrl+X | done | crates/ui/src/panels/layers.rs:493 | - |
 | Copy layer(s) | Layer context menu | Ctrl+C | done | crates/ui/src/panels/layers.rs:490 | - |
 | Paste layer(s) | Layer context menu | Ctrl+V | done | crates/ui/src/panels/layers.rs:496 | - |
-| Paste as instance | Layer context menu | Ctrl+Shift+V | done (inside one texture set) | crates/ui/src/panels/layers.rs:710 | - |
+| Paste as instance | Layer context menu | Ctrl+Shift+V | done | crates/ui/src/panels/layers.rs:717 | - |
 | Duplicate layer(s) | Layer context menu | Ctrl+D | done | crates/ui/src/panels/layers.rs:499 | - |
 | Remove layer(s) | Layer context menu | Delete (unverified label) | done | crates/ui/src/panels/layers.rs:507 | - |
-| Instantiate across texture sets | Layer context menu | Ctrl+Shift+D | missing | - | - |
+| Instantiate across texture sets | Layer context menu | Ctrl+Shift+D | done | crates/ui/src/panels/layers.rs:1020 | - |
 | Group layer(s) | Layer context menu | Ctrl+G | done | crates/ui/src/panels/layers.rs:659 | - |
 | Merge / flatten group | Layer context menu | Ctrl+M | done | crates/ui/src/panels/layers.rs:677 | - |
 | Export flattened group to files | Layer context menu | n/a | done | crates/ui/src/panels/layers.rs:680 | - |
@@ -238,13 +238,13 @@ Layout notes: colours are set from the context menu. A layer without its own col
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Paste as instance (copy a layer, paste a linked instance) | Layer context menu / Ctrl+Shift+V | n/a | partial: inside one texture set; menu entry, no shortcut | crates/app/src/session.rs:1644 | - |
-| Instantiate across texture sets dialog (checkbox per texture set, OK) | Layer context menu | all unchecked (unverified) | missing | - | - |
-| Channel mismatch warning (exclamation mark next to a texture set in the dialog) | Instantiate dialog | n/a | missing | - | - |
+| Paste as instance (copy a layer, paste a linked instance) | Layer context menu / Ctrl+Shift+V | n/a | partial: menu entry, no shortcut | crates/app/src/session.rs:1695 | - |
+| Instantiate across texture sets dialog (checkbox per texture set, OK) | Layer context menu | all unchecked (unverified) | done (instances go on top of each ticked set) | crates/ui/src/panels/layers.rs:1020 | - |
+| Channel mismatch warning (exclamation mark next to a texture set in the dialog) | Instantiate dialog | n/a | done | crates/app/src/session.rs:1079 | - |
 | Instance of a folder (layers added to the source appear in every instance) | Layer stack | n/a | done | crates/doc/src/instance.rs:130 | - |
 | Only the source layer is editable; instances are read-only | Layer stack | n/a | done (name, visibility, blending, colour tag and geometry mask stay the instance's own) | crates/app/src/session.rs:1102 | - |
-| Paint strokes exist only in the source's texture set | Layer stack | n/a | missing | - | - |
-| Instance icon states: non-instanced, source, target | Layer row | n/a | partial: instances are labelled, sources are not | crates/ui/src/panels/layers.rs:967 | - |
+| Paint strokes exist only in the source's texture set | Layer stack | n/a | done (pen paths and text carry over) | crates/doc/src/instance.rs:63 | - |
+| Instance icon states: non-instanced, source, target | Layer row | n/a | partial: text under the name for instances and sources, no icon | crates/ui/src/panels/layers.rs:980 | - |
 | Instance properties button: Properties shows the source and all instances as a list | Layer row > Properties | n/a | missing | - | - |
 | Click a list entry to jump to that layer (switches texture set) | Properties > instance list | n/a | missing | - | - |
 | Instanced layers default to Passthrough blending | Layer stack | Passthrough | missing | - | - |
@@ -281,30 +281,30 @@ Layout notes: the geometry mask is a second, list-based mask on every layer and 
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Geometry mask on every layer and folder | Layer row icon | everything included | partial: "Parts" on a layer, edited in Properties | crates/app/src/command.rs:133 | - |
-| Icon state: nothing excluded | Layer row icon | default | missing | - | - |
-| Icon state: mesh names excluded (shows number still included) | Layer row icon | n/a | partial: text "Visible on N of M parts" in Properties | crates/ui/src/panels/properties.rs:113 | - |
+| Geometry mask on every layer and folder | Layer row icon | everything included | done: polygon icon on every layer row | crates/ui/src/panels/layers.rs | - |
+| Icon state: nothing excluded | Layer row icon | default | done: dim icon | crates/ui/src/panels/layers.rs | - |
+| Icon state: mesh names excluded (shows number still included) | Layer row icon | n/a | done: included / total beside the icon | crates/ui/src/panels/layers.rs | - |
 | Icon state: UV tiles excluded (shows number still included) | Layer row icon | n/a | missing | - | - |
-| Icon state: nothing included (layer has no effect) | Layer row icon | n/a | missing | - | - |
-| Click the icon to enter geometry-mask editing | Layer row icon | n/a | partial: "Pick parts in the 3D view" button | crates/ui/src/panels/properties.rs:105 | - |
-| Leave editing by clicking the content or mask thumbnail (folder thumbnail for folders) | Layer row | n/a | partial: "Done picking" button | crates/ui/src/panels/properties.rs:105 | - |
+| Icon state: nothing included (layer has no effect) | Layer row icon | n/a | done: red 0 / total | crates/ui/src/panels/layers.rs | - |
+| Click the icon to enter geometry-mask editing | Layer row icon | n/a | done | crates/ui/src/panels/layers.rs | - |
+| Leave editing by clicking the content or mask thumbnail (folder thumbnail for folders) | Layer row | n/a | done; also Done in the geometry mask bar, Esc, or the icon again | crates/ui/src/panels/layers.rs | - |
 | Masking type dropdown: UV Tiles | Properties > Geometry mask | disabled when the project has no UV tiles | missing | - | - |
-| Masking type dropdown: Mesh names | Properties > Geometry mask | Mesh names | partial: part kind comes from the Parts panel (objects, connected pieces, UV islands) | crates/ui/src/panels/parts.rs:51 | - |
+| Masking type dropdown: Mesh names | Properties > Geometry mask | Mesh names | done: geometry mask bar of the views (connected pieces, UV islands, objects, material IDs) | crates/ui/src/panels/parts.rs | - |
 | Count of included items over total | Properties > Geometry mask | n/a | done | crates/ui/src/panels/properties.rs:113 | - |
 | Selection menu: all | Properties > Geometry mask | n/a | done | crates/ui/src/panels/properties.rs:118 | - |
 | Selection menu: none | Properties > Geometry mask | n/a | done | crates/ui/src/panels/properties.rs:121 | - |
 | Selection menu: invert | Properties > Geometry mask | n/a | done | crates/ui/src/panels/properties.rs:124 | - |
 | Checkbox list of mesh names / UV tiles | Properties > Geometry mask | all checked | done | crates/ui/src/panels/properties.rs:129 | - |
-| Click and drag over checkboxes to toggle several | Properties > Geometry mask | n/a | missing | - | - |
-| Alt + click a row to isolate it | Properties > Geometry mask | n/a | missing | - | - |
-| Hovering a list row highlights that geometry in the viewports | Properties > Geometry mask | n/a | missing | - | - |
-| Click geometry in the 3D or 2D view to toggle it | Viewport (edit mode) | n/a | partial: 3D view picking only | crates/ui/src/panels/properties.rs:105 | - |
-| Rectangle selection in both viewports | Viewport (edit mode) | n/a | missing | - | - |
-| Excluded geometry drawn grey with diagonal lines while editing | Viewport (edit mode) | n/a | missing | - | - |
+| Click and drag over checkboxes to toggle several | Properties > Geometry mask | n/a | done | crates/ui/src/panels/properties.rs | - |
+| Alt + click a row to isolate it | Properties > Geometry mask | n/a | done | crates/ui/src/panels/properties.rs | - |
+| Hovering a list row highlights that geometry in the viewports | Properties > Geometry mask | n/a | partial: highlighted in the 2D view only | crates/ui/src/panels/uv_view.rs | - |
+| Click geometry in the 3D or 2D view to toggle it | Viewport (edit mode) | n/a | done | crates/ui/src/panels/uv_view.rs | - |
+| Rectangle selection in both viewports | Viewport (edit mode) | n/a | done: drag adds, Ctrl+drag removes | crates/ui/src/panels/uv_view.rs | - |
+| Excluded geometry drawn grey with diagonal lines while editing | Viewport (edit mode) | n/a | partial: 2D view only; the 3D view hides it with Alt+H | crates/ui/src/panels/uv_view.rs | - |
 | Right-click icon > Copy geometry mask | Layer row icon menu | n/a | done | crates/ui/src/panels/layers.rs | - |
 | Right-click icon > Paste into geometry mask | Layer row icon menu | n/a | done | crates/ui/src/panels/layers.rs | - |
-| Right-click icon > Include all | Layer row icon menu | n/a | partial: "All" button in Properties | crates/ui/src/panels/properties.rs:118 | - |
-| Right-click icon > Exclude all | Layer row icon menu | n/a | partial: "None" button in Properties | crates/ui/src/panels/properties.rs:121 | - |
+| Right-click icon > Include all | Layer row icon menu | n/a | done | crates/ui/src/panels/layers.rs | - |
+| Right-click icon > Exclude all | Layer row icon menu | n/a | done | crates/ui/src/panels/layers.rs | - |
 | Hide/ignore excluded geometry button (paint through hidden parts) | Viewport contextual toolbar | off; Alt+H | done: hides what the selected layer's geometry mask leaves out and follows the selection | crates/ui/src/viewport_bar.rs | - |
 | Mask is dynamic: strokes are recomputed when the include list changes | Engine | n/a | partial: the part mask multiplies the layer result; strokes are not reprojected | crates/doc/src/layer.rs:134 | - |
 | Survives mesh re-import by name / tile number | Engine | n/a | partial: part ids are stable for a stored mesh only | crates/doc/src/layer.rs:137 | - |

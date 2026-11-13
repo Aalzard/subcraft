@@ -122,36 +122,36 @@ Layout notes: the names below are the channel types Painter offers (from the col
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
 | Ambient occlusion | Add channel | data | done | crates/core/src/channel.rs:17 | - |
-| Anisotropy angle | Add channel | data | missing | - | - |
-| Anisotropy level | Add channel | data | missing | - | - |
+| Anisotropy angle | Add channel | data | done: in Add channel > Unsupported channels; painted, stored and exported, not read by the viewport shader | crates/core/src/channel.rs (ChannelKind::EXTENDED) | - |
+| Anisotropy level | Add channel | data | done: in Add channel > Unsupported channels; painted, stored and exported, not read by the viewport shader | crates/core/src/channel.rs (ChannelKind::EXTENDED) | - |
 | Base color | Add channel | colour managed | done | crates/core/src/channel.rs:12 | - |
-| Blending mask | Add channel | data | missing | - | - |
-| Coat color | Add channel | colour managed | missing | - | - |
-| Coat normal | Add channel | data | missing | - | - |
-| Coat opacity | Add channel | data | missing | - | - |
-| Coat roughness | Add channel | data | missing | - | - |
-| Coat specular level | Add channel | data | missing | - | - |
-| Diffuse | Add channel | colour managed | missing | - | - |
-| Displacement | Add channel | data | missing | - | - |
+| Blending mask | Add channel | data | done: in Add channel > Unsupported channels; painted, stored and exported, not read by the viewport shader | crates/core/src/channel.rs (ChannelKind::EXTENDED) | - |
+| Coat color | Add channel | colour managed | done: in Add channel > Unsupported channels; painted, stored and exported, not read by the viewport shader | crates/core/src/channel.rs (ChannelKind::EXTENDED) | - |
+| Coat normal | Add channel | data | done: in Add channel > Unsupported channels; painted, stored and exported, not read by the viewport shader | crates/core/src/channel.rs (ChannelKind::EXTENDED) | - |
+| Coat opacity | Add channel | data | done: in Add channel > Unsupported channels; painted, stored and exported, not read by the viewport shader | crates/core/src/channel.rs (ChannelKind::EXTENDED) | - |
+| Coat roughness | Add channel | data | done: in Add channel > Unsupported channels; painted, stored and exported, not read by the viewport shader | crates/core/src/channel.rs (ChannelKind::EXTENDED) | - |
+| Coat specular level | Add channel | data | done: in Add channel > Unsupported channels; painted, stored and exported, not read by the viewport shader | crates/core/src/channel.rs (ChannelKind::EXTENDED) | - |
+| Diffuse | Add channel | colour managed | done: in Add channel > Unsupported channels; painted, stored and exported, not read by the viewport shader | crates/core/src/channel.rs (ChannelKind::EXTENDED) | - |
+| Displacement | Add channel | data | done: in Add channel > Unsupported channels; painted, stored and exported, not read by the viewport shader | crates/core/src/channel.rs (ChannelKind::EXTENDED) | - |
 | Emissive | Add channel | (unverified) | done | crates/core/src/channel.rs:18 | - |
-| Glossiness | Add channel | data | missing | - | - |
+| Glossiness | Add channel | data | done: in Add channel > Unsupported channels; painted, stored and exported, not read by the viewport shader | crates/core/src/channel.rs (ChannelKind::EXTENDED) | - |
 | Height | Add channel | data | done | crates/core/src/channel.rs:13 | - |
-| Ior | Add channel | data | missing | - | - |
+| Ior | Add channel | data | done: in Add channel > Unsupported channels; painted, stored and exported, not read by the viewport shader | crates/core/src/channel.rs (ChannelKind::EXTENDED) | - |
 | Metallic | Add channel | data | done | crates/core/src/channel.rs:15 | - |
 | Normal | Add channel | data | done | crates/core/src/channel.rs:16 | - |
 | Opacity | Add channel | data | done | crates/core/src/channel.rs:19 | - |
-| Reflection | Add channel | data | missing | - | - |
+| Reflection | Add channel | data | done: in Add channel > Unsupported channels; painted, stored and exported, not read by the viewport shader | crates/core/src/channel.rs (ChannelKind::EXTENDED) | - |
 | Roughness | Add channel | data | done | crates/core/src/channel.rs:14 | - |
-| Scattering | Add channel | data | missing | - | - |
-| Scattering color | Add channel | colour managed | missing | - | - |
-| Sheen color | Add channel | colour managed | missing | - | - |
-| Sheen opacity | Add channel | data | missing | - | - |
-| Sheen roughness | Add channel | data | missing | - | - |
-| Specular (colour) | Add channel | colour managed | missing | - | - |
-| Specular edge color | Add channel | colour managed | missing | - | - |
+| Scattering | Add channel | data | done: in Add channel > Unsupported channels; painted, stored and exported, not read by the viewport shader | crates/core/src/channel.rs (ChannelKind::EXTENDED) | - |
+| Scattering color | Add channel | colour managed | done: in Add channel > Unsupported channels; painted, stored and exported, not read by the viewport shader | crates/core/src/channel.rs (ChannelKind::EXTENDED) | - |
+| Sheen color | Add channel | colour managed | done: in Add channel > Unsupported channels; painted, stored and exported, not read by the viewport shader | crates/core/src/channel.rs (ChannelKind::EXTENDED) | - |
+| Sheen opacity | Add channel | data | done: in Add channel > Unsupported channels; painted, stored and exported, not read by the viewport shader | crates/core/src/channel.rs (ChannelKind::EXTENDED) | - |
+| Sheen roughness | Add channel | data | done: in Add channel > Unsupported channels; painted, stored and exported, not read by the viewport shader | crates/core/src/channel.rs (ChannelKind::EXTENDED) | - |
+| Specular (colour) | Add channel | colour managed | done: in Add channel > Unsupported channels; painted, stored and exported, not read by the viewport shader | crates/core/src/channel.rs (ChannelKind::EXTENDED) | - |
+| Specular edge color | Add channel | colour managed | done: in Add channel > Unsupported channels; painted, stored and exported, not read by the viewport shader | crates/core/src/channel.rs (ChannelKind::EXTENDED) | - |
 | Specular level | Add channel | data | done | crates/core/src/channel.rs:20 | - |
-| Translucency | Add channel | data | missing | - | - |
-| Transmissive | Add channel | colour managed | missing | - | - |
+| Translucency | Add channel | data | done: in Add channel > Unsupported channels; painted, stored and exported, not read by the viewport shader | crates/core/src/channel.rs (ChannelKind::EXTENDED) | - |
+| Transmissive | Add channel | colour managed | done: in Add channel > Unsupported channels; painted, stored and exported, not read by the viewport shader | crates/core/src/channel.rs (ChannelKind::EXTENDED) | - |
 | User0 to User15 (16 user channels) | Add channel > User channels | data unless Color channel is ticked | done | crates/core/src/channel.rs (ChannelKind::USER) | - |
 
 ## Texture Set Settings: mixing settings

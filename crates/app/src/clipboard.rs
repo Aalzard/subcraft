@@ -131,9 +131,35 @@ impl LayerClip {
                 }
             }
         }
-        subcraft_doc::duplicate_layers_with_new_ids(&self.layers)
+        // An instance follows a source in its own texture set only. Pasted into another set it
+        // kept the link, and the next sync replaced its resampled rasters with the source's, at
+        // the other set's resolution and channels (QA 2026-11): it becomes a plain copy.
+        // A source pasted together with its instance counts: the copied instance follows it.
+        fn unlink_foreign(l: &mut Layer, ts: &TextureSet, pasted: &std::collections::HashSet<subcraft_core::LayerId>) {
+            if l.instance_of.is_some_and(|s| ts.find(s).is_none() && !pasted.contains(&s)) {
+                l.instance_of = None;
+            }
+            if let Some(c) = l.children_mut() {
+                for c in c.iter_mut() {
+                    unlink_foreign(Arc::make_mut(c), ts, pasted);
+                }
+            }
+        }
+        fn ids(l: &Layer, out: &mut std::collections::HashSet<subcraft_core::LayerId>) {
+            out.insert(l.id);
+            for c in l.children() {
+                ids(c, out);
+            }
+        }
+        let copies = subcraft_doc::duplicate_layers_with_new_ids(&self.layers);
+        let mut pasted = std::collections::HashSet::new();
+        for l in &copies {
+            ids(l, &mut pasted);
+        }
+        copies
             .into_iter()
             .map(|mut l| {
+                unlink_foreign(&mut l, ts, &pasted);
                 if self.resolution != ts.resolution {
                     let r = ts.resolution;
                     l.map_rasters(&|img| img.resampled(r, r));

@@ -61,7 +61,7 @@ Layout notes: Painter lists editable shortcuts in Settings > Shortcuts as one lo
 | Invert grayscale tool | Settings > Shortcuts | X | partial: Painter key set only (X is symmetry in the SubCraft set) | crates/app/src/actions.rs (Action::InvertMaskGray) | #164 |
 | Pick stroke material | Settings > Shortcuts | P | partial: only in the Substance Painter key set; default set has no key (P is Pen paths) | crates/app/src/actions.rs:204 | - |
 | Lazy Mouse | Settings > Shortcuts | D | done | crates/app/src/actions.rs:208 | - |
-| Hide/ignore excluded geometry | Settings > Shortcuts | Alt+H | missing | - | - |
+| Hide/ignore excluded geometry | Settings > Shortcuts | Alt+H | done | crates/app/src/actions.rs | - |
 | Reload mesh | Settings > Shortcuts | Ctrl+Shift+R (release notes) | missing | - | - |
 | Break tangent (path) | Settings > Shortcuts | unassigned (release notes) | missing | - | - |
 | Show/hide viewport visualization (baking mode) | Settings > Shortcuts | unassigned (release notes) | missing | - | - |
@@ -195,7 +195,7 @@ Layout notes: these act only while the pointer is over the layer stack.
 | Path: scale both tangents together | Viewport, Path tool | Ctrl | missing | - | - |
 | Path: select all points | Viewport, Path tool | Ctrl+A (release notes) | missing | - | - |
 | Path: delete selected path or point | Paths panel / viewport | Delete | partial: Delete removes the selected anchor only | crates/ui/src/pen.rs:60 | - |
-| Path: rename | Paths panel | Double-click | missing | - | - |
+| Path: rename | Paths panel | Double-click | done: double-click in the Paths panel | crates/ui/src/paths_panel.rs | - |
 | Path: copy / paste / duplicate | Paths panel | Ctrl+C / Ctrl+V / Ctrl+D | missing | - | - |
 | Hardness shortcut drives a Substance brush "hardness" parameter | Paint tool | Ctrl+Mouse right vertical | missing | - | - |
 

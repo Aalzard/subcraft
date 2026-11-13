@@ -236,13 +236,12 @@ pub(crate) fn output_path(mesh_name: &str, set: &ExportTextureSet, suffix: &str,
 }
 
 /// The file format a map is written in: the export-wide override, except that a map with an
-/// alpha component (four components, or gray + alpha) keeps its own format when the override is
-/// JPEG. JPEG has no alpha channel, so the override used to drop it (Unity's smoothness in a mask
-/// map, the alpha of a gray + alpha map) without a word.
+/// alpha component (four components, or gray + alpha) keeps its own format when the override has
+/// no alpha (JPEG, HDR, the Netpbm formats). The override used to drop it (Unity's smoothness in
+/// a mask map, the alpha of a gray + alpha map) without a word.
 pub(crate) fn output_format(map: &OutputMap, settings: &ExportSettings) -> FileFormat {
     match settings.format_override {
-        // Radiance HDR stores RGB only as well.
-        Some(f @ (FileFormat::Jpeg | FileFormat::Hdr32)) if matches!(map.components.len(), 2 | 4) && map.format != f => map.format,
+        Some(f) if !f.has_alpha() && matches!(map.components.len(), 2 | 4) && map.format != f => map.format,
         Some(format) => format,
         None => map.format,
     }
@@ -429,8 +428,11 @@ impl<'a> Dense<'a> {
                 }).collect()
             }
             Converted::MixedAo => {
-                // The AO channel alone (not the baked fallback `channel` uses), times the bake.
-                let painted = self.set.channels.contains_key(&AmbientOcclusion).then(|| self.channel(AmbientOcclusion).clone());
+                // The AO channel alone, times the bake. Read directly: `channel` falls back to the
+                // bake and, with AO mixing Multiply (the default), already multiplies by it, so
+                // the bake was applied twice (QA 2026-11).
+                let size = self.size;
+                let painted = self.set.channels.get(&AmbientOcclusion).map(|img| dense_at(img, size));
                 let baked = self.set.mesh_maps.is_some_and(|m| m.contains_key(&MeshMapKind::AmbientOcclusion)).then(|| self.mesh_map(MeshMapKind::AmbientOcclusion).clone());
                 (0..n).map(|i| painted.as_ref().map_or(1.0, |(ac, a)| a[i * ac]) * baked.as_ref().map_or(1.0, |(bc, b)| b[i * bc])).collect()
             }

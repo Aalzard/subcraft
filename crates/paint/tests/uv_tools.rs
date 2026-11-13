@@ -221,6 +221,22 @@ fn uv_smudge_with_symmetry_carries_each_sides_own_paint() {
     assert!(here[0] > 0.9 && here[2] < 0.05, "and this side its red: {here:?}");
 }
 
+/// QA 2026-11: the smudge's carried colours were sized by the copies that landed in each
+/// segment, so a copy dropped on the mirror plane reset the carried paint mid-stroke. The count
+/// is the number of symmetry copies, whatever lands.
+#[test]
+fn uv_smudge_carries_paint_for_every_symmetry_copy_even_when_one_is_dropped() {
+    let sc = Scene::new();
+    let options = StrokeOptions { symmetry: [true, false, false], ..StrokeOptions::default() };
+    assert_eq!(subcraft_paint::stroke::uv_copy_count(&options), 2);
+    assert_eq!(subcraft_paint::stroke::uv_copy_count(&StrokeOptions::default()), 1);
+    let cam = uv_camera();
+    let ctx = PaintContext { mesh: &sc.mesh, bvh: &sc.bvh, geometry: &sc.geo, camera: &cam, depth: &sc.depth };
+    // Outside every island the copy is dropped; the count stays.
+    assert!(uv_symmetry_copies(&ctx, &options, Vec2::new(-1.0, -1.0)).is_empty());
+    assert_eq!(subcraft_paint::stroke::uv_copy_count(&options), 2);
+}
+
 #[test]
 fn without_symmetry_there_are_no_uv_copies() {
     let sc = Scene::new();
