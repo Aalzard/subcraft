@@ -97,7 +97,7 @@ fn hdr_keeps_packed_maps_in_their_own_format_and_remaps_signed_height() {
     }
     let mut low = ch.clone();
     low.insert(ChannelKind::Height, TiledImage::new(RES, RES, 1, [-0.5; 4]));
-    let set = ExportTextureSet { name: "S", material_slot: 0, udim: None, channels: &low, mesh_maps: None };
+    let set = ExportTextureSet { name: "S", material_slot: 0, udim: None, channels: &low, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY };
     let map = OutputMap::new("H", FileFormat::Hdr32, vec![Source::Height], false);
     let value = |format| {
         let mut dense = Dense { set: &set, size: RES, cache: HashMap::new(), normal: None, view: None, mesh_maps: HashMap::new(), alpha: None };
