@@ -2103,7 +2103,7 @@ impl egui_dock::TabViewer for Viewer<'_> {
             Tab::Viewport => crate::edit_profile::time_tab("  tab 3D", || crate::viewport::show(self.state, ui)),
             Tab::UvView => crate::edit_profile::time_tab("  tab 2D", || panels::uv_view::show(self.state, ui)),
             Tab::Layers => crate::edit_profile::time_tab("  tab Layers", || panels::layers::show(self.state, ui)),
-            Tab::Properties => crate::edit_profile::time_tab("  tab Properties", || panels::properties::show(self.state, ui)),
+            Tab::Properties => crate::edit_profile::time_tab("  tab Properties", || panels::properties::show_docked(self.state, ui)),
             Tab::Brush => crate::edit_profile::time_tab("  tab Brush", || panels::brush::show(self.state, ui)),
             Tab::TextureSetList => crate::edit_profile::time_tab("  tab Texture set list", || panels::texture_sets::list(self.state, ui)),
             Tab::TextureSetSettings => crate::edit_profile::time_tab("  tab Texture set settings", || panels::texture_sets::settings(self.state, ui)),
