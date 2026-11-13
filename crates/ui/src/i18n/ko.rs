@@ -816,4 +816,5 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Hide while painting", "칠하는 동안 숨기기"),
     ("Mirror planes", "미러 평면"),
     ("Each active mirror plane as a translucent sheet in its axis colour", "활성화된 각 미러 평면을 축 색상의 반투명 면으로 표시합니다"),
+    ("Shown in the popup over the view (Esc closes it)", "뷰 위의 팝업에 표시됨 (Esc로 닫기)"),
 ];

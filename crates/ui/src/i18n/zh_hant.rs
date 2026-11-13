@@ -816,4 +816,5 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Hide while painting", "繪製時隱藏"),
     ("Mirror planes", "鏡像平面"),
     ("Each active mirror plane as a translucent sheet in its axis colour", "以座標軸顏色將每個啟用的鏡像平面顯示為半透明平面"),
+    ("Shown in the popup over the view (Esc closes it)", "顯示於視圖上方的彈出視窗中 (按 Esc 關閉)"),
 ];

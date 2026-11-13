@@ -31,6 +31,19 @@ pub fn shows_brush(state: &UiState) -> bool {
     state.brush_pinned || paint_content || paints_effect
 }
 
+/// The docked Properties tab. While the right-click popup over a view shows the same content, it
+/// shows a note instead: drawing the widgets twice in one frame gave them the same ids, so both
+/// copies took a click (QA 2026-11: a pen-pressure toggle clicked in the popup was flipped back
+/// by the panel, and nothing changed).
+pub fn show_docked(state: &mut UiState, ui: &mut Ui) {
+    if state.view_props.is_some() {
+        ui.add_space(8.0);
+        ui.label(RichText::new(tr("Shown in the popup over the view (Esc closes it)")).color(TEXT_DIM));
+        return;
+    }
+    show(state, ui);
+}
+
 pub fn show(state: &mut UiState, ui: &mut Ui) {
     if shows_brush(state) {
         super::brush::show(state, ui);
