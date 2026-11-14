@@ -186,6 +186,27 @@ fn image_saves_must_be_png_files() {
     assert!(crate::tools::png_path(std::path::Path::new("a/.png")).is_err());
 }
 
+/// QA 2026-11: text styles were lost or ignored: `bold` alone replaced a system font with DejaVu
+/// Sans Bold, `bold: false` could not un-bold, `italic` alone did nothing, and a style a bundled
+/// family lacks was dropped silently.
+#[test]
+fn text_bold_and_italic_keep_the_family_and_say_when_they_cannot() {
+    let mut server = Server::new();
+    sample(&mut server);
+    let t = ok(&mut server, "text_add", json!({ "text": "Hi", "texture_set": "Body", "name": "T", "bold": true }));
+    assert_eq!(t["font"], json!({ "bundled": "DejaVu Sans Bold" }), "{t}");
+    let t = ok(&mut server, "text_update", json!({ "layer": "T", "texture_set": "Body", "bold": false }));
+    assert_eq!(t["font"], json!({ "bundled": "DejaVu Sans" }), "bold: false un-bolds: {t}");
+    let e = fails(&mut server, "text_update", json!({ "layer": "T", "texture_set": "Body", "italic": true }));
+    assert!(e.contains("italic"), "{e}");
+    let e = fails(&mut server, "text_update", json!({ "layer": "T", "texture_set": "Body", "font": "DejaVu Serif", "bold": true }));
+    assert!(e.contains("no bold"), "{e}");
+    let t = ok(&mut server, "text_update", json!({ "layer": "T", "texture_set": "Body", "font": "Some Family", "italic": true }));
+    assert_eq!(t["font"], json!({ "system": "Some Family", "bold": false, "italic": true }), "{t}");
+    let t = ok(&mut server, "text_update", json!({ "layer": "T", "texture_set": "Body", "bold": true }));
+    assert_eq!(t["font"], json!({ "system": "Some Family", "bold": true, "italic": true }), "the family and italic stay: {t}");
+}
+
 /// QA 2026-11: layer_add / fill_set added the channels a fill spec named to the texture set
 /// before reading the spec, so a bad spec failed with those channels (and their undo steps) left
 /// behind.
