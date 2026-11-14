@@ -160,6 +160,38 @@ fn bake_overlay_follows_the_visualization_settings() {
 }
 
 #[test]
+fn neutral_material_replaces_the_painted_channels_and_reads_the_baked_ao() {
+    let _gpu = gpu_test();
+    use subcraft_core::MeshMapKind;
+    let Some((_, device, queue)) = headless::device() else { eprintln!("no adapter: skipping"); return };
+    let low = primitives::cube(2.);
+    let mut renderer = ViewportRenderer::new(&device, &queue);
+    renderer.set_mesh(&device, &low);
+    renderer.upload_channel(&device, &queue, 0, ChannelKind::BaseColor, &solid(4, [0.8, 0.05, 0.05, 1.]), None);
+    let mut p = params(); p.antialias = false;
+    let at = |renderer: &mut ViewportRenderer, p: &ViewParams| { let img = renderer.render(&device, &queue, [SIZE, SIZE], p).read_rgba8(&device, &queue); px(&img, SIZE / 2, SIZE / 2) };
+    let painted = at(&mut renderer, &p);
+    assert!(painted[0] > painted[1] * 2, "the painted red: {painted:?}");
+    p.bake_vis.neutral_material = true;
+    let neutral = at(&mut renderer, &p);
+    let spread = neutral[0].max(neutral[1]).max(neutral[2]) - neutral[0].min(neutral[1]).min(neutral[2]);
+    assert!(spread < 24, "neutral gray, not the painted red: {neutral:?}");
+    // The colour is a setting.
+    p.bake_vis.neutral_color = [0.1, 0.1, 0.8];
+    let blue = at(&mut renderer, &p);
+    assert!(blue[2] > blue[0] * 2, "{blue:?}");
+    // A baked ambient occlusion map darkens it; the overlay and raw map views are unaffected.
+    p.bake_vis.neutral_color = [0.5, 0.5, 0.5];
+    let open = at(&mut renderer, &p);
+    renderer.upload_mesh_map(&device, &queue, 0, MeshMapKind::AmbientOcclusion, &solid(1, [0.0; 4]));
+    let occluded = at(&mut renderer, &p);
+    let sum = |c: [u8; 4]| c[0] as u32 + c[1] as u32 + c[2] as u32;
+    assert!(sum(occluded) < sum(open), "baked AO darkens: {open:?} -> {occluded:?}");
+    p.bake_vis.neutral_material = false;
+    assert_eq!(at(&mut renderer, &p), painted, "off: the painted material again");
+}
+
+#[test]
 fn bake_overlay_high_poly_follows_the_placement_transform_and_opacity() {
     let _gpu = gpu_test();
     let Some((_, device, queue)) = headless::device() else { eprintln!("no adapter: skipping"); return };

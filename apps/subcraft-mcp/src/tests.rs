@@ -104,7 +104,9 @@ fn unknown_arguments_are_reported_with_the_valid_names() {
 fn annotations_mark_writing_tools_destructive() {
     let defs = crate::tools::definitions();
     let ann = |n: &str| defs.iter().find(|d| d["name"] == n).unwrap()["annotations"].clone();
-    for n in ["project_save", "export_textures", "export_scene", "layer_delete", "save_to_library", "open_in_app"] {
+    // render_preview and render_texture write a PNG when given save_path (QA 2026-11: they were
+    // marked read-only).
+    for n in ["project_save", "export_textures", "export_scene", "layer_delete", "save_to_library", "open_in_app", "render_preview", "render_texture"] {
         assert_eq!(ann(n)["destructiveHint"], json!(true), "{n}");
         assert_eq!(ann(n)["readOnlyHint"], json!(false), "{n}");
     }
@@ -285,4 +287,17 @@ fn strokes_to_far_points_are_refused_without_painting_anything() {
     let e = fails(&mut server, "paint_stroke", json!({ "layer": "P", "texture_set": "Body", "strokes": [[[0.4, 0.5], [0.6, 0.5]], [[0.4, 0.6], [9.0, 0.6]]] }));
     assert!(e.contains("out of range"), "{e}");
     assert_eq!(ok(&mut server, "history", json!({}))["entries"].as_array().unwrap().len(), steps, "nothing was painted");
+}
+
+/// QA 2026-11: pen_path's `width` was both the line width and, in space view, the width of the
+/// rendered image: a line width of 0.01 was refused as an image size.
+#[test]
+fn a_view_space_pen_path_takes_its_image_size_apart_from_its_line_width() {
+    let mut server = Server::new();
+    sample(&mut server);
+    let picked = ok(&mut server, "pick", json!({ "width": 512, "height": 512, "points": [[256, 256]] }));
+    assert_eq!(picked["points"][0]["hit"], json!(true), "{picked}");
+    let path = ok(&mut server, "pen_path", json!({ "space": "view", "view_width": 512, "height": 512, "width": 0.01, "points": [[250, 256], [262, 256]] }));
+    let width = path["path"]["width"].as_f64().unwrap();
+    assert!((width - 0.01).abs() < 1e-6, "the line width asked for: {path}");
 }

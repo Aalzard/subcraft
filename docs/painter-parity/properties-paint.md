@@ -76,7 +76,7 @@ Layout notes: one slider per row, label above. Size, Flow and the jitters carry 
 | Size Space: Object | Properties > Brush > Size Space | default | done | crates/paint/src/settings.rs (BrushSettings::radius_in) | - |
 | Size Space: Viewport | Properties > Brush > Size Space | option | partial: 3D view only; the 2D view uses the object size | crates/paint/src/stroke.rs (Stroke::base_radius) | - |
 | Size Space: Texture | Properties > Brush > Size Space | option | done | crates/paint/src/stroke.rs (Stroke::base_radius) | - |
-| Continue the previous stroke (A) so stroke opacity keeps accumulating | Viewport, described with Stroke Opacity | n/a | missing | - | - |
+| Continue the previous stroke (A) so stroke opacity keeps accumulating | Viewport, described with Stroke Opacity | n/a | done: hold A when a stroke starts (3D or 2D view); continues only when nothing changed since the last stroke; still its own undo step | crates/app/src/session.rs (set_continue_stroke); crates/ui/src/viewport.rs | - |
 
 ## Alpha
 

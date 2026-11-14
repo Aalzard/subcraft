@@ -191,33 +191,33 @@ Layout notes: Filtering, UV Wrap, then the UV transformations group (Scale mode,
 
 ## 3D projections: contextual toolbar and manipulator
 
-Layout notes: applies to Tri-planar, Planar, Spherical, Cylindrical and Warp. The manipulator exists only in the 3D view. SubCraft has no projection manipulator (crates/app/src/actions.rs:307-315 lists every manipulator shortcut as unsupported).
+Layout notes: applies to Tri-planar, Planar, Spherical, Cylindrical and Warp. The manipulator exists only in the 3D view. SubCraft has a manipulator for the 3D Offset / Rotation / Scale of tri-planar, planar, spherical and cylindrical fill layers (crates/ui/src/projection_gizmo.rs); its tool and settings are in Properties, and it has no keyboard shortcuts.
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Show/Hide manipulator | Contextual toolbar | not documented | missing | - | - |
-| Manipulator settings: Manipulator size | Contextual toolbar > settings | not documented | missing | - | - |
-| Manipulator settings: Grid steps (translate / scale snapping step) | Contextual toolbar > settings | not documented | missing | - | - |
-| Manipulator settings: Angle steps (rotate snapping step) | Contextual toolbar > settings | not documented | missing | - | - |
-| Translation manipulator | Contextual toolbar | n/a | missing | - | - |
-| Rotation manipulator | Contextual toolbar | n/a | missing | - | - |
-| Scale manipulator | Contextual toolbar | n/a | missing | - | - |
+| Show/Hide manipulator | Contextual toolbar | not documented | done: Show checkbox in Properties (no contextual toolbar, no Q shortcut) | crates/ui/src/projection_gizmo.rs:67 | chunk 9 (part 3) |
+| Manipulator settings: Manipulator size | Contextual toolbar > settings | not documented | done: 0.5..2 in Properties | crates/ui/src/projection_gizmo.rs:67 | chunk 9 (part 3) |
+| Manipulator settings: Grid steps (translate / scale snapping step) | Contextual toolbar > settings | not documented | done: default 0.05 | crates/ui/src/projection_gizmo.rs:67 | chunk 9 (part 3) |
+| Manipulator settings: Angle steps (rotate snapping step) | Contextual toolbar > settings | not documented | done: default 15 degrees | crates/ui/src/projection_gizmo.rs:67 | chunk 9 (part 3) |
+| Translation manipulator | Contextual toolbar | n/a | done: Move, picked in Properties (no W shortcut: W is a tool key) | crates/ui/src/projection_gizmo.rs:67 | chunk 9 (part 3) |
+| Rotation manipulator | Contextual toolbar | n/a | done: picked in Properties (no E shortcut: E is the Eraser) | crates/ui/src/projection_gizmo.rs:67 | chunk 9 (part 3) |
+| Scale manipulator | Contextual toolbar | n/a | done: picked in Properties (no R shortcut) | crates/ui/src/projection_gizmo.rs:67 | chunk 9 (part 3) |
 | Surface manipulator (Planar and Warp only) | Contextual toolbar | n/a | missing | - | - |
-| Manipulator space: Local space | Contextual toolbar | not documented | missing | - | - |
+| Manipulator space: Local space | Contextual toolbar | not documented | done: the handles always follow the projection box (local space) | crates/ui/src/projection_gizmo.rs:239 | chunk 9 (part 3) |
 | Manipulator space: World space | Contextual toolbar | not documented | missing | - | - |
 | Mirror on X | Contextual toolbar | n/a | missing | - | - |
 | Mirror on Y | Contextual toolbar | n/a | missing | - | - |
 | Mirror on Z | Contextual toolbar | n/a | missing | - | - |
-| Reset transformation | Contextual toolbar | n/a | partial: Properties button resets tiling, offset and rotation | crates/ui/src/panels/properties.rs:1017 | - |
-| Translate on one axis: drag an axis arrow | 3D view manipulator | n/a | missing | - | - |
+| Reset transformation | Contextual toolbar | n/a | partial: Properties buttons reset the UV tiling / offset / rotation and, separately, the 3D transform | crates/ui/src/panels/properties.rs:1017 | - |
+| Translate on one axis: drag an axis arrow | 3D view manipulator | n/a | done: axis handles (round ends, not arrows) | crates/ui/src/projection_gizmo.rs:239 | chunk 9 (part 3) |
 | Translate on a plane: drag a two-axis handle | 3D view manipulator | n/a | missing | - | - |
-| Translate in camera plane: drag the centre handle | 3D view manipulator | n/a | missing | - | - |
-| Translate in steps: Shift+drag | 3D view manipulator | n/a | missing | - | - |
-| Rotate around one axis: drag a ring | 3D view manipulator | n/a | missing | - | - |
+| Translate in camera plane: drag the centre handle | 3D view manipulator | n/a | done | crates/ui/src/projection_gizmo.rs:239 | chunk 9 (part 3) |
+| Translate in steps: Shift+drag | 3D view manipulator | n/a | done | crates/ui/src/projection_gizmo.rs:239 | chunk 9 (part 3) |
+| Rotate around one axis: drag a ring | 3D view manipulator | n/a | done | crates/ui/src/projection_gizmo.rs:239 | chunk 9 (part 3) |
 | Free rotate: drag between the rings | 3D view manipulator | n/a | missing | - | - |
-| Rotate in steps: Shift+drag | 3D view manipulator | n/a | missing | - | - |
-| Scale along one axis: drag an axis handle | 3D view manipulator | n/a | missing | - | - |
-| Scale in steps: Shift+drag | 3D view manipulator | n/a | missing | - | - |
+| Rotate in steps: Shift+drag | 3D view manipulator | n/a | done | crates/ui/src/projection_gizmo.rs:239 | chunk 9 (part 3) |
+| Scale along one axis: drag an axis handle | 3D view manipulator | n/a | done; the centre handle scales all three | crates/ui/src/projection_gizmo.rs:239 | chunk 9 (part 3) |
+| Scale in steps: Shift+drag | 3D view manipulator | n/a | done | crates/ui/src/projection_gizmo.rs:239 | chunk 9 (part 3) |
 | Surface: drag the manipulator over the mesh to snap the projection onto it | 3D view manipulator | n/a | missing | - | - |
 
 ## Symmetry on fill projections
