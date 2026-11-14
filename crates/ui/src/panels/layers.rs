@@ -928,7 +928,12 @@ Files: {}", ex.dir().display()));
     }
     // A Shelf item released between effect rows becomes an effect there; the layer row under
     // it must not take the drop as well.
-    if let Some(drop) = ui.ctx().data_mut(|d| d.remove_temp::<super::effects::ShelfEffectDrop>(super::effects::shelf_drop_request_id())) {
+    if let Some(drop) = ui.ctx().data_mut(|d| {
+        let id = super::effects::shelf_drop_request_id();
+        let drop = d.get_temp::<super::effects::ShelfEffectDrop>(id);
+        d.remove::<super::effects::ShelfEffectDrop>(id);
+        drop
+    }) {
         drop_request = None;
         egui::DragAndDrop::clear_payload(ui.ctx());
         shelf::apply_effect_drop(state, drop, now);
