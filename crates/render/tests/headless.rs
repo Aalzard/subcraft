@@ -660,3 +660,31 @@ fn oversized_viewport_is_clamped_to_the_device_limit_instead_of_panicking() {
     let target = r.render(&device, &queue, [0, 0], &params());
     assert_eq!(target.size, [1, 1]);
 }
+
+#[test]
+fn the_channel_preview_scales_hdr_values_and_colors_their_sign() {
+    let _gpu = gpu_test();
+    let Some((_, device, queue)) = headless::device() else {
+        eprintln!("no wgpu adapter available: skipping");
+        return;
+    };
+    use subcraft_render::{ChannelDisplay, PreviewSource};
+    let mut r = ViewportRenderer::new(&device, &queue);
+    r.set_mesh(&device, &primitives::cube(2.0));
+    let near = |a: u8, v: f32| (a as f32 - v * 255.0).abs() <= 3.0;
+    // A height of 2: clipped to white as it is, mid gray with a scale of 4.
+    r.upload_channel(&device, &queue, 0, ChannelKind::Height, &TiledImage::new(64, 64, 1, [2.0; 4]), None);
+    let plain = r.preview_display(&device, &queue, 0, PreviewSource::Channel(ChannelKind::Height), &ChannelDisplay::default()).unwrap().read_rgba8(&device, &queue);
+    assert!(near(plain[0], 1.0), "{:?}", &plain[..4]);
+    let scaled = r.preview_display(&device, &queue, 0, PreviewSource::Channel(ChannelKind::Height), &ChannelDisplay { hdr_scale: 4.0, ..Default::default() }).unwrap().read_rgba8(&device, &queue);
+    assert!(near(scaled[0], 0.5) && scaled[0] == scaled[1] && scaled[1] == scaled[2], "{:?}", &scaled[..4]);
+    // A height of -0.5 in the negative color at half strength, and black without sign colors.
+    r.upload_channel(&device, &queue, 0, ChannelKind::Height, &TiledImage::new(64, 64, 1, [-0.5; 4]), None);
+    let unsigned = r.preview_display(&device, &queue, 0, PreviewSource::Channel(ChannelKind::Height), &ChannelDisplay::default()).unwrap().read_rgba8(&device, &queue);
+    assert!(near(unsigned[0], 0.0), "{:?}", &unsigned[..4]);
+    let d = ChannelDisplay { signed_colors: true, ..Default::default() };
+    let signed = r.preview_display(&device, &queue, 0, PreviewSource::Channel(ChannelKind::Height), &d).unwrap().read_rgba8(&device, &queue);
+    let want = d.negative.map(|c| c * 0.5);
+    assert!(near(signed[0], want[0]) && near(signed[1], want[1]) && near(signed[2], want[2]), "{:?} vs {want:?}", &signed[..4]);
+}
+

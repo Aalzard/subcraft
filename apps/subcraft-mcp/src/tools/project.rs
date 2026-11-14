@@ -86,13 +86,23 @@ fn opened(server: &mut Server, session: Session, warnings: Vec<String>) -> Res<R
     Ok(Reply::json(info))
 }
 
+/// The `resolution` argument, refused unless it is one SubCraft offers. project_new used to drop
+/// an unsupported value silently (the sample kept 1024, a model snapped to the nearest size).
+fn resolution_arg(args: &Args) -> Res<Option<u32>> {
+    match args.u32("resolution")? {
+        Some(r) if !subcraft_doc::RESOLUTIONS.contains(&r) => Err(format!("resolution must be one of {:?}", subcraft_doc::RESOLUTIONS)),
+        r => Ok(r),
+    }
+}
+
 pub fn new(server: &mut Server, args: &Args) -> Res<Reply> {
     guard_unsaved(server, args)?;
     let raw = args.req_str("model_path")?;
+    let resolution = resolution_arg(args)?;
     if raw.trim().eq_ignore_ascii_case("sample") {
         let mut session = Session::sample();
-        if let Some(r) = args.u32("resolution")? {
-            let _ = exec(&mut session, Command::SetResolution { texture_set: None, resolution: r });
+        if let Some(r) = resolution {
+            exec(&mut session, Command::SetResolution { texture_set: None, resolution: r })?;
         }
         return opened(server, session, vec!["SubCraft's built-in sample crate".into()]);
     }
@@ -101,7 +111,7 @@ pub fn new(server: &mut Server, args: &Args) -> Res<Reply> {
     if let Some(t) = args.str("template")? {
         settings.apply_template(enum_from::<ProjectTemplate>("template", t, &names(&ProjectTemplate::ALL))?);
     }
-    if let Some(r) = args.u32("resolution")? {
+    if let Some(r) = resolution {
         settings.resolution = r;
     }
     if let Some(s) = args.str("split")? {
@@ -181,31 +191,39 @@ pub fn info(server: &mut Server) -> Res<Reply> {
 pub fn texture_set_update(server: &mut Server, args: &Args) -> Res<Reply> {
     let session = server.session()?;
     let ts = server::texture_set(session, args.str("texture_set")?)?;
-    exec(session, Command::SelectTextureSet(ts))?;
-    if let Some(name) = args.str("name")? {
-        exec(session, Command::RenameTextureSet { texture_set: ts, name: name.to_string() })?;
-    }
-    if let Some(r) = args.u32("resolution")? {
-        if !subcraft_doc::RESOLUTIONS.contains(&r) {
+    // Read every argument before changing anything: a bad resolution or channel name used to
+    // fail after the rename (and any earlier change) had already been made.
+    let name = args.str("name")?;
+    let resolution = args.u32("resolution")?;
+    if let Some(r) = resolution
+        && !subcraft_doc::RESOLUTIONS.contains(&r) {
             return Err(format!("resolution must be one of {:?}", subcraft_doc::RESOLUTIONS));
         }
-        let all = args.bool("all_texture_sets")?.unwrap_or(false);
+    let all = args.bool("all_texture_sets")?.unwrap_or(false);
+    let add = args.strings("add_channels")?.map(|chs| chs.iter().map(|c| channel(c)).collect::<Res<Vec<_>>>()).transpose()?;
+    let remove = args.strings("remove_channels")?.map(|chs| chs.iter().map(|c| channel(c)).collect::<Res<Vec<_>>>()).transpose()?;
+    for &kind in remove.iter().flatten() {
+        if !server::ts_ref(session, ts)?.has_channel(kind) && !add.iter().flatten().any(|&k| k == kind) {
+            return Err(format!("the texture set has no {} channel", kind.display_name()));
+        }
+    }
+    let hidden = args.bool("hidden")?;
+    exec(session, Command::SelectTextureSet(ts))?;
+    if let Some(name) = name {
+        exec(session, Command::RenameTextureSet { texture_set: ts, name: name.to_string() })?;
+    }
+    if let Some(r) = resolution {
         exec(session, Command::SetResolution { texture_set: (!all).then_some(ts), resolution: r })?;
     }
-    if let Some(chs) = args.strings("add_channels")? {
-        let kinds = chs.iter().map(|c| channel(c)).collect::<Res<Vec<_>>>()?;
+    if let Some(kinds) = add {
         exec(session, Command::AddChannels { texture_set: ts, kinds })?;
     }
-    if let Some(chs) = args.strings("remove_channels")? {
-        for c in chs {
-            let kind = channel(c)?;
-            if !server::ts_ref(session, ts)?.has_channel(kind) {
-                return Err(format!("the texture set has no {} channel", kind.display_name()));
-            }
+    for kind in remove.into_iter().flatten() {
+        if server::ts_ref(session, ts)?.has_channel(kind) {
             exec(session, Command::RemoveChannel { texture_set: ts, kind })?;
         }
     }
-    if let Some(h) = args.bool("hidden")? {
+    if let Some(h) = hidden {
         exec(session, Command::SetTextureSetHidden { texture_set: ts, hidden: h })?;
     }
     let t = server::ts_ref(session, ts)?;

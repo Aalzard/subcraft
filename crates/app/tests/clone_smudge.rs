@@ -156,6 +156,39 @@ fn camera_projection_maps_the_image_from_the_view_not_through_the_uvs() {
     assert!((ua[0] - ub[0]).abs() < 0.05 && (ua[2] - ub[2]).abs() < 0.05, "UV mode ignores the view: {ua:?} {ub:?}");
 }
 
+/// The Projection tool paints exactly like the material's own "Project from the view" with
+/// tiling, without changing the brush material's settings.
+#[test]
+fn the_projection_tool_casts_the_material_from_the_view() {
+    let paint = |tool: bool| {
+        let mut s = session();
+        s.brush.settings.size = 45.0;
+        s.set_brush_channel_bitmap(K::BaseColor, "split", Bitmap::new_u8(2, 1, 3, vec![255, 0, 0, 0, 0, 255])).unwrap();
+        if tool {
+            s.brush.projection = true;
+            s.brush.material.camera_projection = false;
+            s.brush.material.texture_tiling = false;
+        } else {
+            s.brush.material.camera_projection = true;
+            s.brush.material.texture_tiling = true;
+        }
+        let cam = camera(Vec3::X);
+        let line: Vec<(f32, f32)> = (0..=24).map(|i| (-0.6, -0.9 + 0.075 * i as f32)).collect();
+        stroke(&mut s, &cam, &line);
+        if tool {
+            assert!(!s.brush.material.camera_projection && !s.brush.material.texture_tiling, "the material's own settings are left alone");
+        }
+        raster(&s, K::BaseColor)
+    };
+    let (with_tool, with_material) = (paint(true), paint(false));
+    for z in [-0.85f32, -0.6, -0.3, 0.0, 0.3, 0.6, 0.85] {
+        for x in [-0.7f32, -0.6, -0.5] {
+            let (a, b) = (at(&with_tool, x, z), at(&with_material, x, z));
+            assert!(a.iter().zip(b.iter()).all(|(p, q)| (p - q).abs() < 1e-6), "({x}, {z}): {a:?} vs {b:?}");
+        }
+    }
+}
+
 /// Smudge a painted red strip rightwards with the given settings; returns the BaseColor raster.
 fn smudged(tweak: impl FnOnce(&mut Session)) -> TiledImage {
     let mut s = session();

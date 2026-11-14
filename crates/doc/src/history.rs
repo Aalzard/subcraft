@@ -25,6 +25,8 @@ pub struct History {
     cursor: usize,
     max_entries: usize,
     sealed: bool,
+    /// New entries recorded so far (merged edits and trimming do not change it).
+    pushes: u64,
 }
 
 impl History {
@@ -34,6 +36,7 @@ impl History {
             cursor: 0,
             max_entries: 200,
             sealed: true,
+            pushes: 0,
         }
     }
 
@@ -93,7 +96,34 @@ impl History {
         self.entries.push(HistoryEntry { label: label.into(), doc, time: Instant::now(), merge_key: merge_key.clone() });
         self.cursor = self.entries.len() - 1;
         self.sealed = merge_key.is_none();
+        self.pushes += 1;
         self.trim();
+    }
+
+    /// How many new entries have been recorded; with [`History::squash_last`], groups the
+    /// steps of one compound action.
+    pub fn pushes(&self) -> u64 {
+        self.pushes
+    }
+
+    /// Fold the last `n` entries into one (the last state, labelled after the first), so one
+    /// compound action undoes in one step. Only at the end of the history, and never into the
+    /// first entry; returns whether anything was folded.
+    pub fn squash_last(&mut self, n: usize) -> bool {
+        let n = n.min(self.cursor);
+        if n < 2 || self.cursor + 1 != self.entries.len() {
+            return false;
+        }
+        let start = self.entries.len() - n;
+        let first = self.entries[start].label.clone();
+        let mut last = self.entries.pop().expect("n >= 2 entries");
+        self.entries.truncate(start);
+        last.label = if n == 2 { format!("{first} + {}", last.label) } else { format!("{first} + {} more", n - 1) };
+        last.merge_key = None;
+        self.entries.push(last);
+        self.cursor = self.entries.len() - 1;
+        self.sealed = true;
+        true
     }
 
     /// End a coalescing gesture; the next push always creates a new entry.
@@ -194,4 +224,33 @@ mod tests {
         assert_eq!(h.entries().len(), 3);
         assert_eq!(h.current().texture_sets[0].layers.len(), 9);
     }
+
+    /// QA 2026-11: one MCP call (a fill with a new channel, a texture set update) left several
+    /// undo steps; they fold into one.
+    #[test]
+    fn the_last_steps_fold_into_one() {
+        let doc = |n: u32| {
+            let mut d = Document::default();
+            d.texture_sets.push(TextureSet::new(format!("s{n}"), n, 128));
+            d
+        };
+        let mut h = History::new(doc(0), "Start");
+        h.push("A", doc(1));
+        let before = h.pushes();
+        h.push("Add Channel", doc(2));
+        h.push("New Fill Layer", doc(3));
+        h.push("Rename", doc(4));
+        assert_eq!(h.pushes() - before, 3);
+        assert!(h.squash_last(3));
+        assert_eq!(h.entries().len(), 3);
+        assert_eq!(h.undo_label(), Some("Add Channel + 2 more"));
+        let name = |d: &Document| d.texture_sets[0].name.clone();
+        assert_eq!(name(h.current()), "s4");
+        assert_eq!(name(h.undo().unwrap()), "s1", "one undo goes back past the whole group");
+        h.redo();
+        assert!(!h.squash_last(1), "a single step stays as it is");
+        assert!(!h.squash_last(10) || h.entries()[0].label == "Start", "the first entry is never folded");
+        assert_eq!(h.entries()[0].label, "Start");
+    }
+
 }

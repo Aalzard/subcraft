@@ -22,6 +22,8 @@ pub enum Tool {
     Clone,
     /// Drags the paint under the brush along the stroke.
     Smudge,
+    /// Painter's Projection tool: paints the brush material cast from the view, tiled over it.
+    Projection,
 }
 
 impl Tool {
@@ -29,7 +31,7 @@ impl Tool {
     pub fn preset_tool(self) -> Option<subcraft_app::brush_preset::PresetTool> {
         use subcraft_app::brush_preset::PresetTool as P;
         match self {
-            Tool::Brush => Some(P::Paint),
+            Tool::Brush | Tool::Projection => Some(P::Paint),
             Tool::Eraser => Some(P::Eraser),
             Tool::Smudge => Some(P::Smudge),
             Tool::Clone => Some(P::Clone),
