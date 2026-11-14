@@ -301,3 +301,17 @@ fn a_view_space_pen_path_takes_its_image_size_apart_from_its_line_width() {
     let width = path["path"]["width"].as_f64().unwrap();
     assert!((width - 0.01).abs() < 1e-6, "the line width asked for: {path}");
 }
+
+/// QA 2026-11: brush_set applied size, options and colours before reading `mode` and `tip`, so a
+/// bad mode or tip failed with half the brush changed.
+#[test]
+fn a_bad_brush_set_changes_nothing() {
+    let mut server = Server::new();
+    sample(&mut server);
+    let before = ok(&mut server, "brush_set", json!({}))["brush"].clone();
+    fails(&mut server, "brush_set", json!({ "size": 0.37, "channels": { "base_color": [1.0, 0.0, 0.0] }, "mode": "no-such-mode" }));
+    fails(&mut server, "brush_set", json!({ "size": 0.37, "symmetry": "x", "tip": "no-such-tip" }));
+    assert_eq!(ok(&mut server, "brush_set", json!({}))["brush"], before, "the brush is as it was");
+    let after = ok(&mut server, "brush_set", json!({ "size": 0.37 }))["brush"].clone();
+    assert_ne!(after, before, "a good call still changes it");
+}
