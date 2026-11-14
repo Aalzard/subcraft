@@ -903,11 +903,11 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         if (mods.command || mods.ctrl) && !mods.alt && !matches!(item, crate::panels::shelf::ShelfDrag::Alpha(_) | crate::panels::shelf::ShelfDrag::SmartMask(_)) {
             what.push_str(", only on the part under the cursor");
         }
-        pill(&painter, rect.center_top() + egui::vec2(0.0, 14.0), egui::Align2::CENTER_TOP, &format!("Release to: {what}"), theme::TEXT());
+        pill(&painter, rect.center_top() + egui::vec2(0.0, 14.0), egui::Align2::CENTER_TOP, &format!("Release to: {what}"), theme::OVERLAY_TEXT);
     }
     // Painter's mask view: say what is shown and how to get back; Esc goes back too.
     if let Some(text) = crate::mask_view::label(state) {
-        pill(&painter, rect.center_top() + egui::vec2(0.0, 40.0), egui::Align2::CENTER_TOP, &text, theme::TEXT());
+        pill(&painter, rect.center_top() + egui::vec2(0.0, 40.0), egui::Align2::CENTER_TOP, &text, theme::OVERLAY_TEXT);
         if response.hovered() && ui.input(|i| i.key_pressed(egui::Key::Escape)) { state.mask_view = None; }
     }
     let bake_hint = state.bake.displayed_map.map(|k| format!("Bake preview · {} · close Bake Mesh Maps to return to material", k.display_name()));
@@ -918,7 +918,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     } else { String::new() };
     let mut hint_plate = None;
     if bake_mode {
-        pill(&painter, rect.left_bottom() + egui::vec2(10.0, -10.0), egui::Align2::LEFT_BOTTOM, &hint, theme::TEXT_FAINT());
+        pill(&painter, rect.left_bottom() + egui::vec2(10.0, -10.0), egui::Align2::LEFT_BOTTOM, &hint, theme::OVERLAY_TEXT_FAINT);
     } else if state.recovery.prefs.viewport.hints {
         let c = crate::viewport_hints::HintContext {
             tool: state.tool,
@@ -939,7 +939,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     // The grid's unit, bottom left while the grid is on: just above the hints when they show.
     let grid_on = state.recovery.prefs.viewport.grid;
     if !bake_mode && grid_on && let Some(step) = subcraft_render::grid_step(state.session.scene().mesh.bounds) {
-        pill(&painter, grid_readout_anchor(rect, hint_plate), egui::Align2::LEFT_BOTTOM, &grid_unit_label(step), theme::TEXT_FAINT());
+        pill(&painter, grid_readout_anchor(rect, hint_plate), egui::Align2::LEFT_BOTTOM, &grid_unit_label(step), theme::OVERLAY_TEXT_FAINT);
     }
     let mut right = rect.right_top() + egui::vec2(-10.0, 10.0);
     if state.tool != Tool::Pen && state.session.brush.options.has_symmetry() {
@@ -1091,7 +1091,7 @@ fn brush_notice(state: &mut UiState, ui: &Ui, painter: &egui::Painter, rect: Rec
     let Some(notice) = &state.brush_notice else { return };
     let Some(opacity) = notice.opacity(now) else { state.brush_notice = None; return };
     let fade = |c: Color32| c.gamma_multiply(opacity);
-    let galley = painter.layout_no_wrap(format!("Brush: {}", notice.name), theme::font(12.0), fade(theme::TEXT()));
+    let galley = painter.layout_no_wrap(format!("Brush: {}", notice.name), theme::font(12.0), fade(theme::OVERLAY_TEXT));
     let thumb = crate::panels::shelf::tip_thumbnail(state, &notice.tip);
     let side = 22.0;
     let inset = if thumb.is_some() { side + 8.0 } else { 0.0 };
@@ -1103,7 +1103,7 @@ fn brush_notice(state: &mut UiState, ui: &Ui, painter: &egui::Painter, rect: Rec
         let image = Rect::from_min_size(plate.min + egui::vec2(9.0, (plate.height() - side) / 2.0), egui::vec2(side, side));
         painter.image(texture, image, Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), fade(Color32::WHITE));
     }
-    painter.galley(plate.min + egui::vec2(9.0 + inset, (plate.height() - galley.size().y) / 2.0), galley, fade(theme::TEXT()));
+    painter.galley(plate.min + egui::vec2(9.0 + inset, (plate.height() - galley.size().y) / 2.0), galley, fade(theme::OVERLAY_TEXT));
     ui.ctx().request_repaint();
 }
 
@@ -1263,7 +1263,7 @@ fn visualization_overlays(state: &UiState, painter: &egui::Painter, rect: Rect, 
         return;
     }
     if prefs.shown_channel().is_some() && let Some(name) = prefs.channel_component.overlay() {
-        pill(painter, rect.left_top() + egui::vec2(10.0, 10.0), egui::Align2::LEFT_TOP, crate::i18n::tr(name), theme::TEXT());
+        pill(painter, rect.left_top() + egui::vec2(10.0, 10.0), egui::Align2::LEFT_TOP, crate::i18n::tr(name), theme::OVERLAY_TEXT);
     }
     // Axis indicator above the Render toggle in the bottom-right corner.
     if prefs.axis_indicator {

@@ -65,13 +65,13 @@ pub fn draw(painter: &egui::Painter, path: &PenPath, selected: Option<subcraft_c
         if selected == Some(a.id) {
             for tangent in [a.incoming, a.outgoing] {
                 if tangent.length_squared() > 1e-10 && let Some(q) = map(a.position + tangent) {
-                    painter.line_segment([p, q], Stroke::new(1.0, theme::TEXT_DIM()));
-                    painter.circle_filled(q, 3.0, theme::TEXT());
-                    painter.circle_stroke(q, 3.0, Stroke::new(1.0, theme::BG_0()));
+                    painter.line_segment([p, q], Stroke::new(1.0, theme::OVERLAY_TEXT_DIM));
+                    painter.circle_filled(q, 3.0, theme::OVERLAY_TEXT);
+                    painter.circle_stroke(q, 3.0, Stroke::new(1.0, theme::OVERLAY_OUTLINE));
                 }
             }
         }
-        painter.circle_filled(p, 4.5, if selected == Some(a.id) { theme::ACCENT() } else { theme::TEXT() });
+        painter.circle_filled(p, 4.5, if selected == Some(a.id) { theme::ACCENT() } else { theme::OVERLAY_TEXT });
         painter.circle_stroke(p, 4.5, Stroke::new(1.0, Color32::BLACK));
     }
 }
