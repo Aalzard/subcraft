@@ -1531,6 +1531,7 @@ fn reset_parameters(b: &mut BakeUi, baker: Option<subcraft_core::MeshMapKind>) {
         Some(MeshMapKind::Thickness) => {
             s.thickness_samples = d.thickness_samples;
             s.thickness_distance = d.thickness_distance;
+            s.thickness = d.thickness;
         }
         Some(MeshMapKind::Curvature) => {
             s.curvature_radius = d.curvature_radius;
@@ -1592,8 +1593,16 @@ fn map_settings_panel(ui: &mut egui::Ui, b: &mut BakeUi) {
         MeshMapKind::Thickness => {
             slider_row(ui, tr("Secondary rays"), egui::Slider::new(&mut s.thickness_samples, 4..=256).logarithmic(true))
                 .on_hover_text(tr("Rays cast per texel: more rays, less noise, a slower bake"));
+            slider_row(ui, tr("Min occluder distance"), egui::Slider::new(&mut s.thickness.min_distance, 0.0..=0.1).fixed_decimals(4).clamping(egui::SliderClamping::Never))
+                .on_hover_text(tr("Fraction of the model diagonal. Surfaces nearer than this are looked through."));
             slider_row(ui, tr("Max occluder distance"), egui::Slider::new(&mut s.thickness_distance, 0.01..=1.0).logarithmic(true).clamping(egui::SliderClamping::Never))
                 .on_hover_text(tr("Fraction of the model diagonal. Thicker parts than this all read as fully thick."));
+            slider_row(ui, tr("Spread angle"), egui::Slider::new(&mut s.thickness.spread_angle, 1.0..=180.0).fixed_decimals(0))
+                .on_hover_text(tr("Opening angle of the ray cone in degrees: 180 is the whole hemisphere"));
+            option_row(ui, "bake_thickness_distribution", tr("Distribution"), &mut s.thickness.distribution, &RayDistribution::ALL, RayDistribution::label);
+            if !s.thickness.is_plain() {
+                hint(ui, tr("With these options thickness is baked on the CPU."));
+            }
         }
         MeshMapKind::Id => {
             let label = |s: IdSource| match s {

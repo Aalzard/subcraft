@@ -360,6 +360,32 @@ fn thickness_with_a_zero_distance_is_finite() {
     assert!(maps[&MeshMapKind::Thickness].to_dense().iter().all(|v| v.is_finite()), "NaN in the thickness map");
 }
 
+/// Thickness's Min occluder distance skips surfaces nearer than it, and a narrow Spread angle
+/// looks straight through the part instead of along it.
+#[test]
+fn thickness_options_skip_near_surfaces_and_narrow_the_cone() {
+    let slab = primitives::thin_slab(2.0, 2.0, 0.05);
+    let bvh = Bvh::build(&slab);
+    let input = BakeInput { low: Geometry { mesh: &slab, bvh: &bvh }, high: None, material_slot: 0 };
+    let ts = texels(&slab, 0, RES);
+    let t = ts.iter().min_by(|a, b| (a.position.x.abs() + a.position.y.abs()).total_cmp(&(b.position.x.abs() + b.position.y.abs()))).unwrap();
+    let centre = |thickness: ThicknessOptions| {
+        let s = BakeSettings { thickness, thickness_samples: 64, use_gpu: false, ..settings(&[MeshMapKind::Thickness]) };
+        at(&bake(&input, &s, &Progress::new()).unwrap()[&MeshMapKind::Thickness], t)[0]
+    };
+    let plain = centre(ThicknessOptions::default());
+    assert!(plain > 0.8, "the slab is thin: {plain}");
+    // The far side lies 0.05 away, about 0.018 of the diagonal: a minimum of 0.1 skips it.
+    let skipped = centre(ThicknessOptions { min_distance: 0.1, ..Default::default() });
+    assert!(skipped < 0.2, "the far side is skipped, so the slab reads thick: {skipped}");
+    // A narrow cone goes straight through; the hemisphere also sends grazing rays along the slab.
+    let narrow = centre(ThicknessOptions { spread_angle: 10.0, ..Default::default() });
+    assert!(narrow > plain, "narrow {narrow} vs hemisphere {plain}");
+    let uniform = centre(ThicknessOptions { distribution: RayDistribution::Uniform, ..Default::default() });
+    assert!(uniform < plain, "uniform rays graze more often than cosine ones: {uniform} vs {plain}");
+    assert!(!ThicknessOptions { spread_angle: 90.0, ..Default::default() }.is_plain() && ThicknessOptions::default().is_plain());
+}
+
 #[test]
 fn thickness_is_bright_on_thin_parts() {
     let slab = primitives::thin_slab(2.0, 2.0, 0.05);
@@ -502,6 +528,19 @@ mod ray_backend {
         assert_eq!(maps[&MeshMapKind::Thickness].get(10, 10)[0], 0.25);
         let backends: Vec<_> = reports.iter().map(|r| (r.kind, r.backend.as_str())).collect();
         assert_eq!(backends, [(MeshMapKind::AmbientOcclusion, "fake"), (MeshMapKind::Thickness, "fake"), (MeshMapKind::Position, "CPU")]);
+    }
+
+    #[test]
+    fn thickness_options_keep_thickness_on_the_cpu() {
+        let fake = Fake { result: Ok(0.25), calls: AtomicUsize::new(0) };
+        let mesh = primitives::cube(2.0);
+        let bvh = Bvh::build(&mesh);
+        let input = BakeInput { low: Geometry { mesh: &mesh, bvh: &bvh }, high: None, material_slot: 0 };
+        let s = BakeSettings { thickness: ThicknessOptions { spread_angle: 60.0, ..Default::default() }, ..settings(&[MeshMapKind::Thickness]) };
+        let progress = Progress::new();
+        bake_streamed_with(&input, &s, &progress, Some(&fake), |_, _| {}).unwrap();
+        assert_eq!(fake.calls.load(Ordering::Relaxed), 0);
+        assert_eq!(progress.reports()[0].backend, "CPU");
     }
 
     #[test]
