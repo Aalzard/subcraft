@@ -70,6 +70,8 @@ pub struct PenEditor {
     gesture: Option<Edit>,
     pending: std::collections::VecDeque<Pending>,
     new_on_click: bool,
+    /// The current gesture added its point (rather than grabbing an existing one).
+    new_point: bool,
 }
 
 fn error(s: impl Into<String>) -> CommandError { CommandError::Invalid(s.into()) }
@@ -144,6 +146,7 @@ impl PenEditor {
         if force && !self.pending.is_empty() { return Err(error("wait for the current path to finish drawing")); }
         if self.pending.len() >= 32 { return Err(error("wait for the queued pen points to finish drawing")); }
         let mut edit = self.edit(session, force)?;
+        self.new_point = hit.is_none();
         if let Some(hit) = hit {
             if !edit.path.anchors.iter().any(|a| a.id == hit.anchor) { return Err(error("pen anchor no longer exists")); }
             self.selected = Some(hit.anchor); edit.handle = Some(hit);
@@ -169,9 +172,41 @@ impl PenEditor {
     }
 
     pub fn drag_surface(&mut self, session: &Session, camera: &crate::Camera, screen: Vec2, separate: bool) {
+        self.drag_surface_scaled(session, camera, screen, separate, false);
+    }
+
+    /// [`PenEditor::drag_surface`] with Painter's Ctrl on a handle: both tangents scale together.
+    pub fn drag_surface_scaled(&mut self, session: &Session, camera: &crate::Camera, screen: Vec2, separate: bool, scale_both: bool) {
         if let Some(pick) = session.pick(camera, screen) && pick.material_slot == session.selected_texture_set().material_slot {
-            self.drag_to(surface_uv(session, &pick), separate);
+            self.drag_to_scaled(surface_uv(session, &pick), separate, scale_both);
         }
+    }
+
+    /// The point just added keeps no tangents however the pointer moves (Painter's Shift click:
+    /// a straight segment to it).
+    pub fn keep_new_point_straight(&mut self) {
+        if let Some(edit) = self.gesture.as_mut() && edit.handle.is_some_and(|h| h.handle == Handle::Outgoing) && self.new_point {
+            edit.handle = None;
+        }
+    }
+
+    /// Dragging a handle: with `scale_both` the opposite tangent keeps its direction and takes
+    /// the same change of length (Painter's Ctrl); otherwise as [`PenEditor::drag_to`].
+    pub fn drag_to_scaled(&mut self, uv: Vec2, separate: bool, scale_both: bool) {
+        if scale_both && uv.is_finite() && uv.abs().max_element() <= 4.0
+            && let Some(edit) = self.gesture.as_mut()
+            && let Some(hit) = edit.handle
+            && hit.handle != Handle::Anchor
+            && let Some(a) = edit.path.anchors.iter_mut().find(|a| a.id == hit.anchor)
+        {
+            let (dragged, other) = if hit.handle == Handle::Outgoing { (&mut a.outgoing, &mut a.incoming) } else { (&mut a.incoming, &mut a.outgoing) };
+            let new = uv - a.position;
+            let old = dragged.length();
+            if old > 1e-9 { *other *= new.length() / old; }
+            *dragged = new;
+            return;
+        }
+        self.drag_to(uv, separate);
     }
 
     pub fn drag_to(&mut self, uv: Vec2, separate: bool) {
