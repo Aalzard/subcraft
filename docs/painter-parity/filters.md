@@ -854,16 +854,16 @@ Layout notes: Advanced group (11.0). Works on content and masks.
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Anisotropic Kuwahara (filter) | Properties > Filter | works on: content and masks | missing: Median is the only edge-preserving smoother | - | - |
+| Anisotropic Kuwahara (filter) | Properties > Filter | works on: content and masks | done: 8-sector anisotropic Kuwahara on an ellipse along the structure-tensor edge direction | Properties > Filter > Anisotropic Kuwahara | (this PR) |
 | Radius Map | Properties > Filter > Image inputs | grayscale; texture or anchor | missing | - | - |
 | Custom Input | Properties > Filter > Image inputs | colour; texture or anchor | missing | - | - |
-| Extract Direction | Properties > Filter | not documented (dropdown) | missing | - | - |
-| Radius | Properties > Filter | default not documented; maximum 32 | missing | - | - |
-| Smoothness | Properties > Filter | not documented | missing | - | - |
-| Sharpness | Properties > Filter | not documented | missing | - | - |
-| Tensor Smoothness | Properties > Filter | not documented | missing | - | - |
-| Anisotropy | Properties > Filter | not documented | missing | - | - |
-| Anisotropy Angle | Properties > Filter | not documented; in turns | missing | - | - |
+| Extract Direction | Properties > Filter | not documented (dropdown) | done: From the image / Fixed angle | Properties > Filter > Anisotropic Kuwahara | (this PR) |
+| Radius | Properties > Filter | default not documented; maximum 32 | done: 0..32 px, default 6 | Properties > Filter > Anisotropic Kuwahara | (this PR) |
+| Smoothness | Properties > Filter | not documented | done: 0..1, default 0.5 | Properties > Filter > Anisotropic Kuwahara | (this PR) |
+| Sharpness | Properties > Filter | not documented | done: 0..16, default 8 | Properties > Filter > Anisotropic Kuwahara | (this PR) |
+| Tensor Smoothness | Properties > Filter | not documented | done: 0..8 px, default 2 | Properties > Filter > Anisotropic Kuwahara | (this PR) |
+| Anisotropy | Properties > Filter | not documented | done: 0..4, default 1 | Properties > Filter > Anisotropic Kuwahara | (this PR) |
+| Anisotropy Angle | Properties > Filter | not documented; in turns | done: 0..1 turn, used when Extract Direction is Fixed angle | Properties > Filter > Anisotropic Kuwahara | (this PR) |
 
 ## Bevel
 

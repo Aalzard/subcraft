@@ -11,6 +11,13 @@ pub enum OutlinePosition { Inner, Outer, Both }
 pub struct GradientStop { pub position: f32, pub color: [f32; 3] }
 
 pub const MAX_GRADIENT_STOPS: usize = 8;
+/// Anisotropic Kuwahara limits: Painter's Radius maximum (32 px), sector sharpness exponent,
+/// structure tensor smoothing (px) and ellipse stretch.
+pub const MAX_KUWAHARA_RADIUS: f32 = 32.0;
+pub const MAX_KUWAHARA_SHARPNESS: f32 = 16.0;
+pub const MAX_KUWAHARA_TENSOR: f32 = 8.0;
+pub const MAX_KUWAHARA_ANISOTROPY: f32 = 4.0;
+
 /// Median cost grows with the window, so it is capped below the Gaussian radii.
 pub const MAX_MEDIAN_RADIUS: f32 = 16.0;
 /// Warp noise cells across the texture.
@@ -223,6 +230,12 @@ pub enum Filter {
     /// Exact median over the square window `(2r + 1)^2`, r = radius rounded to whole pixels.
     /// Per channel; paint coverage (alpha) is kept as is. Edges clamp.
     Median { radius: f32 },
+    /// Painter's Anisotropic Kuwahara: an edge-keeping painterly smoothing. Each texel takes the
+    /// mean of the calmest of 8 overlapping sectors of an ellipse stretched along the local edge
+    /// direction (from a structure tensor smoothed over `tensor_smoothness` pixels, or the fixed
+    /// `angle` in turns when `extract_direction` is off). `sharpness` favours calm sectors,
+    /// `smoothness` widens the sectors, `anisotropy` stretches the ellipse along edges.
+    AnisotropicKuwahara { radius: f32, smoothness: f32, sharpness: f32, tensor_smoothness: f32, anisotropy: f32, angle: f32, extract_direction: bool },
     /// Noise-driven UV displacement: each texel reads the input up to `intensity` pixels away,
     /// along a smooth periodic noise field with `scale` cells across the texture. Deterministic
     /// for a given `seed`; resolution independent (noise is evaluated in UV space).
@@ -463,7 +476,7 @@ pub struct OutlineParts {
 }
 
 impl Filter {
-    pub const ALL: [Self; 39] = [Self::Contrast { gain: 1.0, pivot: 0.5 },
+    pub const ALL: [Self; 40] = [Self::Contrast { gain: 1.0, pivot: 0.5 },
         Self::Hsl { hue: 0.0, saturation: 1.0, lightness: 0.0 },
         Self::Threshold { cutoff: 0.5 }, Self::Clamp { low: 0.0, high: 1.0 }, Self::Blur { radius: 4.0 }, Self::Sharpen { radius: 2.0, amount: 1.0 }, Self::DirectionalBlur { radius: 8.0, angle_deg: 0.0 }, Self::Highpass { radius: 4.0, amount: 1.0 },
         Self::Bevel {radius:8.0,amount:1.0,threshold:0.5}, Self::MaskOutline {radius:4.0,threshold:0.5,position:OutlinePosition::Both},
@@ -487,7 +500,9 @@ impl Filter {
         Self::GradientCurve { preset: CurvePreset::SCurve, invert: false, balance: 0.5, contrast: 0.0 },
         Self::BevelSmooth { radius: 8.0, direction: BevelDirection::Inward, smoothing: 0.5, curve_offset: 0.0, curve_shape: 0.0, threshold: 0.5 },
         Self::DirectionalDistance { distance: 16.0, angle_deg: 0.0, contrast: 0.0 },
-        Self::BlurSlope { intensity: 8.0, scale: 4, seed: 1, samples: 8 }];
+        Self::BlurSlope { intensity: 8.0, scale: 4, seed: 1, samples: 8 },
+        // Painter documents no defaults (only Radius' maximum, 32).
+        Self::AnisotropicKuwahara { radius: 6.0, smoothness: 0.5, sharpness: 8.0, tensor_smoothness: 2.0, anisotropy: 1.0, angle: 0.0, extract_direction: true }];
 
     /// A Grayscale filter (the plain variant when the conversion options are at their defaults).
     pub fn grayscale(p: GrayParts) -> Self {
@@ -606,7 +621,8 @@ impl Filter {
             Self::BevelShape {..} => "Bevel", Self::MaskOutlineShape {..} => "Mask Outline", Self::HeightAdjust {..} => "Height Adjust",
             Self::Fxaa {..} => "FXAA (Anti-Aliasing)", Self::DropShadow {..} => "Drop Shadow", Self::OuterGlow {..} => "Glow", Self::GradientDynamic {..} => "Gradient Dynamic",
             Self::GradientCurve {..} => "Gradient Curve", Self::BevelSmooth {..} => "Bevel Smooth", Self::DirectionalDistance {..} => "Directional Distance",
-            Self::BlurSlope {..} => "Blur Slope", Self::GrayscaleConvert {..} => "Grayscale" }
+            Self::BlurSlope {..} => "Blur Slope", Self::GrayscaleConvert {..} => "Grayscale",
+            Self::AnisotropicKuwahara {..} => "Anisotropic Kuwahara" }
     }
 
     pub fn supports_channel(self, channel: ChannelKind) -> bool {
@@ -629,6 +645,9 @@ impl Filter {
             Self::DirectionalWarp { intensity, angle_deg } => Self::DirectionalWarp { intensity: intensity * factor, angle_deg },
             Self::Mosaic { size } => Self::Mosaic { size: ((size as f32 * factor).round() as u32).clamp(1, MAX_MOSAIC_SIZE) },
             Self::DirectionalDistance { distance, angle_deg, contrast } => Self::DirectionalDistance { distance: distance * factor, angle_deg, contrast },
+            Self::AnisotropicKuwahara { radius, smoothness, sharpness, tensor_smoothness, anisotropy, angle, extract_direction } => {
+                Self::AnisotropicKuwahara { radius: (radius * factor).min(MAX_KUWAHARA_RADIUS), smoothness, sharpness, tensor_smoothness: (tensor_smoothness * factor).min(MAX_KUWAHARA_TENSOR), anisotropy, angle, extract_direction }
+            }
             // The outline shape draws its band from its own width and blur, not from the node
             // radius the other contour filters use: both follow the resolution scale.
             Self::MaskOutlineShape { radius, threshold, position, start_black, blur, curve } => {
@@ -641,7 +660,7 @@ impl Filter {
     /// Neighbourhood filters evaluated per texel by the compositor with direct pixel reads
     /// (no Gaussian staging). The node output is the final value.
     pub fn is_pixelwise(self) -> bool {
-        matches!(self, Self::EdgeDetect { .. } | Self::DirectionalWarp { .. } | Self::Mosaic { .. } | Self::Transform { .. } | Self::Mirror { .. } | Self::Fxaa { .. } | Self::DirectionalDistance { .. })
+        matches!(self, Self::EdgeDetect { .. } | Self::DirectionalWarp { .. } | Self::Mosaic { .. } | Self::Transform { .. } | Self::Mirror { .. } | Self::Fxaa { .. } | Self::DirectionalDistance { .. } | Self::AnisotropicKuwahara { .. })
     }
 
     /// Filters whose every texel may read any other texel of the texture.
@@ -660,6 +679,11 @@ impl Filter {
             Self::Fxaa { .. } => Some(1.0),
             Self::DropShadow { distance, size, .. } => Some(distance + size),
             Self::OuterGlow { width, .. } => Some(width),
+            // The ellipse reaches `radius * (1 + anisotropy)` along an edge; the tensor reads
+            // its smoothing span plus the Sobel taps.
+            Self::AnisotropicKuwahara { radius, anisotropy, tensor_smoothness, extract_direction, .. } => {
+                Some(radius * (1.0 + anisotropy.clamp(0.0, MAX_KUWAHARA_ANISOTROPY)) + if extract_direction { tensor_smoothness + 1.0 } else { 0.0 })
+            }
             _ => None }
     }
 
@@ -687,6 +711,7 @@ impl Filter {
             | Self::DropShadow {opacity:0.0,..} | Self::OuterGlow {opacity:0.0,..} | Self::OuterGlow {width:0.0,..}
             | Self::DirectionalDistance {distance:0.0,..} | Self::BlurSlope {intensity:0.0,..})
             || matches!(self, Self::Median { radius } if radius < 0.5)
+            || matches!(self, Self::AnisotropicKuwahara { radius, .. } if radius < 0.5)
     }
 
     pub fn valid(self) -> bool {
@@ -707,6 +732,14 @@ impl Filter {
             Self::Mirror { offset, .. } => offset.iter().all(|v| v.is_finite() && (0.0..=1.0).contains(v)),
             Self::Warp { intensity, scale, .. } => Self::Blur { radius: intensity }.valid() && (1..=MAX_WARP_SCALE).contains(&scale),
             Self::Median { radius } => radius.is_finite() && (0.0..=MAX_MEDIAN_RADIUS).contains(&radius),
+            Self::AnisotropicKuwahara { radius, smoothness, sharpness, tensor_smoothness, anisotropy, angle, .. } => {
+                radius.is_finite() && (0.0..=MAX_KUWAHARA_RADIUS).contains(&radius)
+                    && smoothness.is_finite() && (0.0..=1.0).contains(&smoothness)
+                    && sharpness.is_finite() && (0.0..=MAX_KUWAHARA_SHARPNESS).contains(&sharpness)
+                    && tensor_smoothness.is_finite() && (0.0..=MAX_KUWAHARA_TENSOR).contains(&tensor_smoothness)
+                    && anisotropy.is_finite() && (0.0..=MAX_KUWAHARA_ANISOTROPY).contains(&anisotropy)
+                    && angle.is_finite()
+            }
             Self::DirectionalBlur { radius, angle_deg } => Self::Blur {radius}.valid() && angle_deg.is_finite() && (-180.0..=180.0).contains(&angle_deg),
             Self::Sharpen { radius, amount } | Self::Highpass { radius, amount } => Self::Blur { radius }.valid() && amount.is_finite() && (0.0..=4.0).contains(&amount),
             Self::Bevel {radius,amount,threshold} => Self::Blur {radius}.valid() && amount.is_finite() && (-1.0..=1.0).contains(&amount) && threshold.is_finite() && (-1.0..=1.0).contains(&threshold),
@@ -858,6 +891,15 @@ mod tests {
         assert!(Filter::Warp { intensity: 0.0, scale: 4, seed: 9 }.spatial_identity());
         assert_eq!(Filter::Warp { intensity: 8.2, scale: 4, seed: 9 }.support(), 9);
         assert!(!Filter::Median { radius: 16.5 }.valid());
+        let kuwahara = Filter::ALL.iter().copied().find(|f| matches!(f, Filter::AnisotropicKuwahara { .. })).unwrap();
+        assert!(kuwahara.valid() && kuwahara.is_pixelwise() && kuwahara.supports_mask());
+        assert_eq!(kuwahara.label(), "Anisotropic Kuwahara");
+        // Default radius 6, anisotropy 1, tensor 2: 6 * 2 + 2 + 1 = 15 px of margin.
+        assert_eq!(kuwahara.support(), 15);
+        let Filter::AnisotropicKuwahara { radius, tensor_smoothness, .. } = kuwahara.scaled(2.0) else { unreachable!() };
+        assert_eq!((radius, tensor_smoothness), (12.0, 4.0), "pixel sizes follow the resolution");
+        assert!(!Filter::AnisotropicKuwahara { radius: 33.0, smoothness: 0.5, sharpness: 8.0, tensor_smoothness: 2.0, anisotropy: 1.0, angle: 0.0, extract_direction: true }.valid());
+        assert!(Filter::AnisotropicKuwahara { radius: 0.4, smoothness: 0.5, sharpness: 8.0, tensor_smoothness: 2.0, anisotropy: 1.0, angle: 0.0, extract_direction: true }.spatial_identity());
         assert!(!Filter::Median { radius: f32::NAN }.valid());
         assert!(Filter::Median { radius: 0.4 }.spatial_identity());
         assert!(!Filter::Median { radius: 0.5 }.spatial_identity());
