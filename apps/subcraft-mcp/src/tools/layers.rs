@@ -100,7 +100,11 @@ pub fn add(server: &mut Server, args: &Args) -> Res<Reply> {
         && !server::layer_ref(session, ts, p)?.is_folder() {
             return Err("`parent` must be a folder layer".into());
         }
+    if let Some(p) = args.obj("projection")? {
+        with_defaults("projection", &Projection::default(), &Value::Object(p.clone()))?;
+    }
     if let Some(chs) = args.obj("fill")? {
+        check_fill_spec(chs, None)?;
         ensure_channels(session, ts, chs)?;
     }
     // Build the whole layer, then insert it as one undo step.
@@ -412,6 +416,20 @@ fn channel_spec(kind: ChannelKind, v: &Value, current: Option<&FillChannel>) -> 
     }
 }
 
+/// Read a `{channel: spec}` object without applying it, so that a bad spec is refused before
+/// `ensure_channels` adds channels to the set: they used to stay behind the error, as undo steps
+/// the caller never asked for.
+fn check_fill_spec(chs: &Map<String, Value>, current: Option<&FillContent>) -> Res<()> {
+    for (name, v) in chs {
+        let k = channel(name)?;
+        if let ChannelSpec::Set { image: Some(path), .. } = channel_spec(k, v, current.and_then(|f| f.channels.get(&k)))?
+            && !path.exists() {
+                return Err(format!("image not found: {}", paths::output(&path)));
+            }
+    }
+    Ok(())
+}
+
 /// Channels a fill spec turns on that the texture set lacks are added to the set first (each
 /// its own undo step, as in the app), so the edited layer can carry them.
 fn ensure_channels(session: &mut Session, ts: TextureSetId, chs: &Map<String, Value>) -> Res<()> {
@@ -481,6 +499,11 @@ fn edit_fill(session: &mut Session, fill: &mut FillContent, chs: &Map<String, Va
 /// Edit a fill layer's channels and projection as one undo step.
 fn replace_fill(session: &mut Session, ts: TextureSetId, id: LayerId, chs: Option<&Map<String, Value>>, exclusive: bool, projection: Option<&Value>) -> Res<()> {
     if let Some(chs) = chs {
+        let LayerContent::Fill(fill) = &server::layer_ref(session, ts, id)?.content else { return Err("not a fill layer".into()) };
+        if let Some(p) = projection {
+            with_defaults("projection", &fill.projection, p)?;
+        }
+        check_fill_spec(chs, Some(fill))?;
         ensure_channels(session, ts, chs)?;
     }
     let mut layer = server::layer_ref(session, ts, id)?.clone();
@@ -716,6 +739,7 @@ pub fn mask_add_effect(server: &mut Server, args: &Args) -> Res<Reply> {
     let (ts, id) = server::layer_arg(session, args, "layer")?;
     let spec = args.get("effect").ok_or("missing required argument `effect`")?;
     let kind = mask_kind(session, spec)?;
+    check_tweak_args(args)?;
     let created_mask = server::layer_ref(session, ts, id)?.mask.is_none();
     if created_mask {
         exec(session, Command::AddMask { layer: id, white: false })?;
@@ -756,9 +780,20 @@ pub fn content_add_effect(server: &mut Server, args: &Args) -> Res<Reply> {
         "paint" => ContentEffectKind::Paint { channels: BTreeMap::new() },
         other => return Err(format!("unknown content effect type `{other}`: filter, levels, fill, paint")),
     };
+    check_tweak_args(args)?;
     let eid = added_effect(session, ts, id, Stack::Content, Command::AddContentEffect { layer: id, kind })?;
     tweak_effect(session, ts, id, eid, Stack::Content, args, None)?;
     Ok(Reply::json(json!({ "effect_id": eid.to_string(), "layer": summary(session, ts, id)? })))
+}
+
+/// Read name / visible / opacity / blend before anything is added: a bad `blend` used to fail
+/// after the effect (and a new mask) had already been added, leaving them behind the error.
+fn check_tweak_args(args: &Args) -> Res<()> {
+    args.str("name")?;
+    args.bool("visible")?;
+    args.f32("opacity")?;
+    args.str("blend")?.map(blend_mode).transpose()?;
+    Ok(())
 }
 
 /// Apply name / visible / opacity / blend (and `params` when given) to an effect.
@@ -945,6 +980,13 @@ pub fn apply_material(server: &mut Server, args: &Args) -> Res<Reply> {
 }
 
 pub fn save_to_library(server: &mut Server, args: &Args) -> Res<Reply> {
+    // Checked before the rename below: an unknown kind used to fail with the layer renamed.
+    let kind = args.str("kind")?.unwrap_or("smart_material");
+    let mask = match crate::params::snake(kind).as_str() {
+        "smart_material" | "material" => false,
+        "smart_mask" | "mask" => true,
+        other => return Err(format!("kind must be smart_material or smart_mask, got `{other}`")),
+    };
     let root = subcraft_app::assets::UserLibrary::default_root().ok_or("no user library folder (set SUBCRAFT_LIBRARY)")?;
     let lib = subcraft_app::assets::UserLibrary::new(root.clone());
     let (library, session) = server.library_mut_and_session()?;
@@ -955,23 +997,18 @@ pub fn save_to_library(server: &mut Server, args: &Args) -> Res<Reply> {
     let name = server::layer_ref(session, ts, id)?.name.clone();
     exec(session, Command::SelectTextureSet(ts))?;
     exec(session, Command::SelectLayer(Some(id)))?;
-    let kind = args.str("kind")?.unwrap_or("smart_material");
-    let file = match crate::params::snake(kind).as_str() {
-        "smart_material" | "material" => {
-            let m = session.save_smart_material(id, &lib)?;
-            let f = m.user_file.clone();
-            library.smart_materials.retain(|x| x.user_file != f || f.is_none());
-            library.smart_materials.push(m);
-            f
-        }
-        "smart_mask" | "mask" => {
-            let m = session.save_smart_mask(id, &lib)?;
-            let f = m.user_file.clone();
-            library.smart_masks.retain(|x| x.user_file != f || f.is_none());
-            library.smart_masks.push(m);
-            f
-        }
-        other => return Err(format!("kind must be smart_material or smart_mask, got `{other}`")),
+    let file = if mask {
+        let m = session.save_smart_mask(id, &lib)?;
+        let f = m.user_file.clone();
+        library.smart_masks.retain(|x| x.user_file != f || f.is_none());
+        library.smart_masks.push(m);
+        f
+    } else {
+        let m = session.save_smart_material(id, &lib)?;
+        let f = m.user_file.clone();
+        library.smart_materials.retain(|x| x.user_file != f || f.is_none());
+        library.smart_materials.push(m);
+        f
     };
     Ok(Reply::json(json!({
         "saved": name, "kind": kind, "file": file.as_deref().map(paths::output), "library": paths::output(&root),
