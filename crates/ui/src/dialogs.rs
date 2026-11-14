@@ -1497,10 +1497,10 @@ fn bakers_panel(ui: &mut egui::Ui, b: &mut BakeUi, f: &BakeFrame, quick: &mut Op
 
 /// A click on a map's tick box in the bake list. Plain: toggles it. Alt (Painter): only that
 /// map is ticked, or every map again when it already was the only one.
-pub fn tick_bake_map(maps: &mut Vec<MeshMapKind>, kind: MeshMapKind, alt: bool) {
+pub fn tick_bake_map(maps: &mut Vec<subcraft_core::MeshMapKind>, kind: subcraft_core::MeshMapKind, alt: bool) {
     if alt {
         if maps.as_slice() == [kind] {
-            *maps = MeshMapKind::ALL.to_vec();
+            *maps = subcraft_core::MeshMapKind::ALL.to_vec();
         } else {
             *maps = vec![kind];
         }
@@ -2060,6 +2060,7 @@ mod bake_tests {
 
     #[test]
     fn alt_click_bakes_only_one_map_and_again_all_of_them() {
+        use subcraft_core::MeshMapKind;
         let (ao, normal) = (MeshMapKind::AmbientOcclusion, MeshMapKind::Normal);
         let mut maps = vec![normal, ao];
         tick_bake_map(&mut maps, ao, false);
