@@ -975,6 +975,18 @@ Files: {}", ex.dir().display()));
         egui::DragAndDrop::clear_payload(ui.ctx());
         shelf::apply_ghost_mask_drop(state, layer, item, now);
     }
+    // A Shelf item released between effect rows becomes an effect there; the layer row under
+    // it must not take the drop as well.
+    if let Some(drop) = ui.ctx().data_mut(|d| {
+        let id = super::effects::shelf_drop_request_id();
+        let drop = d.get_temp::<super::effects::ShelfEffectDrop>(id);
+        d.remove::<super::effects::ShelfEffectDrop>(id);
+        drop
+    }) {
+        drop_request = None;
+        egui::DragAndDrop::clear_payload(ui.ctx());
+        shelf::apply_effect_drop(state, drop, now);
+    }
     if let Some((layer, item, alt)) = drop_request {
         if layer != LayerId::default() { state.run(vec![Command::SelectLayer(Some(layer))], now); }
         let with_mask = ui.input(|i| i.modifiers.command);

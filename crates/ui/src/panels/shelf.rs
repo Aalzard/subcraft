@@ -207,6 +207,68 @@ pub fn apply_ghost_mask_drop(s: &mut UiState, layer: subcraft_core::LayerId, ite
     }
 }
 
+/// A Shelf item dropped between the effect rows of a stack (Painter): it becomes an effect at
+/// that position, one undo step. A filter goes in either stack; an alpha or image becomes an
+/// image effect of the mask, a smart mask brings its effects there.
+pub fn apply_effect_drop(s: &mut UiState, drop: crate::panels::effects::ShelfEffectDrop, now: f64) {
+    use subcraft_app::{Command, LayerTarget};
+    use subcraft_doc::{ContentEffectKind, MaskEffectKind, Projection};
+    let crate::panels::effects::ShelfEffectDrop { layer, domain, above, item } = drop;
+    let image = |resource| MaskEffectKind::Image { resource, projection: Projection::default(), invert: false };
+    let mask = domain == LayerTarget::Mask;
+    let effects: Result<Vec<MaskEffectKind>, String> = match item {
+        ShelfDrag::Filter(i) if !mask => {
+            let result = match subcraft_doc::Filter::ALL.get(i).copied() {
+                Some(f) => match subcraft_app::filter_shelf::content_filter_channel(s.session.selected_texture_set(), f) {
+                    Some(channel) => s.session.execute(Command::InsertContentEffect { layer, kind: ContentEffectKind::Filter { channel, filter: f }, above }).map_err(|e| e.to_string()),
+                    None => Err(format!("{} fits no channel of this texture set", f.label())),
+                },
+                None => Ok(()),
+            };
+            match result {
+                Ok(()) => s.recovery.autosaver.request_soon(),
+                Err(e) => s.set_status(e, now),
+            }
+            return;
+        }
+        ShelfDrag::Filter(i) => match subcraft_doc::Filter::ALL.get(i).copied() {
+            Some(f) if f.supports_mask() => Ok(vec![MaskEffectKind::Filter(f)]),
+            Some(f) => Err(format!("{} does not work on masks", f.label())),
+            None => Ok(Vec::new()),
+        },
+        ShelfDrag::Alpha(i) if mask => match s.library.alphas.get(i).cloned() {
+            Some(a) => match a.bitmap.as_ref() {
+                Some(bitmap) => subcraft_image::encode_bitmap(bitmap)
+                    .map_err(|e| e.to_string())
+                    .and_then(|(bytes, ext)| s.session.import_image_bytes(&format!("{}.{ext}", a.name), bytes))
+                    .map(|r| vec![image(r)]),
+                None => Err("The round tip has no picture: pick an image alpha".to_string()),
+            },
+            None => Ok(Vec::new()),
+        },
+        ShelfDrag::Texture(i) if mask => match s.textures.items.get(i).map(|t| t.path.clone()) {
+            Some(p) => s.session.import_image(&p).map(|r| vec![image(r)]),
+            None => Ok(Vec::new()),
+        },
+        ShelfDrag::SmartMask(i) if mask => match s.library.smart_masks.get(i).cloned() {
+            Some(m) => {
+                for r in &m.resources { s.session.share_resource(r.clone()); }
+                Ok(m.effects.clone())
+            }
+            None => Ok(Vec::new()),
+        },
+        _ => Err("This does not go into an effect stack".to_string()),
+    };
+    let result = effects.and_then(|effects| {
+        if effects.is_empty() { return Ok(()); }
+        s.session.execute(Command::InsertMaskEffects { layer, effects, above, label: "Add Mask Effect".into() }).map_err(|e| e.to_string())
+    });
+    match result {
+        Ok(()) => s.recovery.autosaver.request_soon(),
+        Err(e) => s.set_status(e, now),
+    }
+}
+
 /// A Shelf item dropped into the layer stack (Painter):
 /// * `with_mask` (Ctrl held): a material or texture becomes a new layer with a black mask, ready
 ///   to be painted in;
@@ -2587,6 +2649,35 @@ mod stack_drop_tests {
         apply_ghost_mask_drop(&mut s, layer, ShelfDrag::Material(0), 1.0);
         assert_eq!(s.session.history().entries().len(), steps);
         assert!(s.status.as_ref().is_some_and(|(m, _)| m.contains("mask")));
+    }
+
+    #[test]
+    fn a_filter_dropped_between_effect_rows_becomes_an_effect_there() {
+        use crate::panels::effects::ShelfEffectDrop;
+        let mut s = state();
+        let layer = s.session.selection().layer.unwrap();
+        // Content: below the only effect, i.e. at the bottom.
+        s.session.execute(subcraft_app::Command::AddContentEffect { layer, kind: subcraft_doc::ContentEffectKind::Anchor }).unwrap();
+        let anchor = s.session.selected_effect().unwrap();
+        let filter = subcraft_doc::Filter::ALL.iter().position(|f| f.supports_mask()).unwrap();
+        apply_effect_drop(&mut s, ShelfEffectDrop { layer, domain: LayerTarget::Content, above: None, item: ShelfDrag::Filter(filter) }, 0.0);
+        let effects = &s.session.selected_layer().unwrap().content_effects;
+        assert_eq!(effects.len(), 2);
+        assert!(matches!(effects[0].kind, subcraft_doc::ContentEffectKind::Filter { .. }));
+        assert_eq!(effects[1].id, anchor);
+        // Mask: a filter right above an existing effect; the mask stack needs a mask.
+        s.session.execute(subcraft_app::Command::AddMask { layer, white: true }).unwrap();
+        s.session.execute(subcraft_app::Command::AddMaskEffect { layer, kind: subcraft_doc::MaskEffectKind::Invert }).unwrap();
+        let invert = s.session.selected_effect().unwrap();
+        apply_effect_drop(&mut s, ShelfEffectDrop { layer, domain: LayerTarget::Mask, above: Some(invert), item: ShelfDrag::Filter(filter) }, 0.0);
+        let mask = s.session.selected_layer().unwrap().mask.clone().unwrap();
+        assert_eq!(mask.effects.len(), 2);
+        assert_eq!(mask.effects[0].id, invert);
+        assert!(matches!(mask.effects[1].kind, subcraft_doc::MaskEffectKind::Filter(_)));
+        // A material is refused with a message.
+        apply_effect_drop(&mut s, ShelfEffectDrop { layer, domain: LayerTarget::Mask, above: None, item: ShelfDrag::Material(0) }, 1.0);
+        assert_eq!(s.session.selected_layer().unwrap().mask.as_ref().unwrap().effects.len(), 2);
+        assert!(s.status.is_some());
     }
 
     #[test]

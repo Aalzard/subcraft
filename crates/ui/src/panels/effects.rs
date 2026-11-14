@@ -370,6 +370,7 @@ pub fn rows(
             let address=EffectAddress {texture_set:session.selection().texture_set,layer:layer.id,domain,effect:row.id};
             if !renaming && !super::layers::eye_sliding(ui) { resp.dnd_set_drag_payload(address); }
             effect_drop(ui,&resp,address,&ids,&chosen,indent,cmds);
+            shelf_effect_drop(ui, &resp, layer.id, domain, &ids, row.id, indent);
             let x = resp.rect.left() + indent - 2.0;
             let y = resp.rect.center().y;
             let bottom = if index == 0 { y } else { resp.rect.bottom() + 1.0 };
@@ -433,6 +434,86 @@ pub fn rows(
         None => ui.ctx().data_mut(|d| {
             if let Some(edit) = rename { d.insert_temp(rename_id(), edit); } else { d.remove::<EffectRename>(rename_id()); }
         }),
+    }
+}
+
+/// A Shelf item released between the effect rows of a stack: where it goes. Read by the Layers
+/// panel, which has the library ([`shelf_drop_request_id`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ShelfEffectDrop {
+    pub layer: LayerId,
+    pub domain: LayerTarget,
+    /// The new effect goes right above this one; `None`: at the bottom of the stack.
+    pub above: Option<EffectId>,
+    pub item: crate::panels::shelf::ShelfDrag,
+}
+
+pub fn shelf_drop_request_id() -> egui::Id {
+    egui::Id::new("shelf_effect_drop")
+}
+
+/// Where a drop on the row of `target` lands: right above it, or right above the effect below
+/// it (`None` at the bottom). `ids` is the stack bottom to top.
+pub fn shelf_drop_anchor(ids: &[EffectId], target: EffectId, side: DropSide) -> Option<EffectId> {
+    match side {
+        DropSide::Above => Some(target),
+        DropSide::Below => ids.iter().position(|&i| i == target).and_then(|i| i.checked_sub(1)).map(|i| ids[i]),
+    }
+}
+
+#[cfg(test)]
+mod shelf_drop_tests {
+    use super::*;
+    use crate::panels::shelf::ShelfDrag;
+
+    #[test]
+    fn a_drop_above_or_below_a_row_names_the_effect_it_goes_above() {
+        let ids = [EffectId::new(), EffectId::new(), EffectId::new()];
+        assert_eq!(shelf_drop_anchor(&ids, ids[1], DropSide::Above), Some(ids[1]));
+        assert_eq!(shelf_drop_anchor(&ids, ids[1], DropSide::Below), Some(ids[0]));
+        assert_eq!(shelf_drop_anchor(&ids, ids[0], DropSide::Below), None, "below the bottom row: the bottom of the stack");
+        assert_eq!(shelf_drop_anchor(&ids, ids[2], DropSide::Above), Some(ids[2]));
+    }
+
+    #[test]
+    fn mask_stacks_take_alphas_images_and_smart_masks_and_content_stacks_take_filters() {
+        assert!(shelf_item_fits(ShelfDrag::Alpha(0), true));
+        assert!(!shelf_item_fits(ShelfDrag::Alpha(0), false));
+        assert!(shelf_item_fits(ShelfDrag::SmartMask(0), true));
+        assert!(shelf_item_fits(ShelfDrag::Texture(0), true));
+        assert!(shelf_item_fits(ShelfDrag::Filter(0), false));
+        assert!(!shelf_item_fits(ShelfDrag::Material(0), true));
+        assert!(!shelf_item_fits(ShelfDrag::Material(0), false));
+        if let Some(i) = subcraft_doc::Filter::ALL.iter().position(|f| !f.supports_mask()) {
+            assert!(!shelf_item_fits(ShelfDrag::Filter(i), true));
+        }
+    }
+}
+
+/// Whether a Shelf item can become an effect of this kind of stack.
+pub fn shelf_item_fits(item: crate::panels::shelf::ShelfDrag, mask: bool) -> bool {
+    use crate::panels::shelf::ShelfDrag;
+    match item {
+        ShelfDrag::Filter(i) => subcraft_doc::Filter::ALL.get(i).is_some_and(|f| !mask || f.supports_mask()),
+        ShelfDrag::Alpha(_) | ShelfDrag::Texture(_) | ShelfDrag::SmartMask(_) => mask,
+        ShelfDrag::Material(_) | ShelfDrag::SmartMaterial(_) | ShelfDrag::PackMaterial(_) | ShelfDrag::Starter(_) => false,
+    }
+}
+
+/// A Shelf item dragged over an effect row: an insert line, and on release a request.
+fn shelf_effect_drop(ui: &Ui, response: &egui::Response, layer: LayerId, domain: LayerTarget, ids: &[EffectId], target: EffectId, indent: f32) {
+    use crate::panels::shelf::ShelfDrag;
+    let Some(item) = egui::DragAndDrop::payload::<ShelfDrag>(ui.ctx()).map(|p| *p) else { return };
+    if !shelf_item_fits(item, domain == LayerTarget::Mask) || !response.contains_pointer() {
+        return;
+    }
+    let Some(pointer) = ui.input(|i| i.pointer.interact_pos()) else { return };
+    let side = if pointer.y < response.rect.center().y { DropSide::Above } else { DropSide::Below };
+    let y = if side == DropSide::Above { response.rect.top() } else { response.rect.bottom() };
+    ui.painter().line_segment([egui::pos2(response.rect.left() + indent, y), egui::pos2(response.rect.right() - 4.0, y)], egui::Stroke::new(2.0, ACCENT()));
+    if ui.input(|i| i.pointer.any_released()) {
+        let drop = ShelfEffectDrop { layer, domain, above: shelf_drop_anchor(ids, target, side), item };
+        ui.ctx().data_mut(|d| d.insert_temp(shelf_drop_request_id(), drop));
     }
 }
 
