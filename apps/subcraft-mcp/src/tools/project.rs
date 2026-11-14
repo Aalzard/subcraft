@@ -86,13 +86,23 @@ fn opened(server: &mut Server, session: Session, warnings: Vec<String>) -> Res<R
     Ok(Reply::json(info))
 }
 
+/// The `resolution` argument, refused unless it is one SubCraft offers. project_new used to drop
+/// an unsupported value silently (the sample kept 1024, a model snapped to the nearest size).
+fn resolution_arg(args: &Args) -> Res<Option<u32>> {
+    match args.u32("resolution")? {
+        Some(r) if !subcraft_doc::RESOLUTIONS.contains(&r) => Err(format!("resolution must be one of {:?}", subcraft_doc::RESOLUTIONS)),
+        r => Ok(r),
+    }
+}
+
 pub fn new(server: &mut Server, args: &Args) -> Res<Reply> {
     guard_unsaved(server, args)?;
     let raw = args.req_str("model_path")?;
+    let resolution = resolution_arg(args)?;
     if raw.trim().eq_ignore_ascii_case("sample") {
         let mut session = Session::sample();
-        if let Some(r) = args.u32("resolution")? {
-            let _ = exec(&mut session, Command::SetResolution { texture_set: None, resolution: r });
+        if let Some(r) = resolution {
+            exec(&mut session, Command::SetResolution { texture_set: None, resolution: r })?;
         }
         return opened(server, session, vec!["SubCraft's built-in sample crate".into()]);
     }
@@ -101,7 +111,7 @@ pub fn new(server: &mut Server, args: &Args) -> Res<Reply> {
     if let Some(t) = args.str("template")? {
         settings.apply_template(enum_from::<ProjectTemplate>("template", t, &names(&ProjectTemplate::ALL))?);
     }
-    if let Some(r) = args.u32("resolution")? {
+    if let Some(r) = resolution {
         settings.resolution = r;
     }
     if let Some(s) = args.str("split")? {
