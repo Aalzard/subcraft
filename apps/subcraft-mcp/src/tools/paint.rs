@@ -155,6 +155,16 @@ enum Space {
     View(subcraft_paint::Camera),
 }
 
+/// Points must lie near what they paint: UV from -1 to 2, view pixels within ±65536. A far point
+/// used to make the stroke run (and allocate) until the server died.
+fn in_range(space: &Space, p: Vec2) -> Res<()> {
+    let (lo, hi, what) = match space {
+        Space::Uv => (-1.0, 2.0, "UV coordinates must be between -1 and 2"),
+        Space::View(_) => (-65536.0, 65536.0, "view coordinates must be within ±65536 pixels"),
+    };
+    if p.is_finite() && p.min_element() >= lo && p.max_element() <= hi { Ok(()) } else { Err(format!("point [{}, {}] is out of range: {what}", p.x, p.y)) }
+}
+
 fn space(session: &Session, args: &Args) -> Res<Space> {
     Ok(match args.str("space")?.unwrap_or("uv").to_ascii_lowercase().as_str() {
         "uv" => Space::Uv,
@@ -237,8 +247,14 @@ fn stroke_inner(server: &mut Server, args: &Args) -> Res<Reply> {
     let head_before = head(session);
     let resolution = server::ts_ref(session, ts)?.resolution as f32;
     let mut entries = 0usize;
-    for pts in strokes.iter().filter(|s| !s.is_empty()) {
-        let mut parsed = pts.iter().map(point).collect::<Res<Vec<_>>>()?;
+    // Every point is read and checked before anything is painted, so a bad point in a later
+    // stroke does not leave the earlier ones painted behind an error.
+    let all = strokes
+        .iter()
+        .filter(|s| !s.is_empty())
+        .map(|pts| pts.iter().map(|v| point(v).and_then(|(p, pressure)| in_range(&space, p).map(|()| (p, pressure)))).collect::<Res<Vec<_>>>())
+        .collect::<Res<Vec<_>>>()?;
+    for mut parsed in all {
         if parsed.len() == 1 {
             // A dab: the stroke path only stamps once the brush moves, so nudge it by half a texel/pixel.
             let nudge = match space { Space::Uv => 0.5 / resolution, Space::View(_) => 0.5 };

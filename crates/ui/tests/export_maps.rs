@@ -243,3 +243,26 @@ fn the_export_folder_is_saved_with_the_project() {
     assert_eq!(state.export.folder, state.export.default_folder);
 }
 
+/// Painter's list column (Global settings and the texture sets) is resized by dragging the
+/// divider beside it, within a range.
+#[test]
+fn the_list_column_is_resized_by_dragging_its_divider() {
+    let (mut state, ctx) = setup();
+    assert_eq!(state.export.list_width, subcraft_ui::dialogs::LIST_WIDTH);
+    let drag = |state: &mut UiState, dx: f32| {
+        let p = state.export.list_divider.expect("the divider is drawn").center();
+        let q = p + egui::vec2(dx, 0.0);
+        let b = |pos, pressed| egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+        frame(state, &ctx, vec![egui::Event::PointerMoved(p), b(p, true)], Default::default());
+        frame(state, &ctx, vec![egui::Event::PointerMoved(p + egui::vec2(dx / 2.0, 0.0))], Default::default());
+        frame(state, &ctx, vec![egui::Event::PointerMoved(q)], Default::default());
+        frame(state, &ctx, vec![b(q, false)], Default::default());
+        frame(state, &ctx, vec![], Default::default());
+    };
+    drag(&mut state, 60.0);
+    let w = state.export.list_width;
+    assert!(w >= subcraft_ui::dialogs::LIST_WIDTH + 25.0 && w <= subcraft_ui::dialogs::LIST_WIDTH + 60.0, "{w}");
+    drag(&mut state, -500.0);
+    assert_eq!(state.export.list_width, *subcraft_ui::dialogs::LIST_WIDTH_RANGE.start(), "not narrower than the range");
+}
+

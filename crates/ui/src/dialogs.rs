@@ -54,6 +54,11 @@ pub struct ExportUi {
     /// Settings when the window opened, for Cancel.
     snapshot: Option<Box<ExportSnapshot>>,
     pub folder: String,
+    /// Width of the Settings tab's list column (Global settings and the texture sets), changed by
+    /// dragging the divider beside it; kept for the session.
+    pub list_width: f32,
+    /// Where that divider was drawn last frame (for tests).
+    pub list_divider: Option<egui::Rect>,
     /// The folder used when a project has none saved: the working folder's `exports`, or
     /// `--export-path`.
     pub default_folder: String,
@@ -77,7 +82,7 @@ pub struct ExportUi {
 impl Default for ExportUi {
     fn default() -> Self {
         let folder = std::env::current_dir().map(|d| d.join("exports")).unwrap_or_else(|_| PathBuf::from("exports"));
-        Self { open: false, settings: ExportSettings::default(), preset: ExportTemplate::pbr_metal_rough().name, preset_list: None, editor: Default::default(), tab: ExportTab::default(), selected_set: None, set_overrides: BTreeMap::new(), log: Vec::new(), loaded_config: None, snapshot: None, folder: folder.display().to_string(), default_folder: folder.display().to_string(), folder_synced: None, known_template: String::new(), view_2d_only: false, scene_format: 0, baked: Default::default(), baked_initialized: false, baked_selected_only: false }
+        Self { open: false, settings: ExportSettings::default(), preset: ExportTemplate::pbr_metal_rough().name, preset_list: None, editor: Default::default(), tab: ExportTab::default(), selected_set: None, set_overrides: BTreeMap::new(), log: Vec::new(), loaded_config: None, snapshot: None, folder: folder.display().to_string(), default_folder: folder.display().to_string(), list_width: LIST_WIDTH, list_divider: None, folder_synced: None, known_template: String::new(), view_2d_only: false, scene_format: 0, baked: Default::default(), baked_initialized: false, baked_selected_only: false }
     }
 }
 
@@ -613,6 +618,10 @@ fn global_rows(ui: &mut egui::Ui, ex: &mut ExportUi, with_preset_hints: bool) {
 
 /// Settings tab: Global settings and the texture sets on the left, their parameters and output
 /// maps on the right.
+/// Default width of the Settings tab's list column, and the range dragging its divider allows.
+pub const LIST_WIDTH: f32 = 170.0;
+pub const LIST_WIDTH_RANGE: std::ops::RangeInclusive<f32> = 120.0..=360.0;
+
 fn settings_tab(ui: &mut egui::Ui, state: &mut UiState, lib: &Option<subcraft_app::assets::UserLibrary>, sets: &[(TextureSetId, String)], preset_status: &mut Option<String>, now: f64) {
     {
         let ex = &mut state.export;
@@ -622,8 +631,8 @@ fn settings_tab(ui: &mut egui::Ui, state: &mut UiState, lib: &Option<subcraft_ap
     let choices = state.session.export_choices(&settings);
     let mut set_click = None;
     ui.horizontal_top(|ui| {
-        ui.vertical(|ui| {
-            ui.set_width(170.0);
+        let list = ui.vertical(|ui| {
+            ui.set_width(state.export.list_width);
             let ex = &mut state.export;
             ui.selectable_value(&mut ex.selected_set, None, RichText::new(tr("Global settings")).strong());
             ui.add_space(4.0);
@@ -644,7 +653,17 @@ fn settings_tab(ui: &mut egui::Ui, state: &mut UiState, lib: &Option<subcraft_ap
                 });
             }
         });
-        ui.separator();
+        // Painter's list column is resized by dragging the divider beside it.
+        let height = list.response.rect.height().max(300.0);
+        let (rect, r) = ui.allocate_exact_size(egui::vec2(9.0, height), egui::Sense::drag());
+        let r = r.on_hover_cursor(egui::CursorIcon::ResizeHorizontal).on_hover_text(tr("Drag to resize the list"));
+        if r.dragged() {
+            let ex = &mut state.export;
+            ex.list_width = (ex.list_width + r.drag_delta().x).clamp(*LIST_WIDTH_RANGE.start(), *LIST_WIDTH_RANGE.end());
+        }
+        let stroke = if r.hovered() || r.dragged() { egui::Stroke::new(2.0, theme::ACCENT()) } else { ui.visuals().widgets.noninteractive.bg_stroke };
+        ui.painter().vline(rect.center().x, rect.y_range(), stroke);
+        state.export.list_divider = Some(rect);
         ui.vertical(|ui| match state.export.selected_set {
             None => global_settings(ui, state, lib, &settings, &choices, preset_status, now),
             Some(id) => {
