@@ -3748,6 +3748,11 @@ impl Session {
     /// whose size holds a whole cube, see `display::lut_cube_size`). The original bytes are kept,
     /// so saving stores the file as it was. Returns the new resource's id.
     pub fn add_color_lut(&mut self, name: &str, bytes: Vec<u8>) -> Result<subcraft_core::ResourceId, String> {
+        // The same file again is the same LUT (as images and fonts): loading it twice used to add
+        // and save a second copy.
+        if let Some(r) = self.resources.iter().find(|r| r.kind == subcraft_doc::ResourceKind::ColorLut && r.encoded.as_deref().is_some_and(|e| *e == bytes)) {
+            return Ok(r.id);
+        }
         let bitmap = subcraft_image::io::decode_bitmap(&bytes, Some(name)).map_err(|e| format!("{name}: {e}"))?;
         if subcraft_doc::display::lut_cube_size(bitmap.width, bitmap.height).is_none() {
             return Err(format!("{name} is {} x {}: not a 3D LUT (width x height must be a cube, such as 2048 x 128)", bitmap.width, bitmap.height));
