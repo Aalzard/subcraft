@@ -198,6 +198,8 @@ pub struct LaunchOptions {
     pub window_size: Option<[f32; 2]>,
     /// Force the display scale (pixels per point) for scripted layout checks.
     pub scale: Option<f32>,
+    /// Show this theme without saving it (`--theme`, screenshots); a theme picked in Settings wins.
+    pub theme: Option<theme::ThemeKind>,
     /// Measure frames while a generator value changes every frame, write stats, quit.
     pub profile_edits: Option<(PathBuf, Option<u32>)>,
     /// Measure frames while the 3D view is orbited, hovered and painted with scripted input, write stats, quit.
@@ -654,7 +656,7 @@ mod layout_tests {
         let mut app = SubcraftApp {
             state: UiState::new(Session::new(subcraft_mesh::primitives::cube(2.0), 64), None),
             dock: default_layout(), frames: 0, screenshot: None, screenshot_requested: false, popped_dock: None,
-            pending_now: None, active_tabs: HashSet::new(), inspector_selection: None, test_crash: false, profile: None, view_profile: None,
+            pending_now: None, active_tabs: HashSet::new(), inspector_selection: None, test_crash: false, profile: None, view_profile: None, launch_theme: None,
         };
         app.state.session.execute(Command::AddLayer(NewLayer::Fill)).unwrap();
         app.follow_layer_selection();
@@ -797,7 +799,7 @@ mod launch_tests {
         let mut app = SubcraftApp {
             state: UiState::new(Session::new(subcraft_mesh::primitives::cube(2.0), 128), None),
             dock: default_layout(), frames: 0, screenshot: None, screenshot_requested: false, popped_dock: None,
-            pending_now: None, active_tabs: HashSet::new(), inspector_selection: None, test_crash: false, profile: None, view_profile: None,
+            pending_now: None, active_tabs: HashSet::new(), inspector_selection: None, test_crash: false, profile: None, view_profile: None, launch_theme: None,
         };
         app.request(Pending::OpenRecent, 0.0);
         assert_eq!(app.pending_now.take(), Some(Pending::OpenRecent));
@@ -815,7 +817,7 @@ mod launch_tests {
         let mut app = SubcraftApp {
             state: UiState::new(Session::new(subcraft_mesh::primitives::cube(2.0), 64), None),
             dock: legacy_layout(), frames: 0, screenshot: None, screenshot_requested: false,
-            pending_now: None, active_tabs: HashSet::new(), inspector_selection: None, test_crash: false, popped_dock: None, profile: None, view_profile: None,
+            pending_now: None, active_tabs: HashSet::new(), inspector_selection: None, test_crash: false, popped_dock: None, profile: None, view_profile: None, launch_theme: None,
         };
         let brush = app.dock.find_tab(&Tab::Brush).unwrap();
         let properties = app.dock.find_tab(&Tab::Properties).unwrap();
@@ -835,7 +837,7 @@ mod launch_tests {
         let mut app = SubcraftApp {
             state: UiState::new(Session::new(subcraft_mesh::primitives::cube(2.0), 64), None),
             dock: default_layout(), frames: 0, screenshot: None, screenshot_requested: false, popped_dock: None,
-            pending_now: None, active_tabs: HashSet::new(), inspector_selection: None, test_crash: false, profile: None, view_profile: None,
+            pending_now: None, active_tabs: HashSet::new(), inspector_selection: None, test_crash: false, profile: None, view_profile: None, launch_theme: None,
         };
         let doc = app.state.session.document().clone();
         let ctx = egui::Context::default(); theme::apply(&ctx);
@@ -866,7 +868,7 @@ mod launch_tests {
         let mut app = SubcraftApp {
             state: UiState::new(Session::new(mesh, 128), None),
             dock: default_layout(), frames: 0, screenshot: None, screenshot_requested: false, popped_dock: None,
-            pending_now: None, active_tabs: HashSet::new(), inspector_selection: None, test_crash: false, profile: None, view_profile: None,
+            pending_now: None, active_tabs: HashSet::new(), inspector_selection: None, test_crash: false, profile: None, view_profile: None, launch_theme: None,
         };
         let title = dialogs::title(&app.state).trim_start_matches("SubCraft — ").to_string();
         for width in [460.0, 1200.0] {
@@ -897,7 +899,7 @@ mod launch_tests {
         let mut app = SubcraftApp {
             state: UiState::new(session, None), dock: default_layout(), frames: 0,
             screenshot: None, screenshot_requested: false, pending_now: None,
-            active_tabs: HashSet::new(), inspector_selection: None, test_crash: false, popped_dock: None, profile: None, view_profile: None,
+            active_tabs: HashSet::new(), inspector_selection: None, test_crash: false, popped_dock: None, profile: None, view_profile: None, launch_theme: None,
         };
         app.state.pen.begin(&app.state.session, glam::Vec2::splat(0.4), None).unwrap();
         app.perform(Action::Save, 0.0); assert!(app.state.pen_after.is_some());
@@ -931,6 +933,16 @@ pub struct SubcraftApp {
     popped_dock: Option<Tab>,
     profile: Option<crate::edit_profile::EditProfile>,
     view_profile: Option<crate::view_profile::ViewProfile>,
+    /// `--theme` and the saved theme at launch (see [`shown_theme`]).
+    launch_theme: Option<(theme::ThemeKind, theme::ThemeKind)>,
+}
+
+/// The theme to draw with: `--theme` until the saved theme (Settings > General) changes.
+pub(crate) fn shown_theme(saved: theme::ThemeKind, launch: Option<(theme::ThemeKind, theme::ThemeKind)>) -> theme::ThemeKind {
+    match launch {
+        Some((shown, saved_at_launch)) if saved == saved_at_launch => shown,
+        _ => saved,
+    }
 }
 
 impl SubcraftApp {
@@ -1008,7 +1020,8 @@ impl SubcraftApp {
             state.recovery.prefs.use_gpu_baking = false;
         }
         state.recovery.prefs.apply_ui_size(&cc.egui_ctx);
-        theme::set(&cc.egui_ctx, state.recovery.prefs.theme);
+        let launch_theme = options.theme.map(|t| (t, state.recovery.prefs.theme));
+        theme::set(&cc.egui_ctx, shown_theme(state.recovery.prefs.theme, launch_theme));
         crate::i18n::sync(&cc.egui_ctx, state.recovery.prefs.language);
         subcraft_compositor::gpu::set_gpu_compositing_enabled(state.recovery.prefs.use_gpu_compositing && !subcraft_app::safe_mode::is_active());
         state.recovery.show_prefs = options.preferences;
@@ -1282,6 +1295,7 @@ impl SubcraftApp {
             test_crash: options.test_crash, popped_dock: None,
             profile: options.profile_edits.map(|(out, res)| crate::edit_profile::EditProfile::new(out, res)),
             view_profile: options.profile_view.map(crate::view_profile::ViewProfile::new),
+            launch_theme,
         }
     }
 
@@ -2390,7 +2404,7 @@ impl eframe::App for SubcraftApp {
         }
         self.state.recovery.prefs.apply_ui_size(&ctx);
         // Settings > General > Theme applies on the next frame.
-        theme::follow(&ctx, self.state.recovery.prefs.theme);
+        theme::follow(&ctx, shown_theme(self.state.recovery.prefs.theme, self.launch_theme));
         // The contextual toolbar's Viewport Mode dropdown asks; the docks live here.
         if let Some(layout) = self.state.view_layout_request.take() {
             apply_view_layout(&mut self.dock, layout);
@@ -2957,7 +2971,7 @@ fn build_demo(state: &mut UiState) {
     fn save_waits_for_pending_shelf_image_and_embeds_the_result() {
         let file=std::env::temp_dir().join(format!("subcraft-image-save-{}.subcraft",subcraft_core::ObjectId::new()));
         let mut session=Session::new(subcraft_mesh::primitives::cube(2.0),128);session.save(Some(&file)).unwrap();
-        let mut app=SubcraftApp {state:UiState::new(session,None),dock:default_layout(),frames:0,screenshot:None,screenshot_requested:false,pending_now:None,active_tabs:HashSet::new(),inspector_selection:None,test_crash:false,popped_dock:None,profile:None,view_profile:None};
+        let mut app=SubcraftApp {state:UiState::new(session,None),dock:default_layout(),frames:0,screenshot:None,screenshot_requested:false,pending_now:None,active_tabs:HashSet::new(),inspector_selection:None,test_crash:false,popped_dock:None,profile:None,view_profile:None,launch_theme:None};
         app.state.asset_preview.queue(&app.state.session,0,None);app.perform(Action::Save,0.0);assert!(app.state.pen_after.is_some());
         let ctx=egui::Context::default();
         // The worker needs real scheduling time under parallel workspace tests; a fixed
@@ -2976,6 +2990,17 @@ fn build_demo(state: &mut UiState) {
 #[cfg(test)]
 mod export_path_tests {
     use super::*;
+
+    /// QA 2026-11: screenshots of the Light and Painter-style themes needed the saved setting
+    /// changed by hand; `--theme` shows one without saving it.
+    #[test]
+    fn launch_theme_shows_until_the_setting_changes() {
+        use theme::ThemeKind::{Dark, Light, Painter};
+        assert_eq!(shown_theme(Dark, None), Dark);
+        assert_eq!(shown_theme(Dark, Some((Light, Dark))), Light, "--theme light over the saved Dark");
+        assert_eq!(shown_theme(Painter, Some((Light, Dark))), Painter, "a theme picked in Settings wins");
+        assert_eq!(LaunchOptions::default().theme, None);
+    }
 
     #[test]
     fn export_path_sets_the_export_folder() {
