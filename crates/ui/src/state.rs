@@ -287,6 +287,8 @@ pub struct UiState {
     pub uv_edges: HashMap<u32, Vec<[Vec2; 2]>>,
     /// UV units per object unit of each material slot (2D brush cursor size).
     pub uv_density: HashMap<u32, f32>,
+    /// The full brush preview's footprint texture and what it was drawn from.
+    pub brush_footprint: Option<(crate::brush_cursor::FootprintKey, egui::TextureHandle)>,
     pub rename: Option<(subcraft_core::LayerId, String)>,
     pub show_shortcuts: bool,
     /// Startup logo overlay (launches only, not scripted screenshots or tests).
@@ -539,6 +541,7 @@ impl UiState {
             tablet: Default::default(),
             uv_edges: HashMap::new(),
             uv_density: HashMap::new(),
+            brush_footprint: None,
             rename: None,
             show_shortcuts: false,
             intro: None,
