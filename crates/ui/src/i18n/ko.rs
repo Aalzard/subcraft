@@ -1035,4 +1035,6 @@ pub static TABLE: &[(&str, &str)] = &[
     ("The SubCraft Materials pack is not published yet.", "SubCraft 재질 팩이 아직 공개되지 않았습니다."),
     ("A pack of tileable PBR materials, downloaded into SubCraft's data folder and listed in Assets > Materials.", "이음매 없이 반복되는 PBR 재질 팩으로, SubCraft 데이터 폴더에 다운로드되어 에셋 > 재질에 표시됩니다."),
     ("Download SubCraft Materials: a pack of tileable PBR materials (1K or 2K)", "SubCraft 재질 다운로드: 이음매 없이 반복되는 PBR 재질 팩 (1K 또는 2K)"),
+    ("Normalization scale", "정규화 배율"),
+    ("Map value per world unit; the world origin is at 0.5", "월드 단위당 맵 값입니다. 월드 원점은 0.5입니다"),
 ];

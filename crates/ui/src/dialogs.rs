@@ -1663,6 +1663,10 @@ fn map_settings_panel(ui: &mut egui::Ui, b: &mut BakeUi) {
                 });
             }
             option_row(ui, "bake_position_normalization", tr("Normalization"), &mut s.position.normalization, &PositionNormalization::ALL, PositionNormalization::label);
+            if s.position.normalization == PositionNormalization::None {
+                slider_row(ui, tr("Normalization scale"), egui::Slider::new(&mut s.position.scale, 0.001..=10.0).logarithmic(true).clamping(egui::SliderClamping::Never))
+                    .on_hover_text(tr("Map value per world unit; the world origin is at 0.5"));
+            }
         }
         MeshMapKind::Height => {
             let mut manual = matches!(s.height, HeightNormalization::Manual { .. });
@@ -2344,6 +2348,9 @@ mod bake_tests {
         assert!(has_text(&output, "All axis") && has_text(&output, "Single axis") && has_text(&output, "Normalization") && !has_text(&output, "Axis"), "position");
         state.bake.settings.position.single_axis = Some(2);
         assert!(has_text(&shown(&mut state, MeshMapKind::Position), "Axis"));
+        assert!(!has_text(&shown(&mut state, MeshMapKind::Position), "Normalization scale"));
+        state.bake.settings.position.normalization = subcraft_bake::PositionNormalization::None;
+        assert!(has_text(&shown(&mut state, MeshMapKind::Position), "Normalization scale"));
         let output = shown(&mut state, MeshMapKind::Height);
         assert!(has_text(&output, "Cage distances") && !has_text(&output, "Height range"));
         state.bake.settings.height = subcraft_bake::HeightNormalization::Manual { distance: 0.02 };
