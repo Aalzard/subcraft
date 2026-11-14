@@ -104,11 +104,13 @@ pub enum Action {
     ToggleSymmetry,
     /// Painter's Pause engine computation (Shift+Esc): edits wait until it is pressed again.
     PauseEngine,
+    /// Painter's Reimport mesh (Ctrl+Shift+R): Project configuration, ready to reimport the model.
+    ReimportMesh,
 }
 
 impl Action {
     /// Every action, in declaration order (the tests check [`ACTIONS`] against it).
-    pub const ALL: [Action; 53] = [
+    pub const ALL: [Action; 54] = [
         Action::Undo, Action::Redo, Action::NewPaintLayer, Action::NewFillLayer, Action::NewFolder, Action::NewTextLayer, Action::DeleteLayer, Action::DuplicateLayer,
         Action::BrushTool, Action::EraserTool, Action::PenTool, Action::PolygonFillTool, Action::SmudgeTool, Action::CloneTool, Action::EyedropperTool,
         Action::BrushSmaller, Action::BrushLarger, Action::ToggleSymmetryX, Action::ToggleLazyMouse, Action::ResetCamera, Action::PerspectiveCamera,
@@ -118,7 +120,7 @@ impl Action {
         Action::SwapViews, Action::NextMeshMap, Action::PrevMeshMap, Action::InvertMaskGray, Action::IsolateTextureSet,
         Action::NextCamera, Action::PrevCamera,
         Action::HideExcludedGeometry, Action::QuickMaskToggle, Action::QuickMaskClear, Action::QuickMaskInvert,
-        Action::ToggleSymmetry, Action::PauseEngine,
+        Action::ToggleSymmetry, Action::PauseEngine, Action::ReimportMesh,
     ];
 }
 
@@ -255,6 +257,7 @@ pub const ACTIONS: &[ActionInfo] = &[
     ActionInfo { action: Action::ToggleSymmetryX, label: "Toggle X Symmetry", shortcuts: &[Shortcut::key(Key::X)], painter: Some(&[Shortcut::shift(Key::X)]) },
     a(Action::ToggleSymmetry, "Toggle Symmetry", &[Shortcut::key(Key::L)]),
     a(Action::PauseEngine, "Pause Engine Computation", &[Shortcut::shift(Key::Escape)]),
+    a(Action::ReimportMesh, "Reimport Mesh", &[Shortcut::ctrl_shift(Key::R)]),
     a(Action::ToggleLazyMouse, "Toggle Lazy Mouse", &[Shortcut::key(Key::D)]),
     a(Action::ResetCamera, "Frame Model / Reset Camera", &[Shortcut::key(Key::Home), Shortcut::key(Key::F)]),
     a(Action::PerspectiveCamera, "Perspective Camera", &[Shortcut::key(Key::F5)]),
@@ -378,6 +381,7 @@ pub const PAINTER_REFERENCE: &[PainterEntry] = &[
     e("General", "Alt+F4", "Quit application", Support::Added, Action::Quit, Shortcut::alt(Key::F4), "also Ctrl+Q; Windows may close the window itself first"),
     e("General", "Ctrl+Shift+E", "Export textures", Support::Same, Action::Export, Shortcut::ctrl_shift(Key::E), ""),
     e("General", "Ctrl+Shift+B", "Bake mesh maps", Support::Added, Action::Bake, Shortcut::ctrl_shift(Key::B), "Ctrl+B kept as well"),
+    e("General", "Ctrl+Shift+R", "Reimport mesh", Support::Added, Action::ReimportMesh, Shortcut::ctrl_shift(Key::R), "opens Project configuration with Reimport mesh ticked and the model file checked"),
     // Manipulator / transform
     none("Manipulator", "Q", "Show/hide manipulator", "no layer transform manipulator"),
     none("Manipulator", "+", "Increase manipulator size", "no manipulator"),
@@ -622,7 +626,7 @@ mod tests {
             (Shortcut::alt(Key::Q), Action::IsolateTextureSet), (Shortcut::key(Key::Delete), Action::DeleteLayer), (Shortcut::ctrl(Key::D), Action::DuplicateLayer),
             (Shortcut::ctrl(Key::G), Action::NewFolder), (Shortcut::alt(Key::H), Action::HideExcludedGeometry),
             (Shortcut::key(Key::U), Action::QuickMaskToggle), (Shortcut::key(Key::Y), Action::QuickMaskClear), (Shortcut::key(Key::I), Action::QuickMaskInvert),
-            (Shortcut::shift(Key::Escape), Action::PauseEngine),
+            (Shortcut::shift(Key::Escape), Action::PauseEngine), (Shortcut::ctrl_shift(Key::R), Action::ReimportMesh),
         ];
         for (s, a) in expect {
             assert_eq!(action_for(pa, s), Some(a), "{}", s.label());

@@ -291,7 +291,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
 
     state.sync_gpu();
     if let (Some(rs), Some(renderer)) = (&state.render_state, &mut state.renderer)
-        && let Some(preview) = renderer.preview_component(&rs.device, &rs.queue, slot, state.uv.source, shown_component(&state.recovery.prefs.viewport))
+        && let Some(preview) = renderer.preview_display(&rs.device, &rs.queue, slot, state.uv.source, &display_2d(&state.recovery.prefs.viewport))
     {
         let view = &preview.display_view;
         let mut r = rs.renderer.write();
@@ -316,7 +316,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     axis_information(&painter, rect);
     // The isolated component's name, as in the 3D view.
     if let Some(name) = shown_component(&state.recovery.prefs.viewport).overlay() {
-        crate::viewport::pill(&painter, rect.left_top() + egui::vec2(10.0, 10.0), egui::Align2::LEFT_TOP, crate::i18n::tr(name), crate::theme::TEXT());
+        crate::viewport::pill(&painter, rect.left_top() + egui::vec2(10.0, 10.0), egui::Align2::LEFT_TOP, crate::i18n::tr(name), crate::theme::OVERLAY_TEXT);
     }
     quick_mask_overlay(state, ui, &painter, frame);
     parts_overlay(state, ui, &painter, frame, picking, response.hover_pos());
@@ -367,7 +367,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         if matches!(state.tool, Tool::Brush | Tool::Eraser | Tool::Clone | Tool::Smudge) && paints {
             let mesh = &state.session.scene().mesh;
             let density = *state.uv_density.entry(slot).or_insert_with(|| subcraft_paint::stroke::uv_per_unit(mesh, slot));
-            let r_px = state.session.brush_radius_uv(density) * side;
+            let r_px = state.session.brush_radius_uv_in(density, Some(view)) * side;
             let color = if state.tool == Tool::Eraser { Color32::from_rgb(120, 190, 255) } else { crate::theme::ACCENT() };
             painter.circle_stroke(p, r_px, Stroke::new(1.5, Color32::from_black_alpha(160)));
             painter.circle_stroke(p, r_px, Stroke::new(1.0, color));
@@ -833,6 +833,12 @@ mod navigation_tests {
 
 /// The component the 2D view isolates: Display Settings > Channel component while the 3D view
 /// shows a single channel (the 2D view follows it), otherwise all of them.
+/// Display Settings > Channel display for the 2D view: the HDR scale and sign colors always (the
+/// 2D view always shows one channel), the isolated component while the 3D view shows a channel.
+pub fn display_2d(prefs: &crate::viewport_bar::ViewportPrefs) -> subcraft_render::ChannelDisplay {
+    subcraft_render::ChannelDisplay { component: shown_component(prefs), ..prefs.channel_display() }
+}
+
 pub fn shown_component(prefs: &crate::viewport_bar::ViewportPrefs) -> subcraft_render::ChannelComponent {
     if prefs.shown_channel().is_some() { prefs.channel_component } else { subcraft_render::ChannelComponent::All }
 }
