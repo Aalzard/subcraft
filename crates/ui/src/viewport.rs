@@ -1336,7 +1336,7 @@ fn visualization_overlays(state: &UiState, painter: &egui::Painter, rect: Rect, 
     // The colour profile's name, top left, while it shapes the material view.
     if prefs.color_profile && prefs.shown_channel().is_none() && prefs.mesh_map.is_none() {
         let name = crate::color_lut::profile_name(prefs, state.session.resources());
-        pill(painter, rect.left_top() + egui::vec2(10.0, 10.0), egui::Align2::LEFT_TOP, &name, theme::TEXT);
+        pill(painter, rect.left_top() + egui::vec2(10.0, 10.0), egui::Align2::LEFT_TOP, &name, theme::OVERLAY_TEXT);
     }
     // Axis indicator above the Render toggle in the bottom-right corner.
     if prefs.axis_indicator {
