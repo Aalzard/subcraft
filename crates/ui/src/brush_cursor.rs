@@ -53,6 +53,40 @@ pub fn footprint_image(alpha: Option<&subcraft_image::Bitmap>, s: &subcraft_pain
     egui::ColorImage::from_rgba_unmultiplied([side, side], &rgba)
 }
 
+/// The full preview's footprint texture for the current brush (rebuilt when the tip changes) and
+/// the radii it spans: shared by the 3D and 2D views.
+pub fn footprint_texture(state: &mut crate::state::UiState, ctx: &egui::Context) -> (egui::TextureId, f32) {
+    let alpha = state.session.brush.alpha.clone();
+    let key = footprint_key(alpha.as_ref(), &state.session.brush.settings);
+    if state.brush_footprint.as_ref().is_none_or(|(k, _)| *k != key) {
+        let image = footprint_image(alpha.as_deref(), &state.session.brush.settings);
+        state.brush_footprint = Some((key, ctx.load_texture("brush_footprint", image, egui::TextureOptions::LINEAR)));
+    }
+    (state.brush_footprint.as_ref().map(|(_, t)| t.id()).expect("just set"), footprint_reach(alpha.is_some()))
+}
+
+/// Draw the footprint `texture` centred at `at`, `half` points from the centre to each side,
+/// turned by `rotation` radians (clockwise on screen) and tinted with `color`.
+pub fn draw_footprint(painter: &egui::Painter, texture: egui::TextureId, at: egui::Pos2, half: f32, rotation: f32, color: egui::Color32) {
+    let mut mesh = egui::Mesh::with_texture(texture);
+    let uvs = [egui::pos2(0.0, 0.0), egui::pos2(1.0, 0.0), egui::pos2(1.0, 1.0), egui::pos2(0.0, 1.0)];
+    for (pos, uv) in footprint_corners(at, half, rotation).into_iter().zip(uvs) {
+        mesh.vertices.push(egui::epaint::Vertex { pos, uv, color });
+    }
+    mesh.add_triangle(0, 1, 2);
+    mesh.add_triangle(0, 2, 3);
+    painter.add(egui::Shape::mesh(mesh));
+}
+
+/// Screen corners of the footprint quad (image top-left, top-right, bottom-right, bottom-left).
+pub fn footprint_corners(at: egui::Pos2, half: f32, rotation: f32) -> [egui::Pos2; 4] {
+    let (s, c) = rotation.sin_cos();
+    [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)].map(|(x, y): (f32, f32)| {
+        let d = egui::vec2(x * half, y * half);
+        at + egui::vec2(d.x * c - d.y * s, d.x * s + d.y * c)
+    })
+}
+
 /// Brush radii the footprint image covers from its centre (an alpha tip reaches its corners).
 pub fn footprint_reach(has_alpha: bool) -> f32 {
     subcraft_paint::stamp::reach(has_alpha)
@@ -88,6 +122,12 @@ mod tests {
         let reach = footprint_reach(true);
         let at = |u: f32| (((u / reach) * 0.5 + 0.5) * FOOTPRINT_SIDE as f32) as usize;
         assert!(alpha_at(&img, at(-0.5), c) > 0 && alpha_at(&img, at(0.6), c) == 0, "left half covered, right half empty");
+        // The 2D view's quad: centred, half-size from the centre, turned clockwise on screen.
+        let upright = footprint_corners(egui::pos2(10.0, 10.0), 5.0, 0.0);
+        assert_eq!(upright[0], egui::pos2(5.0, 5.0));
+        assert_eq!(upright[2], egui::pos2(15.0, 15.0));
+        let turned = footprint_corners(egui::pos2(10.0, 10.0), 5.0, std::f32::consts::FRAC_PI_2);
+        assert!((turned[0] - egui::pos2(15.0, 5.0)).length() < 1e-4, "the top-left corner goes to the top right: {:?}", turned[0]);
         // The cache key follows what changes the picture.
         let s = subcraft_paint::BrushSettings::default();
         assert_ne!(footprint_key(None, &s), footprint_key(None, &subcraft_paint::BrushSettings { angle_deg: 30.0, ..s.clone() }));
