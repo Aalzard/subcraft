@@ -1626,6 +1626,14 @@ impl<'a> Graph<'a> {
                             };
                             pw::fxaa(read, alpha, *kind)
                         }
+                        Filter::AnisotropicKuwahara { radius, smoothness, sharpness, tensor_smoothness, anisotropy, angle, extract_direction } => {
+                            let read = |dx: i32, dy: i32| {
+                                let px = (x as i32 + dx).clamp(0, res as i32 - 1) as u32;
+                                let py = (y as i32 + dy).clamp(0, res as i32 - 1) as u32;
+                                grid.pixel(px, py)
+                            };
+                            pw::kuwahara(read, pw::Kuwahara { radius, smoothness, sharpness, tensor_smoothness, anisotropy, angle, extract_direction }, *kind)
+                        }
                         Filter::DirectionalDistance { distance, angle_deg, contrast } => {
                             // Beyond the texture there is nothing to spread from.
                             let read = |dx: i32, dy: i32| {

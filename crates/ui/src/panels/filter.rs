@@ -319,6 +319,23 @@ pub fn editor(ui: &mut Ui, filter: &mut Filter, channel: Option<ChannelKind>) ->
             changed |= slider_row(ui, "Radius", egui::Slider::new(radius, 0.0..=subcraft_doc::MAX_MEDIAN_RADIUS).integer().suffix(" px")).changed();
             ui.weak("Exact median over the square window / removes speckle, keeps edges");
         }
+        Filter::AnisotropicKuwahara { radius, smoothness, sharpness, tensor_smoothness, anisotropy, angle, extract_direction } => {
+            prop_row(ui, "Extract Direction", |ui| {
+                changed |= ui.selectable_value(extract_direction, true, "From the image").changed();
+                changed |= ui.selectable_value(extract_direction, false, "Fixed angle").changed();
+            });
+            changed |= slider_row(ui, "Radius", egui::Slider::new(radius, 0.0..=subcraft_doc::MAX_KUWAHARA_RADIUS).suffix(" px")).changed();
+            changed |= slider_row(ui, "Smoothness", egui::Slider::new(smoothness, 0.0..=1.0)).on_hover_text("Wider, softer sectors").changed();
+            changed |= slider_row(ui, "Sharpness", egui::Slider::new(sharpness, 0.0..=subcraft_doc::MAX_KUWAHARA_SHARPNESS)).on_hover_text("How strongly the calmest sectors win: higher keeps edges crisper").changed();
+            if *extract_direction {
+                changed |= slider_row(ui, "Tensor Smoothness", egui::Slider::new(tensor_smoothness, 0.0..=subcraft_doc::MAX_KUWAHARA_TENSOR).suffix(" px")).on_hover_text("How far the edge direction is averaged").changed();
+            }
+            changed |= slider_row(ui, "Anisotropy", egui::Slider::new(anisotropy, 0.0..=subcraft_doc::MAX_KUWAHARA_ANISOTROPY)).on_hover_text("How much the window stretches along edges (0: round)").changed();
+            if !*extract_direction {
+                changed |= slider_row(ui, "Anisotropy Angle", egui::Slider::new(angle, 0.0..=1.0).suffix(" turn")).changed();
+            }
+            ui.weak("Painterly smoothing that keeps edges: each texel takes the calmest part of its window");
+        }
         Filter::BlurSlope { intensity, scale, seed, samples } => {
             changed |= slider_row(ui, "Intensity", egui::Slider::new(intensity, 0.0..=32.0).suffix(" px")).changed();
             changed |= slider_row(ui, "Source Tiling", egui::Slider::new(scale, 1..=subcraft_doc::MAX_WARP_SCALE)).on_hover_text("Noise cells across the texture").changed();

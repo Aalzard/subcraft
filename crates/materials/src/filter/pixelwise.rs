@@ -300,3 +300,170 @@ mod fxaa_tests {
         assert_eq!(at(11, 0.0, 0.0, 0.0), 0.0);
     }
 }
+
+/// Settings of the Anisotropic Kuwahara filter (see `subcraft_doc::Filter::AnisotropicKuwahara`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Kuwahara {
+    pub radius: f32,
+    pub smoothness: f32,
+    pub sharpness: f32,
+    pub tensor_smoothness: f32,
+    pub anisotropy: f32,
+    /// Fixed direction in turns, used when `extract_direction` is off.
+    pub angle: f32,
+    pub extract_direction: bool,
+}
+
+/// Samples across the ellipse's widest axis at most (about 17 x 17 reads per texel).
+const KUWAHARA_GRID: f32 = 8.0;
+const KUWAHARA_SECTORS: usize = 8;
+
+/// Direction (radians, along the edge) and anisotropy (0 round .. 1 a clean edge) at the texel,
+/// from a structure tensor of Sobel gradients averaged over a 3 x 3 pattern `spread` pixels apart.
+fn kuwahara_orientation(read: &impl Fn(i32, i32) -> [f32; 4], spread: f32, kind: ChannelKind) -> (f32, f32) {
+    let v = |x: i32, y: i32| scalar(read(x, y), kind);
+    let step = spread.round().max(0.0) as i32;
+    let (mut e, mut f, mut g) = (0.0f32, 0.0f32, 0.0f32);
+    for oy in -1..=1 {
+        for ox in -1..=1 {
+            if step == 0 && (ox != 0 || oy != 0) {
+                continue;
+            }
+            let (cx, cy) = (ox * step, oy * step);
+            let w = if ox == 0 && oy == 0 { 4.0 } else if ox == 0 || oy == 0 { 2.0 } else { 1.0 };
+            let gx = (v(cx + 1, cy - 1) + 2.0 * v(cx + 1, cy) + v(cx + 1, cy + 1)) - (v(cx - 1, cy - 1) + 2.0 * v(cx - 1, cy) + v(cx - 1, cy + 1));
+            let gy = (v(cx - 1, cy + 1) + 2.0 * v(cx, cy + 1) + v(cx + 1, cy + 1)) - (v(cx - 1, cy - 1) + 2.0 * v(cx, cy - 1) + v(cx + 1, cy - 1));
+            e += w * gx * gx;
+            f += w * gx * gy;
+            g += w * gy * gy;
+        }
+    }
+    let root = ((e - g) * (e - g) + 4.0 * f * f).sqrt();
+    let (l1, l2) = ((e + g + root) * 0.5, (e + g - root) * 0.5);
+    if l1 + l2 <= 1e-12 {
+        return (0.0, 0.0);
+    }
+    // The eigenvector of the smaller eigenvalue runs along the edge.
+    let (tx, ty) = (f, l2 - e);
+    let angle = if tx.abs() + ty.abs() > 1e-12 { ty.atan2(tx) } else if e >= g { std::f32::consts::FRAC_PI_2 } else { 0.0 };
+    (angle, ((l1 - l2) / (l1 + l2)).clamp(0.0, 1.0))
+}
+
+/// Anisotropic Kuwahara at one texel (after Kyprianidis et al. 2009): the texels of an ellipse
+/// stretched along the local edge are split into 8 overlapping sectors, and the result is the
+/// sector means weighted by how calm each sector is (`1 / (1 + sigma^sharpness)`, sigma in
+/// 8-bit steps). Edges stay sharp while flat areas smooth into painterly patches. `read(dx, dy)`
+/// is relative to the texel; the texel keeps its coverage.
+pub fn kuwahara(read: impl Fn(i32, i32) -> [f32; 4], k: Kuwahara, kind: ChannelKind) -> [f32; 4] {
+    let here = read(0, 0);
+    let radius = if k.radius.is_finite() { k.radius.clamp(0.0, 32.0) } else { 0.0 };
+    if radius < 0.5 {
+        return here;
+    }
+    let (phi, edge) = if k.extract_direction { kuwahara_orientation(&read, k.tensor_smoothness.clamp(0.0, 8.0), kind) } else { (k.angle * std::f32::consts::TAU, 1.0) };
+    let stretch = 1.0 + k.anisotropy.clamp(0.0, 4.0) * edge;
+    let (a, b) = (radius * stretch, radius / stretch);
+    let (sin, cos) = phi.sin_cos();
+    let extent = a.max(b).ceil();
+    let step = (extent / KUWAHARA_GRID).max(1.0);
+    // Sector lobes: cos^p of the angle to the sector axis; Smoothness widens them.
+    let power = 1.0 + (1.0 - k.smoothness.clamp(0.0, 1.0)) * 7.0;
+    let mut sum = [[0.0f32; 3]; KUWAHARA_SECTORS];
+    let mut sq = [[0.0f32; 3]; KUWAHARA_SECTORS];
+    let mut weight = [0.0f32; KUWAHARA_SECTORS];
+    let n = (extent / step).ceil() as i32;
+    for iy in -n..=n {
+        for ix in -n..=n {
+            let (dx, dy) = (ix as f32 * step, iy as f32 * step);
+            // Into the ellipse frame: u along the edge, v across it.
+            let (u, v) = ((dx * cos + dy * sin) / a, (-dx * sin + dy * cos) / b);
+            let d2 = u * u + v * v;
+            if d2 > 1.0 {
+                continue;
+            }
+            let p = read(dx.round() as i32, dy.round() as i32);
+            let g = (-2.0 * d2).exp();
+            let theta = v.atan2(u);
+            for s in 0..KUWAHARA_SECTORS {
+                let w = if d2 < 1e-6 { g } else { g * (theta - s as f32 * std::f32::consts::TAU / KUWAHARA_SECTORS as f32).cos().max(0.0).powf(power) };
+                if w <= 0.0 {
+                    continue;
+                }
+                weight[s] += w;
+                for c in 0..3 {
+                    sum[s][c] += w * p[c];
+                    sq[s][c] += w * p[c] * p[c];
+                }
+            }
+        }
+    }
+    let q = k.sharpness.clamp(0.0, 16.0);
+    let (mut out, mut total) = ([0.0f32; 3], 0.0f32);
+    for s in 0..KUWAHARA_SECTORS {
+        if weight[s] <= 0.0 {
+            continue;
+        }
+        let mean = sum[s].map(|v| v / weight[s]);
+        let var: f32 = (0..3).map(|c| (sq[s][c] / weight[s] - mean[c] * mean[c]).max(0.0)).sum();
+        let sigma = var.sqrt() * 255.0;
+        let alpha = 1.0 / (1.0 + sigma.powf(q));
+        total += alpha;
+        for c in 0..3 {
+            out[c] += alpha * mean[c];
+        }
+    }
+    if total <= 0.0 {
+        return here;
+    }
+    [out[0] / total, out[1] / total, out[2] / total, here[3]]
+}
+
+#[cfg(test)]
+mod kuwahara_tests {
+    use super::*;
+
+    fn settings(radius: f32) -> Kuwahara {
+        Kuwahara { radius, smoothness: 0.5, sharpness: 8.0, tensor_smoothness: 2.0, anisotropy: 1.0, angle: 0.0, extract_direction: true }
+    }
+
+    /// A 64 x 64 image from `f(x, y)`, read around texel (cx, cy) with clamped edges.
+    fn image(f: impl Fn(i32, i32) -> f32 + Copy, cx: i32, cy: i32) -> impl Fn(i32, i32) -> [f32; 4] {
+        move |dx, dy| {
+            let v = f((cx + dx).clamp(0, 63), (cy + dy).clamp(0, 63));
+            [v, v, v, 1.0]
+        }
+    }
+
+    #[test]
+    fn flat_areas_stay_and_edges_stay_sharp() {
+        let k = settings(6.0);
+        let out = kuwahara(image(|_x, _y| 0.4, 20, 20), k, ChannelKind::Roughness);
+        assert!((out[0] - 0.4).abs() < 1e-5 && out[3] == 1.0, "{out:?}");
+        // A vertical step edge: texels on each side keep their side (no blur across it).
+        let step = |x: i32, _y: i32| if x < 32 { 0.1 } else { 0.9 };
+        let left = kuwahara(image(step, 30, 20), k, ChannelKind::Roughness)[0];
+        let right = kuwahara(image(step, 33, 20), k, ChannelKind::Roughness)[0];
+        assert!((left - 0.1).abs() < 0.02 && (right - 0.9).abs() < 0.02, "edge kept: {left} | {right}");
+        // Radius below half a texel: unchanged.
+        assert_eq!(kuwahara(image(step, 31, 20), settings(0.2), ChannelKind::Roughness)[0], 0.1);
+    }
+
+    #[test]
+    fn noise_is_smoothed_away_from_edges() {
+        // A checker of +/-0.05 around 0.5: the filter pulls texels towards the local mean.
+        let noise = |x: i32, y: i32| if (x + y) % 2 == 0 { 0.55 } else { 0.45 };
+        let out = kuwahara(image(noise, 20, 21), settings(4.0), ChannelKind::Roughness)[0];
+        assert!((out - 0.5).abs() < 0.03, "smoothed: {out}");
+    }
+
+    #[test]
+    fn the_structure_tensor_finds_the_edge_direction() {
+        // A vertical edge runs along y: the edge direction is vertical, fully anisotropic.
+        let step = |x: i32, _y: i32| if x < 32 { 0.0 } else { 1.0 };
+        let (angle, edge) = kuwahara_orientation(&image(step, 32, 20), 2.0, ChannelKind::Roughness);
+        assert!(edge > 0.95, "a clean edge: {edge}");
+        assert!((angle.sin().abs() - 1.0).abs() < 1e-3, "along y: {angle}");
+        // Flat: no direction.
+        assert_eq!(kuwahara_orientation(&image(|_, _| 0.3, 20, 20), 2.0, ChannelKind::Roughness), (0.0, 0.0));
+    }
+}
