@@ -272,6 +272,20 @@ fn flatten_instantiate_and_channel_removal() {
     assert!(msg.to_lowercase().contains("emissive"), "{msg}");
 }
 
+/// QA 2026-11: brush_set applied size, options and colours before reading `mode` and `tip`, so a
+/// bad mode or tip failed with half the brush changed.
+#[test]
+fn a_bad_brush_set_changes_nothing() {
+    let mut server = Server::new();
+    sample(&mut server);
+    let before = ok(&mut server, "brush_set", json!({}))["brush"].clone();
+    fails(&mut server, "brush_set", json!({ "size": 0.37, "channels": { "base_color": [1.0, 0.0, 0.0] }, "mode": "no-such-mode" }));
+    fails(&mut server, "brush_set", json!({ "size": 0.37, "symmetry": "x", "tip": "no-such-tip" }));
+    assert_eq!(ok(&mut server, "brush_set", json!({}))["brush"], before, "the brush is as it was");
+    let after = ok(&mut server, "brush_set", json!({ "size": 0.37 }))["brush"].clone();
+    assert_ne!(after, before, "a good call still changes it");
+}
+
 /// QA 2026-11: numbers the document cannot hold were accepted. `1e39` became infinity, saved as
 /// `null`; a zero projection scale saved fine. Either way the project then failed to open.
 #[test]
@@ -324,18 +338,23 @@ fn a_view_space_pen_path_takes_its_image_size_apart_from_its_line_width() {
     assert!((width - 0.01).abs() < 1e-6, "the line width asked for: {path}");
 }
 
-/// QA 2026-11: brush_set applied size, options and colours before reading `mode` and `tip`, so a
-/// bad mode or tip failed with half the brush changed.
+/// QA 2026-11: export padding -3 or 2.5 became 8 texels silently, and part ids or padding beyond
+/// u32 wrapped round (2^32 + 1 selected part 1).
 #[test]
-fn a_bad_brush_set_changes_nothing() {
+fn padding_and_part_ids_outside_their_range_are_refused() {
+    let dir = TempDir::new("padding");
     let mut server = Server::new();
     sample(&mut server);
-    let before = ok(&mut server, "brush_set", json!({}))["brush"].clone();
-    fails(&mut server, "brush_set", json!({ "size": 0.37, "channels": { "base_color": [1.0, 0.0, 0.0] }, "mode": "no-such-mode" }));
-    fails(&mut server, "brush_set", json!({ "size": 0.37, "symmetry": "x", "tip": "no-such-tip" }));
-    assert_eq!(ok(&mut server, "brush_set", json!({}))["brush"], before, "the brush is as it was");
-    let after = ok(&mut server, "brush_set", json!({ "size": 0.37 }))["brush"].clone();
-    assert_ne!(after, before, "a good call still changes it");
+    for bad in [json!(-3), json!(2.5), json!(4294967304u64)] {
+        let e = fails(&mut server, "export_textures", json!({ "dir": dir.join("out"), "padding": bad }));
+        assert!(e.contains("padding"), "{e}");
+    }
+    assert!(!std::path::Path::new(&dir.join("out")).exists(), "nothing was exported");
+    ok(&mut server, "layer_add", json!({ "type": "paint", "name": "P", "texture_set": "Body" }));
+    for bad in [json!(4294967297u64), json!(-1), json!(1.5)] {
+        let e = fails(&mut server, "layer_set_parts", json!({ "layer": "P", "texture_set": "Body", "parts": [bad] }));
+        assert!(e.contains("part ids"), "{e}");
+    }
 }
 
 /// QA 2026-11: project_new dropped an unsupported resolution silently: the sample stayed at
