@@ -993,6 +993,8 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Light", "淺色"),
     ("Painter-style", "Painter 風格"),
     ("Colours of the panels and controls. The 3D view background is set under Background color.", "面板與控制項的顏色。3D 視圖背景在背景顏色中設定。"),
+    ("Auto-rebake: bake this map again whenever the bake settings change", "自動重新烘焙：烘焙設定變更時重新烘焙此貼圖"),
+    ("Drag to resize the list", "拖曳以調整清單寬度"),
     ("Neutral material", "中性材質"),
     ("Show the model in one neutral material shaded by its baked normal and ambient occlusion maps, instead of its painted channels (when the high / low overlay is hidden or after a bake)", "以單一中性材質顯示模型，並以烘焙的法線與環境光遮蔽貼圖著色，而非繪製的通道（隱藏高模 / 低模疊加時或烘焙後）"),
     ("Color", "顏色"),
