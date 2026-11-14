@@ -336,6 +336,11 @@ pub struct UiState {
     pub library: subcraft_app::assets::Library,
     /// The materials of the "SubCraft Materials" pack folder of the preferences.
     pub materials_pack: Vec<subcraft_assets::materials_pack::PackMaterial>,
+    /// The pack download (Assets > Materials > Download SubCraft Materials) and its window.
+    pub materials_downloader: subcraft_app::materials_download::MaterialsDownloader,
+    pub materials_download_open: bool,
+    /// Size chosen in the download window (index into the release's options).
+    pub materials_download_choice: usize,
     pub shelf: crate::panels::shelf::ShelfUi,
     pub env: crate::panels::shelf::EnvUi,
     /// Mesh maps last uploaded to the GPU (to re-upload only when a bake replaced them).
@@ -549,6 +554,9 @@ impl UiState {
             uv_wireframe: true,
             library: subcraft_app::assets::Library::builtin(),
             materials_pack: Vec::new(),
+            materials_downloader: Default::default(),
+            materials_download_open: false,
+            materials_download_choice: 0,
             shelf: Default::default(),
             env: Default::default(),
             uploaded_maps: HashMap::new(),

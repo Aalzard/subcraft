@@ -1025,4 +1025,13 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Choose the materials pack folder (one sub-folder per material, with material.json)", "選擇材質包資料夾（每個材質一個子資料夾，內含 material.json）"),
     ("Choose the materials pack folder", "選擇材質包資料夾"),
     ("Stop using the materials pack (its files stay on disk)", "停止使用材質包（檔案仍保留在磁碟上）"),
+    ("SubCraft Materials", "SubCraft 材質"),
+    ("Download", "下載"),
+    ("Downloading", "正在下載"),
+    ("Try again", "重試"),
+    ("Looking for the newest materials pack…", "正在尋找最新的材質包…"),
+    ("Unpacking the materials…", "正在解壓材質…"),
+    ("The SubCraft Materials pack is not published yet.", "SubCraft 材質包尚未發佈。"),
+    ("A pack of tileable PBR materials, downloaded into SubCraft's data folder and listed in Assets > Materials.", "一組可無縫拼接的 PBR 材質，會下載到 SubCraft 的資料夾，並列在「素材 > 材質」中。"),
+    ("Download SubCraft Materials: a pack of tileable PBR materials (1K or 2K)", "下載 SubCraft 材質：一組可無縫拼接的 PBR 材質（1K 或 2K）"),
 ];

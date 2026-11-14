@@ -1025,4 +1025,13 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Choose the materials pack folder (one sub-folder per material, with material.json)", "재질 팩 폴더를 선택합니다 (재질마다 material.json이 든 하위 폴더 하나)"),
     ("Choose the materials pack folder", "재질 팩 폴더 선택"),
     ("Stop using the materials pack (its files stay on disk)", "재질 팩 사용을 중지합니다 (파일은 디스크에 남습니다)"),
+    ("SubCraft Materials", "SubCraft 재질"),
+    ("Download", "다운로드"),
+    ("Downloading", "다운로드 중"),
+    ("Try again", "다시 시도"),
+    ("Looking for the newest materials pack…", "최신 재질 팩을 찾는 중…"),
+    ("Unpacking the materials…", "재질 압축을 푸는 중…"),
+    ("The SubCraft Materials pack is not published yet.", "SubCraft 재질 팩이 아직 공개되지 않았습니다."),
+    ("A pack of tileable PBR materials, downloaded into SubCraft's data folder and listed in Assets > Materials.", "이음매 없이 반복되는 PBR 재질 팩으로, SubCraft 데이터 폴더에 다운로드되어 에셋 > 재질에 표시됩니다."),
+    ("Download SubCraft Materials: a pack of tileable PBR materials (1K or 2K)", "SubCraft 재질 다운로드: 이음매 없이 반복되는 PBR 재질 팩 (1K 또는 2K)"),
 ];
