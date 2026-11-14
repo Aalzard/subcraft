@@ -124,7 +124,7 @@ pub fn add(server: &mut Server, args: &Args) -> Res<Reply> {
             edit_fill(session, fill, chs, args.bool("exclusive")?.unwrap_or(true))?;
         }
         if let Some(p) = args.obj("projection")? {
-            fill.projection = with_defaults("projection", &fill.projection, &Value::Object(p.clone()))?;
+            fill.projection = crate::params::projection_with_defaults(&fill.projection, &Value::Object(p.clone()))?;
         }
     }
     if let Some(m) = args.str("mask")? {
@@ -489,7 +489,7 @@ fn replace_fill(session: &mut Session, ts: TextureSetId, id: LayerId, chs: Optio
         edit_fill(session, fill, chs, exclusive)?;
     }
     if let Some(p) = projection {
-        fill.projection = with_defaults("projection", &fill.projection, p)?;
+        fill.projection = crate::params::projection_with_defaults(&fill.projection, p)?;
     }
     let label = format!("Fill: {}", layer.name);
     exec(session, Command::ReplaceLayer { layer: id, replacement: Box::new(layer), label })
@@ -546,7 +546,8 @@ pub fn set_parts(server: &mut Server, args: &Args) -> Res<Reply> {
         None => None,
         Some(Value::Array(a)) => {
             let kind = part_kind(args.str("kind")?, session)?;
-            let ids: Vec<u32> = a.iter().map(|v| v.as_u64().map(|n| n as u32).ok_or("part ids are integers")).collect::<Result<_, _>>()?;
+            // An id beyond u32 used to wrap round to another part (2^32 + 1 became part 1).
+            let ids: Vec<u32> = a.iter().map(|v| v.as_u64().and_then(|n| u32::try_from(n).ok()).ok_or_else(|| format!("part ids are non-negative integers from parts_list, got {v}"))).collect::<Res<_>>()?;
             Some(PartMask::for_kind(kind, ids))
         }
         Some(v) => return Err(format!("`parts` must be a list of ids or null, got {v}")),
@@ -672,14 +673,14 @@ fn mask_kind(session: &mut Session, spec: &Value) -> Res<MaskEffectKind> {
         "fill" => MaskEffectKind::Fill {
             value: a.f32("value")?.unwrap_or(1.0),
             procedural: a.get("procedural").map(|p| procedural_params(p, None)).transpose()?,
-            projection: a.get("projection").map(|p| with_defaults("projection", &Projection::default(), p)).transpose()?.unwrap_or_default(),
+            projection: a.get("projection").map(|p| crate::params::projection_with_defaults(&Projection::default(), p)).transpose()?.unwrap_or_default(),
         },
         "levels" => MaskEffectKind::Levels(with_defaults("levels", &Levels::default(), &without_type(spec))?),
         "filter" => MaskEffectKind::Filter(filter(&without_type(spec), None)?),
         "invert" => MaskEffectKind::Invert,
         "image" => MaskEffectKind::Image {
             resource: session.import_image(&paths::input(a.req_str("image")?))?,
-            projection: a.get("projection").map(|p| with_defaults("projection", &Projection::default(), p)).transpose()?.unwrap_or_default(),
+            projection: a.get("projection").map(|p| crate::params::projection_with_defaults(&Projection::default(), p)).transpose()?.unwrap_or_default(),
             invert: a.bool("invert")?.unwrap_or(false),
         },
         "paint" => return Err("a mask's base is already paintable: paint_stroke with target mask".into()),
@@ -749,7 +750,7 @@ pub fn content_add_effect(server: &mut Server, args: &Args) -> Res<Reply> {
         "fill" => {
             let chs = a.obj("channels")?.ok_or("fill effect needs `channels` (like fill_set)")?;
             let channels = fill_channels(session, ts, chs)?;
-            let projection = a.get("projection").map(|p| with_defaults("projection", &Projection::default(), p)).transpose()?.unwrap_or_default();
+            let projection = a.get("projection").map(|p| crate::params::projection_with_defaults(&Projection::default(), p)).transpose()?.unwrap_or_default();
             ContentEffectKind::Fill(FillContent { projection, channels })
         }
         "paint" => ContentEffectKind::Paint { channels: BTreeMap::new() },
@@ -788,14 +789,14 @@ fn tweak_effect(session: &mut Session, ts: TextureSetId, id: LayerId, eid: Effec
                         MaskEffectKind::Fill {
                             value: a.f32("value")?.unwrap_or(*value),
                             procedural: match a.get("procedural") { Some(pp) => Some(procedural_params(pp, procedural.as_ref())?), None => *procedural },
-                            projection: a.get("projection").map(|pp| with_defaults("projection", projection, pp)).transpose()?.unwrap_or(*projection),
+                            projection: a.get("projection").map(|pp| crate::params::projection_with_defaults(projection, pp)).transpose()?.unwrap_or(*projection),
                         }
                     }
                     MaskEffectKind::Image { resource, projection, invert } => {
                         let a = Args(p.as_object().ok_or("params must be an object")?);
                         MaskEffectKind::Image {
                             resource: *resource,
-                            projection: a.get("projection").map(|pp| with_defaults("projection", projection, pp)).transpose()?.unwrap_or(*projection),
+                            projection: a.get("projection").map(|pp| crate::params::projection_with_defaults(projection, pp)).transpose()?.unwrap_or(*projection),
                             invert: a.bool("invert")?.unwrap_or(*invert),
                         }
                     }
@@ -830,7 +831,7 @@ fn tweak_effect(session: &mut Session, ts: TextureSetId, id: LayerId, eid: Effec
                             f.channels.extend(fill_channels(session, ts, chs)?);
                         }
                         if let Some(pp) = a.get("projection") {
-                            f.projection = with_defaults("projection", &f.projection, pp)?;
+                            f.projection = crate::params::projection_with_defaults(&f.projection, pp)?;
                         }
                         ContentEffectKind::Fill(f)
                     }

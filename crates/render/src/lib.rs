@@ -858,6 +858,12 @@ impl ViewportRenderer {
     /// [`Self::preview`] showing one component alone as gray (the 2D view follows Display
     /// Settings > Channel component).
     pub fn preview_component(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, material_slot: u32, source: PreviewSource, component: ChannelComponent) -> Option<&PreviewTarget> {
+        self.preview_display(device, queue, material_slot, source, &ChannelDisplay { component, ..Default::default() })
+    }
+
+    /// [`Self::preview`] through Display Settings > Channel display: one component alone, the HDR
+    /// scale and the two sign colors of grayscale values, as the 3D view shows a channel alone.
+    pub fn preview_display(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, material_slot: u32, source: PreviewSource, display: &ChannelDisplay) -> Option<&PreviewTarget> {
         let mat = self.materials.get(&material_slot)?;
         let (tex, is_color) = match source {
             PreviewSource::Channel(k) => (mat.channels.get(&k)?, k.is_color()),
@@ -867,7 +873,7 @@ impl ViewportRenderer {
             self.preview_target = Some(PreviewPass::target(device, tex.size));
         }
         let dst = self.preview_target.as_ref().expect("created above");
-        self.preview.run(device, queue, &tex.view, is_color, tex.comps == 1, component, dst);
+        self.preview.run(device, queue, &tex.view, is_color, tex.comps == 1, display, dst);
         Some(dst)
     }
 

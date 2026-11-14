@@ -262,3 +262,42 @@ fn a_turned_2d_view_maps_texture_positions_through_its_rotation() {
     assert!((turned.to_uv(turned.to_view(Vec2::new(0.3, 0.8))) - Vec2::new(0.3, 0.8)).length() < 1e-4);
 }
 
+#[test]
+fn viewport_size_space_keeps_the_2d_brush_size_on_screen_and_the_others_follow_the_texture() {
+    use subcraft_paint::SizeSpace;
+    use subcraft_paint::stroke::uv_brush_radius;
+    let sc = Scene::new();
+    let (diag, upu) = (sc.mesh.bounds.diagonal(), subcraft_paint::stroke::uv_per_unit(&sc.mesh, 0));
+    let view = |side: f32| UvView { origin: Vec2::ZERO, side, viewport: [800, 600], rotation: 0.0 };
+    let settings = |space| BrushSettings { size: 10.0, size_space: space, ..BrushSettings::default() };
+    // Viewport: 10% of the view height is 60 px, whatever the zoom.
+    for side in [300.0, 1200.0] {
+        let r = uv_brush_radius(&settings(SizeSpace::Viewport), diag, upu, Some(view(side)));
+        assert!((r * side - 30.0).abs() < 1e-3, "radius 30 px on screen at side {side}: {}", r * side);
+    }
+    // Without a view it is the object size.
+    let object = uv_brush_radius(&settings(SizeSpace::Object), diag, upu, None);
+    assert_eq!(uv_brush_radius(&settings(SizeSpace::Viewport), diag, upu, None), object);
+    // Object and Texture sizes are fixed in UV: the zoom does not change them.
+    for space in [SizeSpace::Object, SizeSpace::Texture] {
+        let (a, b) = (uv_brush_radius(&settings(space), diag, upu, Some(view(300.0))), uv_brush_radius(&settings(space), diag, upu, Some(view(1200.0))));
+        assert_eq!(a, b, "{space:?}");
+    }
+    assert!((uv_brush_radius(&settings(SizeSpace::Texture), diag, upu, None) - 0.05).abs() < 1e-5, "10% of the texture is a 0.05 radius");
+}
+
+#[test]
+fn a_viewport_sized_2d_stroke_paints_a_dab_of_the_on_screen_size() {
+    use subcraft_paint::SizeSpace;
+    let mut sc = Scene::new();
+    let center = sc.face_uv(Vec3::Z);
+    // A 512 px wide texture in a 512 px high view: 4% of the height is a 10.24 px radius,
+    // 0.02 in UV, about 5 texels at 256.
+    let view = UvView { origin: Vec2::ZERO, side: 512.0, viewport: [512, 512], rotation: 0.0 };
+    let settings = BrushSettings { size: 4.0, hardness: 1.0, size_space: SizeSpace::Viewport, ..BrushSettings::default() };
+    sc.stroke(StrokeMode::Paint, &color([1.0, 0.0, 0.0]), settings, StrokeOptions::default(), &[center], |s| s.with_uv_view(Some(view))).unwrap();
+    let img = sc.image();
+    assert!(texel(&img, center + Vec2::new(0.012, 0.0))[3] > 0.9, "inside the radius");
+    assert_eq!(texel(&img, center + Vec2::new(0.035, 0.0))[3], 0.0, "outside the radius");
+}
+

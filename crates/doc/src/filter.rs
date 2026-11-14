@@ -341,6 +341,25 @@ pub enum Filter {
     /// Warp noise field (`scale` cells across the texture, `seed`) gives it, up to `intensity`
     /// pixels per axis: a blur whose direction and length follow the noise.
     BlurSlope { intensity: f32, scale: u32, seed: u32, samples: u32 },
+    /// [`Filter::Grayscale`] with Painter's Grayscale Conversion options (same panel): how the
+    /// colour becomes gray (`mode`), then Invert, Balance (0.5 neutral) and Contrast (0 neutral)
+    /// as in [`Filter::GradientCurve`].
+    GrayscaleConvert { mode: crate::mask::GrayscaleType, invert: bool, balance: f32, contrast: f32 },
+}
+
+/// Every Grayscale parameter, whichever variant holds it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct GrayParts {
+    pub mode: crate::mask::GrayscaleType,
+    pub invert: bool,
+    pub balance: f32,
+    pub contrast: f32,
+}
+
+impl Default for GrayParts {
+    fn default() -> Self {
+        Self { mode: crate::mask::GrayscaleType::Luma, invert: false, balance: 0.5, contrast: 0.0 }
+    }
 }
 
 /// Curve of a Gradient Curve filter.
@@ -470,6 +489,22 @@ impl Filter {
         Self::DirectionalDistance { distance: 16.0, angle_deg: 0.0, contrast: 0.0 },
         Self::BlurSlope { intensity: 8.0, scale: 4, seed: 1, samples: 8 }];
 
+    /// A Grayscale filter (the plain variant when the conversion options are at their defaults).
+    pub fn grayscale(p: GrayParts) -> Self {
+        if p == GrayParts::default() {
+            Self::Grayscale
+        } else {
+            Self::GrayscaleConvert { mode: p.mode, invert: p.invert, balance: p.balance, contrast: p.contrast }
+        }
+    }
+    pub fn grayscale_parts(self) -> Option<GrayParts> {
+        match self {
+            Self::Grayscale => Some(GrayParts::default()),
+            Self::GrayscaleConvert { mode, invert, balance, contrast } => Some(GrayParts { mode, invert, balance, contrast }),
+            _ => None,
+        }
+    }
+
     /// A Bevel (the plain variant when Corner Type and Smoothing are at their defaults).
     pub fn bevel(p: BevelParts) -> Self {
         if p.corner == BevelCorner::Rounded && p.smoothing == 0.0 {
@@ -571,7 +606,7 @@ impl Filter {
             Self::BevelShape {..} => "Bevel", Self::MaskOutlineShape {..} => "Mask Outline", Self::HeightAdjust {..} => "Height Adjust",
             Self::Fxaa {..} => "FXAA (Anti-Aliasing)", Self::DropShadow {..} => "Drop Shadow", Self::OuterGlow {..} => "Glow", Self::GradientDynamic {..} => "Gradient Dynamic",
             Self::GradientCurve {..} => "Gradient Curve", Self::BevelSmooth {..} => "Bevel Smooth", Self::DirectionalDistance {..} => "Directional Distance",
-            Self::BlurSlope {..} => "Blur Slope" }
+            Self::BlurSlope {..} => "Blur Slope", Self::GrayscaleConvert {..} => "Grayscale" }
     }
 
     pub fn supports_channel(self, channel: ChannelKind) -> bool {
@@ -581,7 +616,7 @@ impl Filter {
 
     /// Filters that only make sense on RGB colour data.
     fn color_only(self) -> bool {
-        matches!(self, Self::Hsl { .. } | Self::HslPerceptive { .. } | Self::Grayscale | Self::ColorBalance { .. } | Self::ReplaceColor { .. } | Self::ColorCorrect { .. } | Self::DropShadow { .. })
+        matches!(self, Self::Hsl { .. } | Self::HslPerceptive { .. } | Self::Grayscale | Self::GrayscaleConvert { .. } | Self::ColorBalance { .. } | Self::ReplaceColor { .. } | Self::ColorCorrect { .. } | Self::DropShadow { .. })
     }
 
     pub fn supports_mask(self) -> bool { !self.color_only() && !matches!(self, Self::NormalInvert { .. }) }
@@ -710,6 +745,7 @@ impl Filter {
                 Self::Blur { radius: distance }.valid() && angle_deg.is_finite() && (-180.0..=180.0).contains(&angle_deg)
                     && contrast.is_finite() && (0.0..=1.0).contains(&contrast)
             }
+            Self::GrayscaleConvert { balance, contrast, .. } => [balance, contrast].iter().all(|v| v.is_finite() && (0.0..=1.0).contains(v)),
             Self::BlurSlope { intensity, scale, samples, .. } => {
                 Self::Blur { radius: intensity }.valid() && (1..=MAX_WARP_SCALE).contains(&scale) && (2..=MAX_SLOPE_SAMPLES).contains(&samples)
             }
@@ -843,7 +879,15 @@ mod tests {
         assert!(!Filter::EdgeDetect { radius: 1.0, strength: 9.0 }.valid());
         assert!(!Filter::Mosaic { size: 0 }.valid() && !Filter::Mosaic { size: 65 }.valid());
         assert!(!Filter::DirectionalWarp { intensity: 4.0, angle_deg: 200.0 }.valid());
-        for (f, color_only) in [(Filter::Grayscale, true), (Filter::ALL[19], true), (Filter::ALL[20], true)] {
+        // Grayscale's conversion options swap to the variant that stores them and back.
+        let options = GrayParts { mode: crate::mask::GrayscaleType::Max, invert: true, balance: 0.6, contrast: 0.2 };
+        let converted = Filter::grayscale(options);
+        assert!(matches!(converted, Filter::GrayscaleConvert { .. }) && converted.label() == "Grayscale" && converted.valid());
+        assert_eq!(converted.grayscale_parts(), Some(options));
+        assert_eq!(Filter::grayscale(GrayParts::default()), Filter::Grayscale);
+        assert_eq!(Filter::Grayscale.grayscale_parts(), Some(GrayParts::default()));
+        assert!(!Filter::grayscale(GrayParts { balance: 1.5, ..options }).valid());
+        for (f, color_only) in [(Filter::Grayscale, true), (converted, true), (Filter::ALL[19], true), (Filter::ALL[20], true)] {
             assert!(f.supports_channel(ChannelKind::BaseColor));
             assert_eq!(f.supports_channel(ChannelKind::Roughness), !color_only, "{f:?}");
             assert!(!f.supports_mask());

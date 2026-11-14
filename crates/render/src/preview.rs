@@ -90,7 +90,7 @@ impl PreviewPass {
         });
         let flags = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("preview flags"),
-            contents: bytemuck::cast_slice(&[0.0f32; 4]),
+            contents: bytemuck::cast_slice(&[0.0f32; 16]),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
         Self { pipeline, layout, sampler, flags }
@@ -113,10 +113,11 @@ impl PreviewPass {
     }
 
     /// Convert `src` into `dst`. `gray` replicates the first component (scalar channels / maps);
-    /// `component` shows one component alone as gray (Display Settings > Channel component).
-    pub fn run(&self, device: &wgpu::Device, queue: &wgpu::Queue, src: &wgpu::TextureView, is_color: bool, gray: bool, component: subcraft_doc::display::ChannelComponent, dst: &PreviewTarget) {
-        let flags = [if is_color { 1.0f32 } else { 0.0 }, if gray { 1.0 } else { 0.0 }, component as u32 as f32, 0.0];
-        queue.write_buffer(&self.flags, 0, bytemuck::cast_slice(&flags));
+    /// `display` is Display Settings > Channel display: one component alone as gray, the HDR
+    /// scale, and grayscale values in two colors by sign (`unlit` does not apply here).
+    pub fn run(&self, device: &wgpu::Device, queue: &wgpu::Queue, src: &wgpu::TextureView, is_color: bool, gray: bool, display: &crate::ChannelDisplay, dst: &PreviewTarget) {
+        let params = preview_params(is_color, gray, display);
+        queue.write_buffer(&self.flags, 0, bytemuck::cast_slice(&params));
         let bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("preview"),
             layout: &self.layout,
@@ -149,3 +150,37 @@ impl PreviewPass {
         queue.submit([enc.finish()]);
     }
 }
+
+/// The preview shader's `Params`, four rows of four floats.
+pub(crate) fn preview_params(is_color: bool, gray: bool, display: &crate::ChannelDisplay) -> [f32; 16] {
+    let scale = if display.hdr_scale.is_finite() && display.hdr_scale > 0.0 { display.hdr_scale } else { 1.0 };
+    let (pos, neg) = (display.positive, display.negative);
+    [
+        if is_color { 1.0 } else { 0.0 }, if gray { 1.0 } else { 0.0 }, display.component as u32 as f32, 1.0 / scale,
+        if display.signed_colors { 1.0 } else { 0.0 }, 0.0, 0.0, 0.0,
+        pos[0], pos[1], pos[2], 0.0,
+        neg[0], neg[1], neg[2], 0.0,
+    ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_display_leaves_the_values_alone() {
+        let p = preview_params(true, false, &crate::ChannelDisplay::default());
+        assert_eq!(&p[..5], &[1.0, 0.0, 0.0, 1.0, 0.0]);
+    }
+
+    #[test]
+    fn the_scale_divides_and_a_broken_scale_is_ignored() {
+        let d = crate::ChannelDisplay { hdr_scale: 4.0, signed_colors: true, ..Default::default() };
+        let p = preview_params(false, true, &d);
+        assert_eq!((p[1], p[3], p[4]), (1.0, 0.25, 1.0));
+        for bad in [0.0, -2.0, f32::NAN] {
+            assert_eq!(preview_params(false, true, &crate::ChannelDisplay { hdr_scale: bad, ..Default::default() })[3], 1.0);
+        }
+    }
+}
+
