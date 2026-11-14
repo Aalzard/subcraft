@@ -874,15 +874,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 let style = state.recovery.prefs.viewport.brush_cursor;
                 let hardness = state.session.brush.settings.hardness;
                 // Full preview: the tip itself (alpha shape, angle, roundness), cached as a texture.
-                let footprint = (style == crate::viewport_bar::BrushCursor::Full).then(|| {
-                    let alpha = state.session.brush.alpha.clone();
-                    let key = crate::brush_cursor::footprint_key(alpha.as_ref(), &state.session.brush.settings);
-                    if state.brush_footprint.as_ref().is_none_or(|(k, _)| *k != key) {
-                        let image = crate::brush_cursor::footprint_image(alpha.as_deref(), &state.session.brush.settings);
-                        state.brush_footprint = Some((key, ui.ctx().load_texture("brush_footprint", image, egui::TextureOptions::LINEAR)));
-                    }
-                    (state.brush_footprint.as_ref().map(|(_, t)| t.id()).expect("just set"), crate::brush_cursor::footprint_reach(alpha.is_some()))
-                });
+                let footprint = (style == crate::viewport_bar::BrushCursor::Full).then(|| crate::brush_cursor::footprint_texture(state, ui.ctx()));
                 brush_mark(&painter, p, r_px, hardness, color, style, true, footprint);
                 // Symmetry: a second cursor where each copy paints (faint when the copy's point
                 // is hidden behind the model).
