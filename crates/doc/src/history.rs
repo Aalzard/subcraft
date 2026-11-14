@@ -244,8 +244,9 @@ mod tests {
         assert!(h.squash_last(3));
         assert_eq!(h.entries().len(), 3);
         assert_eq!(h.undo_label(), Some("Add Channel + 2 more"));
-        assert_eq!(*h.current(), doc(4));
-        assert_eq!(*h.undo().unwrap(), doc(1), "one undo goes back past the whole group");
+        let name = |d: &Document| d.texture_sets[0].name.clone();
+        assert_eq!(name(h.current()), "s4");
+        assert_eq!(name(h.undo().unwrap()), "s1", "one undo goes back past the whole group");
         h.redo();
         assert!(!h.squash_last(1), "a single step stays as it is");
         assert!(!h.squash_last(10) || h.entries()[0].label == "Start", "the first entry is never folded");
