@@ -2347,6 +2347,15 @@ impl Session {
                 let key = format!("projection:{layer}");
                 self.edit_layer_set(layer, "Projection", Some(key), |ts| {
                     let LayerContent::Fill(f) = &mut Self::layer_mut(ts, layer)?.content else { return Err(CommandError::NotAFillLayer) };
+                    let mut projection = projection;
+                    // A new Axis with the same edited warp grid turns the grid with it (left as
+                    // it was, it lay edge-on along the new axis and the fill disappeared).
+                    if let (Some(old), Some(new)) = (f.projection.warp, projection.warp)
+                        && old == new
+                        && f.projection.planar_axis.min(2) != projection.planar_axis.min(2)
+                    {
+                        projection.warp = Some(new.reoriented(f.projection.planar_axis, projection.planar_axis));
+                    }
                     f.projection = projection;
                     Ok(())
                 })?;

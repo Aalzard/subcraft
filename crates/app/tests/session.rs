@@ -576,6 +576,36 @@ fn changing_texture_set_resolution_resamples_paint_in_one_undo_step() {
     assert!(s.execute(Command::SetResolution { texture_set: Some(ts), resolution: 300 }).is_err(), "only supported sizes");
 }
 
+/// QA 2026-11: changing Axis on a Warp fill kept the edited grid, edge-on along the new axis, so
+/// the fill disappeared until Reset grid.
+#[test]
+fn changing_the_axis_of_a_warp_fill_turns_its_grid() {
+    use subcraft_doc::{Projection, ProjectionMode, WarpGrid};
+    let mut s = session();
+    s.execute(Command::AddLayer(NewLayer::Fill)).unwrap();
+    let layer = s.selection().layer.unwrap();
+    let mut grid = WarpGrid::planar(2, 2, 2);
+    let mut p = grid.points()[4];
+    p[0] += 0.1;
+    assert!(grid.set_point(4, p));
+    let warp = Projection { mode: ProjectionMode::Warp, planar_axis: 2, warp: Some(grid), ..Projection::default() };
+    s.execute(Command::SetFillProjection { layer, projection: warp }).unwrap();
+    s.execute(Command::SetFillProjection { layer, projection: Projection { planar_axis: 0, ..warp } }).unwrap();
+    let LayerContent::Fill(f) = &s.selected_layer().unwrap().content else { panic!() };
+    assert_eq!(f.projection.planar_axis, 0);
+    assert_eq!(f.projection.warp, Some(grid.reoriented(2, 0)), "the grid turned with the axis");
+    let (_, inside) = f.projection.warp_coords([0.5, 0.5, 0.5]);
+    assert!(inside, "the middle of the model is still covered");
+    // Moving a point (same axis) stores the grid as given.
+    let mut moved = grid.reoriented(2, 0);
+    let mut q = moved.points()[0];
+    q[2] += 0.05;
+    assert!(moved.set_point(0, q));
+    s.execute(Command::SetFillProjection { layer, projection: Projection { planar_axis: 0, warp: Some(moved), ..warp } }).unwrap();
+    let LayerContent::Fill(f) = &s.selected_layer().unwrap().content else { panic!() };
+    assert_eq!(f.projection.warp, Some(moved));
+}
+
 /// Interactive updates composite on the background worker; synchronous updates (export, bake,
 /// save, tests) still see the exact composite of the newest document.
 #[test]

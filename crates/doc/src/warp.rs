@@ -158,6 +158,23 @@ impl WarpGrid {
         true
     }
 
+    /// The grid turned from the planar frame of axis `from` to that of `to`: every point keeps
+    /// its plane coordinates and its depth, so the image stays where the points put it. Kept as
+    /// it was, an edited grid lay edge-on along the new axis and the fill disappeared.
+    pub fn reoriented(&self, from: u8, to: u8) -> Self {
+        let (from, to) = (from.min(2), to.min(2));
+        let mut g = *self;
+        if from == to {
+            return g;
+        }
+        let n = self.points().len();
+        for p in &mut g.points[..n] {
+            let depth = p[from as usize];
+            *p = from_plane_coords(plane_coords(*p, from), to, depth).map(|v| v.clamp(-MAX_WARP_COORD, MAX_WARP_COORD));
+        }
+        g
+    }
+
     /// Whether the grid is still the flat, evenly divided grid of `axis` (rows and columns can
     /// then still be changed, as in Painter).
     pub fn is_flat(&self, axis: u8) -> bool {
@@ -285,6 +302,29 @@ mod tests {
             let (_, inside) = g.coords(axis, from_plane_coords([1.3, 0.5], axis, 0.2));
             assert!(!inside, "outside the square nothing is projected");
         }
+    }
+
+    /// QA 2026-11: changing Axis kept an edited grid, which then lay edge-on along the new axis:
+    /// the fill disappeared until Reset grid.
+    #[test]
+    fn a_grid_turns_with_the_axis() {
+        for (from, to) in [(2u8, 0u8), (2, 1), (0, 1), (1, 2)] {
+            assert!(WarpGrid::planar(from, 3, 2).reoriented(from, to).is_flat(to), "{from} -> {to}: a flat grid stays flat");
+            let mut g = WarpGrid::planar(from, 2, 2);
+            let mut moved = g.points()[4];
+            moved[((from as usize) + 1) % 3] += 0.15;
+            assert!(g.set_point(4, moved));
+            let turned = g.reoriented(from, to);
+            assert_eq!(turned.reoriented(to, from).points().len(), g.points().len());
+            for pos in [[0.3, 0.4, 0.5], [0.7, 0.2, 0.6], [0.55, 0.5, 0.45]] {
+                let there = from_plane_coords(plane_coords(pos, from), to, pos[from as usize]);
+                let (a, inside_a) = g.coords(from, pos);
+                let (b, inside_b) = turned.coords(to, there);
+                assert!(inside_a && inside_b && close(a, b), "{from} -> {to} {pos:?}: {a:?} vs {b:?}");
+            }
+        }
+        let g = WarpGrid::planar(2, 2, 2);
+        assert_eq!(g.reoriented(1, 1), g);
     }
 
     /// QA 2026-11: a point such as 3e38 loaded (only finiteness was checked) and overflowed the
