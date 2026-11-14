@@ -1857,7 +1857,8 @@ pub(crate) fn editor_modes(current: ProjectionMode) -> Vec<(ProjectionMode, &'st
 pub(crate) fn projection_editor(ui: &mut Ui, proj: &mut Projection) -> bool {
     let mut changed = false;
     prop_row(ui, tr("Mode"), |ui| {
-        changed |= segmented(ui, &mut proj.mode, &editor_modes(proj.mode));
+        let modes = editor_modes(proj.mode);
+        changed |= segmented(ui, &mut proj.mode, &modes);
     });
     // Tiling: X and Y linked by default (lock), separate when unlocked. The lock is UI state,
     // remembered per editor; it starts unlocked if the two values already differ.
