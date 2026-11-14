@@ -255,8 +255,57 @@ fn rows<'a>(list: &'a [Arc<Layer>], depth: usize, out: &mut Vec<(usize, &'a Laye
     }
 }
 
+/// Files dropped from the OS that the layer stack takes: only when every one is an image (models,
+/// projects and smart materials stay with the window-wide handler).
+pub fn image_drops(paths: &[std::path::PathBuf]) -> Option<Vec<std::path::PathBuf>> {
+    let image = |p: &std::path::PathBuf| p.extension().and_then(|e| e.to_str()).is_some_and(|e| subcraft_image::IMAGE_EXTENSIONS.contains(&e.to_ascii_lowercase().as_str()));
+    (!paths.is_empty() && paths.iter().all(image)).then(|| paths.to_vec())
+}
+
+/// Painter: images dragged from the OS into the layer stack are imported and become layers. Maps
+/// whose file names name channels (wood_basecolor.png, wood_normal.png, ...) become one fill
+/// layer with all of them; other images a fill layer each (Base Color).
+fn handle_os_drops(state: &mut UiState, ui: &Ui, rect: egui::Rect, now: f64) {
+    let over = ui.ctx().input(|i| i.pointer.latest_pos()).is_some_and(|p| rect.contains(p) && !state.import.covers(p));
+    if !over {
+        return;
+    }
+    if ui.ctx().input(|i| !i.raw.hovered_files.is_empty()) {
+        ui.painter().rect_stroke(rect.shrink(2.0), 4.0, egui::Stroke::new(2.0, crate::theme::ACCENT()), egui::StrokeKind::Inside);
+    }
+    let dropped: Vec<std::path::PathBuf> = ui.ctx().input(|i| i.raw.dropped_files.iter().map(|f| f.path().to_path_buf()).filter(|p| !p.as_os_str().is_empty()).collect());
+    let Some(images) = image_drops(&dropped) else { return };
+    state.drops_taken = true;
+    let set = if images.len() > 1 { state.session.import_texture_set(&images).ok() } else { None };
+    let message = match set {
+        Some(r) => format!("Added \"{}\": {}", r.layer_name, r.summary()),
+        None => {
+            let mut added = Vec::new();
+            let mut failed = Vec::new();
+            for p in &images {
+                match state.session.add_texture_layer(p) {
+                    Ok(name) => added.push(name),
+                    Err(e) => failed.push(format!("{}: {e}", p.file_name().and_then(|n| n.to_str()).unwrap_or("?"))),
+                }
+            }
+            let mut m = match added.len() {
+                0 => String::new(),
+                1 => format!("Added \"{}\" as a fill layer", added[0]),
+                n => format!("Added {n} fill layers"),
+            };
+            if !failed.is_empty() {
+                if !m.is_empty() { m.push_str("; "); }
+                m.push_str(&format!("could not import {}", failed.join(", ")));
+            }
+            m
+        }
+    };
+    state.set_status(message, now);
+}
+
 pub fn show(state: &mut UiState, ui: &mut Ui) {
     let now = ui.input(|i| i.time);
+    handle_os_drops(state, ui, ui.max_rect(), now);
     let mut cmds = Vec::new();
     let sel = state.session.selection().layer;
     let multi_selected = state.multi.is_multi();
@@ -1283,6 +1332,14 @@ mod instantiate_dialog_tests {
         assert_eq!(source_label(1), "Source of 1 instance");
         assert_eq!(source_label(3), "Source of 3 instances");
         assert_eq!(ghost_mask_label(ShelfDrag::Alpha(0), "Rust"), "Add a black mask to \"Rust\" with this alpha in it");
+        // OS drops: the stack takes them only when every file is an image.
+        use std::path::PathBuf;
+        let pngs = vec![PathBuf::from("wood_basecolor.png"), PathBuf::from("wood_Normal.TGA")];
+        assert_eq!(image_drops(&pngs), Some(pngs.clone()));
+        assert_eq!(image_drops(&[PathBuf::from("model.fbx")]), None);
+        assert_eq!(image_drops(&[PathBuf::from("a.png"), PathBuf::from("b.subcraft")]), None, "a mixed drop stays with the window");
+        assert_eq!(image_drops(&[]), None);
+        assert_eq!(image_drops(&[PathBuf::from("noext")]), None);
         assert_eq!(ghost_mask_label(ShelfDrag::Filter(0), "Rust"), "Add a black mask to \"Rust\" with this filter in it");
         // The instance list: source first, each entry a jump to its texture set and layer.
         let links = s.instance_links(top.id);
