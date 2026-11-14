@@ -1017,4 +1017,8 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Load…", "불러오기…"),
     ("Linear raw", "선형 원시 값"),
     ("A 3D LUT image (EXR) in OpenColorIO's ociolutimage layout, such as 2048 x 128; it is saved with the project", "OpenColorIO ociolutimage 배열의 3D LUT 이미지(EXR), 예: 2048 x 128. 프로젝트와 함께 저장됩니다"),
+    ("Projection preview", "투영 미리보기"),
+    ("Projection preview channel", "투영 미리보기 채널"),
+    ("Opacity of the Projection tool's pattern over the 3D view (0 hides it)", "3D 뷰 위에 표시되는 투영 도구 패턴의 불투명도 (0이면 숨김)"),
+    ("Which image of the brush material the Projection tool shows over the view", "투영 도구가 뷰 위에 표시할 브러시 재질의 이미지"),
 ];

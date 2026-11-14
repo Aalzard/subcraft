@@ -1017,4 +1017,8 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Load…", "載入…"),
     ("Linear raw", "線性原始值"),
     ("A 3D LUT image (EXR) in OpenColorIO's ociolutimage layout, such as 2048 x 128; it is saved with the project", "採用 OpenColorIO ociolutimage 排列的 3D LUT 影像（EXR），例如 2048 x 128；會隨專案一併儲存"),
+    ("Projection preview", "投影預覽"),
+    ("Projection preview channel", "投影預覽通道"),
+    ("Opacity of the Projection tool's pattern over the 3D view (0 hides it)", "投影工具圖樣在 3D 檢視上的不透明度（0 為隱藏）"),
+    ("Which image of the brush material the Projection tool shows over the view", "投影工具在檢視上顯示筆刷材質的哪一張影像"),
 ];

@@ -695,9 +695,20 @@ pub fn visualization(state: &mut UiState, ui: &mut Ui) {
         ui.end_row();
     });
     sub_header(ui, tr("Tool display"));
+    let projection_channels: Vec<subcraft_core::ChannelKind> = state.session.brush.material.textures.keys().copied().collect();
     // The same settings as the stencil display options in Properties > Brush.
     grid(ui, "display_tool", |ui| {
         let d = &mut state.stencil_display;
+        ui.label(tr("Projection preview"));
+        ui.add(egui::Slider::new(&mut d.projection_opacity, 0.0..=1.0)).on_hover_text(tr("Opacity of the Projection tool's pattern over the 3D view (0 hides it)"));
+        ui.end_row();
+        ui.label(tr("Projection preview channel"));
+        egui::ComboBox::from_id_salt("projection_preview_channel").selected_text(d.projection_channel.display_name()).show_ui(ui, |ui| {
+            for k in &projection_channels {
+                ui.selectable_value(&mut d.projection_channel, *k, k.display_name());
+            }
+        }).response.on_hover_text(tr("Which image of the brush material the Projection tool shows over the view"));
+        ui.end_row();
         ui.label(tr("Hide stencil when painting"));
         ui.checkbox(&mut d.hide_when_painting, "").on_hover_text(tr("The stencil image disappears during a stroke, so the paint is seen as it lands"));
         ui.end_row();
