@@ -104,11 +104,13 @@ pub enum Action {
     ToggleSymmetry,
     /// Painter's Pause engine computation (Shift+Esc): edits wait until it is pressed again.
     PauseEngine,
+    /// Painter's Projection tool (3): paint the material projected from the view.
+    ProjectionTool,
 }
 
 impl Action {
     /// Every action, in declaration order (the tests check [`ACTIONS`] against it).
-    pub const ALL: [Action; 53] = [
+    pub const ALL: [Action; 54] = [
         Action::Undo, Action::Redo, Action::NewPaintLayer, Action::NewFillLayer, Action::NewFolder, Action::NewTextLayer, Action::DeleteLayer, Action::DuplicateLayer,
         Action::BrushTool, Action::EraserTool, Action::PenTool, Action::PolygonFillTool, Action::SmudgeTool, Action::CloneTool, Action::EyedropperTool,
         Action::BrushSmaller, Action::BrushLarger, Action::ToggleSymmetryX, Action::ToggleLazyMouse, Action::ResetCamera, Action::PerspectiveCamera,
@@ -118,7 +120,7 @@ impl Action {
         Action::SwapViews, Action::NextMeshMap, Action::PrevMeshMap, Action::InvertMaskGray, Action::IsolateTextureSet,
         Action::NextCamera, Action::PrevCamera,
         Action::HideExcludedGeometry, Action::QuickMaskToggle, Action::QuickMaskClear, Action::QuickMaskInvert,
-        Action::ToggleSymmetry, Action::PauseEngine,
+        Action::ToggleSymmetry, Action::PauseEngine, Action::ProjectionTool,
     ];
 }
 
@@ -255,6 +257,7 @@ pub const ACTIONS: &[ActionInfo] = &[
     ActionInfo { action: Action::ToggleSymmetryX, label: "Toggle X Symmetry", shortcuts: &[Shortcut::key(Key::X)], painter: Some(&[Shortcut::shift(Key::X)]) },
     a(Action::ToggleSymmetry, "Toggle Symmetry", &[Shortcut::key(Key::L)]),
     a(Action::PauseEngine, "Pause Engine Computation", &[Shortcut::shift(Key::Escape)]),
+    a(Action::ProjectionTool, "Projection Tool", &[Shortcut::key(Key::Num3)]),
     a(Action::ToggleLazyMouse, "Toggle Lazy Mouse", &[Shortcut::key(Key::D)]),
     a(Action::ResetCamera, "Frame Model / Reset Camera", &[Shortcut::key(Key::Home), Shortcut::key(Key::F)]),
     a(Action::PerspectiveCamera, "Perspective Camera", &[Shortcut::key(Key::F5)]),
@@ -395,7 +398,7 @@ pub const PAINTER_REFERENCE: &[PainterEntry] = &[
     none("Tools", "Ctrl+1", "Paint tool + Particles", "no particle tool (scatter lives in brush settings)"),
     e("Tools", "2", "Eraser tool", Support::Added, Action::EraserTool, Shortcut::key(Key::Num2), "E kept as well"),
     none("Tools", "Ctrl+2", "Eraser tool + Particles", "no particle tool"),
-    none("Tools", "3", "Projection tool", "no projection tool"),
+    e("Tools", "3", "Projection tool", Support::Added, Action::ProjectionTool, Shortcut::key(Key::Num3), "paints the brush material cast from the view and tiled over it"),
     none("Tools", "Ctrl+3", "Projection tool + Particles", "no projection tool"),
     e("Tools", "4", "Polygon Fill", Support::Added, Action::PolygonFillTool, Shortcut::key(Key::Num4), ""),
     e("Tools", "5", "Smudge tool", Support::Added, Action::SmudgeTool, Shortcut::key(Key::Num5), ""),
@@ -622,14 +625,14 @@ mod tests {
             (Shortcut::alt(Key::Q), Action::IsolateTextureSet), (Shortcut::key(Key::Delete), Action::DeleteLayer), (Shortcut::ctrl(Key::D), Action::DuplicateLayer),
             (Shortcut::ctrl(Key::G), Action::NewFolder), (Shortcut::alt(Key::H), Action::HideExcludedGeometry),
             (Shortcut::key(Key::U), Action::QuickMaskToggle), (Shortcut::key(Key::Y), Action::QuickMaskClear), (Shortcut::key(Key::I), Action::QuickMaskInvert),
-            (Shortcut::shift(Key::Escape), Action::PauseEngine),
+            (Shortcut::shift(Key::Escape), Action::PauseEngine), (Shortcut::key(Key::Num3), Action::ProjectionTool),
         ];
         for (s, a) in expect {
             assert_eq!(action_for(pa, s), Some(a), "{}", s.label());
         }
         // Hold keys of the viewport (S stencil, N ignore stencil, V clone source) and the keys of
         // Painter features SubCraft lacks stay free in the Painter key set, so they never do something else.
-        for k in [Key::S, Key::N, Key::V, Key::Q, Key::W, Key::R, Key::T, Key::A, Key::Num3, Key::Space] {
+        for k in [Key::S, Key::N, Key::V, Key::Q, Key::W, Key::R, Key::T, Key::A, Key::Space] {
             assert_eq!(action_for(pa, Shortcut::key(k)), None, "{} must stay free", k.label());
         }
     }

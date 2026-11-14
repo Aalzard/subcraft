@@ -66,6 +66,7 @@ fn paint_verb(tool: Tool) -> &'static str {
         Tool::Eraser => "Erase",
         Tool::Smudge => "Smudge",
         Tool::Clone => "Clone",
+        Tool::Projection => "Project",
         _ => "Paint",
     }
 }
@@ -92,7 +93,7 @@ pub fn build(c: &HintContext) -> Vec<Hint> {
     }
     if c.ctrl {
         match c.tool {
-            Tool::Brush | Tool::Eraser | Tool::Smudge => {
+            Tool::Brush | Tool::Eraser | Tool::Smudge | Tool::Projection => {
                 out.push(h("Ctrl+RMB drag", "Size / hardness"));
                 out.push(h("Ctrl+LMB drag", "Flow / angle"));
             }
@@ -111,7 +112,7 @@ pub fn build(c: &HintContext) -> Vec<Hint> {
     }
     if c.shift {
         match c.tool {
-            Tool::Brush | Tool::Eraser | Tool::Smudge | Tool::Clone => out.push(h("Shift+LMB", "Straight line from the last point")),
+            Tool::Brush | Tool::Eraser | Tool::Smudge | Tool::Clone | Tool::Projection => out.push(h("Shift+LMB", "Straight line from the last point")),
             Tool::Eyedropper => out.push(h("Shift+LMB", "Pick material")),
             _ => {}
         }

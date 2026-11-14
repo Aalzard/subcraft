@@ -1447,6 +1447,7 @@ impl SubcraftApp {
             Action::EraserTool => self.state.tool = Tool::Eraser,
             Action::PolygonFillTool => self.state.tool = Tool::PolygonFill,
             Action::SmudgeTool => self.state.tool = Tool::Smudge,
+            Action::ProjectionTool => self.state.tool = Tool::Projection,
             Action::CloneTool => self.state.tool = Tool::Clone,
             Action::EyedropperTool => self.state.tool = Tool::Eyedropper,
             Action::NextCamera => crate::view_extras::cycle_camera(&mut self.state, 1),
@@ -1603,6 +1604,7 @@ impl SubcraftApp {
                 (Tool::PolygonFill, icons::PAINT_BUCKET, tip(km, "Polygon fill", Action::PolygonFillTool)),
                 (Tool::Clone, icons::COPY, crate::keys::native_string(format!("{}: Ctrl+click or hold V and click the model to set the source, then paint to copy it", tip(km, "Clone", Action::CloneTool)))),
                 (Tool::Smudge, icons::DROP, tip(km, "Smudge: drag the paint under the brush along the stroke", Action::SmudgeTool)),
+                (Tool::Projection, icons::IMAGE, tip(km, "Projection: paint the brush material cast from the view and tiled over it", Action::ProjectionTool)),
                 (Tool::Eyedropper, icons::CURSOR, tip(km, "Eyedropper (Shift+click picks material)", Action::EyedropperTool)),
                 (Tool::Pen, icons::CURVE, tip(km, "Pen paths: click points, drag for curves; edit anchors and handles in 2D View", Action::PenTool)),
             ] {
@@ -2025,6 +2027,7 @@ impl SubcraftApp {
                 Tool::PolygonFill => (icons::PAINT_BUCKET, "Polygon fill"),
                 Tool::Clone => (icons::COPY, "Clone"),
                 Tool::Smudge => (icons::DROP, "Smudge"),
+                Tool::Projection => (icons::IMAGE, "Projection"),
                 Tool::Eyedropper => (icons::CURSOR, "Eyedropper"),
                 Tool::Pen => (icons::CURVE, "Pen paths"),
             };
