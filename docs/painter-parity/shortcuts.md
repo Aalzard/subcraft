@@ -53,7 +53,7 @@ Layout notes: Painter lists editable shortcuts in Settings > Shortcuts as one lo
 | Select Polygon Fill | Settings > Shortcuts | 4 | done | crates/app/src/actions.rs:201 | #131 |
 | Select Smudge tool | Settings > Shortcuts | 5 | done | crates/app/src/actions.rs:202 | - |
 | Select Clone tool (relative source) | Settings > Shortcuts | 6 | partial: one clone mode only | crates/app/src/actions.rs:203 | - |
-| Select Clone tool (absolute source) | Settings > Shortcuts | Ctrl+6 | missing | - | - |
+| Select Clone tool (absolute source) | Settings > Shortcuts | Ctrl+6 | done: Clone tool with the absolute source mode (6 sets the relative mode) | crates/app/src/actions.rs | (this PR) |
 | Select paint along path tool | Settings > Shortcuts | unassigned | partial: Pen paths tool is bound to P (Shift+P in the Painter key set) | crates/app/src/actions.rs:200 | - |
 | Bake Mesh Maps | Settings > Shortcuts | Ctrl+Shift+B | done | crates/app/src/actions.rs:221 | - |
 | Increase tool size | Settings > Shortcuts | ] | done | crates/app/src/actions.rs:206 | - |

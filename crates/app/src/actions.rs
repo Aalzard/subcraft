@@ -108,11 +108,14 @@ pub enum Action {
     ProjectionTool,
     /// Painter's Reimport mesh (Ctrl+Shift+R): Project configuration, ready to reimport the model.
     ReimportMesh,
+    /// Painter's Clone tool with an absolute source (Ctrl+6): every stroke copies from the source
+    /// point again (6 is the relative clone, whose offset carries over between strokes).
+    CloneToolAbsolute,
 }
 
 impl Action {
     /// Every action, in declaration order (the tests check [`ACTIONS`] against it).
-    pub const ALL: [Action; 55] = [
+    pub const ALL: [Action; 56] = [
         Action::Undo, Action::Redo, Action::NewPaintLayer, Action::NewFillLayer, Action::NewFolder, Action::NewTextLayer, Action::DeleteLayer, Action::DuplicateLayer,
         Action::BrushTool, Action::EraserTool, Action::PenTool, Action::PolygonFillTool, Action::SmudgeTool, Action::CloneTool, Action::EyedropperTool,
         Action::BrushSmaller, Action::BrushLarger, Action::ToggleSymmetryX, Action::ToggleLazyMouse, Action::ResetCamera, Action::PerspectiveCamera,
@@ -123,6 +126,7 @@ impl Action {
         Action::NextCamera, Action::PrevCamera,
         Action::HideExcludedGeometry, Action::QuickMaskToggle, Action::QuickMaskClear, Action::QuickMaskInvert,
         Action::ToggleSymmetry, Action::PauseEngine, Action::ProjectionTool, Action::ReimportMesh,
+        Action::CloneToolAbsolute,
     ];
 }
 
@@ -261,6 +265,7 @@ pub const ACTIONS: &[ActionInfo] = &[
     a(Action::PauseEngine, "Pause Engine Computation", &[Shortcut::shift(Key::Escape)]),
     a(Action::ProjectionTool, "Projection Tool", &[Shortcut::key(Key::Num3)]),
     a(Action::ReimportMesh, "Reimport Mesh", &[Shortcut::ctrl_shift(Key::R)]),
+    a(Action::CloneToolAbsolute, "Clone (absolute source)", &[Shortcut::ctrl(Key::Num6)]),
     a(Action::ToggleLazyMouse, "Toggle Lazy Mouse", &[Shortcut::key(Key::D)]),
     a(Action::ResetCamera, "Frame Model / Reset Camera", &[Shortcut::key(Key::Home), Shortcut::key(Key::F)]),
     a(Action::PerspectiveCamera, "Perspective Camera", &[Shortcut::key(Key::F5)]),
@@ -406,8 +411,8 @@ pub const PAINTER_REFERENCE: &[PainterEntry] = &[
     none("Tools", "Ctrl+3", "Projection tool + Particles", "no projection tool"),
     e("Tools", "4", "Polygon Fill", Support::Added, Action::PolygonFillTool, Shortcut::key(Key::Num4), ""),
     e("Tools", "5", "Smudge tool", Support::Added, Action::SmudgeTool, Shortcut::key(Key::Num5), ""),
-    e("Tools", "6", "Clone tool (relative source)", Support::Added, Action::CloneTool, Shortcut::key(Key::Num6), ""),
-    none("Tools", "Ctrl+6", "Clone tool (absolute source)", "only one clone mode"),
+    e("Tools", "6", "Clone tool (relative source)", Support::Added, Action::CloneTool, Shortcut::key(Key::Num6), "the offset to the source carries over between strokes"),
+    e("Tools", "Ctrl+6", "Clone tool (absolute source)", Support::Added, Action::CloneToolAbsolute, Shortcut::ctrl(Key::Num6), "every stroke copies from the source point again"),
     e("Tools", "]", "Increase tool size", Support::Same, Action::BrushLarger, Shortcut::key(Key::CloseBracket), ""),
     e("Tools", "[", "Decrease tool size", Support::Same, Action::BrushSmaller, Shortcut::key(Key::OpenBracket), ""),
     e("Tools", "X", "Invert grayscale tool", Support::PainterPreset, Action::InvertMaskGray, Shortcut::key(Key::X), "mask brush value g becomes 1 - g; X stays symmetry in the SubCraft key set"),
@@ -631,6 +636,7 @@ mod tests {
             (Shortcut::ctrl(Key::G), Action::NewFolder), (Shortcut::alt(Key::H), Action::HideExcludedGeometry),
             (Shortcut::key(Key::U), Action::QuickMaskToggle), (Shortcut::key(Key::Y), Action::QuickMaskClear), (Shortcut::key(Key::I), Action::QuickMaskInvert),
             (Shortcut::shift(Key::Escape), Action::PauseEngine), (Shortcut::key(Key::Num3), Action::ProjectionTool), (Shortcut::ctrl_shift(Key::R), Action::ReimportMesh),
+            (Shortcut::ctrl(Key::Num6), Action::CloneToolAbsolute),
         ];
         for (s, a) in expect {
             assert_eq!(action_for(pa, s), Some(a), "{}", s.label());

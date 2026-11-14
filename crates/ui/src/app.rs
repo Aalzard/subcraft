@@ -1499,7 +1499,16 @@ impl SubcraftApp {
             Action::PolygonFillTool => self.state.tool = Tool::PolygonFill,
             Action::SmudgeTool => self.state.tool = Tool::Smudge,
             Action::ProjectionTool => self.state.tool = Tool::Projection,
-            Action::CloneTool => self.state.tool = Tool::Clone,
+            // Painter: 6 is the clone with a relative source, Ctrl+6 the absolute one.
+            Action::CloneTool => {
+                self.state.tool = Tool::Clone;
+                self.state.session.brush.clone_mode = subcraft_app::CloneSourceMode::Relative;
+            }
+            Action::CloneToolAbsolute => {
+                self.state.tool = Tool::Clone;
+                self.state.session.brush.clone_mode = subcraft_app::CloneSourceMode::Absolute;
+                self.state.set_status("Clone with an absolute source: every stroke copies from the source point again (6: relative)", now);
+            }
             Action::EyedropperTool => self.state.tool = Tool::Eyedropper,
             Action::NextCamera => crate::view_extras::cycle_camera(&mut self.state, 1),
             Action::PrevCamera => crate::view_extras::cycle_camera(&mut self.state, -1),
