@@ -15,14 +15,12 @@ fn run(s: &mut Session, settings: BakeSettings, high: &std::path::Path, files: B
     (result, job.log().iter().map(|l| l.text.clone()).collect())
 }
 
-/// The ID map left and right of the middle of the plane (black where no high poly was reached).
+/// The ID map left and right of the middle of the plane.
 fn id_sides(s: &Session) -> ([f32; 4], [f32; 4]) {
     let ts = s.selection().texture_set;
     let id = s.mesh_maps(ts).unwrap().get(MeshMapKind::Id).unwrap().clone();
     // Off-centre along both axes, so the samples are on opposite halves whichever way the UVs run.
-    let (a, b) = (id.get(24, 40), id.get(104, 88));
-    // The plane's UVs may run either way along x: order the two samples by which half is baked.
-    if a[..3] == [0.0; 3] { (b, a) } else { (a, b) }
+    (id.get(24, 40), id.get(104, 88))
 }
 
 #[test]
@@ -36,10 +34,13 @@ fn several_high_poly_files_bake_as_one_and_a_cage_file_sets_the_ray_starts() {
     let mut s = Session::new(primitives::plane(2.0, 4), 128);
     let settings = BakeSettings { size: 128, maps: vec![MeshMapKind::Id], ..Default::default() };
 
-    let (result, _) = run(&mut s, settings.clone(), &left, BakeFiles::default());
+    // One file covers one half: the other half's rays miss (reported in the log), and those
+    // texels take the baked half's ID instead of black (issue #466).
+    let (result, log) = run(&mut s, settings.clone(), &left, BakeFiles::default());
     assert_eq!(result, Ok(1));
-    let (baked, missed) = id_sides(&s);
-    assert!(baked[..3] != [0.0; 3] && missed[..3] == [0.0; 3], "one file covers one half: {baked:?} {missed:?}");
+    let (a, b) = id_sides(&s);
+    assert!(a[..3] != [0.0; 3] && a[..3] == b[..3], "one file covers one half: {a:?} {b:?}");
+    assert!(log.iter().any(|l| l.starts_with("Cage: ")), "{log:?}");
 
     let files = BakeFiles { extra_high_polys: vec![right.clone()], cage: None };
     let (result, log) = run(&mut s, settings.clone(), &left, files);
