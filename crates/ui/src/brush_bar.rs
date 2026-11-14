@@ -74,6 +74,17 @@ pub(crate) fn fill_mode_combo(ui: &mut Ui, mode: &mut subcraft_paint::PolygonFil
         .on_hover_text("Polygon fill: what a click or a box fills")
 }
 
+/// The stroke mode a painting tool starts its strokes in.
+pub fn stroke_mode(tool: crate::state::Tool) -> subcraft_paint::StrokeMode {
+    use crate::state::Tool;
+    match tool {
+        Tool::Eraser => subcraft_paint::StrokeMode::Erase,
+        Tool::Clone => subcraft_paint::StrokeMode::Clone,
+        Tool::Smudge => subcraft_paint::StrokeMode::Smudge,
+        _ => subcraft_paint::StrokeMode::Paint,
+    }
+}
+
 /// Polygon fill options for the contextual toolbar (3D and 2D views): the element a click or a
 /// box fills as a row of buttons (a menu when the row is narrow), visible-only boxes in 3D, and
 /// where the fill lands on the selected layer.

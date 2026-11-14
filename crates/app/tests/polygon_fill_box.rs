@@ -64,10 +64,18 @@ fn a_loop_fill_in_the_3d_view_is_one_undo_step() {
 #[test]
 fn the_stroke_blocker_names_why_a_stroke_would_be_refused() {
     let mut s = Session::new(primitives::cube(2.0), 64);
+    use subcraft_paint::{PaintError, PaintTarget, StrokeMode};
     s.execute(Command::AddLayer(subcraft_app::NewLayer::Paint)).unwrap();
-    assert_eq!(s.stroke_blocker(), None, "a paint layer takes strokes");
+    assert_eq!(s.stroke_blocker(StrokeMode::Paint), None, "a paint layer takes strokes");
     s.execute(Command::AddLayer(subcraft_app::NewLayer::Fill)).unwrap();
-    assert_eq!(s.stroke_blocker(), Some(subcraft_paint::PaintError::NotAPaintLayer), "a fill layer does not");
-    s.brush.target = subcraft_paint::PaintTarget::MaskBase;
-    assert_eq!(s.stroke_blocker(), Some(subcraft_paint::PaintError::NoMask), "its mask, when it has one");
+    // A paint stroke on a fill layer paints on a new paint layer: nothing refuses it.
+    assert_eq!(s.stroke_blocker(StrokeMode::Paint), None);
+    assert_eq!(s.stroke_blocker(StrokeMode::Erase), Some(PaintError::NotAPaintLayer), "erasing a fill layer's content is refused");
+    s.brush.target = PaintTarget::MaskBase;
+    assert_eq!(s.stroke_blocker(StrokeMode::Paint), Some(PaintError::NoMask), "its mask, when it has none");
+    // And the brush really does paint on a fill layer through a new paint layer.
+    s.brush.target = PaintTarget::Content;
+    let layers = s.selected_texture_set().layers.len();
+    assert!(s.ensure_paint_layer().is_some());
+    assert_eq!(s.selected_texture_set().layers.len(), layers + 1);
 }

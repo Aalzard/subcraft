@@ -457,7 +457,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             let r_px = state.session.brush_radius_uv_in(density, Some(view)) * side;
             let color = if state.tool == Tool::Eraser { Color32::from_rgb(120, 190, 255) } else { crate::theme::ACCENT() };
             // A stroke here would be refused (a fill layer, a path...): say so, as in the 3D view.
-            let blocked = state.session.stroke_blocker().filter(|e| *e != subcraft_paint::PaintError::NoCloneSource);
+            let blocked = state.session.stroke_blocker(crate::brush_bar::stroke_mode(state.tool)).filter(|e| *e != subcraft_paint::PaintError::NoCloneSource);
             if let Some(reason) = blocked {
                 crate::brush_cursor::draw_blocked(&painter, p, r_px, &reason.to_string());
             } else if state.recovery.prefs.viewport.brush_cursor == crate::viewport_bar::BrushCursor::Full {

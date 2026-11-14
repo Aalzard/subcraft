@@ -2816,13 +2816,22 @@ impl Session {
         })
     }
 
-    /// Why a stroke started now on the selected layer would be refused (no layer, an instance, a
-    /// fill layer or a path / text layer for content strokes, no mask...), or `None` when it
-    /// paints. Cheap: for the brush cursor (Painter's fill layer cursor). The clone source is not
-    /// checked (Ctrl+click sets it).
-    pub fn stroke_blocker(&self) -> Option<PaintError> {
+    /// Why a `mode` stroke started now on the selected layer would be refused (an instance, a
+    /// missing mask or paint effect, no enabled channel...), or `None` when it paints. A paint,
+    /// clone or smudge stroke on the layer content of a fill, folder, path or text layer is not
+    /// refused: it paints on a new paint layer ([`Session::ensure_paint_layer`]). Cheap: for the
+    /// brush cursor (Painter's fill layer cursor). The clone source is not checked (Ctrl+click
+    /// sets it).
+    pub fn stroke_blocker(&self, mode: StrokeMode) -> Option<PaintError> {
         if self.quick_mask_editing() {
             return None;
+        }
+        let paintable = self.selected_layer().is_some_and(|l| matches!(&l.content, subcraft_doc::LayerContent::Paint(p) if p.path.is_none() && p.text.is_none()));
+        if self.brush.target == PaintTarget::Content && mode != StrokeMode::Erase && !paintable {
+            // A new paint layer takes the stroke: only the brush channels can stop it.
+            let ts = self.selected_texture_set();
+            let any = self.brush.material.channels.iter().any(|(k, c)| c.enabled && ts.has_channel(*k));
+            return (!any && self.stroke_stamp().is_none()).then_some(PaintError::NothingToPaint);
         }
         let Some(layer) = self.selection.layer else { return Some(PaintError::LayerNotFound) };
         if self.instance_locked(layer) {
