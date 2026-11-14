@@ -307,7 +307,7 @@ fn geometry_masks_by_object_and_material_follow_their_names_through_a_reload() {
     s.execute(Command::SetParts { layer: by_piece, parts: Some(PartMask::for_kind(PartKind::Connected, [0])) }).unwrap();
     // The new version lists the objects in reverse order, drops "Corner post 1" and lists the
     // materials the other way round.
-    let mut next = mesh.clone();
+    let mut next: Mesh = (*mesh).clone();
     let n = next.objects.len() as u32;
     next.objects.reverse();
     for o in next.tri_object.iter_mut().flatten() {
