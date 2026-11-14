@@ -34,8 +34,8 @@
 | Tools | `Ctrl+3` | Projection tool + Particles |  | no equivalent | no projection tool |
 | Tools | `4` | Polygon Fill | PolygonFillTool | added (key was free) |  |
 | Tools | `5` | Smudge tool | SmudgeTool | added (key was free) |  |
-| Tools | `6` | Clone tool (relative source) | CloneTool | added (key was free) |  |
-| Tools | `Ctrl+6` | Clone tool (absolute source) |  | no equivalent | only one clone mode |
+| Tools | `6` | Clone tool (relative source) | CloneTool | added (key was free) | the offset to the source carries over between strokes |
+| Tools | `Ctrl+6` | Clone tool (absolute source) | CloneToolAbsolute | added (key was free) | every stroke copies from the source point again |
 | Tools | `]` | Increase tool size | BrushLarger | already the same |  |
 | Tools | `[` | Decrease tool size | BrushSmaller | already the same |  |
 | Tools | `X` | Invert grayscale tool | InvertMaskGray | Painter preset only (conflict) | mask brush value g becomes 1 - g; X stays symmetry in the SubCraft key set |
