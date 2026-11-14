@@ -748,6 +748,8 @@ impl UiState {
         // The reloaded file brings its own cameras: an index into the old list would show the new
         // camera's name over the old camera's view.
         self.active_camera = None;
+        // The clip planes hold the reloaded model, wherever it is and however big.
+        self.camera.set_scene(&self.session.scene().mesh.bounds);
     }
 
     /// One Shelf click makes the brush usable at once: the app applies it, and Fill, Eyedropper
@@ -1005,6 +1007,21 @@ mod state_sync_tests;
 #[cfg(test)]
 mod modal_tests {
     use super::*;
+
+    /// QA 2026-11: after a mesh reload the camera kept the old model's size and centre for its
+    /// clip planes.
+    #[test]
+    fn a_mesh_reload_gives_the_camera_the_new_model() {
+        let mut state = UiState::new(Session::sample(), None);
+        state.camera.scene_radius = 0.01;
+        state.camera.scene_center = glam::Vec3::splat(100.0);
+        let target = state.camera.target;
+        state.mesh_reloaded();
+        let b = state.session.scene().mesh.bounds;
+        assert_eq!(state.camera.scene_center, b.center());
+        assert!((state.camera.scene_radius - b.diagonal() * 0.5).abs() < 1e-5);
+        assert_eq!(state.camera.target, target, "the view stays");
+    }
 
     /// QA 2026-11: document shortcuts (Delete, Ctrl+Z) acted behind the unsaved-changes prompt.
     #[test]

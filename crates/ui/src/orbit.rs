@@ -82,6 +82,14 @@ impl OrbitCamera {
         self.distance = radius / (self.fov_y_deg.to_radians() * 0.5).sin() * 1.1;
     }
 
+    /// The model changed (mesh reload): its bounding sphere becomes the scene the clip planes
+    /// hold, the view itself stays. Kept as it was, a reloaded model larger than or away from the
+    /// old one was cut by the near or far plane until the view was reset.
+    pub fn set_scene(&mut self, bounds: &Aabb) {
+        self.scene_radius = (bounds.diagonal() * 0.5).max(1e-3);
+        self.scene_center = bounds.center();
+    }
+
     /// Unit vector from the target towards the eye.
     fn back(&self) -> Vec3 {
         let (sy, cy) = self.yaw.sin_cos();
@@ -303,6 +311,21 @@ mod tests {
         close.distance = cam.scene_radius * 0.05;
         let (near, _) = close.clip_planes();
         assert!(near > 0.0 && near <= cam.scene_radius * 0.01, "{near}");
+    }
+
+    /// QA 2026-11: a mesh reload kept the old model's sphere for the clip planes (#472 made
+    /// them follow its centre), so a bigger or moved model was cut until the view was reset.
+    #[test]
+    fn a_new_scene_keeps_the_view_and_holds_the_new_model() {
+        let old = Aabb { min: Vec3::splat(-1.0), max: Vec3::splat(1.0) };
+        let new = Aabb { min: Vec3::new(4.0, -1.0, -1.0), max: Vec3::new(14.0, 9.0, 9.0) };
+        let mut cam = OrbitCamera::framing(&old);
+        cam.zoom(4.0);
+        assert!(holds_the_box(&cam, &new).is_err(), "the old sphere does not hold the new model");
+        let view = (cam.target, cam.yaw, cam.pitch, cam.distance);
+        cam.set_scene(&new);
+        assert_eq!((cam.target, cam.yaw, cam.pitch, cam.distance), view, "the view stays");
+        holds_the_box(&cam, &new).unwrap();
     }
 
     #[test]
