@@ -43,6 +43,27 @@ pub fn profile_name(prefs: &ViewportPrefs, resources: &ResourceStore) -> String 
     }
 }
 
+/// The project holds the colour profile's LUT (so there is a display transform to switch).
+pub fn has_lut(prefs: &ViewportPrefs, resources: &ResourceStore) -> bool {
+    prefs.color_lut.is_some_and(|id| resources.get(id).is_some_and(|r| r.kind == ResourceKind::ColorLut))
+}
+
+/// Painter's display transform on / off button in the 3D view's top bar: shown when the
+/// profile has a LUT, it switches the colour profile (Display Settings > Color profile) and
+/// names the LUT. Returns whether it was clicked.
+pub fn top_bar_toggle(ui: &mut egui::Ui, prefs: &mut ViewportPrefs, resources: &ResourceStore) -> bool {
+    if !has_lut(prefs, resources) {
+        return false;
+    }
+    let name = prefs.color_lut.and_then(|id| resources.get(id)).map(|r| r.name.clone()).unwrap_or_default();
+    let tip = if prefs.color_profile { format!("Display transform: {name} (click: linear raw)") } else { format!("Display transform off (click: {name})") };
+    let clicked = crate::widgets::icon_toggle(ui, crate::icons::SUN, prefs.color_profile, &tip).clicked();
+    if clicked {
+        prefs.color_profile = !prefs.color_profile;
+    }
+    clicked
+}
+
 /// Load > pick a LUT image and use it: added to the project and set as the profile's LUT.
 pub fn load_with_dialog(state: &mut UiState, now: f64) {
     let Some(path) = rfd::FileDialog::new().add_filter("LUT image", &["exr", "hdr", "tif", "tiff", "png"]).pick_file() else { return };
@@ -103,6 +124,9 @@ mod tests {
         // Off, or a LUT the project does not have: none.
         prefs.color_profile = false;
         assert_eq!(wanted(&prefs, session.resources()), None);
+        // The top bar toggle is offered while the project has the LUT, even with the profile off.
+        assert!(has_lut(&prefs, session.resources()));
+        assert!(!has_lut(&ViewportPrefs::default(), session.resources()));
         prefs.color_profile = true;
         let other = Session::new(subcraft_mesh::primitives::cube(2.0), 128);
         assert_eq!(wanted(&prefs, other.resources()), None);
