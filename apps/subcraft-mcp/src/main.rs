@@ -132,8 +132,13 @@ fn handle(server: &mut server::Server, msg: Value) -> Option<Value> {
         }
         "ping" => Ok(json!({})),
         "tools/list" => Ok(json!({ "tools": tools::definitions() })),
-        "tools/call" => {
+        "tools/call" => 'call: {
             let name = params.get("name").and_then(Value::as_str).unwrap_or_default().to_string();
+            // MCP reports an unknown tool as a protocol error (-32602), not as a tool result
+            // the model reads as the tool having run and failed.
+            if !tools::definitions().iter().any(|d| d["name"] == json!(name)) {
+                break 'call Err((-32602, format!("unknown tool: `{name}`")));
+            }
             let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
             progress::set(params.get("_meta").and_then(|m| m.get("progressToken")).cloned());
             let result = server.call(&name, args);

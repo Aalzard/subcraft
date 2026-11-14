@@ -106,6 +106,18 @@ fn every_malformed_line_gets_an_error_reply() {
     assert_eq!(pong["result"], json!({}), "{pong}");
 }
 
+/// QA 2026-11: a call to a tool that does not exist came back as a tool result with isError,
+/// which MCP reserves for a tool that ran and failed; the spec asks for error -32602.
+#[test]
+fn an_unknown_tool_is_a_protocol_error() {
+    let mut server = Server::new();
+    let reply = crate::reply_to_line(&mut server, br#"{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"no_such_tool","arguments":{}}}"#).expect("a reply");
+    assert_eq!(reply["error"]["code"], json!(-32602), "{reply}");
+    assert_eq!(reply["id"], json!(7), "{reply}");
+    let reply = crate::reply_to_line(&mut server, br#"{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"project_info","arguments":{}}}"#).expect("a reply");
+    assert!(reply.get("result").is_some(), "known tools still answer with a result: {reply}");
+}
+
 #[test]
 fn unknown_arguments_are_reported_with_the_valid_names() {
     let mut server = Server::new();
@@ -172,6 +184,27 @@ fn image_saves_must_be_png_files() {
     assert!(img.width() > 0 && img.height() > 0);
     assert!(crate::tools::png_path(std::path::Path::new("a/b.PNG")).is_ok());
     assert!(crate::tools::png_path(std::path::Path::new("a/.png")).is_err());
+}
+
+/// QA 2026-11: text styles were lost or ignored: `bold` alone replaced a system font with DejaVu
+/// Sans Bold, `bold: false` could not un-bold, `italic` alone did nothing, and a style a bundled
+/// family lacks was dropped silently.
+#[test]
+fn text_bold_and_italic_keep_the_family_and_say_when_they_cannot() {
+    let mut server = Server::new();
+    sample(&mut server);
+    let t = ok(&mut server, "text_add", json!({ "text": "Hi", "texture_set": "Body", "name": "T", "bold": true }));
+    assert_eq!(t["font"], json!({ "bundled": "DejaVu Sans Bold" }), "{t}");
+    let t = ok(&mut server, "text_update", json!({ "layer": "T", "texture_set": "Body", "bold": false }));
+    assert_eq!(t["font"], json!({ "bundled": "DejaVu Sans" }), "bold: false un-bolds: {t}");
+    let e = fails(&mut server, "text_update", json!({ "layer": "T", "texture_set": "Body", "italic": true }));
+    assert!(e.contains("italic"), "{e}");
+    let e = fails(&mut server, "text_update", json!({ "layer": "T", "texture_set": "Body", "font": "DejaVu Serif", "bold": true }));
+    assert!(e.contains("no bold"), "{e}");
+    let t = ok(&mut server, "text_update", json!({ "layer": "T", "texture_set": "Body", "font": "Some Family", "italic": true }));
+    assert_eq!(t["font"], json!({ "system": "Some Family", "bold": false, "italic": true }), "{t}");
+    let t = ok(&mut server, "text_update", json!({ "layer": "T", "texture_set": "Body", "bold": true }));
+    assert_eq!(t["font"], json!({ "system": "Some Family", "bold": true, "italic": true }), "the family and italic stay: {t}");
 }
 
 /// QA 2026-11: layer_add / fill_set added the channels a fill spec named to the texture set
@@ -298,6 +331,21 @@ fn layers_masks_painting_undo_and_save_round_trip() {
     assert!(fails(&mut server, "layer_add", json!({ "type": "bogus" })).contains("bogus"));
 }
 
+/// QA 2026-11: unknown keys were caught only at the top level of a nested setting: a typo inside
+/// `backface` was ignored silently. And a real field holding its default value
+/// (`cylinder_angle: 360`) was refused as unknown, because it is not written back.
+#[test]
+fn nested_unknown_keys_are_refused_and_default_valued_fields_accepted() {
+    let mut server = Server::new();
+    sample(&mut server);
+    ok(&mut server, "layer_add", json!({ "type": "fill", "name": "F", "texture_set": "Body" }));
+    let e = fails(&mut server, "fill_set", json!({ "layer": "F", "texture_set": "Body", "projection": { "mode": "planar", "backface": { "angle_deg": 80.0, "hardness": 1.0, "softnes": 0.5 } } }));
+    assert!(e.contains("backface.softnes") && e.contains("hardness"), "{e}");
+    let e = fails(&mut server, "fill_set", json!({ "layer": "F", "texture_set": "Body", "projection": { "mode": "planar", "rotaton_deg": 10.0 } }));
+    assert!(e.contains("rotaton_deg") && e.contains("rotation_deg"), "{e}");
+    ok(&mut server, "fill_set", json!({ "layer": "F", "texture_set": "Body", "projection": { "mode": "planar", "cylinder_angle": 360.0, "backface": { "angle_deg": 80.0, "hardness": 1.0 } } }));
+}
+
 #[test]
 fn render_preview_returns_an_image_when_a_gpu_is_available() {
     let mut server = Server::new();
@@ -357,6 +405,26 @@ fn flatten_instantiate_and_channel_removal() {
     ok(&mut server, "texture_set_update", json!({ "texture_set": "Body", "remove_channels": ["emissive"] }));
     let msg = fails(&mut server, "texture_set_update", json!({ "texture_set": "Body", "remove_channels": ["emissive"] }));
     assert!(msg.to_lowercase().contains("emissive"), "{msg}");
+}
+
+/// QA 2026-11: one tool call could leave several undo steps (texture_set_update renaming and
+/// adding a channel; a fill that needs a new channel), so `undo` undid only part of it.
+#[test]
+fn one_tool_call_is_one_undo_step() {
+    let mut server = Server::new();
+    sample(&mut server);
+    let steps = |server: &mut Server| ok(server, "history", json!({}))["entries"].as_array().unwrap().len();
+    let before = steps(&mut server);
+    ok(&mut server, "texture_set_update", json!({ "texture_set": "Body", "name": "Hull", "add_channels": ["emissive"], "hidden": false }));
+    assert_eq!(steps(&mut server), before + 1, "{}", ok(&mut server, "history", json!({})));
+    ok(&mut server, "layer_add", json!({ "type": "fill", "name": "Glow", "texture_set": "Hull", "fill": { "opacity": 0.5 } }));
+    assert_eq!(steps(&mut server), before + 2);
+    let undone = ok(&mut server, "undo", json!({}));
+    assert_eq!(undone["undone"].as_array().unwrap().len(), 1, "{undone}");
+    assert!(!layer_names(&mut server, "Hull").contains(&"Glow".to_string()));
+    ok(&mut server, "undo", json!({}));
+    let info = ok(&mut server, "project_info", json!({})).to_string();
+    assert!(info.contains("Body") && !info.contains("Hull") && !info.contains("emissive"), "the whole update is undone: {info}");
 }
 
 /// QA 2026-11: brush_set applied size, options and colours before reading `mode` and `tip`, so a
