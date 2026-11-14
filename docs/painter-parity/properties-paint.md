@@ -190,7 +190,7 @@ Layout notes: a row of channel toggle buttons (one per channel of the Texture Se
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Projection tool (paint a material tiled in screen space) | Tools + Properties | n/a | partial: Projection tool in the tool rail (Painter key 3): strokes cast the brush material from the view, tiled; the S+drag transform and the viewport preview follow | crates/app/src/session.rs (BrushState::projection), crates/ui/src/state.rs (Tool::Projection) | PRNUM |
+| Projection tool (paint a material tiled in screen space) | Tools + Properties | n/a | partial: Projection tool in the tool rail (Painter key 3): strokes cast the brush material from the view, tiled; the S+drag transform and the viewport preview follow | crates/app/src/session.rs (BrushState::projection), crates/ui/src/state.rs (Tool::Projection) | 470 |
 | Projection: Brush, Alpha, Stencil, Material blocks | Properties | n/a | missing | - | - |
 | Projection pattern transformed like a stencil (S + drag in the viewport) | Viewport | n/a | missing | - | - |
 | Physical projection (particles) | Properties > Physics | n/a | missing | - | - |
