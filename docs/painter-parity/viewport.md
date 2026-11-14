@@ -152,7 +152,7 @@ Layout notes: the dropdown at the top right of each view switches between Materi
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Brush cursor: Full preview (brush alpha / material projected) | 3D view; chosen in Contextual toolbar | default (unverified) | missing | - | - |
+| Brush cursor: Full preview (brush alpha / material projected) | 3D view; chosen in Contextual toolbar | default (unverified) | partial: the tip's footprint (alpha shape, angle, roundness, or the round tip's falloff) drawn at the cursor in screen space; not projected onto the surface, no material colours | crates/ui/src/brush_cursor.rs | (this PR) |
 | Brush cursor: Brush outline | 3D view; chosen in Contextual toolbar | - | done: screen-space circle of the brush radius (default); Display Settings > Viewport > Brush cursor | crates/ui/src/viewport.rs (brush_mark) | 265 |
 | Brush cursor: Crosshair | 3D view; chosen in Contextual toolbar | - | done: Display Settings > Viewport > Brush cursor > Crosshair (also for the symmetry cursors); not in the top strip | crates/ui/src/viewport.rs (brush_mark) | 265 |
 | Lazy mouse ring around the cursor | 3D view when Lazy mouse is on | grey circle | done: grey ring of the lazy distance around the cursor | crates/ui/src/viewport.rs (overlays) | 261 |

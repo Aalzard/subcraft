@@ -873,7 +873,17 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 let color = if state.tool == Tool::Eraser { Color32::from_rgb(120, 190, 255) } else { ACCENT() };
                 let style = state.recovery.prefs.viewport.brush_cursor;
                 let hardness = state.session.brush.settings.hardness;
-                brush_mark(&painter, p, r_px, hardness, color, style, true);
+                // Full preview: the tip itself (alpha shape, angle, roundness), cached as a texture.
+                let footprint = (style == crate::viewport_bar::BrushCursor::Full).then(|| {
+                    let alpha = state.session.brush.alpha.clone();
+                    let key = crate::brush_cursor::footprint_key(alpha.as_ref(), &state.session.brush.settings);
+                    if state.brush_footprint.as_ref().is_none_or(|(k, _)| *k != key) {
+                        let image = crate::brush_cursor::footprint_image(alpha.as_deref(), &state.session.brush.settings);
+                        state.brush_footprint = Some((key, ui.ctx().load_texture("brush_footprint", image, egui::TextureOptions::LINEAR)));
+                    }
+                    (state.brush_footprint.as_ref().map(|(_, t)| t.id()).expect("just set"), crate::brush_cursor::footprint_reach(alpha.is_some()))
+                });
+                brush_mark(&painter, p, r_px, hardness, color, style, true, footprint);
                 // Symmetry: a second cursor where each copy paints (faint when the copy's point
                 // is hidden behind the model).
                 let prefs = &state.recovery.prefs.viewport;
@@ -883,7 +893,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     for (at, visible) in symmetry_cursors(&camera, options, center, pick.position, |s| state.session.pick(&camera, s).map(|h| h.depth)) {
                         let at = rect.min + egui::vec2(at.x / pixel_scale.x, at.y / pixel_scale.y);
                         let c = if visible { color.gamma_multiply(0.8) } else { color.gamma_multiply(0.3) };
-                        brush_mark(&painter, at, r_px, hardness, c, style, false);
+                        brush_mark(&painter, at, r_px, hardness, c, style, false, None);
                     }
                 }
             }
@@ -1466,9 +1476,15 @@ pub const CROSSHAIR_ARM: f32 = 8.0;
 
 /// The brush cursor at `at`: the outline circle of radius `r` or a crosshair (Painter's cursor
 /// display). `strong` adds a dark underlay so the cursor reads on any surface.
-fn brush_mark(painter: &egui::Painter, at: Pos2, r: f32, hardness: f32, color: Color32, style: crate::viewport_bar::BrushCursor, strong: bool) {
-    // Full preview: the tip's falloff as translucent rings under the outline (main cursor only).
-    if strong && style == crate::viewport_bar::BrushCursor::Full {
+/// `footprint`: the full preview's tip image and how many radii it spans from its centre.
+#[allow(clippy::too_many_arguments)]
+fn brush_mark(painter: &egui::Painter, at: Pos2, r: f32, hardness: f32, color: Color32, style: crate::viewport_bar::BrushCursor, strong: bool, footprint: Option<(egui::TextureId, f32)>) {
+    // Full preview: the tip's footprint under the outline (main cursor only); without the
+    // image, the falloff as translucent rings.
+    if strong && style == crate::viewport_bar::BrushCursor::Full && let Some((texture, reach)) = footprint {
+        let half = r * reach;
+        painter.image(texture, Rect::from_center_size(at, egui::vec2(2.0 * half, 2.0 * half)), Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), color);
+    } else if strong && style == crate::viewport_bar::BrushCursor::Full {
         for (radius, width, strength) in crate::brush_cursor::preview_rings(r, hardness) {
             if strength > 0.0 && radius > 0.0 {
                 // Slightly wider than their band so neighbours meet without gaps.
