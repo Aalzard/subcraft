@@ -181,8 +181,8 @@ Layout notes: the stencil is drawn over the whole viewport in screen space. Hold
 | Stencil zoom | S + RMB drag | - | partial: scale clamped to 0.02-8 | crates/ui/src/viewport.rs:92 | - |
 | Reset stencil transform button | 3D view, top right while S is held | - | done | crates/ui/src/viewport.rs (reset_stencil) | - |
 | Ignore stencil mask | hold N | - | done | crates/ui/src/viewport.rs:79 | - |
-| Hide stencil when painting | Display settings > Tool display | not documented | partial: the option sits in the Properties Stencil block, not in Display settings | crates/ui/src/viewport.rs (stencil_overlay_alpha) | - |
-| Stencil display opacity | Display settings > Tool display | not documented | partial: the slider sits in the Properties Stencil block, not in Display settings | crates/ui/src/viewport.rs (stencil_overlay_alpha) | - |
+| Hide stencil when painting | Display settings > Tool display | not documented | done: Display Settings > Tool display (the same setting as the Properties stencil block) | crates/ui/src/panels/display_settings.rs (Tool display) | 181 |
+| Stencil display opacity | Display settings > Tool display | not documented | done: Display Settings > Tool display (the same setting as the Properties stencil block) | crates/ui/src/panels/display_settings.rs (Tool display) | 181 |
 | Projection tool transform: rotate | S + LMB drag | - | missing | - | - |
 | Projection tool transform: snap rotate | S + Shift + LMB drag | - | missing | - | - |
 | Projection tool transform: zoom | S + RMB drag | - | missing | - | - |
@@ -194,7 +194,7 @@ Layout notes: display options (plane, intersection, cursor, manipulator) are onl
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Symmetry on/off | L | off | partial: L toggles mirror X only | crates/app/src/session.rs:1588 | - |
+| Symmetry on/off | L | off | done: L turns symmetry off and back on with the last axes (Action::ToggleSymmetry); Shift+X keeps the X-mirror toggle in the Painter key set | crates/app/src/actions.rs (ToggleSymmetry) | 363 |
 | Mirror plane (transparent) | 3D view (Show Plane) | not documented | done: each active mirror plane as a translucent sheet in its axis colour, 10 % past the model, at the axis position; Display Settings > Viewport > Mirror planes, on by default | crates/ui/src/viewport.rs (mirror_plane_corners) | 264 |
 | Mirror intersection line on the mesh | 3D view (Show Intersection) | not documented | done: the symmetry guides draw where each mirror plane cuts the mesh, at the axis position (Display Settings > Viewport > Symmetry guides) | crates/app/src/guides.rs (symmetry_sections) | 264 |
 | Mirrored second cursor | 3D view (Show Cursor) | not documented | done: one per mirror / radial copy (up to 16), faint when the copy is behind the model, following moved planes and flipped copies; Display Settings > Viewport > Symmetry cursors, on by default | crates/ui/src/viewport.rs (symmetry_cursors) | 262 |
@@ -218,7 +218,7 @@ Layout notes: display options (plane, intersection, cursor, manipulator) are onl
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
 | Hide / ignore excluded geometry | Alt + H; Contextual toolbar button | off; disabled when nothing is excluded | done | crates/app/src/part_workflow.rs | - |
-| Texture Set isolate | Alt + Q | off | partial: I over the model isolates a part; no Texture Set solo key | crates/ui/src/viewport.rs:183 | - |
+| Texture Set isolate | Alt + Q | off | done: Alt+Q hides the other texture sets' geometry, again shows everything (Action::IsolateTextureSet); I still isolates the part under the cursor | crates/app/src/actions.rs (IsolateTextureSet) | 164 |
 | Geometry mask editing: click mesh parts in the view to include / exclude | 3D view while the geometry mask icon is active | - | done: click toggles, a box adds, Ctrl+box removes, in the 3D and 2D views | crates/ui/src/viewport.rs | - |
 | UV Tile hover highlight during geometry mask edit | 3D and 2D views | - | missing | - | - |
 
