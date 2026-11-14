@@ -178,6 +178,12 @@ pub fn polygons(mesh: &Mesh, max_angle_deg: f32) -> Vec<u32> {
 /// position. Limit: a flat region that was authored as plain triangles in fan order looks like a
 /// quad, because the file does not say which it was.
 pub fn polygon_edges(mesh: &Mesh, max_angle_deg: f32) -> Vec<[glam::Vec3; 2]> {
+    polygon_edges_where(mesh, max_angle_deg, |_| true)
+}
+
+/// [`polygon_edges`] of the triangles `keep` accepts (polygons are still recovered over the
+/// whole mesh). An edge between a kept and a left-out triangle is drawn once.
+pub fn polygon_edges_where(mesh: &Mesh, max_angle_deg: f32, keep: impl Fn(usize) -> bool) -> Vec<[glam::Vec3; 2]> {
     let weld = weld_positions(mesh);
     let key = |a: u32, b: u32| if a <= b { (a, b) } else { (b, a) };
     let corners = |t: usize| mesh.tri(t).map(|v| weld[v as usize]);
@@ -185,7 +191,7 @@ pub fn polygon_edges(mesh: &Mesh, max_angle_deg: f32) -> Vec<[glam::Vec3; 2]> {
     let hidden: std::collections::HashSet<(u32, u32)> = polygon_merges(mesh, &weld, max_angle_deg).into_iter().map(|(_, d)| d).collect();
     let mut seen: std::collections::HashSet<(u32, u32)> = std::collections::HashSet::new();
     let mut out = Vec::new();
-    for t in 0..tri_count {
+    for t in (0..tri_count).filter(|&t| keep(t)) {
         let c = corners(t);
         let v = mesh.tri(t);
         for k in 0..3 {
@@ -527,6 +533,19 @@ mod tests {
         b.push_triangle(m, [c(Vec3::ZERO), c(Vec3::X), c(Vec3::Y)]);
         b.push_triangle(m, [c(Vec3::new(5., 0., 0.)), c(Vec3::new(6., 0., 0.)), c(Vec3::new(5., 1., 0.))]);
         assert_eq!(polygon_edges(&b.build().unwrap(), 30.0).len(), 6);
+    }
+
+    #[test]
+    fn edges_of_one_material_only() {
+        // The sample crate has two material slots: each slot's edges are a strict part of all.
+        let mesh = primitives::sample_crate();
+        let all = polygon_edges(&mesh, 30.0);
+        let body = polygon_edges_where(&mesh, 30.0, |t| mesh.tri_material[t] == 0);
+        let trim = polygon_edges_where(&mesh, 30.0, |t| mesh.tri_material[t] == 1);
+        assert!(!body.is_empty() && !trim.is_empty());
+        assert!(body.len() < all.len() && trim.len() < all.len());
+        assert!(body.len() + trim.len() >= all.len(), "every edge belongs to a slot");
+        assert!(polygon_edges_where(&mesh, 30.0, |_| false).is_empty());
     }
 
     #[test]

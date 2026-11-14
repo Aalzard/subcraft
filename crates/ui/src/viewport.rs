@@ -644,10 +644,12 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     overlay_uploaded = true;
                 }
             }
-            params.wireframe = view.wireframe && !bake_mode;
+            // Polygon Fill shows the active texture set's polygons, as in Painter.
+            let tool_slot = (state.tool == Tool::PolygonFill).then(|| state.session.selected_texture_set().material_slot);
+            params.wireframe = crate::view_extras::wire_slot(view.wireframe, tool_slot).is_some() && !bake_mode;
             if params.wireframe {
                 let before = state.wire_uploaded;
-                crate::view_extras::sync_wireframe(renderer, &rs.device, view, &state.session.scene().mesh, &mut state.wire_uploaded);
+                crate::view_extras::sync_wireframe(renderer, &rs.device, view, &state.session.scene().mesh, &mut state.wire_uploaded, tool_slot);
                 overlay_uploaded |= state.wire_uploaded != before;
             }
             if let Some(high) = &state.bake.preview_mesh {
