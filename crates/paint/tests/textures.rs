@@ -161,7 +161,7 @@ fn normal_replace_and_detail_are_unit_length_at_partial_opacity_without_intra_st
             value_comps: 3,
             has_alpha: true,
             texture: None,
-            normal_blend: blend, stamp: None,
+            normal_blend: blend, stamp: None, blend: subcraft_doc::BlendMode::Normal,
         };
         let out = img.compute_tile(0, &vec![1.0; TILE_TEXELS], 0.4, StrokeMode::Paint, None);
         let dest = if blend == NormalPaintBlend::Replace {
@@ -201,7 +201,7 @@ fn missing_images_are_transparent_and_eraser_ignores_image_alpha() {
         value_comps: 1,
         has_alpha: true,
         texture: Some(ResourceId::new()),
-        normal_blend: NormalPaintBlend::Replace, stamp: None,
+        normal_blend: NormalPaintBlend::Replace, stamp: None, blend: subcraft_doc::BlendMode::Normal,
     };
     let cov = vec![1.0; TILE_TEXELS];
     let missing = vec![[0.0; 4]; TILE_TEXELS];

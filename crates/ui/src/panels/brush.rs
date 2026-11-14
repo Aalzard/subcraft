@@ -88,6 +88,14 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         });
                     });
                     prop_row(ui, "Fill by", |ui| crate::brush_bar::fill_mode_combo(ui, &mut state.fill_mode, "fill_mode_panel"));
+                    prop_row(ui, "Blending", |ui| {
+                        let current = state.session.brush.fill_blend;
+                        egui::ComboBox::from_id_salt("fill_blend").selected_text(current.label()).show_ui(ui, |ui| {
+                            for m in subcraft_doc::BlendMode::ALL.into_iter().filter(|m| !matches!(m, subcraft_doc::BlendMode::Passthrough | subcraft_doc::BlendMode::Disable)) {
+                                ui.selectable_value(&mut state.session.brush.fill_blend, m, m.label());
+                            }
+                        }).response
+                    }).on_hover_text("How the fill combines with what the layer already holds (the layer blending modes); Stroke opacity is its opacity");
                     if !state.fill_selection.is_loop() {
                         prop_row(ui, "Hit-test", |ui| {
                             use subcraft_paint::PolygonHitTest;

@@ -211,8 +211,8 @@ Layout notes: Selection mode icons first, then Fill mode icons (only meaningful 
 | Hit-test: Intersection | Properties > Polygon Fill > Hit-test | default | done: a box fills every element it touches | Properties > Paint target > Hit-test | (this PR) |
 | Hit-test: Contained center | Properties > Polygon Fill > Hit-test | option | done: only elements (of the Fill by mode) whose centre is inside the box; 3D and 2D views | Properties > Paint target > Hit-test | (this PR) |
 | Visible polygons only | Properties > Polygon Fill > Hit-test | not documented | done (earlier): Visible polygons only checkbox and toolbar eye | Properties > Paint target | - |
-| Blending Mode (same list as layer blending modes) | Properties > Polygon Fill > Blending | Normal (unverified) | missing | - | - |
-| Opacity | Properties > Polygon Fill > Blending | not documented | missing | - | - |
+| Blending Mode (same list as layer blending modes) | Properties > Polygon Fill > Blending | Normal (unverified) | done: the layer blending modes (not Passthrough / Disable), with the layer blending math; default Normal | Properties > Paint target > Blending | (this PR) |
+| Opacity | Properties > Polygon Fill > Blending | not documented | done: Stroke opacity scales the fill (it already did) | Properties > Brush > Stroke opacity | (this PR) |
 | Material block: channel toggles and values used by the fill | Properties > Material | n/a | done | crates/ui/src/panels/brush_material.rs:16 | - |
 | Grayscale value when filling a mask | Properties > Grayscale | not documented | partial: "Mask value" slider | crates/ui/src/panels/brush.rs:94 | - |
 | Alt: extend a loop on both sides of the first click | Viewport (loop modes) | n/a | done: Alt held at release mirrors a partial loop on the other side | crates/ui/src/viewport.rs | (this PR) |

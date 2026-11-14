@@ -182,3 +182,41 @@ fn contained_center_keeps_only_the_elements_centred_in_the_box() {
     let kept = keep_contained(&sc.mesh, &sc.geo, &island, PolygonFillMode::UvIsland, centre - Vec2::splat(0.01), centre + Vec2::splat(0.01), |m| subcraft_paint::select::uv_centre(&sc.mesh, m));
     assert_eq!(kept, island);
 }
+
+#[test]
+fn a_polygon_fill_blends_into_the_layer_with_its_blending_mode() {
+    use subcraft_doc::BlendMode;
+    let res = 128;
+    let sc = Scene::new(primitives::cube(2.0), res);
+    let cam = front_camera();
+    let mut ts = TextureSet::new("T", 0, res);
+    let tc = ts.clone();
+    let layer = ts.insert_above(None, Layer::new_paint("Paint", &tc));
+    let grey = BrushMaterial::with(&[(ChannelKind::BaseColor, ChannelValue::rgb(0.5, 0.5, 0.5))]);
+    let center = cam.project(Vec3::new(0.1, 0.1, 1.0)).unwrap().truncate();
+    let fill = |ts: &mut TextureSet, blend: BlendMode| {
+        let mut s = Stroke::begin(ts, layer, PaintTarget::Content, StrokeMode::Paint, BrushSettings::default(), StrokeOptions::default(), &grey).unwrap();
+        s.set_fill_blend(blend);
+        s.polygon_fill(ts, &sc.ctx(&cam), center, PolygonFillMode::UvIsland).unwrap();
+    };
+    // The front face's centre texel.
+    let tri = facing(&sc.mesh, Vec3::Z)[0];
+    let uv = sc.mesh.tri_uvs(tri as usize);
+    let at = (uv[0] + uv[1] + uv[2]) / 3.0;
+    let texel = |ts: &TextureSet| {
+        let LayerContent::Paint(p) = &ts.find(layer).unwrap().content else { panic!() };
+        p.channels.get(&ChannelKind::BaseColor).unwrap().get((at.x * res as f32) as u32, (at.y * res as f32) as u32)
+    };
+    // On an empty layer the first fill is the grey whatever the mode (nothing to blend with).
+    fill(&mut ts, BlendMode::Multiply);
+    assert!((texel(&ts)[0] - 0.5).abs() < 2e-3 && (texel(&ts)[3] - 1.0).abs() < 1e-3, "{:?}", texel(&ts));
+    // Multiply over it: 0.5 x 0.5.
+    fill(&mut ts, BlendMode::Multiply);
+    assert!((texel(&ts)[0] - 0.25).abs() < 2e-3, "{:?}", texel(&ts));
+    // Screen: 0.25 + 0.5 - 0.125.
+    fill(&mut ts, BlendMode::Screen);
+    assert!((texel(&ts)[0] - 0.625).abs() < 2e-3, "{:?}", texel(&ts));
+    // Normal replaces.
+    fill(&mut ts, BlendMode::Normal);
+    assert!((texel(&ts)[0] - 0.5).abs() < 2e-3, "{:?}", texel(&ts));
+}

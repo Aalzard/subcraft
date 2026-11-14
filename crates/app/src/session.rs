@@ -137,6 +137,8 @@ pub struct BrushState {
     pub projection: bool,
     /// Clone tool: whether the source follows the brush or returns to where it was set.
     pub clone_mode: CloneSourceMode,
+    /// Polygon Fill's blending mode (Painter: Properties > Polygon Fill > Blending).
+    pub fill_blend: subcraft_doc::BlendMode,
 }
 
 /// A surface point under the cursor.
@@ -410,6 +412,7 @@ impl Session {
                 stencil_bypass: false,
                 projection: false,
                 clone_mode: CloneSourceMode::Relative,
+                fill_blend: subcraft_doc::BlendMode::Normal,
             },
             stroke: None,
             last_stroke: None,
@@ -3196,7 +3199,8 @@ impl Session {
             self.undo_polygon_fill_routing(routed);
             return Err(e);
         }
-        let active = self.stroke.take().expect("just begun");
+        let mut active = self.stroke.take().expect("just begun");
+        active.stroke.set_fill_blend(self.brush.fill_blend);
         let result = self.with_stroke_context(active.texture_set, camera, f, active);
         if let Some(a) = self.stroke.as_mut() {
             a.label = "Polygon Fill";

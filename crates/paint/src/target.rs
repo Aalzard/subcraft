@@ -85,6 +85,10 @@ pub struct TargetImage {
     pub normal_blend: NormalPaintBlend,
     /// Set when an image stamp paints this image: the stroke source holds slopes / heights.
     pub stamp: Option<crate::settings::StampKind>,
+    /// How painted values combine with what the layer already holds (Polygon Fill's blending
+    /// mode; strokes paint Normal). Uses the layer blending math (W3C: a transparent texel
+    /// takes the value unblended).
+    pub blend: subcraft_doc::BlendMode,
 }
 
 /// Snapshot the images a stroke will write.
@@ -105,6 +109,7 @@ pub fn begin_targets(ts: &TextureSet, layer: LayerId, target: PaintTarget, mater
                 texture: None,
                 normal_blend: NormalPaintBlend::Replace,
                 stamp: None,
+                blend: subcraft_doc::BlendMode::Normal,
             }])
         }
         PaintTarget::MaskEffect(id) => {
@@ -122,6 +127,7 @@ pub fn begin_targets(ts: &TextureSet, layer: LayerId, target: PaintTarget, mater
                 texture: None,
                 normal_blend: NormalPaintBlend::Replace,
                 stamp: None,
+                blend: subcraft_doc::BlendMode::Normal,
             }])
         }
         PaintTarget::Content => {
@@ -156,7 +162,7 @@ fn channel_targets(
         let n = kind.components();
         let value = if n == 1 { [ch.value.0[0]; 3] } else { ch.value.0 };
         out.push(TargetImage { key: key(kind), snapshot, value, value_comps: n, has_alpha: true,
-            texture: material.textures.get(&kind).copied(), normal_blend: material.normal_blend, stamp: None });
+            texture: material.textures.get(&kind).copied(), normal_blend: material.normal_blend, stamp: None, blend: subcraft_doc::BlendMode::Normal });
     }
     if out.is_empty() {
         return Err(PaintError::NothingToPaint);
@@ -201,6 +207,12 @@ impl TargetImage {
                         let combined = normal::reoriented([px[0], px[1], px[2]], value);
                         // Transparent backdrop contributes only the source, as in W3C blending.
                         for j in 0..3 { value[j] += a0 * (combined[j] - value[j]); }
+                    } else if self.blend != subcraft_doc::BlendMode::Normal && a0 > 0.0 {
+                        use subcraft_doc::blend_math::{BlendTarget, blend_fn};
+                        let base = if n >= 3 { [px[0], px[1], px[2]] } else { [px[0]; 3] };
+                        let target = self.key.channel().map_or(BlendTarget::MASK, BlendTarget::for_channel);
+                        let blended = blend_fn(self.blend, base, value, target);
+                        for j in 0..3 { value[j] += a0 * (blended[j] - value[j]); }
                     }
                     for i in 0..n {
                         px[i] = (px[i] * a0 * (1.0 - k) + value[i] * k) / a;
@@ -216,6 +228,9 @@ impl TargetImage {
                     // A mask has no alpha: painting moves it to the brush's mask value, erasing to
                     // black (hidden), as painters expect; smudge settles back to the background.
                     let to = match mode {
+                        StrokeMode::Paint | StrokeMode::Clone if self.blend != subcraft_doc::BlendMode::Normal => {
+                            subcraft_doc::blend_math::blend_fn(self.blend, [px[0]; 3], [src[0]; 3], subcraft_doc::blend_math::BlendTarget::MASK)[0]
+                        }
                         StrokeMode::Paint | StrokeMode::Clone => src[0],
                         StrokeMode::Erase => 0.0,
                         StrokeMode::Smudge => fill[0],
