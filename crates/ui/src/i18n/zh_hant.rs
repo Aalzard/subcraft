@@ -1000,4 +1000,8 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Color", "顏色"),
     ("Roughness", "粗糙度"),
     ("Metallic", "金屬度"),
+    ("Reset parameters to default values", "將參數重設為預設值"),
+    ("The selected entry of the list", "清單中選取的項目"),
+    ("Reset all baking settings", "重設所有烘焙設定"),
+    ("Every baker option, the output and the ticked maps and texture sets go back to their defaults; the model files stay", "所有烘焙器選項、輸出以及勾選的貼圖與貼圖集都恢復預設值；模型檔案保留"),
 ];
