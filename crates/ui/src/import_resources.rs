@@ -492,12 +492,13 @@ mod tests {
     #[test]
     fn a_color_lut_is_imported_into_the_project_and_used_by_the_profile() {
         let root = temp_root("lut");
-        // A 4-cube identity LUT (16 x 4) as a float EXR, and an 8 x 8 PNG that is no cube.
+        // A 4-cube identity LUT (16 x 4) as a float EXR, and a 10 x 10 PNG that is no cube (8 x 8
+        // would be: 64 = 4³).
         let n = 4u32;
         let data: Vec<f32> = (0..n * n * n).flat_map(|i| [(i % n) as f32 / 3.0, ((i / n) % n) as f32 / 3.0, (i / n / n) as f32 / 3.0]).collect();
         let lut = root.join("look.exr");
         subcraft_image::save_image(&lut, 16, 4, 3, &data, subcraft_image::FileFormat::Exr32).unwrap();
-        png(&root.join("photo.png"));
+        subcraft_image::save_image(&root.join("photo.png"), 10, 10, 1, &[0.5; 100], subcraft_image::FileFormat::Png8).unwrap();
         assert!(Usage::ColorLut.accepts("EXR") && Usage::ColorLut.accepts("png") && !Usage::ColorLut.accepts("scsmart"));
         assert_eq!(Usage::guess(&lut), Usage::Undefined, "an EXR could also be a texture or an environment");
         let mut s = state_with(&root.join("yours"));
@@ -506,7 +507,7 @@ mod tests {
         s.import.set_usage(1, Usage::ColorLut);
         let r = import(&mut s);
         assert_eq!(r.imported, ["look.exr"]);
-        assert_eq!(r.errors.len(), 1, "the 8 x 8 image is not a cube: {:?}", r.errors);
+        assert_eq!(r.errors.len(), 1, "the 10 x 10 image is not a cube: {:?}", r.errors);
         let id = s.recovery.prefs.viewport.color_lut.expect("the imported LUT is the profile's");
         assert!(s.recovery.prefs.viewport.color_profile, "and the profile is on");
         let res = s.session.resources().get(id).unwrap();
