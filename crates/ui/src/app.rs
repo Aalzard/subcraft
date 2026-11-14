@@ -1707,6 +1707,10 @@ impl SubcraftApp {
                     ui.close();
                     self.perform(Action::SaveAs, now);
                 }
+                if item(ui, icons::SAVE, tr("Save as copy…"), "") {
+                    ui.close();
+                    dialogs::save_copy(&mut self.state, now);
+                }
                 ui.separator();
                 ui.menu_button(format!("{}   {}", icons::IMAGE, tr("Import resources")), |ui| {
                     ui.set_min_width(220.0);

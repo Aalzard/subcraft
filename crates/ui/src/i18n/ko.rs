@@ -222,6 +222,7 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Same tiling for X and Y; untick to set them separately", "X와 Y에 같은 타일링을 적용합니다. 해제하면 따로 설정합니다"),
     ("Save", "저장"),
     ("Save as…", "다른 이름으로 저장…"),
+    ("Save as copy…", "사본으로 저장…"),
     ("Save image…", "이미지 저장…"),
     ("Save with an alpha channel (the model alone). Needs two renders, so it takes twice as long.", "알파 채널과 함께 저장합니다(모델만). 렌더를 두 번 해야 하므로 두 배 걸립니다."),
     ("Scale", "크기"),

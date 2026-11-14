@@ -131,6 +131,27 @@ pub fn save(state: &mut UiState, save_as: bool, now: f64) -> bool {
     }
 }
 
+/// File > Save as copy: ask where, write the project there and keep the current file open.
+pub fn save_copy(state: &mut UiState, now: f64) -> bool {
+    let name = format!("{} copy.{}", state.session.export_name(), subcraft_app::PROJECT_EXTENSION);
+    let Some(mut path) = rfd::FileDialog::new().add_filter(PROJECT_FILTER.0, PROJECT_FILTER.1).set_file_name(name).save_file() else {
+        return false;
+    };
+    if path.extension().is_none() {
+        path.set_extension(subcraft_app::PROJECT_EXTENSION);
+    }
+    match state.session.save_copy(&path) {
+        Ok(()) => {
+            state.set_status(format!("Saved a copy to {}", path.display()), now);
+            true
+        }
+        Err(e) => {
+            state.set_status(format!("Save failed: {e}"), now);
+            false
+        }
+    }
+}
+
 /// Run an action that replaces the session (after any unsaved-changes prompt).
 pub fn run_pending(state: &mut UiState, action: Pending, ctx: &egui::Context, _now: f64) {
     match action {

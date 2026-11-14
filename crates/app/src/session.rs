@@ -431,6 +431,19 @@ impl Session {
         Ok(path)
     }
 
+    /// File > Save as copy: write the project to `path` and keep working on the current file. The
+    /// project path, the unsaved-changes state and the recent-files list are left as they were.
+    pub fn save_copy(&self, path: &Path) -> Result<(), String> {
+        if self.stroke.is_some() {
+            return Err("finish the stroke before saving".into());
+        }
+        if self.project_path.as_deref() == Some(path) {
+            return Err("a copy needs another file than the project itself: use Save".into());
+        }
+        let maps: subcraft_project::MeshMapSet = self.mesh_maps.keys().map(|id| (*id, self.stored_mesh_maps(*id))).collect();
+        subcraft_project::save_project_with(path, &self.scene.mesh, &self.doc, &self.resources, &maps, &self.settings).map_err(|e| e.to_string())
+    }
+
     /// The last committed state (no half-finished stroke) for a background save.
     pub fn snapshot(&self) -> ProjectSnapshot {
         ProjectSnapshot {

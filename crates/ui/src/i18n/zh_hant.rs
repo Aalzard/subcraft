@@ -222,6 +222,7 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Same tiling for X and Y; untick to set them separately", "X 與 Y 使用相同拼貼；取消勾選可分別設定"),
     ("Save", "儲存"),
     ("Save as…", "另存新檔…"),
+    ("Save as copy…", "另存複本…"),
     ("Save image…", "儲存圖片…"),
     ("Save with an alpha channel (the model alone). Needs two renders, so it takes twice as long.", "連同 Alpha 通道儲存（僅模型）。需要算圖兩次，因此耗時加倍。"),
     ("Scale", "縮放"),
