@@ -1012,4 +1012,8 @@ pub static TABLE: &[(&str, &str)] = &[
     ("The selected entry of the list", "목록에서 선택한 항목"),
     ("Reset all baking settings", "모든 베이크 설정 재설정"),
     ("Every baker option, the output and the ticked maps and texture sets go back to their defaults; the model files stay", "모든 베이커 옵션, 출력, 체크한 맵과 텍스처 세트가 기본값으로 돌아갑니다. 모델 파일은 그대로 둡니다"),
+    ("Projection preview", "투영 미리보기"),
+    ("Projection preview channel", "투영 미리보기 채널"),
+    ("Opacity of the Projection tool's pattern over the 3D view (0 hides it)", "3D 뷰 위에 표시되는 투영 도구 패턴의 불투명도 (0이면 숨김)"),
+    ("Which image of the brush material the Projection tool shows over the view", "투영 도구가 뷰 위에 표시할 브러시 재질의 이미지"),
 ];
