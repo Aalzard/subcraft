@@ -301,3 +301,16 @@ fn a_view_space_pen_path_takes_its_image_size_apart_from_its_line_width() {
     let width = path["path"]["width"].as_f64().unwrap();
     assert!((width - 0.01).abs() < 1e-6, "the line width asked for: {path}");
 }
+
+/// QA 2026-11: project_new dropped an unsupported resolution silently: the sample stayed at
+/// 1024 and the call reported success.
+#[test]
+fn project_new_refuses_an_unsupported_resolution() {
+    let mut server = Server::new();
+    let e = fails(&mut server, "project_new", json!({ "model_path": "sample", "resolution": 300 }));
+    assert!(e.contains("resolution"), "{e}");
+    let e = fails(&mut server, "project_new", json!({ "model_path": "no-such-model.obj", "resolution": 3000 }));
+    assert!(e.contains("resolution"), "refused before the model is read: {e}");
+    let info = ok(&mut server, "project_new", json!({ "model_path": "sample", "resolution": 512 }));
+    assert!(info.to_string().contains("\"resolution\":512"), "{info}");
+}
