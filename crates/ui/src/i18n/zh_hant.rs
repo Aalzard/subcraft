@@ -1035,4 +1035,6 @@ pub static TABLE: &[(&str, &str)] = &[
     ("The SubCraft Materials pack is not published yet.", "SubCraft 材質包尚未發佈。"),
     ("A pack of tileable PBR materials, downloaded into SubCraft's data folder and listed in Assets > Materials.", "一組可無縫拼接的 PBR 材質，會下載到 SubCraft 的資料夾，並列在「素材 > 材質」中。"),
     ("Download SubCraft Materials: a pack of tileable PBR materials (1K or 2K)", "下載 SubCraft 材質：一組可無縫拼接的 PBR 材質（1K 或 2K）"),
+    ("Normalization scale", "正規化比例"),
+    ("Map value per world unit; the world origin is at 0.5", "每個世界單位對應的貼圖值；世界原點位於 0.5"),
 ];
