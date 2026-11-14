@@ -132,6 +132,9 @@ pub struct BrushState {
     pub stencil: Option<Arc<subcraft_paint::Stencil>>,
     /// Temporarily ignore the stencil (held N key), without removing it.
     pub stencil_bypass: bool,
+    /// Painter's Projection tool: strokes cast the material's images from the view, tiled over
+    /// it, whatever the brush material's own projection settings.
+    pub projection: bool,
     /// Clone tool: whether the source follows the brush or returns to where it was set.
     pub clone_mode: CloneSourceMode,
 }
@@ -359,6 +362,7 @@ impl Session {
                 target: PaintTarget::Content,
                 stencil: None,
                 stencil_bypass: false,
+                projection: false,
                 clone_mode: CloneSourceMode::Relative,
             },
             stroke: None,
@@ -2666,7 +2670,7 @@ impl Session {
             Action::QuickMaskInvert => return Ok(self.invert_quick_mask()),
             Action::HideUi | Action::PaintingMode | Action::CloseProject | Action::View3dAnd2d | Action::View3dOnly | Action::View2dOnly
             | Action::SwapViews | Action::NextMeshMap | Action::PrevMeshMap | Action::NextCamera | Action::PrevCamera => return Ok(false),
-            Action::PenTool | Action::PolygonFillTool | Action::SmudgeTool | Action::CloneTool | Action::EyedropperTool | Action::ResetCamera
+            Action::PenTool | Action::PolygonFillTool | Action::SmudgeTool | Action::CloneTool | Action::EyedropperTool | Action::ProjectionTool | Action::ResetCamera
             | Action::PerspectiveCamera | Action::OrthographicCamera | Action::NextChannel | Action::PrevChannel | Action::DisplayMaterial
             | Action::NewProject | Action::Quit | Action::Save | Action::SaveAs | Action::OpenProject | Action::Export | Action::Bake
             | Action::TogglePathTracing | Action::SelectAllLayers | Action::ReimportMesh => return Ok(false),
@@ -2790,6 +2794,10 @@ impl Session {
         let ts = self.selected_texture_set();
         let b = &self.brush;
         let mut material = b.material.clone();
+        if b.projection {
+            material.camera_projection = true;
+            material.texture_tiling = true;
+        }
         if let Some((s, _)) = &stamp {
             let channel = s.kind.channel();
             material.channels.entry(channel).or_insert(subcraft_paint::BrushChannel { enabled: true, value: channel.default_paint_value() }).enabled = true;

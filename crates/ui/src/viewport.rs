@@ -460,7 +460,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 state.pen.drag_surface_scaled(&state.session, &camera, to_screen(p), mods.shift, mods.ctrl || mods.command);
             }
     }
-    let paint_tool = !bake_mode && matches!(state.tool, Tool::Brush | Tool::Eraser | Tool::Clone | Tool::Smudge) && !picking;
+    let paint_tool = !bake_mode && matches!(state.tool, Tool::Brush | Tool::Eraser | Tool::Clone | Tool::Smudge | Tool::Projection) && !picking;
     if !bake_mode && primary_pressed && response.hovered() && !alt && !stencil_edit && !picking && state.tool != Tool::Pen && !lmb_adjust {
         if let Some(p) = pointer {
             let sp = to_screen(p);
@@ -484,6 +484,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         Tool::Smudge => StrokeMode::Smudge,
                         _ => StrokeMode::Paint,
                     };
+                    state.session.brush.projection = state.tool == Tool::Projection;
                     if let Some(name) = state.session.ensure_paint_layer() {
                         state.gpu_dirty = true;
                         state.set_status(format!("Painting on a new paint layer, \"{name}\" (the selected layer was not a paint layer)"), now);
@@ -1508,9 +1509,9 @@ pub(crate) fn stencil_input(state: &mut UiState, ui: &Ui, response: &egui::Respo
 /// to the flow / angle drag (so the press must not start a stroke).
 pub(crate) fn brush_gestures(state: &mut UiState, response: &egui::Response, mods: egui::Modifiers, delta: egui::Vec2, allowed: bool) -> bool {
     let gesture_ok = allowed && mods.command && !mods.alt;
-    let brush_tool = matches!(state.tool, Tool::Brush | Tool::Eraser | Tool::Smudge | Tool::Clone);
+    let brush_tool = matches!(state.tool, Tool::Brush | Tool::Eraser | Tool::Smudge | Tool::Clone | Tool::Projection);
     // Ctrl+Shift+LMB is the snapped straight line, so the flow / angle drag needs Shift up.
-    let lmb_adjust = gesture_ok && !mods.shift && matches!(state.tool, Tool::Brush | Tool::Eraser | Tool::Smudge);
+    let lmb_adjust = gesture_ok && !mods.shift && matches!(state.tool, Tool::Brush | Tool::Eraser | Tool::Smudge | Tool::Projection);
     if gesture_ok && brush_tool {
         let s = &mut state.session.brush.settings;
         if response.dragged_by(PointerButton::Secondary) {

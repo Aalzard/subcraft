@@ -30,7 +30,7 @@
 | Tools | `Ctrl+1` | Paint tool + Particles |  | no equivalent | no particle tool (scatter lives in brush settings) |
 | Tools | `2` | Eraser tool | EraserTool | added (key was free) | E kept as well |
 | Tools | `Ctrl+2` | Eraser tool + Particles |  | no equivalent | no particle tool |
-| Tools | `3` | Projection tool |  | no equivalent | no projection tool |
+| Tools | `3` | Projection tool | ProjectionTool | added (key was free) | paints the brush material cast from the view and tiled over it |
 | Tools | `Ctrl+3` | Projection tool + Particles |  | no equivalent | no projection tool |
 | Tools | `4` | Polygon Fill | PolygonFillTool | added (key was free) |  |
 | Tools | `5` | Smudge tool | SmudgeTool | added (key was free) |  |

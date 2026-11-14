@@ -741,6 +741,8 @@ fn paint_input(state: &mut UiState, ui: &Ui, response: &egui::Response, image: F
         Tool::Smudge => StrokeMode::Smudge,
         _ => StrokeMode::Paint,
     };
+    // Projection casts from the 3D view; 2D strokes never do.
+    state.session.brush.projection = false;
     if let Some(name) = state.session.ensure_paint_layer() {
         state.gpu_dirty = true;
         state.set_status(format!("Painting on a new paint layer, \"{name}\" (the selected layer was not a paint layer)"), now);
