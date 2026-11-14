@@ -1010,4 +1010,9 @@ pub static TABLE: &[(&str, &str)] = &[
     ("The selected entry of the list", "清單中選取的項目"),
     ("Reset all baking settings", "重設所有烘焙設定"),
     ("Every baker option, the output and the ticked maps and texture sets go back to their defaults; the model files stay", "所有烘焙器選項、輸出以及勾選的貼圖與貼圖集都恢復預設值；模型檔案保留"),
+    ("Color LUT", "色彩 LUT"),
+    ("None (linear raw)", "無（線性原始值）"),
+    ("Load…", "載入…"),
+    ("Linear raw", "線性原始值"),
+    ("A 3D LUT image (EXR) in OpenColorIO's ociolutimage layout, such as 2048 x 128; it is saved with the project", "採用 OpenColorIO ociolutimage 排列的 3D LUT 影像（EXR），例如 2048 x 128；會隨專案一併儲存"),
 ];

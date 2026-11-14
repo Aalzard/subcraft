@@ -3724,6 +3724,24 @@ impl Session {
         self.execute(if replace { Command::ReplaceMaskEffects { layer, effects, label } } else { Command::ApplyMaskEffects { layer, effects, label } })
     }
 
+    /// Add a colour profile LUT to the project from its file bytes (an EXR / HDR / PNG... image
+    /// whose size holds a whole cube, see `display::lut_cube_size`). The original bytes are kept,
+    /// so saving stores the file as it was. Returns the new resource's id.
+    pub fn add_color_lut(&mut self, name: &str, bytes: Vec<u8>) -> Result<subcraft_core::ResourceId, String> {
+        let bitmap = subcraft_image::io::decode_bitmap(&bytes, Some(name)).map_err(|e| format!("{name}: {e}"))?;
+        if subcraft_doc::display::lut_cube_size(bitmap.width, bitmap.height).is_none() {
+            return Err(format!("{name} is {} x {}: not a 3D LUT (width x height must be a cube, such as 2048 x 128)", bitmap.width, bitmap.height));
+        }
+        Ok(self.resources.insert(subcraft_doc::Resource {
+            id: subcraft_core::ResourceId::new(),
+            name: name.to_string(),
+            kind: subcraft_doc::ResourceKind::ColorLut,
+            bitmap: Arc::new(bitmap),
+            source_path: None,
+            encoded: Some(Arc::new(bytes)),
+        }))
+    }
+
     /// Use a brush alpha for the next strokes.
     /// The current brush tip as an Alpha resource of the project (the same resource again for
     /// the same tip), so a pen path can stamp it and the project keeps it. `None` for the round tip.

@@ -299,6 +299,9 @@ pub fn camera(state: &mut UiState, ui: &mut Ui) {
     let mut pick = false;
     // Focus distances offered: from very close to well past the model.
     let scene = state.session.scene().mesh.bounds.diagonal().max(1e-3);
+    // The project's colour LUTs (the grid below holds the preferences mutably).
+    let lut_names = crate::color_lut::names(state.session.resources());
+    let mut load_lut = false;
     {
         let camera = &mut state.camera;
         let prefs = &mut state.recovery.prefs.viewport;
@@ -363,6 +366,20 @@ pub fn camera(state: &mut UiState, ui: &mut Ui) {
             ui.label(tr("Color profile"));
             ui.checkbox(&mut prefs.display.color_profile, "").on_hover_text(tr("Show the material view as linear raw values instead of sRGB, or through the project's colour LUT"));
             ui.end_row();
+            ui.label(tr("Color LUT"));
+            ui.add_enabled_ui(prefs.display.color_profile, |ui| {
+                ui.horizontal(|ui| {
+                    let name = prefs.display.color_lut.and_then(|id| crate::color_lut::name_in(&lut_names, id)).unwrap_or_else(|| tr("None (linear raw)").to_string());
+                    ui.label(name);
+                    if ui.button(tr("Load…")).on_hover_text(tr("A 3D LUT image (EXR) in OpenColorIO's ociolutimage layout, such as 2048 x 128; it is saved with the project")).clicked() {
+                        load_lut = true;
+                    }
+                    if prefs.display.color_lut.is_some() && ui.button(tr("Clear")).clicked() {
+                        prefs.display.color_lut = None;
+                    }
+                });
+            });
+            ui.end_row();
             ui.label(tr("White point"));
             ui.add_enabled(prefs.display.color_profile, egui::Slider::new(&mut prefs.display.white_point, 0.1..=100.0).logarithmic(true))
                 .on_hover_text(tr("The brightest value shown: values are divided by it and clamped before the colour LUT. Above 1 for very bright content such as the sun"));
@@ -371,6 +388,9 @@ pub fn camera(state: &mut UiState, ui: &mut Ui) {
     }
     if pick {
         state.picking_focus = true;
+    }
+    if load_lut {
+        crate::color_lut::load_with_dialog(state, ui.input(|i| i.time));
     }
 }
 

@@ -20,6 +20,9 @@ pub enum ResourceKind {
     /// A `.ttf` / `.otf` font file (text layers). The bitmap is a 1x1 placeholder; the font is
     /// the `encoded` bytes.
     Font,
+    /// A colour profile's 3D LUT (Painter's "colorlut" usage): a float image in OpenColorIO's
+    /// `ociolutimage` layout (see `display::lut_cube_size`).
+    ColorLut,
 }
 
 #[derive(Debug)]

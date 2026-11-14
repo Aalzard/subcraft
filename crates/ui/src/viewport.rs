@@ -566,6 +566,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     let painter = ui.painter_at(rect);
     let tracing = state.recovery.prefs.viewport.path_tracing && !bake_mode;
     let mut pt_error = None;
+    let mut lut_error: Option<String> = None;
     let mask_view = crate::mask_view::active(state);
     // Geometry mask and Polygon Fill feedback on the model: left-out geometry greyed while the
     // mask is edited, the part or the fill element under the cursor tinted.
@@ -595,6 +596,19 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             if params.color_profile {
                 params.exposure *= view.white_point_scale();
                 params.post.tone_map = subcraft_render::ToneMap::LinearSat;
+            }
+            // The profile's LUT: sent to the renderer when the choice (or the project) changes.
+            let wanted = crate::color_lut::wanted(view, state.session.resources());
+            if state.uploaded_color_lut != Some(wanted) {
+                let result = match wanted.and_then(|id| state.session.resources().get(id)) {
+                    Some(r) => {
+                        let pixels = crate::color_lut::pixels(&r.bitmap);
+                        renderer.set_color_lut(&rs.device, &rs.queue, Some((&pixels, r.bitmap.width, r.bitmap.height)))
+                    }
+                    None => renderer.set_color_lut(&rs.device, &rs.queue, None),
+                };
+                lut_error = result.err();
+                state.uploaded_color_lut = Some(wanted);
             }
             params.view_mode = view.view_mode();
             params.solo_channel = view.solo.filter(|_| view.mesh_map.is_none());
@@ -779,6 +793,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         }
     }
 
+    if let Some(e) = lut_error {
+        state.set_status(format!("Color LUT: {e}"), now);
+    }
     if let Some(e) = pt_error {
         log::warn!("{e}");
         state.recovery.prefs.viewport.path_tracing = false;
@@ -1315,6 +1332,11 @@ fn visualization_overlays(state: &UiState, painter: &egui::Painter, rect: Rect, 
     }
     if prefs.shown_channel().is_some() && let Some(name) = prefs.channel_component.overlay() {
         pill(painter, rect.left_top() + egui::vec2(10.0, 10.0), egui::Align2::LEFT_TOP, crate::i18n::tr(name), theme::OVERLAY_TEXT);
+    }
+    // The colour profile's name, top left, while it shapes the material view.
+    if prefs.color_profile && prefs.shown_channel().is_none() && prefs.mesh_map.is_none() {
+        let name = crate::color_lut::profile_name(prefs, state.session.resources());
+        pill(painter, rect.left_top() + egui::vec2(10.0, 10.0), egui::Align2::LEFT_TOP, &name, theme::TEXT);
     }
     // Axis indicator above the Render toggle in the bottom-right corner.
     if prefs.axis_indicator {

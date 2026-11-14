@@ -488,6 +488,9 @@ pub struct DisplaySettings {
     /// project's colour LUT, after the HDR values are divided by `white_point` and clamped.
     pub color_profile: bool,
     pub white_point: f32,
+    /// The colour profile's LUT: a `ColorLut` resource of the project (by id, never a path).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub color_lut: Option<subcraft_core::ResourceId>,
     /// Depth of field (off by default): blur amount 0..1, focus distance as a multiple of the
     /// orbit distance (1 = the point the camera orbits), sharp band in percent of the model size.
     pub dof: bool,
@@ -644,6 +647,7 @@ impl Default for DisplaySettings {
             oit: false,
             color_profile: false,
             white_point: 1.0,
+            color_lut: None,
             dof: false,
             dof_amount: 0.5,
             dof_focus: 1.0,
@@ -730,6 +734,16 @@ impl Default for DisplaySettings {
     }
 }
 
+/// Cube size of a `width x height` colour LUT image in OpenColorIO's `ociolutimage` layout (the
+/// N³ cube flattened red fastest, then green, then blue, reshaped row by row): N with
+/// N³ = width x height, at least 2, or `None` when the image cannot hold a whole cube. Painter's
+/// default 2048 x 128 is a 64 cube.
+pub fn lut_cube_size(width: u32, height: u32) -> Option<u32> {
+    let cells = width as u64 * height as u64;
+    let n = (cells as f64).cbrt().round() as u64;
+    (n >= 2 && n * n * n == cells && width > 0).then_some(n as u32)
+}
+
 impl DisplaySettings {
     /// Exposure factor of the colour profile's white point (Painter: `1 / white point`), 1 while
     /// the profile is off. Broken values count as 1.
@@ -755,7 +769,7 @@ impl DisplaySettings {
             ($($field:ident),* $(,)?) => { $( d.$field = std::mem::take(&mut self.$field); )* };
         }
         keep!(
-            env_map, env_opacity, env_exposure, env_rotation, env_blur, env_alignment, shadows, shadow_opacity, shadow_mode, fov, antialias, taa, taa_accumulations, oit, color_profile, white_point, wireframe, wire_color, wire_opacity,
+            env_map, env_opacity, env_exposure, env_rotation, env_blur, env_alignment, shadows, shadow_opacity, shadow_mode, fov, antialias, taa, taa_accumulations, oit, color_profile, white_point, color_lut, wireframe, wire_color, wire_opacity,
             wire_angle, grid, grid_axes, grid_plane, grid_color, grid_opacity, solo_unlit, hdr_scale, hdr_signed_colors, hdr_positive,
             hdr_negative, channel_component, anisotropy, mip_bias, camera_frame, camera_frame_ratio, gate_opacity,
         );
