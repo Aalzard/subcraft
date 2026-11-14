@@ -199,6 +199,254 @@ pub fn polygon_edges(mesh: &Mesh, max_angle_deg: f32) -> Vec<[glam::Vec3; 2]> {
     out
 }
 
+/// A welded edge: the two welded vertex ids, smaller first.
+pub type WeldedEdge = (u32, u32);
+
+/// Polygons (from [`polygons`]) as faces with welded boundary edges, for walking polygon loops
+/// (Painter's Polygon loop fill).
+#[derive(Clone, Debug, Default)]
+pub struct PolygonTopology {
+    /// Polygon of every triangle.
+    pub polygon_of: Vec<u32>,
+    /// Triangles of every polygon.
+    pub triangles: Vec<Vec<u32>>,
+    /// Boundary edges of every polygon (an internal diagonal is not one).
+    pub edges: Vec<Vec<WeldedEdge>>,
+    /// Position of every welded vertex.
+    pub positions: Vec<glam::Vec3>,
+    edge_polygons: HashMap<WeldedEdge, Vec<u32>>,
+}
+
+/// [`PolygonTopology`] of `mesh` with the polygon ids `polygon_of` (one per triangle).
+pub fn polygon_topology(mesh: &Mesh, polygon_of: &[u32]) -> PolygonTopology {
+    let weld = weld_positions(mesh);
+    let count = polygon_of.iter().map(|&p| p as usize + 1).max().unwrap_or(0);
+    let mut triangles = vec![Vec::new(); count];
+    for (t, &p) in polygon_of.iter().enumerate() {
+        triangles[p as usize].push(t as u32);
+    }
+    let mut positions = vec![glam::Vec3::ZERO; weld.iter().map(|&w| w as usize + 1).max().unwrap_or(0)];
+    for (v, &w) in weld.iter().enumerate() {
+        positions[w as usize] = mesh.positions[v];
+    }
+    let mut edges = Vec::with_capacity(count);
+    let mut edge_polygons: HashMap<WeldedEdge, Vec<u32>> = HashMap::new();
+    for (p, tris) in triangles.iter().enumerate() {
+        // Edges used once inside the polygon are its boundary; a diagonal is used twice.
+        let mut uses: Vec<(WeldedEdge, u32)> = Vec::new();
+        for &t in tris {
+            let c = mesh.tri(t as usize).map(|v| weld[v as usize]);
+            for k in 0..3 {
+                let (a, b) = (c[k], c[(k + 1) % 3]);
+                if a == b {
+                    continue;
+                }
+                let e = (a.min(b), a.max(b));
+                match uses.iter_mut().find(|(f, _)| *f == e) {
+                    Some(u) => u.1 += 1,
+                    None => uses.push((e, 1)),
+                }
+            }
+        }
+        let boundary: Vec<WeldedEdge> = uses.into_iter().filter(|(_, n)| *n == 1).map(|(e, _)| e).collect();
+        for &e in &boundary {
+            edge_polygons.entry(e).or_default().push(p as u32);
+        }
+        edges.push(boundary);
+    }
+    PolygonTopology { polygon_of: polygon_of.to_vec(), triangles, edges, positions, edge_polygons }
+}
+
+impl PolygonTopology {
+    pub fn polygon_count(&self) -> usize {
+        self.triangles.len()
+    }
+
+    pub fn is_quad(&self, p: u32) -> bool {
+        self.edges.get(p as usize).is_some_and(|e| e.len() == 4)
+    }
+
+    /// The edge of quad `p` facing `e` (sharing no vertex with it); `None` for other polygons.
+    pub fn opposite(&self, p: u32, e: WeldedEdge) -> Option<WeldedEdge> {
+        if !self.is_quad(p) {
+            return None;
+        }
+        self.edges[p as usize].iter().copied().find(|f| f.0 != e.0 && f.0 != e.1 && f.1 != e.0 && f.1 != e.1)
+    }
+
+    /// The polygon on the other side of `p`'s edge `e`, when exactly two polygons share it.
+    pub fn across(&self, p: u32, e: WeldedEdge) -> Option<u32> {
+        match self.edge_polygons.get(&e).map(Vec::as_slice) {
+            Some([a, b]) if *a == p => Some(*b),
+            Some([a, b]) if *b == p => Some(*a),
+            _ => None,
+        }
+    }
+
+    /// The polygons met leaving `p` through `e` and going on through each quad's opposite edge,
+    /// in order (without `p`). It stops at a border, at a non-quad, at a polygon `accept`
+    /// rejects or at one already met; `true` when it came back round to `p` (a closed loop).
+    pub fn walk(&self, p: u32, e: WeldedEdge, accept: impl Fn(u32) -> bool) -> (Vec<u32>, bool) {
+        let mut out = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        let (mut at, mut edge) = (p, e);
+        while let Some(next) = self.across(at, edge) {
+            if next == p {
+                return (out, true);
+            }
+            if !accept(next) || !self.is_quad(next) || !seen.insert(next) {
+                break;
+            }
+            out.push(next);
+            let Some(o) = self.opposite(next, edge) else { break };
+            at = next;
+            edge = o;
+        }
+        (out, false)
+    }
+
+    /// The whole loop through `p` that crosses its edge `e`: forward through `e`, back through
+    /// the opposite edge (when `p` is a quad). Ordered along the loop, `p` included.
+    pub fn ring(&self, p: u32, e: WeldedEdge, accept: impl Fn(u32) -> bool + Copy) -> Vec<u32> {
+        let (forward, closed) = self.walk(p, e, accept);
+        let mut out = Vec::new();
+        if !closed {
+            if let Some(o) = self.opposite(p, e) {
+                let (back, _) = self.walk(p, o, accept);
+                out.extend(back.into_iter().rev().filter(|q| !forward.contains(q)));
+            }
+        }
+        out.push(p);
+        out.extend(forward);
+        out
+    }
+
+    /// Part of the loop through `p` crossing `e`: from `p` to `end` the short way along the loop
+    /// (just `p` when `end` is not on it). `both_sides` adds as many polygons on the other side of
+    /// `p` (Painter's Alt while dragging).
+    pub fn partial(&self, p: u32, e: WeldedEdge, end: u32, both_sides: bool, accept: impl Fn(u32) -> bool + Copy) -> Vec<u32> {
+        let (forward, _) = self.walk(p, e, accept);
+        let back = self.opposite(p, e).map(|o| self.walk(p, o, accept).0).unwrap_or_default();
+        let (f, b) = (forward.iter().position(|&q| q == end), back.iter().position(|&q| q == end));
+        let empty: &[u32] = &[];
+        let (span, other): (&[u32], &[u32]) = match (f, b) {
+            (Some(i), Some(j)) if j < i => (&back[..=j], &forward[..]),
+            (Some(i), _) => (&forward[..=i], &back[..]),
+            (None, Some(j)) => (&back[..=j], &forward[..]),
+            (None, None) => (empty, empty),
+        };
+        let mut out = vec![p];
+        out.extend_from_slice(span);
+        if both_sides {
+            out.extend(other.iter().take(span.len()).filter(|q| !span.contains(q) && **q != p));
+        }
+        out
+    }
+}
+
+#[cfg(test)]
+mod loop_tests {
+    use super::*;
+    use crate::primitives;
+
+    fn fan_mesh(poly: &[glam::Vec3]) -> Mesh {
+        let mut b = crate::MeshBuilder::new("poly");
+        let m = b.material("m");
+        let c = |p: glam::Vec3| crate::Corner { position: p, normal: Some(glam::Vec3::Z), uv: Some(Vec2::new(p.x, p.y)) };
+        for i in 1..poly.len() - 1 {
+            b.push_triangle(m, [c(poly[0]), c(poly[i]), c(poly[i + 1])]);
+        }
+        b.build().unwrap()
+    }
+
+    fn topology(mesh: &Mesh) -> PolygonTopology {
+        polygon_topology(mesh, &polygons(mesh, 30.0))
+    }
+
+    /// Polygon whose centre is nearest `at`, and its edge whose midpoint is nearest `toward`.
+    fn pick(mesh: &Mesh, t: &PolygonTopology, at: glam::Vec3, toward: glam::Vec3) -> (u32, WeldedEdge) {
+        let centre = |p: u32| {
+            let e = &t.edges[p as usize];
+            e.iter().map(|&(a, b)| t.positions[a as usize] + t.positions[b as usize]).sum::<glam::Vec3>() / (2.0 * e.len() as f32)
+        };
+        let p = (0..t.polygon_count() as u32).min_by(|&a, &b| centre(a).distance(at).total_cmp(&centre(b).distance(at))).unwrap();
+        let mid = |e: WeldedEdge| (t.positions[e.0 as usize] + t.positions[e.1 as usize]) * 0.5;
+        let e = t.edges[p as usize].iter().copied().min_by(|&a, &b| mid(a).distance(toward).total_cmp(&mid(b).distance(toward))).unwrap();
+        let _ = mesh;
+        (p, e)
+    }
+
+    #[test]
+    fn cube_loops_close_around_four_faces() {
+        // 4 x 4 cells per face: a loop around the cube crosses 4 faces of 4 cells.
+        let cube = primitives::cube(1.0);
+        let t = topology(&cube);
+        assert_eq!(t.polygon_count(), 96);
+        assert!((0..96).all(|p| t.is_quad(p)));
+        let top = glam::Vec3::new(0.125, 0.5, 0.125);
+        let (p, e) = pick(&cube, &t, top, top + glam::Vec3::X);
+        let ring = t.ring(p, e, |_| true);
+        assert_eq!(ring.len(), 16, "{ring:?}");
+        let mut unique = ring.clone();
+        unique.sort_unstable();
+        unique.dedup();
+        assert_eq!(unique.len(), 16);
+        let (forward, closed) = t.walk(p, e, |_| true);
+        assert!(closed && forward.len() == 15);
+        // The perpendicular loop is a different ring of 16 sharing only the start.
+        let (p2, e2) = pick(&cube, &t, top, top + glam::Vec3::Z);
+        assert_eq!(p2, p);
+        let cross = t.ring(p, e2, |_| true);
+        assert_eq!(cross.len(), 16);
+        // They share the start and the cell right under it on the bottom face.
+        assert_eq!(cross.iter().filter(|q| ring.contains(q)).count(), 2);
+        // A polygon `accept` rejects ends the walk: an open loop on both sides of the start.
+        let banned = ring[(ring.iter().position(|&q| q == p).unwrap() + 8) % 16];
+        let cut = t.ring(p, e, |q| q != banned);
+        assert_eq!(cut.len(), 15);
+        assert!(!cut.contains(&banned));
+    }
+
+    #[test]
+    fn plane_loops_stop_at_the_border_and_partial_loops_end_at_the_target() {
+        let plane = primitives::plane(4.0, 4);
+        let t = topology(&plane);
+        assert_eq!(t.polygon_count(), 16);
+        // Cell centres sit at -1.5, -0.5, 0.5, 1.5 on X and Z.
+        let cell = |x: f32, z: f32| glam::Vec3::new(x, 0.0, z);
+        let (p, e) = pick(&plane, &t, cell(-0.5, -1.5), cell(0.0, -1.5));
+        let row = t.ring(p, e, |_| true);
+        assert_eq!(row.len(), 4, "a row of 4 cells, open at both borders: {row:?}");
+        // Partial: from the start to the cell two to the right; with Alt, one more on the left.
+        let (end, _) = pick(&plane, &t, cell(1.5, -1.5), cell(1.5, -1.5));
+        let span = t.partial(p, e, end, false, |_| true);
+        assert_eq!(span.len(), 3);
+        assert_eq!((span[0], span[2]), (p, end));
+        let both = t.partial(p, e, end, true, |_| true);
+        assert_eq!(both.len(), 4, "only one cell left of the start: {both:?}");
+        let (left, _) = pick(&plane, &t, cell(-1.5, -1.5), cell(-1.5, -1.5));
+        assert!(both.contains(&left));
+        // A target off the loop: just the start.
+        let (off, _) = pick(&plane, &t, cell(1.5, 1.5), cell(1.5, 1.5));
+        assert_eq!(t.partial(p, e, off, true, |_| true), vec![p]);
+        // Every quad has its opposite edge; a border edge has no polygon across.
+        assert!(t.opposite(p, e).is_some());
+        let (corner, border) = pick(&plane, &t, cell(-1.5, -1.5), cell(-2.0, -1.5));
+        assert_eq!(t.across(corner, border), None);
+    }
+
+    #[test]
+    fn non_quads_end_a_loop() {
+        let q = fan_mesh(&[glam::Vec3::ZERO, glam::Vec3::new(2., 0., 0.), glam::Vec3::new(3., 1., 0.), glam::Vec3::new(1.5, 2., 0.), glam::Vec3::new(-1., 1., 0.)]);
+        let t = topology(&q);
+        assert_eq!(t.polygon_count(), 1);
+        assert!(!t.is_quad(0) && t.edges[0].len() == 5);
+        let e = t.edges[0][0];
+        assert_eq!(t.opposite(0, e), None);
+        assert_eq!(t.ring(0, e, |_| true), vec![0]);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

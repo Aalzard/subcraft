@@ -3118,6 +3118,13 @@ impl Session {
         self.polygon_fill_with(camera, |stroke, ts, ctx| stroke.polygon_fill_box(ts, ctx, a, b, mode, visible_only))
     }
 
+    /// Polygon fill of the polygon loop a drag from `a` to `b` picks (Painter's Polygon loop fill;
+    /// `partial`: only up to the polygon under `b`, `both_sides` mirrors that span), grown to
+    /// `mode` (one history entry).
+    pub fn polygon_fill_loop(&mut self, camera: &Camera, a: Vec2, b: Vec2, mode: PolygonFillMode, partial: bool, both_sides: bool) -> Result<Vec<usize>, PaintError> {
+        self.polygon_fill_with(camera, |stroke, ts, ctx| stroke.polygon_fill_loop(ts, ctx, a, b, mode, partial, both_sides))
+    }
+
     /// Polygon fill of everything a UV box `[a, b]` touches in the 2D view (one history entry).
     pub fn polygon_fill_uv_box(&mut self, a: Vec2, b: Vec2, mode: PolygonFillMode) -> Result<Vec<usize>, PaintError> {
         self.polygon_fill_with(&uv_camera(), |stroke, ts, ctx| stroke.polygon_fill_uv_box(ts, ctx, a, b, mode))

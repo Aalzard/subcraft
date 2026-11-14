@@ -746,6 +746,35 @@ pub enum PolygonFillMode {
     Object,
 }
 
+/// How a Polygon Fill click or drag picks polygons (Painter's Selection mode).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PolygonSelectMode {
+    /// A click fills the element under the cursor, a drag every element in the box.
+    #[default]
+    Marquee,
+    /// The whole loop of quads in the drag direction (a click: across the nearest edge).
+    Loop,
+    /// The loop from the first polygon to the one under the release point.
+    PartialLoop,
+}
+
+impl PolygonSelectMode {
+    pub const ALL: [Self; 3] = [Self::Marquee, Self::Loop, Self::PartialLoop];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Marquee => "Rectangular marquee",
+            Self::Loop => "Polygon loop",
+            Self::PartialLoop => "Partial polygon loop",
+        }
+    }
+
+    pub fn is_loop(self) -> bool {
+        self != Self::Marquee
+    }
+}
+
 impl PolygonFillMode {
     /// In the order the tool options list them.
     pub const ALL: [Self; 5] = [Self::Triangle, Self::Polygon, Self::MeshElement, Self::UvIsland, Self::Object];
