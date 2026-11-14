@@ -432,7 +432,7 @@ are listed only as one row here. SubCraft always shows linear data through a fix
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Display transform on/off button | Viewport top bar (3D and 2D) | on | missing | - | - |
+| Display transform on/off button | Viewport top bar (3D and 2D) | on | partial: 3D view top bar, next to View, while the colour profile has a LUT (switches Display Settings > Color profile); the 2D view shows raw data | crates/ui/src/color_lut.rs | (this PR) |
 | Display transform dropdown | Viewport top bar (3D and 2D) | from the OCIO configuration | missing | - | - |
 | Separate display transform for the 2D and the 3D view | Viewport top bars | - | missing | - | - |
 | Display transform auto-disabled when soloing a data channel | Viewports in solo mode | automatic | partial: data channels are always shown raw; there is no transform to disable | crates/render/src/viewport.wgsl:201 | - |
