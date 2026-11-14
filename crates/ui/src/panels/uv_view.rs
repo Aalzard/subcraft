@@ -135,16 +135,19 @@ pub fn source_for(mesh_map: Option<MeshMapKind>, channel: Option<ChannelKind>) -
 const MATERIAL_SIDE: u32 = 1024;
 
 /// The texture set's lit material in UV space (Painter's 2D view "Material" display): each
-/// texel of the composite shaded flat with [`subcraft_materials::uv_material::shade`], encoded
-/// sRGB for display. Missing channels take neutral values.
-pub fn material_image(composite: &subcraft_compositor::Composite) -> egui::ColorImage {
-    use subcraft_materials::uv_material::{UvTexel, shade};
+/// texel of the composite shaded flat with [`subcraft_materials::uv_material::shade`], the
+/// Height channel adding relief at `height_scale` (the 3D view's), encoded sRGB for display.
+/// Missing channels take neutral values.
+pub fn material_image(composite: &subcraft_compositor::Composite, height_scale: f32) -> egui::ColorImage {
+    use subcraft_materials::uv_material::{UvTexel, height_bump, shade};
     let res = composite.resolution.max(1);
     let step = res.div_ceil(MATERIAL_SIDE).max(1);
     let side = res.div_ceil(step);
     let ch = |k: ChannelKind| composite.channel(k).filter(|i| i.width() == res && i.height() == res);
     let (base, normal, rough, metal, ao) =
         (ch(ChannelKind::BaseColor), ch(ChannelKind::Normal), ch(ChannelKind::Roughness), ch(ChannelKind::Metallic), ch(ChannelKind::AmbientOcclusion));
+    let height = ch(ChannelKind::Height);
+    let texel = step as f32 / res as f32;
     let d = UvTexel::default();
     let mut rgba = Vec::with_capacity((side * side * 4) as usize);
     for y in 0..side {
@@ -157,6 +160,14 @@ pub fn material_image(composite: &subcraft_compositor::Composite) -> egui::Color
                 roughness: get(rough).map_or(d.roughness, |v| v[0]),
                 metallic: get(metal).map_or(d.metallic, |v| v[0]),
                 ao: get(ao).map_or(d.ao, |v| v[0]),
+                bump: height.filter(|_| height_scale != 0.0).map_or(d.bump, |h| {
+                    let at = |dx: i64, dy: i64| {
+                        let qx = (px as i64 + dx * step as i64).clamp(0, res as i64 - 1) as u32;
+                        let qy = (py as i64 + dy * step as i64).clamp(0, res as i64 - 1) as u32;
+                        h.get(qx, qy)[0]
+                    };
+                    height_bump(at(-1, 0), at(1, 0), at(0, -1), at(0, 1), texel, height_scale)
+                }),
             };
             let c = subcraft_core::color::linear3_to_srgb(shade(t).map(|v| if v.is_finite() { v.clamp(0.0, 1.0) } else { 0.0 }));
             rgba.extend(c.map(|v| (v * 255.0).round() as u8));
@@ -169,12 +180,12 @@ pub fn material_image(composite: &subcraft_compositor::Composite) -> egui::Color
 /// The lit material texture for the 2D view, rebuilt when the document or the composite
 /// changed (at most every quarter second while edits stream in).
 fn material_texture(state: &mut UiState, ctx: &egui::Context, ts: subcraft_core::TextureSetId, now: f64) -> Option<egui::TextureId> {
-    let key = (ts, state.session.revision(), state.session.composite_generation());
+    let key = (ts, state.session.revision(), state.session.composite_generation(), state.height_scale.to_bits());
     let stale = state.gpu_changed || state.uv.material_image.as_ref().is_none_or(|m| m.key != key);
     let due = state.uv.material_image.as_ref().is_none_or(|m| m.key.0 != ts || now - m.built >= 0.25);
     if stale && due {
         if let Some(c) = state.session.composite(ts) {
-            let image = material_image(c);
+            let image = material_image(c, state.height_scale);
             match &mut state.uv.material_image {
                 Some(m) => {
                     m.texture.set(image, egui::TextureOptions::LINEAR);
@@ -909,16 +920,35 @@ mod navigation_tests {
             subcraft_compositor::Composite { resolution: res, channels }
         };
         // A flat red rough dielectric: lit red everywhere (no normal map: flat).
-        let image = material_image(&composite(128, [0.8, 0.05, 0.05, 1.0]));
+        let image = material_image(&composite(128, [0.8, 0.05, 0.05, 1.0]), 0.02);
         assert_eq!(image.size, [128, 128], "small sets keep their resolution");
         let first = image.pixels[0];
         assert!(image.pixels.iter().all(|p| *p == first));
         assert!(first.r() > 150 && first.g() < 90 && first.g() == first.b(), "{first:?}");
         // Brighter base, brighter result; large sets are sampled down to 1024.
-        let grey = material_image(&composite(2048, [0.2; 4]));
-        let white = material_image(&composite(16, [1.0; 4]));
+        let grey = material_image(&composite(2048, [0.2; 4]), 0.02);
+        let white = material_image(&composite(16, [1.0; 4]), 0.02);
         assert_eq!(grey.size, [1024, 1024]);
         assert!(white.pixels[0].r() > grey.pixels[0].r());
+        // Height ramps: rising to the right tilts texels towards the upper-left light (brighter
+        // than flat), rising to the left away from it (darker); a height scale of 0 shows none.
+        let ramp = |sign: f32| {
+            let mut c = composite(64, [0.5, 0.5, 0.5, 1.0]);
+            let mut h = TiledImage::new(64, 64, 2, [0.0, 1.0, 0.0, 0.0]);
+            for y in 0..64 {
+                for x in 0..64 {
+                    h.set(x, y, [sign * x as f32 / 2.0, 1.0, 0.0, 0.0]);
+                }
+            }
+            c.channels.insert(ChannelKind::Height, h);
+            c
+        };
+        let at = |img: egui::ColorImage| img.pixels[32 * 64 + 32];
+        let flat = at(material_image(&composite(64, [0.5, 0.5, 0.5, 1.0]), 0.02));
+        let (right, left) = (at(material_image(&ramp(1.0), 0.02)), at(material_image(&ramp(-1.0), 0.02)));
+        assert!(right.r() >= flat.r() && left.r() + 10 < flat.r() && right.r() > left.r() + 10, "{right:?} {flat:?} {left:?}");
+        let c = ramp(1.0);
+        assert_eq!(material_image(&c, 0.0).pixels[32 * 64 + 32], flat);
     }
 
     #[test]

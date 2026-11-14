@@ -75,8 +75,8 @@ impl BrushNotice {
 
 /// The 2D view's lit material image (Painter's "Material" display) and what it was built from.
 pub struct UvMaterialImage {
-    /// Texture set, session revision and composite generation it shows.
-    pub key: (subcraft_core::TextureSetId, u64, u64),
+    /// Texture set, session revision, composite generation and height scale (bits) it shows.
+    pub key: (subcraft_core::TextureSetId, u64, u64, u32),
     /// When it was built (UI seconds): rebuilt at most every quarter second while edits arrive.
     pub built: f64,
     pub texture: egui::TextureHandle,
