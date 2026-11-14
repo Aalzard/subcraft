@@ -907,6 +907,11 @@ impl Session {
     pub fn document(&self) -> &Document {
         &self.doc
     }
+    /// Fold the last `n` history steps into one undo step (see [`History::squash_last`]).
+    pub fn squash_history(&mut self, n: usize) -> bool {
+        self.history.squash_last(n)
+    }
+
     pub fn history(&self) -> &History {
         &self.history
     }

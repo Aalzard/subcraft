@@ -386,6 +386,26 @@ fn flatten_instantiate_and_channel_removal() {
     assert!(msg.to_lowercase().contains("emissive"), "{msg}");
 }
 
+/// QA 2026-11: one tool call could leave several undo steps (texture_set_update renaming and
+/// adding a channel; a fill that needs a new channel), so `undo` undid only part of it.
+#[test]
+fn one_tool_call_is_one_undo_step() {
+    let mut server = Server::new();
+    sample(&mut server);
+    let steps = |server: &mut Server| ok(server, "history", json!({}))["entries"].as_array().unwrap().len();
+    let before = steps(&mut server);
+    ok(&mut server, "texture_set_update", json!({ "texture_set": "Body", "name": "Hull", "add_channels": ["emissive"], "hidden": false }));
+    assert_eq!(steps(&mut server), before + 1, "{}", ok(&mut server, "history", json!({})));
+    ok(&mut server, "layer_add", json!({ "type": "fill", "name": "Glow", "texture_set": "Hull", "fill": { "opacity": 0.5 } }));
+    assert_eq!(steps(&mut server), before + 2);
+    let undone = ok(&mut server, "undo", json!({}));
+    assert_eq!(undone["undone"].as_array().unwrap().len(), 1, "{undone}");
+    assert!(!layer_names(&mut server, "Hull").contains(&"Glow".to_string()));
+    ok(&mut server, "undo", json!({}));
+    let info = ok(&mut server, "project_info", json!({})).to_string();
+    assert!(info.contains("Body") && !info.contains("Hull") && !info.contains("emissive"), "the whole update is undone: {info}");
+}
+
 /// QA 2026-11: brush_set applied size, options and colours before reading `mode` and `tip`, so a
 /// bad mode or tip failed with half the brush changed.
 #[test]

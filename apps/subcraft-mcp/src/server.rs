@@ -60,13 +60,22 @@ impl Server {
             return error_result(&e);
         }
         let started = std::time::Instant::now();
+        // Tools that move through or replace the history keep its steps as they are.
+        let group = !matches!(name, "undo" | "redo" | "project_new" | "project_open");
+        let pushes = self.session.as_ref().map(|s| s.history().pushes());
         let outcome = std::panic::catch_unwind(AssertUnwindSafe(|| crate::tools::dispatch(self, name, &Args(&map))));
-        // Each tool call is its own undo step (slider-like edits otherwise merge).
+        // Each tool call is one undo step: slider-like edits otherwise merge, and a call that
+        // made several edits (a channel added for a fill, a renamed and resized texture set)
+        // used to need as many undos.
         if let Some(s) = self.session.as_mut() {
             if s.is_stroking() {
                 s.cancel_stroke();
             }
             let _ = s.execute(Command::Seal);
+            if group && let Some(before) = pushes {
+                let n = s.history().pushes().saturating_sub(before);
+                s.squash_history(usize::try_from(n).unwrap_or(usize::MAX));
+            }
         }
         eprintln!("[subcraft-mcp] {name} took {:.2}s", started.elapsed().as_secs_f32());
         match outcome {
