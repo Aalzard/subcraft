@@ -5,6 +5,9 @@ What changed in SubCraft, newest first. Download the latest build from the
 
 ## Unreleased
 
+### Added
+- Export: the "Dilation + transparent" padding mode: islands grow by the dilation distance and the rest of the gutter is transparent. Painter presets using it now import as is.
+
 ## 0.3.9 - 2026-11-14
 
 ### Highlights

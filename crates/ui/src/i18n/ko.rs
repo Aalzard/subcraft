@@ -570,6 +570,7 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Grow islands by the distance; the rest of the gutter keeps its composite values", "거리만큼 아일랜드를 확장하고 나머지 여백은 합성 값을 유지합니다"),
     ("Grow islands by the distance, then fill the rest with each map's default color", "거리만큼 아일랜드를 확장한 뒤 나머지를 각 맵의 기본 색으로 채웁니다"),
     ("Grow islands by the distance, then fill the rest with a smooth blend of the islands around it", "거리만큼 아일랜드를 확장한 뒤 나머지를 주변 아일랜드의 부드러운 혼합으로 채웁니다"),
+    ("Grow islands by the distance; the rest of the gutter is transparent (alpha 0). File types without alpha get dilation only", "거리만큼 아일랜드를 확장하고 나머지 여백은 투명(알파 0)하게 둡니다. 알파가 없는 파일 형식은 확장만 합니다"),
     ("Back to a new project's export settings: template file types, texture set sizes, infinite padding, every map checked", "새 프로젝트의 내보내기 설정으로 되돌립니다: 템플릿 파일 형식, 텍스처 세트 크기, 무한 패딩, 모든 맵 선택"),
     ("Close without keeping the changes made since the window opened", "창을 연 뒤의 변경 사항을 유지하지 않고 닫습니다"),
     ("Export this texture set", "이 텍스처 세트 내보내기"),

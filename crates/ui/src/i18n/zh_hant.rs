@@ -570,6 +570,7 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Grow islands by the distance; the rest of the gutter keeps its composite values", "依距離擴張 UV 島；其餘間隙保留其合成值"),
     ("Grow islands by the distance, then fill the rest with each map's default color", "依距離擴張 UV 島，其餘以各貼圖的預設顏色填滿"),
     ("Grow islands by the distance, then fill the rest with a smooth blend of the islands around it", "依距離擴張 UV 島，其餘以周圍 UV 島的平滑混合填滿"),
+    ("Grow islands by the distance; the rest of the gutter is transparent (alpha 0). File types without alpha get dilation only", "依距離擴張 UV 島，其餘邊界透明（Alpha 0）。不支援 Alpha 的檔案類型只做擴張"),
     ("Back to a new project's export settings: template file types, texture set sizes, infinite padding, every map checked", "回到新專案的匯出設定：範本檔案類型、貼圖組尺寸、無限填充、勾選所有貼圖"),
     ("Close without keeping the changes made since the window opened", "關閉視窗，不保留開啟後所做的變更"),
     ("Export this texture set", "匯出此貼圖組"),
