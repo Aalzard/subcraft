@@ -117,7 +117,7 @@ pub fn extract_pack(zip_path: &Path, dest: &Path) -> Result<usize, String> {
     for i in 0..archive.len() {
         let mut entry = archive.by_index(i).map_err(|e| e.to_string())?;
         let Some(relative) = entry.enclosed_name() else {
-            return Err(format!("The pack has an unsafe path: {}", entry.name()));
+            return Err(format!("The pack has an unsafe path: {}", entry.name().map(|n| n.into_owned()).unwrap_or_default()));
         };
         let out = dest.join(relative);
         if entry.is_dir() {
