@@ -1012,4 +1012,8 @@ pub static TABLE: &[(&str, &str)] = &[
     ("The selected entry of the list", "清單中選取的項目"),
     ("Reset all baking settings", "重設所有烘焙設定"),
     ("Every baker option, the output and the ticked maps and texture sets go back to their defaults; the model files stay", "所有烘焙器選項、輸出以及勾選的貼圖與貼圖集都恢復預設值；模型檔案保留"),
+    ("Projection preview", "投影預覽"),
+    ("Projection preview channel", "投影預覽通道"),
+    ("Opacity of the Projection tool's pattern over the 3D view (0 hides it)", "投影工具圖樣在 3D 檢視上的不透明度（0 為隱藏）"),
+    ("Which image of the brush material the Projection tool shows over the view", "投影工具在檢視上顯示筆刷材質的哪一張影像"),
 ];

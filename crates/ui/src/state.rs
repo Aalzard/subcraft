@@ -373,6 +373,8 @@ pub struct UiState {
     pub tip_preview: crate::panels::brush_header::PreviewCache,
     /// Overlay texture of the current stencil image (keyed by its bitmap pointer).
     pub stencil_tex: Option<(usize, egui::TextureHandle)>,
+    /// The Projection tool preview's image (by resource) as a repeating texture.
+    pub projection_tex: Option<(subcraft_core::ResourceId, egui::TextureHandle)>,
     /// How the stencil overlay is shown (display only; painting through it is unaffected).
     pub stencil_display: StencilDisplay,
     /// Image textures shown in Shelf → Textures (the library's `textures/` folder).
@@ -561,6 +563,7 @@ impl UiState {
             stamp_preview: Default::default(),
             tip_preview: Default::default(),
             stencil_tex: None,
+            projection_tex: None,
             stencil_display: StencilDisplay::default(),
             textures: Default::default(),
             recovery: crate::recovery::RecoveryUi::disabled(),
@@ -977,11 +980,15 @@ pub struct StencilDisplay {
     pub opacity: f32,
     /// Hide the overlay while a stroke is being painted.
     pub hide_when_painting: bool,
+    /// Projection tool preview: opacity of the pattern over the 3D view (0 = none) and the
+    /// brush material channel it shows (Painter's projection preview channel).
+    pub projection_opacity: f32,
+    pub projection_channel: subcraft_core::ChannelKind,
 }
 
 impl Default for StencilDisplay {
     fn default() -> Self {
-        Self { opacity: 110.0 / 255.0, hide_when_painting: false }
+        Self { opacity: 110.0 / 255.0, hide_when_painting: false, projection_opacity: 0.5, projection_channel: subcraft_core::ChannelKind::BaseColor }
     }
 }
 

@@ -900,6 +900,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         crate::warp_view::overlay(state, ui, &painter, rect, pixel_scale, &camera);
         crate::projection_gizmo::overlay(state, &painter, rect, pixel_scale, &camera);
     }
+    draw_projection_preview(state, ui, &painter, rect);
     draw_stencil(state, ui, &painter, rect, size);
     // Reset button at the top right of the view while S is held.
     if stencil_edit {
@@ -1597,6 +1598,46 @@ pub(crate) fn brush_gestures(state: &mut UiState, response: &egui::Response, mod
     lmb_adjust
 }
 
+/// Texture coordinates of the Projection tool's pattern at the corners of `view` (top-left,
+/// top-right, bottom-right, bottom-left): the stroke's mapping, image UV = rotation · (scale · p)
+/// + offset with p the screen point over the view's shorter side, centred.
+pub fn projection_preview_uvs(view: Rect, projection: &subcraft_doc::Projection) -> [Pos2; 4] {
+    let side = view.width().min(view.height()).max(1.0);
+    let centre = view.center();
+    [view.left_top(), view.right_top(), view.right_bottom(), view.left_bottom()].map(|q| {
+        let p = [0.5 + (q.x - centre.x) / side, 0.5 + (q.y - centre.y) / side];
+        let uv = projection.transform_2d(p);
+        egui::pos2(uv[0], uv[1])
+    })
+}
+
+/// The Projection tool's pattern tiled over the 3D view, as it will be painted (hidden during a
+/// stroke): the preview channel's image, or the first image of the brush material.
+fn draw_projection_preview(state: &mut UiState, ui: &Ui, painter: &egui::Painter, rect: Rect) {
+    let display = state.stencil_display;
+    if state.tool != Tool::Projection || state.painting || display.projection_opacity <= 0.0 {
+        return;
+    }
+    let material = &state.session.brush.material;
+    let Some(&id) = material.textures.get(&display.projection_channel).or_else(|| material.textures.values().next()) else { return };
+    let Some(bitmap) = state.session.resources().bitmap(id).cloned() else { return };
+    if state.projection_tex.as_ref().is_none_or(|(k, _)| *k != id) {
+        let (w, h, rgba) = bitmap.preview_rgba8(512);
+        let img = egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &rgba);
+        let options = egui::TextureOptions { wrap_mode: egui::TextureWrapMode::Repeat, ..egui::TextureOptions::LINEAR };
+        state.projection_tex = Some((id, ui.ctx().load_texture("projection preview", img, options)));
+    }
+    let Some((_, tex)) = &state.projection_tex else { return };
+    let uvs = projection_preview_uvs(rect, &state.session.brush.material.projection);
+    let tint = Color32::from_white_alpha((display.projection_opacity.clamp(0.0, 1.0) * 255.0).round() as u8);
+    let mut mesh = egui::Mesh::with_texture(tex.id());
+    for (pos, uv) in [rect.left_top(), rect.right_top(), rect.right_bottom(), rect.left_bottom()].into_iter().zip(uvs) {
+        mesh.vertices.push(egui::epaint::Vertex { pos, uv, color: tint });
+    }
+    mesh.indices.extend_from_slice(&[0, 1, 2, 0, 2, 3]);
+    painter.with_clip_rect(rect).add(egui::Shape::mesh(mesh));
+}
+
 pub(crate) fn draw_stencil(state: &mut UiState, ui: &Ui, painter: &egui::Painter, rect: Rect, size: [u32; 2]) {
     let Some(st) = state.session.brush.stencil.clone() else {
         state.stencil_tex = None;
@@ -1696,6 +1737,25 @@ mod tests {
         let kept = p.clone();
         projection_scale(&mut p, f32::NAN);
         assert_eq!(p, kept);
+    }
+
+    #[test]
+    fn the_projection_preview_uses_the_strokes_screen_mapping() {
+        let view = Rect::from_min_size(egui::pos2(100.0, 50.0), egui::vec2(800.0, 400.0));
+        let mut p = subcraft_doc::Projection::default();
+        p.scale = [2.0, 3.0];
+        p.rotation_deg = 30.0;
+        p.offset = [0.25, -0.5];
+        let uvs = projection_preview_uvs(view, &p);
+        // The corners in the stroke's screen coordinates: the shorter side (400) spans 0..1,
+        // centred, so the wider side reaches -0.5..1.5.
+        let expected = [[-0.5, 0.0], [1.5, 0.0], [1.5, 1.0], [-0.5, 1.0]].map(|s| p.transform_2d(s));
+        for (uv, e) in uvs.iter().zip(expected) {
+            assert!((uv.x - e[0]).abs() < 1e-4 && (uv.y - e[1]).abs() < 1e-4, "{uv:?} vs {e:?}");
+        }
+        // The plain projection maps the centred square onto one tile.
+        let plain = projection_preview_uvs(Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(300.0, 300.0)), &subcraft_doc::Projection::default());
+        assert_eq!(plain, [egui::pos2(0.0, 0.0), egui::pos2(1.0, 0.0), egui::pos2(1.0, 1.0), egui::pos2(0.0, 1.0)]);
     }
 
     #[test]
