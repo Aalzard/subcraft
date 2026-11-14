@@ -45,15 +45,15 @@ Layout notes: these options are in Display settings > Viewport settings and act 
 | Show mesh wireframe (UV wireframe in the 2D view) | Display settings > Mesh wireframe | off | partial: grid toggle in the 2D tab header (on by default), separate from the 3D wireframe switch | crates/ui/src/panels/uv_view.rs | - |
 | Wireframe color | Display settings > Mesh wireframe | not documented | done: the 2D UV lines use the mesh wireframe colour; right-click the grid toggle to change it | crates/ui/src/panels/uv_view.rs | - |
 | Wireframe opacity | Display settings > Mesh wireframe | not documented | done: shared with the mesh wireframe opacity; right-click the grid toggle | crates/ui/src/panels/uv_view.rs | - |
-| Scale HDR values | Display settings > Channel display | not documented | missing | - | - |
-| Use +/- color for HDR values | Display settings > Channel display | not documented | missing | - | - |
-| Color channels: RGBA | Display settings > Channel display | default on colour channels | missing | - | - |
-| Color channels: Grayscale+Alpha | Display settings > Channel display | default on grayscale channels | missing | - | - |
-| Color channels: R | Display settings > Channel display | - | missing | - | - |
-| Color channels: G | Display settings > Channel display | - | missing | - | - |
-| Color channels: B | Display settings > Channel display | - | missing | - | - |
-| Color channels: Alpha | Display settings > Channel display | - | missing | - | - |
-| Selected color channel name shown in the view | 2D view overlay | - | missing | - | - |
+| Scale HDR values | Display settings > Channel display | not documented | done: shared with the 3D view | crates/render/src/preview.wgsl | - |
+| Use +/- color for HDR values | Display settings > Channel display | not documented | done: grayscale channels and maps | crates/render/src/preview.wgsl | - |
+| Color channels: RGBA | Display settings > Channel display | default on colour channels | done | crates/render/src/preview.wgsl | - |
+| Color channels: Grayscale+Alpha | Display settings > Channel display | default on grayscale channels | done | crates/render/src/preview.wgsl | - |
+| Color channels: R | Display settings > Channel display | - | done | crates/render/src/preview.wgsl | - |
+| Color channels: G | Display settings > Channel display | - | done | crates/render/src/preview.wgsl | - |
+| Color channels: B | Display settings > Channel display | - | done | crates/render/src/preview.wgsl | - |
+| Color channels: Alpha | Display settings > Channel display | - | done | crates/render/src/preview.wgsl | - |
+| Selected color channel name shown in the view | 2D view overlay | - | done: pill at the top left | crates/ui/src/panels/uv_view.rs | - |
 
 ## Navigation
 
@@ -104,7 +104,7 @@ Layout notes: every paint tool works in the 2D view except the Path tools, which
 | Stencil zoom | S + RMB drag | - | done | crates/ui/src/viewport.rs | - |
 | Ignore stencil mask | hold N | - | done | crates/ui/src/viewport.rs | - |
 | Quick mask editing in the 2D view | U / Y / I | - | done: red tint over the protected areas | crates/ui/src/panels/uv_view.rs | - |
-| Brush Size Space "Texture" follows the 2D zoom | Properties > Brush > Size Space | Object | missing | - | - |
+| Brush Size Space "Texture" follows the 2D zoom | Properties > Brush > Size Space | Object | done: Object and Texture sizes are fixed on the texture and follow the zoom; Viewport keeps the brush size on screen in the 2D view | crates/paint/src/stroke.rs | - |
 | Right-click: floating Properties at the cursor | RMB click in the 2D view | - | done | crates/ui/src/panels/uv_view.rs | #131 |
 | Path tools show a "not supported in 2D" message | 2D view with a Path tool | - | partial: the reverse, Pen paths are drawn and edited in the 2D view | crates/ui/src/panels/uv_view.rs:130 | - |
 
