@@ -1975,6 +1975,8 @@ fn spatial_value(
         Filter::Bevel { .. } | Filter::MaskOutline { .. } | Filter::Median { .. } => blurred,
         Filter::BevelShape { .. } | Filter::MaskOutlineShape { .. } | Filter::Fxaa { .. } => blurred,
         Filter::BevelSmooth { .. } | Filter::DirectionalDistance { .. } => blurred,
+        // Pixelwise nodes whose output is the final value (a filter missing here is ignored).
+        Filter::AnisotropicKuwahara { .. } | Filter::Quantize { .. } => blurred,
         Filter::DropShadow { spread, opacity, color, .. } => under(source, blurred, spread, opacity, false, color, kind),
         Filter::OuterGlow { spread, opacity, color, precise, .. } => under(source, blurred, spread, opacity, precise, color, kind),
         Filter::Blur { radius: 0.0 }

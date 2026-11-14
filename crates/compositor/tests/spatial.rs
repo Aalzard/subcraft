@@ -1304,3 +1304,27 @@ fn quantize_uses_one_palette_from_the_whole_texture_in_every_tile() {
     }
     assert_eq!(values.len(), 2, "two colours: {values:?}");
 }
+
+#[test]
+fn anisotropic_kuwahara_reaches_the_composite() {
+    let fx = Fixture::new();
+    let mut ts = TextureSet::new("T", 0, N);
+    let mut l = Layer::new_paint("P", &ts);
+    let LayerContent::Paint(p) = &mut l.content else { unreachable!() };
+    let image = p.channel_mut(C::Roughness, N);
+    for y in 0..N {
+        for x in 0..N {
+            image.set(x, y, [if (x + y) % 2 == 0 { 0.55 } else { 0.45 }, 1.0, 0.0, 0.0]);
+        }
+    }
+    let kuwahara = Filter::AnisotropicKuwahara { radius: 4.0, smoothness: 0.5, sharpness: 8.0, tensor_smoothness: 2.0, anisotropy: 1.0, angle: 0.0, extract_direction: true };
+    add(&mut l, &ts, C::Roughness, kuwahara);
+    ts.insert_above(None, l);
+    // The checker noise is smoothed towards 0.5, also across the tile border at x = 64.
+    let c = composite_full(&ts, &fx.ctx());
+    let img = c.channel(C::Roughness).unwrap();
+    for (x, y) in [(20, 20), (63, 30), (64, 31)] {
+        let v = img.get(x, y)[0];
+        assert!((v - 0.5).abs() < 0.03, "at {x},{y}: {v}");
+    }
+}
