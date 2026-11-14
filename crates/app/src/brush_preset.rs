@@ -261,6 +261,15 @@ impl Session {
     /// `Err` leaves the brush unchanged; `Ok(Some)` applied with a warning (missing tip).
     /// Only the parts the preset's kind holds are changed.
     fn load_brush_preset(&mut self, p: &BrushPreset, tips: &[BrushAlpha]) -> Result<Option<String>, String> {
+        // The settings and stroke options pass the checks of the commands that set them: a
+        // preset file with an infinite radial centre or smoothing past its limit was applied as
+        // it was.
+        let (settings, options) = if p.kind == PresetKind::Material {
+            (self.brush.settings, self.brush.options)
+        } else {
+            let bad = |e: crate::CommandError| format!("Brush preset: {e}; brush unchanged");
+            (crate::session::checked_brush_settings(p.settings).map_err(bad)?, crate::session::checked_stroke_options(p.options).map_err(bad)?)
+        };
         // Decode the stencil before anything changes, so a broken preset leaves the tool as it was.
         let stencil = match (&p.stencil, p.kind.has_brush()) {
             (Some(s), true) => Some(s.stencil().map_err(|e| format!("Preset {e}; brush unchanged"))?),
@@ -289,8 +298,8 @@ impl Session {
             self.brush.material = material;
             return Ok(None);
         }
-        self.brush.settings = p.settings;
-        self.brush.options = p.options;
+        self.brush.settings = settings;
+        self.brush.options = options;
         if p.kind == PresetKind::Brush {
             // The material in use stays; only a stamp brush (which replaces the tip) is dropped.
             self.clear_brush_stamp();
