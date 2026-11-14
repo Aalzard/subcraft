@@ -1219,13 +1219,15 @@ pub(crate) fn levels_editor(ui: &mut Ui, state: &mut UiState, key: subcraft_app:
     let histogram = state.layer_previews.histogram(&state.session, key);
     // R, G, B or the luminance (RGB, and gray inputs).
     let shown = component.unwrap_or(3);
-    if let Some(h) = &histogram {
-        histogram_strip(ui, &h.bins[shown], levels.component(component));
-    }
     let mut r = levels.component(component);
     let before = r;
+    // Painter's handles: low, midtone and high on the input histogram, low and high on the
+    // output ramp, dragged directly.
+    let bins: &[u32] = histogram.as_ref().map_or(&[], |h| &h.bins[shown][..]);
+    histogram_strip(ui, egui::Id::new(("levels_in", key.effect)), bins, &mut r);
+    output_strip(ui, egui::Id::new(("levels_out", key.effect)), &mut r);
     slider_row(ui, tr("In low"), egui::Slider::new(&mut r.in_low, 0.0..=1.0));
-    slider_row(ui, tr("Gamma"), egui::Slider::new(&mut r.gamma, 0.1..=4.0).logarithmic(true));
+    slider_row(ui, tr("Gamma"), egui::Slider::new(&mut r.gamma, subcraft_doc::LEVELS_GAMMA_MIN..=subcraft_doc::LEVELS_GAMMA_MAX).logarithmic(true));
     slider_row(ui, tr("In high"), egui::Slider::new(&mut r.in_high, 0.0..=1.0));
     slider_row(ui, tr("Out low"), egui::Slider::new(&mut r.out_low, 0.0..=1.0));
     slider_row(ui, tr("Out high"), egui::Slider::new(&mut r.out_high, 0.0..=1.0));
@@ -1249,10 +1251,81 @@ pub(crate) fn levels_editor(ui: &mut Ui, state: &mut UiState, key: subcraft_app:
     changed
 }
 
-/// A histogram as bars, with the input handles and the gamma midpoint marked.
-fn histogram_strip(ui: &mut Ui, bins: &[u32], r: subcraft_doc::LevelsRange) {
+/// Height of the handle row under a Levels strip.
+const LEVELS_HANDLE_ROW: f32 = 9.0;
+
+/// Drag the Levels handles of one strip: a press grabs the closest of `handles` (8 px), the
+/// drag moves it. Returns whether `r` changed.
+fn levels_handle_drag(ui: &Ui, id: egui::Id, resp: &egui::Response, strip: egui::Rect, handles: &[subcraft_doc::LevelsHandle], r: &mut subcraft_doc::LevelsRange) -> bool {
+    use subcraft_doc::LevelsHandle;
+    let to_v = |x: f32| ((x - strip.left()) / strip.width().max(1.0)).clamp(0.0, 1.0);
+    let tolerance = 8.0 / strip.width().max(1.0);
+    if resp.hovered() && let Some(p) = resp.hover_pos() && r.grab(handles, to_v(p.x), tolerance).is_some() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+    }
+    if resp.drag_started() {
+        let origin = ui.input(|i| i.pointer.press_origin()).or(resp.interact_pointer_pos());
+        let grabbed = origin.and_then(|p| r.grab(handles, to_v(p.x), tolerance));
+        ui.ctx().data_mut(|d| d.insert_temp(id, grabbed));
+    }
+    let mut changed = false;
+    if resp.dragged()
+        && let Some(Some(h)) = ui.ctx().data(|d| d.get_temp::<Option<LevelsHandle>>(id))
+        && let Some(p) = resp.interact_pointer_pos()
+    {
+        let before = *r;
+        r.drag(h, to_v(p.x));
+        changed = *r != before;
+    }
+    if resp.drag_stopped() {
+        ui.ctx().data_mut(|d| d.remove::<Option<LevelsHandle>>(id));
+    }
+    changed
+}
+
+/// A Levels handle: a small triangle pointing up at `x` from the handle row.
+fn levels_handle_shape(x: f32, row_top: f32, fill: egui::Color32) -> egui::Shape {
+    let h = LEVELS_HANDLE_ROW - 1.0;
+    egui::Shape::convex_polygon(vec![egui::pos2(x, row_top), egui::pos2(x + h * 0.6, row_top + h), egui::pos2(x - h * 0.6, row_top + h)], fill, egui::Stroke::new(1.0, theme::FIELD()))
+}
+
+/// Painter's output ramp: black to white, with the output low / high handles to drag.
+fn output_strip(ui: &mut Ui, id: egui::Id, r: &mut subcraft_doc::LevelsRange) -> bool {
+    use subcraft_doc::LevelsHandle;
     let width = ui.available_width().min(320.0);
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(width, 48.0), egui::Sense::hover());
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(width, 10.0 + LEVELS_HANDLE_ROW), egui::Sense::drag());
+    let strip = egui::Rect::from_min_size(rect.min, egui::vec2(width, 10.0));
+    let changed = levels_handle_drag(ui, id, &resp, strip, &LevelsHandle::OUTPUT, r);
+    let painter = ui.painter_at(rect.expand(4.0));
+    const STEPS: usize = 32;
+    let step = strip.width() / STEPS as f32;
+    for i in 0..STEPS {
+        let g = (i as f32 / (STEPS - 1) as f32 * 255.0).round() as u8;
+        let x = strip.left() + i as f32 * step;
+        painter.rect_filled(egui::Rect::from_min_max(egui::pos2(x, strip.top()), egui::pos2(x + step + 0.5, strip.bottom())), 0.0, egui::Color32::from_gray(g));
+    }
+    for (h, color) in [(LevelsHandle::OutLow, theme::TEXT()), (LevelsHandle::OutHigh, theme::TEXT())] {
+        painter.add(levels_handle_shape(strip.left() + r.handle(h).clamp(0.0, 1.0) * strip.width(), strip.bottom() + 1.0, color));
+    }
+    resp.on_hover_text(tr("Output low and high: drag the handles"));
+    changed
+}
+
+/// A histogram as bars, with the input low / midtone / high handles to drag (Painter): the
+/// midtone sets the gamma and follows the other two.
+fn histogram_strip(ui: &mut Ui, id: egui::Id, bins: &[u32], r: &mut subcraft_doc::LevelsRange) -> bool {
+    use subcraft_doc::LevelsHandle;
+    let width = ui.available_width().min(320.0);
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(width, 48.0 + LEVELS_HANDLE_ROW), egui::Sense::drag());
+    let handle_rect = rect;
+    let rect = egui::Rect::from_min_size(rect.min, egui::vec2(width, 48.0));
+    let changed = levels_handle_drag(ui, id, &resp, rect, &LevelsHandle::INPUT, r);
+    let r = *r;
+    let handles = ui.painter_at(handle_rect.expand(4.0));
+    for (h, color) in [(LevelsHandle::InLow, theme::TEXT()), (LevelsHandle::Midtone, theme::ACCENT()), (LevelsHandle::InHigh, theme::TEXT())] {
+        handles.add(levels_handle_shape(rect.left() + r.handle(h).clamp(0.0, 1.0) * rect.width(), rect.bottom() + 1.0, color));
+    }
+    resp.on_hover_text(tr("Input low, midtone and high: drag the handles"));
     let painter = ui.painter_at(rect);
     painter.rect_filled(rect, 2.0, theme::FIELD());
     // Scale by the second-largest bin so one huge spike (a flat area) does not flatten the rest.
@@ -1272,7 +1345,8 @@ fn histogram_strip(ui: &mut Ui, bins: &[u32], r: subcraft_doc::LevelsRange) {
     mark(r.in_low, theme::TEXT());
     mark(r.in_high, theme::TEXT());
     // The input value that maps to the output midpoint.
-    mark(r.in_low + (r.in_high - r.in_low) * 0.5f32.powf(r.gamma.max(1e-3)), theme::ACCENT());
+    mark(r.midtone(), theme::ACCENT());
+    changed
 }
 
 /// Painter's Compare Mask: channel, the left operand / operation / right operand row, then
@@ -2055,6 +2129,53 @@ mod anchor_name_tests {
         assert!(renamed, "Enter commits the typed name");
         // The text lands where the click put the cursor, so only its presence is checked.
         assert!(name.contains("edges") && name.len() == "Anchor 1 edges".len(), "{name:?}");
+    }
+}
+
+#[cfg(test)]
+mod levels_handle_tests {
+    use super::*;
+    use subcraft_doc::LevelsRange;
+
+    fn frame(ctx: &egui::Context, r: &mut LevelsRange, input: Vec<egui::Event>) -> (bool, Vec<egui::epaint::ClippedShape>, egui::Pos2) {
+        let raw = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 300.0))), events: input, ..Default::default() };
+        let mut changed = false;
+        let mut origin = egui::Pos2::ZERO;
+        let out = ctx.run_ui(raw, |ui| {
+            egui::CentralPanel::default().show_inside(ui, |ui| {
+                ui.set_width(320.0);
+                origin = ui.cursor().min;
+                changed |= histogram_strip(ui, egui::Id::new("t_in"), &[1, 4, 9, 4, 1], r);
+                changed |= output_strip(ui, egui::Id::new("t_out"), r);
+            });
+        });
+        (changed, out.shapes, origin)
+    }
+
+    #[test]
+    fn levels_strips_draw_five_handles_and_dragging_the_midtone_sets_the_gamma() {
+        let ctx = egui::Context::default();
+        crate::theme::apply(&ctx);
+        let mut r = LevelsRange::default();
+        let (changed, shapes, origin) = frame(&ctx, &mut r, Vec::new());
+        assert!(!changed);
+        let triangles = shapes.iter().filter(|s| matches!(&s.shape, egui::Shape::Path(p) if p.points.len() == 3)).count();
+        assert_eq!(triangles, 5, "low / midtone / high on the input, low / high on the output");
+        // Press on the midtone (the middle of the 320 px input strip) and drag left.
+        let mid = origin + egui::vec2(160.0, 20.0);
+        let to = origin + egui::vec2(80.0, 20.0);
+        let press = egui::Event::PointerButton { pos: mid, button: egui::PointerButton::Primary, pressed: true, modifiers: Default::default() };
+        let _ = frame(&ctx, &mut r, vec![egui::Event::PointerMoved(mid), press]);
+        let mut any = false;
+        for i in 1..=6 {
+            let p = mid + (to - mid) * (i as f32 / 6.0);
+            any |= frame(&ctx, &mut r, vec![egui::Event::PointerMoved(p)]).0;
+        }
+        let release = egui::Event::PointerButton { pos: to, button: egui::PointerButton::Primary, pressed: false, modifiers: Default::default() };
+        let _ = frame(&ctx, &mut r, vec![release]);
+        assert!(any, "the drag reports a change");
+        assert!(r.gamma > 1.2, "midtone dragged left: gamma {} > 1 (darker)", r.gamma);
+        assert_eq!((r.in_low, r.in_high), (0.0, 1.0), "only the midtone moved");
     }
 }
 
