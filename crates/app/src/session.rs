@@ -3753,6 +3753,11 @@ impl Session {
         if let Some(r) = self.resources.iter().find(|r| Arc::ptr_eq(&r.bitmap, &bitmap)) {
             return Some(r.id);
         }
+        // A reopened project holds a loaded copy of the same tip: compared by pointer only, each
+        // session added (and saved) another copy of it.
+        if let Some(r) = self.resources.iter().find(|r| r.kind == subcraft_doc::ResourceKind::Alpha && *r.bitmap == *bitmap) {
+            return Some(r.id);
+        }
         Some(self.resources.insert(subcraft_doc::Resource {
             id: subcraft_core::ResourceId::new(),
             name: self.brush.alpha_name.clone(),
