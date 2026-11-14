@@ -1000,4 +1000,8 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Color", "색상"),
     ("Roughness", "거칠기"),
     ("Metallic", "금속성"),
+    ("Color profile", "색상 프로필"),
+    ("White point", "화이트 포인트"),
+    ("Show the material view as linear raw values instead of sRGB, or through the project's colour LUT", "재질 뷰를 sRGB 대신 선형 원시 값으로 표시하거나 프로젝트의 색상 LUT를 거쳐 표시합니다"),
+    ("The brightest value shown: values are divided by it and clamped before the colour LUT. Above 1 for very bright content such as the sun", "표시되는 가장 밝은 값: 값을 이것으로 나누고 범위를 제한한 뒤 색상 LUT를 적용합니다. 태양처럼 매우 밝은 내용에는 1보다 크게 설정하세요"),
 ];
