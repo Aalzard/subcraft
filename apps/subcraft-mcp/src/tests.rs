@@ -282,11 +282,11 @@ fn out_of_range_numbers_are_refused_before_they_reach_the_project() {
     let e = fails(&mut server, "layer_add", json!({ "type": "fill", "name": "F", "texture_set": "Body", "fill": { "roughness": 1e39 } }));
     assert!(e.contains("fill.roughness"), "{e}");
     ok(&mut server, "layer_add", json!({ "type": "fill", "name": "F", "texture_set": "Body" }));
-    let e = fails(&mut server, "fill_set", json!({ "layer": "F", "texture_set": "Body", "projection": { "mode": "planar", "transform3": { "scale": [0.0, 1.0, 1.0] } } }));
-    assert!(e.contains("projection"), "{e}");
+    let e = fails(&mut server, "fill_set", json!({ "layer": "F", "texture_set": "Body", "projection": { "mode": "planar", "transform3": { "offset": [0.0, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 0.0], "scale": [0.0, 1.0, 1.0] } } }));
+    assert!(e.contains("out of range"), "{e}");
     let e = fails(&mut server, "fill_set", json!({ "layer": "F", "texture_set": "Body", "projection": { "mode": "planar", "backface": { "angle_deg": 200.0, "hardness": 1.0 } } }));
-    assert!(e.contains("projection"), "{e}");
-    ok(&mut server, "fill_set", json!({ "layer": "F", "texture_set": "Body", "projection": { "mode": "planar", "transform3": { "scale": [0.5, 1.0, 1.0] } } }));
+    assert!(e.contains("out of range"), "{e}");
+    ok(&mut server, "fill_set", json!({ "layer": "F", "texture_set": "Body", "projection": { "mode": "planar", "transform3": { "offset": [0.0, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 0.0], "scale": [0.5, 1.0, 1.0] } } }));
     // Nothing refused reached the document: it saves and opens again.
     let file = dir.join("numbers.subcraft");
     ok(&mut server, "project_save", json!({ "path": file }));
