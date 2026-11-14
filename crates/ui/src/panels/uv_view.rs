@@ -291,7 +291,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
 
     state.sync_gpu();
     if let (Some(rs), Some(renderer)) = (&state.render_state, &mut state.renderer)
-        && let Some(preview) = renderer.preview_component(&rs.device, &rs.queue, slot, state.uv.source, shown_component(&state.recovery.prefs.viewport))
+        && let Some(preview) = renderer.preview_display(&rs.device, &rs.queue, slot, state.uv.source, &display_2d(&state.recovery.prefs.viewport))
     {
         let view = &preview.display_view;
         let mut r = rs.renderer.write();
@@ -833,6 +833,12 @@ mod navigation_tests {
 
 /// The component the 2D view isolates: Display Settings > Channel component while the 3D view
 /// shows a single channel (the 2D view follows it), otherwise all of them.
+/// Display Settings > Channel display for the 2D view: the HDR scale and sign colors always (the
+/// 2D view always shows one channel), the isolated component while the 3D view shows a channel.
+pub fn display_2d(prefs: &crate::viewport_bar::ViewportPrefs) -> subcraft_render::ChannelDisplay {
+    subcraft_render::ChannelDisplay { component: shown_component(prefs), ..prefs.channel_display() }
+}
+
 pub fn shown_component(prefs: &crate::viewport_bar::ViewportPrefs) -> subcraft_render::ChannelComponent {
     if prefs.shown_channel().is_some() { prefs.channel_component } else { subcraft_render::ChannelComponent::All }
 }
