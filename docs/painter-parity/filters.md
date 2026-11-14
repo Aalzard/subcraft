@@ -994,14 +994,14 @@ Layout notes: Advanced group (11.0). Content.
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Quantize (filter) | Properties > Filter | works on: content | missing: Posterize quantises per component, there is no palette quantiser | - | - |
-| Color Amount | Properties > Filter | not documented | missing | - | - |
-| Contour Smoothing | Properties > Filter | not documented | missing | - | - |
-| Dithering | Properties > Filter | not documented | missing | - | - |
-| Dithering Pattern | Properties > Filter | not documented (dropdown) | missing | - | - |
-| Distance Color Space | Properties > Filter | not documented; options Lab (Color) / RGB (Data) | missing | - | - |
-| Apply To Alpha | Properties > Filter | not documented (toggle) | missing | - | - |
-| Alpha Threshold | Properties > Filter | not documented | missing | - | - |
+| Quantize (filter) | Properties > Filter | works on: content | done: palette from the whole texture (median cut + k-means), content only | Properties > Filter > Quantize | (this PR) |
+| Color Amount | Properties > Filter | not documented | done: 2..64, default 8 | Properties > Filter > Quantize | (this PR) |
+| Contour Smoothing | Properties > Filter | not documented | done: 0..8 px blur before the mapping, default 0 | Properties > Filter > Quantize | (this PR) |
+| Dithering | Properties > Filter | not documented | done: amount 0..1, default 0 (off) | Properties > Filter > Quantize | (this PR) |
+| Dithering Pattern | Properties > Filter | not documented (dropdown) | done: Bayer 4x4 / Bayer 8x8 / Noise (Painter's list is not documented) | Properties > Filter > Quantize | (this PR) |
+| Distance Color Space | Properties > Filter | not documented; options Lab (Color) / RGB (Data) | done: Lab (Color) / RGB (Data); data channels always compare values | Properties > Filter > Quantize | (this PR) |
+| Apply To Alpha | Properties > Filter | not documented (toggle) | done | Properties > Filter > Quantize | (this PR) |
+| Alpha Threshold | Properties > Filter | not documented | done: 0..1, default 0.5 | Properties > Filter > Quantize | (this PR) |
 
 ## Stylization
 

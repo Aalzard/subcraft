@@ -90,6 +90,7 @@ fn random_filter(r: &mut Rng) -> Filter {
         Filter::DirectionalWarp { .. } => Filter::DirectionalWarp { intensity: r.unit() * 6.0, angle_deg: r.unit() * 360.0 - 180.0 },
         Filter::Clamp { .. } => Filter::Clamp { low: r.unit() * 0.5, high: 0.5 + r.unit() * 0.5 },
         Filter::HistogramShift { .. } => Filter::HistogramShift { shift: r.unit() - 0.5 },
+        Filter::Quantize { .. } => Filter::Quantize { colors: 2 + r.below(10) as u32, contour_smoothing: r.unit() * 2.0, dithering: r.unit(), pattern: subcraft_doc::DitherPattern::ALL[r.below(3)], lab: r.chance(0.5), apply_to_alpha: r.chance(0.3), alpha_threshold: r.unit() },
         Filter::AnisotropicKuwahara { .. } => Filter::AnisotropicKuwahara { radius: r.unit() * 3.0, smoothness: r.unit(), sharpness: r.unit() * 12.0, tensor_smoothness: r.unit() * 2.0, anisotropy: r.unit() * 2.0, angle: r.unit(), extract_direction: r.chance(0.5) },
         other => other,
     }
