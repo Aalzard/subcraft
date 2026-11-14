@@ -11,7 +11,7 @@ Layout notes: Painter's viewport is one central area with four parts stacked top
 |---|---|---|---|---|---|
 | Contextual toolbar strip above the views | Viewport, top | always shown | partial: strip exists above the 3D view only, own control set (see toolbar.md) | crates/ui/src/viewport_bar.rs:185 | - |
 | 3D view | Viewport, left | shown | done | crates/ui/src/viewport.rs:57 | - |
-| 2D view | Viewport, right | shown | done: the default layout (new installs, Reset UI) is 3D | 2D, 3D about 62% and 2D 38%; the divider drags and its ratio is saved; a layout already saved is kept | crates/ui/src/app.rs (default_layout, VIEW_SPLIT_3D) | - |
+| 2D view | Viewport, right | shown | done: the default layout (new installs, Reset UI) is 3D \| 2D, 3D about 62% and 2D 38%; the divider drags and its ratio is saved; a layout already saved is kept | crates/ui/src/app.rs (default_layout, VIEW_SPLIT_3D) | - |
 | Splitter between 3D and 2D views | Viewport, between views | 50/50 (unverified) | partial: only after View > Side-by-side 3D / 2D | crates/ui/src/app.rs:232 | - |
 | Progress bar for engine computations | Viewport, bottom edge | hidden when idle | done: a thin moving bar along the top of the 3D view while layers are computed | crates/ui/src/viewport.rs (computing_bar) | 249 |
 | Colour-profile name text | 3D view, top left | shown when a profile is loaded | missing | - | - |
