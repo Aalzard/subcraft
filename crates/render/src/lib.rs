@@ -22,6 +22,7 @@ pub mod pathtrace;
 pub mod post;
 pub mod shadow;
 pub mod taa;
+pub mod color_profile;
 pub mod oit;
 pub mod ray_bake;
 pub mod preview;
@@ -156,6 +157,9 @@ pub struct ViewParams {
     /// Temporal anti-aliasing: this frame's number (from 1) in the running average of jittered
     /// frames; 1 starts a new average, 0 is off (see [`taa`]).
     pub taa_frame: u32,
+    /// Painter's colour profile (material view): the shading shown raw, or through the LUT set
+    /// with [`ViewportRenderer::set_color_lut`]. The white point is the caller's exposure.
+    pub color_profile: bool,
     /// Order-independent transparency for alpha-blended texture sets (off: blended in mesh
     /// order, as before).
     pub oit: bool,
@@ -280,6 +284,7 @@ impl ViewParams {
             background_top: None,
             antialias: true,
             taa_frame: 0,
+            color_profile: false,
             oit: false,
             view_mode: ViewMode::Material,
             grid: None,
@@ -372,6 +377,7 @@ pub struct ViewportRenderer {
     preview_target: Option<PreviewTarget>,
     post: post::PostPass,
     taa: taa::Taa,
+    color_profile: color_profile::ColorProfile,
     oit: oit::Oit,
     /// Rendering mode (created on first use), its single-sample target, and why it is unavailable.
     path_tracer: Option<pathtrace::PathTracer>,
@@ -638,6 +644,7 @@ impl ViewportRenderer {
         Self {
             post,
             taa: taa::Taa::new(device),
+            color_profile: color_profile::ColorProfile::new(device),
             oit,
             pipeline_blend,
             opaque_params,
@@ -851,6 +858,12 @@ impl ViewportRenderer {
     /// [`Self::preview`] showing one component alone as gray (the 2D view follows Display
     /// Settings > Channel component).
     pub fn preview_component(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, material_slot: u32, source: PreviewSource, component: ChannelComponent) -> Option<&PreviewTarget> {
+        self.preview_display(device, queue, material_slot, source, &ChannelDisplay { component, ..Default::default() })
+    }
+
+    /// [`Self::preview`] through Display Settings > Channel display: one component alone, the HDR
+    /// scale and the two sign colors of grayscale values, as the 3D view shows a channel alone.
+    pub fn preview_display(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, material_slot: u32, source: PreviewSource, display: &ChannelDisplay) -> Option<&PreviewTarget> {
         let mat = self.materials.get(&material_slot)?;
         let (tex, is_color) = match source {
             PreviewSource::Channel(k) => (mat.channels.get(&k)?, k.is_color()),
@@ -860,7 +873,7 @@ impl ViewportRenderer {
             self.preview_target = Some(PreviewPass::target(device, tex.size));
         }
         let dst = self.preview_target.as_ref().expect("created above");
-        self.preview.run(device, queue, &tex.view, is_color, tex.comps == 1, component, dst);
+        self.preview.run(device, queue, &tex.view, is_color, tex.comps == 1, display, dst);
         Some(dst)
     }
 
@@ -1247,9 +1260,24 @@ impl ViewportRenderer {
         if params.taa_frame > 0 {
             self.taa.encode(device, queue, &mut encoder, target, params.taa_frame);
         }
+        // Colour profile, on the material view only (channel and bake views stay as stored).
+        if params.color_profile && bake_map.is_none() && solo.is_none() && !params.bake_overlay && params.view_mode.shader_mode() == 0 {
+            self.color_profile.encode(device, queue, &mut encoder, target);
+        }
         target.encode_display(&mut encoder);
         queue.submit([encoder.finish()]);
         target
+    }
+
+    /// Load the colour profile's 3D LUT (`width x height` RGBA float entries in OpenColorIO's
+    /// `ociolutimage` layout, see [`color_profile`]) or clear it with `None`.
+    pub fn set_color_lut(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, lut: Option<(&[[f32; 4]], u32, u32)>) -> Result<(), String> {
+        self.color_profile.set_lut(device, queue, lut)
+    }
+
+    /// Cube size of the loaded colour LUT, if any.
+    pub fn color_lut_size(&self) -> Option<u32> {
+        self.color_profile.lut_size()
     }
 
     pub fn target(&self) -> Option<&RenderTarget> {

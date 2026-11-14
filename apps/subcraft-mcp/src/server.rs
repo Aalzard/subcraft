@@ -56,14 +56,26 @@ impl Server {
         if let Err(e) = check_argument_names(name, &map) {
             return error_result(&e);
         }
+        if let Err(e) = check_numbers(&map) {
+            return error_result(&e);
+        }
         let started = std::time::Instant::now();
+        // Tools that move through or replace the history keep its steps as they are.
+        let group = !matches!(name, "undo" | "redo" | "project_new" | "project_open");
+        let pushes = self.session.as_ref().map(|s| s.history().pushes());
         let outcome = std::panic::catch_unwind(AssertUnwindSafe(|| crate::tools::dispatch(self, name, &Args(&map))));
-        // Each tool call is its own undo step (slider-like edits otherwise merge).
+        // Each tool call is one undo step: slider-like edits otherwise merge, and a call that
+        // made several edits (a channel added for a fill, a renamed and resized texture set)
+        // used to need as many undos.
         if let Some(s) = self.session.as_mut() {
             if s.is_stroking() {
                 s.cancel_stroke();
             }
             let _ = s.execute(Command::Seal);
+            if group && let Some(before) = pushes {
+                let n = s.history().pushes().saturating_sub(before);
+                s.squash_history(usize::try_from(n).unwrap_or(usize::MAX));
+            }
         }
         eprintln!("[subcraft-mcp] {name} took {:.2}s", started.elapsed().as_secs_f32());
         match outcome {
@@ -151,6 +163,23 @@ impl Server {
 
 fn error_result(msg: &str) -> Value {
     json!({ "content": [{ "type": "text", "text": msg }], "isError": true })
+}
+
+/// Reject numbers that do not fit the 32-bit floats the document stores. `1e39` became infinity,
+/// which the project file writes as `null`: the project saved, then never opened again.
+pub fn check_numbers(args: &serde_json::Map<String, Value>) -> Result<(), String> {
+    fn walk(v: &Value, path: &str) -> Result<(), String> {
+        match v {
+            Value::Number(n) => match n.as_f64() {
+                Some(f) if f.is_finite() && f.abs() <= f32::MAX as f64 => Ok(()),
+                _ => Err(format!("`{path}` is {n}: numbers must be within ±3.4e38")),
+            },
+            Value::Array(items) => items.iter().enumerate().try_for_each(|(i, item)| walk(item, &format!("{path}[{i}]"))),
+            Value::Object(map) => map.iter().try_for_each(|(k, item)| walk(item, &if path.is_empty() { k.clone() } else { format!("{path}.{k}") })),
+            _ => Ok(()),
+        }
+    }
+    args.iter().try_for_each(|(k, v)| walk(v, k))
 }
 
 /// Reject argument names the tool's input schema does not declare, so a misspelt or invented

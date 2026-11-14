@@ -79,10 +79,10 @@ Layout notes: a "Common settings" entry at the top (with its own sync button), t
 | Apply checked to all Texture sets | Mesh map bakers dropdown | not documented | missing | - | - |
 | Sync all settings to more Texture sets... | Mesh map bakers dropdown | not documented | missing | - | - |
 | Sync all settings to all Texture Sets | Mesh map bakers dropdown | not documented | missing | - | - |
-| Reset parameters to default values | Mesh map bakers dropdown / settings | not documented | missing | - | - |
+| Reset parameters to default values | Mesh map bakers dropdown / settings | not documented | done: the selected baker, or the common settings | crates/ui/src/dialogs.rs (reset_parameters) | - |
 | Reset cage painting parameters | Mesh map bakers dropdown | (unverified) | missing | - | - |
 | Reset cage painting strokes | Mesh map bakers dropdown | (unverified) | missing | - | - |
-| Reset all baking settings | Mesh map bakers dropdown | (unverified) | missing | - | - |
+| Reset all baking settings | Mesh map bakers dropdown | (unverified) | done: the model files stay | crates/ui/src/dialogs.rs (reset_all) | - |
 | Apply (mesh map) settings to more Texture sets... | Right-click on a baker row | not documented | missing | - | - |
 | Breadcrumbs in Mesh map settings | Mesh map settings panel | not documented | partial: "Mesh map settings > map" title, not clickable | crates/ui/src/dialogs.rs (map_settings_panel) | - |
 
