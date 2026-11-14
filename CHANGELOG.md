@@ -5,6 +5,23 @@ What changed in SubCraft, newest first. Download the latest build from the
 
 ## Unreleased
 
+## 0.4.1 - 2026-11-14
+
+### Highlights
+- **SubCraft Materials pack**: one-click download from the Assets panel, and pack materials can be dragged onto the model and into the layer stack (#494, #495, #496, #497).
+- **Polygon Fill**: Polygon loop and Partial polygon loop selection modes (#500), the active texture set's wireframe while the tool is active (#501), box Hit-test and Shift+A for a temporary loop (#502), and a Blending mode and opacity (#510).
+- **Shelf Generators**: a Generators type listing every generator; drag one into a mask or onto the model (#507, #511).
+- **New filters**: Anisotropic Kuwahara (#498) and Quantize (#499).
+- **Levels**: draggable input, midtone and output handles on the histogram (#505).
+- **Baking**: Thickness baker Min occluder distance, Spread angle and Distribution (#489); Position baker None normalization and Normalization scale (#504).
+
+### Also added
+- Images dragged from the OS onto the layer stack become layers (#503).
+- Shelf items can be dropped between effect rows in a mask or effect stack (#456).
+- Settings > General: "Only display the selected material when painting" (#506).
+- The View dropdown has a Mask entry for the selected layer's mask (#508).
+- Ctrl+6 selects the Clone tool with an absolute source (#509).
+
 ## 0.4.0 - 2026-11-14
 
 ### Highlights
