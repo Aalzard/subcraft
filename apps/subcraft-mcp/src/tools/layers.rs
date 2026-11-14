@@ -715,6 +715,7 @@ pub fn mask_add_effect(server: &mut Server, args: &Args) -> Res<Reply> {
     let (ts, id) = server::layer_arg(session, args, "layer")?;
     let spec = args.get("effect").ok_or("missing required argument `effect`")?;
     let kind = mask_kind(session, spec)?;
+    check_tweak_args(args)?;
     let created_mask = server::layer_ref(session, ts, id)?.mask.is_none();
     if created_mask {
         exec(session, Command::AddMask { layer: id, white: false })?;
@@ -755,9 +756,20 @@ pub fn content_add_effect(server: &mut Server, args: &Args) -> Res<Reply> {
         "paint" => ContentEffectKind::Paint { channels: BTreeMap::new() },
         other => return Err(format!("unknown content effect type `{other}`: filter, levels, fill, paint")),
     };
+    check_tweak_args(args)?;
     let eid = added_effect(session, ts, id, Stack::Content, Command::AddContentEffect { layer: id, kind })?;
     tweak_effect(session, ts, id, eid, Stack::Content, args, None)?;
     Ok(Reply::json(json!({ "effect_id": eid.to_string(), "layer": summary(session, ts, id)? })))
+}
+
+/// Read name / visible / opacity / blend before anything is added: a bad `blend` used to fail
+/// after the effect (and a new mask) had already been added, leaving them behind the error.
+fn check_tweak_args(args: &Args) -> Res<()> {
+    args.str("name")?;
+    args.bool("visible")?;
+    args.f32("opacity")?;
+    args.str("blend")?.map(blend_mode).transpose()?;
+    Ok(())
 }
 
 /// Apply name / visible / opacity / blend (and `params` when given) to an effect.

@@ -301,3 +301,18 @@ fn a_view_space_pen_path_takes_its_image_size_apart_from_its_line_width() {
     let width = path["path"]["width"].as_f64().unwrap();
     assert!((width - 0.01).abs() < 1e-6, "the line width asked for: {path}");
 }
+
+/// QA 2026-11: mask_add_effect / content_add_effect with a bad `blend` failed only after adding
+/// the effect (and a black mask), so the error left them in the project.
+#[test]
+fn a_bad_effect_blend_adds_nothing() {
+    let mut server = Server::new();
+    sample(&mut server);
+    ok(&mut server, "layer_add", json!({ "type": "fill", "name": "F", "texture_set": "Body" }));
+    let steps = ok(&mut server, "history", json!({}))["entries"].as_array().unwrap().len();
+    let e = fails(&mut server, "mask_add_effect", json!({ "layer": "F", "texture_set": "Body", "effect": { "type": "levels" }, "blend": "no-such-blend" }));
+    assert!(e.contains("blend mode"), "{e}");
+    let e = fails(&mut server, "content_add_effect", json!({ "layer": "F", "texture_set": "Body", "effect": { "type": "levels" }, "blend": "no-such-blend" }));
+    assert!(e.contains("blend mode"), "{e}");
+    assert_eq!(ok(&mut server, "history", json!({}))["entries"].as_array().unwrap().len(), steps, "nothing was added");
+}
