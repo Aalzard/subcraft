@@ -301,3 +301,22 @@ fn a_view_space_pen_path_takes_its_image_size_apart_from_its_line_width() {
     let width = path["path"]["width"].as_f64().unwrap();
     assert!((width - 0.01).abs() < 1e-6, "the line width asked for: {path}");
 }
+
+/// QA 2026-11: a line that was not UTF-8 ended the server, and a message that was not an object
+/// or an empty batch got no reply, so the client waited forever.
+#[test]
+fn every_malformed_line_gets_an_error_reply() {
+    let mut server = Server::new();
+    let code = |reply: Option<Value>| reply.expect("a reply")["error"]["code"].as_i64();
+    assert_eq!(code(crate::reply_to_line(&mut server, b"{\"id\":1,\"method\":\"ping\"\xff}\n")), Some(-32700));
+    assert_eq!(code(crate::reply_to_line(&mut server, b"[]\n")), Some(-32600));
+    assert_eq!(code(crate::reply_to_line(&mut server, b"5\n")), Some(-32600));
+    let batch = crate::reply_to_line(&mut server, b"[\"x\", {\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"ping\"}]").expect("a reply");
+    assert_eq!(batch[0]["error"]["code"], json!(-32600), "{batch}");
+    assert_eq!(batch[1]["id"], json!(2), "{batch}");
+    assert!(crate::reply_to_line(&mut server, b"  \r\n").is_none(), "blank lines need no reply");
+    assert!(crate::reply_to_line(&mut server, b"{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}").is_none());
+    // The server still answers after all of that.
+    let pong = crate::reply_to_line(&mut server, b"{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"ping\"}").expect("a reply");
+    assert_eq!(pong["result"], json!({}), "{pong}");
+}

@@ -64,25 +64,49 @@ pub mod progress {
 
 fn main() {
     let mut server = server::Server::new();
-    let stdin = std::io::stdin();
-    for line in stdin.lock().lines() {
-        let Ok(line) = line else { break };
-        let line = line.trim();
-        if line.is_empty() {
-            continue;
+    let mut stdin = std::io::stdin().lock();
+    let mut line = Vec::new();
+    loop {
+        line.clear();
+        match stdin.read_until(b'\n', &mut line) {
+            Ok(0) | Err(_) => break,
+            Ok(_) => {}
         }
-        let reply = match serde_json::from_str::<Value>(line) {
-            Ok(Value::Array(batch)) => {
-                let out: Vec<Value> = batch.into_iter().filter_map(|m| handle(&mut server, m)).collect();
-                (!out.is_empty()).then_some(Value::Array(out))
-            }
-            Ok(msg) => handle(&mut server, msg),
-            Err(e) => Some(error_reply(Value::Null, -32700, &format!("parse error: {e}"))),
-        };
-        if let Some(reply) = reply
+        if let Some(reply) = reply_to_line(&mut server, &line)
             && !send(&reply) {
                 break;
             }
+    }
+}
+
+/// The reply to one line of stdin, `None` when it needs none. A line that is not UTF-8 used to
+/// end the server (the line reader stops on it); a message that is not an object, and an empty
+/// batch, got no reply at all, leaving the client waiting.
+fn reply_to_line(server: &mut server::Server, line: &[u8]) -> Option<Value> {
+    let line = match std::str::from_utf8(line) {
+        Ok(l) => l.trim(),
+        Err(e) => return Some(error_reply(Value::Null, -32700, &format!("parse error: the line is not UTF-8 ({e})"))),
+    };
+    if line.is_empty() {
+        return None;
+    }
+    match serde_json::from_str::<Value>(line) {
+        Ok(Value::Array(batch)) if batch.is_empty() => Some(error_reply(Value::Null, -32600, "invalid request: empty batch")),
+        Ok(Value::Array(batch)) => {
+            let out: Vec<Value> = batch.into_iter().filter_map(|m| handle_any(server, m)).collect();
+            (!out.is_empty()).then_some(Value::Array(out))
+        }
+        Ok(msg) => handle_any(server, msg),
+        Err(e) => Some(error_reply(Value::Null, -32700, &format!("parse error: {e}"))),
+    }
+}
+
+/// [`handle`], answering a message that is not a JSON object with an Invalid Request error.
+fn handle_any(server: &mut server::Server, msg: Value) -> Option<Value> {
+    if msg.is_object() {
+        handle(server, msg)
+    } else {
+        Some(error_reply(Value::Null, -32600, "invalid request: a message must be a JSON object"))
     }
 }
 
