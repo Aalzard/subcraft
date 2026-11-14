@@ -12,7 +12,7 @@ Layout notes: the 2D view sits to the right of the 3D view inside the viewport a
 | UV islands of the selected Texture Set with the layer stack result | 2D view | shown | done | crates/ui/src/panels/uv_view.rs:101 | - |
 | View follows the Texture Set selection | 2D view | - | done | crates/ui/src/panels/uv_view.rs:29 | - |
 | Display mode dropdown | 2D view, top right | Material | partial: "Show" combo at the top left of the tab | crates/ui/src/panels/uv_view.rs:43 | - |
-| Material (lit) display in UV space | Display mode dropdown | default | missing | - | - |
+| Material (lit) display in UV space | Display mode dropdown | default | done: "Material" in the 2D view's Show dropdown (and with M in the 3D view): the composite shaded flat under a studio light, on the CPU, up to 1024 texels a side; not the default yet | crates/ui/src/panels/uv_view.rs | (this PR) |
 | Single channel display, one entry per Texture Set channel | Display mode dropdown | - | done | crates/ui/src/panels/uv_view.rs:31 | - |
 | Mesh map display | Display mode dropdown | - | done | crates/ui/src/panels/uv_view.rs:33 | - |
 | Axis information (U and V directions) | 2D view, bottom right | shown | done | crates/ui/src/panels/uv_view.rs | - |

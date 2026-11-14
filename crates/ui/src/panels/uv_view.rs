@@ -131,6 +131,68 @@ pub fn source_for(mesh_map: Option<MeshMapKind>, channel: Option<ChannelKind>) -
     }
 }
 
+/// The lit material image's longest side in texels (larger texture sets are sampled).
+const MATERIAL_SIDE: u32 = 1024;
+
+/// The texture set's lit material in UV space (Painter's 2D view "Material" display): each
+/// texel of the composite shaded flat with [`subcraft_materials::uv_material::shade`], encoded
+/// sRGB for display. Missing channels take neutral values.
+pub fn material_image(composite: &subcraft_compositor::Composite) -> egui::ColorImage {
+    use subcraft_materials::uv_material::{UvTexel, shade};
+    let res = composite.resolution.max(1);
+    let step = res.div_ceil(MATERIAL_SIDE).max(1);
+    let side = res.div_ceil(step);
+    let ch = |k: ChannelKind| composite.channel(k).filter(|i| i.width() == res && i.height() == res);
+    let (base, normal, rough, metal, ao) =
+        (ch(ChannelKind::BaseColor), ch(ChannelKind::Normal), ch(ChannelKind::Roughness), ch(ChannelKind::Metallic), ch(ChannelKind::AmbientOcclusion));
+    let d = UvTexel::default();
+    let mut rgba = Vec::with_capacity((side * side * 4) as usize);
+    for y in 0..side {
+        for x in 0..side {
+            let (px, py) = ((x * step).min(res - 1), (y * step).min(res - 1));
+            let get = |img: Option<&subcraft_image::TiledImage>| img.map(|i| i.get(px, py));
+            let t = UvTexel {
+                base: get(base).map_or(d.base, |v| [v[0], v[1], v[2]]),
+                normal: get(normal).map_or(d.normal, |v| [v[0], v[1], v[2]]),
+                roughness: get(rough).map_or(d.roughness, |v| v[0]),
+                metallic: get(metal).map_or(d.metallic, |v| v[0]),
+                ao: get(ao).map_or(d.ao, |v| v[0]),
+            };
+            let c = subcraft_core::color::linear3_to_srgb(shade(t).map(|v| if v.is_finite() { v.clamp(0.0, 1.0) } else { 0.0 }));
+            rgba.extend(c.map(|v| (v * 255.0).round() as u8));
+            rgba.push(255);
+        }
+    }
+    egui::ColorImage::from_rgba_unmultiplied([side as usize, side as usize], &rgba)
+}
+
+/// The lit material texture for the 2D view, rebuilt when the document or the composite
+/// changed (at most every quarter second while edits stream in).
+fn material_texture(state: &mut UiState, ctx: &egui::Context, ts: subcraft_core::TextureSetId, now: f64) -> Option<egui::TextureId> {
+    let key = (ts, state.session.revision(), state.session.composite_generation());
+    let stale = state.gpu_changed || state.uv.material_image.as_ref().is_none_or(|m| m.key != key);
+    let due = state.uv.material_image.as_ref().is_none_or(|m| m.key.0 != ts || now - m.built >= 0.25);
+    if stale && due {
+        if let Some(c) = state.session.composite(ts) {
+            let image = material_image(c);
+            match &mut state.uv.material_image {
+                Some(m) => {
+                    m.texture.set(image, egui::TextureOptions::LINEAR);
+                    m.key = key;
+                    m.built = now;
+                }
+                None => {
+                    let texture = ctx.load_texture("uv_material", image, egui::TextureOptions::LINEAR);
+                    state.uv.material_image = Some(crate::state::UvMaterialImage { key, built: now, texture });
+                }
+            }
+        }
+    } else if stale {
+        ctx.request_repaint_after(std::time::Duration::from_millis(250));
+    }
+    state.uv.material_image.as_ref().filter(|m| m.key.0 == ts).map(|m| m.texture.id())
+}
+
 /// Axis information in the bottom-right corner: the U and V directions of the texture as drawn
 /// (U to the right, V downwards).
 fn axis_information(painter: &egui::Painter, rect: Rect) {
@@ -163,12 +225,21 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         ui.set_min_width(ui.available_width());
         ui.horizontal(|ui| {
             ui.label(RichText::new("Show").color(crate::theme::TEXT_DIM()));
-            egui::ComboBox::from_id_salt("uv_source").selected_text(label(state.uv.source)).width(200.0).show_ui(ui, |ui| {
+            let shown = if state.uv.material { "Material".to_string() } else { label(state.uv.source) };
+            egui::ComboBox::from_id_salt("uv_source").selected_text(shown).width(200.0).show_ui(ui, |ui| {
+                // Painter's lit material, drawn flat in UV space.
+                if ui.selectable_label(state.uv.material, "Material").on_hover_text("The material lit by a studio light, flat in UV space").clicked() {
+                    state.uv.material = true;
+                }
                 for s in &sources {
-                    ui.selectable_value(&mut state.uv.source, *s, label(*s));
+                    if ui.selectable_label(!state.uv.material && state.uv.source == *s, label(*s)).clicked() {
+                        state.uv.source = *s;
+                        state.uv.material = false;
+                    }
                 }
             });
-            if let PreviewSource::Channel(kind) = state.uv.source
+            if !state.uv.material
+                && let PreviewSource::Channel(kind) = state.uv.source
                 && crate::widgets::icon_button(ui, crate::icons::CROSSHAIR, "Paint only this channel (Shift+click a channel switch to undo)").clicked()
             {
                 let mut material = state.session.brush.material.clone();
@@ -290,7 +361,12 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     painter.rect_filled(rect, 0.0, crate::theme::BG_0());
 
     state.sync_gpu();
-    if let (Some(rs), Some(renderer)) = (&state.render_state, &mut state.renderer)
+    if state.uv.material {
+        let now = ui.input(|i| i.time);
+        if let Some(id) = material_texture(state, ui.ctx(), ts_id, now) {
+            draw_texture(&painter, frame, id, Color32::WHITE);
+        }
+    } else if let (Some(rs), Some(renderer)) = (&state.render_state, &mut state.renderer)
         && let Some(preview) = renderer.preview_display(&rs.device, &rs.queue, slot, state.uv.source, &display_2d(&state.recovery.prefs.viewport))
     {
         let view = &preview.display_view;
@@ -821,6 +897,28 @@ mod navigation_tests {
         let (z, o) = zoom_about(20.0, egui::vec2(10.0, 10.0), egui::vec2(200.0, 50.0), 4.0);
         assert_eq!((z, o), (20.0, egui::vec2(10.0, 10.0)), "at the limit nothing moves");
         assert_eq!(zoom_about(0.25, egui::Vec2::ZERO, egui::Vec2::ZERO, 0.1).0, 0.2);
+    }
+
+    #[test]
+    fn the_material_image_shades_the_composite() {
+        use subcraft_image::TiledImage;
+        let composite = |res: u32, base: [f32; 4]| {
+            let mut channels = std::collections::BTreeMap::new();
+            channels.insert(ChannelKind::BaseColor, TiledImage::new(res, res, 4, base));
+            channels.insert(ChannelKind::Roughness, TiledImage::new(res, res, 2, [1.0, 1.0, 0.0, 0.0]));
+            subcraft_compositor::Composite { resolution: res, channels }
+        };
+        // A flat red rough dielectric: lit red everywhere (no normal map: flat).
+        let image = material_image(&composite(128, [0.8, 0.05, 0.05, 1.0]));
+        assert_eq!(image.size, [128, 128], "small sets keep their resolution");
+        let first = image.pixels[0];
+        assert!(image.pixels.iter().all(|p| *p == first));
+        assert!(first.r() > 150 && first.g() < 90 && first.g() == first.b(), "{first:?}");
+        // Brighter base, brighter result; large sets are sampled down to 1024.
+        let grey = material_image(&composite(2048, [0.2; 4]));
+        let white = material_image(&composite(16, [1.0; 4]));
+        assert_eq!(grey.size, [1024, 1024]);
+        assert!(white.pixels[0].r() > grey.pixels[0].r());
     }
 
     #[test]

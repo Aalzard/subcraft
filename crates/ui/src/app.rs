@@ -1398,6 +1398,8 @@ impl SubcraftApp {
     fn sync_uv_source(&mut self) {
         let prefs = &self.state.recovery.prefs.viewport;
         self.state.uv.source = crate::panels::uv_view::source_for(prefs.mesh_map, prefs.shown_channel());
+        // The lit material (M) shows as the 2D view's Material display.
+        self.state.uv.material = prefs.mesh_map.is_none() && prefs.shown_channel().is_none();
     }
 
     fn perform(&mut self, action: Action, now: f64) {
