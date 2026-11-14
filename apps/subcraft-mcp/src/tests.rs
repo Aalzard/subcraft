@@ -163,6 +163,23 @@ fn fill_layer_reaches_the_exported_base_color() {
     }
 }
 
+/// QA 2026-11: texture_set_update renamed the set (and made any earlier change) before finding
+/// that a later argument was bad, so the error left half the update applied.
+#[test]
+fn a_bad_texture_set_update_changes_nothing() {
+    let mut server = Server::new();
+    sample(&mut server);
+    let steps = |server: &mut Server| ok(server, "history", json!({}))["entries"].as_array().unwrap().len();
+    let before = steps(&mut server);
+    fails(&mut server, "texture_set_update", json!({ "texture_set": "Body", "name": "Renamed", "resolution": 300 }));
+    fails(&mut server, "texture_set_update", json!({ "texture_set": "Body", "name": "Renamed", "add_channels": ["emissive", "no-such-channel"] }));
+    fails(&mut server, "texture_set_update", json!({ "texture_set": "Body", "name": "Renamed", "remove_channels": ["emissive"] }));
+    assert_eq!(steps(&mut server), before, "nothing was changed");
+    assert!(!ok(&mut server, "project_info", json!({})).to_string().contains("Renamed"));
+    ok(&mut server, "texture_set_update", json!({ "texture_set": "Body", "name": "Renamed", "add_channels": ["emissive"] }));
+    assert!(ok(&mut server, "project_info", json!({})).to_string().contains("Renamed"));
+}
+
 #[test]
 fn layers_masks_painting_undo_and_save_round_trip() {
     let dir = TempDir::new("session");
@@ -324,21 +341,23 @@ fn a_view_space_pen_path_takes_its_image_size_apart_from_its_line_width() {
     assert!((width - 0.01).abs() < 1e-6, "the line width asked for: {path}");
 }
 
-/// QA 2026-11: texture_set_update renamed the set (and made any earlier change) before finding
-/// that a later argument was bad, so the error left half the update applied.
+/// QA 2026-11: export padding -3 or 2.5 became 8 texels silently, and part ids or padding beyond
+/// u32 wrapped round (2^32 + 1 selected part 1).
 #[test]
-fn a_bad_texture_set_update_changes_nothing() {
+fn padding_and_part_ids_outside_their_range_are_refused() {
+    let dir = TempDir::new("padding");
     let mut server = Server::new();
     sample(&mut server);
-    let steps = |server: &mut Server| ok(server, "history", json!({}))["entries"].as_array().unwrap().len();
-    let before = steps(&mut server);
-    fails(&mut server, "texture_set_update", json!({ "texture_set": "Body", "name": "Renamed", "resolution": 300 }));
-    fails(&mut server, "texture_set_update", json!({ "texture_set": "Body", "name": "Renamed", "add_channels": ["emissive", "no-such-channel"] }));
-    fails(&mut server, "texture_set_update", json!({ "texture_set": "Body", "name": "Renamed", "remove_channels": ["emissive"] }));
-    assert_eq!(steps(&mut server), before, "nothing was changed");
-    assert!(!ok(&mut server, "project_info", json!({})).to_string().contains("Renamed"));
-    ok(&mut server, "texture_set_update", json!({ "texture_set": "Body", "name": "Renamed", "add_channels": ["emissive"] }));
-    assert!(ok(&mut server, "project_info", json!({})).to_string().contains("Renamed"));
+    for bad in [json!(-3), json!(2.5), json!(4294967304u64)] {
+        let e = fails(&mut server, "export_textures", json!({ "dir": dir.join("out"), "padding": bad }));
+        assert!(e.contains("padding"), "{e}");
+    }
+    assert!(!std::path::Path::new(&dir.join("out")).exists(), "nothing was exported");
+    ok(&mut server, "layer_add", json!({ "type": "paint", "name": "P", "texture_set": "Body" }));
+    for bad in [json!(4294967297u64), json!(-1), json!(1.5)] {
+        let e = fails(&mut server, "layer_set_parts", json!({ "layer": "P", "texture_set": "Body", "parts": [bad] }));
+        assert!(e.contains("part ids"), "{e}");
+    }
 }
 
 /// QA 2026-11: project_new dropped an unsupported resolution silently: the sample stayed at
