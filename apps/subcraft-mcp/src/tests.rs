@@ -301,3 +301,26 @@ fn a_view_space_pen_path_takes_its_image_size_apart_from_its_line_width() {
     let width = path["path"]["width"].as_f64().unwrap();
     assert!((width - 0.01).abs() < 1e-6, "the line width asked for: {path}");
 }
+
+/// QA 2026-11: layer_add / fill_set added the channels a fill spec named to the texture set
+/// before reading the spec, so a bad spec failed with those channels (and their undo steps) left
+/// behind.
+#[test]
+fn a_bad_fill_spec_adds_no_channels() {
+    let mut server = Server::new();
+    sample(&mut server);
+    let has_emissive = |server: &mut Server| ok(server, "project_info", json!({})).to_string().contains("emissive");
+    assert!(!has_emissive(&mut server), "the sample starts without Emissive");
+    let steps = |server: &mut Server| ok(server, "history", json!({}))["entries"].as_array().unwrap().len();
+    let before = steps(&mut server);
+    fails(&mut server, "layer_add", json!({ "type": "fill", "name": "F", "texture_set": "Body", "fill": { "emissive": { "image": "no-such-image.png" } } }));
+    fails(&mut server, "layer_add", json!({ "type": "fill", "name": "F", "texture_set": "Body", "fill": { "emissive": [1.0, 0.0, 0.0] }, "projection": { "mode": "no-such-mode" } }));
+    assert!(!has_emissive(&mut server) && steps(&mut server) == before, "layer_add left nothing behind");
+    ok(&mut server, "layer_add", json!({ "type": "fill", "name": "F", "texture_set": "Body" }));
+    let before = steps(&mut server);
+    fails(&mut server, "fill_set", json!({ "layer": "F", "texture_set": "Body", "channels": { "emissive": { "image": "no-such-image.png" } } }));
+    fails(&mut server, "fill_set", json!({ "layer": "F", "texture_set": "Body", "channels": { "emissive": { "low": 0.2 } } }));
+    assert!(!has_emissive(&mut server) && steps(&mut server) == before, "fill_set left nothing behind");
+    ok(&mut server, "fill_set", json!({ "layer": "F", "texture_set": "Body", "channels": { "emissive": [1.0, 0.0, 0.0] } }));
+    assert!(has_emissive(&mut server), "a good spec still adds the channel");
+}

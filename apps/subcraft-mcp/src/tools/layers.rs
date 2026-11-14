@@ -100,7 +100,11 @@ pub fn add(server: &mut Server, args: &Args) -> Res<Reply> {
         && !server::layer_ref(session, ts, p)?.is_folder() {
             return Err("`parent` must be a folder layer".into());
         }
+    if let Some(p) = args.obj("projection")? {
+        with_defaults("projection", &Projection::default(), &Value::Object(p.clone()))?;
+    }
     if let Some(chs) = args.obj("fill")? {
+        check_fill_spec(chs, None)?;
         ensure_channels(session, ts, chs)?;
     }
     // Build the whole layer, then insert it as one undo step.
@@ -412,6 +416,20 @@ fn channel_spec(kind: ChannelKind, v: &Value, current: Option<&FillChannel>) -> 
     }
 }
 
+/// Read a `{channel: spec}` object without applying it, so that a bad spec is refused before
+/// `ensure_channels` adds channels to the set: they used to stay behind the error, as undo steps
+/// the caller never asked for.
+fn check_fill_spec(chs: &Map<String, Value>, current: Option<&FillContent>) -> Res<()> {
+    for (name, v) in chs {
+        let k = channel(name)?;
+        if let ChannelSpec::Set { image: Some(path), .. } = channel_spec(k, v, current.and_then(|f| f.channels.get(&k)))?
+            && !path.exists() {
+                return Err(format!("image not found: {}", paths::output(&path)));
+            }
+    }
+    Ok(())
+}
+
 /// Channels a fill spec turns on that the texture set lacks are added to the set first (each
 /// its own undo step, as in the app), so the edited layer can carry them.
 fn ensure_channels(session: &mut Session, ts: TextureSetId, chs: &Map<String, Value>) -> Res<()> {
@@ -481,6 +499,11 @@ fn edit_fill(session: &mut Session, fill: &mut FillContent, chs: &Map<String, Va
 /// Edit a fill layer's channels and projection as one undo step.
 fn replace_fill(session: &mut Session, ts: TextureSetId, id: LayerId, chs: Option<&Map<String, Value>>, exclusive: bool, projection: Option<&Value>) -> Res<()> {
     if let Some(chs) = chs {
+        let LayerContent::Fill(fill) = &server::layer_ref(session, ts, id)?.content else { return Err("not a fill layer".into()) };
+        if let Some(p) = projection {
+            with_defaults("projection", &fill.projection, p)?;
+        }
+        check_fill_spec(chs, Some(fill))?;
         ensure_channels(session, ts, chs)?;
     }
     let mut layer = server::layer_ref(session, ts, id)?.clone();
