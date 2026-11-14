@@ -90,6 +90,9 @@ pub fn to_config(s: &BakeSettings, files: &BakeFilesConfig) -> BakeConfig {
         ao_ground_offset: s.ao.ground_offset,
         thickness_samples: s.thickness_samples,
         thickness_distance: s.thickness_distance,
+        thickness_min_distance: s.thickness.min_distance,
+        thickness_spread_angle: s.thickness.spread_angle,
+        thickness_distribution: distribution_name(s.thickness.distribution).into(),
         curvature_radius: s.curvature_radius,
         curvature_from_normal: s.curvature_from_normal,
         normal_curvature_width: s.normal_curvature.radius_texels,
@@ -128,6 +131,9 @@ pub fn apply(c: &BakeConfig, s: &mut BakeSettings) -> BakeFilesConfig {
     s.ao.ground_offset = c.ao_ground_offset;
     s.thickness_samples = c.thickness_samples.clamp(1, 4096);
     s.thickness_distance = c.thickness_distance;
+    s.thickness.min_distance = c.thickness_min_distance;
+    s.thickness.spread_angle = c.thickness_spread_angle.clamp(1.0, 180.0);
+    s.thickness.distribution = by_name(&RayDistribution::ALL, &c.thickness_distribution, distribution_name, RayDistribution::default());
     s.curvature_radius = c.curvature_radius;
     s.curvature_from_normal = c.curvature_from_normal;
     s.normal_curvature.radius_texels = c.normal_curvature_width;
@@ -181,6 +187,9 @@ mod tests {
         s.position.single_axis = Some(2);
         s.position.normalization = PositionNormalization::None;
         s.position.scale = 0.1;
+        s.thickness.min_distance = 0.02;
+        s.thickness.spread_angle = 120.0;
+        s.thickness.distribution = RayDistribution::Uniform;
         let set = subcraft_core::TextureSetId::new();
         let files = BakeFilesConfig { high_poly: "/models/crate_high.glb".into(), extra_high: vec!["/models/bolts_high.glb".into()], cage_file: "/models/cage.obj".into(), size: Some(2048), skip_sets: vec![set] };
         let config = to_config(&s, &files);

@@ -188,11 +188,11 @@ Layout notes: a "Common settings" entry at the top (with its own sync button), t
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
 | Secondary rays | Mesh map settings > Thickness | not documented | done: 4 to 256, default 16 | crates/ui/src/dialogs.rs (map_settings_panel) | - |
-| Min Occluder distance | Mesh map settings > Thickness | not documented | missing | - | - |
+| Min Occluder distance | Mesh map settings > Thickness | not documented | done: surfaces nearer than it are looked through | crates/bake/src/lib.rs (ThicknessOptions) | - |
 | Max Occluder distance | Mesh map settings > Thickness | not documented | done: fraction of the diagonal, default 0.5 | crates/ui/src/dialogs.rs (map_settings_panel) | - |
 | Relative to bounding box | Mesh map settings > Thickness | not documented | partial: always relative, no toggle | crates/bake/src/lib.rs:48 | - |
-| Spread angle | Mesh map settings > Thickness | not documented | missing | - | - |
-| Distribution | Mesh map settings > Thickness | not documented | missing | - | - |
+| Spread angle | Mesh map settings > Thickness | not documented | done: cone around the inward normal; CPU when not 180 | crates/bake/src/lib.rs (ThicknessOptions) | - |
+| Distribution | Mesh map settings > Thickness | not documented | done: Cosine or Uniform | crates/bake/src/lib.rs (ThicknessOptions) | - |
 | Self occlusion | Mesh map settings > Thickness | not documented | missing | - | - |
 | Normalization | Mesh map settings > Thickness | not documented | missing | - | - |
 

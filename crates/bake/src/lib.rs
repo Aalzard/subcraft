@@ -134,6 +134,30 @@ impl Default for AoOptions {
     }
 }
 
+/// The thickness baker's ray options (Painter's Thickness settings), beside its ray count and
+/// maximum distance.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ThicknessOptions {
+    /// Surfaces nearer than this are skipped, as a fraction of the diagonal.
+    pub min_distance: f32,
+    /// Full opening angle of the ray cone in degrees (180 = the whole hemisphere).
+    pub spread_angle: f32,
+    pub distribution: RayDistribution,
+}
+
+impl Default for ThicknessOptions {
+    fn default() -> Self {
+        Self { min_distance: 0.0, spread_angle: 180.0, distribution: RayDistribution::Cosine }
+    }
+}
+
+impl ThicknessOptions {
+    /// The plain cosine hemisphere from the surface (what the GPU kernels compute).
+    pub fn is_plain(&self) -> bool {
+        self.min_distance <= 0.0 && self.spread_angle >= 180.0 && self.distribution == RayDistribution::Cosine
+    }
+}
+
 impl AoOptions {
     /// The plain cosine hemisphere (what the GPU kernels and the fast CPU path compute).
     pub fn is_plain(&self) -> bool {
@@ -316,6 +340,7 @@ pub struct BakeSettings {
     /// A custom cage instead of the distance-based one (texels outside its UVs use the distances).
     pub cage: Option<CageMesh>,
     pub ao: AoOptions,
+    pub thickness: ThicknessOptions,
     pub position: PositionOptions,
     pub height: HeightNormalization,
     pub id_generator: IdGenerator,
@@ -348,6 +373,7 @@ impl Default for BakeSettings {
             ignore_backface: false,
             cage: None,
             ao: AoOptions::default(),
+            thickness: ThicknessOptions::default(),
             position: PositionOptions::default(),
             height: HeightNormalization::default(),
             id_generator: IdGenerator::default(),
@@ -952,12 +978,19 @@ fn bake_core(
                     [ts.x * 0.5 + 0.5, ts.y * 0.5 + 0.5, ts.z * 0.5 + 0.5]
                 }
                 MeshMapKind::Thickness => {
+                    let o = &settings.thickness;
                     let mut dirs = Vec::with_capacity(settings.thickness_samples as usize);
-                    cosine_directions(-d.normal, settings.thickness_samples.max(1), hash01(t.index, 2), &mut dirs);
+                    if o.is_plain() {
+                        cosine_directions(-d.normal, settings.thickness_samples.max(1), hash01(t.index, 2), &mut dirs);
+                    } else {
+                        cone_directions(-d.normal, settings.thickness_samples.max(1), hash01(t.index, 2), o.spread_angle, o.distribution == RayDistribution::Uniform, &mut dirs);
+                    }
                     let origin = d.position - d.offset * bias;
                     // Never zero: the average below divides by it (a zero distance gave a NaN map).
                     let max = (settings.thickness_distance * diag).max(1e-9);
-                    let total: f32 = dirs.iter().map(|dir| detail_geo.bvh.intersect_filtered(origin, *dir, 0.0, max, |tri| accepts(d.group, tri)).map_or(max, |h| h.t)).sum();
+                    // Surfaces nearer than the minimum distance are skipped.
+                    let near = (o.min_distance.max(0.0) * diag).min(max);
+                    let total: f32 = dirs.iter().map(|dir| detail_geo.bvh.intersect_filtered(origin, *dir, near, max, |tri| accepts(d.group, tri)).map_or(max, |h| h.t)).sum();
                     let avg = total / dirs.len() as f32 / max;
                     [1.0 - avg; 3]
                 }
@@ -970,8 +1003,12 @@ fn bake_core(
         let started = Instant::now();
         let mut backend = "CPU".to_string();
         // The GPU ray kernels cannot filter hits by part, so name matching bakes AO and thickness on the CPU.
-        // Nor do they know the occlusion options (cone, distances, attenuation, ground plane).
-        let plain = kind != MeshMapKind::AmbientOcclusion || settings.ao.is_plain();
+        // Nor do they know the occlusion or thickness options (cone, distances, attenuation, ground plane).
+        let plain = match kind {
+            MeshMapKind::AmbientOcclusion => settings.ao.is_plain(),
+            MeshMapKind::Thickness => settings.thickness.is_plain(),
+            _ => true,
+        };
         let backend_gpu = if settings.use_gpu && plain && (matching.is_none() || kind == MeshMapKind::Curvature) { gpu_backend } else { None };
         // The GPU kernels need every texel's projection; low-on-low bakes derive it only now.
         let derived: Option<Vec<Detail>> = (backend_gpu.is_some() && details.is_none()).then(|| samples.par_iter().map(project).collect());

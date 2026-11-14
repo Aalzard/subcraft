@@ -1028,6 +1028,8 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Choose the materials pack folder (one sub-folder per material, with material.json)", "選擇材質包資料夾（每個材質一個子資料夾，內含 material.json）"),
     ("Choose the materials pack folder", "選擇材質包資料夾"),
     ("Stop using the materials pack (its files stay on disk)", "停止使用材質包（檔案仍保留在磁碟上）"),
+    ("Fraction of the model diagonal. Surfaces nearer than this are looked through.", "模型對角線的比例。比此更近的表面會被穿透。"),
+    ("With these options thickness is baked on the CPU.", "使用這些選項時，厚度會在 CPU 上烘焙。"),
     ("SubCraft Materials", "SubCraft 材質"),
     ("Download", "下載"),
     ("Downloading", "正在下載"),

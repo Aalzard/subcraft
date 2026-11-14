@@ -1531,6 +1531,7 @@ fn reset_parameters(b: &mut BakeUi, baker: Option<subcraft_core::MeshMapKind>) {
         Some(MeshMapKind::Thickness) => {
             s.thickness_samples = d.thickness_samples;
             s.thickness_distance = d.thickness_distance;
+            s.thickness = d.thickness;
         }
         Some(MeshMapKind::Curvature) => {
             s.curvature_radius = d.curvature_radius;
@@ -1592,8 +1593,16 @@ fn map_settings_panel(ui: &mut egui::Ui, b: &mut BakeUi) {
         MeshMapKind::Thickness => {
             slider_row(ui, tr("Secondary rays"), egui::Slider::new(&mut s.thickness_samples, 4..=256).logarithmic(true))
                 .on_hover_text(tr("Rays cast per texel: more rays, less noise, a slower bake"));
+            slider_row(ui, tr("Min occluder distance"), egui::Slider::new(&mut s.thickness.min_distance, 0.0..=0.1).fixed_decimals(4).clamping(egui::SliderClamping::Never))
+                .on_hover_text(tr("Fraction of the model diagonal. Surfaces nearer than this are looked through."));
             slider_row(ui, tr("Max occluder distance"), egui::Slider::new(&mut s.thickness_distance, 0.01..=1.0).logarithmic(true).clamping(egui::SliderClamping::Never))
                 .on_hover_text(tr("Fraction of the model diagonal. Thicker parts than this all read as fully thick."));
+            slider_row(ui, tr("Spread angle"), egui::Slider::new(&mut s.thickness.spread_angle, 1.0..=180.0).fixed_decimals(0))
+                .on_hover_text(tr("Opening angle of the ray cone in degrees: 180 is the whole hemisphere"));
+            option_row(ui, "bake_thickness_distribution", tr("Distribution"), &mut s.thickness.distribution, &RayDistribution::ALL, RayDistribution::label);
+            if !s.thickness.is_plain() {
+                hint(ui, tr("With these options thickness is baked on the CPU."));
+            }
         }
         MeshMapKind::Id => {
             let label = |s: IdSource| match s {
@@ -2343,7 +2352,10 @@ mod bake_tests {
         let output = shown(&mut state, MeshMapKind::BentNormal);
         assert!(has_text(&output, "Spread angle") && !has_text(&output, "Attenuation"), "bent normals share the ray cone");
         let output = shown(&mut state, MeshMapKind::Thickness);
-        assert!(has_text(&output, "Secondary rays") && has_text(&output, "Max occluder distance") && !has_text(&output, "Spread angle"));
+        for text in ["Secondary rays", "Min occluder distance", "Max occluder distance", "Spread angle", "Distribution"] { assert!(has_text(&output, text), "thickness: {text}"); }
+        assert!(!has_text(&output, "Attenuation") && !has_text(&output, "Ground plane") && !has_text(&output, "baked on the CPU"), "thickness has its own options");
+        state.bake.settings.thickness.spread_angle = 60.0;
+        assert!(has_text(&shown(&mut state, MeshMapKind::Thickness), "thickness is baked on the CPU"));
         let output = shown(&mut state, MeshMapKind::Position);
         assert!(has_text(&output, "All axis") && has_text(&output, "Single axis") && has_text(&output, "Normalization") && !has_text(&output, "Axis"), "position");
         state.bake.settings.position.single_axis = Some(2);

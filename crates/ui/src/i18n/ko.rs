@@ -1028,6 +1028,8 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Choose the materials pack folder (one sub-folder per material, with material.json)", "재질 팩 폴더를 선택합니다 (재질마다 material.json이 든 하위 폴더 하나)"),
     ("Choose the materials pack folder", "재질 팩 폴더 선택"),
     ("Stop using the materials pack (its files stay on disk)", "재질 팩 사용을 중지합니다 (파일은 디스크에 남습니다)"),
+    ("Fraction of the model diagonal. Surfaces nearer than this are looked through.", "모델 대각선에 대한 비율입니다. 이보다 가까운 표면은 통과합니다."),
+    ("With these options thickness is baked on the CPU.", "이 옵션을 사용하면 두께는 CPU에서 베이크됩니다."),
     ("SubCraft Materials", "SubCraft 재질"),
     ("Download", "다운로드"),
     ("Downloading", "다운로드 중"),
