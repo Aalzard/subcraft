@@ -1467,8 +1467,9 @@ fn bakers_panel(ui: &mut egui::Ui, b: &mut BakeUi, f: &BakeFrame, quick: &mut Op
     for kind in MeshMapKind::ALL {
         ui.horizontal(|ui| {
             let mut on = b.settings.maps.contains(&kind);
-            if ui.checkbox(&mut on, "").changed() {
-                if on { b.settings.maps.push(kind); } else { b.settings.maps.retain(|m| *m != kind); }
+            let alt = ui.input(|i| i.modifiers.alt);
+            if ui.checkbox(&mut on, "").on_hover_text("Alt+click: bake only this map (Alt+click again: all maps)").changed() {
+                tick_bake_map(&mut b.settings.maps, kind, alt);
             }
             let (icon, tip) = crate::bake_view::map_info(kind);
             if ui.selectable_label(b.selected_baker == Some(kind), format!("{icon}   {}", tr(kind.display_name()))).on_hover_text(tr(tip)).clicked() {
@@ -1491,6 +1492,22 @@ fn bakers_panel(ui: &mut egui::Ui, b: &mut BakeUi, f: &BakeFrame, quick: &mut Op
                 }
             });
         });
+    }
+}
+
+/// A click on a map's tick box in the bake list. Plain: toggles it. Alt (Painter): only that
+/// map is ticked, or every map again when it already was the only one.
+pub fn tick_bake_map(maps: &mut Vec<subcraft_core::MeshMapKind>, kind: subcraft_core::MeshMapKind, alt: bool) {
+    if alt {
+        if maps.as_slice() == [kind] {
+            *maps = subcraft_core::MeshMapKind::ALL.to_vec();
+        } else {
+            *maps = vec![kind];
+        }
+    } else if maps.contains(&kind) {
+        maps.retain(|m| *m != kind);
+    } else {
+        maps.push(kind);
     }
 }
 
@@ -2040,6 +2057,23 @@ fn bake_match_rows(ui: &mut egui::Ui, m: &mut subcraft_core::BakeMatch) {
 #[cfg(test)]
 mod bake_tests {
     use super::*;
+
+    #[test]
+    fn alt_click_bakes_only_one_map_and_again_all_of_them() {
+        use subcraft_core::MeshMapKind;
+        let (ao, normal) = (MeshMapKind::AmbientOcclusion, MeshMapKind::Normal);
+        let mut maps = vec![normal, ao];
+        tick_bake_map(&mut maps, ao, false);
+        assert_eq!(maps, vec![normal], "a plain click unticks");
+        tick_bake_map(&mut maps, ao, false);
+        assert_eq!(maps, vec![normal, ao], "and ticks again");
+        tick_bake_map(&mut maps, ao, true);
+        assert_eq!(maps, vec![ao], "Alt: only this map");
+        tick_bake_map(&mut maps, ao, true);
+        assert_eq!(maps, MeshMapKind::ALL.to_vec(), "Alt on the only map: all of them");
+        tick_bake_map(&mut maps, normal, true);
+        assert_eq!(maps, vec![normal]);
+    }
     #[test]
     fn a_successful_bake_always_returns_to_material() {
         let ctx = egui::Context::default();

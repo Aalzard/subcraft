@@ -175,7 +175,7 @@ Layout notes: these act only while the pointer is over the layer stack.
 | Scroll any panel by dragging | Any window | Ctrl+Alt+drag | missing | - | - |
 | Scroll assets | Assets | Mouse wheel | done | crates/ui/src/panels/shelf.rs | - |
 | Pick the edited channel's raw value with the eyedropper | Colour picker eyedropper over the viewport | Shift | partial: Shift+click with the Eyedropper picks the whole material instead | crates/ui/src/viewport.rs:295 | #141 |
-| Isolate one mesh map in the bake list | Baking window | Alt+click | missing | - | - |
+| Isolate one mesh map in the bake list | Baking window | Alt+click | done: Alt+click a map's tick box bakes only that map; Alt+click it again ticks all maps | crates/ui/src/dialogs.rs | (this PR) |
 
 ## Shortcuts documented on feature pages: tools
 
