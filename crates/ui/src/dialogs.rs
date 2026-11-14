@@ -935,6 +935,12 @@ pub struct BakeUi {
     pub log_tab: BakeLogTab,
     /// Maps of the running or last bake started from the panels (a quick bake has one).
     pub job_maps: Vec<subcraft_core::MeshMapKind>,
+    /// Maps baked again on their own when the bake settings change (the bakers' auto-rebake).
+    pub auto_rebake: std::collections::BTreeSet<subcraft_core::MeshMapKind>,
+    /// The settings the auto-rebake last saw, and when they last changed (a rebake waits for a
+    /// short pause in the editing).
+    auto_key: Option<String>,
+    auto_due: Option<f64>,
     /// The user picked a size; until then it follows the texture set resolution.
     pub size_chosen: bool,
     pub job: Option<subcraft_app::BakeJob>,
@@ -999,7 +1005,8 @@ impl Default for BakeUi {
             high_poly: String::new(), extra_high: Vec::new(), cage_file: String::new(), skip_sets: Default::default(), selected_baker: None, log_tab: BakeLogTab::default(), job_maps: Vec::new(), size_chosen: false, job: None, result: None, report: String::new(), notices: Vec::new(), log: Vec::new(), map_rows: Vec::new(),
             preview: true, cage: true, fit_mode: Default::default(), high_opacity: 0.55, vis: Default::default(), vis_selected_only: false, seam_edges: None, seams_uploaded: false, placement_message: None, live_maps: true, displayed_map: None, follow_maps: true, preview_mesh: None,
             preview_job: None, preview_source: None, preview_path: String::new(), preview_scene: None, preview_error: None, preview_uploaded: false, preview_checked_at: 0.,
-            miss_heatmap: false, cage_job: None, cage_result: None, miss_uploaded: false, cage_normals_uploaded: None, was_open: false, synced: None, baseline: None }
+            miss_heatmap: false, cage_job: None, cage_result: None, miss_uploaded: false, cage_normals_uploaded: None, was_open: false, synced: None, baseline: None,
+            auto_rebake: Default::default(), auto_key: None, auto_due: None }
     }
 }
 
@@ -1300,7 +1307,10 @@ pub fn bake_mode(state: &mut UiState, ui: &mut egui::Ui, now: f64) {
     if go {
         start_bake(state, None, &frame, now);
     } else if let Some(kind) = quick {
-        start_bake(state, Some(kind), &frame, now);
+        start_bake(state, Some(&[kind]), &frame, now);
+    } else if let Some(maps) = auto_rebake_due(state, now) {
+        start_bake(state, Some(&maps), &frame, now);
+        state.set_status("Auto-rebake: the bake settings changed", now);
     }
     if bake_match != state.session.settings().bake_match || placement != state.session.settings().bake_placement {
         let mut project = state.session.settings().clone();
@@ -1313,8 +1323,40 @@ pub fn bake_mode(state: &mut UiState, ui: &mut egui::Ui, now: f64) {
     }
 }
 
-/// Start a bake of the ticked maps, or of `only` (quick bake), for the ticked texture sets.
-fn start_bake(state: &mut UiState, only: Option<subcraft_core::MeshMapKind>, frame: &BakeFrame, now: f64) {
+/// Seconds the bake settings must stay unchanged before an auto-rebake starts.
+const AUTO_REBAKE_PAUSE: f64 = 0.6;
+
+/// The maps to rebake now, when some have auto-rebake on and the settings that shape them
+/// (files, cage, options, placement, matching) changed and then stayed unchanged for a moment.
+/// Which maps are ticked does not count as a change. Nothing starts while a bake runs.
+fn auto_rebake_due(state: &mut UiState, now: f64) -> Option<Vec<subcraft_core::MeshMapKind>> {
+    let b = &state.bake;
+    if b.auto_rebake.is_empty() {
+        state.bake.auto_key = None;
+        state.bake.auto_due = None;
+        return None;
+    }
+    let mut config = b.config();
+    config.maps.clear();
+    config.skip_sets.clear();
+    let project = state.session.settings();
+    let key = format!("{config:?} {:?} {:?}", project.bake_placement, project.bake_match);
+    let b = &mut state.bake;
+    match &b.auto_key {
+        // Turning auto-rebake on does not bake by itself.
+        None => { b.auto_key = Some(key); return None; }
+        Some(seen) if *seen != key => { b.auto_key = Some(key); b.auto_due = Some(now + AUTO_REBAKE_PAUSE); }
+        Some(_) => {}
+    }
+    if b.job.is_some() || b.auto_due.is_none_or(|due| now < due) {
+        return None;
+    }
+    b.auto_due = None;
+    Some(b.auto_rebake.iter().copied().collect())
+}
+
+/// Start a bake of the ticked maps, or of `only` (quick bake, auto-rebake), for the ticked texture sets.
+fn start_bake(state: &mut UiState, only: Option<&[subcraft_core::MeshMapKind]>, frame: &BakeFrame, now: f64) {
     let mut texture_sets = frame.targets(&state.bake);
     if texture_sets.is_empty() {
         // A quick bake with nothing ticked bakes the selected texture set.
@@ -1327,8 +1369,8 @@ fn start_bake(state: &mut UiState, only: Option<subcraft_core::MeshMapKind>, fra
     state.bake.follow_maps = true;
     state.bake.log_tab = BakeLogTab::Process;
     let mut settings = state.bake.settings.clone();
-    if let Some(kind) = only {
-        settings.maps = vec![kind];
+    if let Some(maps) = only {
+        settings.maps = maps.to_vec();
     }
     settings.maps.sort();
     settings.use_gpu = state.recovery.prefs.use_gpu_baking;
@@ -1401,6 +1443,10 @@ fn bakers_panel(ui: &mut egui::Ui, b: &mut BakeUi, f: &BakeFrame, quick: &mut Op
                 b.selected_baker = Some(kind);
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let auto = b.auto_rebake.contains(&kind);
+                if crate::widgets::icon_toggle(ui, icons::HISTORY, auto, tr("Auto-rebake: bake this map again whenever the bake settings change")).clicked() {
+                    if auto { b.auto_rebake.remove(&kind); } else { b.auto_rebake.insert(kind); }
+                }
                 if crate::widgets::icon_button(ui, icons::LIGHTNING, tr("Quick bake: bake only this map")).clicked() {
                     *quick = Some(kind);
                 }
@@ -2291,6 +2337,34 @@ mod bake_tests {
     }
 
     #[test]
+    fn auto_rebake_waits_for_a_pause_after_a_settings_change() {
+        use subcraft_core::MeshMapKind;
+        let mut state = UiState::new(Session::new(subcraft_mesh::primitives::plane(2., 1), 128), None);
+        assert_eq!(auto_rebake_due(&mut state, 0.0), None, "nothing has auto-rebake on");
+        state.bake.auto_rebake.insert(MeshMapKind::Height);
+        state.bake.auto_rebake.insert(MeshMapKind::Normal);
+        assert_eq!(auto_rebake_due(&mut state, 1.0), None, "turning it on does not bake");
+        assert_eq!(auto_rebake_due(&mut state, 5.0), None, "nothing changed");
+        // Ticking another map is not a settings change.
+        state.bake.settings.maps.retain(|m| *m != MeshMapKind::Curvature);
+        assert_eq!(auto_rebake_due(&mut state, 6.0), None);
+        // A cage change, still being edited: wait for the pause.
+        state.bake.settings.cage_front = 0.05;
+        assert_eq!(auto_rebake_due(&mut state, 7.0), None);
+        state.bake.settings.cage_front = 0.06;
+        assert_eq!(auto_rebake_due(&mut state, 7.3), None, "a second change restarts the wait");
+        assert_eq!(auto_rebake_due(&mut state, 7.5), None);
+        assert_eq!(auto_rebake_due(&mut state, 8.0), Some(vec![MeshMapKind::Normal, MeshMapKind::Height]), "then the auto maps, once");
+        assert_eq!(auto_rebake_due(&mut state, 9.0), None);
+        // A placement change counts too.
+        let mut project = state.session.settings().clone();
+        project.bake_placement.scale = 2.0;
+        state.session.set_settings(project);
+        assert_eq!(auto_rebake_due(&mut state, 10.0), None);
+        assert!(auto_rebake_due(&mut state, 11.0).is_some());
+    }
+
+    #[test]
     fn a_bake_covers_the_ticked_texture_sets_and_a_quick_bake_one_map() {
         let mut state = UiState::new(Session::new(subcraft_mesh::primitives::plane(2., 1), 128), None);
         let (id, slot) = { let ts = state.session.selected_texture_set(); (ts.id, ts.material_slot) };
@@ -2306,7 +2380,7 @@ mod bake_tests {
         // the ticked maps as they were.
         state.bake.settings.size = 128;
         let ticked = state.bake.settings.maps.clone();
-        start_bake(&mut state, Some(subcraft_core::MeshMapKind::Position), &frame, 0.);
+        start_bake(&mut state, Some(&[subcraft_core::MeshMapKind::Position]), &frame, 0.);
         assert_eq!(state.bake.job_maps, vec![subcraft_core::MeshMapKind::Position]);
         assert_eq!(state.bake.settings.maps, ticked);
         let ctx = egui::Context::default();
