@@ -106,6 +106,18 @@ fn every_malformed_line_gets_an_error_reply() {
     assert_eq!(pong["result"], json!({}), "{pong}");
 }
 
+/// QA 2026-11: a call to a tool that does not exist came back as a tool result with isError,
+/// which MCP reserves for a tool that ran and failed; the spec asks for error -32602.
+#[test]
+fn an_unknown_tool_is_a_protocol_error() {
+    let mut server = Server::new();
+    let reply = crate::reply_to_line(&mut server, br#"{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"no_such_tool","arguments":{}}}"#).expect("a reply");
+    assert_eq!(reply["error"]["code"], json!(-32602), "{reply}");
+    assert_eq!(reply["id"], json!(7), "{reply}");
+    let reply = crate::reply_to_line(&mut server, br#"{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"project_info","arguments":{}}}"#).expect("a reply");
+    assert!(reply.get("result").is_some(), "known tools still answer with a result: {reply}");
+}
+
 #[test]
 fn unknown_arguments_are_reported_with_the_valid_names() {
     let mut server = Server::new();
