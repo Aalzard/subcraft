@@ -110,7 +110,7 @@ pub fn show(state: &mut UiState, ui: &Ui, rect: egui::Rect, now: f64) {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new("Paths").font(theme::font_strong(12.0)).color(theme::TEXT()));
                     if ui.small_button(format!("{} New", icons::PLUS)).on_hover_text("Start a new path on the next click").clicked() {
-                        state.pen.new_path();
+                        state.pen.new_path(&state.session);
                     }
                 });
                 if layers.is_empty() {

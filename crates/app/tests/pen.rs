@@ -59,7 +59,7 @@ fn pending_jobs_survive_selection_changes_but_cannot_overwrite_document_or_scene
     editor.begin(&s, Vec2::splat(0.5), None).unwrap(); editor.release(&s).unwrap();
     s.execute(Command::SelectLayer(None)).unwrap(); finish(&mut editor, &mut s);
     assert_eq!(s.selection().layer, None); assert!(s.selected_texture_set().layers.iter().any(|l| l.kind() == LayerKind::Path));
-    s.execute(Command::SelectLayer(base)).unwrap(); editor.new_path();
+    s.execute(Command::SelectLayer(base)).unwrap(); editor.new_path(&s);
     editor.begin(&s, Vec2::splat(0.6), None).unwrap(); editor.release(&s).unwrap();
     s.execute(Command::DeleteLayer(base.unwrap())).unwrap(); let before = s.document().clone();
     assert!(editor.poll(&mut s, usize::MAX).is_err()); assert_eq!(s.document(), &before);
@@ -75,6 +75,30 @@ fn finish_keeps_pending_work_and_new_path_uses_a_separate_layer() {
     editor.begin(&s, Vec2::splat(0.4), None).unwrap(); editor.release(&s).unwrap(); editor.finish_path();
     finish(&mut editor, &mut s); let first = s.selection().layer.unwrap();
     point(&mut editor, &mut s, Vec2::splat(0.6)); assert_ne!(s.selection().layer, Some(first));
+}
+
+/// QA 2026-11: after Enter, selecting another path layer and clicking made a third layer instead
+/// of adding a point to the selected path.
+#[test]
+fn after_enter_a_click_adds_to_the_path_selected_since() {
+    let mut s = session(); let mut editor = PenEditor::default();
+    point(&mut editor, &mut s, Vec2::new(0.2, 0.2)); point(&mut editor, &mut s, Vec2::new(0.4, 0.2));
+    let a = s.selection().layer.unwrap();
+    editor.finish_path();
+    point(&mut editor, &mut s, Vec2::new(0.2, 0.8)); point(&mut editor, &mut s, Vec2::new(0.4, 0.8));
+    let b = s.selection().layer.unwrap();
+    assert_ne!(a, b, "Enter, then a click: a new path");
+    editor.finish_path();
+    s.execute(Command::SelectLayer(Some(a))).unwrap();
+    point(&mut editor, &mut s, Vec2::new(0.6, 0.2));
+    assert_eq!(s.selection().layer, Some(a), "the click went to the selected path");
+    assert_eq!(pen(&s).anchors.len(), 3);
+    // New path chosen after selecting still starts another layer.
+    editor.new_path(&s);
+    point(&mut editor, &mut s, Vec2::new(0.6, 0.6));
+    let c = s.selection().layer.unwrap();
+    assert!(c != a && c != b, "New path makes a new layer");
+    assert_eq!(pen(&s).anchors.len(), 1);
 }
 
 #[test]

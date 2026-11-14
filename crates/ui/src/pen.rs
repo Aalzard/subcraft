@@ -167,7 +167,7 @@ fn ribbon_rows(state: &mut UiState, ui: &mut Ui, path: &mut PenPath) -> bool {
 
 pub fn properties(state: &mut UiState, ui: &mut Ui, path: &PenPath, now: f64) {
     ui.horizontal_wrapped(|ui| {
-        if ui.button("New path").clicked() { state.pen.new_path(); state.tool = Tool::Pen; }
+        if ui.button("New path").clicked() { state.pen.new_path(&state.session); state.tool = Tool::Pen; }
         let selected = state.pen.selected_anchor().is_some();
         for (label, smooth) in [("Corner", false), ("Smooth", true)] {
             if ui.add_enabled(selected, egui::Button::new(label)).clicked() && let Err(e) = state.pen.shape_point(&state.session, smooth) { state.set_status(e.to_string(), now); }
