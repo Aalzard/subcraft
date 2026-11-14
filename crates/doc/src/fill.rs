@@ -459,10 +459,15 @@ impl Projection {
     /// projection box's frame ([`Projection::local`]). A planar projection faces the side its
     /// image reads unmirrored from (+Z, +Y, and -X for the X axis, see the planar frames); a
     /// cylindrical one faces outward from its axis and always cuts at 90 degrees. A texel
-    /// without a normal is kept.
+    /// without a normal is kept. The angle is the one in the scene: the box's scale is taken
+    /// back out of the normal.
     pub fn facing_weight(&self, local_pos: [f32; 3], local_normal: [f32; 3]) -> f32 {
         let Some(culling) = self.backface_culling() else { return 1.0 };
-        let n = local_normal;
+        // The box frame's normal is tilted by the box's scale (a box squashed along its axis
+        // turned a 60 degree surface into an 82 degree one, culled at a 70 degree limit). Undo
+        // the scale on the normal and put it on the cylinder's outward direction instead.
+        let s = self.effective_transform3().scale.map(|v| v.clamp(ProjectionTransform::MIN_SCALE, ProjectionTransform::MAX_SCALE));
+        let n = [local_normal[0] / s[0], local_normal[1] / s[1], local_normal[2] / s[2]];
         let len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
         if len <= 1e-12 {
             return 1.0;
@@ -472,7 +477,7 @@ impl Projection {
             let facing = if a == 0 { -1.0 } else { 1.0 };
             return culling.weight(n[a] * facing / len);
         }
-        let mut d = [local_pos[0] - 0.5, local_pos[1] - 0.5, local_pos[2] - 0.5];
+        let mut d = [(local_pos[0] - 0.5) * s[0], (local_pos[1] - 0.5) * s[1], (local_pos[2] - 0.5) * s[2]];
         d[a] = 0.0;
         let dl = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
         if dl <= 1e-9 {
@@ -746,6 +751,43 @@ mod tests {
         assert!(!serde_json::to_string(&Projection::default()).unwrap().contains("backface"));
         let back: Projection = serde_json::from_str(&serde_json::to_string(&planar(2)).unwrap()).unwrap();
         assert_eq!(back.backface, Some(hard));
+    }
+
+    /// QA 2026-11: the culling angle was measured on the normal in the box's frame, which the
+    /// box's scale tilts: a box squashed along its axis culled a surface 60 degrees off at a 70
+    /// degree limit, and a stretched one kept a surface 80 degrees off.
+    #[test]
+    fn the_culling_angle_is_the_angle_in_the_scene() {
+        let limit = BackfaceCulling { angle_deg: 70.0, hardness: 1.0 };
+        let at = |deg: f32| {
+            let r = deg.to_radians();
+            [r.sin(), 0.0, r.cos()]
+        };
+        let weight = |projection: &Projection, normal: [f32; 3]| {
+            let (p, n) = projection.local([0.5, 0.5, 0.5], normal);
+            projection.facing_weight(p, n)
+        };
+        for scale in [[1.0, 1.0, 1.0], [1.0, 1.0, 0.25], [1.0, 1.0, 4.0], [3.0, 0.5, 2.0]] {
+            for rotation_deg in [[0.0; 3], [0.0, 30.0, 0.0]] {
+                let transform3 = ProjectionTransform { scale, rotation_deg, ..ProjectionTransform::default() };
+                let planar = Projection { mode: ProjectionMode::Planar, planar_axis: 2, backface: Some(limit), transform3, ..Projection::default() };
+                // Angles from the box's own (rotated) Z axis.
+                let off = rotation_deg[1];
+                assert_eq!(weight(&planar, at(off + 60.0)), 1.0, "60 degrees off, scale {scale:?}, rotation {rotation_deg:?}");
+                assert_eq!(weight(&planar, at(off - 60.0)), 1.0, "-60 degrees off, scale {scale:?}, rotation {rotation_deg:?}");
+                assert_eq!(weight(&planar, at(off + 80.0)), 0.0, "80 degrees off, scale {scale:?}, rotation {rotation_deg:?}");
+                assert_eq!(weight(&planar, at(off + 180.0)), 0.0, "facing away, scale {scale:?}");
+            }
+        }
+        // A soft edge fades by the scene angle too: at hardness 0.5 the band is 15 degrees, half way at 62.5.
+        let soft = Projection { mode: ProjectionMode::Planar, planar_axis: 2, backface: Some(BackfaceCulling { angle_deg: 70.0, hardness: 0.5 }), transform3: ProjectionTransform { scale: [1.0, 1.0, 0.25], ..ProjectionTransform::default() }, ..Projection::default() };
+        assert!((weight(&soft, at(62.5)) - 0.5).abs() < 1e-3, "{}", weight(&soft, at(62.5)));
+        // A stretched cylinder (axis Y, wide in X) still keeps its outside and culls its inside.
+        let cyl = Projection { mode: ProjectionMode::Cylindrical, planar_axis: 1, backface: Some(limit), transform3: ProjectionTransform { scale: [4.0, 1.0, 1.0], ..ProjectionTransform::default() }, ..Projection::default() };
+        let (p, n) = cyl.local([2.5, 0.5, 0.5], [1.0, 0.0, 0.0]);
+        assert_eq!(cyl.facing_weight(p, n), 1.0);
+        let (p, n) = cyl.local([2.5, 0.5, 0.5], [-1.0, 0.0, 0.0]);
+        assert_eq!(cyl.facing_weight(p, n), 0.0);
     }
 
     #[test]
