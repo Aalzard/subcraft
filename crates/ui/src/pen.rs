@@ -25,6 +25,35 @@ pub fn hit(path: &PenPath, selected: Option<subcraft_core::AnchorId>, pointer: P
     best
 }
 
+/// The curve point nearest `pointer` within a few points on screen: segment and curve
+/// parameter. Segments are sampled finely enough for a click on the visible curve.
+pub fn curve_hit(path: &PenPath, pointer: Pos2, map: impl Fn(Vec2) -> Option<Pos2>) -> Option<(usize, f32)> {
+    const STEPS: usize = 32;
+    let mut best: Option<(f32, usize, f32)> = None;
+    for seg in 0..path.segment_count() {
+        let Some([p0, p1, p2, p3]) = path.segment(seg) else { continue };
+        let at = |t: f32| {
+            let u = 1.0 - t;
+            p0 * (u * u * u) + p1 * (3.0 * u * u * t) + p2 * (3.0 * u * t * t) + p3 * (t * t * t)
+        };
+        let mut prev: Option<(Pos2, f32)> = None;
+        for k in 0..=STEPS {
+            let t = k as f32 / STEPS as f32;
+            let Some(s) = map(at(t)) else { prev = None; continue };
+            if let Some((a, ta)) = prev {
+                let d = s - a;
+                let f = if d.length_sq() > 1e-6 { ((pointer - a).dot(d) / d.length_sq()).clamp(0.0, 1.0) } else { 0.0 };
+                let dist = pointer.distance(a + d * f);
+                if dist <= 6.0 && best.is_none_or(|b| dist < b.0) {
+                    best = Some((dist, seg, ta + (t - ta) * f));
+                }
+            }
+            prev = Some((s, t));
+        }
+    }
+    best.map(|(_, seg, t)| (seg, t))
+}
+
 pub fn draw(painter: &egui::Painter, path: &PenPath, selected: Option<subcraft_core::AnchorId>, map: impl Fn(Vec2) -> Option<Pos2>) {
     if let Ok(points) = path.polyline(0.002) {
         for pair in points.windows(2) {

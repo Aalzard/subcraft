@@ -214,6 +214,37 @@ impl PenEditor {
         self.selected = None; self.release(session)
     }
 
+    /// Insert a point on segment `segment` at curve parameter `t` (a click on the curve), keeping
+    /// the curve's shape; the new point is selected.
+    pub fn insert_point(&mut self, session: &Session, segment: usize, t: f32) -> Result<(), CommandError> {
+        let mut path = self.preview(session).ok_or_else(|| error("select a pen path"))?.clone();
+        let id = path.split_segment(segment, t).ok_or_else(|| error("no room for another point on this path"))?;
+        self.set_path(session, path)?; self.gesture.as_mut().unwrap().label = "Insert pen point";
+        self.selected = Some(id); self.new_on_click = false;
+        self.release(session)
+    }
+
+    /// Switch point `id` between corner and smooth (a double-click on it).
+    pub fn toggle_point(&mut self, session: &Session, id: AnchorId) -> Result<(), CommandError> {
+        let smooth = self.preview(session).ok_or_else(|| error("select a pen path"))?.is_smooth(id);
+        self.selected = Some(id);
+        self.shape_point(session, !smooth)
+    }
+
+    /// Whether a click on point `id` closes the path: it is the first point, the last point is
+    /// the selected one, and the path is open with at least three points.
+    pub fn closes_on(&self, session: &Session, id: AnchorId) -> bool {
+        self.preview(session).is_some_and(|p| !p.is_closed() && p.anchors.len() >= 3 && p.anchors.first().is_some_and(|a| a.id == id) && self.selected == p.anchors.last().map(|a| a.id))
+    }
+
+    /// Close the path (a click on its first point while adding points).
+    pub fn close_path(&mut self, session: &Session) -> Result<(), CommandError> {
+        let mut path = self.preview(session).ok_or_else(|| error("select a pen path"))?.clone();
+        path.closed = true;
+        self.set_path(session, path)?; self.gesture.as_mut().unwrap().label = "Close pen path";
+        self.release(session)
+    }
+
     pub fn shape_point(&mut self, session: &Session, smooth: bool) -> Result<(), CommandError> {
         let Some(id) = self.selected else { return Ok(()); };
         let mut path = self.preview(session).ok_or_else(|| error("select a pen path"))?.clone();

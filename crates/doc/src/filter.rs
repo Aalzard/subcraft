@@ -15,6 +15,8 @@ pub const MAX_GRADIENT_STOPS: usize = 8;
 pub const MAX_MEDIAN_RADIUS: f32 = 16.0;
 /// Warp noise cells across the texture.
 pub const MAX_WARP_SCALE: u32 = 64;
+/// Most reads per texel of a Blur Slope (its Quality).
+pub const MAX_SLOPE_SAMPLES: u32 = 32;
 /// Largest Mosaic block edge in pixels (also bounds its tile margin).
 pub const MAX_MOSAIC_SIZE: u32 = 64;
 /// Posterize steps: 2 is a binary split, 64 is nearly continuous.
@@ -335,6 +337,10 @@ pub enum Filter {
     /// Painter's Directional Distance: bright values spread `distance` pixels along `angle_deg`
     /// (0 = right, counter-clockwise), fading with the distance; Contrast (0..=1) steepens the fade.
     DirectionalDistance { distance: f32, angle_deg: f32, contrast: f32 },
+    /// Painter's Blur Slope: each texel is the average of `samples` reads along the offset the
+    /// Warp noise field (`scale` cells across the texture, `seed`) gives it, up to `intensity`
+    /// pixels per axis: a blur whose direction and length follow the noise.
+    BlurSlope { intensity: f32, scale: u32, seed: u32, samples: u32 },
 }
 
 /// Curve of a Gradient Curve filter.
@@ -438,7 +444,7 @@ pub struct OutlineParts {
 }
 
 impl Filter {
-    pub const ALL: [Self; 38] = [Self::Contrast { gain: 1.0, pivot: 0.5 },
+    pub const ALL: [Self; 39] = [Self::Contrast { gain: 1.0, pivot: 0.5 },
         Self::Hsl { hue: 0.0, saturation: 1.0, lightness: 0.0 },
         Self::Threshold { cutoff: 0.5 }, Self::Clamp { low: 0.0, high: 1.0 }, Self::Blur { radius: 4.0 }, Self::Sharpen { radius: 2.0, amount: 1.0 }, Self::DirectionalBlur { radius: 8.0, angle_deg: 0.0 }, Self::Highpass { radius: 4.0, amount: 1.0 },
         Self::Bevel {radius:8.0,amount:1.0,threshold:0.5}, Self::MaskOutline {radius:4.0,threshold:0.5,position:OutlinePosition::Both},
@@ -461,7 +467,8 @@ impl Filter {
         Self::OuterGlow { width: 8.0, spread: 0.0, opacity: 0.75, color: [1.0; 3], precise: false },
         Self::GradientCurve { preset: CurvePreset::SCurve, invert: false, balance: 0.5, contrast: 0.0 },
         Self::BevelSmooth { radius: 8.0, direction: BevelDirection::Inward, smoothing: 0.5, curve_offset: 0.0, curve_shape: 0.0, threshold: 0.5 },
-        Self::DirectionalDistance { distance: 16.0, angle_deg: 0.0, contrast: 0.0 }];
+        Self::DirectionalDistance { distance: 16.0, angle_deg: 0.0, contrast: 0.0 },
+        Self::BlurSlope { intensity: 8.0, scale: 4, seed: 1, samples: 8 }];
 
     /// A Bevel (the plain variant when Corner Type and Smoothing are at their defaults).
     pub fn bevel(p: BevelParts) -> Self {
@@ -563,7 +570,8 @@ impl Filter {
             Self::Transform {..} => "Transform", Self::Mirror {..} => "Mirror",
             Self::BevelShape {..} => "Bevel", Self::MaskOutlineShape {..} => "Mask Outline", Self::HeightAdjust {..} => "Height Adjust",
             Self::Fxaa {..} => "FXAA (Anti-Aliasing)", Self::DropShadow {..} => "Drop Shadow", Self::OuterGlow {..} => "Glow", Self::GradientDynamic {..} => "Gradient Dynamic",
-            Self::GradientCurve {..} => "Gradient Curve", Self::BevelSmooth {..} => "Bevel Smooth", Self::DirectionalDistance {..} => "Directional Distance" }
+            Self::GradientCurve {..} => "Gradient Curve", Self::BevelSmooth {..} => "Bevel Smooth", Self::DirectionalDistance {..} => "Directional Distance",
+            Self::BlurSlope {..} => "Blur Slope" }
     }
 
     pub fn supports_channel(self, channel: ChannelKind) -> bool {
@@ -612,6 +620,7 @@ impl Filter {
             Self::Mosaic { size } => Some(size as f32),
             Self::BevelShape { radius, .. } | Self::BevelSmooth { radius, .. } => Some(radius),
             Self::DirectionalDistance { distance, .. } => Some(distance),
+            Self::BlurSlope { intensity, .. } => Some(intensity),
             Self::MaskOutlineShape { radius, blur, .. } => Some(radius + blur),
             Self::Fxaa { .. } => Some(1.0),
             Self::DropShadow { distance, size, .. } => Some(distance + size),
@@ -632,7 +641,7 @@ impl Filter {
 
     pub fn softens_coverage(self) -> bool {
         matches!(self, Self::Blur { .. } | Self::BlurWrap { .. } | Self::Transform { .. } | Self::Mirror { .. } | Self::DirectionalBlur { .. } | Self::Warp { .. } | Self::DirectionalWarp { .. } | Self::Mosaic { .. }
-            | Self::Fxaa { alpha: true } | Self::DropShadow { .. } | Self::OuterGlow { .. })
+            | Self::Fxaa { alpha: true } | Self::DropShadow { .. } | Self::OuterGlow { .. } | Self::BlurSlope { .. })
     }
 
     /// Highpass is deliberately excluded: radius/amount zero gives its neutral value.
@@ -641,7 +650,7 @@ impl Filter {
             | Self::Sharpen {radius:0.0,..} | Self::Sharpen {amount:0.0,..} | Self::Warp {intensity:0.0,..}
             | Self::DirectionalWarp {intensity:0.0,..} | Self::Mosaic {size:1} | Self::Glow {radius:0.0,..} | Self::Glow {amount:0.0,..}
             | Self::DropShadow {opacity:0.0,..} | Self::OuterGlow {opacity:0.0,..} | Self::OuterGlow {width:0.0,..}
-            | Self::DirectionalDistance {distance:0.0,..})
+            | Self::DirectionalDistance {distance:0.0,..} | Self::BlurSlope {intensity:0.0,..})
             || matches!(self, Self::Median { radius } if radius < 0.5)
     }
 
@@ -700,6 +709,9 @@ impl Filter {
             Self::DirectionalDistance { distance, angle_deg, contrast } => {
                 Self::Blur { radius: distance }.valid() && angle_deg.is_finite() && (-180.0..=180.0).contains(&angle_deg)
                     && contrast.is_finite() && (0.0..=1.0).contains(&contrast)
+            }
+            Self::BlurSlope { intensity, scale, samples, .. } => {
+                Self::Blur { radius: intensity }.valid() && (1..=MAX_WARP_SCALE).contains(&scale) && (2..=MAX_SLOPE_SAMPLES).contains(&samples)
             }
             Self::HeightAdjust { offset, multiply, .. } => offset.is_finite() && (-1.0..=1.0).contains(&offset) && multiply.is_finite() && (0.0..=4.0).contains(&multiply),
             Self::Fxaa { .. } => true,
@@ -797,6 +809,13 @@ mod tests {
         assert!(!Filter::Hsl { hue: 0.0, saturation: 1.0, lightness: 0.0 }.supports_mask());
         assert!(!Filter::Clamp { low: 0.8, high: 0.2 }.valid());
         assert!(!Filter::Threshold { cutoff: f32::NAN }.valid());
+        let slope = Filter::BlurSlope { intensity: 8.2, scale: 4, seed: 9, samples: 8 };
+        assert!(slope.valid() && slope.softens_coverage() && slope.support() == 9 && slope.label() == "Blur Slope" && slope.supports_mask());
+        assert!(Filter::BlurSlope { intensity: 0.0, scale: 4, seed: 9, samples: 8 }.spatial_identity());
+        assert!(!Filter::BlurSlope { intensity: 8.0, scale: 4, seed: 9, samples: 1 }.valid());
+        assert!(!Filter::BlurSlope { intensity: 8.0, scale: 0, seed: 9, samples: 8 }.valid());
+        assert!(!Filter::BlurSlope { intensity: 33.0, scale: 4, seed: 9, samples: 8 }.valid());
+        assert!(Filter::ALL.iter().any(|f| matches!(f, Filter::BlurSlope { .. })));
         assert!(!Filter::Warp { intensity: 8.0, scale: 0, seed: 0 }.valid());
         assert!(!Filter::Warp { intensity: 8.0, scale: 65, seed: 0 }.valid());
         assert!(!Filter::Warp { intensity: 33.0, scale: 4, seed: 0 }.valid());

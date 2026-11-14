@@ -508,8 +508,9 @@ impl Cage {
 
 /// One normal per vertex, averaged over every triangle that touches the vertex's position,
 /// whatever its smoothing or UV splits. Each triangle counts by its corner angle there, so the
-/// result does not depend on how faces are triangulated.
-fn averaged_normals(mesh: &Mesh) -> Vec<Vec3> {
+/// result does not depend on how faces are triangulated. These are the directions the baker's
+/// rays follow with [`BakeSettings::average_normals`]; the bake overlay draws its cage along them too.
+pub fn averaged_normals(mesh: &Mesh) -> Vec<Vec3> {
     // `+ 0.0` folds -0.0 into 0.0 so both zeros share a key.
     let key = |p: Vec3| (p + Vec3::ZERO).to_array().map(f32::to_bits);
     let mut sums: std::collections::HashMap<[u32; 3], Vec3> = std::collections::HashMap::new();

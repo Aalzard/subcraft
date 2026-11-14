@@ -218,17 +218,23 @@ pub struct UiState {
     pub pen_pressure: f32,
     /// Pen / touch contact to primary-button mapping applied to raw input.
     pub pen_input: crate::pen_input::PenInputFixer,
+    /// Native pen tablet input (Wayland tablet protocol / X11 pressure; Linux only).
+    pub tablet: crate::tablet::Tablet,
     /// Clicks in the 3D and 2D views show / hide the selected layer on mesh parts (its geometry
     /// mask, Properties → Parts); a drag boxes several (Ctrl+drag removes them).
     pub picking_parts: bool,
     /// Warp projection grid editing (mode, selected points, display settings).
     pub warp: crate::warp_view::WarpEdit,
+    /// Fill projection manipulator of the 3D view (tool, visibility, size, snapping steps).
+    pub gizmo: crate::projection_gizmo::GizmoEdit,
     /// Geometry mask box started in a view (screen point), while picking parts.
     pub parts_box: Option<egui::Pos2>,
     /// Geometry mask copied from a layer row's menu.
     pub parts_clipboard: Option<subcraft_doc::PartMask>,
     /// Geometry mask overlay of the 2D view (excluded islands, hovered part).
     pub uv_parts: crate::panels::uv_view::PartsOverlay,
+    /// Geometry mask and Polygon Fill feedback drawn on the model in the 3D view.
+    pub part_overlay_3d: crate::part_overlay::Overlay3d,
     /// Quick mask overlay of the 2D view: (quick mask revision, texture).
     pub quick_mask_tex: Option<(u64, egui::TextureHandle)>,
     /// Texture Set List > Settings: which description lines the rows show.
@@ -475,9 +481,11 @@ impl UiState {
             painting: false,
             picking_parts: false,
             warp: Default::default(),
+            gizmo: Default::default(),
             parts_box: None,
             parts_clipboard: None,
             uv_parts: Default::default(),
+            part_overlay_3d: Default::default(),
             quick_mask_tex: None,
             set_descriptions: Default::default(),
             picking_focus: false,
@@ -492,6 +500,7 @@ impl UiState {
             last_stroke_camera: None,
             pen_pressure: 1.0,
             pen_input: Default::default(),
+            tablet: Default::default(),
             uv_edges: HashMap::new(),
             uv_density: HashMap::new(),
             rename: None,

@@ -148,6 +148,15 @@ fn document_channels_and_mesh_maps_write_only_what_exists() {
     let mesh = names(find("Mesh Maps"));
     assert_eq!(mesh.len(), 2, "only the baked maps: {mesh:?}");
     assert!(mesh.iter().any(|n| n.contains("Curvature")) && mesh.iter().any(|n| n.contains("Ambient")), "{mesh:?}");
+    // The With Alpha variant: Base Color carries the opacity as alpha, and Opacity is its own file.
+    ch.insert(ChannelKind::Opacity, TiledImage::new(RES, RES, 1, [0.25; 4]));
+    let sets = [ExportTextureSet { name: "P", material_slot: 0, udim: None, channels: &ch, mesh_maps: Some(&baked), mixing: subcraft_doc::MixingSettings::LEGACY }];
+    let files = render(&sets, find("Document channels + Normal + AO (With Alpha)"));
+    let got: Vec<&str> = files.iter().map(|f| f.0.as_str()).collect();
+    assert_eq!(got, ["M_P_BaseColor.png", "M_P_Opacity.png", "M_P_User1.png", "M_P_AO.png"]);
+    assert_eq!(files[0].1.channels, 4, "RGBA base colour");
+    assert!((files[0].1.texel(9, 9, false)[3] - 0.25).abs() < 1.0 / 255.0, "alpha is the opacity");
+    assert_eq!(render(&sets, find("Document channels + Normal + AO (No Alpha)"))[0].1.channels, 3, "the No Alpha variant stays RGB");
 }
 
 #[test]

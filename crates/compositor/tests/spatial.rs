@@ -899,6 +899,43 @@ fn warp_matches_dense_bilinear_reference_across_tiles_and_is_deterministic() {
     set(&mut ts, Filter::Warp { intensity: 0.0, scale: 3, seed: 5 });
     assert_image(&ts, &fx, &data);
 }
+fn slope_reference(input: &[f32], intensity: f32, scale: u32, seed: u32, samples: u32) -> Vec<f32> {
+    let n = N as i32;
+    let at = |x: i32, y: i32| input[(y.clamp(0, n - 1) * n + x.clamp(0, n - 1)) as usize];
+    (0..N).flat_map(|y| (0..N).map(move |x| (x, y))).map(|(x, y)| {
+        let [dx, dy] = subcraft_materials::filter::warp::offset(x, y, N, intensity, scale, seed);
+        (0..samples).map(|k| {
+            let t = k as f32 / (samples - 1) as f32;
+            let (sx, sy) = ((x as f32 + dx * t).clamp(0.0, (N - 1) as f32), (y as f32 + dy * t).clamp(0.0, (N - 1) as f32));
+            let (x0, y0) = (sx.floor() as i32, sy.floor() as i32);
+            let (fx, fy) = (sx - x0 as f32, sy - y0 as f32);
+            let top = at(x0, y0) * (1.0 - fx) + at(x0 + 1, y0) * fx;
+            let bottom = at(x0, y0 + 1) * (1.0 - fx) + at(x0 + 1, y0 + 1) * fx;
+            top * (1.0 - fy) + bottom * fy
+        }).sum::<f32>() / samples as f32
+    }).collect()
+}
+#[test]
+fn blur_slope_averages_along_the_noise_offset() {
+    let fx = Fixture::new();
+    let (mut ts, mut l, data) = noisy_field();
+    add(&mut l, &ts, C::Roughness, Filter::BlurSlope { intensity: 6.0, scale: 3, seed: 5, samples: 6 });
+    let id = ts.insert_above(None, l);
+    let expected = slope_reference(&data, 6.0, 3, 5, 6);
+    assert_image(&ts, &fx, &expected);
+    assert!(expected.iter().zip(&data).filter(|(a, b)| (**a - **b).abs() > 0.02).count() > 2000, "the blur changed real texels");
+    // It smooths: along the slope the result varies less than the Warp of the same field.
+    let rough = |v: &[f32]| v.windows(2).map(|w| (w[1] - w[0]).abs()).sum::<f32>();
+    assert!(rough(&expected) < rough(&warp_reference(&data, 6.0, 3, 5)));
+    let set = |ts: &mut TextureSet, filter: Filter| {
+        Arc::make_mut(&mut ts.find_mut(id).unwrap().content_effects[0]).kind = ContentEffectKind::Filter { channel: C::Roughness, filter };
+    };
+    // More reads, another seed: each matches its own reference; no intensity is the identity.
+    set(&mut ts, Filter::BlurSlope { intensity: 6.0, scale: 3, seed: 6, samples: 16 });
+    assert_image(&ts, &fx, &slope_reference(&data, 6.0, 3, 6, 16));
+    set(&mut ts, Filter::BlurSlope { intensity: 0.0, scale: 3, seed: 5, samples: 6 });
+    assert_image(&ts, &fx, &data);
+}
 #[test]
 fn warp_moves_paint_coverage_with_the_pixels() {
     let fx = Fixture::new();
