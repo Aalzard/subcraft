@@ -1574,10 +1574,17 @@ pub fn projection_move(p: &mut subcraft_doc::Projection, d: Vec2) {
     p.offset = [p.offset[0] - step[0], p.offset[1] - step[1]];
 }
 
-/// Set the pattern's rotation, turning it about the view centre.
+/// Set the pattern's rotation, turning it about the view centre. The angle is kept within
+/// -180..=180 (a whole turn maps the same): the Brush panel's Rotation slider clamps to that
+/// range whenever it is shown, so a pattern dragged past 180 degrees jumped to another angle and
+/// place while the panel was open.
 pub fn projection_rotate(p: &mut subcraft_doc::Projection, degrees: f32) {
+    if !degrees.is_finite() {
+        return;
+    }
     let centre = p.transform_2d(PROJECTION_CENTRE);
-    p.rotation_deg = degrees;
+    let d = degrees.rem_euclid(360.0);
+    p.rotation_deg = if d > 180.0 { d - 360.0 } else { d };
     keep_centre(p, centre);
 }
 
@@ -1728,6 +1735,31 @@ mod tests {
         let above = grid_readout_anchor(view, Some(plate));
         assert_eq!(above, egui::pos2(110.0, 554.0));
         assert!(above.y < plate.top(), "never on the hints");
+    }
+
+    /// QA 2026-11: S + drag turned the pattern past 180 degrees, and the Brush panel's slider
+    /// (-180..180) then clamped it: the pattern jumped while the panel was open.
+    #[test]
+    fn projection_turns_stay_within_the_sliders_range() {
+        let mut p = subcraft_doc::Projection::default();
+        p.scale = [2.0, 2.0];
+        p.offset = [0.1, -0.3];
+        let mut unwrapped = p;
+        unwrapped.rotation_deg = 270.0;
+        keep_centre(&mut unwrapped, p.transform_2d(PROJECTION_CENTRE));
+        projection_rotate(&mut p, 270.0);
+        assert_eq!(p.rotation_deg, -90.0);
+        for s in [[0.0, 0.0], [1.0, 0.3], [0.5, 0.5]] {
+            let (a, b) = (p.transform_2d(s), unwrapped.transform_2d(s));
+            assert!((a[0] - b[0]).abs() < 1e-4 && (a[1] - b[1]).abs() < 1e-4, "the same pattern: {a:?} vs {b:?}");
+        }
+        for degrees in [-540.0f32, -181.0, 180.0, 359.0, 725.0] {
+            projection_rotate(&mut p, degrees);
+            assert!((-180.0..=180.0).contains(&p.rotation_deg), "{degrees}: {}", p.rotation_deg);
+        }
+        let kept = p;
+        projection_rotate(&mut p, f32::NAN);
+        assert_eq!(p, kept);
     }
 
     #[test]
