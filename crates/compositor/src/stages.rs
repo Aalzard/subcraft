@@ -282,6 +282,9 @@ pub(crate) struct Graph<'a> {
     compare_content: HashMap<(LayerId, ChannelKind), usize>,
     /// The top-level layers, to rebuild a stack below a layer on demand.
     top: &'a [Arc<Layer>],
+    /// Quantize palettes per node: picked once from the whole input texture, then shared by
+    /// every tile.
+    palettes: Mutex<HashMap<usize, Arc<OnceLock<Arc<subcraft_materials::filter::quantize::Palette>>>>>,
 }
 
 /// Anchor bookkeeping of a graph whose texture set has references.
@@ -360,6 +363,7 @@ impl<'a> Graph<'a> {
             compare_below: HashMap::new(),
             compare_content: HashMap::new(),
             top: &[],
+            palettes: Mutex::new(HashMap::new()),
         }
     }
     /// Index the anchors of `layers` when any layer reads one.
@@ -761,6 +765,15 @@ impl<'a> Graph<'a> {
         }
         if filter.is_pixelwise() {
             let filter = filter.scaled(self.radius_scale);
+            let mut input = input;
+            // Quantize Contour Smoothing: a Gaussian blur of the input, then the palette.
+            if let Filter::Quantize { contour_smoothing, .. } = filter {
+                if contour_smoothing > 0.0 {
+                    let weights = Arc::new(subcraft_materials::filter::gaussian_weights(contour_smoothing));
+                    let h = self.push(Node::Gaussian { input, weights: weights.clone(), horizontal: true, wrap: false });
+                    input = self.push(Node::Gaussian { input: h, weights, horizontal: false, wrap: false });
+                }
+            }
             return Some(self.push(Node::Pixelwise { input, filter, kind, support: filter.support() }));
         }
         if let Filter::Warp { scale, seed, .. } = filter {
@@ -1579,6 +1592,20 @@ impl<'a> Graph<'a> {
                 let grid = Neighborhood::new(self, *input, &geo, *support);
                 let res = self.ctx.geometry.resolution;
                 let mut out = vec![[0.0; 4]; TILE_TEXELS];
+                if let Filter::Quantize { colors, dithering, pattern, lab, apply_to_alpha, alpha_threshold, .. } = *filter {
+                    use subcraft_materials::filter::quantize as qz;
+                    let lab = qz::uses_lab(lab, *kind);
+                    let cell = self.palettes.lock().unwrap().entry(node).or_default().clone();
+                    let palette = cell.get_or_init(|| Arc::new(qz::palette(&quantize_samples(&grid, res), colors as usize, lab))).clone();
+                    let settings = qz::Quantize { dithering, pattern, lab, apply_to_alpha, alpha_threshold };
+                    for (i, dst) in out.iter_mut().enumerate() {
+                        let (x, y) = geo.texel_xy(i);
+                        if x < res && y < res {
+                            *dst = qz::map(grid.pixel(x, y), x, y, &palette, settings);
+                        }
+                    }
+                    return out;
+                }
                 for (i, dst) in out.iter_mut().enumerate() {
                     let (x, y) = geo.texel_xy(i);
                     if x >= res || y >= res {
@@ -1825,6 +1852,23 @@ impl<'a> Graph<'a> {
 }
 
 /// Preload a bounded rectangle once; no cache locks or graph traversal inside bilinear taps.
+/// Texels the Quantize palette is picked from: a regular grid of at most
+/// `MAX_PALETTE_SAMPLES` over the whole texture, covered texels only.
+fn quantize_samples(grid: &Neighborhood, res: u32) -> Vec<[f32; 3]> {
+    let side = (subcraft_materials::filter::quantize::MAX_PALETTE_SAMPLES as f64).sqrt() as u32;
+    let step = res.div_ceil(side).max(1);
+    let mut samples = Vec::new();
+    for y in (0..res).step_by(step as usize) {
+        for x in (0..res).step_by(step as usize) {
+            let p = grid.pixel(x, y);
+            if p[3] > 0.0 {
+                samples.push([p[0], p[1], p[2]]);
+            }
+        }
+    }
+    samples
+}
+
 struct Neighborhood {
     x0: usize,
     y0: usize,
@@ -1931,6 +1975,8 @@ fn spatial_value(
         Filter::Bevel { .. } | Filter::MaskOutline { .. } | Filter::Median { .. } => blurred,
         Filter::BevelShape { .. } | Filter::MaskOutlineShape { .. } | Filter::Fxaa { .. } => blurred,
         Filter::BevelSmooth { .. } | Filter::DirectionalDistance { .. } => blurred,
+        // Pixelwise nodes whose output is the final value (a filter missing here is ignored).
+        Filter::AnisotropicKuwahara { .. } | Filter::Quantize { .. } => blurred,
         Filter::DropShadow { spread, opacity, color, .. } => under(source, blurred, spread, opacity, false, color, kind),
         Filter::OuterGlow { spread, opacity, color, precise, .. } => under(source, blurred, spread, opacity, precise, color, kind),
         Filter::Blur { radius: 0.0 }
