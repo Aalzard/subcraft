@@ -4,6 +4,7 @@
 use glam::{Vec2, Vec3};
 use rayon::prelude::*;
 use subcraft_materials::TextureSetGeometry;
+use subcraft_mesh::topology::{PolygonTopology, WeldedEdge};
 use subcraft_mesh::{Bvh, Mesh};
 
 use crate::camera::Camera;
@@ -147,6 +148,71 @@ pub fn triangles_in_uv_box(mesh: &Mesh, slot: u32, min: Vec2, max: Vec2) -> Vec<
             triangle_overlaps_rect(q, min, max)
         })
         .collect()
+}
+
+/// The edge of polygon `p` that a drag from `a` towards `b` (pixels) leaves through on screen;
+/// a click (no drag) takes the edge nearest `a`. `None` when no edge is in front of the camera.
+pub fn loop_edge(topology: &PolygonTopology, camera: &Camera, p: u32, a: Vec2, b: Vec2) -> Option<WeldedEdge> {
+    let screen = |w: u32| camera.project(topology.positions[w as usize]).map(|v| v.truncate());
+    let segments: Vec<(WeldedEdge, Vec2, Vec2)> = topology.edges.get(p as usize)?.iter().filter_map(|&e| Some((e, screen(e.0)?, screen(e.1)?))).collect();
+    let d = b - a;
+    if d.length() >= 3.0 {
+        // The first edge the ray from `a` along the drag crosses.
+        let mut best: Option<(f32, WeldedEdge)> = None;
+        for &(e, p0, p1) in &segments {
+            let s = p1 - p0;
+            let denom = d.perp_dot(s);
+            if denom.abs() < 1e-9 {
+                continue;
+            }
+            let t = (p0 - a).perp_dot(s) / denom;
+            let u = (p0 - a).perp_dot(d) / denom;
+            if t > 0.0 && (0.0..=1.0).contains(&u) && best.is_none_or(|(bt, _)| t < bt) {
+                best = Some((t, e));
+            }
+        }
+        if let Some((_, e)) = best {
+            return Some(e);
+        }
+        // `a` outside the projected polygon: the edge lying most in the drag direction.
+        let dir = d.normalize_or_zero();
+        let along = |s: &(WeldedEdge, Vec2, Vec2)| ((s.1 + s.2) * 0.5 - a).normalize_or_zero().dot(dir);
+        return segments.iter().max_by(|x, y| along(x).total_cmp(&along(y))).map(|s| s.0);
+    }
+    let distance = |s: &(WeldedEdge, Vec2, Vec2)| {
+        let ab = s.2 - s.1;
+        let t = if ab.length_squared() > 0.0 { ((a - s.1).dot(ab) / ab.length_squared()).clamp(0.0, 1.0) } else { 0.0 };
+        a.distance(s.1 + ab * t)
+    };
+    segments.iter().min_by(|x, y| distance(x).total_cmp(&distance(y))).map(|s| s.0)
+}
+
+/// Triangles of the polygon loop a drag from `a` to `b` (pixels) picks: the polygon under `a`,
+/// then the loop through it in the drag direction ([`loop_edge`]); `partial` stops at the polygon
+/// under `b` (and `both_sides` adds as many on the other side of the start). Only polygons of
+/// material `geometry.material_slot` take part. Sorted, unique; empty when `a` misses the set.
+pub fn loop_triangles(mesh: &Mesh, bvh: &Bvh, geometry: &TextureSetGeometry, camera: &Camera, a: Vec2, b: Vec2, partial: bool, both_sides: bool) -> Vec<u32> {
+    let slot = geometry.material_slot;
+    let hit = |p: Vec2| {
+        let (o, d) = camera.ray(p);
+        bvh.intersect(o, d, 0.0, f32::INFINITY).map(|h| h.tri).filter(|&t| mesh.tri_material.get(t as usize) == Some(&slot))
+    };
+    let Some(start_tri) = hit(a) else { return Vec::new() };
+    let topology = geometry.polygon_topology();
+    let start = topology.polygon_of[start_tri as usize];
+    let accept = |p: u32| topology.triangles[p as usize].first().is_some_and(|&t| mesh.tri_material[t as usize] == slot);
+    let polygons = match loop_edge(topology, camera, start, a, b) {
+        None => vec![start],
+        Some(edge) if partial => match hit(b) {
+            Some(end) => topology.partial(start, edge, topology.polygon_of[end as usize], both_sides, accept),
+            None => vec![start],
+        },
+        Some(edge) => topology.ring(start, edge, accept),
+    };
+    let mut tris: Vec<u32> = polygons.iter().flat_map(|&p| topology.triangles[p as usize].iter().copied()).collect();
+    tris.sort_unstable();
+    tris.dedup();
+    tris
 }
 
 /// Group id of every triangle for `mode` (`None` for single triangles). Objects without object

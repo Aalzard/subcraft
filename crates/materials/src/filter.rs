@@ -5,6 +5,7 @@ pub mod contour;
 pub mod median;
 pub mod warp;
 pub mod pixelwise;
+pub mod quantize;
 
 pub fn apply(filter: Filter, input: [f32; 3], channel: ChannelKind) -> [f32; 3] {
     if !filter.valid() || !filter.supports_channel(channel) { return input; }
@@ -18,7 +19,7 @@ pub fn apply(filter: Filter, input: [f32; 3], channel: ChannelKind) -> [f32; 3] 
         Filter::GradientDynamic { .. } => input, // Reads an image: evaluated by the compositor.
         Filter::BevelShape { .. } | Filter::MaskOutlineShape { .. } | Filter::Fxaa { .. } | Filter::DropShadow { .. } | Filter::OuterGlow { .. } => input,
         Filter::HeightAdjust { invert, offset, multiply } => input.map(|v| height_adjust(v, invert, offset, multiply, channel)),
-        Filter::BevelSmooth { .. } | Filter::DirectionalDistance { .. } | Filter::BlurSlope { .. } => input, // Staged by the compositor.
+        Filter::BevelSmooth { .. } | Filter::DirectionalDistance { .. } | Filter::BlurSlope { .. } | Filter::AnisotropicKuwahara { .. } | Filter::Quantize { .. } => input, // Staged by the compositor.
         Filter::GradientCurve { preset, invert, balance, contrast } => input.map(|v| gradient_curve(v, preset, invert, balance, contrast)),
         Filter::Smoothstep { min, max } => input.map(|v| smoothstep(v, min, max)),
         Filter::ThresholdCompare { cutoff, mode } => {

@@ -549,12 +549,19 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         state.fill_box = None;
         let end = pointer.unwrap_or(start);
         state.session.brush.mode = StrokeMode::Paint;
-        let result = if crate::view_props::is_box_drag(start, end) {
+        let looped = state.fill_selection.is_loop();
+        let result = if looped {
+            // Alt held at release mirrors a partial loop on the other side of the first click.
+            let both_sides = ui.input(|i| i.modifiers.alt);
+            let partial = state.fill_selection == subcraft_paint::PolygonSelectMode::PartialLoop;
+            state.session.polygon_fill_loop(&camera, to_screen(start), to_screen(end), state.fill_mode, partial, both_sides)
+        } else if crate::view_props::is_box_drag(start, end) {
             state.session.polygon_fill_box(&camera, to_screen(start), to_screen(end), state.fill_mode, state.fill_visible_only)
         } else {
             state.session.polygon_fill(&camera, to_screen(start), state.fill_mode)
         };
         match result {
+            Ok(tiles) if tiles.is_empty() && looped => state.set_status("Polygon fill: no polygon of this texture set under the cursor", now),
             Ok(tiles) if tiles.is_empty() && crate::view_props::is_box_drag(start, end) => state.set_status("Polygon fill: the box touched no triangle of this texture set", now),
             Ok(_) => {}
             Err(e) => state.set_status(format!("Polygon fill: {e}"), now),
@@ -637,10 +644,12 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     overlay_uploaded = true;
                 }
             }
-            params.wireframe = view.wireframe && !bake_mode;
+            // Polygon Fill shows the active texture set's polygons, as in Painter.
+            let tool_slot = (state.tool == Tool::PolygonFill).then(|| state.session.selected_texture_set().material_slot);
+            params.wireframe = crate::view_extras::wire_slot(view.wireframe, tool_slot).is_some() && !bake_mode;
             if params.wireframe {
                 let before = state.wire_uploaded;
-                crate::view_extras::sync_wireframe(renderer, &rs.device, view, &state.session.scene().mesh, &mut state.wire_uploaded);
+                crate::view_extras::sync_wireframe(renderer, &rs.device, view, &state.session.scene().mesh, &mut state.wire_uploaded, tool_slot);
                 overlay_uploaded |= state.wire_uploaded != before;
             }
             if let Some(high) = &state.bake.preview_mesh {
@@ -906,7 +915,12 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             painter.circle_stroke(from, 6.0, Stroke::new(1.5, cross));
         }
     }
-    if let Some(r) = fill_rect.filter(|r| state.fill_box.is_some() && crate::view_props::is_box_drag(r.min, r.max)) {
+    if state.fill_selection.is_loop() {
+        // Loop modes: the drag is a direction, drawn as an arrow from the first click.
+        if let (Some(a), Some(b)) = (state.fill_box, pointer) && crate::view_props::is_box_drag(a, b) {
+            painter.arrow(a, b - a, Stroke::new(1.5, crate::theme::ACCENT()));
+        }
+    } else if let Some(r) = fill_rect.filter(|r| state.fill_box.is_some() && crate::view_props::is_box_drag(r.min, r.max)) {
         crate::view_props::draw_fill_box(&painter, r, state.fill_visible_only);
     }
     if let (Some(a), Some(b)) = (state.parts_box, pointer) && crate::view_props::is_box_drag(a, b) {
@@ -1574,10 +1588,17 @@ pub fn projection_move(p: &mut subcraft_doc::Projection, d: Vec2) {
     p.offset = [p.offset[0] - step[0], p.offset[1] - step[1]];
 }
 
-/// Set the pattern's rotation, turning it about the view centre.
+/// Set the pattern's rotation, turning it about the view centre. The angle is kept within
+/// -180..=180 (a whole turn maps the same): the Brush panel's Rotation slider clamps to that
+/// range whenever it is shown, so a pattern dragged past 180 degrees jumped to another angle and
+/// place while the panel was open.
 pub fn projection_rotate(p: &mut subcraft_doc::Projection, degrees: f32) {
+    if !degrees.is_finite() {
+        return;
+    }
     let centre = p.transform_2d(PROJECTION_CENTRE);
-    p.rotation_deg = degrees;
+    let d = degrees.rem_euclid(360.0);
+    p.rotation_deg = if d > 180.0 { d - 360.0 } else { d };
     keep_centre(p, centre);
 }
 
@@ -1728,6 +1749,31 @@ mod tests {
         let above = grid_readout_anchor(view, Some(plate));
         assert_eq!(above, egui::pos2(110.0, 554.0));
         assert!(above.y < plate.top(), "never on the hints");
+    }
+
+    /// QA 2026-11: S + drag turned the pattern past 180 degrees, and the Brush panel's slider
+    /// (-180..180) then clamped it: the pattern jumped while the panel was open.
+    #[test]
+    fn projection_turns_stay_within_the_sliders_range() {
+        let mut p = subcraft_doc::Projection::default();
+        p.scale = [2.0, 2.0];
+        p.offset = [0.1, -0.3];
+        let mut unwrapped = p;
+        unwrapped.rotation_deg = 270.0;
+        keep_centre(&mut unwrapped, p.transform_2d(PROJECTION_CENTRE));
+        projection_rotate(&mut p, 270.0);
+        assert_eq!(p.rotation_deg, -90.0);
+        for s in [[0.0, 0.0], [1.0, 0.3], [0.5, 0.5]] {
+            let (a, b) = (p.transform_2d(s), unwrapped.transform_2d(s));
+            assert!((a[0] - b[0]).abs() < 1e-4 && (a[1] - b[1]).abs() < 1e-4, "the same pattern: {a:?} vs {b:?}");
+        }
+        for degrees in [-540.0f32, -181.0, 180.0, 359.0, 725.0] {
+            projection_rotate(&mut p, degrees);
+            assert!((-180.0..=180.0).contains(&p.rotation_deg), "{degrees}: {}", p.rotation_deg);
+        }
+        let kept = p;
+        projection_rotate(&mut p, f32::NAN);
+        assert_eq!(p, kept);
     }
 
     #[test]

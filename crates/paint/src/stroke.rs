@@ -1038,6 +1038,16 @@ impl Stroke {
         self.fill_triangles(ts, ctx, &tris)
     }
 
+    /// Fill the polygon loop a drag from `a` to `b` (pixels) picks, grown to `mode`'s elements
+    /// (see [`crate::select::loop_triangles`]).
+    #[allow(clippy::too_many_arguments)]
+    pub fn polygon_fill_loop(&mut self, ts: &mut TextureSet, ctx: &PaintContext, a: Vec2, b: Vec2, mode: PolygonFillMode, partial: bool, both_sides: bool) -> Result<Vec<usize>, PaintError> {
+        self.check(ts, ctx)?;
+        let seeds = crate::select::loop_triangles(ctx.mesh, ctx.bvh, ctx.geometry, ctx.camera, a, b, partial, both_sides);
+        let tris = crate::select::grow(ctx.mesh, ctx.geometry, &seeds, mode);
+        self.fill_triangles(ts, ctx, &tris)
+    }
+
     /// [`Stroke::polygon_fill_box`] from the 2D view: a box in UV space.
     pub fn polygon_fill_uv_box(&mut self, ts: &mut TextureSet, ctx: &PaintContext, a: Vec2, b: Vec2, mode: PolygonFillMode) -> Result<Vec<usize>, PaintError> {
         self.check(ts, ctx)?;

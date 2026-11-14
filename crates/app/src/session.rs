@@ -3118,6 +3118,13 @@ impl Session {
         self.polygon_fill_with(camera, |stroke, ts, ctx| stroke.polygon_fill_box(ts, ctx, a, b, mode, visible_only))
     }
 
+    /// Polygon fill of the polygon loop a drag from `a` to `b` picks (Painter's Polygon loop fill;
+    /// `partial`: only up to the polygon under `b`, `both_sides` mirrors that span), grown to
+    /// `mode` (one history entry).
+    pub fn polygon_fill_loop(&mut self, camera: &Camera, a: Vec2, b: Vec2, mode: PolygonFillMode, partial: bool, both_sides: bool) -> Result<Vec<usize>, PaintError> {
+        self.polygon_fill_with(camera, |stroke, ts, ctx| stroke.polygon_fill_loop(ts, ctx, a, b, mode, partial, both_sides))
+    }
+
     /// Polygon fill of everything a UV box `[a, b]` touches in the 2D view (one history entry).
     pub fn polygon_fill_uv_box(&mut self, a: Vec2, b: Vec2, mode: PolygonFillMode) -> Result<Vec<usize>, PaintError> {
         self.polygon_fill_with(&uv_camera(), |stroke, ts, ctx| stroke.polygon_fill_uv_box(ts, ctx, a, b, mode))
@@ -3748,6 +3755,11 @@ impl Session {
     /// whose size holds a whole cube, see `display::lut_cube_size`). The original bytes are kept,
     /// so saving stores the file as it was. Returns the new resource's id.
     pub fn add_color_lut(&mut self, name: &str, bytes: Vec<u8>) -> Result<subcraft_core::ResourceId, String> {
+        // The same file again is the same LUT (as images and fonts): loading it twice used to add
+        // and save a second copy.
+        if let Some(r) = self.resources.iter().find(|r| r.kind == subcraft_doc::ResourceKind::ColorLut && r.encoded.as_deref().is_some_and(|e| *e == bytes)) {
+            return Ok(r.id);
+        }
         let bitmap = subcraft_image::io::decode_bitmap(&bytes, Some(name)).map_err(|e| format!("{name}: {e}"))?;
         if subcraft_doc::display::lut_cube_size(bitmap.width, bitmap.height).is_none() {
             return Err(format!("{name} is {} x {}: not a 3D LUT (width x height must be a cube, such as 2048 x 128)", bitmap.width, bitmap.height));

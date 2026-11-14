@@ -5,7 +5,24 @@ What changed in SubCraft, newest first. Download the latest build from the
 
 ## Unreleased
 
-### Added
+## 0.4.0 - 2026-11-14
+
+### Highlights
+- **Default layout like Painter**: the 3D and 2D views side by side, with the 2D view narrower (#462).
+- **Projection tool**: material projected over the view with an S+drag transform (#470, #476, #477).
+- **Colour profiles**: a viewport LUT, white point and profile name, and LUTs in Import resources (#464, #475, #478).
+- **Smart materials library**: a shelf library that loads a materials pack folder with thumbnails and applies a material as a fill layer (#480).
+- **Save as copy** (#450) and Project configuration with Reimport mesh (#422).
+- **Painting by part, UV island or object**: geometry mask reload and 2D-view improvements (#452, #460, #463).
+- **Export**: Dilation + transparent padding (#458), resizable list column (#423).
+- **Baking**: File ID source (#448) and more bake settings (#453).
+- **MCP server**: ten robustness fixes (#473, #474).
+
+### Fixed
+- **Camera clipping** after panning and rotating (#472, issue #446).
+- **Black lines on baked ID maps** at open edges (#471, issue #466).
+- Theme fixes, culling on scaled meshes, Warp axis changes, text and path layers pasted across resolutions, brush preset validation, the pen tool, and stamp tip reuse (#479, #481 to #488).
+### Also added
 - Export: the "Dilation + transparent" padding mode: islands grow by the dilation distance and the rest of the gutter is transparent. Painter presets using it now import as is.
 
 ## 0.3.9 - 2026-11-14

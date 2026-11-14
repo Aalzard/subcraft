@@ -76,6 +76,17 @@ mod tests {
         subcraft_image::encode_bitmap(&bitmap).expect("float images encode losslessly").0
     }
 
+    /// QA 2026-11: loading the same LUT file twice added (and saved) a second copy.
+    #[test]
+    fn the_same_lut_file_is_one_resource() {
+        let mut session = Session::new(subcraft_mesh::primitives::cube(2.0), 128);
+        let first = session.add_color_lut("look.exr", lut_file()).unwrap();
+        let count = session.resources().len();
+        assert_eq!(session.add_color_lut("look copy.exr", lut_file()).unwrap(), first);
+        assert_eq!(session.resources().len(), count);
+        assert_eq!(names(session.resources()).len(), 1);
+    }
+
     #[test]
     fn a_loaded_lut_is_a_project_resource_used_by_the_profile_and_saved_with_it() {
         let mut session = Session::new(subcraft_mesh::primitives::cube(2.0), 128);

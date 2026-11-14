@@ -141,11 +141,11 @@ Layout notes: the dropdown at the top right of each view switches between Materi
 | Pause engine computation | Shift + Escape | - | done: layer computation waits and the 3D view says so until Shift+Esc again; export and save still compute | crates/app/src/session.rs (set_engine_paused) | 395 |
 | Toggle animation (particles) | Space | - | missing | - | - |
 | Polygon Fill: rectangular marquee drag | LMB drag with Polygon Fill | - | done | crates/ui/src/viewport.rs | #131 |
-| Polygon Fill: extend loop on the other side | Alt while dragging (loop modes) | - | missing | - | - |
+| Polygon Fill: extend loop on the other side | Alt while dragging (loop modes) | - | done: Alt held at release (partial loop) | crates/ui/src/viewport.rs | (this PR) |
 | Polygon Fill: primary loop only | Shift (partial loop mode) | - | missing | - | - |
 | Polygon Fill: temporary Polygon loop fill | Shift + A | - | missing | - | - |
 | Polygon Fill: combine with previous result | A while dragging | - | missing | - | - |
-| Polygon Fill: wireframe of the active Texture Set shown while the tool is active | 3D view overlay | - | missing | - | - |
+| Polygon Fill: wireframe of the active Texture Set shown while the tool is active | 3D view overlay | - | done: its polygon edges, in the wireframe colour and opacity; the wireframe switch still shows the whole mesh | crates/ui/src/view_extras.rs | (this PR) |
 | Polygon Fill: tooltip with polygon counts and flow arrows | 3D view overlay (12.2) | - | missing | - | - |
 
 ## Tool cursors and overlays
