@@ -170,7 +170,7 @@ Layout notes: parameter lists of individual generators are in the generators che
 | Output selector for generators with several outputs when used in a mask | Properties > Generator | n/a | missing | - | - |
 | Image inputs of a generator can reference an anchor point | Properties > Generator > image inputs | n/a | done | crates/ui/src/panels/properties.rs:555 | - |
 | Blending mode and opacity | Effect row | Normal; 100 | done (in Properties) | crates/ui/src/panels/properties.rs:505 | - |
-| Drag a generator from Assets onto a layer or mask | Assets > Layer stack | n/a | missing | - | - |
+| Drag a generator from Assets onto a layer or mask | Assets > Layer stack | n/a | done: onto a row, its ghost mask slot, a mask effect stack position, or the model | crates/ui/src/panels/shelf.rs | (this PR) |
 | Custom generators (sbsar) from the shelf | Assets | n/a | missing | - | - |
 
 ## Filter effect (mechanics only)

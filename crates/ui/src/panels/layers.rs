@@ -36,6 +36,15 @@ const GENERATORS: [(&str, GeneratorKind); 6] = [
 ];
 const MESH_MAP_GENERATORS: [MeshMapKind; 3] = [MeshMapKind::AmbientOcclusion, MeshMapKind::Curvature, MeshMapKind::Thickness];
 
+/// The generators the Shelf's Generators tab lists (the row menu's, mesh maps included), in order.
+pub fn shelf_generators() -> Vec<(String, GeneratorKind)> {
+    GENERATORS
+        .iter()
+        .map(|(label, kind)| (label.to_string(), *kind))
+        .chain(MESH_MAP_GENERATORS.iter().map(|m| (format!("Mesh map: {}", m.display_name()), GeneratorKind::MeshMap(*m))))
+        .collect()
+}
+
 fn generator_menu(ui: &mut Ui, picked: &mut Option<GeneratorKind>) {
     for (label, kind) in GENERATORS {
         if ui.button(format!("{}  {label}", icons::MAGIC_WAND)).clicked() { *picked = Some(kind); ui.close(); }
@@ -1051,6 +1060,7 @@ pub fn ghost_mask_label(item: ShelfDrag, layer: &str) -> String {
         ShelfDrag::Alpha(_) => "this alpha",
         ShelfDrag::Texture(_) => "this image",
         ShelfDrag::Filter(_) => "this filter",
+        ShelfDrag::Generator(_) => "this generator",
         ShelfDrag::SmartMask(_) => "this smart mask",
         _ => "it",
     };
