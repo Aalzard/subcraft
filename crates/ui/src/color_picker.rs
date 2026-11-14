@@ -178,6 +178,32 @@ impl Target<'_> {
     }
 }
 
+/// Where a "pick from the model" request is kept: the id of the colour button waiting for a
+/// colour. The 3D view answers the next click on the model with [`deliver_pick`].
+pub fn pick_target_id() -> Id {
+    Id::new("color_picker_pick_target")
+}
+
+/// The colour button waiting for a pick from the model, if any.
+pub fn pick_target(ctx: &egui::Context) -> Option<Id> {
+    ctx.data(|d| d.get_temp::<Id>(pick_target_id()))
+}
+
+/// Give the waiting colour button the colour picked on the model (linear), ending the request.
+pub fn deliver_pick(ctx: &egui::Context, linear: [f32; 3]) {
+    if let Some(target) = pick_target(ctx) {
+        ctx.data_mut(|d| {
+            d.remove::<Id>(pick_target_id());
+            d.insert_temp(target.with("picked"), linear);
+        });
+    }
+}
+
+/// Stop waiting for a pick (Esc in the 3D view).
+pub fn cancel_pick(ctx: &egui::Context) {
+    ctx.data_mut(|d| d.remove::<Id>(pick_target_id()));
+}
+
 /// Colour swatch button; a click opens the picker popup. `rgb` is linear. Finished picks go to the
 /// front of `recent` when the popup closes.
 pub fn color_button(ui: &mut Ui, id_salt: impl std::hash::Hash + std::fmt::Debug, rgb: &mut [f32; 3], recent: &mut Vec<[f32; 3]>) -> Edit {
@@ -191,6 +217,15 @@ pub fn color_button(ui: &mut Ui, id_salt: impl std::hash::Hash + std::fmt::Debug
     let state_id = id.with("state");
     let mut st = ui.data_mut(|d| d.get_temp::<PickerState>(state_id)).unwrap_or_else(|| PickerState::new(*rgb));
     let mut edit = Edit::default();
+    // A colour picked on the model for this button (the picker's eyedropper).
+    if let Some(picked) = ui.data_mut(|d| d.remove_temp::<[f32; 3]>(id.with("picked"))) {
+        if !same(*rgb, picked) {
+            *rgb = picked;
+            edit.changed = true;
+            push_recent(recent, picked);
+        }
+        edit.done = true;
+    }
     let shown = egui::Popup::menu(&response)
         .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
         .show(|ui| {
@@ -231,6 +266,11 @@ fn picker_body(ui: &mut Ui, id: Id, rgb: &mut [f32; 3], st: &mut PickerState, re
 
     done |= wheel(ui, &mut t);
     old_new(ui, &mut t);
+    // Painter's eyedropper beside the colour: the next click on the model picks its colour.
+    if ui.button(format!("{}  Pick from the model", crate::icons::CROSSHAIR)).on_hover_text("Then click the model in the 3D view: this colour takes the material's base colour there (Esc cancels)").clicked() {
+        ui.ctx().data_mut(|d| d.insert_temp(pick_target_id(), id));
+        ui.close();
+    }
     done |= hex_field(ui, id, &mut t);
 
     ui.scope(|ui| {
@@ -438,6 +478,23 @@ fn hex_field(ui: &mut Ui, id: Id, t: &mut Target<'_>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_colour_picked_on_the_model_reaches_the_waiting_button() {
+        let ctx = egui::Context::default();
+        let button = Id::new("some colour");
+        assert_eq!(pick_target(&ctx), None);
+        deliver_pick(&ctx, [1.0, 0.0, 0.0]);
+        assert_eq!(ctx.data(|d| d.get_temp::<[f32; 3]>(button.with("picked"))), None, "no request, nothing delivered");
+        ctx.data_mut(|d| d.insert_temp(pick_target_id(), button));
+        assert_eq!(pick_target(&ctx), Some(button));
+        deliver_pick(&ctx, [0.2, 0.4, 0.6]);
+        assert_eq!(pick_target(&ctx), None, "the request ends");
+        assert_eq!(ctx.data(|d| d.get_temp::<[f32; 3]>(button.with("picked"))), Some([0.2, 0.4, 0.6]));
+        ctx.data_mut(|d| d.insert_temp(pick_target_id(), button));
+        cancel_pick(&ctx);
+        assert_eq!(pick_target(&ctx), None);
+    }
 
     #[test]
     fn hex_parsing() {
