@@ -554,14 +554,19 @@ pub(crate) fn content_generator_controls(ui: &mut Ui, state: &mut UiState, g: &m
     changed
 }
 
+/// Every generator a mask can hold, in the order the Generator dropdown and the Shelf list them.
+pub fn all_generator_kinds() -> Vec<GeneratorKind> {
+    [GeneratorKind::Edges, GeneratorKind::Cavity, GeneratorKind::AmbientOcclusion, GeneratorKind::Concave, GeneratorKind::Directional, GeneratorKind::PositionGradient, GeneratorKind::MaskEditor,
+        GeneratorKind::Distance3D, GeneratorKind::LinearGradient3D, GeneratorKind::UvRandomColor, GeneratorKind::GrayscaleConversion,
+        GeneratorKind::UvBorderDistance, GeneratorKind::UvChecker, GeneratorKind::UvTexelDensity]
+        .into_iter().chain(MeshMapKind::ALL.into_iter().map(GeneratorKind::MeshMap)).collect()
+}
+
 /// The Generator dropdown of a generator mask effect.
 fn generator_kind_row(ui: &mut Ui, g: &mut subcraft_doc::Generator) -> bool {
     let mut picked = None;
     prop_row(ui, tr("Generator"), |ui| egui::ComboBox::from_id_salt("generator_kind").selected_text(g.kind.label()).show_ui(ui, |ui| {
-        for kind in [GeneratorKind::Edges, GeneratorKind::Cavity, GeneratorKind::AmbientOcclusion, GeneratorKind::Concave, GeneratorKind::Directional, GeneratorKind::PositionGradient, GeneratorKind::MaskEditor,
-            GeneratorKind::Distance3D, GeneratorKind::LinearGradient3D, GeneratorKind::UvRandomColor, GeneratorKind::GrayscaleConversion,
-            GeneratorKind::UvBorderDistance, GeneratorKind::UvChecker, GeneratorKind::UvTexelDensity]
-            .into_iter().chain(MeshMapKind::ALL.into_iter().map(GeneratorKind::MeshMap)) {
+        for kind in all_generator_kinds() {
             if ui.selectable_label(g.kind == kind, kind.label()).clicked() && g.kind != kind { picked = Some(kind); }
         }
     }));

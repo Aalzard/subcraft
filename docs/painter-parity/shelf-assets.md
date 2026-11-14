@@ -372,7 +372,7 @@ Layout notes: counts of Adobe's starter assets are not given in the public help 
 | Smart materials | Starter assets | count not documented | done (own content) | crates/assets/src/smart.rs:249 | - |
 | Smart masks | Starter assets | count not documented | done (own content) | crates/assets/src/presets.rs:250 | - |
 | Filters | Starter assets | count not documented | partial: built-in filter effects, not assets | crates/ui/src/panels/shelf.rs:698 | - |
-| Generators | Starter assets | count not documented | done: Generators type in the Shelf (the 6 generators and 3 mesh-map generators); click or drag into a mask | crates/ui/src/panels/shelf.rs | (this PR) |
+| Generators | Starter assets | count not documented | done: Generators type in the Shelf with every generator the Properties dropdown offers (curvature, position, UV, conversion, Mask Editor, all mesh maps); click or drag into a mask | crates/ui/src/panels/shelf.rs | (this PR) |
 | Brushes | Starter assets | count not documented | done (own content) | crates/ui/src/panels/shelf.rs:647 | - |
 | Particles | Starter assets | count not documented | missing | - | - |
 | Tools | Starter assets | count not documented | missing | - | - |

@@ -38,11 +38,7 @@ const MESH_MAP_GENERATORS: [MeshMapKind; 3] = [MeshMapKind::AmbientOcclusion, Me
 
 /// The generators the Shelf's Generators tab lists (the row menu's, mesh maps included), in order.
 pub fn shelf_generators() -> Vec<(String, GeneratorKind)> {
-    GENERATORS
-        .iter()
-        .map(|(label, kind)| (label.to_string(), *kind))
-        .chain(MESH_MAP_GENERATORS.iter().map(|m| (format!("Mesh map: {}", m.display_name()), GeneratorKind::MeshMap(*m))))
-        .collect()
+    super::properties::all_generator_kinds().into_iter().map(|k| (k.label().to_string(), k)).collect()
 }
 
 fn generator_menu(ui: &mut Ui, picked: &mut Option<GeneratorKind>) {
