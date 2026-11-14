@@ -44,6 +44,7 @@
 | Tools | `Alt+H` | Hide/ignore excluded geometry | HideExcludedGeometry | added (key was free) | hides what the selected layer's geometry mask leaves out; strokes reach what it covered |
 | Tools | `N (hold)` | Ignore stencil mask |  | mouse / hold key | already worked |
 | Tools | `A` | Resume previous stroke |  | no equivalent | no equivalent |
+| Tools | `Shift+A (hold)` | Polygon fill: temporary Polygon loop mode |  | mouse / hold key | added: a Polygon Fill click or drag picks a loop while held |
 | Tools | `V (hold) + LMB` | Set Clone tool source |  | mouse / hold key | added; Ctrl+click still works |
 | Viewport | `F5` | Camera perspective | PerspectiveCamera | added (key was free) |  |
 | Viewport | `F6` | Camera orthographic | OrthographicCamera | added (key was free) |  |

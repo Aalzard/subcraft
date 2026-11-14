@@ -945,6 +945,13 @@ fn position_map_normalization_and_single_axis() {
         // Single axis: gray, the value of that axis.
         assert!(z[0] == z[1] && z[1] == z[2] && (z[0] - b[2]).abs() < 1e-6, "single axis {z:?} vs {b:?}");
     }
+    // No normalization: world units times the scale, the origin at 0.5.
+    let raw = position(PositionOptions { normalization: PositionNormalization::None, scale: 0.25, ..Default::default() });
+    for t in texels(&mesh, 0, RES) {
+        let (p, r) = (t.position, at(&raw, &t));
+        assert!((r[0] - (0.5 + p.x * 0.25)).abs() < 2e-3 && (r[1] - 0.5).abs() < 2e-3 && (r[2] - (0.5 + p.z * 0.25)).abs() < 2e-3, "none {r:?} at {p}");
+    }
+    assert_eq!(PositionOptions::default().scale, 1.0);
 }
 
 #[test]

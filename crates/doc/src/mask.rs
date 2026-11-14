@@ -67,6 +67,97 @@ impl LevelsRange {
     pub fn valid(&self) -> bool {
         [self.in_low, self.in_high, self.gamma, self.out_low, self.out_high].iter().all(|v| v.is_finite()) && self.gamma > 0.0
     }
+
+    /// Input value Painter's midtone handle sits at: the one that maps to the middle of the
+    /// output. It follows the input handles when they move (gamma stays).
+    pub fn midtone(&self) -> f32 {
+        self.in_low + (self.in_high - self.in_low) * 0.5f32.powf(self.gamma.max(1e-3))
+    }
+
+    /// Put the midtone handle at input value `v` (between the input handles): sets the gamma,
+    /// kept in the Gamma slider's range.
+    pub fn set_midtone(&mut self, v: f32) {
+        let span = self.in_high - self.in_low;
+        if !v.is_finite() || span.abs() < 1e-4 {
+            return;
+        }
+        let t = ((v - self.in_low) / span).clamp(0.001, 0.999);
+        self.gamma = (t.ln() / 0.5f32.ln()).clamp(LEVELS_GAMMA_MIN, LEVELS_GAMMA_MAX);
+    }
+
+    /// Where a handle sits, 0-1.
+    pub fn handle(&self, h: LevelsHandle) -> f32 {
+        match h {
+            LevelsHandle::InLow => self.in_low,
+            LevelsHandle::Midtone => self.midtone(),
+            LevelsHandle::InHigh => self.in_high,
+            LevelsHandle::OutLow => self.out_low,
+            LevelsHandle::OutHigh => self.out_high,
+        }
+    }
+
+    /// Drag a handle to `v` (0-1). The input handles keep their order with a small gap and the
+    /// midtone stays between them; the output handles may cross (an inverted ramp).
+    pub fn drag(&mut self, h: LevelsHandle, v: f32) {
+        if !v.is_finite() {
+            return;
+        }
+        let v = v.clamp(0.0, 1.0);
+        const GAP: f32 = 0.01;
+        match h {
+            LevelsHandle::InLow => self.in_low = v.min(self.in_high - GAP).max(0.0),
+            LevelsHandle::InHigh => self.in_high = v.max(self.in_low + GAP).min(1.0),
+            LevelsHandle::Midtone => self.set_midtone(v),
+            LevelsHandle::OutLow => self.out_low = v,
+            LevelsHandle::OutHigh => self.out_high = v,
+        }
+    }
+
+    /// The handle a press at `v` grabs: the closest of `handles` within `tolerance`. Two
+    /// handles on the same spot: the one on the side of the press, so both stay reachable.
+    pub fn grab(&self, handles: &[LevelsHandle], v: f32, tolerance: f32) -> Option<LevelsHandle> {
+        let mut best: Option<(LevelsHandle, f32)> = None;
+        for &h in handles {
+            let at = self.handle(h);
+            let d = (at - v).abs();
+            if d > tolerance {
+                continue;
+            }
+            let better = match best {
+                None => true,
+                Some((b, bd)) if (d - bd).abs() < 1e-6 => {
+                    // Tie: a press left of the spot takes the lower handle, right of it the upper.
+                    let lower = |x: LevelsHandle| matches!(x, LevelsHandle::InLow | LevelsHandle::OutLow);
+                    let upper = |x: LevelsHandle| matches!(x, LevelsHandle::InHigh | LevelsHandle::OutHigh);
+                    (v < at && lower(h) && !lower(b)) || (v > at && upper(h) && !upper(b))
+                }
+                Some((_, bd)) => d < bd,
+            };
+            if better {
+                best = Some((h, d));
+            }
+        }
+        best.map(|(h, _)| h)
+    }
+}
+
+/// Range of the Levels gamma (slider and midtone handle).
+pub const LEVELS_GAMMA_MIN: f32 = 0.1;
+pub const LEVELS_GAMMA_MAX: f32 = 4.0;
+
+/// One handle of Painter's Levels widget: three on the input histogram, two on the output ramp.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LevelsHandle {
+    InLow,
+    Midtone,
+    InHigh,
+    OutLow,
+    OutHigh,
+}
+
+impl LevelsHandle {
+    pub const INPUT: [LevelsHandle; 3] = [LevelsHandle::InLow, LevelsHandle::Midtone, LevelsHandle::InHigh];
+    pub const OUTPUT: [LevelsHandle; 2] = [LevelsHandle::OutLow, LevelsHandle::OutHigh];
 }
 
 impl Default for Levels {
@@ -1413,6 +1504,58 @@ impl Mask {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn levels_midtone_handle_sets_the_gamma_and_follows_the_input_handles() {
+        let mut r = LevelsRange::default();
+        assert!((r.midtone() - 0.5).abs() < 1e-6, "gamma 1: the midtone sits halfway");
+        // The midtone maps to the output middle whatever the gamma.
+        r.set_midtone(0.25);
+        assert!((r.gamma - 2.0).abs() < 1e-4, "{}", r.gamma);
+        assert!((r.apply(r.midtone(), true) - 0.5).abs() < 1e-4);
+        r.set_midtone(0.8);
+        assert!(r.gamma < 1.0);
+        assert!((r.apply(0.8, true) - 0.5).abs() < 1e-3);
+        // Moving the input handles keeps the gamma: the midtone moves with them.
+        let g = r.gamma;
+        r.drag(LevelsHandle::InLow, 0.2);
+        assert_eq!(r.gamma, g);
+        assert!(r.midtone() > 0.2 && r.midtone() < r.in_high);
+        // The gamma stays in the slider's range at the ends.
+        r.set_midtone(0.0);
+        assert_eq!(r.gamma, LEVELS_GAMMA_MAX);
+        r.set_midtone(10.0);
+        assert_eq!(r.gamma, LEVELS_GAMMA_MIN);
+        // Nothing to do on a collapsed range or a NaN.
+        let before = r;
+        r.set_midtone(f32::NAN);
+        assert_eq!(r, before);
+    }
+
+    #[test]
+    fn levels_handles_drag_in_order_and_grab_the_closest() {
+        let mut r = LevelsRange::default();
+        r.drag(LevelsHandle::InLow, 0.9);
+        r.drag(LevelsHandle::InHigh, 0.5);
+        assert!(r.in_low < r.in_high, "input handles keep their order: {r:?}");
+        assert!((r.in_high - r.in_low - 0.01).abs() < 1e-5);
+        r.drag(LevelsHandle::InHigh, 7.0);
+        assert_eq!(r.in_high, 1.0);
+        // Output handles may cross: an inverted ramp.
+        r.drag(LevelsHandle::OutLow, 1.0);
+        r.drag(LevelsHandle::OutHigh, 0.0);
+        assert_eq!((r.out_low, r.out_high), (1.0, 0.0));
+
+        let r = LevelsRange { in_low: 0.2, in_high: 0.8, ..LevelsRange::default() };
+        assert_eq!(r.grab(&LevelsHandle::INPUT, 0.21, 0.03), Some(LevelsHandle::InLow));
+        assert_eq!(r.grab(&LevelsHandle::INPUT, 0.52, 0.03), Some(LevelsHandle::Midtone));
+        assert_eq!(r.grab(&LevelsHandle::INPUT, 0.79, 0.03), Some(LevelsHandle::InHigh));
+        assert_eq!(r.grab(&LevelsHandle::INPUT, 0.35, 0.03), None, "too far from every handle");
+        // Two output handles on one spot: the press side decides.
+        let both = LevelsRange { out_low: 0.5, out_high: 0.5, ..LevelsRange::default() };
+        assert_eq!(both.grab(&LevelsHandle::OUTPUT, 0.49, 0.03), Some(LevelsHandle::OutLow));
+        assert_eq!(both.grab(&LevelsHandle::OUTPUT, 0.51, 0.03), Some(LevelsHandle::OutHigh));
+    }
 
     #[test]
     fn uv_generators_have_their_math() {

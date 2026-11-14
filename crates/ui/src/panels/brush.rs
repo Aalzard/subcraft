@@ -88,12 +88,24 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         });
                     });
                     prop_row(ui, "Fill by", |ui| crate::brush_bar::fill_mode_combo(ui, &mut state.fill_mode, "fill_mode_panel"));
+                    if !state.fill_selection.is_loop() {
+                        prop_row(ui, "Hit-test", |ui| {
+                            use subcraft_paint::PolygonHitTest;
+                            for h in PolygonHitTest::ALL {
+                                let tip = match h {
+                                    PolygonHitTest::Intersection => "A box fills every element it touches",
+                                    PolygonHitTest::ContainedCenter => "A box fills only the elements whose centre is inside it",
+                                };
+                                ui.selectable_value(&mut state.fill_hit_test, h, h.label()).on_hover_text(tip);
+                            }
+                        });
+                    }
                     prop_row(ui, "", |ui| {
                         ui.checkbox(&mut state.fill_visible_only, "Visible polygons only")
                             .on_hover_text("A box drag in the 3D view fills only what the camera sees: no back faces, nothing behind the model. Off: everything under the box.");
                     });
                     match state.fill_selection {
-                        subcraft_paint::PolygonSelectMode::Marquee => hint(ui, "Click to fill one element, drag a box to fill every element it touches. Works in the 3D and 2D views."),
+                        subcraft_paint::PolygonSelectMode::Marquee => hint(ui, "Click to fill one element, drag a box to fill the elements it picks. Works in the 3D and 2D views. Hold Shift+A for a polygon loop instead."),
                         subcraft_paint::PolygonSelectMode::Loop => hint(ui, "Drag along the model to fill the loop of quads in that direction (a click: across the nearest edge). 3D view; the 2D view keeps the marquee."),
                         subcraft_paint::PolygonSelectMode::PartialLoop => hint(ui, "Drag from one quad to another to fill the loop between them; hold Alt when releasing to add as many on the other side. 3D view."),
                     }

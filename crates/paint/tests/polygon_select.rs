@@ -155,3 +155,30 @@ fn a_collapsed_triangle_overlaps_no_box() {
     assert!(!triangle_overlaps_rect([p, p, Vec2::new(1.5, 1.5)], Vec2::ZERO, Vec2::splat(2.0)), "a triangle collapsed onto a line");
     assert!(triangle_overlaps_rect([p, Vec2::new(1.5, 1.0), Vec2::new(1.0, 1.5)], Vec2::ZERO, Vec2::splat(2.0)), "a real triangle still overlaps");
 }
+
+#[test]
+fn contained_center_keeps_only_the_elements_centred_in_the_box() {
+    use subcraft_paint::select::{keep_contained, screen_centre};
+    let sc = Scene::new(primitives::cube(2.0), 128);
+    let cam = front_camera();
+    // Front face cells are 0.5 wide, centred at +-0.25 and +-0.75. A box from x -0.3 to 0.2 and
+    // y -0.3 to 0.3 touches 4 cells but holds only the centres at x = -0.25.
+    let a = cam.project(Vec3::new(-0.3, 0.3, 1.0)).unwrap().truncate();
+    let b = cam.project(Vec3::new(0.2, -0.3, 1.0)).unwrap().truncate();
+    let touched = grow(&sc.mesh, &sc.geo, &triangles_in_screen_box(&sc.mesh, &sc.bvh, &cam, 0, a, b, true), PolygonFillMode::Polygon);
+    assert_eq!(touched.len(), 8, "4 quads touched");
+    let kept = keep_contained(&sc.mesh, &sc.geo, &touched, PolygonFillMode::Polygon, a, b, |m| screen_centre(&sc.mesh, &cam, m));
+    assert_eq!(kept.len(), 4, "the 2 quads centred at x = -0.25");
+    assert!(kept.iter().all(|&t| sc.mesh.tri_positions(t as usize).iter().all(|p| p.x <= 1e-6)));
+    // Per triangle: a box around the vertex at the face centre holds no triangle centroid.
+    let c = cam.project(Vec3::new(0.0, 0.0, 1.0)).unwrap().truncate();
+    let (a, b) = (c - Vec2::splat(2.0), c + Vec2::splat(2.0));
+    let around = triangles_in_screen_box(&sc.mesh, &sc.bvh, &cam, 0, a, b, true);
+    assert!(!around.is_empty());
+    assert!(keep_contained(&sc.mesh, &sc.geo, &around, PolygonFillMode::Triangle, a, b, |m| screen_centre(&sc.mesh, &cam, m)).is_empty());
+    // A UV island centred in a UV box is kept whole.
+    let island = grow(&sc.mesh, &sc.geo, &around[..1], PolygonFillMode::UvIsland);
+    let centre = subcraft_paint::select::uv_centre(&sc.mesh, &island).unwrap();
+    let kept = keep_contained(&sc.mesh, &sc.geo, &island, PolygonFillMode::UvIsland, centre - Vec2::splat(0.01), centre + Vec2::splat(0.01), |m| subcraft_paint::select::uv_centre(&sc.mesh, m));
+    assert_eq!(kept, island);
+}

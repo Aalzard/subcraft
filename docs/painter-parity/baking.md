@@ -180,8 +180,8 @@ Layout notes: a "Common settings" entry at the top (with its own sync button), t
 | Position baker | Mesh map bakers | not documented | done | crates/core/src/meshmap.rs:14 | - |
 | Mode | Mesh map settings > Position | All axis; Single axis (default not documented) | done: All axis (default), Single axis | crates/ui/src/dialogs.rs (map_settings_panel) | - |
 | Axis | Mesh map settings > Position (Single axis) | X; Y; Z (unverified) | done | crates/ui/src/dialogs.rs (map_settings_panel) | - |
-| Normalization type | Mesh map settings > Position | Bounding Box; Bounding sphere; none (default not documented) | partial: Bounding box (default), Bounding sphere; no "none" | crates/bake/src/lib.rs (PositionNormalization) | - |
-| Normalization scale | Mesh map settings > Position | not documented | missing | - | - |
+| Normalization type | Mesh map settings > Position | Bounding Box; Bounding sphere; none (default not documented) | done: Bounding box (default), Bounding sphere, None | crates/bake/src/lib.rs (PositionNormalization) | - |
+| Normalization scale | Mesh map settings > Position | not documented | done: map value per world unit with None, the origin at 0.5 | crates/bake/src/lib.rs (PositionOptions) | - |
 
 ## Mesh map settings: Thickness
 

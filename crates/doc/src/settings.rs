@@ -141,6 +141,8 @@ pub struct BakeConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub position_axis: Option<u8>,
     pub position_normalization: String,
+    /// Map value per world unit with the "none" position normalization.
+    pub position_scale: f32,
     /// Height map range as a fraction of the diagonal; `None`: the cage distances.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub height_range: Option<f32>,
@@ -158,7 +160,7 @@ impl Default for BakeConfig {
             thickness_distribution: "cosine".into(), curvature_radius: 0.02, curvature_from_normal: false,
             normal_curvature_width: 2.0, normal_curvature_intensity: 1.0, cage_front: 0.01, cage_rear: 0.01,
             id_source: "mesh_id".into(), id_generator: "hue_shift".into(), vertex_color_set: 0, dilation: 16, diffusion: true, antialiasing: 1,
-            average_normals: false, ignore_backface: false, position_axis: None, position_normalization: "bounding_box".into(),
+            average_normals: false, ignore_backface: false, position_axis: None, position_normalization: "bounding_box".into(), position_scale: 1.0,
             height_range: None,
         }
     }

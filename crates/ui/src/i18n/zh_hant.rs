@@ -647,6 +647,8 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Keep values between the input handles; off, they extend past them (HDR)", "將數值保持在輸入控點之間；關閉時會延伸超出（HDR）"),
     ("Output value", "輸出值"),
     ("Swap the output handles", "交換輸出控點"),
+    ("Input low, midtone and high: drag the handles", "輸入低點、中間調與高點：拖曳控點"),
+    ("Output low and high: drag the handles", "輸出低點與高點：拖曳控點"),
     ("White where the comparison holds. Layers Below is the channel as composited under this layer; This Layer is this layer's own content.", "比較成立處為白色。下方圖層是此圖層之下合成的通道；此圖層是此圖層本身的內容。"),
     ("An image replaces the breakup noise, projected over the model at the pattern size", "以影像取代破碎雜訊，依圖樣大小投影到模型上"),
     ("Choose gradient image…", "選擇漸層影像…"),
@@ -1037,4 +1039,6 @@ pub static TABLE: &[(&str, &str)] = &[
     ("The SubCraft Materials pack is not published yet.", "SubCraft 材質包尚未發佈。"),
     ("A pack of tileable PBR materials, downloaded into SubCraft's data folder and listed in Assets > Materials.", "一組可無縫拼接的 PBR 材質，會下載到 SubCraft 的資料夾，並列在「素材 > 材質」中。"),
     ("Download SubCraft Materials: a pack of tileable PBR materials (1K or 2K)", "下載 SubCraft 材質：一組可無縫拼接的 PBR 材質（1K 或 2K）"),
+    ("Normalization scale", "正規化比例"),
+    ("Map value per world unit; the world origin is at 0.5", "每個世界單位對應的貼圖值；世界原點位於 0.5"),
 ];

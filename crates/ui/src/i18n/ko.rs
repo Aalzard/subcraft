@@ -647,6 +647,8 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Keep values between the input handles; off, they extend past them (HDR)", "값을 입력 핸들 사이로 유지합니다. 끄면 그 너머로 이어집니다(HDR)"),
     ("Output value", "출력 값"),
     ("Swap the output handles", "출력 핸들을 서로 바꿉니다"),
+    ("Input low, midtone and high: drag the handles", "입력 최저, 중간톤, 최고: 핸들을 드래그하세요"),
+    ("Output low and high: drag the handles", "출력 최저와 최고: 핸들을 드래그하세요"),
     ("White where the comparison holds. Layers Below is the channel as composited under this layer; This Layer is this layer's own content.", "비교가 참인 곳이 흰색입니다. 아래 레이어는 이 레이어 아래에서 합성된 채널이고, 이 레이어는 이 레이어 자체의 내용입니다."),
     ("An image replaces the breakup noise, projected over the model at the pattern size", "이미지가 분할 노이즈를 대신하며, 패턴 크기로 모델 위에 투영됩니다"),
     ("Choose gradient image…", "그라디언트 이미지 선택…"),
@@ -1037,4 +1039,6 @@ pub static TABLE: &[(&str, &str)] = &[
     ("The SubCraft Materials pack is not published yet.", "SubCraft 재질 팩이 아직 공개되지 않았습니다."),
     ("A pack of tileable PBR materials, downloaded into SubCraft's data folder and listed in Assets > Materials.", "이음매 없이 반복되는 PBR 재질 팩으로, SubCraft 데이터 폴더에 다운로드되어 에셋 > 재질에 표시됩니다."),
     ("Download SubCraft Materials: a pack of tileable PBR materials (1K or 2K)", "SubCraft 재질 다운로드: 이음매 없이 반복되는 PBR 재질 팩 (1K 또는 2K)"),
+    ("Normalization scale", "정규화 배율"),
+    ("Map value per world unit; the world origin is at 0.5", "월드 단위당 맵 값입니다. 월드 원점은 0.5입니다"),
 ];

@@ -173,23 +173,35 @@ pub enum PositionNormalization {
     BoundingBox,
     /// All axes over the sphere around the bounding box (proportions are kept).
     BoundingSphere,
+    /// No normalization: the world position times [`PositionOptions::scale`], with the world
+    /// origin at 0.5 (values past 0..1 are clipped).
+    None,
 }
 
 impl PositionNormalization {
-    pub const ALL: [PositionNormalization; 2] = [PositionNormalization::BoundingBox, PositionNormalization::BoundingSphere];
+    pub const ALL: [PositionNormalization; 3] = [PositionNormalization::BoundingBox, PositionNormalization::BoundingSphere, PositionNormalization::None];
     pub fn label(self) -> &'static str {
         match self {
             PositionNormalization::BoundingBox => "Bounding box",
             PositionNormalization::BoundingSphere => "Bounding sphere",
+            PositionNormalization::None => "None",
         }
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PositionOptions {
     /// `Some(0 | 1 | 2)`: a grayscale map of X, Y or Z alone; `None`: X, Y, Z in red, green, blue.
     pub single_axis: Option<u8>,
     pub normalization: PositionNormalization,
+    /// Map value per world unit with [`PositionNormalization::None`].
+    pub scale: f32,
+}
+
+impl Default for PositionOptions {
+    fn default() -> Self {
+        Self { single_axis: None, normalization: PositionNormalization::default(), scale: 1.0 }
+    }
 }
 
 /// What the height map's full range stands for.
@@ -857,6 +869,7 @@ fn bake_core(
                         PositionNormalization::BoundingBox => (t.position - bounds.min) / extent,
                         // The sphere around the box: one scale for every axis, 0.5 at the centre.
                         PositionNormalization::BoundingSphere => (t.position - (bounds.min + bounds.max) * 0.5) / extent.length().max(1e-6) + Vec3::splat(0.5),
+                        PositionNormalization::None => t.position * settings.position.scale + Vec3::splat(0.5),
                     }
                     .clamp(Vec3::ZERO, Vec3::ONE);
                     match settings.position.single_axis {

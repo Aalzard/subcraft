@@ -28,13 +28,13 @@ Layout notes: a mask is added from the Create Mask button in the Layers header o
 | Click the mask thumbnail to edit the mask and show its effect stack | Layer row | n/a | done | crates/ui/src/panels/layers.rs:310 | - |
 | Click the content thumbnail to return to the layer content | Layer row | n/a | done | crates/ui/src/panels/layers.rs:296 | - |
 | Alt + left click: show the mask alone in the viewport | Mask thumbnail | off | done | crates/ui/src/panels/layers.rs:481 | - |
-| Mask display also reachable from the viewport display dropdown | Viewport display mode | n/a | missing | - | - |
+| Mask display also reachable from the viewport display dropdown | Viewport display mode | n/a | done: "Mask" entry (when the selected layer has one) in the View dropdown of the 3D view and Display Settings; any other entry goes back | crates/ui/src/viewport_bar.rs | (this PR) |
 | Alt + click again deselects effects / leaves mask view | Mask thumbnail | n/a | done (also Esc over the viewport) | crates/ui/src/mask_view.rs:20 | - |
 | Shift + left click: disable or re-enable the mask | Mask thumbnail | enabled | done | crates/ui/src/panels/layers.rs:308 | - |
 | Disabled mask is marked on the thumbnail | Mask thumbnail | n/a | done | crates/ui/src/panels/layers.rs:306 | - |
 | Red line under the mask thumbnail when the mask has effects | Mask thumbnail | grey | done | crates/ui/src/panels/layers.rs:485 | - |
 | Paint tools switch to greyscale when the mask is selected | Tool properties | n/a | done | crates/ui/src/panels/mask.rs:69 | - |
-| Invert grayscale tool value while painting a mask | Shortcut | X | missing (X is symmetry; unbound in the Painter preset) | - | - |
+| Invert grayscale tool value while painting a mask | Shortcut | X | done (X in the Painter key preset; X stays symmetry in SubCraft's own keys) | crates/app/src/actions.rs:287 | - |
 | Tool blending mode greyed out when painting in a mask | Tool properties | n/a | missing | - | - |
 
 ## Mask context menu (right-click on the mask thumbnail)
@@ -53,7 +53,7 @@ Layout notes: Adobe documents the entries Toggle mask, Copy mask content, Paste 
 | Add anchor point | Mask context menu | n/a | done | crates/ui/src/panels/layers.rs:513 | - |
 | Toggle mask | Mask context menu | Shift + click | done ("Disable mask" / "Enable mask") | crates/ui/src/panels/mask.rs:19 | - |
 | Remove mask | Mask context menu | (unverified) | done | crates/ui/src/panels/mask.rs:49 | - |
-| Invert mask (inverts the painted content) | Mask context menu | (unverified) | partial: appends an Invert effect instead of inverting the pixels | crates/ui/src/panels/mask.rs:33 | - |
+| Invert mask (inverts the painted content) | Mask context menu | (unverified) | done: "Invert mask background" swaps white and black in what is painted; "Invert mask (effect)" adds an Invert effect | crates/ui/src/panels/mask.rs:41 | - |
 | Invert mask background (flips white/black base, keeps effects) | Mask context menu | n/a | partial: inverts the painted base, strokes included (the base does not keep background and paint apart); effects stay | crates/app/src/session.rs:1787 | - |
 | Clear mask | Mask context menu | (unverified) | done (removes the painting; effects stay) | crates/app/src/session.rs:1807 | - |
 | Copy mask content | Mask context menu | n/a | done ("Copy mask") | crates/ui/src/panels/mask.rs:37 | - |
@@ -93,7 +93,7 @@ Layout notes: each layer has two independent stacks, one for its content and one
 | Delete the selected effect with the Delete key | Effect rows | Delete | done | crates/ui/src/panels/effects.rs:233 | - |
 | Rename Fill and Paint effects | Effect row (double-click) | type name; Fill takes the substance name | done (any effect: double-click or right-click > Rename; a Fill does not take its substance name) | crates/ui/src/panels/effects.rs:221 | - |
 | Clicking an effect does not open or close its folder | Effect rows | n/a | done | crates/ui/src/panels/effects.rs:219 | - |
-| Drag a resource from Assets onto a stack position to create an effect there | Assets > effect stack | n/a | missing | - | - |
+| Drag a resource from Assets onto a stack position to create an effect there | Assets > effect stack | n/a | done (filters in either stack; alphas, images and smart masks in a mask stack) | crates/ui/src/panels/effects.rs:504 | - |
 | Effect thumbnails (SubCraft extra: result through that effect) | n/a | n/a | done | crates/ui/src/panels/effects.rs:199 | - |
 
 ## Effect context menu (right-click on an effect)
@@ -117,7 +117,7 @@ Layout notes: entries carry an icon each. Compare Mask and Color Selection are o
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Add generator (content or mask) | Add effect menu | empty slot until a generator is picked | partial: mask only; adds an Edges generator, kind changed in Properties | crates/ui/src/panels/effects.rs:127 | - |
+| Add generator (content or mask) | Add effect menu | empty slot until a generator is picked | partial: content and mask; adds an Edges generator, kind changed in Properties (no empty slot) | crates/ui/src/panels/effects.rs:75 | - |
 | Add paint (content or mask) | Add effect menu | n/a | done | crates/ui/src/panels/effects.rs:67 | - |
 | Add fill (content or mask) | Add effect menu | n/a | done | crates/ui/src/panels/effects.rs:68 | - |
 | Add levels (content or mask) | Add effect menu | n/a | done | crates/ui/src/panels/effects.rs:69 | - |
@@ -155,7 +155,7 @@ Layout notes: same Properties as a fill layer (projection, UV transform, materia
 | Greyscale source can be an anchor point | Properties > grayscale slot > Anchor points tab | n/a | partial: separate "Anchor Reference" effect | crates/ui/src/panels/properties.rs:526 | - |
 | Drop a single-channel image on a fill effect to set its source | Assets > effect | n/a | missing | - | - |
 | Blending mode and opacity | Effect row | Normal; 100 | done (in Properties) | crates/ui/src/panels/properties.rs:505 | - |
-| Rename the fill effect | Effect row | substance name | partial: content effects only | crates/ui/src/panels/effects.rs:344 | - |
+| Rename the fill effect | Effect row | substance name | done: double-click any effect row, content or mask | crates/ui/src/panels/effects.rs:429 | - |
 
 ## Generator effect (mechanics only)
 
@@ -164,13 +164,13 @@ Layout notes: parameter lists of individual generators are in the generators che
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
 | Add a generator on a mask | Mask context menu / Add effect | empty slot | done | crates/ui/src/panels/effects.rs:127 | - |
-| Add a generator on layer content | Layer context menu / Add effect | empty slot | missing | - | - |
+| Add a generator on layer content | Layer context menu / Add effect | empty slot | done: "Add content generator" in the Add effect menu | crates/ui/src/panels/effects.rs:75 | - |
 | "Generator" button in Properties opens the mini-shelf to pick one | Properties > Generator | no generator selected | partial: kind chosen from fixed menus, no shelf picker | crates/ui/src/panels/layers.rs:36 | - |
 | Generator rows visible under the layer even when the mask is not selected (SubCraft extra) | n/a | n/a | done | crates/ui/src/panels/layers.rs:562 | - |
 | Output selector for generators with several outputs when used in a mask | Properties > Generator | n/a | missing | - | - |
 | Image inputs of a generator can reference an anchor point | Properties > Generator > image inputs | n/a | done | crates/ui/src/panels/properties.rs:555 | - |
 | Blending mode and opacity | Effect row | Normal; 100 | done (in Properties) | crates/ui/src/panels/properties.rs:505 | - |
-| Drag a generator from Assets onto a layer or mask | Assets > Layer stack | n/a | missing | - | - |
+| Drag a generator from Assets onto a layer or mask | Assets > Layer stack | n/a | done: onto a row, its ghost mask slot, a mask effect stack position, or the model | crates/ui/src/panels/shelf.rs | (this PR) |
 | Custom generators (sbsar) from the shelf | Assets | n/a | missing | - | - |
 
 ## Filter effect (mechanics only)
@@ -199,11 +199,11 @@ Layout notes: Properties shows, top to bottom: the Affected channel dropdown (co
 | Affected channel (one channel per Levels effect) | Properties > Levels | first compatible channel | done (Normal excluded) | crates/ui/src/panels/effects.rs:411 | - |
 | Colour component dropdown (full RGB or R, G, B separately; Luminance for some channels) | Properties > Levels, top right | RGB | done: RGB / R / G / B on colour channels (no Luminance entry) | crates/ui/src/panels/properties.rs:878 | chunk 43 |
 | Histogram display of the input | Properties > Levels | n/a | done: input histogram (128² UV sample) with the handles marked | crates/ui/src/panels/properties.rs:878 | chunk 43 |
-| Input low handle (shadows) | Properties > Levels, above histogram | 0; 0-1 | done (slider "In low") | crates/ui/src/panels/effects.rs:418 | - |
-| Midtone handle (gamma) | Properties > Levels, above histogram | 1.0 (0.5 handle position); range not documented | partial: "Gamma" slider 0.1-4 (no handle on the histogram) | crates/ui/src/panels/properties.rs:878 | chunk 43 |
-| Input high handle (highlights) | Properties > Levels, above histogram | 1; 0-1 | done (slider "In high") | crates/ui/src/panels/effects.rs:419 | - |
-| Output low handle (black point) | Properties > Levels, below histogram | 0; 0-1 | done (slider "Out low") | crates/ui/src/panels/effects.rs:421 | - |
-| Output high handle (white point) | Properties > Levels, below histogram | 1; 0-1 | done (slider "Out high") | crates/ui/src/panels/effects.rs:422 | - |
+| Input low handle (shadows) | Properties > Levels, above histogram | 0; 0-1 | done: a handle under the histogram to drag, plus the "In low" slider | crates/ui/src/panels/properties.rs:1316 | - |
+| Midtone handle (gamma) | Properties > Levels, above histogram | 1.0 (0.5 handle position); range not documented | done: an accent handle under the histogram, dragged to set the gamma (0.1-4); it follows the input handles; Gamma slider kept | crates/ui/src/panels/properties.rs:1316 | chunk 43 |
+| Input high handle (highlights) | Properties > Levels, above histogram | 1; 0-1 | done: a handle under the histogram to drag, plus the "In high" slider | crates/ui/src/panels/properties.rs:1316 | - |
+| Output low handle (black point) | Properties > Levels, below histogram | 0; 0-1 | done: a handle on the output ramp under the histogram, plus the "Out low" slider | crates/ui/src/panels/properties.rs:1293 | - |
+| Output high handle (white point) | Properties > Levels, below histogram | 1; 0-1 | done: a handle on the output ramp, plus the "Out high" slider; the two may cross (inverted) | crates/ui/src/panels/properties.rs:1293 | - |
 | Swapping the output handles inverts the image | Properties > Levels | n/a | done (out low above out high) | crates/doc/src/mask.rs:29 | - |
 | Per-component values (separate R, G, B levels) | Properties > Levels | (0,0,0) / (1,1,1) / gamma (1,1,1) | done | crates/ui/src/panels/properties.rs:878 | chunk 43 |
 | Auto button | Properties > Levels | (unverified) | done: input handles at the input's darkest and brightest values | crates/ui/src/panels/properties.rs:878 | chunk 43 |

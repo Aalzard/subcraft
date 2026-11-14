@@ -49,6 +49,7 @@ fn normalization_name(n: PositionNormalization) -> &'static str {
     match n {
         PositionNormalization::BoundingBox => "bounding_box",
         PositionNormalization::BoundingSphere => "bounding_sphere",
+        PositionNormalization::None => "none",
     }
 }
 
@@ -108,6 +109,7 @@ pub fn to_config(s: &BakeSettings, files: &BakeFilesConfig) -> BakeConfig {
         ignore_backface: s.ignore_backface,
         position_axis: s.position.single_axis,
         position_normalization: normalization_name(s.position.normalization).into(),
+        position_scale: s.position.scale,
         height_range: match s.height {
             HeightNormalization::Cage => None,
             HeightNormalization::Manual { distance } => Some(distance),
@@ -148,6 +150,7 @@ pub fn apply(c: &BakeConfig, s: &mut BakeSettings) -> BakeFilesConfig {
     s.ignore_backface = c.ignore_backface;
     s.position.single_axis = c.position_axis.filter(|a| *a < 3);
     s.position.normalization = by_name(&PositionNormalization::ALL, &c.position_normalization, normalization_name, PositionNormalization::default());
+    s.position.scale = if c.position_scale.is_finite() && c.position_scale > 0.0 { c.position_scale } else { 1.0 };
     s.height = match c.height_range {
         Some(distance) => HeightNormalization::Manual { distance },
         None => HeightNormalization::Cage,
@@ -182,7 +185,8 @@ mod tests {
         s.ao.ground_plane = true;
         s.ao.ground_offset = 0.2;
         s.position.single_axis = Some(2);
-        s.position.normalization = PositionNormalization::BoundingSphere;
+        s.position.normalization = PositionNormalization::None;
+        s.position.scale = 0.1;
         s.thickness.min_distance = 0.02;
         s.thickness.spread_angle = 120.0;
         s.thickness.distribution = RayDistribution::Uniform;

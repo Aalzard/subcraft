@@ -667,16 +667,24 @@ fn viewport_mode(ui: &mut Ui, state: &mut crate::state::UiState) {
 }
 
 /// The view mode dropdown, sectioned like Painter's: Lighting (the material), Single channel (one
-/// entry per channel of the selected texture set), the baked-normal views, and Mesh maps.
-pub(crate) fn view_mode(ui: &mut Ui, prefs: &mut ViewportPrefs, channels: &[subcraft_core::ChannelKind], wide: bool) {
+/// entry per channel of the selected texture set), the selected layer's mask, the baked-normal
+/// views, and Mesh maps. `mask`: `Some(shown)` when the selected layer has a mask (see
+/// [`crate::mask_view::dropdown_state`]). Returns a mask choice to apply: `Some(true)` show it,
+/// `Some(false)` go back from it.
+pub(crate) fn view_mode(ui: &mut Ui, prefs: &mut ViewportPrefs, channels: &[subcraft_core::ChannelKind], wide: bool, mask: Option<bool>) -> Option<bool> {
     dim(ui, "View");
     let mode = prefs.view_mode();
     let shown_channel = prefs.shown_channel();
+    let mask_shown = mask == Some(true);
     let shown = match (prefs.mesh_map, shown_channel) {
+        _ if mask_shown => "Mask".to_string(),
         (Some(k), _) => format!("Mesh map: {}", k.display_name()),
         (None, Some(k)) => k.display_name().to_string(),
         (None, None) => mode.label().to_string(),
     };
+    let mut request = None;
+    let before = (prefs.view_mode, prefs.mesh_map, prefs.solo);
+    let picked_other = std::cell::Cell::new(false);
     egui::ComboBox::from_id_salt("viewport_view_mode")
         .width(if wide { 150.0 } else { 92.0 })
         .selected_text(shown)
@@ -690,6 +698,15 @@ pub(crate) fn view_mode(ui: &mut Ui, prefs: &mut ViewportPrefs, channels: &[subc
             for &k in channels {
                 if ui.selectable_label(shown_channel == Some(k), k.display_name()).clicked() {
                     prefs.show_channel(k);
+                }
+            }
+            if ui.input(|i| i.pointer.primary_clicked()) && ui.ui_contains_pointer() {
+                picked_other.set(true);
+            }
+            if mask.is_some() {
+                // Painter's mask display: the selected layer's mask alone (Alt+click on its thumbnail).
+                if ui.selectable_label(mask_shown, "Mask").on_hover_text("The selected layer's mask alone on the model").clicked() {
+                    request = Some(true);
                 }
             }
             ui.separator();
@@ -707,6 +724,12 @@ pub(crate) fn view_mode(ui: &mut Ui, prefs: &mut ViewportPrefs, channels: &[subc
                 }
             }
         });
+    // Any other entry picked while the mask is shown goes back from it (also an entry that was
+    // already the view under the mask, which changes nothing in `prefs`).
+    if mask_shown && request.is_none() && (picked_other.get() || (prefs.view_mode, prefs.mesh_map, prefs.solo) != before) {
+        request = Some(false);
+    }
+    request
 }
 
 /// Cycle the mesh map viewer through the baked maps (B), starting from the material view.
