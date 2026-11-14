@@ -34,7 +34,7 @@ Layout notes: project lifetime first (New to Close), then the save family, Clean
 | Save | File | Ctrl+S | done | crates/ui/src/app.rs:1127 | - |
 | Save and compact | File | not documented | missing | - | - |
 | Save as | File | no default key (editable) | partial: default key differs (Ctrl+Shift+S) | crates/ui/src/app.rs:1131 | - |
-| Save as copy | File | not documented | missing | - | - |
+| Save as copy | File | not documented | done: writes the project to another file; the open project keeps its path and unsaved state | crates/ui/src/dialogs.rs (save_copy), crates/app/src/session.rs (Session::save_copy) | - |
 | Save as template | File | not documented | missing | - | - |
 | Clean | File | not documented | missing | - | - |
 | Import resources | File | not documented | partial: a submenu with texture set / smart material entries, no single import window | crates/ui/src/app.rs (menu) | #164 |
