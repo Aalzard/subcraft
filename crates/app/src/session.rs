@@ -1774,6 +1774,44 @@ impl Session {
                     Ok(())
                 })?;
             }
+            Command::InsertMaskEffects { layer, effects, above, label } => {
+                if effects.is_empty() { return Err(CommandError::Invalid("nothing to insert".into())); }
+                for kind in &effects { Self::check_mask_effect(kind)?; }
+                let last = self.edit_layer_set(layer, &label, None, |ts| {
+                    let mask = Self::layer_mut(ts, layer)?.mask.as_mut().ok_or(CommandError::NoMask)?;
+                    let mut at = match above {
+                        Some(a) => mask.effects.iter().position(|e| e.id == a).ok_or_else(|| CommandError::Invalid("No such effect".into()))? + 1,
+                        None => 0,
+                    };
+                    let mut last = None;
+                    for kind in effects {
+                        let effect = MaskEffect::new(kind);
+                        last = Some(effect.id);
+                        mask.effects.insert(at, Arc::new(effect));
+                        at += 1;
+                    }
+                    Ok(last)
+                })?;
+                return self.execute(Command::SelectEffect { layer, target: LayerTarget::Mask, effect: last });
+            }
+            Command::InsertContentEffect { layer, kind, above } => {
+                Self::check_content_effect(&kind)?;
+                let id = self.edit_layer_set(layer, "Add Effect", None, |ts| {
+                    let effect = ContentEffect::new(kind, ts);
+                    let l = Self::layer_mut(ts, layer)?;
+                    if l.is_folder() && !effect.kind.is_adjustment() {
+                        return Err(CommandError::Invalid("Folders support adjustment effects only".into()));
+                    }
+                    let at = match above {
+                        Some(a) => l.content_effects.iter().position(|e| e.id == a).ok_or_else(|| CommandError::Invalid("No such effect".into()))? + 1,
+                        None => 0,
+                    };
+                    let id = effect.id;
+                    l.content_effects.insert(at, Arc::new(effect));
+                    Ok(id)
+                })?;
+                return self.execute(Command::SelectEffect { layer, target: LayerTarget::Content, effect: Some(id) });
+            }
             Command::ReplaceMaskEffects { layer, effects, label } => {
                 for kind in &effects { Self::check_mask_effect(kind)?; }
                 self.edit_layer_set(layer, &label, None, |ts| {
@@ -3678,6 +3716,11 @@ impl Session {
     /// Apply a smart mask to the selected layer.
     pub fn apply_smart_mask(&mut self, mask: &subcraft_assets::SmartMask) -> Result<(), CommandError> {
         self.apply_smart_mask_with(mask, false)
+    }
+
+    /// Make a library resource (an image a smart mask uses) available to the project.
+    pub fn share_resource(&mut self, resource: Arc<subcraft_doc::Resource>) {
+        self.resources.insert_shared(resource);
     }
 
     /// `apply_smart_mask`; with `replace` the mask's previous effects are removed first.

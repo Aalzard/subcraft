@@ -80,6 +80,13 @@ impl Session {
     }
 }
 
+/// Channel a filter dropped on a content stack works on: Base Color when it can, else the first
+/// channel of the texture set it supports.
+pub fn content_filter_channel(ts: &subcraft_doc::TextureSet, filter: Filter) -> Option<ChannelKind> {
+    let channels: Vec<ChannelKind> = ts.channels.iter().map(|c| c.kind).collect();
+    std::iter::once(ChannelKind::BaseColor).filter(|k| channels.contains(k)).chain(channels.iter().copied()).find(|k| filter.supports_channel(*k))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

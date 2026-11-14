@@ -117,3 +117,27 @@ fn the_evaluated_mask_includes_effects_and_exports_as_a_grayscale_file() {
     assert!(s.mask_image(layer).is_err());
     assert!(s.export_mask(layer, &path, subcraft_image::FileFormat::Png8).is_err());
 }
+
+#[test]
+fn effects_inserted_at_a_position_land_there_in_one_step_and_the_last_is_selected() {
+    let (mut s, layer) = session();
+    let kinds = |s: &Session| s.selected_texture_set().find(layer).unwrap().mask.as_ref().unwrap().effects.iter().map(|e| e.kind.clone()).collect::<Vec<_>>();
+    s.execute(Command::AddMaskEffect { layer, kind: MaskEffectKind::Levels(Default::default()) }).unwrap();
+    let levels = s.selected_effect().unwrap();
+    s.execute(Command::AddMaskEffect { layer, kind: MaskEffectKind::Invert }).unwrap();
+    let steps = s.history().entries().len();
+    // Between the two: right above Levels.
+    s.execute(Command::InsertMaskEffects { layer, effects: vec![MaskEffectKind::Anchor, MaskEffectKind::Invert], above: Some(levels), label: "drop".into() }).unwrap();
+    assert!(matches!(kinds(&s)[..], [MaskEffectKind::Levels(_), MaskEffectKind::Anchor, MaskEffectKind::Invert, MaskEffectKind::Invert]));
+    assert_eq!(s.history().entries().len(), steps + 1);
+    let selected = s.selected_effect().unwrap();
+    let mask = s.selected_texture_set().find(layer).unwrap().mask.clone().unwrap();
+    assert_eq!(mask.effects[2].id, selected, "the last inserted effect is selected");
+    // At the bottom.
+    s.execute(Command::InsertMaskEffects { layer, effects: vec![MaskEffectKind::Anchor], above: None, label: "drop".into() }).unwrap();
+    assert!(matches!(kinds(&s)[0], MaskEffectKind::Anchor));
+    // An unknown position changes nothing.
+    let steps = s.history().entries().len();
+    assert!(s.execute(Command::InsertMaskEffects { layer, effects: vec![MaskEffectKind::Invert], above: Some(subcraft_core::EffectId::new()), label: "x".into() }).is_err());
+    assert_eq!(s.history().entries().len(), steps);
+}

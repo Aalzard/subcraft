@@ -34,7 +34,7 @@ Layout notes: a mask is added from the Create Mask button in the Layers header o
 | Disabled mask is marked on the thumbnail | Mask thumbnail | n/a | done | crates/ui/src/panels/layers.rs:306 | - |
 | Red line under the mask thumbnail when the mask has effects | Mask thumbnail | grey | done | crates/ui/src/panels/layers.rs:485 | - |
 | Paint tools switch to greyscale when the mask is selected | Tool properties | n/a | done | crates/ui/src/panels/mask.rs:69 | - |
-| Invert grayscale tool value while painting a mask | Shortcut | X | missing (X is symmetry; unbound in the Painter preset) | - | - |
+| Invert grayscale tool value while painting a mask | Shortcut | X | done (X in the Painter key preset; X stays symmetry in SubCraft's own keys) | crates/app/src/actions.rs:287 | - |
 | Tool blending mode greyed out when painting in a mask | Tool properties | n/a | missing | - | - |
 
 ## Mask context menu (right-click on the mask thumbnail)
@@ -93,7 +93,7 @@ Layout notes: each layer has two independent stacks, one for its content and one
 | Delete the selected effect with the Delete key | Effect rows | Delete | done | crates/ui/src/panels/effects.rs:233 | - |
 | Rename Fill and Paint effects | Effect row (double-click) | type name; Fill takes the substance name | done (any effect: double-click or right-click > Rename; a Fill does not take its substance name) | crates/ui/src/panels/effects.rs:221 | - |
 | Clicking an effect does not open or close its folder | Effect rows | n/a | done | crates/ui/src/panels/effects.rs:219 | - |
-| Drag a resource from Assets onto a stack position to create an effect there | Assets > effect stack | n/a | missing | - | - |
+| Drag a resource from Assets onto a stack position to create an effect there | Assets > effect stack | n/a | done (filters in either stack; alphas, images and smart masks in a mask stack) | crates/ui/src/panels/effects.rs:504 | - |
 | Effect thumbnails (SubCraft extra: result through that effect) | n/a | n/a | done | crates/ui/src/panels/effects.rs:199 | - |
 
 ## Effect context menu (right-click on an effect)
