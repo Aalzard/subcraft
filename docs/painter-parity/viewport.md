@@ -235,7 +235,7 @@ Layout notes: while dragging over the 3D view Painter highlights the Texture Set
 | Drop alpha / procedural / texture: warp-projected decal layer with channel chooser | Assets > 3D view | menu on release | partial: texture becomes a new UV fill layer; alpha becomes brush tip; no warp decal or channel menu | crates/ui/src/panels/shelf.rs:65 | - |
 | Alt + drop material: decal with warp projection | Assets > 3D view | - | partial: Alt replaces the selected fill layer's material instead | crates/ui/src/panels/shelf.rs:60 | - |
 | Drop smart mask onto the mesh | Assets > 3D view | - | partial: applied to the selected layer, not as a new layer | crates/ui/src/panels/shelf.rs:64 | - |
-| Drop generator or filter onto the mesh | Assets > 3D view (10.x) | - | missing | - | - |
+| Drop generator or filter onto the mesh | Assets > 3D view (10.x) | - | done: a generator goes into the selected layer's mask; a filter as from the Shelf (a filter layer, Alt: into the selected layer) | crates/ui/src/viewport.rs | (this PR) |
 | Drop external material file onto the mesh | OS file manager > 3D view | - | partial: window-level drop imports .spsm smart materials, models and projects only | crates/ui/src/app.rs:1717 | - |
 | Drop external SVG onto the mesh: warp layer with Graphic to Material | OS file manager > 3D view | - | missing | - | - |
 

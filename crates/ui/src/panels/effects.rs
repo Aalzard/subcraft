@@ -495,6 +495,7 @@ pub fn shelf_item_fits(item: crate::panels::shelf::ShelfDrag, mask: bool) -> boo
     use crate::panels::shelf::ShelfDrag;
     match item {
         ShelfDrag::Filter(i) => subcraft_doc::Filter::ALL.get(i).is_some_and(|f| !mask || f.supports_mask()),
+        ShelfDrag::Generator(_) => mask,
         ShelfDrag::Alpha(_) | ShelfDrag::Texture(_) | ShelfDrag::SmartMask(_) => mask,
         ShelfDrag::Material(_) | ShelfDrag::SmartMaterial(_) | ShelfDrag::PackMaterial(_) | ShelfDrag::Starter(_) => false,
     }

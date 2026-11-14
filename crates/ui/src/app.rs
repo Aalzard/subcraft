@@ -1225,6 +1225,7 @@ impl SubcraftApp {
                 "smart-materials" => ShelfTab::SmartMaterials,
                 "smart-masks" => ShelfTab::SmartMasks,
                 "filters" => ShelfTab::Filters,
+                "generators" => ShelfTab::Generators,
                 "brushes" => ShelfTab::Brushes,
                 "alphas" => ShelfTab::Alphas,
                 "environments" => ShelfTab::Environments,
