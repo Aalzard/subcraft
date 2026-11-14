@@ -944,6 +944,13 @@ pub fn apply_material(server: &mut Server, args: &Args) -> Res<Reply> {
 }
 
 pub fn save_to_library(server: &mut Server, args: &Args) -> Res<Reply> {
+    // Checked before the rename below: an unknown kind used to fail with the layer renamed.
+    let kind = args.str("kind")?.unwrap_or("smart_material");
+    let mask = match crate::params::snake(kind).as_str() {
+        "smart_material" | "material" => false,
+        "smart_mask" | "mask" => true,
+        other => return Err(format!("kind must be smart_material or smart_mask, got `{other}`")),
+    };
     let root = subcraft_app::assets::UserLibrary::default_root().ok_or("no user library folder (set SUBCRAFT_LIBRARY)")?;
     let lib = subcraft_app::assets::UserLibrary::new(root.clone());
     let (library, session) = server.library_mut_and_session()?;
@@ -954,23 +961,18 @@ pub fn save_to_library(server: &mut Server, args: &Args) -> Res<Reply> {
     let name = server::layer_ref(session, ts, id)?.name.clone();
     exec(session, Command::SelectTextureSet(ts))?;
     exec(session, Command::SelectLayer(Some(id)))?;
-    let kind = args.str("kind")?.unwrap_or("smart_material");
-    let file = match crate::params::snake(kind).as_str() {
-        "smart_material" | "material" => {
-            let m = session.save_smart_material(id, &lib)?;
-            let f = m.user_file.clone();
-            library.smart_materials.retain(|x| x.user_file != f || f.is_none());
-            library.smart_materials.push(m);
-            f
-        }
-        "smart_mask" | "mask" => {
-            let m = session.save_smart_mask(id, &lib)?;
-            let f = m.user_file.clone();
-            library.smart_masks.retain(|x| x.user_file != f || f.is_none());
-            library.smart_masks.push(m);
-            f
-        }
-        other => return Err(format!("kind must be smart_material or smart_mask, got `{other}`")),
+    let file = if mask {
+        let m = session.save_smart_mask(id, &lib)?;
+        let f = m.user_file.clone();
+        library.smart_masks.retain(|x| x.user_file != f || f.is_none());
+        library.smart_masks.push(m);
+        f
+    } else {
+        let m = session.save_smart_material(id, &lib)?;
+        let f = m.user_file.clone();
+        library.smart_materials.retain(|x| x.user_file != f || f.is_none());
+        library.smart_materials.push(m);
+        f
     };
     Ok(Reply::json(json!({
         "saved": name, "kind": kind, "file": file.as_deref().map(paths::output), "library": paths::output(&root),

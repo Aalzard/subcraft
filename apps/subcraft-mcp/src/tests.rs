@@ -301,3 +301,16 @@ fn a_view_space_pen_path_takes_its_image_size_apart_from_its_line_width() {
     let width = path["path"]["width"].as_f64().unwrap();
     assert!((width - 0.01).abs() < 1e-6, "the line width asked for: {path}");
 }
+
+/// QA 2026-11: save_to_library renamed the layer (an undo step) before finding that `kind` was
+/// unknown, so the refused call left the layer renamed.
+#[test]
+fn save_to_library_with_an_unknown_kind_renames_nothing() {
+    let mut server = Server::new();
+    sample(&mut server);
+    ok(&mut server, "layer_add", json!({ "type": "fill", "name": "F", "texture_set": "Body" }));
+    let e = fails(&mut server, "save_to_library", json!({ "layer": "F", "texture_set": "Body", "name": "Renamed", "kind": "brush" }));
+    assert!(e.contains("kind"), "{e}");
+    let names = layer_names(&mut server, "Body");
+    assert!(names.contains(&"F".to_string()) && !names.contains(&"Renamed".to_string()), "{names:?}");
+}
