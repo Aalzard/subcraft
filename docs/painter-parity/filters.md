@@ -21,7 +21,7 @@ Layout notes: A filter is an effect row in a layer's content stack or its mask s
 | Opacity per channel on a filter (8.2) | Properties > Filter | 100; 0-100 (unverified) | done | crates/ui/src/panels/effects.rs:457 | - |
 | Blending mode on a mask filter | Properties > Filter | Normal (unverified) | done | crates/ui/src/panels/properties.rs:506 | - |
 | Opacity on a mask filter | Properties > Filter | 100; 0-100 (unverified) | done | crates/ui/src/panels/properties.rs:512 | - |
-| Seed parameter with Random button (filters that have one) | Properties > Filter | not documented | partial: Warp only, plain 0-9999 slider | crates/ui/src/panels/filter.rs:102 | - |
+| Seed parameter with Random button (filters that have one) | Properties > Filter | not documented | done: Warp and Blur Slope have a Random button | crates/ui/src/panels/filter.rs:60 | Grayscale options |
 | Image input slots (texture, procedural or anchor) | Properties > Filter | - | missing: filters take no inputs | - | - |
 | Mesh map inputs connected automatically | Properties > Filter | - | missing: no filter reads mesh maps | - | - |
 | Presets dropdown that sets several parameters (e.g. Oil Paint, Stylization) | Properties > Filter | - | missing | - | - |
@@ -233,13 +233,13 @@ Layout notes: Standard group (11.0). Works on content and masks.
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Grayscale Conversion (filter) | Properties > Filter | works on: content and masks | partial: named Grayscale; fixed Rec.709 luminance, colour channels only, no parameters | crates/doc/src/filter.rs:147 | - |
+| Grayscale Conversion (filter) | Properties > Filter | works on: content and masks | partial: named Grayscale; colour channels only; Mode, Invert, Balance, Contrast | crates/doc/src/filter.rs:347 | Grayscale options |
 | Custom Input | Properties > Filter > Image inputs | colour; texture or anchor | missing | - | - |
-| Channel Input | Properties > Filter | not documented (dropdown) | missing | - | - |
-| Invert | Properties > Filter | not documented (toggle) | missing | - | - |
-| Balance | Properties > Filter | not documented | missing | - | - |
-| Contrast | Properties > Filter | not documented | missing | - | - |
-| Mode | Properties > Filter | not documented (dropdown) | partial: luminance only, no choice | crates/ui/src/panels/filter.rs:34 | - |
+| Channel Input | Properties > Filter | not documented (dropdown) | done: the Red / Green / Blue channel entries of Mode | crates/ui/src/panels/filter.rs:165 | Grayscale options |
+| Invert | Properties > Filter | not documented (toggle) | done | crates/ui/src/panels/filter.rs:165 | Grayscale options |
+| Balance | Properties > Filter | not documented | done: 0..1, 0.5 neutral | crates/ui/src/panels/filter.rs:165 | Grayscale options |
+| Contrast | Properties > Filter | not documented | done: 0..1, 0 neutral | crates/ui/src/panels/filter.rs:165 | Grayscale options |
+| Mode | Properties > Filter | not documented (dropdown) | done: Desaturation, Luma, Average, Max, Min, Red / Green / Blue channel | crates/ui/src/panels/filter.rs:165 | Grayscale options |
 | Red | Properties > Filter | not documented | missing | - | - |
 | Green | Properties > Filter | not documented | missing | - | - |
 | Blue | Properties > Filter | not documented | missing | - | - |
@@ -391,7 +391,7 @@ Layout notes: Standard group. Works on content and masks. Main controls, then a 
 |---|---|---|---|---|---|
 | Warp (filter) | Properties > Filter | works on: content and masks | partial: noise warp (Intensity, Scale, Seed) and a separate Directional Warp filter; no custom noise, divider, blending or direction count | crates/doc/src/filter.rs:128 | - |
 | Custom Noise | Properties > Filter > Image inputs | texture | missing | - | - |
-| Seed | Properties > Filter | not documented | partial: 0-9999 slider, no Random button | crates/ui/src/panels/filter.rs:102 | - |
+| Seed | Properties > Filter | not documented | done: number field with a Random button | crates/ui/src/panels/filter.rs:60 | Grayscale options |
 | Warp Mode | Properties > Filter | not documented (dropdown; regular, directional, multidirectional per the description) | partial: Warp and Directional Warp are two filters; no multidirectional | crates/doc/src/filter.rs:169 | - |
 | Intensity | Properties > Filter | not documented | done | crates/ui/src/panels/filter.rs:100 | - |
 | Intensity Divider | Properties > Filter | not documented (dropdown) | missing | - | - |

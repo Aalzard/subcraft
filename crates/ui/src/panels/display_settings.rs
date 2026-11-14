@@ -358,6 +358,15 @@ pub fn camera(state: &mut UiState, ui: &mut Ui) {
                 });
             }).response.on_hover_text(tr("Frames averaged before the image is final: 16 suits most views, 64 very contrasted ones"));
             ui.end_row();
+            // Painter's Color profile: the material view raw (linear values, not sRGB) or
+            // through the project's colour LUT.
+            ui.label(tr("Color profile"));
+            ui.checkbox(&mut prefs.display.color_profile, "").on_hover_text(tr("Show the material view as linear raw values instead of sRGB, or through the project's colour LUT"));
+            ui.end_row();
+            ui.label(tr("White point"));
+            ui.add_enabled(prefs.display.color_profile, egui::Slider::new(&mut prefs.display.white_point, 0.1..=100.0).logarithmic(true))
+                .on_hover_text(tr("The brightest value shown: values are divided by it and clamped before the colour LUT. Above 1 for very bright content such as the sun"));
+            ui.end_row();
         });
     }
     if pick {

@@ -10,7 +10,7 @@ use crate::{
 };
 
 pub(crate) fn active(tool: Tool) -> bool {
-    matches!(tool, Tool::Brush | Tool::Eraser | Tool::PolygonFill | Tool::Clone | Tool::Smudge)
+    matches!(tool, Tool::Brush | Tool::Eraser | Tool::PolygonFill | Tool::Clone | Tool::Smudge | Tool::Projection)
 }
 
 /// Scrubbable values and slider popovers keep the row quiet.
