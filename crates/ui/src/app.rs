@@ -999,6 +999,8 @@ impl SubcraftApp {
         if !extra.is_empty() || default != crate::panels::shelf_filter::YOURS {
             state.set_libraries(&extra, &default);
         }
+        // The "SubCraft Materials" pack folder, if one is set.
+        state.reload_materials_pack();
         if subcraft_app::safe_mode::active() == Some(&subcraft_app::safe_mode::Reason::GpuLostLastRun) {
             // The GPU reset last run: keep the heavy GPU work off from now on (saved with the
             // preferences) so the next normal start does not reset it again (issue #119).

@@ -1,0 +1,20 @@
+{
+  "name": "metal_test",
+  "display_name": "Metal Test Plate",
+  "category": "Metal",
+  "tags": [
+    "steel"
+  ],
+  "resolution": 4,
+  "normal_convention": "OpenGL (Y+)",
+  "maps": {
+    "basecolor": "metal_test_basecolor.png",
+    "normal_gl": "metal_test_normal_gl.png",
+    "height": "metal_test_height.png",
+    "roughness": "metal_test_roughness.png",
+    "ao": "metal_test_ao.png",
+    "metallic": "metal_test_metallic.png",
+    "emissive": "metal_test_emissive.png"
+  },
+  "preview": "preview.png"
+}

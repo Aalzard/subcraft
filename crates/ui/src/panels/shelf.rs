@@ -547,6 +547,12 @@ impl Item {
     }
 }
 
+/// Library id of the "SubCraft Materials" pack in the Assets panel (breadcrumbs, Filter by path).
+pub const MATERIALS_PACK: &str = "SubCraft Materials";
+
+/// Item indices of the pack's materials start here, apart from the built-in materials'.
+pub const PACK_INDEX: usize = 1_000_000;
+
 /// Every asset of type `tab`, in the order the Shelf draws them.
 pub fn items(state: &UiState, tab: ShelfTab) -> Vec<Item> {
     use crate::panels::shelf_filter::STARTER;
@@ -576,7 +582,16 @@ pub fn items(state: &UiState, tab: ShelfTab) -> Vec<Item> {
             out.extend(state.textures.items.iter().enumerate().filter(|(_, t)| (t.category == "Normal") == normals).map(|(i, t)| item(i, &t.name, lib(Some(t.path.as_path())), folder(K::Texture, Some(t.path.as_path()), Some(t.category)), vec![t.category.to_string()])));
             out
         }
-        ShelfTab::Materials => state.library.materials.iter().enumerate().map(|(i, m)| item(i, &m.name, STARTER.to_string(), Some(m.category.to_string()), vec![m.category.to_string()])).collect(),
+        ShelfTab::Materials => {
+            let mut out: Vec<Item> = state.library.materials.iter().enumerate().map(|(i, m)| item(i, &m.name, STARTER.to_string(), Some(m.category.to_string()), vec![m.category.to_string()])).collect();
+            // The "SubCraft Materials" pack, by its own categories.
+            out.extend(state.materials_pack.iter().enumerate().map(|(i, m)| {
+                let mut tags = m.tags.clone();
+                tags.push(m.category.clone());
+                Item { tileable: true, ..item(PACK_INDEX + i, &m.name, MATERIALS_PACK.to_string(), Some(m.category.clone()), tags) }
+            }));
+            out
+        }
         ShelfTab::SmartMaterials => state.library.smart_materials.iter().enumerate().map(|(i, m)| {
             let category = subcraft_app::assets::smart_material_info(&m.name).map(|i| i.category);
             item(i, &m.name, lib(m.user_file.as_deref()), folder(K::SmartMaterial, m.user_file.as_deref(), category), category.into_iter().map(String::from).collect())
@@ -821,6 +836,41 @@ pub(crate) fn thumbnail_tabs(shelf: &ShelfUi) -> Vec<ShelfTab> {
 /// Thumbnail of an asset, once rendered.
 pub(crate) fn thumbnail<'a>(shelf: &'a ShelfUi, id: &AssetId) -> Option<&'a egui::TextureHandle> {
     shelf.thumbs.get(id)
+}
+
+/// Add a pack material to the selected texture set as one fill layer.
+pub fn apply_pack_material(state: &mut UiState, material: &subcraft_assets::materials_pack::PackMaterial, now: f64) {
+    match state.session.apply_pack_material(material) {
+        Ok(r) => {
+            state.gpu_dirty = true;
+            let skipped = if r.skipped.is_empty() { String::new() } else { format!(" ({} map(s) left out)", r.skipped.len()) };
+            state.set_status(format!("Added {}{skipped}", r.layer_name), now);
+        }
+        Err(e) => state.set_status(format!("{}: {e}", material.name), now),
+    }
+}
+
+/// Most pack previews decoded per frame (each is a small PNG) while the Materials tab shows.
+const PACK_THUMBS_PER_FRAME: usize = 2;
+
+/// The pack materials' `preview.png` files as thumbnails, a few per frame, while the Assets
+/// panel shows materials. A preview that cannot be read gets an empty tile (no retry).
+fn load_pack_thumbnails(state: &mut UiState, ctx: &egui::Context) {
+    if !state.shelf.tabs().contains(&ShelfTab::Materials) {
+        return;
+    }
+    let missing: Vec<(subcraft_core::AssetId, Option<std::path::PathBuf>)> = state.materials_pack.iter().filter(|m| !state.shelf.thumbs.contains_key(&m.id)).take(PACK_THUMBS_PER_FRAME).map(|m| (m.id, m.preview.clone())).collect();
+    for (id, preview) in &missing {
+        let image = preview.as_ref().and_then(|p| std::fs::read(p).ok()).and_then(|bytes| subcraft_image::io::decode_bitmap(&bytes, None).ok()).map(|b| {
+            let (w, h, rgba) = b.preview_rgba8(RENDER_THUMB);
+            egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &rgba)
+        });
+        let image = image.unwrap_or_else(|| egui::ColorImage::new([1, 1], vec![Color32::TRANSPARENT]));
+        state.shelf.thumbs.insert(*id, ctx.load_texture(format!("thumb-{id}"), image, egui::TextureOptions::LINEAR));
+    }
+    if !missing.is_empty() {
+        ctx.request_repaint();
+    }
 }
 
 /// Thumbnail tile: square image with a hairline frame (accent when hovered / selected), name below.
@@ -1254,6 +1304,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     env_controls(state, ui);
     filter_row(state, ui);
     generate_one_thumbnail(state, ui.ctx());
+    load_pack_thumbnails(state, ui.ctx());
     let fallback = category_icon(state.shelf.tab);
     ui.data_mut(|d| d.insert_temp(egui::Id::new("shelf_fallback_icon"), fallback));
     let mut action: Option<Box<dyn FnOnce(&mut UiState)>> = None;
@@ -1346,6 +1397,18 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         resp.dnd_set_drag_payload(ShelfDrag::Material(i));
                         if resp.clicked() {
                             action = Some(Box::new(move |s: &mut UiState| if alt { apply_shelf_item_with(s, ShelfDrag::Material(i), alt, now) } else { click_shelf_item(s, ShelfDrag::Material(i), now) }));
+                        }
+                    }
+                    // The "SubCraft Materials" pack: each one a fill layer with all its maps.
+                    for (i, m) in state.materials_pack.iter().enumerate() {
+                        if !pass(PACK_INDEX + i) {
+                            continue;
+                        }
+                        shown += 1;
+                        let resp = tile(ui, tile_size, thumbs.get(&m.id), &m.name, false, &format!("{} ({}, SubCraft Materials): click to add it as a fill layer with all its maps", m.name, m.category));
+                        if resp.clicked() {
+                            let material = m.clone();
+                            action = Some(Box::new(move |s: &mut UiState| apply_pack_material(s, &material, now)));
                         }
                     }
                 }
@@ -2318,6 +2381,35 @@ fn selected_filter(session: &subcraft_app::Session) -> Option<String> {
 #[cfg(test)]
 #[path = "shelf_nav_tests.rs"]
 mod nav_tests;
+
+#[cfg(test)]
+mod materials_pack_tests {
+    use super::*;
+
+    #[test]
+    fn a_materials_pack_folder_fills_the_materials_tab_and_applies_as_a_fill_layer() {
+        let mut s = UiState::new(subcraft_app::Session::new(subcraft_mesh::primitives::cube(2.0), 128), None);
+        let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../assets/tests/fixtures/materials_pack");
+        s.recovery.prefs.materials_pack = fixtures.display().to_string();
+        s.reload_materials_pack();
+        let pack: Vec<Item> = items(&s, ShelfTab::Materials).into_iter().filter(|i| i.library == MATERIALS_PACK).collect();
+        let names: Vec<&str> = pack.iter().map(|i| i.name.as_str()).collect();
+        assert_eq!(names, ["Metal Test Plate", "Wood Test Planks"]);
+        assert_eq!(pack[1].folder.as_deref(), Some("Wood"), "the pack's category is the folder");
+        assert!(pack[1].tags.iter().any(|t| t == "oak") && pack.iter().all(|i| i.index >= PACK_INDEX && i.tileable));
+        assert!(items(&s, ShelfTab::Materials).iter().any(|i| i.library != MATERIALS_PACK), "the built-in materials stay");
+        // Applying one adds its fill layer.
+        let before = s.session.selected_texture_set().layers.len();
+        let wood = s.materials_pack.iter().find(|m| m.key == "wood_test").unwrap().clone();
+        apply_pack_material(&mut s, &wood, 0.0);
+        assert_eq!(s.session.selected_texture_set().layers.len(), before + 1);
+        assert!(s.session.selected_texture_set().layers.iter().any(|l| l.name == "Wood Test Planks"));
+        // No pack: nothing listed.
+        s.recovery.prefs.materials_pack.clear();
+        s.reload_materials_pack();
+        assert!(items(&s, ShelfTab::Materials).iter().all(|i| i.library != MATERIALS_PACK));
+    }
+}
 
 #[cfg(test)]
 mod environment_tests {

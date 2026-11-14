@@ -14,6 +14,7 @@ pub mod smart;
 mod smart_more;
 mod smart_extra;
 pub mod texture_maps;
+pub mod materials_pack;
 pub mod user_library;
 
 pub use alphas::BrushAlpha;
