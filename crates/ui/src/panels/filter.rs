@@ -56,6 +56,26 @@ pub fn picker(ui: &mut Ui, current: &str, usable: impl Fn(&Filter) -> bool) -> O
     picked
 }
 
+/// A noise seed with Painter's Random button (a new seed from the old one, so it is repeatable).
+fn seed_row(ui: &mut Ui, seed: &mut u32) -> bool {
+    prop_row(ui, "Seed", |ui| {
+        let mut changed = ui.add(egui::DragValue::new(seed).range(0..=9999)).changed();
+        if ui.small_button("Random").on_hover_text("Pick another seed").clicked() {
+            *seed = next_seed(*seed);
+            changed = true;
+        }
+        changed
+    })
+}
+
+/// The seed the Random button gives after `seed`: another value in 0..=9999.
+pub fn next_seed(seed: u32) -> u32 {
+    let mut h = seed.wrapping_mul(747_796_405).wrapping_add(2_891_336_453);
+    h ^= h >> 16;
+    let next = h % 10_000;
+    if next == seed { (next + 1) % 10_000 } else { next }
+}
+
 pub fn editor(ui: &mut Ui, filter: &mut Filter, channel: Option<ChannelKind>) -> bool {
     let mut changed = false;
     prop_row(ui, "Filter", |ui| {
@@ -142,7 +162,22 @@ pub fn editor(ui: &mut Ui, filter: &mut Filter, channel: Option<ChannelKind>) ->
             }
             ui.weak("UV space / the kept side is copied onto the other");
         }
-        Filter::Grayscale => { ui.weak("Luminance to gray / color channels only"); }
+        Filter::Grayscale | Filter::GrayscaleConvert { .. } => {
+            // The conversion options swap to the variant that stores them (see `Filter::grayscale`).
+            if let Some(mut p) = filter.grayscale_parts() {
+                let before = p;
+                prop_row(ui, "Mode", |ui| {
+                    egui::ComboBox::from_id_salt("grayscale_mode").selected_text(p.mode.label()).show_ui(ui, |ui| {
+                        for m in subcraft_doc::GrayscaleType::ALL { ui.selectable_value(&mut p.mode, m, m.label()); }
+                    });
+                });
+                prop_row(ui, "Invert", |ui| { ui.checkbox(&mut p.invert, ""); });
+                slider_row(ui, "Balance", egui::Slider::new(&mut p.balance, 0.0..=1.0));
+                slider_row(ui, "Contrast", egui::Slider::new(&mut p.contrast, 0.0..=1.0));
+                if p != before { *filter = Filter::grayscale(p); changed = true; }
+            }
+            ui.weak("Color to gray, then Invert, Balance and Contrast / color channels only");
+        }
         Filter::Invert => { ui.weak("1 - value / signed Height flips its sign"); }
         Filter::Posterize { levels } => {
             changed |= slider_row(ui, "Levels", egui::Slider::new(levels, 2..=subcraft_doc::MAX_POSTERIZE_LEVELS)).changed();
@@ -287,14 +322,14 @@ pub fn editor(ui: &mut Ui, filter: &mut Filter, channel: Option<ChannelKind>) ->
         Filter::BlurSlope { intensity, scale, seed, samples } => {
             changed |= slider_row(ui, "Intensity", egui::Slider::new(intensity, 0.0..=32.0).suffix(" px")).changed();
             changed |= slider_row(ui, "Source Tiling", egui::Slider::new(scale, 1..=subcraft_doc::MAX_WARP_SCALE)).on_hover_text("Noise cells across the texture").changed();
-            changed |= slider_row(ui, "Seed", egui::Slider::new(seed, 0..=9999)).changed();
+            changed |= seed_row(ui, seed);
             changed |= slider_row(ui, "Quality", egui::Slider::new(samples, 2..=subcraft_doc::MAX_SLOPE_SAMPLES)).on_hover_text("Reads per texel along the slope").changed();
             ui.weak("Blurs each texel along the direction a noise gives it");
         }
         Filter::Warp { intensity, scale, seed } => {
             changed |= slider_row(ui, "Intensity", egui::Slider::new(intensity, 0.0..=32.0).suffix(" px")).changed();
             changed |= slider_row(ui, "Scale", egui::Slider::new(scale, 1..=subcraft_doc::MAX_WARP_SCALE)).changed();
-            changed |= slider_row(ui, "Seed", egui::Slider::new(seed, 0..=9999)).changed();
+            changed |= seed_row(ui, seed);
             ui.weak("Noise-driven displacement / Scale = cells across the texture");
         }
         Filter::HistogramScan { position, contrast, invert } => {
@@ -458,6 +493,12 @@ mod tests {
             let mut words: Vec<&str> = two.split(' ').collect();
             words.reverse();
             assert!(search(&words.join(" "), |_| true).iter().any(|f| f.label() == two));
+        }
+        // Random seeds stay in range and move.
+        for s in [0u32, 1, 9999, 4242] {
+            let n = next_seed(s);
+            assert!(n <= 9999 && n != s);
+            assert_eq!(n, next_seed(s), "repeatable");
         }
         // Colour-only filters are not offered for a grey channel.
         let grey = search("", |f| f.supports_channel(ChannelKind::Roughness));
