@@ -69,7 +69,7 @@ Layout notes: a single dialog. Top block: File, Template, Resolution. When a USD
 | Import Cameras | New project > Import settings | not documented | partial: cameras are imported later from the 3D view camera menu (glTF or JSON) | crates/ui/src/view_extras.rs:186 | - |
 | Auto-unwrap | New project > Import settings | not documented | partial: separate File > Auto UV unwrap after creation | crates/ui/src/app.rs:1118 | - |
 | Auto-unwrap Options button | New project > Import settings | not documented | partial: options are in the separate Auto UV window | crates/ui/src/auto_uv.rs | - |
-| Import baked maps: Add button | New project > Import baked maps | empty list | missing | - | #137 |
+| Import baked maps: Add button | New project > Import baked maps | empty list | done: New project > Import baked maps section (files matched to texture sets by name) | crates/ui/src/mesh_map_import.rs | #137 |
 | Baked map name: TextureSetName_ambient_occlusion | New project > Import baked maps | naming rule | missing | - | #137 |
 | Baked map name: TextureSetName_curvature | New project > Import baked maps | naming rule | missing | - | #137 |
 | Baked map name: TextureSetName_normal_base | New project > Import baked maps | naming rule | missing | - | #137 |
@@ -144,7 +144,7 @@ Layout notes: two submenus with a tick per item (Views for dockable windows, Too
 | Views > Layers | Window > Views | shown (unverified) | partial: entry brings the panel to the front; it cannot be hidden | crates/ui/src/app.rs (menu) | #164 |
 | Views > Log | Window > Views | (unverified) | done: opens the Log panel (closed by default) and brings it to the front | crates/ui/src/app.rs (menu), panels/log.rs | - |
 | Views > Properties | Window > Views | shown (unverified) | partial: entry brings the panel to the front; it cannot be hidden | crates/ui/src/app.rs (menu) | #164 |
-| Views > Shader settings | Window > Views | (unverified) | missing | - | - |
+| Views > Shader settings | Window > Views | (unverified) | done: Window > Shader settings opens / closes the Shader Settings panel | crates/ui/src/app.rs | - |
 | Views > Texture Set List | Window > Views | shown (unverified) | partial: entry brings the panel to the front; it cannot be hidden | crates/ui/src/app.rs (menu) | #164 |
 | Views > Texture Set Settings | Window > Views | shown (unverified) | partial: entry brings the panel to the front; it cannot be hidden | crates/ui/src/app.rs (menu) | #164 |
 | Toolbars (submenu with tick boxes) | Window | - | partial: ticks for the Tools rail and the status bar | crates/ui/src/app.rs (menu) | #164 |
@@ -165,8 +165,8 @@ Layout notes: two submenus with a tick per item (Views for dockable windows, Too
 | Display previous mesh map | Viewport | Shift+B | done | crates/ui/src/app.rs (menu) | #164 |
 | Show entire mesh | Viewport | F | done | crates/ui/src/app.rs (menu) | #164 |
 | Enabled quick mask | Viewport | not documented | missing | - | - |
-| Edit quick mask | Viewport | U | missing | - | - |
-| Invert quick mask | Viewport | I | missing | - | - |
+| Edit quick mask | Viewport | U | done: U (Action::QuickMaskToggle) | crates/app/src/actions.rs | - |
+| Invert quick mask | Viewport | I | done: I (Action::QuickMaskInvert) | crates/app/src/actions.rs | - |
 
 ## Plugins menus (JavaScript, Python)
 

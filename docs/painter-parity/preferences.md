@@ -159,9 +159,9 @@ Layout notes: this block sits at the bottom of both the New project and Project 
 | Export: 16 bit images | ACE > Export color space | not documented | n/a | - | - |
 | Export: Floating point images | ACE > Export color space | not documented | n/a | - | - |
 | Settings greyed out when an environment variable or preset file drives them | Project > Color management | rule | missing | - | - |
-| Display transform on/off button | Top of 2D and 3D views | on | missing | - | - |
+| Display transform on/off button | Top of 2D and 3D views | on | partial: 3D view top bar while the profile has a LUT (#513); the 2D view shows raw data | crates/ui/src/color_lut.rs | - |
 | Display transform dropdown | Top of 2D and 3D views | from the configuration; not saved with the project | missing | - | - |
-| Display transform off automatically for data channels in solo view | Viewport behaviour | always | missing | - | - |
+| Display transform off automatically for data channels in solo view | Viewport behaviour | always | done: the colour profile and its LUT apply to the material view only (solo channels and mesh maps show raw) | crates/render/src/lib.rs | - |
 | $colorSpace file-name keyword | Export textures window | - | missing | - | - |
 | Per-resource color space override | Properties > resource > color space | project default | missing | - | - |
 | Override environment map color space | Display settings | off | missing | - | - |

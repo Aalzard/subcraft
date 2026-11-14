@@ -48,7 +48,7 @@ Layout notes: Painter lists editable shortcuts in Settings > Shortcuts as one lo
 | Select Paint tool + Particles | Settings > Shortcuts | Ctrl+1 | missing | - | - |
 | Select Eraser tool | Settings > Shortcuts | 2 | done | crates/app/src/actions.rs:199 | - |
 | Select Eraser tool + Particles | Settings > Shortcuts | Ctrl+2 | missing | - | - |
-| Select Projection tool | Settings > Shortcuts | 3 | missing | - | - |
+| Select Projection tool | Settings > Shortcuts | 3 | done: 3 (Action::ProjectionTool) | crates/app/src/actions.rs | - |
 | Select Projection tool + Particles | Settings > Shortcuts | Ctrl+3 | missing | - | - |
 | Select Polygon Fill | Settings > Shortcuts | 4 | done | crates/app/src/actions.rs:201 | #131 |
 | Select Smudge tool | Settings > Shortcuts | 5 | done | crates/app/src/actions.rs:202 | - |
@@ -80,16 +80,16 @@ Layout notes: Painter lists editable shortcuts in Settings > Shortcuts as one lo
 | Toggle animation | Settings > Shortcuts | Space | missing | - | - |
 | Export textures | Settings > Shortcuts | Ctrl+Shift+E | done | crates/app/src/actions.rs:220 | - |
 | Center the whole mesh | Settings > Shortcuts | F | done | crates/app/src/actions.rs:209 | - |
-| Toggle quick mask edition | Settings > Shortcuts | U | missing | - | - |
-| Clear quick mask | Settings > Shortcuts | Y | missing | - | - |
-| Invert quick mask | Settings > Shortcuts | I | missing | - | - |
+| Toggle quick mask edition | Settings > Shortcuts | U | done: U (Action::QuickMaskToggle) | crates/app/src/actions.rs | - |
+| Clear quick mask | Settings > Shortcuts | Y | done: Y (Action::QuickMaskClear) | crates/app/src/actions.rs | - |
+| Invert quick mask | Settings > Shortcuts | I | done: I (Action::QuickMaskInvert) | crates/app/src/actions.rs | - |
 | Viewport layout 3D/2D | Settings > Shortcuts | F1 | done | crates/ui/src/app.rs (apply_view_layout) | #164 |
 | Viewport layout 3D only | Settings > Shortcuts | F2 | partial: Painter key set only (F2 renames a layer in the SubCraft set); the 2D view stays a tab behind | crates/ui/src/app.rs (apply_view_layout) | #164 |
 | Viewport layout 2D only | Settings > Shortcuts | F3 | partial: the 3D view stays a tab behind | crates/ui/src/app.rs (apply_view_layout) | #164 |
 | Swap 2D / 3D view | Settings > Shortcuts | F4 | done | crates/ui/src/app.rs (apply_view_layout) | #164 |
 | Texture Set isolate | Settings > Shortcuts | Alt+Q | done | crates/app/src/session.rs (Command::IsolateTextureSet) | #164 |
-| Next camera | Settings > Shortcuts | > (release notes) | missing | - | - |
-| Previous camera | Settings > Shortcuts | < (release notes) | missing | - | - |
+| Next camera | Settings > Shortcuts | > (release notes) | done: Alt+] (Action::NextCamera; > is not a key of its own on most layouts) | crates/app/src/actions.rs | - |
+| Previous camera | Settings > Shortcuts | < (release notes) | done: Alt+[ (Action::PrevCamera) | crates/app/src/actions.rs | - |
 
 ## Editable shortcuts: mouse
 
@@ -125,8 +125,8 @@ Layout notes: these are listed in the same editable list; mouse combinations can
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Rotate the UV space around the cursor | 2D view | Alt+Left click | missing | - | - |
-| Snap UV rotation to orthogonal angles | 2D view | Alt+Shift+Left click | missing | - | - |
+| Rotate the UV space around the cursor | 2D view | Alt+Left click | done: Alt+left drag in the 2D view turns it about the cursor | crates/ui/src/panels/uv_view.rs | - |
+| Snap UV rotation to orthogonal angles | 2D view | Alt+Shift+Left click | done: Alt+Shift+left drag snaps to quarter turns | crates/ui/src/panels/uv_view.rs | - |
 | Pan | 2D view | Alt+Middle click | partial: plain middle drag or Alt+left drag | crates/ui/src/panels/uv_view.rs:83 | - |
 | Zoom / dolly | 2D view | Alt+Right click | partial: wheel only | crates/ui/src/panels/uv_view.rs:77 | - |
 | Orbit around the cursor position (3D) | 3D view | Alt+Left click | done | crates/ui/src/orbit.rs (orbit_around) | #163 |
@@ -163,11 +163,11 @@ Layout notes: these act only while the pointer is over the layer stack.
 | Delete selected effect | Layer stack, effect selected | Delete | done | crates/app/src/session.rs:1914 | - |
 | Reorder effect up | Layer stack, effect selected | Alt+Up arrow | done | crates/ui/src/panels/effects.rs:287 | - |
 | Reorder effect down | Layer stack, effect selected | Alt+Down arrow | done | crates/ui/src/panels/effects.rs:287 | - |
-| Change blending mode with keys | Blending mode dropdown focused | Up / Down arrows | missing | - | - |
-| Change blending mode with the wheel | Blending mode dropdown focused | Mouse wheel up / down | missing | - | - |
-| Create a mask when dropping a fill | Assets to layer stack | Ctrl while dropping | missing | - | - |
+| Change blending mode with keys | Blending mode dropdown focused | Up / Down arrows | done: Up / Down step the focused blending dropdown | crates/ui/src/panels/layers.rs | - |
+| Change blending mode with the wheel | Blending mode dropdown focused | Mouse wheel up / down | done: the wheel steps the focused blending dropdown | crates/ui/src/panels/layers.rs | - |
+| Create a mask when dropping a fill | Assets to layer stack | Ctrl while dropping | done: Ctrl while dropping a material, texture or pack material adds a black mask | crates/ui/src/panels/shelf.rs | - |
 | Replace the effect stack when dropping a smart material | Assets to layer | Ctrl while dropping | missing | - | - |
-| Replace the effect list when dropping a smart mask | Assets to mask | Ctrl while dropping | missing | - | - |
+| Replace the effect list when dropping a smart mask | Assets to mask | Ctrl while dropping | done: Ctrl (or Alt) while dropping replaces the mask's effects | crates/ui/src/panels/shelf.rs | - |
 | Drop a material as a positioned decal (warp projection preview) | Assets to viewport | Alt while dragging | missing | - | - |
 | Rename layer | Layer stack | Double-click name (unverified) | done | crates/ui/src/panels/layers.rs:403 | - |
 | Rename Texture Set | Texture Set List | Double-click name | done | crates/ui/src/panels/texture_sets.rs:79 | - |
@@ -185,7 +185,7 @@ Layout notes: these act only while the pointer is over the layer stack.
 | Projection tool: snap rotation | Viewport, Projection tool | S+Shift+Mouse left | missing | - | - |
 | Projection tool: zoom projection | Viewport, Projection tool | S+Mouse right | missing | - | - |
 | Projection tool: translate projection | Viewport, Projection tool | S+Middle mouse | missing | - | - |
-| Polygon fill: extend loop to the other side | Viewport, Polygon loop modes | Alt while dragging | missing | - | - |
+| Polygon fill: extend loop to the other side | Viewport, Polygon loop modes | Alt while dragging | done: Alt held at release mirrors a partial loop (#500) | crates/ui/src/viewport.rs | - |
 | Polygon fill: primary loop only | Viewport, Partial polygon loop | Shift | missing | - | - |
 | Polygon fill: temporary Polygon loop mode | Viewport, Polygon fill | Shift+A | done: held during the click / drag | crates/ui/src/viewport.rs | (this PR) |
 | Polygon fill: combine with the previous result | Viewport, Polygon fill | A while dragging | missing | - | - |
