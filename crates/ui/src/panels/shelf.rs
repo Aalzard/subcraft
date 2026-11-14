@@ -2651,7 +2651,12 @@ mod stack_drop_tests {
     fn a_generator_from_the_shelf_goes_into_the_layer_mask() {
         use subcraft_doc::MaskEffectKind;
         let generators = crate::panels::layers::shelf_generators();
-        assert_eq!(generators.len(), 9, "6 generators and 3 mesh maps");
+        assert_eq!(generators.len(), crate::panels::properties::all_generator_kinds().len(), "every generator the Properties dropdown offers");
+        assert!(generators.len() > 14 && generators.iter().any(|(_, k)| *k == subcraft_doc::GeneratorKind::UvChecker));
+        let mut names: Vec<&str> = generators.iter().map(|(n, _)| n.as_str()).collect();
+        names.sort();
+        names.dedup();
+        assert_eq!(names.len(), generators.len(), "distinct names");
         assert_eq!(items(&state(), ShelfTab::Generators).len(), generators.len());
         assert!(ghost_mask_accepts(ShelfDrag::Generator(0)));
         assert!(crate::panels::effects::shelf_item_fits(ShelfDrag::Generator(0), true));
