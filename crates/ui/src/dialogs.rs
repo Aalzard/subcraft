@@ -1468,7 +1468,7 @@ fn bakers_panel(ui: &mut egui::Ui, b: &mut BakeUi, f: &BakeFrame, quick: &mut Op
         ui.horizontal(|ui| {
             let mut on = b.settings.maps.contains(&kind);
             let alt = ui.input(|i| i.modifiers.alt);
-            if ui.checkbox(&mut on, "").on_hover_text(tr("Alt+click: bake only this map (Alt+click again: all maps)")).changed() {
+            if ui.checkbox(&mut on, "").on_hover_text("Alt+click: bake only this map (Alt+click again: all maps)").changed() {
                 tick_bake_map(&mut b.settings.maps, kind, alt);
             }
             let (icon, tip) = crate::bake_view::map_info(kind);
