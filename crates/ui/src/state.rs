@@ -106,6 +106,9 @@ pub struct UiState {
     /// A [`UiState::sync_gpu`] of this frame sent the renderer anything (mesh, textures,
     /// materials). Several panels sync in one frame: each adds to it, and the frame starts it over.
     pub gpu_changed: bool,
+    /// The other texture sets were hidden for the stroke in progress (Only display the
+    /// selected material when painting); a change restarts the view's accumulation.
+    pub paint_isolated: bool,
     /// Temporal anti-aliasing progress of the 3D view.
     pub taa: crate::viewport::TaaState,
     pub layer_previews: crate::layer_previews::PreviewUi,
@@ -499,6 +502,7 @@ impl UiState {
             last_view_rect: egui::Rect::NOTHING,
             uv: UvView { zoom: 1.0, offset: egui::Vec2::ZERO, rotation: 0.0, rotation_raw: 0.0, source: PreviewSource::Channel(ChannelKind::BaseColor), texture: None, painting: false, last_point: None, fill_box: None, parts_box: None, frame: None },
             painting: false,
+            paint_isolated: false,
             picking_parts: false,
             warp: Default::default(),
             gizmo: Default::default(),
@@ -911,7 +915,13 @@ impl UiState {
         let upload_start = web_time::Instant::now();
         let session = &self.session;
         for ts in &session.document().texture_sets { renderer.set_albedo_filter(ts.material_slot, ts.albedo_filter); renderer.set_alpha(ts.material_slot, ts.alpha); renderer.set_shader(ts.material_slot, session.shader_params_of(ts.id)); }
-        renderer.set_hidden_slots(session.document().texture_sets.iter().filter(|ts| session.is_set_hidden(ts.id)).map(|ts| ts.material_slot));
+        let isolate = paint_isolates(self.recovery.prefs.only_selected_set_painting, self.painting || self.uv.painting);
+        let selected = session.selection().texture_set;
+        renderer.set_hidden_slots(session.document().texture_sets.iter().filter(|ts| session.is_set_hidden(ts.id) || (isolate && ts.id != selected)).map(|ts| ts.material_slot));
+        if isolate != self.paint_isolated {
+            self.paint_isolated = isolate;
+            self.gpu_changed = true;
+        }
         let upload = |renderer: &mut ViewportRenderer, ts: subcraft_core::TextureSetId, slot: u32, changed: Option<&subcraft_app::ChangedTiles>| {
             let Some(c) = session.composite(ts) else { return };
             // Opacity is not shaded but drives the alpha modes (issue #145).
@@ -1018,9 +1028,23 @@ impl Default for StencilDisplay {
 #[path = "state_sync_tests.rs"]
 mod state_sync_tests;
 
+/// Whether the other texture sets are hidden now: the preference is on and a stroke is in
+/// progress (3D or 2D view).
+pub fn paint_isolates(only_selected_when_painting: bool, painting: bool) -> bool {
+    only_selected_when_painting && painting
+}
+
 #[cfg(test)]
 mod modal_tests {
     use super::*;
+
+    #[test]
+    fn only_the_painted_set_shows_during_a_stroke_when_asked() {
+        assert!(paint_isolates(true, true));
+        assert!(!paint_isolates(true, false), "between strokes every set shows");
+        assert!(!paint_isolates(false, true), "off by default: nothing hides");
+        assert!(!crate::recovery::Preferences::default().only_selected_set_painting);
+    }
 
     /// QA 2026-11: after a mesh reload the camera kept the old model's size and centre for its
     /// clip planes.

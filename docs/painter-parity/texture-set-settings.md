@@ -41,7 +41,7 @@ Layout notes: the panel has a small header with a visibility menu button, a focu
 | UV tile custom name (used at export) | Texture Set List > tile list | empty | missing | - | - |
 | UV tile description | Texture Set List > tile list | empty | missing | - | - |
 | UV tile resolution quick dropdown | Texture Set List > tile list | set resolution | missing | - | - |
-| Hide other sets while painting ("Only display the selected material when painting") | Settings > General | on | missing | - | - |
+| Hide other sets while painting ("Only display the selected material when painting") | Settings > General | on | done: Settings > General checkbox (off by default, see preferences.md) | crates/ui/src/state.rs | (this PR) |
 
 ## Texture Set List: context menu
 

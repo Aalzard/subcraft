@@ -29,7 +29,7 @@ Layout notes: Edit > Settings opens one window with three sections chosen on the
 | Show world axes | Settings > General > Interface | not documented | done: the bottom-right X / Y / Z axis indicator (the same setting as Display Settings > Axis indicator, on by default) | crates/ui/src/recovery.rs (general_view_settings), viewport.rs (draw_axis_indicator) | #210 |
 | Background color (first gradient colour) | Settings > General > Interface | not documented | done: top colour of the 3D view background | crates/render/src/viewport.wgsl (fs_background) | #210 |
 | Background color (second gradient colour) | Settings > General > Interface | not documented | done: bottom colour; Rendering mode keeps its own background | crates/render/src/viewport.wgsl (fs_background) | #210 |
-| Only display the selected material when painting | Settings > General > Interface | off recommended | missing | - | - |
+| Only display the selected material when painting | Settings > General > Interface | off recommended | done: off by default; while a stroke is in progress (3D or 2D view) the other texture sets are hidden in the 3D view | crates/ui/src/recovery.rs | (this PR) |
 | Viewport Scaling | Settings > General > Interface | None or Auto | partial: render resolution 100 / 75 / 50 / 25 % in the 3D view toolbar | crates/ui/src/viewport_bar.rs:347 | - |
 | Viewport Scaling value: None | Settings > General > Interface | native resolution | partial: 100 % | crates/ui/src/viewport_bar.rs:12 | - |
 | Viewport Scaling value: Auto | Settings > General > Interface | half resolution on HiDPI screens | partial: manual 50 % | crates/ui/src/viewport_bar.rs:12 | - |
