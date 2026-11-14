@@ -157,7 +157,7 @@ Layout notes: the dropdown at the top right of each view switches between Materi
 | Brush cursor: Crosshair | 3D view; chosen in Contextual toolbar | - | done: Display Settings > Viewport > Brush cursor > Crosshair (also for the symmetry cursors); not in the top strip | crates/ui/src/viewport.rs (brush_mark) | 265 |
 | Lazy mouse ring around the cursor | 3D view when Lazy mouse is on | grey circle | done: grey ring of the lazy distance around the cursor | crates/ui/src/viewport.rs (overlays) | 261 |
 | Clone source marker | 3D view with the Clone tool | - | done | crates/ui/src/viewport.rs:499 | - |
-| Fill layer cursor (no brush) | 3D view with a fill layer selected | - | missing | - | - |
+| Fill layer cursor (no brush) | 3D view with a fill layer selected | - | done: where a stroke would be refused (fill layer, path or text layer, instance, missing mask or channels) the cursor is a struck-through circle with the reason | crates/ui/src/brush_cursor.rs | (this PR) |
 | Projection tool: material tiled over the viewport | 3D view with Projection tool | preview channel set in Display settings | done: the preview channel's image tiled over the 3D view with the projection transform, semi-transparent, hidden while painting | crates/ui/src/viewport.rs (draw_projection_preview) | 477 |
 | Projection preview channel | Display settings > Tool display | not documented | done: Display Settings > Tool display > Projection preview channel (any brush image), with the preview's opacity | crates/ui/src/panels/display_settings.rs (Tool display) | 477 |
 | Mesh wireframe overlay | Display settings > Mesh wireframe > Show mesh wireframe | off | done | crates/ui/src/view_extras.rs:112 | - |

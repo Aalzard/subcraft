@@ -87,6 +87,19 @@ pub fn footprint_corners(at: egui::Pos2, half: f32, rotation: f32) -> [egui::Pos
     })
 }
 
+/// Painter's fill layer cursor: where a stroke would be refused (a fill layer, a path or text
+/// layer, an instance...), a struck-through circle with the reason instead of the brush.
+pub fn draw_blocked(painter: &egui::Painter, at: egui::Pos2, r: f32, reason: &str) {
+    let r = r.clamp(8.0, 40.0);
+    let warn = crate::theme::WARNING();
+    for (w, c) in [(3.0, egui::Color32::from_black_alpha(150)), (1.5, warn)] {
+        painter.circle_stroke(at, r, egui::Stroke::new(w, c));
+        let d = egui::vec2(r, -r) * std::f32::consts::FRAC_1_SQRT_2;
+        painter.line_segment([at - d, at + d], egui::Stroke::new(w, c));
+    }
+    crate::viewport::pill(painter, at + egui::vec2(0.0, r + 8.0), egui::Align2::CENTER_TOP, reason, crate::theme::OVERLAY_TEXT);
+}
+
 /// Brush radii the footprint image covers from its centre (an alpha tip reaches its corners).
 pub fn footprint_reach(has_alpha: bool) -> f32 {
     subcraft_paint::stamp::reach(has_alpha)

@@ -60,3 +60,14 @@ fn a_loop_fill_in_the_3d_view_is_one_undo_step() {
     s.execute(Command::Undo).unwrap();
     assert_eq!(s.document(), &before);
 }
+
+#[test]
+fn the_stroke_blocker_names_why_a_stroke_would_be_refused() {
+    let mut s = Session::new(primitives::cube(2.0), 64);
+    s.execute(Command::AddLayer(subcraft_app::NewLayer::Paint)).unwrap();
+    assert_eq!(s.stroke_blocker(), None, "a paint layer takes strokes");
+    s.execute(Command::AddLayer(subcraft_app::NewLayer::Fill)).unwrap();
+    assert_eq!(s.stroke_blocker(), Some(subcraft_paint::PaintError::NotAPaintLayer), "a fill layer does not");
+    s.brush.target = subcraft_paint::PaintTarget::MaskBase;
+    assert_eq!(s.stroke_blocker(), Some(subcraft_paint::PaintError::NoMask), "its mask, when it has one");
+}

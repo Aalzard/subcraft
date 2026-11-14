@@ -874,8 +874,14 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 let style = state.recovery.prefs.viewport.brush_cursor;
                 let hardness = state.session.brush.settings.hardness;
                 // Full preview: the tip itself (alpha shape, angle, roundness), cached as a texture.
-                let footprint = (style == crate::viewport_bar::BrushCursor::Full).then(|| crate::brush_cursor::footprint_texture(state, ui.ctx()));
-                brush_mark(&painter, p, r_px, hardness, color, style, true, footprint);
+                // A stroke here would be refused (a fill layer, a path...): say so at the cursor.
+                let blocked = state.session.stroke_blocker().filter(|e| *e != subcraft_paint::PaintError::NoCloneSource);
+                if let Some(reason) = blocked {
+                    crate::brush_cursor::draw_blocked(&painter, p, r_px, &reason.to_string());
+                } else {
+                    let footprint = (style == crate::viewport_bar::BrushCursor::Full).then(|| crate::brush_cursor::footprint_texture(state, ui.ctx()));
+                    brush_mark(&painter, p, r_px, hardness, color, style, true, footprint);
+                }
                 // Symmetry: a second cursor where each copy paints (faint when the copy's point
                 // is hidden behind the model).
                 let prefs = &state.recovery.prefs.viewport;
