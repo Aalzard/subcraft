@@ -197,6 +197,52 @@ struct LastStroke {
     entries: usize,
 }
 
+/// Brush settings as [`Command::SetBrushSettings`] takes them: every value finite, each clamped to
+/// its range. Brush presets go through it too.
+pub(crate) fn checked_brush_settings(mut settings: BrushSettings) -> Result<BrushSettings, CommandError> {
+    if [settings.size, settings.flow, settings.stroke_opacity, settings.hardness, settings.scatter_radius, settings.scatter_size_random,
+        settings.scatter_rotation_deg, settings.scatter_opacity_random, settings.scatter_fall,
+        settings.smudge_strength, settings.smudge_carry, settings.smudge_falloff, settings.smudge_material].iter().any(|v| !v.is_finite()) {
+        return Err(CommandError::Invalid("brush values must be finite".into()));
+    }
+    settings.size = settings.size.clamp(0.1, 100.0);
+    settings.flow = settings.flow.clamp(0.0, 1.0);
+    settings.stroke_opacity = settings.stroke_opacity.clamp(0.0, 1.0);
+    settings.hardness = settings.hardness.clamp(0.0, 1.0);
+    settings.scatter_count = settings.scatter_count.min(subcraft_paint::MAX_SCATTER);
+    settings.scatter_radius = settings.scatter_radius.clamp(0.0, 10.0);
+    settings.scatter_size_random = settings.scatter_size_random.clamp(0.0, 1.0);
+    settings.scatter_opacity_random = settings.scatter_opacity_random.clamp(0.0, 1.0);
+    settings.scatter_fall = settings.scatter_fall.clamp(0.0, 20.0);
+    settings.smudge_strength = settings.smudge_strength.clamp(0.0, 1.0);
+    settings.smudge_carry = settings.smudge_carry.clamp(0.0, 0.99);
+    settings.smudge_falloff = settings.smudge_falloff.clamp(0.25, 8.0);
+    settings.smudge_material = settings.smudge_material.clamp(0.0, 1.0);
+    Ok(settings)
+}
+
+/// Stroke options as [`Command::SetStrokeOptions`] takes them (finite, clamped). Brush presets
+/// go through it too.
+pub(crate) fn checked_stroke_options(mut options: StrokeOptions) -> Result<StrokeOptions, CommandError> {
+    if !options.lazy_distance_px.is_finite() {
+        return Err(CommandError::Invalid("lazy mouse distance must be finite".into()));
+    }
+    if !options.radial.center_offset.iter().all(|v| v.is_finite()) {
+        return Err(CommandError::Invalid("radial symmetry center must be finite".into()));
+    }
+    if !options.mirror_offset.iter().all(|v| v.is_finite()) {
+        return Err(CommandError::Invalid("mirror plane position must be finite".into()));
+    }
+    if !options.smoothing.is_finite() {
+        return Err(CommandError::Invalid("smoothing must be finite".into()));
+    }
+    options.lazy_distance_px = options.lazy_distance_px.clamp(0.0, 100.0);
+    options.smoothing = options.smoothing.clamp(0.0, subcraft_paint::MAX_SMOOTHING);
+    options.radial.axis = options.radial.axis.min(2);
+    options.radial.count = options.radial.count.clamp(2, subcraft_paint::MAX_SYMMETRY_COPIES);
+    Ok(options)
+}
+
 /// Painter's quick mask: a temporary selection painted with the usual tools (U), which then
 /// restricts every stroke and polygon fill to its white areas. It belongs to one texture set and
 /// is view state: not saved, not in the history.
@@ -3767,50 +3813,4 @@ fn add_blend(layers: &mut [Arc<Layer>], channel: ChannelKind) {
             add_blend(children, channel);
         }
     }
-}
-
-/// Brush settings as [`Command::SetBrushSettings`] takes them: every value finite, each clamped to
-/// its range. Brush presets go through it too.
-pub(crate) fn checked_brush_settings(mut settings: BrushSettings) -> Result<BrushSettings, CommandError> {
-    if [settings.size, settings.flow, settings.stroke_opacity, settings.hardness, settings.scatter_radius, settings.scatter_size_random,
-        settings.scatter_rotation_deg, settings.scatter_opacity_random, settings.scatter_fall,
-        settings.smudge_strength, settings.smudge_carry, settings.smudge_falloff, settings.smudge_material].iter().any(|v| !v.is_finite()) {
-        return Err(CommandError::Invalid("brush values must be finite".into()));
-    }
-    settings.size = settings.size.clamp(0.1, 100.0);
-    settings.flow = settings.flow.clamp(0.0, 1.0);
-    settings.stroke_opacity = settings.stroke_opacity.clamp(0.0, 1.0);
-    settings.hardness = settings.hardness.clamp(0.0, 1.0);
-    settings.scatter_count = settings.scatter_count.min(subcraft_paint::MAX_SCATTER);
-    settings.scatter_radius = settings.scatter_radius.clamp(0.0, 10.0);
-    settings.scatter_size_random = settings.scatter_size_random.clamp(0.0, 1.0);
-    settings.scatter_opacity_random = settings.scatter_opacity_random.clamp(0.0, 1.0);
-    settings.scatter_fall = settings.scatter_fall.clamp(0.0, 20.0);
-    settings.smudge_strength = settings.smudge_strength.clamp(0.0, 1.0);
-    settings.smudge_carry = settings.smudge_carry.clamp(0.0, 0.99);
-    settings.smudge_falloff = settings.smudge_falloff.clamp(0.25, 8.0);
-    settings.smudge_material = settings.smudge_material.clamp(0.0, 1.0);
-    Ok(settings)
-}
-
-/// Stroke options as [`Command::SetStrokeOptions`] takes them (finite, clamped). Brush presets
-/// go through it too.
-pub(crate) fn checked_stroke_options(mut options: StrokeOptions) -> Result<StrokeOptions, CommandError> {
-    if !options.lazy_distance_px.is_finite() {
-        return Err(CommandError::Invalid("lazy mouse distance must be finite".into()));
-    }
-    if !options.radial.center_offset.iter().all(|v| v.is_finite()) {
-        return Err(CommandError::Invalid("radial symmetry center must be finite".into()));
-    }
-    if !options.mirror_offset.iter().all(|v| v.is_finite()) {
-        return Err(CommandError::Invalid("mirror plane position must be finite".into()));
-    }
-    if !options.smoothing.is_finite() {
-        return Err(CommandError::Invalid("smoothing must be finite".into()));
-    }
-    options.lazy_distance_px = options.lazy_distance_px.clamp(0.0, 100.0);
-    options.smoothing = options.smoothing.clamp(0.0, subcraft_paint::MAX_SMOOTHING);
-    options.radial.axis = options.radial.axis.min(2);
-    options.radial.count = options.radial.count.clamp(2, subcraft_paint::MAX_SYMMETRY_COPIES);
-    Ok(options)
 }
