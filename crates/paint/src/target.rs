@@ -91,6 +91,33 @@ pub struct TargetImage {
     pub blend: subcraft_doc::BlendMode,
 }
 
+/// Why a stroke on `layer` with `target` would be refused by [`begin_targets`], checked without
+/// snapshotting anything (cheap enough for every frame the cursor moves): `None` when it paints.
+pub fn target_blocker(ts: &TextureSet, layer: LayerId, target: PaintTarget, material: &BrushMaterial) -> Option<PaintError> {
+    let Some(l) = ts.find(layer) else { return Some(PaintError::LayerNotFound) };
+    let any_channel = || material.channels.iter().any(|(k, c)| c.enabled && ts.has_channel(*k));
+    match target {
+        PaintTarget::MaskBase => l.mask.is_none().then_some(PaintError::NoMask),
+        PaintTarget::MaskEffect(id) => match &l.mask {
+            None => Some(PaintError::NoMask),
+            Some(mask) => (!mask.effects.iter().any(|e| e.id == id && matches!(e.kind, MaskEffectKind::Paint { .. }))).then_some(PaintError::NotAPaintEffect),
+        },
+        PaintTarget::Content => match &l.content {
+            LayerContent::Paint(p) if p.path.is_some() => Some(PaintError::EditablePath),
+            LayerContent::Paint(p) if p.text.is_some() => Some(PaintError::EditableText),
+            LayerContent::Paint(_) => (!any_channel()).then_some(PaintError::NothingToPaint),
+            _ => Some(PaintError::NotAPaintLayer),
+        },
+        PaintTarget::ContentEffect(id) => {
+            if !l.content_effects.iter().any(|e| e.id == id && matches!(e.kind, ContentEffectKind::Paint { .. })) {
+                Some(PaintError::NotAPaintEffect)
+            } else {
+                (!any_channel()).then_some(PaintError::NothingToPaint)
+            }
+        }
+    }
+}
+
 /// Snapshot the images a stroke will write.
 pub fn begin_targets(ts: &TextureSet, layer: LayerId, target: PaintTarget, material: &BrushMaterial) -> Result<Vec<TargetImage>, PaintError> {
     let l = ts.find(layer).ok_or(PaintError::LayerNotFound)?;

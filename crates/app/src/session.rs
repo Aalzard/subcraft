@@ -2816,6 +2816,23 @@ impl Session {
         })
     }
 
+    /// Why a stroke started now on the selected layer would be refused (no layer, an instance, a
+    /// fill layer or a path / text layer for content strokes, no mask...), or `None` when it
+    /// paints. Cheap: for the brush cursor (Painter's fill layer cursor). The clone source is not
+    /// checked (Ctrl+click sets it).
+    pub fn stroke_blocker(&self) -> Option<PaintError> {
+        if self.quick_mask_editing() {
+            return None;
+        }
+        let Some(layer) = self.selection.layer else { return Some(PaintError::LayerNotFound) };
+        if self.instance_locked(layer) {
+            return Some(PaintError::Instance);
+        }
+        subcraft_paint::target::target_blocker(self.selected_texture_set(), layer, self.brush.target, &self.brush.material)
+            // A normal / height stamp turns its channel on with the first stroke.
+            .filter(|e| !(*e == PaintError::NothingToPaint && self.stroke_stamp().is_some()))
+    }
+
     fn begin_stroke_with(&mut self, uv: Option<Option<subcraft_paint::UvView>>) -> Result<(), PaintError> {
         if self.stroke.is_some() {
             return Ok(());
