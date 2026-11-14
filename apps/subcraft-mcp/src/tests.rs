@@ -301,3 +301,20 @@ fn a_view_space_pen_path_takes_its_image_size_apart_from_its_line_width() {
     let width = path["path"]["width"].as_f64().unwrap();
     assert!((width - 0.01).abs() < 1e-6, "the line width asked for: {path}");
 }
+
+/// QA 2026-11: texture_set_update renamed the set (and made any earlier change) before finding
+/// that a later argument was bad, so the error left half the update applied.
+#[test]
+fn a_bad_texture_set_update_changes_nothing() {
+    let mut server = Server::new();
+    sample(&mut server);
+    let steps = |server: &mut Server| ok(server, "history", json!({}))["entries"].as_array().unwrap().len();
+    let before = steps(&mut server);
+    fails(&mut server, "texture_set_update", json!({ "texture_set": "Body", "name": "Renamed", "resolution": 300 }));
+    fails(&mut server, "texture_set_update", json!({ "texture_set": "Body", "name": "Renamed", "add_channels": ["emissive", "no-such-channel"] }));
+    fails(&mut server, "texture_set_update", json!({ "texture_set": "Body", "name": "Renamed", "remove_channels": ["emissive"] }));
+    assert_eq!(steps(&mut server), before, "nothing was changed");
+    assert!(!ok(&mut server, "project_info", json!({})).to_string().contains("Renamed"));
+    ok(&mut server, "texture_set_update", json!({ "texture_set": "Body", "name": "Renamed", "add_channels": ["emissive"] }));
+    assert!(ok(&mut server, "project_info", json!({})).to_string().contains("Renamed"));
+}

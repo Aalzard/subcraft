@@ -181,31 +181,39 @@ pub fn info(server: &mut Server) -> Res<Reply> {
 pub fn texture_set_update(server: &mut Server, args: &Args) -> Res<Reply> {
     let session = server.session()?;
     let ts = server::texture_set(session, args.str("texture_set")?)?;
-    exec(session, Command::SelectTextureSet(ts))?;
-    if let Some(name) = args.str("name")? {
-        exec(session, Command::RenameTextureSet { texture_set: ts, name: name.to_string() })?;
-    }
-    if let Some(r) = args.u32("resolution")? {
-        if !subcraft_doc::RESOLUTIONS.contains(&r) {
+    // Read every argument before changing anything: a bad resolution or channel name used to
+    // fail after the rename (and any earlier change) had already been made.
+    let name = args.str("name")?;
+    let resolution = args.u32("resolution")?;
+    if let Some(r) = resolution
+        && !subcraft_doc::RESOLUTIONS.contains(&r) {
             return Err(format!("resolution must be one of {:?}", subcraft_doc::RESOLUTIONS));
         }
-        let all = args.bool("all_texture_sets")?.unwrap_or(false);
+    let all = args.bool("all_texture_sets")?.unwrap_or(false);
+    let add = args.strings("add_channels")?.map(|chs| chs.iter().map(|c| channel(c)).collect::<Res<Vec<_>>>()).transpose()?;
+    let remove = args.strings("remove_channels")?.map(|chs| chs.iter().map(|c| channel(c)).collect::<Res<Vec<_>>>()).transpose()?;
+    for &kind in remove.iter().flatten() {
+        if !server::ts_ref(session, ts)?.has_channel(kind) && !add.iter().flatten().any(|&k| k == kind) {
+            return Err(format!("the texture set has no {} channel", kind.display_name()));
+        }
+    }
+    let hidden = args.bool("hidden")?;
+    exec(session, Command::SelectTextureSet(ts))?;
+    if let Some(name) = name {
+        exec(session, Command::RenameTextureSet { texture_set: ts, name: name.to_string() })?;
+    }
+    if let Some(r) = resolution {
         exec(session, Command::SetResolution { texture_set: (!all).then_some(ts), resolution: r })?;
     }
-    if let Some(chs) = args.strings("add_channels")? {
-        let kinds = chs.iter().map(|c| channel(c)).collect::<Res<Vec<_>>>()?;
+    if let Some(kinds) = add {
         exec(session, Command::AddChannels { texture_set: ts, kinds })?;
     }
-    if let Some(chs) = args.strings("remove_channels")? {
-        for c in chs {
-            let kind = channel(c)?;
-            if !server::ts_ref(session, ts)?.has_channel(kind) {
-                return Err(format!("the texture set has no {} channel", kind.display_name()));
-            }
+    for kind in remove.into_iter().flatten() {
+        if server::ts_ref(session, ts)?.has_channel(kind) {
             exec(session, Command::RemoveChannel { texture_set: ts, kind })?;
         }
     }
-    if let Some(h) = args.bool("hidden")? {
+    if let Some(h) = hidden {
         exec(session, Command::SetTextureSetHidden { texture_set: ts, hidden: h })?;
     }
     let t = server::ts_ref(session, ts)?;
