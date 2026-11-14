@@ -77,7 +77,9 @@ pub fn draw(painter: &egui::Painter, path: &PenPath, selected: Option<subcraft_c
 }
 
 pub fn keyboard(state: &mut UiState, ctx: &egui::Context, now: f64) {
-    if state.tool != Tool::Pen || ctx.egui_wants_keyboard_input() { return; }
+    // Not behind a modal window: Enter / Escape belong to it, and Backspace deleted the path
+    // layer behind the unsaved-changes prompt.
+    if state.tool != Tool::Pen || ctx.egui_wants_keyboard_input() || state.modal_open() { return; }
     if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
         if state.pen.is_editing() || state.pen.is_pending() { state.pen.undo_pending(&state.session); }
         else { state.pen.finish_path(); }
@@ -236,4 +238,35 @@ pub fn properties(state: &mut UiState, ui: &mut Ui, path: &PenPath, now: f64) {
         if !ui.input(|i| i.pointer.primary_down()) && let Err(e) = state.pen.release(&state.session) { state.set_status(e.to_string(), now); }
     }
     crate::widgets::hint(ui, "Click to add a point; drag on creation for Bézier handles. Drag points or handles to edit; Shift breaks the mirrored handle. Enter finishes, Esc cancels an edit, Delete removes a point. Middle/Alt drag pans in 2D.");
+}
+
+#[cfg(test)]
+mod keyboard_tests {
+    use super::*;
+
+    /// QA 2026-11: the pen keys (Enter, Escape, Delete, Backspace) had no modal check: they
+    /// acted behind the unsaved-changes prompt and New Project, and took the dialog's Enter.
+    #[test]
+    fn pen_keys_do_nothing_behind_a_modal_window() {
+        let mut state = UiState::new(subcraft_app::Session::sample(), None);
+        state.tool = Tool::Pen;
+        let ctx = egui::Context::default();
+        let enter_left = |state: &mut UiState| {
+            let events = vec![egui::Event::Key { key: egui::Key::Enter, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE }];
+            let mut left = None;
+            let mut out = ctx.run_ui(egui::RawInput { events, ..Default::default() }, |ui| {
+                keyboard(state, ui.ctx(), 0.0);
+                left = Some(ui.input(|i| i.key_pressed(egui::Key::Enter)));
+            });
+            out.textures_delta.clear();
+            left.unwrap()
+        };
+        state.confirm = Some(crate::dialogs::Pending::Close);
+        assert!(enter_left(&mut state), "the dialog keeps its Enter");
+        state.confirm = None;
+        state.new_project.open = true;
+        assert!(enter_left(&mut state), "New Project keeps its Enter");
+        state.new_project.open = false;
+        assert!(!enter_left(&mut state), "without a modal window the pen takes Enter");
+    }
 }
