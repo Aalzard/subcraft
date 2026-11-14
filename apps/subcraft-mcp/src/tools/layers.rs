@@ -569,7 +569,8 @@ pub fn set_parts(server: &mut Server, args: &Args) -> Res<Reply> {
         None => None,
         Some(Value::Array(a)) => {
             let kind = part_kind(args.str("kind")?, session)?;
-            let ids: Vec<u32> = a.iter().map(|v| v.as_u64().map(|n| n as u32).ok_or("part ids are integers")).collect::<Result<_, _>>()?;
+            // An id beyond u32 used to wrap round to another part (2^32 + 1 became part 1).
+            let ids: Vec<u32> = a.iter().map(|v| v.as_u64().and_then(|n| u32::try_from(n).ok()).ok_or_else(|| format!("part ids are non-negative integers from parts_list, got {v}"))).collect::<Res<_>>()?;
             Some(PartMask::for_kind(kind, ids))
         }
         Some(v) => return Err(format!("`parts` must be a list of ids or null, got {v}")),

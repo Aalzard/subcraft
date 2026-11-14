@@ -140,6 +140,29 @@ fn image_saves_must_be_png_files() {
     assert!(crate::tools::png_path(std::path::Path::new("a/.png")).is_err());
 }
 
+/// QA 2026-11: layer_add / fill_set added the channels a fill spec named to the texture set
+/// before reading the spec, so a bad spec failed with those channels (and their undo steps) left
+/// behind.
+#[test]
+fn a_bad_fill_spec_adds_no_channels() {
+    let mut server = Server::new();
+    sample(&mut server);
+    let has_emissive = |server: &mut Server| ok(server, "project_info", json!({})).to_string().contains("emissive");
+    assert!(!has_emissive(&mut server), "the sample starts without Emissive");
+    let steps = |server: &mut Server| ok(server, "history", json!({}))["entries"].as_array().unwrap().len();
+    let before = steps(&mut server);
+    fails(&mut server, "layer_add", json!({ "type": "fill", "name": "F", "texture_set": "Body", "fill": { "emissive": { "image": "no-such-image.png" } } }));
+    fails(&mut server, "layer_add", json!({ "type": "fill", "name": "F", "texture_set": "Body", "fill": { "emissive": [1.0, 0.0, 0.0] }, "projection": { "mode": "no-such-mode" } }));
+    assert!(!has_emissive(&mut server) && steps(&mut server) == before, "layer_add left nothing behind");
+    ok(&mut server, "layer_add", json!({ "type": "fill", "name": "F", "texture_set": "Body" }));
+    let before = steps(&mut server);
+    fails(&mut server, "fill_set", json!({ "layer": "F", "texture_set": "Body", "channels": { "emissive": { "image": "no-such-image.png" } } }));
+    fails(&mut server, "fill_set", json!({ "layer": "F", "texture_set": "Body", "channels": { "emissive": { "low": 0.2 } } }));
+    assert!(!has_emissive(&mut server) && steps(&mut server) == before, "fill_set left nothing behind");
+    ok(&mut server, "fill_set", json!({ "layer": "F", "texture_set": "Body", "channels": { "emissive": [1.0, 0.0, 0.0] } }));
+    assert!(has_emissive(&mut server), "a good spec still adds the channel");
+}
+
 #[test]
 fn fill_layer_reaches_the_exported_base_color() {
     let dir = TempDir::new("export");
@@ -324,27 +347,23 @@ fn a_view_space_pen_path_takes_its_image_size_apart_from_its_line_width() {
     assert!((width - 0.01).abs() < 1e-6, "the line width asked for: {path}");
 }
 
-/// QA 2026-11: layer_add / fill_set added the channels a fill spec named to the texture set
-/// before reading the spec, so a bad spec failed with those channels (and their undo steps) left
-/// behind.
+/// QA 2026-11: export padding -3 or 2.5 became 8 texels silently, and part ids or padding beyond
+/// u32 wrapped round (2^32 + 1 selected part 1).
 #[test]
-fn a_bad_fill_spec_adds_no_channels() {
+fn padding_and_part_ids_outside_their_range_are_refused() {
+    let dir = TempDir::new("padding");
     let mut server = Server::new();
     sample(&mut server);
-    let has_emissive = |server: &mut Server| ok(server, "project_info", json!({})).to_string().contains("emissive");
-    assert!(!has_emissive(&mut server), "the sample starts without Emissive");
-    let steps = |server: &mut Server| ok(server, "history", json!({}))["entries"].as_array().unwrap().len();
-    let before = steps(&mut server);
-    fails(&mut server, "layer_add", json!({ "type": "fill", "name": "F", "texture_set": "Body", "fill": { "emissive": { "image": "no-such-image.png" } } }));
-    fails(&mut server, "layer_add", json!({ "type": "fill", "name": "F", "texture_set": "Body", "fill": { "emissive": [1.0, 0.0, 0.0] }, "projection": { "mode": "no-such-mode" } }));
-    assert!(!has_emissive(&mut server) && steps(&mut server) == before, "layer_add left nothing behind");
-    ok(&mut server, "layer_add", json!({ "type": "fill", "name": "F", "texture_set": "Body" }));
-    let before = steps(&mut server);
-    fails(&mut server, "fill_set", json!({ "layer": "F", "texture_set": "Body", "channels": { "emissive": { "image": "no-such-image.png" } } }));
-    fails(&mut server, "fill_set", json!({ "layer": "F", "texture_set": "Body", "channels": { "emissive": { "low": 0.2 } } }));
-    assert!(!has_emissive(&mut server) && steps(&mut server) == before, "fill_set left nothing behind");
-    ok(&mut server, "fill_set", json!({ "layer": "F", "texture_set": "Body", "channels": { "emissive": [1.0, 0.0, 0.0] } }));
-    assert!(has_emissive(&mut server), "a good spec still adds the channel");
+    for bad in [json!(-3), json!(2.5), json!(4294967304u64)] {
+        let e = fails(&mut server, "export_textures", json!({ "dir": dir.join("out"), "padding": bad }));
+        assert!(e.contains("padding"), "{e}");
+    }
+    assert!(!std::path::Path::new(&dir.join("out")).exists(), "nothing was exported");
+    ok(&mut server, "layer_add", json!({ "type": "paint", "name": "P", "texture_set": "Body" }));
+    for bad in [json!(4294967297u64), json!(-1), json!(1.5)] {
+        let e = fails(&mut server, "layer_set_parts", json!({ "layer": "P", "texture_set": "Body", "parts": [bad] }));
+        assert!(e.contains("part ids"), "{e}");
+    }
 }
 
 /// QA 2026-11: project_new dropped an unsupported resolution silently: the sample stayed at
