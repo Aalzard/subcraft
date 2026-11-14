@@ -182,6 +182,27 @@ fn insert_on_the_curve_close_on_the_first_point_and_toggle_corner_smooth() {
     assert!(!pen(&s).is_smooth(last), "and back to a corner");
 }
 
+/// QA 2026-11: the tip resource of a stamped path was found by pointer only: after reopening
+/// the project the brush tip is another copy of the same image, so each session added one more.
+#[test]
+fn the_stamp_tip_resource_is_reused_after_reopening() {
+    let tips = subcraft_app::assets::alphas::builtin();
+    let tip = tips.iter().find(|t| t.bitmap.is_some()).unwrap();
+    let mut s = session();
+    s.set_brush_alpha(tip);
+    let id = s.brush_tip_resource().unwrap();
+    assert_eq!(s.brush_tip_resource(), Some(id), "the same session reuses it");
+    // As after a reopen: the store holds a loaded copy of the image, the brush the built-in one.
+    let mut store = subcraft_doc::ResourceStore::default();
+    let original = s.resources().get(id).unwrap();
+    store.insert(subcraft_doc::Resource { id, name: original.name.clone(), kind: original.kind, bitmap: std::sync::Arc::new((*original.bitmap).clone()), source_path: None, encoded: None });
+    let mut reopened = Session::from_parts(s.scene().mesh.as_ref().clone(), s.document().clone(), store, "reopened");
+    reopened.set_brush_alpha(tip);
+    let count = reopened.resources().len();
+    assert_eq!(reopened.brush_tip_resource(), Some(id));
+    assert_eq!(reopened.resources().len(), count, "no second copy");
+}
+
 #[test]
 fn ctrl_scales_both_tangents_and_a_shift_click_point_stays_straight() {
     let mut s = session(); let mut editor = PenEditor::default();
