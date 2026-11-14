@@ -1475,6 +1475,7 @@ impl SubcraftApp {
             }
             Action::OpenProject => self.request(Pending::OpenProject, now),
             Action::Bake => self.state.bake.open = true,
+            Action::ReimportMesh => crate::mesh_reload::open_reimport(&mut self.state),
             Action::TogglePathTracing => {
                 let prefs = &mut self.state.recovery.prefs.viewport;
                 prefs.path_tracing = !prefs.path_tracing;
@@ -1819,10 +1820,15 @@ impl SubcraftApp {
                     ui.close();
                     self.perform(Action::Bake, now);
                 }
-                // Painter: Edit > Project configuration (replace the mesh, its settings).
-                if item(ui, icons::CUBE_WIRE, tr("Project configuration (reload mesh)…"), "") {
+                // Painter: Edit > Project configuration (the mesh, import settings, UV tiles) and
+                // Reimport mesh (Ctrl+Shift+R).
+                if item(ui, icons::CUBE_WIRE, tr("Project configuration…"), "") {
                     ui.close();
                     crate::mesh_reload::open(&mut self.state);
+                }
+                if item(ui, icons::CUBE_WIRE, tr("Reimport mesh…"), &sc(km, Action::ReimportMesh)) {
+                    ui.close();
+                    self.perform(Action::ReimportMesh, now);
                 }
                 if item(ui, icons::CUBE_WIRE, tr("Auto UV unwrap…"), "") {
                     ui.close();

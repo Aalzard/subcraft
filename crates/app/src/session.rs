@@ -2656,7 +2656,7 @@ impl Session {
             Action::PenTool | Action::PolygonFillTool | Action::SmudgeTool | Action::CloneTool | Action::EyedropperTool | Action::ResetCamera
             | Action::PerspectiveCamera | Action::OrthographicCamera | Action::NextChannel | Action::PrevChannel | Action::DisplayMaterial
             | Action::NewProject | Action::Quit | Action::Save | Action::SaveAs | Action::OpenProject | Action::Export | Action::Bake
-            | Action::TogglePathTracing | Action::SelectAllLayers => return Ok(false),
+            | Action::TogglePathTracing | Action::SelectAllLayers | Action::ReimportMesh => return Ok(false),
         }
         Ok(true)
     }
@@ -3048,9 +3048,17 @@ impl Session {
         self.polygon_fill_with(&uv_camera(), |stroke, ts, ctx| stroke.polygon_fill_uv(ts, ctx, uv, mode))
     }
 
-    /// Brush radius in UV units for the selected texture set (matches [`Session::stroke_to_uv`]).
+    /// Brush radius in UV units for the selected texture set (matches [`Session::stroke_to_uv`]
+    /// for a stroke begun without a 2D view).
     pub fn brush_radius_uv(&self, uv_per_unit: f32) -> f32 {
-        self.brush_radius_in(0.0, 0.0, uv_per_unit) * uv_per_unit
+        self.brush_radius_uv_in(uv_per_unit, None)
+    }
+
+    /// Brush radius in UV units in the 2D view `view` (matches a stroke begun with
+    /// [`Session::begin_uv_stroke`] in that view: Viewport size space keeps the brush's size on
+    /// screen there).
+    pub fn brush_radius_uv_in(&self, uv_per_unit: f32, view: Option<subcraft_paint::UvView>) -> f32 {
+        subcraft_paint::stroke::uv_brush_radius(&self.brush.settings, self.scene.mesh.bounds.diagonal(), uv_per_unit, view)
     }
 
     /// Polygon fill on the selected layer at a screen position (one history entry).

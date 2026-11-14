@@ -91,8 +91,8 @@ Layout notes: a single dialog. Top block: File, Template, Resolution. When a USD
 |---|---|---|---|---|---|
 | Undo | Edit | Ctrl+Z | done | crates/ui/src/app.rs:1170 | - |
 | Redo | Edit | Ctrl+Y | done | crates/ui/src/app.rs:1173 | - |
-| Project configuration | Edit | not documented | partial: Edit > Project configuration opens the Reload mesh window | crates/ui/src/app.rs (menu) | #164 |
-| Reimport mesh | Edit | Ctrl+Shift+R (release notes) | partial: Edit > Project configuration opens the Reload mesh window, no one-step reimport, no key | crates/ui/src/app.rs (menu) | #164 |
+| Project configuration | Edit | not documented | done: Edit > Project configuration… opens the Project configuration window (3D mesh, UV Tiles, Import settings, OK / Cancel) | crates/ui/src/app.rs (menu), crates/ui/src/mesh_reload.rs | - |
+| Reimport mesh | Edit | Ctrl+Shift+R (release notes) | done: Edit > Reimport mesh… and Ctrl+Shift+R (both key sets, rebindable) open Project configuration with Reimport mesh ticked and the model file checked | crates/app/src/actions.rs (ReimportMesh), crates/ui/src/mesh_reload.rs (open_reimport) | - |
 | Settings | Edit | not documented | partial: Edit > Settings, single page | crates/ui/src/app.rs (menu) | #164 |
 | Bake Mesh maps | Edit | Ctrl+Shift+B | done | crates/ui/src/app.rs (menu) | #164 |
 
@@ -102,24 +102,24 @@ Layout notes: same groups as the New project dialog, top to bottom: 3D mesh, Pro
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| 3D mesh path with Select button | Project configuration > 3D mesh | current mesh file | partial: Reload Mesh window has a path box and Browse | crates/ui/src/mesh_reload.rs:117 | - |
-| Reimport mesh | Project configuration > 3D mesh | off; ticks itself when another file is selected | partial: Reload button in the same window | crates/ui/src/mesh_reload.rs:169 | - |
+| 3D mesh path with Select button | Project configuration > 3D mesh | current mesh file | done: path box (the file the mesh came from) and Select… | crates/ui/src/mesh_reload.rs | - |
+| Reimport mesh | Project configuration > 3D mesh | off; ticks itself when another file is selected | done: off by default, ticks itself when another file is typed or selected; ticking it checks the model and lists how its materials match the texture sets | crates/ui/src/mesh_reload.rs (is_other_file) | - |
 | Normal Map Format | Project configuration > Project settings | value from creation | partial: can only be overridden in the Export window, not for the viewport | crates/ui/src/dialogs.rs:362 | - |
 | Compute Tangent Space Per Fragment | Project configuration > Project settings | value from creation | missing | - | - |
 | Scope and variants (Change...) | Project configuration > file type-specific | Root | missing | - | - |
 | Subdivision level | Project configuration > file type-specific | not documented | missing | - | - |
 | Frame | Project configuration > file type-specific | not documented | missing | - | - |
-| UV Tiles settings (read-only view) | Project configuration > UV Tiles | value from creation | missing | - | - |
-| Import Cameras | Project configuration > Import settings | not documented | partial: camera import from the 3D view camera menu | crates/ui/src/view_extras.rs:186 | - |
-| Preserve strokes positions on mesh | Project configuration > Import settings | recommended on | partial: Keep UVs / Reproject choice in Reload Mesh | crates/ui/src/mesh_reload.rs:155 | - |
+| UV Tiles settings (read-only view) | Project configuration > UV Tiles | value from creation | partial: read-only line: UV tile workflow on / off and the tiles used; no per-material layout option | crates/ui/src/mesh_reload.rs (uv_tile_summary) | - |
+| Import Cameras | Project configuration > Import settings | not documented | done: replaces the project's cameras with the model file's when reimporting | crates/ui/src/mesh_reload.rs | - |
+| Preserve strokes positions on mesh | Project configuration > Import settings | recommended on | done: on = paint moves through the surface onto the new UVs (Reproject), off = texels stay (Keep UVs); the check suggests one | crates/ui/src/mesh_reload.rs (preserve_strokes) | - |
 | Auto-Unwrap | Project configuration > Import settings | not documented | partial: separate File > Auto UV unwrap | crates/ui/src/app.rs:1118 | - |
 | Auto-Unwrap Option button | Project configuration > Import settings | not documented | partial: options in the Auto UV window | crates/ui/src/auto_uv.rs | - |
 | Use mesh file's internal unit scale | Project configuration > Physical size | not documented | missing | - | - |
 | Custom unit scale | Project configuration > Physical size | not documented | missing | - | - |
 | Switch fill layer scaling to Physical size when assigning materials | Project configuration > Physical size | not documented | missing | - | - |
 | Color management settings | Project configuration > Color management | Legacy | missing | - | - |
-| OK (applies, reimports if ticked) | Project configuration footer | - | partial: Reload button | crates/ui/src/mesh_reload.rs:169 | - |
-| Cancel | Project configuration footer | (unverified) | partial: Cancel in Reload Mesh | crates/ui/src/mesh_reload.rs:164 | - |
+| OK (applies, reimports if ticked) | Project configuration footer | - | done: reimports when ticked (waits for the model check), otherwise closes | crates/ui/src/mesh_reload.rs (ok_action) | - |
+| Cancel | Project configuration footer | (unverified) | done: closes; during a reimport it stops it | crates/ui/src/mesh_reload.rs | - |
 
 ## Mode menu
 
