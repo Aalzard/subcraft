@@ -50,6 +50,14 @@ pub fn layer_name(text: &str) -> String {
 /// Re-render the raster cache of every text layer in `texture_sets` (after a resolution change,
 /// where resampling the old raster would blur the text).
 pub(crate) fn refresh_text_rasters(doc: &mut Document, resources: &ResourceStore, texture_sets: &[subcraft_core::TextureSetId]) {
+    for ts in doc.texture_sets.iter_mut().filter(|ts| texture_sets.contains(&ts.id)) {
+        let resolution = ts.resolution;
+        redraw_text_layers(&mut ts.layers, resolution, resources);
+    }
+}
+
+/// Re-render every text layer in `layers` (and their folders) at `resolution`.
+pub(crate) fn redraw_text_layers(layers: &mut [Arc<Layer>], resolution: u32, resources: &ResourceStore) {
     fn walk(layers: &mut [Arc<Layer>], resolution: u32, resources: &ResourceStore) {
         for layer in layers {
             let needs = match &layer.content {
@@ -71,10 +79,7 @@ pub(crate) fn refresh_text_rasters(doc: &mut Document, resources: &ResourceStore
             }
         }
     }
-    for ts in doc.texture_sets.iter_mut().filter(|ts| texture_sets.contains(&ts.id)) {
-        let resolution = ts.resolution;
-        walk(&mut ts.layers, resolution, resources);
-    }
+    walk(layers, resolution, resources);
 }
 
 impl Session {

@@ -156,6 +156,32 @@ fn a_resolution_change_draws_the_path_again_instead_of_resampling_it() {
     assert!(p.channels == expected, "the raster is the path drawn at 512");
 }
 
+/// QA 2026-11: a path layer pasted into a set of another resolution (and Paste layer content)
+/// was resampled instead of drawn again, so it stayed blurred until its next edit.
+#[test]
+fn a_path_pasted_at_another_resolution_is_drawn_again() {
+    let mut s = session(); let mut editor = PenEditor::default();
+    point(&mut editor, &mut s, Vec2::new(0.2, 0.2)); point(&mut editor, &mut s, Vec2::new(0.8, 0.7));
+    let path = pen(&s).clone();
+    let source = s.selection().layer.unwrap();
+    let clip = std::sync::Arc::new(s.copy_layers(&[source]).unwrap());
+    s.execute(Command::SetResolution { texture_set: None, resolution: 512 }).unwrap();
+    let mut raster = subcraft_paint::pen::PenRasterizer::new(&path, 512).unwrap();
+    raster.run();
+    let expected = raster.finish().unwrap();
+    assert!(!expected.is_empty());
+    s.execute(Command::PasteLayers(clip.clone())).unwrap();
+    assert_ne!(s.selection().layer, Some(source));
+    let LayerContent::Paint(p) = &s.selected_layer().unwrap().content else { panic!() };
+    assert!(p.channels == expected, "the pasted raster is the path drawn at 512");
+    // Paste layer content onto a plain paint layer does the same.
+    s.execute(Command::AddLayer(NewLayer::Paint)).unwrap();
+    let target = s.selection().layer.unwrap();
+    s.execute(Command::PasteLayerContent { layer: target, clip }).unwrap();
+    let LayerContent::Paint(p) = &s.selected_texture_set().find(target).unwrap().content else { panic!() };
+    assert!(p.channels == expected, "pasted content is the path drawn at 512");
+}
+
 #[test]
 fn insert_on_the_curve_close_on_the_first_point_and_toggle_corner_smooth() {
     let mut s = session(); let mut editor = PenEditor::default();

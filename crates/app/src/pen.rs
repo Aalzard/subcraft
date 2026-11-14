@@ -13,6 +13,14 @@ pub enum Handle { Anchor, Incoming, Outgoing }
 /// A path's width is independent of the resolution and its raster is only a cache: resampled,
 /// a path taken from 512 to 4096 stayed blurred until its next edit, and was exported that way.
 pub(crate) fn refresh_path_rasters(doc: &mut subcraft_doc::Document, resources: &subcraft_doc::ResourceStore, texture_sets: &[subcraft_core::TextureSetId]) {
+    for ts in doc.texture_sets.iter_mut().filter(|ts| texture_sets.contains(&ts.id)) {
+        let resolution = ts.resolution;
+        redraw_path_layers(&mut ts.layers, resolution, resources);
+    }
+}
+
+/// Draw the raster of every pen path layer in `layers` (and their folders) at `resolution`.
+pub(crate) fn redraw_path_layers(layers: &mut [std::sync::Arc<Layer>], resolution: u32, resources: &subcraft_doc::ResourceStore) {
     use std::sync::Arc;
     fn walk(layers: &mut [Arc<Layer>], resolution: u32, resources: &subcraft_doc::ResourceStore) {
         for layer in layers {
@@ -40,10 +48,7 @@ pub(crate) fn refresh_path_rasters(doc: &mut subcraft_doc::Document, resources: 
             }
         }
     }
-    for ts in doc.texture_sets.iter_mut().filter(|ts| texture_sets.contains(&ts.id)) {
-        let resolution = ts.resolution;
-        walk(&mut ts.layers, resolution, resources);
-    }
+    walk(layers, resolution, resources);
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
