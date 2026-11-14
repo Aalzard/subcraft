@@ -140,6 +140,13 @@ impl UiState {
             self.favorites = subcraft_app::brush_preset::Favorites::load(lib);
         }
         self.load_environments(environments);
+        self.reload_materials_pack();
+    }
+
+    /// Read the "SubCraft Materials" pack folder of the preferences again (none when unset).
+    pub fn reload_materials_pack(&mut self) {
+        let path = self.recovery.prefs.materials_pack.trim().to_string();
+        self.materials_pack = if path.is_empty() { Vec::new() } else { subcraft_assets::materials_pack::load_pack(Path::new(&path)) };
     }
 
     /// Add the alphas, smart materials, smart masks, brush presets and textures of `lib` to the
@@ -332,6 +339,23 @@ pub fn settings(ui: &mut egui::Ui, prefs: &mut crate::recovery::Preferences, you
             }
             prefs.extra_libraries.push(LibraryPath { name: form.name.trim().to_string(), path });
             *form = LibrariesUi::default();
+            change = Some(LibrariesChange::Changed);
+        }
+    });
+    ui.add_space(8.0);
+    // The "SubCraft Materials" pack: a folder of PBR materials (one sub-folder each).
+    ui.horizontal(|ui| {
+        ui.label(tr("SubCraft Materials pack"));
+        let shown = if prefs.materials_pack.trim().is_empty() { tr("none").to_string() } else { prefs.materials_pack.clone() };
+        ui.label(RichText::new(shown).color(theme::TEXT_DIM()));
+        if ui.button(crate::icons::FOLDER_OPEN).on_hover_text(tr("Choose the materials pack folder (one sub-folder per material, with material.json)")).clicked()
+            && let Some(dir) = rfd::FileDialog::new().set_title(tr("Choose the materials pack folder")).pick_folder()
+        {
+            prefs.materials_pack = dir.display().to_string();
+            change = Some(LibrariesChange::Changed);
+        }
+        if !prefs.materials_pack.trim().is_empty() && crate::widgets::icon_button(ui, crate::icons::X, tr("Stop using the materials pack (its files stay on disk)")).clicked() {
+            prefs.materials_pack.clear();
             change = Some(LibrariesChange::Changed);
         }
     });

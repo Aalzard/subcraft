@@ -1021,4 +1021,8 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Projection preview channel", "투영 미리보기 채널"),
     ("Opacity of the Projection tool's pattern over the 3D view (0 hides it)", "3D 뷰 위에 표시되는 투영 도구 패턴의 불투명도 (0이면 숨김)"),
     ("Which image of the brush material the Projection tool shows over the view", "투영 도구가 뷰 위에 표시할 브러시 재질의 이미지"),
+    ("SubCraft Materials pack", "SubCraft 재질 팩"),
+    ("Choose the materials pack folder (one sub-folder per material, with material.json)", "재질 팩 폴더를 선택합니다 (재질마다 material.json이 든 하위 폴더 하나)"),
+    ("Choose the materials pack folder", "재질 팩 폴더 선택"),
+    ("Stop using the materials pack (its files stay on disk)", "재질 팩 사용을 중지합니다 (파일은 디스크에 남습니다)"),
 ];

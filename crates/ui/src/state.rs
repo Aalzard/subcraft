@@ -334,6 +334,8 @@ pub struct UiState {
     pub symmetry_uploaded: Option<crate::symmetry_view::GuideKey>,
     pub uv_wireframe: bool,
     pub library: subcraft_app::assets::Library,
+    /// The materials of the "SubCraft Materials" pack folder of the preferences.
+    pub materials_pack: Vec<subcraft_assets::materials_pack::PackMaterial>,
     pub shelf: crate::panels::shelf::ShelfUi,
     pub env: crate::panels::shelf::EnvUi,
     /// Mesh maps last uploaded to the GPU (to re-upload only when a bake replaced them).
@@ -546,6 +548,7 @@ impl UiState {
             symmetry_uploaded: None,
             uv_wireframe: true,
             library: subcraft_app::assets::Library::builtin(),
+            materials_pack: Vec::new(),
             shelf: Default::default(),
             env: Default::default(),
             uploaded_maps: HashMap::new(),
