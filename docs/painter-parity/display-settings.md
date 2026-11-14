@@ -287,7 +287,7 @@ linear/raw. Hidden or superseded in colour-managed (OCIO/ACE) projects (unverifi
 | Activate Color Profile | Display Settings > Color profile | off | done: Display Settings > Camera > Color profile; the material view shows linear raw values (through the LUT once one is loaded); channel and bake views stay as stored | crates/render/src/color_profile.rs | 464 |
 | Color profile LUT (resource slot, 3D LUT stored as a 2D float texture) | Display Settings > Color profile | none; shipped LUTs are 2048x128 | done: Display Settings > Camera > Color LUT (Load / Clear); a ColorLut project resource by UUID, saved with the project; OCIO `ociolutimage` layout, any N³ size | crates/ui/src/color_lut.rs, crates/render/src/color_profile.rs | 475 |
 | White point | Display Settings > Color profile | 1 | done: values divided by it and clamped (linear) before the LUT, 0.1-100 | crates/doc/src/display.rs (white_point_scale) | 464 |
-| Import a LUT with the "colorlut" usage | Import resources window | - | partial: loaded from Display Settings > Color LUT (stored as a ColorLut resource); not offered in the Import resources window | crates/app/src/session.rs (add_color_lut) | 475 |
+| Import a LUT with the "colorlut" usage | Import resources window | - | done: the "color LUT" usage adds the file to the project as a ColorLut resource (whatever the destination) and makes it the colour profile's LUT; also Display Settings > Color LUT > Load | crates/ui/src/import_resources.rs (Usage::ColorLut) | 478 |
 
 ## Render settings (12.2)
 

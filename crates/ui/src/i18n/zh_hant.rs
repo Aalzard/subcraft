@@ -1021,6 +1021,7 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Projection preview channel", "投影預覽通道"),
     ("Opacity of the Projection tool's pattern over the 3D view (0 hides it)", "投影工具圖樣在 3D 檢視上的不透明度（0 為隱藏）"),
     ("Which image of the brush material the Projection tool shows over the view", "投影工具在檢視上顯示筆刷材質的哪一張影像"),
+    ("color LUT", "色彩 LUT"),
     ("SubCraft Materials pack", "SubCraft 材質包"),
     ("Choose the materials pack folder (one sub-folder per material, with material.json)", "選擇材質包資料夾（每個材質一個子資料夾，內含 material.json）"),
     ("Choose the materials pack folder", "選擇材質包資料夾"),
