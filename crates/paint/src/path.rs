@@ -2,6 +2,9 @@
 
 use glam::Vec2;
 
+/// Most stamps one segment of a stroke can make (far more than any screen or texture is long).
+pub const MAX_SEGMENT_SAMPLES: usize = 1 << 18;
+
 /// Largest smoothing weight (1 would freeze the brush).
 pub const MAX_SMOOTHING: f32 = 0.95;
 
@@ -87,6 +90,10 @@ impl ScreenPath {
 
     fn walk(&mut self, to: Vec2, spacing_px: f32, out: &mut Vec<PathSample>) {
         let spacing = spacing_px.max(0.5);
+        // A point at infinity has nowhere to put a stamp.
+        if !to.is_finite() {
+            return;
+        }
         let Some(from) = self.last else {
             out.push(PathSample { pos: to, dir: self.dir });
             self.last = Some(to);
@@ -100,14 +107,18 @@ impl ScreenPath {
         }
         let dir = seg / len;
         self.dir = dir;
-        let mut t = spacing - self.residual;
+        // Stamps by index, at most MAX_SEGMENT_SAMPLES: `t += spacing` stops growing once t is
+        // large in f32, and a far point asked for endless stamps (a script drawing to a point
+        // millions of texels away hung, then ran out of memory).
+        let first = spacing - self.residual;
+        let count = if first > len { 0 } else { (((len - first) / spacing).floor() as usize).saturating_add(1).min(MAX_SEGMENT_SAMPLES) };
         let mut last_emit = -self.residual;
-        while t <= len {
+        for k in 0..count {
+            let t = first + k as f32 * spacing;
             out.push(PathSample { pos: from + dir * t, dir });
             last_emit = t;
-            t += spacing;
         }
-        self.residual = len - last_emit;
+        self.residual = (len - last_emit).min(spacing);
         self.last = Some(to);
     }
 }
@@ -126,6 +137,26 @@ pub fn rand01(seed: u32, stamp: u32, stream: u32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// QA 2026-11: a segment to a very far or infinite point never ended.
+    #[test]
+    fn a_far_or_infinite_point_ends_the_segment() {
+        let mut p = ScreenPath::new();
+        let mut out = Vec::new();
+        p.line_to(Vec2::ZERO, 1.0, &mut out);
+        p.line_to(Vec2::new(f32::INFINITY, 0.0), 1.0, &mut out);
+        assert_eq!(out.len(), 1, "nothing toward infinity");
+        p.line_to(Vec2::new(1e30, 0.0), 1.0, &mut out);
+        assert!(out.len() <= 1 + MAX_SEGMENT_SAMPLES && out.len() > 1, "{}", out.len());
+        assert!(out.iter().all(|s| s.pos.is_finite()));
+        // Ordinary strokes are unchanged.
+        let mut q = ScreenPath::new();
+        let mut short = Vec::new();
+        q.line_to(Vec2::ZERO, 1.0, &mut short);
+        q.line_to(Vec2::new(10.0, 0.0), 1.0, &mut short);
+        assert_eq!(short.len(), 11);
+        assert!((short[10].pos.x - 10.0).abs() < 1e-5);
+    }
 
     #[test]
     fn resamples_at_constant_spacing_across_pushes() {
