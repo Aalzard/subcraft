@@ -226,8 +226,9 @@ pub fn wire_color_linear(prefs: &ViewportPrefs) -> [f32; 3] {
     subcraft_core::color::srgb3_to_linear(prefs.wire_color.map(|c| c.clamp(0.0, 1.0)))
 }
 
-/// What the uploaded wireframe was built from: mesh identity, merge angle, linear color bits, opacity bits.
-pub type WireKey = (usize, u32, [u32; 3], u32);
+/// What the uploaded wireframe was built from: mesh identity, merge angle, linear color bits,
+/// opacity bits, and the material slot it is limited to (`u32::MAX`: the whole mesh).
+pub type WireKey = (usize, u32, [u32; 3], u32, u32);
 
 /// Upload the polygon wireframe when the mesh or its settings changed. Cheap when nothing did.
 pub fn sync_wireframe(
@@ -236,18 +237,29 @@ pub fn sync_wireframe(
     prefs: &ViewportPrefs,
     mesh: &std::sync::Arc<subcraft_mesh::Mesh>,
     uploaded: &mut Option<WireKey>,
+    tool_slot: Option<u32>,
 ) {
-    if !prefs.wireframe {
-        return;
-    }
+    let Some(slot) = wire_slot(prefs.wireframe, tool_slot) else { return };
     let angle = prefs.wire_angle.clamp(0.0, 90.0);
     let color = wire_color_linear(prefs);
-    let key = (std::sync::Arc::as_ptr(mesh) as usize, angle.to_bits(), color.map(f32::to_bits), prefs.wire_opacity.to_bits());
+    let key = (std::sync::Arc::as_ptr(mesh) as usize, angle.to_bits(), color.map(f32::to_bits), prefs.wire_opacity.to_bits(), slot);
     if *uploaded == Some(key) {
         return;
     }
-    renderer.set_wireframe(device, &subcraft_mesh::topology::polygon_edges(mesh, angle), color, prefs.wire_opacity);
+    let edges = if slot == u32::MAX {
+        subcraft_mesh::topology::polygon_edges(mesh, angle)
+    } else {
+        subcraft_mesh::topology::polygon_edges_where(mesh, angle, |t| mesh.tri_material.get(t) == Some(&slot))
+    };
+    renderer.set_wireframe(device, &edges, color, prefs.wire_opacity);
     *uploaded = Some(key);
+}
+
+/// Which wireframe the 3D view shows: the whole mesh's when the wireframe is switched on
+/// (`u32::MAX`), else the active texture set's while a tool asks for it (Painter shows it while
+/// Polygon Fill is active, `tool_slot`), else none.
+pub fn wire_slot(wireframe_on: bool, tool_slot: Option<u32>) -> Option<u32> {
+    if wireframe_on { Some(u32::MAX) } else { tool_slot }
 }
 
 /// Wireframe toggle (left click) with color, opacity and merge-angle settings (right click).
@@ -430,6 +442,14 @@ mod camera_tests {
 mod tests {
     use super::*;
     use subcraft_mesh::Aabb;
+
+    #[test]
+    fn polygon_fill_shows_the_active_sets_wireframe_and_the_full_one_wins() {
+        assert_eq!(wire_slot(false, None), None, "no wireframe, no tool asking");
+        assert_eq!(wire_slot(false, Some(1)), Some(1), "Polygon Fill: the active set only");
+        assert_eq!(wire_slot(true, Some(1)), Some(u32::MAX), "the wireframe switch shows everything");
+        assert_eq!(wire_slot(true, None), Some(u32::MAX));
+    }
 
     fn model() -> (OrbitCamera, Vec3) {
         let b = Aabb { min: Vec3::splat(-1.0), max: Vec3::splat(1.0) };

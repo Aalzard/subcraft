@@ -219,7 +219,7 @@ Layout notes: Selection mode icons first, then Fill mode icons (only meaningful 
 | Shift: partial loop fills only the primary loop | Viewport (partial loop) | n/a | missing | - | - |
 | Shift+A: temporary Polygon loop fill | Viewport | n/a | missing | - | - |
 | A while dragging: combine with the previous result | Viewport | n/a | missing | - | - |
-| Wireframe of the active Texture Set shown while the tool is active | Viewport | n/a | missing | - | - |
+| Wireframe of the active Texture Set shown while the tool is active | Viewport | n/a | done | crates/ui/src/view_extras.rs | (this PR) |
 
 ## Smudge tool
 
