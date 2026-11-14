@@ -1841,11 +1841,23 @@ pub(crate) fn material_buttons(ui: &mut Ui, states: &[(ChannelKind, bool)], adda
     clicked
 }
 
-/// Mode / scale / rotation (+ sharpness or axis) editor shared by fill layers and image masks.
+/// The modes [`projection_editor`] offers when the projection is in `current`. Warp's grid is
+/// only edited in the 3D view for a fill layer's own projection; on masks, fill effects and the
+/// brush material it is listed only while already set (so the panel shows it and can leave it).
+pub(crate) fn editor_modes(current: ProjectionMode) -> Vec<(ProjectionMode, &'static str)> {
+    let mut modes = vec![(ProjectionMode::Uv, "UV"), (ProjectionMode::Triplanar, "Tri-planar"), (ProjectionMode::Planar, "Planar"), (ProjectionMode::Spherical, "Sphere"), (ProjectionMode::Cylindrical, "Cylinder")];
+    if current == ProjectionMode::Warp {
+        modes.push((ProjectionMode::Warp, "Warp"));
+    }
+    modes
+}
+
+/// Mode / scale / rotation (+ sharpness or axis) editor shared by image masks, fill effects and
+/// the brush material (fill layers use [`fill_properties`]).
 pub(crate) fn projection_editor(ui: &mut Ui, proj: &mut Projection) -> bool {
     let mut changed = false;
     prop_row(ui, tr("Mode"), |ui| {
-        changed |= segmented(ui, &mut proj.mode, &[(ProjectionMode::Uv, "UV"), (ProjectionMode::Triplanar, "Tri-planar"), (ProjectionMode::Planar, "Planar"), (ProjectionMode::Spherical, "Sphere"), (ProjectionMode::Cylindrical, "Cylinder"), (ProjectionMode::Warp, "Warp")]);
+        changed |= segmented(ui, &mut proj.mode, &editor_modes(proj.mode));
     });
     // Tiling: X and Y linked by default (lock), separate when unlocked. The lock is UI state,
     // remembered per editor; it starts unlocked if the two values already differ.
@@ -2061,5 +2073,35 @@ mod material_button_tests {
         let has = |t: &str| out.shapes.iter().any(|s| matches!(&s.shape, egui::Shape::Text(g) if g.galley.text() == t));
         assert!(has(ChannelKind::Opacity.short_name()), "Opacity gets a toggle on fill layers");
         assert!(has(ChannelKind::BaseColor.short_name()));
+    }
+}
+
+#[cfg(test)]
+mod warp_mode_tests {
+    use super::*;
+
+    /// QA 2026-11: masks, fill effects and the brush material offered Warp, whose grid can only
+    /// be edited for a fill layer's own projection: picking it left a flat grid with no editor.
+    #[test]
+    fn warp_is_offered_only_where_its_grid_can_be_edited() {
+        for mode in [ProjectionMode::Uv, ProjectionMode::Triplanar, ProjectionMode::Planar, ProjectionMode::Spherical, ProjectionMode::Cylindrical] {
+            let modes = editor_modes(mode);
+            assert!(modes.iter().all(|(m, _)| *m != ProjectionMode::Warp), "{mode:?}: {modes:?}");
+            assert!(modes.iter().any(|(m, _)| *m == mode), "{mode:?} is listed");
+        }
+        assert!(editor_modes(ProjectionMode::Warp).iter().any(|(m, _)| *m == ProjectionMode::Warp), "a Warp set elsewhere still shows");
+        // Drawn: no Warp button for a mask's planar projection; fill layers keep Warp.
+        let ctx = egui::Context::default();
+        crate::theme::apply(&ctx);
+        let mut proj = Projection { mode: ProjectionMode::Planar, ..Projection::default() };
+        let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+            projection_editor(ui, &mut proj);
+        });
+        out.textures_delta.clear();
+        let text = format!("{:?}", out.shapes);
+        assert!(text.contains("Planar") && !text.contains("Warp"), "the editor draws no Warp button");
+        let source = include_str!("properties.rs");
+        let fill = &source[source.find("pub(crate) fn fill_properties").unwrap()..];
+        assert!(fill[..fill.find("\n}").unwrap()].contains("(ProjectionMode::Warp, \"Warp projection\")"), "fill layers keep Warp");
     }
 }
