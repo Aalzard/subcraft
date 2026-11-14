@@ -225,12 +225,16 @@ pub struct UiState {
     pub picking_parts: bool,
     /// Warp projection grid editing (mode, selected points, display settings).
     pub warp: crate::warp_view::WarpEdit,
+    /// Fill projection manipulator of the 3D view (tool, visibility, size, snapping steps).
+    pub gizmo: crate::projection_gizmo::GizmoEdit,
     /// Geometry mask box started in a view (screen point), while picking parts.
     pub parts_box: Option<egui::Pos2>,
     /// Geometry mask copied from a layer row's menu.
     pub parts_clipboard: Option<subcraft_doc::PartMask>,
     /// Geometry mask overlay of the 2D view (excluded islands, hovered part).
     pub uv_parts: crate::panels::uv_view::PartsOverlay,
+    /// Geometry mask and Polygon Fill feedback drawn on the model in the 3D view.
+    pub part_overlay_3d: crate::part_overlay::Overlay3d,
     /// Quick mask overlay of the 2D view: (quick mask revision, texture).
     pub quick_mask_tex: Option<(u64, egui::TextureHandle)>,
     /// Texture Set List > Settings: which description lines the rows show.
@@ -477,9 +481,11 @@ impl UiState {
             painting: false,
             picking_parts: false,
             warp: Default::default(),
+            gizmo: Default::default(),
             parts_box: None,
             parts_clipboard: None,
             uv_parts: Default::default(),
+            part_overlay_3d: Default::default(),
             quick_mask_tex: None,
             set_descriptions: Default::default(),
             picking_focus: false,

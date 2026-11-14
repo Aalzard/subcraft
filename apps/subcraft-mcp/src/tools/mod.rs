@@ -84,7 +84,13 @@ pub const DESTRUCTIVE: &[&str] = &[
 /// Tools that reach outside the server (start another program).
 pub const OPEN_WORLD: &[&str] = &["open_in_app"];
 
+/// Tools that return an image and, given `save_path`, also write it (over an existing file).
+/// They were marked read-only, so clients that approve read-only tools without asking let them
+/// overwrite files.
+pub const SAVES_FILES: &[&str] = &["render_preview", "render_texture"];
+
 fn tool(name: &str, title: &str, description: &str, properties: Value, required: &[&str], read_only: bool) -> Value {
+    let read_only = read_only && !SAVES_FILES.contains(&name);
     json!({
         "name": name,
         "title": title,
@@ -93,7 +99,7 @@ fn tool(name: &str, title: &str, description: &str, properties: Value, required:
         "annotations": {
             "title": title,
             "readOnlyHint": read_only,
-            "destructiveHint": !read_only && DESTRUCTIVE.contains(&name),
+            "destructiveHint": !read_only && (DESTRUCTIVE.contains(&name) || SAVES_FILES.contains(&name)),
             "openWorldHint": OPEN_WORLD.contains(&name),
         },
     })
@@ -310,6 +316,7 @@ space \"view\": points are [x, y] pixels in the render_preview image taken with 
                 "anchors": { "type": "array", "items": { "type": "object" }, "description": "[{position: [u,v], in: [du,dv], out: [du,dv]}] (UV space)." },
                 "smooth": { "type": "boolean" }, "closed": { "type": "boolean" }, "filled": { "type": "boolean", "description": "Fill the inside of the (closed) path instead of stroking its outline." },
                 "width": { "type": "number", "description": "Line width as a fraction of the texture width (e.g. 0.01)." },
+                "view_width": { "type": "integer", "description": "With space view: width in pixels of the render_preview image the points are in (default 768; `width` is the line width)." },
                 "hardness": { "type": "number" }, "opacity": { "type": "number" },
                 "channels": { "type": "object", "description": "Values the line paints, e.g. {\"base_color\": \"#ffcc00\", \"roughness\": 0.3} (default: the brush's)." },
             })), &[], false),
