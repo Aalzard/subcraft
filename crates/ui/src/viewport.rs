@@ -549,12 +549,19 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         state.fill_box = None;
         let end = pointer.unwrap_or(start);
         state.session.brush.mode = StrokeMode::Paint;
-        let result = if crate::view_props::is_box_drag(start, end) {
+        let looped = state.fill_selection.is_loop();
+        let result = if looped {
+            // Alt held at release mirrors a partial loop on the other side of the first click.
+            let both_sides = ui.input(|i| i.modifiers.alt);
+            let partial = state.fill_selection == subcraft_paint::PolygonSelectMode::PartialLoop;
+            state.session.polygon_fill_loop(&camera, to_screen(start), to_screen(end), state.fill_mode, partial, both_sides)
+        } else if crate::view_props::is_box_drag(start, end) {
             state.session.polygon_fill_box(&camera, to_screen(start), to_screen(end), state.fill_mode, state.fill_visible_only)
         } else {
             state.session.polygon_fill(&camera, to_screen(start), state.fill_mode)
         };
         match result {
+            Ok(tiles) if tiles.is_empty() && looped => state.set_status("Polygon fill: no polygon of this texture set under the cursor", now),
             Ok(tiles) if tiles.is_empty() && crate::view_props::is_box_drag(start, end) => state.set_status("Polygon fill: the box touched no triangle of this texture set", now),
             Ok(_) => {}
             Err(e) => state.set_status(format!("Polygon fill: {e}"), now),
@@ -906,7 +913,12 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             painter.circle_stroke(from, 6.0, Stroke::new(1.5, cross));
         }
     }
-    if let Some(r) = fill_rect.filter(|r| state.fill_box.is_some() && crate::view_props::is_box_drag(r.min, r.max)) {
+    if state.fill_selection.is_loop() {
+        // Loop modes: the drag is a direction, drawn as an arrow from the first click.
+        if let (Some(a), Some(b)) = (state.fill_box, pointer) && crate::view_props::is_box_drag(a, b) {
+            painter.arrow(a, b - a, Stroke::new(1.5, crate::theme::ACCENT()));
+        }
+    } else if let Some(r) = fill_rect.filter(|r| state.fill_box.is_some() && crate::view_props::is_box_drag(r.min, r.max)) {
         crate::view_props::draw_fill_box(&painter, r, state.fill_visible_only);
     }
     if let (Some(a), Some(b)) = (state.parts_box, pointer) && crate::view_props::is_box_drag(a, b) {

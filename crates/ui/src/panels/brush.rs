@@ -79,12 +79,24 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             super::brush_header::show(state, ui);
             section(ui, "tool", "Paint target", true, |ui| {
                 if state.tool == Tool::PolygonFill {
+                    prop_row(ui, "Selection", |ui| {
+                        use subcraft_paint::PolygonSelectMode;
+                        egui::ComboBox::from_id_salt("fill_selection").selected_text(state.fill_selection.label()).show_ui(ui, |ui| {
+                            for m in PolygonSelectMode::ALL {
+                                ui.selectable_value(&mut state.fill_selection, m, m.label());
+                            }
+                        });
+                    });
                     prop_row(ui, "Fill by", |ui| crate::brush_bar::fill_mode_combo(ui, &mut state.fill_mode, "fill_mode_panel"));
                     prop_row(ui, "", |ui| {
                         ui.checkbox(&mut state.fill_visible_only, "Visible polygons only")
                             .on_hover_text("A box drag in the 3D view fills only what the camera sees: no back faces, nothing behind the model. Off: everything under the box.");
                     });
-                    hint(ui, "Click to fill one element, drag a box to fill every element it touches. Works in the 3D and 2D views.");
+                    match state.fill_selection {
+                        subcraft_paint::PolygonSelectMode::Marquee => hint(ui, "Click to fill one element, drag a box to fill every element it touches. Works in the 3D and 2D views."),
+                        subcraft_paint::PolygonSelectMode::Loop => hint(ui, "Drag along the model to fill the loop of quads in that direction (a click: across the nearest edge). 3D view; the 2D view keeps the marquee."),
+                        subcraft_paint::PolygonSelectMode::PartialLoop => hint(ui, "Drag from one quad to another to fill the loop between them; hold Alt when releasing to add as many on the other side. 3D view."),
+                    }
                 }
                 let b = &mut state.session.brush;
                 prop_row(ui, "Paint on", |ui| {

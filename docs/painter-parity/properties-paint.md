@@ -202,8 +202,8 @@ Layout notes: Selection mode icons first, then Fill mode icons (only meaningful 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
 | Selection mode: Rectangular marquee fill | Properties > Polygon Fill > Selection mode | default (unverified) | missing: click fills one element, no box drag | - | #131 |
-| Selection mode: Polygon loop fill | Properties > Polygon Fill > Selection mode | option | missing | - | - |
-| Selection mode: Partial polygon loop fill | Properties > Polygon Fill > Selection mode | option | missing | - | - |
+| Selection mode: Polygon loop fill | Properties > Polygon Fill > Selection mode | option | done: the quad loop in the drag direction (a click: across the nearest edge); stops at borders and non-quads; 3D view only | Properties > Paint target > Selection; crates/paint/src/select.rs | (this PR) |
+| Selection mode: Partial polygon loop fill | Properties > Polygon Fill > Selection mode | option | done: the loop from the first quad to the quad under the release point; 3D view only | Properties > Paint target > Selection; crates/paint/src/select.rs | (this PR) |
 | Fill mode: Triangle fill | Properties > Polygon Fill > Fill mode | option | done | crates/ui/src/panels/brush.rs:26 | - |
 | Fill mode: Polygon fill (source quads / n-gons) | Properties > Polygon Fill > Fill mode | option | missing | - | #131 |
 | Fill mode: Mesh fill (connected polygons) | Properties > Polygon Fill > Fill mode | option | done: "Mesh" | crates/ui/src/brush_bar.rs | #131 |
@@ -215,7 +215,7 @@ Layout notes: Selection mode icons first, then Fill mode icons (only meaningful 
 | Opacity | Properties > Polygon Fill > Blending | not documented | missing | - | - |
 | Material block: channel toggles and values used by the fill | Properties > Material | n/a | done | crates/ui/src/panels/brush_material.rs:16 | - |
 | Grayscale value when filling a mask | Properties > Grayscale | not documented | partial: "Mask value" slider | crates/ui/src/panels/brush.rs:94 | - |
-| Alt: extend a loop on both sides of the first click | Viewport (loop modes) | n/a | missing | - | - |
+| Alt: extend a loop on both sides of the first click | Viewport (loop modes) | n/a | done: Alt held at release mirrors a partial loop on the other side | crates/ui/src/viewport.rs | (this PR) |
 | Shift: partial loop fills only the primary loop | Viewport (partial loop) | n/a | missing | - | - |
 | Shift+A: temporary Polygon loop fill | Viewport | n/a | missing | - | - |
 | A while dragging: combine with the previous result | Viewport | n/a | missing | - | - |

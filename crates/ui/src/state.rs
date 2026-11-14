@@ -161,6 +161,8 @@ pub struct UiState {
     /// Polygon fill boxes in the 3D view pick only what the camera sees (no back faces, nothing
     /// hidden behind the model). Off: every triangle under the box, x-ray style.
     pub fill_visible_only: bool,
+    /// Polygon Fill selection mode: marquee (click / box) or polygon loops (3D view).
+    pub fill_selection: subcraft_paint::PolygonSelectMode,
     /// Polygon fill drag in progress: where the primary button went down (screen points). A
     /// release close by is a click fill there, a longer drag a box fill.
     pub fill_box: Option<egui::Pos2>,
@@ -461,6 +463,7 @@ impl UiState {
             pen_after: None,
             fill_mode: PolygonFillMode::UvIsland,
             fill_visible_only: true,
+            fill_selection: subcraft_paint::PolygonSelectMode::Marquee,
             fill_box: None,
             view_props: None,
             view_props_swallow: false,
