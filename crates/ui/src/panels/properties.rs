@@ -2141,7 +2141,7 @@ mod levels_handle_tests {
         let raw = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 300.0))), events: input, ..Default::default() };
         let mut changed = false;
         let mut origin = egui::Pos2::ZERO;
-        let out = ctx.run_ui(raw, |ui| {
+        let mut out = ctx.run_ui(raw, |ui| {
             egui::CentralPanel::default().show_inside(ui, |ui| {
                 ui.set_width(320.0);
                 origin = ui.cursor().min;
@@ -2149,6 +2149,7 @@ mod levels_handle_tests {
                 changed |= output_strip(ui, egui::Id::new("t_out"), r);
             });
         });
+        out.textures_delta.clear();
         (changed, out.shapes, origin)
     }
 
