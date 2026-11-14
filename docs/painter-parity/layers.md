@@ -16,7 +16,7 @@ Layout notes: one header row. Far left is the view-mode (channel) dropdown; the 
 | Create Mask > Add black mask | Layers header, mask menu | not documented | done | crates/ui/src/panels/layers.rs:51 | - |
 | Create Mask > Add bitmap mask | Layers header, mask menu | not documented | done (file picker; a black mask is created first) | crates/ui/src/panels/layers.rs:62 | - |
 | Create Mask > Add mask with color selection | Layers header, mask menu | not documented | done | crates/ui/src/panels/layers.rs:66 | - |
-| Create Mask > Add mask with height combination | Layers header, mask menu | not documented | missing (no Compare Mask effect) | - | - |
+| Create Mask > Add mask with height combination | Layers header, mask menu | not documented | done | crates/ui/src/panels/layers.rs:70 | - |
 | Create New Paint Layer (above the selection) | Layers header, icon 3 | not documented | done | crates/ui/src/panels/layers.rs:162 | - |
 | Create New Fill Layer (above the selection) | Layers header, icon 4 | not documented | done | crates/ui/src/panels/layers.rs:165 | - |
 | Add New Smart Materials (mini-shelf of smart materials, inserts above the selection) | Layers header, icon 5 | not documented | done (a searchable list, no thumbnails) | crates/ui/src/panels/layers.rs:332 | - |
@@ -125,7 +125,7 @@ Layout notes: one flat dropdown, grouped by separators in this order: Normal / P
 | Ctrl while dropping a resource in the stack: new layer with the resource inside a black mask | Assets > Layer stack | n/a | partial: materials and textures; the new layer gets a black mask, the resource stays the layer's content | crates/ui/src/panels/shelf.rs:154 | - |
 | Alt while dropping on a layer thumbnail: remove the previous effects first | Assets > Layer stack | n/a | partial: smart masks replace the mask's effects; for materials and textures Alt means "apply in place" (replace the fill material / set the active channel) | crates/ui/src/panels/shelf.rs:91 | - |
 | Hovering a thumbnail while dragging switches to that stack (content or mask) | Layer stack | n/a | partial: mask thumbnail is a separate drop target, no stack switch | crates/ui/src/panels/layers.rs:300 | - |
-| Ghost mask icon on mask-less layers while dragging (drop creates a black mask plus the resource) | Layer stack | n/a | missing | - | - |
+| Ghost mask icon on mask-less layers while dragging (drop creates a black mask plus the resource) | Layer stack | n/a | done (alphas, images, mask filters and smart masks) | crates/ui/src/panels/layers.rs:535 | - |
 | Ctrl + drag a material creates the fill layer with a mask immediately | Assets > Layer stack | n/a | done | crates/ui/src/panels/shelf.rs:154 | - |
 | Automatic ID mask when dropping a material on a mesh with an ID map (Ctrl in viewport) | Assets > Viewport | n/a | missing | - | - |
 
@@ -180,7 +180,7 @@ Layout notes: Painter's menu is, top to bottom: effect entries (with icons), mas
 | Add fill (effect) | Layer context menu | n/a | done | crates/ui/src/panels/effects.rs:69 | - |
 | Add generator | Layer context menu | n/a | partial: adds a built-in generator to the mask from a submenu of kinds; no generator on content | crates/ui/src/panels/layers.rs:619 | - |
 | Add levels | Layer context menu | n/a | done | crates/ui/src/panels/effects.rs:70 | - |
-| Add compare mask (mask only) | Layer context menu | n/a | missing | - | - |
+| Add compare mask (mask only) | Layer context menu | n/a | done (in the add-effect entries when the mask is selected, and on the mask thumbnail menu) | crates/ui/src/panels/effects.rs:141 | - |
 | Add filter | Layer context menu | n/a | partial: a submenu of built-in filters instead of an empty slot with a picker | crates/ui/src/panels/effects.rs:79 | - |
 | Add color selection (mask only) | Layer context menu | n/a | done | crates/ui/src/panels/effects.rs:142 | - |
 | Add anchor point | Layer context menu | n/a | done | crates/ui/src/panels/effects.rs:89 | - |
@@ -189,7 +189,7 @@ Layout notes: Painter's menu is, top to bottom: effect entries (with icons), mas
 | Add black mask | Layer context menu | n/a | done | crates/ui/src/panels/layers.rs:51 | - |
 | Add bitmap mask | Layer context menu | n/a | done | crates/ui/src/panels/layers.rs:62 | - |
 | Add mask with color selection | Layer context menu | n/a | done | crates/ui/src/panels/layers.rs:66 | - |
-| Add mask with height combination (Compare Mask on Height, sets Height blend to Normal) | Layer context menu | n/a | missing | - | - |
+| Add mask with height combination (Compare Mask on Height, sets Height blend to Normal) | Layer context menu | n/a | done | crates/ui/src/panels/layers.rs:70 | - |
 | Cut layer(s) | Layer context menu | Ctrl+X | done | crates/ui/src/panels/layers.rs:493 | - |
 | Copy layer(s) | Layer context menu | Ctrl+C | done | crates/ui/src/panels/layers.rs:490 | - |
 | Paste layer(s) | Layer context menu | Ctrl+V | done | crates/ui/src/panels/layers.rs:496 | - |
@@ -297,10 +297,10 @@ Layout notes: the geometry mask is a second, list-based mask on every layer and 
 | Checkbox list of mesh names / UV tiles | Properties > Geometry mask | all checked | done | crates/ui/src/panels/properties.rs:129 | - |
 | Click and drag over checkboxes to toggle several | Properties > Geometry mask | n/a | done | crates/ui/src/panels/properties.rs | - |
 | Alt + click a row to isolate it | Properties > Geometry mask | n/a | done | crates/ui/src/panels/properties.rs | - |
-| Hovering a list row highlights that geometry in the viewports | Properties > Geometry mask | n/a | partial: highlighted in the 2D view only | crates/ui/src/panels/uv_view.rs | - |
+| Hovering a list row highlights that geometry in the viewports | Properties > Geometry mask | n/a | done | crates/ui/src/part_overlay.rs | - |
 | Click geometry in the 3D or 2D view to toggle it | Viewport (edit mode) | n/a | done | crates/ui/src/panels/uv_view.rs | - |
 | Rectangle selection in both viewports | Viewport (edit mode) | n/a | done: drag adds, Ctrl+drag removes | crates/ui/src/panels/uv_view.rs | - |
-| Excluded geometry drawn grey with diagonal lines while editing | Viewport (edit mode) | n/a | partial: 2D view only; the 3D view hides it with Alt+H | crates/ui/src/panels/uv_view.rs | - |
+| Excluded geometry drawn grey with diagonal lines while editing | Viewport (edit mode) | n/a | done: both views | crates/ui/src/part_overlay.rs | - |
 | Right-click icon > Copy geometry mask | Layer row icon menu | n/a | done | crates/ui/src/panels/layers.rs | - |
 | Right-click icon > Paste into geometry mask | Layer row icon menu | n/a | done | crates/ui/src/panels/layers.rs | - |
 | Right-click icon > Include all | Layer row icon menu | n/a | done | crates/ui/src/panels/layers.rs | - |

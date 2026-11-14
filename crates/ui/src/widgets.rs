@@ -4,7 +4,7 @@ use egui::{Align, Color32, CornerRadius, Layout, Rect, Response, RichText, Sense
 use subcraft_core::{ChannelKind, ChannelValue};
 
 use crate::icons;
-use crate::theme::{self, ACCENT, ACCENT_SOFT, BG_3, BG_4, BORDER_SOFT, CONTROL_H, LABEL_SIZE, LABEL_WIDTH, PAD, RADIUS, RAIL, ROW_HEIGHT, SP_M, SP_S, SP_XS, TEXT, TEXT_DIM, TEXT_FAINT, VALUE_W};
+use crate::theme::{self, ACCENT, ACCENT_SOFT, BG_3, BG_4, BORDER_SOFT, CONTROL_H, LABEL_SIZE, LABEL_WIDTH, PAD, RAIL, ROW_HEIGHT, SP_M, SP_S, SP_XS, TEXT, TEXT_DIM, TEXT_FAINT, VALUE_W};
 
 /// Result of an editor: `changed` this frame, `done` when an interaction finished.
 #[derive(Clone, Copy, Default)]
@@ -116,7 +116,7 @@ pub fn section_with(ui: &mut Ui, id: &str, title: &str, default_open: bool, righ
     }
     let painter = ui.painter();
     if resp.hovered() {
-        painter.rect_filled(rect, CornerRadius::same(RADIUS), theme::BG_2());
+        painter.rect_filled(rect, CornerRadius::same(theme::radius()), theme::BG_2());
     }
     let fg = if resp.hovered() { TEXT() } else { TEXT_DIM() };
     let caret = if open { icons::CARET_DOWN } else { icons::CARET_RIGHT };
@@ -263,7 +263,7 @@ pub fn chip(ui: &mut Ui, label: &str, selected: bool) -> Response {
     } else {
         (Color32::TRANSPARENT, theme::BORDER_STRONG().gamma_multiply(0.8), TEXT_DIM())
     };
-    ui.painter().rect(rect, CornerRadius::same(RADIUS), fill, Stroke::new(1.0, stroke), egui::StrokeKind::Inside);
+    ui.painter().rect(rect, CornerRadius::same(theme::radius()), fill, Stroke::new(1.0, stroke), egui::StrokeKind::Inside);
     let color = if ui.is_enabled() { fg } else { TEXT_FAINT() };
     ui.painter().galley(rect.center() - galley.size() / 2.0, galley, color);
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
@@ -286,7 +286,7 @@ pub fn icon_toggle(ui: &mut Ui, icon: &str, selected: bool, tooltip: &str) -> Re
     } else {
         (Color32::TRANSPARENT, if enabled { TEXT_DIM() } else { TEXT_FAINT().gamma_multiply(0.6) })
     };
-    ui.painter().rect_filled(rect, CornerRadius::same(RADIUS), bg);
+    ui.painter().rect_filled(rect, CornerRadius::same(theme::radius()), bg);
     ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, icon, theme::font(15.0), fg);
     let resp = resp.on_hover_text(tooltip);
     if enabled { resp.on_hover_cursor(egui::CursorIcon::PointingHand) } else { resp }
@@ -311,18 +311,18 @@ pub fn tool_button(ui: &mut Ui, icon: &str, selected: bool, tooltip: &str) -> Re
 pub fn primary_button(ui: &mut Ui, text: impl Into<String>) -> Response {
     let text = RichText::new(text.into()).font(theme::font_strong(13.0)).color(Color32::from_rgb(24, 14, 8));
     let fill = if ui.is_enabled() { ACCENT() } else { BG_3() };
-    ui.add(egui::Button::new(text).fill(fill).stroke(Stroke::NONE).corner_radius(RADIUS).min_size(egui::vec2(0.0, 28.0)))
+    ui.add(egui::Button::new(text).fill(fill).stroke(Stroke::NONE).corner_radius(theme::radius()).min_size(egui::vec2(0.0, 28.0)))
 }
 
 /// Outline button (secondary action).
 pub fn secondary_button(ui: &mut Ui, text: impl Into<String>) -> Response {
-    ui.add(egui::Button::new(RichText::new(text.into()).color(TEXT_DIM())).fill(BG_3()).stroke(Stroke::NONE).corner_radius(RADIUS).min_size(egui::vec2(0.0, 28.0)))
+    ui.add(egui::Button::new(RichText::new(text.into()).color(TEXT_DIM())).fill(BG_3()).stroke(Stroke::NONE).corner_radius(theme::radius()).min_size(egui::vec2(0.0, 28.0)))
 }
 
 /// Calm secondary action: a compact icon, readable hit target, soft corners and no hard outline.
 pub fn quiet_button(ui: &mut Ui, icon: &str, text: &str) -> Response {
     ui.add(egui::Button::new(RichText::new(format!("{icon}  {text}")).font(theme::font(12.0)).color(TEXT_DIM()))
-        .fill(theme::BG_2()).stroke(Stroke::NONE).corner_radius(RADIUS).min_size(egui::vec2(0.0, 28.0)))
+        .fill(theme::BG_2()).stroke(Stroke::NONE).corner_radius(theme::radius()).min_size(egui::vec2(0.0, 28.0)))
 }
 
 /// Joined segmented control with rounded outer corners; returns true when the value changed.
@@ -334,7 +334,7 @@ pub fn segmented<T: PartialEq + Copy>(ui: &mut Ui, value: &mut T, options: &[(T,
         for (i, (v, label)) in options.iter().enumerate() {
             let selected = *value == *v;
             let text = RichText::new(*label).color(if selected { ACCENT() } else { TEXT_DIM() });
-            let r = RADIUS;
+            let r = theme::radius();
             let radius = CornerRadius { nw: if i == 0 { r } else { 0 }, sw: if i == 0 { r } else { 0 }, ne: if i == last { r } else { 0 }, se: if i == last { r } else { 0 } };
             let b = egui::Button::new(text).fill(if selected { ACCENT_SOFT() } else { BG_3() }).stroke(Stroke::NONE).corner_radius(radius).min_size(egui::vec2(0.0, CONTROL_H));
             if ui.add(b).clicked() && !selected {

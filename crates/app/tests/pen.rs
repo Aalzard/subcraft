@@ -155,3 +155,30 @@ fn a_resolution_change_draws_the_path_again_instead_of_resampling_it() {
     assert!(!expected.is_empty());
     assert!(p.channels == expected, "the raster is the path drawn at 512");
 }
+
+#[test]
+fn insert_on_the_curve_close_on_the_first_point_and_toggle_corner_smooth() {
+    let mut s = session(); let mut editor = PenEditor::default();
+    for p in [Vec2::new(0.2, 0.2), Vec2::new(0.8, 0.2), Vec2::new(0.8, 0.8)] { point(&mut editor, &mut s, p); }
+    let before = pen(&s).polyline(0.001).unwrap();
+    // A click on the middle of the first segment inserts a point there without changing the curve.
+    editor.insert_point(&s, 0, 0.5).unwrap(); finish(&mut editor, &mut s);
+    assert_eq!(pen(&s).anchors.len(), 4);
+    assert!((pen(&s).anchors[1].position - Vec2::new(0.5, 0.2)).length() < 1e-5);
+    let after = pen(&s).polyline(0.001).unwrap();
+    assert!(after.iter().all(|p| before.windows(2).any(|w| {
+        let d = w[1] - w[0]; let t = if d.length_squared() > 0.0 { ((*p - w[0]).dot(d) / d.length_squared()).clamp(0.0, 1.0) } else { 0.0 };
+        p.distance(w[0] + d * t) < 1e-3
+    })), "same curve");
+    // With the last point selected, a click on the first point closes the path.
+    let (first, last) = (pen(&s).anchors[0].id, pen(&s).anchors[3].id);
+    assert!(!editor.closes_on(&s, first), "the inserted point is selected, not the last one");
+    editor.toggle_point(&s, last).unwrap(); finish(&mut editor, &mut s);
+    assert!(pen(&s).is_smooth(last), "a corner becomes smooth");
+    assert!(editor.closes_on(&s, first));
+    editor.close_path(&s).unwrap(); finish(&mut editor, &mut s);
+    assert!(pen(&s).closed);
+    editor.toggle_point(&s, last).unwrap(); finish(&mut editor, &mut s);
+    assert!(!pen(&s).is_smooth(last), "and back to a corner");
+}
+

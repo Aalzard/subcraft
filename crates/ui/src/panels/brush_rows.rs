@@ -143,6 +143,14 @@ pub fn jitters(ui: &mut Ui, s: &mut BrushSettings) {
             }
         });
     });
+    prop_row(ui, "Stamps Blending", |ui| {
+        use subcraft_paint::StampBlend;
+        egui::ComboBox::from_id_salt("stamps_blending").selected_text(s.stamps_blending.label()).show_ui(ui, |ui| {
+            for mode in StampBlend::ALL {
+                ui.selectable_value(&mut s.stamps_blending, mode, mode.label()).on_hover_text(mode.tip());
+            }
+        });
+    });
 }
 
 /// Size Space dropdown: what the Size percentage is measured against.

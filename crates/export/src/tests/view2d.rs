@@ -106,3 +106,19 @@ fn view_2d_is_a_builtin_preset() {
     let json = serde_json::to_string(&ExportTemplate::view_2d()).unwrap();
     assert_eq!(serde_json::from_str::<ExportTemplate>(&json).unwrap(), ExportTemplate::view_2d());
 }
+
+/// The Size menu applies to the 2D View export like to the other maps: the view is resampled to
+/// the chosen size, keeping its colour.
+#[test]
+fn the_view_follows_the_size_menu() {
+    let ch = channels();
+    for size in [RES / 2, RES * 2] {
+        let s = ExportSettings { size: Some(size), ..view_settings(View2d::Channel(ChannelKind::BaseColor), Padding::None, None) };
+        let f = run(&ch, None, &s, &format!("v-size-{size}"));
+        let b = subcraft_image::load_bitmap(&f).unwrap();
+        assert_eq!((b.width, b.height), (size, size));
+        let p = b.texel(size / 2, size / 2, false);
+        assert!((p[0] - linear_to_srgb(0.5)).abs() < 1.0 / 255.0, "{p:?}");
+    }
+}
+

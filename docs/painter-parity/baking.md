@@ -34,7 +34,7 @@ Layout notes: Painter has three modes (Bake mesh maps, Painting, Rendering) swit
 | Cancel baking button | Viewport, bottom | not documented | done | crates/ui/src/dialogs.rs (bake_mode) | - |
 | Viewport progress bar (mesh loading and baking) | Viewport | not documented | partial: bar beside Cancel over the views while baking, none for mesh loading | crates/ui/src/dialogs.rs (bake_mode) | - |
 | Orbit while a bake runs | Viewport | not documented | done | crates/app/src/bake_job.rs:75 | - |
-| Neutral material on the project mesh | Viewport in Baking mode | not documented | missing | - | - |
+| Neutral material on the project mesh | Viewport in Baking mode | not documented | done: Visualization settings > Neutral material (off by default) | crates/render/src/lib.rs (neutral material) | - |
 | Error notice in viewport when the Baking log is hidden | Viewport | not documented | partial: result line and warnings in the Baking log, which cannot be hidden | crates/ui/src/dialogs.rs (bake_log_panel) | - |
 
 ## Texture Set list in Baking mode
@@ -258,9 +258,9 @@ Layout notes: a collapsible panel at the top left of the viewport with a "Hide b
 | Project mesh (show low poly) | Visualization panel > Project mesh | on; forced on by Hide baking meshes | done | crates/ui/src/dialogs.rs (visualization_settings) | - |
 | Project mesh colour | Visualization panel > Project mesh | not documented | done | crates/ui/src/dialogs.rs (visualization_settings) | - |
 | Neutral material: Quality | Visualization panel > Project mesh | not documented | missing | - | - |
-| Neutral material: Roughness | Visualization panel > Project mesh | not documented | missing | - | - |
-| Neutral material: Metallic | Visualization panel > Project mesh | not documented | missing | - | - |
-| Neutral material: AO intensity | Visualization panel > Project mesh | not documented | missing | - | - |
+| Neutral material: Roughness | Visualization panel > Project mesh | not documented | done | crates/ui/src/dialogs.rs (visualization_settings) | - |
+| Neutral material: Metallic | Visualization panel > Project mesh | not documented | done | crates/ui/src/dialogs.rs (visualization_settings) | - |
+| Neutral material: AO intensity | Visualization panel > Project mesh | not documented | partial: the baked AO at full strength | crates/render/src/lib.rs (neutral material) | - |
 | Neutral material: Bent normal | Visualization panel > Project mesh | not documented | missing | - | - |
 | Neutral material: Bent normal diffuse amount | Visualization panel > Project mesh | not documented | missing | - | - |
 | Neutral material: Bent normal specular amount | Visualization panel > Project mesh | not documented | missing | - | - |
