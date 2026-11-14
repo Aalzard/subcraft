@@ -2,9 +2,10 @@
 // Color channels are written linear (the sRGB target encodes them); data channels (normals)
 // are pre-linearized so the encoded result equals their stored value.
 
-// x: color channel (1) or data (0); y: single-component source shown as gray (1);
-// z: component shown alone as gray (0 all, 1 red, 2 green, 3 blue, 4 alpha).
-struct Params { flags: vec4<f32> };
+// flags: x color channel (1) or data (0); y single-component source shown as gray (1);
+// z component shown alone as gray (0 all, 1 red, 2 green, 3 blue, 4 alpha); w 1 / HDR scale.
+// sign: x 1 = grayscale values in two colors by sign (positive, negative: display colors).
+struct Params { flags: vec4<f32>, sign: vec4<f32>, positive: vec4<f32>, negative: vec4<f32> };
 @group(0) @binding(0) var samp: sampler;
 @group(0) @binding(1) var src: texture_2d<f32>;
 @group(0) @binding(2) var<uniform> p: Params;
@@ -29,11 +30,17 @@ fn linear_from_srgb(c: vec3<f32>) -> vec3<f32> {
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let s = textureSample(src, samp, in.uv);
-    var c = clamp(s.rgb, vec3<f32>(0.0), vec3<f32>(1.0));
+    // Display Settings > Channel display, as in the 3D view: HDR values divided by the scale,
+    // then grayscale values in two colors by sign.
+    var c = s.rgb * p.flags.w;
+    let comp = i32(round(p.flags.z));
     if (p.flags.y > 0.5) {
         c = vec3<f32>(c.r);
+        if (comp == 0 && p.sign.x > 0.5) {
+            c = select(p.negative.rgb * (-c.r), p.positive.rgb * c.r, c.r >= 0.0);
+        }
     }
-    let comp = i32(round(p.flags.z));
+    c = clamp(c, vec3<f32>(0.0), vec3<f32>(1.0));
     if (comp == 1) {
         c = vec3<f32>(c.r);
     } else if (comp == 2) {
@@ -41,7 +48,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     } else if (comp == 3) {
         c = vec3<f32>(c.b);
     } else if (comp == 4) {
-        c = vec3<f32>(clamp(s.a, 0.0, 1.0));
+        c = vec3<f32>(clamp(s.a * p.flags.w, 0.0, 1.0));
     }
     // Alpha is data even in a color channel: shown as stored, not through the sRGB curve.
     if (p.flags.x > 0.5 && comp != 4) {

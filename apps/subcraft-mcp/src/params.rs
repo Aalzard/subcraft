@@ -167,6 +167,17 @@ pub fn unwrap_params(patch: &Value, wrappers: &[&str]) -> Value {
     out
 }
 
+/// A projection from `patch` over `default`, refused when a value is out of the range the project
+/// file accepts (a zero scale, an angle over 180, too many symmetry copies). Accepted, the project
+/// saved and then failed to open with "invalid fill projection".
+pub fn projection_with_defaults(default: &subcraft_doc::Projection, patch: &Value) -> Res<subcraft_doc::Projection> {
+    let p: subcraft_doc::Projection = with_defaults("projection", default, patch)?;
+    if !p.valid() {
+        return Err("`projection` has a value out of range: scale and 3D scale 0.01 to 100, 3D offset within ±8, rotations within ±360°, backface angle 0 to 180°, hardness 0 to 1, at most 64 symmetry copies".into());
+    }
+    Ok(p)
+}
+
 /// `default` with the fields of `patch` laid over it. Unknown field names are an error that
 /// lists the valid ones (serde would otherwise ignore them silently).
 pub fn with_defaults<T: Serialize + DeserializeOwned>(what: &str, default: &T, patch: &Value) -> Res<T> {
