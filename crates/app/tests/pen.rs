@@ -182,3 +182,28 @@ fn insert_on_the_curve_close_on_the_first_point_and_toggle_corner_smooth() {
     assert!(!pen(&s).is_smooth(last), "and back to a corner");
 }
 
+#[test]
+fn ctrl_scales_both_tangents_and_a_shift_click_point_stays_straight() {
+    let mut s = session(); let mut editor = PenEditor::default();
+    // Drag on creation: mirrored tangents of length 0.1.
+    editor.begin(&s, Vec2::splat(0.5), None).unwrap(); editor.drag_to(Vec2::new(0.6, 0.5), false); editor.release(&s).unwrap(); finish(&mut editor, &mut s);
+    let id = pen(&s).anchors[0].id;
+    assert!((pen(&s).anchors[0].outgoing - Vec2::new(0.1, 0.0)).length() < 1e-6 && (pen(&s).anchors[0].incoming + pen(&s).anchors[0].outgoing).length() < 1e-6);
+    // Ctrl on the outgoing handle: drag it up and twice as long; the incoming one doubles too
+    // and keeps pointing left.
+    editor.begin(&s, Vec2::new(0.6, 0.5), Some(PenHit { anchor: id, handle: Handle::Outgoing })).unwrap();
+    editor.drag_to_scaled(Vec2::new(0.5, 0.7), false, true); editor.release(&s).unwrap(); finish(&mut editor, &mut s);
+    let a = &pen(&s).anchors[0];
+    assert!((a.outgoing - Vec2::new(0.0, 0.2)).length() < 1e-6);
+    assert!((a.incoming - Vec2::new(-0.2, 0.0)).length() < 1e-6, "{:?}", a.incoming);
+    // A Shift click: the new point gets no tangents even when the pointer is dragged.
+    editor.begin(&s, Vec2::new(0.8, 0.5), None).unwrap(); editor.keep_new_point_straight();
+    editor.drag_to(Vec2::new(0.9, 0.6), false); editor.release(&s).unwrap(); finish(&mut editor, &mut s);
+    let b = pen(&s).anchors.last().unwrap();
+    assert_eq!((b.position, b.incoming, b.outgoing), (Vec2::new(0.8, 0.5), Vec2::ZERO, Vec2::ZERO));
+    // Grabbing an existing handle is never made straight.
+    editor.begin(&s, Vec2::new(0.5, 0.7), Some(PenHit { anchor: id, handle: Handle::Outgoing })).unwrap(); editor.keep_new_point_straight();
+    editor.drag_to(Vec2::new(0.5, 0.6), false); editor.release(&s).unwrap(); finish(&mut editor, &mut s);
+    assert!((pen(&s).anchors[0].outgoing - Vec2::new(0.0, 0.1)).length() < 1e-6);
+}
+
