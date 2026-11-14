@@ -2026,6 +2026,7 @@ fn bottom_toolbar(state: &mut UiState, ui: &mut Ui) {
                 }
                 ShelfTab::Materials => {
                     if icon_button(ui, crate::icons::DOWNLOAD, tr("Select a texture's maps (color, roughness, normal…) to make one fill layer.")).clicked() { crate::panels::layers::import_texture_set_dialog(ui.ctx()); }
+                    if icon_button(ui, crate::icons::ARROW_DOWN, tr("Download SubCraft Materials: a pack of tileable PBR materials (1K or 2K)")).clicked() { crate::materials_download::open(state); }
                 }
                 ShelfTab::Alphas => {
                     if icon_button(ui, crate::icons::DOWNLOAD, "Import alpha…").clicked() { pick = Some((crate::files::Purpose::Alpha, crate::files::ALPHAS, false)); }
