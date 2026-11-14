@@ -192,7 +192,7 @@ Layout notes: a row of channel toggle buttons (one per channel of the Texture Se
 |---|---|---|---|---|---|
 | Projection tool (paint a material tiled in screen space) | Tools + Properties | n/a | partial: Projection tool in the tool rail (Painter key 3): strokes cast the brush material from the view, tiled; the S+drag transform and the viewport preview follow | crates/app/src/session.rs (BrushState::projection), crates/ui/src/state.rs (Tool::Projection) | 470 |
 | Projection: Brush, Alpha, Stencil, Material blocks | Properties | n/a | missing | - | - |
-| Projection pattern transformed like a stencil (S + drag in the viewport) | Viewport | n/a | done: with the Projection tool, S + LMB turns (Shift snaps), S + MMB moves, S + RMB scales the pattern about the view centre | crates/ui/src/viewport.rs (projection_input) | PRNUM |
+| Projection pattern transformed like a stencil (S + drag in the viewport) | Viewport | n/a | done: with the Projection tool, S + LMB turns (Shift snaps), S + MMB moves, S + RMB scales the pattern about the view centre | crates/ui/src/viewport.rs (projection_input) | 476 |
 | Physical projection (particles) | Properties > Physics | n/a | missing | - | - |
 
 ## Polygon Fill
