@@ -298,6 +298,21 @@ fn layers_masks_painting_undo_and_save_round_trip() {
     assert!(fails(&mut server, "layer_add", json!({ "type": "bogus" })).contains("bogus"));
 }
 
+/// QA 2026-11: unknown keys were caught only at the top level of a nested setting: a typo inside
+/// `backface` was ignored silently. And a real field holding its default value
+/// (`cylinder_angle: 360`) was refused as unknown, because it is not written back.
+#[test]
+fn nested_unknown_keys_are_refused_and_default_valued_fields_accepted() {
+    let mut server = Server::new();
+    sample(&mut server);
+    ok(&mut server, "layer_add", json!({ "type": "fill", "name": "F", "texture_set": "Body" }));
+    let e = fails(&mut server, "fill_set", json!({ "layer": "F", "texture_set": "Body", "projection": { "mode": "planar", "backface": { "angle_deg": 80.0, "hardness": 1.0, "softnes": 0.5 } } }));
+    assert!(e.contains("backface.softnes") && e.contains("hardness"), "{e}");
+    let e = fails(&mut server, "fill_set", json!({ "layer": "F", "texture_set": "Body", "projection": { "mode": "planar", "rotaton_deg": 10.0 } }));
+    assert!(e.contains("rotaton_deg") && e.contains("rotation_deg"), "{e}");
+    ok(&mut server, "fill_set", json!({ "layer": "F", "texture_set": "Body", "projection": { "mode": "planar", "cylinder_angle": 360.0, "backface": { "angle_deg": 80.0, "hardness": 1.0 } } }));
+}
+
 #[test]
 fn render_preview_returns_an_image_when_a_gpu_is_available() {
     let mut server = Server::new();

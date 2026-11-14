@@ -178,22 +178,69 @@ pub fn projection_with_defaults(default: &subcraft_doc::Projection, patch: &Valu
     Ok(p)
 }
 
-/// `default` with the fields of `patch` laid over it. Unknown field names are an error that
-/// lists the valid ones (serde would otherwise ignore them silently).
+/// `default` with the fields of `patch` laid over it. Unknown field names, at any depth, are an
+/// error that lists the valid ones (serde would otherwise ignore them silently).
 pub fn with_defaults<T: Serialize + DeserializeOwned>(what: &str, default: &T, patch: &Value) -> Res<T> {
-    let mut v = serde_json::to_value(default).map_err(|e| e.to_string())?;
+    let base = serde_json::to_value(default).map_err(|e| e.to_string())?;
     let mut patch = unwrap_params(patch, &["params", "settings", "parameters"]);
     snake_keys(&mut patch);
-    let known: Vec<String> = v.as_object().map(|o| o.keys().cloned().collect()).unwrap_or_default();
+    let mut v = base.clone();
     merge(&mut v, &patch);
-    let result: T = serde_json::from_value(v).map_err(|e| format!("invalid {what}: {e}"))?;
-    if let (Some(p), Ok(Value::Object(r))) = (patch.as_object(), serde_json::to_value(&result)) {
-        let unknown: Vec<&String> = p.keys().filter(|k| !known.contains(k) && !r.contains_key(k.as_str())).collect();
-        if !unknown.is_empty() && !known.is_empty() {
-            return Err(format!("unknown {what} field(s) {unknown:?}; valid: {}", known.join(", ")));
-        }
+    let result: T = serde_json::from_value(v.clone()).map_err(|e| format!("invalid {what}: {e}"))?;
+    let shown = serde_json::to_value(&result).map_err(|e| e.to_string())?;
+    let mut candidates = Vec::new();
+    absent_keys(&patch, &shown, &base, &mut Vec::new(), &mut candidates);
+    // A key missing from the result is either ignored by serde (a typo: refuse it) or a real
+    // field that is not written while it holds its default (`cylinder_angle: 360`: accept it).
+    // Only the first reads a deliberately wrong value without complaint.
+    let unknown: Vec<String> = candidates.into_iter().filter(|path| ignored::<T>(&v, path)).map(|path| path.join(".")).collect();
+    if let Some(first) = unknown.first() {
+        let parent: Vec<String> = first.split('.').map(str::to_string).collect();
+        let parent = &parent[..parent.len() - 1];
+        let mut valid: Vec<String> = [&base, &shown].iter().filter_map(|root| at(root, parent)?.as_object().map(|o| o.keys().cloned().collect::<Vec<_>>())).flatten().collect();
+        valid.sort();
+        valid.dedup();
+        return Err(format!("unknown {what} field(s) {unknown:?}; valid{}: {}", if parent.is_empty() { String::new() } else { format!(" in `{}`", parent.join(".")) }, valid.join(", ")));
     }
     Ok(result)
+}
+
+/// Paths of keys in `patch` that neither the deserialized result nor the default has. Nested
+/// objects are followed where the result has the same key, so a typo inside `backface` or
+/// `symmetry` is found as well as one at the top.
+fn absent_keys(patch: &Value, result: &Value, default: &Value, path: &mut Vec<String>, out: &mut Vec<Vec<String>>) {
+    let (Some(p), Some(r)) = (patch.as_object(), result.as_object()) else { return };
+    let d = default.as_object();
+    for (k, pv) in p {
+        path.push(k.clone());
+        match r.get(k) {
+            Some(rv) => absent_keys(pv, rv, d.and_then(|d| d.get(k)).unwrap_or(&Value::Null), path, out),
+            None if d.is_none_or(|d| !d.contains_key(k)) => out.push(path.clone()),
+            None => {}
+        }
+        path.pop();
+    }
+}
+
+fn at<'a>(root: &'a Value, path: &[String]) -> Option<&'a Value> {
+    path.iter().try_fold(root, |v, k| v.get(k))
+}
+
+/// Whether `T` still deserializes with the value at `path` replaced by one no real field accepts:
+/// then serde skipped the key unread.
+fn ignored<T: DeserializeOwned>(merged: &Value, path: &[String]) -> bool {
+    let mut v = merged.clone();
+    let Some((last, parents)) = path.split_last() else { return false };
+    let mut cur = &mut v;
+    for k in parents {
+        match cur.get_mut(k) {
+            Some(next) => cur = next,
+            None => return false,
+        }
+    }
+    let Some(obj) = cur.as_object_mut() else { return false };
+    obj.insert(last.clone(), serde_json::json!([[[{ "\u{1}": [true, "x", 1.5] }]]]));
+    serde_json::from_value::<T>(v).is_ok()
 }
 
 /// Object keys to snake_case (agents write `noiseAmount` as often as `noise_amount`).
