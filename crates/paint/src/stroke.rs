@@ -19,7 +19,7 @@ use crate::camera::Camera;
 use crate::depth::{DepthCache, DepthMap};
 use crate::kernel::{KernelInput, TexelSample, TileWork, UvView};
 use crate::path::{PathSample, ScreenPath, rand01};
-use crate::settings::{Alignment, BrushMaterial, BrushSettings, SizeContext, SizeSpace, ImageStamp, StampKind, PaintTarget, PolygonFillMode, StrokeMode, StrokeOptions};
+use crate::settings::{Alignment, BrushMaterial, BrushSettings, SizeContext, SizeSpace, ImageStamp, StampKind, PaintTarget, PolygonFillMode, PolygonHitTest, StrokeMode, StrokeOptions};
 use crate::stamp::{Dab, Stamp, resolve_overlap};
 use crate::target::{ImageKey, PaintError, TargetImage, begin_targets, store};
 
@@ -1032,9 +1032,19 @@ impl Stroke {
     /// `visible_only` skips back faces and occluded triangles (see
     /// [`crate::select::triangles_in_screen_box`]).
     pub fn polygon_fill_box(&mut self, ts: &mut TextureSet, ctx: &PaintContext, a: Vec2, b: Vec2, mode: PolygonFillMode, visible_only: bool) -> Result<Vec<usize>, PaintError> {
+        self.polygon_fill_box_hit(ts, ctx, a, b, mode, visible_only, PolygonHitTest::Intersection)
+    }
+
+    /// [`Stroke::polygon_fill_box`] with Painter's hit test: `ContainedCenter` keeps only the
+    /// elements whose centre is inside the box.
+    #[allow(clippy::too_many_arguments)]
+    pub fn polygon_fill_box_hit(&mut self, ts: &mut TextureSet, ctx: &PaintContext, a: Vec2, b: Vec2, mode: PolygonFillMode, visible_only: bool, hit: PolygonHitTest) -> Result<Vec<usize>, PaintError> {
         self.check(ts, ctx)?;
         let seeds = crate::select::triangles_in_screen_box(ctx.mesh, ctx.bvh, ctx.camera, ctx.geometry.material_slot, a, b, visible_only);
-        let tris = crate::select::grow(ctx.mesh, ctx.geometry, &seeds, mode);
+        let mut tris = crate::select::grow(ctx.mesh, ctx.geometry, &seeds, mode);
+        if hit == PolygonHitTest::ContainedCenter {
+            tris = crate::select::keep_contained(ctx.mesh, ctx.geometry, &tris, mode, a, b, |m| crate::select::screen_centre(ctx.mesh, ctx.camera, m));
+        }
         self.fill_triangles(ts, ctx, &tris)
     }
 
@@ -1050,9 +1060,17 @@ impl Stroke {
 
     /// [`Stroke::polygon_fill_box`] from the 2D view: a box in UV space.
     pub fn polygon_fill_uv_box(&mut self, ts: &mut TextureSet, ctx: &PaintContext, a: Vec2, b: Vec2, mode: PolygonFillMode) -> Result<Vec<usize>, PaintError> {
+        self.polygon_fill_uv_box_hit(ts, ctx, a, b, mode, PolygonHitTest::Intersection)
+    }
+
+    /// [`Stroke::polygon_fill_uv_box`] with Painter's hit test (centres in UV space).
+    pub fn polygon_fill_uv_box_hit(&mut self, ts: &mut TextureSet, ctx: &PaintContext, a: Vec2, b: Vec2, mode: PolygonFillMode, hit: PolygonHitTest) -> Result<Vec<usize>, PaintError> {
         self.check(ts, ctx)?;
         let seeds = crate::select::triangles_in_uv_box(ctx.mesh, ctx.geometry.material_slot, a, b);
-        let tris = crate::select::grow(ctx.mesh, ctx.geometry, &seeds, mode);
+        let mut tris = crate::select::grow(ctx.mesh, ctx.geometry, &seeds, mode);
+        if hit == PolygonHitTest::ContainedCenter {
+            tris = crate::select::keep_contained(ctx.mesh, ctx.geometry, &tris, mode, a, b, |m| crate::select::uv_centre(ctx.mesh, m));
+        }
         self.fill_triangles(ts, ctx, &tris)
     }
 

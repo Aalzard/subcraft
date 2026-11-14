@@ -549,14 +549,16 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         state.fill_box = None;
         let end = pointer.unwrap_or(start);
         state.session.brush.mode = StrokeMode::Paint;
-        let looped = state.fill_selection.is_loop();
+        // Shift+A held: a polygon loop for this fill (Painter's temporary Polygon loop mode).
+        let temporary_loop = ui.input(|i| i.modifiers.shift && i.key_down(egui::Key::A));
+        let looped = state.fill_selection.is_loop() || temporary_loop;
         let result = if looped {
             // Alt held at release mirrors a partial loop on the other side of the first click.
             let both_sides = ui.input(|i| i.modifiers.alt);
-            let partial = state.fill_selection == subcraft_paint::PolygonSelectMode::PartialLoop;
+            let partial = state.fill_selection == subcraft_paint::PolygonSelectMode::PartialLoop && !temporary_loop;
             state.session.polygon_fill_loop(&camera, to_screen(start), to_screen(end), state.fill_mode, partial, both_sides)
         } else if crate::view_props::is_box_drag(start, end) {
-            state.session.polygon_fill_box(&camera, to_screen(start), to_screen(end), state.fill_mode, state.fill_visible_only)
+            state.session.polygon_fill_box_hit(&camera, to_screen(start), to_screen(end), state.fill_mode, state.fill_visible_only, state.fill_hit_test)
         } else {
             state.session.polygon_fill(&camera, to_screen(start), state.fill_mode)
         };
@@ -915,7 +917,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             painter.circle_stroke(from, 6.0, Stroke::new(1.5, cross));
         }
     }
-    if state.fill_selection.is_loop() {
+    if state.fill_selection.is_loop() || ui.input(|i| i.modifiers.shift && i.key_down(egui::Key::A)) {
         // Loop modes: the drag is a direction, drawn as an arrow from the first click.
         if let (Some(a), Some(b)) = (state.fill_box, pointer) && crate::view_props::is_box_drag(a, b) {
             painter.arrow(a, b - a, Stroke::new(1.5, crate::theme::ACCENT()));

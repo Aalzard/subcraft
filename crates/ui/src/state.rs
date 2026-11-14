@@ -163,6 +163,8 @@ pub struct UiState {
     pub fill_visible_only: bool,
     /// Polygon Fill selection mode: marquee (click / box) or polygon loops (3D view).
     pub fill_selection: subcraft_paint::PolygonSelectMode,
+    /// Polygon Fill box hit test: everything the box touches, or only elements centred in it.
+    pub fill_hit_test: subcraft_paint::PolygonHitTest,
     /// Polygon fill drag in progress: where the primary button went down (screen points). A
     /// release close by is a click fill there, a longer drag a box fill.
     pub fill_box: Option<egui::Pos2>,
@@ -464,6 +466,7 @@ impl UiState {
             fill_mode: PolygonFillMode::UvIsland,
             fill_visible_only: true,
             fill_selection: subcraft_paint::PolygonSelectMode::Marquee,
+            fill_hit_test: subcraft_paint::PolygonHitTest::Intersection,
             fill_box: None,
             view_props: None,
             view_props_swallow: false,

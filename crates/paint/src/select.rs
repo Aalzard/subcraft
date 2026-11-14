@@ -227,6 +227,45 @@ fn groups<'a>(mesh: &'a Mesh, geometry: &'a TextureSetGeometry, mode: PolygonFil
     }
 }
 
+/// The elements (of `mode`) among `tris` whose centre lies inside the box `[min, max]`: Painter's
+/// "Contained center" hit test. `centre` maps an element's triangles to its 2D centre (screen or
+/// UV); `None` (behind the eye) leaves the element out. Sorted.
+pub fn keep_contained(mesh: &Mesh, geometry: &TextureSetGeometry, tris: &[u32], mode: PolygonFillMode, min: Vec2, max: Vec2, centre: impl Fn(&[u32]) -> Option<Vec2>) -> Vec<u32> {
+    let (min, max) = (min.min(max), min.max(max));
+    let group = groups(mesh, geometry, mode);
+    let mut elements: std::collections::BTreeMap<u32, Vec<u32>> = std::collections::BTreeMap::new();
+    for &t in tris {
+        let g = group.as_ref().map_or(t, |f| f(t as usize));
+        elements.entry(g).or_default().push(t);
+    }
+    let mut out: Vec<u32> = elements
+        .values()
+        .filter(|members| centre(members).is_some_and(|c| c.cmpge(min).all() && c.cmple(max).all()))
+        .flatten()
+        .copied()
+        .collect();
+    out.sort_unstable();
+    out
+}
+
+/// Screen centre of a set of triangles: the mean of their 3D centroids, projected.
+pub fn screen_centre(mesh: &Mesh, camera: &Camera, tris: &[u32]) -> Option<Vec2> {
+    if tris.is_empty() {
+        return None;
+    }
+    let sum: Vec3 = tris.iter().map(|&t| mesh.tri_positions(t as usize).iter().copied().sum::<Vec3>() / 3.0).sum();
+    camera.project(sum / tris.len() as f32).map(|v| v.truncate())
+}
+
+/// UV centre of a set of triangles: the mean of their centroids, each wrapped into its UDIM tile.
+pub fn uv_centre(mesh: &Mesh, tris: &[u32]) -> Option<Vec2> {
+    if tris.is_empty() {
+        return None;
+    }
+    let sum: Vec2 = tris.iter().map(|&t| subcraft_mesh::uv_raster::wrap_to_tile(mesh.tri_uvs(t as usize)).0.iter().copied().sum::<Vec2>() / 3.0).sum();
+    Some(sum / tris.len() as f32)
+}
+
 /// `seeds` grown to whole elements of `mode`, restricted to material `geometry.material_slot`;
 /// sorted, unique.
 pub fn grow(mesh: &Mesh, geometry: &TextureSetGeometry, seeds: &[u32], mode: PolygonFillMode) -> Vec<u32> {

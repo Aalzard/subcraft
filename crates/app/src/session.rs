@@ -3125,6 +3125,17 @@ impl Session {
         self.polygon_fill_with(camera, |stroke, ts, ctx| stroke.polygon_fill_loop(ts, ctx, a, b, mode, partial, both_sides))
     }
 
+    /// [`Session::polygon_fill_box`] with Painter's hit test (`ContainedCenter`: only elements
+    /// whose centre is inside the box).
+    pub fn polygon_fill_box_hit(&mut self, camera: &Camera, a: Vec2, b: Vec2, mode: PolygonFillMode, visible_only: bool, hit: subcraft_paint::PolygonHitTest) -> Result<Vec<usize>, PaintError> {
+        self.polygon_fill_with(camera, |stroke, ts, ctx| stroke.polygon_fill_box_hit(ts, ctx, a, b, mode, visible_only, hit))
+    }
+
+    /// [`Session::polygon_fill_uv_box`] with Painter's hit test.
+    pub fn polygon_fill_uv_box_hit(&mut self, a: Vec2, b: Vec2, mode: PolygonFillMode, hit: subcraft_paint::PolygonHitTest) -> Result<Vec<usize>, PaintError> {
+        self.polygon_fill_with(&uv_camera(), |stroke, ts, ctx| stroke.polygon_fill_uv_box_hit(ts, ctx, a, b, mode, hit))
+    }
+
     /// Polygon fill of everything a UV box `[a, b]` touches in the 2D view (one history entry).
     pub fn polygon_fill_uv_box(&mut self, a: Vec2, b: Vec2, mode: PolygonFillMode) -> Result<Vec<usize>, PaintError> {
         self.polygon_fill_with(&uv_camera(), |stroke, ts, ctx| stroke.polygon_fill_uv_box(ts, ctx, a, b, mode))

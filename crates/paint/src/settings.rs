@@ -746,6 +746,28 @@ pub enum PolygonFillMode {
     Object,
 }
 
+/// Which elements a Polygon Fill box picks (Painter's Hit-test).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PolygonHitTest {
+    /// Every element the box touches.
+    #[default]
+    Intersection,
+    /// Only elements whose centre is inside the box.
+    ContainedCenter,
+}
+
+impl PolygonHitTest {
+    pub const ALL: [Self; 2] = [Self::Intersection, Self::ContainedCenter];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Intersection => "Intersection",
+            Self::ContainedCenter => "Contained center",
+        }
+    }
+}
+
 /// How a Polygon Fill click or drag picks polygons (Painter's Selection mode).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
