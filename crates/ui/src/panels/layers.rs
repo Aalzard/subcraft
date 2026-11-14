@@ -1169,7 +1169,7 @@ fn geometry_mask_icon(ui: &mut Ui, session: &subcraft_app::Session, l: &Layer, s
             let shown = all.iter().filter(|id| p.parts.contains(id)).count();
             let what = p.kind.label().to_lowercase();
             if p.enabled && shown == 0 {
-                (format!("{} 0/{}", icons::POLYGON, all.len()), egui::Color32::from_rgb(226, 92, 92), format!("Geometry mask: nothing included, so the layer has no effect · click to include some {what} in the views · right-click for options"))
+                (format!("{} 0/{}", icons::POLYGON, all.len()), theme::on_panel(egui::Color32::from_rgb(226, 92, 92)), format!("Geometry mask: nothing included, so the layer has no effect · click to include some {what} in the views · right-click for options"))
             } else if p.enabled {
                 (format!("{} {shown}/{}", icons::POLYGON, all.len()), ACCENT(), format!("Geometry mask: {shown} of {} {what} · click to edit in the views · right-click for options", all.len()))
             } else {

@@ -272,6 +272,23 @@ fn flatten_instantiate_and_channel_removal() {
     assert!(msg.to_lowercase().contains("emissive"), "{msg}");
 }
 
+/// QA 2026-11: a stroke to a far or infinite point ran until the server ran out of memory, and a
+/// bad point in a later stroke left the earlier strokes painted behind the error.
+#[test]
+fn strokes_to_far_points_are_refused_without_painting_anything() {
+    let mut server = Server::new();
+    sample(&mut server);
+    ok(&mut server, "layer_add", json!({ "type": "paint", "name": "P", "texture_set": "Body" }));
+    let steps = ok(&mut server, "history", json!({}))["entries"].as_array().unwrap().len();
+    for far in [json!(1e30), json!(5000.0), json!(-3.0)] {
+        let e = fails(&mut server, "paint_stroke", json!({ "layer": "P", "texture_set": "Body", "points": [[0.5, 0.5], [far, 0.5]] }));
+        assert!(e.contains("out of range"), "{e}");
+    }
+    let e = fails(&mut server, "paint_stroke", json!({ "layer": "P", "texture_set": "Body", "strokes": [[[0.4, 0.5], [0.6, 0.5]], [[0.4, 0.6], [9.0, 0.6]]] }));
+    assert!(e.contains("out of range"), "{e}");
+    assert_eq!(ok(&mut server, "history", json!({}))["entries"].as_array().unwrap().len(), steps, "nothing was painted");
+}
+
 /// QA 2026-11: pen_path's `width` was both the line width and, in space view, the width of the
 /// rendered image: a line width of 0.01 was refused as an image size.
 #[test]
