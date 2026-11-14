@@ -2348,7 +2348,10 @@ mod bake_tests {
         let output = shown(&mut state, MeshMapKind::BentNormal);
         assert!(has_text(&output, "Spread angle") && !has_text(&output, "Attenuation"), "bent normals share the ray cone");
         let output = shown(&mut state, MeshMapKind::Thickness);
-        assert!(has_text(&output, "Secondary rays") && has_text(&output, "Max occluder distance") && !has_text(&output, "Spread angle"));
+        for text in ["Secondary rays", "Min occluder distance", "Max occluder distance", "Spread angle", "Distribution"] { assert!(has_text(&output, text), "thickness: {text}"); }
+        assert!(!has_text(&output, "Attenuation") && !has_text(&output, "Ground plane") && !has_text(&output, "baked on the CPU"), "thickness has its own options");
+        state.bake.settings.thickness.spread_angle = 60.0;
+        assert!(has_text(&shown(&mut state, MeshMapKind::Thickness), "thickness is baked on the CPU"));
         let output = shown(&mut state, MeshMapKind::Position);
         assert!(has_text(&output, "All axis") && has_text(&output, "Single axis") && has_text(&output, "Normalization") && !has_text(&output, "Axis"), "position");
         state.bake.settings.position.single_axis = Some(2);
