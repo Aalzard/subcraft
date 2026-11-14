@@ -26,6 +26,10 @@ fn merged_meshes_keep_every_part_with_shifted_indices() {
     }
     assert!(m.tri_object.is_empty() || m.tri_object.len() == m.triangle_count());
     assert!(m.bounds.min.x <= -1.0 && m.bounds.max.x >= 5.5);
+    // Each triangle remembers its file.
+    assert_eq!(m.file_count(), 2);
+    assert_eq!((m.file_of(0), m.file_of(first_b), m.file_of(m.triangle_count() - 1)), (0, 1, 1));
+    assert!(Mesh::merged(&[&a]).tri_file.is_empty() && a.file_count() == 1 && a.file_of(0) == 0);
     // One mesh merges to itself; none to an empty mesh.
     assert_eq!(Mesh::merged(&[&a]).positions, a.positions);
     assert_eq!(Mesh::merged(&[]).triangle_count(), 0);

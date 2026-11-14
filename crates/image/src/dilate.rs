@@ -149,13 +149,17 @@ pub enum Padding {
     /// Painter's "Dilation + diffusion": grow islands by this many texels, then fill the rest of
     /// the gutter with a smooth blend of the surrounding islands.
     Diffusion(u32),
+    /// Painter's "Dilation + transparent": grow islands by this many texels; the rest of the
+    /// gutter is transparent (alpha 0). Outputs without alpha get one; file types that store no
+    /// alpha (JPEG, HDR, Netpbm) get dilation only.
+    Transparent(u32),
 }
 
 impl Padding {
     /// Dilation distance of the modes that have one.
     pub fn distance(self) -> Option<u32> {
         match self {
-            Padding::Texels(n) | Padding::Background(n) | Padding::Diffusion(n) => Some(n),
+            Padding::Texels(n) | Padding::Background(n) | Padding::Diffusion(n) | Padding::Transparent(n) => Some(n),
             Padding::None | Padding::Infinite => None,
         }
     }
@@ -166,6 +170,7 @@ impl Padding {
             Padding::Texels(_) => Padding::Texels(n),
             Padding::Background(_) => Padding::Background(n),
             Padding::Diffusion(_) => Padding::Diffusion(n),
+            Padding::Transparent(_) => Padding::Transparent(n),
             other => other,
         }
     }

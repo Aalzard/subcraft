@@ -90,6 +90,9 @@ pub struct Mesh {
     /// More vertex colour sets of the file (glTF `COLOR_1`, `COLOR_2`...), laid out like
     /// `corner_colors`, which is set 0 (issue #366). Empty when the file had one set or none.
     pub extra_color_sets: Vec<Vec<[f32; 4]>>,
+    /// Which file each triangle came from when several files were joined with [`Mesh::merged`]
+    /// (baking against several high-poly files: the ID map's "File ID" source). Empty for one file.
+    pub tri_file: Vec<u32>,
     /// The file's colour of each material slot (diffuse / base colour), parallel to `materials`;
     /// empty when no slot has one. Read by the baker (ID map from material colours).
     pub material_colors: Vec<Option<[f32; 3]>>,
@@ -142,6 +145,16 @@ impl Mesh {
         Some(std::array::from_fn(|i| c[0][i] * w + c[1][i] * u + c[2][i] * v))
     }
 
+    /// The file (0 = the first) a triangle came from; 0 for a mesh read from one file.
+    pub fn file_of(&self, tri: usize) -> u32 {
+        self.tri_file.get(tri).copied().unwrap_or(0)
+    }
+
+    /// How many files the mesh was joined from (1 for a single file).
+    pub fn file_count(&self) -> u32 {
+        self.tri_file.iter().max().map_or(1, |m| m + 1)
+    }
+
     /// The file's colour of a triangle's material slot, when it has one.
     pub fn material_color(&self, tri: usize) -> Option<[f32; 3]> {
         let slot = *self.tri_material.get(tri)? as usize;
@@ -157,8 +170,9 @@ impl Mesh {
         let extra_sets = parts.iter().map(|m| m.extra_color_sets.len()).max().unwrap_or(0);
         out.extra_color_sets = vec![Vec::new(); extra_sets];
         let any_material_colors = parts.iter().any(|m| !m.material_colors.is_empty());
-        for m in parts {
+        for (file, m) in parts.iter().enumerate() {
             let (v0, t0) = (out.positions.len() as u32, out.triangle_count() as u32);
+            out.tri_file.extend(std::iter::repeat_n(file as u32, m.triangle_count()));
             let (m0, o0) = (out.materials.len() as u32, out.objects.len() as u32);
             out.positions.extend_from_slice(&m.positions);
             out.normals.extend_from_slice(&m.normals);
@@ -194,6 +208,7 @@ impl Mesh {
             }
             out.bounds = out.bounds.merge(&m.bounds);
         }
+        if parts.len() < 2 { out.tri_file.clear(); }
         out
     }
 

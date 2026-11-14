@@ -1601,6 +1601,7 @@ fn map_settings_panel(ui: &mut egui::Ui, b: &mut BakeUi) {
                 IdSource::MaterialColor => tr("Material color"),
                 IdSource::MeshId => tr("Mesh ID / Polygroup"),
                 IdSource::Submesh => tr("Submesh (object)"),
+                IdSource::FileId => tr("File ID (high-poly file)"),
             };
             ui.horizontal(|ui| {
                 ui.label(tr("ID colors from"));
@@ -1611,7 +1612,7 @@ fn map_settings_panel(ui: &mut egui::Ui, b: &mut BakeUi) {
                 });
             })
             .response
-            .on_hover_text(tr("Where the ID map takes its colors: the model's vertex colors or material colors, or one generated color per mesh element or per object. With a high poly, its colors are used."));
+            .on_hover_text(tr("Where the ID map takes its colors: the model's vertex colors or material colors, or one generated color per mesh element, per object or per high-poly file. With a high poly, its colors are used."));
             if s.id_source == IdSource::VertexColor {
                 // How many sets the loaded high poly has (unknown for low on low).
                 let sets = b.preview_mesh.as_ref().map(|m| m.color_set_count());
@@ -1634,7 +1635,7 @@ fn map_settings_panel(ui: &mut egui::Ui, b: &mut BakeUi) {
                 }
             }
             let s = &mut b.settings;
-            if matches!(s.id_source, IdSource::MeshId | IdSource::Submesh) {
+            if matches!(s.id_source, IdSource::MeshId | IdSource::Submesh | IdSource::FileId) {
                 option_row(ui, "bake_id_generator", tr("Color generator"), &mut s.id_generator, &IdGenerator::ALL, IdGenerator::label);
             }
         }

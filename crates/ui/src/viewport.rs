@@ -1501,6 +1501,13 @@ pub(crate) fn stencil_input(state: &mut UiState, ui: &Ui, response: &egui::Respo
     let (s_down, n_down) = ui.input(|i| (i.key_down(egui::Key::S) && !(i.modifiers.ctrl || i.modifiers.command || i.modifiers.alt), i.key_down(egui::Key::N) && !i.modifiers.any()));
     let typing = ui.ctx().egui_wants_keyboard_input();
     state.session.brush.stencil_bypass = n_down && !typing;
+    // The Projection tool's S + drag places its pattern instead (Painter).
+    if state.tool == Tool::Projection && s_down && !typing {
+        if response.hovered() {
+            projection_input(state, ui, response, rect, mods, delta);
+        }
+        return true;
+    }
     let stencil_edit = s_down && !typing && state.session.brush.stencil.is_some();
     if stencil_edit && response.hovered() {
         let mut st = (**state.session.brush.stencil.as_ref().expect("checked above")).clone();
@@ -1530,6 +1537,64 @@ pub(crate) fn stencil_input(state: &mut UiState, ui: &Ui, response: &egui::Respo
         ui.ctx().set_cursor_icon(egui::CursorIcon::AllScroll);
     }
     stencil_edit
+}
+
+/// Projection tool, S held: LMB drag turns the pattern about the view centre (Shift snaps to
+/// quarter turns), MMB drag moves it with the mouse, RMB drag scales it about the centre.
+fn projection_input(state: &mut UiState, ui: &Ui, response: &egui::Response, rect: Rect, mods: egui::Modifiers, delta: egui::Vec2) {
+    let side = rect.width().min(rect.height()).max(1.0);
+    let p = &mut state.session.brush.material.projection;
+    let free_id = egui::Id::new("projection-free-rotation");
+    if response.dragged_by(PointerButton::Primary) {
+        let free = ui.data(|d| d.get_temp::<f32>(free_id)).unwrap_or(p.rotation_deg.to_radians()) + delta.x * 0.01;
+        ui.data_mut(|d| d.insert_temp(free_id, free));
+        projection_rotate(p, stencil_drag_rotation(free, mods.shift).to_degrees());
+    } else {
+        ui.data_mut(|d| d.remove::<f32>(free_id));
+    }
+    if response.dragged_by(PointerButton::Middle) {
+        projection_move(p, Vec2::new(delta.x, delta.y) / side);
+    }
+    if response.dragged_by(PointerButton::Secondary) {
+        projection_scale(p, (delta.y * 0.01).exp());
+    }
+    ui.ctx().set_cursor_icon(egui::CursorIcon::AllScroll);
+}
+
+/// The view centre in the camera projection's screen coordinates (the shorter side spans 0..1).
+const PROJECTION_CENTRE: [f32; 2] = [0.5, 0.5];
+
+/// Move the projected pattern by `d` (screen coordinates: a fraction of the view's shorter side)
+/// so it follows the mouse.
+pub fn projection_move(p: &mut subcraft_doc::Projection, d: Vec2) {
+    let mut linear = p.clone();
+    linear.offset = [0.0, 0.0];
+    let step = linear.transform_2d([d.x, d.y]);
+    p.offset = [p.offset[0] - step[0], p.offset[1] - step[1]];
+}
+
+/// Set the pattern's rotation, turning it about the view centre.
+pub fn projection_rotate(p: &mut subcraft_doc::Projection, degrees: f32) {
+    let centre = p.transform_2d(PROJECTION_CENTRE);
+    p.rotation_deg = degrees;
+    keep_centre(p, centre);
+}
+
+/// Multiply the pattern's density by `factor` (above 1: smaller, more repeats) about the view
+/// centre, within 1/50..50 tiles across.
+pub fn projection_scale(p: &mut subcraft_doc::Projection, factor: f32) {
+    if !factor.is_finite() || factor <= 0.0 {
+        return;
+    }
+    let centre = p.transform_2d(PROJECTION_CENTRE);
+    p.scale = p.scale.map(|s| (s * factor).clamp(0.02, 50.0));
+    keep_centre(p, centre);
+}
+
+fn keep_centre(p: &mut subcraft_doc::Projection, uv: [f32; 2]) {
+    p.offset = [0.0, 0.0];
+    let now = p.transform_2d(PROJECTION_CENTRE);
+    p.offset = [uv[0] - now[0], uv[1] - now[1]];
 }
 
 /// Painter's brush gestures, shared by the 3D and 2D views: Ctrl+RMB drag = size (left-right) /
@@ -1622,6 +1687,37 @@ mod tests {
         let above = grid_readout_anchor(view, Some(plate));
         assert_eq!(above, egui::pos2(110.0, 554.0));
         assert!(above.y < plate.top(), "never on the hints");
+    }
+
+    #[test]
+    fn projection_drags_move_turn_and_scale_the_pattern_about_the_view() {
+        let mut p = subcraft_doc::Projection::default();
+        p.scale = [2.0, 2.0];
+        p.offset = [0.1, -0.3];
+        let at = |p: &subcraft_doc::Projection, s: [f32; 2]| p.transform_2d(s);
+        // Moving: the pattern point under a screen point follows the mouse.
+        let before = at(&p, [0.3, 0.4]);
+        projection_move(&mut p, Vec2::new(0.05, -0.02));
+        let after = at(&p, [0.35, 0.38]);
+        assert!((before[0] - after[0]).abs() < 1e-5 && (before[1] - after[1]).abs() < 1e-5, "{before:?} vs {after:?}");
+        // Turning and scaling keep the view centre on the same pattern point.
+        let centre = at(&p, [0.5, 0.5]);
+        let corner = at(&p, [0.0, 0.0]);
+        projection_rotate(&mut p, 90.0);
+        assert_eq!(p.rotation_deg, 90.0);
+        let c = at(&p, [0.5, 0.5]);
+        assert!((c[0] - centre[0]).abs() < 1e-5 && (c[1] - centre[1]).abs() < 1e-5);
+        assert!((at(&p, [0.0, 0.0])[0] - corner[0]).abs() > 0.1, "other points turn");
+        projection_scale(&mut p, 2.0);
+        assert_eq!(p.scale, [4.0, 4.0]);
+        let c = at(&p, [0.5, 0.5]);
+        assert!((c[0] - centre[0]).abs() < 1e-4 && (c[1] - centre[1]).abs() < 1e-4);
+        // Scale limits and broken factors.
+        projection_scale(&mut p, 1e6);
+        assert_eq!(p.scale, [50.0, 50.0]);
+        let kept = p.clone();
+        projection_scale(&mut p, f32::NAN);
+        assert_eq!(p, kept);
     }
 
     #[test]
