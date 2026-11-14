@@ -293,3 +293,58 @@ fn quick_preview_precedes_and_exact_result_replaces_it() {
     assert_eq!(uploaded(&first.composite, &second), second.composite);
     assert!(w.idle() && !w.has_published());
 }
+
+/// A stroke-sized raster edit (more than the old fixed 128-tile threshold, under a quarter of the
+/// set) goes straight to the exact tiles: no quick preview, exact result, only its tiles reported.
+/// An edit of the whole texture still starts with a preview.
+#[test]
+fn a_stroke_sized_edit_skips_the_quick_preview() {
+    assert_eq!(subcraft_compositor::worker::preview_min_tiles(256), 128, "1024²: unchanged");
+    assert_eq!(subcraft_compositor::worker::preview_min_tiles(1024), 256);
+    assert_eq!(subcraft_compositor::worker::preview_min_tiles(4096), 1024);
+
+    let mesh = Arc::new(primitives::cube(2.0));
+    let geo = Arc::new(TextureSetGeometry::new(mesh.clone(), 0, 2048));
+    let low = Arc::new(TextureSetGeometry::new(mesh, 0, 512));
+    let (mut ts, moss) = stack(2048);
+    let tc = ts.clone();
+    let paint = ts.insert_above(None, Layer::new_paint("Paint", &tc));
+    // The layer already holds paint, so the stroke below is a raster-only change.
+    let LayerContent::Paint(content) = &mut ts.find_mut(paint).unwrap().content else { unreachable!() };
+    content.channel_mut(ChannelKind::BaseColor, 2048).set(1, 1, [0.0, 1.0, 0.0, 1.0]);
+    let with_preview = |ts: &TextureSet| {
+        let mut s = snapshot(ts, &geo);
+        s.sets[0].preview_geometry = Some(low.clone());
+        s
+    };
+    let w = worker();
+    let made = w.baselines_made();
+    w.submit(with_preview(&ts));
+    w.finish();
+    let first = published(&w, ts.id);
+    wait_for_baseline(&w, made);
+
+    // One texel in each tile of a 13 x 13 block: 169 of 1024 tiles.
+    let mut painted = ts.clone();
+    let LayerContent::Paint(content) = &mut painted.find_mut(paint).unwrap().content else { unreachable!() };
+    let img = content.channel_mut(ChannelKind::BaseColor, 2048);
+    for ty in 3..16u32 {
+        for tx in 5..18u32 {
+            img.set(tx * 64 + 7, ty * 64 + 9, [1.0, 0.0, 0.0, 1.0]);
+        }
+    }
+    let previews = w.previews_published();
+    w.submit(with_preview(&painted));
+    w.finish();
+    assert_eq!(w.previews_published(), previews, "169 stale tiles of 1024: no preview");
+    let second = published(&w, ts.id);
+    assert_eq!(second.composite, full(&painted, &geo));
+    assert!((169..256).contains(&second.tiles.len()), "only the painted tiles were evaluated: {}", second.tiles.len());
+    assert_eq!(uploaded(&first.composite, &second), second.composite);
+
+    // The whole texture: previewed first, as before.
+    w.submit(with_preview(&with_level(&painted, moss, 0.7)));
+    w.finish();
+    assert!(w.previews_published() > previews, "a whole-texture edit still starts with a preview");
+    assert_eq!(published(&w, ts.id).composite, full(&with_level(&painted, moss, 0.7), &geo));
+}

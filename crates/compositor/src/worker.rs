@@ -61,8 +61,19 @@ pub fn preview_resolution(resolution: u32) -> Option<u32> {
 
 /// Edge of the quick preview.
 const PREVIEW_EDGE: u32 = 512;
-/// A preview is made when at least this many tiles are stale.
+/// A preview is never made for fewer stale tiles than this.
 const PREVIEW_MIN_TILES: usize = 128;
+
+/// Stale tiles from which a quick preview is worth making for a set of `tiles` tiles: a quarter
+/// of the set, at least [`PREVIEW_MIN_TILES`]. A preview re-blends the whole stack at low
+/// resolution, which pays off when an edit dirties most of the texture (a slider, a blend mode).
+/// A brush stroke dirties the tiles under the brush, again on every frame: with the fixed
+/// 128-tile threshold a large brush on a 4096² set (4096 tiles) got a full-stack preview per
+/// frame, and the exact tiles (cheap for a stroke: only the layers above the last cached
+/// boundary) were skipped for as long as the pen kept moving, so the paint showed late and blocky.
+pub fn preview_min_tiles(tiles: usize) -> usize {
+    PREVIEW_MIN_TILES.max(tiles / 4)
+}
 
 /// The inputs of every texture set at one document state.
 #[derive(Clone, Default)]
@@ -314,7 +325,8 @@ fn run(shared: &Shared, pool: &rayon::ThreadPool) {
                 let Some(low_geo) = set.preview_geometry.as_ref().filter(|g| Some(g.resolution) == preview_resolution(ts.resolution)) else { continue };
                 let cache = caches.get(&id).expect("inserted for every set");
                 let stale = cache.stale_tiles(ts);
-                if stale.len() < PREVIEW_MIN_TILES {
+                let tiles = (ts.resolution.div_ceil(subcraft_image::TILE_SIZE) as usize).pow(2);
+                if stale.len() < preview_min_tiles(tiles) {
                     continue;
                 }
                 let mut low = ts.clone();
