@@ -66,6 +66,7 @@ fn paint_verb(tool: Tool) -> &'static str {
         Tool::Eraser => "Erase",
         Tool::Smudge => "Smudge",
         Tool::Clone => "Clone",
+        Tool::Projection => "Project",
         _ => "Paint",
     }
 }
@@ -92,7 +93,7 @@ pub fn build(c: &HintContext) -> Vec<Hint> {
     }
     if c.ctrl {
         match c.tool {
-            Tool::Brush | Tool::Eraser | Tool::Smudge => {
+            Tool::Brush | Tool::Eraser | Tool::Smudge | Tool::Projection => {
                 out.push(h("Ctrl+RMB drag", "Size / hardness"));
                 out.push(h("Ctrl+LMB drag", "Flow / angle"));
             }
@@ -111,7 +112,7 @@ pub fn build(c: &HintContext) -> Vec<Hint> {
     }
     if c.shift {
         match c.tool {
-            Tool::Brush | Tool::Eraser | Tool::Smudge | Tool::Clone => out.push(h("Shift+LMB", "Straight line from the last point")),
+            Tool::Brush | Tool::Eraser | Tool::Smudge | Tool::Clone | Tool::Projection => out.push(h("Shift+LMB", "Straight line from the last point")),
             Tool::Eyedropper => out.push(h("Shift+LMB", "Pick material")),
             _ => {}
         }
@@ -201,17 +202,17 @@ pub fn draw(painter: &egui::Painter, rect: egui::Rect, rows: &[Hint]) -> Option<
         return None;
     }
     let rows = &rows[..fit];
-    let keys: Vec<_> = rows.iter().map(|r| painter.layout_no_wrap(r.keys.clone(), font.clone(), crate::theme::TEXT_DIM())).collect();
+    let keys: Vec<_> = rows.iter().map(|r| painter.layout_no_wrap(r.keys.clone(), font.clone(), crate::theme::OVERLAY_TEXT_DIM)).collect();
     let key_w = keys.iter().map(|g| g.size().x).fold(0.0, f32::max) + 12.0;
-    let label_w = rows.iter().map(|r| painter.layout_no_wrap(r.what.to_string(), font.clone(), crate::theme::TEXT_FAINT()).size().x).fold(0.0, f32::max);
+    let label_w = rows.iter().map(|r| painter.layout_no_wrap(r.what.to_string(), font.clone(), crate::theme::OVERLAY_TEXT_FAINT).size().x).fold(0.0, f32::max);
     let size = vec2(key_w + label_w + 16.0, line * rows.len() as f32 + 8.0);
     let top_left = egui::Align2::LEFT_BOTTOM.anchor_size(rect.left_bottom() + vec2(10.0, -10.0), size).min;
     let plate = egui::Rect::from_min_size(top_left, size);
     painter.rect_filled(plate, 3.0, Color32::from_black_alpha(70));
     for (i, (row, glyph)) in rows.iter().zip(keys).enumerate() {
         let y = top_left.y + 4.0 + line * i as f32;
-        painter.galley(Pos2::new(top_left.x + 8.0, y), glyph, crate::theme::TEXT_DIM());
-        painter.text(Pos2::new(top_left.x + 8.0 + key_w, y), egui::Align2::LEFT_TOP, row.what, font.clone(), crate::theme::TEXT_FAINT());
+        painter.galley(Pos2::new(top_left.x + 8.0, y), glyph, crate::theme::OVERLAY_TEXT_DIM);
+        painter.text(Pos2::new(top_left.x + 8.0 + key_w, y), egui::Align2::LEFT_TOP, row.what, font.clone(), crate::theme::OVERLAY_TEXT_FAINT);
     }
     Some(plate)
 }

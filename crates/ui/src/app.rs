@@ -1481,6 +1481,7 @@ impl SubcraftApp {
             Action::EraserTool => self.state.tool = Tool::Eraser,
             Action::PolygonFillTool => self.state.tool = Tool::PolygonFill,
             Action::SmudgeTool => self.state.tool = Tool::Smudge,
+            Action::ProjectionTool => self.state.tool = Tool::Projection,
             Action::CloneTool => self.state.tool = Tool::Clone,
             Action::EyedropperTool => self.state.tool = Tool::Eyedropper,
             Action::NextCamera => crate::view_extras::cycle_camera(&mut self.state, 1),
@@ -1509,6 +1510,7 @@ impl SubcraftApp {
             }
             Action::OpenProject => self.request(Pending::OpenProject, now),
             Action::Bake => self.state.bake.open = true,
+            Action::ReimportMesh => crate::mesh_reload::open_reimport(&mut self.state),
             Action::TogglePathTracing => {
                 let prefs = &mut self.state.recovery.prefs.viewport;
                 prefs.path_tracing = !prefs.path_tracing;
@@ -1637,6 +1639,7 @@ impl SubcraftApp {
                 (Tool::PolygonFill, icons::PAINT_BUCKET, tip(km, "Polygon fill", Action::PolygonFillTool)),
                 (Tool::Clone, icons::COPY, crate::keys::native_string(format!("{}: Ctrl+click or hold V and click the model to set the source, then paint to copy it", tip(km, "Clone", Action::CloneTool)))),
                 (Tool::Smudge, icons::DROP, tip(km, "Smudge: drag the paint under the brush along the stroke", Action::SmudgeTool)),
+                (Tool::Projection, icons::IMAGE, tip(km, "Projection: paint the brush material cast from the view and tiled over it", Action::ProjectionTool)),
                 (Tool::Eyedropper, icons::CURSOR, tip(km, "Eyedropper (Shift+click picks material)", Action::EyedropperTool)),
                 (Tool::Pen, icons::CURVE, tip(km, "Pen paths: click points, drag for curves; edit anchors and handles in 2D View", Action::PenTool)),
             ] {
@@ -1740,6 +1743,10 @@ impl SubcraftApp {
                 if item(ui, icons::SAVE, tr("Save as…"), &sc(km, Action::SaveAs)) {
                     ui.close();
                     self.perform(Action::SaveAs, now);
+                }
+                if item(ui, icons::SAVE, tr("Save as copy…"), "") {
+                    ui.close();
+                    dialogs::save_copy(&mut self.state, now);
                 }
                 ui.separator();
                 ui.menu_button(format!("{}   {}", icons::IMAGE, tr("Import resources")), |ui| {
@@ -1853,10 +1860,15 @@ impl SubcraftApp {
                     ui.close();
                     self.perform(Action::Bake, now);
                 }
-                // Painter: Edit > Project configuration (replace the mesh, its settings).
-                if item(ui, icons::CUBE_WIRE, tr("Project configuration (reload mesh)…"), "") {
+                // Painter: Edit > Project configuration (the mesh, import settings, UV tiles) and
+                // Reimport mesh (Ctrl+Shift+R).
+                if item(ui, icons::CUBE_WIRE, tr("Project configuration…"), "") {
                     ui.close();
                     crate::mesh_reload::open(&mut self.state);
+                }
+                if item(ui, icons::CUBE_WIRE, tr("Reimport mesh…"), &sc(km, Action::ReimportMesh)) {
+                    ui.close();
+                    self.perform(Action::ReimportMesh, now);
                 }
                 if item(ui, icons::CUBE_WIRE, tr("Auto UV unwrap…"), "") {
                     ui.close();
@@ -2059,6 +2071,7 @@ impl SubcraftApp {
                 Tool::PolygonFill => (icons::PAINT_BUCKET, "Polygon fill"),
                 Tool::Clone => (icons::COPY, "Clone"),
                 Tool::Smudge => (icons::DROP, "Smudge"),
+                Tool::Projection => (icons::IMAGE, "Projection"),
                 Tool::Eyedropper => (icons::CURSOR, "Eyedropper"),
                 Tool::Pen => (icons::CURVE, "Pen paths"),
             };

@@ -484,6 +484,10 @@ pub struct DisplaySettings {
     pub taa_accumulations: u32,
     /// Order-independent transparency for alpha-blended texture sets (off by default).
     pub oit: bool,
+    /// Painter's colour profile (off by default): the material view shown raw, or through the
+    /// project's colour LUT, after the HDR values are divided by `white_point` and clamped.
+    pub color_profile: bool,
+    pub white_point: f32,
     /// Depth of field (off by default): blur amount 0..1, focus distance as a multiple of the
     /// orbit distance (1 = the point the camera orbits), sharp band in percent of the model size.
     pub dof: bool,
@@ -638,6 +642,8 @@ impl Default for DisplaySettings {
             taa: false,
             taa_accumulations: 16,
             oit: false,
+            color_profile: false,
+            white_point: 1.0,
             dof: false,
             dof_amount: 0.5,
             dof_focus: 1.0,
@@ -725,6 +731,12 @@ impl Default for DisplaySettings {
 }
 
 impl DisplaySettings {
+    /// Exposure factor of the colour profile's white point (Painter: `1 / white point`), 1 while
+    /// the profile is off. Broken values count as 1.
+    pub fn white_point_scale(&self) -> f32 {
+        if self.color_profile && self.white_point.is_finite() && self.white_point > 0.0 { 1.0 / self.white_point.clamp(1e-3, 1e4) } else { 1.0 }
+    }
+
     /// Where the depth of field is sharp, in scene units from the camera: the absolute focus
     /// distance once set, else the older multiple of the orbit distance.
     pub fn focus_distance(&self, orbit_distance: f32) -> f32 {
@@ -743,7 +755,7 @@ impl DisplaySettings {
             ($($field:ident),* $(,)?) => { $( d.$field = std::mem::take(&mut self.$field); )* };
         }
         keep!(
-            env_map, env_opacity, env_exposure, env_rotation, env_blur, env_alignment, shadows, shadow_opacity, shadow_mode, fov, antialias, taa, taa_accumulations, oit, wireframe, wire_color, wire_opacity,
+            env_map, env_opacity, env_exposure, env_rotation, env_blur, env_alignment, shadows, shadow_opacity, shadow_mode, fov, antialias, taa, taa_accumulations, oit, color_profile, white_point, wireframe, wire_color, wire_opacity,
             wire_angle, grid, grid_axes, grid_plane, grid_color, grid_opacity, solo_unlit, hdr_scale, hdr_signed_colors, hdr_positive,
             hdr_negative, channel_component, anisotropy, mip_bias, camera_frame, camera_frame_ratio, gate_opacity,
         );
@@ -754,6 +766,20 @@ impl DisplaySettings {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_white_point_scales_only_with_the_profile_on() {
+        let mut d = DisplaySettings { white_point: 4.0, ..Default::default() };
+        assert_eq!(d.white_point_scale(), 1.0, "profile off");
+        d.color_profile = true;
+        assert_eq!(d.white_point_scale(), 0.25);
+        for bad in [0.0, -1.0, f32::NAN, f32::INFINITY] {
+            d.white_point = bad;
+            assert_eq!(d.white_point_scale(), 1.0, "{bad}");
+        }
+        let old: DisplaySettings = serde_json::from_str("{}").unwrap();
+        assert_eq!((old.color_profile, old.white_point), (false, 1.0));
+    }
 
     #[test]
     fn the_focus_distance_is_absolute_once_set_and_relative_before() {

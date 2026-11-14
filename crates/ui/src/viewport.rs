@@ -441,14 +441,26 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     (Some(a), _, _) if !ctrl && state.pen.closes_on(&state.session, a) => state.pen.close_path(&state.session),
                     (None, Some((segment, t)), _) => state.pen.insert_point(&state.session, segment, t),
                     (None, None, Some(layer)) => state.session.execute(subcraft_app::Command::SelectLayer(Some(layer))),
-                    _ => state.pen.begin_surface(&mut state.session, &camera, to_screen(p), hit),
+                    _ => {
+                        // Adding a point: Ctrl snaps the direction from the previous point to
+                        // 15 degree steps; Shift keeps the new point straight (no tangents).
+                        let mut at = p;
+                        if hit.is_none() && ctrl && let Some(prev) = pen_last_point(state, &camera, rect) {
+                            at = snap_angle(prev, p, 15f32.to_radians());
+                        }
+                        let r = state.pen.begin_surface(&mut state.session, &camera, to_screen(at), hit);
+                        if r.is_ok() && hit.is_none() && mods.shift {
+                            state.pen.keep_new_point_straight();
+                        }
+                        r
+                    }
                 };
                 if let Err(e) = result { state.set_status(format!("Pen: {e}"), now); }
             } else if primary_down && state.pen.is_editing() {
-                state.pen.drag_surface(&state.session, &camera, to_screen(p), mods.shift);
+                state.pen.drag_surface_scaled(&state.session, &camera, to_screen(p), mods.shift, mods.ctrl || mods.command);
             }
     }
-    let paint_tool = !bake_mode && matches!(state.tool, Tool::Brush | Tool::Eraser | Tool::Clone | Tool::Smudge) && !picking;
+    let paint_tool = !bake_mode && matches!(state.tool, Tool::Brush | Tool::Eraser | Tool::Clone | Tool::Smudge | Tool::Projection) && !picking;
     if !bake_mode && primary_pressed && response.hovered() && !alt && !stencil_edit && !picking && state.tool != Tool::Pen && !lmb_adjust {
         if let Some(p) = pointer {
             let sp = to_screen(p);
@@ -472,6 +484,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         Tool::Smudge => StrokeMode::Smudge,
                         _ => StrokeMode::Paint,
                     };
+                    state.session.brush.projection = state.tool == Tool::Projection;
                     if let Some(name) = state.session.ensure_paint_layer() {
                         state.gpu_dirty = true;
                         state.set_status(format!("Painting on a new paint layer, \"{name}\" (the selected layer was not a paint layer)"), now);
@@ -576,6 +589,13 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             params.oit = view.oit;
             params.exposure = view.exposure_value();
             params.post = view.post_params_at(state.session.scene().mesh.bounds.diagonal(), state.camera.eye_distance());
+            // Colour profile: the HDR values divided by the white point and clamped (linear,
+            // no tone curve), then shown raw or through the LUT by the renderer.
+            params.color_profile = view.color_profile && !bake_mode;
+            if params.color_profile {
+                params.exposure *= view.white_point_scale();
+                params.post.tone_map = subcraft_render::ToneMap::LinearSat;
+            }
             params.view_mode = view.view_mode();
             params.solo_channel = view.solo.filter(|_| view.mesh_map.is_none());
             params.mask_view = mask_view;
@@ -796,6 +816,19 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             }
         }
     }
+    // Shift+P: dotted preview of the next segment, from the last point to the cursor.
+    let preview_id = egui::Id::new("pen_segment_preview");
+    let mut segment_preview = ui.data(|d| d.get_temp::<bool>(preview_id)).unwrap_or(true);
+    if state.tool == Tool::Pen && response.hovered() && !typing && ui.input(|i| i.key_pressed(egui::Key::P) && i.modifiers.shift && !i.modifiers.ctrl && !i.modifiers.command) {
+        segment_preview = !segment_preview;
+        ui.data_mut(|d| d.insert_temp(preview_id, segment_preview));
+    }
+    if state.tool == Tool::Pen && segment_preview && !state.pen.is_editing() && let Some(cursor) = response.hover_pos()
+        && let Some(last) = pen_last_point(state, &camera, rect)
+    {
+        let to = if mods.ctrl || mods.command { snap_angle(last, cursor, 15f32.to_radians()) } else { cursor };
+        painter.extend(egui::Shape::dashed_line(&[last, to], Stroke::new(1.2, Color32::from_white_alpha(190)), 5.0, 4.0));
+    }
     if state.tool == Tool::Pen && let Some(path) = state.pen.preview(&state.session) {
         crate::pen::draw(&painter, path, state.pen.selected_anchor(), |uv| pen_position(state, &camera, rect, uv));
     }
@@ -903,11 +936,11 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         if (mods.command || mods.ctrl) && !mods.alt && !matches!(item, crate::panels::shelf::ShelfDrag::Alpha(_) | crate::panels::shelf::ShelfDrag::SmartMask(_)) {
             what.push_str(", only on the part under the cursor");
         }
-        pill(&painter, rect.center_top() + egui::vec2(0.0, 14.0), egui::Align2::CENTER_TOP, &format!("Release to: {what}"), theme::TEXT());
+        pill(&painter, rect.center_top() + egui::vec2(0.0, 14.0), egui::Align2::CENTER_TOP, &format!("Release to: {what}"), theme::OVERLAY_TEXT);
     }
     // Painter's mask view: say what is shown and how to get back; Esc goes back too.
     if let Some(text) = crate::mask_view::label(state) {
-        pill(&painter, rect.center_top() + egui::vec2(0.0, 40.0), egui::Align2::CENTER_TOP, &text, theme::TEXT());
+        pill(&painter, rect.center_top() + egui::vec2(0.0, 40.0), egui::Align2::CENTER_TOP, &text, theme::OVERLAY_TEXT);
         if response.hovered() && ui.input(|i| i.key_pressed(egui::Key::Escape)) { state.mask_view = None; }
     }
     let bake_hint = state.bake.displayed_map.map(|k| format!("Bake preview · {} · close Bake Mesh Maps to return to material", k.display_name()));
@@ -918,7 +951,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     } else { String::new() };
     let mut hint_plate = None;
     if bake_mode {
-        pill(&painter, rect.left_bottom() + egui::vec2(10.0, -10.0), egui::Align2::LEFT_BOTTOM, &hint, theme::TEXT_FAINT());
+        pill(&painter, rect.left_bottom() + egui::vec2(10.0, -10.0), egui::Align2::LEFT_BOTTOM, &hint, theme::OVERLAY_TEXT_FAINT);
     } else if state.recovery.prefs.viewport.hints {
         let c = crate::viewport_hints::HintContext {
             tool: state.tool,
@@ -939,7 +972,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     // The grid's unit, bottom left while the grid is on: just above the hints when they show.
     let grid_on = state.recovery.prefs.viewport.grid;
     if !bake_mode && grid_on && let Some(step) = subcraft_render::grid_step(state.session.scene().mesh.bounds) {
-        pill(&painter, grid_readout_anchor(rect, hint_plate), egui::Align2::LEFT_BOTTOM, &grid_unit_label(step), theme::TEXT_FAINT());
+        pill(&painter, grid_readout_anchor(rect, hint_plate), egui::Align2::LEFT_BOTTOM, &grid_unit_label(step), theme::OVERLAY_TEXT_FAINT);
     }
     let mut right = rect.right_top() + egui::vec2(-10.0, 10.0);
     if state.tool != Tool::Pen && state.session.brush.options.has_symmetry() {
@@ -1091,7 +1124,7 @@ fn brush_notice(state: &mut UiState, ui: &Ui, painter: &egui::Painter, rect: Rec
     let Some(notice) = &state.brush_notice else { return };
     let Some(opacity) = notice.opacity(now) else { state.brush_notice = None; return };
     let fade = |c: Color32| c.gamma_multiply(opacity);
-    let galley = painter.layout_no_wrap(format!("Brush: {}", notice.name), theme::font(12.0), fade(theme::TEXT()));
+    let galley = painter.layout_no_wrap(format!("Brush: {}", notice.name), theme::font(12.0), fade(theme::OVERLAY_TEXT));
     let thumb = crate::panels::shelf::tip_thumbnail(state, &notice.tip);
     let side = 22.0;
     let inset = if thumb.is_some() { side + 8.0 } else { 0.0 };
@@ -1103,11 +1136,29 @@ fn brush_notice(state: &mut UiState, ui: &Ui, painter: &egui::Painter, rect: Rec
         let image = Rect::from_min_size(plate.min + egui::vec2(9.0, (plate.height() - side) / 2.0), egui::vec2(side, side));
         painter.image(texture, image, Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), fade(Color32::WHITE));
     }
-    painter.galley(plate.min + egui::vec2(9.0 + inset, (plate.height() - galley.size().y) / 2.0), galley, fade(theme::TEXT()));
+    painter.galley(plate.min + egui::vec2(9.0 + inset, (plate.height() - galley.size().y) / 2.0), galley, fade(theme::OVERLAY_TEXT));
     ui.ctx().request_repaint();
 }
 
 /// Project UV controls only where their sampled surface is visible.
+/// Where the path's last point is on screen while points are being added (it is selected).
+fn pen_last_point(state: &UiState, camera: &subcraft_app::Camera, rect: Rect) -> Option<Pos2> {
+    let path = state.pen.preview(&state.session)?;
+    let last = path.anchors.last()?;
+    if path.is_closed() || state.pen.selected_anchor() != Some(last.id) { return None; }
+    pen_position(state, camera, rect, last.position)
+}
+
+/// `to` moved onto the nearest direction from `from` that is a multiple of `step` radians
+/// (same distance).
+pub fn snap_angle(from: Pos2, to: Pos2, step: f32) -> Pos2 {
+    let d = to - from;
+    let len = d.length();
+    if len < 1e-3 || step <= 0.0 { return to; }
+    let angle = (d.y.atan2(d.x) / step).round() * step;
+    from + egui::vec2(angle.cos(), angle.sin()) * len
+}
+
 fn pen_position(state: &UiState, camera: &subcraft_app::Camera, rect: Rect, uv: Vec2) -> Option<Pos2> {
     let position = state.session.pen_uv_position(uv)?;
     let screen = camera.project(position)?.truncate();
@@ -1263,7 +1314,7 @@ fn visualization_overlays(state: &UiState, painter: &egui::Painter, rect: Rect, 
         return;
     }
     if prefs.shown_channel().is_some() && let Some(name) = prefs.channel_component.overlay() {
-        pill(painter, rect.left_top() + egui::vec2(10.0, 10.0), egui::Align2::LEFT_TOP, crate::i18n::tr(name), theme::TEXT());
+        pill(painter, rect.left_top() + egui::vec2(10.0, 10.0), egui::Align2::LEFT_TOP, crate::i18n::tr(name), theme::OVERLAY_TEXT);
     }
     // Axis indicator above the Render toggle in the bottom-right corner.
     if prefs.axis_indicator {
@@ -1465,9 +1516,9 @@ pub(crate) fn stencil_input(state: &mut UiState, ui: &Ui, response: &egui::Respo
 /// to the flow / angle drag (so the press must not start a stroke).
 pub(crate) fn brush_gestures(state: &mut UiState, response: &egui::Response, mods: egui::Modifiers, delta: egui::Vec2, allowed: bool) -> bool {
     let gesture_ok = allowed && mods.command && !mods.alt;
-    let brush_tool = matches!(state.tool, Tool::Brush | Tool::Eraser | Tool::Smudge | Tool::Clone);
+    let brush_tool = matches!(state.tool, Tool::Brush | Tool::Eraser | Tool::Smudge | Tool::Clone | Tool::Projection);
     // Ctrl+Shift+LMB is the snapped straight line, so the flow / angle drag needs Shift up.
-    let lmb_adjust = gesture_ok && !mods.shift && matches!(state.tool, Tool::Brush | Tool::Eraser | Tool::Smudge);
+    let lmb_adjust = gesture_ok && !mods.shift && matches!(state.tool, Tool::Brush | Tool::Eraser | Tool::Smudge | Tool::Projection);
     if gesture_ok && brush_tool {
         let s = &mut state.session.brush.settings;
         if response.dragged_by(PointerButton::Secondary) {
