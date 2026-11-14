@@ -61,8 +61,8 @@ place the 12.2 additions where the release notes put them. The settings are stor
 | Display material | Viewport menu; shortcut M | M | done | crates/app/src/actions.rs:214 | - |
 | Display next channel | Viewport menu; shortcut C | C | done: Material, then the selected texture set's channels | crates/ui/src/viewport_bar.rs (cycle_channel) | - |
 | Display previous channel | Viewport menu; shortcut Shift+C | Shift+C | done | crates/ui/src/viewport_bar.rs (cycle_channel) | - |
-| Display next mesh map | Viewport menu; shortcut B | B | missing: `cycle_mesh_map` exists but nothing calls it (B is the Brush tool) | crates/ui/src/viewport_bar.rs:387 | - |
-| Display previous mesh map | Viewport menu; shortcut Shift+B | Shift+B | missing | - | - |
+| Display next mesh map | Viewport menu; shortcut B | B | done: Action::NextMeshMap, B in the Painter key set (B stays Brush in the SubCraft set) | crates/app/src/actions.rs | - |
+| Display previous mesh map | Viewport menu; shortcut Shift+B | Shift+B | done: Action::PrevMeshMap, Shift+B | crates/app/src/actions.rs | - |
 
 ## Environment settings: Environment
 
@@ -101,9 +101,9 @@ a trailing asterisk.
 | Active camera dropdown | 3D view top bar | Default camera | partial: same bookmark menu (applies the viewpoint to the one orbit camera) | crates/ui/src/view_extras.rs:140 | - |
 | Import cameras with the mesh (FBX / Alembic) | New project, Project configuration: Import Cameras | on (unverified) | partial: separate "Import camera…" from glTF/GLB/JSON only | crates/ui/src/view_extras.rs:186 | - |
 | Imported camera is left when navigating (switches to Default camera) | 3D view | - | partial: bookmark is copied into the orbit camera, so navigating simply moves it | crates/ui/src/view_extras.rs:39 | - |
-| Restore (reset imported camera attributes) | Display Settings > Camera | - | missing | - | - |
-| Lock camera | Display Settings > Camera, lock icon | unlocked | missing | - | - |
-| Modified marker (italic name with asterisk) | Camera dropdown | - | missing | - | - |
+| Restore (reset imported camera attributes) | Display Settings > Camera | - | done: Restore button (back to the imported camera's lens and place) | crates/ui/src/view_extras.rs | - |
+| Lock camera | Display Settings > Camera, lock icon | unlocked | done: Lock camera checkbox; navigation leaves a locked imported camera where it is | crates/ui/src/panels/display_settings.rs | - |
+| Modified marker (italic name with asterisk) | Camera dropdown | - | done: italic name with * while the active imported camera's lens was changed | crates/ui/src/view_extras.rs | - |
 | Display ratio (read-only; "Unspecified" when absent) | Display Settings > Camera | Unspecified | missing | - | - |
 | Field of View (degrees) | Display Settings > Camera | not documented | done: 5-120 degrees; the camera dollies to keep the model its size | crates/ui/src/panels/display_settings.rs (camera, set_fov) | 165 |
 | Focal length (mm) | Display Settings > Camera | not documented | done: full-frame (24 mm high) equivalent of the field of view | crates/doc/src/display.rs (focal_length_mm) | 165 |

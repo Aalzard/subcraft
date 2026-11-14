@@ -56,8 +56,8 @@ Layout notes: the panel has a small header with a visibility menu button, a focu
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Texture Set isolate | Shortcut | Alt+Q | missing | - | - |
-| Texture set selection in the viewport | Shortcut | Ctrl+Alt+Right mouse | missing | - | - |
+| Texture Set isolate | Shortcut | Alt+Q | done: Alt+Q (Action::IsolateTextureSet) | crates/app/src/actions.rs | - |
+| Texture set selection in the viewport | Shortcut | Ctrl+Alt+Right mouse | done: Ctrl+Alt+right click selects the texture set under the cursor | crates/ui/src/viewport.rs | - |
 
 ## Texture Set Reassignment window
 
@@ -185,7 +185,7 @@ Layout notes: a "Bake Mesh Maps" button, then one slot per mesh map with a thumb
 | Replace the map in a filled slot | Mesh map slot | (unverified) | done | crates/ui/src/panels/texture_sets.rs (map_slot) | #137 |
 | Remove (X) the map from a slot | Mesh map slot | (unverified) | done | crates/ui/src/panels/texture_sets.rs (map_slot) | - |
 | Slot context menu | Mesh map slot (right-click) | not documented | partial: Select / Replace image, Bake this map, Remove (Painter's entries are not documented) | crates/ui/src/panels/texture_sets.rs (map_slot) | - |
-| Import baked maps: Add button at project creation | New project > Import baked maps | none | missing | - | #137 |
+| Import baked maps: Add button at project creation | New project > Import baked maps | none | done: New project > Import baked maps section | crates/ui/src/mesh_map_import.rs | #137 |
 | Auto-assign by file name TextureSetName_MeshMapName | New project > Import baked maps | ambient_occlusion, curvature, normal_base, world_space_normals, id, position, thickness | missing | - | #137 |
 | Baked normal follows the project Normal Map Format | Project settings | DirectX or OpenGL | partial: maps are always OpenGL; the setting is an export convention | crates/ui/src/new_project.rs:286 | - |
 
