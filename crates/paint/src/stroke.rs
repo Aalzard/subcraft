@@ -1048,6 +1048,14 @@ impl Stroke {
         self.fill_triangles(ts, ctx, &tris)
     }
 
+    /// Polygon Fill's blending mode: how the fill combines with what the layer holds (Normal
+    /// replaces, as strokes do).
+    pub fn set_fill_blend(&mut self, mode: subcraft_doc::BlendMode) {
+        for img in &mut self.images {
+            img.blend = mode;
+        }
+    }
+
     /// Fill the polygon loop a drag from `a` to `b` (pixels) picks, grown to `mode`'s elements
     /// (see [`crate::select::loop_triangles`]).
     #[allow(clippy::too_many_arguments)]

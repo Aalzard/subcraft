@@ -5,6 +5,7 @@
 
 pub mod anchor;
 pub mod blend;
+pub mod blend_math;
 pub mod camera;
 pub mod display;
 pub mod document;
