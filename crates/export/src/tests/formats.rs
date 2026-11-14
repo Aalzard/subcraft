@@ -104,6 +104,59 @@ fn diffusion_padding_blends_islands_into_the_gutter() {
 }
 
 #[test]
+fn transparent_padding_dilates_then_clears_alpha() {
+    let (mesh, cov, dist) = island();
+    // Roughness 1 on the island, 0.25 elsewhere; a colour on the island.
+    let mut rough = TiledImage::new(RES, RES, 1, [0.25; 4]);
+    let mut color = TiledImage::new(RES, RES, 4, [0.0, 0.0, 0.0, 1.0]);
+    for (i, &c) in cov.iter().enumerate() {
+        if c {
+            rough.set(i as u32 % RES, i as u32 / RES, [1.0; 4]);
+            color.set(i as u32 % RES, i as u32 / RES, [0.8, 0.4, 0.2, 1.0]);
+        }
+    }
+    let mut ch = BTreeMap::new();
+    ch.insert(ChannelKind::Roughness, rough);
+    ch.insert(ChannelKind::BaseColor, color);
+    let sets = [ExportTextureSet { name: "C", material_slot: 0, udim: None, channels: &ch, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY }];
+    let gray = vec![Source::ch(ChannelKind::Roughness, 0)];
+    let rgb: Vec<Source> = (0..3).map(|c| Source::ch(ChannelKind::BaseColor, c)).collect();
+    let rgba: Vec<Source> = rgb.iter().cloned().chain([Source::ch(ChannelKind::Roughness, 0)]).collect();
+    let maps = vec![
+        OutputMap::new("Gray", FileFormat::Png8, gray.clone(), false),
+        OutputMap::new("Rgb", FileFormat::Png16, rgb.clone(), false),
+        OutputMap::new("Rgba", FileFormat::Png8, rgba, false),
+        OutputMap::new("Exr", FileFormat::Exr32, rgb, false),
+        OutputMap::new("Hdr", FileFormat::Hdr32, gray, false),
+    ];
+    let s = ExportSettings { template: user(maps), padding: Padding::Transparent(2), ..Default::default() };
+    let files = render(&mesh, &sets, &s);
+    let img = |name: &str| &files.iter().find(|f| f.0.contains(name)).unwrap().1;
+    let at = |name: &str, i: usize| img(name).texel(i as u32 % RES, i as u32 / RES, false);
+    // Outputs without alpha get one; RGBA keeps four components; Radiance HDR stores no alpha.
+    let channels: Vec<u8> = ["Gray", "Rgb", "Rgba", "Exr", "Hdr"].iter().map(|n| img(n).channels).collect();
+    assert_eq!(channels, [2, 4, 4, 4, 3]);
+    let inside = (0..cov.len()).find(|i| dist[*i] == 0).unwrap();
+    let near = (0..cov.len()).find(|i| dist[*i] == 2).unwrap();
+    let past = (0..cov.len()).find(|i| dist[*i] == 3).unwrap();
+    let far = (0..cov.len()).max_by_key(|i| dist[*i]).unwrap();
+    for name in ["Gray", "Rgb", "Exr"] {
+        assert_eq!((at(name, inside)[3], at(name, near)[3]), (1.0, 1.0), "{name}: opaque on and within 2 texels of the island");
+        assert_eq!((at(name, past)[3], at(name, far)[3]), (0.0, 0.0), "{name}: transparent beyond");
+    }
+    // The Rgba map's own alpha (roughness 1 on the island) is kept inside, cleared beyond.
+    assert_eq!((at("Rgba", near)[3], at("Rgba", far)[3]), (1.0, 0.0));
+    // Colour under transparent texels is the nearest island texel, not the gutter's 0.25 / black.
+    assert_eq!(at("Gray", far)[0], 1.0);
+    let c = at("Exr", far);
+    assert!((c[0] - 0.8).abs() < 1e-5 && (c[1] - 0.4).abs() < 1e-5 && (c[2] - 0.2).abs() < 1e-5, "{c:?}");
+    // HDR: dilation only, the far gutter keeps its composite value.
+    assert!((at("Hdr", near)[0] - 1.0).abs() < 1e-3 && (at("Hdr", far)[0] - 0.25).abs() < 1e-3, "{:?} {:?}", at("Hdr", near), at("Hdr", far));
+    // The mode keeps its distance like the other dilation modes.
+    assert_eq!((Padding::Transparent(2).distance(), Padding::Transparent(2).with_distance(9)), (Some(2), Padding::Transparent(9)));
+}
+
+#[test]
 fn window_size_applies_unless_the_preset_or_map_sets_one() {
     let ch = distinct_channels();
     let sets = [ExportTextureSet { name: "C", material_slot: 0, udim: None, channels: &ch, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY }];

@@ -844,6 +844,7 @@ pub(crate) fn padding_label(p: Padding) -> &'static str {
         Padding::Texels(_) => "Dilation only",
         Padding::Background(_) => "Dilation + background color",
         Padding::Diffusion(_) => "Dilation + diffusion",
+        Padding::Transparent(_) => "Dilation + transparent",
     }
 }
 
@@ -854,6 +855,7 @@ fn padding_tip(p: Padding) -> &'static str {
         Padding::Texels(_) => tr("Grow islands by the distance; the rest of the gutter keeps its composite values"),
         Padding::Background(_) => tr("Grow islands by the distance, then fill the rest with each map's default color"),
         Padding::Diffusion(_) => tr("Grow islands by the distance, then fill the rest with a smooth blend of the islands around it"),
+        Padding::Transparent(_) => tr("Grow islands by the distance; the rest of the gutter is transparent (alpha 0). File types without alpha get dilation only"),
     }
 }
 
@@ -872,7 +874,7 @@ pub(crate) fn padding_combo(ui: &mut Ui, id: &str, padding: &mut Option<Padding>
             if let Some(i) = inherit {
                 ui.selectable_value(padding, None, i);
             }
-            let modes = [Padding::None, Padding::Infinite, Padding::Texels(distance), Padding::Background(distance), Padding::Diffusion(distance)];
+            let modes = [Padding::None, Padding::Infinite, Padding::Texels(distance), Padding::Transparent(distance), Padding::Background(distance), Padding::Diffusion(distance)];
             for mode in modes {
                 let on = padding.is_some_and(|p| std::mem::discriminant(&p) == std::mem::discriminant(&mode));
                 if ui.selectable_label(on, padding_label(mode)).on_hover_text(padding_tip(mode)).clicked() && !on {

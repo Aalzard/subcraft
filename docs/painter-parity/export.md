@@ -58,10 +58,10 @@ Layout notes: a resizable left column. First entry is Global settings; below it 
 | Size: 2048 | Size dropdown | - | done | crates/export/src/lib.rs EXPORT_SIZES | chunk 21 |
 | Size: 4096 | Size dropdown | - | done | crates/export/src/lib.rs EXPORT_SIZES | chunk 21 |
 | Size: 8192 | Size dropdown (needs enough VRAM) | - | done | crates/export/src/lib.rs EXPORT_SIZES | chunk 21 |
-| Padding | Dropdown | Dilation infinite (unverified) | partial: 4 of Painter's 5 modes (Dilation + transparent waits for alpha export), plus SubCraft's Dilation only | crates/ui/src/export_presets.rs padding_combo | chunk 21 |
+| Padding | Dropdown | Dilation infinite (unverified) | done: Painter's 5 modes, plus SubCraft's Dilation only | crates/ui/src/export_presets.rs padding_combo | chunk 21 |
 | Padding: No padding (passthrough) | Padding dropdown | - | done | crates/export/src/lib.rs pad | chunk 21 |
 | Padding: Dilation infinite | Padding dropdown | - | done (default) | crates/export/src/lib.rs pad | chunk 21 |
-| Padding: Dilation + transparent | Padding dropdown | - | missing | - | - |
+| Padding: Dilation + transparent | Padding dropdown | - | done (alpha 0 beyond the distance; maps without alpha get an alpha component; JPEG, HDR and Netpbm get dilation only; colour under transparent texels is the nearest island texel) | crates/export/src/lib.rs pad_transparent | - |
 | Padding: Dilation + default background color | Padding dropdown | - | done (fill = what an empty texture set exports for that map: channel default, flat normal...) | crates/export/src/lib.rs background_value | chunk 21 |
 | Padding: Dilation + diffusion | Padding dropdown | - | done (push-pull blend of the surrounding islands) | crates/image/src/dilate.rs diffuse_fill | chunk 21 |
 | Dilation distance (pixels) | Number field beside Padding, for the three Dilation + modes | 16 (unverified); range not documented | done: default 16, range 1-256, kept when switching between dilation modes | crates/ui/src/export_presets.rs padding_combo | chunk 21 |
