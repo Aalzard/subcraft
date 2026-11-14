@@ -26,6 +26,7 @@ fn id_source_name(s: IdSource) -> &'static str {
         IdSource::MaterialColor => "material_color",
         IdSource::MeshId => "mesh_id",
         IdSource::Submesh => "submesh",
+        IdSource::FileId => "file_id",
     }
 }
 

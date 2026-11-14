@@ -760,7 +760,8 @@ fn pad(data: &mut [f32], size: u32, comps: usize, covered: &[bool], padding: Pad
     match padding {
         Padding::None => {}
         Padding::Infinite => dilate_infinite(s, s, comps, data, covered),
-        Padding::Texels(t) => {
+        // Only reached for file types without alpha (see `pad_transparent`): dilation only.
+        Padding::Texels(t) | Padding::Transparent(t) => {
             dilate_width(s, s, comps, data, covered, t);
         }
         Padding::Background(t) => {
@@ -775,6 +776,28 @@ fn pad(data: &mut [f32], size: u32, comps: usize, covered: &[bool], padding: Pad
             diffuse_fill(s, s, comps, data, &grown);
         }
     }
+}
+
+/// "Dilation + transparent" for a file type that stores alpha: grow islands by `distance` texels,
+/// then make the rest of the gutter transparent. A map with 2 or 4 components keeps its last one
+/// as the alpha (alpha 0 in the far gutter); a map with 1 or 3 gets an alpha component (1 on and
+/// within `distance` of the islands, 0 beyond). Colour under the transparent texels is the
+/// nearest island texel, so filtering and mipmaps don't blend a seam colour into the edges.
+/// Returns the data and its component count.
+fn pad_transparent(mut data: Vec<f32>, size: u32, comps: usize, covered: &[bool], distance: u32) -> (Vec<f32>, usize) {
+    let s = size as usize;
+    let grown = dilate_width(s, s, comps, &mut data, covered, distance);
+    dilate_infinite(s, s, comps, &mut data, &grown);
+    let (mut data, comps) = if matches!(comps, 2 | 4) {
+        (data, comps)
+    } else {
+        let with_alpha = data.chunks_exact(comps).flat_map(|px| px.iter().copied().chain([1.0])).collect();
+        (with_alpha, comps + 1)
+    };
+    for (px, _) in data.chunks_exact_mut(comps).zip(&grown).filter(|(_, g)| !**g) {
+        px[comps - 1] = 0.0;
+    }
+    (data, comps)
 }
 
 /// Whether a map's fourth component is an alpha (effective opacity or a colour stack's coverage)
@@ -918,13 +941,16 @@ pub(crate) fn render_maps(mesh: &Mesh, mesh_name: &str, sets: &[ExportTextureSet
                 return Err(ExportError::Archive(format!("invalid map suffix: {}", map.suffix)));
             }
             let format = output_format(map, settings);
-            let comps = map.components.len();
+            let mut comps = map.components.len();
             let mut data = evaluate_map(map, &mut dense, settings, format);
             bleed_under_alpha(map, size as usize, &mut data);
             let padding = map.padding.or(settings.template.padding).unwrap_or(settings.padding);
             if padding != Padding::None {
                 let covered = covered.get_or_insert_with(|| coverage(mesh, set.material_slot, size));
-                pad(&mut data, size, comps, covered, padding, || background_value(map, settings, format));
+                match padding {
+                    Padding::Transparent(t) if format.has_alpha() => (data, comps) = pad_transparent(data, size, comps, covered, t),
+                    _ => pad(&mut data, size, comps, covered, padding, || background_value(map, settings, format)),
+                }
             }
             // Size override after padding, so shrinking never pulls unpadded gutter into islands.
             let out_size = output_size(map, settings, size);

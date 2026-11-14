@@ -61,6 +61,34 @@ fn missing_tip_falls_back_to_round_with_a_message() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
+/// QA 2026-11: a preset's settings and stroke options were applied without the checks of
+/// SetBrushSettings / SetStrokeOptions (an infinite radial centre, smoothing past its limit).
+#[test]
+fn preset_values_pass_the_same_checks_as_the_brush_commands() {
+    let tips = alphas::builtin();
+    let a = Session::new(primitives::cube(1.0), 128);
+    let mut preset = a.brush_preset("Odd");
+    preset.options.smoothing = 5.0;
+    preset.options.radial.count = 10_000;
+    preset.settings.size = 1e9;
+    let mut b = Session::new(primitives::cube(1.0), 128);
+    assert!(b.apply_brush_preset(&preset, &tips).is_none());
+    assert_eq!(b.brush.options.smoothing, subcraft_paint::MAX_SMOOTHING, "clamped like SetStrokeOptions");
+    assert_eq!(b.brush.options.radial.count, subcraft_paint::MAX_SYMMETRY_COPIES);
+    assert_eq!(b.brush.settings.size, 100.0, "clamped like SetBrushSettings");
+    let mut broken = a.brush_preset("Broken");
+    broken.options.radial.center_offset = [f32::INFINITY, 0.0, 0.0];
+    broken.settings.size = 3.0;
+    let before = (b.brush.settings, b.brush.options);
+    let message = b.apply_brush_preset(&broken, &tips).expect("refused with a message");
+    assert!(message.contains("radial") && message.contains("unchanged"), "{message}");
+    assert_eq!((b.brush.settings, b.brush.options), before, "the brush is unchanged");
+    let mut nan = a.brush_preset("NaN");
+    nan.settings.flow = f32::NAN;
+    assert!(b.apply_brush_preset(&nan, &tips).is_some_and(|m| m.contains("finite")));
+    assert_eq!((b.brush.settings, b.brush.options), before);
+}
+
 #[test]
 fn old_presets_without_new_fields_still_load() {
     let (dir, lib) = temp_lib("compat");

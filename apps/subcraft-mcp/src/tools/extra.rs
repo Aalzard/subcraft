@@ -229,19 +229,54 @@ fn font_ref(session: &mut Session, args: &Args, current: Option<FontRef>) -> Res
         }
         return session.import_font(&p);
     }
-    let bold = args.bool("bold")?.unwrap_or(false);
-    let italic = args.bool("italic")?.unwrap_or(false);
-    match args.str("font")? {
-        Some(name) => {
-            let wanted = if bold && !name.to_lowercase().contains("bold") { format!("{name} Bold") } else { name.to_string() };
-            if let Some((b, _)) = subcraft_text::BUNDLED_FONTS.iter().find(|(b, _)| b.eq_ignore_ascii_case(&wanted) || b.eq_ignore_ascii_case(name)) {
-                return Ok(FontRef::Bundled { name: b.to_string() });
-            }
-            Ok(FontRef::System { family: name.to_string(), bold, italic })
+    // Without `font`, the family and any style not given are kept from the current font. They
+    // used to be dropped: `bold` alone switched a system font to DejaVu Sans Bold, `bold: false`
+    // could not un-bold, `italic` alone did nothing, and a bold or italic the bundled family
+    // lacks (DejaVu Serif Bold) was dropped without a word.
+    let current = current.unwrap_or_default();
+    let (current_family, current_bold, current_italic) = match &current {
+        FontRef::Bundled { name } => match strip_bold(name) {
+            Some(base) => (Some(base.to_string()), true, false),
+            None => (Some(name.clone()), false, false),
+        },
+        FontRef::System { family, bold, italic } => (Some(family.clone()), *bold, *italic),
+        FontRef::Embedded { .. } => (None, false, false),
+    };
+    let font = args.str("font")?;
+    let (bold_arg, italic_arg) = (args.bool("bold")?, args.bool("italic")?);
+    let family = match font {
+        Some(f) => f.to_string(),
+        None => match current_family {
+            Some(f) => f,
+            None if bold_arg.is_some() || italic_arg.is_some() => return Err("this text uses an imported font file, which has one style; pass `font` to choose a family with bold / italic".into()),
+            None => return Ok(current),
+        },
+    };
+    let (mut bold, italic) = if font.is_some() { (bold_arg.unwrap_or(false), italic_arg.unwrap_or(false)) } else { (bold_arg.unwrap_or(current_bold), italic_arg.unwrap_or(current_italic)) };
+    let base = match strip_bold(&family) {
+        Some(base) => {
+            bold = bold_arg != Some(false);
+            base
         }
-        None if bold => Ok(FontRef::Bundled { name: "DejaVu Sans Bold".into() }),
-        None => Ok(current.unwrap_or_default()),
+        None => family.as_str(),
+    };
+    if let Some((b, _)) = subcraft_text::BUNDLED_FONTS.iter().find(|(b, _)| b.eq_ignore_ascii_case(base)) {
+        if italic {
+            return Err(format!("the bundled font {b} has no italic; pick an installed font (fonts_list)"));
+        }
+        let wanted = if bold { format!("{b} Bold") } else { b.to_string() };
+        return match subcraft_text::BUNDLED_FONTS.iter().find(|(n, _)| n.eq_ignore_ascii_case(&wanted)) {
+            Some((n, _)) => Ok(FontRef::Bundled { name: n.to_string() }),
+            None => Err(format!("the bundled font {b} has no bold; bundled bold: DejaVu Sans Bold, or pick an installed font (fonts_list)")),
+        };
     }
+    Ok(FontRef::System { family, bold, italic })
+}
+
+/// `name` without a trailing " Bold" (any case), when it has one.
+fn strip_bold(name: &str) -> Option<&str> {
+    let cut = name.len().checked_sub(5)?;
+    (name.is_char_boundary(cut) && name[cut..].eq_ignore_ascii_case(" bold")).then(|| &name[..cut])
 }
 
 fn apply_text_args(session: &mut Session, ts: TextureSetId, args: &Args, decal: &mut TextDecal) -> Res<()> {
@@ -257,7 +292,7 @@ fn apply_text_args(session: &mut Session, ts: TextureSetId, args: &Args, decal: 
     if args.get("channels").is_some() {
         decal.values = channel_values(session, ts, args)?;
     }
-    if args.get("font").is_some() || args.get("font_file").is_some() || args.get("bold").is_some() {
+    if args.get("font").is_some() || args.get("font_file").is_some() || args.get("bold").is_some() || args.get("italic").is_some() {
         decal.font = font_ref(session, args, Some(decal.font.clone()))?;
     }
     Ok(())

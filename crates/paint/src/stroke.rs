@@ -410,14 +410,10 @@ impl Stroke {
         self.paint_uv_samples(ts, ctx, &samples, radius_uv)
     }
 
-    /// Brush radius in UV units: the 3D brush size at the texture set's average texel density,
-    /// so a stroke covers the same texels in both views.
-    /// Texture size space is exact here; Viewport has no meaning in the 2D view (its zoom is
-    /// not a camera) and uses the object size.
+    /// Brush radius in UV units ([`uv_brush_radius`] with this stroke's 2D view).
     fn uv_radius(&mut self, ctx: &PaintContext) -> f32 {
         let upu = *self.uv_per_unit.get_or_insert_with(|| uv_per_unit(ctx.mesh, ctx.geometry.material_slot));
-        let c = SizeContext { diagonal: ctx.mesh.bounds.diagonal(), pixels_per_unit: 0.0, viewport_height: 0.0, uv_per_unit: upu };
-        self.settings.radius_in(&c) * upu
+        uv_brush_radius(&self.settings, ctx.mesh.bounds.diagonal(), upu, self.uv_view)
     }
 
     /// World radius of the brush in its size space, under the current view.
@@ -1042,6 +1038,16 @@ impl Stroke {
         self.fill_triangles(ts, ctx, &tris)
     }
 
+    /// Fill the polygon loop a drag from `a` to `b` (pixels) picks, grown to `mode`'s elements
+    /// (see [`crate::select::loop_triangles`]).
+    #[allow(clippy::too_many_arguments)]
+    pub fn polygon_fill_loop(&mut self, ts: &mut TextureSet, ctx: &PaintContext, a: Vec2, b: Vec2, mode: PolygonFillMode, partial: bool, both_sides: bool) -> Result<Vec<usize>, PaintError> {
+        self.check(ts, ctx)?;
+        let seeds = crate::select::loop_triangles(ctx.mesh, ctx.bvh, ctx.geometry, ctx.camera, a, b, partial, both_sides);
+        let tris = crate::select::grow(ctx.mesh, ctx.geometry, &seeds, mode);
+        self.fill_triangles(ts, ctx, &tris)
+    }
+
     /// [`Stroke::polygon_fill_box`] from the 2D view: a box in UV space.
     pub fn polygon_fill_uv_box(&mut self, ts: &mut TextureSet, ctx: &PaintContext, a: Vec2, b: Vec2, mode: PolygonFillMode) -> Result<Vec<usize>, PaintError> {
         self.check(ts, ctx)?;
@@ -1156,6 +1162,21 @@ fn sample_image(img: &TargetImage, uv: [f32; 2]) -> [f32; 4] {
 /// Source colors for a clone stroke: the pre-stroke paint at each texel's source point.
 fn clone_source_tile(img: &TargetImage, uvs: &[Option<[f32; 2]>]) -> Vec<[f32; 4]> {
     uvs.iter().map(|uv| uv.map_or([0.0; 4], |uv| sample_image(img, uv))).collect()
+}
+
+/// Brush radius in UV units for a 2D stroke. Object size: the 3D brush size at the texture
+/// set's average texel density (`uv_per_unit`), so a stroke covers the same texels in both
+/// views. Texture size: a percentage of the texture. Viewport size: a percentage of the 2D
+/// view's height, so the brush keeps its size on screen whatever the 2D zoom; without a view
+/// it falls back to the object size.
+pub fn uv_brush_radius(settings: &BrushSettings, diagonal: f32, uv_per_unit: f32, view: Option<UvView>) -> f32 {
+    if settings.size_space == SizeSpace::Viewport
+        && let Some(v) = view.filter(|v| v.side.is_finite() && v.side > 0.0 && v.viewport[1] > 0)
+    {
+        return settings.size.max(0.0) * 0.01 * 0.5 * v.viewport[1] as f32 / v.side;
+    }
+    let c = SizeContext { diagonal, pixels_per_unit: 0.0, viewport_height: 0.0, uv_per_unit };
+    settings.radius_in(&c) * uv_per_unit
 }
 
 /// Average UV units per object unit over a material slot's triangles (square root of the UV to

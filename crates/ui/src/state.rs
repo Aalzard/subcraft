@@ -22,6 +22,8 @@ pub enum Tool {
     Clone,
     /// Drags the paint under the brush along the stroke.
     Smudge,
+    /// Painter's Projection tool: paints the brush material cast from the view, tiled over it.
+    Projection,
 }
 
 impl Tool {
@@ -29,7 +31,7 @@ impl Tool {
     pub fn preset_tool(self) -> Option<subcraft_app::brush_preset::PresetTool> {
         use subcraft_app::brush_preset::PresetTool as P;
         match self {
-            Tool::Brush => Some(P::Paint),
+            Tool::Brush | Tool::Projection => Some(P::Paint),
             Tool::Eraser => Some(P::Eraser),
             Tool::Smudge => Some(P::Smudge),
             Tool::Clone => Some(P::Clone),
@@ -159,6 +161,8 @@ pub struct UiState {
     /// Polygon fill boxes in the 3D view pick only what the camera sees (no back faces, nothing
     /// hidden behind the model). Off: every triangle under the box, x-ray style.
     pub fill_visible_only: bool,
+    /// Polygon Fill selection mode: marquee (click / box) or polygon loops (3D view).
+    pub fill_selection: subcraft_paint::PolygonSelectMode,
     /// Polygon fill drag in progress: where the primary button went down (screen points). A
     /// release close by is a click fill there, a longer drag a box fill.
     pub fill_box: Option<egui::Pos2>,
@@ -201,6 +205,8 @@ pub struct UiState {
     /// Whether the session's saved display settings were taken over yet, and the values last
     /// seen in step with the project (see `panels::display_settings::sync_project`).
     pub display_loaded: bool,
+    /// Colour LUT the renderer holds (`None` = nothing synced yet; `Some(None)` = no LUT).
+    pub uploaded_color_lut: Option<Option<subcraft_core::ResourceId>>,
     /// The opened project's saved view (camera, 2D pan) was put back (view_state.rs).
     pub view_loaded: bool,
     pub display_baseline: subcraft_doc::DisplaySettings,
@@ -330,6 +336,13 @@ pub struct UiState {
     pub symmetry_uploaded: Option<crate::symmetry_view::GuideKey>,
     pub uv_wireframe: bool,
     pub library: subcraft_app::assets::Library,
+    /// The materials of the "SubCraft Materials" pack folder of the preferences.
+    pub materials_pack: Vec<subcraft_assets::materials_pack::PackMaterial>,
+    /// The pack download (Assets > Materials > Download SubCraft Materials) and its window.
+    pub materials_downloader: subcraft_app::materials_download::MaterialsDownloader,
+    pub materials_download_open: bool,
+    /// Size chosen in the download window (index into the release's options).
+    pub materials_download_choice: usize,
     pub shelf: crate::panels::shelf::ShelfUi,
     pub env: crate::panels::shelf::EnvUi,
     /// Mesh maps last uploaded to the GPU (to re-upload only when a bake replaced them).
@@ -371,6 +384,8 @@ pub struct UiState {
     pub tip_preview: crate::panels::brush_header::PreviewCache,
     /// Overlay texture of the current stencil image (keyed by its bitmap pointer).
     pub stencil_tex: Option<(usize, egui::TextureHandle)>,
+    /// The Projection tool preview's image (by resource) as a repeating texture.
+    pub projection_tex: Option<(subcraft_core::ResourceId, egui::TextureHandle)>,
     /// How the stencil overlay is shown (display only; painting through it is unaffected).
     pub stencil_display: StencilDisplay,
     /// Image textures shown in Shelf → Textures (the library's `textures/` folder).
@@ -448,6 +463,7 @@ impl UiState {
             pen_after: None,
             fill_mode: PolygonFillMode::UvIsland,
             fill_visible_only: true,
+            fill_selection: subcraft_paint::PolygonSelectMode::Marquee,
             fill_box: None,
             view_props: None,
             view_props_swallow: false,
@@ -467,6 +483,7 @@ impl UiState {
             display_jump: None,
             open_shader_settings: false,
             display_loaded: false,
+            uploaded_color_lut: None,
             view_loaded: false,
             display_baseline: Default::default(),
             pending_render_job: None,
@@ -539,6 +556,10 @@ impl UiState {
             symmetry_uploaded: None,
             uv_wireframe: true,
             library: subcraft_app::assets::Library::builtin(),
+            materials_pack: Vec::new(),
+            materials_downloader: Default::default(),
+            materials_download_open: false,
+            materials_download_choice: 0,
             shelf: Default::default(),
             env: Default::default(),
             uploaded_maps: HashMap::new(),
@@ -559,6 +580,7 @@ impl UiState {
             stamp_preview: Default::default(),
             tip_preview: Default::default(),
             stencil_tex: None,
+            projection_tex: None,
             stencil_display: StencilDisplay::default(),
             textures: Default::default(),
             recovery: crate::recovery::RecoveryUi::disabled(),
@@ -737,6 +759,8 @@ impl UiState {
         // The reloaded file brings its own cameras: an index into the old list would show the new
         // camera's name over the old camera's view.
         self.active_camera = None;
+        // The clip planes hold the reloaded model, wherever it is and however big.
+        self.camera.set_scene(&self.session.scene().mesh.bounds);
     }
 
     /// One Shelf click makes the brush usable at once: the app applies it, and Fill, Eyedropper
@@ -975,11 +999,15 @@ pub struct StencilDisplay {
     pub opacity: f32,
     /// Hide the overlay while a stroke is being painted.
     pub hide_when_painting: bool,
+    /// Projection tool preview: opacity of the pattern over the 3D view (0 = none) and the
+    /// brush material channel it shows (Painter's projection preview channel).
+    pub projection_opacity: f32,
+    pub projection_channel: subcraft_core::ChannelKind,
 }
 
 impl Default for StencilDisplay {
     fn default() -> Self {
-        Self { opacity: 110.0 / 255.0, hide_when_painting: false }
+        Self { opacity: 110.0 / 255.0, hide_when_painting: false, projection_opacity: 0.5, projection_channel: subcraft_core::ChannelKind::BaseColor }
     }
 }
 
@@ -990,6 +1018,21 @@ mod state_sync_tests;
 #[cfg(test)]
 mod modal_tests {
     use super::*;
+
+    /// QA 2026-11: after a mesh reload the camera kept the old model's size and centre for its
+    /// clip planes.
+    #[test]
+    fn a_mesh_reload_gives_the_camera_the_new_model() {
+        let mut state = UiState::new(Session::sample(), None);
+        state.camera.scene_radius = 0.01;
+        state.camera.scene_center = glam::Vec3::splat(100.0);
+        let target = state.camera.target;
+        state.mesh_reloaded();
+        let b = state.session.scene().mesh.bounds;
+        assert_eq!(state.camera.scene_center, b.center());
+        assert!((state.camera.scene_radius - b.diagonal() * 0.5).abs() < 1e-5);
+        assert_eq!(state.camera.target, target, "the view stays");
+    }
 
     /// QA 2026-11: document shortcuts (Delete, Ctrl+Z) acted behind the unsaved-changes prompt.
     #[test]

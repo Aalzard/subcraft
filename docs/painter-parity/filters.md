@@ -21,7 +21,7 @@ Layout notes: A filter is an effect row in a layer's content stack or its mask s
 | Opacity per channel on a filter (8.2) | Properties > Filter | 100; 0-100 (unverified) | done | crates/ui/src/panels/effects.rs:457 | - |
 | Blending mode on a mask filter | Properties > Filter | Normal (unverified) | done | crates/ui/src/panels/properties.rs:506 | - |
 | Opacity on a mask filter | Properties > Filter | 100; 0-100 (unverified) | done | crates/ui/src/panels/properties.rs:512 | - |
-| Seed parameter with Random button (filters that have one) | Properties > Filter | not documented | partial: Warp only, plain 0-9999 slider | crates/ui/src/panels/filter.rs:102 | - |
+| Seed parameter with Random button (filters that have one) | Properties > Filter | not documented | done: Warp and Blur Slope have a Random button | crates/ui/src/panels/filter.rs:60 | Grayscale options |
 | Image input slots (texture, procedural or anchor) | Properties > Filter | - | missing: filters take no inputs | - | - |
 | Mesh map inputs connected automatically | Properties > Filter | - | missing: no filter reads mesh maps | - | - |
 | Presets dropdown that sets several parameters (e.g. Oil Paint, Stylization) | Properties > Filter | - | missing | - | - |
@@ -233,13 +233,13 @@ Layout notes: Standard group (11.0). Works on content and masks.
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Grayscale Conversion (filter) | Properties > Filter | works on: content and masks | partial: named Grayscale; fixed Rec.709 luminance, colour channels only, no parameters | crates/doc/src/filter.rs:147 | - |
+| Grayscale Conversion (filter) | Properties > Filter | works on: content and masks | partial: named Grayscale; colour channels only; Mode, Invert, Balance, Contrast | crates/doc/src/filter.rs:347 | Grayscale options |
 | Custom Input | Properties > Filter > Image inputs | colour; texture or anchor | missing | - | - |
-| Channel Input | Properties > Filter | not documented (dropdown) | missing | - | - |
-| Invert | Properties > Filter | not documented (toggle) | missing | - | - |
-| Balance | Properties > Filter | not documented | missing | - | - |
-| Contrast | Properties > Filter | not documented | missing | - | - |
-| Mode | Properties > Filter | not documented (dropdown) | partial: luminance only, no choice | crates/ui/src/panels/filter.rs:34 | - |
+| Channel Input | Properties > Filter | not documented (dropdown) | done: the Red / Green / Blue channel entries of Mode | crates/ui/src/panels/filter.rs:165 | Grayscale options |
+| Invert | Properties > Filter | not documented (toggle) | done | crates/ui/src/panels/filter.rs:165 | Grayscale options |
+| Balance | Properties > Filter | not documented | done: 0..1, 0.5 neutral | crates/ui/src/panels/filter.rs:165 | Grayscale options |
+| Contrast | Properties > Filter | not documented | done: 0..1, 0 neutral | crates/ui/src/panels/filter.rs:165 | Grayscale options |
+| Mode | Properties > Filter | not documented (dropdown) | done: Desaturation, Luma, Average, Max, Min, Red / Green / Blue channel | crates/ui/src/panels/filter.rs:165 | Grayscale options |
 | Red | Properties > Filter | not documented | missing | - | - |
 | Green | Properties > Filter | not documented | missing | - | - |
 | Blue | Properties > Filter | not documented | missing | - | - |
@@ -391,7 +391,7 @@ Layout notes: Standard group. Works on content and masks. Main controls, then a 
 |---|---|---|---|---|---|
 | Warp (filter) | Properties > Filter | works on: content and masks | partial: noise warp (Intensity, Scale, Seed) and a separate Directional Warp filter; no custom noise, divider, blending or direction count | crates/doc/src/filter.rs:128 | - |
 | Custom Noise | Properties > Filter > Image inputs | texture | missing | - | - |
-| Seed | Properties > Filter | not documented | partial: 0-9999 slider, no Random button | crates/ui/src/panels/filter.rs:102 | - |
+| Seed | Properties > Filter | not documented | done: number field with a Random button | crates/ui/src/panels/filter.rs:60 | Grayscale options |
 | Warp Mode | Properties > Filter | not documented (dropdown; regular, directional, multidirectional per the description) | partial: Warp and Directional Warp are two filters; no multidirectional | crates/doc/src/filter.rs:169 | - |
 | Intensity | Properties > Filter | not documented | done | crates/ui/src/panels/filter.rs:100 | - |
 | Intensity Divider | Properties > Filter | not documented (dropdown) | missing | - | - |
@@ -854,16 +854,16 @@ Layout notes: Advanced group (11.0). Works on content and masks.
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Anisotropic Kuwahara (filter) | Properties > Filter | works on: content and masks | missing: Median is the only edge-preserving smoother | - | - |
+| Anisotropic Kuwahara (filter) | Properties > Filter | works on: content and masks | done: 8-sector anisotropic Kuwahara on an ellipse along the structure-tensor edge direction | Properties > Filter > Anisotropic Kuwahara | (this PR) |
 | Radius Map | Properties > Filter > Image inputs | grayscale; texture or anchor | missing | - | - |
 | Custom Input | Properties > Filter > Image inputs | colour; texture or anchor | missing | - | - |
-| Extract Direction | Properties > Filter | not documented (dropdown) | missing | - | - |
-| Radius | Properties > Filter | default not documented; maximum 32 | missing | - | - |
-| Smoothness | Properties > Filter | not documented | missing | - | - |
-| Sharpness | Properties > Filter | not documented | missing | - | - |
-| Tensor Smoothness | Properties > Filter | not documented | missing | - | - |
-| Anisotropy | Properties > Filter | not documented | missing | - | - |
-| Anisotropy Angle | Properties > Filter | not documented; in turns | missing | - | - |
+| Extract Direction | Properties > Filter | not documented (dropdown) | done: From the image / Fixed angle | Properties > Filter > Anisotropic Kuwahara | (this PR) |
+| Radius | Properties > Filter | default not documented; maximum 32 | done: 0..32 px, default 6 | Properties > Filter > Anisotropic Kuwahara | (this PR) |
+| Smoothness | Properties > Filter | not documented | done: 0..1, default 0.5 | Properties > Filter > Anisotropic Kuwahara | (this PR) |
+| Sharpness | Properties > Filter | not documented | done: 0..16, default 8 | Properties > Filter > Anisotropic Kuwahara | (this PR) |
+| Tensor Smoothness | Properties > Filter | not documented | done: 0..8 px, default 2 | Properties > Filter > Anisotropic Kuwahara | (this PR) |
+| Anisotropy | Properties > Filter | not documented | done: 0..4, default 1 | Properties > Filter > Anisotropic Kuwahara | (this PR) |
+| Anisotropy Angle | Properties > Filter | not documented; in turns | done: 0..1 turn, used when Extract Direction is Fixed angle | Properties > Filter > Anisotropic Kuwahara | (this PR) |
 
 ## Bevel
 
@@ -994,14 +994,14 @@ Layout notes: Advanced group (11.0). Content.
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Quantize (filter) | Properties > Filter | works on: content | missing: Posterize quantises per component, there is no palette quantiser | - | - |
-| Color Amount | Properties > Filter | not documented | missing | - | - |
-| Contour Smoothing | Properties > Filter | not documented | missing | - | - |
-| Dithering | Properties > Filter | not documented | missing | - | - |
-| Dithering Pattern | Properties > Filter | not documented (dropdown) | missing | - | - |
-| Distance Color Space | Properties > Filter | not documented; options Lab (Color) / RGB (Data) | missing | - | - |
-| Apply To Alpha | Properties > Filter | not documented (toggle) | missing | - | - |
-| Alpha Threshold | Properties > Filter | not documented | missing | - | - |
+| Quantize (filter) | Properties > Filter | works on: content | done: palette from the whole texture (median cut + k-means), content only | Properties > Filter > Quantize | (this PR) |
+| Color Amount | Properties > Filter | not documented | done: 2..64, default 8 | Properties > Filter > Quantize | (this PR) |
+| Contour Smoothing | Properties > Filter | not documented | done: 0..8 px blur before the mapping, default 0 | Properties > Filter > Quantize | (this PR) |
+| Dithering | Properties > Filter | not documented | done: amount 0..1, default 0 (off) | Properties > Filter > Quantize | (this PR) |
+| Dithering Pattern | Properties > Filter | not documented (dropdown) | done: Bayer 4x4 / Bayer 8x8 / Noise (Painter's list is not documented) | Properties > Filter > Quantize | (this PR) |
+| Distance Color Space | Properties > Filter | not documented; options Lab (Color) / RGB (Data) | done: Lab (Color) / RGB (Data); data channels always compare values | Properties > Filter > Quantize | (this PR) |
+| Apply To Alpha | Properties > Filter | not documented (toggle) | done | Properties > Filter > Quantize | (this PR) |
+| Alpha Threshold | Properties > Filter | not documented | done: 0..1, default 0.5 | Properties > Filter > Quantize | (this PR) |
 
 ## Stylization
 

@@ -441,14 +441,26 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     (Some(a), _, _) if !ctrl && state.pen.closes_on(&state.session, a) => state.pen.close_path(&state.session),
                     (None, Some((segment, t)), _) => state.pen.insert_point(&state.session, segment, t),
                     (None, None, Some(layer)) => state.session.execute(subcraft_app::Command::SelectLayer(Some(layer))),
-                    _ => state.pen.begin_surface(&mut state.session, &camera, to_screen(p), hit),
+                    _ => {
+                        // Adding a point: Ctrl snaps the direction from the previous point to
+                        // 15 degree steps; Shift keeps the new point straight (no tangents).
+                        let mut at = p;
+                        if hit.is_none() && ctrl && let Some(prev) = pen_last_point(state, &camera, rect) {
+                            at = snap_angle(prev, p, 15f32.to_radians());
+                        }
+                        let r = state.pen.begin_surface(&mut state.session, &camera, to_screen(at), hit);
+                        if r.is_ok() && hit.is_none() && mods.shift {
+                            state.pen.keep_new_point_straight();
+                        }
+                        r
+                    }
                 };
                 if let Err(e) = result { state.set_status(format!("Pen: {e}"), now); }
             } else if primary_down && state.pen.is_editing() {
-                state.pen.drag_surface(&state.session, &camera, to_screen(p), mods.shift);
+                state.pen.drag_surface_scaled(&state.session, &camera, to_screen(p), mods.shift, mods.ctrl || mods.command);
             }
     }
-    let paint_tool = !bake_mode && matches!(state.tool, Tool::Brush | Tool::Eraser | Tool::Clone | Tool::Smudge) && !picking;
+    let paint_tool = !bake_mode && matches!(state.tool, Tool::Brush | Tool::Eraser | Tool::Clone | Tool::Smudge | Tool::Projection) && !picking;
     if !bake_mode && primary_pressed && response.hovered() && !alt && !stencil_edit && !picking && state.tool != Tool::Pen && !lmb_adjust {
         if let Some(p) = pointer {
             let sp = to_screen(p);
@@ -472,6 +484,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         Tool::Smudge => StrokeMode::Smudge,
                         _ => StrokeMode::Paint,
                     };
+                    state.session.brush.projection = state.tool == Tool::Projection;
                     if let Some(name) = state.session.ensure_paint_layer() {
                         state.gpu_dirty = true;
                         state.set_status(format!("Painting on a new paint layer, \"{name}\" (the selected layer was not a paint layer)"), now);
@@ -536,12 +549,19 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         state.fill_box = None;
         let end = pointer.unwrap_or(start);
         state.session.brush.mode = StrokeMode::Paint;
-        let result = if crate::view_props::is_box_drag(start, end) {
+        let looped = state.fill_selection.is_loop();
+        let result = if looped {
+            // Alt held at release mirrors a partial loop on the other side of the first click.
+            let both_sides = ui.input(|i| i.modifiers.alt);
+            let partial = state.fill_selection == subcraft_paint::PolygonSelectMode::PartialLoop;
+            state.session.polygon_fill_loop(&camera, to_screen(start), to_screen(end), state.fill_mode, partial, both_sides)
+        } else if crate::view_props::is_box_drag(start, end) {
             state.session.polygon_fill_box(&camera, to_screen(start), to_screen(end), state.fill_mode, state.fill_visible_only)
         } else {
             state.session.polygon_fill(&camera, to_screen(start), state.fill_mode)
         };
         match result {
+            Ok(tiles) if tiles.is_empty() && looped => state.set_status("Polygon fill: no polygon of this texture set under the cursor", now),
             Ok(tiles) if tiles.is_empty() && crate::view_props::is_box_drag(start, end) => state.set_status("Polygon fill: the box touched no triangle of this texture set", now),
             Ok(_) => {}
             Err(e) => state.set_status(format!("Polygon fill: {e}"), now),
@@ -553,6 +573,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     let painter = ui.painter_at(rect);
     let tracing = state.recovery.prefs.viewport.path_tracing && !bake_mode;
     let mut pt_error = None;
+    let mut lut_error: Option<String> = None;
     let mask_view = crate::mask_view::active(state);
     // Geometry mask and Polygon Fill feedback on the model: left-out geometry greyed while the
     // mask is edited, the part or the fill element under the cursor tinted.
@@ -576,6 +597,26 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             params.oit = view.oit;
             params.exposure = view.exposure_value();
             params.post = view.post_params_at(state.session.scene().mesh.bounds.diagonal(), state.camera.eye_distance());
+            // Colour profile: the HDR values divided by the white point and clamped (linear,
+            // no tone curve), then shown raw or through the LUT by the renderer.
+            params.color_profile = view.color_profile && !bake_mode;
+            if params.color_profile {
+                params.exposure *= view.white_point_scale();
+                params.post.tone_map = subcraft_render::ToneMap::LinearSat;
+            }
+            // The profile's LUT: sent to the renderer when the choice (or the project) changes.
+            let wanted = crate::color_lut::wanted(view, state.session.resources());
+            if state.uploaded_color_lut != Some(wanted) {
+                let result = match wanted.and_then(|id| state.session.resources().get(id)) {
+                    Some(r) => {
+                        let pixels = crate::color_lut::pixels(&r.bitmap);
+                        renderer.set_color_lut(&rs.device, &rs.queue, Some((&pixels, r.bitmap.width, r.bitmap.height)))
+                    }
+                    None => renderer.set_color_lut(&rs.device, &rs.queue, None),
+                };
+                lut_error = result.err();
+                state.uploaded_color_lut = Some(wanted);
+            }
             params.view_mode = view.view_mode();
             params.solo_channel = view.solo.filter(|_| view.mesh_map.is_none());
             params.mask_view = mask_view;
@@ -603,10 +644,12 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     overlay_uploaded = true;
                 }
             }
-            params.wireframe = view.wireframe && !bake_mode;
+            // Polygon Fill shows the active texture set's polygons, as in Painter.
+            let tool_slot = (state.tool == Tool::PolygonFill).then(|| state.session.selected_texture_set().material_slot);
+            params.wireframe = crate::view_extras::wire_slot(view.wireframe, tool_slot).is_some() && !bake_mode;
             if params.wireframe {
                 let before = state.wire_uploaded;
-                crate::view_extras::sync_wireframe(renderer, &rs.device, view, &state.session.scene().mesh, &mut state.wire_uploaded);
+                crate::view_extras::sync_wireframe(renderer, &rs.device, view, &state.session.scene().mesh, &mut state.wire_uploaded, tool_slot);
                 overlay_uploaded |= state.wire_uploaded != before;
             }
             if let Some(high) = &state.bake.preview_mesh {
@@ -759,6 +802,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         }
     }
 
+    if let Some(e) = lut_error {
+        state.set_status(format!("Color LUT: {e}"), now);
+    }
     if let Some(e) = pt_error {
         log::warn!("{e}");
         state.recovery.prefs.viewport.path_tracing = false;
@@ -795,6 +841,19 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 painter.line_segment([a, b], Stroke::new(3.0, Color32::from_rgba_unmultiplied(255, 255, 255, 170)));
             }
         }
+    }
+    // Shift+P: dotted preview of the next segment, from the last point to the cursor.
+    let preview_id = egui::Id::new("pen_segment_preview");
+    let mut segment_preview = ui.data(|d| d.get_temp::<bool>(preview_id)).unwrap_or(true);
+    if state.tool == Tool::Pen && response.hovered() && !typing && ui.input(|i| i.key_pressed(egui::Key::P) && i.modifiers.shift && !i.modifiers.ctrl && !i.modifiers.command) {
+        segment_preview = !segment_preview;
+        ui.data_mut(|d| d.insert_temp(preview_id, segment_preview));
+    }
+    if state.tool == Tool::Pen && segment_preview && !state.pen.is_editing() && let Some(cursor) = response.hover_pos()
+        && let Some(last) = pen_last_point(state, &camera, rect)
+    {
+        let to = if mods.ctrl || mods.command { snap_angle(last, cursor, 15f32.to_radians()) } else { cursor };
+        painter.extend(egui::Shape::dashed_line(&[last, to], Stroke::new(1.2, Color32::from_white_alpha(190)), 5.0, 4.0));
     }
     if state.tool == Tool::Pen && let Some(path) = state.pen.preview(&state.session) {
         crate::pen::draw(&painter, path, state.pen.selected_anchor(), |uv| pen_position(state, &camera, rect, uv));
@@ -856,7 +915,12 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             painter.circle_stroke(from, 6.0, Stroke::new(1.5, cross));
         }
     }
-    if let Some(r) = fill_rect.filter(|r| state.fill_box.is_some() && crate::view_props::is_box_drag(r.min, r.max)) {
+    if state.fill_selection.is_loop() {
+        // Loop modes: the drag is a direction, drawn as an arrow from the first click.
+        if let (Some(a), Some(b)) = (state.fill_box, pointer) && crate::view_props::is_box_drag(a, b) {
+            painter.arrow(a, b - a, Stroke::new(1.5, crate::theme::ACCENT()));
+        }
+    } else if let Some(r) = fill_rect.filter(|r| state.fill_box.is_some() && crate::view_props::is_box_drag(r.min, r.max)) {
         crate::view_props::draw_fill_box(&painter, r, state.fill_visible_only);
     }
     if let (Some(a), Some(b)) = (state.parts_box, pointer) && crate::view_props::is_box_drag(a, b) {
@@ -867,6 +931,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         crate::warp_view::overlay(state, ui, &painter, rect, pixel_scale, &camera);
         crate::projection_gizmo::overlay(state, &painter, rect, pixel_scale, &camera);
     }
+    draw_projection_preview(state, ui, &painter, rect);
     draw_stencil(state, ui, &painter, rect, size);
     // Reset button at the top right of the view while S is held.
     if stencil_edit {
@@ -903,11 +968,11 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         if (mods.command || mods.ctrl) && !mods.alt && !matches!(item, crate::panels::shelf::ShelfDrag::Alpha(_) | crate::panels::shelf::ShelfDrag::SmartMask(_)) {
             what.push_str(", only on the part under the cursor");
         }
-        pill(&painter, rect.center_top() + egui::vec2(0.0, 14.0), egui::Align2::CENTER_TOP, &format!("Release to: {what}"), theme::TEXT());
+        pill(&painter, rect.center_top() + egui::vec2(0.0, 14.0), egui::Align2::CENTER_TOP, &format!("Release to: {what}"), theme::OVERLAY_TEXT);
     }
     // Painter's mask view: say what is shown and how to get back; Esc goes back too.
     if let Some(text) = crate::mask_view::label(state) {
-        pill(&painter, rect.center_top() + egui::vec2(0.0, 40.0), egui::Align2::CENTER_TOP, &text, theme::TEXT());
+        pill(&painter, rect.center_top() + egui::vec2(0.0, 40.0), egui::Align2::CENTER_TOP, &text, theme::OVERLAY_TEXT);
         if response.hovered() && ui.input(|i| i.key_pressed(egui::Key::Escape)) { state.mask_view = None; }
     }
     let bake_hint = state.bake.displayed_map.map(|k| format!("Bake preview · {} · close Bake Mesh Maps to return to material", k.display_name()));
@@ -918,7 +983,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     } else { String::new() };
     let mut hint_plate = None;
     if bake_mode {
-        pill(&painter, rect.left_bottom() + egui::vec2(10.0, -10.0), egui::Align2::LEFT_BOTTOM, &hint, theme::TEXT_FAINT());
+        pill(&painter, rect.left_bottom() + egui::vec2(10.0, -10.0), egui::Align2::LEFT_BOTTOM, &hint, theme::OVERLAY_TEXT_FAINT);
     } else if state.recovery.prefs.viewport.hints {
         let c = crate::viewport_hints::HintContext {
             tool: state.tool,
@@ -939,7 +1004,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     // The grid's unit, bottom left while the grid is on: just above the hints when they show.
     let grid_on = state.recovery.prefs.viewport.grid;
     if !bake_mode && grid_on && let Some(step) = subcraft_render::grid_step(state.session.scene().mesh.bounds) {
-        pill(&painter, grid_readout_anchor(rect, hint_plate), egui::Align2::LEFT_BOTTOM, &grid_unit_label(step), theme::TEXT_FAINT());
+        pill(&painter, grid_readout_anchor(rect, hint_plate), egui::Align2::LEFT_BOTTOM, &grid_unit_label(step), theme::OVERLAY_TEXT_FAINT);
     }
     let mut right = rect.right_top() + egui::vec2(-10.0, 10.0);
     if state.tool != Tool::Pen && state.session.brush.options.has_symmetry() {
@@ -1091,7 +1156,7 @@ fn brush_notice(state: &mut UiState, ui: &Ui, painter: &egui::Painter, rect: Rec
     let Some(notice) = &state.brush_notice else { return };
     let Some(opacity) = notice.opacity(now) else { state.brush_notice = None; return };
     let fade = |c: Color32| c.gamma_multiply(opacity);
-    let galley = painter.layout_no_wrap(format!("Brush: {}", notice.name), theme::font(12.0), fade(theme::TEXT()));
+    let galley = painter.layout_no_wrap(format!("Brush: {}", notice.name), theme::font(12.0), fade(theme::OVERLAY_TEXT));
     let thumb = crate::panels::shelf::tip_thumbnail(state, &notice.tip);
     let side = 22.0;
     let inset = if thumb.is_some() { side + 8.0 } else { 0.0 };
@@ -1103,11 +1168,29 @@ fn brush_notice(state: &mut UiState, ui: &Ui, painter: &egui::Painter, rect: Rec
         let image = Rect::from_min_size(plate.min + egui::vec2(9.0, (plate.height() - side) / 2.0), egui::vec2(side, side));
         painter.image(texture, image, Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), fade(Color32::WHITE));
     }
-    painter.galley(plate.min + egui::vec2(9.0 + inset, (plate.height() - galley.size().y) / 2.0), galley, fade(theme::TEXT()));
+    painter.galley(plate.min + egui::vec2(9.0 + inset, (plate.height() - galley.size().y) / 2.0), galley, fade(theme::OVERLAY_TEXT));
     ui.ctx().request_repaint();
 }
 
 /// Project UV controls only where their sampled surface is visible.
+/// Where the path's last point is on screen while points are being added (it is selected).
+fn pen_last_point(state: &UiState, camera: &subcraft_app::Camera, rect: Rect) -> Option<Pos2> {
+    let path = state.pen.preview(&state.session)?;
+    let last = path.anchors.last()?;
+    if path.is_closed() || state.pen.selected_anchor() != Some(last.id) { return None; }
+    pen_position(state, camera, rect, last.position)
+}
+
+/// `to` moved onto the nearest direction from `from` that is a multiple of `step` radians
+/// (same distance).
+pub fn snap_angle(from: Pos2, to: Pos2, step: f32) -> Pos2 {
+    let d = to - from;
+    let len = d.length();
+    if len < 1e-3 || step <= 0.0 { return to; }
+    let angle = (d.y.atan2(d.x) / step).round() * step;
+    from + egui::vec2(angle.cos(), angle.sin()) * len
+}
+
 fn pen_position(state: &UiState, camera: &subcraft_app::Camera, rect: Rect, uv: Vec2) -> Option<Pos2> {
     let position = state.session.pen_uv_position(uv)?;
     let screen = camera.project(position)?.truncate();
@@ -1263,7 +1346,12 @@ fn visualization_overlays(state: &UiState, painter: &egui::Painter, rect: Rect, 
         return;
     }
     if prefs.shown_channel().is_some() && let Some(name) = prefs.channel_component.overlay() {
-        pill(painter, rect.left_top() + egui::vec2(10.0, 10.0), egui::Align2::LEFT_TOP, crate::i18n::tr(name), theme::TEXT());
+        pill(painter, rect.left_top() + egui::vec2(10.0, 10.0), egui::Align2::LEFT_TOP, crate::i18n::tr(name), theme::OVERLAY_TEXT);
+    }
+    // The colour profile's name, top left, while it shapes the material view.
+    if prefs.color_profile && prefs.shown_channel().is_none() && prefs.mesh_map.is_none() {
+        let name = crate::color_lut::profile_name(prefs, state.session.resources());
+        pill(painter, rect.left_top() + egui::vec2(10.0, 10.0), egui::Align2::LEFT_TOP, &name, theme::OVERLAY_TEXT);
     }
     // Axis indicator above the Render toggle in the bottom-right corner.
     if prefs.axis_indicator {
@@ -1428,6 +1516,13 @@ pub(crate) fn stencil_input(state: &mut UiState, ui: &Ui, response: &egui::Respo
     let (s_down, n_down) = ui.input(|i| (i.key_down(egui::Key::S) && !(i.modifiers.ctrl || i.modifiers.command || i.modifiers.alt), i.key_down(egui::Key::N) && !i.modifiers.any()));
     let typing = ui.ctx().egui_wants_keyboard_input();
     state.session.brush.stencil_bypass = n_down && !typing;
+    // The Projection tool's S + drag places its pattern instead (Painter).
+    if state.tool == Tool::Projection && s_down && !typing {
+        if response.hovered() {
+            projection_input(state, ui, response, rect, mods, delta);
+        }
+        return true;
+    }
     let stencil_edit = s_down && !typing && state.session.brush.stencil.is_some();
     if stencil_edit && response.hovered() {
         let mut st = (**state.session.brush.stencil.as_ref().expect("checked above")).clone();
@@ -1459,15 +1554,80 @@ pub(crate) fn stencil_input(state: &mut UiState, ui: &Ui, response: &egui::Respo
     stencil_edit
 }
 
+/// Projection tool, S held: LMB drag turns the pattern about the view centre (Shift snaps to
+/// quarter turns), MMB drag moves it with the mouse, RMB drag scales it about the centre.
+fn projection_input(state: &mut UiState, ui: &Ui, response: &egui::Response, rect: Rect, mods: egui::Modifiers, delta: egui::Vec2) {
+    let side = rect.width().min(rect.height()).max(1.0);
+    let p = &mut state.session.brush.material.projection;
+    let free_id = egui::Id::new("projection-free-rotation");
+    if response.dragged_by(PointerButton::Primary) {
+        let free = ui.data(|d| d.get_temp::<f32>(free_id)).unwrap_or(p.rotation_deg.to_radians()) + delta.x * 0.01;
+        ui.data_mut(|d| d.insert_temp(free_id, free));
+        projection_rotate(p, stencil_drag_rotation(free, mods.shift).to_degrees());
+    } else {
+        ui.data_mut(|d| d.remove::<f32>(free_id));
+    }
+    if response.dragged_by(PointerButton::Middle) {
+        projection_move(p, Vec2::new(delta.x, delta.y) / side);
+    }
+    if response.dragged_by(PointerButton::Secondary) {
+        projection_scale(p, (delta.y * 0.01).exp());
+    }
+    ui.ctx().set_cursor_icon(egui::CursorIcon::AllScroll);
+}
+
+/// The view centre in the camera projection's screen coordinates (the shorter side spans 0..1).
+const PROJECTION_CENTRE: [f32; 2] = [0.5, 0.5];
+
+/// Move the projected pattern by `d` (screen coordinates: a fraction of the view's shorter side)
+/// so it follows the mouse.
+pub fn projection_move(p: &mut subcraft_doc::Projection, d: Vec2) {
+    let mut linear = p.clone();
+    linear.offset = [0.0, 0.0];
+    let step = linear.transform_2d([d.x, d.y]);
+    p.offset = [p.offset[0] - step[0], p.offset[1] - step[1]];
+}
+
+/// Set the pattern's rotation, turning it about the view centre. The angle is kept within
+/// -180..=180 (a whole turn maps the same): the Brush panel's Rotation slider clamps to that
+/// range whenever it is shown, so a pattern dragged past 180 degrees jumped to another angle and
+/// place while the panel was open.
+pub fn projection_rotate(p: &mut subcraft_doc::Projection, degrees: f32) {
+    if !degrees.is_finite() {
+        return;
+    }
+    let centre = p.transform_2d(PROJECTION_CENTRE);
+    let d = degrees.rem_euclid(360.0);
+    p.rotation_deg = if d > 180.0 { d - 360.0 } else { d };
+    keep_centre(p, centre);
+}
+
+/// Multiply the pattern's density by `factor` (above 1: smaller, more repeats) about the view
+/// centre, within 1/50..50 tiles across.
+pub fn projection_scale(p: &mut subcraft_doc::Projection, factor: f32) {
+    if !factor.is_finite() || factor <= 0.0 {
+        return;
+    }
+    let centre = p.transform_2d(PROJECTION_CENTRE);
+    p.scale = p.scale.map(|s| (s * factor).clamp(0.02, 50.0));
+    keep_centre(p, centre);
+}
+
+fn keep_centre(p: &mut subcraft_doc::Projection, uv: [f32; 2]) {
+    p.offset = [0.0, 0.0];
+    let now = p.transform_2d(PROJECTION_CENTRE);
+    p.offset = [uv[0] - now[0], uv[1] - now[1]];
+}
+
 /// Painter's brush gestures, shared by the 3D and 2D views: Ctrl+RMB drag = size (left-right) /
 /// hardness (up-down), Ctrl+LMB drag = flow / angle. `allowed` is false while the view's own
 /// state rules them out (a stroke, the stencil, a text field). Returns whether Ctrl+LMB belongs
 /// to the flow / angle drag (so the press must not start a stroke).
 pub(crate) fn brush_gestures(state: &mut UiState, response: &egui::Response, mods: egui::Modifiers, delta: egui::Vec2, allowed: bool) -> bool {
     let gesture_ok = allowed && mods.command && !mods.alt;
-    let brush_tool = matches!(state.tool, Tool::Brush | Tool::Eraser | Tool::Smudge | Tool::Clone);
+    let brush_tool = matches!(state.tool, Tool::Brush | Tool::Eraser | Tool::Smudge | Tool::Clone | Tool::Projection);
     // Ctrl+Shift+LMB is the snapped straight line, so the flow / angle drag needs Shift up.
-    let lmb_adjust = gesture_ok && !mods.shift && matches!(state.tool, Tool::Brush | Tool::Eraser | Tool::Smudge);
+    let lmb_adjust = gesture_ok && !mods.shift && matches!(state.tool, Tool::Brush | Tool::Eraser | Tool::Smudge | Tool::Projection);
     if gesture_ok && brush_tool {
         let s = &mut state.session.brush.settings;
         if response.dragged_by(PointerButton::Secondary) {
@@ -1479,6 +1639,46 @@ pub(crate) fn brush_gestures(state: &mut UiState, response: &egui::Response, mod
         }
     }
     lmb_adjust
+}
+
+/// Texture coordinates of the Projection tool's pattern at the corners of `view` (top-left,
+/// top-right, bottom-right, bottom-left): the stroke's mapping, image UV = rotation · (scale · p)
+/// + offset with p the screen point over the view's shorter side, centred.
+pub fn projection_preview_uvs(view: Rect, projection: &subcraft_doc::Projection) -> [Pos2; 4] {
+    let side = view.width().min(view.height()).max(1.0);
+    let centre = view.center();
+    [view.left_top(), view.right_top(), view.right_bottom(), view.left_bottom()].map(|q| {
+        let p = [0.5 + (q.x - centre.x) / side, 0.5 + (q.y - centre.y) / side];
+        let uv = projection.transform_2d(p);
+        egui::pos2(uv[0], uv[1])
+    })
+}
+
+/// The Projection tool's pattern tiled over the 3D view, as it will be painted (hidden during a
+/// stroke): the preview channel's image, or the first image of the brush material.
+fn draw_projection_preview(state: &mut UiState, ui: &Ui, painter: &egui::Painter, rect: Rect) {
+    let display = state.stencil_display;
+    if state.tool != Tool::Projection || state.painting || display.projection_opacity <= 0.0 {
+        return;
+    }
+    let material = &state.session.brush.material;
+    let Some(&id) = material.textures.get(&display.projection_channel).or_else(|| material.textures.values().next()) else { return };
+    let Some(bitmap) = state.session.resources().bitmap(id).cloned() else { return };
+    if state.projection_tex.as_ref().is_none_or(|(k, _)| *k != id) {
+        let (w, h, rgba) = bitmap.preview_rgba8(512);
+        let img = egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &rgba);
+        let options = egui::TextureOptions { wrap_mode: egui::TextureWrapMode::Repeat, ..egui::TextureOptions::LINEAR };
+        state.projection_tex = Some((id, ui.ctx().load_texture("projection preview", img, options)));
+    }
+    let Some((_, tex)) = &state.projection_tex else { return };
+    let uvs = projection_preview_uvs(rect, &state.session.brush.material.projection);
+    let tint = Color32::from_white_alpha((display.projection_opacity.clamp(0.0, 1.0) * 255.0).round() as u8);
+    let mut mesh = egui::Mesh::with_texture(tex.id());
+    for (pos, uv) in [rect.left_top(), rect.right_top(), rect.right_bottom(), rect.left_bottom()].into_iter().zip(uvs) {
+        mesh.vertices.push(egui::epaint::Vertex { pos, uv, color: tint });
+    }
+    mesh.indices.extend_from_slice(&[0, 1, 2, 0, 2, 3]);
+    painter.with_clip_rect(rect).add(egui::Shape::mesh(mesh));
 }
 
 pub(crate) fn draw_stencil(state: &mut UiState, ui: &Ui, painter: &egui::Painter, rect: Rect, size: [u32; 2]) {
@@ -1549,6 +1749,81 @@ mod tests {
         let above = grid_readout_anchor(view, Some(plate));
         assert_eq!(above, egui::pos2(110.0, 554.0));
         assert!(above.y < plate.top(), "never on the hints");
+    }
+
+    /// QA 2026-11: S + drag turned the pattern past 180 degrees, and the Brush panel's slider
+    /// (-180..180) then clamped it: the pattern jumped while the panel was open.
+    #[test]
+    fn projection_turns_stay_within_the_sliders_range() {
+        let mut p = subcraft_doc::Projection::default();
+        p.scale = [2.0, 2.0];
+        p.offset = [0.1, -0.3];
+        let mut unwrapped = p;
+        unwrapped.rotation_deg = 270.0;
+        keep_centre(&mut unwrapped, p.transform_2d(PROJECTION_CENTRE));
+        projection_rotate(&mut p, 270.0);
+        assert_eq!(p.rotation_deg, -90.0);
+        for s in [[0.0, 0.0], [1.0, 0.3], [0.5, 0.5]] {
+            let (a, b) = (p.transform_2d(s), unwrapped.transform_2d(s));
+            assert!((a[0] - b[0]).abs() < 1e-4 && (a[1] - b[1]).abs() < 1e-4, "the same pattern: {a:?} vs {b:?}");
+        }
+        for degrees in [-540.0f32, -181.0, 180.0, 359.0, 725.0] {
+            projection_rotate(&mut p, degrees);
+            assert!((-180.0..=180.0).contains(&p.rotation_deg), "{degrees}: {}", p.rotation_deg);
+        }
+        let kept = p;
+        projection_rotate(&mut p, f32::NAN);
+        assert_eq!(p, kept);
+    }
+
+    #[test]
+    fn projection_drags_move_turn_and_scale_the_pattern_about_the_view() {
+        let mut p = subcraft_doc::Projection::default();
+        p.scale = [2.0, 2.0];
+        p.offset = [0.1, -0.3];
+        let at = |p: &subcraft_doc::Projection, s: [f32; 2]| p.transform_2d(s);
+        // Moving: the pattern point under a screen point follows the mouse.
+        let before = at(&p, [0.3, 0.4]);
+        projection_move(&mut p, Vec2::new(0.05, -0.02));
+        let after = at(&p, [0.35, 0.38]);
+        assert!((before[0] - after[0]).abs() < 1e-5 && (before[1] - after[1]).abs() < 1e-5, "{before:?} vs {after:?}");
+        // Turning and scaling keep the view centre on the same pattern point.
+        let centre = at(&p, [0.5, 0.5]);
+        let corner = at(&p, [0.0, 0.0]);
+        projection_rotate(&mut p, 90.0);
+        assert_eq!(p.rotation_deg, 90.0);
+        let c = at(&p, [0.5, 0.5]);
+        assert!((c[0] - centre[0]).abs() < 1e-5 && (c[1] - centre[1]).abs() < 1e-5);
+        assert!((at(&p, [0.0, 0.0])[0] - corner[0]).abs() > 0.1, "other points turn");
+        projection_scale(&mut p, 2.0);
+        assert_eq!(p.scale, [4.0, 4.0]);
+        let c = at(&p, [0.5, 0.5]);
+        assert!((c[0] - centre[0]).abs() < 1e-4 && (c[1] - centre[1]).abs() < 1e-4);
+        // Scale limits and broken factors.
+        projection_scale(&mut p, 1e6);
+        assert_eq!(p.scale, [50.0, 50.0]);
+        let kept = p.clone();
+        projection_scale(&mut p, f32::NAN);
+        assert_eq!(p, kept);
+    }
+
+    #[test]
+    fn the_projection_preview_uses_the_strokes_screen_mapping() {
+        let view = Rect::from_min_size(egui::pos2(100.0, 50.0), egui::vec2(800.0, 400.0));
+        let mut p = subcraft_doc::Projection::default();
+        p.scale = [2.0, 3.0];
+        p.rotation_deg = 30.0;
+        p.offset = [0.25, -0.5];
+        let uvs = projection_preview_uvs(view, &p);
+        // The corners in the stroke's screen coordinates: the shorter side (400) spans 0..1,
+        // centred, so the wider side reaches -0.5..1.5.
+        let expected = [[-0.5, 0.0], [1.5, 0.0], [1.5, 1.0], [-0.5, 1.0]].map(|s| p.transform_2d(s));
+        for (uv, e) in uvs.iter().zip(expected) {
+            assert!((uv.x - e[0]).abs() < 1e-4 && (uv.y - e[1]).abs() < 1e-4, "{uv:?} vs {e:?}");
+        }
+        // The plain projection maps the centred square onto one tile.
+        let plain = projection_preview_uvs(Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(300.0, 300.0)), &subcraft_doc::Projection::default());
+        assert_eq!(plain, [egui::pos2(0.0, 0.0), egui::pos2(1.0, 0.0), egui::pos2(1.0, 1.0), egui::pos2(0.0, 1.0)]);
     }
 
     #[test]

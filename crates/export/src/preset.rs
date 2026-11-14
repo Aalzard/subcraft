@@ -400,10 +400,7 @@ mod painter {
             "passthrough" => Padding::None,
             "color" => Padding::Background(distance),
             "diffusion" => Padding::Diffusion(distance),
-            "transparent" => {
-                warnings.push(format!("{preset}: transparent padding is not supported yet, using dilation of {distance} texels"));
-                Padding::Texels(distance)
-            }
+            "transparent" => Padding::Transparent(distance),
             _ => Padding::Infinite,
         });
         let size = params.get("sizeLog2").and_then(Value::as_u64).filter(|n| *n <= 14).map(|n| 1u32 << n);

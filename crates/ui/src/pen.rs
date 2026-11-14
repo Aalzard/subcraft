@@ -65,19 +65,21 @@ pub fn draw(painter: &egui::Painter, path: &PenPath, selected: Option<subcraft_c
         if selected == Some(a.id) {
             for tangent in [a.incoming, a.outgoing] {
                 if tangent.length_squared() > 1e-10 && let Some(q) = map(a.position + tangent) {
-                    painter.line_segment([p, q], Stroke::new(1.0, theme::TEXT_DIM()));
-                    painter.circle_filled(q, 3.0, theme::TEXT());
-                    painter.circle_stroke(q, 3.0, Stroke::new(1.0, theme::BG_0()));
+                    painter.line_segment([p, q], Stroke::new(1.0, theme::OVERLAY_TEXT_DIM));
+                    painter.circle_filled(q, 3.0, theme::OVERLAY_TEXT);
+                    painter.circle_stroke(q, 3.0, Stroke::new(1.0, theme::OVERLAY_OUTLINE));
                 }
             }
         }
-        painter.circle_filled(p, 4.5, if selected == Some(a.id) { theme::ACCENT() } else { theme::TEXT() });
+        painter.circle_filled(p, 4.5, if selected == Some(a.id) { theme::ACCENT() } else { theme::OVERLAY_TEXT });
         painter.circle_stroke(p, 4.5, Stroke::new(1.0, Color32::BLACK));
     }
 }
 
 pub fn keyboard(state: &mut UiState, ctx: &egui::Context, now: f64) {
-    if state.tool != Tool::Pen || ctx.egui_wants_keyboard_input() { return; }
+    // Not behind a modal window: Enter / Escape belong to it, and Backspace deleted the path
+    // layer behind the unsaved-changes prompt.
+    if state.tool != Tool::Pen || ctx.egui_wants_keyboard_input() || state.modal_open() { return; }
     if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
         if state.pen.is_editing() || state.pen.is_pending() { state.pen.undo_pending(&state.session); }
         else { state.pen.finish_path(); }
@@ -90,8 +92,17 @@ pub fn keyboard(state: &mut UiState, ctx: &egui::Context, now: f64) {
     // (another layer selected, the point undone), and Delete then did nothing at all instead of
     // reaching the layer shortcut.
     let selected = state.pen.selected_anchor().is_some_and(|id| state.pen.preview(&state.session).is_some_and(|p| p.anchors.iter().any(|a| a.id == id)));
-    if selected && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Delete) || i.consume_key(egui::Modifiers::NONE, egui::Key::Backspace))
+    if selected && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Delete))
         && let Err(e) = state.pen.delete_anchor(&state.session) { state.set_status(e.to_string(), now); }
+    // Backspace deletes the whole path (Painter 11): its layer, when the selected layer is one.
+    let path_layer = state.session.selected_layer().filter(|l| matches!(&l.content, subcraft_doc::LayerContent::Paint(p) if p.path.is_some())).map(|l| l.id);
+    if let Some(layer) = path_layer && !state.pen.is_editing() && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Backspace)) {
+        state.pen.cancel();
+        match state.session.execute(subcraft_app::Command::DeleteLayer(layer)) {
+            Ok(()) => state.set_status("Path deleted", now),
+            Err(e) => state.set_status(e.to_string(), now),
+        }
+    }
 }
 
 pub fn finish_frame(state: &mut UiState, ctx: &egui::Context, now: f64) {
@@ -156,7 +167,7 @@ fn ribbon_rows(state: &mut UiState, ui: &mut Ui, path: &mut PenPath) -> bool {
 
 pub fn properties(state: &mut UiState, ui: &mut Ui, path: &PenPath, now: f64) {
     ui.horizontal_wrapped(|ui| {
-        if ui.button("New path").clicked() { state.pen.new_path(); state.tool = Tool::Pen; }
+        if ui.button("New path").clicked() { state.pen.new_path(&state.session); state.tool = Tool::Pen; }
         let selected = state.pen.selected_anchor().is_some();
         for (label, smooth) in [("Corner", false), ("Smooth", true)] {
             if ui.add_enabled(selected, egui::Button::new(label)).clicked() && let Err(e) = state.pen.shape_point(&state.session, smooth) { state.set_status(e.to_string(), now); }
@@ -227,4 +238,35 @@ pub fn properties(state: &mut UiState, ui: &mut Ui, path: &PenPath, now: f64) {
         if !ui.input(|i| i.pointer.primary_down()) && let Err(e) = state.pen.release(&state.session) { state.set_status(e.to_string(), now); }
     }
     crate::widgets::hint(ui, "Click to add a point; drag on creation for Bézier handles. Drag points or handles to edit; Shift breaks the mirrored handle. Enter finishes, Esc cancels an edit, Delete removes a point. Middle/Alt drag pans in 2D.");
+}
+
+#[cfg(test)]
+mod keyboard_tests {
+    use super::*;
+
+    /// QA 2026-11: the pen keys (Enter, Escape, Delete, Backspace) had no modal check: they
+    /// acted behind the unsaved-changes prompt and New Project, and took the dialog's Enter.
+    #[test]
+    fn pen_keys_do_nothing_behind_a_modal_window() {
+        let mut state = UiState::new(subcraft_app::Session::sample(), None);
+        state.tool = Tool::Pen;
+        let ctx = egui::Context::default();
+        let enter_left = |state: &mut UiState| {
+            let events = vec![egui::Event::Key { key: egui::Key::Enter, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE }];
+            let mut left = None;
+            let mut out = ctx.run_ui(egui::RawInput { events, ..Default::default() }, |ui| {
+                keyboard(state, ui.ctx(), 0.0);
+                left = Some(ui.input(|i| i.key_pressed(egui::Key::Enter)));
+            });
+            out.textures_delta.clear();
+            left.unwrap()
+        };
+        state.confirm = Some(crate::dialogs::Pending::Close);
+        assert!(enter_left(&mut state), "the dialog keeps its Enter");
+        state.confirm = None;
+        state.new_project.open = true;
+        assert!(enter_left(&mut state), "New Project keeps its Enter");
+        state.new_project.open = false;
+        assert!(!enter_left(&mut state), "without a modal window the pen takes Enter");
+    }
 }

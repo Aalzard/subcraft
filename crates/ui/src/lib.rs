@@ -57,6 +57,8 @@ pub mod viewport_hints;
 pub mod viewport_bar;
 pub mod view_extras;
 pub mod view_state;
+pub mod color_lut;
+pub mod materials_download;
 pub mod view_props;
 pub mod projection_gizmo;
 pub mod warp_view;

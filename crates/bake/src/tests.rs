@@ -334,9 +334,19 @@ fn partial_high_poly_misses_do_not_index_low_triangles_into_high_ids() {
     let maps = bake(&input, &settings(&[MeshMapKind::Id]), &Progress::new()).unwrap();
     let id = &maps[&MeshMapKind::Id];
     assert!(id.to_dense().iter().all(|v| v.is_finite()));
-    let a = id.get(16, 16);
-    let b = id.get(112, 112);
-    assert_ne!(a, b, "misses retain neutral IDs instead of a false high-poly triangle");
+    // Half the plane misses the one high triangle. Those texels take the ID of the nearest
+    // texel that hit it (issue #466), never an ID indexed by a low-poly triangle number.
+    let black = MeshMapKind::Id.neutral_value();
+    let hit = id.get(16, 16);
+    assert!(!close([hit[0], hit[1], hit[2]], black), "{hit:?}");
+    for y in 0..id.height() {
+        for x in 0..id.width() {
+            let v = id.get(x, y);
+            assert!(close([v[0], v[1], v[2]], [hit[0], hit[1], hit[2]]) || close([v[0], v[1], v[2]], black), "at {x},{y}: {v:?} is not the high triangle's {hit:?}");
+        }
+    }
+    let m = id.get(112, 112);
+    assert!(close([m[0], m[1], m[2]], [hit[0], hit[1], hit[2]]), "the missed corner has the high triangle's ID: {m:?} {hit:?}");
 }
 
 /// QA 2026-11: a thickness distance of 0 divided 0 by 0 and filled the map with NaN.
@@ -962,4 +972,68 @@ fn the_id_map_reads_the_chosen_vertex_color_set() {
     let mirrored = high.transformed(&glam::Mat4::from_scale(Vec3::new(-1.0, 1.0, 1.0)));
     let (l, r, _) = id_bake_with(&mirrored, &with_set(1));
     assert!(close(l, [1.0, 1.0, 1.0]) && close(r, [0.0, 0.0, 1.0]), "mirrored: {l:?} {r:?}");
+}
+
+/// Issue #466: low-poly texels whose rays miss the high poly (next to its open edges, or in a gap
+/// between its parts) were written black on the ID map, and dilation spread them into lines.
+#[test]
+fn id_map_texels_that_miss_the_high_poly_take_a_neighbours_id() {
+    // The two-part high poly has a gap in the middle and ends exactly at the plane's rim, so the
+    // middle column and the rim texels (which reach just past the plane) miss it.
+    let high = two_part_high(false, false);
+    let low = primitives::plane(2.0, 4);
+    let (lb, hb) = (Bvh::build(&low), Bvh::build(&high));
+    let input = BakeInput { low: Geometry { mesh: &low, bvh: &lb }, high: Some(Geometry { mesh: &high, bvh: &hb }), material_slot: 0 };
+    let progress = Progress::new();
+    let maps = bake(&input, &settings(&[MeshMapKind::Id]), &progress).unwrap();
+    assert!(progress.warnings().iter().any(|w| w.starts_with("Cage:")), "the setup has misses: {:?}", progress.warnings());
+    let id = &maps[&MeshMapKind::Id];
+    let black = MeshMapKind::Id.neutral_value();
+    let (mut left, mut right) = (None, None);
+    for t in texels(&low, 0, RES) {
+        let c = at(id, &t);
+        let c = [c[0], c[1], c[2]];
+        assert!(!close(c, black), "no empty ID inside the island, at {} ({c:?})", t.position);
+        if t.position.x < -0.1 { left.get_or_insert(c); }
+        if t.position.x > 0.1 { right.get_or_insert(c); }
+        // Every texel has one of the two parts' IDs, never something in between.
+        if let (Some(l), Some(r)) = (left, right) {
+            assert!(close(c, l) || close(c, r), "at {}: {c:?} is neither {l:?} nor {r:?}", t.position);
+        }
+    }
+    // The gutters follow the islands: no black within the dilation either.
+    for y in 0..RES {
+        for x in 0..RES {
+            let v = id.get(x, y);
+            assert!(!close([v[0], v[1], v[2]], black), "black gutter texel at {x},{y}");
+        }
+    }
+}
+
+#[test]
+fn file_id_gives_each_high_poly_file_its_own_colour() {
+    // The two halves of the two-part high poly as two files, joined as the bake job joins them.
+    let whole = two_part_high(false, false);
+    let half = |left: bool| {
+        let mut b = MeshBuilder::new(if left { "left" } else { "right" });
+        let m = b.material("m");
+        for t in 0..whole.triangle_count() {
+            let p = whole.tri_positions(t);
+            if (p[0].x < 0.0) == left {
+                let c = |v: Vec3| Corner { position: v, normal: Some(Vec3::Y), uv: None };
+                b.push_triangle(m, [c(p[0]), c(p[1]), c(p[2])]);
+            }
+        }
+        b.build_for_baking().unwrap()
+    };
+    let (left, right) = (half(true), half(false));
+    let joined = Mesh::merged(&[&left, &right]);
+    let s = BakeSettings { id_source: IdSource::FileId, ..settings(&[MeshMapKind::Id]) };
+    let (l, r, w) = id_bake_with(&joined, &s);
+    assert!(!close(l, r) && w.is_empty(), "one colour per file: {l:?} {r:?} {w:?}");
+    assert!(close(l, IdGenerator::default().color(0)) && close(r, IdGenerator::default().color(1)));
+    // One file: one colour everywhere, and a warning.
+    let (l, r, w) = id_bake_with(&whole, &s);
+    assert!(close(l, r), "{l:?} {r:?}");
+    assert!(w.iter().any(|w| w.contains("File ID needs several high-poly files")), "{w:?}");
 }

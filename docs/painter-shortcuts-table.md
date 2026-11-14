@@ -14,6 +14,7 @@
 | General | `Alt+F4` | Quit application | Quit | added (key was free) | also Ctrl+Q; Windows may close the window itself first |
 | General | `Ctrl+Shift+E` | Export textures | Export | already the same |  |
 | General | `Ctrl+Shift+B` | Bake mesh maps | Bake | added (key was free) | Ctrl+B kept as well |
+| General | `Ctrl+Shift+R` | Reimport mesh | ReimportMesh | added (key was free) | opens Project configuration with Reimport mesh ticked and the model file checked |
 | Manipulator | `Q` | Show/hide manipulator |  | no equivalent | no layer transform manipulator |
 | Manipulator | `+` | Increase manipulator size |  | no equivalent | no manipulator |
 | Manipulator | `-` | Decrease manipulator size |  | no equivalent | no manipulator |
@@ -29,7 +30,7 @@
 | Tools | `Ctrl+1` | Paint tool + Particles |  | no equivalent | no particle tool (scatter lives in brush settings) |
 | Tools | `2` | Eraser tool | EraserTool | added (key was free) | E kept as well |
 | Tools | `Ctrl+2` | Eraser tool + Particles |  | no equivalent | no particle tool |
-| Tools | `3` | Projection tool |  | no equivalent | no projection tool |
+| Tools | `3` | Projection tool | ProjectionTool | added (key was free) | paints the brush material cast from the view and tiled over it |
 | Tools | `Ctrl+3` | Projection tool + Particles |  | no equivalent | no projection tool |
 | Tools | `4` | Polygon Fill | PolygonFillTool | added (key was free) |  |
 | Tools | `5` | Smudge tool | SmudgeTool | added (key was free) |  |

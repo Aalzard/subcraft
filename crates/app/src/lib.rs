@@ -59,6 +59,7 @@ pub mod thumbnails;
 pub mod world_blur;
 pub mod layer_previews;
 pub mod updater;
+pub mod materials_download;
 pub mod unsaved;
 pub mod clipboard;
 pub mod multi_select;

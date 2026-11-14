@@ -131,6 +131,27 @@ pub fn save(state: &mut UiState, save_as: bool, now: f64) -> bool {
     }
 }
 
+/// File > Save as copy: ask where, write the project there and keep the current file open.
+pub fn save_copy(state: &mut UiState, now: f64) -> bool {
+    let name = format!("{} copy.{}", state.session.export_name(), subcraft_app::PROJECT_EXTENSION);
+    let Some(mut path) = rfd::FileDialog::new().add_filter(PROJECT_FILTER.0, PROJECT_FILTER.1).set_file_name(name).save_file() else {
+        return false;
+    };
+    if path.extension().is_none() {
+        path.set_extension(subcraft_app::PROJECT_EXTENSION);
+    }
+    match state.session.save_copy(&path) {
+        Ok(()) => {
+            state.set_status(format!("Saved a copy to {}", path.display()), now);
+            true
+        }
+        Err(e) => {
+            state.set_status(format!("Save failed: {e}"), now);
+            false
+        }
+    }
+}
+
 /// Run an action that replaces the session (after any unsaved-changes prompt).
 pub fn run_pending(state: &mut UiState, action: Pending, ctx: &egui::Context, _now: f64) {
     match action {
@@ -1426,6 +1447,17 @@ fn bakers_panel(ui: &mut egui::Ui, b: &mut BakeUi, f: &BakeFrame, quick: &mut Op
                     b.settings.maps = MeshMapKind::ALL.into_iter().filter(|k| !b.settings.maps.contains(k)).collect();
                     ui.close();
                 }
+                ui.separator();
+                let which = b.selected_baker.map_or(tr("Common settings"), |k| tr(k.display_name()));
+                if ui.button(tr("Reset parameters to default values")).on_hover_text(format!("{}: {which}", tr("The selected entry of the list"))).clicked() {
+                    let baker = b.selected_baker;
+                    reset_parameters(b, baker);
+                    ui.close();
+                }
+                if ui.button(tr("Reset all baking settings")).on_hover_text(tr("Every baker option, the output and the ticked maps and texture sets go back to their defaults; the model files stay")).clicked() {
+                    reset_all(b);
+                    ui.close();
+                }
             });
         });
     });
@@ -1474,6 +1506,57 @@ fn option_row<T: PartialEq + Copy>(ui: &mut egui::Ui, id: &str, label: &str, val
     });
 }
 
+/// Reset the settings of one baker (`Some`) or the common settings (`None`) to the defaults
+/// the Bake window starts with. The files, the ticked maps and the other bakers are kept.
+fn reset_parameters(b: &mut BakeUi, baker: Option<subcraft_core::MeshMapKind>) {
+    use subcraft_core::MeshMapKind;
+    let d = BakeUi::default().settings;
+    let s = &mut b.settings;
+    match baker {
+        None => {
+            s.cage_front = d.cage_front;
+            s.cage_rear = d.cage_rear;
+            s.dilation = d.dilation;
+            s.diffusion = d.diffusion;
+            s.antialiasing = d.antialiasing;
+            s.average_normals = d.average_normals;
+            s.ignore_backface = d.ignore_backface;
+            b.size_chosen = false;
+        }
+        Some(MeshMapKind::AmbientOcclusion | MeshMapKind::BentNormal) => {
+            s.ao_samples = d.ao_samples;
+            s.ao_distance = d.ao_distance;
+            s.ao = d.ao;
+        }
+        Some(MeshMapKind::Thickness) => {
+            s.thickness_samples = d.thickness_samples;
+            s.thickness_distance = d.thickness_distance;
+        }
+        Some(MeshMapKind::Curvature) => {
+            s.curvature_radius = d.curvature_radius;
+            s.curvature_from_normal = d.curvature_from_normal;
+            s.normal_curvature = d.normal_curvature;
+        }
+        Some(MeshMapKind::Position) => s.position = d.position,
+        Some(MeshMapKind::Height) => s.height = d.height,
+        Some(MeshMapKind::Id) => {
+            s.id_source = d.id_source;
+            s.id_generator = d.id_generator;
+            s.vertex_color_set = d.vertex_color_set;
+        }
+        Some(MeshMapKind::Normal | MeshMapKind::WorldSpaceNormal) => {}
+    }
+}
+
+/// Every baker option, the output size and the ticked maps and texture sets back to the
+/// defaults. The model files (high poly, extra files, cage) stay.
+fn reset_all(b: &mut BakeUi) {
+    b.settings = BakeUi::default().settings;
+    b.size_chosen = false;
+    b.skip_sets.clear();
+    b.auto_rebake.clear();
+}
+
 /// Settings of the baker selected in the list (nothing while Common settings is selected).
 fn map_settings_panel(ui: &mut egui::Ui, b: &mut BakeUi) {
     use crate::widgets::slider_row;
@@ -1518,6 +1601,7 @@ fn map_settings_panel(ui: &mut egui::Ui, b: &mut BakeUi) {
                 IdSource::MaterialColor => tr("Material color"),
                 IdSource::MeshId => tr("Mesh ID / Polygroup"),
                 IdSource::Submesh => tr("Submesh (object)"),
+                IdSource::FileId => tr("File ID (high-poly file)"),
             };
             ui.horizontal(|ui| {
                 ui.label(tr("ID colors from"));
@@ -1528,7 +1612,7 @@ fn map_settings_panel(ui: &mut egui::Ui, b: &mut BakeUi) {
                 });
             })
             .response
-            .on_hover_text(tr("Where the ID map takes its colors: the model's vertex colors or material colors, or one generated color per mesh element or per object. With a high poly, its colors are used."));
+            .on_hover_text(tr("Where the ID map takes its colors: the model's vertex colors or material colors, or one generated color per mesh element, per object or per high-poly file. With a high poly, its colors are used."));
             if s.id_source == IdSource::VertexColor {
                 // How many sets the loaded high poly has (unknown for low on low).
                 let sets = b.preview_mesh.as_ref().map(|m| m.color_set_count());
@@ -1551,7 +1635,7 @@ fn map_settings_panel(ui: &mut egui::Ui, b: &mut BakeUi) {
                 }
             }
             let s = &mut b.settings;
-            if matches!(s.id_source, IdSource::MeshId | IdSource::Submesh) {
+            if matches!(s.id_source, IdSource::MeshId | IdSource::Submesh | IdSource::FileId) {
                 option_row(ui, "bake_id_generator", tr("Color generator"), &mut s.id_generator, &IdGenerator::ALL, IdGenerator::label);
             }
         }
@@ -2362,6 +2446,36 @@ mod bake_tests {
         state.session.set_settings(project);
         assert_eq!(auto_rebake_due(&mut state, 10.0), None);
         assert!(auto_rebake_due(&mut state, 11.0).is_some());
+    }
+
+    #[test]
+    fn reset_parameters_resets_one_baker_and_reset_all_everything_but_the_files() {
+        use subcraft_core::MeshMapKind;
+        let mut b = BakeUi::default();
+        let d = BakeUi::default().settings;
+        b.high_poly = "parts_high.fbx".into();
+        b.settings.ao_samples = 200;
+        b.settings.ao.spread_angle = 45.0;
+        b.settings.thickness_samples = 99;
+        b.settings.cage_front = 0.2;
+        b.settings.maps = vec![MeshMapKind::Normal];
+        b.size_chosen = true;
+        // One baker: only its options.
+        reset_parameters(&mut b, Some(MeshMapKind::AmbientOcclusion));
+        assert_eq!((b.settings.ao_samples, b.settings.ao), (d.ao_samples, d.ao));
+        assert_eq!((b.settings.thickness_samples, b.settings.cage_front), (99, 0.2), "other bakers and the common settings stay");
+        // The common settings.
+        reset_parameters(&mut b, None);
+        assert_eq!(b.settings.cage_front, d.cage_front);
+        assert!(!b.size_chosen);
+        assert_eq!(b.settings.thickness_samples, 99);
+        assert_eq!(b.settings.maps, vec![MeshMapKind::Normal], "the ticked maps stay");
+        // Everything.
+        b.skip_sets.insert(subcraft_core::TextureSetId::new());
+        reset_all(&mut b);
+        assert_eq!(b.settings, d);
+        assert!(b.skip_sets.is_empty());
+        assert_eq!(b.high_poly, "parts_high.fbx", "the files stay");
     }
 
     #[test]

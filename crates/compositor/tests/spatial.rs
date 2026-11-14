@@ -1249,3 +1249,82 @@ fn a_gap_leaving_transform_of_a_flat_layer_is_evaluated_per_tile() {
         assert!((img.get(x, y)[0] - flat).abs() < 1e-4 && (flat - 0.8).abs() > 0.1, "({x},{y}) = {} should be the empty border ({flat})", img.get(x, y)[0]);
     }
 }
+
+#[test]
+fn quantize_uses_one_palette_from_the_whole_texture_in_every_tile() {
+    let fx = Fixture::new();
+    let mut ts = TextureSet::new("T", 0, N);
+    let mut l = Layer::new_paint("P", &ts);
+    let LayerContent::Paint(p) = &mut l.content else { unreachable!() };
+    let image = p.channel_mut(C::Roughness, N);
+    for y in 0..N {
+        for x in 0..N {
+            image.set(x, y, [x as f32 / (N - 1) as f32, 1.0, 0.0, 0.0]);
+        }
+    }
+    let quantize = |colors: u32, dithering: f32| Filter::Quantize {
+        colors,
+        contour_smoothing: 0.0,
+        dithering,
+        pattern: subcraft_doc::DitherPattern::Bayer4,
+        lab: true,
+        apply_to_alpha: false,
+        alpha_threshold: 0.5,
+    };
+    add(&mut l, &ts, C::Roughness, quantize(4, 0.0));
+    let id = ts.insert_above(None, l);
+    // A ramp in 4 colours: the 4 quarter means, the same in all 2 x 2 tiles (the palette
+    // is picked from the whole texture, not per tile). Lab is ignored on a data channel.
+    let levels = [15.5f32, 47.5, 79.5, 111.5].map(|v| v / (N - 1) as f32);
+    let expected: Vec<f32> = (0..N * N).map(|i| levels[((i % N) / 32) as usize]).collect();
+    assert_image_tol(&ts, &fx, &expected, 0.003);
+    // Two colours with full dithering: each 4 x 4 Bayer block averages close to its input.
+    let tc = ts.clone();
+    ts.find_mut(id).unwrap().content_effects.clear();
+    add(ts.find_mut(id).unwrap(), &tc, C::Roughness, quantize(2, 1.0));
+    let c = composite_full(&ts, &fx.ctx());
+    let img = c.channel(C::Roughness).unwrap();
+    let mut values = std::collections::BTreeSet::new();
+    for by in (0..N).step_by(4) {
+        for bx in (0..N).step_by(4) {
+            let mut sum = 0.0;
+            for y in by..by + 4 {
+                for x in bx..bx + 4 {
+                    let v = img.get(x, y)[0];
+                    values.insert((v * 1000.0).round() as i32);
+                    sum += v;
+                }
+            }
+            // Inside the palette's span (about 0.25 .. 0.75) the mix follows the input.
+            let input = (bx as f32 + 1.5) / (N - 1) as f32;
+            if (0.3..=0.7).contains(&input) {
+                assert!((sum / 16.0 - input).abs() < 0.05, "block {bx},{by}: {} vs {input}", sum / 16.0);
+            }
+        }
+    }
+    assert_eq!(values.len(), 2, "two colours: {values:?}");
+}
+
+#[test]
+fn anisotropic_kuwahara_reaches_the_composite() {
+    let fx = Fixture::new();
+    let mut ts = TextureSet::new("T", 0, N);
+    let mut l = Layer::new_paint("P", &ts);
+    let LayerContent::Paint(p) = &mut l.content else { unreachable!() };
+    let image = p.channel_mut(C::Roughness, N);
+    for y in 0..N {
+        for x in 0..N {
+            image.set(x, y, [if (x + y) % 2 == 0 { 0.55 } else { 0.45 }, 1.0, 0.0, 0.0]);
+        }
+    }
+    let kuwahara = Filter::AnisotropicKuwahara { radius: 4.0, smoothness: 0.5, sharpness: 8.0, tensor_smoothness: 2.0, anisotropy: 1.0, angle: 0.0, extract_direction: true };
+    add(&mut l, &ts, C::Roughness, kuwahara);
+    ts.insert_above(None, l);
+    // The checker noise is smoothed towards 0.5, also across the tile border at x = 64.
+    let c = composite_full(&ts, &fx.ctx());
+    let img = c.channel(C::Roughness).unwrap();
+    for (x, y) in [(20, 20), (63, 30), (64, 31)] {
+        let v = img.get(x, y)[0];
+        assert!((v - 0.5).abs() < 0.03, "at {x},{y}: {v}");
+    }
+}

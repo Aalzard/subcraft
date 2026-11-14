@@ -175,6 +175,10 @@ fn run_app() -> anyhow::Result<()> {
                 options.scale = Some(args.next().and_then(|s| s.parse::<f32>().ok()).filter(|s| (0.5..=4.0).contains(s))
                     .ok_or_else(|| anyhow::anyhow!("--scale expects a number from 0.5 to 4"))?);
             }
+            "--theme" => {
+                options.theme = Some(args.next().as_deref().and_then(subcraft_ui::theme::ThemeKind::parse)
+                    .ok_or_else(|| anyhow::anyhow!("--theme expects dark, light or painter"))?);
+            }
             "--recover" => options.recover = true,
             "--reload-mesh" => options.reload_mesh = Some(args.next_os().ok_or_else(|| anyhow::anyhow!("--reload-mesh expects a model path"))?.into()),
             "--reload-mode" => {
@@ -200,7 +204,7 @@ fn run_app() -> anyhow::Result<()> {
                 options.autosave_interval = args.next().and_then(|s| s.parse::<f64>().ok()).map(std::time::Duration::from_secs_f64);
             }
             "-h" | "--help" => {
-                println!("usage: subcraft [project.subcraft | mesh file] [--demo] [--view-2d] [--brush-panel] [--display-settings [environment|camera|post|render|visualization]] [--bake-high mesh] [--bake-preview] [--bake-preview-map map_key] [--bake-match always|name] [--bake-place auto,center,origin,offset=x:y:z,scale=s,rot=x:y:z] [--environment name] [--bake-size 256|512|1024|2048|4096] [--symmetry xyz] [--radial y8] [--screenshot out.png] [--path-trace [samples]] [--welcome] [--quick-start] [--guide-step 1..6] [--reset-layout] [--window-size WxH] [--camera yaw,pitch,zoom[,x,y,z]] [--scale 1.5] [--x11] [--recover] [--autosave-interval seconds] [--export-path folder]");
+                println!("usage: subcraft [project.subcraft | mesh file] [--demo] [--view-2d] [--brush-panel] [--display-settings [environment|camera|post|render|visualization]] [--bake-high mesh] [--bake-preview] [--bake-preview-map map_key] [--bake-match always|name] [--bake-place auto,center,origin,offset=x:y:z,scale=s,rot=x:y:z] [--environment name] [--bake-size 256|512|1024|2048|4096] [--symmetry xyz] [--radial y8] [--screenshot out.png] [--path-trace [samples]] [--welcome] [--quick-start] [--guide-step 1..6] [--reset-layout] [--window-size WxH] [--camera yaw,pitch,zoom[,x,y,z]] [--scale 1.5] [--theme dark|light|painter] [--x11] [--recover] [--autosave-interval seconds] [--export-path folder]");
                 return Ok(());
             }
             _ => options.mesh = Some(std::path::PathBuf::from(raw)),

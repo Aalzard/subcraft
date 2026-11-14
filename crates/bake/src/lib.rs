@@ -52,10 +52,12 @@ pub enum IdSource {
     MeshId,
     /// One generated colour per named object of the file (per material when it names none).
     Submesh,
+    /// One generated colour per high-poly file, when several are baked together.
+    FileId,
 }
 
 impl IdSource {
-    pub const ALL: [IdSource; 4] = [IdSource::VertexColor, IdSource::MaterialColor, IdSource::MeshId, IdSource::Submesh];
+    pub const ALL: [IdSource; 5] = [IdSource::VertexColor, IdSource::MaterialColor, IdSource::MeshId, IdSource::Submesh, IdSource::FileId];
 }
 
 /// How occlusion rays are spread over their cone.
@@ -531,6 +533,27 @@ pub fn averaged_normals(mesh: &Mesh) -> Vec<Vec3> {
     mesh.positions.iter().zip(&mesh.normals).map(|(p, n)| sums.get(&key(*p)).and_then(|s| s.try_normalize()).unwrap_or(*n)).collect()
 }
 
+/// Give the texels whose projection missed the high poly (`tri` is `None`) the value of the
+/// nearest texel that hit it. Nothing changes when every texel missed or none did.
+fn fill_id_misses(size: usize, comps: usize, dense: &mut [f32], samples: &[Texel], details: &[Detail]) {
+    if details.iter().all(|d| d.tri.is_some()) || details.iter().all(|d| d.tri.is_none()) {
+        return;
+    }
+    let mut hit = vec![false; size * size];
+    for (t, d) in samples.iter().zip(details) {
+        if d.tri.is_some() { hit[t.index as usize] = true; }
+    }
+    let nearest = subcraft_image::dilate::nearest_covered(size, size, &hit);
+    for (t, d) in samples.iter().zip(details) {
+        let i = t.index as usize;
+        let from = nearest[i];
+        if d.tri.is_none() && from != u32::MAX {
+            let from = from as usize;
+            dense.copy_within(from * comps..(from + 1) * comps, i * comps);
+        }
+    }
+}
+
 /// Pad a map's gutters: texels within the dilation width copy the nearest island texel, the
 /// rest is diffused from the padded islands or left at the neutral value already in `dense`.
 fn pad_gutters(size: usize, comps: usize, dense: &mut [f32], covered: &[bool], nearest: &[u32], settings: &BakeSettings) {
@@ -739,6 +762,10 @@ fn bake_core(
             progress.warn("ID map: the model's materials have no colours, so one colour per object / material was used instead".into());
             IdSource::Submesh
         }
+        IdSource::FileId if wanted(MeshMapKind::Id) && detail_geo.mesh.file_count() < 2 => {
+            progress.warn("ID map: File ID needs several high-poly files, so the one file's colour was used everywhere".into());
+            IdSource::FileId
+        }
         source => source,
     };
     let bounds = low.bounds;
@@ -833,6 +860,7 @@ fn bake_core(
                             Some(object) => generated(mesh.materials.len() as u32 + object),
                             None => generated(slot),
                         },
+                        IdSource::FileId => generated(mesh.file_of(tri)),
                     }
                 }
                 MeshMapKind::AmbientOcclusion if !settings.ao.is_plain() => {
@@ -963,6 +991,13 @@ fn bake_core(
         for (t, v) in samples.iter().zip(&values) {
             let i = t.index as usize;
             dense[i * comps..(i + 1) * comps].copy_from_slice(&v[..comps]);
+        }
+        if kind == MeshMapKind::Id && let Some(details) = &details {
+            // A texel whose projection ray reached no high-poly surface has no ID (issue #466: the
+            // low poly's rim texels next to open edges of the high poly). Writing the empty colour
+            // there put black texels inside islands, which dilation then spread into lines: they
+            // take the ID of the nearest texel that has one instead.
+            fill_id_misses(size as usize, comps, &mut dense, &samples, details);
         }
         if matches!(kind, MeshMapKind::AmbientOcclusion | MeshMapKind::Thickness) {
             // Ray maps are a finite-sample estimate with a per-texel rotation: remove the

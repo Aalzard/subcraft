@@ -5,6 +5,7 @@ pub mod contour;
 pub mod median;
 pub mod warp;
 pub mod pixelwise;
+pub mod quantize;
 
 pub fn apply(filter: Filter, input: [f32; 3], channel: ChannelKind) -> [f32; 3] {
     if !filter.valid() || !filter.supports_channel(channel) { return input; }
@@ -18,7 +19,7 @@ pub fn apply(filter: Filter, input: [f32; 3], channel: ChannelKind) -> [f32; 3] 
         Filter::GradientDynamic { .. } => input, // Reads an image: evaluated by the compositor.
         Filter::BevelShape { .. } | Filter::MaskOutlineShape { .. } | Filter::Fxaa { .. } | Filter::DropShadow { .. } | Filter::OuterGlow { .. } => input,
         Filter::HeightAdjust { invert, offset, multiply } => input.map(|v| height_adjust(v, invert, offset, multiply, channel)),
-        Filter::BevelSmooth { .. } | Filter::DirectionalDistance { .. } | Filter::BlurSlope { .. } => input, // Staged by the compositor.
+        Filter::BevelSmooth { .. } | Filter::DirectionalDistance { .. } | Filter::BlurSlope { .. } | Filter::AnisotropicKuwahara { .. } | Filter::Quantize { .. } => input, // Staged by the compositor.
         Filter::GradientCurve { preset, invert, balance, contrast } => input.map(|v| gradient_curve(v, preset, invert, balance, contrast)),
         Filter::Smoothstep { min, max } => input.map(|v| smoothstep(v, min, max)),
         Filter::ThresholdCompare { cutoff, mode } => {
@@ -34,6 +35,9 @@ pub fn apply(filter: Filter, input: [f32; 3], channel: ChannelKind) -> [f32; 3] 
         Filter::Blur { .. } | Filter::Sharpen { .. } | Filter::DirectionalBlur { .. } | Filter::Highpass { .. } | Filter::Bevel {..} | Filter::MaskOutline {..} | Filter::Median { .. } | Filter::Warp { .. }
             | Filter::EdgeDetect { .. } | Filter::Glow { .. } | Filter::DirectionalWarp { .. } | Filter::Mosaic { .. } => input, // Neighborhood evaluation is staged by compositor.
         Filter::Grayscale => [luminance(input); 3],
+        Filter::GrayscaleConvert { mode, invert, balance, contrast } => {
+            [gradient_curve(mode.convert(input), subcraft_doc::CurvePreset::Linear, invert, balance, contrast); 3]
+        }
         Filter::Invert => input.map(|v| if channel.is_signed() { -v } else { 1.0 - v }),
         Filter::Posterize { levels } => input.map(|v| posterize(v, levels, channel)),
         Filter::HistogramShift { shift } => input.map(|v| {
@@ -571,6 +575,16 @@ mod parity_tests {
     #[test]
     fn grayscale_invert_shift_posterize_goldens() {
         close(apply(Filter::Grayscale, [1.0, 0.0, 0.0], K::BaseColor), [0.2126; 3]);
+        // The conversion options: the mode, then Invert, Balance and Contrast.
+        use subcraft_doc::GrayscaleType as G;
+        let conv = |mode, invert, balance, contrast| Filter::GrayscaleConvert { mode, invert, balance, contrast };
+        let c = [0.8, 0.4, 0.2];
+        close(apply(conv(G::Max, false, 0.5, 0.0), c, K::BaseColor), [0.8; 3]);
+        close(apply(conv(G::Desaturation, false, 0.5, 0.0), c, K::BaseColor), [0.5; 3]);
+        close(apply(conv(G::Green, true, 0.5, 0.0), c, K::BaseColor), [0.6; 3]);
+        close(apply(conv(G::Average, false, 0.7, 0.0), [0.3; 3], K::BaseColor), [0.5; 3]);
+        close(apply(conv(G::Min, false, 0.5, 0.5), c, K::BaseColor), [0.0; 3]);
+        assert_eq!(apply(conv(G::Max, true, 0.5, 0.0), c, K::Roughness), c, "colour channels only");
         assert_eq!(apply(Filter::Grayscale, [1.0, 0.0, 0.0], K::Roughness), [1.0, 0.0, 0.0], "scalar channels are untouched");
         close(apply(Filter::Invert, [0.25, 0.5, 1.0], K::BaseColor), [0.75, 0.5, 0.0]);
         close(apply(Filter::Invert, [0.25; 3], K::Height), [-0.25; 3]);

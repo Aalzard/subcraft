@@ -132,6 +132,9 @@ pub struct BrushState {
     pub stencil: Option<Arc<subcraft_paint::Stencil>>,
     /// Temporarily ignore the stencil (held N key), without removing it.
     pub stencil_bypass: bool,
+    /// Painter's Projection tool: strokes cast the material's images from the view, tiled over
+    /// it, whatever the brush material's own projection settings.
+    pub projection: bool,
     /// Clone tool: whether the source follows the brush or returns to where it was set.
     pub clone_mode: CloneSourceMode,
 }
@@ -192,6 +195,52 @@ struct LastStroke {
     /// other change means the stroke can no longer be continued.
     cursor: usize,
     entries: usize,
+}
+
+/// Brush settings as [`Command::SetBrushSettings`] takes them: every value finite, each clamped to
+/// its range. Brush presets go through it too.
+pub(crate) fn checked_brush_settings(mut settings: BrushSettings) -> Result<BrushSettings, CommandError> {
+    if [settings.size, settings.flow, settings.stroke_opacity, settings.hardness, settings.scatter_radius, settings.scatter_size_random,
+        settings.scatter_rotation_deg, settings.scatter_opacity_random, settings.scatter_fall,
+        settings.smudge_strength, settings.smudge_carry, settings.smudge_falloff, settings.smudge_material].iter().any(|v| !v.is_finite()) {
+        return Err(CommandError::Invalid("brush values must be finite".into()));
+    }
+    settings.size = settings.size.clamp(0.1, 100.0);
+    settings.flow = settings.flow.clamp(0.0, 1.0);
+    settings.stroke_opacity = settings.stroke_opacity.clamp(0.0, 1.0);
+    settings.hardness = settings.hardness.clamp(0.0, 1.0);
+    settings.scatter_count = settings.scatter_count.min(subcraft_paint::MAX_SCATTER);
+    settings.scatter_radius = settings.scatter_radius.clamp(0.0, 10.0);
+    settings.scatter_size_random = settings.scatter_size_random.clamp(0.0, 1.0);
+    settings.scatter_opacity_random = settings.scatter_opacity_random.clamp(0.0, 1.0);
+    settings.scatter_fall = settings.scatter_fall.clamp(0.0, 20.0);
+    settings.smudge_strength = settings.smudge_strength.clamp(0.0, 1.0);
+    settings.smudge_carry = settings.smudge_carry.clamp(0.0, 0.99);
+    settings.smudge_falloff = settings.smudge_falloff.clamp(0.25, 8.0);
+    settings.smudge_material = settings.smudge_material.clamp(0.0, 1.0);
+    Ok(settings)
+}
+
+/// Stroke options as [`Command::SetStrokeOptions`] takes them (finite, clamped). Brush presets
+/// go through it too.
+pub(crate) fn checked_stroke_options(mut options: StrokeOptions) -> Result<StrokeOptions, CommandError> {
+    if !options.lazy_distance_px.is_finite() {
+        return Err(CommandError::Invalid("lazy mouse distance must be finite".into()));
+    }
+    if !options.radial.center_offset.iter().all(|v| v.is_finite()) {
+        return Err(CommandError::Invalid("radial symmetry center must be finite".into()));
+    }
+    if !options.mirror_offset.iter().all(|v| v.is_finite()) {
+        return Err(CommandError::Invalid("mirror plane position must be finite".into()));
+    }
+    if !options.smoothing.is_finite() {
+        return Err(CommandError::Invalid("smoothing must be finite".into()));
+    }
+    options.lazy_distance_px = options.lazy_distance_px.clamp(0.0, 100.0);
+    options.smoothing = options.smoothing.clamp(0.0, subcraft_paint::MAX_SMOOTHING);
+    options.radial.axis = options.radial.axis.min(2);
+    options.radial.count = options.radial.count.clamp(2, subcraft_paint::MAX_SYMMETRY_COPIES);
+    Ok(options)
 }
 
 /// Painter's quick mask: a temporary selection painted with the usual tools (U), which then
@@ -359,6 +408,7 @@ impl Session {
                 target: PaintTarget::Content,
                 stencil: None,
                 stencil_bypass: false,
+                projection: false,
                 clone_mode: CloneSourceMode::Relative,
             },
             stroke: None,
@@ -429,6 +479,19 @@ impl Session {
         self.recovered = false;
         self.mesh_dirty = false;
         Ok(path)
+    }
+
+    /// File > Save as copy: write the project to `path` and keep working on the current file. The
+    /// project path, the unsaved-changes state and the recent-files list are left as they were.
+    pub fn save_copy(&self, path: &Path) -> Result<(), String> {
+        if self.stroke.is_some() {
+            return Err("finish the stroke before saving".into());
+        }
+        if self.project_path.as_deref() == Some(path) {
+            return Err("a copy needs another file than the project itself: use Save".into());
+        }
+        let maps: subcraft_project::MeshMapSet = self.mesh_maps.keys().map(|id| (*id, self.stored_mesh_maps(*id))).collect();
+        subcraft_project::save_project_with(path, &self.scene.mesh, &self.doc, &self.resources, &maps, &self.settings).map_err(|e| e.to_string())
     }
 
     /// The last committed state (no half-finished stroke) for a background save.
@@ -890,6 +953,11 @@ impl Session {
     pub fn document(&self) -> &Document {
         &self.doc
     }
+    /// Fold the last `n` history steps into one undo step (see [`History::squash_last`]).
+    pub fn squash_history(&mut self, n: usize) -> bool {
+        self.history.squash_last(n)
+    }
+
     pub fn history(&self) -> &History {
         &self.history
     }
@@ -1281,46 +1349,8 @@ impl Session {
             return Err(CommandError::StrokeInProgress);
         }
         match cmd {
-            Command::SetBrushSettings(mut settings) => {
-                if [settings.size, settings.flow, settings.stroke_opacity, settings.hardness, settings.scatter_radius, settings.scatter_size_random,
-                    settings.scatter_rotation_deg, settings.scatter_opacity_random, settings.scatter_fall,
-                    settings.smudge_strength, settings.smudge_carry, settings.smudge_falloff, settings.smudge_material].iter().any(|v| !v.is_finite()) {
-                    return Err(CommandError::Invalid("brush values must be finite".into()));
-                }
-                settings.size = settings.size.clamp(0.1, 100.0);
-                settings.flow = settings.flow.clamp(0.0, 1.0);
-                settings.stroke_opacity = settings.stroke_opacity.clamp(0.0, 1.0);
-                settings.hardness = settings.hardness.clamp(0.0, 1.0);
-                settings.scatter_count = settings.scatter_count.min(subcraft_paint::MAX_SCATTER);
-                settings.scatter_radius = settings.scatter_radius.clamp(0.0, 10.0);
-                settings.scatter_size_random = settings.scatter_size_random.clamp(0.0, 1.0);
-                settings.scatter_opacity_random = settings.scatter_opacity_random.clamp(0.0, 1.0);
-                settings.scatter_fall = settings.scatter_fall.clamp(0.0, 20.0);
-                settings.smudge_strength = settings.smudge_strength.clamp(0.0, 1.0);
-                settings.smudge_carry = settings.smudge_carry.clamp(0.0, 0.99);
-                settings.smudge_falloff = settings.smudge_falloff.clamp(0.25, 8.0);
-                settings.smudge_material = settings.smudge_material.clamp(0.0, 1.0);
-                self.brush.settings = settings;
-            }
-            Command::SetStrokeOptions(mut options) => {
-                if !options.lazy_distance_px.is_finite() {
-                    return Err(CommandError::Invalid("lazy mouse distance must be finite".into()));
-                }
-                if !options.radial.center_offset.iter().all(|v| v.is_finite()) {
-                    return Err(CommandError::Invalid("radial symmetry center must be finite".into()));
-                }
-                if !options.mirror_offset.iter().all(|v| v.is_finite()) {
-                    return Err(CommandError::Invalid("mirror plane position must be finite".into()));
-                }
-                if !options.smoothing.is_finite() {
-                    return Err(CommandError::Invalid("smoothing must be finite".into()));
-                }
-                options.lazy_distance_px = options.lazy_distance_px.clamp(0.0, 100.0);
-                options.smoothing = options.smoothing.clamp(0.0, subcraft_paint::MAX_SMOOTHING);
-                options.radial.axis = options.radial.axis.min(2);
-                options.radial.count = options.radial.count.clamp(2, subcraft_paint::MAX_SYMMETRY_COPIES);
-                self.brush.options = options;
-            }
+            Command::SetBrushSettings(settings) => self.brush.settings = checked_brush_settings(settings)?,
+            Command::SetStrokeOptions(options) => self.brush.options = checked_stroke_options(options)?,
             Command::SetBrushMaterial(material) => self.brush.material = material,
             Command::InsertPartLayers { layers, label } => {
                 if layers.iter().any(|(id, _)| self.doc.texture_set(*id).is_none()) { return Err(CommandError::TextureSetNotFound); }
@@ -1976,14 +2006,16 @@ impl Session {
                     add_blend(&mut ts.layers, kind);
                 }
                 let mut at = Self::outside_instances(ts, reference);
-                for mut layer in clip.instantiate(ts, mesh) {
+                // Resources first: a pasted text or path layer may be drawn again with them.
+                for r in &clip.resources {
+                    self.resources.insert_shared(r.clone());
+                }
+                let layers = redraw_pasted(clip.instantiate(ts, mesh), clip.resolution, ts.resolution, &self.resources);
+                for mut layer in layers {
                     layer.name = crate::clipboard::pasted_name(ts, &layer.name);
                     at = Some(ts.insert_above(at, layer));
                 }
                 self.selection.layer = at;
-                for r in &clip.resources {
-                    self.resources.insert_shared(r.clone());
-                }
                 self.commit("Paste Layers", None);
             }
             Command::PasteEffects { layer, clip } => {
@@ -2249,16 +2281,17 @@ impl Session {
                     return Err(CommandError::Invalid("Layer content cannot be pasted into a folder".into()));
                 }
                 // Fresh effect ids and rasters at this set's resolution, like a pasted layer.
-                let pasted = clip.instantiate(ts, mesh).pop().ok_or(CommandError::LayerNotFound)?;
+                let (pasted, resolution) = (clip.instantiate(ts, mesh), ts.resolution);
+                for r in &clip.resources {
+                    self.resources.insert_shared(r.clone());
+                }
+                let pasted = redraw_pasted(pasted, clip.resolution, resolution, &self.resources).pop().ok_or(CommandError::LayerNotFound)?;
                 self.edit_layer_set(layer, "Paste Layer Content", None, |ts| {
                     let l = Self::layer_mut(ts, layer)?;
                     l.content = pasted.content;
                     l.content_effects = pasted.content_effects;
                     Ok(())
                 })?;
-                for r in &clip.resources {
-                    self.resources.insert_shared(r.clone());
-                }
             }
             Command::MoveUp(id) | Command::MoveDown(id) => {
                 let up = matches!(cmd, Command::MoveUp(_));
@@ -2363,6 +2396,15 @@ impl Session {
                 let key = format!("projection:{layer}");
                 self.edit_layer_set(layer, "Projection", Some(key), |ts| {
                     let LayerContent::Fill(f) = &mut Self::layer_mut(ts, layer)?.content else { return Err(CommandError::NotAFillLayer) };
+                    let mut projection = projection;
+                    // A new Axis with the same edited warp grid turns the grid with it (left as
+                    // it was, it lay edge-on along the new axis and the fill disappeared).
+                    if let (Some(old), Some(new)) = (f.projection.warp, projection.warp)
+                        && old == new
+                        && f.projection.planar_axis.min(2) != projection.planar_axis.min(2)
+                    {
+                        projection.warp = Some(new.reoriented(f.projection.planar_axis, projection.planar_axis));
+                    }
                     f.projection = projection;
                     Ok(())
                 })?;
@@ -2691,10 +2733,10 @@ impl Session {
             Action::QuickMaskInvert => return Ok(self.invert_quick_mask()),
             Action::HideUi | Action::PaintingMode | Action::CloseProject | Action::View3dAnd2d | Action::View3dOnly | Action::View2dOnly
             | Action::SwapViews | Action::NextMeshMap | Action::PrevMeshMap | Action::NextCamera | Action::PrevCamera => return Ok(false),
-            Action::PenTool | Action::PolygonFillTool | Action::SmudgeTool | Action::CloneTool | Action::EyedropperTool | Action::ResetCamera
+            Action::PenTool | Action::PolygonFillTool | Action::SmudgeTool | Action::CloneTool | Action::EyedropperTool | Action::ProjectionTool | Action::ResetCamera
             | Action::PerspectiveCamera | Action::OrthographicCamera | Action::NextChannel | Action::PrevChannel | Action::DisplayMaterial
             | Action::NewProject | Action::Quit | Action::Save | Action::SaveAs | Action::OpenProject | Action::Export | Action::Bake
-            | Action::TogglePathTracing | Action::SelectAllLayers => return Ok(false),
+            | Action::TogglePathTracing | Action::SelectAllLayers | Action::ReimportMesh => return Ok(false),
         }
         Ok(true)
     }
@@ -2815,6 +2857,10 @@ impl Session {
         let ts = self.selected_texture_set();
         let b = &self.brush;
         let mut material = b.material.clone();
+        if b.projection {
+            material.camera_projection = true;
+            material.texture_tiling = true;
+        }
         if let Some((s, _)) = &stamp {
             let channel = s.kind.channel();
             material.channels.entry(channel).or_insert(subcraft_paint::BrushChannel { enabled: true, value: channel.default_paint_value() }).enabled = true;
@@ -3086,9 +3132,17 @@ impl Session {
         self.polygon_fill_with(&uv_camera(), |stroke, ts, ctx| stroke.polygon_fill_uv(ts, ctx, uv, mode))
     }
 
-    /// Brush radius in UV units for the selected texture set (matches [`Session::stroke_to_uv`]).
+    /// Brush radius in UV units for the selected texture set (matches [`Session::stroke_to_uv`]
+    /// for a stroke begun without a 2D view).
     pub fn brush_radius_uv(&self, uv_per_unit: f32) -> f32 {
-        self.brush_radius_in(0.0, 0.0, uv_per_unit) * uv_per_unit
+        self.brush_radius_uv_in(uv_per_unit, None)
+    }
+
+    /// Brush radius in UV units in the 2D view `view` (matches a stroke begun with
+    /// [`Session::begin_uv_stroke`] in that view: Viewport size space keeps the brush's size on
+    /// screen there).
+    pub fn brush_radius_uv_in(&self, uv_per_unit: f32, view: Option<subcraft_paint::UvView>) -> f32 {
+        subcraft_paint::stroke::uv_brush_radius(&self.brush.settings, self.scene.mesh.bounds.diagonal(), uv_per_unit, view)
     }
 
     /// Polygon fill on the selected layer at a screen position (one history entry).
@@ -3100,6 +3154,13 @@ impl Session {
     /// entry). `visible_only` leaves back faces and occluded triangles alone.
     pub fn polygon_fill_box(&mut self, camera: &Camera, a: Vec2, b: Vec2, mode: PolygonFillMode, visible_only: bool) -> Result<Vec<usize>, PaintError> {
         self.polygon_fill_with(camera, |stroke, ts, ctx| stroke.polygon_fill_box(ts, ctx, a, b, mode, visible_only))
+    }
+
+    /// Polygon fill of the polygon loop a drag from `a` to `b` picks (Painter's Polygon loop fill;
+    /// `partial`: only up to the polygon under `b`, `both_sides` mirrors that span), grown to
+    /// `mode` (one history entry).
+    pub fn polygon_fill_loop(&mut self, camera: &Camera, a: Vec2, b: Vec2, mode: PolygonFillMode, partial: bool, both_sides: bool) -> Result<Vec<usize>, PaintError> {
+        self.polygon_fill_with(camera, |stroke, ts, ctx| stroke.polygon_fill_loop(ts, ctx, a, b, mode, partial, both_sides))
     }
 
     /// Polygon fill of everything a UV box `[a, b]` touches in the 2D view (one history entry).
@@ -3733,12 +3794,40 @@ impl Session {
         self.execute(if replace { Command::ReplaceMaskEffects { layer, effects, label } } else { Command::ApplyMaskEffects { layer, effects, label } })
     }
 
+    /// Add a colour profile LUT to the project from its file bytes (an EXR / HDR / PNG... image
+    /// whose size holds a whole cube, see `display::lut_cube_size`). The original bytes are kept,
+    /// so saving stores the file as it was. Returns the new resource's id.
+    pub fn add_color_lut(&mut self, name: &str, bytes: Vec<u8>) -> Result<subcraft_core::ResourceId, String> {
+        // The same file again is the same LUT (as images and fonts): loading it twice used to add
+        // and save a second copy.
+        if let Some(r) = self.resources.iter().find(|r| r.kind == subcraft_doc::ResourceKind::ColorLut && r.encoded.as_deref().is_some_and(|e| *e == bytes)) {
+            return Ok(r.id);
+        }
+        let bitmap = subcraft_image::io::decode_bitmap(&bytes, Some(name)).map_err(|e| format!("{name}: {e}"))?;
+        if subcraft_doc::display::lut_cube_size(bitmap.width, bitmap.height).is_none() {
+            return Err(format!("{name} is {} x {}: not a 3D LUT (width x height must be a cube, such as 2048 x 128)", bitmap.width, bitmap.height));
+        }
+        Ok(self.resources.insert(subcraft_doc::Resource {
+            id: subcraft_core::ResourceId::new(),
+            name: name.to_string(),
+            kind: subcraft_doc::ResourceKind::ColorLut,
+            bitmap: Arc::new(bitmap),
+            source_path: None,
+            encoded: Some(Arc::new(bytes)),
+        }))
+    }
+
     /// Use a brush alpha for the next strokes.
     /// The current brush tip as an Alpha resource of the project (the same resource again for
     /// the same tip), so a pen path can stamp it and the project keeps it. `None` for the round tip.
     pub fn brush_tip_resource(&mut self) -> Option<subcraft_core::ResourceId> {
         let bitmap = self.brush.alpha.clone()?;
         if let Some(r) = self.resources.iter().find(|r| Arc::ptr_eq(&r.bitmap, &bitmap)) {
+            return Some(r.id);
+        }
+        // A reopened project holds a loaded copy of the same tip: compared by pointer only, each
+        // session added (and saved) another copy of it.
+        if let Some(r) = self.resources.iter().find(|r| r.kind == subcraft_doc::ResourceKind::Alpha && *r.bitmap == *bitmap) {
             return Some(r.id);
         }
         Some(self.resources.insert(subcraft_doc::Resource {
@@ -3796,4 +3885,17 @@ fn add_blend(layers: &mut [Arc<Layer>], channel: ChannelKind) {
             add_blend(children, channel);
         }
     }
+}
+
+/// Layers pasted from a set of another resolution: their text and pen path rasters are drawn
+/// again at `to` (resampled, a path or text from 512 pasted at 4096 came out blurred, and was
+/// exported that way until its next edit).
+fn redraw_pasted(layers: Vec<Layer>, from: u32, to: u32, resources: &ResourceStore) -> Vec<Layer> {
+    if from == to {
+        return layers;
+    }
+    let mut layers: Vec<Arc<Layer>> = layers.into_iter().map(Arc::new).collect();
+    crate::text::redraw_text_layers(&mut layers, to, resources);
+    crate::pen::redraw_path_layers(&mut layers, to, resources);
+    layers.into_iter().map(Arc::unwrap_or_clone).collect()
 }

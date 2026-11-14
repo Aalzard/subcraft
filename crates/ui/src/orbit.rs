@@ -16,6 +16,9 @@ pub struct OrbitCamera {
     pub fov_y_deg: f32,
     /// Scene scale for clip planes.
     pub scene_radius: f32,
+    /// Centre of the scene's bounding sphere: the clip planes hold the sphere wherever the target
+    /// (pivot) has moved to (issue #446).
+    pub scene_center: Vec3,
     /// Orthographic projection: `distance` sets the view size and the eye stays behind the scene.
     pub orthographic: bool,
     /// Radians around the view axis (Painter's free rotation; 0 keeps the horizon level).
@@ -64,6 +67,7 @@ impl OrbitCamera {
             distance: radius / (fov.to_radians() * 0.5).sin() * 1.1,
             fov_y_deg: fov,
             scene_radius: radius,
+            scene_center: bounds.center(),
             orthographic: false,
             roll: 0.0,
         }
@@ -78,10 +82,46 @@ impl OrbitCamera {
         self.distance = radius / (self.fov_y_deg.to_radians() * 0.5).sin() * 1.1;
     }
 
+    /// The model changed (mesh reload): its bounding sphere becomes the scene the clip planes
+    /// hold, the view itself stays. Kept as it was, a reloaded model larger than or away from the
+    /// old one was cut by the near or far plane until the view was reset.
+    pub fn set_scene(&mut self, bounds: &Aabb) {
+        self.scene_radius = (bounds.diagonal() * 0.5).max(1e-3);
+        self.scene_center = bounds.center();
+    }
+
+    /// Unit vector from the target towards the eye.
+    fn back(&self) -> Vec3 {
+        let (sy, cy) = self.yaw.sin_cos();
+        let (sp, cp) = self.pitch.sin_cos();
+        Vec3::new(sy * cp, sp, cy * cp)
+    }
+
     /// Distance from the target to the eye. Orthographic views keep the eye outside the scene
-    /// so zooming in never clips the model.
+    /// (at least three scene radii in front of its centre, wherever the target was panned to) so
+    /// zooming in never clips the model.
     pub fn eye_distance(&self) -> f32 {
-        if self.orthographic { self.distance + self.scene_radius * 3.0 } else { self.distance }
+        if self.orthographic {
+            let towards_eye = (self.scene_center - self.target).dot(self.back());
+            let d = (self.distance + self.scene_radius * 3.0).max(towards_eye + self.scene_radius * 3.0);
+            if d.is_finite() { d } else { self.distance + self.scene_radius * 3.0 }
+        } else {
+            self.distance
+        }
+    }
+
+    /// Near and far clip distances for the current eye: from the depth of the scene's bounding
+    /// sphere along the view, not from the distance to the target, so panning off the model and
+    /// rotating around another point never cuts into it (issue #446). Near never drops below a
+    /// small share of the scene size and far, keeping depth precision.
+    pub fn clip_planes(&self) -> (f32, f32) {
+        let r = self.scene_radius.max(1e-4);
+        let depth = (self.target - self.eye()).normalize_or_zero().dot(self.scene_center - self.eye());
+        let depth = if depth.is_finite() { depth } else { self.eye_distance() };
+        let far = (depth + r * 4.0).max(r * 4.0);
+        let min_near = (r * 0.002).max(far * 1e-4).max(1e-4);
+        let near = (depth - r * 2.0).max(min_near);
+        (near, far.max(near * 2.0))
     }
 
     /// Half the visible height at the target (orthographic view size; matches perspective there).
@@ -90,9 +130,7 @@ impl OrbitCamera {
     }
 
     pub fn eye(&self) -> Vec3 {
-        let (sy, cy) = self.yaw.sin_cos();
-        let (sp, cp) = self.pitch.sin_cos();
-        self.target + Vec3::new(sy * cp, sp, cy * cp) * self.eye_distance()
+        self.target + self.back() * self.eye_distance()
     }
 
     /// Camera orientation: looking down its -Z, +Y up (yaw about the world vertical, then
@@ -109,9 +147,7 @@ impl OrbitCamera {
     }
 
     pub fn proj(&self, aspect: f32) -> Mat4 {
-        let d = self.eye_distance();
-        let near = (d - self.scene_radius * 2.0).max(d * 0.01).max(1e-4);
-        let far = d + self.scene_radius * 4.0;
+        let (near, far) = self.clip_planes();
         if self.orthographic {
             let (h, w) = (self.half_height(), self.half_height() * aspect.max(1e-3));
             return Mat4::orthographic_rh(-w, w, -h, h, near, far);
@@ -213,6 +249,83 @@ mod tests {
         let vp = cam.view_params([800, 600]);
         // Same matrix up to rounding (sin/cos of constant angles may be folded at compile time on one path).
         assert!((vp.proj * vp.view).abs_diff_eq(pc.view_proj(), 1e-5));
+    }
+
+    /// Every corner of `b` lies between the near and far planes (clip depth 0..1) and in front.
+    fn holds_the_box(cam: &OrbitCamera, b: &Aabb) -> Result<(), String> {
+        let vp = cam.proj(800.0 / 600.0) * cam.view();
+        for i in 0..8 {
+            let c = Vec3::new(
+                if i & 1 == 0 { b.min.x } else { b.max.x },
+                if i & 2 == 0 { b.min.y } else { b.max.y },
+                if i & 4 == 0 { b.min.z } else { b.max.z },
+            );
+            let clip = vp * c.extend(1.0);
+            let z = clip.z / clip.w;
+            if !(clip.w > 0.0 && (0.0..=1.0).contains(&z)) {
+                return Err(format!("corner {c} clipped: w {} depth {z}", clip.w));
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn panning_away_and_rotating_keeps_the_whole_model_between_near_and_far() {
+        // Issue #446: zoom out, pan the model off centre, rotate (around the target, as with no
+        // surface under the cursor), and the near plane cut into the model, even after zooming
+        // out again, until F. The planes now follow the model's bounding sphere.
+        let b = Aabb { min: Vec3::new(-1.0, -0.5, -2.0), max: Vec3::new(1.5, 2.0, 1.0) };
+        for orthographic in [false, true] {
+            let mut cam = OrbitCamera::framing(&b);
+            cam.orthographic = orthographic;
+            holds_the_box(&cam, &b).unwrap();
+            cam.zoom(3.0);
+            cam.pan(-600.0, 0.0, 600.0);
+            assert!((cam.target - cam.scene_center).length() > cam.scene_radius * 2.0, "the target is well off the model");
+            for step in 0..24 {
+                cam.orbit(40.0, if step % 3 == 0 { 25.0 } else { 0.0 });
+                holds_the_box(&cam, &b).unwrap_or_else(|e| panic!("ortho {orthographic}, step {step}: {e}"));
+            }
+            // Rotating about a point beside the model, and freely, too.
+            let pivot = cam.target + Vec3::new(0.0, 0.0, cam.scene_radius * 3.0);
+            for step in 0..24 {
+                cam.free_orbit_around(pivot, 35.0, 20.0);
+                // The model may be behind the camera after turning about a far pivot; when it is
+                // in front, nothing of it is clipped.
+                if (cam.scene_center - cam.eye()).dot((cam.target - cam.eye()).normalize()) > cam.scene_radius * 2.5 || orthographic {
+                    holds_the_box(&cam, &b).unwrap_or_else(|e| panic!("ortho {orthographic}, free step {step}: {e}"));
+                }
+            }
+            // Zooming out again keeps it whole as well.
+            cam.zoom(4.0);
+            let (near, far) = cam.clip_planes();
+            assert!(near > 0.0 && far > near && near.is_finite() && far.is_finite());
+        }
+        // The default framing keeps the planes it always had.
+        let cam = OrbitCamera::framing(&b);
+        let d = cam.eye_distance();
+        let (near, far) = cam.clip_planes();
+        assert!((near - (d - cam.scene_radius * 2.0)).abs() < 1e-4 && (far - (d + cam.scene_radius * 4.0)).abs() < 1e-4);
+        // Close to the surface the near plane comes in close, but not to zero.
+        let mut close = cam;
+        close.distance = cam.scene_radius * 0.05;
+        let (near, _) = close.clip_planes();
+        assert!(near > 0.0 && near <= cam.scene_radius * 0.01, "{near}");
+    }
+
+    /// QA 2026-11: a mesh reload kept the old model's sphere for the clip planes (#472 made
+    /// them follow its centre), so a bigger or moved model was cut until the view was reset.
+    #[test]
+    fn a_new_scene_keeps_the_view_and_holds_the_new_model() {
+        let old = Aabb { min: Vec3::splat(-1.0), max: Vec3::splat(1.0) };
+        let new = Aabb { min: Vec3::new(4.0, -1.0, -1.0), max: Vec3::new(14.0, 9.0, 9.0) };
+        let mut cam = OrbitCamera::framing(&old);
+        cam.zoom(4.0);
+        assert!(holds_the_box(&cam, &new).is_err(), "the old sphere does not hold the new model");
+        let view = (cam.target, cam.yaw, cam.pitch, cam.distance);
+        cam.set_scene(&new);
+        assert_eq!((cam.target, cam.yaw, cam.pitch, cam.distance), view, "the view stays");
+        holds_the_box(&cam, &new).unwrap();
     }
 
     #[test]

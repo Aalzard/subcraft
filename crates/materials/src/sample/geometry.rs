@@ -38,6 +38,8 @@ struct RegionIds {
     parts: Vec<u32>,
     islands: OnceLock<Vec<u32>>,
     polygons: OnceLock<Vec<u32>>,
+    /// Polygon faces and edges for loop selection, built on first use.
+    loops: OnceLock<subcraft_mesh::topology::PolygonTopology>,
     mesh: Arc<Mesh>,
 }
 
@@ -209,7 +211,7 @@ impl TextureSetGeometry {
     fn regions(&self) -> &Arc<RegionIds> {
         self.parts.get_or_init(|| Arc::new(RegionIds {
             parts: subcraft_mesh::topology::mesh_elements(&self.mesh),
-            islands: OnceLock::new(), polygons: OnceLock::new(), mesh: self.mesh.clone(),
+            islands: OnceLock::new(), polygons: OnceLock::new(), loops: OnceLock::new(), mesh: self.mesh.clone(),
         }))
     }
 
@@ -221,6 +223,11 @@ impl TextureSetGeometry {
     /// recovered with the 3D wireframe's default 30 degree angle limit.
     pub fn triangle_polygons(&self) -> &[u32] {
         self.regions().polygons.get_or_init(|| subcraft_mesh::topology::polygons(&self.mesh, 30.0))
+    }
+
+    /// The polygons of [`Self::triangle_polygons`] with their edges, for polygon loops.
+    pub fn polygon_topology(&self) -> &subcraft_mesh::topology::PolygonTopology {
+        self.regions().loops.get_or_init(|| subcraft_mesh::topology::polygon_topology(&self.mesh, self.triangle_polygons()))
     }
 
     pub fn triangle_region(&self, triangle: usize, kind: subcraft_core::PartKind) -> Option<u32> {
