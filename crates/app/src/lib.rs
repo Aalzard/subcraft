@@ -39,6 +39,7 @@ pub mod pen;
 mod path_apply;
 pub mod quick_mask_tint;
 mod region_outline;
+pub mod blender;
 pub mod photocraft;
 pub mod recovery;
 pub mod safe_mode;

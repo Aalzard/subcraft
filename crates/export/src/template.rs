@@ -527,6 +527,8 @@ impl ExportTemplate {
             Self::gltf_alpha(),
         ];
         all.extend(crate::builtin_presets::painter());
+        // File > Export to Blender's default (last, so earlier indexes stay put).
+        all.push(crate::blender::template());
         all
     }
 }
