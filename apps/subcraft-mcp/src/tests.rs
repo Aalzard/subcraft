@@ -87,6 +87,25 @@ fn every_defined_tool_is_dispatched_and_closed_to_unknown_arguments() {
     assert!(fails(&mut server, "no_such_tool", json!({})).contains("unknown tool"));
 }
 
+/// QA 2026-11: a line that was not UTF-8 ended the server, and a message that was not an object
+/// or an empty batch got no reply, so the client waited forever.
+#[test]
+fn every_malformed_line_gets_an_error_reply() {
+    let mut server = Server::new();
+    let code = |reply: Option<Value>| reply.expect("a reply")["error"]["code"].as_i64();
+    assert_eq!(code(crate::reply_to_line(&mut server, b"{\"id\":1,\"method\":\"ping\"\xff}\n")), Some(-32700));
+    assert_eq!(code(crate::reply_to_line(&mut server, b"[]\n")), Some(-32600));
+    assert_eq!(code(crate::reply_to_line(&mut server, b"5\n")), Some(-32600));
+    let batch = crate::reply_to_line(&mut server, b"[\"x\", {\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"ping\"}]").expect("a reply");
+    assert_eq!(batch[0]["error"]["code"], json!(-32600), "{batch}");
+    assert_eq!(batch[1]["id"], json!(2), "{batch}");
+    assert!(crate::reply_to_line(&mut server, b"  \r\n").is_none(), "blank lines need no reply");
+    assert!(crate::reply_to_line(&mut server, b"{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}").is_none());
+    // The server still answers after all of that.
+    let pong = crate::reply_to_line(&mut server, b"{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"ping\"}").expect("a reply");
+    assert_eq!(pong["result"], json!({}), "{pong}");
+}
+
 #[test]
 fn unknown_arguments_are_reported_with_the_valid_names() {
     let mut server = Server::new();
@@ -324,23 +343,23 @@ fn a_view_space_pen_path_takes_its_image_size_apart_from_its_line_width() {
     assert!((width - 0.01).abs() < 1e-6, "the line width asked for: {path}");
 }
 
-/// QA 2026-11: a line that was not UTF-8 ended the server, and a message that was not an object
-/// or an empty batch got no reply, so the client waited forever.
+/// QA 2026-11: export padding -3 or 2.5 became 8 texels silently, and part ids or padding beyond
+/// u32 wrapped round (2^32 + 1 selected part 1).
 #[test]
-fn every_malformed_line_gets_an_error_reply() {
+fn padding_and_part_ids_outside_their_range_are_refused() {
+    let dir = TempDir::new("padding");
     let mut server = Server::new();
-    let code = |reply: Option<Value>| reply.expect("a reply")["error"]["code"].as_i64();
-    assert_eq!(code(crate::reply_to_line(&mut server, b"{\"id\":1,\"method\":\"ping\"\xff}\n")), Some(-32700));
-    assert_eq!(code(crate::reply_to_line(&mut server, b"[]\n")), Some(-32600));
-    assert_eq!(code(crate::reply_to_line(&mut server, b"5\n")), Some(-32600));
-    let batch = crate::reply_to_line(&mut server, b"[\"x\", {\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"ping\"}]").expect("a reply");
-    assert_eq!(batch[0]["error"]["code"], json!(-32600), "{batch}");
-    assert_eq!(batch[1]["id"], json!(2), "{batch}");
-    assert!(crate::reply_to_line(&mut server, b"  \r\n").is_none(), "blank lines need no reply");
-    assert!(crate::reply_to_line(&mut server, b"{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}").is_none());
-    // The server still answers after all of that.
-    let pong = crate::reply_to_line(&mut server, b"{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"ping\"}").expect("a reply");
-    assert_eq!(pong["result"], json!({}), "{pong}");
+    sample(&mut server);
+    for bad in [json!(-3), json!(2.5), json!(4294967304u64)] {
+        let e = fails(&mut server, "export_textures", json!({ "dir": dir.join("out"), "padding": bad }));
+        assert!(e.contains("padding"), "{e}");
+    }
+    assert!(!std::path::Path::new(&dir.join("out")).exists(), "nothing was exported");
+    ok(&mut server, "layer_add", json!({ "type": "paint", "name": "P", "texture_set": "Body" }));
+    for bad in [json!(4294967297u64), json!(-1), json!(1.5)] {
+        let e = fails(&mut server, "layer_set_parts", json!({ "layer": "P", "texture_set": "Body", "parts": [bad] }));
+        assert!(e.contains("part ids"), "{e}");
+    }
 }
 
 /// QA 2026-11: project_new dropped an unsupported resolution silently: the sample stayed at
