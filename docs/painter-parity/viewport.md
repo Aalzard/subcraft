@@ -183,10 +183,10 @@ Layout notes: the stencil is drawn over the whole viewport in screen space. Hold
 | Ignore stencil mask | hold N | - | done | crates/ui/src/viewport.rs:79 | - |
 | Hide stencil when painting | Display settings > Tool display | not documented | done: Display Settings > Tool display (the same setting as the Properties stencil block) | crates/ui/src/panels/display_settings.rs (Tool display) | 181 |
 | Stencil display opacity | Display settings > Tool display | not documented | done: Display Settings > Tool display (the same setting as the Properties stencil block) | crates/ui/src/panels/display_settings.rs (Tool display) | 181 |
-| Projection tool transform: rotate | S + LMB drag | - | missing | - | - |
-| Projection tool transform: snap rotate | S + Shift + LMB drag | - | missing | - | - |
-| Projection tool transform: zoom | S + RMB drag | - | missing | - | - |
-| Projection tool transform: translate | S + MMB drag | - | missing | - | - |
+| Projection tool transform: rotate | S + LMB drag | - | done: turns the pattern about the view centre | crates/ui/src/viewport.rs (projection_rotate) | 476 |
+| Projection tool transform: snap rotate | S + Shift + LMB drag | - | done: quarter turns, as the stencil | crates/ui/src/viewport.rs (projection_input) | 476 |
+| Projection tool transform: zoom | S + RMB drag | - | done: scales the pattern about the view centre (1/50 to 50 tiles) | crates/ui/src/viewport.rs (projection_scale) | 476 |
+| Projection tool transform: translate | S + MMB drag | - | done: the pattern follows the mouse | crates/ui/src/viewport.rs (projection_move) | 476 |
 
 ## Symmetry in the viewport
 
