@@ -5,6 +5,22 @@ What changed in SubCraft, newest first. Download the latest build from the
 
 ## Unreleased
 
+## 0.3.9 - 2026-11-14
+
+### Highlights
+- **MCP server** (`apps/subcraft-mcp`): AI agents can texture models with SubCraft's engine without the app's window open, continuing #92 by @himsssss (#406).
+- **Themes**: Dark, Light and Painter-style in Settings > General (#407, #430, #431).
+- **Linux pen tablets**: native Wayland tablet input with clicks and pressure, and X11 pressure (#398, issue #82).
+- **3D feedback for painting by part, UV island or object**: excluded geometry is greyed out, the hovered part is highlighted, and Polygon Fill previews in 3D (#420).
+- **Fill projection manipulator**: move, rotate and scale projections in the 3D view (#415).
+- **Brush**: Stamps Blending (#409), hold A to continue the previous stroke (#419), brush preview styles and pen pressure curves (#274).
+- **Paths**: the pen tool in the 3D view (#425), erase and smudge along a path (#411).
+- **Layers**: the instance list in Properties and making instances independent (#369), a ghost mask slot while dragging (#410).
+- **Baking**: settings, the ID-map vertex colour set and several GLB vertex colour sets are saved with the project (#403, #408, #404), the neutral material is shaded by the baked maps (#414), and the bake overlay comes back on re-entry (#399) and follows Average normals (#440).
+- **Saved with the project**: the viewport camera (#402) and the export folder (#401).
+- **Also**: Blur Slope filter (#421), environment map mini-shelf (#405), Pause engine computation with Shift+Esc (#395), absolute focus distance (#397), imported cameras keep their roll (#412), export template menu and colour spaces (#314, #372, #413, #423).
+- **Faster**: large brushes on 4K projects no longer stall (#437).
+
 ### Added
 - **"Document channels + Normal + AO (With Alpha)"** output template, like Painter's: every document
   channel as its own file, Base Color with the opacity as its alpha.
