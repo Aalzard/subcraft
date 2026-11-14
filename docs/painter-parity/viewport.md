@@ -11,7 +11,7 @@ Layout notes: Painter's viewport is one central area with four parts stacked top
 |---|---|---|---|---|---|
 | Contextual toolbar strip above the views | Viewport, top | always shown | partial: strip exists above the 3D view only, own control set (see toolbar.md) | crates/ui/src/viewport_bar.rs:185 | - |
 | 3D view | Viewport, left | shown | done | crates/ui/src/viewport.rs:57 | - |
-| 2D view | Viewport, right | shown | partial: a dock tab behind the 3D view by default, not side by side | crates/ui/src/app.rs:189 | - |
+| 2D view | Viewport, right | shown | done: the default layout (new installs, Reset UI) is 3D \| 2D, 3D about 62% and 2D 38%; the divider drags and its ratio is saved; a layout already saved is kept | crates/ui/src/app.rs (default_layout, VIEW_SPLIT_3D) | - |
 | Splitter between 3D and 2D views | Viewport, between views | 50/50 (unverified) | partial: only after View > Side-by-side 3D / 2D | crates/ui/src/app.rs:232 | - |
 | Progress bar for engine computations | Viewport, bottom edge | hidden when idle | done: a thin moving bar along the top of the 3D view while layers are computed | crates/ui/src/viewport.rs (computing_bar) | 249 |
 | Colour-profile name text | 3D view, top left | shown when a profile is loaded | missing | - | - |
@@ -158,8 +158,8 @@ Layout notes: the dropdown at the top right of each view switches between Materi
 | Lazy mouse ring around the cursor | 3D view when Lazy mouse is on | grey circle | done: grey ring of the lazy distance around the cursor | crates/ui/src/viewport.rs (overlays) | 261 |
 | Clone source marker | 3D view with the Clone tool | - | done | crates/ui/src/viewport.rs:499 | - |
 | Fill layer cursor (no brush) | 3D view with a fill layer selected | - | missing | - | - |
-| Projection tool: material tiled over the viewport | 3D view with Projection tool | preview channel set in Display settings | missing | - | - |
-| Projection preview channel | Display settings > Tool display | not documented | missing | - | - |
+| Projection tool: material tiled over the viewport | 3D view with Projection tool | preview channel set in Display settings | done: the preview channel's image tiled over the 3D view with the projection transform, semi-transparent, hidden while painting | crates/ui/src/viewport.rs (draw_projection_preview) | 477 |
+| Projection preview channel | Display settings > Tool display | not documented | done: Display Settings > Tool display > Projection preview channel (any brush image), with the preview's opacity | crates/ui/src/panels/display_settings.rs (Tool display) | 477 |
 | Mesh wireframe overlay | Display settings > Mesh wireframe > Show mesh wireframe | off | done | crates/ui/src/view_extras.rs:112 | - |
 | Wireframe color | Display settings > Mesh wireframe | not documented | done | crates/ui/src/view_extras.rs:104 | - |
 | Wireframe opacity | Display settings > Mesh wireframe | not documented | partial: range 0.05-1 | crates/ui/src/view_extras.rs:117 | - |
@@ -181,12 +181,12 @@ Layout notes: the stencil is drawn over the whole viewport in screen space. Hold
 | Stencil zoom | S + RMB drag | - | partial: scale clamped to 0.02-8 | crates/ui/src/viewport.rs:92 | - |
 | Reset stencil transform button | 3D view, top right while S is held | - | done | crates/ui/src/viewport.rs (reset_stencil) | - |
 | Ignore stencil mask | hold N | - | done | crates/ui/src/viewport.rs:79 | - |
-| Hide stencil when painting | Display settings > Tool display | not documented | partial: the option sits in the Properties Stencil block, not in Display settings | crates/ui/src/viewport.rs (stencil_overlay_alpha) | - |
-| Stencil display opacity | Display settings > Tool display | not documented | partial: the slider sits in the Properties Stencil block, not in Display settings | crates/ui/src/viewport.rs (stencil_overlay_alpha) | - |
-| Projection tool transform: rotate | S + LMB drag | - | missing | - | - |
-| Projection tool transform: snap rotate | S + Shift + LMB drag | - | missing | - | - |
-| Projection tool transform: zoom | S + RMB drag | - | missing | - | - |
-| Projection tool transform: translate | S + MMB drag | - | missing | - | - |
+| Hide stencil when painting | Display settings > Tool display | not documented | done: Display Settings > Tool display (the same setting as the Properties stencil block) | crates/ui/src/panels/display_settings.rs (Tool display) | 181 |
+| Stencil display opacity | Display settings > Tool display | not documented | done: Display Settings > Tool display (the same setting as the Properties stencil block) | crates/ui/src/panels/display_settings.rs (Tool display) | 181 |
+| Projection tool transform: rotate | S + LMB drag | - | done: turns the pattern about the view centre | crates/ui/src/viewport.rs (projection_rotate) | 476 |
+| Projection tool transform: snap rotate | S + Shift + LMB drag | - | done: quarter turns, as the stencil | crates/ui/src/viewport.rs (projection_input) | 476 |
+| Projection tool transform: zoom | S + RMB drag | - | done: scales the pattern about the view centre (1/50 to 50 tiles) | crates/ui/src/viewport.rs (projection_scale) | 476 |
+| Projection tool transform: translate | S + MMB drag | - | done: the pattern follows the mouse | crates/ui/src/viewport.rs (projection_move) | 476 |
 
 ## Symmetry in the viewport
 
@@ -194,7 +194,7 @@ Layout notes: display options (plane, intersection, cursor, manipulator) are onl
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Symmetry on/off | L | off | partial: L toggles mirror X only | crates/app/src/session.rs:1588 | - |
+| Symmetry on/off | L | off | done: L turns symmetry off and back on with the last axes (Action::ToggleSymmetry); Shift+X keeps the X-mirror toggle in the Painter key set | crates/app/src/actions.rs (ToggleSymmetry) | 363 |
 | Mirror plane (transparent) | 3D view (Show Plane) | not documented | done: each active mirror plane as a translucent sheet in its axis colour, 10 % past the model, at the axis position; Display Settings > Viewport > Mirror planes, on by default | crates/ui/src/viewport.rs (mirror_plane_corners) | 264 |
 | Mirror intersection line on the mesh | 3D view (Show Intersection) | not documented | done: the symmetry guides draw where each mirror plane cuts the mesh, at the axis position (Display Settings > Viewport > Symmetry guides) | crates/app/src/guides.rs (symmetry_sections) | 264 |
 | Mirrored second cursor | 3D view (Show Cursor) | not documented | done: one per mirror / radial copy (up to 16), faint when the copy is behind the model, following moved planes and flipped copies; Display Settings > Viewport > Symmetry cursors, on by default | crates/ui/src/viewport.rs (symmetry_cursors) | 262 |
@@ -218,7 +218,7 @@ Layout notes: display options (plane, intersection, cursor, manipulator) are onl
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
 | Hide / ignore excluded geometry | Alt + H; Contextual toolbar button | off; disabled when nothing is excluded | done | crates/app/src/part_workflow.rs | - |
-| Texture Set isolate | Alt + Q | off | partial: I over the model isolates a part; no Texture Set solo key | crates/ui/src/viewport.rs:183 | - |
+| Texture Set isolate | Alt + Q | off | done: Alt+Q hides the other texture sets' geometry, again shows everything (Action::IsolateTextureSet); I still isolates the part under the cursor | crates/app/src/actions.rs (IsolateTextureSet) | 164 |
 | Geometry mask editing: click mesh parts in the view to include / exclude | 3D view while the geometry mask icon is active | - | done: click toggles, a box adds, Ctrl+box removes, in the 3D and 2D views | crates/ui/src/viewport.rs | - |
 | UV Tile hover highlight during geometry mask edit | 3D and 2D views | - | missing | - | - |
 
@@ -291,16 +291,16 @@ Layout notes: the Path tool works only in the 3D view. A floating Paths panel in
 | Start a new path | LMB click on blank surface after exiting | - | done | crates/ui/src/viewport.rs:281 | - |
 | Select an existing path | LMB click on a path in the view | - | done: click on another path's curve selects its layer | crates/ui/src/viewport.rs (Pen tool) | - |
 | Toggle corner / smooth on a point | Double-click a point | - | done | crates/ui/src/viewport.rs (Pen tool) | - |
-| Break tangents while moving a handle | Alt | - | missing | - | - |
-| Scale both tangents together | Ctrl | - | missing | - | - |
-| Straight segment between points | Shift (11.0) | - | missing | - | - |
-| Angle snapping when adding a point | Ctrl (11.0) | angle set in the path settings menu | missing | - | - |
+| Break tangents while moving a handle | Alt | - | partial: Shift (Alt navigates the camera in SubCraft's 3D view) | crates/ui/src/viewport.rs (Pen tool) | - |
+| Scale both tangents together | Ctrl | - | done: Ctrl while dragging a handle; the other tangent keeps its direction | crates/app/src/pen.rs (drag_to_scaled), crates/ui/src/viewport.rs (Pen tool) | - |
+| Straight segment between points | Shift (11.0) | - | done: Shift+click adds a point without tangents | crates/app/src/pen.rs (keep_new_point_straight), crates/ui/src/viewport.rs (Pen tool) | - |
+| Angle snapping when adding a point | Ctrl (11.0) | angle set in the path settings menu | done: Ctrl, 15 degree steps on screen (no setting yet) | crates/ui/src/viewport.rs (Pen tool) (snap_angle) | - |
 | Auto-close by clicking the first point | LMB on first vertex with the last selected (11.0) | Ctrl selects instead | done: with the last point selected and 3+ points; Ctrl skips it | crates/app/src/pen.rs (close_path), crates/ui/src/viewport.rs (Pen tool) | - |
 | Rectangle selection of points | LMB drag | - | missing | - | - |
 | Select all points | Ctrl + A | - | missing | - | - |
 | Delete selected points | Delete | - | done | crates/ui/src/pen.rs:60 | - |
-| Delete path | Backspace (11.0) | - | partial: Backspace deletes the selected anchor only | crates/ui/src/pen.rs:60 | - |
-| Path preview (dotted next segment) | Shift + P toggles (11.0) | on | missing | - | - |
+| Delete path | Backspace (11.0) | - | done: Backspace deletes the selected path's layer; Delete removes the selected point | crates/ui/src/pen.rs (keyboard) | - |
+| Path preview (dotted next segment) | Shift + P toggles (11.0) | on | done: Shift+P toggles it; follows the Ctrl snap | crates/ui/src/viewport.rs (Pen tool) | - |
 | Manipulators on path points | W, S, D toggle them (11.0) | - | missing | - | - |
 | Paths panel: list of paths | Floating panel in the viewport | shown with a Path tool | done: floating at the top left of the 3D view with the Pen tool; each path is its own layer, so it lists the texture set's pen-path layers | crates/ui/src/paths_panel.rs | - |
 | Paths panel: rename | Double-click a path | - | done | crates/ui/src/paths_panel.rs | - |

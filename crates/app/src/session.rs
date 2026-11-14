@@ -132,6 +132,9 @@ pub struct BrushState {
     pub stencil: Option<Arc<subcraft_paint::Stencil>>,
     /// Temporarily ignore the stencil (held N key), without removing it.
     pub stencil_bypass: bool,
+    /// Painter's Projection tool: strokes cast the material's images from the view, tiled over
+    /// it, whatever the brush material's own projection settings.
+    pub projection: bool,
     /// Clone tool: whether the source follows the brush or returns to where it was set.
     pub clone_mode: CloneSourceMode,
 }
@@ -359,6 +362,7 @@ impl Session {
                 target: PaintTarget::Content,
                 stencil: None,
                 stencil_bypass: false,
+                projection: false,
                 clone_mode: CloneSourceMode::Relative,
             },
             stroke: None,
@@ -429,6 +433,19 @@ impl Session {
         self.recovered = false;
         self.mesh_dirty = false;
         Ok(path)
+    }
+
+    /// File > Save as copy: write the project to `path` and keep working on the current file. The
+    /// project path, the unsaved-changes state and the recent-files list are left as they were.
+    pub fn save_copy(&self, path: &Path) -> Result<(), String> {
+        if self.stroke.is_some() {
+            return Err("finish the stroke before saving".into());
+        }
+        if self.project_path.as_deref() == Some(path) {
+            return Err("a copy needs another file than the project itself: use Save".into());
+        }
+        let maps: subcraft_project::MeshMapSet = self.mesh_maps.keys().map(|id| (*id, self.stored_mesh_maps(*id))).collect();
+        subcraft_project::save_project_with(path, &self.scene.mesh, &self.doc, &self.resources, &maps, &self.settings).map_err(|e| e.to_string())
     }
 
     /// The last committed state (no half-finished stroke) for a background save.
@@ -890,6 +907,11 @@ impl Session {
     pub fn document(&self) -> &Document {
         &self.doc
     }
+    /// Fold the last `n` history steps into one undo step (see [`History::squash_last`]).
+    pub fn squash_history(&mut self, n: usize) -> bool {
+        self.history.squash_last(n)
+    }
+
     pub fn history(&self) -> &History {
         &self.history
     }
@@ -2653,10 +2675,10 @@ impl Session {
             Action::QuickMaskInvert => return Ok(self.invert_quick_mask()),
             Action::HideUi | Action::PaintingMode | Action::CloseProject | Action::View3dAnd2d | Action::View3dOnly | Action::View2dOnly
             | Action::SwapViews | Action::NextMeshMap | Action::PrevMeshMap | Action::NextCamera | Action::PrevCamera => return Ok(false),
-            Action::PenTool | Action::PolygonFillTool | Action::SmudgeTool | Action::CloneTool | Action::EyedropperTool | Action::ResetCamera
+            Action::PenTool | Action::PolygonFillTool | Action::SmudgeTool | Action::CloneTool | Action::EyedropperTool | Action::ProjectionTool | Action::ResetCamera
             | Action::PerspectiveCamera | Action::OrthographicCamera | Action::NextChannel | Action::PrevChannel | Action::DisplayMaterial
             | Action::NewProject | Action::Quit | Action::Save | Action::SaveAs | Action::OpenProject | Action::Export | Action::Bake
-            | Action::TogglePathTracing | Action::SelectAllLayers => return Ok(false),
+            | Action::TogglePathTracing | Action::SelectAllLayers | Action::ReimportMesh => return Ok(false),
         }
         Ok(true)
     }
@@ -2777,6 +2799,10 @@ impl Session {
         let ts = self.selected_texture_set();
         let b = &self.brush;
         let mut material = b.material.clone();
+        if b.projection {
+            material.camera_projection = true;
+            material.texture_tiling = true;
+        }
         if let Some((s, _)) = &stamp {
             let channel = s.kind.channel();
             material.channels.entry(channel).or_insert(subcraft_paint::BrushChannel { enabled: true, value: channel.default_paint_value() }).enabled = true;
@@ -3048,9 +3074,17 @@ impl Session {
         self.polygon_fill_with(&uv_camera(), |stroke, ts, ctx| stroke.polygon_fill_uv(ts, ctx, uv, mode))
     }
 
-    /// Brush radius in UV units for the selected texture set (matches [`Session::stroke_to_uv`]).
+    /// Brush radius in UV units for the selected texture set (matches [`Session::stroke_to_uv`]
+    /// for a stroke begun without a 2D view).
     pub fn brush_radius_uv(&self, uv_per_unit: f32) -> f32 {
-        self.brush_radius_in(0.0, 0.0, uv_per_unit) * uv_per_unit
+        self.brush_radius_uv_in(uv_per_unit, None)
+    }
+
+    /// Brush radius in UV units in the 2D view `view` (matches a stroke begun with
+    /// [`Session::begin_uv_stroke`] in that view: Viewport size space keeps the brush's size on
+    /// screen there).
+    pub fn brush_radius_uv_in(&self, uv_per_unit: f32, view: Option<subcraft_paint::UvView>) -> f32 {
+        subcraft_paint::stroke::uv_brush_radius(&self.brush.settings, self.scene.mesh.bounds.diagonal(), uv_per_unit, view)
     }
 
     /// Polygon fill on the selected layer at a screen position (one history entry).

@@ -284,3 +284,50 @@ fn reprojecting_a_set_that_had_no_geometry_keeps_its_paint() {
     let after = s.document().texture_sets.iter().find(|t| t.id == body).expect("the Body set is still there");
     assert_eq!(after.layers, painted, "paint and mask of the re-matched set are untouched");
 }
+
+/// Painter keeps a geometry mask through a mesh re-import by mesh name: masks by object follow
+/// the object names, masks by material follow the texture sets, and masks by connected piece or
+/// UV island (numbers only) are reported for checking.
+#[test]
+fn geometry_masks_by_object_and_material_follow_their_names_through_a_reload() {
+    use subcraft_core::PartKind;
+    use subcraft_doc::PartMask;
+    let mut s = Session::new(primitives::sample_crate(), RES);
+    let mesh = s.scene().mesh.clone();
+    let object = |m: &Mesh, name: &str| m.objects.iter().position(|o| o.name == name).unwrap() as u32;
+    let (band, post) = (object(&mesh, "Upper band"), object(&mesh, "Corner post 1"));
+    // Three layers in the first set: by object, by material, by connected piece.
+    let layer = s.document().texture_sets[0].layers[0].id;
+    s.execute(Command::SetParts { layer, parts: Some(PartMask::for_kind(PartKind::Object, [band, post])) }).unwrap();
+    s.execute(Command::AddLayer(subcraft_app::NewLayer::Fill)).unwrap();
+    let by_material = s.selection().layer.unwrap();
+    s.execute(Command::SetParts { layer: by_material, parts: Some(PartMask::for_kind(PartKind::Material, [1])) }).unwrap();
+    s.execute(Command::AddLayer(subcraft_app::NewLayer::Fill)).unwrap();
+    let by_piece = s.selection().layer.unwrap();
+    s.execute(Command::SetParts { layer: by_piece, parts: Some(PartMask::for_kind(PartKind::Connected, [0])) }).unwrap();
+    // The new version lists the objects in reverse order, drops "Corner post 1" and lists the
+    // materials the other way round.
+    let mut next: Mesh = (*mesh).clone();
+    let n = next.objects.len() as u32;
+    next.objects.reverse();
+    for o in next.tri_object.iter_mut().flatten() {
+        *o = n - 1 - *o;
+    }
+    let gone = n - 1 - post;
+    next.objects[gone as usize].name = "Corner post (new)".into();
+    let slot_of: Vec<u32> = next.tri_material.iter().map(|&m| 1 - m).collect();
+    let (next, _) = next.regroup(&["Trim".to_string(), "Body".to_string()], &slot_of, &[]);
+    let prepared = Arc::new(s.check_mesh_reload(&PathBuf::from("crate_v2.obj"), next.clone()).unwrap());
+    let report = s.apply_mesh_reload(prepared, ReloadMode::KeepUvs).unwrap();
+    assert_eq!((report.part_layers_remapped, report.part_layers), (2, 1), "{report:?}");
+    let parts = |layer| s.document().texture_sets.iter().find_map(|ts| ts.find(layer)).unwrap().parts.clone().unwrap();
+    let mesh = s.scene().mesh.clone();
+    let objects = parts(layer);
+    assert_eq!(objects.kind, PartKind::Object);
+    assert_eq!(objects.parts.iter().copied().collect::<Vec<_>>(), [object(&mesh, "Upper band")], "the band follows its name, the renamed post is dropped");
+    let trim = mesh.materials.iter().position(|m| m.name == "Trim").unwrap() as u32;
+    assert_eq!(parts(by_material).parts.iter().copied().collect::<Vec<_>>(), [trim], "the Trim material follows its texture set");
+    assert_eq!(parts(by_piece).parts.iter().copied().collect::<Vec<_>>(), [0], "connected pieces are left alone");
+    assert!(report.summary().contains("check them"));
+}
+

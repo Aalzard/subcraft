@@ -395,7 +395,8 @@ const PAINTER: &str = r#"{
         "parameters": { "fileFormat": "tif", "bitDepth": "32f" } },
       { "fileName": "$mesh_$textureSet_Gloss",
         "channels": [ { "destChannel": "L", "srcChannel": "L", "srcMapType": "virtualMap", "srcMapName": "Glossiness" },
-                      { "destChannel": "A", "srcChannel": "L", "srcMapType": "virtualMap", "srcMapName": "f0" } ] }
+                      { "destChannel": "A", "srcChannel": "L", "srcMapType": "virtualMap", "srcMapName": "f0" } ],
+        "parameters": { "paddingAlgorithm": "transparent", "dilationDistance": 3 } }
     ]
   }]
 }"#;
@@ -426,6 +427,8 @@ fn painter_presets_convert_maps_sources_and_parameters() {
     let g = &p.maps[4];
     assert_eq!(g.components, [Source::Converted { map: Converted::Glossiness, component: 0 }, Source::Converted { map: Converted::F0, component: 0 }], "virtual maps read the converted maps");
     assert!(!imported.warnings.iter().any(|w| w.contains("f0")), "{:?}", imported.warnings);
+    assert_eq!(g.padding, Some(Padding::Transparent(3)), "Dilation + transparent");
+    assert!(!imported.warnings.iter().any(|w| w.contains("transparent")), "{:?}", imported.warnings);
     assert!(imported.warnings.iter().any(|w| w.contains("$colorSpace")));
     assert!(imported.warnings.iter().any(|w| w.contains("16-bit")));
     // And it exports.

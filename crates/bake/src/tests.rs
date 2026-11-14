@@ -999,3 +999,31 @@ fn id_map_texels_that_miss_the_high_poly_take_a_neighbours_id() {
         }
     }
 }
+
+#[test]
+fn file_id_gives_each_high_poly_file_its_own_colour() {
+    // The two halves of the two-part high poly as two files, joined as the bake job joins them.
+    let whole = two_part_high(false, false);
+    let half = |left: bool| {
+        let mut b = MeshBuilder::new(if left { "left" } else { "right" });
+        let m = b.material("m");
+        for t in 0..whole.triangle_count() {
+            let p = whole.tri_positions(t);
+            if (p[0].x < 0.0) == left {
+                let c = |v: Vec3| Corner { position: v, normal: Some(Vec3::Y), uv: None };
+                b.push_triangle(m, [c(p[0]), c(p[1]), c(p[2])]);
+            }
+        }
+        b.build_for_baking().unwrap()
+    };
+    let (left, right) = (half(true), half(false));
+    let joined = Mesh::merged(&[&left, &right]);
+    let s = BakeSettings { id_source: IdSource::FileId, ..settings(&[MeshMapKind::Id]) };
+    let (l, r, w) = id_bake_with(&joined, &s);
+    assert!(!close(l, r) && w.is_empty(), "one colour per file: {l:?} {r:?} {w:?}");
+    assert!(close(l, IdGenerator::default().color(0)) && close(r, IdGenerator::default().color(1)));
+    // One file: one colour everywhere, and a warning.
+    let (l, r, w) = id_bake_with(&whole, &s);
+    assert!(close(l, r), "{l:?} {r:?}");
+    assert!(w.iter().any(|w| w.contains("File ID needs several high-poly files")), "{w:?}");
+}

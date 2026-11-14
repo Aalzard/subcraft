@@ -227,11 +227,16 @@ impl LaunchOptions {
     }
 }
 
-/// Substance Painter's arrangement: the 3D view alone in the centre (2D view behind it as a tab),
-/// ASSETS | HISTORY (| PARTS) on the left, and on the right TEXTURE SET LIST, then
-/// LAYERS | TEXTURE SET SETTINGS, then PROPERTIES. Nothing below the centre.
+/// Share of the centre the 3D view takes when the 3D and 2D views sit side by side (Painter opens
+/// on 3D | 2D with the 2D view the narrower one).
+pub const VIEW_SPLIT_3D: f32 = 0.62;
+
+/// Substance Painter's arrangement: 3D | 2D in the centre (3D about 62%, 2D the rest; the divider
+/// drags and its ratio is saved with the layout), ASSETS | HISTORY (| PARTS) on the left, and on
+/// the right TEXTURE SET LIST, then LAYERS | TEXTURE SET SETTINGS, then PROPERTIES. Nothing below
+/// the centre. A layout the user already saved is loaded instead (same storage key).
 pub fn default_layout() -> DockState<Tab> {
-    let mut dock = DockState::new(vec![Tab::Viewport, Tab::UvView]);
+    let mut dock = DockState::new(vec![Tab::Viewport]);
     let surface = dock.main_surface_mut();
     // Assets ~18% like Painter; the right column keeps 24% so Properties rows and chips fit at 1600 px.
     let [center, right] = surface.split_right(NodeIndex::root(), 0.76, vec![Tab::TextureSetList]);
@@ -239,6 +244,8 @@ pub fn default_layout() -> DockState<Tab> {
     let [_, stack] = surface.split_below(right, 0.10, vec![Tab::Layers, Tab::TextureSetSettings]);
     surface.split_below(stack, 0.42, vec![Tab::Properties]);
     surface.split_left(center, 0.235, vec![Tab::Shelf, Tab::History, Tab::Parts]);
+    let view = dock.find_tab(&Tab::Viewport).expect("the 3D view is in the layout");
+    dock.main_surface_mut().split_right(view.node, VIEW_SPLIT_3D, vec![Tab::UvView]);
     for visible in [Tab::Shelf, Tab::Layers, Tab::Viewport] {
         if let Some(path) = dock.find_tab(&visible) { let _ = dock.set_active_tab(path); }
     }
@@ -359,7 +366,7 @@ pub fn is_side_by_side(dock: &DockState<Tab>) -> bool {
 }
 
 /// View > Side-by-side 3D | 2D: put the 2D view in its own pane to the right of the 3D view
-/// (50/50; the divider then drags horizontally like every dock divider and the ratio is saved
+/// ([`VIEW_SPLIT_3D`]; the divider then drags horizontally like every dock divider and the ratio is saved
 /// with the layout), or tab it behind the 3D view again.
 pub fn toggle_side_by_side(dock: &mut DockState<Tab>) {
     let (Some(_), Some(uv)) = (dock.find_tab(&Tab::Viewport), dock.find_tab(&Tab::UvView)) else { return };
@@ -372,7 +379,20 @@ pub fn toggle_side_by_side(dock: &mut DockState<Tab>) {
     } else {
         let _ = dock.remove_tab(uv);
         let Some(view) = dock.find_tab(&Tab::Viewport) else { return };
-        dock.main_surface_mut().split_right(view.node, 0.5, vec![Tab::UvView]);
+        dock.main_surface_mut().split_right(view.node, VIEW_SPLIT_3D, vec![Tab::UvView]);
+    }
+}
+
+/// The share the first of the two side-by-side views has in `dock`, when they are split directly
+/// against each other (the ratio the user dragged the divider to).
+fn view_split(dock: &DockState<Tab>) -> Option<f32> {
+    let (view, uv) = (dock.find_tab(&Tab::Viewport)?, dock.find_tab(&Tab::UvView)?);
+    if view.surface != uv.surface { return None; }
+    let parent = view.node.parent()?;
+    if uv.node.parent() != Some(parent) { return None; }
+    match &dock[view.surface][parent] {
+        egui_dock::Node::Horizontal(split) => Some(split.fraction),
+        _ => None,
     }
 }
 
@@ -456,7 +476,8 @@ pub fn views_only(dock: &DockState<Tab>) -> DockState<Tab> {
         };
         let (first, second) = if uv_first { (Tab::UvView, Tab::Viewport) } else { (Tab::Viewport, Tab::UvView) };
         let mut views = DockState::new(vec![first]);
-        views.main_surface_mut().split_right(NodeIndex::root(), 0.5, vec![second]);
+        let split = view_split(dock).unwrap_or(VIEW_SPLIT_3D);
+        views.main_surface_mut().split_right(NodeIndex::root(), split, vec![second]);
         views
     } else {
         let mut views = DockState::new(vec![Tab::Viewport, Tab::UvView]);
@@ -579,8 +600,14 @@ mod layout_tests {
         let dock = default_layout();
         let node = |t: Tab| { let p = dock.find_tab(&t).unwrap(); (p.surface, p.node) };
         let visible = |tab: Tab| { let p = dock.find_tab(&tab).unwrap(); dock[p.surface][p.node].get_leaf().unwrap().active == p.tab };
-        assert_eq!(node(Tab::Viewport), node(Tab::UvView), "2D is a tab behind 3D");
-        assert!(visible(Tab::Viewport) && !visible(Tab::UvView));
+        // 3D | 2D side by side, the 3D view on the left and wider (about 62 / 38).
+        assert!(is_side_by_side(&dock) && current_view_layout(&dock) == ViewLayout::Both);
+        assert!(visible(Tab::Viewport) && visible(Tab::UvView), "both views show");
+        assert!(node(Tab::Viewport).1.is_left() && node(Tab::UvView).1.is_right(), "3D left, 2D right");
+        let split = view_split(&dock).expect("the views are split against each other");
+        assert!((split - VIEW_SPLIT_3D).abs() < 1e-6 && (0.6..=0.65).contains(&split), "3D about 62%: {split}");
+        assert!(1.0 - split < split, "the 2D view is the narrower one");
+        assert!(matches!(dock.main_surface()[node(Tab::Viewport).1.parent().unwrap()], egui_dock::Node::Horizontal(_)), "split left | right");
         assert_eq!(node(Tab::Shelf), node(Tab::History), "History sits beside Assets");
         assert_eq!(node(Tab::Layers), node(Tab::TextureSetSettings), "Layers | Texture Set Settings");
         for t in [Tab::TextureSetList, Tab::Properties, Tab::Layers, Tab::Shelf] { assert_ne!(node(t), node(Tab::Viewport)); }
@@ -588,7 +615,7 @@ mod layout_tests {
         assert_ne!(node(Tab::Layers), node(Tab::Properties));
         // The centre leaf is the only thing in its column: its parent split is horizontal only.
         let leaves = dock.main_surface().iter().filter(|n| n.is_leaf()).count();
-        assert_eq!(leaves, 5, "centre, assets group, list, layers group, properties");
+        assert_eq!(leaves, 6, "3D, 2D, assets group, list, layers group, properties");
         // Vertical order on the right: list above layers above properties (by split nesting).
         use egui_dock::Node;
         let (list, layers, props) = (node(Tab::TextureSetList).1, node(Tab::Layers).1, node(Tab::Properties).1);
@@ -643,22 +670,27 @@ mod layout_tests {
     #[test]
     fn side_by_side_splits_2d_beside_3d_with_a_saved_ratio_and_toggles_back() {
         let mut dock = default_layout();
-        assert!(!is_side_by_side(&dock));
+        assert!(is_side_by_side(&dock), "the default layout is 3D | 2D");
+        toggle_side_by_side(&mut dock);
+        assert!(!is_side_by_side(&dock) && layout_is_valid(&dock), "toggled to one pane");
         toggle_side_by_side(&mut dock);
         assert!(is_side_by_side(&dock) && layout_is_valid(&dock), "a valid layout with both views in their own panes");
         let view = dock.find_tab(&Tab::Viewport).unwrap();
         let uv = dock.find_tab(&Tab::UvView).unwrap();
-        // The panes are the two halves of a horizontal split, 50 / 50.
+        // The panes are the two sides of a horizontal split, 3D the wider one.
         let parent = view.node.parent().unwrap();
         assert_eq!(uv.node.parent(), Some(parent));
         match &dock[view.surface][parent] {
-            egui_dock::Node::Horizontal(split) => assert!((split.fraction - 0.5).abs() < 1e-6),
+            egui_dock::Node::Horizontal(split) => assert!((split.fraction - VIEW_SPLIT_3D).abs() < 1e-6),
             other => panic!("expected a horizontal split, got {:?}", other.is_parent()),
         }
         // Dragging the divider (a different fraction) survives a save and load, so the ratio is kept.
         if let egui_dock::Node::Horizontal(split) = &mut dock[view.surface][parent] { split.fraction = 0.3; }
         // The ratio lives in the dock state that is saved and restored as a whole (DOCK_KEY), so a dragged divider is kept.
         assert!(layout_is_valid(&dock) && is_side_by_side(&dock));
+        assert!((view_split(&dock).unwrap() - 0.3).abs() < 1e-6, "the dragged split is read back");
+        // Hiding the panels (Tab) keeps the dragged split too.
+        assert!((view_split(&views_only(&dock)).unwrap() - 0.3).abs() < 1e-6);
         toggle_side_by_side(&mut dock);
         assert!(!is_side_by_side(&dock) && layout_is_valid(&dock));
         let v = dock.find_tab(&Tab::Viewport).unwrap();
@@ -667,6 +699,8 @@ mod layout_tests {
     #[test]
     fn painter_view_layouts_f1_to_f4() {
         let mut dock = default_layout();
+        assert_eq!(current_view_layout(&dock), ViewLayout::Both, "Painter opens on 3D | 2D");
+        apply_view_layout(&mut dock, ViewLayout::Only3d);
         assert!(!is_side_by_side(&dock) && is_front(&dock, Tab::Viewport) && !is_front(&dock, Tab::UvView));
         // F3: 2D only, F2: 3D only (the other view stays a tab behind it).
         apply_view_layout(&mut dock, ViewLayout::Only2d);
@@ -1447,6 +1481,7 @@ impl SubcraftApp {
             Action::EraserTool => self.state.tool = Tool::Eraser,
             Action::PolygonFillTool => self.state.tool = Tool::PolygonFill,
             Action::SmudgeTool => self.state.tool = Tool::Smudge,
+            Action::ProjectionTool => self.state.tool = Tool::Projection,
             Action::CloneTool => self.state.tool = Tool::Clone,
             Action::EyedropperTool => self.state.tool = Tool::Eyedropper,
             Action::NextCamera => crate::view_extras::cycle_camera(&mut self.state, 1),
@@ -1475,6 +1510,7 @@ impl SubcraftApp {
             }
             Action::OpenProject => self.request(Pending::OpenProject, now),
             Action::Bake => self.state.bake.open = true,
+            Action::ReimportMesh => crate::mesh_reload::open_reimport(&mut self.state),
             Action::TogglePathTracing => {
                 let prefs = &mut self.state.recovery.prefs.viewport;
                 prefs.path_tracing = !prefs.path_tracing;
@@ -1603,6 +1639,7 @@ impl SubcraftApp {
                 (Tool::PolygonFill, icons::PAINT_BUCKET, tip(km, "Polygon fill", Action::PolygonFillTool)),
                 (Tool::Clone, icons::COPY, crate::keys::native_string(format!("{}: Ctrl+click or hold V and click the model to set the source, then paint to copy it", tip(km, "Clone", Action::CloneTool)))),
                 (Tool::Smudge, icons::DROP, tip(km, "Smudge: drag the paint under the brush along the stroke", Action::SmudgeTool)),
+                (Tool::Projection, icons::IMAGE, tip(km, "Projection: paint the brush material cast from the view and tiled over it", Action::ProjectionTool)),
                 (Tool::Eyedropper, icons::CURSOR, tip(km, "Eyedropper (Shift+click picks material)", Action::EyedropperTool)),
                 (Tool::Pen, icons::CURVE, tip(km, "Pen paths: click points, drag for curves; edit anchors and handles in 2D View", Action::PenTool)),
             ] {
@@ -1706,6 +1743,10 @@ impl SubcraftApp {
                 if item(ui, icons::SAVE, tr("Save as…"), &sc(km, Action::SaveAs)) {
                     ui.close();
                     self.perform(Action::SaveAs, now);
+                }
+                if item(ui, icons::SAVE, tr("Save as copy…"), "") {
+                    ui.close();
+                    dialogs::save_copy(&mut self.state, now);
                 }
                 ui.separator();
                 ui.menu_button(format!("{}   {}", icons::IMAGE, tr("Import resources")), |ui| {
@@ -1819,10 +1860,15 @@ impl SubcraftApp {
                     ui.close();
                     self.perform(Action::Bake, now);
                 }
-                // Painter: Edit > Project configuration (replace the mesh, its settings).
-                if item(ui, icons::CUBE_WIRE, tr("Project configuration (reload mesh)…"), "") {
+                // Painter: Edit > Project configuration (the mesh, import settings, UV tiles) and
+                // Reimport mesh (Ctrl+Shift+R).
+                if item(ui, icons::CUBE_WIRE, tr("Project configuration…"), "") {
                     ui.close();
                     crate::mesh_reload::open(&mut self.state);
+                }
+                if item(ui, icons::CUBE_WIRE, tr("Reimport mesh…"), &sc(km, Action::ReimportMesh)) {
+                    ui.close();
+                    self.perform(Action::ReimportMesh, now);
                 }
                 if item(ui, icons::CUBE_WIRE, tr("Auto UV unwrap…"), "") {
                     ui.close();
@@ -2025,6 +2071,7 @@ impl SubcraftApp {
                 Tool::PolygonFill => (icons::PAINT_BUCKET, "Polygon fill"),
                 Tool::Clone => (icons::COPY, "Clone"),
                 Tool::Smudge => (icons::DROP, "Smudge"),
+                Tool::Projection => (icons::IMAGE, "Projection"),
                 Tool::Eyedropper => (icons::CURSOR, "Eyedropper"),
                 Tool::Pen => (icons::CURVE, "Pen paths"),
             };

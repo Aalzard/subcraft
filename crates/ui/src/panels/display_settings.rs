@@ -358,6 +358,15 @@ pub fn camera(state: &mut UiState, ui: &mut Ui) {
                 });
             }).response.on_hover_text(tr("Frames averaged before the image is final: 16 suits most views, 64 very contrasted ones"));
             ui.end_row();
+            // Painter's Color profile: the material view raw (linear values, not sRGB) or
+            // through the project's colour LUT.
+            ui.label(tr("Color profile"));
+            ui.checkbox(&mut prefs.display.color_profile, "").on_hover_text(tr("Show the material view as linear raw values instead of sRGB, or through the project's colour LUT"));
+            ui.end_row();
+            ui.label(tr("White point"));
+            ui.add_enabled(prefs.display.color_profile, egui::Slider::new(&mut prefs.display.white_point, 0.1..=100.0).logarithmic(true))
+                .on_hover_text(tr("The brightest value shown: values are divided by it and clamped before the colour LUT. Above 1 for very bright content such as the sun"));
+            ui.end_row();
         });
     }
     if pick {
@@ -666,9 +675,20 @@ pub fn visualization(state: &mut UiState, ui: &mut Ui) {
         ui.end_row();
     });
     sub_header(ui, tr("Tool display"));
+    let projection_channels: Vec<subcraft_core::ChannelKind> = state.session.brush.material.textures.keys().copied().collect();
     // The same settings as the stencil display options in Properties > Brush.
     grid(ui, "display_tool", |ui| {
         let d = &mut state.stencil_display;
+        ui.label(tr("Projection preview"));
+        ui.add(egui::Slider::new(&mut d.projection_opacity, 0.0..=1.0)).on_hover_text(tr("Opacity of the Projection tool's pattern over the 3D view (0 hides it)"));
+        ui.end_row();
+        ui.label(tr("Projection preview channel"));
+        egui::ComboBox::from_id_salt("projection_preview_channel").selected_text(d.projection_channel.display_name()).show_ui(ui, |ui| {
+            for k in &projection_channels {
+                ui.selectable_value(&mut d.projection_channel, *k, k.display_name());
+            }
+        }).response.on_hover_text(tr("Which image of the brush material the Projection tool shows over the view"));
+        ui.end_row();
         ui.label(tr("Hide stencil when painting"));
         ui.checkbox(&mut d.hide_when_painting, "").on_hover_text(tr("The stencil image disappears during a stroke, so the paint is seen as it lands"));
         ui.end_row();

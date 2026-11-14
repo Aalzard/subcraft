@@ -52,10 +52,12 @@ pub enum IdSource {
     MeshId,
     /// One generated colour per named object of the file (per material when it names none).
     Submesh,
+    /// One generated colour per high-poly file, when several are baked together.
+    FileId,
 }
 
 impl IdSource {
-    pub const ALL: [IdSource; 4] = [IdSource::VertexColor, IdSource::MaterialColor, IdSource::MeshId, IdSource::Submesh];
+    pub const ALL: [IdSource; 5] = [IdSource::VertexColor, IdSource::MaterialColor, IdSource::MeshId, IdSource::Submesh, IdSource::FileId];
 }
 
 /// How occlusion rays are spread over their cone.
@@ -760,6 +762,10 @@ fn bake_core(
             progress.warn("ID map: the model's materials have no colours, so one colour per object / material was used instead".into());
             IdSource::Submesh
         }
+        IdSource::FileId if wanted(MeshMapKind::Id) && detail_geo.mesh.file_count() < 2 => {
+            progress.warn("ID map: File ID needs several high-poly files, so the one file's colour was used everywhere".into());
+            IdSource::FileId
+        }
         source => source,
     };
     let bounds = low.bounds;
@@ -854,6 +860,7 @@ fn bake_core(
                             Some(object) => generated(mesh.materials.len() as u32 + object),
                             None => generated(slot),
                         },
+                        IdSource::FileId => generated(mesh.file_of(tri)),
                     }
                 }
                 MeshMapKind::AmbientOcclusion if !settings.ao.is_plain() => {

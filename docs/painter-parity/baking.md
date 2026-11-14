@@ -79,10 +79,10 @@ Layout notes: a "Common settings" entry at the top (with its own sync button), t
 | Apply checked to all Texture sets | Mesh map bakers dropdown | not documented | missing | - | - |
 | Sync all settings to more Texture sets... | Mesh map bakers dropdown | not documented | missing | - | - |
 | Sync all settings to all Texture Sets | Mesh map bakers dropdown | not documented | missing | - | - |
-| Reset parameters to default values | Mesh map bakers dropdown / settings | not documented | missing | - | - |
+| Reset parameters to default values | Mesh map bakers dropdown / settings | not documented | done: the selected baker, or the common settings | crates/ui/src/dialogs.rs (reset_parameters) | - |
 | Reset cage painting parameters | Mesh map bakers dropdown | (unverified) | missing | - | - |
 | Reset cage painting strokes | Mesh map bakers dropdown | (unverified) | missing | - | - |
-| Reset all baking settings | Mesh map bakers dropdown | (unverified) | missing | - | - |
+| Reset all baking settings | Mesh map bakers dropdown | (unverified) | done: the model files stay | crates/ui/src/dialogs.rs (reset_all) | - |
 | Apply (mesh map) settings to more Texture sets... | Right-click on a baker row | not documented | missing | - | - |
 | Breadcrumbs in Mesh map settings | Mesh map settings panel | not documented | partial: "Mesh map settings > map" title, not clickable | crates/ui/src/dialogs.rs (map_settings_panel) | - |
 
@@ -141,7 +141,7 @@ Layout notes: a "Common settings" entry at the top (with its own sync button), t
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
 | ID baker | Mesh map bakers | not documented | done | crates/bake/src/lib.rs:310 | - |
-| Color source | Mesh map settings > ID | Vertex Color; Material Color; File ID; Mesh ID/Polygroup (default not documented) | partial: Vertex color, Material color, Mesh ID / Polygroup, Submesh; no File ID | crates/ui/src/dialogs.rs (map_settings_panel) | - |
+| Color source | Mesh map settings > ID | Vertex Color; Material Color; File ID; Mesh ID/Polygroup (default not documented) | done: Vertex color, Material color, Mesh ID / Polygroup, Submesh, File ID | crates/ui/src/dialogs.rs (map_settings_panel) | - |
 | Color Generator | Mesh map settings > ID (File ID or Mesh ID/Polygroup) | Random; Hue shift; Grayscale (default not documented) | done: Random, Hue shift (default), Grayscale | crates/bake/src/lib.rs (IdGenerator) | - |
 
 ## Mesh map settings: Ambient occlusion

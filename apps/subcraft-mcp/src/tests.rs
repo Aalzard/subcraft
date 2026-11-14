@@ -87,6 +87,37 @@ fn every_defined_tool_is_dispatched_and_closed_to_unknown_arguments() {
     assert!(fails(&mut server, "no_such_tool", json!({})).contains("unknown tool"));
 }
 
+/// QA 2026-11: a line that was not UTF-8 ended the server, and a message that was not an object
+/// or an empty batch got no reply, so the client waited forever.
+#[test]
+fn every_malformed_line_gets_an_error_reply() {
+    let mut server = Server::new();
+    let code = |reply: Option<Value>| reply.expect("a reply")["error"]["code"].as_i64();
+    assert_eq!(code(crate::reply_to_line(&mut server, b"{\"id\":1,\"method\":\"ping\"\xff}\n")), Some(-32700));
+    assert_eq!(code(crate::reply_to_line(&mut server, b"[]\n")), Some(-32600));
+    assert_eq!(code(crate::reply_to_line(&mut server, b"5\n")), Some(-32600));
+    let batch = crate::reply_to_line(&mut server, b"[\"x\", {\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"ping\"}]").expect("a reply");
+    assert_eq!(batch[0]["error"]["code"], json!(-32600), "{batch}");
+    assert_eq!(batch[1]["id"], json!(2), "{batch}");
+    assert!(crate::reply_to_line(&mut server, b"  \r\n").is_none(), "blank lines need no reply");
+    assert!(crate::reply_to_line(&mut server, b"{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}").is_none());
+    // The server still answers after all of that.
+    let pong = crate::reply_to_line(&mut server, b"{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"ping\"}").expect("a reply");
+    assert_eq!(pong["result"], json!({}), "{pong}");
+}
+
+/// QA 2026-11: a call to a tool that does not exist came back as a tool result with isError,
+/// which MCP reserves for a tool that ran and failed; the spec asks for error -32602.
+#[test]
+fn an_unknown_tool_is_a_protocol_error() {
+    let mut server = Server::new();
+    let reply = crate::reply_to_line(&mut server, br#"{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"no_such_tool","arguments":{}}}"#).expect("a reply");
+    assert_eq!(reply["error"]["code"], json!(-32602), "{reply}");
+    assert_eq!(reply["id"], json!(7), "{reply}");
+    let reply = crate::reply_to_line(&mut server, br#"{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"project_info","arguments":{}}}"#).expect("a reply");
+    assert!(reply.get("result").is_some(), "known tools still answer with a result: {reply}");
+}
+
 #[test]
 fn unknown_arguments_are_reported_with_the_valid_names() {
     let mut server = Server::new();
@@ -98,6 +129,21 @@ fn unknown_arguments_are_reported_with_the_valid_names() {
     assert!(msg.contains("`colour`") && msg.contains("fill"), "{msg}");
     // Nothing was added by the rejected call.
     assert!(!layer_names(&mut server, "Body").iter().any(|n| n.contains("Fill")));
+}
+
+/// QA 2026-11: mask_add_effect / content_add_effect with a bad `blend` failed only after adding
+/// the effect (and a black mask), so the error left them in the project.
+#[test]
+fn a_bad_effect_blend_adds_nothing() {
+    let mut server = Server::new();
+    sample(&mut server);
+    ok(&mut server, "layer_add", json!({ "type": "fill", "name": "F", "texture_set": "Body" }));
+    let steps = ok(&mut server, "history", json!({}))["entries"].as_array().unwrap().len();
+    let e = fails(&mut server, "mask_add_effect", json!({ "layer": "F", "texture_set": "Body", "effect": { "type": "levels" }, "blend": "no-such-blend" }));
+    assert!(e.contains("blend mode"), "{e}");
+    let e = fails(&mut server, "content_add_effect", json!({ "layer": "F", "texture_set": "Body", "effect": { "type": "levels" }, "blend": "no-such-blend" }));
+    assert!(e.contains("blend mode"), "{e}");
+    assert_eq!(ok(&mut server, "history", json!({}))["entries"].as_array().unwrap().len(), steps, "nothing was added");
 }
 
 #[test]
@@ -140,6 +186,50 @@ fn image_saves_must_be_png_files() {
     assert!(crate::tools::png_path(std::path::Path::new("a/.png")).is_err());
 }
 
+/// QA 2026-11: text styles were lost or ignored: `bold` alone replaced a system font with DejaVu
+/// Sans Bold, `bold: false` could not un-bold, `italic` alone did nothing, and a style a bundled
+/// family lacks was dropped silently.
+#[test]
+fn text_bold_and_italic_keep_the_family_and_say_when_they_cannot() {
+    let mut server = Server::new();
+    sample(&mut server);
+    let t = ok(&mut server, "text_add", json!({ "text": "Hi", "texture_set": "Body", "name": "T", "bold": true }));
+    assert_eq!(t["font"], json!({ "bundled": "DejaVu Sans Bold" }), "{t}");
+    let t = ok(&mut server, "text_update", json!({ "layer": "T", "texture_set": "Body", "bold": false }));
+    assert_eq!(t["font"], json!({ "bundled": "DejaVu Sans" }), "bold: false un-bolds: {t}");
+    let e = fails(&mut server, "text_update", json!({ "layer": "T", "texture_set": "Body", "italic": true }));
+    assert!(e.contains("italic"), "{e}");
+    let e = fails(&mut server, "text_update", json!({ "layer": "T", "texture_set": "Body", "font": "DejaVu Serif", "bold": true }));
+    assert!(e.contains("no bold"), "{e}");
+    let t = ok(&mut server, "text_update", json!({ "layer": "T", "texture_set": "Body", "font": "Some Family", "italic": true }));
+    assert_eq!(t["font"], json!({ "system": "Some Family", "bold": false, "italic": true }), "{t}");
+    let t = ok(&mut server, "text_update", json!({ "layer": "T", "texture_set": "Body", "bold": true }));
+    assert_eq!(t["font"], json!({ "system": "Some Family", "bold": true, "italic": true }), "the family and italic stay: {t}");
+}
+
+/// QA 2026-11: layer_add / fill_set added the channels a fill spec named to the texture set
+/// before reading the spec, so a bad spec failed with those channels (and their undo steps) left
+/// behind.
+#[test]
+fn a_bad_fill_spec_adds_no_channels() {
+    let mut server = Server::new();
+    sample(&mut server);
+    let has_emissive = |server: &mut Server| ok(server, "project_info", json!({})).to_string().contains("emissive");
+    assert!(!has_emissive(&mut server), "the sample starts without Emissive");
+    let steps = |server: &mut Server| ok(server, "history", json!({}))["entries"].as_array().unwrap().len();
+    let before = steps(&mut server);
+    fails(&mut server, "layer_add", json!({ "type": "fill", "name": "F", "texture_set": "Body", "fill": { "emissive": { "image": "no-such-image.png" } } }));
+    fails(&mut server, "layer_add", json!({ "type": "fill", "name": "F", "texture_set": "Body", "fill": { "emissive": [1.0, 0.0, 0.0] }, "projection": { "mode": "no-such-mode" } }));
+    assert!(!has_emissive(&mut server) && steps(&mut server) == before, "layer_add left nothing behind");
+    ok(&mut server, "layer_add", json!({ "type": "fill", "name": "F", "texture_set": "Body" }));
+    let before = steps(&mut server);
+    fails(&mut server, "fill_set", json!({ "layer": "F", "texture_set": "Body", "channels": { "emissive": { "image": "no-such-image.png" } } }));
+    fails(&mut server, "fill_set", json!({ "layer": "F", "texture_set": "Body", "channels": { "emissive": { "low": 0.2 } } }));
+    assert!(!has_emissive(&mut server) && steps(&mut server) == before, "fill_set left nothing behind");
+    ok(&mut server, "fill_set", json!({ "layer": "F", "texture_set": "Body", "channels": { "emissive": [1.0, 0.0, 0.0] } }));
+    assert!(has_emissive(&mut server), "a good spec still adds the channel");
+}
+
 #[test]
 fn fill_layer_reaches_the_exported_base_color() {
     let dir = TempDir::new("export");
@@ -161,6 +251,23 @@ fn fill_layer_reaches_the_exported_base_color() {
         let p = img.get_pixel(x, y).0;
         assert!(p[0] >= 250 && p[1] <= 5 && p[2] <= 5, "pixel ({x},{y}) is {p:?}, expected sRGB red");
     }
+}
+
+/// QA 2026-11: texture_set_update renamed the set (and made any earlier change) before finding
+/// that a later argument was bad, so the error left half the update applied.
+#[test]
+fn a_bad_texture_set_update_changes_nothing() {
+    let mut server = Server::new();
+    sample(&mut server);
+    let steps = |server: &mut Server| ok(server, "history", json!({}))["entries"].as_array().unwrap().len();
+    let before = steps(&mut server);
+    fails(&mut server, "texture_set_update", json!({ "texture_set": "Body", "name": "Renamed", "resolution": 300 }));
+    fails(&mut server, "texture_set_update", json!({ "texture_set": "Body", "name": "Renamed", "add_channels": ["emissive", "no-such-channel"] }));
+    fails(&mut server, "texture_set_update", json!({ "texture_set": "Body", "name": "Renamed", "remove_channels": ["emissive"] }));
+    assert_eq!(steps(&mut server), before, "nothing was changed");
+    assert!(!ok(&mut server, "project_info", json!({})).to_string().contains("Renamed"));
+    ok(&mut server, "texture_set_update", json!({ "texture_set": "Body", "name": "Renamed", "add_channels": ["emissive"] }));
+    assert!(ok(&mut server, "project_info", json!({})).to_string().contains("Renamed"));
 }
 
 #[test]
@@ -224,6 +331,21 @@ fn layers_masks_painting_undo_and_save_round_trip() {
     assert!(fails(&mut server, "layer_add", json!({ "type": "bogus" })).contains("bogus"));
 }
 
+/// QA 2026-11: unknown keys were caught only at the top level of a nested setting: a typo inside
+/// `backface` was ignored silently. And a real field holding its default value
+/// (`cylinder_angle: 360`) was refused as unknown, because it is not written back.
+#[test]
+fn nested_unknown_keys_are_refused_and_default_valued_fields_accepted() {
+    let mut server = Server::new();
+    sample(&mut server);
+    ok(&mut server, "layer_add", json!({ "type": "fill", "name": "F", "texture_set": "Body" }));
+    let e = fails(&mut server, "fill_set", json!({ "layer": "F", "texture_set": "Body", "projection": { "mode": "planar", "backface": { "angle_deg": 80.0, "hardness": 1.0, "softnes": 0.5 } } }));
+    assert!(e.contains("backface.softnes") && e.contains("hardness"), "{e}");
+    let e = fails(&mut server, "fill_set", json!({ "layer": "F", "texture_set": "Body", "projection": { "mode": "planar", "rotaton_deg": 10.0 } }));
+    assert!(e.contains("rotaton_deg") && e.contains("rotation_deg"), "{e}");
+    ok(&mut server, "fill_set", json!({ "layer": "F", "texture_set": "Body", "projection": { "mode": "planar", "cylinder_angle": 360.0, "backface": { "angle_deg": 80.0, "hardness": 1.0 } } }));
+}
+
 #[test]
 fn render_preview_returns_an_image_when_a_gpu_is_available() {
     let mut server = Server::new();
@@ -239,6 +361,19 @@ fn render_preview_returns_an_image_when_a_gpu_is_available() {
     // Base64 of the PNG signature.
     assert!(image["data"].as_str().unwrap().starts_with("iVBORw0KGgo"));
     assert_eq!(image["mimeType"], json!("image/png"));
+}
+
+/// QA 2026-11: save_to_library renamed the layer (an undo step) before finding that `kind` was
+/// unknown, so the refused call left the layer renamed.
+#[test]
+fn save_to_library_with_an_unknown_kind_renames_nothing() {
+    let mut server = Server::new();
+    sample(&mut server);
+    ok(&mut server, "layer_add", json!({ "type": "fill", "name": "F", "texture_set": "Body" }));
+    let e = fails(&mut server, "save_to_library", json!({ "layer": "F", "texture_set": "Body", "name": "Renamed", "kind": "brush" }));
+    assert!(e.contains("kind"), "{e}");
+    let names = layer_names(&mut server, "Body");
+    assert!(names.contains(&"F".to_string()) && !names.contains(&"Renamed".to_string()), "{names:?}");
 }
 
 #[test]
@@ -272,6 +407,62 @@ fn flatten_instantiate_and_channel_removal() {
     assert!(msg.to_lowercase().contains("emissive"), "{msg}");
 }
 
+/// QA 2026-11: one tool call could leave several undo steps (texture_set_update renaming and
+/// adding a channel; a fill that needs a new channel), so `undo` undid only part of it.
+#[test]
+fn one_tool_call_is_one_undo_step() {
+    let mut server = Server::new();
+    sample(&mut server);
+    let steps = |server: &mut Server| ok(server, "history", json!({}))["entries"].as_array().unwrap().len();
+    let before = steps(&mut server);
+    ok(&mut server, "texture_set_update", json!({ "texture_set": "Body", "name": "Hull", "add_channels": ["emissive"], "hidden": false }));
+    assert_eq!(steps(&mut server), before + 1, "{}", ok(&mut server, "history", json!({})));
+    ok(&mut server, "layer_add", json!({ "type": "fill", "name": "Glow", "texture_set": "Hull", "fill": { "opacity": 0.5 } }));
+    assert_eq!(steps(&mut server), before + 2);
+    let undone = ok(&mut server, "undo", json!({}));
+    assert_eq!(undone["undone"].as_array().unwrap().len(), 1, "{undone}");
+    assert!(!layer_names(&mut server, "Hull").contains(&"Glow".to_string()));
+    ok(&mut server, "undo", json!({}));
+    let info = ok(&mut server, "project_info", json!({})).to_string();
+    assert!(info.contains("Body") && !info.contains("Hull") && !info.contains("emissive"), "the whole update is undone: {info}");
+}
+
+/// QA 2026-11: brush_set applied size, options and colours before reading `mode` and `tip`, so a
+/// bad mode or tip failed with half the brush changed.
+#[test]
+fn a_bad_brush_set_changes_nothing() {
+    let mut server = Server::new();
+    sample(&mut server);
+    let before = ok(&mut server, "brush_set", json!({}))["brush"].clone();
+    fails(&mut server, "brush_set", json!({ "size": 0.37, "channels": { "base_color": [1.0, 0.0, 0.0] }, "mode": "no-such-mode" }));
+    fails(&mut server, "brush_set", json!({ "size": 0.37, "symmetry": "x", "tip": "no-such-tip" }));
+    assert_eq!(ok(&mut server, "brush_set", json!({}))["brush"], before, "the brush is as it was");
+    let after = ok(&mut server, "brush_set", json!({ "size": 0.37 }))["brush"].clone();
+    assert_ne!(after, before, "a good call still changes it");
+}
+
+/// QA 2026-11: numbers the document cannot hold were accepted. `1e39` became infinity, saved as
+/// `null`; a zero projection scale saved fine. Either way the project then failed to open.
+#[test]
+fn out_of_range_numbers_are_refused_before_they_reach_the_project() {
+    let dir = TempDir::new("numbers");
+    let mut server = Server::new();
+    sample(&mut server);
+    let e = fails(&mut server, "layer_add", json!({ "type": "fill", "name": "F", "texture_set": "Body", "fill": { "roughness": 1e39 } }));
+    assert!(e.contains("fill.roughness"), "{e}");
+    ok(&mut server, "layer_add", json!({ "type": "fill", "name": "F", "texture_set": "Body" }));
+    let e = fails(&mut server, "fill_set", json!({ "layer": "F", "texture_set": "Body", "projection": { "mode": "planar", "transform3": { "offset": [0.0, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 0.0], "scale": [0.0, 1.0, 1.0] } } }));
+    assert!(e.contains("out of range"), "{e}");
+    let e = fails(&mut server, "fill_set", json!({ "layer": "F", "texture_set": "Body", "projection": { "mode": "planar", "backface": { "angle_deg": 200.0, "hardness": 1.0 } } }));
+    assert!(e.contains("out of range"), "{e}");
+    ok(&mut server, "fill_set", json!({ "layer": "F", "texture_set": "Body", "projection": { "mode": "planar", "transform3": { "offset": [0.0, 0.0, 0.0], "rotation_deg": [0.0, 0.0, 0.0], "scale": [0.5, 1.0, 1.0] } } }));
+    // Nothing refused reached the document: it saves and opens again.
+    let file = dir.join("numbers.subcraft");
+    ok(&mut server, "project_save", json!({ "path": file }));
+    ok(&mut server, "project_open", json!({ "path": file }));
+    assert!(layer_names(&mut server, "Body").contains(&"F".to_string()));
+}
+
 /// QA 2026-11: a stroke to a far or infinite point ran until the server ran out of memory, and a
 /// bad point in a later stroke left the earlier strokes painted behind the error.
 #[test]
@@ -300,4 +491,36 @@ fn a_view_space_pen_path_takes_its_image_size_apart_from_its_line_width() {
     let path = ok(&mut server, "pen_path", json!({ "space": "view", "view_width": 512, "height": 512, "width": 0.01, "points": [[250, 256], [262, 256]] }));
     let width = path["path"]["width"].as_f64().unwrap();
     assert!((width - 0.01).abs() < 1e-6, "the line width asked for: {path}");
+}
+
+/// QA 2026-11: export padding -3 or 2.5 became 8 texels silently, and part ids or padding beyond
+/// u32 wrapped round (2^32 + 1 selected part 1).
+#[test]
+fn padding_and_part_ids_outside_their_range_are_refused() {
+    let dir = TempDir::new("padding");
+    let mut server = Server::new();
+    sample(&mut server);
+    for bad in [json!(-3), json!(2.5), json!(4294967304u64)] {
+        let e = fails(&mut server, "export_textures", json!({ "dir": dir.join("out"), "padding": bad }));
+        assert!(e.contains("padding"), "{e}");
+    }
+    assert!(!std::path::Path::new(&dir.join("out")).exists(), "nothing was exported");
+    ok(&mut server, "layer_add", json!({ "type": "paint", "name": "P", "texture_set": "Body" }));
+    for bad in [json!(4294967297u64), json!(-1), json!(1.5)] {
+        let e = fails(&mut server, "layer_set_parts", json!({ "layer": "P", "texture_set": "Body", "parts": [bad] }));
+        assert!(e.contains("part ids"), "{e}");
+    }
+}
+
+/// QA 2026-11: project_new dropped an unsupported resolution silently: the sample stayed at
+/// 1024 and the call reported success.
+#[test]
+fn project_new_refuses_an_unsupported_resolution() {
+    let mut server = Server::new();
+    let e = fails(&mut server, "project_new", json!({ "model_path": "sample", "resolution": 300 }));
+    assert!(e.contains("resolution"), "{e}");
+    let e = fails(&mut server, "project_new", json!({ "model_path": "no-such-model.obj", "resolution": 3000 }));
+    assert!(e.contains("resolution"), "refused before the model is read: {e}");
+    let info = ok(&mut server, "project_new", json!({ "model_path": "sample", "resolution": 512 }));
+    assert!(info.to_string().contains("\"resolution\":512"), "{info}");
 }
