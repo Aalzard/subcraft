@@ -65,6 +65,9 @@ pub struct Preferences {
     pub orbit_around_cursor: bool,
     /// Settings > General > Camera: rotation, zoom and wheel speeds and directions.
     pub camera_speed: crate::nav::CameraSpeed,
+    /// Folder of a "SubCraft Materials" pack (Settings > Libraries); empty = none. Its materials
+    /// show in the Assets panel's Materials tab.
+    pub materials_pack: String,
     /// Window > Toolbars: the tool rail and the status bar.
     pub show_tools_toolbar: bool,
     pub show_status_bar: bool,
@@ -142,6 +145,7 @@ impl Default for Preferences {
             nav_scheme: Default::default(),
             orbit_around_cursor: true,
             camera_speed: Default::default(),
+            materials_pack: String::new(),
             show_tools_toolbar: true,
             show_status_bar: true,
             keymap: Default::default(),

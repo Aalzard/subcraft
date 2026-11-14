@@ -13,6 +13,14 @@ pub enum Handle { Anchor, Incoming, Outgoing }
 /// A path's width is independent of the resolution and its raster is only a cache: resampled,
 /// a path taken from 512 to 4096 stayed blurred until its next edit, and was exported that way.
 pub(crate) fn refresh_path_rasters(doc: &mut subcraft_doc::Document, resources: &subcraft_doc::ResourceStore, texture_sets: &[subcraft_core::TextureSetId]) {
+    for ts in doc.texture_sets.iter_mut().filter(|ts| texture_sets.contains(&ts.id)) {
+        let resolution = ts.resolution;
+        redraw_path_layers(&mut ts.layers, resolution, resources);
+    }
+}
+
+/// Draw the raster of every pen path layer in `layers` (and their folders) at `resolution`.
+pub(crate) fn redraw_path_layers(layers: &mut [std::sync::Arc<Layer>], resolution: u32, resources: &subcraft_doc::ResourceStore) {
     use std::sync::Arc;
     fn walk(layers: &mut [Arc<Layer>], resolution: u32, resources: &subcraft_doc::ResourceStore) {
         for layer in layers {
@@ -40,10 +48,7 @@ pub(crate) fn refresh_path_rasters(doc: &mut subcraft_doc::Document, resources: 
             }
         }
     }
-    for ts in doc.texture_sets.iter_mut().filter(|ts| texture_sets.contains(&ts.id)) {
-        let resolution = ts.resolution;
-        walk(&mut ts.layers, resolution, resources);
-    }
+    walk(layers, resolution, resources);
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -110,7 +115,13 @@ impl PenEditor {
         self.selected = self.preview(session).and_then(|p| p.anchors.last()).map(|a| a.id);
     }
 
-    pub fn new_path(&mut self) { self.finish_path(); }
+    /// Painter's New path: the next click starts a new path layer in the selection as it is now.
+    pub fn new_path(&mut self, session: &Session) {
+        if self.pending.is_empty() && self.domain != Some(session.selection()) {
+            self.cancel(); self.domain = Some(session.selection());
+        }
+        self.finish_path();
+    }
     /// Finish adding points without discarding a raster job already in progress.
     pub fn finish_path(&mut self) { self.selected = None; self.new_on_click = true; }
 
@@ -142,7 +153,11 @@ impl PenEditor {
     }
 
     pub fn begin(&mut self, session: &Session, uv: Vec2, hit: Option<PenHit>) -> Result<(), CommandError> {
-        let force = self.new_on_click && hit.is_none();
+        // Enter / Finish asks for a new path where it was pressed: once another layer is selected
+        // (another path to add to), a click goes to that one. It used to make a third layer, as
+        // the flag was read before `edit` noticed the new selection.
+        let moved = self.pending.is_empty() && self.domain.is_some_and(|d| d != session.selection());
+        let force = self.new_on_click && hit.is_none() && !moved;
         if force && !self.pending.is_empty() { return Err(error("wait for the current path to finish drawing")); }
         if self.pending.len() >= 32 { return Err(error("wait for the queued pen points to finish drawing")); }
         let mut edit = self.edit(session, force)?;
@@ -167,6 +182,8 @@ impl PenEditor {
             if hit.is_some() { return Err(error("edit this handle in the 2D view")); }
             let id = session.document().texture_set_for_slot(pick.material_slot).ok_or(CommandError::TextureSetNotFound)?.id;
             self.cancel(); session.execute(Command::SelectTextureSet(id))?;
+            // A click on another texture set starts a path there.
+            self.domain = Some(session.selection());
         }
         self.begin(session, surface_uv(session, &pick), hit)
     }

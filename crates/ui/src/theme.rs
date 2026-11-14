@@ -7,6 +7,7 @@
 //! theme picked in Settings > General applies on the next frame, without a restart.
 
 use std::sync::Arc;
+#[cfg(not(test))]
 use std::sync::atomic::{AtomicU8, Ordering};
 
 use egui::{Color32, CornerRadius, FontData, FontDefinitions, FontFamily, FontId, Margin, Shadow, Stroke, TextStyle, Visuals};
@@ -26,6 +27,16 @@ pub enum ThemeKind {
 
 impl ThemeKind {
     pub const ALL: [ThemeKind; 3] = [ThemeKind::Dark, ThemeKind::Light, ThemeKind::Painter];
+
+    /// The theme named as in settings files (`dark`, `light`, `painter`; `--theme`).
+    pub fn parse(name: &str) -> Option<ThemeKind> {
+        match name.to_ascii_lowercase().as_str() {
+            "dark" => Some(ThemeKind::Dark),
+            "light" => Some(ThemeKind::Light),
+            "painter" => Some(ThemeKind::Painter),
+            _ => None,
+        }
+    }
 
     pub fn palette(self) -> &'static Palette {
         match self {
@@ -79,6 +90,8 @@ pub struct Palette {
     pub on_accent: Color32,
     pub warning: Color32,
     pub error: Color32,
+    /// egui's own error text (stock widgets); `None` keeps egui's red, as Dark had before themes.
+    pub egui_error: Option<Color32>,
     pub success: Color32,
     /// Layer tree: folder icons and badges, folder row band, hierarchy guide lines.
     pub folder: Color32,
@@ -124,6 +137,7 @@ pub const DARK: Palette = Palette {
     on_accent: rgb(34, 33, 31),
     warning: rgb(240, 196, 110),
     error: rgb(235, 110, 100),
+    egui_error: None,
     success: rgb(124, 196, 124),
     folder: rgb(226, 184, 98),
     folder_band: rgb(46, 44, 41),
@@ -161,6 +175,7 @@ pub const LIGHT: Palette = Palette {
     on_accent: rgb(24, 14, 8),
     warning: rgb(160, 100, 0),
     error: rgb(190, 40, 30),
+    egui_error: Some(rgb(190, 40, 30)),
     success: rgb(40, 128, 50),
     folder: rgb(180, 122, 20),
     folder_band: rgb(230, 226, 218),
@@ -198,6 +213,7 @@ pub const PAINTER: Palette = Palette {
     on_accent: rgb(30, 30, 30),
     warning: rgb(240, 196, 110),
     error: rgb(235, 110, 100),
+    egui_error: Some(rgb(235, 110, 100)),
     success: rgb(124, 196, 124),
     folder: rgb(220, 180, 100),
     folder_band: rgb(52, 52, 52),
@@ -217,11 +233,39 @@ pub const OVERLAY_OUTLINE: Color32 = DARK.bg_0;
 
 /// The theme in use (a `ThemeKind` as a number). The interface runs on one thread; an atomic
 /// keeps the read free.
+#[cfg(not(test))]
 static CURRENT: AtomicU8 = AtomicU8::new(0);
+
+#[cfg(not(test))]
+fn current_index() -> u8 {
+    CURRENT.load(Ordering::Relaxed)
+}
+
+#[cfg(not(test))]
+fn set_current_index(i: u8) {
+    CURRENT.store(i, Ordering::Relaxed);
+}
+
+// Tests run in parallel threads and many read the theme's colours: each test thread keeps its
+// own theme, so a test can switch themes the way Settings does without changing the others.
+#[cfg(test)]
+thread_local! {
+    static CURRENT: std::cell::Cell<u8> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+fn current_index() -> u8 {
+    CURRENT.with(std::cell::Cell::get)
+}
+
+#[cfg(test)]
+fn set_current_index(i: u8) {
+    CURRENT.with(|c| c.set(i));
+}
 
 /// The theme in use.
 pub fn current() -> ThemeKind {
-    ThemeKind::ALL.get(CURRENT.load(Ordering::Relaxed) as usize).copied().unwrap_or_default()
+    ThemeKind::ALL.get(current_index() as usize).copied().unwrap_or_default()
 }
 
 /// The palette of the theme in use.
@@ -406,7 +450,7 @@ pub fn apply(ctx: &egui::Context) {
 
 /// Switch to `kind`: the next frame draws with it (Settings > General > Theme).
 pub fn set(ctx: &egui::Context, kind: ThemeKind) {
-    CURRENT.store(ThemeKind::ALL.iter().position(|&k| k == kind).unwrap_or(0) as u8, Ordering::Relaxed);
+    set_current_index(ThemeKind::ALL.iter().position(|&k| k == kind).unwrap_or(0) as u8);
     apply_visuals(ctx, kind);
     ctx.request_repaint();
 }
@@ -445,7 +489,9 @@ pub fn visuals(p: &Palette) -> Visuals {
     v.selection.stroke = Stroke::new(1.0, p.on_accent);
     v.hyperlink_color = p.accent;
     v.warn_fg_color = p.warning;
-    v.error_fg_color = p.error;
+    if let Some(error) = p.egui_error {
+        v.error_fg_color = error;
+    }
     v.slider_trailing_fill = true;
     v.handle_shape = egui::style::HandleShape::Circle;
     v.striped = false;
@@ -652,6 +698,8 @@ mod tests {
             assert!(contrast(p.on_accent, p.accent) >= 4.5, "{kind:?}: text on the accent: {}", contrast(p.on_accent, p.accent));
             assert!(contrast(p.border_strong, p.bg_1) >= 1.4, "{kind:?}: strong borders show: {}", contrast(p.border_strong, p.bg_1));
             assert!(contrast(p.warning, p.bg_1) >= 3.0 && contrast(p.error, p.bg_1) >= 3.0 && contrast(p.success, p.bg_1) >= 3.0, "{kind:?}: status colours");
+            let egui_error = visuals(p).error_fg_color;
+            assert!(contrast(egui_error, p.bg_1) >= 3.0, "{kind:?}: egui's error text: {}", contrast(egui_error, p.bg_1));
             assert!(contrast(p.folder, p.bg_1) >= 2.0, "{kind:?}: folder icons");
             // A selected row and a slider rail stand out from the panel.
             assert!(differs(p.accent_soft, p.bg_1, 20) && differs(p.accent_soft, p.row_bands[1], 10), "{kind:?}: selected rows");
@@ -694,6 +742,36 @@ mod tests {
         assert_eq!(DARK.on_accent, DARK.bg_0);
         assert_eq!(DARK.radius, RADIUS);
         assert_eq!(ThemeKind::default(), ThemeKind::Dark);
+        // QA 2026-11: egui's error text had turned from its red to the palette's softer red.
+        assert_eq!(visuals(&DARK).error_fg_color, Visuals::dark().error_fg_color, "egui's error text as before themes");
+        assert_eq!(visuals(&DARK).warn_fg_color, Color32::from_rgb(240, 196, 110));
+        for kind in [ThemeKind::Light, ThemeKind::Painter] {
+            assert_eq!(visuals(kind.palette()).error_fg_color, kind.palette().error, "{kind:?} keeps its own error colour");
+        }
+    }
+
+    /// QA 2026-11: no test switched themes the way Settings > General > Theme does (`set` /
+    /// `follow` on a live context, then a frame).
+    #[test]
+    fn switching_themes_takes_effect_on_the_next_frame() {
+        let ctx = egui::Context::default();
+        apply(&ctx);
+        assert_eq!(current(), ThemeKind::Dark);
+        for kind in [ThemeKind::Light, ThemeKind::Painter, ThemeKind::Light, ThemeKind::Dark] {
+            follow(&ctx, kind);
+            assert_eq!(current(), kind);
+            let p = kind.palette();
+            assert_eq!((TEXT(), BG_1(), radius()), (p.text, p.bg_1, p.radius), "{kind:?}: the colour functions read it");
+            let mut drawn = None;
+            let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+                drawn = Some((ui.visuals().panel_fill, ui.visuals().widgets.inactive.fg_stroke.color, ui.visuals().dark_mode));
+            });
+            out.textures_delta.clear();
+            assert_eq!(drawn, Some((p.bg_1, p.text, p.dark)), "{kind:?}: the frame draws with it");
+        }
+        // Following the theme in use changes nothing.
+        follow(&ctx, ThemeKind::Dark);
+        assert_eq!(ctx.style_of(egui::Theme::Dark).visuals.panel_fill, DARK.bg_1);
     }
 
     #[test]
@@ -701,6 +779,7 @@ mod tests {
         for (kind, name) in [(ThemeKind::Dark, "\"dark\""), (ThemeKind::Light, "\"light\""), (ThemeKind::Painter, "\"painter\"")] {
             assert_eq!(serde_json::to_string(&kind).unwrap(), name);
             assert_eq!(serde_json::from_str::<ThemeKind>(name).unwrap(), kind);
+            assert_eq!(ThemeKind::parse(name.trim_matches('"')), Some(kind), "--theme takes the same names");
         }
     }
 }

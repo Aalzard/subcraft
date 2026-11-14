@@ -59,7 +59,7 @@ fn pending_jobs_survive_selection_changes_but_cannot_overwrite_document_or_scene
     editor.begin(&s, Vec2::splat(0.5), None).unwrap(); editor.release(&s).unwrap();
     s.execute(Command::SelectLayer(None)).unwrap(); finish(&mut editor, &mut s);
     assert_eq!(s.selection().layer, None); assert!(s.selected_texture_set().layers.iter().any(|l| l.kind() == LayerKind::Path));
-    s.execute(Command::SelectLayer(base)).unwrap(); editor.new_path();
+    s.execute(Command::SelectLayer(base)).unwrap(); editor.new_path(&s);
     editor.begin(&s, Vec2::splat(0.6), None).unwrap(); editor.release(&s).unwrap();
     s.execute(Command::DeleteLayer(base.unwrap())).unwrap(); let before = s.document().clone();
     assert!(editor.poll(&mut s, usize::MAX).is_err()); assert_eq!(s.document(), &before);
@@ -75,6 +75,30 @@ fn finish_keeps_pending_work_and_new_path_uses_a_separate_layer() {
     editor.begin(&s, Vec2::splat(0.4), None).unwrap(); editor.release(&s).unwrap(); editor.finish_path();
     finish(&mut editor, &mut s); let first = s.selection().layer.unwrap();
     point(&mut editor, &mut s, Vec2::splat(0.6)); assert_ne!(s.selection().layer, Some(first));
+}
+
+/// QA 2026-11: after Enter, selecting another path layer and clicking made a third layer instead
+/// of adding a point to the selected path.
+#[test]
+fn after_enter_a_click_adds_to_the_path_selected_since() {
+    let mut s = session(); let mut editor = PenEditor::default();
+    point(&mut editor, &mut s, Vec2::new(0.2, 0.2)); point(&mut editor, &mut s, Vec2::new(0.4, 0.2));
+    let a = s.selection().layer.unwrap();
+    editor.finish_path();
+    point(&mut editor, &mut s, Vec2::new(0.2, 0.8)); point(&mut editor, &mut s, Vec2::new(0.4, 0.8));
+    let b = s.selection().layer.unwrap();
+    assert_ne!(a, b, "Enter, then a click: a new path");
+    editor.finish_path();
+    s.execute(Command::SelectLayer(Some(a))).unwrap();
+    point(&mut editor, &mut s, Vec2::new(0.6, 0.2));
+    assert_eq!(s.selection().layer, Some(a), "the click went to the selected path");
+    assert_eq!(pen(&s).anchors.len(), 3);
+    // New path chosen after selecting still starts another layer.
+    editor.new_path(&s);
+    point(&mut editor, &mut s, Vec2::new(0.6, 0.6));
+    let c = s.selection().layer.unwrap();
+    assert!(c != a && c != b, "New path makes a new layer");
+    assert_eq!(pen(&s).anchors.len(), 1);
 }
 
 #[test]
@@ -156,6 +180,32 @@ fn a_resolution_change_draws_the_path_again_instead_of_resampling_it() {
     assert!(p.channels == expected, "the raster is the path drawn at 512");
 }
 
+/// QA 2026-11: a path layer pasted into a set of another resolution (and Paste layer content)
+/// was resampled instead of drawn again, so it stayed blurred until its next edit.
+#[test]
+fn a_path_pasted_at_another_resolution_is_drawn_again() {
+    let mut s = session(); let mut editor = PenEditor::default();
+    point(&mut editor, &mut s, Vec2::new(0.2, 0.2)); point(&mut editor, &mut s, Vec2::new(0.8, 0.7));
+    let path = pen(&s).clone();
+    let source = s.selection().layer.unwrap();
+    let clip = std::sync::Arc::new(s.copy_layers(&[source]).unwrap());
+    s.execute(Command::SetResolution { texture_set: None, resolution: 512 }).unwrap();
+    let mut raster = subcraft_paint::pen::PenRasterizer::new(&path, 512).unwrap();
+    raster.run();
+    let expected = raster.finish().unwrap();
+    assert!(!expected.is_empty());
+    s.execute(Command::PasteLayers(clip.clone())).unwrap();
+    assert_ne!(s.selection().layer, Some(source));
+    let LayerContent::Paint(p) = &s.selected_layer().unwrap().content else { panic!() };
+    assert!(p.channels == expected, "the pasted raster is the path drawn at 512");
+    // Paste layer content onto a plain paint layer does the same.
+    s.execute(Command::AddLayer(NewLayer::Paint)).unwrap();
+    let target = s.selection().layer.unwrap();
+    s.execute(Command::PasteLayerContent { layer: target, clip }).unwrap();
+    let LayerContent::Paint(p) = &s.selected_texture_set().find(target).unwrap().content else { panic!() };
+    assert!(p.channels == expected, "pasted content is the path drawn at 512");
+}
+
 #[test]
 fn insert_on_the_curve_close_on_the_first_point_and_toggle_corner_smooth() {
     let mut s = session(); let mut editor = PenEditor::default();
@@ -180,6 +230,27 @@ fn insert_on_the_curve_close_on_the_first_point_and_toggle_corner_smooth() {
     assert!(pen(&s).closed);
     editor.toggle_point(&s, last).unwrap(); finish(&mut editor, &mut s);
     assert!(!pen(&s).is_smooth(last), "and back to a corner");
+}
+
+/// QA 2026-11: the tip resource of a stamped path was found by pointer only: after reopening
+/// the project the brush tip is another copy of the same image, so each session added one more.
+#[test]
+fn the_stamp_tip_resource_is_reused_after_reopening() {
+    let tips = subcraft_app::assets::alphas::builtin();
+    let tip = tips.iter().find(|t| t.bitmap.is_some()).unwrap();
+    let mut s = session();
+    s.set_brush_alpha(tip);
+    let id = s.brush_tip_resource().unwrap();
+    assert_eq!(s.brush_tip_resource(), Some(id), "the same session reuses it");
+    // As after a reopen: the store holds a loaded copy of the image, the brush the built-in one.
+    let mut store = subcraft_doc::ResourceStore::default();
+    let original = s.resources().get(id).unwrap();
+    store.insert(subcraft_doc::Resource { id, name: original.name.clone(), kind: original.kind, bitmap: std::sync::Arc::new((*original.bitmap).clone()), source_path: None, encoded: None });
+    let mut reopened = Session::from_parts(s.scene().mesh.as_ref().clone(), s.document().clone(), store, "reopened");
+    reopened.set_brush_alpha(tip);
+    let count = reopened.resources().len();
+    assert_eq!(reopened.brush_tip_resource(), Some(id));
+    assert_eq!(reopened.resources().len(), count, "no second copy");
 }
 
 #[test]

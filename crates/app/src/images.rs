@@ -151,7 +151,21 @@ impl Session {
     /// channel to the texture set when it lacks one (the texture's AO then replaces baked AO in the
     /// viewport and exports). One undo step.
     pub fn import_texture_set(&mut self, paths: &[PathBuf]) -> Result<TextureSetImport, String> {
-        let plan = subcraft_assets::texture_maps::plan(paths);
+        self.import_texture_set_named(paths, None)
+    }
+
+    /// Apply a material of a "SubCraft Materials" pack: its maps as one fill layer named after
+    /// it (as [`Session::import_texture_set`]; the files are read now). One undo step.
+    pub fn apply_pack_material(&mut self, material: &subcraft_assets::materials_pack::PackMaterial) -> Result<TextureSetImport, String> {
+        self.import_texture_set_named(&material.maps, Some(&material.name))
+    }
+
+    /// [`Session::import_texture_set`] with the layer's name given (else made from the files').
+    pub fn import_texture_set_named(&mut self, paths: &[PathBuf], name: Option<&str>) -> Result<TextureSetImport, String> {
+        let mut plan = subcraft_assets::texture_maps::plan(paths);
+        if let Some(name) = name.map(str::trim).filter(|n| !n.is_empty()) {
+            plan.name = name.to_string();
+        }
         let file_name = |p: &Path| p.file_name().and_then(|n| n.to_str()).unwrap_or("image").to_string();
         let mut result = TextureSetImport {
             layer_name: plan.name.clone(),

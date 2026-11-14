@@ -1,0 +1,19 @@
+{
+  "name": "wood_test",
+  "display_name": "Wood Test Planks",
+  "category": "Wood",
+  "tags": [
+    "oak",
+    "planks"
+  ],
+  "resolution": 4,
+  "normal_convention": "OpenGL (Y+)",
+  "maps": {
+    "basecolor": "wood_test_basecolor.png",
+    "normal_gl": "wood_test_normal_gl.png",
+    "height": "wood_test_height.png",
+    "roughness": "wood_test_roughness.png",
+    "ao": "wood_test_ao.png"
+  },
+  "preview": "preview.png"
+}
