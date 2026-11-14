@@ -73,6 +73,15 @@ impl BrushNotice {
     }
 }
 
+/// The 2D view's lit material image (Painter's "Material" display) and what it was built from.
+pub struct UvMaterialImage {
+    /// Texture set, session revision and composite generation it shows.
+    pub key: (subcraft_core::TextureSetId, u64, u64),
+    /// When it was built (UI seconds): rebuilt at most every quarter second while edits arrive.
+    pub built: f64,
+    pub texture: egui::TextureHandle,
+}
+
 pub struct UvView {
     pub zoom: f32,
     pub offset: egui::Vec2,
@@ -92,6 +101,9 @@ pub struct UvView {
     pub parts_box: Option<egui::Pos2>,
     /// Frame this UV rectangle (centre, size) next time the 2D view is drawn (F on a path).
     pub frame: Option<(Vec2, Vec2)>,
+    /// Show the lit material (Painter's "Material" display) instead of `source`.
+    pub material: bool,
+    pub material_image: Option<UvMaterialImage>,
 }
 
 /// Compositing time spent per frame before the remaining dirty tiles wait for the next frame.
@@ -500,7 +512,7 @@ impl UiState {
             render_request: None,
             last_view_size: [1280, 720],
             last_view_rect: egui::Rect::NOTHING,
-            uv: UvView { zoom: 1.0, offset: egui::Vec2::ZERO, rotation: 0.0, rotation_raw: 0.0, source: PreviewSource::Channel(ChannelKind::BaseColor), texture: None, painting: false, last_point: None, fill_box: None, parts_box: None, frame: None },
+            uv: UvView { zoom: 1.0, offset: egui::Vec2::ZERO, rotation: 0.0, rotation_raw: 0.0, source: PreviewSource::Channel(ChannelKind::BaseColor), texture: None, painting: false, last_point: None, fill_box: None, parts_box: None, frame: None, material: false, material_image: None },
             painting: false,
             paint_isolated: false,
             picking_parts: false,
