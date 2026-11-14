@@ -11,12 +11,31 @@ pub struct UvTexel {
     pub roughness: f32,
     pub metallic: f32,
     pub ao: f32,
+    /// Tangent-space bump normal of the Height channel ([`height_bump`]), combined with
+    /// `normal` as the 3D view does; `[0, 0, 1]` for none.
+    pub bump: [f32; 3],
 }
 
 impl Default for UvTexel {
     fn default() -> Self {
-        Self { base: [0.5; 3], normal: [0.5, 0.5, 1.0], roughness: 0.5, metallic: 0.0, ao: 1.0 }
+        Self { base: [0.5; 3], normal: [0.5, 0.5, 1.0], roughness: 0.5, metallic: 0.0, ao: 1.0, bump: [0.0, 0.0, 1.0] }
     }
+}
+
+/// Bump normal of a height field from its neighbours left / right / up / down, `texel` UV units
+/// apart, times `scale` (the 3D view's height scale). Mirrors the viewport shader's
+/// `height_bump`: UV v grows downward while the bitangent points up the image (OpenGL), hence
+/// +dh/dv for y.
+pub fn height_bump(left: f32, right: f32, up: f32, down: f32, texel: f32, scale: f32) -> [f32; 3] {
+    let t = texel.max(1e-8);
+    let dhdu = (right - left) / (2.0 * t);
+    let dhdv = (down - up) / (2.0 * t);
+    normalize([-dhdu * scale, dhdv * scale, 1.0])
+}
+
+/// The decoded Normal channel combined with a bump normal (whiteout), as the 3D view shades.
+pub fn combined_normal(n: [f32; 3], bump: [f32; 3]) -> [f32; 3] {
+    normalize([n[0] + bump[0], n[1] + bump[1], n[2].max(1e-3) * bump[2]])
 }
 
 /// Key light direction in tangent space (from the upper left, towards the viewer).
@@ -38,7 +57,7 @@ fn dot(a: [f32; 3], b: [f32; 3]) -> f32 {
 /// ambient term, all times the texel's ambient occlusion. Not clamped above 1 (the caller
 /// tone-maps or clamps).
 pub fn shade(t: UvTexel) -> [f32; 3] {
-    let n = normalize([t.normal[0] * 2.0 - 1.0, t.normal[1] * 2.0 - 1.0, t.normal[2] * 2.0 - 1.0]);
+    let n = combined_normal(normalize([t.normal[0] * 2.0 - 1.0, t.normal[1] * 2.0 - 1.0, t.normal[2] * 2.0 - 1.0]), t.bump);
     let l = normalize(LIGHT);
     let v = [0.0, 0.0, 1.0];
     let h = normalize([l[0] + v[0], l[1] + v[1], l[2] + v[2]]);
@@ -92,6 +111,24 @@ mod tests {
         let flat = shade(UvTexel::default());
         let occluded = shade(UvTexel { ao: 0.5, ..Default::default() });
         assert!((occluded[0] - flat[0] * 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn height_slopes_tilt_the_normal_like_the_3d_view() {
+        // Flat height: no bump. A ramp rising to the right tilts the normal to the left (-x).
+        assert_eq!(height_bump(0.3, 0.3, 0.3, 0.3, 0.01, 0.02), [0.0, 0.0, 1.0]);
+        let b = height_bump(0.0, 1.0, 0.5, 0.5, 0.01, 0.02);
+        // dh/du = 1 / 0.02 = 50, times 0.02 = 1: the normal (-1, 0, 1) normalised.
+        assert!((b[0] + std::f32::consts::FRAC_1_SQRT_2).abs() < 1e-5 && b[1].abs() < 1e-6, "{b:?}");
+        // Rising downward (+v) tilts it up the image (+y).
+        assert!(height_bump(0.5, 0.5, 0.0, 1.0, 0.01, 0.02)[1] > 0.5);
+        // Whiteout: a flat normal map passes the bump through.
+        let c = combined_normal([0.0, 0.0, 1.0], b);
+        assert!((c[0] - b[0]).abs() < 1e-6 && (c[2] - b[2]).abs() < 1e-6);
+        // A bump towards the light brightens the texel.
+        let toward = shade(UvTexel { bump: normalize([-0.5, 0.5, 0.7]), ..Default::default() });
+        let away = shade(UvTexel { bump: normalize([0.5, -0.5, 0.7]), ..Default::default() });
+        assert!(toward[0] > away[0] * 1.5);
     }
 
     #[test]
