@@ -74,9 +74,6 @@ pub fn apply_brush(server: &mut Server, a: &Args) -> Res<()> {
     if let Some(al) = a.str("alignment")? {
         s.alignment = enum_from::<Alignment>("alignment", al, &names(&[Alignment::TangentWrap, Alignment::TangentPlanar, Alignment::Camera, Alignment::Uv]))?;
     }
-    if s != session.brush.settings {
-        exec(session, Command::SetBrushSettings(s))?;
-    }
     let mut o = session.brush.options;
     if let Some(patch) = a.obj("options")? {
         o = with_defaults("stroke options", &o, &Value::Object(patch.clone()))?;
@@ -84,9 +81,6 @@ pub fn apply_brush(server: &mut Server, a: &Args) -> Res<()> {
     if let Some(sym) = a.str("symmetry")? {
         let sym = sym.to_ascii_lowercase();
         o.symmetry = [sym.contains('x'), sym.contains('y'), sym.contains('z')];
-    }
-    if o != session.brush.options {
-        exec(session, Command::SetStrokeOptions(o))?;
     }
     let mut m = session.brush.material.clone();
     let mut changed = false;
@@ -115,11 +109,9 @@ pub fn apply_brush(server: &mut Server, a: &Args) -> Res<()> {
         m.mask_value = v.clamp(0.0, 1.0);
         changed = true;
     }
-    if changed {
-        exec(session, Command::SetBrushMaterial(m))?;
-    }
-    if let Some(mode) = a.str("mode")? {
-        session.brush.mode = match mode.to_ascii_lowercase().as_str() {
+    let mode = match a.str("mode")? {
+        None => None,
+        Some(mode) => Some(match mode.to_ascii_lowercase().as_str() {
             "paint" | "brush" => StrokeMode::Paint,
             "erase" | "eraser" => StrokeMode::Erase,
             "smudge" => StrokeMode::Smudge,
@@ -130,10 +122,24 @@ pub fn apply_brush(server: &mut Server, a: &Args) -> Res<()> {
                 StrokeMode::Clone
             }
             other => return Err(format!("mode must be paint, erase, smudge or clone, got `{other}`")),
-        };
+        }),
+    };
+    let alpha = a.str("tip")?.map(|tip| find_named(&library.alphas, |t| &t.name, tip, "brush tip").cloned()).transpose()?;
+    // Everything was read above; only now is the brush changed. A bad mode or tip used to fail
+    // with the size, options and colours of the same call already applied.
+    if s != session.brush.settings {
+        exec(session, Command::SetBrushSettings(s))?;
     }
-    if let Some(tip) = a.str("tip")? {
-        let alpha = find_named(&library.alphas, |t| &t.name, tip, "brush tip")?.clone();
+    if o != session.brush.options {
+        exec(session, Command::SetStrokeOptions(o))?;
+    }
+    if changed {
+        exec(session, Command::SetBrushMaterial(m))?;
+    }
+    if let Some(mode) = mode {
+        session.brush.mode = mode;
+    }
+    if let Some(alpha) = alpha {
         session.set_brush_alpha(&alpha);
     }
     Ok(())

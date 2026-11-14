@@ -87,6 +87,25 @@ fn every_defined_tool_is_dispatched_and_closed_to_unknown_arguments() {
     assert!(fails(&mut server, "no_such_tool", json!({})).contains("unknown tool"));
 }
 
+/// QA 2026-11: a line that was not UTF-8 ended the server, and a message that was not an object
+/// or an empty batch got no reply, so the client waited forever.
+#[test]
+fn every_malformed_line_gets_an_error_reply() {
+    let mut server = Server::new();
+    let code = |reply: Option<Value>| reply.expect("a reply")["error"]["code"].as_i64();
+    assert_eq!(code(crate::reply_to_line(&mut server, b"{\"id\":1,\"method\":\"ping\"\xff}\n")), Some(-32700));
+    assert_eq!(code(crate::reply_to_line(&mut server, b"[]\n")), Some(-32600));
+    assert_eq!(code(crate::reply_to_line(&mut server, b"5\n")), Some(-32600));
+    let batch = crate::reply_to_line(&mut server, b"[\"x\", {\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"ping\"}]").expect("a reply");
+    assert_eq!(batch[0]["error"]["code"], json!(-32600), "{batch}");
+    assert_eq!(batch[1]["id"], json!(2), "{batch}");
+    assert!(crate::reply_to_line(&mut server, b"  \r\n").is_none(), "blank lines need no reply");
+    assert!(crate::reply_to_line(&mut server, b"{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}").is_none());
+    // The server still answers after all of that.
+    let pong = crate::reply_to_line(&mut server, b"{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"ping\"}").expect("a reply");
+    assert_eq!(pong["result"], json!({}), "{pong}");
+}
+
 #[test]
 fn unknown_arguments_are_reported_with_the_valid_names() {
     let mut server = Server::new();
@@ -98,6 +117,21 @@ fn unknown_arguments_are_reported_with_the_valid_names() {
     assert!(msg.contains("`colour`") && msg.contains("fill"), "{msg}");
     // Nothing was added by the rejected call.
     assert!(!layer_names(&mut server, "Body").iter().any(|n| n.contains("Fill")));
+}
+
+/// QA 2026-11: mask_add_effect / content_add_effect with a bad `blend` failed only after adding
+/// the effect (and a black mask), so the error left them in the project.
+#[test]
+fn a_bad_effect_blend_adds_nothing() {
+    let mut server = Server::new();
+    sample(&mut server);
+    ok(&mut server, "layer_add", json!({ "type": "fill", "name": "F", "texture_set": "Body" }));
+    let steps = ok(&mut server, "history", json!({}))["entries"].as_array().unwrap().len();
+    let e = fails(&mut server, "mask_add_effect", json!({ "layer": "F", "texture_set": "Body", "effect": { "type": "levels" }, "blend": "no-such-blend" }));
+    assert!(e.contains("blend mode"), "{e}");
+    let e = fails(&mut server, "content_add_effect", json!({ "layer": "F", "texture_set": "Body", "effect": { "type": "levels" }, "blend": "no-such-blend" }));
+    assert!(e.contains("blend mode"), "{e}");
+    assert_eq!(ok(&mut server, "history", json!({}))["entries"].as_array().unwrap().len(), steps, "nothing was added");
 }
 
 #[test]
@@ -140,6 +174,29 @@ fn image_saves_must_be_png_files() {
     assert!(crate::tools::png_path(std::path::Path::new("a/.png")).is_err());
 }
 
+/// QA 2026-11: layer_add / fill_set added the channels a fill spec named to the texture set
+/// before reading the spec, so a bad spec failed with those channels (and their undo steps) left
+/// behind.
+#[test]
+fn a_bad_fill_spec_adds_no_channels() {
+    let mut server = Server::new();
+    sample(&mut server);
+    let has_emissive = |server: &mut Server| ok(server, "project_info", json!({})).to_string().contains("emissive");
+    assert!(!has_emissive(&mut server), "the sample starts without Emissive");
+    let steps = |server: &mut Server| ok(server, "history", json!({}))["entries"].as_array().unwrap().len();
+    let before = steps(&mut server);
+    fails(&mut server, "layer_add", json!({ "type": "fill", "name": "F", "texture_set": "Body", "fill": { "emissive": { "image": "no-such-image.png" } } }));
+    fails(&mut server, "layer_add", json!({ "type": "fill", "name": "F", "texture_set": "Body", "fill": { "emissive": [1.0, 0.0, 0.0] }, "projection": { "mode": "no-such-mode" } }));
+    assert!(!has_emissive(&mut server) && steps(&mut server) == before, "layer_add left nothing behind");
+    ok(&mut server, "layer_add", json!({ "type": "fill", "name": "F", "texture_set": "Body" }));
+    let before = steps(&mut server);
+    fails(&mut server, "fill_set", json!({ "layer": "F", "texture_set": "Body", "channels": { "emissive": { "image": "no-such-image.png" } } }));
+    fails(&mut server, "fill_set", json!({ "layer": "F", "texture_set": "Body", "channels": { "emissive": { "low": 0.2 } } }));
+    assert!(!has_emissive(&mut server) && steps(&mut server) == before, "fill_set left nothing behind");
+    ok(&mut server, "fill_set", json!({ "layer": "F", "texture_set": "Body", "channels": { "emissive": [1.0, 0.0, 0.0] } }));
+    assert!(has_emissive(&mut server), "a good spec still adds the channel");
+}
+
 #[test]
 fn fill_layer_reaches_the_exported_base_color() {
     let dir = TempDir::new("export");
@@ -161,6 +218,23 @@ fn fill_layer_reaches_the_exported_base_color() {
         let p = img.get_pixel(x, y).0;
         assert!(p[0] >= 250 && p[1] <= 5 && p[2] <= 5, "pixel ({x},{y}) is {p:?}, expected sRGB red");
     }
+}
+
+/// QA 2026-11: texture_set_update renamed the set (and made any earlier change) before finding
+/// that a later argument was bad, so the error left half the update applied.
+#[test]
+fn a_bad_texture_set_update_changes_nothing() {
+    let mut server = Server::new();
+    sample(&mut server);
+    let steps = |server: &mut Server| ok(server, "history", json!({}))["entries"].as_array().unwrap().len();
+    let before = steps(&mut server);
+    fails(&mut server, "texture_set_update", json!({ "texture_set": "Body", "name": "Renamed", "resolution": 300 }));
+    fails(&mut server, "texture_set_update", json!({ "texture_set": "Body", "name": "Renamed", "add_channels": ["emissive", "no-such-channel"] }));
+    fails(&mut server, "texture_set_update", json!({ "texture_set": "Body", "name": "Renamed", "remove_channels": ["emissive"] }));
+    assert_eq!(steps(&mut server), before, "nothing was changed");
+    assert!(!ok(&mut server, "project_info", json!({})).to_string().contains("Renamed"));
+    ok(&mut server, "texture_set_update", json!({ "texture_set": "Body", "name": "Renamed", "add_channels": ["emissive"] }));
+    assert!(ok(&mut server, "project_info", json!({})).to_string().contains("Renamed"));
 }
 
 #[test]
@@ -241,6 +315,19 @@ fn render_preview_returns_an_image_when_a_gpu_is_available() {
     assert_eq!(image["mimeType"], json!("image/png"));
 }
 
+/// QA 2026-11: save_to_library renamed the layer (an undo step) before finding that `kind` was
+/// unknown, so the refused call left the layer renamed.
+#[test]
+fn save_to_library_with_an_unknown_kind_renames_nothing() {
+    let mut server = Server::new();
+    sample(&mut server);
+    ok(&mut server, "layer_add", json!({ "type": "fill", "name": "F", "texture_set": "Body" }));
+    let e = fails(&mut server, "save_to_library", json!({ "layer": "F", "texture_set": "Body", "name": "Renamed", "kind": "brush" }));
+    assert!(e.contains("kind"), "{e}");
+    let names = layer_names(&mut server, "Body");
+    assert!(names.contains(&"F".to_string()) && !names.contains(&"Renamed".to_string()), "{names:?}");
+}
+
 #[test]
 fn flatten_instantiate_and_channel_removal() {
     let mut server = Server::new();
@@ -270,6 +357,20 @@ fn flatten_instantiate_and_channel_removal() {
     ok(&mut server, "texture_set_update", json!({ "texture_set": "Body", "remove_channels": ["emissive"] }));
     let msg = fails(&mut server, "texture_set_update", json!({ "texture_set": "Body", "remove_channels": ["emissive"] }));
     assert!(msg.to_lowercase().contains("emissive"), "{msg}");
+}
+
+/// QA 2026-11: brush_set applied size, options and colours before reading `mode` and `tip`, so a
+/// bad mode or tip failed with half the brush changed.
+#[test]
+fn a_bad_brush_set_changes_nothing() {
+    let mut server = Server::new();
+    sample(&mut server);
+    let before = ok(&mut server, "brush_set", json!({}))["brush"].clone();
+    fails(&mut server, "brush_set", json!({ "size": 0.37, "channels": { "base_color": [1.0, 0.0, 0.0] }, "mode": "no-such-mode" }));
+    fails(&mut server, "brush_set", json!({ "size": 0.37, "symmetry": "x", "tip": "no-such-tip" }));
+    assert_eq!(ok(&mut server, "brush_set", json!({}))["brush"], before, "the brush is as it was");
+    let after = ok(&mut server, "brush_set", json!({ "size": 0.37 }))["brush"].clone();
+    assert_ne!(after, before, "a good call still changes it");
 }
 
 /// QA 2026-11: numbers the document cannot hold were accepted. `1e39` became infinity, saved as
