@@ -334,9 +334,19 @@ fn partial_high_poly_misses_do_not_index_low_triangles_into_high_ids() {
     let maps = bake(&input, &settings(&[MeshMapKind::Id]), &Progress::new()).unwrap();
     let id = &maps[&MeshMapKind::Id];
     assert!(id.to_dense().iter().all(|v| v.is_finite()));
-    let a = id.get(16, 16);
-    let b = id.get(112, 112);
-    assert_ne!(a, b, "misses retain neutral IDs instead of a false high-poly triangle");
+    // Half the plane misses the one high triangle. Those texels take the ID of the nearest
+    // texel that hit it (issue #466), never an ID indexed by a low-poly triangle number.
+    let black = MeshMapKind::Id.neutral_value();
+    let hit = id.get(16, 16);
+    assert!(!close([hit[0], hit[1], hit[2]], black), "{hit:?}");
+    for y in 0..id.height() {
+        for x in 0..id.width() {
+            let v = id.get(x, y);
+            assert!(close([v[0], v[1], v[2]], [hit[0], hit[1], hit[2]]) || close([v[0], v[1], v[2]], black), "at {x},{y}: {v:?} is not the high triangle's {hit:?}");
+        }
+    }
+    let m = id.get(112, 112);
+    assert!(close([m[0], m[1], m[2]], [hit[0], hit[1], hit[2]]), "the missed corner has the high triangle's ID: {m:?} {hit:?}");
 }
 
 /// QA 2026-11: a thickness distance of 0 divided 0 by 0 and filled the map with NaN.
