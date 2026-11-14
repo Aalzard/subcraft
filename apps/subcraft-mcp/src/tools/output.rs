@@ -210,7 +210,9 @@ fn export_settings(session: &Session, args: &Args, format_key: &str) -> Res<Expo
         None => {}
         Some(Value::String(p)) if p.eq_ignore_ascii_case("infinite") => s.padding = Padding::Infinite,
         Some(Value::String(p)) if p.eq_ignore_ascii_case("none") => s.padding = Padding::None,
-        Some(Value::Number(n)) => s.padding = Padding::Texels(n.as_u64().unwrap_or(8) as u32),
+        // A negative or fractional number used to become 8 texels without a word, and one beyond
+        // u32 wrapped round.
+        Some(Value::Number(_)) => s.padding = Padding::Texels(args.u32("padding")?.expect("present")),
         Some(v) => return Err(format!("padding must be \"infinite\", \"none\" or a number, got {v}")),
     }
     if let Some(n) = args.str("normal_format")? {
