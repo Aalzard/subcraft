@@ -90,8 +90,17 @@ pub fn keyboard(state: &mut UiState, ctx: &egui::Context, now: f64) {
     // (another layer selected, the point undone), and Delete then did nothing at all instead of
     // reaching the layer shortcut.
     let selected = state.pen.selected_anchor().is_some_and(|id| state.pen.preview(&state.session).is_some_and(|p| p.anchors.iter().any(|a| a.id == id)));
-    if selected && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Delete) || i.consume_key(egui::Modifiers::NONE, egui::Key::Backspace))
+    if selected && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Delete))
         && let Err(e) = state.pen.delete_anchor(&state.session) { state.set_status(e.to_string(), now); }
+    // Backspace deletes the whole path (Painter 11): its layer, when the selected layer is one.
+    let path_layer = state.session.selected_layer().filter(|l| matches!(&l.content, subcraft_doc::LayerContent::Paint(p) if p.path.is_some())).map(|l| l.id);
+    if let Some(layer) = path_layer && !state.pen.is_editing() && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Backspace)) {
+        state.pen.cancel();
+        match state.session.execute(subcraft_app::Command::DeleteLayer(layer)) {
+            Ok(()) => state.set_status("Path deleted", now),
+            Err(e) => state.set_status(e.to_string(), now),
+        }
+    }
 }
 
 pub fn finish_frame(state: &mut UiState, ctx: &egui::Context, now: f64) {

@@ -441,11 +441,23 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     (Some(a), _, _) if !ctrl && state.pen.closes_on(&state.session, a) => state.pen.close_path(&state.session),
                     (None, Some((segment, t)), _) => state.pen.insert_point(&state.session, segment, t),
                     (None, None, Some(layer)) => state.session.execute(subcraft_app::Command::SelectLayer(Some(layer))),
-                    _ => state.pen.begin_surface(&mut state.session, &camera, to_screen(p), hit),
+                    _ => {
+                        // Adding a point: Ctrl snaps the direction from the previous point to
+                        // 15 degree steps; Shift keeps the new point straight (no tangents).
+                        let mut at = p;
+                        if hit.is_none() && ctrl && let Some(prev) = pen_last_point(state, &camera, rect) {
+                            at = snap_angle(prev, p, 15f32.to_radians());
+                        }
+                        let r = state.pen.begin_surface(&mut state.session, &camera, to_screen(at), hit);
+                        if r.is_ok() && hit.is_none() && mods.shift {
+                            state.pen.keep_new_point_straight();
+                        }
+                        r
+                    }
                 };
                 if let Err(e) = result { state.set_status(format!("Pen: {e}"), now); }
             } else if primary_down && state.pen.is_editing() {
-                state.pen.drag_surface(&state.session, &camera, to_screen(p), mods.shift);
+                state.pen.drag_surface_scaled(&state.session, &camera, to_screen(p), mods.shift, mods.ctrl || mods.command);
             }
     }
     let paint_tool = !bake_mode && matches!(state.tool, Tool::Brush | Tool::Eraser | Tool::Clone | Tool::Smudge) && !picking;
@@ -796,6 +808,19 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             }
         }
     }
+    // Shift+P: dotted preview of the next segment, from the last point to the cursor.
+    let preview_id = egui::Id::new("pen_segment_preview");
+    let mut segment_preview = ui.data(|d| d.get_temp::<bool>(preview_id)).unwrap_or(true);
+    if state.tool == Tool::Pen && response.hovered() && !typing && ui.input(|i| i.key_pressed(egui::Key::P) && i.modifiers.shift && !i.modifiers.ctrl && !i.modifiers.command) {
+        segment_preview = !segment_preview;
+        ui.data_mut(|d| d.insert_temp(preview_id, segment_preview));
+    }
+    if state.tool == Tool::Pen && segment_preview && !state.pen.is_editing() && let Some(cursor) = response.hover_pos()
+        && let Some(last) = pen_last_point(state, &camera, rect)
+    {
+        let to = if mods.ctrl || mods.command { snap_angle(last, cursor, 15f32.to_radians()) } else { cursor };
+        painter.extend(egui::Shape::dashed_line(&[last, to], Stroke::new(1.2, Color32::from_white_alpha(190)), 5.0, 4.0));
+    }
     if state.tool == Tool::Pen && let Some(path) = state.pen.preview(&state.session) {
         crate::pen::draw(&painter, path, state.pen.selected_anchor(), |uv| pen_position(state, &camera, rect, uv));
     }
@@ -1108,6 +1133,24 @@ fn brush_notice(state: &mut UiState, ui: &Ui, painter: &egui::Painter, rect: Rec
 }
 
 /// Project UV controls only where their sampled surface is visible.
+/// Where the path's last point is on screen while points are being added (it is selected).
+fn pen_last_point(state: &UiState, camera: &subcraft_app::Camera, rect: Rect) -> Option<Pos2> {
+    let path = state.pen.preview(&state.session)?;
+    let last = path.anchors.last()?;
+    if path.is_closed() || state.pen.selected_anchor() != Some(last.id) { return None; }
+    pen_position(state, camera, rect, last.position)
+}
+
+/// `to` moved onto the nearest direction from `from` that is a multiple of `step` radians
+/// (same distance).
+pub fn snap_angle(from: Pos2, to: Pos2, step: f32) -> Pos2 {
+    let d = to - from;
+    let len = d.length();
+    if len < 1e-3 || step <= 0.0 { return to; }
+    let angle = (d.y.atan2(d.x) / step).round() * step;
+    from + egui::vec2(angle.cos(), angle.sin()) * len
+}
+
 fn pen_position(state: &UiState, camera: &subcraft_app::Camera, rect: Rect, uv: Vec2) -> Option<Pos2> {
     let position = state.session.pen_uv_position(uv)?;
     let screen = camera.project(position)?.truncate();
