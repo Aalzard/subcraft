@@ -1130,7 +1130,11 @@ fn display_corner(state: &mut UiState, ui: &Ui, rect: Rect, bake_mode: bool) {
         .fixed_pos(rect.right_top() + egui::vec2(-10.0, 40.0))
         .constrain_to(rect)
         .show(ui.ctx(), |ui| {
-            ui.horizontal(|ui| crate::viewport_bar::view_mode(ui, &mut state.recovery.prefs.viewport, &channels, true));
+            {
+            let mask = crate::mask_view::dropdown_state(state);
+            let request = ui.horizontal(|ui| crate::viewport_bar::view_mode(ui, &mut state.recovery.prefs.viewport, &channels, true, mask)).inner;
+            if let Some(show) = request { crate::mask_view::apply_dropdown(state, show); }
+        }
         });
 }
 

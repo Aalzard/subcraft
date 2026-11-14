@@ -139,7 +139,11 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         jump_buttons(state, ui);
         ui.add_space(4.0);
         let channels: Vec<_> = state.session.selected_texture_set().channel_kinds().collect();
-        ui.horizontal(|ui| crate::viewport_bar::view_mode(ui, &mut state.recovery.prefs.viewport, &channels, true));
+        {
+            let mask = crate::mask_view::dropdown_state(state);
+            let request = ui.horizontal(|ui| crate::viewport_bar::view_mode(ui, &mut state.recovery.prefs.viewport, &channels, true, mask)).inner;
+            if let Some(show) = request { crate::mask_view::apply_dropdown(state, show); }
+        }
         let jump = state.display_jump.take();
         for section in Section::ALL {
             if jump == Some(section) {
