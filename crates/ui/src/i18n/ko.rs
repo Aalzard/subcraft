@@ -1000,4 +1000,8 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Color", "색상"),
     ("Roughness", "거칠기"),
     ("Metallic", "금속성"),
+    ("Reset parameters to default values", "매개변수를 기본값으로 재설정"),
+    ("The selected entry of the list", "목록에서 선택한 항목"),
+    ("Reset all baking settings", "모든 베이크 설정 재설정"),
+    ("Every baker option, the output and the ticked maps and texture sets go back to their defaults; the model files stay", "모든 베이커 옵션, 출력, 체크한 맵과 텍스처 세트가 기본값으로 돌아갑니다. 모델 파일은 그대로 둡니다"),
 ];
