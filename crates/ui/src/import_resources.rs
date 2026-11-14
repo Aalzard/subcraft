@@ -22,10 +22,16 @@ pub enum Usage {
     SmartMaterial,
     SmartMask,
     BrushPreset,
+    /// Painter's "colorlut": a colour profile LUT, added to the project (not a library) and
+    /// used by Display Settings > Color profile.
+    ColorLut,
 }
 
+/// Formats a colour LUT can be read from (float images first).
+const COLOR_LUT_EXTENSIONS: [&str; 5] = ["exr", "hdr", "tif", "tiff", "png"];
+
 impl Usage {
-    pub const ALL: [Usage; 7] = [Usage::Undefined, Usage::Texture, Usage::Alpha, Usage::Environment, Usage::SmartMaterial, Usage::SmartMask, Usage::BrushPreset];
+    pub const ALL: [Usage; 8] = [Usage::Undefined, Usage::Texture, Usage::Alpha, Usage::Environment, Usage::SmartMaterial, Usage::SmartMask, Usage::BrushPreset, Usage::ColorLut];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -36,6 +42,7 @@ impl Usage {
             Usage::SmartMaterial => tr("smart material"),
             Usage::SmartMask => tr("smart mask"),
             Usage::BrushPreset => tr("brush preset"),
+            Usage::ColorLut => tr("color LUT"),
         }
     }
 
@@ -48,6 +55,8 @@ impl Usage {
             Usage::SmartMaterial => Some(UserAssetKind::SmartMaterial),
             Usage::SmartMask => Some(UserAssetKind::SmartMask),
             Usage::BrushPreset => Some(UserAssetKind::BrushPreset),
+            // Goes into the project, not a library.
+            Usage::ColorLut => None,
         }
     }
 
@@ -55,7 +64,7 @@ impl Usage {
     pub fn shelf_tab(self) -> Option<crate::panels::shelf::ShelfTab> {
         use crate::panels::shelf::ShelfTab;
         Some(match self {
-            Usage::Undefined => return None,
+            Usage::Undefined | Usage::ColorLut => return None,
             Usage::Texture => ShelfTab::Textures,
             Usage::Alpha => ShelfTab::Alphas,
             Usage::Environment => ShelfTab::Environments,
@@ -67,7 +76,11 @@ impl Usage {
 
     /// True when a file with extension `ext` can be used this way.
     pub fn accepts(self, ext: &str) -> bool {
-        self.kind().is_some_and(|k| k.extensions().contains(&ext.to_ascii_lowercase().as_str()))
+        let ext = ext.to_ascii_lowercase();
+        if self == Usage::ColorLut {
+            return COLOR_LUT_EXTENSIONS.contains(&ext.as_str());
+        }
+        self.kind().is_some_and(|k| k.extensions().contains(&ext.as_str()))
     }
 
     /// Painter's rule: a format with a single use gets it; an image can be several things
@@ -250,6 +263,19 @@ pub fn import(state: &mut UiState) -> ImportResult {
     let mut done = Vec::new();
     let rows = state.import.rows.clone();
     for (i, row) in rows.iter().enumerate() {
+        // A colour LUT joins the project whatever the destination, and becomes the profile's LUT.
+        if row.usage == Usage::ColorLut && row.importable() {
+            let name = row.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "LUT".into());
+            match std::fs::read(&row.path).map_err(|e| format!("{name}: {e}")).and_then(|bytes| state.session.add_color_lut(&name, bytes)) {
+                Ok(id) => {
+                    crate::color_lut::use_lut(&mut state.recovery.prefs.viewport, id);
+                    result.imported.push(name);
+                    done.push(i);
+                }
+                Err(e) => result.errors.push(e),
+            }
+            continue;
+        }
         let Some(kind) = row.usage.kind().filter(|_| row.importable()) else { continue };
         let file = match &library {
             Some(lib) => lib.add_file_to(kind, &row.prefix, &row.path),
@@ -461,6 +487,33 @@ mod tests {
 
     fn state_with(yours: &Path) -> UiState {
         UiState::new(subcraft_app::Session::new(subcraft_mesh::primitives::cube(1.0), 64), None).with_user_library(Some(subcraft_app::assets::UserLibrary::new(yours)))
+    }
+
+    #[test]
+    fn a_color_lut_is_imported_into_the_project_and_used_by_the_profile() {
+        let root = temp_root("lut");
+        // A 4-cube identity LUT (16 x 4) as a float EXR, and an 8 x 8 PNG that is no cube.
+        let n = 4u32;
+        let data: Vec<f32> = (0..n * n * n).flat_map(|i| [(i % n) as f32 / 3.0, ((i / n) % n) as f32 / 3.0, (i / n / n) as f32 / 3.0]).collect();
+        let lut = root.join("look.exr");
+        subcraft_image::save_image(&lut, 16, 4, 3, &data, subcraft_image::FileFormat::Exr32).unwrap();
+        png(&root.join("photo.png"));
+        assert!(Usage::ColorLut.accepts("EXR") && Usage::ColorLut.accepts("png") && !Usage::ColorLut.accepts("scsmart"));
+        assert_eq!(Usage::guess(&lut), Usage::Undefined, "an EXR could also be a texture or an environment");
+        let mut s = state_with(&root.join("yours"));
+        open_with(&mut s, &[lut.clone(), root.join("photo.png")]);
+        s.import.set_usage(0, Usage::ColorLut);
+        s.import.set_usage(1, Usage::ColorLut);
+        let r = import(&mut s);
+        assert_eq!(r.imported, ["look.exr"]);
+        assert_eq!(r.errors.len(), 1, "the 8 x 8 image is not a cube: {:?}", r.errors);
+        let id = s.recovery.prefs.viewport.color_lut.expect("the imported LUT is the profile's");
+        assert!(s.recovery.prefs.viewport.color_profile, "and the profile is on");
+        let res = s.session.resources().get(id).unwrap();
+        assert_eq!((res.kind, res.name.as_str()), (subcraft_doc::ResourceKind::ColorLut, "look.exr"));
+        assert_eq!(s.import.rows.len(), 1, "only the refused row stays");
+        assert!(!root.join("yours").exists() || std::fs::read_dir(root.join("yours")).unwrap().next().is_none(), "nothing is copied into a library");
+        std::fs::remove_dir_all(&root).ok();
     }
 
     #[test]

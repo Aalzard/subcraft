@@ -1021,4 +1021,5 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Projection preview channel", "투영 미리보기 채널"),
     ("Opacity of the Projection tool's pattern over the 3D view (0 hides it)", "3D 뷰 위에 표시되는 투영 도구 패턴의 불투명도 (0이면 숨김)"),
     ("Which image of the brush material the Projection tool shows over the view", "투영 도구가 뷰 위에 표시할 브러시 재질의 이미지"),
+    ("color LUT", "색상 LUT"),
 ];
