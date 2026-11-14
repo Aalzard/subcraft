@@ -222,7 +222,7 @@ Layout notes: these sit at the top of the Output template dropdown on the Settin
 |---|---|---|---|---|---|
 | 2D View | Output template dropdown | - | done | crates/export/src/template.rs:215 | - |
 | Document channels + Normal + AO (No Alpha) | Output template dropdown | - | done (every channel the set has as its own file, plus normal with height and mixed AO; no Opacity file: alpha/opacity export is #145's) | crates/export/src/builtin_presets.rs | chunk 47 |
-| Document channels + Normal + AO (With Alpha) | Output template dropdown | - | missing | - | - |
+| Document channels + Normal + AO (With Alpha) | Output template dropdown | - | done (Base Color RGBA with the effective opacity; Opacity also its own file) | crates/export/src/builtin_presets.rs painter | doc channels alpha |
 | Sketchfab | Output template dropdown (maps plus upload) | - | partial: map set only (upload is Adobe/Sketchfab service) | crates/export/src/template.rs:237 | - |
 | Substance 3D Stager | Output template dropdown | - | n/a | - | - |
 | USDz (Apple AR) | Output template dropdown: JPG maps, PNG normal, .usdc and .usdz | - | partial: USDA with PNG maps through "Export model + textures", no usdc / usdz | crates/export/src/scene.rs:324 | - |
@@ -305,4 +305,4 @@ Layout notes: a small separate window opened from the File menu, with a file-typ
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
 | 2D View predefined template (writes what the 2D view currently shows) | Export textures > Output template | - | done (also File > Export 2D view) | crates/ui/src/app.rs:1140 | - |
-| 2D View export follows the chosen file type, size and padding | Export textures settings | - | partial: file format and padding only | crates/ui/src/dialogs.rs:243 | - |
+| 2D View export follows the chosen file type, size and padding | Export textures settings | - | done (file type, Size menu and padding; the view is resampled to the chosen size) | crates/export/src/lib.rs Dense::view, crates/export/src/tests/view2d.rs | 2d size test |

@@ -174,6 +174,43 @@ pub struct GpuMaterial {
     pub(crate) params: Option<wgpu::Buffer>,
     /// A layer's evaluated mask, shown alone on the model while `ViewParams::mask_view` is set.
     pub mask_view: Option<ChannelTexture>,
+    /// The part overlay laid over this set (binding 12); `None` draws the set as it is.
+    pub overlay: Option<OverlayTexture>,
+}
+
+/// A small UV-space mask the viewport shader lays over a texture set. R greys the surface out
+/// with diagonal lines (geometry a geometry mask leaves out); G tints it (the part or the
+/// Polygon Fill element under the cursor).
+pub struct OverlayTexture {
+    pub texture: wgpu::Texture,
+    pub view: wgpu::TextureView,
+    pub size: u32,
+}
+
+impl OverlayTexture {
+    /// `rg`: `size` x `size` texels of two bytes (grey-out, tint), rows from V = 0.
+    pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, size: u32, rg: &[u8]) -> Self {
+        let size = size.max(1);
+        assert_eq!(rg.len(), (size * size * 2) as usize, "two bytes per overlay texel");
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("part overlay"),
+            size: wgpu::Extent3d { width: size, height: size, depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rg8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        queue.write_texture(
+            texture.as_image_copy(),
+            rg,
+            wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(size * 2), rows_per_image: Some(size) },
+            wgpu::Extent3d { width: size, height: size, depth_or_array_layers: 1 },
+        );
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        Self { texture, view, size }
+    }
 }
 
 impl GpuMaterial {
@@ -189,6 +226,7 @@ impl GpuMaterial {
             highlight: false,
             params: None,
             mask_view: None,
+            overlay: None,
         }
     }
 

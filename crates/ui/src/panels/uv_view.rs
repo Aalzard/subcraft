@@ -505,7 +505,8 @@ fn fill_hover_overlay(state: &mut UiState, painter: &egui::Painter, image: Frame
 /// excluded geometry grey with diagonal lines; while editing, the part under the cursor (or under
 /// the cursor in the Properties list) is highlighted.
 fn parts_overlay(state: &mut UiState, ui: &Ui, painter: &egui::Painter, image: Frame, picking: bool, pointer: Option<Pos2>) {
-    let list_hover = state.uv_parts.list_hover.take();
+    // Set by the Properties part list every frame; the 3D view reads it too.
+    let list_hover = state.uv_parts.list_hover;
     if !picking && !state.session.hide_excluded() {
         return;
     }
@@ -744,6 +745,8 @@ fn paint_input(state: &mut UiState, ui: &Ui, response: &egui::Response, image: F
         state.gpu_dirty = true;
         state.set_status(format!("Painting on a new paint layer, \"{name}\" (the selected layer was not a paint layer)"), now);
     }
+    // A held: continue the previous stroke (stroke opacity keeps its cap).
+    state.session.set_continue_stroke(ui.input(|i| i.key_down(egui::Key::A)));
     match state.session.begin_uv_stroke(Some(view)) {
         Ok(()) => {
             state.uv.painting = true;

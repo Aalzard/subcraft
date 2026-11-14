@@ -6,6 +6,8 @@ What changed in SubCraft, newest first. Download the latest build from the
 ## Unreleased
 
 ### Added
+- **"Document channels + Normal + AO (With Alpha)"** output template, like Painter's: every document
+  channel as its own file, Base Color with the opacity as its alpha.
 - **Resizable list column** in the Export window's Settings tab, like Painter's: drag the divider beside
   Global settings and the texture sets.
 - **Colour space per file** in the Export window's list of maps, like Painter's: sRGB, Linear (float files)

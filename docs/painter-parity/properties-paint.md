@@ -64,7 +64,7 @@ Layout notes: one slider per row, label above. Size, Flow and the jitters carry 
 | Position Jitter | Properties > Brush | 0; 0-1 | done | crates/ui/src/panels/brush_rows.rs (jitters) | - |
 | Position Jitter: pen pressure toggle | Properties > Brush > Position Jitter | (unverified) | done | crates/ui/src/panels/brush_rows.rs (jitters); pressure scales the jitter | - |
 | Position Jitter Axis (one axis / both axes) | Properties > Brush | not documented | done: Both axes (default) or One axis (only across the stroke); which axis Painter uses is not documented | crates/paint/src/settings.rs (JitterAxis); crates/ui/src/panels/brush_rows.rs (jitters) | - |
-| Stamps Blending (how overlapping stamps of one stroke combine, e.g. Lighten) | Properties > Brush | not documented | missing | - | - |
+| Stamps Blending (how overlapping stamps of one stroke combine, e.g. Lighten) | Properties > Brush | not documented | done: Accumulate (default, the old behaviour) or Lighten (a texel keeps its strongest stamp); Painter may list more modes | crates/paint/src/settings.rs (StampBlend); crates/paint/src/kernel.rs (accumulate) | - |
 | Alignment (dropdown) | Properties > Brush | Tangent &#124; Wrap | done | crates/ui/src/panels/brush.rs (show, Brush block) | - |
 | Alignment: Camera | Properties > Brush > Alignment | option | done | crates/ui/src/panels/brush.rs (show, Brush block) | - |
 | Alignment: Tangent &#124; Wrap | Properties > Brush > Alignment | default | done | crates/ui/src/panels/brush.rs (show, Brush block) | - |
@@ -76,7 +76,7 @@ Layout notes: one slider per row, label above. Size, Flow and the jitters carry 
 | Size Space: Object | Properties > Brush > Size Space | default | done | crates/paint/src/settings.rs (BrushSettings::radius_in) | - |
 | Size Space: Viewport | Properties > Brush > Size Space | option | partial: 3D view only; the 2D view uses the object size | crates/paint/src/stroke.rs (Stroke::base_radius) | - |
 | Size Space: Texture | Properties > Brush > Size Space | option | done | crates/paint/src/stroke.rs (Stroke::base_radius) | - |
-| Continue the previous stroke (A) so stroke opacity keeps accumulating | Viewport, described with Stroke Opacity | n/a | missing | - | - |
+| Continue the previous stroke (A) so stroke opacity keeps accumulating | Viewport, described with Stroke Opacity | n/a | done: hold A when a stroke starts (3D or 2D view); continues only when nothing changed since the last stroke; still its own undo step | crates/app/src/session.rs (set_continue_stroke); crates/ui/src/viewport.rs | - |
 
 ## Alpha
 
@@ -248,8 +248,8 @@ Layout notes: with a path tool active the Properties panel starts with a Presets
 | Path type: Paint along path | Properties / toolbar menu | default | partial: a continuous stroke, or the brush tip stamped along the path with spacing and Follow path (UV space); no jitter or per-stamp pressure | crates/paint/src/pen.rs (run_stamped), crates/ui/src/pen.rs | - |
 | Path type: Ribbon path | Properties / toolbar menu | option | done: an image laid along the path over its width, square ends | crates/paint/src/pen.rs (run_ribbon), crates/ui/src/pen.rs (ribbon_rows) | - |
 | Path type: Filled path | Properties / toolbar menu | option | done: Path type dropdown in the pen Properties; the interior is filled (even-odd), anti-aliased, closing on the first point; saved with the project | crates/paint/src/pen.rs (run_filled), crates/ui/src/pen.rs | - |
-| Path type: Erase along path | Properties / toolbar menu | option | missing | - | - |
-| Path type: Smudge along path | Properties / toolbar menu | option | missing | - | - |
+| Path type: Erase along path | Properties / toolbar menu | option | partial: Paths panel right-click > Erase along path runs the path once with the current brush on the paint layer below it (one undo step); not a live, editable path type | crates/app/src/path_apply.rs, crates/ui/src/paths_panel.rs | - |
+| Path type: Smudge along path | Properties / toolbar menu | option | partial: Paths panel right-click > Smudge along path runs the path once with the current brush on the paint layer below it (one undo step); not a live, editable path type | crates/app/src/path_apply.rs, crates/ui/src/paths_panel.rs | - |
 | Brush block applies to the whole path | Properties > Brush | n/a | partial: Width, Hardness, Opacity only | crates/ui/src/pen.rs:100 | - |
 | Alpha block applies to the whole path | Properties > Alpha | n/a | partial: "Stamp the brush tip" stores the current tip with the project and stamps it along the path; no separate Alpha block | crates/app/src/session.rs (brush_tip_resource) | - |
 | Material block applies to the whole path | Properties > Material | n/a | partial: channel checkboxes with a uniform value each | crates/ui/src/pen.rs:107 | - |

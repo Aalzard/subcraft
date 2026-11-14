@@ -254,6 +254,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     if proj.mode == ProjectionMode::Warp {
                         crate::warp_view::settings_ui(ui, &mut state.warp);
                     }
+                    if proj.has_transform3() {
+                        crate::projection_gizmo::settings_ui(ui, &mut state.gizmo);
+                    }
                 }
                 block_header(ui, tr("Material"));
                 {
