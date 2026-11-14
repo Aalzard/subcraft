@@ -9,7 +9,7 @@ fn temp(name: &str) -> std::path::PathBuf {
 
 #[test]
 fn a_copy_holds_the_project_and_the_open_file_stays_current() {
-    let mut s = Session::new(subcraft_mesh::primitives::cube(2.0), 64);
+    let mut s = Session::new(subcraft_mesh::primitives::cube(2.0), 128);
     let own = temp("own");
     s.save(Some(&own)).unwrap();
     assert!(!s.is_modified());
@@ -35,7 +35,7 @@ fn a_copy_holds_the_project_and_the_open_file_stays_current() {
 
 #[test]
 fn an_unsaved_project_can_be_copied_and_stays_without_a_file() {
-    let s = Session::new(subcraft_mesh::primitives::cube(2.0), 64);
+    let s = Session::new(subcraft_mesh::primitives::cube(2.0), 128);
     let copy = temp("new");
     s.save_copy(&copy).unwrap();
     assert_eq!(s.project_path(), None);
