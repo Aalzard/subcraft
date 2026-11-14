@@ -59,18 +59,18 @@ Layout notes: Standard group. Works on content and masks. Main controls, then a 
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Blur Slope (filter) | Properties > Filter | works on: content and masks | missing | - | - |
+| Blur Slope (filter) | Properties > Filter | works on: content and masks | partial: each texel is blurred along the offset a built-in noise gives it; the noise is the only slope source | crates/doc/src/filter.rs:343 | Blur Slope |
 | Custom Noise | Properties > Filter > Image inputs | grayscale; texture or anchor | missing | - | - |
-| Seed | Properties > Filter | not documented | missing | - | - |
-| Intensity | Properties > Filter | not documented | missing | - | - |
+| Seed | Properties > Filter | not documented | done | crates/ui/src/panels/filter.rs:287 | Blur Slope |
+| Intensity | Properties > Filter | not documented | done: pixels, up to 32 | crates/ui/src/panels/filter.rs:287 | Blur Slope |
 | Intensity Divider | Properties > Filter | not documented (dropdown) | missing | - | - |
 | Blending Mode | Properties > Filter | not documented (dropdown) | missing | - | - |
-| Quality | Properties > Filter | not documented | missing | - | - |
-| Source Type | Properties > Filter > Source Parameters | not documented; default noise / previous input / custom noise | missing | - | - |
+| Quality | Properties > Filter | not documented | done: 2..32 reads per texel | crates/ui/src/panels/filter.rs:287 | Blur Slope |
+| Source Type | Properties > Filter > Source Parameters | not documented; default noise / previous input / custom noise | partial: the built-in noise only (no previous input, no custom noise) | crates/ui/src/panels/filter.rs:287 | Blur Slope |
 | Blur | Properties > Filter > Source Parameters | not documented | missing | - | - |
 | Position | Properties > Filter > Source Parameters | not documented | missing | - | - |
 | Contrast | Properties > Filter > Source Parameters | not documented | missing | - | - |
-| Source Tilling | Properties > Filter > Source Parameters | not documented | missing | - | - |
+| Source Tilling | Properties > Filter > Source Parameters | not documented | done: noise cells across the texture (labelled Source Tiling) | crates/ui/src/panels/filter.rs:287 | Blur Slope |
 
 ## Clamp
 

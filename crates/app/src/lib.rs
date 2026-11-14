@@ -36,6 +36,7 @@ pub mod filter_shelf;
 pub mod parts;
 pub mod part_workflow;
 pub mod pen;
+mod path_apply;
 pub mod quick_mask_tint;
 mod region_outline;
 pub mod photocraft;

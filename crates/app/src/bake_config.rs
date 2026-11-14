@@ -96,6 +96,7 @@ pub fn to_config(s: &BakeSettings, files: &BakeFilesConfig) -> BakeConfig {
         cage_rear: s.cage_rear,
         id_source: id_source_name(s.id_source).into(),
         id_generator: generator_name(s.id_generator).into(),
+        vertex_color_set: s.vertex_color_set,
         dilation: s.dilation,
         diffusion: s.diffusion,
         antialiasing: s.antialiasing.factor(),
@@ -132,6 +133,7 @@ pub fn apply(c: &BakeConfig, s: &mut BakeSettings) -> BakeFilesConfig {
     s.cage_rear = c.cage_rear;
     s.id_source = by_name(&IdSource::ALL, &c.id_source, id_source_name, IdSource::default());
     s.id_generator = by_name(&IdGenerator::ALL, &c.id_generator, generator_name, IdGenerator::default());
+    s.vertex_color_set = c.vertex_color_set.min(7);
     s.dilation = c.dilation;
     s.diffusion = c.diffusion;
     s.antialiasing = Antialiasing::ALL.into_iter().find(|a| a.factor() == c.antialiasing).unwrap_or_default();
@@ -161,7 +163,7 @@ mod tests {
             ao_samples: 96, ao_distance: 0.4, thickness_samples: 24, thickness_distance: 0.3, curvature_radius: 0.05,
             cage_front: 0.03, cage_rear: 0.02, curvature_from_normal: true, id_source: IdSource::VertexColor,
             dilation: 8, diffusion: false, antialiasing: Antialiasing::X4, average_normals: true, ignore_backface: true,
-            id_generator: IdGenerator::Grayscale, height: HeightNormalization::Manual { distance: 0.07 },
+            id_generator: IdGenerator::Grayscale, vertex_color_set: 2, height: HeightNormalization::Manual { distance: 0.07 },
             ..Default::default()
         };
         s.normal_curvature.radius_texels = 3.5;

@@ -43,6 +43,8 @@ pub struct KernelInput<'a> {
     /// 2D-view strokes: where texture UV lands in the 2D view, so the stencil masks the texels
     /// under it there (a UV stroke has no camera to project through).
     pub stencil_uv: Option<UvView>,
+    /// How the stamps of the stroke combine into its coverage.
+    pub stamp_blend: crate::settings::StampBlend,
 }
 
 /// Placement of the texture in a 2D view: UV (0..1) maps to `origin + uv * side` pixels of a
@@ -390,7 +392,7 @@ impl KernelInput<'_> {
             for (c, &a) in cov.iter_mut().zip(&stamp_a) {
                 let a = a * st.flow;
                 if a > 0.0 {
-                    *c += a * (1.0 - *c);
+                    *c = self.stamp_blend.combine(*c, a);
                 }
             }
         }
@@ -423,7 +425,7 @@ impl KernelInput<'_> {
             for (c, &a) in cov.iter_mut().zip(&stamp_a) {
                 let a = a * st.flow;
                 if a > 0.0 {
-                    *c += a * (1.0 - *c);
+                    *c = self.stamp_blend.combine(*c, a);
                 }
             }
         }

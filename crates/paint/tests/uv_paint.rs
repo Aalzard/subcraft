@@ -179,3 +179,30 @@ fn clicks_outside_every_island_pick_no_triangle() {
         assert_eq!(triangle_at_uv(&sc.mesh, &sc.geo, (q[0] + q[1] + q[2]) / 3.0), Some(t as u32));
     }
 }
+
+#[test]
+fn lighten_stamps_blending_keeps_a_low_flow_stroke_at_one_stamps_strength() {
+    let res = 256;
+    let cam = camera();
+    let paint = |blend: subcraft_paint::StampBlend| {
+        let mut sc = Scene::new(res);
+        let (t, _) = sc.face_uv(Vec3::Z);
+        let (q, _) = wrap_to_tile(sc.mesh.tri_uvs(t as usize));
+        let c = (q[0] + q[1] + q[2]) / 3.0;
+        let (a, b) = (c.lerp(q[0], 0.3), c.lerp(q[1], 0.3));
+        // Hard tip, close stamps: every texel near the line is under many stamps.
+        let settings = BrushSettings { size: 2.0, hardness: 1.0, flow: 0.3, spacing: 0.05, stamps_blending: blend, ..BrushSettings::default() };
+        let mut s = sc.begin(settings, &red());
+        let mut ts = sc.ts.clone();
+        s.add_uv_point(&mut ts, &sc.ctx(&cam), a, true, 1.0).unwrap();
+        s.add_uv_point(&mut ts, &sc.ctx(&cam), b, true, 1.0).unwrap();
+        sc.ts = ts;
+        let img = sc.image(ChannelKind::BaseColor).unwrap();
+        let mid = a.lerp(b, 0.5) * res as f32;
+        alpha(&img, mid.x as u32, mid.y as u32)
+    };
+    let built_up = paint(subcraft_paint::StampBlend::Accumulate);
+    let even = paint(subcraft_paint::StampBlend::Lighten);
+    assert!(built_up > 0.6, "overlapping 30% stamps build up: {built_up}");
+    assert!((even - 0.3).abs() < 0.02, "Lighten stays at one stamp's flow: {even}");
+}

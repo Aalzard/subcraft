@@ -15,6 +15,9 @@ pub const MAX_WARP_SIDE: usize = 7;
 pub const MAX_WARP_POINTS: usize = MAX_WARP_SIDE * MAX_WARP_SIDE;
 /// Cells per side of a new grid.
 pub const DEFAULT_WARP_CELLS: u8 = 3;
+/// Points stay within this distance of the origin, in units of the model's bounding cube (which
+/// spans 0 to 1). Far larger values overflowed the cell maths to NaN texture coordinates.
+pub const MAX_WARP_COORD: f32 = 4.0;
 
 /// 2D coordinates of a normalized position seen down `axis` (the planar projection's frame:
 /// X → (z, 1−y), Y → (x, z), Z → (x, 1−y)).
@@ -72,8 +75,8 @@ impl TryFrom<WarpGridFile> for WarpGrid {
         if f.points.len() != n {
             return Err(format!("warp grid needs {n} points, found {}", f.points.len()));
         }
-        if !f.points.iter().flatten().all(|v| v.is_finite()) {
-            return Err("warp grid point is not a finite number".into());
+        if !f.points.iter().flatten().all(|v| v.is_finite() && v.abs() <= MAX_WARP_COORD) {
+            return Err(format!("warp grid point outside ±{MAX_WARP_COORD} or not a number"));
         }
         let increasing = |v: &[f32]| v.iter().all(|x| x.is_finite()) && v.windows(2).all(|w| w[0] < w[1]);
         if f.us.len() != f.cols as usize + 1 || f.vs.len() != f.rows as usize + 1 || !increasing(&f.us) || !increasing(&f.vs) {
@@ -145,12 +148,13 @@ impl WarpGrid {
         [self.us[c], self.vs[r]]
     }
 
-    /// Move point `i`; refused (false) for an index outside the grid or a non-finite position.
+    /// Move point `i` (kept within ±[`MAX_WARP_COORD`]); refused (false) for an index outside
+    /// the grid or a non-finite position.
     pub fn set_point(&mut self, i: usize, p: [f32; 3]) -> bool {
         if i >= self.points().len() || !p.iter().all(|v| v.is_finite()) {
             return false;
         }
-        self.points[i] = p;
+        self.points[i] = p.map(|v| v.clamp(-MAX_WARP_COORD, MAX_WARP_COORD));
         true
     }
 
@@ -281,6 +285,21 @@ mod tests {
             let (_, inside) = g.coords(axis, from_plane_coords([1.3, 0.5], axis, 0.2));
             assert!(!inside, "outside the square nothing is projected");
         }
+    }
+
+    /// QA 2026-11: a point such as 3e38 loaded (only finiteness was checked) and overflowed the
+    /// cell maths to NaN texture coordinates.
+    #[test]
+    fn grid_points_stay_near_the_model() {
+        let file = |x: f32| format!(r#"{{"cols":1,"rows":1,"points":[[{x},0,0],[1,0,0],[0,1,0],[1,1,0]],"us":[0,1],"vs":[0,1]}}"#);
+        assert!(serde_json::from_str::<WarpGrid>(&file(0.0)).is_ok());
+        assert!(serde_json::from_str::<WarpGrid>(&file(3e38)).is_err());
+        assert!(serde_json::from_str::<WarpGrid>(&file(-5.0)).is_err());
+        let mut g = WarpGrid::planar(2, 2, 2);
+        assert!(g.set_point(0, [1e30, -1e30, 0.5]));
+        assert_eq!(g.points()[0], [MAX_WARP_COORD, -MAX_WARP_COORD, 0.5], "a drag far away stops at the limit");
+        let (uv, _) = g.coords(2, [0.5, 0.5, 0.5]);
+        assert!(uv.iter().all(|v| v.is_finite()), "{uv:?}");
     }
 
     #[test]

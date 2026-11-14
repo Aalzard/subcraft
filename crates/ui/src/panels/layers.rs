@@ -404,6 +404,9 @@ Files: {}", ex.dir().display()));
     let ts = state.session.selected_texture_set();
     let mut save_request: Option<(subcraft_core::LayerId, bool)> = None;
     let mut drop_request: Option<(subcraft_core::LayerId, ShelfDrag, bool)> = None;
+    // A Shelf item dropped on a mask-less row's ghost mask slot.
+    let mut ghost_drop: Option<(subcraft_core::LayerId, ShelfDrag)> = None;
+    let dragging_shelf = egui::DragAndDrop::payload::<ShelfDrag>(ui.ctx()).map(|p| *p);
     // The drop landed on the top zone, not on a row (a smart mask then makes its own layer).
     let mut drop_on_top = false;
     let mut open_text: Option<(subcraft_core::LayerId, crate::text_panel::Window)> = None;
@@ -528,6 +531,18 @@ Files: {}", ex.dir().display()));
                             ui.close();
                         }
                     });
+                } else if let Some(item) = dragging_shelf.filter(|i| shelf::ghost_mask_accepts(*i)) {
+                    // Painter's ghost mask slot: while something that fits a mask is dragged, a
+                    // mask-less row shows where its mask would be; a drop there creates it.
+                    let (rect, ghost) = ui.allocate_exact_size(egui::vec2(thumb_size, thumb_size), egui::Sense::hover());
+                    let hovered = ghost.contains_pointer();
+                    let stroke = egui::Stroke::new(if hovered { 2.0 } else { 1.0 }, if hovered { ACCENT() } else { TEXT_FAINT() });
+                    ui.painter().rect_stroke(rect.shrink(1.0), 2.0, stroke, egui::StrokeKind::Inside);
+                    ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, icons::MASK, theme::font(16.0), if hovered { ACCENT() } else { TEXT_FAINT() });
+                    if hovered {
+                        over_mask = Some(ghost_mask_label(item, &l.name));
+                        if ui.input(|i| i.pointer.any_released()) { ghost_drop = Some((l.id, item)); }
+                    }
                 }
                 if let Some(expanded) = folder {
                     let icon = if expanded { icons::FOLDER_OPEN } else { icons::FOLDER };
@@ -905,6 +920,12 @@ Files: {}", ex.dir().display()));
             Err(e) => state.set_status(e.to_string(), now),
         }
     }
+    if let Some((layer, item)) = ghost_drop {
+        // The row under the pointer also takes the release: the ghost slot wins.
+        drop_request = None;
+        egui::DragAndDrop::clear_payload(ui.ctx());
+        shelf::apply_ghost_mask_drop(state, layer, item, now);
+    }
     if let Some((layer, item, alt)) = drop_request {
         if layer != LayerId::default() { state.run(vec![Command::SelectLayer(Some(layer))], now); }
         let with_mask = ui.input(|i| i.modifiers.command);
@@ -961,6 +982,18 @@ pub fn smart_material_matches<'a>(names: impl Iterator<Item = &'a str>, query: &
         })
         .map(|(i, _)| i)
         .collect()
+}
+
+/// What a drop on the ghost mask slot of `layer` does (shown while hovering it).
+pub fn ghost_mask_label(item: ShelfDrag, layer: &str) -> String {
+    let what = match item {
+        ShelfDrag::Alpha(_) => "this alpha",
+        ShelfDrag::Texture(_) => "this image",
+        ShelfDrag::Filter(_) => "this filter",
+        ShelfDrag::SmartMask(_) => "this smart mask",
+        _ => "it",
+    };
+    format!("Add a black mask to \"{layer}\" with {what} in it")
 }
 
 /// Text of one entry of the instance list.
@@ -1249,6 +1282,8 @@ mod instantiate_dialog_tests {
         assert_eq!(subcraft_doc::instance::counts(s.document()).get(&layer), Some(&1));
         assert_eq!(source_label(1), "Source of 1 instance");
         assert_eq!(source_label(3), "Source of 3 instances");
+        assert_eq!(ghost_mask_label(ShelfDrag::Alpha(0), "Rust"), "Add a black mask to \"Rust\" with this alpha in it");
+        assert_eq!(ghost_mask_label(ShelfDrag::Filter(0), "Rust"), "Add a black mask to \"Rust\" with this filter in it");
         // The instance list: source first, each entry a jump to its texture set and layer.
         let links = s.instance_links(top.id);
         assert_eq!(links.len(), 2);

@@ -168,3 +168,23 @@ fn mask_paint_effect_receives_strokes_separately_from_the_mask_base() {
     assert_eq!(s.brush.target, PaintTarget::MaskBase);
     assert_eq!(s.selected_effect(), None);
 }
+
+/// QA 2026-11: only a fill layer's projection was checked; a mask Fill / Image effect or a
+/// content Fill effect took any projection, and the project then failed to open ("invalid fill
+/// projection").
+#[test]
+fn effect_projections_out_of_range_are_refused() {
+    use subcraft_doc::{BackfaceCulling, Projection, ProjectionMode};
+    let (mut s, layer) = setup();
+    let bad = Projection { mode: ProjectionMode::Planar, backface: Some(BackfaceCulling { angle_deg: 200.0, hardness: 1.0 }), ..Projection::default() };
+    let good = Projection { mode: ProjectionMode::Planar, ..Projection::default() };
+    s.execute(Command::AddMask { layer, white: false }).unwrap();
+    let steps = s.history().entries().len();
+    let mask_fill = |projection| MaskEffectKind::Fill { value: 1.0, procedural: None, projection };
+    assert!(s.execute(Command::AddMaskEffect { layer, kind: mask_fill(bad) }).is_err());
+    let content_fill = |projection| ContentEffectKind::Fill(subcraft_doc::FillContent { projection, channels: Default::default() });
+    assert!(s.execute(Command::AddContentEffect { layer, kind: content_fill(bad) }).is_err());
+    assert_eq!(s.history().entries().len(), steps, "nothing recorded");
+    s.execute(Command::AddMaskEffect { layer, kind: mask_fill(good) }).unwrap();
+    s.execute(Command::AddContentEffect { layer, kind: content_fill(good) }).unwrap();
+}
