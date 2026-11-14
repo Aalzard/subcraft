@@ -149,7 +149,8 @@ fn transparent_padding_dilates_then_clears_alpha() {
     // Colour under transparent texels is the nearest island texel, not the gutter's 0.25 / black.
     assert_eq!(at("Gray", far)[0], 1.0);
     let c = at("Exr", far);
-    assert!((c[0] - 0.8).abs() < 1e-5 && (c[1] - 0.4).abs() < 1e-5 && (c[2] - 0.2).abs() < 1e-5, "{c:?}");
+    // Channels are stored at half precision: 0.8 reads back as 0.7998.
+    assert!((c[0] - 0.8).abs() < 1e-3 && (c[1] - 0.4).abs() < 1e-3 && (c[2] - 0.2).abs() < 1e-3, "{c:?}");
     // HDR: dilation only, the far gutter keeps its composite value.
     assert!((at("Hdr", near)[0] - 1.0).abs() < 1e-3 && (at("Hdr", far)[0] - 0.25).abs() < 1e-3, "{:?} {:?}", at("Hdr", near), at("Hdr", far));
     // The mode keeps its distance like the other dilation modes.
