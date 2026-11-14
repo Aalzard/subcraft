@@ -456,13 +456,18 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             let density = *state.uv_density.entry(slot).or_insert_with(|| subcraft_paint::stroke::uv_per_unit(mesh, slot));
             let r_px = state.session.brush_radius_uv_in(density, Some(view)) * side;
             let color = if state.tool == Tool::Eraser { Color32::from_rgb(120, 190, 255) } else { crate::theme::ACCENT() };
-            // Full preview: the tip's footprint, turned with the 2D view.
-            if state.recovery.prefs.viewport.brush_cursor == crate::viewport_bar::BrushCursor::Full {
+            // A stroke here would be refused (a fill layer, a path...): say so, as in the 3D view.
+            let blocked = state.session.stroke_blocker().filter(|e| *e != subcraft_paint::PaintError::NoCloneSource);
+            if let Some(reason) = blocked {
+                crate::brush_cursor::draw_blocked(&painter, p, r_px, &reason.to_string());
+            } else if state.recovery.prefs.viewport.brush_cursor == crate::viewport_bar::BrushCursor::Full {
                 let (texture, reach) = crate::brush_cursor::footprint_texture(state, ui.ctx());
                 crate::brush_cursor::draw_footprint(&painter, texture, p, r_px * reach, frame.rotation, color);
             }
-            painter.circle_stroke(p, r_px, Stroke::new(1.5, Color32::from_black_alpha(160)));
-            painter.circle_stroke(p, r_px, Stroke::new(1.0, color));
+            if blocked.is_none() {
+                painter.circle_stroke(p, r_px, Stroke::new(1.5, Color32::from_black_alpha(160)));
+                painter.circle_stroke(p, r_px, Stroke::new(1.0, color));
+            }
             // Shift: dotted preview of the straight line from the last stroke point.
             if mods.shift && !state.uv.painting && let Some(from) = state.uv.last_point {
                 let to = line_end(to_px(from), p, mods.command || mods.ctrl);
