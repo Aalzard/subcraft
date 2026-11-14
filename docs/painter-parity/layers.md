@@ -307,7 +307,7 @@ Layout notes: the geometry mask is a second, list-based mask on every layer and 
 | Right-click icon > Exclude all | Layer row icon menu | n/a | done | crates/ui/src/panels/layers.rs | - |
 | Hide/ignore excluded geometry button (paint through hidden parts) | Viewport contextual toolbar | off; Alt+H | done: hides what the selected layer's geometry mask leaves out and follows the selection | crates/ui/src/viewport_bar.rs | - |
 | Mask is dynamic: strokes are recomputed when the include list changes | Engine | n/a | partial: the part mask multiplies the layer result; strokes are not reprojected | crates/doc/src/layer.rs:134 | - |
-| Survives mesh re-import by name / tile number | Engine | n/a | partial: part ids are stable for a stored mesh only | crates/doc/src/layer.rs:137 | - |
+| Survives mesh re-import by name / tile number | Engine | n/a | partial: masks by object follow object names and masks by material follow the texture sets; connected pieces and UV islands are kept as numbers and reported; no UV tiles yet | crates/app/src/mesh_reload.rs | - |
 | Excluded UV tiles are skipped by the engine (performance) | Engine | n/a | missing | - | - |
 | Toggle to ignore the geometry mask temporarily (SubCraft extra: eye in Parts header) | n/a | n/a | done | crates/ui/src/panels/properties.rs:99 | - |
 

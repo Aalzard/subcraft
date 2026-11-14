@@ -21,7 +21,7 @@ use std::sync::mpsc::{Receiver, TryRecvError, channel};
 use std::sync::{Arc, Mutex};
 
 use rayon::prelude::*;
-use subcraft_core::{MeshMapKind, TextureSetId};
+use subcraft_core::{MeshMapKind, PartKind, TextureSetId};
 use subcraft_doc::{Document, Layer, LayerContent, TextureSet};
 use subcraft_image::{TILE_SIZE, TILE_TEXELS, TiledImage};
 use subcraft_mesh::transfer::{CorrespondenceOptions, TransferSource, TransferTarget, UvCorrespondence, build_correspondence, uv_coverage};
@@ -102,8 +102,12 @@ pub struct MeshReloadReport {
     pub rasters_transferred: usize,
     /// Pen paths turned into ordinary paint (their anchors refer to the old UVs).
     pub paths_converted: usize,
-    /// Layers restricted to mesh parts (part numbers may differ on the new model).
+    /// Layers whose geometry mask lists connected pieces or UV islands: their numbers may differ
+    /// on the new model, so they need checking.
     pub part_layers: usize,
+    /// Layers whose geometry mask lists objects or materials: carried over to the new model by
+    /// name (entries whose object or material is gone are dropped).
+    pub part_layers_remapped: usize,
     /// Texture sets whose baked maps should be baked again.
     pub stale_maps: Vec<String>,
 }
@@ -127,8 +131,11 @@ impl MeshReloadReport {
         if self.paths_converted > 0 {
             s += &format!(", {} pen path(s) converted to paint", self.paths_converted);
         }
+        if self.part_layers_remapped > 0 {
+            s += &format!(", {} geometry mask(s) carried over by object or material name", self.part_layers_remapped);
+        }
         if self.part_layers > 0 {
-            s += &format!(", {} layer(s) use part visibility (check them)", self.part_layers);
+            s += &format!(", {} layer(s) mask connected pieces or UV islands (check them)", self.part_layers);
         }
         if !self.stale_maps.is_empty() {
             s += ". Rebake mesh maps";
@@ -335,6 +342,10 @@ pub fn transfer(prepared: &PreparedReload, mode: ReloadMode, old_bvh: &Bvh, old_
         .sum();
     progress.total.store(total.max(1), Ordering::Relaxed);
     let diagonal = old_mesh.bounds.diagonal().max(mesh.bounds.diagonal());
+    // Geometry masks by object or material follow their names onto the new model.
+    let names = PartRenames::new(old_mesh, &mesh, prepared.sets.iter().enumerate().filter_map(|(slot, m)| {
+        Some((m.old.and_then(|id| old_doc.texture_set(id))?.material_slot, slot as u32))
+    }));
     for (slot, (m, plan)) in prepared.sets.iter().zip(&prepared.plans).enumerate() {
         let Some(old) = m.old.and_then(|id| old_doc.texture_set(id)) else {
             // A new material: a fresh set like New Project makes, shaped like the existing ones.
@@ -354,11 +365,9 @@ pub fn transfer(prepared: &PreparedReload, mode: ReloadMode, old_bvh: &Bvh, old_
         ts.material_slot = slot as u32;
         ts.udim_tile = plan.tile;
         report.matched.push(ts.name.clone());
-        ts.walk(|l, _| {
-            if l.parts.is_some() {
-                report.part_layers += 1;
-            }
-        });
+        let (remapped, unstable) = names.apply(&mut ts.layers);
+        report.part_layers_remapped += remapped;
+        report.part_layers += unstable;
         let old_set_maps = old_maps.get(&ts.id).filter(|m| !m.is_empty());
         // A set that was kept without geometry by an earlier reload has nothing to reproject from:
         // its rasters stay as they are (reprojecting from no triangles erased them all).
@@ -442,6 +451,59 @@ pub fn transfer(prepared: &PreparedReload, mode: ReloadMode, old_bvh: &Bvh, old_
 
 /// Turn pen-path and text layers into ordinary paint layers (their anchors are UVs of the old layout;
 /// the transferred raster is kept).
+/// How geometry mask entries move from the old model to the new one: objects by name, materials
+/// through the texture sets matched by name.
+pub(crate) struct PartRenames {
+    objects: HashMap<u32, u32>,
+    materials: HashMap<u32, u32>,
+}
+
+impl PartRenames {
+    /// `materials`: (old material slot, new material slot) of each matched texture set.
+    pub(crate) fn new(old: &Mesh, new: &Mesh, materials: impl IntoIterator<Item = (u32, u32)>) -> Self {
+        let objects = old
+            .objects
+            .iter()
+            .enumerate()
+            .filter_map(|(i, o)| Some((i as u32, new.objects.iter().position(|n| n.name == o.name)? as u32)))
+            .collect();
+        Self { objects, materials: materials.into_iter().collect() }
+    }
+
+    /// Rewrite the geometry masks of `layers` (folders included). Returns how many masks were
+    /// carried over by name and how many list connected pieces or UV islands, whose numbers
+    /// cannot be matched.
+    pub(crate) fn apply(&self, layers: &mut [Arc<Layer>]) -> (usize, usize) {
+        let (mut remapped, mut unstable) = (0, 0);
+        for layer in layers {
+            let by_name = match layer.parts.as_ref().map(|p| p.kind) {
+                Some(PartKind::Object) => Some(&self.objects),
+                Some(PartKind::Material) => Some(&self.materials),
+                Some(PartKind::Connected | PartKind::UvIsland) => {
+                    unstable += 1;
+                    None
+                }
+                None => None,
+            };
+            let is_folder = matches!(layer.content, LayerContent::Group(ref g) if !g.children.is_empty());
+            if by_name.is_none() && !is_folder {
+                continue;
+            }
+            let l = Arc::make_mut(layer);
+            if let (Some(map), Some(parts)) = (by_name, l.parts.as_mut()) {
+                parts.parts = parts.parts.iter().filter_map(|id| map.get(id).copied()).collect();
+                remapped += 1;
+            }
+            if let LayerContent::Group(g) = &mut l.content {
+                let (r, u) = self.apply(&mut g.children);
+                remapped += r;
+                unstable += u;
+            }
+        }
+        (remapped, unstable)
+    }
+}
+
 fn drop_pen_paths(layers: &mut [Arc<Layer>]) -> usize {
     let mut n = 0;
     for layer in layers {
