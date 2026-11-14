@@ -141,7 +141,7 @@ Layout notes: a "Common settings" entry at the top (with its own sync button), t
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
 | ID baker | Mesh map bakers | not documented | done | crates/bake/src/lib.rs:310 | - |
-| Color source | Mesh map settings > ID | Vertex Color; Material Color; File ID; Mesh ID/Polygroup (default not documented) | partial: Vertex color, Material color, Mesh ID / Polygroup, Submesh; no File ID | crates/ui/src/dialogs.rs (map_settings_panel) | - |
+| Color source | Mesh map settings > ID | Vertex Color; Material Color; File ID; Mesh ID/Polygroup (default not documented) | done: Vertex color, Material color, Mesh ID / Polygroup, Submesh, File ID | crates/ui/src/dialogs.rs (map_settings_panel) | - |
 | Color Generator | Mesh map settings > ID (File ID or Mesh ID/Polygroup) | Random; Hue shift; Grayscale (default not documented) | done: Random, Hue shift (default), Grayscale | crates/bake/src/lib.rs (IdGenerator) | - |
 
 ## Mesh map settings: Ambient occlusion
