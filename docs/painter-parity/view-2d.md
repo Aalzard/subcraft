@@ -45,15 +45,15 @@ Layout notes: these options are in Display settings > Viewport settings and act 
 | Show mesh wireframe (UV wireframe in the 2D view) | Display settings > Mesh wireframe | off | partial: grid toggle in the 2D tab header (on by default), separate from the 3D wireframe switch | crates/ui/src/panels/uv_view.rs | - |
 | Wireframe color | Display settings > Mesh wireframe | not documented | done: the 2D UV lines use the mesh wireframe colour; right-click the grid toggle to change it | crates/ui/src/panels/uv_view.rs | - |
 | Wireframe opacity | Display settings > Mesh wireframe | not documented | done: shared with the mesh wireframe opacity; right-click the grid toggle | crates/ui/src/panels/uv_view.rs | - |
-| Scale HDR values | Display settings > Channel display | not documented | missing | - | - |
-| Use +/- color for HDR values | Display settings > Channel display | not documented | missing | - | - |
-| Color channels: RGBA | Display settings > Channel display | default on colour channels | missing | - | - |
-| Color channels: Grayscale+Alpha | Display settings > Channel display | default on grayscale channels | missing | - | - |
-| Color channels: R | Display settings > Channel display | - | missing | - | - |
-| Color channels: G | Display settings > Channel display | - | missing | - | - |
-| Color channels: B | Display settings > Channel display | - | missing | - | - |
-| Color channels: Alpha | Display settings > Channel display | - | missing | - | - |
-| Selected color channel name shown in the view | 2D view overlay | - | missing | - | - |
+| Scale HDR values | Display settings > Channel display | not documented | done: shared with the 3D view | crates/render/src/preview.wgsl | - |
+| Use +/- color for HDR values | Display settings > Channel display | not documented | done: grayscale channels and maps | crates/render/src/preview.wgsl | - |
+| Color channels: RGBA | Display settings > Channel display | default on colour channels | done | crates/render/src/preview.wgsl | - |
+| Color channels: Grayscale+Alpha | Display settings > Channel display | default on grayscale channels | done | crates/render/src/preview.wgsl | - |
+| Color channels: R | Display settings > Channel display | - | done | crates/render/src/preview.wgsl | - |
+| Color channels: G | Display settings > Channel display | - | done | crates/render/src/preview.wgsl | - |
+| Color channels: B | Display settings > Channel display | - | done | crates/render/src/preview.wgsl | - |
+| Color channels: Alpha | Display settings > Channel display | - | done | crates/render/src/preview.wgsl | - |
+| Selected color channel name shown in the view | 2D view overlay | - | done: pill at the top left | crates/ui/src/panels/uv_view.rs | - |
 
 ## Navigation
 
