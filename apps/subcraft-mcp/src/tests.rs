@@ -100,6 +100,21 @@ fn unknown_arguments_are_reported_with_the_valid_names() {
     assert!(!layer_names(&mut server, "Body").iter().any(|n| n.contains("Fill")));
 }
 
+/// QA 2026-11: mask_add_effect / content_add_effect with a bad `blend` failed only after adding
+/// the effect (and a black mask), so the error left them in the project.
+#[test]
+fn a_bad_effect_blend_adds_nothing() {
+    let mut server = Server::new();
+    sample(&mut server);
+    ok(&mut server, "layer_add", json!({ "type": "fill", "name": "F", "texture_set": "Body" }));
+    let steps = ok(&mut server, "history", json!({}))["entries"].as_array().unwrap().len();
+    let e = fails(&mut server, "mask_add_effect", json!({ "layer": "F", "texture_set": "Body", "effect": { "type": "levels" }, "blend": "no-such-blend" }));
+    assert!(e.contains("blend mode"), "{e}");
+    let e = fails(&mut server, "content_add_effect", json!({ "layer": "F", "texture_set": "Body", "effect": { "type": "levels" }, "blend": "no-such-blend" }));
+    assert!(e.contains("blend mode"), "{e}");
+    assert_eq!(ok(&mut server, "history", json!({}))["entries"].as_array().unwrap().len(), steps, "nothing was added");
+}
+
 #[test]
 fn annotations_mark_writing_tools_destructive() {
     let defs = crate::tools::definitions();
@@ -324,19 +339,23 @@ fn a_view_space_pen_path_takes_its_image_size_apart_from_its_line_width() {
     assert!((width - 0.01).abs() < 1e-6, "the line width asked for: {path}");
 }
 
-/// QA 2026-11: mask_add_effect / content_add_effect with a bad `blend` failed only after adding
-/// the effect (and a black mask), so the error left them in the project.
+/// QA 2026-11: export padding -3 or 2.5 became 8 texels silently, and part ids or padding beyond
+/// u32 wrapped round (2^32 + 1 selected part 1).
 #[test]
-fn a_bad_effect_blend_adds_nothing() {
+fn padding_and_part_ids_outside_their_range_are_refused() {
+    let dir = TempDir::new("padding");
     let mut server = Server::new();
     sample(&mut server);
-    ok(&mut server, "layer_add", json!({ "type": "fill", "name": "F", "texture_set": "Body" }));
-    let steps = ok(&mut server, "history", json!({}))["entries"].as_array().unwrap().len();
-    let e = fails(&mut server, "mask_add_effect", json!({ "layer": "F", "texture_set": "Body", "effect": { "type": "levels" }, "blend": "no-such-blend" }));
-    assert!(e.contains("blend mode"), "{e}");
-    let e = fails(&mut server, "content_add_effect", json!({ "layer": "F", "texture_set": "Body", "effect": { "type": "levels" }, "blend": "no-such-blend" }));
-    assert!(e.contains("blend mode"), "{e}");
-    assert_eq!(ok(&mut server, "history", json!({}))["entries"].as_array().unwrap().len(), steps, "nothing was added");
+    for bad in [json!(-3), json!(2.5), json!(4294967304u64)] {
+        let e = fails(&mut server, "export_textures", json!({ "dir": dir.join("out"), "padding": bad }));
+        assert!(e.contains("padding"), "{e}");
+    }
+    assert!(!std::path::Path::new(&dir.join("out")).exists(), "nothing was exported");
+    ok(&mut server, "layer_add", json!({ "type": "paint", "name": "P", "texture_set": "Body" }));
+    for bad in [json!(4294967297u64), json!(-1), json!(1.5)] {
+        let e = fails(&mut server, "layer_set_parts", json!({ "layer": "P", "texture_set": "Body", "parts": [bad] }));
+        assert!(e.contains("part ids"), "{e}");
+    }
 }
 
 /// QA 2026-11: project_new dropped an unsupported resolution silently: the sample stayed at
