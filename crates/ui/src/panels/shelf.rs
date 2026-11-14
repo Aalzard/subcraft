@@ -29,6 +29,9 @@ pub enum ShelfDrag {
     Alpha(usize),
     /// A filter (index into `Filter::ALL`): into the stack it becomes a Passthrough filter layer.
     Filter(usize),
+    /// A "SubCraft Materials" pack material (index into `UiState::materials_pack`): a new fill
+    /// layer with all its maps.
+    PackMaterial(usize),
 }
 
 /// An environment tile being dragged onto the 3D view or the Display Settings panel's
@@ -76,6 +79,8 @@ pub fn drop_label(item: ShelfDrag, alt: bool, target: Option<&str>, on_mask: boo
         ShelfDrag::Alpha(_) => "Set as brush tip".to_string(),
         ShelfDrag::Filter(_) if alt || on_mask => format!("Add this filter to{t}"),
         ShelfDrag::Filter(_) => format!("Add a filter layer (Passthrough) above{t}"),
+        ShelfDrag::PackMaterial(_) if alt => "Pack materials are added as a new layer: release Alt".to_string(),
+        ShelfDrag::PackMaterial(_) => format!("Add material layer above{t} (Ctrl: with a black mask)"),
     }
 }
 
@@ -140,6 +145,11 @@ pub fn apply_shelf_item_with(s: &mut UiState, item: ShelfDrag, alt: bool, now: f
             Some(f) => s.session.add_filter_layer(f).map_err(|e| e.to_string()),
             None => Ok(()),
         },
+        ShelfDrag::PackMaterial(_) if alt => Err("A pack material is added as a new fill layer: drop it without Alt".to_string()),
+        ShelfDrag::PackMaterial(i) => match s.materials_pack.get(i).cloned() {
+            Some(m) => s.session.apply_pack_material(&m).map(|r| s.set_status(format!("Added {}", r.layer_name), now)),
+            None => Ok(()),
+        },
     };
     match result {
         Ok(()) => s.recovery.autosaver.request_soon(),
@@ -153,7 +163,7 @@ pub fn ghost_mask_accepts(item: ShelfDrag) -> bool {
     match item {
         ShelfDrag::Alpha(_) | ShelfDrag::SmartMask(_) | ShelfDrag::Texture(_) => true,
         ShelfDrag::Filter(i) => subcraft_doc::Filter::ALL.get(i).is_some_and(|f| f.supports_mask()),
-        ShelfDrag::Material(_) | ShelfDrag::SmartMaterial(_) | ShelfDrag::Starter(_) => false,
+        ShelfDrag::Material(_) | ShelfDrag::SmartMaterial(_) | ShelfDrag::Starter(_) | ShelfDrag::PackMaterial(_) => false,
     }
 }
 
@@ -186,7 +196,7 @@ pub fn apply_ghost_mask_drop(s: &mut UiState, layer: subcraft_core::LayerId, ite
             Some(f) => s.session.execute(Command::ApplyMaskEffects { layer, effects: vec![MaskEffectKind::Filter(f)], label: format!("Mask filter: {}", f.label()) }).map_err(|e| e.to_string()),
             None => Err("This filter does not work on masks".to_string()),
         },
-        ShelfDrag::Material(_) | ShelfDrag::SmartMaterial(_) | ShelfDrag::Starter(_) => Err("Materials do not go into a mask: drop them on the row".to_string()),
+        ShelfDrag::Material(_) | ShelfDrag::SmartMaterial(_) | ShelfDrag::Starter(_) | ShelfDrag::PackMaterial(_) => Err("Materials do not go into a mask: drop them on the row".to_string()),
     };
     match result {
         Ok(()) => {
@@ -211,7 +221,7 @@ pub fn apply_stack_drop(s: &mut UiState, item: ShelfDrag, alt: bool, with_mask: 
         apply_shelf_item_with(s, item, false, now);
         return;
     }
-    let makes_layer = !alt && matches!(item, ShelfDrag::Material(_) | ShelfDrag::Texture(_));
+    let makes_layer = !alt && matches!(item, ShelfDrag::Material(_) | ShelfDrag::Texture(_) | ShelfDrag::PackMaterial(_));
     let before = s.session.selection().layer;
     let alt = alt || (with_mask && matches!(item, ShelfDrag::SmartMask(_)));
     apply_shelf_item_with(s, item, alt, now);
@@ -1405,7 +1415,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                             continue;
                         }
                         shown += 1;
-                        let resp = tile(ui, tile_size, thumbs.get(&m.id), &m.name, false, &format!("{} ({}, SubCraft Materials): click to add it as a fill layer with all its maps", m.name, m.category));
+                        let resp = tile(ui, tile_size, thumbs.get(&m.id), &m.name, false, &format!("{} ({}, SubCraft Materials): click or drag onto the model / a layer to add it as a fill layer with all its maps (Ctrl in the layer stack: with a black mask)", m.name, m.category));
+                        resp.dnd_set_drag_payload(ShelfDrag::PackMaterial(i));
                         if resp.clicked() {
                             let material = m.clone();
                             action = Some(Box::new(move |s: &mut UiState| apply_pack_material(s, &material, now)));
@@ -2405,6 +2416,18 @@ mod materials_pack_tests {
         apply_pack_material(&mut s, &wood, 0.0);
         assert_eq!(s.session.selected_texture_set().layers.len(), before + 1);
         assert!(s.session.selected_texture_set().layers.iter().any(|l| l.name == "Wood Test Planks"));
+        // Dropped into the layer stack with Ctrl: a new layer with a black mask, selected.
+        let metal = s.materials_pack.iter().position(|m| m.key == "metal_test").unwrap();
+        apply_stack_drop(&mut s, ShelfDrag::PackMaterial(metal), false, true, false, 0.0);
+        let layer = s.session.selected_layer().expect("the dropped material is selected");
+        assert_eq!(layer.name, "Metal Test Plate");
+        assert!(layer.mask.is_some(), "Ctrl: with a black mask");
+        assert_eq!(s.session.selected_texture_set().layers.len(), before + 2);
+        // Alt does not replace in place; masks refuse it.
+        apply_shelf_item_with(&mut s, ShelfDrag::PackMaterial(metal), true, 0.0);
+        assert_eq!(s.session.selected_texture_set().layers.len(), before + 2, "Alt adds nothing");
+        assert!(!ghost_mask_accepts(ShelfDrag::PackMaterial(metal)));
+        assert!(drop_label(ShelfDrag::PackMaterial(metal), false, Some("Base"), false).starts_with("Add material layer above"));
         // No pack: nothing listed.
         s.recovery.prefs.materials_pack.clear();
         s.reload_materials_pack();
