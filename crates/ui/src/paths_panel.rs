@@ -24,6 +24,24 @@ pub fn with_properties(target: &PenPath, source: &PenPath) -> PenPath {
     PenPath { anchors: target.anchors.clone(), closed: target.closed, ..source.clone() }
 }
 
+/// `path` made to fit where it is pasted: channels the texture set does not have are dropped
+/// (the target's own values stay when none is left) and so are images the project does not have.
+/// A style copied in another texture set or project used to bring both along: a paint channel
+/// the set has no row for, or a tip that silently drew as the round one.
+pub fn fitted(mut path: PenPath, target: &PenPath, has_channel: impl Fn(subcraft_core::ChannelKind) -> bool, has_image: impl Fn(subcraft_core::ResourceId) -> bool) -> PenPath {
+    path.values.retain(|&kind, _| has_channel(kind));
+    if path.values.is_empty() {
+        path.values = target.values.clone();
+    }
+    if let Some(stamp) = &mut path.stamp && stamp.alpha.is_some_and(|id| !has_image(id)) {
+        stamp.alpha = None;
+    }
+    if let Some(ribbon) = &mut path.ribbon && ribbon.image.is_some_and(|id| !has_image(id)) {
+        ribbon.image = None;
+    }
+    path
+}
+
 /// `target` with the points (fresh ids) and open / closed state of `anchors`.
 pub fn with_position(target: &PenPath, anchors: &[PenAnchor], closed: bool) -> PenPath {
     let anchors = anchors.iter().map(|a| PenAnchor { id: subcraft_core::AnchorId::new(), ..a.clone() }).collect();
@@ -42,7 +60,7 @@ pub fn path_layers(state: &UiState) -> Vec<(LayerId, String, bool)> {
     out
 }
 
-fn path_of(state: &UiState, layer: LayerId) -> Option<PenPath> {
+pub fn path_of(state: &UiState, layer: LayerId) -> Option<PenPath> {
     match &state.session.selected_texture_set().find(layer)?.content {
         LayerContent::Paint(p) => p.path.clone(),
         _ => None,
@@ -56,6 +74,15 @@ fn apply(state: &mut UiState, layer: LayerId, path: PenPath, now: f64) {
     if let Err(e) = result {
         state.set_status(e.to_string(), now);
     }
+}
+
+fn hover_id() -> egui::Id {
+    egui::Id::new("paths_panel_hover")
+}
+
+/// The path layer whose row the pointer is over (the view highlights it).
+pub fn hovered(ui: &Ui) -> Option<LayerId> {
+    ui.data(|d| d.get_temp(hover_id()))
 }
 
 fn clip_id() -> egui::Id {
@@ -91,6 +118,7 @@ pub fn show(state: &mut UiState, ui: &Ui, rect: egui::Rect, now: f64) {
                 }
                 let mut renaming: Option<(LayerId, String)> = ui.data(|d| d.get_temp(rename_id()));
                 let clip: Option<PathClip> = ui.data(|d| d.get_temp(clip_id()));
+                let mut hovered_row: Option<LayerId> = None;
                 for (id, name, visible) in &layers {
                     ui.horizontal(|ui| {
                         let eye = if *visible { icons::EYE } else { icons::EYE_SLASH };
@@ -122,6 +150,9 @@ pub fn show(state: &mut UiState, ui: &Ui, rect: egui::Rect, now: f64) {
                         } else {
                             {
                                 let label = ui.selectable_label(selected == Some(*id), RichText::new(name).color(if *visible { theme::TEXT() } else { theme::TEXT_DIM() }));
+                                if label.hovered() {
+                                    hovered_row = Some(*id);
+                                }
                                 if label.double_clicked() {
                                     renaming = Some((*id, name.clone()));
                                 } else if label.clicked() {
@@ -153,6 +184,14 @@ pub fn show(state: &mut UiState, ui: &Ui, rect: egui::Rect, now: f64) {
                     }
                     None => {
                         d.remove::<(LayerId, String)>(rename_id());
+                    }
+                });
+                ui.data_mut(|d| match hovered_row {
+                    Some(id) => {
+                        d.insert_temp(hover_id(), id);
+                    }
+                    None => {
+                        d.remove::<LayerId>(hover_id());
                     }
                 });
                 ui.label(RichText::new("Double-click to rename · right-click for more").small().color(theme::TEXT_FAINT()));
@@ -207,7 +246,11 @@ fn perform(state: &mut UiState, ui: &Ui, layer: LayerId, action: Action, now: f6
         Action::PasteProperties | Action::PastePosition => {
             let (Some(target), Some(clip)) = (path_of(state, layer), ui.data(|d| d.get_temp::<PathClip>(clip_id()))) else { return };
             let path = match clip {
-                PathClip::Properties(source) => with_properties(&target, &source),
+                PathClip::Properties(source) => {
+                    let ts = state.session.selected_texture_set();
+                    let resources = state.session.resources();
+                    fitted(with_properties(&target, &source), &target, |kind| ts.has_channel(kind), |id| resources.bitmap(id).is_some())
+                }
                 PathClip::Position(anchors, closed) => with_position(&target, &anchors, closed),
             };
             apply(state, layer, path, now);
@@ -266,6 +309,29 @@ mod tests {
         assert_eq!(state.session.history().entries().len(), steps + 1);
         assert!(ctx.data(|d| d.get_temp::<(LayerId, String)>(rename_id())).is_none(), "the field is closed");
         assert!(!ctx.egui_wants_keyboard_input(), "and the keyboard is free again");
+    }
+
+    /// QA 2026-11: a style copied in another texture set or project kept channels the target
+    /// set does not have and images the project does not have.
+    #[test]
+    fn a_pasted_style_keeps_only_what_the_target_has() {
+        let target = path(&[(0.1, 0.1), (0.2, 0.2)], 0.01);
+        let mut source = path(&[(0.5, 0.5), (0.6, 0.6)], 0.05);
+        source.values = [(ChannelKind::Emissive, ChannelValue::rgb(1.0, 1.0, 0.0)), (ChannelKind::BaseColor, ChannelValue::rgb(0.0, 0.0, 1.0))].into();
+        let tip = subcraft_core::ResourceId::new();
+        source.stamp = Some(subcraft_doc::PathStamp { alpha: Some(tip), ..Default::default() });
+        source.ribbon = Some(subcraft_doc::PathRibbon { image: Some(tip), ..Default::default() });
+        let base_only = |k: ChannelKind| k == ChannelKind::BaseColor;
+        let fit = fitted(with_properties(&target, &source), &target, base_only, |_| false);
+        assert_eq!(fit.values.keys().copied().collect::<Vec<_>>(), vec![ChannelKind::BaseColor]);
+        assert_eq!(fit.values[&ChannelKind::BaseColor], ChannelValue::rgb(0.0, 0.0, 1.0), "the copied value of a channel the set has");
+        assert_eq!((fit.stamp.unwrap().alpha, fit.ribbon.unwrap().image), (None, None));
+        assert_eq!(fit.radius, 0.05, "the rest of the style is pasted");
+        // Nothing in common: the target keeps its own values. An image the project has stays.
+        source.values = [(ChannelKind::Emissive, ChannelValue::rgb(1.0, 1.0, 0.0))].into();
+        let fit = fitted(with_properties(&target, &source), &target, base_only, |id| id == tip);
+        assert_eq!(fit.values, target.values);
+        assert_eq!(fit.stamp.unwrap().alpha, Some(tip));
     }
 
     #[test]

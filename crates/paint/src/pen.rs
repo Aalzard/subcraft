@@ -378,10 +378,9 @@ impl PenRasterizer {
                         color[pixel] = [c[0], c[1], c[2]];
                         c[3]
                     }
-                    Some(b) => {
-                        let c = b.sample(u, v, subcraft_image::Wrap::Clamp, false);
-                        c[0] * c[3]
-                    }
+                    // The path's value through the image alpha: a ribbon image is RGBA, not a
+                    // grayscale tip (QA 2026-11: red x alpha left its green and blue parts unpainted).
+                    Some(b) => b.sample(u, v, subcraft_image::Wrap::Clamp, false)[3],
                 };
                 coverage[pixel] = a.clamp(0.0, 1.0) * edge * opacity;
             }
@@ -552,5 +551,9 @@ mod run_tests {
         path.ribbon = Some(PathRibbon { color_from_image: false, ..Default::default() });
         let plain = render(&path, &along).get(30, 128);
         assert!(plain[1] > 0.99 && plain[0] < 0.01, "{plain:?}");
+        // Also where the image is opaque but not red (its green half).
+        path.ribbon = Some(PathRibbon { mode: RibbonMode::KeepAspect, color_from_image: false, ..Default::default() });
+        let green_part = render(&path, &across).get(128, 138);
+        assert!(green_part[3] > 0.9, "coverage is the image alpha: {green_part:?}");
     }
 }

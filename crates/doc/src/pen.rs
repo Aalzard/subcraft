@@ -146,6 +146,47 @@ impl PenPath {
         }
     }
 
+    /// Number of curve segments (one more than the anchors' gaps when closed).
+    pub fn segment_count(&self) -> usize {
+        let n = self.anchors.len();
+        n.saturating_sub(1) + usize::from(self.is_closed() && n > 1)
+    }
+
+    /// The four Bézier control points of segment `i` (anchor `i` to the next one).
+    pub fn segment(&self, i: usize) -> Option<[Vec2; 4]> {
+        if i >= self.segment_count() { return None; }
+        let n = self.anchors.len();
+        let (a, b) = (&self.anchors[i % n], &self.anchors[(i + 1) % n]);
+        Some([a.position, a.position + a.outgoing, b.position + b.incoming, b.position])
+    }
+
+    /// Insert an anchor at parameter `t` (0..1) of segment `i` without changing the curve's
+    /// shape (de Casteljau split: the neighbours' handles shorten, the new point gets the
+    /// tangents of the split). Returns the new anchor's id.
+    pub fn split_segment(&mut self, i: usize, t: f32) -> Option<AnchorId> {
+        let [p0, p1, p2, p3] = self.segment(i)?;
+        if self.anchors.len() >= Self::MAX_ANCHORS || !t.is_finite() { return None; }
+        let t = t.clamp(0.01, 0.99);
+        let lerp = |a: Vec2, b: Vec2| a + (b - a) * t;
+        let (a, b, c) = (lerp(p0, p1), lerp(p1, p2), lerp(p2, p3));
+        let (d, e) = (lerp(a, b), lerp(b, c));
+        let f = lerp(d, e);
+        let n = self.anchors.len();
+        let next = (i + 1) % n;
+        self.anchors[i].outgoing = a - p0;
+        self.anchors[next].incoming = c - p3;
+        let anchor = PenAnchor { id: AnchorId::new(), position: f, incoming: d - f, outgoing: e - f };
+        let id = anchor.id;
+        // After the segment's first anchor; a closing segment's point goes at the end.
+        self.anchors.insert(i + 1, anchor);
+        Some(id)
+    }
+
+    /// Whether a point has tangent handles (smooth) or none (corner).
+    pub fn is_smooth(&self, id: AnchorId) -> bool {
+        self.anchors.iter().find(|a| a.id == id).is_some_and(|a| a.incoming.length_squared() > 1e-12 || a.outgoing.length_squared() > 1e-12)
+    }
+
     /// Whether the curve returns to its first anchor (a filled path always does).
     pub fn is_closed(&self) -> bool {
         self.closed || self.kind == PathKind::Filled

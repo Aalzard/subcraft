@@ -182,3 +182,65 @@ impl Session {
         self.execute(Command::SetParts { layer, parts: Some(parts) })
     }
 }
+
+/// Mark the texels of a `size` x `size` map that UV triangles (0..1) touch: sets byte `channel`
+/// of each `stride`-byte texel to 255. Texels within three quarters of a texel of a triangle
+/// count, so thin triangles and island borders are kept.
+pub fn raster_uv_triangles(size: u32, tris: &[[Vec2; 3]], out: &mut [u8], stride: usize, channel: usize) {
+    let n = size as f32;
+    for tri in tris {
+        let p = tri.map(|v| v * n);
+        let (min, max) = (p[0].min(p[1]).min(p[2]), p[0].max(p[1]).max(p[2]));
+        if !(min.is_finite() && max.is_finite()) {
+            continue;
+        }
+        let lo = |v: f32| (v - 1.0).floor().clamp(0.0, n) as u32;
+        let hi = |v: f32| (v + 1.0).ceil().clamp(0.0, n) as u32;
+        let sign = if (p[1] - p[0]).perp_dot(p[2] - p[0]) < 0.0 { -1.0 } else { 1.0 };
+        let edges = [(p[0], p[1] - p[0]), (p[1], p[2] - p[1]), (p[2], p[0] - p[2])];
+        for y in lo(min.y)..hi(max.y) {
+            for x in lo(min.x)..hi(max.x) {
+                let c = Vec2::new(x as f32 + 0.5, y as f32 + 0.5);
+                if edges.iter().all(|(a, e)| sign * e.perp_dot(c - *a) >= -0.75 * e.length()) {
+                    out[(y * size + x) as usize * stride + channel] = 255;
+                }
+            }
+        }
+    }
+}
+
+/// The 3D view's part overlay: `size` x `size` texels of two bytes, the first set where `greyed`
+/// triangles lie (geometry a geometry mask leaves out) and the second where `tinted` ones do (the
+/// part or Polygon Fill element under the cursor).
+pub fn overlay_mask(size: u32, greyed: &[[Vec2; 3]], tinted: &[[Vec2; 3]]) -> Vec<u8> {
+    let mut out = vec![0u8; (size * size) as usize * 2];
+    raster_uv_triangles(size, greyed, &mut out, 2, 0);
+    raster_uv_triangles(size, tinted, &mut out, 2, 1);
+    out
+}
+
+#[cfg(test)]
+mod overlay_tests {
+    use super::*;
+
+    #[test]
+    fn the_overlay_mask_marks_the_texels_under_each_triangle_set() {
+        let greyed = [[Vec2::new(0.0, 0.0), Vec2::new(0.5, 0.0), Vec2::new(0.0, 0.5)]];
+        // Wound the other way: the winding must not matter.
+        let tinted = [[Vec2::new(1.0, 1.0), Vec2::new(0.5, 1.0), Vec2::new(1.0, 0.5)]];
+        let m = overlay_mask(16, &greyed, &tinted);
+        let at = |x: usize, y: usize| [m[(y * 16 + x) * 2], m[(y * 16 + x) * 2 + 1]];
+        assert_eq!(at(1, 1), [255, 0], "inside the greyed triangle");
+        assert_eq!(at(14, 14), [0, 255], "inside the tinted triangle");
+        assert_eq!(at(8, 8), [0, 0], "between them");
+        assert_eq!(at(12, 2), [0, 0], "outside both");
+        assert_eq!(overlay_mask(8, &[], &[]), vec![0u8; 128]);
+    }
+
+    #[test]
+    fn triangles_outside_the_map_or_broken_are_skipped() {
+        let off = [[Vec2::new(2.0, 2.0), Vec2::new(3.0, 2.0), Vec2::new(2.0, 3.0)]];
+        let broken = [[Vec2::new(f32::NAN, 0.0), Vec2::new(0.5, 0.0), Vec2::new(0.0, 0.5)]];
+        assert!(overlay_mask(8, &off, &broken).iter().all(|&b| b == 0));
+    }
+}

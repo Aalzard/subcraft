@@ -297,10 +297,10 @@ Layout notes: the geometry mask is a second, list-based mask on every layer and 
 | Checkbox list of mesh names / UV tiles | Properties > Geometry mask | all checked | done | crates/ui/src/panels/properties.rs:129 | - |
 | Click and drag over checkboxes to toggle several | Properties > Geometry mask | n/a | done | crates/ui/src/panels/properties.rs | - |
 | Alt + click a row to isolate it | Properties > Geometry mask | n/a | done | crates/ui/src/panels/properties.rs | - |
-| Hovering a list row highlights that geometry in the viewports | Properties > Geometry mask | n/a | partial: highlighted in the 2D view only | crates/ui/src/panels/uv_view.rs | - |
+| Hovering a list row highlights that geometry in the viewports | Properties > Geometry mask | n/a | done | crates/ui/src/part_overlay.rs | - |
 | Click geometry in the 3D or 2D view to toggle it | Viewport (edit mode) | n/a | done | crates/ui/src/panels/uv_view.rs | - |
 | Rectangle selection in both viewports | Viewport (edit mode) | n/a | done: drag adds, Ctrl+drag removes | crates/ui/src/panels/uv_view.rs | - |
-| Excluded geometry drawn grey with diagonal lines while editing | Viewport (edit mode) | n/a | partial: 2D view only; the 3D view hides it with Alt+H | crates/ui/src/panels/uv_view.rs | - |
+| Excluded geometry drawn grey with diagonal lines while editing | Viewport (edit mode) | n/a | done: both views | crates/ui/src/part_overlay.rs | - |
 | Right-click icon > Copy geometry mask | Layer row icon menu | n/a | done | crates/ui/src/panels/layers.rs | - |
 | Right-click icon > Paste into geometry mask | Layer row icon menu | n/a | done | crates/ui/src/panels/layers.rs | - |
 | Right-click icon > Include all | Layer row icon menu | n/a | done | crates/ui/src/panels/layers.rs | - |
