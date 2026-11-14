@@ -33,7 +33,8 @@ def main():
         (source / "_tools" / "material.json").write_text("{}", encoding="utf-8")
         before = sorted(p.relative_to(source).as_posix() for p in source.rglob("*"))
         out = tmp / "out"
-        results = pm.package(source, 3, out, sizes=("1k",), jobs=1)
+        results = pm.package(source, 3, out, sizes=("1k", "2k"), jobs=1)
+        assert "2k" not in results and not (out / "subcraft-materials-v3-2k.zip").exists(), "no 2048px sources: no 2K zip"
         path, digest, count = results["1k"]
         assert path.name == "subcraft-materials-v3-1k.zip" and count == 2, (path, count)
         sha = (out / (path.name + ".sha256")).read_text(encoding="utf-8").split()
@@ -42,11 +43,12 @@ def main():
             names = z.namelist()
             assert "INDEX.md" in names and not any(n.startswith("_tools") for n in names), names
             meta = json.loads(z.read("metal_test/material.json"))
-            assert meta["resolution"] == 1024
+            # The fixtures are 4 x 4: kept at their native size, never upscaled.
+            assert meta["resolution"] == 4 and meta["resolution_note"] == "native 4px: no 1024px source", meta
             assert "emissive" not in meta["maps"], "the listed but missing emissive map is left out"
             for key, file in meta["maps"].items():
                 im = Image.open(io.BytesIO(z.read(f"metal_test/{file}")))
-                assert im.size == (1024, 1024), (file, im.size)
+                assert im.size == (4, 4), (file, im.size)
             assert "metal_test/preview.png" in names and "wood_test/preview.png" in names
         # The source is only read, and the same input gives the same zip.
         assert sorted(p.relative_to(source).as_posix() for p in source.rglob("*")) == before

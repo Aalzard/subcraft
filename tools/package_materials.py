@@ -95,33 +95,46 @@ def resized_map(path, size):
     return resized_png(path, size), None
 
 
+def source_size(path):
+    """Largest side of a map image, or None when Pillow cannot read it (EXR without a reader)."""
+    try:
+        with Image.open(path) as im:
+            return max(im.size)
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def package_material(folder, size):
-    """One material at one size: list of (zip entry name, bytes) and warnings."""
+    """One material for the zip of `size`: (zip entries (name, bytes), warnings, whether it is
+    at the full size). Maps are never upscaled: a material whose smallest map is below `size`
+    keeps that native size, and its material.json says so."""
     folder = Path(folder)
     meta = json.loads((folder / "material.json").read_text(encoding="utf-8"))
     entries, warnings = [], []
-    maps = meta.get("maps") or {}
+    maps = {key: folder / file for key, file in (meta.get("maps") or {}).items()}
+    present = {}
+    for key, src in maps.items():
+        if src.is_file():
+            present[key] = src
+        else:
+            warnings.append(f"{folder.name}: map {src.name} is missing, left out")
+    if not present:
+        return [], [f"{folder.name}: no map files, material skipped"], False
+    sizes = [s for s in (source_size(p) for p in present.values()) if s]
+    target = min([size] + sizes)
+    if target < size:
+        warnings.append(f"{folder.name}: source maps are {target}px, kept at {target}px in the {size}px zip (never upscaled)")
     kept = {}
-    for key, file in maps.items():
-        src = folder / file
-        if not src.is_file():
-            warnings.append(f"{folder.name}: map {file} is missing, left out")
-            continue
-        try:
-            with Image.open(src) as im:
-                if src.suffix.lower() != ".exr" and max(im.size) < size:
-                    warnings.append(f"{folder.name}: {file} is {im.size[0]}px, upscaled to {size}")
-        except Exception:  # noqa: BLE001 - EXR or unreadable: resized_map reports it
-            pass
-        data, warning = resized_map(src, size)
+    for key, src in present.items():
+        data, warning = resized_map(src, target)
         if warning:
             warnings.append(warning)
-        entries.append((f"{folder.name}/{file}", data))
-        kept[key] = file
-    if not kept:
-        return [], [f"{folder.name}: no map files, material skipped"]
+        entries.append((f"{folder.name}/{src.name}", data))
+        kept[key] = src.name
     meta["maps"] = kept
-    meta["resolution"] = size
+    meta["resolution"] = target
+    if target < size:
+        meta["resolution_note"] = f"native {target}px: no {size}px source"
     for k in DROPPED_KEYS:
         meta.pop(k, None)
     preview = meta.get("preview") or "preview.png"
@@ -130,7 +143,7 @@ def package_material(folder, size):
     else:
         warnings.append(f"{folder.name}: no preview")
     entries.append((f"{folder.name}/material.json", (json.dumps(meta, indent=2) + "\n").encode("utf-8")))
-    return entries, warnings
+    return entries, warnings, target == size
 
 
 def write_zip(path, entries):
@@ -150,31 +163,42 @@ def write_sha256(zip_path):
 
 
 def package(source, version, out, sizes=("1k", "2k"), only=None, jobs=2):
-    """Build every zip; returns {size tag: (zip path, digest, material count)}."""
+    """Build every zip; returns {size tag: (zip path, digest, material count)}. A size larger
+    than the smallest one asked for is not written when no material has sources that big (it
+    would only repeat the smaller zip); the app then offers only the sizes that exist."""
     source, out = Path(source), Path(out)
     out.mkdir(parents=True, exist_ok=True)
     folders = material_folders(source, only)
     if not folders:
         raise SystemExit(f"no materials found in {source}")
     results = {}
+    smallest = min(SIZES[t] for t in sizes)
     for tag in sizes:
         size = SIZES[tag]
-        entries, count = [], 0
+        entries, count, full = [], 0, 0
         index = source / "INDEX.md"
         if index.is_file():
             entries.append(("INDEX.md", index.read_bytes()))
         with concurrent.futures.ProcessPoolExecutor(max_workers=max(1, jobs)) as pool:
-            for folder, (files, warnings) in zip(folders, pool.map(package_material, folders, [size] * len(folders))):
+            for folder, (files, warnings, at_size) in zip(folders, pool.map(package_material, folders, [size] * len(folders))):
                 for w in warnings:
                     print(f"[{tag}] {w}", file=sys.stderr)
                 if files:
                     entries.extend(files)
                     count += 1
+                    full += at_size
         path = out / zip_name(version, tag)
+        if size > smallest and full == 0:
+            # Nothing at this size: no zip (and no stale one from an earlier run).
+            for stale in (path, Path(str(path) + ".sha256")):
+                stale.unlink(missing_ok=True)
+            print(f"{path.name}: not written, no material has {size}px sources")
+            continue
         write_zip(path, entries)
         digest = write_sha256(path)
         results[tag] = (path, digest, count)
-        print(f"{path.name}: {count} materials, {path.stat().st_size / 1048576:.1f} MB, sha256 {digest}")
+        native = f", {count - full} at native size" if full < count else ""
+        print(f"{path.name}: {count} materials ({full} at {size}px{native}), {path.stat().st_size / 1048576:.1f} MB, sha256 {digest}")
     return results
 
 
