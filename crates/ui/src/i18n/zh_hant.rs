@@ -647,6 +647,8 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Keep values between the input handles; off, they extend past them (HDR)", "將數值保持在輸入控點之間；關閉時會延伸超出（HDR）"),
     ("Output value", "輸出值"),
     ("Swap the output handles", "交換輸出控點"),
+    ("Input low, midtone and high: drag the handles", "輸入低點、中間調與高點：拖曳控點"),
+    ("Output low and high: drag the handles", "輸出低點與高點：拖曳控點"),
     ("White where the comparison holds. Layers Below is the channel as composited under this layer; This Layer is this layer's own content.", "比較成立處為白色。下方圖層是此圖層之下合成的通道；此圖層是此圖層本身的內容。"),
     ("An image replaces the breakup noise, projected over the model at the pattern size", "以影像取代破碎雜訊，依圖樣大小投影到模型上"),
     ("Choose gradient image…", "選擇漸層影像…"),
