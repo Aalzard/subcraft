@@ -112,7 +112,7 @@ pub enum Action {
 
 impl Action {
     /// Every action, in declaration order (the tests check [`ACTIONS`] against it).
-    pub const ALL: [Action; 54] = [
+    pub const ALL: [Action; 55] = [
         Action::Undo, Action::Redo, Action::NewPaintLayer, Action::NewFillLayer, Action::NewFolder, Action::NewTextLayer, Action::DeleteLayer, Action::DuplicateLayer,
         Action::BrushTool, Action::EraserTool, Action::PenTool, Action::PolygonFillTool, Action::SmudgeTool, Action::CloneTool, Action::EyedropperTool,
         Action::BrushSmaller, Action::BrushLarger, Action::ToggleSymmetryX, Action::ToggleLazyMouse, Action::ResetCamera, Action::PerspectiveCamera,
@@ -122,8 +122,7 @@ impl Action {
         Action::SwapViews, Action::NextMeshMap, Action::PrevMeshMap, Action::InvertMaskGray, Action::IsolateTextureSet,
         Action::NextCamera, Action::PrevCamera,
         Action::HideExcludedGeometry, Action::QuickMaskToggle, Action::QuickMaskClear, Action::QuickMaskInvert,
-        Action::ToggleSymmetry, Action::PauseEngine, Action::ProjectionTool,
-        Action::ToggleSymmetry, Action::PauseEngine, Action::ReimportMesh,
+        Action::ToggleSymmetry, Action::PauseEngine, Action::ProjectionTool, Action::ReimportMesh,
     ];
 }
 
@@ -630,8 +629,7 @@ mod tests {
             (Shortcut::alt(Key::Q), Action::IsolateTextureSet), (Shortcut::key(Key::Delete), Action::DeleteLayer), (Shortcut::ctrl(Key::D), Action::DuplicateLayer),
             (Shortcut::ctrl(Key::G), Action::NewFolder), (Shortcut::alt(Key::H), Action::HideExcludedGeometry),
             (Shortcut::key(Key::U), Action::QuickMaskToggle), (Shortcut::key(Key::Y), Action::QuickMaskClear), (Shortcut::key(Key::I), Action::QuickMaskInvert),
-            (Shortcut::shift(Key::Escape), Action::PauseEngine), (Shortcut::key(Key::Num3), Action::ProjectionTool),
-            (Shortcut::shift(Key::Escape), Action::PauseEngine), (Shortcut::ctrl_shift(Key::R), Action::ReimportMesh),
+            (Shortcut::shift(Key::Escape), Action::PauseEngine), (Shortcut::key(Key::Num3), Action::ProjectionTool), (Shortcut::ctrl_shift(Key::R), Action::ReimportMesh),
         ];
         for (s, a) in expect {
             assert_eq!(action_for(pa, s), Some(a), "{}", s.label());
