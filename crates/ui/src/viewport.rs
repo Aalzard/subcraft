@@ -589,6 +589,13 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             params.oit = view.oit;
             params.exposure = view.exposure_value();
             params.post = view.post_params_at(state.session.scene().mesh.bounds.diagonal(), state.camera.eye_distance());
+            // Colour profile: the HDR values divided by the white point and clamped (linear,
+            // no tone curve), then shown raw or through the LUT by the renderer.
+            params.color_profile = view.color_profile && !bake_mode;
+            if params.color_profile {
+                params.exposure *= view.white_point_scale();
+                params.post.tone_map = subcraft_render::ToneMap::LinearSat;
+            }
             params.view_mode = view.view_mode();
             params.solo_channel = view.solo.filter(|_| view.mesh_map.is_none());
             params.mask_view = mask_view;
