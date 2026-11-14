@@ -193,12 +193,16 @@ fn read_fill(projection: Projection, channels: &[FillChannelV1]) -> FillContent 
     }
 }
 
-fn referenced_resources(doc: &Document) -> Vec<ResourceId> {
+fn referenced_resources(doc: &Document, settings: &subcraft_doc::ProjectSettings) -> Vec<ResourceId> {
     let mut out = Vec::new();
     for ts in &doc.texture_sets {
         for l in &ts.layers {
             l.collect_resources(&mut out);
         }
+    }
+    // The colour profile's LUT travels with the project's display settings.
+    if let Some(lut) = settings.display.as_ref().and_then(|d| d.color_lut) && !out.contains(&lut) {
+        out.push(lut);
     }
     out
 }
@@ -248,7 +252,7 @@ pub fn write_project_with<W: Write + Seek>(
             id_color_edits: ts.id_color_edits.iter().map(|e| crate::schema::IdColorEditV1 { from: e.from, to: e.to }).collect(),
         })
         .collect();
-    let (res_entries, res_files) = pack_resources(&referenced_resources(doc), resources);
+    let (res_entries, res_files) = pack_resources(&referenced_resources(doc, settings), resources);
     let document = DocumentV1 { texture_sets, resources: res_entries, settings: settings.clone() };
     let manifest = Manifest {
         format: FORMAT_NAME.into(),

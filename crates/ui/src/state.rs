@@ -203,6 +203,8 @@ pub struct UiState {
     /// Whether the session's saved display settings were taken over yet, and the values last
     /// seen in step with the project (see `panels::display_settings::sync_project`).
     pub display_loaded: bool,
+    /// Colour LUT the renderer holds (`None` = nothing synced yet; `Some(None)` = no LUT).
+    pub uploaded_color_lut: Option<Option<subcraft_core::ResourceId>>,
     /// The opened project's saved view (camera, 2D pan) was put back (view_state.rs).
     pub view_loaded: bool,
     pub display_baseline: subcraft_doc::DisplaySettings,
@@ -471,6 +473,7 @@ impl UiState {
             display_jump: None,
             open_shader_settings: false,
             display_loaded: false,
+            uploaded_color_lut: None,
             view_loaded: false,
             display_baseline: Default::default(),
             pending_render_job: None,

@@ -12,9 +12,7 @@ use egui_wgpu::wgpu;
 /// Cube size of a `width x height` LUT image: N with N³ = width x height (at least 2), or `None`
 /// when the image cannot hold a whole cube.
 pub fn lut_cube_size(width: u32, height: u32) -> Option<u32> {
-    let cells = width as u64 * height as u64;
-    let n = (cells as f64).cbrt().round() as u64;
-    (n >= 2 && n * n * n == cells && width > 0).then_some(n as u32)
+    subcraft_doc::display::lut_cube_size(width, height)
 }
 
 /// The identity LUT of cube size `n` in the `ociolutimage` layout (RGBA, alpha 1), as
