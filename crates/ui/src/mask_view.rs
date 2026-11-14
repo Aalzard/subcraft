@@ -33,6 +33,22 @@ pub fn toggle(state: &mut UiState, layer: LayerId) {
     };
 }
 
+/// The view dropdown's "Mask" entry: `Some(shown)` when the selected layer has a mask, `None`
+/// when there is nothing to show.
+pub fn dropdown_state(state: &UiState) -> Option<bool> {
+    let layer = state.session.selected_layer().filter(|l| l.mask.is_some())?;
+    Some(state.mask_view.as_ref().is_some_and(|v| v.layer == layer.id))
+}
+
+/// Apply a choice from the view dropdown: `true` shows the selected layer's mask, `false` goes
+/// back to what the dropdown shows.
+pub fn apply_dropdown(state: &mut UiState, show: bool) {
+    state.mask_view = match state.session.selected_layer().filter(|l| show && l.mask.is_some()) {
+        Some(l) => Some(MaskView { layer: l.id, uploaded: None }),
+        None => None,
+    };
+}
+
 /// Whether the viewport shows a mask (for the render parameters).
 pub fn active(state: &UiState) -> bool {
     state.mask_view.is_some()
@@ -127,6 +143,20 @@ pub fn sync(state: &mut UiState) {
 mod tests {
     use super::*;
     use subcraft_app::{Command, Session};
+
+    #[test]
+    fn the_view_dropdown_shows_and_hides_the_selected_layers_mask() {
+        let mut s = UiState::new(subcraft_app::Session::sample(), None);
+        let layer = s.session.selection().layer.unwrap();
+        assert_eq!(dropdown_state(&s), None, "no mask, no entry");
+        s.session.execute(subcraft_app::Command::AddMask { layer, white: true }).unwrap();
+        assert_eq!(dropdown_state(&s), Some(false));
+        apply_dropdown(&mut s, true);
+        assert_eq!(s.mask_view.as_ref().map(|v| v.layer), Some(layer));
+        assert_eq!(dropdown_state(&s), Some(true));
+        apply_dropdown(&mut s, false);
+        assert!(s.mask_view.is_none());
+    }
 
     #[test]
     fn alt_click_toggles_the_mask_view_and_a_layer_without_mask_ends_it() {

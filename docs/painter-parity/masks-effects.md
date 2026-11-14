@@ -28,7 +28,7 @@ Layout notes: a mask is added from the Create Mask button in the Layers header o
 | Click the mask thumbnail to edit the mask and show its effect stack | Layer row | n/a | done | crates/ui/src/panels/layers.rs:310 | - |
 | Click the content thumbnail to return to the layer content | Layer row | n/a | done | crates/ui/src/panels/layers.rs:296 | - |
 | Alt + left click: show the mask alone in the viewport | Mask thumbnail | off | done | crates/ui/src/panels/layers.rs:481 | - |
-| Mask display also reachable from the viewport display dropdown | Viewport display mode | n/a | missing | - | - |
+| Mask display also reachable from the viewport display dropdown | Viewport display mode | n/a | done: "Mask" entry (when the selected layer has one) in the View dropdown of the 3D view and Display Settings; any other entry goes back | crates/ui/src/viewport_bar.rs | (this PR) |
 | Alt + click again deselects effects / leaves mask view | Mask thumbnail | n/a | done (also Esc over the viewport) | crates/ui/src/mask_view.rs:20 | - |
 | Shift + left click: disable or re-enable the mask | Mask thumbnail | enabled | done | crates/ui/src/panels/layers.rs:308 | - |
 | Disabled mask is marked on the thumbnail | Mask thumbnail | n/a | done | crates/ui/src/panels/layers.rs:306 | - |
