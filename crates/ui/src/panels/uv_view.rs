@@ -681,7 +681,7 @@ fn paint_input(state: &mut UiState, ui: &Ui, response: &egui::Response, image: F
             let boxed = crate::view_props::is_box_drag(start, end);
             state.session.brush.mode = StrokeMode::Paint;
             let result = if boxed {
-                state.session.polygon_fill_uv_box(to_uv(start), to_uv(end), state.fill_mode)
+                state.session.polygon_fill_uv_box_hit(to_uv(start), to_uv(end), state.fill_mode, state.fill_hit_test)
             } else {
                 state.session.polygon_fill_uv(to_uv(start), state.fill_mode)
             };

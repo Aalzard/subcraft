@@ -416,6 +416,7 @@ pub const PAINTER_REFERENCE: &[PainterEntry] = &[
     e("Tools", "Alt+H", "Hide/ignore excluded geometry", Support::Added, Action::HideExcludedGeometry, Shortcut::alt(Key::H), "hides what the selected layer's geometry mask leaves out; strokes reach what it covered"),
     gesture("Tools", "N (hold)", "Ignore stencil mask", "already worked"),
     none("Tools", "A", "Resume previous stroke", "no equivalent"),
+    gesture("Tools", "Shift+A (hold)", "Polygon fill: temporary Polygon loop mode", "added: a Polygon Fill click or drag picks a loop while held"),
     gesture("Tools", "V (hold) + LMB", "Set Clone tool source", "added; Ctrl+click still works"),
     // Camera / display
     e("Viewport", "F5", "Camera perspective", Support::Added, Action::PerspectiveCamera, Shortcut::key(Key::F5), ""),

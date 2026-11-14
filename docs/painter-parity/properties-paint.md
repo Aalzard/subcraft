@@ -208,16 +208,16 @@ Layout notes: Selection mode icons first, then Fill mode icons (only meaningful 
 | Fill mode: Polygon fill (source quads / n-gons) | Properties > Polygon Fill > Fill mode | option | missing | - | #131 |
 | Fill mode: Mesh fill (connected polygons) | Properties > Polygon Fill > Fill mode | option | done: "Mesh" | crates/ui/src/brush_bar.rs | #131 |
 | Fill mode: UV chunk fill | Properties > Polygon Fill > Fill mode | option | done: "UV island" | crates/ui/src/brush_bar.rs | - |
-| Hit-test: Intersection | Properties > Polygon Fill > Hit-test | default | missing | - | #131 |
-| Hit-test: Contained center | Properties > Polygon Fill > Hit-test | option | missing | - | - |
-| Visible polygons only | Properties > Polygon Fill > Hit-test | not documented | missing | - | #131 |
+| Hit-test: Intersection | Properties > Polygon Fill > Hit-test | default | done: a box fills every element it touches | Properties > Paint target > Hit-test | (this PR) |
+| Hit-test: Contained center | Properties > Polygon Fill > Hit-test | option | done: only elements (of the Fill by mode) whose centre is inside the box; 3D and 2D views | Properties > Paint target > Hit-test | (this PR) |
+| Visible polygons only | Properties > Polygon Fill > Hit-test | not documented | done (earlier): Visible polygons only checkbox and toolbar eye | Properties > Paint target | - |
 | Blending Mode (same list as layer blending modes) | Properties > Polygon Fill > Blending | Normal (unverified) | missing | - | - |
 | Opacity | Properties > Polygon Fill > Blending | not documented | missing | - | - |
 | Material block: channel toggles and values used by the fill | Properties > Material | n/a | done | crates/ui/src/panels/brush_material.rs:16 | - |
 | Grayscale value when filling a mask | Properties > Grayscale | not documented | partial: "Mask value" slider | crates/ui/src/panels/brush.rs:94 | - |
 | Alt: extend a loop on both sides of the first click | Viewport (loop modes) | n/a | done: Alt held at release mirrors a partial loop on the other side | crates/ui/src/viewport.rs | (this PR) |
 | Shift: partial loop fills only the primary loop | Viewport (partial loop) | n/a | missing | - | - |
-| Shift+A: temporary Polygon loop fill | Viewport | n/a | missing | - | - |
+| Shift+A: temporary Polygon loop fill | Viewport | n/a | done: hold Shift+A, a click or drag picks a polygon loop | crates/ui/src/viewport.rs | (this PR) |
 | A while dragging: combine with the previous result | Viewport | n/a | missing | - | - |
 | Wireframe of the active Texture Set shown while the tool is active | Viewport | n/a | done | crates/ui/src/view_extras.rs | (this PR) |
 

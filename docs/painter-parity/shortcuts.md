@@ -187,7 +187,7 @@ Layout notes: these act only while the pointer is over the layer stack.
 | Projection tool: translate projection | Viewport, Projection tool | S+Middle mouse | missing | - | - |
 | Polygon fill: extend loop to the other side | Viewport, Polygon loop modes | Alt while dragging | missing | - | - |
 | Polygon fill: primary loop only | Viewport, Partial polygon loop | Shift | missing | - | - |
-| Polygon fill: temporary Polygon loop mode | Viewport, Polygon fill | Shift+A | missing | - | - |
+| Polygon fill: temporary Polygon loop mode | Viewport, Polygon fill | Shift+A | done: held during the click / drag | crates/ui/src/viewport.rs | (this PR) |
 | Polygon fill: combine with the previous result | Viewport, Polygon fill | A while dragging | missing | - | - |
 | Path: leave path edition | Viewport, Path tool | Escape or Enter | done | crates/ui/src/pen.rs:52 | - |
 | Path: toggle corner / smooth on a point | Viewport, Path tool | Double-click vertex | missing | - | - |
