@@ -2657,7 +2657,7 @@ impl Session {
             Action::QuickMaskInvert => return Ok(self.invert_quick_mask()),
             Action::HideUi | Action::PaintingMode | Action::CloseProject | Action::View3dAnd2d | Action::View3dOnly | Action::View2dOnly
             | Action::SwapViews | Action::NextMeshMap | Action::PrevMeshMap | Action::NextCamera | Action::PrevCamera => return Ok(false),
-            Action::PenTool | Action::PolygonFillTool | Action::SmudgeTool | Action::CloneTool | Action::EyedropperTool | Action::ResetCamera
+            Action::PenTool | Action::PolygonFillTool | Action::SmudgeTool | Action::CloneTool | Action::EyedropperTool | Action::ProjectionTool | Action::ResetCamera
             | Action::PerspectiveCamera | Action::OrthographicCamera | Action::NextChannel | Action::PrevChannel | Action::DisplayMaterial
             | Action::NewProject | Action::Quit | Action::Save | Action::SaveAs | Action::OpenProject | Action::Export | Action::Bake
             | Action::TogglePathTracing | Action::SelectAllLayers => return Ok(false),
