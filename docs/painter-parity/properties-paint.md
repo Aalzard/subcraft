@@ -161,6 +161,7 @@ Layout notes: a row of channel toggle buttons (one per channel of the Texture Se
 | Height uniform value | Properties > Material > Height | -1 to 1 | done | crates/ui/src/widgets.rs:56 | - |
 | Per-channel resource slot (bitmap or Substance) | Properties > Material > channel row | empty | partial: bitmaps only (file dialog or Shelf texture drop) | crates/ui/src/panels/brush_material.rs:72 | - |
 | Remove the resource from a channel slot | Properties > Material > channel row | n/a | done | crates/ui/src/panels/brush_material.rs:84 | - |
+| Per-channel tool blending mode (each channel row: Normal, Multiply, Linear dodge, Replace ...) | Properties > Material > channel row | Normal | done: a blending dropdown on every enabled channel row (the layer modes; normal-map modes on Normal only); a Polygon Fill blending mode other than Normal overrides it | crates/ui/src/panels/brush_material.rs | (this PR) |
 | Bitmap / Substance painted in Height is remapped from 0..1 to -1..1 (mid grey = 0) | Properties > Material > Height | n/a | partial: dedicated Height stamp brush with a strength slider; plain channel images are not remapped | crates/ui/src/panels/stamp_brush.rs:77 | - |
 | Normal slot: colour space / format dropdown (DirectX default, OpenGL) | Properties > Material > Normal slot arrow | DirectX | partial: "Flip green" checkbox on the normal stamp brush only | crates/ui/src/panels/stamp_brush.rs:86 | - |
 | Bitmap slot colour space dropdown (other channels) | Properties > Material > slot arrow | auto | missing | - | - |

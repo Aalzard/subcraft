@@ -13,6 +13,17 @@ use egui::{RichText, Ui};
 use subcraft_app::Command;
 use subcraft_paint::{BrushChannel, NormalPaintBlend};
 
+/// Blending modes a brush channel offers: the layer modes, without Passthrough / Disable (layer
+/// ideas) and the normal-map modes outside the Normal channel.
+pub fn blend_offered(mode: subcraft_doc::BlendMode, kind: subcraft_core::ChannelKind) -> bool {
+    use subcraft_doc::BlendMode as B;
+    match mode {
+        B::Passthrough | B::Disable => false,
+        B::NormalMapCombine | B::NormalMapDetail | B::NormalMapInverseDetail => kind == subcraft_core::ChannelKind::Normal,
+        _ => true,
+    }
+}
+
 pub fn show(state: &mut UiState, ui: &mut Ui) {
     let mut material = state.session.brush.material.clone();
     let original = material.clone();
@@ -63,6 +74,21 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     ui.set_min_width(ui.available_width());
                     ui.horizontal(|ui| {
                         ui.label(egui::RichText::new(kind.display_name()).font(theme::font_strong(12.5)).color(theme::TEXT()));
+                        // Painter's per-channel tool blending.
+                        if enabled {
+                            // Field access: `entry` borrows the channel map meanwhile.
+                            let current = material.channel_blend.get(&kind).copied().unwrap_or(subcraft_doc::BlendMode::Normal);
+                            let modes = subcraft_doc::BlendMode::ALL.into_iter().filter(|m| blend_offered(*m, kind));
+                            let picked = egui::ComboBox::from_id_salt(("brush_channel_blend", kind)).width(112.0).selected_text(current.label())
+                                .show_ui(ui, |ui| super::layers::blend_mode_list(ui, modes, current))
+                                .inner
+                                .flatten();
+                            match picked {
+                                Some(subcraft_doc::BlendMode::Normal) => { material.channel_blend.remove(&kind); }
+                                Some(mode) => { material.channel_blend.insert(kind, mode); }
+                                None => {}
+                            }
+                        }
                         if !enabled {
                             ui.weak("drop the image here to use it");
                         } else if !has_image {

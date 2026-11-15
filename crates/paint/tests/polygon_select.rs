@@ -220,3 +220,48 @@ fn a_polygon_fill_blends_into_the_layer_with_its_blending_mode() {
     fill(&mut ts, BlendMode::Normal);
     assert!((texel(&ts)[0] - 0.5).abs() < 2e-3, "{:?}", texel(&ts));
 }
+
+#[test]
+fn each_brush_channel_paints_with_its_own_blending_mode() {
+    use subcraft_doc::BlendMode;
+    let res = 128;
+    let sc = Scene::new(primitives::cube(2.0), res);
+    let cam = front_camera();
+    let mut ts = TextureSet::new("T", 0, res);
+    let tc = ts.clone();
+    let layer = ts.insert_above(None, Layer::new_paint("Paint", &tc));
+    let grey = BrushMaterial::with(&[(ChannelKind::BaseColor, ChannelValue::rgb(0.5, 0.5, 0.5)), (ChannelKind::Roughness, ChannelValue::scalar(0.5))]);
+    let center = cam.project(Vec3::new(0.1, 0.1, 1.0)).unwrap().truncate();
+    let fill = |ts: &mut TextureSet, material: &BrushMaterial, fill_blend: BlendMode| {
+        let mut s = Stroke::begin(ts, layer, PaintTarget::Content, StrokeMode::Paint, BrushSettings::default(), StrokeOptions::default(), material).unwrap();
+        s.set_fill_blend(fill_blend);
+        s.polygon_fill(ts, &sc.ctx(&cam), center, PolygonFillMode::UvIsland).unwrap();
+    };
+    let tri = facing(&sc.mesh, Vec3::Z)[0];
+    let uv = sc.mesh.tri_uvs(tri as usize);
+    let at = (uv[0] + uv[1] + uv[2]) / 3.0;
+    let texel = |ts: &TextureSet, k: ChannelKind| {
+        let LayerContent::Paint(p) = &ts.find(layer).unwrap().content else { panic!() };
+        p.channels.get(&k).unwrap().get((at.x * res as f32) as u32, (at.y * res as f32) as u32)[0]
+    };
+    fill(&mut ts, &grey, BlendMode::Normal);
+    // Base colour multiplies, roughness keeps Normal: 0.25 and 0.5.
+    let mut multiply = grey.clone();
+    multiply.set_blend(ChannelKind::BaseColor, BlendMode::Multiply);
+    assert_eq!(multiply.blend_of(ChannelKind::BaseColor), BlendMode::Multiply);
+    assert_eq!(multiply.blend_of(ChannelKind::Roughness), BlendMode::Normal);
+    fill(&mut ts, &multiply, BlendMode::Normal);
+    assert!((texel(&ts, ChannelKind::BaseColor) - 0.25).abs() < 2e-3, "{}", texel(&ts, ChannelKind::BaseColor));
+    assert!((texel(&ts, ChannelKind::Roughness) - 0.5).abs() < 2e-3);
+    // A Polygon Fill blending mode other than Normal overrides every channel: Screen on both.
+    fill(&mut ts, &multiply, BlendMode::Screen);
+    assert!((texel(&ts, ChannelKind::BaseColor) - 0.625).abs() < 2e-3);
+    assert!((texel(&ts, ChannelKind::Roughness) - 0.75).abs() < 2e-3);
+    // Setting Normal removes the entry; old materials (no field) load with every channel Normal.
+    multiply.set_blend(ChannelKind::BaseColor, BlendMode::Normal);
+    assert!(multiply.channel_blend.is_empty());
+    let json = serde_json::to_string(&grey).unwrap();
+    assert!(!json.contains("channel_blend"), "nothing written when every channel is Normal");
+    let back: BrushMaterial = serde_json::from_str(&json).unwrap();
+    assert_eq!(back, grey);
+}
