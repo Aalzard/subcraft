@@ -1446,8 +1446,8 @@ impl SubcraftApp {
                 .filter(|e| {
                     !(manipulator
                         && matches!(e, egui::Event::Key { key, pressed: true, repeat: false, modifiers, .. }
-                            if !modifiers.command && !modifiers.alt && (!modifiers.shift || matches!(key, egui::Key::Plus | egui::Key::Equals))
-                                && gizmo.handle_key(*key)))
+                            if !modifiers.command && !modifiers.alt && (!modifiers.shift || matches!(key, egui::Key::Plus | egui::Key::Equals | egui::Key::W))
+                                && gizmo.handle_key_with(*key, modifiers.shift && *key == egui::Key::W)))
                 })
                 .filter_map(|e| match e {
                     egui::Event::Key { key, pressed: true, repeat: false, modifiers, .. } => map_key(*key).map(|k| Shortcut {

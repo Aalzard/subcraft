@@ -36,7 +36,7 @@ Layout notes: Painter lists editable shortcuts in Settings > Shortcuts as one lo
 | Translate tool | Settings > Shortcuts | W | partial: fixed key while a fill projection manipulator is active, not editable in Settings > Shortcuts | crates/ui/src/projection_gizmo.rs (handle_key) | - |
 | Rotate tool | Settings > Shortcuts | E | partial: fixed key while a fill projection manipulator is active, not editable in Settings > Shortcuts; E stays the eraser while the manipulator is hidden | crates/ui/src/projection_gizmo.rs (handle_key) | - |
 | Scale tool | Settings > Shortcuts | R | partial: fixed key while a fill projection manipulator is active, not editable in Settings > Shortcuts | crates/ui/src/projection_gizmo.rs (handle_key) | - |
-| Surface tool | Settings > Shortcuts | Shift+W | missing | - | - |
+| Surface tool | Settings > Shortcuts | Shift+W | partial: Shift+W while a planar projection manipulator is shown, not editable in Settings > Shortcuts | crates/ui/src/projection_gizmo.rs (surface_snapped) | - |
 | Symmetry | Settings > Shortcuts | L | done: Symmetry on / off in both key sets, the last axes come back (as the toolbar button); X mirror alone stays on X (Shift+X in the Painter key set) | crates/app/src/actions.rs (ToggleSymmetry), paint/src/settings.rs (toggle_symmetry) | #363 |
 | Pause engine computation | Settings > Shortcuts | Shift+Escape | done: Shift+Esc in both key sets, editable | crates/app/src/actions.rs (Action::PauseEngine) | 395 |
 
@@ -218,7 +218,7 @@ Layout notes: these act only while the pointer is over the layer stack.
 | 3D manipulator: scale along an axis | 3D view manipulator | Drag handle | done | crates/ui/src/projection_gizmo.rs | - |
 | 3D manipulator: scale in steps | 3D view manipulator | Shift+drag | done | crates/ui/src/projection_gizmo.rs | - |
 | 3D manipulator: precise mode | 3D view manipulator | Ctrl (release notes) | done: Ctrl, a tenth of the pointer movement | crates/ui/src/projection_gizmo.rs (manipulate) | - |
-| 3D manipulator: surface snap drag (Planar and Warp) | 3D view manipulator | Drag with Surface tool | missing | - | - |
+| 3D manipulator: surface snap drag (Planar and Warp) | 3D view manipulator | Drag with Surface tool | partial: planar projections only (Warp keeps its grid tools); the centre dragged over the model moves the box onto the surface and turns its projection axis to the normal | crates/ui/src/projection_gizmo.rs (surface_snapped) | - |
 
 ## Slider widget interactions
 
