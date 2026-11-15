@@ -102,6 +102,40 @@ fn after_enter_a_click_adds_to_the_path_selected_since() {
 }
 
 #[test]
+fn several_selected_points_move_and_delete_together() {
+    let mut s = session(); let mut editor = PenEditor::default();
+    for p in [Vec2::new(0.2, 0.4), Vec2::new(0.5, 0.6), Vec2::new(0.8, 0.4), Vec2::new(0.8, 0.8)] { point(&mut editor, &mut s, p); }
+    let ids: Vec<_> = pen(&s).anchors.iter().map(|a| a.id).collect();
+    // Ctrl+A: every point, the last one the main point.
+    editor.select_all(&s);
+    assert_eq!(editor.selected_anchor(), Some(ids[3]));
+    assert_eq!(editor.selected_anchors().len(), 4);
+    // A rectangle around the first two replaces the selection; Shift adds the third.
+    editor.select_points(&s, &ids[..2], false);
+    assert_eq!(editor.selected_anchors(), vec![ids[1], ids[0]]);
+    editor.select_points(&s, &ids[2..3], true);
+    assert!(editor.is_selected(ids[0]) && editor.is_selected(ids[1]) && editor.is_selected(ids[2]) && !editor.is_selected(ids[3]));
+    // Dragging one of them moves all three by the same amount, in one undo step.
+    let count = s.history().entries().len();
+    editor.begin(&s, Vec2::new(0.5, 0.6), Some(PenHit { anchor: ids[1], handle: Handle::Anchor })).unwrap();
+    editor.drag_to(Vec2::new(0.55, 0.5), false); editor.release(&s).unwrap(); finish(&mut editor, &mut s);
+    let at: Vec<_> = pen(&s).anchors.iter().map(|a| a.position).collect();
+    let near = |a: Vec2, b: Vec2| (a - b).length() < 1e-5;
+    assert!(near(at[0], Vec2::new(0.25, 0.3)) && near(at[1], Vec2::new(0.55, 0.5)) && near(at[2], Vec2::new(0.85, 0.3)), "{at:?}");
+    assert!(near(at[3], Vec2::new(0.8, 0.8)), "the unselected point stays");
+    assert_eq!(s.history().entries().len(), count + 1);
+    // Grabbing an unselected point selects only it.
+    editor.begin(&s, Vec2::new(0.8, 0.8), Some(PenHit { anchor: ids[3], handle: Handle::Anchor })).unwrap();
+    editor.release(&s).unwrap(); finish(&mut editor, &mut s);
+    assert_eq!(editor.selected_anchors(), vec![ids[3]]);
+    // Delete removes every selected point at once.
+    editor.select_points(&s, &ids[..2], false);
+    editor.delete_anchor(&s).unwrap(); finish(&mut editor, &mut s);
+    assert_eq!(pen(&s).anchors.iter().map(|a| a.id).collect::<Vec<_>>(), ids[2..].to_vec());
+    assert!(editor.selected_anchors().is_empty());
+}
+
+#[test]
 fn delete_smooth_and_corner_are_undoable_and_width_style_rerenders() {
     let mut s = session(); let mut editor = PenEditor::default();
     for p in [Vec2::new(0.2, 0.4), Vec2::new(0.5, 0.6), Vec2::new(0.8, 0.4)] { point(&mut editor, &mut s, p); }

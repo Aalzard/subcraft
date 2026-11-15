@@ -71,6 +71,9 @@ struct Pending { edit: Edit, raster: PenRasterizer }
 #[derive(Default)]
 pub struct PenEditor {
     selected: Option<AnchorId>,
+    /// More selected points besides `selected` (rectangle selection, Ctrl+A); dragging one of
+    /// them moves them all, Delete removes them all.
+    extra: Vec<AnchorId>,
     domain: Option<Selection>,
     gesture: Option<Edit>,
     pending: std::collections::VecDeque<Pending>,
@@ -95,6 +98,39 @@ fn stored_path(session: &Session) -> Option<&PenPath> {
 
 impl PenEditor {
     pub fn selected_anchor(&self) -> Option<AnchorId> { self.selected }
+
+    /// Every selected point, the main one (whose tangents show) first.
+    pub fn selected_anchors(&self) -> Vec<AnchorId> {
+        let mut ids: Vec<AnchorId> = self.selected.into_iter().collect();
+        for &id in &self.extra {
+            if !ids.contains(&id) { ids.push(id); }
+        }
+        ids
+    }
+
+    pub fn is_selected(&self, id: AnchorId) -> bool { self.selected == Some(id) || self.extra.contains(&id) }
+
+    fn set_selected(&mut self, id: Option<AnchorId>) { self.selected = id; self.extra.clear(); }
+
+    /// Select points `ids` (a rectangle selection): instead of the selection, or added to it with
+    /// `add` (Shift). The last one becomes the main point. Points not in the path are ignored.
+    pub fn select_points(&mut self, session: &Session, ids: &[AnchorId], add: bool) {
+        let Some(path) = self.preview(session) else { return };
+        let mut chosen: Vec<AnchorId> = if add { self.selected_anchors() } else { Vec::new() };
+        for a in &path.anchors {
+            if ids.contains(&a.id) && !chosen.contains(&a.id) { chosen.push(a.id); }
+        }
+        chosen.retain(|id| path.anchors.iter().any(|a| a.id == *id));
+        self.selected = chosen.pop(); self.extra = chosen;
+        // A click on the model after a selection edits the path instead of starting a new one.
+        if self.selected.is_some() { self.new_on_click = false; }
+    }
+
+    /// Select every point of the path on screen (Ctrl+A); the last point stays the main one.
+    pub fn select_all(&mut self, session: &Session) {
+        let ids: Vec<AnchorId> = self.preview(session).map(|p| p.anchors.iter().map(|a| a.id).collect()).unwrap_or_default();
+        self.select_points(session, &ids, false);
+    }
     pub fn is_editing(&self) -> bool { self.gesture.is_some() }
     pub fn is_pending(&self) -> bool { !self.pending.is_empty() }
     pub fn progress(&self) -> f32 { self.pending.front().map_or(1.0, |p| p.raster.progress()) }
@@ -106,13 +142,13 @@ impl PenEditor {
     }
 
     pub fn cancel(&mut self) {
-        self.gesture = None; self.pending.clear(); self.selected = None; self.new_on_click = true;
+        self.gesture = None; self.pending.clear(); self.set_selected(None); self.new_on_click = true;
     }
 
     /// Undo an uncommitted gesture, leaving earlier queued gestures to finish normally.
     pub fn undo_pending(&mut self, session: &Session) {
         if self.gesture.take().is_none() { self.pending.pop_back(); }
-        self.selected = self.preview(session).and_then(|p| p.anchors.last()).map(|a| a.id);
+        self.set_selected(self.preview(session).and_then(|p| p.anchors.last()).map(|a| a.id));
     }
 
     /// Painter's New path: the next click starts a new path layer in the selection as it is now.
@@ -123,7 +159,7 @@ impl PenEditor {
         self.finish_path();
     }
     /// Finish adding points without discarding a raster job already in progress.
-    pub fn finish_path(&mut self) { self.selected = None; self.new_on_click = true; }
+    pub fn finish_path(&mut self) { self.set_selected(None); self.new_on_click = true; }
 
     fn edit(&mut self, session: &Session, force_new: bool) -> Result<Edit, CommandError> {
         if session.is_stroking() { return Err(CommandError::StrokeInProgress); }
@@ -164,12 +200,18 @@ impl PenEditor {
         self.new_point = hit.is_none();
         if let Some(hit) = hit {
             if !edit.path.anchors.iter().any(|a| a.id == hit.anchor) { return Err(error("pen anchor no longer exists")); }
-            self.selected = Some(hit.anchor); edit.handle = Some(hit);
+            if hit.handle == Handle::Anchor && self.is_selected(hit.anchor) && !self.extra.is_empty() {
+                let others = self.selected_anchors().into_iter().filter(|&id| id != hit.anchor).collect();
+                self.selected = Some(hit.anchor); self.extra = others;
+            } else {
+                self.set_selected(Some(hit.anchor));
+            }
+            edit.handle = Some(hit);
         } else {
             if edit.path.closed { return Err(error("open the path or choose New path before adding points")); }
             if edit.path.anchors.len() >= PenPath::MAX_ANCHORS { return Err(error("a path supports at most 256 anchors")); }
             let anchor = PenAnchor::new(uv); let id = anchor.id;
-            edit.path.anchors.push(anchor); self.selected = Some(id);
+            edit.path.anchors.push(anchor); self.set_selected(Some(id));
             edit.handle = Some(PenHit { anchor: id, handle: Handle::Outgoing });
         }
         edit.path.validate().map_err(error)?;
@@ -228,8 +270,17 @@ impl PenEditor {
 
     pub fn drag_to(&mut self, uv: Vec2, separate: bool) {
         if !uv.is_finite() || uv.abs().max_element() > 4.0 { return; }
+        let group = self.extra.clone();
         let Some(edit) = self.gesture.as_mut() else { return; };
         let Some(hit) = edit.handle else { return; };
+        if hit.handle == Handle::Anchor && !group.is_empty() {
+            let Some(at) = edit.path.anchors.iter().find(|a| a.id == hit.anchor).map(|a| a.position) else { return; };
+            let delta = uv - at;
+            for a in edit.path.anchors.iter_mut().filter(|a| a.id == hit.anchor || group.contains(&a.id)) {
+                a.position += delta;
+            }
+            return;
+        }
         let Some(a) = edit.path.anchors.iter_mut().find(|a| a.id == hit.anchor) else { return; };
         match hit.handle {
             Handle::Anchor => a.position = uv,
@@ -259,11 +310,12 @@ impl PenEditor {
     }
 
     pub fn delete_anchor(&mut self, session: &Session) -> Result<(), CommandError> {
-        let Some(id) = self.selected else { return Ok(()); };
+        let ids = self.selected_anchors();
+        if ids.is_empty() { return Ok(()); }
         let mut path = self.preview(session).ok_or_else(|| error("select a pen path"))?.clone();
-        path.anchors.retain(|a| a.id != id); if path.anchors.len() < 2 { path.closed = false; }
+        path.anchors.retain(|a| !ids.contains(&a.id)); if path.anchors.len() < 2 { path.closed = false; }
         self.set_path(session, path)?; self.gesture.as_mut().unwrap().label = "Delete pen point";
-        self.selected = None; self.release(session)
+        self.set_selected(None); self.release(session)
     }
 
     /// Insert a point on segment `segment` at curve parameter `t` (a click on the curve), keeping
@@ -272,14 +324,14 @@ impl PenEditor {
         let mut path = self.preview(session).ok_or_else(|| error("select a pen path"))?.clone();
         let id = path.split_segment(segment, t).ok_or_else(|| error("no room for another point on this path"))?;
         self.set_path(session, path)?; self.gesture.as_mut().unwrap().label = "Insert pen point";
-        self.selected = Some(id); self.new_on_click = false;
+        self.set_selected(Some(id)); self.new_on_click = false;
         self.release(session)
     }
 
     /// Switch point `id` between corner and smooth (a double-click on it).
     pub fn toggle_point(&mut self, session: &Session, id: AnchorId) -> Result<(), CommandError> {
         let smooth = self.preview(session).ok_or_else(|| error("select a pen path"))?.is_smooth(id);
-        self.selected = Some(id);
+        self.set_selected(Some(id));
         self.shape_point(session, !smooth)
     }
 
@@ -346,11 +398,11 @@ impl PenEditor {
             if current != selection {
                 session.execute(Command::SelectTextureSet(current.texture_set))?;
                 session.execute(Command::SelectLayer(current.layer))?;
-                self.selected = None;
+                self.set_selected(None);
             }
         }
         else { session.execute(Command::ReplaceLayer { layer: id, replacement: Box::new(layer), label: label.into() })?; }
-        if current != selection && current.layer != Some(id) { self.selected = None; }
+        if current != selection && current.layer != Some(id) { self.set_selected(None); }
         self.domain = Some(session.selection());
         Ok(!self.pending.is_empty())
     }

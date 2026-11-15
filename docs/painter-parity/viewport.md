@@ -296,8 +296,8 @@ Layout notes: the Path tool works only in the 3D view. A floating Paths panel in
 | Straight segment between points | Shift (11.0) | - | done: Shift+click adds a point without tangents | crates/app/src/pen.rs (keep_new_point_straight), crates/ui/src/viewport.rs (Pen tool) | - |
 | Angle snapping when adding a point | Ctrl (11.0) | angle set in the path settings menu | done: Ctrl, 15 degree steps on screen (no setting yet) | crates/ui/src/viewport.rs (Pen tool) (snap_angle) | - |
 | Auto-close by clicking the first point | LMB on first vertex with the last selected (11.0) | Ctrl selects instead | done: with the last point selected and 3+ points; Ctrl skips it | crates/app/src/pen.rs (close_path), crates/ui/src/viewport.rs (Pen tool) | - |
-| Rectangle selection of points | LMB drag | - | missing | - | - |
-| Select all points | Ctrl + A | - | missing | - | - |
+| Rectangle selection of points | LMB drag | - | done: drag from off the model (a press on the model adds a point); Shift adds to the selection; dragging one selected point moves them all, Delete removes them all | crates/app/src/pen.rs (select_points), crates/ui/src/viewport.rs (Pen tool) | - |
+| Select all points | Ctrl + A | - | done: Ctrl+A with the Pen tool selects every point of the path (instead of all layers) | crates/app/src/pen.rs (select_all), crates/ui/src/pen.rs (keyboard) | - |
 | Delete selected points | Delete | - | done | crates/ui/src/pen.rs:60 | - |
 | Delete path | Backspace (11.0) | - | done: Backspace deletes the selected path's layer; Delete removes the selected point | crates/ui/src/pen.rs (keyboard) | - |
 | Path preview (dotted next segment) | Shift + P toggles (11.0) | on | done: Shift+P toggles it; follows the Ctrl snap | crates/ui/src/viewport.rs (Pen tool) | - |

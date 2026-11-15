@@ -464,6 +464,11 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     (Some(a), _, _) if !ctrl && state.pen.closes_on(&state.session, a) => state.pen.close_path(&state.session),
                     (None, Some((segment, t)), _) => state.pen.insert_point(&state.session, segment, t),
                     (None, None, Some(layer)) => state.session.execute(subcraft_app::Command::SelectLayer(Some(layer))),
+                    // A press off the model starts a rectangle selection of points.
+                    (None, None, None) if hit.is_none() && state.session.pick(&camera, to_screen(p)).is_none() => {
+                        ui.data_mut(|d| d.insert_temp(pen_box_id(), p));
+                        Ok(())
+                    }
                     _ => {
                         // Adding a point: Ctrl snaps the direction from the previous point to
                         // 15 degree steps; Shift keeps the new point straight (no tangents).
@@ -481,6 +486,19 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 if let Err(e) = result { state.set_status(format!("Pen: {e}"), now); }
             } else if primary_down && state.pen.is_editing() {
                 state.pen.drag_surface_scaled(&state.session, &camera, to_screen(p), mods.shift, mods.ctrl || mods.command);
+            }
+            // Rectangle selection released: the points inside (Shift adds to the selection).
+            if !primary_down && let Some(start) = ui.data(|d| d.get_temp::<egui::Pos2>(pen_box_id())) {
+                ui.data_mut(|d| d.remove::<egui::Pos2>(pen_box_id()));
+                let area = egui::Rect::from_two_pos(start, p);
+                if area.width() < 3.0 && area.height() < 3.0 {
+                    state.set_status("Pen: click the model to place a pen point, or drag a rectangle to select points", now);
+                } else {
+                    let ids: Vec<subcraft_core::AnchorId> = state.pen.preview(&state.session).map(|path| {
+                        path.anchors.iter().filter(|a| pen_position(state, &camera, rect, a.position).is_some_and(|s| area.contains(s))).map(|a| a.id).collect()
+                    }).unwrap_or_default();
+                    state.pen.select_points(&state.session, &ids, mods.shift);
+                }
             }
     }
     let paint_tool = !bake_mode && matches!(state.tool, Tool::Brush | Tool::Eraser | Tool::Clone | Tool::Smudge | Tool::Projection) && !picking;
@@ -893,7 +911,12 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         painter.extend(egui::Shape::dashed_line(&[last, to], Stroke::new(1.2, Color32::from_white_alpha(190)), 5.0, 4.0));
     }
     if state.tool == Tool::Pen && let Some(path) = state.pen.preview(&state.session) {
-        crate::pen::draw(&painter, path, state.pen.selected_anchor(), |uv| pen_position(state, &camera, rect, uv));
+        crate::pen::draw(&painter, path, &state.pen.selected_anchors(), |uv| pen_position(state, &camera, rect, uv));
+    }
+    if state.tool == Tool::Pen && let Some(start) = ui.data(|d| d.get_temp::<egui::Pos2>(pen_box_id())) && let Some(cursor) = response.hover_pos() {
+        let area = egui::Rect::from_two_pos(start, cursor);
+        painter.rect_filled(area, 0.0, ACCENT().gamma_multiply(0.12));
+        painter.rect_stroke(area, 0.0, Stroke::new(1.0, ACCENT()), egui::StrokeKind::Inside);
     }
     if let Some(p) = response.hover_pos() {
         if paint_tool && !alt {
@@ -1259,6 +1282,11 @@ pub fn snap_angle(from: Pos2, to: Pos2, step: f32) -> Pos2 {
     if len < 1e-3 || step <= 0.0 { return to; }
     let angle = (d.y.atan2(d.x) / step).round() * step;
     from + egui::vec2(angle.cos(), angle.sin()) * len
+}
+
+/// Where a Pen tool rectangle selection started (screen), while it is dragged.
+fn pen_box_id() -> egui::Id {
+    egui::Id::new("pen_box_select")
 }
 
 fn pen_position(state: &UiState, camera: &subcraft_app::Camera, rect: Rect, uv: Vec2) -> Option<Pos2> {

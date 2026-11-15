@@ -54,7 +54,9 @@ pub fn curve_hit(path: &PenPath, pointer: Pos2, map: impl Fn(Vec2) -> Option<Pos
     best.map(|(_, seg, t)| (seg, t))
 }
 
-pub fn draw(painter: &egui::Painter, path: &PenPath, selected: Option<subcraft_core::AnchorId>, map: impl Fn(Vec2) -> Option<Pos2>) {
+/// The path, its points and the main selected point's tangents. `selected` lists every selected
+/// point, the main one first.
+pub fn draw(painter: &egui::Painter, path: &PenPath, selected: &[subcraft_core::AnchorId], map: impl Fn(Vec2) -> Option<Pos2>) {
     if let Ok(points) = path.polyline(0.002) {
         for pair in points.windows(2) {
             if let (Some(a), Some(b)) = (map(pair[0]), map(pair[1])) { painter.line_segment([a, b], Stroke::new(1.5, theme::ACCENT())); }
@@ -62,7 +64,7 @@ pub fn draw(painter: &egui::Painter, path: &PenPath, selected: Option<subcraft_c
     }
     for a in &path.anchors {
         let Some(p) = map(a.position) else { continue; };
-        if selected == Some(a.id) {
+        if selected.first() == Some(&a.id) {
             for tangent in [a.incoming, a.outgoing] {
                 if tangent.length_squared() > 1e-10 && let Some(q) = map(a.position + tangent) {
                     painter.line_segment([p, q], Stroke::new(1.0, theme::OVERLAY_TEXT_DIM));
@@ -71,7 +73,7 @@ pub fn draw(painter: &egui::Painter, path: &PenPath, selected: Option<subcraft_c
                 }
             }
         }
-        painter.circle_filled(p, 4.5, if selected == Some(a.id) { theme::ACCENT() } else { theme::OVERLAY_TEXT });
+        painter.circle_filled(p, 4.5, if selected.contains(&a.id) { theme::ACCENT() } else { theme::OVERLAY_TEXT });
         painter.circle_stroke(p, 4.5, Stroke::new(1.0, Color32::BLACK));
     }
 }
@@ -87,6 +89,10 @@ pub fn keyboard(state: &mut UiState, ctx: &egui::Context, now: f64) {
     if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter)) {
         if let Err(e) = state.pen.release(&state.session) { state.set_status(e.to_string(), now); }
         state.pen.finish_path();
+    }
+    // Ctrl+A selects every point of the path (before the layer shortcut takes it).
+    if state.pen.preview(&state.session).is_some_and(|p| !p.anchors.is_empty()) && ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::A)) {
+        state.pen.select_all(&state.session);
     }
     // Only while the selected point is in the path on screen: the selection outlives its path
     // (another layer selected, the point undone), and Delete then did nothing at all instead of
