@@ -133,7 +133,7 @@ pub fn uv_input(state: &mut UiState, ui: &Ui, response: &egui::Response, image: 
 /// factor, mirror every second copy, flip across the path, and whether Base Color takes the
 /// image's colour.
 fn ribbon_rows(state: &mut UiState, ui: &mut Ui, path: &mut PenPath) -> bool {
-    use subcraft_doc::{PathRibbon, RibbonMode, RibbonTiling};
+    use subcraft_doc::{PathRibbon, RibbonAlign, RibbonMode, RibbonRatio, RibbonTiling};
     let mut changed = false;
     let ribbon = path.ribbon.get_or_insert_with(PathRibbon::default);
     let name = ribbon.image.and_then(|id| state.session.resources().get(id)).map_or("none (solid strip)".to_string(), |r| r.name.clone());
@@ -179,6 +179,24 @@ fn ribbon_rows(state: &mut UiState, ui: &mut Ui, path: &mut PenPath) -> bool {
         });
     } else {
         changed |= crate::widgets::slider_row(ui, "Aspect factor", egui::Slider::new(&mut ribbon.tiles, PathRibbon::TILES).logarithmic(true)).changed();
+        crate::widgets::prop_row(ui, "Ratio", |ui| {
+            egui::ComboBox::from_id_salt("ribbon_ratio").selected_text(ribbon.ratio.label()).show_ui(ui, |ui| {
+                for ratio in RibbonRatio::ALL {
+                    changed |= ui.selectable_value(&mut ribbon.ratio, ratio, ratio.label()).changed();
+                }
+            });
+        });
+        crate::widgets::prop_row(ui, "Alignment", |ui| {
+            egui::ComboBox::from_id_salt("ribbon_alignment").selected_text(ribbon.alignment.label()).show_ui(ui, |ui| {
+                for alignment in RibbonAlign::ALL {
+                    changed |= ui.selectable_value(&mut ribbon.alignment, alignment, alignment.label()).changed();
+                }
+            });
+        });
+        // Fit to path length only makes whole copies: nothing is cut.
+        changed |= ui.add_enabled(ribbon.ratio == RibbonRatio::FitWidth, egui::Checkbox::new(&mut ribbon.remove_clipped, "Remove clipped tiles"))
+            .on_hover_text("Draw only whole copies of the image, not the cut ones at the ends")
+            .changed();
     }
     ui.horizontal(|ui| {
         changed |= ui.checkbox(&mut ribbon.mirror, "Mirror every 2nd copy").changed();

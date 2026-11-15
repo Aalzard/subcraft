@@ -91,6 +91,48 @@ impl RibbonTiling {
     }
 }
 
+/// Keep aspect ratio: what sets a copy's size (Painter's Ratio).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RibbonRatio {
+    /// The path's width (times the aspect factor); the last copy may be cut.
+    #[default]
+    FitWidth,
+    /// Resized so a whole number of copies fills the path's length.
+    FitLength,
+}
+
+impl RibbonRatio {
+    pub const ALL: [RibbonRatio; 2] = [RibbonRatio::FitWidth, RibbonRatio::FitLength];
+    pub fn label(self) -> &'static str {
+        match self {
+            RibbonRatio::FitWidth => "Fit to path width",
+            RibbonRatio::FitLength => "Fit to path length",
+        }
+    }
+}
+
+/// Keep aspect ratio: where the copies line up when they do not fill the length exactly.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RibbonAlign {
+    #[default]
+    Start,
+    Center,
+    End,
+}
+
+impl RibbonAlign {
+    pub const ALL: [RibbonAlign; 3] = [RibbonAlign::Start, RibbonAlign::Center, RibbonAlign::End];
+    pub fn label(self) -> &'static str {
+        match self {
+            RibbonAlign::Start => "Align at start",
+            RibbonAlign::Center => "Align at center",
+            RibbonAlign::End => "Align at end",
+        }
+    }
+}
+
 /// Ribbons saved before the Tiling mode existed used the Copies value.
 fn tiling_before_modes() -> RibbonTiling {
     RibbonTiling::Custom
@@ -124,6 +166,16 @@ pub struct PathRibbon {
     pub start_offset: f32,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub end_offset: f32,
+    /// Keep aspect ratio: copy size from the width or fitted to the length.
+    #[serde(default)]
+    pub ratio: RibbonRatio,
+    /// Keep aspect ratio: where the copies line up.
+    #[serde(default)]
+    pub alignment: RibbonAlign,
+    /// Keep aspect ratio with Fit to path width: draw only whole copies, not the cut ones at the
+    /// ends.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub remove_clipped: bool,
 }
 
 fn is_zero(v: &f32) -> bool {
@@ -154,6 +206,33 @@ impl PathRibbon {
         self.mode == RibbonMode::KeepAspect && self.tiling == RibbonTiling::None
     }
 
+    /// Keep aspect ratio: position in copies (copy index + fraction, before mirroring) at `s`,
+    /// after the Ratio, Alignment, single copy and Remove clipped tiles; `None` where nothing
+    /// is drawn.
+    fn keep_aspect_u(&self, s: f32, length: f32, width: f32, aspect: f32) -> Option<f32> {
+        let length = length.max(1e-3);
+        let natural = self.copy_length(length, width, aspect).max(1e-3);
+        if self.ratio == RibbonRatio::FitLength && !self.single_copy() {
+            let copies = (length / natural).round().max(1.0);
+            // The last texel belongs to the last copy, not the start of a new one.
+            return Some((s / (length / copies)).clamp(0.0, copies - 1e-4));
+        }
+        let copy = if self.ratio == RibbonRatio::FitLength { length } else { natural };
+        let whole = if self.single_copy() { 1.0 } else { (length / copy).floor() };
+        let span = whole * copy;
+        let shift = match self.alignment {
+            RibbonAlign::Start => 0.0,
+            RibbonAlign::Center => (length - span) / 2.0,
+            RibbonAlign::End => length - span,
+        };
+        let along = (s - shift) / copy;
+        let only_whole = self.single_copy() || (self.remove_clipped && self.ratio == RibbonRatio::FitWidth);
+        if only_whole && !(0.0..whole).contains(&along) {
+            return None;
+        }
+        Some(along)
+    }
+
     /// The start and end offsets in effect: clamped so they fit together in the image; zero
     /// unless Stretch between offsets only is on in Stretch mode.
     pub fn offsets(&self) -> (f32, f32) {
@@ -174,6 +253,9 @@ impl PathRibbon {
             let u = along - k;
             if self.mirror && (k as i64).rem_euclid(2) == 1 { 1.0 - u } else { u }
         };
+        if self.mode == RibbonMode::KeepAspect {
+            return self.keep_aspect_u(s, length, width, aspect).map(copy);
+        }
         let (start, end) = self.offsets();
         if start + end <= 0.0 {
             let along = s / self.copy_length(length, width, aspect);
@@ -228,6 +310,9 @@ impl Default for PathRibbon {
             stretch_between_offsets: false,
             start_offset: 0.0,
             end_offset: 0.0,
+            ratio: RibbonRatio::FitWidth,
+            alignment: RibbonAlign::Start,
+            remove_clipped: false,
         }
     }
 }

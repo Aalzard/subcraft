@@ -294,14 +294,14 @@ Layout notes: groups in order: Size, Opacity, Stroke, Stretching & Tiling (a mod
 | Tiling amount (Custom tiling) | Stretching & Tiling | not documented | done: Copies slider, enabled with Custom tiling | crates/doc/src/pen.rs (RibbonTiling, copy_length), crates/paint/src/pen.rs (run_ribbon), crates/ui/src/pen.rs (ribbon_rows) | - |
 | Mirror every 2nd tile | Stretching & Tiling (both modes) | not documented | done | crates/paint/src/pen.rs (run_ribbon), crates/ui/src/pen.rs (ribbon_rows) | - |
 | Aspect ratio factor | Stretching & Tiling (both modes) | not documented | done | crates/paint/src/pen.rs (run_ribbon), crates/ui/src/pen.rs (ribbon_rows) | - |
-| Ratio (dropdown) | Stretching & Tiling (Keep aspect ratio) | Fit to path width | missing | - | - |
-| Ratio: Fit to path width | Stretching & Tiling > Ratio | default | missing | - | - |
-| Ratio: Fit to path length | Stretching & Tiling > Ratio | option | missing | - | - |
-| Remove clipped tiles (disabled with Fit to path length) | Stretching & Tiling (Keep aspect ratio) | not documented | missing | - | - |
-| Alignment (dropdown) | Stretching & Tiling (Keep aspect ratio) | not documented | missing | - | - |
-| Alignment: Align at start | Stretching & Tiling > Alignment | option | missing | - | - |
-| Alignment: Align at center | Stretching & Tiling > Alignment | option | missing | - | - |
-| Alignment: Align at end | Stretching & Tiling > Alignment | option | missing | - | - |
+| Ratio (dropdown) | Stretching & Tiling (Keep aspect ratio) | Fit to path width | done: Fit to path width / Fit to path length | crates/doc/src/pen.rs (PathRibbon::keep_aspect_u), crates/ui/src/pen.rs (ribbon_rows) | - |
+| Ratio: Fit to path width | Stretching & Tiling > Ratio | default | done: copies at the path width times the aspect factor (default) | crates/doc/src/pen.rs (PathRibbon::keep_aspect_u), crates/ui/src/pen.rs (ribbon_rows) | - |
+| Ratio: Fit to path length | Stretching & Tiling > Ratio | option | done: copies resized so a whole number fills the length | crates/doc/src/pen.rs (PathRibbon::keep_aspect_u), crates/ui/src/pen.rs (ribbon_rows) | - |
+| Remove clipped tiles (disabled with Fit to path length) | Stretching & Tiling (Keep aspect ratio) | not documented | done: only whole copies are drawn; disabled with Fit to path length | crates/doc/src/pen.rs (PathRibbon::keep_aspect_u), crates/ui/src/pen.rs (ribbon_rows) | - |
+| Alignment (dropdown) | Stretching & Tiling (Keep aspect ratio) | not documented | done: start / center / end | crates/doc/src/pen.rs (PathRibbon::keep_aspect_u), crates/ui/src/pen.rs (ribbon_rows) | - |
+| Alignment: Align at start | Stretching & Tiling > Alignment | option | done (default) | crates/doc/src/pen.rs (PathRibbon::keep_aspect_u), crates/ui/src/pen.rs (ribbon_rows) | - |
+| Alignment: Align at center | Stretching & Tiling > Alignment | option | done: the cut part split between both ends | crates/doc/src/pen.rs (PathRibbon::keep_aspect_u), crates/ui/src/pen.rs (ribbon_rows) | - |
+| Alignment: Align at end | Stretching & Tiling > Alignment | option | done: the copies end with the path | crates/doc/src/pen.rs (PathRibbon::keep_aspect_u), crates/ui/src/pen.rs (ribbon_rows) | - |
 | Channel blending: Alpha (dropdown) | Properties > Channel blending | Lighten (Max) | missing | - | - |
 | Alpha blending: Normal | Channel blending > Alpha | option | missing | - | - |
 | Alpha blending: Lighten (Max) | Channel blending > Alpha | default | missing | - | - |

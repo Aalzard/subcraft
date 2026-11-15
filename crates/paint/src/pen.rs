@@ -588,6 +588,37 @@ mod run_tests {
     }
 
     #[test]
+    fn keep_aspect_copies_align_fit_and_drop_cut_copies() {
+        use subcraft_doc::{PathRibbon, RibbonAlign, RibbonMode, RibbonRatio, RibbonTiling};
+        // A 110-texel path, 10 wide, a 2:1 image: copies 20 long, 5 whole ones and 10 left over.
+        let r = PathRibbon { mode: RibbonMode::KeepAspect, ..Default::default() };
+        let u = |r: &PathRibbon, s: f32| r.image_u(s, 110.0, 10.0, 2.0);
+        let near = |a: Option<f32>, b: f32| a.is_some_and(|a| (a - b).abs() < 1e-4);
+        assert!(near(u(&r, 5.0), 0.25) && near(u(&r, 105.0), 0.25), "start: the cut copy is at the end");
+        let cut = PathRibbon { remove_clipped: true, ..r };
+        assert!(near(u(&cut, 5.0), 0.25) && u(&cut, 105.0).is_none(), "cut copies removed");
+        let center = PathRibbon { alignment: RibbonAlign::Center, ..r };
+        assert!(near(u(&center, 5.0), 0.0) && near(u(&center, 2.0), 0.85), "centered: 5 texels cut at each end");
+        assert!(u(&PathRibbon { remove_clipped: true, ..center }, 2.0).is_none());
+        let end = PathRibbon { alignment: RibbonAlign::End, ..r };
+        assert!(near(u(&end, 10.0), 0.0) && near(u(&end, 105.0), 0.75), "the copies end with the path");
+        // One copy (Tiling None), centered: drawn from 45 to 65 only.
+        let single = PathRibbon { tiling: RibbonTiling::None, alignment: RibbonAlign::Center, ..r };
+        assert!(near(u(&single, 50.0), 0.25) && u(&single, 30.0).is_none() && u(&single, 70.0).is_none());
+        // Fit to path length: 105 / 20 rounds to 5 copies of 21, whole copies only.
+        let fit = PathRibbon { ratio: RibbonRatio::FitLength, ..r };
+        assert!(near(fit.image_u(10.5, 105.0, 10.0, 2.0), 0.5) && near(fit.image_u(21.0, 105.0, 10.0, 2.0), 0.0));
+        assert!(fit.image_u(105.0, 105.0, 10.0, 2.0).is_some_and(|u| u > 0.99), "the end is the last copy's end");
+        // Older ribbons read the defaults: Fit to path width, Align at start, cut copies kept.
+        let mut json = serde_json::to_value(r).unwrap();
+        for key in ["ratio", "alignment", "remove_clipped"] {
+            json.as_object_mut().unwrap().remove(key);
+        }
+        let back: PathRibbon = serde_json::from_value(json).unwrap();
+        assert_eq!((back.ratio, back.alignment, back.remove_clipped), (RibbonRatio::FitWidth, RibbonAlign::Start, false));
+    }
+
+    #[test]
     fn ribbon_tiling_modes_set_the_copy_length() {
         use subcraft_doc::{PathRibbon, RibbonMode, RibbonTiling};
         let r = |mode, tiling, tiles| PathRibbon { mode, tiling, tiles, ..Default::default() };
