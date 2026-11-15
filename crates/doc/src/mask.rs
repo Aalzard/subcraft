@@ -1239,8 +1239,23 @@ impl Generator {
         if self.kind == GeneratorKind::MaskEditor { self.editor_settings().blur_radius() } else { 0.0 }
     }
 
-    /// Switch the generator to `kind`, creating the Mask Editor settings when it needs them.
+    /// Switch the generator to `kind`, creating the Mask Editor settings when it needs them. A
+    /// different kind starts from its own look (level, contrast, breakup, organic breakup, edge
+    /// spread and grunge controls of [`Generator::new`]), as picking another generator does in
+    /// Painter: an Edge wear switched to Ambient Occlusion used to keep its breakup, so the AO came
+    /// out broken up instead of smooth. The seed, invert, input, micro effect and the Mask Editor /
+    /// shape settings are kept.
     pub fn set_kind(&mut self, kind: GeneratorKind) {
+        if kind != self.kind {
+            let fresh = Generator::new(kind);
+            self.level = fresh.level;
+            self.softness = fresh.softness;
+            self.noise_amount = fresh.noise_amount;
+            self.noise.scale = fresh.noise.scale;
+            self.organic_breakup = fresh.organic_breakup;
+            self.edge_spread = fresh.edge_spread;
+            self.painter = fresh.painter;
+        }
         self.kind = kind;
         if kind == GeneratorKind::MaskEditor && self.editor.is_none() { self.editor = Some(MaskEditor::default()); }
         if kind.uses_shape() && self.shape.is_none() { self.shape = Some(ShapeSettings::default()); }
@@ -1595,6 +1610,28 @@ mod tests {
 
     /// QA 2026-11: switching a generator with a micro effect to Mask Editor (which has no Micro
     /// controls) kept the effect active on the layers below with no way to turn it off.
+    #[test]
+    fn a_generator_switched_to_ambient_occlusion_is_smooth() {
+        // The effect menus add an Edge wear; switching it to AO must not keep the wear's breakup.
+        let mut g = Generator::new(GeneratorKind::Edges);
+        g.noise.seed = 42;
+        g.invert = true;
+        assert!(g.noise_amount > 0.0 && g.organic_breakup && g.painter.is_some());
+        g.set_kind(GeneratorKind::AmbientOcclusion);
+        let ao = Generator::new(GeneratorKind::AmbientOcclusion);
+        assert_eq!(g.noise_amount, 0.0, "no breakup");
+        assert!(!g.organic_breakup && g.painter.is_none() && g.edge_spread.is_none());
+        assert_eq!((g.level, g.softness, g.noise.scale), (ao.level, ao.softness, ao.noise.scale), "the AO defaults");
+        assert!(g.noise.seed == 42 && g.invert, "the seed and invert are kept");
+        // Choosing the same kind again keeps the user's tuning.
+        g.noise_amount = 0.2;
+        g.set_kind(GeneratorKind::AmbientOcclusion);
+        assert_eq!(g.noise_amount, 0.2);
+        // Every way of adding an AO generator starts smooth.
+        assert_eq!(Generator::new(GeneratorKind::AmbientOcclusion).noise_amount, 0.0);
+        assert_eq!(Generator::new(GeneratorKind::MeshMap(subcraft_core::MeshMapKind::AmbientOcclusion)).noise_amount, 0.0);
+    }
+
     #[test]
     fn a_mask_editor_never_applies_a_micro_effect_kept_from_another_kind() {
         let mut g = Generator::new(GeneratorKind::Cavity);
