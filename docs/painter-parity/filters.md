@@ -240,10 +240,10 @@ Layout notes: Standard group (11.0). Works on content and masks.
 | Balance | Properties > Filter | not documented | done: 0..1, 0.5 neutral | crates/ui/src/panels/filter.rs:165 | Grayscale options |
 | Contrast | Properties > Filter | not documented | done: 0..1, 0 neutral | crates/ui/src/panels/filter.rs:165 | Grayscale options |
 | Mode | Properties > Filter | not documented (dropdown) | done: Desaturation, Luma, Average, Max, Min, Red / Green / Blue channel | crates/ui/src/panels/filter.rs:165 | Grayscale options |
-| Red | Properties > Filter | not documented | missing | - | - |
-| Green | Properties > Filter | not documented | missing | - | - |
-| Blue | Properties > Filter | not documented | missing | - | - |
-| Alpha | Properties > Filter | not documented | missing | - | - |
+| Red | Properties > Filter | not documented | done: Custom weights > Red, 0..1 (the gray is the weighted sum, clamped) | crates/doc/src/filter.rs (GrayParts::weights), crates/ui/src/panels/filter.rs | - |
+| Green | Properties > Filter | not documented | done: Custom weights > Green | crates/doc/src/filter.rs (GrayParts::weights), crates/ui/src/panels/filter.rs | - |
+| Blue | Properties > Filter | not documented | done: Custom weights > Blue | crates/doc/src/filter.rs (GrayParts::weights), crates/ui/src/panels/filter.rs | - |
+| Alpha | Properties > Filter | not documented | n/a: the filter converts the colour of colour channels; alpha is the layer opacity | - | - |
 
 ## Highpass
 

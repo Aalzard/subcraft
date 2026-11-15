@@ -384,7 +384,16 @@ pub enum Filter {
     /// [`Filter::Grayscale`] with Painter's Grayscale Conversion options (same panel): how the
     /// colour becomes gray (`mode`), then Invert, Balance (0.5 neutral) and Contrast (0 neutral)
     /// as in [`Filter::GradientCurve`].
-    GrayscaleConvert { mode: crate::mask::GrayscaleType, invert: bool, balance: f32, contrast: f32 },
+    /// `weights` (Painter's Red / Green / Blue): when set, the gray is that weighted sum of the
+    /// colour instead of `mode`. Not written when unset.
+    GrayscaleConvert {
+        mode: crate::mask::GrayscaleType,
+        invert: bool,
+        balance: f32,
+        contrast: f32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        weights: Option<[f32; 3]>,
+    },
 }
 
 /// Every Grayscale parameter, whichever variant holds it.
@@ -394,11 +403,28 @@ pub struct GrayParts {
     pub invert: bool,
     pub balance: f32,
     pub contrast: f32,
+    /// Custom Red / Green / Blue weights (instead of `mode`).
+    pub weights: Option<[f32; 3]>,
+}
+
+impl GrayParts {
+    /// Range of each custom weight.
+    pub const WEIGHT: std::ops::RangeInclusive<f32> = 0.0..=1.0;
+    /// The weights a new custom mix starts from (Rec. 709 luminance, as Luma).
+    pub const LUMA_WEIGHTS: [f32; 3] = [0.2126, 0.7152, 0.0722];
+
+    /// The gray value of `c`: the custom weighted sum (clamped to 0..=1), or the mode's.
+    pub fn gray(&self, c: [f32; 3]) -> f32 {
+        match self.weights {
+            Some(w) => (c[0] * w[0] + c[1] * w[1] + c[2] * w[2]).clamp(0.0, 1.0),
+            None => self.mode.convert(c),
+        }
+    }
 }
 
 impl Default for GrayParts {
     fn default() -> Self {
-        Self { mode: crate::mask::GrayscaleType::Luma, invert: false, balance: 0.5, contrast: 0.0 }
+        Self { mode: crate::mask::GrayscaleType::Luma, invert: false, balance: 0.5, contrast: 0.0, weights: None }
     }
 }
 
@@ -538,13 +564,13 @@ impl Filter {
         if p == GrayParts::default() {
             Self::Grayscale
         } else {
-            Self::GrayscaleConvert { mode: p.mode, invert: p.invert, balance: p.balance, contrast: p.contrast }
+            Self::GrayscaleConvert { mode: p.mode, invert: p.invert, balance: p.balance, contrast: p.contrast, weights: p.weights }
         }
     }
     pub fn grayscale_parts(self) -> Option<GrayParts> {
         match self {
             Self::Grayscale => Some(GrayParts::default()),
-            Self::GrayscaleConvert { mode, invert, balance, contrast } => Some(GrayParts { mode, invert, balance, contrast }),
+            Self::GrayscaleConvert { mode, invert, balance, contrast, weights } => Some(GrayParts { mode, invert, balance, contrast, weights }),
             _ => None,
         }
     }
@@ -818,7 +844,10 @@ impl Filter {
                 Self::Blur { radius: distance }.valid() && angle_deg.is_finite() && (-180.0..=180.0).contains(&angle_deg)
                     && contrast.is_finite() && (0.0..=1.0).contains(&contrast)
             }
-            Self::GrayscaleConvert { balance, contrast, .. } => [balance, contrast].iter().all(|v| v.is_finite() && (0.0..=1.0).contains(v)),
+            Self::GrayscaleConvert { balance, contrast, weights, .. } => {
+                [balance, contrast].iter().all(|v| v.is_finite() && (0.0..=1.0).contains(v))
+                    && weights.is_none_or(|w| w.iter().all(|v| v.is_finite() && GrayParts::WEIGHT.contains(v)))
+            }
             Self::BlurSlope { intensity, scale, samples, .. } => {
                 Self::Blur { radius: intensity }.valid() && (1..=MAX_WARP_SCALE).contains(&scale) && (2..=MAX_SLOPE_SAMPLES).contains(&samples)
             }
@@ -971,7 +1000,7 @@ mod tests {
         assert!(!Filter::Mosaic { size: 0 }.valid() && !Filter::Mosaic { size: 65 }.valid());
         assert!(!Filter::DirectionalWarp { intensity: 4.0, angle_deg: 200.0 }.valid());
         // Grayscale's conversion options swap to the variant that stores them and back.
-        let options = GrayParts { mode: crate::mask::GrayscaleType::Max, invert: true, balance: 0.6, contrast: 0.2 };
+        let options = GrayParts { mode: crate::mask::GrayscaleType::Max, invert: true, balance: 0.6, contrast: 0.2, weights: None };
         let converted = Filter::grayscale(options);
         assert!(matches!(converted, Filter::GrayscaleConvert { .. }) && converted.label() == "Grayscale" && converted.valid());
         assert_eq!(converted.grayscale_parts(), Some(options));
@@ -1061,5 +1090,21 @@ mod tests {
         assert!(Gradient::preset(GRADIENT_PRESETS.len()).is_none());
         assert!(Filter::GradientMap { gradient: Gradient::black_white(), to_gray: true }.supports_mask());
         assert!(!Filter::GradientMap { gradient: Gradient::black_white(), to_gray: true }.supports_channel(ChannelKind::Normal));
+    }
+}
+
+#[cfg(test)]
+mod grayscale_weight_tests {
+    use super::*;
+
+    #[test]
+    fn custom_weights_are_optional_in_files() {
+        let plain = Filter::GrayscaleConvert { mode: crate::mask::GrayscaleType::Max, invert: true, balance: 0.5, contrast: 0.0, weights: None };
+        let json = serde_json::to_string(&plain).unwrap();
+        assert!(!json.contains("weights"), "{json}");
+        assert_eq!(serde_json::from_str::<Filter>(&json).unwrap(), plain, "files without weights read them as unset");
+        let custom = Filter::GrayscaleConvert { mode: crate::mask::GrayscaleType::Max, invert: true, balance: 0.5, contrast: 0.0, weights: Some([0.1, 0.2, 0.7]) };
+        assert_eq!(serde_json::from_str::<Filter>(&serde_json::to_string(&custom).unwrap()).unwrap(), custom);
+        assert_eq!(GrayParts { weights: Some([1.0, 0.0, 0.0]), ..Default::default() }.gray([0.8, 0.4, 0.2]), 0.8);
     }
 }
