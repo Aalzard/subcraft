@@ -45,6 +45,9 @@ def main():
             meta = json.loads(z.read("metal_test/material.json"))
             # The fixtures are 4 x 4: kept at their native size, never upscaled.
             assert meta["resolution"] == 4 and meta["resolution_note"] == "native 4px: no 1024px source", meta
+            # The optional defaults block (strengths, tiling) is kept as authored.
+            assert meta["defaults"] == {"normal_strength": 0.5, "height_strength": 0.25, "tiling": 2.0}, meta
+            assert "defaults" not in json.loads(z.read("wood_test/material.json")), "no block: none added"
             assert "emissive" not in meta["maps"], "the listed but missing emissive map is left out"
             for key, file in meta["maps"].items():
                 im = Image.open(io.BytesIO(z.read(f"metal_test/{file}")))

@@ -182,13 +182,20 @@ impl Session {
     }
 
     /// Apply a material of a "SubCraft Materials" pack: its maps as one fill layer named after
-    /// it (as [`Session::import_texture_set`]; the files are read now). One undo step.
+    /// it (as [`Session::import_texture_set`]; the files are read now), with the material's
+    /// default Normal / Height strengths and UV tiling. One undo step.
     pub fn apply_pack_material(&mut self, material: &subcraft_assets::materials_pack::PackMaterial) -> Result<TextureSetImport, String> {
-        self.import_texture_set_named(&material.maps, Some(&material.name))
+        self.import_texture_set_with(&material.maps, Some(&material.name), Some(material.defaults))
     }
 
     /// [`Session::import_texture_set`] with the layer's name given (else made from the files').
     pub fn import_texture_set_named(&mut self, paths: &[PathBuf], name: Option<&str>) -> Result<TextureSetImport, String> {
+        self.import_texture_set_with(paths, name, None)
+    }
+
+    /// [`Session::import_texture_set_named`], with a pack material's strengths and tiling when
+    /// given (else every strength 1, Emissive 3, tiling 1).
+    fn import_texture_set_with(&mut self, paths: &[PathBuf], name: Option<&str>, defaults: Option<subcraft_assets::materials_pack::PackDefaults>) -> Result<TextureSetImport, String> {
         let mut plan = subcraft_assets::texture_maps::plan(paths);
         if let Some(name) = name.map(str::trim).filter(|n| !n.is_empty()) {
             plan.name = name.to_string();
@@ -213,6 +220,9 @@ impl Session {
         for c in fill.channels.values_mut() {
             c.enabled = false;
         }
+        if let Some(d) = defaults {
+            fill.projection.scale = [d.tiling, d.tiling];
+        }
         for (path, m) in &plan.maps {
             let name = file_name(path);
             if !ts.has_channel(m.channel) {
@@ -220,7 +230,13 @@ impl Session {
                 continue;
             }
             let resource = self.import_converted(path, m.conversion)?;
-            fill.channels.insert(m.channel, FillChannel { strength: if m.channel == ChannelKind::Emissive { 3.0 } else { 1.0 }, ..FillChannel::new(FillSource::Bitmap { resource }) });
+            let strength = match (m.channel, defaults) {
+                (ChannelKind::Emissive, _) => 3.0,
+                (ChannelKind::Normal, Some(d)) => d.normal_strength,
+                (ChannelKind::Height, Some(d)) => d.height_strength,
+                _ => 1.0,
+            };
+            fill.channels.insert(m.channel, FillChannel { strength, ..FillChannel::new(FillSource::Bitmap { resource }) });
             result.used.push((name, m.channel));
         }
         if result.used.is_empty() {
