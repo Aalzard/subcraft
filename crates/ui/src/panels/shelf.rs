@@ -2123,11 +2123,15 @@ fn bottom_toolbar(state: &mut UiState, ui: &mut Ui) {
     let mut pick: Option<Pick> = None;
     let mut folder: Option<subcraft_app::assets::UserAssetKind> = None;
     egui::Frame::new().inner_margin(egui::Margin::symmetric(8, 3)).show(ui, |ui| {
-        // Wraps onto a second row in a narrow panel instead of widening it.
-        ui.horizontal_wrapped(|ui| {
+        // The auto-update button where the bar has room; in a narrow panel its options are at
+        // the end of the size menu (the bar must not widen the panel).
+        let room = ui.available_width() >= AUTO_UPDATE_BUTTON_MIN_WIDTH;
+        ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 4.0;
-            size_menu(ui, &mut state.recovery.prefs);
-            auto_update_menu(ui, state);
+            size_menu(ui, state, !room);
+            if room {
+                auto_update_menu(ui, state);
+            }
             if icon_button(ui, crate::icons::PLUS, tr("Import resources…")).clicked() {
                 state.import.open = true;
             }
@@ -2201,15 +2205,19 @@ fn size_label(name: &str) -> &'static str {
 }
 
 /// The thumbnail size menu (Painter's left-most bottom icon): Small, Medium (default), Large, List.
-fn size_menu(ui: &mut Ui, prefs: &mut crate::recovery::Preferences) {
-    let current = preview_size_name(prefs);
+fn size_menu(ui: &mut Ui, state: &mut UiState, with_auto_update: bool) {
+    let current = preview_size_name(&state.recovery.prefs);
     let label = RichText::new(format!("{}  {}", crate::icons::GRID, size_label(current))).font(theme::font(11.0)).color(theme::TEXT_DIM());
     let resp = ui.menu_button(label, |ui| {
         for name in ["Small", "Medium", "Large", "List"] {
             if ui.radio(current == name, size_label(name)).clicked() {
-                set_preview_size(prefs, name);
+                set_preview_size(&mut state.recovery.prefs, name);
                 ui.close();
             }
+        }
+        if with_auto_update {
+            ui.separator();
+            auto_update_items(ui, state);
         }
     });
     resp.response.on_hover_text(tr("Thumbnail size"));
@@ -2224,6 +2232,9 @@ pub fn update_every_label(minutes: u32) -> String {
     }
 }
 
+/// Narrowest bottom bar (points) that has room for its own auto-update button.
+pub const AUTO_UPDATE_BUTTON_MIN_WIDTH: f32 = 300.0;
+
 /// Painter's auto-update menu (the double arrows of the bottom bar): the Assets panel's
 /// automatic update and how often it checks (the same settings as Preferences > Libraries), and
 /// a manual update of the Assets panel now.
@@ -2231,7 +2242,14 @@ fn auto_update_menu(ui: &mut Ui, state: &mut UiState) {
     let on = state.recovery.prefs.auto_update_assets;
     let colour = if on { theme::ACCENT() } else { theme::TEXT_DIM() };
     let label = RichText::new(crate::icons::REDO).font(theme::font(12.0)).color(colour);
-    let resp = ui.menu_button(label, |ui| {
+    let resp = ui.menu_button(label, |ui| auto_update_items(ui, state));
+    let tip = if on { format!("Auto-update: on, {}", update_every_label(state.recovery.prefs.auto_update_minutes)) } else { "Auto-update: off".to_string() };
+    resp.response.on_hover_text(tip);
+}
+
+/// The auto-update menu's entries (its own button, or the end of the size menu).
+fn auto_update_items(ui: &mut Ui, state: &mut UiState) {
+    {
         ui.label(RichText::new("Automatic updates").font(theme::font_strong(11.5)).color(theme::TEXT()));
         let prefs = &mut state.recovery.prefs;
         ui.checkbox(&mut prefs.auto_update_assets, "Assets panel")
@@ -2251,9 +2269,7 @@ fn auto_update_menu(ui: &mut Ui, state: &mut UiState) {
             state.set_status("Assets panel updated from the library folders", ui.input(|i| i.time));
             ui.close();
         }
-    });
-    let tip = if on { format!("Auto-update: on, {}", update_every_label(state.recovery.prefs.auto_update_minutes)) } else { "Auto-update: off".to_string() };
-    resp.response.on_hover_text(tip);
+    }
 }
 
 /// Grayscale bitmap → egui image.
