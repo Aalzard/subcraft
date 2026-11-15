@@ -146,7 +146,7 @@ Layout notes: the dropdown at the top right of each view switches between Materi
 | Polygon Fill: temporary Polygon loop fill | Shift + A | - | done: held during the click / drag | crates/ui/src/viewport.rs | (this PR) |
 | Polygon Fill: combine with previous result | A while dragging | - | missing | - | - |
 | Polygon Fill: wireframe of the active Texture Set shown while the tool is active | 3D view overlay | - | done: its polygon edges, in the wireframe colour and opacity; the wireframe switch still shows the whole mesh | crates/ui/src/view_extras.rs | (this PR) |
-| Polygon Fill: tooltip with polygon counts and flow arrows | 3D view overlay (12.2) | - | missing | - | - |
+| Polygon Fill: tooltip with polygon counts and flow arrows | 3D view overlay (12.2) | - | partial: a box drag shows how many elements (of the Fill by mode) and triangles it will fill; no flow arrows | crates/ui/src/view_props.rs | (this PR) |
 
 ## Tool cursors and overlays
 

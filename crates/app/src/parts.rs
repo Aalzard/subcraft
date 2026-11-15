@@ -113,6 +113,21 @@ impl Session {
             .collect()
     }
 
+    /// What a Polygon Fill box `[a, b]` (pixels) would fill, without filling: (elements of `mode`,
+    /// triangles). The same pick as [`Session::polygon_fill_box_hit`], for the drag's tooltip.
+    pub fn polygon_fill_box_count(&self, camera: &Camera, a: Vec2, b: Vec2, mode: subcraft_paint::PolygonFillMode, visible_only: bool, hit: subcraft_paint::PolygonHitTest) -> (usize, usize) {
+        use subcraft_paint::select::{count_elements, grow, keep_contained, screen_centre, triangles_in_screen_box};
+        let ts = self.selected_texture_set();
+        let scene = self.scene();
+        let geo = scene.geometry.get(ts.material_slot, ts.resolution);
+        let seeds = triangles_in_screen_box(&scene.mesh, &scene.bvh, camera, ts.material_slot, a, b, visible_only);
+        let mut tris = grow(&scene.mesh, &geo, &seeds, mode);
+        if hit == subcraft_paint::PolygonHitTest::ContainedCenter {
+            tris = keep_contained(&scene.mesh, &geo, &tris, mode, a, b, |m| screen_centre(&scene.mesh, camera, m));
+        }
+        (count_elements(&scene.mesh, &geo, &tris, mode), tris.len())
+    }
+
     /// The part at a 2D-view texture position (UV 0..1) of the selected texture set.
     pub fn part_at_uv(&self, uv: Vec2) -> Option<u32> {
         let ts = self.selected_texture_set();

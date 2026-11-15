@@ -37,6 +37,24 @@ pub fn is_box_drag(a: Pos2, b: Pos2) -> bool {
 }
 
 /// The polygon fill box: translucent accent fill, dashed outline (solid when it selects x-ray).
+/// Text of the Polygon Fill box tooltip: how many elements and triangles it will fill.
+pub fn fill_count_label(elements: usize, triangles: usize, mode: subcraft_paint::PolygonFillMode) -> String {
+    use subcraft_paint::PolygonFillMode as M;
+    let noun = match mode {
+        M::Triangle => "triangle",
+        M::Polygon => "polygon",
+        M::MeshElement => "mesh",
+        M::UvIsland => "UV island",
+        M::Object => "object",
+    };
+    let plural = if elements == 1 { String::new() } else if noun == "mesh" { "es".into() } else { "s".into() };
+    if mode == M::Triangle {
+        format!("{elements} triangle{plural}")
+    } else {
+        format!("{elements} {noun}{plural} · {triangles} triangles")
+    }
+}
+
 pub fn draw_fill_box(painter: &egui::Painter, r: Rect, visible_only: bool) {
     painter.rect_filled(r, 0.0, Color32::from_rgba_unmultiplied(theme::ACCENT().r(), theme::ACCENT().g(), theme::ACCENT().b(), 28));
     let stroke = Stroke::new(1.0, theme::ACCENT());
@@ -172,6 +190,16 @@ fn part_menu(ui: &mut egui::Ui, state: &mut UiState) -> Option<(subcraft_app::Su
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_fill_box_tooltip_counts_what_it_fills() {
+        use subcraft_paint::PolygonFillMode as M;
+        assert_eq!(fill_count_label(16, 32, M::Polygon), "16 polygons · 32 triangles");
+        assert_eq!(fill_count_label(1, 32, M::UvIsland), "1 UV island · 32 triangles");
+        assert_eq!(fill_count_label(2, 400, M::MeshElement), "2 meshes · 400 triangles");
+        assert_eq!(fill_count_label(5, 5, M::Triangle), "5 triangles");
+        assert_eq!(fill_count_label(1, 1, M::Triangle), "1 triangle");
+    }
 
     #[test]
     fn a_short_press_is_a_click_and_a_longer_drag_a_box() {

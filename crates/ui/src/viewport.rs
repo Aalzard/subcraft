@@ -955,6 +955,17 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         }
     } else if let Some(r) = fill_rect.filter(|r| state.fill_box.is_some() && crate::view_props::is_box_drag(r.min, r.max)) {
         crate::view_props::draw_fill_box(&painter, r, state.fill_visible_only);
+        // Painter's tooltip: what the box will fill, counted again when the box changes.
+        let (a, b) = (to_screen(r.min), to_screen(r.max));
+        let key = [a.x, a.y, b.x, b.y].map(|v| v.round() as i32);
+        if state.fill_count.is_none_or(|(k, _)| k != key) {
+            let counts = state.session.polygon_fill_box_count(&camera, a, b, state.fill_mode, state.fill_visible_only, state.fill_hit_test);
+            state.fill_count = Some((key, counts));
+        }
+        if let Some((_, (elements, tris))) = state.fill_count {
+            let text = crate::view_props::fill_count_label(elements, tris, state.fill_mode);
+            pill(&painter, r.right_bottom() + egui::vec2(8.0, 8.0), egui::Align2::LEFT_TOP, &text, theme::OVERLAY_TEXT);
+        }
     }
     if let (Some(a), Some(b)) = (state.parts_box, pointer) && crate::view_props::is_box_drag(a, b) {
         crate::view_props::draw_fill_box(&painter, Rect::from_two_pos(a, b), false);

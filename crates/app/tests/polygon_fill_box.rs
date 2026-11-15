@@ -91,3 +91,18 @@ fn the_colour_eyedropper_reads_the_base_colour_under_the_cursor() {
     assert_eq!(Some(picked), s.sample_uv(ts, uv, ChannelKind::BaseColor).map(|v| v.0), "the composite's base colour there");
     assert_eq!(s.sample_colour_at(&cam, Vec2::new(2.0, 2.0)), None, "off the model");
 }
+
+#[test]
+fn a_fill_box_counts_what_it_would_fill_without_filling() {
+    let s = Session::new(primitives::cube(2.0), 64);
+    let cam = Camera::perspective(Vec3::new(0.0, 0.0, 5.0), Vec3::ZERO, Vec3::Y, 40.0, 0.1, 100.0, [512, 512]);
+    let entries = s.history().entries().len();
+    let (a, b) = (Vec2::new(0.0, 0.0), Vec2::new(512.0, 512.0));
+    use subcraft_paint::PolygonHitTest as H;
+    // The whole front face, visible only: 4 x 4 quads.
+    assert_eq!(s.polygon_fill_box_count(&cam, a, b, PolygonFillMode::Polygon, true, H::Intersection), (16, 32));
+    assert_eq!(s.polygon_fill_box_count(&cam, a, b, PolygonFillMode::Triangle, true, H::Intersection), (32, 32));
+    assert_eq!(s.polygon_fill_box_count(&cam, a, b, PolygonFillMode::UvIsland, true, H::Intersection).0, 1);
+    assert_eq!(s.polygon_fill_box_count(&cam, Vec2::ZERO, Vec2::splat(4.0), PolygonFillMode::Polygon, true, H::Intersection), (0, 0), "a box off the model");
+    assert_eq!(s.history().entries().len(), entries, "counting fills nothing");
+}
