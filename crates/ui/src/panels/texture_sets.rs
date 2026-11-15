@@ -700,12 +700,17 @@ fn map_thumbnail(state: &UiState, ctx: &egui::Context, ts: TextureSetId, kind: M
     let img = state.session.mesh_maps(ts)?.get(kind)?;
     let (w, h, comps) = (img.width(), img.height(), img.comps());
     if w == 0 || h == 0 { return None; }
-    // Cheap fingerprint: the dimensions and a sparse sample, enough to notice a re-bake.
+    // Cheap fingerprint: the dimensions and a sparse sample, enough to notice a re-bake (also
+    // across sessions: a project opened again starts its maps generation over)...
     let mut fp = (w as u64) << 32 | h as u64;
     for i in 0..8u32 { for j in 0..8u32 {
         let px = img.get(((i * 2 + 1) * w / 16).min(w - 1), ((j * 2 + 1) * h / 16).min(h - 1));
         for c in px.iter().take(comps.max(1)) { fp = fp.wrapping_mul(1099511628211).wrapping_add(c.to_bits() as u64); }
     } }
+    // ...and the maps generation, bumped by every map change of the session (bake, import, ID
+    // color edit, undo of one). The sample alone missed changes between its points that the 38x38
+    // thumbnail shows (a recolored ID region), and kept the old thumbnail.
+    fp = fp.wrapping_mul(1099511628211).wrapping_add(state.session.maps_generation());
     let key = egui::Id::new(("mesh_map_thumb", ts, kind));
     if let Some((old, tex)) = ctx.data(|d| d.get_temp::<(u64, egui::TextureHandle)>(key)) && old == fp { return Some(tex); }
     let to8 = |v: f32| (v.clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
@@ -773,6 +778,24 @@ mod tests {
         assert_eq!(tex.size(), [THUMB, THUMB]);
         state.run(vec![Command::ClearMeshMap { texture_set: ts, kind: MeshMapKind::Curvature }], 0.0);
         assert!(state.session.mesh_maps(ts).is_none());
+    }
+
+    /// The thumbnail was keyed on an 8x8 sample of the map: a new map that differs only between
+    /// those points (but where the 38x38 thumbnail samples) kept the old thumbnail.
+    #[test]
+    fn a_map_change_between_the_old_sample_points_rebuilds_the_thumbnail() {
+        let mut state = UiState::new(subcraft_app::Session::new(subcraft_mesh::primitives::cube(2.0), 64), None);
+        let ts = state.session.selection().texture_set;
+        let ctx = egui::Context::default();
+        let plain = subcraft_image::TiledImage::new(64, 64, 3, [0.8, 0.1, 0.1, 1.0]);
+        state.session.set_mesh_maps(ts, std::collections::BTreeMap::from([(MeshMapKind::Id, plain)]));
+        let before = map_thumbnail(&state, &ctx, ts, MeshMapKind::Id).unwrap().id();
+        assert_eq!(map_thumbnail(&state, &ctx, ts, MeshMapKind::Id).unwrap().id(), before, "unchanged map: cached");
+        // Columns 0..3 recolored: no 8x8 sample point (4, 12, ... 60) is there, the thumbnail's first column is.
+        let mut edited = subcraft_image::TiledImage::new(64, 64, 3, [0.8, 0.1, 0.1, 1.0]);
+        for y in 0..64 { for x in 0..4 { edited.set(x, y, [0.1, 0.1, 0.9, 1.0]); } }
+        state.session.set_mesh_maps(ts, std::collections::BTreeMap::from([(MeshMapKind::Id, edited)]));
+        assert_ne!(map_thumbnail(&state, &ctx, ts, MeshMapKind::Id).unwrap().id(), before, "the thumbnail follows the new map");
     }
 
     #[test]
