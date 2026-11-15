@@ -163,9 +163,9 @@ Layout notes: Filtering, UV Wrap, then the UV transformations group (Scale mode,
 | Projection depth | Properties > Fill | not documented | missing | - | - |
 | Depth culling (toggle) | Properties > Fill | not documented | missing | - | - |
 | Depth culling: Hardness | Properties > Fill > Depth culling | not documented | missing | - | - |
-| 3D projection: Offset X, Y, Z | Properties > Fill > 3D projection | 0, 0, 0 | missing | - | - |
-| 3D projection: Rotation X, Y, Z | Properties > Fill > 3D projection | not documented | missing | - | - |
-| 3D projection: Scale X, Y, Z | Properties > Fill > 3D projection | not documented | missing | - | - |
+| 3D projection: Offset X, Y, Z | Properties > Fill > 3D projection | 0, 0, 0 | done: 3D projection group in Properties > Fill | crates/doc/src/fill.rs (ProjectionTransform), crates/ui/src/panels/properties.rs | - |
+| 3D projection: Rotation X, Y, Z | Properties > Fill > 3D projection | not documented | done: 3D projection group in Properties > Fill | crates/doc/src/fill.rs (ProjectionTransform), crates/ui/src/panels/properties.rs | - |
+| 3D projection: Scale X, Y, Z | Properties > Fill > 3D projection | not documented | done: 3D projection group in Properties > Fill | crates/doc/src/fill.rs (ProjectionTransform), crates/ui/src/panels/properties.rs | - |
 | Warp edition menu: Transform warp | Contextual toolbar | default (unverified) | done: Properties > Edit row; drag a point to move the whole grid in the view plane | crates/ui/src/warp_view.rs | - |
 | Warp edition menu: Edit vertices | Contextual toolbar | option | done: Properties > Edit row | crates/ui/src/warp_view.rs | - |
 | Warp edition menu: Split warp crosswise | Contextual toolbar | action | partial: splits through the middle cells (no interactive split line) | crates/ui/src/panels/properties.rs (warp_rows) | - |
@@ -210,11 +210,11 @@ Layout notes: applies to Tri-planar, Planar, Spherical, Cylindrical and Warp. Th
 | Mirror on Z | Contextual toolbar | n/a | missing | - | - |
 | Reset transformation | Contextual toolbar | n/a | partial: Properties buttons reset the UV tiling / offset / rotation and, separately, the 3D transform | crates/ui/src/panels/properties.rs:1017 | - |
 | Translate on one axis: drag an axis arrow | 3D view manipulator | n/a | done: axis handles (round ends, not arrows) | crates/ui/src/projection_gizmo.rs:239 | chunk 9 (part 3) |
-| Translate on a plane: drag a two-axis handle | 3D view manipulator | n/a | missing | - | - |
+| Translate on a plane: drag a two-axis handle | 3D view manipulator | n/a | done: the squares between two axes | crates/ui/src/projection_gizmo.rs (plane_quad) | - |
 | Translate in camera plane: drag the centre handle | 3D view manipulator | n/a | done | crates/ui/src/projection_gizmo.rs:239 | chunk 9 (part 3) |
 | Translate in steps: Shift+drag | 3D view manipulator | n/a | done | crates/ui/src/projection_gizmo.rs:239 | chunk 9 (part 3) |
 | Rotate around one axis: drag a ring | 3D view manipulator | n/a | done | crates/ui/src/projection_gizmo.rs:239 | chunk 9 (part 3) |
-| Free rotate: drag between the rings | 3D view manipulator | n/a | missing | - | - |
+| Free rotate: drag between the rings | 3D view manipulator | n/a | done: trackball turn about the axis across the drag (Shift: angle steps, Ctrl: precise) | crates/ui/src/projection_gizmo.rs (free_rotated), crates/doc/src/fill.rs (rotated_about_axis) | - |
 | Rotate in steps: Shift+drag | 3D view manipulator | n/a | done | crates/ui/src/projection_gizmo.rs:239 | chunk 9 (part 3) |
 | Scale along one axis: drag an axis handle | 3D view manipulator | n/a | done; the centre handle scales all three | crates/ui/src/projection_gizmo.rs:239 | chunk 9 (part 3) |
 | Scale in steps: Shift+drag | 3D view manipulator | n/a | done | crates/ui/src/projection_gizmo.rs:239 | chunk 9 (part 3) |
