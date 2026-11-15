@@ -292,6 +292,8 @@ pub struct UiState {
     pub uv_edges: HashMap<u32, Vec<[Vec2; 2]>>,
     /// UV units per object unit of each material slot (2D brush cursor size).
     pub uv_density: HashMap<u32, f32>,
+    /// Painter's automatic Assets panel update ([`UiState::auto_update_assets`]).
+    pub assets_watch: crate::libraries::AssetsWatch,
     /// Polygon Fill box tooltip: the box (rounded pixels) it was counted for and (elements,
     /// triangles), so a drag counts again only when the box changes.
     pub fill_count: Option<([i32; 4], (usize, usize))>,
@@ -558,6 +560,7 @@ impl UiState {
             tablet: Default::default(),
             uv_edges: HashMap::new(),
             uv_density: HashMap::new(),
+            assets_watch: Default::default(),
             fill_count: None,
             pending_actions: Vec::new(),
             pen_second_color: [1.0; 3],
