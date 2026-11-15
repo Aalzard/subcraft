@@ -287,6 +287,9 @@ pub struct UiState {
     pub uv_edges: HashMap<u32, Vec<[Vec2; 2]>>,
     /// UV units per object unit of each material slot (2D brush cursor size).
     pub uv_density: HashMap<u32, f32>,
+    /// Painter's quick setup: a texture dropped on the model waits for its channel, picked from a
+    /// menu at this screen point.
+    pub drop_channel_menu: Option<(egui::Pos2, std::path::PathBuf)>,
     /// The full brush preview's footprint texture and what it was drawn from.
     pub brush_footprint: Option<(crate::brush_cursor::FootprintKey, egui::TextureHandle)>,
     pub rename: Option<(subcraft_core::LayerId, String)>,
@@ -541,6 +544,7 @@ impl UiState {
             tablet: Default::default(),
             uv_edges: HashMap::new(),
             uv_density: HashMap::new(),
+            drop_channel_menu: None,
             brush_footprint: None,
             rename: None,
             show_shortcuts: false,

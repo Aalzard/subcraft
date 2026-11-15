@@ -145,6 +145,33 @@ impl Session {
         }
     }
 
+    /// Painter's quick setup: an image file as a new fill layer that fills only `channel` (a
+    /// texture dropped on the model, its channel picked from a menu). The file name decides
+    /// conversions only when it names that channel, as for a drop on a channel row. One undo
+    /// step; returns the layer name.
+    pub fn add_texture_layer_in(&mut self, path: &Path, channel: ChannelKind) -> Result<String, String> {
+        if !self.selected_texture_set().has_channel(channel) {
+            return Err(format!("this texture set has no {} channel", channel.display_name()));
+        }
+        let file = path.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+        let conversion = match subcraft_assets::texture_maps::classify(file) {
+            Classified::Map(m) if m.channel == channel => m.conversion,
+            _ => MapConversion::None,
+        };
+        let resource = self.import_converted(path, conversion)?;
+        let ts = self.selected_texture_set().clone();
+        let name = path.file_stem().and_then(|s| s.to_str()).unwrap_or("Texture").to_string();
+        let mut layer = Layer::new_fill(name.clone(), &ts);
+        let LayerContent::Fill(fill) = &mut layer.content else { unreachable!("fill layer") };
+        for c in fill.channels.values_mut() {
+            c.enabled = false;
+        }
+        fill.channels.insert(channel, FillChannel::new(FillSource::Bitmap { resource }));
+        self.execute(Command::InsertLayer { layer: Box::new(layer), label: format!("Texture: {name} ({})", channel.display_name()) })
+            .map_err(|e| e.to_string())?;
+        Ok(name)
+    }
+
     /// Import several texture files as one fill layer on the selected texture set. Files are
     /// matched to channels by name (see `assets::texture_maps`); glossiness is inverted to
     /// roughness and DirectX normals are converted to OpenGL. An Ambient Occlusion map adds that

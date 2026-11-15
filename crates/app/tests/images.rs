@@ -352,3 +352,29 @@ fn texture_added_as_a_layer_uses_the_channel_its_name_suggests() {
     assert_eq!(enabled(&s), [ChannelKind::BaseColor], "unknown names become base color");
     std::fs::remove_dir_all(&dir).ok();
 }
+
+#[test]
+fn a_texture_dropped_on_the_model_fills_the_channel_picked_from_the_menu() {
+    let dir = temp_dir("quicksetup");
+    write_uniform(&dir.join("holiday photo.png"), [0.2, 0.4, 0.6]);
+    let mut s = Session::new(primitives::sample_crate(), 64);
+    let enabled = |s: &Session| match &s.selected_layer().unwrap().content {
+        LayerContent::Fill(f) => f.channels.iter().filter(|(_, c)| c.enabled).map(|(k, _)| *k).collect::<Vec<_>>(),
+        _ => panic!("fill layer"),
+    };
+    let layers = s.selected_texture_set().layers.len();
+    let steps = s.history().entries().len();
+    let name = s.add_texture_layer_in(&dir.join("holiday photo.png"), ChannelKind::Roughness).unwrap();
+    assert_eq!(name, "holiday photo");
+    assert_eq!(enabled(&s), [ChannelKind::Roughness], "only the picked channel");
+    assert_eq!(s.selected_texture_set().layers.len(), layers + 1);
+    assert_eq!(s.history().entries().len(), steps + 1, "one undo step");
+    let LayerContent::Fill(f) = &s.selected_layer().unwrap().content else { panic!() };
+    assert!(matches!(f.channels[&ChannelKind::Roughness].source, FillSource::Bitmap { .. }));
+    // A channel the texture set lacks is refused without a new layer.
+    let kinds: Vec<ChannelKind> = s.selected_texture_set().channel_kinds().collect();
+    if let Some(missing) = [ChannelKind::Emissive, ChannelKind::Opacity, ChannelKind::Specular].into_iter().find(|k| !kinds.contains(k)) {
+        assert!(s.add_texture_layer_in(&dir.join("holiday photo.png"), missing).is_err());
+        assert_eq!(s.selected_texture_set().layers.len(), layers + 1);
+    }
+}

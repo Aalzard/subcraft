@@ -250,6 +250,14 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         // Ctrl (Painter): the new layer shows only on the part under the cursor (geometry mask).
         let part = if (mods.command || mods.ctrl) && !mods.alt { pointer.and_then(|p| state.session.surface_target(&camera, to_screen(p), state.parts_kind)) } else { None };
         let before = state.session.selection().layer;
+        // Painter's quick setup: a texture dropped on the model asks which channel it fills.
+        let texture = match *item {
+            crate::panels::shelf::ShelfDrag::Texture(i) if !mods.alt && part.is_none() => state.textures.items.get(i).map(|t| t.path.clone()),
+            _ => None,
+        };
+        if let (Some(path), Some(p)) = (texture, pointer) {
+            state.drop_channel_menu = Some((p, path));
+        } else {
         // Alt: apply in place to the selected layer (alphas: brush tip unless Alt).
         crate::panels::shelf::apply_shelf_item_with(state, *item, mods.alt, now);
         let added = state.session.selection().layer.filter(|l| Some(*l) != before);
@@ -262,7 +270,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 Err(e) => state.set_status(e.to_string(), now),
             }
         }
+        }
     }
+    drop_channel_menu(state, ui, now);
     // An environment tile dropped on the view becomes the environment map.
     if let Some(env) = response.dnd_release_payload::<crate::panels::shelf::EnvironmentDrag>()
         && let Some(name) = state.library.environments.get(env.0).map(|e| e.name.clone())
@@ -1483,6 +1493,45 @@ pub fn taa_step(s: &mut TaaState, params: &subcraft_render::ViewParams, accumula
 
 /// Accumulation counts offered for temporal anti-aliasing.
 pub const TAA_ACCUMULATIONS: [u32; 5] = [4, 8, 16, 32, 64];
+
+/// The quick setup menu of a texture dropped on the model: one entry per channel of the texture
+/// set; the pick adds a fill layer with the image in that channel. Esc or a click elsewhere
+/// closes it.
+fn drop_channel_menu(state: &mut UiState, ui: &Ui, now: f64) {
+    let Some((at, path)) = state.drop_channel_menu.clone() else { return };
+    let channels: Vec<subcraft_core::ChannelKind> = state.session.selected_texture_set().channel_kinds().collect();
+    let mut picked = None;
+    let mut close = ui.input(|i| i.key_pressed(egui::Key::Escape));
+    let area = egui::Area::new(ui.id().with("drop_channel_menu")).order(egui::Order::Foreground).fixed_pos(at).show(ui.ctx(), |ui| {
+        egui::Frame::popup(ui.style()).show(ui, |ui| {
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("image");
+            ui.label(egui::RichText::new(format!("Fill a channel with {name}")).color(theme::TEXT_DIM()));
+            for k in &channels {
+                if ui.button(k.display_name()).clicked() {
+                    picked = Some(*k);
+                }
+            }
+            if ui.button("Cancel").clicked() {
+                close = true;
+            }
+        });
+    });
+    if ui.input(|i| i.pointer.any_pressed()) && !area.response.contains_pointer() && picked.is_none() {
+        close = true;
+    }
+    if let Some(channel) = picked {
+        match state.session.add_texture_layer_in(&path, channel) {
+            Ok(name) => {
+                state.gpu_dirty = true;
+                state.set_status(format!("Added \"{name}\" filling {}", channel.display_name()), now);
+            }
+            Err(e) => state.set_status(e, now),
+        }
+        state.drop_channel_menu = None;
+    } else if close {
+        state.drop_channel_menu = None;
+    }
+}
 
 /// Half length of the crosshair cursor's arms, in points.
 pub const CROSSHAIR_ARM: f32 = 8.0;
