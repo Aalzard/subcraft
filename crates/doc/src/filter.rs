@@ -1103,7 +1103,7 @@ mod grayscale_weight_tests {
         let json = serde_json::to_string(&plain).unwrap();
         assert!(!json.contains("weights"), "{json}");
         assert_eq!(serde_json::from_str::<Filter>(&json).unwrap(), plain, "files without weights read them as unset");
-        let custom = Filter::GrayscaleConvert { weights: Some([0.1, 0.2, 0.7]), ..plain };
+        let custom = Filter::GrayscaleConvert { mode: crate::mask::GrayscaleType::Max, invert: true, balance: 0.5, contrast: 0.0, weights: Some([0.1, 0.2, 0.7]) };
         assert_eq!(serde_json::from_str::<Filter>(&serde_json::to_string(&custom).unwrap()).unwrap(), custom);
         assert_eq!(GrayParts { weights: Some([1.0, 0.0, 0.0]), ..Default::default() }.gray([0.8, 0.4, 0.2]), 0.8);
     }
