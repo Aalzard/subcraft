@@ -5,6 +5,47 @@ use subcraft_app::pen::{Handle, PenHit};
 use subcraft_doc::PenPath;
 use crate::{state::{Tool, UiState}, theme};
 
+/// Painter's path snapping (the magnet menu): new and moved points jump to the model's
+/// vertices, edges or edge centres near the pointer.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PenSnap {
+    pub vertices: bool,
+    pub edges: bool,
+    pub edge_centres: bool,
+}
+
+impl PenSnap {
+    pub fn any(&self) -> bool {
+        self.vertices || self.edges || self.edge_centres
+    }
+}
+
+/// How close (screen points) the pointer must be to a snap target.
+pub const SNAP_RADIUS: f32 = 10.0;
+
+/// The snap target for `pointer` on the triangle whose corners are `tri` on screen: the
+/// nearest enabled corner or edge centre within [`SNAP_RADIUS`], else the nearest point on an
+/// edge within it (Snap to edges); `None` when nothing is close enough.
+pub fn snap_to_triangle(pointer: Pos2, tri: [Pos2; 3], snap: PenSnap) -> Option<Pos2> {
+    let nearest = |points: &mut dyn Iterator<Item = Pos2>| {
+        points.map(|q| (q.distance(pointer), q)).filter(|(d, _)| *d <= SNAP_RADIUS).min_by(|a, b| a.0.total_cmp(&b.0)).map(|(_, q)| q)
+    };
+    let edges = [(tri[0], tri[1]), (tri[1], tri[2]), (tri[2], tri[0])];
+    let mut points = tri.iter().copied().filter(|_| snap.vertices).chain(edges.iter().map(|(a, b)| a.lerp(*b, 0.5)).filter(|_| snap.edge_centres));
+    if let Some(q) = nearest(&mut points) {
+        return Some(q);
+    }
+    if !snap.edges {
+        return None;
+    }
+    let mut on_edges = edges.iter().map(|&(a, b)| {
+        let d = b - a;
+        let t = if d.length_sq() > 1e-9 { ((pointer - a).dot(d) / d.length_sq()).clamp(0.0, 1.0) } else { 0.0 };
+        a + d * t
+    });
+    nearest(&mut on_edges)
+}
+
 #[derive(Clone, Copy)]
 pub enum After { Action(subcraft_app::Action), Request(crate::dialogs::Pending) }
 
@@ -225,6 +266,13 @@ pub fn properties(state: &mut UiState, ui: &mut Ui, path: &PenPath, now: f64) {
         if ui.add_enabled(path.anchors.len() > 1, egui::Button::new("Reverse")).on_hover_text("Run the path the other way: stamps and a ribbon's image start from the other end").clicked()
             && let Err(e) = state.pen.reverse_path(&state.session) { state.set_status(e.to_string(), now); }
     });
+    // Painter's magnet menu: snap new and moved points to the model.
+    crate::widgets::prop_row(ui, "Snap", |ui| {
+        let s = &mut state.pen_snap;
+        ui.toggle_value(&mut s.vertices, "Vertices").on_hover_text("New and moved points jump to the model's vertices near the pointer");
+        ui.toggle_value(&mut s.edges, "Edges").on_hover_text("New and moved points jump onto the model's edges near the pointer");
+        ui.toggle_value(&mut s.edge_centres, "Edge centres").on_hover_text("New and moved points jump to the centres of the model's edges near the pointer");
+    });
     let mut path = path.clone(); let mut changed = false;
     // Painter's path types: a stroke along the curve, or its filled interior.
     crate::widgets::prop_row(ui, "Path type", |ui| {
@@ -310,6 +358,26 @@ pub fn properties(state: &mut UiState, ui: &mut Ui, path: &PenPath, now: f64) {
         if !ui.input(|i| i.pointer.primary_down()) && let Err(e) = state.pen.release(&state.session) { state.set_status(e.to_string(), now); }
     }
     crate::widgets::hint(ui, "Click to add a point; drag on creation for Bézier handles. Drag points or handles to edit; Shift breaks the mirrored handle. Enter finishes, Esc cancels an edit, Delete removes a point. Middle/Alt drag pans in 2D.");
+}
+
+#[cfg(test)]
+mod snap_tests {
+    use super::*;
+
+    #[test]
+    fn snapping_prefers_corners_and_centres_then_edges_within_the_radius() {
+        let tri = [Pos2::new(0.0, 0.0), Pos2::new(100.0, 0.0), Pos2::new(0.0, 100.0)];
+        let all = PenSnap { vertices: true, edges: true, edge_centres: true };
+        assert_eq!(snap_to_triangle(Pos2::new(4.0, 3.0), tri, all), Some(Pos2::new(0.0, 0.0)), "corner");
+        assert_eq!(snap_to_triangle(Pos2::new(52.0, 6.0), tri, all), Some(Pos2::new(50.0, 0.0)), "edge centre");
+        assert_eq!(snap_to_triangle(Pos2::new(30.0, 5.0), tri, all), Some(Pos2::new(30.0, 0.0)), "onto the edge");
+        assert_eq!(snap_to_triangle(Pos2::new(30.0, 30.0), tri, all), None, "nothing near");
+        // Only what is enabled.
+        let edges_only = PenSnap { edges: true, ..Default::default() };
+        assert_eq!(snap_to_triangle(Pos2::new(4.0, 3.0), tri, edges_only), Some(Pos2::new(4.0, 0.0)));
+        assert_eq!(snap_to_triangle(Pos2::new(4.0, 3.0), tri, PenSnap::default()), None);
+        assert!(!PenSnap::default().any() && all.any());
+    }
 }
 
 #[cfg(test)]
