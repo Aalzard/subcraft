@@ -545,8 +545,8 @@ fn general_view_settings(ui: &mut egui::Ui, p: &mut Preferences) {
     ui.checkbox(&mut p.viewport.axis_indicator, tr("Show world axes")).on_hover_text(tr("The X, Y and Z directions of the scene in the bottom-right corner of the 3D view"));
     ui.horizontal(|ui| {
         ui.label(tr("Background color"));
-        ui.color_edit_button_rgb(&mut p.background_top).on_hover_text(tr("Top of the 3D view"));
-        ui.color_edit_button_rgb(&mut p.background_bottom).on_hover_text(tr("Bottom of the 3D view"));
+        crate::color_picker::swatch_srgb(ui, &mut p.background_top).on_hover_text(tr("Top of the 3D view"));
+        crate::color_picker::swatch_srgb(ui, &mut p.background_bottom).on_hover_text(tr("Bottom of the 3D view"));
         if (p.background_top != DEFAULT_BACKGROUND || p.background_bottom != DEFAULT_BACKGROUND) && secondary_button(ui, tr("Reset")).clicked() {
             p.background_top = DEFAULT_BACKGROUND;
             p.background_bottom = DEFAULT_BACKGROUND;

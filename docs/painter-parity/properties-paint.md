@@ -155,8 +155,8 @@ Layout notes: a row of channel toggle buttons (one per channel of the Texture Se
 | Drop a material from Assets on Material mode | Properties > Material | n/a | missing | - | - |
 | Material parameters of the loaded Substance | Properties > Material | per resource | missing | - | - |
 | Random seed / Random button of the loaded Substance | Properties > Material | per resource (unverified) | missing | - | - |
-| Per-channel uniform colour (Base color, Emissive ...) opens the Color Picker | Properties > Material > channel row | channel dependent | partial: egui inline picker, no Painter picker window | crates/ui/src/widgets.rs:51 | #141 |
-| Eyedropper button next to each colour field | Properties > Material > channel row | n/a | partial: "Pick from the model" inside each colour picker; the next click on the model takes its base colour | crates/ui/src/color_picker.rs | #141 |
+| Per-channel uniform colour (Base color, Emissive ...) opens the Color Picker | Properties > Material > channel row | channel dependent | done: SubCraft's colour picker on every colour field | crates/ui/src/color_picker.rs (swatch_linear, screen_pick) | #141 |
+| Eyedropper button next to each colour field | Properties > Material > channel row | n/a | partial: "Pick a colour" in every colour picker (every swatch is SubCraft's picker now); the next click on the model takes its base colour, anywhere else in the window the colour shown there (screenshot); not outside the window | crates/ui/src/color_picker.rs (swatch_linear, screen_pick) | #141 |
 | Per-channel uniform value slider (Roughness, Metallic, AO ...) | Properties > Material > channel row | 0-1 | done | crates/ui/src/widgets.rs:60 | - |
 | Height uniform value | Properties > Material > Height | -1 to 1 | done | crates/ui/src/widgets.rs:56 | - |
 | Per-channel resource slot (bitmap or Substance) | Properties > Material > channel row | empty | partial: bitmaps only (file dialog or Shelf texture drop) | crates/ui/src/panels/brush_material.rs:72 | - |
@@ -410,7 +410,7 @@ Layout notes: a floating, movable, non-dockable window opened by clicking any co
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Clicking any colour field opens the Color Picker | Any colour field | n/a | partial: egui popup picker, closes on click away | crates/ui/src/widgets.rs:51 | #141 |
+| Clicking any colour field opens the Color Picker | Any colour field | n/a | done: every colour field opens SubCraft's picker popup (closes on click away) | crates/ui/src/color_picker.rs (swatch_linear, screen_pick) | #141 |
 | Semi-persistent: stays open until the context changes | Color Picker | n/a | missing | - | #141 |
 | Window can be moved to any screen | Color Picker | n/a | missing | - | #141 |
 | Window cannot be docked | Color Picker | n/a | missing | - | #141 |
@@ -422,7 +422,7 @@ Layout notes: a floating, movable, non-dockable window opened by clicking any co
 | Previous colour rectangle (colour when the picker opened) | Color Picker > Gradient picker | n/a | missing | - | #141 |
 | Click the previous colour to restore it | Color Picker > Gradient picker | n/a | missing | - | #141 |
 | Hexadecimal field (#RRGGBB, always sRGB) | Color Picker > Gradient picker | n/a | missing | - | #141 |
-| Eyedropper button (pick from anywhere on screen, inside or outside the app) | Color Picker > Gradient picker | n/a | partial: picks from the model in the 3D view only (the material's base colour), not from any screen pixel | crates/ui/src/color_picker.rs | #141 |
+| Eyedropper button (pick from anywhere on screen, inside or outside the app) | Color Picker > Gradient picker | n/a | partial: "Pick a colour" in every colour picker (every swatch is SubCraft's picker now); the next click on the model takes its base colour, anywhere else in the window the colour shown there (screenshot); not outside the window | crates/ui/src/color_picker.rs (swatch_linear, screen_pick) | #141 |
 | Eyedropper + Shift in the viewport: pick the edited channel's raw value | Color Picker > Eyedropper | n/a | missing | - | #141 |
 | Eyedropper next to colour fields (pick without opening the picker) | Any colour field | n/a | missing | - | #141 |
 | Eyedropper color space setting | Color Picker > Color settings | auto (project standard sRGB) | missing | - | #141 |

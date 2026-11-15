@@ -601,7 +601,7 @@ pub fn render(state: &mut UiState, ui: &mut Ui) {
         ui.label(tr("Clear color"));
         ui.horizontal(|ui| {
             ui.checkbox(&mut prefs.pt_clear, "").on_hover_text(tr("Show a solid color where the camera sees past the model; the lighting is unchanged"));
-            ui.add_enabled_ui(prefs.pt_clear, |ui| ui.color_edit_button_rgb(&mut prefs.pt_clear_color));
+            ui.add_enabled_ui(prefs.pt_clear, |ui| crate::color_picker::swatch_srgb(ui, &mut prefs.pt_clear_color));
         });
         ui.end_row();
     });
@@ -616,7 +616,7 @@ pub fn render(state: &mut UiState, ui: &mut Ui) {
                 ui.end_row();
             }
             ui.label(tr("Reflectivity"));
-            ui.color_edit_button_rgb(&mut prefs.pt_ground_reflectivity).on_hover_text(tr("Color of the ground's reflection; black is a plain matte floor"));
+            crate::color_picker::swatch_srgb(ui, &mut prefs.pt_ground_reflectivity).on_hover_text(tr("Color of the ground's reflection; black is a plain matte floor"));
             ui.end_row();
             ui.label(tr("Glossiness"));
             ui.add(egui::Slider::new(&mut prefs.pt_ground_glossiness, 0.0..=1.0)).on_hover_text(tr("Sharpness of the reflection: 1 is a mirror"));
@@ -726,7 +726,7 @@ pub fn visualization(state: &mut UiState, ui: &mut Ui) {
         ui.checkbox(&mut prefs.wireframe, "");
         ui.end_row();
         ui.label(tr("Wireframe color"));
-        ui.color_edit_button_rgb(&mut prefs.wire_color);
+        crate::color_picker::swatch_srgb(ui, &mut prefs.wire_color);
         ui.end_row();
         ui.label(tr("Wireframe opacity"));
         ui.add(egui::Slider::new(&mut prefs.wire_opacity, 0.05..=1.0));
@@ -750,10 +750,10 @@ pub fn visualization(state: &mut UiState, ui: &mut Ui) {
             ui.checkbox(&mut d.hdr_signed_colors, "").on_hover_text(tr("Grayscale channels: positive and negative values in two colors"));
             ui.end_row();
             ui.label(tr("Positive color"));
-            ui.add_enabled_ui(d.hdr_signed_colors, |ui| ui.color_edit_button_rgb(&mut d.hdr_positive));
+            ui.add_enabled_ui(d.hdr_signed_colors, |ui| crate::color_picker::swatch_srgb(ui, &mut d.hdr_positive));
             ui.end_row();
             ui.label(tr("Negative color"));
-            ui.add_enabled_ui(d.hdr_signed_colors, |ui| ui.color_edit_button_rgb(&mut d.hdr_negative));
+            ui.add_enabled_ui(d.hdr_signed_colors, |ui| crate::color_picker::swatch_srgb(ui, &mut d.hdr_negative));
             ui.end_row();
             ui.label(tr("Color channels"));
             let color = shown.is_some_and(|k| k.components() == 3);
@@ -778,7 +778,7 @@ pub fn visualization(state: &mut UiState, ui: &mut Ui) {
         });
         ui.end_row();
         ui.label(tr("Grid color"));
-        ui.color_edit_button_rgb(&mut prefs.display.grid_color);
+        crate::color_picker::swatch_srgb(ui, &mut prefs.display.grid_color);
         ui.end_row();
         ui.label(tr("Grid opacity"));
         ui.add(egui::Slider::new(&mut prefs.display.grid_opacity, 0.0..=1.0));

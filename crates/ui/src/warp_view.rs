@@ -120,7 +120,7 @@ pub fn settings_ui(ui: &mut Ui, warp: &mut WarpEdit) {
     crate::widgets::prop_row(ui, "Handles", |ui| {
         ui.add(egui::Slider::new(&mut warp.handle_size, WarpEdit::SIZE_RANGE).text("size"));
         let mut c = warp.color32();
-        if ui.color_edit_button_srgba(&mut c).on_hover_text("Grid colour").changed() {
+        if crate::color_picker::swatch_color32(ui, &mut c).on_hover_text("Grid colour").changed() {
             warp.color = [c.r(), c.g(), c.b()];
         }
     });

@@ -274,7 +274,7 @@ pub fn wireframe_control(ui: &mut Ui, prefs: &mut ViewportPrefs) {
         ui.checkbox(&mut prefs.wireframe, "Show wireframe");
         ui.horizontal(|ui| {
             ui.label("Color");
-            ui.color_edit_button_rgb(&mut prefs.wire_color);
+            crate::color_picker::swatch_srgb(ui, &mut prefs.wire_color);
         });
         ui.add(egui::Slider::new(&mut prefs.wire_opacity, 0.05..=1.0).text("Opacity"));
         ui.add(egui::Slider::new(&mut prefs.wire_angle, 0.0..=90.0).text("Merge angle").suffix("°"))

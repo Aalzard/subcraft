@@ -253,8 +253,8 @@ Layout notes: channel toggle buttons in Texture Set channel order with short low
 | Substance output size / resolution parameter | Properties > Material | (unverified) | missing | - | - |
 | Seed value | Properties > Material > parameters | per resource | partial: Seed number on SubCraft's built-in procedural sources only | crates/ui/src/panels/properties.rs:782 | - |
 | Random (new seed) button | Properties > Material > parameters | n/a (unverified) | missing | - | - |
-| Per-channel uniform colour (opens the Color Picker) | Properties > Material > channel row | channel dependent | partial: egui inline picker | crates/ui/src/panels/properties.rs:769 | #141 |
-| Eyedropper next to the uniform colour | Properties > Material > channel row | n/a | partial: "Pick from the model" in every colour picker (opens from the swatch); the next click on the model takes the material's base colour there | crates/ui/src/color_picker.rs | #141 |
+| Per-channel uniform colour (opens the Color Picker) | Properties > Material > channel row | channel dependent | done: SubCraft's colour picker (wheel, sliders, hex, recent colours, eyedropper) on every swatch | crates/ui/src/color_picker.rs (swatch_linear, screen_pick) | #141 |
+| Eyedropper next to the uniform colour | Properties > Material > channel row | n/a | partial: "Pick a colour" in every colour picker (every swatch is SubCraft's picker now); the next click on the model takes its base colour, anywhere else in the window the colour shown there (screenshot); not outside the window | crates/ui/src/color_picker.rs (swatch_linear, screen_pick) | #141 |
 | Per-channel uniform value slider (grayscale channels) | Properties > Material > channel row | 0-1 | done | crates/ui/src/widgets.rs:60 | - |
 | Height uniform value | Properties > Material > Height | -1 to 1 | done | crates/ui/src/widgets.rs:56 | - |
 | Per-channel resource slot (bitmap, Substance, text, vector graphic) | Properties > Material > channel row | empty | partial: bitmap images only | crates/ui/src/panels/properties.rs:868 | - |

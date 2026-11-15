@@ -48,8 +48,8 @@ fn quiet_value_field(ui: &mut Ui) {
 /// a slider for scalars (Height is signed).
 pub fn channel_value(ui: &mut Ui, kind: ChannelKind, v: &mut ChannelValue) -> Edit {
     if kind.components() == 3 {
-        let r = ui.color_edit_button_rgb(&mut v.0);
-        Edit::from(&r)
+        // SubCraft's picker (with the eyedropper), on the linear value.
+        crate::color_picker::swatch_edit(ui, &mut v.0)
     } else {
         let range = if kind.is_signed() { -1.0..=1.0 } else { 0.0..=1.0 };
         let mut x = v.0[0];

@@ -284,7 +284,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 ui.checkbox(&mut state.uv_wireframe, "Show UV wireframe");
                 ui.horizontal(|ui| {
                     ui.label("Color");
-                    ui.color_edit_button_rgb(&mut prefs.wire_color);
+                    crate::color_picker::swatch_srgb(ui, &mut prefs.wire_color);
                 });
                 ui.add(egui::Slider::new(&mut prefs.wire_opacity, 0.05..=1.0).text("Opacity"));
                 ui.label(RichText::new("Shared with the 3D view's mesh wireframe (Display settings)").small().color(crate::theme::TEXT_FAINT()));
