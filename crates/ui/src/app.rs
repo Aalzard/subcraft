@@ -103,6 +103,8 @@ pub struct LaunchOptions {
     pub resume_update: Option<PathBuf>,
     /// Check releases on startup (scripted verification / Help).
     pub check_updates: bool,
+    /// Painter's `--disable-version-checking`: no automatic update check at start.
+    pub disable_version_checking: bool,
     #[cfg(feature = "update-fixture")]
     pub auto_update_fixture: bool,
     /// Project (`.subcraft`) or mesh to open instead of the bundled default model.
@@ -1128,7 +1130,7 @@ impl SubcraftApp {
         {
             // Background release check; a newer version gets a callout at the update button.
             // Not for scripted screenshots or right after an update restart.
-            let automatic = state.recovery.prefs.check_updates_on_start && options.screenshot.is_none() && options.resume_update.is_none();
+            let automatic = state.recovery.prefs.check_updates_on_start && options.screenshot.is_none() && options.resume_update.is_none() && !options.disable_version_checking;
             if (options.check_updates || automatic) && let Some(updater) = &mut state.updater {
                 updater.check();
                 // The automatic check is silent: no window, only the callout if there's an update.

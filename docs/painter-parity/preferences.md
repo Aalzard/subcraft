@@ -190,11 +190,11 @@ Layout notes: used as `"Adobe Substance 3D Painter.exe" --command [option]`. Sub
 | -v | Command line | - | done | apps/subcraft/src/main.rs:229 | - |
 | --mesh (new project from a mesh) | Command line | mesh path | partial: a bare path argument, or --new-project to open the dialog | apps/subcraft/src/main.rs:189 | - |
 | --mesh with a project path (update the mesh of that project) | Command line | mesh path + .spp path | partial: --reload-mesh opens the Reload Mesh window | apps/subcraft/src/main.rs:166 | - |
-| --mesh-map (repeatable baked map files) | Command line | file named TextureSetName_MapName | missing | - | #137 |
-| --split-by-udim | Command line | off | missing | - | - |
+| --mesh-map (repeatable baked map files) | Command line | file named TextureSetName_MapName | done: a word that is not a mesh-map key is a baked map file, matched to its texture set by name like --mesh-maps | apps/subcraft/src/main.rs | #137 |
+| --split-by-udim | Command line | off | done: accepted; UDIM tiles already import as separate texture sets | apps/subcraft/src/main.rs | - |
 | --export-path | Command line | folder | missing | - | - |
 | --vram-budget | Command line | megabytes | missing | - | - |
-| --disable-version-checking | Command line | off | missing | - | - |
+| --disable-version-checking | Command line | off | done: no automatic update check at start | apps/subcraft/src/main.rs | - |
 | --enable-remote-scripting | Command line | off | missing | - | - |
 
 ## Environment variables
