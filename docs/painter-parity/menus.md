@@ -148,7 +148,7 @@ Layout notes: two submenus with a tick per item (Views for dockable windows, Too
 | Views > Texture Set List | Window > Views | shown (unverified) | partial: entry brings the panel to the front; it cannot be hidden | crates/ui/src/app.rs (menu) | #164 |
 | Views > Texture Set Settings | Window > Views | shown (unverified) | partial: entry brings the panel to the front; it cannot be hidden | crates/ui/src/app.rs (menu) | #164 |
 | Toolbars (submenu with tick boxes) | Window | - | partial: ticks for the Tools rail and the status bar | crates/ui/src/app.rs (menu) | #164 |
-| Toolbars > Docks | Window > Toolbars | shown | missing | - | - |
+| Toolbars > Docks | Window > Toolbars | shown | done: shows / hides the Docks toolbar in the header | crates/ui/src/app.rs | (this PR) |
 | Toolbars > Plugins | Window > Toolbars | shown | missing | - | - |
 | Toolbars > Tools | Window > Toolbars | shown | done | crates/ui/src/app.rs (menu) | #164 |
 | Hide UI | Window | Tab | done | crates/ui/src/app.rs (menu) | #164 |

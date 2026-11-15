@@ -48,7 +48,7 @@ Layout notes: a narrow vertical strip at the top right of the main window, docka
 | History button | Docks toolbar | present by default (unverified) | done | crates/ui/src/docks.rs | 217 |
 | Log button | Docks toolbar | present by default (unverified) | missing | - | - |
 | Properties reachable from the Docks toolbar | Docks toolbar | when the Properties dock is closed | done | crates/ui/src/docks.rs | 217 |
-| Dock the toolbar on the left or right edge | Drag the toolbar | right | missing | - | - |
+| Dock the toolbar on the left or right edge | Drag the toolbar | right | partial: Window > Toolbars > "Tools on the right edge" (a setting, not a drag) | crates/ui/src/app.rs | (this PR) |
 
 ## Plugins toolbar
 

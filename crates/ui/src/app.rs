@@ -1682,7 +1682,7 @@ impl SubcraftApp {
             }
             // Painter's Docks toolbar: a button per closed panel, in headers wide enough to keep
             // the project name (narrower windows reopen panels from Window > Views).
-            if bar.width() >= crate::docks::TOOLBAR_MIN_WIDTH {
+            if self.state.recovery.prefs.show_docks_toolbar && bar.width() >= crate::docks::TOOLBAR_MIN_WIDTH {
                 ui.add_space(6.0);
                 crate::docks::toolbar(ui, &mut self.dock, &mut self.popped_dock);
             }
@@ -2011,7 +2011,11 @@ impl SubcraftApp {
                 ui.menu_button(format!("{}   {}", icons::SLIDERS, tr("Toolbars")), |ui| {
                     ui.set_min_width(200.0);
                     ui.checkbox(&mut self.state.recovery.prefs.show_tools_toolbar, tr("Tools"))
-                        .on_hover_text("The tool buttons along the left edge of the window.");
+                        .on_hover_text("The tool buttons along the edge of the window.");
+                    ui.add_enabled(self.state.recovery.prefs.show_tools_toolbar, egui::Checkbox::new(&mut self.state.recovery.prefs.tools_on_right, "Tools on the right edge"))
+                        .on_hover_text("Dock the tool buttons on the right edge of the window instead of the left.");
+                    ui.checkbox(&mut self.state.recovery.prefs.show_docks_toolbar, "Docks")
+                        .on_hover_text("A button in the header for each closed panel (shown in wide windows).");
                     ui.checkbox(&mut self.state.recovery.prefs.show_status_bar, tr("Status bar"));
                 });
                 if item(ui, icons::SUN, if self.dock.find_tab(&Tab::DisplaySettings).is_some() { tr("Close Display settings") } else { tr("Display settings") }, "") {
@@ -2607,7 +2611,8 @@ impl eframe::App for SubcraftApp {
             egui::Panel::bottom("status").exact_size(26.0).show_separator_line(false).frame(bar(theme::BG_0())).show(ui, |ui| self.status_bar(ui));
         }
         if !self.state.hide_ui && rail && !self.state.bake.open {
-            egui::Panel::left("tools")
+            let edge = if self.state.recovery.prefs.tools_on_right { egui::Panel::right("tools") } else { egui::Panel::left("tools") };
+            edge
                 .exact_size(48.0)
                 .resizable(false)
                 .show_separator_line(false)
