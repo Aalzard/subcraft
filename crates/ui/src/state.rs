@@ -274,7 +274,8 @@ pub struct UiState {
     pub id_pick_view: Option<Option<subcraft_core::MeshMapKind>>,
     /// Color selected in the ID color editor (as shown in the ID map).
     pub id_palette_selected: Option<[f32; 3]>,
-    /// The editor's palette, keyed by (texture set, maps generation, document revision).
+    /// The editor's palette: (texture set, maps generation its colors come from, document
+    /// revision its mask counts come from).
     pub id_palette_cache: Option<((subcraft_core::TextureSetId, u64, u64), Vec<subcraft_app::id_color::IdPaletteEntry>)>,
     /// The color being typed / picked as the replacement of `id_palette_selected`.
     pub id_palette_new: [f32; 3],

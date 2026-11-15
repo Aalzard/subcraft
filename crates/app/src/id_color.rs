@@ -178,6 +178,15 @@ impl Session {
     /// The colors of the set's ID map, most common first (`None` without an ID map). Colors are
     /// grouped by 8-bit value; at most [`MAX_PALETTE`].
     pub fn id_palette(&self, texture_set: TextureSetId) -> Option<Vec<IdPaletteEntry>> {
+        let mut palette = self.id_map_colors(texture_set)?;
+        self.count_id_masks(texture_set, &mut palette);
+        Some(palette)
+    }
+
+    /// [`Self::id_palette`] without the mask counts (`masks` is 0). This part reads every texel
+    /// of the ID map, and depends only on the shown map: it changes with
+    /// [`Session::maps_generation`], not with every document edit.
+    pub fn id_map_colors(&self, texture_set: TextureSetId) -> Option<Vec<IdPaletteEntry>> {
         let img = self.mesh_maps(texture_set)?.get(MeshMapKind::Id)?;
         let comps = img.comps();
         let dense = img.to_dense();
@@ -189,7 +198,16 @@ impl Session {
             e.0 += 1;
         }
         let total = (dense.len() / comps).max(1) as f32;
-        let ts = self.document().texture_set(texture_set)?;
+        let mut out: Vec<IdPaletteEntry> = counts.into_values().map(|(n, color)| IdPaletteEntry { color, coverage: n as f32 / total, masks: 0 }).collect();
+        out.sort_by(|a, b| b.coverage.total_cmp(&a.coverage).then(a.color.partial_cmp(&b.color).unwrap_or(std::cmp::Ordering::Equal)));
+        out.truncate(MAX_PALETTE);
+        Some(out)
+    }
+
+    /// Set `masks` of each palette entry: how many ID Color mask effects of the set use it (cheap,
+    /// follows the document).
+    pub fn count_id_masks(&self, texture_set: TextureSetId, palette: &mut [IdPaletteEntry]) {
+        let Some(ts) = self.document().texture_set(texture_set) else { return };
         let mut used: Vec<[f32; 3]> = Vec::new();
         ts.walk(|l, _| {
             if let Some(m) = &l.mask {
@@ -198,12 +216,9 @@ impl Session {
                 }
             }
         });
-        let mut out: Vec<IdPaletteEntry> = counts.into_values()
-            .map(|(n, color)| IdPaletteEntry { color, coverage: n as f32 / total, masks: used.iter().filter(|c| same_id(**c, color)).count() })
-            .collect();
-        out.sort_by(|a, b| b.coverage.total_cmp(&a.coverage).then(a.color.partial_cmp(&b.color).unwrap_or(std::cmp::Ordering::Equal)));
-        out.truncate(MAX_PALETTE);
-        Some(out)
+        for e in palette {
+            e.masks = used.iter().filter(|c| same_id(**c, e.color)).count();
+        }
     }
 
     /// Change one ID map color (as shown) to `to`, updating every ID Color mask of the set that
