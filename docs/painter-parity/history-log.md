@@ -9,7 +9,7 @@ Layout notes: a dockable window holding one plain list, oldest action at the top
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| History window (dockable) | Window > Views > History | not documented | partial: History dock tab exists, no Window menu entry to show or hide it | crates/ui/src/app.rs:33 | - |
+| History window (dockable) | Window > Views > History | not documented | done: History dock tab, listed in Window > Views | crates/ui/src/app.rs | - |
 | List of every action made in the open project | History | one row per action | done | crates/ui/src/panels/history.rs:18 | - |
 | Click a row to return to that state | History | - | done | crates/ui/src/panels/history.rs:28 | - |
 | Current state row highlighted | History | - | done | crates/ui/src/panels/history.rs:20 | - |
@@ -19,7 +19,7 @@ Layout notes: a dockable window holding one plain list, oldest action at the top
 | History is not saved in the project; empty after reopening | History | session only | done | crates/project/src/lib.rs:79 | - |
 | Undo steps back one row | Edit > Undo | Ctrl+Z | done | crates/app/src/actions.rs:190 | - |
 | Redo steps forward one row | Edit > Redo | Ctrl+Y | done | crates/app/src/actions.rs:191 | - |
-| Maximum number of history steps | not documented | not documented | partial: fixed at 200 entries, no setting | crates/doc/src/history.rs:35 | - |
+| Maximum number of history steps | not documented | not documented | done: Preferences > Autosave > History, 20 to 1000 steps (200 by default) | crates/ui/src/recovery.rs | (this PR) |
 | Scroll the list with the wheel or scrollbar | History | - | done | crates/ui/src/panels/history.rs:15 | - |
 | Scroll the list with Ctrl+Alt+drag | History (any window) | - | done: Ctrl+Alt+drag scrolls any panel under the pointer | crates/ui/src/panel_scroll.rs | - |
 
