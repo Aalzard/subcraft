@@ -134,7 +134,7 @@ Layout notes: the dropdown at the top right of each view switches between Materi
 | Change tool rotation (vertical drag) | Ctrl + LMB drag | editable shortcut | done | crates/ui/src/viewport.rs:151 | - |
 | Increase tool size | ] | - | done | crates/app/src/actions.rs:206 | - |
 | Decrease tool size | [ | - | done | crates/app/src/session.rs:1586 | - |
-| Resume previous stroke | hold A | - | missing | - | - |
+| Resume previous stroke | hold A | - | done | crates/ui/src/viewport.rs (set_continue_stroke) | - |
 | Invert grayscale tool value (on masks) | X | - | partial: X in the Painter key set | crates/app/src/actions.rs (Action::InvertMaskGray) | #164 |
 | Pick stroke material | P, then click the mesh | returns to the previous tool after picking | partial: P only in the Painter keymap; Eyedropper stays active after the pick; Shift+click picks the material | crates/ui/src/viewport.rs:294 | - |
 | Set Clone tool source location | V + LMB | - | done | crates/ui/src/viewport.rs:300 | - |
