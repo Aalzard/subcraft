@@ -203,14 +203,14 @@ Layout notes: these act only while the pointer is over the layer stack.
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| UV transform: translate | 2D view manipulator | Drag inside | missing | - | - |
-| UV transform: translate constrained to one axis | 2D view manipulator | Shift+drag inside | missing | - | - |
-| UV transform: rotate | 2D view manipulator | Drag outside | missing | - | - |
-| UV transform: rotate in 45 degree steps | 2D view manipulator | Shift+drag outside | missing | - | - |
-| UV transform: scale | 2D view manipulator | Drag a handle | missing | - | - |
-| UV transform: scale keeping ratio | 2D view manipulator | Shift+drag a handle | missing | - | - |
-| UV transform: scale mirrored around the pivot | 2D view manipulator | Ctrl+drag a handle | missing | - | - |
-| UV transform: scale mirrored and keeping ratio | 2D view manipulator | Shift+Ctrl+drag a handle | missing | - | - |
+| UV transform: translate | 2D view manipulator | Drag inside | partial: drag the centre handle | crates/ui/src/uv_gizmo.rs | - |
+| UV transform: translate constrained to one axis | 2D view manipulator | Shift+drag inside | done: Shift+drag the centre | crates/ui/src/uv_gizmo.rs | - |
+| UV transform: rotate | 2D view manipulator | Drag outside | partial: drag just outside a corner, about the centre | crates/ui/src/uv_gizmo.rs | - |
+| UV transform: rotate in 45 degree steps | 2D view manipulator | Shift+drag outside | done | crates/ui/src/uv_gizmo.rs | - |
+| UV transform: scale | 2D view manipulator | Drag a handle | done | crates/ui/src/uv_gizmo.rs | - |
+| UV transform: scale keeping ratio | 2D view manipulator | Shift+drag a handle | done | crates/ui/src/uv_gizmo.rs | - |
+| UV transform: scale mirrored around the pivot | 2D view manipulator | Ctrl+drag a handle | partial: Ctrl scales about the centre | crates/ui/src/uv_gizmo.rs | - |
+| UV transform: scale mirrored and keeping ratio | 2D view manipulator | Shift+Ctrl+drag a handle | partial: Shift+Ctrl, about the centre | crates/ui/src/uv_gizmo.rs | - |
 | 3D manipulator: translate along one, two or three axes | 3D view manipulator | Drag axis / plane / centre | done: an axis, a plane square between two axes, or the centre for the view plane | crates/ui/src/projection_gizmo.rs (manipulate) | - |
 | 3D manipulator: translate in steps | 3D view manipulator | Shift+drag | done | crates/ui/src/projection_gizmo.rs | - |
 | 3D manipulator: rotate | 3D view manipulator | Drag ring | done | crates/ui/src/projection_gizmo.rs | - |

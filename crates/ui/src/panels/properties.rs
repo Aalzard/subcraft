@@ -1880,6 +1880,15 @@ pub(crate) fn fill_properties(ui: &mut Ui, proj: &mut Projection) -> bool {
         if matches!(proj.mode, ProjectionMode::Planar | ProjectionMode::Spherical | ProjectionMode::Cylindrical | ProjectionMode::Warp) {
             prop_row(ui, tr("Axis"), |ui| { changed |= segmented(ui, &mut proj.planar_axis, &[(0u8, "X"), (1, "Y"), (2, "Z")]); });
         }
+        // Painter's Mirror on X / Y: the texture flipped about the tile's centre.
+        prop_row(ui, "Mirror", |ui| {
+            for (axis, label) in [(0usize, "X"), (1, "Y")] {
+                if ui.button(label).on_hover_text(format!("Mirror the texture along {label}")).clicked() {
+                    *proj = crate::uv_gizmo::mirrored(proj, axis);
+                    changed = true;
+                }
+            }
+        });
         let default = reset_transform(proj);
         if *proj != default && ui.small_button(tr("Reset tiling, offset and rotation")).clicked() { *proj = default; changed = true; }
     });

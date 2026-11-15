@@ -198,15 +198,15 @@ Layout notes: shown when a fill layer or fill effect uses Tri-planar, Planar, Sp
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Show/Hide manipulator | Contextual toolbar; Q | shown | missing | - | - |
+| Show/Hide manipulator | Contextual toolbar; Q | shown | done: the projection manipulator's Show (Q) | crates/ui/src/uv_gizmo.rs | - |
 | Manipulator handles size menu | Contextual toolbar | - | missing | - | - |
 | Handles size: Small | Manipulator handles size | not documented | missing | - | - |
 | Handles size: Medium | Manipulator handles size | not documented | missing | - | - |
 | Handles size: Large | Manipulator handles size | not documented | missing | - | - |
-| Mirror on X | Contextual toolbar | - | missing | - | - |
-| Mirror on Y | Contextual toolbar | - | missing | - | - |
-| Reset pivot point | Contextual toolbar | - | missing | - | - |
-| Reset transformation | Contextual toolbar | - | missing | - | - |
+| Mirror on X | Contextual toolbar | - | done: Mirror X in UV transformations | crates/ui/src/uv_gizmo.rs (mirrored), crates/ui/src/panels/properties.rs (UV transformations) | - |
+| Mirror on Y | Contextual toolbar | - | done: Mirror Y in UV transformations | crates/ui/src/uv_gizmo.rs (mirrored), crates/ui/src/panels/properties.rs (UV transformations) | - |
+| Reset pivot point | Contextual toolbar | - | n/a: no movable pivot (the frame works about its centre) | crates/ui/src/uv_gizmo.rs | - |
+| Reset transformation | Contextual toolbar | - | done: Reset tiling, offset and rotation in UV transformations | crates/ui/src/panels/properties.rs | - |
 
 ## Contextual toolbar: fixed right side
 
