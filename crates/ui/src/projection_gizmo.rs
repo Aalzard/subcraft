@@ -42,11 +42,14 @@ pub struct GizmoEdit {
     pub grid_step: f32,
     /// Shift+drag step for rotation, in degrees.
     pub angle_step: f32,
+    /// World space: Move and Rotate follow the scene's axes instead of the box's own (Painter's
+    /// manipulation space; T cycles). Scale always follows the box.
+    pub world: bool,
 }
 
 impl Default for GizmoEdit {
     fn default() -> Self {
-        Self { visible: true, mode: GizmoMode::Translate, size: 1.0, grid_step: 0.05, angle_step: 15.0 }
+        Self { visible: true, mode: GizmoMode::Translate, size: 1.0, grid_step: 0.05, angle_step: 15.0, world: false }
     }
 }
 
@@ -72,6 +75,13 @@ impl GizmoEdit {
                 self.size = (self.size() + step).clamp(*Self::SIZE_RANGE.start(), *Self::SIZE_RANGE.end());
                 return true;
             }
+            K::T => {
+                if !self.visible {
+                    return false;
+                }
+                self.world = !self.world;
+                return true;
+            }
             K::W => GizmoMode::Translate,
             K::E => GizmoMode::Rotate,
             K::R => GizmoMode::Scale,
@@ -82,6 +92,20 @@ impl GizmoEdit {
         }
         self.mode = mode;
         true
+    }
+
+    /// The manipulator for `t`: the box's axes, or the scene's in world space (Move, Rotate).
+    pub fn layout_for(&self, t: &ProjectionTransform, frame: CubeFrame) -> Layout {
+        let mut lay = layout(t, frame, self.size());
+        if self.uses_world() {
+            lay.axes = [Vec3::X, Vec3::Y, Vec3::Z];
+        }
+        lay
+    }
+
+    /// Whether the handles follow the scene's axes now (world space, not Scale).
+    pub fn uses_world(&self) -> bool {
+        self.world && self.mode != GizmoMode::Scale
     }
 
     fn size(&self) -> f32 {
@@ -103,6 +127,10 @@ pub fn settings_ui(ui: &mut Ui, gizmo: &mut GizmoEdit) {
         ui.selectable_value(&mut gizmo.mode, GizmoMode::Translate, "Move").on_hover_text("Drag an axis handle, or the centre to move in the view plane");
         ui.selectable_value(&mut gizmo.mode, GizmoMode::Rotate, "Rotate").on_hover_text("Drag a ring to turn the projection about that axis");
         ui.selectable_value(&mut gizmo.mode, GizmoMode::Scale, "Scale").on_hover_text("Drag an axis handle, or the centre to scale all three axes");
+    });
+    crate::widgets::prop_row(ui, "Manipulator space", |ui| {
+        ui.selectable_value(&mut gizmo.world, false, "Local").on_hover_text("Move and turn along the projection box's own axes (T switches)");
+        ui.selectable_value(&mut gizmo.world, true, "World").on_hover_text("Move and turn along the scene's axes; Scale keeps the box's axes (T switches)");
     });
     crate::widgets::prop_row(ui, "Manipulator size", |ui| {
         ui.add(egui::Slider::new(&mut gizmo.size, GizmoEdit::SIZE_RANGE));
@@ -173,6 +201,15 @@ pub fn scaled(start: &ProjectionTransform, axis: Option<usize>, factor: f32, ste
 pub fn rotated(start: &ProjectionTransform, axis: usize, deg: f32, step: Option<f32>) -> ProjectionTransform {
     let mut t = *start;
     t.rotation_deg = start.rotated_about_local_axis(axis.min(2), snap(deg, step));
+    t
+}
+
+/// `start` turned by `deg` about the scene's `axis` (world space); with a step, the angle snaps.
+pub fn rotated_about_scene_axis(start: &ProjectionTransform, axis: usize, deg: f32, step: Option<f32>) -> ProjectionTransform {
+    let mut dir = [0.0f32; 3];
+    dir[axis.min(2)] = 1.0;
+    let mut t = *start;
+    t.rotation_deg = start.rotated_about_axis(dir, snap(deg, step));
     t
 }
 
@@ -332,7 +369,7 @@ pub fn manipulate(
         return false;
     };
     let frame = CubeFrame::of(state);
-    let lay = layout(&projection.transform3, frame, state.gizmo.size());
+    let lay = state.gizmo.layout_for(&projection.transform3, frame);
     let mode = state.gizmo.mode;
     let to_paint = |p: Pos2| Vec2::new((p.x - rect.min.x) * pixel_scale.x, (p.y - rect.min.y) * pixel_scale.y);
     let mut gesture: Option<Gesture> = ui.data(|d| d.get_temp(gesture_id()));
@@ -406,7 +443,12 @@ pub fn manipulate(
                 // Seen from the tip of the axis a positive turn is counter-clockwise, which on
                 // screen (y down) is a negative angle.
                 let deg = if g.toward_viewer { -turn } else { turn };
-                Some(rotated(&g.start, i, deg, shift.then(|| state.gizmo.angle())))
+                let step = shift.then(|| state.gizmo.angle());
+                if state.gizmo.uses_world() {
+                    Some(rotated_about_scene_axis(&g.start, i, deg, step))
+                } else {
+                    Some(rotated(&g.start, i, deg, step))
+                }
             }
         };
         if let Some(new) = new.filter(|n| n.valid() && *n != projection.transform3) {
@@ -431,7 +473,7 @@ pub fn overlay(state: &UiState, painter: &egui::Painter, rect: Rect, pixel_scale
     let Some((_, projection)) = active(state).filter(|_| state.gizmo.visible) else { return };
     let frame = CubeFrame::of(state);
     let t = projection.transform3;
-    let lay = layout(&t, frame, state.gizmo.size());
+    let lay = state.gizmo.layout_for(&t, frame);
     let pos = |o: Vec3| to_pos(camera, rect, pixel_scale, o);
     let shadow = Stroke::new(3.0, Color32::from_black_alpha(110));
 
@@ -497,9 +539,9 @@ pub fn overlay(state: &UiState, painter: &egui::Painter, rect: Rect, pixel_scale
     }
 
     let hint = match state.gizmo.mode {
-        GizmoMode::Translate => "Projection \u{00b7} Move: drag an axis, a square for two axes, or the centre for the view plane (Shift: steps, Ctrl: precise) \u{00b7} W / E / R tool, Q hide, + / - size",
-        GizmoMode::Rotate => "Projection \u{00b7} Rotate: drag a ring, or between them to turn freely (Shift: steps, Ctrl: precise) \u{00b7} W / E / R tool, Q hide, + / - size",
-        GizmoMode::Scale => "Projection \u{00b7} Scale: drag an axis, or the centre for all three (Shift: steps, Ctrl: precise) \u{00b7} W / E / R tool, Q hide, + / - size",
+        GizmoMode::Translate => "Projection \u{00b7} Move: drag an axis, a square for two axes, or the centre for the view plane (Shift: steps, Ctrl: precise) \u{00b7} W / E / R tool, T space, Q hide, + / - size",
+        GizmoMode::Rotate => "Projection \u{00b7} Rotate: drag a ring, or between them to turn freely (Shift: steps, Ctrl: precise) \u{00b7} W / E / R tool, T space, Q hide, + / - size",
+        GizmoMode::Scale => "Projection \u{00b7} Scale: drag an axis, or the centre for all three (Shift: steps, Ctrl: precise) \u{00b7} W / E / R tool, T space, Q hide, + / - size",
     };
     let at = rect.center_bottom() - egui::vec2(0.0, 42.0);
     let galley = painter.layout_no_wrap(hint.to_owned(), egui::FontId::proportional(12.0), Color32::WHITE);
@@ -611,6 +653,27 @@ mod tests {
         assert!(x_axis.distance(Vec3::Z) < 1e-4, "{x_axis:?}");
         // No drag, no turn.
         assert!(close(free_rotated(&turned, Vec2::ZERO, right, up, None).rotation_deg, turned.rotation_deg));
+    }
+
+    #[test]
+    fn world_space_follows_the_scene_axes_and_t_switches_it() {
+        let frame = CubeFrame { min: Vec3::new(-1.0, -1.0, -1.0), extent: 2.0 };
+        let turned = ProjectionTransform { rotation_deg: [0.0, 0.0, 90.0], ..ProjectionTransform::default() };
+        let mut g = GizmoEdit::default();
+        assert!(g.layout_for(&turned, frame).axes[0].distance(Vec3::Y) < 1e-5, "local: the box's X");
+        assert!(g.handle_key(egui::Key::T) && g.world);
+        assert_eq!(g.layout_for(&turned, frame).axes, [Vec3::X, Vec3::Y, Vec3::Z], "world: the scene's axes");
+        // Scale keeps the box's axes even in world space.
+        g.mode = GizmoMode::Scale;
+        assert!(g.layout_for(&turned, frame).axes[0].distance(Vec3::Y) < 1e-5);
+        // A world-space ring turns about the scene's axis: the turned box's X (scene Y) goes to scene Z
+        // after 90 degrees about the scene's X.
+        let t = rotated_about_scene_axis(&turned, 0, 90.0, None);
+        let r = t.rotation();
+        assert!(Vec3::new(r[0][0], r[1][0], r[2][0]).distance(Vec3::Z) < 1e-4);
+        // Hidden, T is left to the keymap.
+        g.visible = false;
+        assert!(!g.handle_key(egui::Key::T) && g.world);
     }
 
     #[test]

@@ -31,7 +31,7 @@ Layout notes: Painter lists editable shortcuts in Settings > Shortcuts as one lo
 | Show/Hide manipulator | Settings > Shortcuts | Q | partial: fixed key while a fill projection manipulator is active, not editable in Settings > Shortcuts | crates/ui/src/projection_gizmo.rs (handle_key) | - |
 | Increase the manipulator size | Settings > Shortcuts | + | partial: fixed key while a fill projection manipulator is active, not editable in Settings > Shortcuts (+ or =) | crates/ui/src/projection_gizmo.rs (handle_key) | - |
 | Decrease the manipulator size | Settings > Shortcuts | - | partial: fixed key while a fill projection manipulator is active, not editable in Settings > Shortcuts | crates/ui/src/projection_gizmo.rs (handle_key) | - |
-| Cycle through manipulation spaces | Settings > Shortcuts | T | missing | - | - |
+| Cycle through manipulation spaces | Settings > Shortcuts | T | partial: T while a fill projection manipulator is shown, not editable in Settings > Shortcuts | crates/ui/src/projection_gizmo.rs (GizmoEdit::world, layout_for) | - |
 | Toggle warp edition mode | Settings > Shortcuts | Shift+V | done: Shift+V over the 3D view with a Warp fill layer selected | crates/ui/src/warp_view.rs | - |
 | Translate tool | Settings > Shortcuts | W | partial: fixed key while a fill projection manipulator is active, not editable in Settings > Shortcuts | crates/ui/src/projection_gizmo.rs (handle_key) | - |
 | Rotate tool | Settings > Shortcuts | E | partial: fixed key while a fill projection manipulator is active, not editable in Settings > Shortcuts; E stays the eraser while the manipulator is hidden | crates/ui/src/projection_gizmo.rs (handle_key) | - |

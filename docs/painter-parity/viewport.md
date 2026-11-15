@@ -248,7 +248,7 @@ Layout notes: selecting a fill layer or fill effect with a 3D projection shows a
 | Show/Hide manipulator | Q | shown | done: Q while a fill projection manipulator is active | crates/ui/src/projection_gizmo.rs, crates/ui/src/app.rs (shortcuts) | - |
 | Increase the manipulator size | + | - | done: + (or =), 0.5-2.0 in steps of 0.25 | crates/ui/src/projection_gizmo.rs | - |
 | Decrease the manipulator size | - | - | done: - | crates/ui/src/projection_gizmo.rs | - |
-| Cycle through manipulation spaces (local / world) | T | - | missing | - | - |
+| Cycle through manipulation spaces (local / world) | T | - | done: T while a fill projection manipulator is shown | crates/ui/src/projection_gizmo.rs (GizmoEdit::world, layout_for) | - |
 | Translate tool | W | - | done: W | crates/ui/src/projection_gizmo.rs | - |
 | Rotate tool | E | - | done: E while the manipulator is shown (otherwise the eraser) | crates/ui/src/projection_gizmo.rs | - |
 | Scale tool | R | - | done: R | crates/ui/src/projection_gizmo.rs | - |
