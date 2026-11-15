@@ -66,6 +66,36 @@ impl RibbonMode {
     }
 }
 
+/// How many copies of a ribbon's image run along the path (Painter's Tiling mode).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RibbonTiling {
+    /// One copy: over the whole length (Stretch), or once from the start (Keep aspect ratio).
+    None,
+    /// Stretch: a whole number of copies, each close to the image's aspect at the path's width.
+    /// Keep aspect ratio: copies repeat to the end.
+    #[default]
+    Auto,
+    /// Stretch: `tiles` copies over the length. Keep aspect ratio: copies repeat to the end.
+    Custom,
+}
+
+impl RibbonTiling {
+    pub const ALL: [RibbonTiling; 3] = [RibbonTiling::None, RibbonTiling::Auto, RibbonTiling::Custom];
+    pub fn label(self) -> &'static str {
+        match self {
+            RibbonTiling::None => "None",
+            RibbonTiling::Auto => "Auto",
+            RibbonTiling::Custom => "Custom",
+        }
+    }
+}
+
+/// Ribbons saved before the Tiling mode existed used the Copies value.
+fn tiling_before_modes() -> RibbonTiling {
+    RibbonTiling::Custom
+}
+
 /// Ribbon path settings: the image laid along the curve and how it repeats.
 #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct PathRibbon {
@@ -81,15 +111,39 @@ pub struct PathRibbon {
     pub flip: bool,
     /// Base Color takes the image's colour (otherwise the path's value tinted by nothing).
     pub color_from_image: bool,
+    /// How many copies run along the path.
+    #[serde(default = "tiling_before_modes")]
+    pub tiling: RibbonTiling,
 }
 
 impl PathRibbon {
     pub const TILES: std::ops::RangeInclusive<f32> = 0.05..=256.0;
+
+    /// Length of one copy of the image along the path (texels) for a path `length` long, `width`
+    /// wide, and an image `aspect` (width / height) wide; `None` past the first copy means the
+    /// image is drawn once ([`RibbonTiling::None`] with Keep aspect ratio).
+    pub fn copy_length(&self, length: f32, width: f32, aspect: f32) -> f32 {
+        let length = length.max(1e-3);
+        let tiles = self.tiles.max(1e-3);
+        match self.mode {
+            RibbonMode::Stretch => match self.tiling {
+                RibbonTiling::None => length,
+                RibbonTiling::Auto => length / (length / (width * aspect).max(1e-3)).round().max(1.0),
+                RibbonTiling::Custom => length / tiles,
+            },
+            RibbonMode::KeepAspect => width * aspect * tiles,
+        }
+    }
+
+    /// Whether only the first copy is drawn.
+    pub fn single_copy(&self) -> bool {
+        self.mode == RibbonMode::KeepAspect && self.tiling == RibbonTiling::None
+    }
 }
 
 impl Default for PathRibbon {
     fn default() -> Self {
-        Self { image: None, mode: RibbonMode::Stretch, tiles: 1.0, mirror: false, flip: false, color_from_image: true }
+        Self { image: None, mode: RibbonMode::Stretch, tiles: 1.0, mirror: false, flip: false, color_from_image: true, tiling: RibbonTiling::Auto }
     }
 }
 

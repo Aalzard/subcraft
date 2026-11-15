@@ -287,11 +287,11 @@ Layout notes: groups in order: Size, Opacity, Stroke, Stretching & Tiling (a mod
 | Stretch between offsets only | Stretching & Tiling (Stretch along path) | not documented | missing | - | - |
 | Start offset | Stretching & Tiling (Stretch along path) | not documented | missing | - | - |
 | End offset | Stretching & Tiling (Stretch along path) | not documented | missing | - | - |
-| Tiling mode (dropdown) | Stretching & Tiling (both modes) | Auto | missing | - | - |
-| Tiling mode: None | Stretching & Tiling > Tiling mode | option | missing | - | - |
-| Tiling mode: Auto | Stretching & Tiling > Tiling mode | default | missing | - | - |
-| Tiling mode: Custom | Stretching & Tiling > Tiling mode | option | missing | - | - |
-| Tiling amount (Custom tiling) | Stretching & Tiling | not documented | partial: the Copies slider (no Auto / None modes) | crates/paint/src/pen.rs (run_ribbon), crates/ui/src/pen.rs (ribbon_rows) | - |
+| Tiling mode (dropdown) | Stretching & Tiling (both modes) | Auto | done: None / Auto / Custom; new ribbons use Auto, ribbons saved before keep Custom | crates/doc/src/pen.rs (RibbonTiling, copy_length), crates/paint/src/pen.rs (run_ribbon), crates/ui/src/pen.rs (ribbon_rows) | - |
+| Tiling mode: None | Stretching & Tiling > Tiling mode | option | done: one copy over the length (Stretch) or once from the start (Keep aspect ratio) | crates/doc/src/pen.rs (RibbonTiling, copy_length), crates/paint/src/pen.rs (run_ribbon), crates/ui/src/pen.rs (ribbon_rows) | - |
+| Tiling mode: Auto | Stretching & Tiling > Tiling mode | default | done: whole copies close to the image aspect at the path width (Stretch); copies to the end (Keep aspect ratio) | crates/doc/src/pen.rs (RibbonTiling, copy_length), crates/paint/src/pen.rs (run_ribbon), crates/ui/src/pen.rs (ribbon_rows) | - |
+| Tiling mode: Custom | Stretching & Tiling > Tiling mode | option | done: the Copies value (Stretch) | crates/doc/src/pen.rs (RibbonTiling, copy_length), crates/paint/src/pen.rs (run_ribbon), crates/ui/src/pen.rs (ribbon_rows) | - |
+| Tiling amount (Custom tiling) | Stretching & Tiling | not documented | done: Copies slider, enabled with Custom tiling | crates/doc/src/pen.rs (RibbonTiling, copy_length), crates/paint/src/pen.rs (run_ribbon), crates/ui/src/pen.rs (ribbon_rows) | - |
 | Mirror every 2nd tile | Stretching & Tiling (both modes) | not documented | done | crates/paint/src/pen.rs (run_ribbon), crates/ui/src/pen.rs (ribbon_rows) | - |
 | Aspect ratio factor | Stretching & Tiling (both modes) | not documented | done | crates/paint/src/pen.rs (run_ribbon), crates/ui/src/pen.rs (ribbon_rows) | - |
 | Ratio (dropdown) | Stretching & Tiling (Keep aspect ratio) | Fit to path width | missing | - | - |
