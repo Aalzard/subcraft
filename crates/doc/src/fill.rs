@@ -221,11 +221,19 @@ pub struct ProjectionTransform {
     pub offset: [f32; 3],
     pub rotation_deg: [f32; 3],
     pub scale: [f32; 3],
+    /// Mirror the projected image along the box's X, Y, Z (Painter's Mirror on X / Y / Z). The
+    /// side a planar projection faces (backface culling) does not change. Not written when off.
+    #[serde(default, skip_serializing_if = "no_mirror")]
+    pub mirror: [bool; 3],
+}
+
+fn no_mirror(m: &[bool; 3]) -> bool {
+    !m.iter().any(|&b| b)
 }
 
 impl Default for ProjectionTransform {
     fn default() -> Self {
-        Self { offset: [0.0; 3], rotation_deg: [0.0; 3], scale: [1.0; 3] }
+        Self { offset: [0.0; 3], rotation_deg: [0.0; 3], scale: [1.0; 3], mirror: [false; 3] }
     }
 }
 
@@ -331,6 +339,9 @@ impl ProjectionTransform {
             let scale = self.scale[i].clamp(Self::MIN_SCALE, Self::MAX_SCALE);
             p[i] = (r[0][i] * d[0] + r[1][i] * d[1] + r[2][i] * d[2]) / scale + 0.5;
             n[i] = (r[0][i] * normal[0] + r[1][i] * normal[1] + r[2][i] * normal[2]) * scale;
+            if self.mirror[i] {
+                p[i] = 1.0 - p[i];
+            }
         }
         let len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
         if len > 1e-12 {
@@ -740,6 +751,26 @@ mod tests {
         assert!(!Projection { mode: ProjectionMode::Triplanar, uv_wrap: UvWrap::None, ..p }.clips());
         assert!(!Projection { shape_crop: ShapeCrop::Crop, ..p }.clips());
         assert!(Projection { mode: ProjectionMode::Planar, shape_crop: ShapeCrop::Crop, ..p }.clips());
+    }
+
+    #[test]
+    fn mirror_flips_the_box_position_but_not_the_facing() {
+        let mirrored = ProjectionTransform { mirror: [true, false, false], ..ProjectionTransform::default() };
+        assert!(!mirrored.is_identity());
+        let (p, n) = mirrored.to_local([0.2, 0.3, 0.4], [1.0, 0.0, 0.0]);
+        assert!((p[0] - 0.8).abs() < 1e-6 && (p[1] - 0.3).abs() < 1e-6 && (p[2] - 0.4).abs() < 1e-6, "{p:?}");
+        assert!((n[0] - 1.0).abs() < 1e-6, "the normal keeps its side: {n:?}");
+        // Not written when off; files written before it read it as off.
+        let json = serde_json::to_string(&ProjectionTransform::default()).unwrap();
+        assert!(!json.contains("mirror"), "{json}");
+        let old: ProjectionTransform = serde_json::from_str(r#"{"offset":[0,0,0],"rotation_deg":[0,0,0],"scale":[1,1,1]}"#).unwrap();
+        assert_eq!(old, ProjectionTransform::default());
+        // A planar Z projection mirrored on X reads the image the other way round.
+        let planar = Projection { mode: ProjectionMode::Planar, planar_axis: 2, ..Projection::default() };
+        let flipped = Projection { transform3: ProjectionTransform { mirror: [true, false, false], ..ProjectionTransform::default() }, ..planar.clone() };
+        let (a, _) = planar.local([0.25, 0.5, 0.5], [0.0, 0.0, 1.0]);
+        let (b, _) = flipped.local([0.25, 0.5, 0.5], [0.0, 0.0, 1.0]);
+        assert!((a[0] - 0.25).abs() < 1e-6 && (b[0] - 0.75).abs() < 1e-6, "{a:?} {b:?}");
     }
 
     #[test]

@@ -205,9 +205,9 @@ Layout notes: applies to Tri-planar, Planar, Spherical, Cylindrical and Warp. Th
 | Surface manipulator (Planar and Warp only) | Contextual toolbar | n/a | missing | - | - |
 | Manipulator space: Local space | Contextual toolbar | not documented | done: the handles always follow the projection box (local space) | crates/ui/src/projection_gizmo.rs:239 | chunk 9 (part 3) |
 | Manipulator space: World space | Contextual toolbar | not documented | missing | - | - |
-| Mirror on X | Contextual toolbar | n/a | missing | - | - |
-| Mirror on Y | Contextual toolbar | n/a | missing | - | - |
-| Mirror on Z | Contextual toolbar | n/a | missing | - | - |
+| Mirror on X | Contextual toolbar | n/a | done: Mirror X / Y / Z toggles in Properties > Fill > 3D projection (the image flips; the facing side stays) | crates/doc/src/fill.rs (ProjectionTransform::mirror), crates/ui/src/panels/properties.rs (transform3_group) | - |
+| Mirror on Y | Contextual toolbar | n/a | done: Mirror X / Y / Z toggles in Properties > Fill > 3D projection (the image flips; the facing side stays) | crates/doc/src/fill.rs (ProjectionTransform::mirror), crates/ui/src/panels/properties.rs (transform3_group) | - |
+| Mirror on Z | Contextual toolbar | n/a | done: Mirror X / Y / Z toggles in Properties > Fill > 3D projection (the image flips; the facing side stays) | crates/doc/src/fill.rs (ProjectionTransform::mirror), crates/ui/src/panels/properties.rs (transform3_group) | - |
 | Reset transformation | Contextual toolbar | n/a | partial: Properties buttons reset the UV tiling / offset / rotation and, separately, the 3D transform | crates/ui/src/panels/properties.rs:1017 | - |
 | Translate on one axis: drag an axis arrow | 3D view manipulator | n/a | done: axis handles (round ends, not arrows) | crates/ui/src/projection_gizmo.rs:239 | chunk 9 (part 3) |
 | Translate on a plane: drag a two-axis handle | 3D view manipulator | n/a | done: the squares between two axes | crates/ui/src/projection_gizmo.rs (plane_quad) | - |
