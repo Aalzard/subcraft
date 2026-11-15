@@ -250,6 +250,11 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         }
         // Ctrl (Painter): the new layer shows only on the part under the cursor (geometry mask).
         let part = if (mods.command || mods.ctrl) && !mods.alt { pointer.and_then(|p| state.session.surface_target(&camera, to_screen(p), state.parts_kind)) } else { None };
+        // Painter: with a baked ID map, Ctrl masks the new layer to the ID colour under the
+        // cursor (an ID colour mask) rather than to the geometry part.
+        let id_drop = part.as_ref().and_then(|_| pointer).and_then(|p| state.session.pick(&camera, to_screen(p)))
+            .and_then(|pick| state.session.document().texture_set_for_slot(pick.material_slot).map(|ts| (ts.id, pick.uv)))
+            .filter(|(ts, _)| state.session.has_id_map(*ts));
         let before = state.session.selection().layer;
         // Painter's quick setup: a texture dropped on the model asks which channel it fills.
         let texture = match *item {
@@ -262,7 +267,14 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         // Alt: apply in place to the selected layer (alphas: brush tip unless Alt).
         crate::panels::shelf::apply_shelf_item_with(state, *item, mods.alt, now);
         let added = state.session.selection().layer.filter(|l| Some(*l) != before);
-        if let (Some(target), Some(layer)) = (part, added)
+        if let (Some((ts, uv)), Some(_)) = (id_drop, added)
+            && state.session.selection().texture_set == ts
+        {
+            match state.session.mask_selected_by_id_color(ts, uv) {
+                Ok(()) => state.set_status("Added on the ID colour under the cursor only (an ID colour mask)", now),
+                Err(e) => state.set_status(e.to_string(), now),
+            }
+        } else if let (Some(target), Some(layer)) = (part, added)
             && state.session.selection().texture_set == target.texture_set
         {
             let parts = subcraft_doc::PartMask::for_kind(target.part.kind, [target.part.id]);
@@ -1010,7 +1022,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         let target = state.session.selected_layer().map(|l| l.name.clone());
         let mut what = crate::panels::shelf::drop_label(item, mods.alt, target.as_deref().filter(|_| mods.alt), false);
         if (mods.command || mods.ctrl) && !mods.alt && !matches!(item, crate::panels::shelf::ShelfDrag::Alpha(_) | crate::panels::shelf::ShelfDrag::SmartMask(_)) {
-            what.push_str(", only on the part under the cursor");
+            let id_map = pointer.and_then(|p| state.session.pick(&camera, to_screen(p)))
+                .and_then(|pick| state.session.document().texture_set_for_slot(pick.material_slot).map(|ts| ts.id))
+                .is_some_and(|ts| state.session.has_id_map(ts));
+            what.push_str(if id_map { ", only on the ID colour under the cursor" } else { ", only on the part under the cursor" });
         }
         pill(&painter, rect.center_top() + egui::vec2(0.0, 14.0), egui::Align2::CENTER_TOP, &format!("Release to: {what}"), theme::OVERLAY_TEXT);
     }
