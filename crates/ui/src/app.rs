@@ -2396,6 +2396,8 @@ impl eframe::App for SubcraftApp {
         if let Some(p) = &mut self.view_profile { p.inject(&self.state, &mut raw_input.events); }
         let before = self.state.pen_input.synthesized;
         self.state.pen_input.fix(&mut raw_input.events);
+        self.state.panel_scroll.begin_frame();
+        self.state.panel_scroll.filter(&mut raw_input.events, &|pos| _ctx.layer_id_at(pos));
         if log && self.state.pen_input.synthesized != before {
             log::info!(target: "subcraft::input", "pen fixer added pointer events for a touch contact egui-winit did not translate");
         }

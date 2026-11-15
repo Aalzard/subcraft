@@ -91,6 +91,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     }
     state.last_view_size = size;
     state.last_view_rect = rect;
+    state.panel_scroll.add_view(rect, ui.layer_id());
     let now = ui.input(|i| i.time);
     // Alt+H follows the selected layer's geometry mask.
     state.session.sync_excluded_view();

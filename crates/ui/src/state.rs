@@ -236,6 +236,8 @@ pub struct UiState {
     /// Screen rectangle (points) of the 3D view at its last draw (scripted input).
     pub last_view_rect: egui::Rect,
     pub uv: UvView,
+    /// Ctrl+Alt+drag scrolls the panel under the pointer (Painter's tablet scroll).
+    pub panel_scroll: crate::panel_scroll::PanelScroll,
     pub painting: bool,
     /// Pen pressure of the current contact (1.0 for a mouse).
     pub pen_pressure: f32,
@@ -517,6 +519,7 @@ impl UiState {
             render_request: None,
             last_view_size: [1280, 720],
             last_view_rect: egui::Rect::NOTHING,
+            panel_scroll: Default::default(),
             uv: UvView { zoom: 1.0, offset: egui::Vec2::ZERO, rotation: 0.0, rotation_raw: 0.0, source: PreviewSource::Channel(ChannelKind::BaseColor), texture: None, painting: false, last_point: None, fill_box: None, parts_box: None, frame: None, material: false, material_image: None },
             painting: false,
             paint_isolated: false,

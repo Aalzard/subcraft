@@ -291,6 +291,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         }
     });
     let (rect, response) = ui.allocate_exact_size(ui.available_size(), Sense::click_and_drag());
+    state.panel_scroll.add_view(rect, ui.layer_id());
     state.hovered_2d = response.hovered();
     let (alt, mods, delta) = ui.input(|i| (i.modifiers.alt, i.modifiers, i.pointer.delta()));
     // The wheel zooms on the texture point under the cursor; Alt+RMB drag zooms on the point

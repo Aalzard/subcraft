@@ -21,7 +21,7 @@ Layout notes: a dockable window holding one plain list, oldest action at the top
 | Redo steps forward one row | Edit > Redo | Ctrl+Y | done | crates/app/src/actions.rs:191 | - |
 | Maximum number of history steps | not documented | not documented | partial: fixed at 200 entries, no setting | crates/doc/src/history.rs:35 | - |
 | Scroll the list with the wheel or scrollbar | History | - | done | crates/ui/src/panels/history.rs:15 | - |
-| Scroll the list with Ctrl+Alt+drag | History (any window) | - | missing | - | - |
+| Scroll the list with Ctrl+Alt+drag | History (any window) | - | done: Ctrl+Alt+drag scrolls any panel under the pointer | crates/ui/src/panel_scroll.rs | - |
 
 ## Log window
 
