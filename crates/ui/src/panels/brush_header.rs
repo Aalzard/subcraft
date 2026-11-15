@@ -19,6 +19,73 @@ pub const PREVIEW: [u32; 2] = [264, 88];
 pub struct PreviewCache {
     key: u64,
     texture: Option<egui::TextureHandle>,
+    /// The material sphere and the material values it shows.
+    material_key: u64,
+    material: Option<egui::TextureHandle>,
+}
+
+/// Side of the material preview sphere in texels (and points).
+pub const SPHERE: usize = 64;
+
+/// The values the material sphere shows: enabled channels' values, neutral otherwise.
+fn sphere_texel(m: &subcraft_paint::BrushMaterial) -> subcraft_materials::uv_material::UvTexel {
+    use subcraft_core::ChannelKind as K;
+    let d = subcraft_materials::uv_material::UvTexel::default();
+    let value = |k: K| m.channels.get(&k).filter(|c| c.enabled).map(|c| c.value.0);
+    subcraft_materials::uv_material::UvTexel {
+        base: value(K::BaseColor).unwrap_or(d.base),
+        roughness: value(K::Roughness).map_or(d.roughness, |v| v[0]),
+        metallic: value(K::Metallic).map_or(d.metallic, |v| v[0]),
+        ..d
+    }
+}
+
+/// Painter's Material Preview: a sphere lit by the studio light of the 2D view's Material
+/// display ([`subcraft_materials::uv_material::shade`]) with the brush material's base colour,
+/// roughness and metallic (images in slots are not shown). Antialiased edge, sRGB.
+pub fn sphere_image(m: &subcraft_paint::BrushMaterial) -> egui::ColorImage {
+    let t = sphere_texel(m);
+    let mut rgba = Vec::with_capacity(SPHERE * SPHERE * 4);
+    for py in 0..SPHERE {
+        for px in 0..SPHERE {
+            let x = (px as f32 + 0.5) / SPHERE as f32 * 2.0 - 1.0;
+            let y = (py as f32 + 0.5) / SPHERE as f32 * 2.0 - 1.0;
+            let r2 = x * x + y * y;
+            let coverage = ((1.0 - r2.sqrt()) * SPHERE as f32 * 0.5 + 0.5).clamp(0.0, 1.0);
+            if coverage <= 0.0 {
+                rgba.extend_from_slice(&[0, 0, 0, 0]);
+                continue;
+            }
+            // The sphere's normal facing the viewer (screen y down, normal y up).
+            let z = (1.0 - r2.min(1.0)).sqrt();
+            let normal = [x * 0.5 + 0.5, -y * 0.5 + 0.5, z * 0.5 + 0.5];
+            let c = subcraft_materials::uv_material::shade(subcraft_materials::uv_material::UvTexel { normal, ..t });
+            let srgb = subcraft_core::color::linear3_to_srgb(c.map(|v| if v.is_finite() { v.clamp(0.0, 1.0) } else { 0.0 }));
+            rgba.extend(srgb.map(|v| (v * 255.0).round() as u8));
+            rgba.push((coverage * 255.0).round() as u8);
+        }
+    }
+    egui::ColorImage::from_rgba_unmultiplied([SPHERE, SPHERE], &rgba)
+}
+
+fn material_key(m: &subcraft_paint::BrushMaterial) -> u64 {
+    let t = sphere_texel(m);
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    for v in t.base.into_iter().chain([t.roughness, t.metallic]) {
+        v.to_bits().hash(&mut h);
+    }
+    h.finish()
+}
+
+/// Re-render the material sphere when the brush material's values changed.
+pub fn refresh_material(state: &mut UiState, ctx: &egui::Context) -> egui::TextureId {
+    let key = material_key(&state.session.brush.material);
+    if state.tip_preview.material_key != key || state.tip_preview.material.is_none() {
+        let image = sphere_image(&state.session.brush.material);
+        state.tip_preview.material = Some(ctx.load_texture("brush-material-preview", image, egui::TextureOptions::LINEAR));
+        state.tip_preview.material_key = key;
+    }
+    state.tip_preview.material.as_ref().expect("rendered above").id()
 }
 
 fn preview_key(state: &UiState) -> u64 {
@@ -38,7 +105,8 @@ pub fn refresh(state: &mut UiState, ctx: &egui::Context) -> egui::TextureId {
         let b = &state.session.brush;
         let rgba = subcraft_paint::tip_preview::render_tip_preview(b.alpha.as_deref(), &b.settings, PREVIEW[0], PREVIEW[1]);
         let image = egui::ColorImage::from_rgba_unmultiplied([PREVIEW[0] as usize, PREVIEW[1] as usize], &rgba);
-        state.tip_preview = PreviewCache { key, texture: Some(ctx.load_texture("brush-tip-preview", image, egui::TextureOptions::LINEAR)) };
+        state.tip_preview.texture = Some(ctx.load_texture("brush-tip-preview", image, egui::TextureOptions::LINEAR));
+        state.tip_preview.key = key;
     }
     state.tip_preview.texture.as_ref().expect("rendered above").id()
 }
@@ -58,6 +126,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         return;
     }
     let texture = refresh(state, ui.ctx());
+    let sphere = refresh_material(state, ui.ctx());
     let title = title(state);
     let tip = state.session.brush.alpha_name.clone();
     let pending = state.asset_preview.pending_brush().map(|(n, p)| (n == tip, p)).filter(|(same, _)| *same).map(|(_, p)| p);
@@ -77,6 +146,12 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             // Shrinks with a narrow panel (never widens the card past it).
             let w = ui.available_width().min(PREVIEW[0] as f32).max(1.0);
             ui.add(egui::Image::new((texture, egui::vec2(w, w * PREVIEW[1] as f32 / PREVIEW[0] as f32))).corner_radius(3.0));
+            // Painter's Material Preview: the paint material on a lit sphere.
+            ui.horizontal(|ui| {
+                ui.add(egui::Image::new((sphere, egui::vec2(SPHERE as f32, SPHERE as f32))))
+                    .on_hover_text("The brush material (base colour, roughness, metallic) on a lit sphere");
+                ui.label(RichText::new("Material").small().color(theme::TEXT_DIM()));
+            });
             if let Some(p) = pending {
                 loading_row(ui, p);
             } else {
@@ -84,6 +159,31 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             }
         });
     ui.add_space(6.0);
+}
+
+#[cfg(test)]
+mod material_preview_tests {
+    use super::*;
+    use subcraft_core::{ChannelKind, ChannelValue};
+
+    #[test]
+    fn the_sphere_shows_the_material_lit() {
+        let red = subcraft_paint::BrushMaterial::with(&[(ChannelKind::BaseColor, ChannelValue::rgb(0.8, 0.05, 0.05)), (ChannelKind::Roughness, ChannelValue::scalar(0.6))]);
+        let img = sphere_image(&red);
+        assert_eq!(img.size, [SPHERE, SPHERE]);
+        let at = |x: usize, y: usize| img.pixels[y * SPHERE + x];
+        assert_eq!(at(0, 0).a(), 0, "outside the sphere is transparent");
+        let centre = at(SPHERE / 2, SPHERE / 2);
+        assert!(centre.a() == 255 && centre.r() > 2 * centre.g(), "red in the middle: {centre:?}");
+        // Lit from the upper left: the upper-left side is brighter than the lower right.
+        let (ul, lr) = (at(SPHERE / 4, SPHERE / 4), at(3 * SPHERE / 4, 3 * SPHERE / 4));
+        assert!(ul.r() > lr.r(), "{ul:?} vs {lr:?}");
+        // A disabled channel shows the neutral value; the key follows the values.
+        let mut off = red.clone();
+        off.disable(ChannelKind::BaseColor);
+        assert_eq!(sphere_texel(&off).base, subcraft_materials::uv_material::UvTexel::default().base);
+        assert_ne!(material_key(&red), material_key(&off));
+    }
 }
 
 /// "Loading full resolution…" with a spinner, while a thumbnail stands in for the image.
