@@ -37,6 +37,11 @@ A crash report was saved in the SubCraft data folder (crashes). Please attach it
 
 fn run_app() -> anyhow::Result<()> {
     let cli: Vec<_> = std::env::args_os().skip(1).collect();
+    // Painter's `--version` / `-v`: print and leave before logging, safe mode or graphics start.
+    if let Some(text) = info_text(&cli) {
+        println!("{text}");
+        return Ok(());
+    }
     if cli.first().is_some_and(|a| a == "--apply-update") {
         let path = cli.get(1).ok_or_else(|| anyhow::anyhow!("Missing update job"))?;
         return subcraft_app::updater::apply_job(std::path::Path::new(path)).map_err(|e| anyhow::anyhow!("{e}"));
@@ -203,8 +208,8 @@ fn run_app() -> anyhow::Result<()> {
             "--autosave-interval" => {
                 options.autosave_interval = args.next().and_then(|s| s.parse::<f64>().ok()).map(std::time::Duration::from_secs_f64);
             }
-            "-h" | "--help" => {
-                println!("usage: subcraft [project.subcraft | mesh file] [--demo] [--view-2d] [--brush-panel] [--display-settings [environment|camera|post|render|visualization]] [--bake-high mesh] [--bake-preview] [--bake-preview-map map_key] [--bake-match always|name] [--bake-place auto,center,origin,offset=x:y:z,scale=s,rot=x:y:z] [--environment name] [--bake-size 256|512|1024|2048|4096] [--symmetry xyz] [--radial y8] [--screenshot out.png] [--path-trace [samples]] [--welcome] [--quick-start] [--guide-step 1..6] [--reset-layout] [--window-size WxH] [--camera yaw,pitch,zoom[,x,y,z]] [--scale 1.5] [--theme dark|light|painter] [--x11] [--recover] [--autosave-interval seconds] [--export-path folder]");
+            "-h" | "--help" | "-?" => {
+                println!("usage: subcraft [project.subcraft | mesh file] [--demo] [--view-2d] [--brush-panel] [--display-settings [environment|camera|post|render|visualization]] [--bake-high mesh] [--bake-preview] [--bake-preview-map map_key] [--bake-match always|name] [--bake-place auto,center,origin,offset=x:y:z,scale=s,rot=x:y:z] [--environment name] [--bake-size 256|512|1024|2048|4096] [--symmetry xyz] [--radial y8] [--screenshot out.png] [--path-trace [samples]] [--welcome] [--quick-start] [--guide-step 1..6] [--reset-layout] [--window-size WxH] [--camera yaw,pitch,zoom[,x,y,z]] [--scale 1.5] [--theme dark|light|painter] [--x11] [--recover] [--autosave-interval seconds] [--export-path folder] [--version | -v]");
                 return Ok(());
             }
             _ => options.mesh = Some(std::path::PathBuf::from(raw)),
@@ -215,6 +220,15 @@ fn run_app() -> anyhow::Result<()> {
         options.screenshot = std::env::var_os("SUBCRAFT_UPDATE_FIXTURE_SCREENSHOT").map(Into::into);
     }
     subcraft_ui::run(options).map_err(|e| anyhow::anyhow!("{e}"))
+}
+
+/// Text for an information-only flag (`--version` / `-v`, as in Painter), or `None` to start the
+/// application. Only the first word counts, so a project named `-v` after other flags still opens.
+fn info_text(cli: &[std::ffi::OsString]) -> Option<String> {
+    match cli.first()?.to_str()? {
+        "--version" | "-v" => Some(format!("SubCraft {}", env!("CARGO_PKG_VERSION"))),
+        _ => None,
+    }
 }
 
 /// Command-line words as OS strings, with lossy `String` access for flags and numbers.
@@ -237,7 +251,18 @@ impl Args {
 
 #[cfg(test)]
 mod args_tests {
-    use super::Args;
+    use super::{info_text, Args};
+
+    #[test]
+    fn version_flags_print_the_version_and_other_words_start_the_app() {
+        let words = |w: &[&str]| w.iter().map(std::ffi::OsString::from).collect::<Vec<_>>();
+        let expected = format!("SubCraft {}", env!("CARGO_PKG_VERSION"));
+        assert_eq!(info_text(&words(&["--version"])), Some(expected.clone()));
+        assert_eq!(info_text(&words(&["-v"])), Some(expected));
+        assert_eq!(info_text(&words(&[])), None);
+        assert_eq!(info_text(&words(&["model.obj"])), None);
+        assert_eq!(info_text(&words(&["--demo", "-v"])), None, "only the first word is a flag here");
+    }
 
     #[test]
     fn words_keep_their_bytes_and_optional_values_are_optional() {
