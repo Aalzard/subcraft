@@ -28,14 +28,14 @@ Layout notes: Painter lists editable shortcuts in Settings > Shortcuts as one lo
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Show/Hide manipulator | Settings > Shortcuts | Q | missing | - | - |
-| Increase the manipulator size | Settings > Shortcuts | + | missing | - | - |
-| Decrease the manipulator size | Settings > Shortcuts | - | missing | - | - |
+| Show/Hide manipulator | Settings > Shortcuts | Q | partial: fixed key while a fill projection manipulator is active, not editable in Settings > Shortcuts | crates/ui/src/projection_gizmo.rs (handle_key) | - |
+| Increase the manipulator size | Settings > Shortcuts | + | partial: fixed key while a fill projection manipulator is active, not editable in Settings > Shortcuts (+ or =) | crates/ui/src/projection_gizmo.rs (handle_key) | - |
+| Decrease the manipulator size | Settings > Shortcuts | - | partial: fixed key while a fill projection manipulator is active, not editable in Settings > Shortcuts | crates/ui/src/projection_gizmo.rs (handle_key) | - |
 | Cycle through manipulation spaces | Settings > Shortcuts | T | missing | - | - |
 | Toggle warp edition mode | Settings > Shortcuts | Shift+V | done: Shift+V over the 3D view with a Warp fill layer selected | crates/ui/src/warp_view.rs | - |
-| Translate tool | Settings > Shortcuts | W | missing | - | - |
-| Rotate tool | Settings > Shortcuts | E | missing | - | - |
-| Scale tool | Settings > Shortcuts | R | missing | - | - |
+| Translate tool | Settings > Shortcuts | W | partial: fixed key while a fill projection manipulator is active, not editable in Settings > Shortcuts | crates/ui/src/projection_gizmo.rs (handle_key) | - |
+| Rotate tool | Settings > Shortcuts | E | partial: fixed key while a fill projection manipulator is active, not editable in Settings > Shortcuts; E stays the eraser while the manipulator is hidden | crates/ui/src/projection_gizmo.rs (handle_key) | - |
+| Scale tool | Settings > Shortcuts | R | partial: fixed key while a fill projection manipulator is active, not editable in Settings > Shortcuts | crates/ui/src/projection_gizmo.rs (handle_key) | - |
 | Surface tool | Settings > Shortcuts | Shift+W | missing | - | - |
 | Symmetry | Settings > Shortcuts | L | done: Symmetry on / off in both key sets, the last axes come back (as the toolbar button); X mirror alone stays on X (Shift+X in the Painter key set) | crates/app/src/actions.rs (ToggleSymmetry), paint/src/settings.rs (toggle_symmetry) | #363 |
 | Pause engine computation | Settings > Shortcuts | Shift+Escape | done: Shift+Esc in both key sets, editable | crates/app/src/actions.rs (Action::PauseEngine) | 395 |
@@ -148,7 +148,7 @@ Layout notes: these act only while the pointer is over the layer stack.
 | Display mask in viewport | Layer stack, mask thumbnail | Alt+Mouse left | done | crates/ui/src/panels/layers.rs:481 | - |
 | Disable/Enable mask | Layer stack, mask thumbnail | Shift+Mouse left | done | crates/ui/src/panels/layers.rs:308 | - |
 | Drag and drop material onto one part of the model | Assets to viewport | Ctrl+Drag and drop | done: the new layer gets a geometry mask on the part under the cursor | crates/ui/src/viewport.rs (shelf drop, Ctrl) | - |
-| Manipulator constraint/snapping | Viewport manipulator | Shift | missing | - | - |
+| Manipulator constraint/snapping | Viewport manipulator | Shift | done: Shift snaps to the manipulator steps (3D view) | crates/ui/src/projection_gizmo.rs | - |
 | Manipulator mirror transformation | 2D view manipulator | Ctrl | missing | - | - |
 
 ## Shortcuts documented on feature pages: layers, effects, assets
@@ -211,13 +211,13 @@ Layout notes: these act only while the pointer is over the layer stack.
 | UV transform: scale keeping ratio | 2D view manipulator | Shift+drag a handle | missing | - | - |
 | UV transform: scale mirrored around the pivot | 2D view manipulator | Ctrl+drag a handle | missing | - | - |
 | UV transform: scale mirrored and keeping ratio | 2D view manipulator | Shift+Ctrl+drag a handle | missing | - | - |
-| 3D manipulator: translate along one, two or three axes | 3D view manipulator | Drag axis / plane / centre | missing | - | - |
-| 3D manipulator: translate in steps | 3D view manipulator | Shift+drag | missing | - | - |
-| 3D manipulator: rotate | 3D view manipulator | Drag ring | missing | - | - |
-| 3D manipulator: rotate in angle steps | 3D view manipulator | Shift+drag | missing | - | - |
-| 3D manipulator: scale along an axis | 3D view manipulator | Drag handle | missing | - | - |
-| 3D manipulator: scale in steps | 3D view manipulator | Shift+drag | missing | - | - |
-| 3D manipulator: precise mode | 3D view manipulator | Ctrl (release notes) | missing | - | - |
+| 3D manipulator: translate along one, two or three axes | 3D view manipulator | Drag axis / plane / centre | partial: one axis, or the centre for the view plane; no two-axis plane handles | crates/ui/src/projection_gizmo.rs (manipulate) | - |
+| 3D manipulator: translate in steps | 3D view manipulator | Shift+drag | done | crates/ui/src/projection_gizmo.rs | - |
+| 3D manipulator: rotate | 3D view manipulator | Drag ring | done | crates/ui/src/projection_gizmo.rs | - |
+| 3D manipulator: rotate in angle steps | 3D view manipulator | Shift+drag | done | crates/ui/src/projection_gizmo.rs | - |
+| 3D manipulator: scale along an axis | 3D view manipulator | Drag handle | done | crates/ui/src/projection_gizmo.rs | - |
+| 3D manipulator: scale in steps | 3D view manipulator | Shift+drag | done | crates/ui/src/projection_gizmo.rs | - |
+| 3D manipulator: precise mode | 3D view manipulator | Ctrl (release notes) | done: Ctrl, a tenth of the pointer movement | crates/ui/src/projection_gizmo.rs (manipulate) | - |
 | 3D manipulator: surface snap drag (Planar and Warp) | 3D view manipulator | Drag with Surface tool | missing | - | - |
 
 ## Slider widget interactions

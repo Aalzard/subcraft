@@ -104,7 +104,7 @@ a trailing asterisk.
 | Restore (reset imported camera attributes) | Display Settings > Camera | - | done: Restore button (back to the imported camera's lens and place) | crates/ui/src/view_extras.rs | - |
 | Lock camera | Display Settings > Camera, lock icon | unlocked | done: Lock camera checkbox; navigation leaves a locked imported camera where it is | crates/ui/src/panels/display_settings.rs | - |
 | Modified marker (italic name with asterisk) | Camera dropdown | - | done: italic name with * while the active imported camera's lens was changed | crates/ui/src/view_extras.rs | - |
-| Display ratio (read-only; "Unspecified" when absent) | Display Settings > Camera | Unspecified | missing | - | - |
+| Display ratio (read-only; "Unspecified" when absent) | Display Settings > Camera | Unspecified | done: the imported camera's aspect, or Unspecified | crates/ui/src/panels/display_settings.rs (camera) | - |
 | Field of View (degrees) | Display Settings > Camera | not documented | done: 5-120 degrees; the camera dollies to keep the model its size | crates/ui/src/panels/display_settings.rs (camera, set_fov) | 165 |
 | Focal length (mm) | Display Settings > Camera | not documented | done: full-frame (24 mm high) equivalent of the field of view | crates/doc/src/display.rs (focal_length_mm) | 165 |
 | Focus Distance | Display Settings > Camera | not documented | done: scene units from the camera (logarithmic, 1 % to 20x the model size); settings saved before keep their relative focus until it is set | crates/doc/src/display.rs (focus_distance) | 397 |
@@ -316,7 +316,7 @@ linear/raw. Hidden or superseded in colour-managed (OCIO/ACE) projects (unverifi
 |---|---|---|---|---|---|
 | Hide stencil when painting | Display Settings > Tool display | not documented | done: off by default; the same setting as Properties > Brush > stencil | crates/ui/src/viewport.rs (stencil_overlay_alpha), crates/ui/src/panels/display_settings.rs (visualization) | - |
 | Stencil display opacity | Display Settings > Tool display | not documented | done: 0-1, default 0.43; the same setting as Properties > Brush > stencil | crates/ui/src/viewport.rs (stencil_overlay_alpha), crates/ui/src/panels/display_settings.rs (visualization) | - |
-| Projection preview channel | Display Settings > Tool display | not documented | missing | - | - |
+| Projection preview channel | Display Settings > Tool display | not documented | done: projection preview channel combo | crates/ui/src/panels/display_settings.rs | - |
 
 ## Viewport settings: Mesh wireframe
 

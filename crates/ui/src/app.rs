@@ -1437,9 +1437,18 @@ impl SubcraftApp {
             self.state.tab_pressed = false;
             return;
         }
+        // The projection manipulator's keys (Q, W / E / R, + / -) come first while it is active.
+        let manipulator = crate::projection_gizmo::active(&self.state).is_some() && !self.state.painting;
+        let gizmo = &mut self.state.gizmo;
         let pressed: Vec<Shortcut> = ctx.input(|i| {
             i.events
                 .iter()
+                .filter(|e| {
+                    !(manipulator
+                        && matches!(e, egui::Event::Key { key, pressed: true, repeat: false, modifiers, .. }
+                            if !modifiers.command && !modifiers.alt && (!modifiers.shift || matches!(key, egui::Key::Plus | egui::Key::Equals))
+                                && gizmo.handle_key(*key)))
+                })
                 .filter_map(|e| match e {
                     egui::Event::Key { key, pressed: true, repeat: false, modifiers, .. } => map_key(*key).map(|k| Shortcut {
                         ctrl: modifiers.command,

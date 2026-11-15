@@ -50,6 +50,37 @@ impl Default for GizmoEdit {
 
 impl GizmoEdit {
     pub const SIZE_RANGE: std::ops::RangeInclusive<f32> = 0.5..=2.0;
+    /// How much + / - change the handle size.
+    pub const SIZE_STEP: f32 = 0.25;
+    /// Pointer movement factor while Ctrl is held (Painter's precision mode).
+    pub const PRECISION: f32 = 0.1;
+
+    /// Painter's manipulator keys, while a projection manipulator is active: Q shows / hides it,
+    /// W / E / R pick Move / Rotate / Scale (only while it is shown, so E stays the eraser
+    /// otherwise), + and - change its size. Returns whether the key was used.
+    pub fn handle_key(&mut self, key: egui::Key) -> bool {
+        use egui::Key as K;
+        let mode = match key {
+            K::Q => {
+                self.visible = !self.visible;
+                return true;
+            }
+            K::Plus | K::Equals | K::Minus => {
+                let step = if key == K::Minus { -Self::SIZE_STEP } else { Self::SIZE_STEP };
+                self.size = (self.size() + step).clamp(*Self::SIZE_RANGE.start(), *Self::SIZE_RANGE.end());
+                return true;
+            }
+            K::W => GizmoMode::Translate,
+            K::E => GizmoMode::Rotate,
+            K::R => GizmoMode::Scale,
+            _ => return false,
+        };
+        if !self.visible {
+            return false;
+        }
+        self.mode = mode;
+        true
+    }
 
     fn size(&self) -> f32 {
         if self.size.is_finite() { self.size.clamp(*Self::SIZE_RANGE.start(), *Self::SIZE_RANGE.end()) } else { 1.0 }
@@ -283,7 +314,10 @@ pub fn manipulate(
 
     let Some(g) = gesture else { return false };
     let released = !primary_down;
-    if let Some(p) = pointer.filter(|p| p.distance(g.from) > 2.0) {
+    // Ctrl: precision mode, the handles follow a tenth of the pointer's movement.
+    let precise = ui.input(|i| i.modifiers.command);
+    let pointer = pointer.map(|p| if precise { g.from + (p - g.from) * GizmoEdit::PRECISION } else { p });
+    if let Some(p) = pointer.filter(|p| p.distance(g.from) > 2.0 * if precise { GizmoEdit::PRECISION } else { 1.0 }) {
         let shift = ui.input(|i| i.modifiers.shift);
         let grid = shift.then(|| state.gizmo.grid());
         let new = match (g.handle, mode) {
@@ -379,9 +413,9 @@ pub fn overlay(state: &UiState, painter: &egui::Painter, rect: Rect, pixel_scale
     }
 
     let hint = match state.gizmo.mode {
-        GizmoMode::Translate => "Projection \u{00b7} Move: drag an axis, or the centre for the view plane (Shift: steps)",
-        GizmoMode::Rotate => "Projection \u{00b7} Rotate: drag a ring (Shift: steps)",
-        GizmoMode::Scale => "Projection \u{00b7} Scale: drag an axis, or the centre for all three (Shift: steps)",
+        GizmoMode::Translate => "Projection \u{00b7} Move: drag an axis, or the centre for the view plane (Shift: steps, Ctrl: precise) \u{00b7} W / E / R tool, Q hide, + / - size",
+        GizmoMode::Rotate => "Projection \u{00b7} Rotate: drag a ring (Shift: steps, Ctrl: precise) \u{00b7} W / E / R tool, Q hide, + / - size",
+        GizmoMode::Scale => "Projection \u{00b7} Scale: drag an axis, or the centre for all three (Shift: steps, Ctrl: precise) \u{00b7} W / E / R tool, Q hide, + / - size",
     };
     let at = rect.center_bottom() - egui::vec2(0.0, 42.0);
     let galley = painter.layout_no_wrap(hint.to_owned(), egui::FontId::proportional(12.0), Color32::WHITE);
@@ -431,6 +465,25 @@ mod tests {
         let turned = ProjectionTransform { rotation_deg: [0.0, 0.0, 90.0], ..id };
         assert!(close(rotated(&turned, 0, 90.0, None).rotation_deg, [90.0, 0.0, 90.0]));
         assert!(rotated(&turned, 1, 250.0, None).valid());
+    }
+
+    #[test]
+    fn manipulator_keys_toggle_pick_the_tool_and_resize() {
+        let mut g = GizmoEdit::default();
+        assert!(g.handle_key(egui::Key::E) && g.mode == GizmoMode::Rotate);
+        assert!(g.handle_key(egui::Key::R) && g.mode == GizmoMode::Scale);
+        assert!(g.handle_key(egui::Key::W) && g.mode == GizmoMode::Translate);
+        assert!(g.handle_key(egui::Key::Plus) && (g.size - 1.25).abs() < 1e-6);
+        assert!(g.handle_key(egui::Key::Equals) && (g.size - 1.5).abs() < 1e-6);
+        for _ in 0..10 {
+            g.handle_key(egui::Key::Minus);
+        }
+        assert_eq!(g.size, *GizmoEdit::SIZE_RANGE.start(), "never below the smallest size");
+        // Q hides it; hidden, the tool keys are left to the keymap (E is the eraser).
+        assert!(g.handle_key(egui::Key::Q) && !g.visible);
+        assert!(!g.handle_key(egui::Key::E) && g.mode == GizmoMode::Translate);
+        assert!(g.handle_key(egui::Key::Q) && g.visible);
+        assert!(!g.handle_key(egui::Key::B), "other keys are not the manipulator's");
     }
 
     #[test]
