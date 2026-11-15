@@ -2123,7 +2123,8 @@ fn bottom_toolbar(state: &mut UiState, ui: &mut Ui) {
     let mut pick: Option<Pick> = None;
     let mut folder: Option<subcraft_app::assets::UserAssetKind> = None;
     egui::Frame::new().inner_margin(egui::Margin::symmetric(8, 3)).show(ui, |ui| {
-        ui.horizontal(|ui| {
+        // Wraps onto a second row in a narrow panel instead of widening it.
+        ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing.x = 4.0;
             size_menu(ui, &mut state.recovery.prefs);
             auto_update_menu(ui, state);
