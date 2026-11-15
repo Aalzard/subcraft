@@ -2031,17 +2031,22 @@ impl SubcraftApp {
             });
             ui.menu_button(tr("Help"), |ui| {
                 ui.set_min_width(240.0);
-                if item(ui, icons::CUBE, tr("Welcome screen"), "") { self.state.welcome.open = true; ui.close(); }
+                // Painter's order: tutorials, release notes, documentation, shortcuts, forums, then
+                // bug report, logs and feedback, then the home / update / about entries.
+                let link = |ui: &mut Ui, label: &str, url: &str| {
+                    if ui.button(format!("{}   {}", icons::QUESTION, label)).on_hover_text(url).clicked() {
+                        ui.ctx().open_url(egui::OpenUrl::new_tab(url));
+                        ui.close();
+                    }
+                };
                 if item(ui, icons::CURSOR, tr("Quick start"), "") { self.state.welcome.guide = Some(0); self.state.welcome.open = false; ui.close(); }
-                if item(ui, icons::INFO, tr("What's new"), "") { self.state.welcome.whats_new = true; ui.close(); }
-                if item(ui, icons::INFO, tr("About SubCraft…"), "") { self.state.welcome.about = true; ui.close(); }
-                ui.separator();
-
-                if item(ui, icons::DOWNLOAD, tr("Check for updates…"), "") { if let Some(updater) = &mut self.state.updater { updater.check(); } ui.close(); }
+                link(ui, tr("Release notes"), HELP_RELEASE_NOTES);
+                link(ui, tr("Documentation"), HELP_DOCUMENTATION);
                 if item(ui, icons::KEYBOARD, tr("Keyboard shortcuts"), "") {
                     self.state.show_shortcuts = true;
                     ui.close();
                 }
+                link(ui, tr("Forums"), HELP_FORUMS);
                 ui.separator();
                 if item(ui, icons::INFO, tr("Report a bug…"), "") {
                     self.state.bug_report.open = true;
@@ -2057,6 +2062,12 @@ impl SubcraftApp {
                     crate::panels::log::export_log(&mut self.state, now);
                     ui.close();
                 }
+                link(ui, tr("Give feedback"), HELP_FEEDBACK);
+                ui.separator();
+                if item(ui, icons::CUBE, tr("Welcome screen"), "") { self.state.welcome.open = true; ui.close(); }
+                if item(ui, icons::INFO, tr("What's new"), "") { self.state.welcome.whats_new = true; ui.close(); }
+                if item(ui, icons::DOWNLOAD, tr("Check for updates…"), "") { if let Some(updater) = &mut self.state.updater { updater.check(); } ui.close(); }
+                if item(ui, icons::INFO, tr("About SubCraft…"), "") { self.state.welcome.about = true; ui.close(); }
             });
             ui.cursor().left()
         }).inner
@@ -3000,6 +3011,31 @@ fn build_demo(state: &mut UiState) {
         assert!(!app.state.asset_preview.is_applying());assert!(app.state.pen_after.is_none());assert!(!app.state.session.is_modified());
         let reopened=Session::open_project(&file).unwrap();assert_eq!(reopened.document(),app.state.session.document());assert!(reopened.resources().iter().any(|r|r.name.starts_with("Starter: ")));std::fs::remove_file(file).unwrap();
     }
+
+/// Help menu web links, under Painter's Help menu names. SubCraft's community lives on GitHub, so
+/// Painter's Forums entry opens the issue list.
+const HELP_RELEASE_NOTES: &str = "https://github.com/Aalzard/subcraft/releases";
+const HELP_DOCUMENTATION: &str = "https://github.com/Aalzard/subcraft/blob/main/docs/getting-started.md";
+const HELP_FORUMS: &str = "https://github.com/Aalzard/subcraft/issues";
+const HELP_FEEDBACK: &str = "https://github.com/Aalzard/subcraft/issues/new";
+
+#[cfg(test)]
+mod help_link_tests {
+    use super::*;
+
+    #[test]
+    fn help_links_point_at_the_project() {
+        let links = [HELP_RELEASE_NOTES, HELP_DOCUMENTATION, HELP_FORUMS, HELP_FEEDBACK];
+        for url in links {
+            assert!(url.starts_with("https://github.com/Aalzard/subcraft/"), "{url}");
+            assert!(!url.contains(char::is_whitespace), "{url}");
+        }
+        let distinct: std::collections::HashSet<_> = links.into_iter().collect();
+        assert_eq!(distinct.len(), 4, "each entry opens its own page");
+        // The documentation page ships in the repository.
+        assert!(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/getting-started.md").is_file());
+    }
+}
 
 #[cfg(test)]
 mod export_path_tests {

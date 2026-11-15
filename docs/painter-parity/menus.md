@@ -193,15 +193,15 @@ Layout notes: every plugin found at start-up gets a submenu named after it in th
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
 | Tutorials | Help | - | partial: in-app Quick start guide instead of a web link | crates/ui/src/app.rs:1279 | - |
-| Release notes | Help | - | missing | - | - |
-| Documentation | Help | - | missing | - | - |
+| Release notes | Help | - | done: opens the GitHub releases page | crates/ui/src/app.rs (Help menu) | - |
+| Documentation | Help | - | done: opens docs/getting-started.md on GitHub | crates/ui/src/app.rs (Help menu) | - |
 | Shortcuts list | Help | - | done | crates/ui/src/app.rs:1285 | - |
 | Scripting documentation | Help | - | missing | - | - |
-| Forums | Help | - | missing | - | - |
+| Forums | Help | - | partial: opens the GitHub issue list (no forum) | crates/ui/src/app.rs (Help menu) | - |
 | Report a bug | Help | - | done | crates/ui/src/app.rs:1290 | - |
 | Show log | Help | - | partial: opens the log folder, not the file in a text editor | crates/ui/src/app.rs:1295 | - |
 | Export log | Help | - | done: Help > Export log… saves a copy of this session's log file | crates/ui/src/panels/log.rs (export_log) | - |
-| Give feedback | Help | - | missing | - | - |
+| Give feedback | Help | - | done: opens a new GitHub issue | crates/ui/src/app.rs (Help menu) | - |
 | Manage my account | Help | - | n/a | - | - |
 | Sign out | Help | - | n/a | - | - |
 | Welcome screen | Help | - | done | crates/ui/src/app.rs:1278 | - |
