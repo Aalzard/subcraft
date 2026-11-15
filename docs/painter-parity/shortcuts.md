@@ -119,7 +119,7 @@ Layout notes: these are listed in the same editable list; mouse combinations can
 | Context menu (properties at the cursor) | Viewport | Mouse right | partial: opens a part-actions menu, not the tool properties | crates/ui/src/viewport.rs:162 | #131 |
 | Set Clone tool source location | Viewport | V+Mouse left | done | crates/ui/src/viewport.rs:154 | - |
 | Ignore stencil mask | Viewport | N (hold) | done | crates/ui/src/viewport.rs:79 | - |
-| Resume previous stroke | Viewport | A | missing | - | - |
+| Resume previous stroke | Viewport | A | done: hold A when the stroke starts | crates/ui/src/viewport.rs (set_continue_stroke) | - |
 
 ## 2D view navigation
 
@@ -147,7 +147,7 @@ Layout notes: these act only while the pointer is over the layer stack.
 | Paste layer content | Layer stack | Ctrl+Shift+V (Option+Cmd+V) | done | crates/ui/src/clipboard.rs:66 | - |
 | Display mask in viewport | Layer stack, mask thumbnail | Alt+Mouse left | done | crates/ui/src/panels/layers.rs:481 | - |
 | Disable/Enable mask | Layer stack, mask thumbnail | Shift+Mouse left | done | crates/ui/src/panels/layers.rs:308 | - |
-| Drag and drop material onto one part of the model | Assets to viewport | Ctrl+Drag and drop | missing | - | - |
+| Drag and drop material onto one part of the model | Assets to viewport | Ctrl+Drag and drop | done: the new layer gets a geometry mask on the part under the cursor | crates/ui/src/viewport.rs (shelf drop, Ctrl) | - |
 | Manipulator constraint/snapping | Viewport manipulator | Shift | missing | - | - |
 | Manipulator mirror transformation | 2D view manipulator | Ctrl | missing | - | - |
 

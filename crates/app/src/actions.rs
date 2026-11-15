@@ -408,7 +408,7 @@ pub const PAINTER_REFERENCE: &[PainterEntry] = &[
     e("Tools", "2", "Eraser tool", Support::Added, Action::EraserTool, Shortcut::key(Key::Num2), "E kept as well"),
     none("Tools", "Ctrl+2", "Eraser tool + Particles", "no particle tool"),
     e("Tools", "3", "Projection tool", Support::Added, Action::ProjectionTool, Shortcut::key(Key::Num3), "paints the brush material cast from the view and tiled over it"),
-    none("Tools", "Ctrl+3", "Projection tool + Particles", "no projection tool"),
+    none("Tools", "Ctrl+3", "Projection tool + Particles", "no particle tool (the Projection tool itself is 3)"),
     e("Tools", "4", "Polygon Fill", Support::Added, Action::PolygonFillTool, Shortcut::key(Key::Num4), ""),
     e("Tools", "5", "Smudge tool", Support::Added, Action::SmudgeTool, Shortcut::key(Key::Num5), ""),
     e("Tools", "6", "Clone tool (relative source)", Support::Added, Action::CloneTool, Shortcut::key(Key::Num6), "the offset to the source carries over between strokes"),
@@ -420,7 +420,7 @@ pub const PAINTER_REFERENCE: &[PainterEntry] = &[
     e("Tools", "D", "Lazy Mouse", Support::Added, Action::ToggleLazyMouse, Shortcut::key(Key::D), "toggles a 20 px rope"),
     e("Tools", "Alt+H", "Hide/ignore excluded geometry", Support::Added, Action::HideExcludedGeometry, Shortcut::alt(Key::H), "hides what the selected layer's geometry mask leaves out; strokes reach what it covered"),
     gesture("Tools", "N (hold)", "Ignore stencil mask", "already worked"),
-    none("Tools", "A", "Resume previous stroke", "no equivalent"),
+    gesture("Tools", "A (hold)", "Resume previous stroke", "added: a stroke started with A held carries on the last one (same layer and brush), so stroke opacity caps both together"),
     gesture("Tools", "Shift+A (hold)", "Polygon fill: temporary Polygon loop mode", "added: a Polygon Fill click or drag picks a loop while held"),
     gesture("Tools", "V (hold) + LMB", "Set Clone tool source", "added; Ctrl+click still works"),
     // Camera / display
@@ -465,11 +465,11 @@ pub const PAINTER_REFERENCE: &[PainterEntry] = &[
     e("Layers", "Delete", "Delete layer", Support::Same, Action::DeleteLayer, Shortcut::key(Key::Delete), ""),
     e("Layers", "Ctrl+D", "Duplicate layer", Support::Same, Action::DuplicateLayer, Shortcut::ctrl(Key::D), ""),
     e("Layers", "Ctrl+G", "Group layer", Support::Same, Action::NewFolder, Shortcut::ctrl(Key::G), "creates a folder"),
-    none("Layers", "Ctrl+Shift+C", "Copy layer content", "no content-only clipboard"),
-    none("Layers", "Ctrl+Shift+V", "Paste layer content", "no content-only clipboard"),
+    gesture("Layers", "Ctrl+Shift+C", "Copy layer content", "added: copies the paint or fill and the content effects, not the mask; separate from Ctrl+C"),
+    gesture("Layers", "Ctrl+Shift+V", "Paste layer content", "added: replaces the content of the selected layer with the copy"),
     gesture("Layers", "Alt+LMB on mask", "Display mask in viewport", "already worked: opens the mask inspector"),
     gesture("Layers", "Shift+LMB on mask", "Disable/enable mask", "already worked"),
-    none("Layers", "Ctrl+drag & drop", "Drag material", "no equivalent"),
+    gesture("Layers", "Ctrl+drag & drop", "Drag material", "added: a material dropped on the model with Ctrl held shows only on the part under the cursor (geometry mask)"),
     none("Layers", "Shift / Ctrl (drag)", "Manipulator snapping / mirror", "no manipulator"),
 ];
 
@@ -513,10 +513,10 @@ mod tests {
     fn painter_coverage_counts() {
         let count = |s: Support| PAINTER_REFERENCE.iter().filter(|e| e.support == s).count();
         let covered = PAINTER_REFERENCE.len() - count(Support::None);
-        assert!(covered >= 63, "{covered} of {} Painter shortcuts are covered", PAINTER_REFERENCE.len());
-        // What is left has no SubCraft feature behind it: manipulator, particles, projection tool,
-        // quick mask, geometry mask, engine pause, stroke resume, content clipboard, material drag.
-        assert!(count(Support::None) <= 26, "{}", count(Support::None));
+        assert!(covered >= 76, "{covered} of {} Painter shortcuts are covered", PAINTER_REFERENCE.len());
+        // What is left has no SubCraft feature behind it: the layer transform manipulator keys,
+        // particle tools and animation (plus Save as, which Painter leaves without a key).
+        assert!(count(Support::None) <= 14, "{}", count(Support::None));
     }
 
     #[test]
