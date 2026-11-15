@@ -1721,6 +1721,12 @@ fn transform3_group(ui: &mut Ui, proj: &mut Projection) -> bool {
         row(ui, tr("Offset"), &mut t.offset, 0.005, -T::MAX_OFFSET..=T::MAX_OFFSET, "", tr("X, Y, Z in units of the model's bounding box; 0 is centred"));
         row(ui, tr("Rotation"), &mut t.rotation_deg, 0.5, -360.0..=360.0, "\u{00b0}", tr("Degrees about X, Y, Z (applied in that order)"));
         row(ui, tr("Scale"), &mut t.scale, 0.005, T::MIN_SCALE..=T::MAX_SCALE, "", tr("Size of the projection box on X, Y, Z; with Shape crop on, a planar projection reaches as deep as its scale along the projection axis"));
+        // Painter's Mirror on X / Y / Z: flips the projected image along the box's axis.
+        prop_row(ui, "Mirror", |ui| {
+            for (i, axis) in ["X", "Y", "Z"].into_iter().enumerate() {
+                ui.toggle_value(&mut t.mirror[i], axis).on_hover_text(format!("Mirror the projected image along the box's {axis} axis"));
+            }
+        });
         if ui.add_enabled(!t.is_identity(), egui::Button::new(tr("Reset")).small()).clicked() {
             *t = T::default();
         }

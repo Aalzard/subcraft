@@ -127,6 +127,8 @@ fn projection_extra_bits(p: &Projection) -> u32 {
     if !t.is_identity() {
         values.push(3);
         values.extend(t.offset.iter().chain(&t.rotation_deg).chain(&t.scale).map(|v| v.to_bits()));
+        // A mirrored box samples the field the other way round: its own cache entry.
+        values.push(t.mirror.iter().enumerate().map(|(i, &m)| u32::from(m) << i).sum());
     }
     if warp {
         // The field is sampled through the grid: a moved or split point changes it (QA 2026-11:
