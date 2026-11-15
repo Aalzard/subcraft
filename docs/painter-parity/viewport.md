@@ -304,9 +304,9 @@ Layout notes: the Path tool works only in the 3D view. A floating Paths panel in
 | Manipulators on path points | W, S, D toggle them (11.0) | - | missing | - | - |
 | Paths panel: list of paths | Floating panel in the viewport | shown with a Path tool | done: floating at the top left of the 3D view with the Pen tool; each path is its own layer, so it lists the texture set's pen-path layers | crates/ui/src/paths_panel.rs | - |
 | Paths panel: rename | Double-click a path | - | done | crates/ui/src/paths_panel.rs | - |
-| Paths panel: delete | Delete key | - | partial: right-click > Delete (the Delete key removes the selected point) | crates/ui/src/paths_panel.rs | - |
-| Paths panel: copy | Ctrl + C | - | partial: right-click > Copy properties / Copy position, no Ctrl+C | crates/ui/src/paths_panel.rs | - |
-| Paths panel: paste | Ctrl + V | - | partial: right-click > Paste properties / Paste position, no Ctrl+V | crates/ui/src/paths_panel.rs | - |
+| Paths panel: delete | Delete key | - | done: Delete with the pointer over a path row deletes that path (otherwise Delete removes the selected point); also right-click > Delete | crates/ui/src/paths_panel.rs (keys) | - |
+| Paths panel: copy | Ctrl + C | - | done: Ctrl+C over a path row copies its properties; right-click > Copy properties / Copy position | crates/ui/src/paths_panel.rs (keys) | - |
+| Paths panel: paste | Ctrl + V | - | done: Ctrl+V over a path row pastes what was copied (properties or position) onto it; right-click > Paste properties / Paste position | crates/ui/src/paths_panel.rs (keys) | - |
 | Paths panel: duplicate | Ctrl + D | - | done: right-click > Duplicate; Ctrl+D duplicates the selected path layer | crates/ui/src/paths_panel.rs | - |
 | Paths panel: show / hide path | Eye icon | - | done | crates/ui/src/paths_panel.rs | - |
 | Paths panel: right-click menu with the same actions | RMB on a path | - | done | crates/ui/src/paths_panel.rs | - |

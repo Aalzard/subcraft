@@ -82,6 +82,8 @@ pub fn keyboard(state: &mut UiState, ctx: &egui::Context, now: f64) {
     // Not behind a modal window: Enter / Escape belong to it, and Backspace deleted the path
     // layer behind the unsaved-changes prompt.
     if state.tool != Tool::Pen || ctx.egui_wants_keyboard_input() || state.modal_open() { return; }
+    // The Paths panel row under the pointer takes Delete / Ctrl+C / Ctrl+V first.
+    crate::paths_panel::keys(state, ctx, now);
     if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
         if state.pen.is_editing() || state.pen.is_pending() { state.pen.undo_pending(&state.session); }
         else { state.pen.finish_path(); }
