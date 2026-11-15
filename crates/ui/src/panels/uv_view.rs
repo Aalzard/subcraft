@@ -154,7 +154,7 @@ pub fn material_image(composite: &subcraft_compositor::Composite, height_scale: 
     let mut rgba = vec![0u8; (side * side * 4) as usize];
     rgba.par_chunks_mut(side as usize * 4).enumerate().for_each(|(y, row)| {
         let y = y as u32;
-        for (x, out) in (0..side).zip(row.chunks_exact_mut(4)) {
+        for (x, out) in (0..side).zip(row.as_chunks_mut::<4>().0.iter_mut()) {
             let (px, py) = ((x * step).min(res - 1), (y * step).min(res - 1));
             let get = |img: Option<&subcraft_image::TiledImage>| img.map(|i| i.get(px, py));
             let t = UvTexel {
@@ -174,7 +174,7 @@ pub fn material_image(composite: &subcraft_compositor::Composite, height_scale: 
             };
             let c = subcraft_core::color::linear3_to_srgb(shade(t).map(|v| if v.is_finite() { v.clamp(0.0, 1.0) } else { 0.0 }));
             let c = c.map(|v| (v * 255.0).round() as u8);
-            out.copy_from_slice(&[c[0], c[1], c[2], 255]);
+            *out = [c[0], c[1], c[2], 255];
         }
     });
     egui::ColorImage::from_rgba_unmultiplied([side as usize, side as usize], &rgba)
