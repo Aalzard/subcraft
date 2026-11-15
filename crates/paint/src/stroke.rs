@@ -1051,6 +1051,10 @@ impl Stroke {
     /// Polygon Fill's blending mode: how the fill combines with what the layer holds (Normal
     /// replaces, as strokes do).
     pub fn set_fill_blend(&mut self, mode: subcraft_doc::BlendMode) {
+        // Normal keeps each channel's own blending mode (the brush material's channel rows).
+        if mode == subcraft_doc::BlendMode::Normal {
+            return;
+        }
         for img in &mut self.images {
             img.blend = mode;
         }

@@ -418,16 +418,34 @@ pub struct BrushMaterial {
     pub mask_value: f32,
     /// Normal-map (or height) stamp brush; `None` = an ordinary brush.
     pub stamp: Option<ImageStamp>,
+    /// Painter's per-channel tool blending: how each channel's paint combines with what the
+    /// layer already holds (the layer blending modes). A channel not listed paints Normal.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub channel_blend: BTreeMap<ChannelKind, subcraft_doc::BlendMode>,
 }
 
 impl Default for BrushMaterial {
     fn default() -> Self {
         Self { channels: BTreeMap::new(), textures: BTreeMap::new(), projection: Projection::default(), texture_tiling: true,
-            normal_blend: NormalPaintBlend::Replace, camera_projection: false, mask_value: 1.0, stamp: None }
+            normal_blend: NormalPaintBlend::Replace, camera_projection: false, mask_value: 1.0, stamp: None, channel_blend: BTreeMap::new() }
     }
 }
 
 impl BrushMaterial {
+    /// The blending mode `kind` paints with (Normal unless set).
+    pub fn blend_of(&self, kind: ChannelKind) -> subcraft_doc::BlendMode {
+        self.channel_blend.get(&kind).copied().unwrap_or(subcraft_doc::BlendMode::Normal)
+    }
+
+    /// Set `kind`'s blending mode; Normal removes the entry (files stay as before).
+    pub fn set_blend(&mut self, kind: ChannelKind, mode: subcraft_doc::BlendMode) {
+        if mode == subcraft_doc::BlendMode::Normal {
+            self.channel_blend.remove(&kind);
+        } else {
+            self.channel_blend.insert(kind, mode);
+        }
+    }
+
     /// Every texture-set channel enabled at its default paint value; white for masks.
     pub fn new(ts: &TextureSet) -> Self {
         let channels = ts.channel_kinds().map(|k| (k, BrushChannel { enabled: true, value: k.default_paint_value() })).collect();

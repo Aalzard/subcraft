@@ -21,3 +21,6 @@ parking_lot.workspace = true
 serde.workspace = true
 log.workspace = true
 subcraft-text.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

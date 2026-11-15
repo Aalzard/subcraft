@@ -189,7 +189,7 @@ fn channel_targets(
         let n = kind.components();
         let value = if n == 1 { [ch.value.0[0]; 3] } else { ch.value.0 };
         out.push(TargetImage { key: key(kind), snapshot, value, value_comps: n, has_alpha: true,
-            texture: material.textures.get(&kind).copied(), normal_blend: material.normal_blend, stamp: None, blend: subcraft_doc::BlendMode::Normal });
+            texture: material.textures.get(&kind).copied(), normal_blend: material.normal_blend, stamp: None, blend: material.blend_of(kind) });
     }
     if out.is_empty() {
         return Err(PaintError::NothingToPaint);
