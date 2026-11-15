@@ -204,7 +204,7 @@ struct LastStroke {
 pub(crate) fn checked_brush_settings(mut settings: BrushSettings) -> Result<BrushSettings, CommandError> {
     if [settings.size, settings.flow, settings.stroke_opacity, settings.hardness, settings.scatter_radius, settings.scatter_size_random,
         settings.scatter_rotation_deg, settings.scatter_opacity_random, settings.scatter_fall,
-        settings.smudge_strength, settings.smudge_carry, settings.smudge_falloff, settings.smudge_material].iter().any(|v| !v.is_finite()) {
+        settings.smudge_strength, settings.smudge_carry, settings.smudge_falloff, settings.smudge_material, settings.alternate_offset].iter().any(|v| !v.is_finite()) {
         return Err(CommandError::Invalid("brush values must be finite".into()));
     }
     settings.size = settings.size.clamp(0.1, 100.0);
@@ -220,6 +220,7 @@ pub(crate) fn checked_brush_settings(mut settings: BrushSettings) -> Result<Brus
     settings.smudge_carry = settings.smudge_carry.clamp(0.0, 0.99);
     settings.smudge_falloff = settings.smudge_falloff.clamp(0.25, 8.0);
     settings.smudge_material = settings.smudge_material.clamp(0.0, 1.0);
+    settings.alternate_offset = settings.alternate_offset.clamp(*BrushSettings::ALTERNATE_OFFSET.start(), *BrushSettings::ALTERNATE_OFFSET.end());
     Ok(settings)
 }
 
@@ -3884,22 +3885,29 @@ impl Session {
     /// the same tip), so a pen path can stamp it and the project keeps it. `None` for the round tip.
     pub fn brush_tip_resource(&mut self) -> Option<subcraft_core::ResourceId> {
         let bitmap = self.brush.alpha.clone()?;
+        let name = self.brush.alpha_name.clone();
+        Some(self.tip_resource(bitmap, &name))
+    }
+
+    /// The project resource holding tip image `bitmap` (added under `name` when the project has
+    /// no copy of it yet), for pen paths that stamp a tip.
+    pub fn tip_resource(&mut self, bitmap: Arc<subcraft_image::Bitmap>, name: &str) -> subcraft_core::ResourceId {
         if let Some(r) = self.resources.iter().find(|r| Arc::ptr_eq(&r.bitmap, &bitmap)) {
-            return Some(r.id);
+            return r.id;
         }
         // A reopened project holds a loaded copy of the same tip: compared by pointer only, each
         // session added (and saved) another copy of it.
         if let Some(r) = self.resources.iter().find(|r| r.kind == subcraft_doc::ResourceKind::Alpha && *r.bitmap == *bitmap) {
-            return Some(r.id);
+            return r.id;
         }
-        Some(self.resources.insert(subcraft_doc::Resource {
+        self.resources.insert(subcraft_doc::Resource {
             id: subcraft_core::ResourceId::new(),
-            name: self.brush.alpha_name.clone(),
+            name: name.to_string(),
             kind: subcraft_doc::ResourceKind::Alpha,
             bitmap,
             source_path: None,
             encoded: None,
-        }))
+        })
     }
 
     pub fn set_brush_alpha(&mut self, alpha: &subcraft_assets::BrushAlpha) {

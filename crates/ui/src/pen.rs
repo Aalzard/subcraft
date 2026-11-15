@@ -198,6 +198,24 @@ pub fn properties(state: &mut UiState, ui: &mut Ui, path: &PenPath, now: f64) {
             }
         });
     });
+    // Stitch presets: a stamped path of a stitch tip with its thread colour and height.
+    let mut stitch = None;
+    crate::widgets::prop_row(ui, "Stitch preset", |ui| {
+        egui::ComboBox::from_id_salt("pen_stitch_preset").selected_text("Choose\u{2026}").show_ui(ui, |ui| {
+            for s in &subcraft_app::stitch::STITCHES {
+                if ui.selectable_label(false, s.name).on_hover_text(s.description).clicked() {
+                    stitch = Some(s);
+                }
+            }
+        });
+    });
+    if let Some(s) = stitch {
+        let bitmap = state.library.alphas.iter().find(|a| a.name == s.tip).and_then(|a| a.bitmap.clone());
+        let tip = bitmap.map(|b| state.session.tip_resource(b, s.tip));
+        let channels = state.session.channels();
+        s.apply_to_path(&mut path, tip, |k| channels.contains(&k));
+        changed = true;
+    }
     let filled = path.kind == subcraft_doc::PathKind::Filled;
     if path.kind == subcraft_doc::PathKind::Ribbon {
         changed |= ui.add_enabled(path.anchors.len() > 1, egui::Checkbox::new(&mut path.closed, "Closed path")).changed();
@@ -224,6 +242,9 @@ pub fn properties(state: &mut UiState, ui: &mut Ui, path: &PenPath, now: f64) {
             changed |= crate::widgets::slider_row(ui, "Spacing (%)", egui::Slider::new(&mut spacing, 2.0..=400.0).logarithmic(true)).changed();
             stamp.spacing = (spacing / 100.0).clamp(*subcraft_doc::PathStamp::SPACING.start(), *subcraft_doc::PathStamp::SPACING.end());
             changed |= ui.checkbox(&mut stamp.follow, "Follow path").on_hover_text("Turn each stamp along the curve").changed();
+            changed |= crate::widgets::slider_row(ui, "Alternate offset", egui::Slider::new(&mut stamp.alternate, subcraft_doc::PathStamp::ALTERNATE))
+                .on_hover_text("Every second stamp moves across the path by this fraction of half the width")
+                .changed();
             let tip = stamp.alpha.and_then(|id| state.session.resources().get(id)).map_or("Round".to_string(), |r| r.name.clone());
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new(format!("Tip: {tip}")).color(crate::theme::TEXT_DIM()));
