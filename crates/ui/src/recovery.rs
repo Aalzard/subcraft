@@ -15,6 +15,9 @@ use crate::widgets::{primary_button, secondary_button};
 /// eframe storage key of [`Preferences`].
 pub const PREFS_KEY: &str = "subcraft_prefs_v1";
 pub const DEFAULT_UI_SIZE: u32 = 85;
+/// History steps kept by default, and the range Preferences offers.
+pub const DEFAULT_HISTORY_STEPS: u32 = 200;
+pub const HISTORY_STEPS_RANGE: std::ops::RangeInclusive<u32> = 20..=1000;
 /// The default before 85%: preferences still on it move to the new default once.
 const OLD_DEFAULT_UI_SIZE: u32 = 95;
 pub const UI_SIZE_RANGE: std::ops::RangeInclusive<u32> = 75..=150;
@@ -51,6 +54,8 @@ pub struct Preferences {
     pub autosave_minutes: u32,
     /// Recovery copies kept.
     pub autosave_keep: usize,
+    /// Painter's maximum number of history (undo) steps.
+    pub history_steps: u32,
     pub show_welcome: bool,
     /// Desktop: look for a newer release in the background at startup and point at the update
     /// button when there is one.
@@ -142,6 +147,7 @@ impl Default for Preferences {
             default_library: crate::panels::shelf_filter::YOURS.to_string(),
             autosave_minutes: (recovery::DEFAULT_INTERVAL.as_secs() / 60) as u32,
             autosave_keep: recovery::DEFAULT_KEEP,
+            history_steps: DEFAULT_HISTORY_STEPS,
             show_welcome: true,
             check_updates_on_start: true,
             use_gpu_baking: true,
@@ -494,6 +500,10 @@ pub fn preferences_window(state: &mut UiState, ctx: &egui::Context) {
             ui.label(RichText::new(tr("Keep")).color(TEXT_DIM()));
             ui.add(egui::Slider::new(&mut rec.prefs.autosave_keep, 1..=10).suffix(" copies"));
             ui.end_row();
+            ui.label(RichText::new("History").color(TEXT_DIM()));
+            ui.add(egui::Slider::new(&mut rec.prefs.history_steps, HISTORY_STEPS_RANGE).suffix(" steps"))
+                .on_hover_text("How many undo steps are kept (Painter's maximum number of history steps). More steps use more memory.");
+            ui.end_row();
         });
         rec.autosaver.interval = rec.prefs.interval();
         rec.autosaver.set_keep(rec.prefs.autosave_keep);
@@ -616,6 +626,8 @@ mod tests {
         assert_eq!(p.theme, crate::theme::ThemeKind::Dark);
         p.theme = crate::theme::ThemeKind::Light;
         p.autosave_minutes = 7;
+        assert_eq!(Preferences::default().history_steps, DEFAULT_HISTORY_STEPS);
+        assert!(HISTORY_STEPS_RANGE.contains(&DEFAULT_HISTORY_STEPS));
         let json = serde_json::to_string(&p).unwrap();
         assert!(json.contains("\"theme\":\"light\""), "{json}");
         assert_eq!(Preferences::from_json_lenient(&json), p);

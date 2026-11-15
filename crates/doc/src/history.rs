@@ -40,6 +40,11 @@ impl History {
         }
     }
 
+    /// How many steps the history keeps (the current one included).
+    pub fn max_entries(&self) -> usize {
+        self.max_entries
+    }
+
     pub fn set_max_entries(&mut self, n: usize) {
         self.max_entries = n.max(2);
         self.trim();
@@ -223,6 +228,13 @@ mod tests {
         }
         assert_eq!(h.entries().len(), 3);
         assert_eq!(h.current().texture_sets[0].layers.len(), 9);
+        assert_eq!(h.max_entries(), 3);
+        // Raising the limit keeps what is there; lowering it trims the oldest steps at once.
+        h.set_max_entries(50);
+        assert_eq!(h.entries().len(), 3);
+        h.set_max_entries(2);
+        assert_eq!(h.entries().len(), 2);
+        assert_eq!(History::new(doc_with(0), "New").max_entries(), 200, "the default");
     }
 
     /// QA 2026-11: one MCP call (a fill with a new channel, a texture set update) left several

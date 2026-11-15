@@ -961,6 +961,13 @@ impl Session {
         self.history.squash_last(n)
     }
 
+    /// Painter's maximum number of history steps (Preferences): older steps are dropped.
+    pub fn set_history_limit(&mut self, steps: usize) {
+        if self.history.max_entries() != steps.max(2) {
+            self.history.set_max_entries(steps);
+        }
+    }
+
     pub fn history(&self) -> &History {
         &self.history
     }
