@@ -35,8 +35,9 @@ pub fn apply(filter: Filter, input: [f32; 3], channel: ChannelKind) -> [f32; 3] 
         Filter::Blur { .. } | Filter::Sharpen { .. } | Filter::DirectionalBlur { .. } | Filter::Highpass { .. } | Filter::Bevel {..} | Filter::MaskOutline {..} | Filter::Median { .. } | Filter::Warp { .. }
             | Filter::EdgeDetect { .. } | Filter::Glow { .. } | Filter::DirectionalWarp { .. } | Filter::Mosaic { .. } => input, // Neighborhood evaluation is staged by compositor.
         Filter::Grayscale => [luminance(input); 3],
-        Filter::GrayscaleConvert { mode, invert, balance, contrast } => {
-            [gradient_curve(mode.convert(input), subcraft_doc::CurvePreset::Linear, invert, balance, contrast); 3]
+        Filter::GrayscaleConvert { mode, invert, balance, contrast, weights } => {
+            let gray = subcraft_doc::GrayParts { mode, invert, balance, contrast, weights }.gray(input);
+            [gradient_curve(gray, subcraft_doc::CurvePreset::Linear, invert, balance, contrast); 3]
         }
         Filter::Invert => input.map(|v| if channel.is_signed() { -v } else { 1.0 - v }),
         Filter::Posterize { levels } => input.map(|v| posterize(v, levels, channel)),
@@ -577,7 +578,7 @@ mod parity_tests {
         close(apply(Filter::Grayscale, [1.0, 0.0, 0.0], K::BaseColor), [0.2126; 3]);
         // The conversion options: the mode, then Invert, Balance and Contrast.
         use subcraft_doc::GrayscaleType as G;
-        let conv = |mode, invert, balance, contrast| Filter::GrayscaleConvert { mode, invert, balance, contrast };
+        let conv = |mode, invert, balance, contrast| Filter::GrayscaleConvert { mode, invert, balance, contrast, weights: None };
         let c = [0.8, 0.4, 0.2];
         close(apply(conv(G::Max, false, 0.5, 0.0), c, K::BaseColor), [0.8; 3]);
         close(apply(conv(G::Desaturation, false, 0.5, 0.0), c, K::BaseColor), [0.5; 3]);
@@ -585,6 +586,15 @@ mod parity_tests {
         close(apply(conv(G::Average, false, 0.7, 0.0), [0.3; 3], K::BaseColor), [0.5; 3]);
         close(apply(conv(G::Min, false, 0.5, 0.5), c, K::BaseColor), [0.0; 3]);
         assert_eq!(apply(conv(G::Max, true, 0.5, 0.0), c, K::Roughness), c, "colour channels only");
+        // Custom Red / Green / Blue weights replace the mode: their weighted sum, clamped.
+        let weighted = |w| Filter::GrayscaleConvert { mode: G::Max, invert: false, balance: 0.5, contrast: 0.0, weights: Some(w) };
+        close(apply(weighted([1.0, 0.0, 0.0]), c, K::BaseColor), [0.8; 3]);
+        close(apply(weighted([0.5, 0.5, 0.0]), c, K::BaseColor), [0.6; 3]);
+        close(apply(weighted([1.0, 1.0, 1.0]), c, K::BaseColor), [1.0; 3]);
+        assert!(!Filter::GrayscaleConvert { mode: G::Luma, invert: false, balance: 0.5, contrast: 0.0, weights: Some([1.5, 0.0, 0.0]) }.valid());
+        // Round trip through the parts keeps the weights; older files read them as unset.
+        let parts = subcraft_doc::GrayParts { weights: Some([0.3, 0.3, 0.4]), ..Default::default() };
+        assert_eq!(Filter::grayscale(parts).grayscale_parts(), Some(parts));
         assert_eq!(apply(Filter::Grayscale, [1.0, 0.0, 0.0], K::Roughness), [1.0, 0.0, 0.0], "scalar channels are untouched");
         close(apply(Filter::Invert, [0.25, 0.5, 1.0], K::BaseColor), [0.75, 0.5, 0.0]);
         close(apply(Filter::Invert, [0.25; 3], K::Height), [-0.25; 3]);

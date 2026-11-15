@@ -167,10 +167,24 @@ pub fn editor(ui: &mut Ui, filter: &mut Filter, channel: Option<ChannelKind>) ->
             if let Some(mut p) = filter.grayscale_parts() {
                 let before = p;
                 prop_row(ui, "Mode", |ui| {
-                    egui::ComboBox::from_id_salt("grayscale_mode").selected_text(p.mode.label()).show_ui(ui, |ui| {
-                        for m in subcraft_doc::GrayscaleType::ALL { ui.selectable_value(&mut p.mode, m, m.label()); }
+                    ui.add_enabled_ui(p.weights.is_none(), |ui| {
+                        egui::ComboBox::from_id_salt("grayscale_mode").selected_text(p.mode.label()).show_ui(ui, |ui| {
+                            for m in subcraft_doc::GrayscaleType::ALL { ui.selectable_value(&mut p.mode, m, m.label()); }
+                        });
                     });
                 });
+                // Painter's Red / Green / Blue weights: a custom mix instead of the mode.
+                let mut custom = p.weights.is_some();
+                prop_row(ui, "Custom weights", |ui| {
+                    if ui.checkbox(&mut custom, "").on_hover_text("Mix Red, Green and Blue with your own weights instead of the mode").changed() {
+                        p.weights = custom.then_some(subcraft_doc::GrayParts::LUMA_WEIGHTS);
+                    }
+                });
+                if let Some(w) = p.weights.as_mut() {
+                    for (name, v) in ["Red", "Green", "Blue"].into_iter().zip(w.iter_mut()) {
+                        slider_row(ui, name, egui::Slider::new(v, subcraft_doc::GrayParts::WEIGHT));
+                    }
+                }
                 prop_row(ui, "Invert", |ui| { ui.checkbox(&mut p.invert, ""); });
                 slider_row(ui, "Balance", egui::Slider::new(&mut p.balance, 0.0..=1.0));
                 slider_row(ui, "Contrast", egui::Slider::new(&mut p.contrast, 0.0..=1.0));
