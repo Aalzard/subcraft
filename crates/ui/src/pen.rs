@@ -7,16 +7,33 @@ use crate::{state::{Tool, UiState}, theme};
 
 /// Painter's path snapping (the magnet menu): new and moved points jump to the model's
 /// vertices, edges or edge centres near the pointer.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PenSnap {
     pub vertices: bool,
     pub edges: bool,
     pub edge_centres: bool,
+    /// Ctrl's angle snapping step when adding a point, in degrees (Painter's Angle snapping
+    /// settings).
+    pub angle_deg: f32,
+}
+
+impl Default for PenSnap {
+    fn default() -> Self {
+        Self { vertices: false, edges: false, edge_centres: false, angle_deg: 15.0 }
+    }
 }
 
 impl PenSnap {
+    pub const ANGLE: std::ops::RangeInclusive<f32> = 1.0..=90.0;
+
     pub fn any(&self) -> bool {
         self.vertices || self.edges || self.edge_centres
+    }
+
+    /// The angle step in radians, kept in range.
+    pub fn angle(&self) -> f32 {
+        let deg = if self.angle_deg.is_finite() { self.angle_deg.clamp(*Self::ANGLE.start(), *Self::ANGLE.end()) } else { 15.0 };
+        deg.to_radians()
     }
 }
 
@@ -400,6 +417,8 @@ pub fn properties(state: &mut UiState, ui: &mut Ui, path: &PenPath, now: f64) {
         ui.toggle_value(&mut s.edges, "Edges").on_hover_text("New and moved points jump onto the model's edges near the pointer");
         ui.toggle_value(&mut s.edge_centres, "Edge centres").on_hover_text("New and moved points jump to the centres of the model's edges near the pointer");
     });
+    crate::widgets::slider_row(ui, "Snap angle", egui::Slider::new(&mut state.pen_snap.angle_deg, PenSnap::ANGLE).suffix("\u{00b0}"))
+        .on_hover_text("Ctrl while adding a point: the direction from the previous point snaps to steps of this angle");
     let mut path = path.clone(); let mut changed = false;
     // Painter's path types: a stroke along the curve, or its filled interior.
     crate::widgets::prop_row(ui, "Path type", |ui| {
@@ -507,7 +526,7 @@ mod snap_tests {
     #[test]
     fn snapping_prefers_corners_and_centres_then_edges_within_the_radius() {
         let tri = [Pos2::new(0.0, 0.0), Pos2::new(100.0, 0.0), Pos2::new(0.0, 100.0)];
-        let all = PenSnap { vertices: true, edges: true, edge_centres: true };
+        let all = PenSnap { vertices: true, edges: true, edge_centres: true, ..PenSnap::default() };
         let near = |got: Option<Pos2>, want: Pos2| got.is_some_and(|g| g.distance(want) < 1e-3);
         assert!(near(snap_to_triangle(Pos2::new(4.0, 3.0), tri, all), Pos2::new(0.0, 0.0)), "corner");
         assert!(near(snap_to_triangle(Pos2::new(52.0, 6.0), tri, all), Pos2::new(50.0, 0.0)), "edge centre");
@@ -518,6 +537,10 @@ mod snap_tests {
         assert!(near(snap_to_triangle(Pos2::new(4.0, 3.0), tri, edges_only), Pos2::new(4.0, 0.0)));
         assert_eq!(snap_to_triangle(Pos2::new(4.0, 3.0), tri, PenSnap::default()), None);
         assert!(!PenSnap::default().any() && all.any());
+        // The angle step: 15 degrees by default, kept in range.
+        assert!((PenSnap::default().angle() - 15f32.to_radians()).abs() < 1e-6);
+        assert!((PenSnap { angle_deg: 400.0, ..PenSnap::default() }.angle() - 90f32.to_radians()).abs() < 1e-6);
+        assert!((PenSnap { angle_deg: f32::NAN, ..PenSnap::default() }.angle() - 15f32.to_radians()).abs() < 1e-6);
     }
 }
 
