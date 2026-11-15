@@ -149,9 +149,12 @@ pub fn material_image(composite: &subcraft_compositor::Composite, height_scale: 
     let height = ch(ChannelKind::Height);
     let texel = step as f32 / res as f32;
     let d = UvTexel::default();
-    let mut rgba = Vec::with_capacity((side * side * 4) as usize);
-    for y in 0..side {
-        for x in 0..side {
+    // Rows in parallel: rebuilt up to four times a second while painting, on the UI thread.
+    use rayon::prelude::*;
+    let mut rgba = vec![0u8; (side * side * 4) as usize];
+    rgba.par_chunks_mut(side as usize * 4).enumerate().for_each(|(y, row)| {
+        let y = y as u32;
+        for (x, out) in (0..side).zip(row.chunks_exact_mut(4)) {
             let (px, py) = ((x * step).min(res - 1), (y * step).min(res - 1));
             let get = |img: Option<&subcraft_image::TiledImage>| img.map(|i| i.get(px, py));
             let t = UvTexel {
@@ -170,10 +173,10 @@ pub fn material_image(composite: &subcraft_compositor::Composite, height_scale: 
                 }),
             };
             let c = subcraft_core::color::linear3_to_srgb(shade(t).map(|v| if v.is_finite() { v.clamp(0.0, 1.0) } else { 0.0 }));
-            rgba.extend(c.map(|v| (v * 255.0).round() as u8));
-            rgba.push(255);
+            let c = c.map(|v| (v * 255.0).round() as u8);
+            out.copy_from_slice(&[c[0], c[1], c[2], 255]);
         }
-    }
+    });
     egui::ColorImage::from_rgba_unmultiplied([side as usize, side as usize], &rgba)
 }
 

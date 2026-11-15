@@ -13,6 +13,7 @@ update-fixture = ["subcraft-app/update-fixture"]
 
 [dependencies]
 subcraft-core.workspace = true
+rayon.workspace = true
 subcraft-image.workspace = true
 image.workspace = true
 subcraft-mesh.workspace = true
