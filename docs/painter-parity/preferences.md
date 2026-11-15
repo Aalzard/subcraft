@@ -96,11 +96,11 @@ Layout notes: a list of resource paths, each with a name, a folder, a "default" 
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Automatic updates: Assets panel | Assets > auto-update menu | off (unverified) | missing | - | - |
+| Automatic updates: Assets panel | Assets > auto-update menu | off (unverified) | done: Preferences > Libraries checkbox (off by default): library folders are read again when their files change | crates/ui/src/libraries.rs | (this PR) |
 | Automatic updates: Resources used in project | Assets > auto-update menu | off (unverified) | missing | - | - |
-| Update every x minutes | Assets > auto-update menu | not documented; 0 = every few seconds | missing | - | - |
-| Check for changes when the application regains focus | Automatic behaviour | on while automatic updates are enabled | missing | - | - |
-| Manual: Update assets panel | Assets > auto-update menu | - | missing | - | - |
+| Update every x minutes | Assets > auto-update menu | not documented; 0 = every few seconds | done: 0 to 60 minutes (0 = every few seconds), 5 by default | crates/ui/src/libraries.rs | (this PR) |
+| Check for changes when the application regains focus | Automatic behaviour | on while automatic updates are enabled | done | crates/ui/src/libraries.rs | (this PR) |
+| Manual: Update assets panel | Assets > auto-update menu | - | done (earlier): Refresh libraries in Preferences > Libraries | crates/ui/src/libraries.rs | - |
 | Manual: Update resources used in project | Assets > auto-update menu | - | missing | - | - |
 | Skip assets when their parameters mismatch | Assets > auto-update menu > Advanced | not documented | missing | - | - |
 | Log button (opens Log > Assets tab, warning badge on issues) | Assets > auto-update menu, top right | - | missing | - | - |

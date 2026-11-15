@@ -1422,6 +1422,7 @@ impl SubcraftApp {
         }
         // The panels' mask requests (Alt+click on a mask thumbnail, the mask menu).
         crate::mask_view::handle_requests(&mut self.state, &ctx, ctx.input(|i| i.time));
+        self.state.auto_update_assets(ctx.input(|i| i.time), ctx.input(|i| i.focused));
         // Preferences > History steps, also for a session just opened (a new history).
         let steps = (*crate::recovery::HISTORY_STEPS_RANGE.start()).max(self.state.recovery.prefs.history_steps) as usize;
         self.state.session.set_history_limit(steps);

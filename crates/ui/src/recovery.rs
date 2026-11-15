@@ -42,6 +42,10 @@ pub struct Preferences {
     /// Display sizes only; independent of source images and document texture resolution.
     pub shelf_preview_size: u32,
     pub layer_preview_size: u32,
+    /// Painter's automatic updates of the Assets panel, and how often (minutes, 0 = every few
+    /// seconds).
+    pub auto_update_assets: bool,
+    pub auto_update_minutes: u32,
     /// Painter's "Use simplified thumbnails" (Settings > General > Layer stack).
     pub simplified_layer_thumbnails: bool,
     /// Assets panel in List view (one row per asset) instead of thumbnails.
@@ -148,6 +152,8 @@ impl Default for Preferences {
             ui_size_percent: DEFAULT_UI_SIZE,
             shelf_preview_size: 88,
             layer_preview_size: 36,
+            auto_update_assets: false,
+            auto_update_minutes: 5,
             simplified_layer_thumbnails: false,
             shelf_list_view: false,
             shelf_saved_searches: Vec::new(),

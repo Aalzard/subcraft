@@ -110,6 +110,30 @@ impl UiState {
         self.refresh_libraries();
     }
 
+    /// Painter's automatic Assets panel update: when on, the library folders are checked every
+    /// few minutes (Preferences) and when the window comes back into focus, and read again when
+    /// a file was added, removed or changed. Call once per frame.
+    pub fn auto_update_assets(&mut self, now: f64, focused: bool) {
+        let regained = focused && !self.assets_watch.focused;
+        self.assets_watch.focused = focused;
+        if !self.recovery.prefs.auto_update_assets {
+            self.assets_watch.signature = None;
+            return;
+        }
+        let every = assets_check_seconds(self.recovery.prefs.auto_update_minutes);
+        if !regained && self.assets_watch.signature.is_some() && now - self.assets_watch.checked < every {
+            return;
+        }
+        self.assets_watch.checked = now;
+        let roots: Vec<PathBuf> = self.libraries.iter().map(|l| l.lib.root().to_path_buf()).collect();
+        let signature = library_signature(&roots);
+        if self.assets_watch.signature.is_some_and(|s| s != signature) {
+            self.refresh_libraries();
+            self.set_status("Assets updated: library files changed on disk", now);
+        }
+        self.assets_watch.signature = Some(signature);
+    }
+
     /// Read the libraries again (files added or removed on disk, a library added or removed in
     /// the settings). Built-in assets and the current session's imports stay.
     pub fn refresh_libraries(&mut self) {
@@ -363,11 +387,86 @@ pub fn settings(ui: &mut egui::Ui, prefs: &mut crate::recovery::Preferences, you
     if crate::widgets::secondary_button(ui, tr("Refresh libraries")).on_hover_text(tr("Read every library folder again (files added or removed outside SubCraft)")).clicked() && change.is_none() {
         change = Some(LibrariesChange::Refresh);
     }
+    // Painter's automatic updates of the Assets panel.
+    ui.checkbox(&mut prefs.auto_update_assets, "Update the Assets panel automatically")
+        .on_hover_text("Check the library folders every few minutes and when SubCraft comes back into focus, and read them again when files were added, removed or changed.");
+    ui.add_enabled_ui(prefs.auto_update_assets, |ui| {
+        ui.horizontal(|ui| {
+            ui.label("Check every");
+            ui.add(egui::Slider::new(&mut prefs.auto_update_minutes, 0..=60).suffix(" min").custom_formatter(|v, _| if v == 0.0 { "few seconds".into() } else { format!("{v}") }));
+        });
+    });
     change
+}
+
+/// What the automatic Assets update remembers between checks.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct AssetsWatch {
+    /// The libraries' signature at the last check; `None` before the first one.
+    pub signature: Option<u64>,
+    /// When it was taken (UI seconds).
+    pub checked: f64,
+    /// The window had the focus last frame.
+    pub focused: bool,
+}
+
+/// Seconds between automatic checks: `minutes`, or every few seconds for 0 (as in Painter).
+pub fn assets_check_seconds(minutes: u32) -> f64 {
+    if minutes == 0 { 5.0 } else { f64::from(minutes) * 60.0 }
+}
+
+/// A fingerprint of every file under `roots` (path, size, modification time): it changes when a
+/// file is added, removed, rewritten or renamed. Missing folders count as empty.
+pub fn library_signature(roots: &[PathBuf]) -> u64 {
+    use std::hash::{Hash, Hasher};
+    fn walk(dir: &Path, out: &mut Vec<(PathBuf, u64, u128)>) {
+        let Ok(entries) = std::fs::read_dir(dir) else { return };
+        for e in entries.flatten() {
+            let path = e.path();
+            match e.metadata() {
+                Ok(m) if m.is_dir() => walk(&path, out),
+                Ok(m) => {
+                    let modified = m.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0, |d| d.as_nanos());
+                    out.push((path, m.len(), modified));
+                }
+                Err(_) => {}
+            }
+        }
+    }
+    let mut files = Vec::new();
+    for r in roots {
+        walk(r, &mut files);
+    }
+    files.sort();
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    files.hash(&mut h);
+    h.finish()
 }
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn the_library_signature_follows_added_changed_and_removed_files() {
+        let root = std::env::temp_dir().join(format!("subcraft-libsig-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("alphas")).unwrap();
+        let roots = vec![root.clone(), root.join("missing")];
+        let empty = super::library_signature(&roots);
+        std::fs::write(root.join("alphas").join("a.png"), b"one").unwrap();
+        let one = super::library_signature(&roots);
+        assert_ne!(empty, one, "a file added");
+        assert_eq!(one, super::library_signature(&roots), "nothing changed: same signature");
+        std::fs::write(root.join("alphas").join("a.png"), b"longer").unwrap();
+        assert_ne!(one, super::library_signature(&roots), "a file rewritten");
+        std::fs::remove_file(root.join("alphas").join("a.png")).unwrap();
+        assert_eq!(super::library_signature(&roots), empty, "removed again");
+        let _ = std::fs::remove_dir_all(&root);
+        assert_eq!(super::assets_check_seconds(0), 5.0);
+        assert_eq!(super::assets_check_seconds(5), 300.0);
+        let p = crate::recovery::Preferences::default();
+        assert!(!p.auto_update_assets && p.auto_update_minutes == 5);
+    }
     use super::*;
     use crate::panels::shelf::ShelfTab;
 
