@@ -129,11 +129,14 @@ pub fn unwrap(mesh: &Mesh, settings: &UnwrapSettings) -> Result<(Mesh, UnwrapSta
     let mut margin_used = f32::MAX;
 
     let slot_ranges: Vec<std::ops::Range<usize>> = if mesh.submeshes.is_empty() { vec![0..mesh.triangle_count()] } else { mesh.submeshes.iter().map(|s| s.first_triangle as usize..(s.first_triangle + s.triangle_count) as usize).collect() };
+    // Depends on the whole mesh only: computed once, not once per chart (that was
+    // O(charts x triangles) and dominated the unwrap of models with many parts).
+    let limit = sliver_limit(mesh);
     for range in slot_ranges {
         let charts = grow_charts(&prep, range.clone(), cos_limit);
         let mut flat: Vec<FlatChart> = Vec::new();
         for tris in charts {
-            flatten_valid(mesh, &prep, tris, settings, &mut flat, &mut stats.split_charts);
+            flatten_valid(mesh, &prep, tris, settings, limit, &mut flat, &mut stats.split_charts);
         }
         if flat.is_empty() {
             continue;
@@ -164,7 +167,7 @@ pub fn unwrap(mesh: &Mesh, settings: &UnwrapSettings) -> Result<(Mesh, UnwrapSta
     stats.margin_uv = if margin_used == f32::MAX { 0.0 } else { margin_used };
 
     let out = rebuild(mesh, &corner_uv, &tri_chart);
-    let q = measure(&out, 0..out.triangle_count());
+    let q = measure(&out, 0..out.triangle_count(), sliver_limit(&out));
     stats.mean_stretch = q.mean_stretch;
     stats.max_stretch = q.max_stretch;
     Ok((out, stats))
@@ -394,8 +397,7 @@ fn convex_hull(mut pts: Vec<Vec2>) -> Vec<Vec2> {
 }
 
 /// Flatten `tris`; on failure split and recurse. Appends the valid charts to `out`.
-fn flatten_valid(mesh: &Mesh, prep: &Prep, tris: Vec<u32>, settings: &UnwrapSettings, out: &mut Vec<FlatChart>, splits: &mut usize) {
-    let limit = sliver_limit(mesh);
+fn flatten_valid(mesh: &Mesh, prep: &Prep, tris: Vec<u32>, settings: &UnwrapSettings, limit: f32, out: &mut Vec<FlatChart>, splits: &mut usize) {
     let mut stack = vec![tris];
     while let Some(tris) = stack.pop() {
         if tris.is_empty() {
@@ -510,8 +512,8 @@ fn sliver_limit(mesh: &Mesh) -> f32 {
     total / mesh.triangle_count().max(1) as f32 * 1e-4
 }
 
-fn measure(mesh: &Mesh, range: std::ops::Range<usize>) -> Quality {
-    let limit = sliver_limit(mesh);
+/// `limit` is [`sliver_limit`] of `mesh` (passed in: it walks the whole mesh).
+fn measure(mesh: &Mesh, range: std::ops::Range<usize>, limit: f32) -> Quality {
     let (mut sum, mut weight, mut max, mut flipped) = (0.0f64, 0.0f64, 1.0f32, 0usize);
     for t in range {
         let area3d = 0.5 * (mesh.tri_positions(t)[1] - mesh.tri_positions(t)[0]).cross(mesh.tri_positions(t)[2] - mesh.tri_positions(t)[0]).length();
@@ -1140,7 +1142,7 @@ pub fn analyze_uvs(mesh: &Mesh) -> UvReport {
             true
         });
         report.overlapping += hit.iter().filter(|h| **h).count();
-        let q = measure(mesh, range.clone());
+        let q = measure(mesh, range.clone(), limit);
         report.flipped += q.flipped;
         report.max_stretch = report.max_stretch.max(q.max_stretch);
         report.mean_stretch += q.mean_stretch * range.len() as f32;
@@ -1218,7 +1220,7 @@ mod tests {
     #[test]
     fn sign_convention_matches_primitives() {
         for m in [primitives::cube(1.0), primitives::plane(1.0, 3), primitives::torus(1.0, 0.3, 12, 8)] {
-            let q = measure(&m, 0..m.triangle_count());
+            let q = measure(&m, 0..m.triangle_count(), sliver_limit(&m));
             assert_eq!(q.flipped, 0, "{} uses the opposite UV winding", m.name);
         }
     }
