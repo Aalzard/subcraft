@@ -62,6 +62,7 @@ pub mod color_lut;
 pub mod materials_download;
 pub mod view_props;
 pub mod projection_gizmo;
+pub mod uv_gizmo;
 pub mod warp_view;
 pub mod widgets;
 pub mod window_frame;

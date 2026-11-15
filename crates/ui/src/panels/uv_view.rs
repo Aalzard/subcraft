@@ -364,6 +364,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         rotation: frame.rotation,
     };
     crate::pen::uv_input(state, ui, &response, frame);
+    // The UV frame manipulator of a fill layer in UV projection takes presses on its handles.
+    let uv_grab = !picking && !stencil_edit && crate::uv_gizmo::input(state, ui, &response, frame);
     // Picking parts for a geometry mask owns the clicks; otherwise the ID eyedropper, then tools.
     let id_eyedropper = !picking && id_pick_input(state, ui, &response, frame, ts_id);
     if picking {
@@ -372,7 +374,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             state.session.set_new_mask_kind(subcraft_core::PartKind::UvIsland);
         }
         parts_input(state, ui, &response, frame);
-    } else if !id_eyedropper && !stencil_edit {
+    } else if !id_eyedropper && !stencil_edit && !uv_grab {
         paint_input(state, ui, &response, frame, resolution, ts_id, view, lmb_adjust);
     }
     let painter = ui.painter_at(rect);
@@ -433,6 +435,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     if state.tool == Tool::Pen && let Some(path) = state.pen.preview(&state.session) {
         crate::pen::draw(&painter, path, &state.pen.selected_anchors(), &state.pen_display, |uv| Some(frame.to_px(uv)));
     }
+    crate::uv_gizmo::overlay(state, &painter, frame);
     for start in [state.uv.fill_box, state.uv.parts_box] {
         if let (Some(a), Some(b)) = (start, response.hover_pos().or(ui.input(|i| i.pointer.latest_pos())))
             && crate::view_props::is_box_drag(a, b)

@@ -76,22 +76,22 @@ Layout notes: Filtering, UV Wrap, then the UV transformations group (Scale mode,
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Show/Hide manipulator | Contextual toolbar | not documented | missing | - | - |
+| Show/Hide manipulator | Contextual toolbar | not documented | done: the projection manipulator's Show (Q) also hides the 2D frame | crates/ui/src/uv_gizmo.rs | - |
 | Manipulator handles size: Small | Contextual toolbar > handles size | option | missing | - | - |
 | Manipulator handles size: Medium | Contextual toolbar > handles size | option | missing | - | - |
 | Manipulator handles size: Large | Contextual toolbar > handles size | option | missing | - | - |
-| Mirror on X | Contextual toolbar | n/a | missing | - | - |
-| Mirror on Y | Contextual toolbar | n/a | missing | - | - |
-| Reset pivot point | Contextual toolbar | n/a | missing | - | - |
+| Mirror on X | Contextual toolbar | n/a | done: Mirror X in UV transformations (about the tile's centre) | crates/ui/src/uv_gizmo.rs (mirrored), crates/ui/src/panels/properties.rs (UV transformations) | - |
+| Mirror on Y | Contextual toolbar | n/a | done: Mirror Y in UV transformations | crates/ui/src/uv_gizmo.rs (mirrored), crates/ui/src/panels/properties.rs (UV transformations) | - |
+| Reset pivot point | Contextual toolbar | n/a | n/a: the frame turns and scales about its centre; there is no movable pivot | crates/ui/src/uv_gizmo.rs | - |
 | Reset transformation | Contextual toolbar | n/a | partial: "Reset tiling, offset and rotation" button in Properties | crates/ui/src/panels/properties.rs:1017 | - |
-| Translate: drag inside the frame | 2D view manipulator | n/a | missing | - | - |
-| Translate constrained to one axis: Shift+drag | 2D view manipulator | n/a | missing | - | - |
-| Rotate: drag outside the frame (around the movable pivot) | 2D view manipulator | n/a | missing | - | - |
-| Rotate in 45 degree steps: Shift+drag outside | 2D view manipulator | n/a | missing | - | - |
-| Scale: drag a handle | 2D view manipulator | n/a | missing | - | - |
-| Scale keeping ratio: Shift+drag a handle | 2D view manipulator | n/a | missing | - | - |
-| Scale mirrored around the pivot: Ctrl+drag a handle | 2D view manipulator | n/a | missing | - | - |
-| Scale mirrored and constrained: Shift+Ctrl+drag a handle | 2D view manipulator | n/a | missing | - | - |
+| Translate: drag inside the frame | 2D view manipulator | n/a | partial: drag the centre handle (inside the frame the 2D view keeps painting) | crates/ui/src/uv_gizmo.rs | - |
+| Translate constrained to one axis: Shift+drag | 2D view manipulator | n/a | done: Shift while dragging the centre | crates/ui/src/uv_gizmo.rs | - |
+| Rotate: drag outside the frame (around the movable pivot) | 2D view manipulator | n/a | partial: drag just outside a corner; turns about the frame's centre (no movable pivot) | crates/ui/src/uv_gizmo.rs | - |
+| Rotate in 45 degree steps: Shift+drag outside | 2D view manipulator | n/a | done | crates/ui/src/uv_gizmo.rs | - |
+| Scale: drag a handle | 2D view manipulator | n/a | done: corner and edge handles; the opposite side stays | crates/ui/src/uv_gizmo.rs | - |
+| Scale keeping ratio: Shift+drag a handle | 2D view manipulator | n/a | done | crates/ui/src/uv_gizmo.rs | - |
+| Scale mirrored around the pivot: Ctrl+drag a handle | 2D view manipulator | n/a | partial: Ctrl scales about the frame's centre (both sides move) | crates/ui/src/uv_gizmo.rs | - |
+| Scale mirrored and constrained: Shift+Ctrl+drag a handle | 2D view manipulator | n/a | partial: Shift+Ctrl, about the centre keeping the ratio | crates/ui/src/uv_gizmo.rs | - |
 
 ## Tri-planar projection
 
