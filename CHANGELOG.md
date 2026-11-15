@@ -5,6 +5,44 @@ What changed in SubCraft, newest first. Download the latest build from the
 
 ## Unreleased
 
+## 0.4.2 - 2026-11-15
+
+### Highlights
+- **Smart material pack defaults**: pack materials now carry their own normal strength, height strength and UV tiling, applied automatically when a material is used (normal 0.15, height 0.07, tiling 3 when a material does not set them); the Assets panel downloads the materials-v2 pack (#526).
+- **Painter (pen) workspace layout**: a Pen panel with a colour wheel, big shortcut buttons and the brush settings, switchable from Window > Layout (#531).
+- **Per-channel brush blending**: each channel of the brush material has its own blending mode, shown as "Blend: mode" in the dropdown (#544). Tool blending is greyed out when painting a mask, and a mask fill ignores it (#546).
+- **Material Preview**: the brush material on a lit sphere in Properties; drag to turn the light around it (#527, #528).
+- **Custom brush test stroke**: drag in the brush preview to try the brush along your own stroke (#529).
+- **Anchors navigation**: click a reader to go to its layer, and a go-to button beside every anchor picker (#525).
+- **Quick setup texture drop menu**: a texture dropped on the model asks which channel it fills (#524).
+- **2D view Material display**: the lit material shaded flat in UV space, including Height relief (#515, #516).
+
+### Also added
+- Ambient Occlusion generators are smooth by default: a generator switched to another kind starts from that kind's look, with no breakup (#530).
+- Settings: maximum number of history steps, 20 to 1000 (default 200) (#543), and simplified layer-stack thumbnails (#549).
+- Help menu: Release notes, Documentation, Forums and Give feedback links (#540).
+- Ctrl+Alt+drag scrolls the panel under the pointer, for pen tablets (#541).
+- Brush cursor: the tip footprint (alpha shape, angle, roundness) in the 3D and 2D views (#518, #519), and a struck-through cursor with the reason where a stroke would be refused (#520, #521).
+- Colour picker: Pick from the model takes the material's base colour under the next click (#523).
+- Polygon Fill box tooltip with how many elements and triangles it will fill (#545).
+- Window > Toolbars: Docks toggle and tools on the right edge (#547).
+- The Assets panel refreshes automatically when library files change (#551).
+- Symmetry: Intersection marks where the radial axis meets the surface (#552).
+- Command line: `--version` / `-v`, `-?`, `--mesh-map <file>`, `--disable-version-checking` and `--split-by-udim` (#539, #548).
+- The shortcut reference lists resume stroke, the layer content clipboard and Ctrl+drop material (#542).
+
+### Faster
+- Automatic UV unwrap up to 7.5x faster on meshes with many charts (#532).
+- 2D view Material display about 10x faster while painting (#537).
+- The ID colours panel no longer re-reads the whole ID map on every brush dab (#534).
+
+### Fixed
+- A brush stroke on a fill layer was wrongly shown as blocked (#522).
+- The 2D view Material display missed tiles arriving right after a rebuild (#533).
+- A cleared baked map stayed on the GPU (#535).
+- Mesh-map thumbnails in the texture set list did not follow every map change (#536).
+- The mask shown alone went black after a full GPU upload (#538).
+
 ## 0.4.1 - 2026-11-14
 
 ### Highlights
