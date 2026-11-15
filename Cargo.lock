@@ -3998,6 +3998,7 @@ dependencies = [
  "parking_lot",
  "rayon",
  "serde",
+ "serde_json",
  "subcraft-core",
  "subcraft-doc",
  "subcraft-image",
