@@ -195,11 +195,40 @@ pub fn show(state: &mut UiState, ui: &Ui, rect: egui::Rect, now: f64) {
                     }
                 });
                 ui.label(RichText::new("Double-click to rename · right-click for more").small().color(theme::TEXT_FAINT()));
+                ui.label(RichText::new("Over a path: Delete · Ctrl+C / Ctrl+V properties").small().color(theme::TEXT_FAINT()));
             });
         });
     for (layer, action) in actions {
-        perform(state, ui, layer, action, now);
+        perform(state, ui.ctx(), layer, action, now);
     }
+}
+
+/// The panel's keys while the pointer is over a path row (Painter's Paths panel): Delete removes
+/// that path, Ctrl+C copies its properties, Ctrl+V pastes what was copied (properties or
+/// position) onto it. Taken before the Pen tool's and the layer stack's keys.
+pub fn keys(state: &mut UiState, ctx: &egui::Context, now: f64) {
+    let Some(row) = ctx.data(|d| d.get_temp::<LayerId>(hover_id())) else { return };
+    if !path_layers(state).iter().any(|(id, _, _)| *id == row) {
+        return;
+    }
+    if let Some(action) = key_action(ctx) {
+        perform(state, ctx, row, action, now);
+    }
+}
+
+/// Which panel action the keys pressed this frame ask for (consumed).
+fn key_action(ctx: &egui::Context) -> Option<Action> {
+    ctx.input_mut(|i| {
+        if i.consume_key(egui::Modifiers::NONE, egui::Key::Delete) {
+            Some(Action::Delete)
+        } else if i.consume_key(egui::Modifiers::COMMAND, egui::Key::C) {
+            Some(Action::CopyProperties)
+        } else if i.consume_key(egui::Modifiers::COMMAND, egui::Key::V) {
+            Some(Action::Paste)
+        } else {
+            None
+        }
+    })
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -213,11 +242,13 @@ enum Action {
     PasteProperties,
     CopyPosition,
     PastePosition,
+    /// Ctrl+V: paste whatever was copied (properties or position).
+    Paste,
     /// Erase / Smudge along the path on the paint layer below it.
     Along(subcraft_paint::StrokeMode),
 }
 
-fn perform(state: &mut UiState, ui: &Ui, layer: LayerId, action: Action, now: f64) {
+fn perform(state: &mut UiState, ctx: &egui::Context, layer: LayerId, action: Action, now: f64) {
     let run = |state: &mut UiState, cmd: Command| {
         if let Err(e) = state.session.execute(cmd) {
             state.set_status(e.to_string(), now);
@@ -233,7 +264,10 @@ fn perform(state: &mut UiState, ui: &Ui, layer: LayerId, action: Action, now: f6
         Action::CopyProperties | Action::CopyPosition => {
             if let Some(path) = path_of(state, layer) {
                 let clip = if action == Action::CopyProperties { PathClip::Properties(path) } else { PathClip::Position(path.anchors.clone(), path.closed) };
-                ui.data_mut(|d| d.insert_temp(clip_id(), clip));
+                ctx.data_mut(|d| d.insert_temp(clip_id(), clip));
+                if action == Action::CopyProperties {
+                    state.set_status("Path properties copied", now);
+                }
             }
         }
         Action::Along(mode) => {
@@ -243,8 +277,22 @@ fn perform(state: &mut UiState, ui: &Ui, layer: LayerId, action: Action, now: f6
                 Err(e) => state.set_status(format!("{e:?}"), now),
             }
         }
-        Action::PasteProperties | Action::PastePosition => {
-            let (Some(target), Some(clip)) = (path_of(state, layer), ui.data(|d| d.get_temp::<PathClip>(clip_id()))) else { return };
+        Action::PasteProperties | Action::PastePosition | Action::Paste => {
+            let (Some(target), Some(clip)) = (path_of(state, layer), ctx.data(|d| d.get_temp::<PathClip>(clip_id()))) else {
+                if action == Action::Paste {
+                    state.set_status("Nothing to paste: copy a path's properties or position first", now);
+                }
+                return;
+            };
+            // The menu entries paste only their kind; Ctrl+V pastes whichever was copied.
+            let wanted = match action {
+                Action::PasteProperties => matches!(clip, PathClip::Properties(_)),
+                Action::PastePosition => matches!(clip, PathClip::Position(..)),
+                _ => true,
+            };
+            if !wanted {
+                return;
+            }
             let path = match clip {
                 PathClip::Properties(source) => {
                     let ts = state.session.selected_texture_set();
@@ -261,6 +309,29 @@ fn perform(state: &mut UiState, ui: &Ui, layer: LayerId, action: Action, now: f6
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn panel_keys_map_to_delete_copy_and_paste_and_are_consumed() {
+        let ctx = egui::Context::default();
+        let key = |key, modifiers| egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers };
+        let mut got = Vec::new();
+        for (k, m, want) in [
+            (egui::Key::Delete, egui::Modifiers::NONE, Some(Action::Delete)),
+            (egui::Key::C, egui::Modifiers::COMMAND, Some(Action::CopyProperties)),
+            (egui::Key::V, egui::Modifiers::COMMAND, Some(Action::Paste)),
+            (egui::Key::C, egui::Modifiers::NONE, None),
+        ] {
+            let input = egui::RawInput { events: vec![key(k, m)], modifiers: m, ..Default::default() };
+            let _ = ctx.run_ui(input, |ui| {
+                got.push((key_action(ui.ctx()), want.clone()));
+                // Consumed: nothing behind the panel sees the key again this frame.
+                assert!(key_action(ui.ctx()).is_none());
+            });
+        }
+        for (got, want) in got {
+            assert_eq!(got, want);
+        }
+    }
     use glam::Vec2;
     use subcraft_core::{ChannelKind, ChannelValue};
 
