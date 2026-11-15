@@ -181,7 +181,10 @@ pub fn material_image(composite: &subcraft_compositor::Composite, height_scale: 
 /// changed (at most every quarter second while edits stream in).
 fn material_texture(state: &mut UiState, ctx: &egui::Context, ts: subcraft_core::TextureSetId, now: f64) -> Option<egui::TextureId> {
     let key = (ts, state.session.revision(), state.session.composite_generation(), state.height_scale.to_bits());
-    let stale = state.gpu_changed || state.uv.material_image.as_ref().is_none_or(|m| m.key != key);
+    // `pending`: tiles uploaded while the image was too recent to rebuild. `gpu_changed` is reset
+    // every frame, so without it the image kept the half-composited state of the last rebuild
+    // (the end of a stroke composited in the background never reached the 2D material view).
+    let stale = state.gpu_changed || state.uv.material_image.as_ref().is_none_or(|m| m.key != key || m.pending);
     let due = state.uv.material_image.as_ref().is_none_or(|m| m.key.0 != ts || now - m.built >= 0.25);
     if stale && due {
         if let Some(c) = state.session.composite(ts) {
@@ -191,14 +194,18 @@ fn material_texture(state: &mut UiState, ctx: &egui::Context, ts: subcraft_core:
                     m.texture.set(image, egui::TextureOptions::LINEAR);
                     m.key = key;
                     m.built = now;
+                    m.pending = false;
                 }
                 None => {
                     let texture = ctx.load_texture("uv_material", image, egui::TextureOptions::LINEAR);
-                    state.uv.material_image = Some(crate::state::UvMaterialImage { key, built: now, texture });
+                    state.uv.material_image = Some(crate::state::UvMaterialImage { key, built: now, texture, pending: false });
                 }
             }
         }
     } else if stale {
+        if let Some(m) = &mut state.uv.material_image {
+            m.pending = true;
+        }
         ctx.request_repaint_after(std::time::Duration::from_millis(250));
     }
     state.uv.material_image.as_ref().filter(|m| m.key.0 == ts).map(|m| m.texture.id())
@@ -1063,3 +1070,31 @@ mod rotation_tests {
     }
 }
 
+
+#[cfg(test)]
+mod material_texture_tests {
+    use super::*;
+
+    #[test]
+    fn uploads_too_soon_after_a_rebuild_still_reach_the_material_image() {
+        let mut state = UiState::new(subcraft_app::Session::new(subcraft_mesh::primitives::cube(2.0), 64), None);
+        state.session.update_composites();
+        let ctx = egui::Context::default();
+        let ts = state.session.selection().texture_set;
+        let built = |state: &UiState| state.uv.material_image.as_ref().map(|m| m.built);
+        assert!(material_texture(&mut state, &ctx, ts, 0.0).is_some());
+        assert_eq!(built(&state), Some(0.0));
+        // Background tiles land 0.1 s later: too soon to rebuild, the image waits.
+        state.gpu_changed = true;
+        material_texture(&mut state, &ctx, ts, 0.1);
+        assert_eq!(built(&state), Some(0.0));
+        // The repaint it asked for comes in a frame with no new upload (the flag is per frame):
+        // the image must still catch up instead of keeping the half-composited state.
+        state.gpu_changed = false;
+        material_texture(&mut state, &ctx, ts, 0.3);
+        assert_eq!(built(&state), Some(0.3));
+        // Up to date now: nothing to rebuild.
+        material_texture(&mut state, &ctx, ts, 0.9);
+        assert_eq!(built(&state), Some(0.3));
+    }
+}
