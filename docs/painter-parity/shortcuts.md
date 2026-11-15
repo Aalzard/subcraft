@@ -211,7 +211,7 @@ Layout notes: these act only while the pointer is over the layer stack.
 | UV transform: scale keeping ratio | 2D view manipulator | Shift+drag a handle | missing | - | - |
 | UV transform: scale mirrored around the pivot | 2D view manipulator | Ctrl+drag a handle | missing | - | - |
 | UV transform: scale mirrored and keeping ratio | 2D view manipulator | Shift+Ctrl+drag a handle | missing | - | - |
-| 3D manipulator: translate along one, two or three axes | 3D view manipulator | Drag axis / plane / centre | partial: one axis, or the centre for the view plane; no two-axis plane handles | crates/ui/src/projection_gizmo.rs (manipulate) | - |
+| 3D manipulator: translate along one, two or three axes | 3D view manipulator | Drag axis / plane / centre | done: an axis, a plane square between two axes, or the centre for the view plane | crates/ui/src/projection_gizmo.rs (manipulate) | - |
 | 3D manipulator: translate in steps | 3D view manipulator | Shift+drag | done | crates/ui/src/projection_gizmo.rs | - |
 | 3D manipulator: rotate | 3D view manipulator | Drag ring | done | crates/ui/src/projection_gizmo.rs | - |
 | 3D manipulator: rotate in angle steps | 3D view manipulator | Shift+drag | done | crates/ui/src/projection_gizmo.rs | - |

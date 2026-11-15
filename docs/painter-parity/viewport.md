@@ -254,7 +254,7 @@ Layout notes: selecting a fill layer or fill effect with a 3D projection shows a
 | Scale tool | R | - | done: R | crates/ui/src/projection_gizmo.rs | - |
 | Surface tool (Planar and Warp only) | Shift + W | - | missing | - | - |
 | Translation: drag one axis | LMB drag on an axis | - | done | crates/ui/src/projection_gizmo.rs (manipulate) | - |
-| Translation: drag a two-axis plane | LMB drag on a plane handle | - | missing | - | - |
+| Translation: drag a two-axis plane | LMB drag on a plane handle | - | done: squares between two axes move the box in that plane (Shift: steps) | crates/ui/src/projection_gizmo.rs (plane_quad, manipulate) | - |
 | Translation: drag in camera plane | LMB drag on the centre | - | done | crates/ui/src/projection_gizmo.rs (manipulate) | - |
 | Translation constrained (grid steps) | Shift + LMB drag | step from Manipulator settings | done: step in the manipulator settings | crates/ui/src/projection_gizmo.rs | - |
 | Rotation around one axis | LMB drag on a ring | - | done | crates/ui/src/projection_gizmo.rs (manipulate) | - |

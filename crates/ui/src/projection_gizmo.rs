@@ -3,8 +3,9 @@
 //! cylindrical projection. It edits the projection box's 3D Offset, Rotation and Scale
 //! (`ProjectionTransform`), the same values as the "3D projection" group in Properties.
 //!
-//! * Translate: drag an axis handle to move along that axis of the box, or the centre handle to
-//!   move in the view plane.
+//! * Translate: drag an axis handle to move along that axis of the box, a plane handle (the small
+//!   squares between two axes) to move in that plane of the box, or the centre handle to move in
+//!   the view plane.
 //! * Rotate: drag a ring to turn the box about that axis.
 //! * Scale: drag an axis handle to scale along that axis, or the centre handle (left / right) to
 //!   scale all three.
@@ -203,7 +204,12 @@ fn to_pos(camera: &Camera, rect: Rect, pixel_scale: Vec2, o: Vec3) -> Option<Pos
 /// The point of the view plane through `anchor` under screen position `screen` (paint pixels).
 fn on_view_plane(camera: &Camera, anchor: Vec3, screen: Vec2) -> Option<Vec3> {
     let (o, d) = camera.ray(screen);
-    let n = camera.forward();
+    ray_plane(o, d, anchor, camera.forward())
+}
+
+/// Where the ray `o + t d` (t > 0) meets the plane through `anchor` with normal `n`; `None` when
+/// the ray runs along the plane or away from it.
+pub fn ray_plane(o: Vec3, d: Vec3, anchor: Vec3, n: Vec3) -> Option<Vec3> {
     let den = d.dot(n);
     if den.abs() < 1e-8 {
         return None;
@@ -211,6 +217,25 @@ fn on_view_plane(camera: &Camera, anchor: Vec3, screen: Vec2) -> Option<Vec3> {
     let t = (anchor - o).dot(n) / den;
     (t.is_finite() && t > 0.0).then(|| o + d * t)
 }
+
+/// Corners of the plane handle of the box plane normal to `axis` (between the two other axes),
+/// in object space.
+pub fn plane_quad(lay: &Layout, axis: usize) -> [Vec3; 4] {
+    let (a, b) = (lay.axes[(axis + 1) % 3] * lay.len, lay.axes[(axis + 2) % 3] * lay.len);
+    let (near, far) = (PLANE_NEAR, PLANE_FAR);
+    [lay.centre + a * near + b * near, lay.centre + a * far + b * near, lay.centre + a * far + b * far, lay.centre + a * near + b * far]
+}
+
+/// Whether `p` lies inside the convex screen quad `q` (either winding).
+pub fn in_quad(p: Pos2, q: &[Pos2; 4]) -> bool {
+    let cross = |a: Pos2, b: Pos2| (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
+    let s: Vec<f32> = (0..4).map(|i| cross(q[i], q[(i + 1) % 4])).collect();
+    s.iter().all(|&c| c >= 0.0) || s.iter().all(|&c| c <= 0.0)
+}
+
+/// The plane handles span this fraction of the handle length, from the centre outward.
+const PLANE_NEAR: f32 = 0.22;
+const PLANE_FAR: f32 = 0.42;
 
 const RING_SEGMENTS: usize = 48;
 const HANDLE_RADIUS: f32 = 6.0;
@@ -239,6 +264,8 @@ fn ring_distance(points: &[Option<Pos2>], p: Pos2) -> f32 {
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Handle {
     Axis(usize),
+    /// The plane handle normal to that axis.
+    Plane(usize),
     Centre,
     Ring(usize),
 }
@@ -304,7 +331,13 @@ pub fn manipulate(
                 .filter(|(_, _, d)| *d <= HANDLE_RADIUS + 3.0)
                 .min_by(|a, b| a.2.total_cmp(&b.2))
                 .map(|(i, e, _)| (Handle::Axis(i), e));
-            axis.or_else(|| (centre.distance(p) <= HANDLE_RADIUS + 3.0).then_some((Handle::Centre, centre)))
+            // Plane handles (Move only), then the centre.
+            let in_plane = |k: usize| {
+                let q = plane_quad(&lay, k).map(|o| to_pos(camera, rect, pixel_scale, o));
+                q.iter().all(Option::is_some) && in_quad(p, &q.map(|o| o.unwrap_or(Pos2::ZERO)))
+            };
+            let plane = if mode == GizmoMode::Translate { (0..3).find(|&k| in_plane(k)).map(|k| (Handle::Plane(k), centre)) } else { None };
+            axis.or(plane).or_else(|| (centre.distance(p) <= HANDLE_RADIUS + 3.0).then_some((Handle::Centre, centre)))
         };
         if let Some((handle, end)) = hit {
             let toward_viewer = matches!(handle, Handle::Ring(i) if lay.axes[i].dot(camera.forward()) < 0.0);
@@ -326,6 +359,15 @@ pub fn manipulate(
                 // The handle is `len` long in object space: that many bounding-box units per handle length.
                 let amount = along(g.from, p, g.centre, g.end) * g.lay.len / frame.extent;
                 Some(translated(&g.start, g.lay.axes[i] * snap(amount, grid), None))
+            }
+            (Handle::Plane(k), _) => {
+                // Both pointer positions on the box plane through the centre: the move between them.
+                let n = g.lay.axes[k];
+                let on = |q: Pos2| {
+                    let (o, d) = camera.ray(to_paint(q));
+                    ray_plane(o, d, g.lay.centre, n)
+                };
+                on(g.from).zip(on(p)).map(|(a, b)| translated(&g.start, (b - a) / frame.extent, grid))
             }
             (Handle::Centre, GizmoMode::Scale) => Some(scaled(&g.start, None, 1.0 + (p.x - g.from.x) / 120.0, grid)),
             (Handle::Centre, _) => on_view_plane(camera, g.lay.centre, to_paint(p)).map(|target| translated(&g.start, (target - g.lay.centre) / frame.extent, grid)),
@@ -407,13 +449,22 @@ pub fn overlay(state: &UiState, painter: &egui::Painter, rect: Rect, pixel_scale
                     painter.circle_stroke(end, HANDLE_RADIUS, Stroke::new(1.0, Color32::from_black_alpha(160)));
                 }
             }
+            if mode == GizmoMode::Translate {
+                for k in 0..3 {
+                    let q: Vec<Pos2> = plane_quad(&lay, k).iter().filter_map(|&o| pos(o)).collect();
+                    if q.len() == 4 {
+                        let c = AXIS_COLORS[k];
+                        painter.add(egui::Shape::convex_polygon(q, Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), 90), Stroke::new(1.0, c)));
+                    }
+                }
+            }
             painter.circle_filled(centre, HANDLE_RADIUS, Color32::WHITE);
             painter.circle_stroke(centre, HANDLE_RADIUS, Stroke::new(1.0, Color32::from_black_alpha(160)));
         }
     }
 
     let hint = match state.gizmo.mode {
-        GizmoMode::Translate => "Projection \u{00b7} Move: drag an axis, or the centre for the view plane (Shift: steps, Ctrl: precise) \u{00b7} W / E / R tool, Q hide, + / - size",
+        GizmoMode::Translate => "Projection \u{00b7} Move: drag an axis, a square for two axes, or the centre for the view plane (Shift: steps, Ctrl: precise) \u{00b7} W / E / R tool, Q hide, + / - size",
         GizmoMode::Rotate => "Projection \u{00b7} Rotate: drag a ring (Shift: steps, Ctrl: precise) \u{00b7} W / E / R tool, Q hide, + / - size",
         GizmoMode::Scale => "Projection \u{00b7} Scale: drag an axis, or the centre for all three (Shift: steps, Ctrl: precise) \u{00b7} W / E / R tool, Q hide, + / - size",
     };
@@ -484,6 +535,28 @@ mod tests {
         assert!(!g.handle_key(egui::Key::E) && g.mode == GizmoMode::Translate);
         assert!(g.handle_key(egui::Key::Q) && g.visible);
         assert!(!g.handle_key(egui::Key::B), "other keys are not the manipulator's");
+    }
+
+    #[test]
+    fn plane_handles_sit_between_two_axes_and_drag_on_that_plane() {
+        let frame = CubeFrame { min: Vec3::new(-1.0, -1.0, -1.0), extent: 2.0 };
+        let lay = layout(&ProjectionTransform::default(), frame, 1.0);
+        // The handle normal to Z lies in the XY plane, off the centre toward +X and +Y.
+        let q = plane_quad(&lay, 2);
+        assert!(q.iter().all(|c| c.z.abs() < 1e-6 && c.x > 0.0 && c.y > 0.0), "{q:?}");
+        // A ray straight down onto the Y = 0 plane hits it below its origin; along it, no hit.
+        let hit = ray_plane(Vec3::new(0.3, 5.0, 0.2), -Vec3::Y, Vec3::ZERO, Vec3::Y).unwrap();
+        assert!(hit.distance(Vec3::new(0.3, 0.0, 0.2)) < 1e-6);
+        assert!(ray_plane(Vec3::new(0.0, 5.0, 0.0), Vec3::X, Vec3::ZERO, Vec3::Y).is_none());
+        assert!(ray_plane(Vec3::new(0.0, 5.0, 0.0), Vec3::Y, Vec3::ZERO, Vec3::Y).is_none(), "behind the ray");
+        // A plane move changes only the two offsets of that plane.
+        let moved = translated(&ProjectionTransform::default(), (Vec3::new(0.4, 0.0, -0.2)) / frame.extent, None);
+        assert!(close(moved.offset, [0.2, 0.0, -0.1]));
+        // Inside / outside a screen quad, in both windings.
+        let sq = [Pos2::new(0.0, 0.0), Pos2::new(10.0, 0.0), Pos2::new(10.0, 10.0), Pos2::new(0.0, 10.0)];
+        let rev = [sq[3], sq[2], sq[1], sq[0]];
+        assert!(in_quad(Pos2::new(5.0, 5.0), &sq) && in_quad(Pos2::new(5.0, 5.0), &rev));
+        assert!(!in_quad(Pos2::new(11.0, 5.0), &sq) && !in_quad(Pos2::new(5.0, -1.0), &rev));
     }
 
     #[test]
