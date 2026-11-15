@@ -13,7 +13,7 @@ Layout notes: Painter shows one Properties panel whose content follows the selec
 |---|---|---|---|---|---|
 | Properties panel shows tool parameters when a paint layer / paint effect is selected | Properties | n/a | done | crates/ui/src/panels/properties.rs:22 (shows_brush) | - |
 | Open Properties from the dock toolbar | Dock toolbar | n/a | partial: dock tab, no dock-toolbar icon strip | crates/ui/src/app.rs:872 | - |
-| Right-click in the viewport opens a floating Properties at the cursor | Viewport | n/a | missing | - | #131 |
+| Right-click in the viewport opens a floating Properties at the cursor | Viewport | n/a | done (earlier): a click without dragging opens the Properties popup at the cursor | crates/ui/src/view_props.rs | #131 |
 | Right-click inside Properties opens the preset context menu | Properties (paint tool) | n/a | done | crates/ui/src/panels/brush.rs (properties_menu_id) | - |
 | Section order: Brush, Alpha, Stencil, Material | Properties (paint tool) | n/a | done | crates/ui/src/panels/brush.rs (show) | - |
 | Collapsible parameter groups | Properties | open | done | crates/ui/src/widgets.rs:103 (section) | - |

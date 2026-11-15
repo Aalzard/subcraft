@@ -13,7 +13,7 @@ Layout notes: with a fill layer or fill effect selected the panel has two upper-
 | MATERIAL block | Properties (fill layer) | n/a | done | crates/ui/src/panels/properties.rs:201 | - |
 | Same panel for a Fill effect on a layer's content | Properties (fill effect) | n/a | partial: compact editor (segmented mode) with the Filtering / UV Wrap / Shape crop rows, sources limited to Uniform and Procedural | crates/ui/src/panels/effects.rs:367 | chunk 8 |
 | Same panel for a Fill effect in a mask (GRAYSCALE block) | Properties (mask fill effect) | n/a | partial: Value slider or built-in procedural, plus the compact projection editor | crates/ui/src/panels/properties.rs:637 | - |
-| Right-click in the viewport opens floating Properties for the selected fill | Viewport | n/a | missing | - | #131 |
+| Right-click in the viewport opens floating Properties for the selected fill | Viewport | n/a | done (earlier): the right-click Properties popup shows the selected layer's properties | crates/ui/src/view_props.rs | #131 |
 
 ## Projection dropdown
 

@@ -69,9 +69,48 @@ pub(crate) fn radial_guides(mesh: &Mesh, radial: &subcraft_paint::RadialSymmetry
     lines
 }
 
+/// Most points where the radial axis crosses the surface.
+const MAX_AXIS_HITS: usize = 16;
+
+/// Where the radial symmetry axis meets the surface (Painter's Show Intersection for radial
+/// symmetry): every crossing of the whole axis line with the mesh, in order along the axis.
+pub(crate) fn radial_axis_hits(mesh: &Mesh, bvh: &subcraft_mesh::Bvh, radial: &subcraft_paint::RadialSymmetry) -> Vec<Vec3> {
+    let dir = radial.axis_dir().normalize_or_zero();
+    if dir == Vec3::ZERO {
+        return Vec::new();
+    }
+    let center = mesh.bounds.center() + Vec3::from_array(radial.center_offset);
+    let reach = mesh.bounds.diagonal() + Vec3::from_array(radial.center_offset).length() + 1.0;
+    let start = center - dir * reach;
+    let eps = mesh.bounds.diagonal().max(1e-6) * 1e-5;
+    let mut hits = Vec::new();
+    let mut t = 0.0;
+    while hits.len() < MAX_AXIS_HITS {
+        let Some(hit) = bvh.intersect(start, dir, t, 2.0 * reach) else { break };
+        hits.push(start + dir * hit.t);
+        t = hit.t + eps;
+    }
+    hits
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_radial_axis_meets_a_cube_on_two_faces() {
+        let mut mesh = subcraft_mesh::primitives::cube(2.);
+        for p in &mut mesh.positions { *p += Vec3::new(3., 4., 5.); }
+        mesh.bounds = subcraft_mesh::Aabb::from_points(mesh.positions.iter().copied());
+        let bvh = subcraft_mesh::Bvh::build(&mesh);
+        let radial = subcraft_paint::RadialSymmetry { enabled: true, axis: 1, count: 6, center_offset: [0.3, 0.0, 0.15], flip: false };
+        let hits = radial_axis_hits(&mesh, &bvh, &radial);
+        assert_eq!(hits.len(), 2, "in through the bottom, out through the top: {hits:?}");
+        assert!((hits[0] - Vec3::new(3.3, 3.0, 5.15)).length() < 1e-4 && (hits[1] - Vec3::new(3.3, 5.0, 5.15)).length() < 1e-4, "{hits:?}");
+        // An axis that misses the model: no point.
+        let off = subcraft_paint::RadialSymmetry { center_offset: [5.0, 0.0, 0.0], ..radial };
+        assert!(radial_axis_hits(&mesh, &bvh, &off).is_empty());
+    }
 
     #[test]
     fn radial_guides_draw_the_axis_and_one_spoke_per_copy_through_the_offset_center() {
