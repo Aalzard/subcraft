@@ -31,7 +31,7 @@
 | Tools | `2` | Eraser tool | EraserTool | added (key was free) | E kept as well |
 | Tools | `Ctrl+2` | Eraser tool + Particles |  | no equivalent | no particle tool |
 | Tools | `3` | Projection tool | ProjectionTool | added (key was free) | paints the brush material cast from the view and tiled over it |
-| Tools | `Ctrl+3` | Projection tool + Particles |  | no equivalent | no projection tool |
+| Tools | `Ctrl+3` | Projection tool + Particles |  | no equivalent | no particle tool (the Projection tool itself is 3) |
 | Tools | `4` | Polygon Fill | PolygonFillTool | added (key was free) |  |
 | Tools | `5` | Smudge tool | SmudgeTool | added (key was free) |  |
 | Tools | `6` | Clone tool (relative source) | CloneTool | added (key was free) | the offset to the source carries over between strokes |
@@ -43,7 +43,7 @@
 | Tools | `D` | Lazy Mouse | ToggleLazyMouse | added (key was free) | toggles a 20 px rope |
 | Tools | `Alt+H` | Hide/ignore excluded geometry | HideExcludedGeometry | added (key was free) | hides what the selected layer's geometry mask leaves out; strokes reach what it covered |
 | Tools | `N (hold)` | Ignore stencil mask |  | mouse / hold key | already worked |
-| Tools | `A` | Resume previous stroke |  | no equivalent | no equivalent |
+| Tools | `A (hold)` | Resume previous stroke |  | mouse / hold key | added: a stroke started with A held carries on the last one (same layer and brush), so stroke opacity caps both together |
 | Tools | `Shift+A (hold)` | Polygon fill: temporary Polygon loop mode |  | mouse / hold key | added: a Polygon Fill click or drag picks a loop while held |
 | Tools | `V (hold) + LMB` | Set Clone tool source |  | mouse / hold key | added; Ctrl+click still works |
 | Viewport | `F5` | Camera perspective | PerspectiveCamera | added (key was free) |  |
@@ -85,9 +85,9 @@
 | Layers | `Delete` | Delete layer | DeleteLayer | already the same |  |
 | Layers | `Ctrl+D` | Duplicate layer | DuplicateLayer | already the same |  |
 | Layers | `Ctrl+G` | Group layer | NewFolder | already the same | creates a folder |
-| Layers | `Ctrl+Shift+C` | Copy layer content |  | no equivalent | no content-only clipboard |
-| Layers | `Ctrl+Shift+V` | Paste layer content |  | no equivalent | no content-only clipboard |
+| Layers | `Ctrl+Shift+C` | Copy layer content |  | mouse / hold key | added: copies the paint or fill and the content effects, not the mask; separate from Ctrl+C |
+| Layers | `Ctrl+Shift+V` | Paste layer content |  | mouse / hold key | added: replaces the content of the selected layer with the copy |
 | Layers | `Alt+LMB on mask` | Display mask in viewport |  | mouse / hold key | already worked: opens the mask inspector |
 | Layers | `Shift+LMB on mask` | Disable/enable mask |  | mouse / hold key | already worked |
-| Layers | `Ctrl+drag & drop` | Drag material |  | no equivalent | no equivalent |
+| Layers | `Ctrl+drag & drop` | Drag material |  | mouse / hold key | added: a material dropped on the model with Ctrl held shows only on the part under the cursor (geometry mask) |
 | Layers | `Shift / Ctrl (drag)` | Manipulator snapping / mirror |  | no equivalent | no manipulator |
