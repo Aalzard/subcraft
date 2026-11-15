@@ -97,25 +97,128 @@ pub fn curve_hit(path: &PenPath, pointer: Pos2, map: impl Fn(Vec2) -> Option<Pos
 
 /// The path, its points and the main selected point's tangents. `selected` lists every selected
 /// point, the main one first.
-pub fn draw(painter: &egui::Painter, path: &PenPath, selected: &[subcraft_core::AnchorId], map: impl Fn(Vec2) -> Option<Pos2>) {
-    if let Ok(points) = path.polyline(0.002) {
-        for pair in points.windows(2) {
-            if let (Some(a), Some(b)) = (map(pair[0]), map(pair[1])) { painter.line_segment([a, b], Stroke::new(1.5, theme::ACCENT())); }
+/// Painter's path display settings: how paths are drawn over the views.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PenDisplay {
+    /// Show the paths and their points at all (Show / hide viewport interface).
+    pub show: bool,
+    /// Radius of the points, in screen points.
+    pub handle_size: f32,
+    /// Width of the selected path's line.
+    pub path_width: f32,
+    /// Colour of the selected path; `None` is the theme's accent.
+    pub path_color: Option<Color32>,
+    /// Colour of the other paths of the texture set (drawn thinner, without points).
+    pub unselected_color: Color32,
+    /// Short ticks across the path (its normal on screen).
+    pub normals: bool,
+    /// Tangent handles of the selected point.
+    pub tangents: bool,
+    /// Arrows along the path showing its direction.
+    pub direction: bool,
+}
+
+impl Default for PenDisplay {
+    fn default() -> Self {
+        Self {
+            show: true,
+            handle_size: 4.5,
+            path_width: 1.5,
+            path_color: None,
+            unselected_color: Color32::from_rgba_unmultiplied(190, 190, 190, 150),
+            normals: false,
+            tangents: true,
+            direction: false,
         }
     }
-    for a in &path.anchors {
-        let Some(p) = map(a.position) else { continue; };
-        if selected.first() == Some(&a.id) {
-            for tangent in [a.incoming, a.outgoing] {
-                if tangent.length_squared() > 1e-10 && let Some(q) = map(a.position + tangent) {
-                    painter.line_segment([p, q], Stroke::new(1.0, theme::OVERLAY_TEXT_DIM));
-                    painter.circle_filled(q, 3.0, theme::OVERLAY_TEXT);
-                    painter.circle_stroke(q, 3.0, Stroke::new(1.0, theme::OVERLAY_OUTLINE));
+}
+
+impl PenDisplay {
+    pub const HANDLE_SIZE: std::ops::RangeInclusive<f32> = 2.0..=10.0;
+    pub const PATH_WIDTH: std::ops::RangeInclusive<f32> = 0.5..=6.0;
+
+    pub fn color(&self) -> Color32 {
+        self.path_color.unwrap_or_else(theme::ACCENT)
+    }
+}
+
+/// Direction arrows: one at the middle of each screen segment run, `size` points long.
+pub fn direction_marks(points: &[Pos2], every: f32, size: f32) -> Vec<[Pos2; 3]> {
+    let mut marks = Vec::new();
+    let mut travelled = every * 0.5;
+    for w in points.windows(2) {
+        let d = w[1] - w[0];
+        let len = d.length();
+        if len < 1e-3 {
+            continue;
+        }
+        let dir = d / len;
+        let mut s = travelled;
+        while s <= len {
+            let tip = w[0] + dir * s;
+            let back = tip - dir * size;
+            let side = egui::vec2(-dir.y, dir.x) * (size * 0.5);
+            marks.push([tip, back + side, back - side]);
+            s += every;
+        }
+        travelled = s - len;
+    }
+    marks
+}
+
+/// The other paths of the texture set: a thin line in the unselected colour.
+pub fn draw_unselected(painter: &egui::Painter, path: &PenPath, display: &PenDisplay, map: impl Fn(Vec2) -> Option<Pos2>) {
+    if !display.show {
+        return;
+    }
+    if let Ok(points) = path.polyline(0.004) {
+        for pair in points.windows(2) {
+            if let (Some(a), Some(b)) = (map(pair[0]), map(pair[1])) { painter.line_segment([a, b], Stroke::new((display.path_width * 0.7).max(0.5), display.unselected_color)); }
+        }
+    }
+}
+
+pub fn draw(painter: &egui::Painter, path: &PenPath, selected: &[subcraft_core::AnchorId], display: &PenDisplay, map: impl Fn(Vec2) -> Option<Pos2>) {
+    if !display.show {
+        return;
+    }
+    let color = display.color();
+    if let Ok(points) = path.polyline(0.002) {
+        let screen: Vec<Option<Pos2>> = points.iter().map(|&p| map(p)).collect();
+        for pair in screen.windows(2) {
+            if let (Some(a), Some(b)) = (pair[0], pair[1]) { painter.line_segment([a, b], Stroke::new(display.path_width, color)); }
+        }
+        // Runs of visible points for the normal ticks and direction arrows.
+        for run in screen.split(Option::is_none) {
+            let run: Vec<Pos2> = run.iter().flatten().copied().collect();
+            if display.normals {
+                for w in run.windows(2).step_by(6) {
+                    let d = (w[1] - w[0]).normalized();
+                    let n = egui::vec2(-d.y, d.x) * 6.0;
+                    painter.line_segment([w[0] - n, w[0] + n], Stroke::new(1.0, color.gamma_multiply(0.7)));
+                }
+            }
+            if display.direction {
+                for [tip, a, b] in direction_marks(&run, 60.0, 7.0) {
+                    painter.add(egui::Shape::convex_polygon(vec![tip, a, b], color, Stroke::NONE));
                 }
             }
         }
-        painter.circle_filled(p, 4.5, if selected.contains(&a.id) { theme::ACCENT() } else { theme::OVERLAY_TEXT });
-        painter.circle_stroke(p, 4.5, Stroke::new(1.0, Color32::BLACK));
+    }
+    let radius = display.handle_size.clamp(*PenDisplay::HANDLE_SIZE.start(), *PenDisplay::HANDLE_SIZE.end());
+    for a in &path.anchors {
+        let Some(p) = map(a.position) else { continue; };
+        if display.tangents && selected.first() == Some(&a.id) {
+            for tangent in [a.incoming, a.outgoing] {
+                if tangent.length_squared() > 1e-10 && let Some(q) = map(a.position + tangent) {
+                    painter.line_segment([p, q], Stroke::new(1.0, theme::OVERLAY_TEXT_DIM));
+                    painter.circle_filled(q, radius * 0.66, theme::OVERLAY_TEXT);
+                    painter.circle_stroke(q, radius * 0.66, Stroke::new(1.0, theme::OVERLAY_OUTLINE));
+                }
+            }
+        }
+        painter.circle_filled(p, radius, if selected.contains(&a.id) { color } else { theme::OVERLAY_TEXT });
+        painter.circle_stroke(p, radius, Stroke::new(1.0, Color32::BLACK));
     }
 }
 
@@ -266,6 +369,30 @@ pub fn properties(state: &mut UiState, ui: &mut Ui, path: &PenPath, now: f64) {
         if ui.add_enabled(path.anchors.len() > 1, egui::Button::new("Reverse")).on_hover_text("Run the path the other way: stamps and a ribbon's image start from the other end").clicked()
             && let Err(e) = state.pen.reverse_path(&state.session) { state.set_status(e.to_string(), now); }
     });
+    // Painter's path display settings.
+    egui::CollapsingHeader::new("Display").id_salt("pen_display").default_open(false).show(ui, |ui| {
+        let d = &mut state.pen_display;
+        ui.checkbox(&mut d.show, "Show paths").on_hover_text("Show the paths and their points in the views");
+        crate::widgets::slider_row(ui, "Handle size", egui::Slider::new(&mut d.handle_size, PenDisplay::HANDLE_SIZE));
+        crate::widgets::slider_row(ui, "Path width", egui::Slider::new(&mut d.path_width, PenDisplay::PATH_WIDTH));
+        crate::widgets::prop_row(ui, "Path colour", |ui| {
+            let mut c = d.color();
+            if ui.color_edit_button_srgba(&mut c).changed() {
+                d.path_color = Some(c);
+            }
+            if d.path_color.is_some() && ui.small_button("Theme").on_hover_text("Back to the theme's accent colour").clicked() {
+                d.path_color = None;
+            }
+        });
+        crate::widgets::prop_row(ui, "Other paths", |ui| {
+            ui.color_edit_button_srgba(&mut d.unselected_color).on_hover_text("Colour of the texture set's other paths");
+        });
+        ui.horizontal(|ui| {
+            ui.checkbox(&mut d.tangents, "Tangents");
+            ui.checkbox(&mut d.normals, "Normals");
+            ui.checkbox(&mut d.direction, "Direction");
+        });
+    });
     // Painter's magnet menu: snap new and moved points to the model.
     crate::widgets::prop_row(ui, "Snap", |ui| {
         let s = &mut state.pen_snap;
@@ -363,6 +490,19 @@ pub fn properties(state: &mut UiState, ui: &mut Ui, path: &PenPath, now: f64) {
 #[cfg(test)]
 mod snap_tests {
     use super::*;
+
+    #[test]
+    fn direction_marks_follow_the_line_at_their_spacing() {
+        // A straight 200-point line to the right: arrows every 60 from 30, pointing right.
+        let line = [Pos2::new(0.0, 0.0), Pos2::new(120.0, 0.0), Pos2::new(200.0, 0.0)];
+        let marks = direction_marks(&line, 60.0, 7.0);
+        let tips: Vec<f32> = marks.iter().map(|m| m[0].x).collect();
+        assert_eq!(tips, vec![30.0, 90.0, 150.0], "spacing carries across segments");
+        assert!(marks.iter().all(|[tip, a, b]| a.x < tip.x && b.x < tip.x && (a.y + b.y).abs() < 1e-4), "pointing along the line");
+        assert!(direction_marks(&[Pos2::ZERO], 60.0, 7.0).is_empty());
+        let d = PenDisplay::default();
+        assert!(d.show && d.tangents && !d.normals && !d.direction && d.path_color.is_none());
+    }
 
     #[test]
     fn snapping_prefers_corners_and_centres_then_edges_within_the_radius() {

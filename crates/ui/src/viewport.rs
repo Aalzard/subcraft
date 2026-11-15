@@ -435,7 +435,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     if !bake_mode && state.tool == Tool::Pen && !picking && !alt && !stencil_edit && !typing && let Some(p) = pointer {
             if primary_pressed && response.hovered() {
                 let map = |uv: Vec2| pen_position(state, &camera, rect, uv);
-                let hit = state.pen.preview(&state.session).and_then(|path| crate::pen::hit(path, state.pen.selected_anchor(), p, map));
+                // Hidden tangent handles cannot be grabbed.
+                let handles = state.pen.selected_anchor().filter(|_| state.pen_display.tangents);
+                let hit = state.pen.preview(&state.session).and_then(|path| crate::pen::hit(path, handles, p, map));
                 let anchor = hit.filter(|h| h.handle == subcraft_app::pen::Handle::Anchor).map(|h| h.anchor);
                 // A second press on the same point within a double-click: corner / smooth.
                 let last_id = egui::Id::new("pen_last_press");
@@ -912,6 +914,15 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         let to = if mods.ctrl || mods.command { snap_angle(last, cursor, 15f32.to_radians()) } else { cursor };
         painter.extend(egui::Shape::dashed_line(&[last, to], Stroke::new(1.2, Color32::from_white_alpha(190)), 5.0, 4.0));
     }
+    // The texture set's other paths, in the unselected colour (Pen properties > Display).
+    if state.tool == Tool::Pen && state.pen_display.show {
+        let current = state.session.selection().layer;
+        for (id, _, visible) in crate::paths_panel::path_layers(state) {
+            if visible && Some(id) != current && let Some(path) = crate::paths_panel::path_of(state, id) {
+                crate::pen::draw_unselected(&painter, &path, &state.pen_display, |uv| pen_position(state, &camera, rect, uv));
+            }
+        }
+    }
     // Where a click would snap to (Pen properties > Snap).
     if state.tool == Tool::Pen && state.pen_snap.any() && !state.pen.is_editing() && let Some(cursor) = response.hover_pos() {
         let snapped = pen_snapped(state, &camera, rect, pixel_scale, cursor);
@@ -920,7 +931,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         }
     }
     if state.tool == Tool::Pen && let Some(path) = state.pen.preview(&state.session) {
-        crate::pen::draw(&painter, path, &state.pen.selected_anchors(), |uv| pen_position(state, &camera, rect, uv));
+        crate::pen::draw(&painter, path, &state.pen.selected_anchors(), &state.pen_display, |uv| pen_position(state, &camera, rect, uv));
     }
     if state.tool == Tool::Pen && let Some(start) = ui.data(|d| d.get_temp::<egui::Pos2>(pen_box_id())) && let Some(cursor) = response.hover_pos() {
         let area = egui::Rect::from_two_pos(start, cursor);

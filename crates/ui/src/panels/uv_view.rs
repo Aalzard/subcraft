@@ -431,7 +431,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         }
     }
     if state.tool == Tool::Pen && let Some(path) = state.pen.preview(&state.session) {
-        crate::pen::draw(&painter, path, &state.pen.selected_anchors(), |uv| Some(frame.to_px(uv)));
+        crate::pen::draw(&painter, path, &state.pen.selected_anchors(), &state.pen_display, |uv| Some(frame.to_px(uv)));
     }
     for start in [state.uv.fill_box, state.uv.parts_box] {
         if let (Some(a), Some(b)) = (start, response.hover_pos().or(ui.input(|i| i.pointer.latest_pos())))

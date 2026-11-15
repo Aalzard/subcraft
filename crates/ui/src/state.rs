@@ -174,6 +174,8 @@ pub struct UiState {
     pub pen: subcraft_app::pen::PenEditor,
     /// Path snapping to the model (Pen properties > Snap).
     pub pen_snap: crate::pen::PenSnap,
+    /// How paths are drawn (Pen properties > Display).
+    pub pen_display: crate::pen::PenDisplay,
     pub text: crate::text_panel::TextUi,
     pub pen_after: Option<crate::pen::After>,
     pub fill_mode: PolygonFillMode,
@@ -499,6 +501,7 @@ impl UiState {
             tool,
             pen: Default::default(),
             pen_snap: Default::default(),
+            pen_display: Default::default(),
             text: Default::default(),
             pen_after: None,
             fill_mode: PolygonFillMode::UvIsland,
