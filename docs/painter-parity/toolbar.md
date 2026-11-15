@@ -189,10 +189,10 @@ Layout notes: shown when a fill layer or fill effect uses Tri-planar, Planar, Sp
 | Grid color | Warp projection settings | not documented | done | crates/ui/src/warp_view.rs | - |
 | Automatic tangents | Contextual toolbar, Warp | not documented | missing | - | - |
 | Warp to geometry | Contextual toolbar, Warp (12.0) | not documented | missing | - | - |
-| Reset menu | Contextual toolbar, Warp | - | partial: Reset grid button in Properties | crates/ui/src/panels/properties.rs (warp_rows) | - |
-| Restore the global transformation | Reset menu | - | missing | - | - |
-| Reset all vertices | Reset menu | - | missing | - | - |
-| Reset selected vertices | Reset menu | - | missing | - | - |
+| Reset menu | Contextual toolbar, Warp | - | done: Reset grid, plus Reset > Global / All vertices / Selected in the Warp settings | crates/ui/src/panels/properties.rs, crates/ui/src/warp_view.rs (reset_ui) | - |
+| Restore the global transformation | Reset menu | - | done: Warp settings > Reset > Global (the grid moves back as a whole; vertex edits keep their shape) | crates/doc/src/warp.rs (restore_global, reset_all, reset_points), crates/ui/src/warp_view.rs (reset_ui) | - |
+| Reset all vertices | Reset menu | - | done: Reset > All vertices (rows, columns and splits stay) | crates/doc/src/warp.rs (restore_global, reset_all, reset_points), crates/ui/src/warp_view.rs (reset_ui) | - |
+| Reset selected vertices | Reset menu | - | done: Reset > Selected (the Edit vertices selection) | crates/doc/src/warp.rs (restore_global, reset_all, reset_points), crates/ui/src/warp_view.rs (reset_ui) | - |
 
 ## Contextual toolbar: UV projection (2D manipulator)
 
