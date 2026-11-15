@@ -330,10 +330,8 @@ impl PenRasterizer {
         let end_dir = points.windows(2).rev().map(|w| w[1] - w[0]).find(|&d| direction(d)).unwrap_or(Vec2::X);
         let (first, final_point) = (points.first().copied().unwrap_or_default(), points.last().copied().unwrap_or_default());
         let aspect = image.map_or(1.0, |b| b.width as f32 / b.height.max(1) as f32);
-        let copy_length = match settings.mode {
-            subcraft_doc::RibbonMode::Stretch => total / settings.tiles.max(1e-3),
-            subcraft_doc::RibbonMode::KeepAspect => 2.0 * radius * aspect * settings.tiles.max(1e-3),
-        };
+        let copy_length = settings.copy_length(total, 2.0 * radius, aspect);
+        let single = settings.single_copy();
         let colored = settings.color_from_image && image.is_some();
         let done: Vec<(usize, Vec<f32>, Vec<[f32; 3]>)> = self.tiles[self.tile..].par_iter().map(|&tile| {
             let mut coverage = vec![0.0f32; TILE_TEXELS];
@@ -367,6 +365,7 @@ impl PenRasterizer {
                 if edge <= 0.0 { continue; }
                 let along = (arc[i] + (arc[i + 1] - arc[i]) * t) / copy_length;
                 let k = along.floor();
+                if single && k >= 1.0 { continue; }
                 let mut u = along - k;
                 if settings.mirror && (k as i64).rem_euclid(2) == 1 { u = 1.0 - u; }
                 let mut v = (0.5 + side / (2.0 * radius)).clamp(0.0, 1.0);
@@ -512,7 +511,7 @@ mod run_tests {
     #[test]
     fn a_ribbon_lays_its_image_along_the_path_with_square_ends() {
         use std::sync::Arc;
-        use subcraft_doc::{PathKind, PathRibbon, RibbonMode};
+        use subcraft_doc::{PathKind, PathRibbon, RibbonMode, RibbonTiling};
         use subcraft_image::Bitmap;
         let anchors = [(0.1, 0.5), (0.9, 0.5)].into_iter().map(|(x, y)| PenAnchor::new(Vec2::new(x, y))).collect();
         let values = [(ChannelKind::BaseColor, ChannelValue::rgb(0.0, 1.0, 0.0))].into_iter().collect();
@@ -536,7 +535,7 @@ mod run_tests {
         assert_eq!(img.get(240, 128)[3], 0.0, "the end is cut square, not rounded");
         assert_eq!(img.get(128, 150)[3], 0.0, "nothing beyond the width");
         // Two copies, every second mirrored: the end shows the image's left end again.
-        path.ribbon = Some(PathRibbon { tiles: 2.0, mirror: true, ..Default::default() });
+        path.ribbon = Some(PathRibbon { tiles: 2.0, mirror: true, tiling: RibbonTiling::Custom, ..Default::default() });
         let mirrored = render(&path, &along).get(226, 128);
         assert!(mirrored[0] > 0.9 && mirrored[2] < 0.1, "{mirrored:?}");
         // Across: the image's top row on one side, the bottom row on the other; Flip swaps them.
@@ -555,5 +554,31 @@ mod run_tests {
         path.ribbon = Some(PathRibbon { mode: RibbonMode::KeepAspect, color_from_image: false, ..Default::default() });
         let green_part = render(&path, &across).get(128, 138);
         assert!(green_part[3] > 0.9, "coverage is the image alpha: {green_part:?}");
+        // Keep aspect ratio with Tiling None: one copy (2:1 at 25.6 texels wide, so 51.2 long)
+        // from the start, nothing after it.
+        path.ribbon = Some(PathRibbon { mode: RibbonMode::KeepAspect, tiling: RibbonTiling::None, ..Default::default() });
+        let once = render(&path, &along);
+        assert!(once.get(40, 128)[3] > 0.99 && once.get(150, 128)[3] == 0.0, "{:?} {:?}", once.get(40, 128), once.get(150, 128));
+    }
+
+    #[test]
+    fn ribbon_tiling_modes_set_the_copy_length() {
+        use subcraft_doc::{PathRibbon, RibbonMode, RibbonTiling};
+        let r = |mode, tiling, tiles| PathRibbon { mode, tiling, tiles, ..Default::default() };
+        // A 200-texel path, 20 wide, a 2:1 image: Auto fits 5 whole copies of about 40.
+        assert_eq!(r(RibbonMode::Stretch, RibbonTiling::Auto, 1.0).copy_length(200.0, 20.0, 2.0), 40.0);
+        assert_eq!(r(RibbonMode::Stretch, RibbonTiling::Auto, 1.0).copy_length(210.0, 20.0, 2.0), 42.0, "rounded to whole copies");
+        assert_eq!(r(RibbonMode::Stretch, RibbonTiling::Auto, 1.0).copy_length(10.0, 20.0, 2.0), 10.0, "at least one copy");
+        assert_eq!(r(RibbonMode::Stretch, RibbonTiling::None, 3.0).copy_length(200.0, 20.0, 2.0), 200.0);
+        assert_eq!(r(RibbonMode::Stretch, RibbonTiling::Custom, 4.0).copy_length(200.0, 20.0, 2.0), 50.0);
+        // Keep aspect ratio: the copy keeps the aspect, times the factor, whatever the mode.
+        assert_eq!(r(RibbonMode::KeepAspect, RibbonTiling::Auto, 1.5).copy_length(200.0, 20.0, 2.0), 60.0);
+        assert!(r(RibbonMode::KeepAspect, RibbonTiling::None, 1.0).single_copy());
+        assert!(!r(RibbonMode::Stretch, RibbonTiling::None, 1.0).single_copy());
+        // New ribbons use Auto (Painter's default); ribbons saved before the mode keep Copies.
+        assert_eq!(PathRibbon::default().tiling, RibbonTiling::Auto);
+        let mut json = serde_json::to_value(PathRibbon::default()).unwrap();
+        json.as_object_mut().unwrap().remove("tiling");
+        assert_eq!(serde_json::from_value::<PathRibbon>(json).unwrap().tiling, RibbonTiling::Custom);
     }
 }

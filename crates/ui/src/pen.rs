@@ -133,7 +133,7 @@ pub fn uv_input(state: &mut UiState, ui: &Ui, response: &egui::Response, image: 
 /// factor, mirror every second copy, flip across the path, and whether Base Color takes the
 /// image's colour.
 fn ribbon_rows(state: &mut UiState, ui: &mut Ui, path: &mut PenPath) -> bool {
-    use subcraft_doc::{PathRibbon, RibbonMode};
+    use subcraft_doc::{PathRibbon, RibbonMode, RibbonTiling};
     let mut changed = false;
     let ribbon = path.ribbon.get_or_insert_with(PathRibbon::default);
     let name = ribbon.image.and_then(|id| state.session.resources().get(id)).map_or("none (solid strip)".to_string(), |r| r.name.clone());
@@ -155,8 +155,23 @@ fn ribbon_rows(state: &mut UiState, ui: &mut Ui, path: &mut PenPath) -> bool {
             }
         });
     });
-    let label = if ribbon.mode == RibbonMode::Stretch { "Copies" } else { "Aspect factor" };
-    changed |= crate::widgets::slider_row(ui, label, egui::Slider::new(&mut ribbon.tiles, PathRibbon::TILES).logarithmic(true)).changed();
+    crate::widgets::prop_row(ui, "Tiling mode", |ui| {
+        egui::ComboBox::from_id_salt("ribbon_tiling").selected_text(ribbon.tiling.label()).show_ui(ui, |ui| {
+            for tiling in RibbonTiling::ALL {
+                changed |= ui.selectable_value(&mut ribbon.tiling, tiling, tiling.label()).changed();
+            }
+        })
+        .response
+        .on_hover_text("None: one copy. Auto: whole copies close to the image's aspect (Stretch), or copies to the end (Keep aspect ratio). Custom: the Copies value");
+    });
+    if ribbon.mode == RibbonMode::Stretch {
+        // The number of copies only applies to Custom tiling.
+        ui.add_enabled_ui(ribbon.tiling == RibbonTiling::Custom, |ui| {
+            changed |= crate::widgets::slider_row(ui, "Copies", egui::Slider::new(&mut ribbon.tiles, PathRibbon::TILES).logarithmic(true)).changed();
+        });
+    } else {
+        changed |= crate::widgets::slider_row(ui, "Aspect factor", egui::Slider::new(&mut ribbon.tiles, PathRibbon::TILES).logarithmic(true)).changed();
+    }
     ui.horizontal(|ui| {
         changed |= ui.checkbox(&mut ribbon.mirror, "Mirror every 2nd copy").changed();
         changed |= ui.checkbox(&mut ribbon.flip, "Flip image").changed();
