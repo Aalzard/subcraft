@@ -127,7 +127,7 @@ Layout notes: one flat dropdown, grouped by separators in this order: Normal / P
 | Hovering a thumbnail while dragging switches to that stack (content or mask) | Layer stack | n/a | partial: mask thumbnail is a separate drop target, no stack switch | crates/ui/src/panels/layers.rs:300 | - |
 | Ghost mask icon on mask-less layers while dragging (drop creates a black mask plus the resource) | Layer stack | n/a | done (alphas, images, mask filters and smart masks) | crates/ui/src/panels/layers.rs:535 | - |
 | Ctrl + drag a material creates the fill layer with a mask immediately | Assets > Layer stack | n/a | done | crates/ui/src/panels/shelf.rs:154 | - |
-| Automatic ID mask when dropping a material on a mesh with an ID map (Ctrl in viewport) | Assets > Viewport | n/a | missing | - | - |
+| Automatic ID mask when dropping a material on a mesh with an ID map (Ctrl in viewport) | Assets > Viewport | n/a | done: Ctrl+drop on the model of a texture set with a baked ID map adds an ID colour mask with the colour under the cursor (without an ID map: the geometry part, as before) | crates/ui/src/viewport.rs | (this PR) |
 
 ## Managing layers
 

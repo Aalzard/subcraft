@@ -80,7 +80,7 @@ Layout notes: the Contextual toolbar is fixed above the viewports and cannot be 
 | Pressure curve: easy-in-out | Contextual toolbar (2019.3) | not documented | partial: smoothstep (Painter's exact curve is not documented); in the brush display menu, saved with the preferences, applies to pen strokes in the 3D and 2D views | crates/paint/src/settings.rs (PressureCurve), brush_bar.rs (display_options) | #274 |
 | Hide / ignore excluded geometry button | Contextual toolbar; Alt + H | off; disabled when nothing is excluded | done | crates/ui/src/viewport_bar.rs | - |
 | Ignore masked UV Tiles while painting button | Contextual toolbar (UV Tile projects) | not documented | missing | - | - |
-| Clone source behaviour button (source follows / returns) | Clone tool (location not documented) | follows | missing | - | - |
+| Clone source behaviour button (source follows / returns) | Clone tool (location not documented) | follows | done (earlier): Relative / Absolute in the Clone tool settings (Ctrl+6 for Absolute) | crates/ui/src/panels/brush.rs | - |
 | Polygon Fill options on the toolbar | Contextual toolbar with Polygon Fill | not documented | partial: "Fill by" (Triangle, Part, UV island) only in Properties | crates/ui/src/panels/brush.rs:23 | #131 |
 | Blending mode shortcut (cage painting in Baking mode) | Contextual toolbar (12.2) | - | missing | - | - |
 

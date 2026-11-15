@@ -202,7 +202,7 @@ Layout notes: display options (plane, intersection, cursor, manipulator) are onl
 | Mirror axis-position manipulator (drag handles) | 3D view | off until enabled | done: a handle per mirror plane moves it along its axis; the radial pivot moves across its plane | crates/ui/src/symmetry_view.rs (manipulate) | - |
 | Radial axis line | 3D view (Show Axis) | not documented | done: own Show Axis toggle | crates/app/src/guides.rs (radial_guides) | - |
 | Radial axis / mesh intersection point | 3D view (Show Intersection) | not documented | done: a dot where the radial axis crosses the surface (faint when hidden by the model) | crates/ui/src/symmetry_view.rs | (this PR) |
-| Radial axis-position manipulator | 3D view (Show Axis position manipulator) | off | missing | - | - |
+| Radial axis-position manipulator | 3D view (Show Axis position manipulator) | off | done (earlier): the symmetry manipulator has a radial handle (Symmetry settings > manipulator) | crates/ui/src/symmetry_view.rs | - |
 
 ## Quick mask
 
