@@ -31,11 +31,61 @@ pub struct WarpEdit {
     pub handle_size: f32,
     /// Grid line and handle colour (Warp projection settings).
     pub color: [u8; 3],
+    /// The split tool in use (Painter's Warp edition menu): a click on a cell of the grid in
+    /// the 3D view splits through it; Escape stops.
+    pub split: Option<SplitKind>,
+}
+
+/// How the split tool cuts the clicked cell.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SplitKind {
+    /// A row and a column through the cell.
+    Crosswise,
+    /// A row through the cell.
+    Horizontal,
+    /// A column through the cell.
+    Vertical,
+}
+
+impl SplitKind {
+    pub const ALL: [SplitKind; 3] = [SplitKind::Crosswise, SplitKind::Horizontal, SplitKind::Vertical];
+    pub fn label(self) -> &'static str {
+        match self {
+            SplitKind::Crosswise => "Crosswise",
+            SplitKind::Horizontal => "Horizontally",
+            SplitKind::Vertical => "Vertically",
+        }
+    }
+}
+
+/// `grid` split through cell (`row`, `col`) the way `kind` cuts.
+pub fn split_cell(grid: &WarpGrid, kind: SplitKind, row: usize, col: usize) -> WarpGrid {
+    let mut g = *grid;
+    if matches!(kind, SplitKind::Crosswise | SplitKind::Vertical) {
+        g.split_column(col);
+    }
+    if matches!(kind, SplitKind::Crosswise | SplitKind::Horizontal) {
+        g.split_row(row);
+    }
+    g
+}
+
+/// The grid cell (row, column) whose four corners on screen surround `p`.
+pub fn cell_at(screen: &[Option<Pos2>], width: usize, p: Pos2) -> Option<(usize, usize)> {
+    if width < 2 {
+        return None;
+    }
+    let rows = screen.len() / width;
+    (0..rows.saturating_sub(1)).flat_map(|r| (0..width - 1).map(move |c| (r, c))).find(|&(r, c)| {
+        let i = r * width + c;
+        let q = [screen[i], screen[i + 1], screen[i + width + 1], screen[i + width]];
+        q.iter().all(Option::is_some) && crate::projection_gizmo::in_quad(p, &q.map(|s| s.unwrap_or(Pos2::ZERO)))
+    })
 }
 
 impl Default for WarpEdit {
     fn default() -> Self {
-        Self { edit_vertices: false, selection: Vec::new(), layer: None, handle_size: 1.0, color: [90, 200, 255] }
+        Self { edit_vertices: false, selection: Vec::new(), layer: None, handle_size: 1.0, color: [90, 200, 255], split: None }
     }
 }
 
@@ -58,6 +108,14 @@ pub fn settings_ui(ui: &mut Ui, warp: &mut WarpEdit) {
     crate::widgets::prop_row(ui, "Edit", |ui| {
         ui.selectable_value(&mut warp.edit_vertices, false, "Transform warp").on_hover_text("Drag a point to move the whole grid (Shift+V)");
         ui.selectable_value(&mut warp.edit_vertices, true, "Edit vertices").on_hover_text("Select points and move them (Shift+V)");
+    });
+    crate::widgets::prop_row(ui, "Split tool", |ui| {
+        for kind in SplitKind::ALL {
+            let on = warp.split == Some(kind);
+            if ui.selectable_label(on, kind.label()).on_hover_text("Click a cell of the grid in the 3D view to split through it; Esc stops").clicked() {
+                warp.split = if on { None } else { Some(kind) };
+            }
+        }
     });
     crate::widgets::prop_row(ui, "Handles", |ui| {
         ui.add(egui::Slider::new(&mut warp.handle_size, WarpEdit::SIZE_RANGE).text("size"));
@@ -201,6 +259,9 @@ pub fn manipulate(
     };
     let grid = projection.warp_grid();
     if state.warp.layer != Some(layer) || state.warp.selection.iter().any(|&i| i >= grid.points().len()) {
+        if state.warp.layer != Some(layer) {
+            state.warp.split = None;
+        }
         state.warp.layer = Some(layer);
         state.warp.selection.clear();
     }
@@ -213,11 +274,28 @@ pub fn manipulate(
         state.warp.edit_vertices = !state.warp.edit_vertices;
         state.warp.selection.clear();
     }
-    if escape && state.warp.edit_vertices {
+    if escape && state.warp.split.is_some() {
+        // Escape stops the split tool first.
+        state.warp.split = None;
+    } else if escape && state.warp.edit_vertices {
         state.warp.selection.clear();
     }
     let frame = CubeFrame::of(state);
     let screen = screen_points(&grid, frame, camera, rect, pixel_scale);
+    // The split tool: a click on a cell splits through it; the other grid tools wait.
+    if let Some(kind) = state.warp.split {
+        ui.data_mut(|d| d.remove::<Gesture>(gesture_id()));
+        if primary_pressed && response.hovered() && let Some(p) = pointer && let Some((r, c)) = cell_at(&screen, grid.width(), p) {
+            let new = split_cell(&grid, kind, r, c);
+            if new != grid {
+                state.warp.selection.clear();
+                let _ = state.session.execute(Command::SetFillProjection { layer, projection: Projection { mode: ProjectionMode::Warp, warp: Some(new), ..projection } });
+                let _ = state.session.execute(Command::Seal);
+            }
+            return true;
+        }
+        return false;
+    }
     let to_paint = |p: Pos2| Vec2::new((p.x - rect.min.x) * pixel_scale.x, (p.y - rect.min.y) * pixel_scale.y);
     let ctrl = mods.ctrl || mods.command;
     let mut gesture: Option<Gesture> = ui.data(|d| d.get_temp(gesture_id()));
@@ -317,6 +395,19 @@ pub fn overlay(state: &UiState, ui: &Ui, painter: &egui::Painter, rect: Rect, pi
             if r + 1 < rows { line(i, i + w); }
         }
     }
+    // Split tool: where a click would cut, through the cell under the pointer.
+    if let Some(kind) = state.warp.split && let Some(p) = ui.input(|i| i.pointer.hover_pos()) && let Some((r, c)) = cell_at(&screen, w, p) {
+        let mid = |a: Option<Pos2>, b: Option<Pos2>| a.zip(b).map(|(a, b)| a.lerp(b, 0.5));
+        let dashed = |points: Vec<Pos2>| {
+            painter.extend(egui::Shape::dashed_line(&points, Stroke::new(1.6, ACCENT()), 6.0, 4.0));
+        };
+        if matches!(kind, SplitKind::Crosswise | SplitKind::Vertical) {
+            dashed((0..rows).filter_map(|rr| mid(screen[rr * w + c], screen[rr * w + c + 1])).collect());
+        }
+        if matches!(kind, SplitKind::Crosswise | SplitKind::Horizontal) {
+            dashed((0..w).filter_map(|cc| mid(screen[r * w + cc], screen[(r + 1) * w + cc])).collect());
+        }
+    }
     let radius = state.warp.radius();
     let edit = state.warp.edit_vertices;
     for (i, p) in screen.iter().enumerate() {
@@ -339,6 +430,30 @@ pub fn overlay(state: &UiState, ui: &Ui, painter: &egui::Painter, rect: Rect, pi
     let bg = Rect::from_center_size(pos, galley.size() + egui::vec2(14.0, 8.0));
     painter.rect_filled(bg, 4.0, Color32::from_black_alpha(170));
     painter.galley(bg.center() - galley.size() / 2.0, galley, Color32::WHITE);
+}
+
+#[cfg(test)]
+mod split_tests {
+    use super::*;
+
+    #[test]
+    fn the_split_tool_cuts_the_cell_under_the_pointer() {
+        // A 2 x 2 cell grid drawn as a 200-point square: points every 100.
+        let grid = WarpGrid::planar(2, 2, 2);
+        let screen: Vec<Option<Pos2>> = (0..9).map(|i| Some(Pos2::new((i % 3) as f32 * 100.0, (i / 3) as f32 * 100.0))).collect();
+        assert_eq!(cell_at(&screen, 3, Pos2::new(150.0, 40.0)), Some((0, 1)));
+        assert_eq!(cell_at(&screen, 3, Pos2::new(20.0, 180.0)), Some((1, 0)));
+        assert_eq!(cell_at(&screen, 3, Pos2::new(250.0, 40.0)), None, "outside the grid");
+        // Vertically through column 1: a column more; Horizontally: a row more; Crosswise: both.
+        let v = split_cell(&grid, SplitKind::Vertical, 0, 1);
+        assert_eq!((v.cols(), v.rows()), (3, 2));
+        assert!((v.grid_coords(2)[0] - 0.75).abs() < 1e-6, "the new column is in the middle of the clicked cell");
+        let h = split_cell(&grid, SplitKind::Horizontal, 1, 0);
+        assert_eq!((h.cols(), h.rows()), (2, 3));
+        let x = split_cell(&grid, SplitKind::Crosswise, 0, 0);
+        assert_eq!((x.cols(), x.rows()), (3, 3));
+        assert_eq!(WarpEdit::default().split, None);
+    }
 }
 
 #[cfg(test)]
