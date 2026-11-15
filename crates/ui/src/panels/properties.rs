@@ -626,7 +626,7 @@ fn shape_generator_controls(ui: &mut Ui, state: &mut UiState, g: &mut subcraft_d
             let color = |ui: &mut Ui, label: &'static str, c: &mut [f32; 3]| {
                 prop_row(ui, tr(label), |ui| {
                     let mut srgb = subcraft_core::color::linear3_to_srgb(*c);
-                    if ui.color_edit_button_rgb(&mut srgb).changed() {
+                    if crate::color_picker::swatch_srgb(ui, &mut srgb).changed() {
                         *c = subcraft_core::color::srgb3_to_linear(srgb);
                     }
                 });
@@ -651,7 +651,7 @@ fn shape_generator_controls(ui: &mut Ui, state: &mut UiState, g: &mut subcraft_d
             for (label, c) in [("Color Low", &mut s.density_low), ("Color Medium", &mut s.density_medium), ("Color High", &mut s.density_high)] {
                 prop_row(ui, tr(label), |ui| {
                     let mut srgb = subcraft_core::color::linear3_to_srgb(*c);
-                    if ui.color_edit_button_rgb(&mut srgb).changed() {
+                    if crate::color_picker::swatch_srgb(ui, &mut srgb).changed() {
                         *c = subcraft_core::color::srgb3_to_linear(srgb);
                     }
                 });

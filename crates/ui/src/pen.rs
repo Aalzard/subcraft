@@ -377,7 +377,7 @@ pub fn properties(state: &mut UiState, ui: &mut Ui, path: &PenPath, now: f64) {
         crate::widgets::slider_row(ui, "Path width", egui::Slider::new(&mut d.path_width, PenDisplay::PATH_WIDTH));
         crate::widgets::prop_row(ui, "Path colour", |ui| {
             let mut c = d.color();
-            if ui.color_edit_button_srgba(&mut c).changed() {
+            if crate::color_picker::swatch_color32(ui, &mut c).changed() {
                 d.path_color = Some(c);
             }
             if d.path_color.is_some() && ui.small_button("Theme").on_hover_text("Back to the theme's accent colour").clicked() {
@@ -385,7 +385,7 @@ pub fn properties(state: &mut UiState, ui: &mut Ui, path: &PenPath, now: f64) {
             }
         });
         crate::widgets::prop_row(ui, "Other paths", |ui| {
-            ui.color_edit_button_srgba(&mut d.unselected_color).on_hover_text("Colour of the texture set's other paths");
+            crate::color_picker::swatch_color32(ui, &mut d.unselected_color).on_hover_text("Colour of the texture set's other paths");
         });
         ui.horizontal(|ui| {
             ui.checkbox(&mut d.tangents, "Tangents");

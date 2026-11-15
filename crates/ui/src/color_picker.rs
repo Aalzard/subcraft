@@ -207,6 +207,152 @@ pub fn cancel_pick(ctx: &egui::Context) {
 /// Colour swatch button; a click opens the picker popup. `rgb` is linear. Finished picks go to the
 /// front of `recent` when the popup closes.
 pub fn color_button(ui: &mut Ui, id_salt: impl std::hash::Hash + std::fmt::Debug, rgb: &mut [f32; 3], recent: &mut Vec<[f32; 3]>) -> Edit {
+    color_button_response(ui, id_salt, rgb, recent).0
+}
+
+/// The recent colours shared by every swatch ([`swatch_linear`] and friends) this frame; the app
+/// fills them from, and saves them to, the preferences ([`share_recent`], [`shared_recent`]).
+fn recent_id() -> Id {
+    Id::new("color_picker_shared_recent")
+}
+
+/// Hand the preferences' recent colours to the swatches for this frame.
+pub fn share_recent(ctx: &egui::Context, recent: &[[f32; 3]]) {
+    ctx.data_mut(|d| d.insert_temp(recent_id(), recent.to_vec()));
+}
+
+/// The swatches' recent colours after this frame (to save back when they changed).
+pub fn shared_recent(ctx: &egui::Context) -> Option<Vec<[f32; 3]>> {
+    ctx.data(|d| d.get_temp::<Vec<[f32; 3]>>(recent_id()))
+}
+
+/// SubCraft's colour swatch (wheel, sliders, hex, recent colours and the eyedropper) for a
+/// linear colour, as an [`Edit`]; the recent colours are the shared ones.
+pub fn swatch_edit(ui: &mut Ui, rgb: &mut [f32; 3]) -> Edit {
+    let salt = ui.next_auto_id();
+    let mut recent = shared_recent(ui.ctx()).unwrap_or_default();
+    let (edit, _) = color_button_response(ui, salt, rgb, &mut recent);
+    ui.ctx().data_mut(|d| d.insert_temp(recent_id(), recent));
+    edit
+}
+
+/// [`swatch_edit`] as a response (changed when the colour changed), for a linear colour.
+pub fn swatch_linear(ui: &mut Ui, rgb: &mut [f32; 3]) -> Response {
+    let salt = ui.next_auto_id();
+    let mut recent = shared_recent(ui.ctx()).unwrap_or_default();
+    let (edit, mut response) = color_button_response(ui, salt, rgb, &mut recent);
+    ui.ctx().data_mut(|d| d.insert_temp(recent_id(), recent));
+    if edit.changed {
+        response.mark_changed();
+    }
+    response
+}
+
+/// [`swatch_linear`] for a colour stored as sRGB values (display colours, the 0..1 numbers egui's
+/// own colour button edits).
+pub fn swatch_srgb(ui: &mut Ui, srgb: &mut [f32; 3]) -> Response {
+    let mut linear = srgb3_to_linear(*srgb);
+    let response = swatch_linear(ui, &mut linear);
+    if response.changed() {
+        *srgb = linear3_to_srgb(linear).map(|v| v.clamp(0.0, 1.0));
+    }
+    response
+}
+
+/// [`swatch_linear`] for an 8-bit colour; its alpha is kept.
+pub fn swatch_color32(ui: &mut Ui, c: &mut Color32) -> Response {
+    let mut srgb = [c.r(), c.g(), c.b()].map(|v| v as f32 / 255.0);
+    let response = swatch_srgb(ui, &mut srgb);
+    if response.changed() {
+        let [r, g, b] = srgb.map(|v| (v * 255.0).round() as u8);
+        *c = Color32::from_rgba_unmultiplied(r, g, b, c.a());
+    }
+    response
+}
+
+/// The 3D view's rect this frame, set while a pick is waiting: it answers clicks on the model
+/// itself (the material's colour), everywhere else [`screen_pick`] reads the window.
+pub fn set_model_rect(ctx: &egui::Context, rect: Rect) {
+    ctx.data_mut(|d| d.insert_temp(model_rect_id(), rect));
+}
+
+fn model_rect_id() -> Id {
+    Id::new("color_picker_model_rect")
+}
+
+fn pending_id() -> Id {
+    Id::new("color_picker_screen_pending")
+}
+
+/// The colour (linear) of `image`, a screenshot of the window, at `pos` (points).
+pub fn screenshot_colour(image: &egui::ColorImage, pos: Pos2, pixels_per_point: f32) -> Option<[f32; 3]> {
+    let (x, y) = ((pos.x * pixels_per_point).floor(), (pos.y * pixels_per_point).floor());
+    if x < 0.0 || y < 0.0 {
+        return None;
+    }
+    let (x, y) = (x as usize, y as usize);
+    let [w, h] = image.size;
+    if x >= w || y >= h {
+        return None;
+    }
+    let c = image.pixels[y * w + x];
+    Some(srgb3_to_linear([c.r(), c.g(), c.b()].map(|v| v as f32 / 255.0)))
+}
+
+/// The eyedropper outside the 3D view (Painter's eyedropper reads the screen): while a colour
+/// button waits for a pick, a click anywhere else in the window (2D view, panels, swatches,
+/// thumbnails, reference images) takes the colour shown under the cursor, read from a
+/// screenshot of the window. Esc cancels. Call once per frame after the panels; returns a
+/// status line when a colour was picked.
+pub fn screen_pick(ctx: &egui::Context) -> Option<&'static str> {
+    let model = ctx.data_mut(|d| d.remove_temp::<Rect>(model_rect_id()));
+    if pick_target(ctx).is_none() {
+        ctx.data_mut(|d| d.remove::<Pos2>(pending_id()));
+        return None;
+    }
+    // A screenshot was asked for: take its pixel under the click.
+    if let Some(pos) = ctx.data(|d| d.get_temp::<Pos2>(pending_id())) {
+        let shot = ctx.input(|i| {
+            i.raw.events.iter().find_map(|e| match e {
+                egui::Event::Screenshot { image, .. } => Some(image.clone()),
+                _ => None,
+            })
+        });
+        if let Some(image) = shot {
+            ctx.data_mut(|d| d.remove::<Pos2>(pending_id()));
+            if let Some(c) = screenshot_colour(&image, pos, ctx.pixels_per_point()) {
+                deliver_pick(ctx, c);
+                return Some("Picked the colour on screen");
+            }
+        }
+        ctx.request_repaint();
+        return None;
+    }
+    if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+        cancel_pick(ctx);
+        return None;
+    }
+    // Over the 3D view, the view answers with the material's colour.
+    if ctx.pointer_hover_pos().is_some_and(|p| model.is_some_and(|r| r.contains(p))) {
+        return None;
+    }
+    let screen = ctx.content_rect();
+    let response = egui::Area::new(Id::new("color_picker_screen_overlay"))
+        .order(egui::Order::Foreground)
+        .fixed_pos(screen.min)
+        .show(ctx, |ui| ui.allocate_rect(screen, Sense::click()))
+        .inner
+        .on_hover_cursor(egui::CursorIcon::Crosshair);
+    if response.clicked() && let Some(p) = response.interact_pointer_pos() {
+        ctx.data_mut(|d| d.insert_temp(pending_id(), p));
+        ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
+        ctx.request_repaint();
+    }
+    None
+}
+
+/// [`color_button`] with the swatch's response.
+fn color_button_response(ui: &mut Ui, id_salt: impl std::hash::Hash + std::fmt::Debug, rgb: &mut [f32; 3], recent: &mut Vec<[f32; 3]>) -> (Edit, Response) {
     let id = ui.make_persistent_id(("color_picker", id_salt));
     let width = ui.available_width().clamp(44.0, 120.0);
     let (rect, _) = ui.allocate_exact_size(egui::vec2(width, CONTROL_H), Sense::hover());
@@ -244,7 +390,7 @@ pub fn color_button(ui: &mut Ui, id_salt: impl std::hash::Hash + std::fmt::Debug
         edit.done = true;
     }
     ui.data_mut(|d| d.insert_temp(state_id, st));
-    edit
+    (edit, response)
 }
 
 /// The whole picker shown in place (no swatch, no popup), for panels that keep it open: the Pen
@@ -292,8 +438,8 @@ fn picker_body(ui: &mut Ui, id: Id, rgb: &mut [f32; 3], st: &mut PickerState, re
 
     done |= wheel(ui, &mut t);
     old_new(ui, &mut t);
-    // Painter's eyedropper beside the colour: the next click on the model picks its colour.
-    if ui.button(format!("{}  Pick from the model", crate::icons::CROSSHAIR)).on_hover_text("Then click the model in the 3D view: this colour takes the material's base colour there (Esc cancels)").clicked() {
+    // Painter's eyedropper beside the colour: the next click picks a colour.
+    if ui.button(format!("{}  Pick a colour", crate::icons::CROSSHAIR)).on_hover_text("Then click anywhere in SubCraft: on the model, its material's base colour; anywhere else (2D view, panels, swatches, thumbnails, images), the colour shown there. Esc cancels").clicked() {
         ui.ctx().data_mut(|d| d.insert_temp(pick_target_id(), id));
         ui.close();
     }
@@ -499,6 +645,37 @@ fn hex_field(ui: &mut Ui, id: Id, t: &mut Target<'_>) -> bool {
         done
     })
     .inner
+}
+
+#[cfg(test)]
+mod screen_pick_tests {
+    use super::*;
+
+    #[test]
+    fn the_screenshot_pixel_under_the_click_becomes_the_colour() {
+        // A 4 x 2 pixel window at 2 pixels per point: point (1.2, 0.4) is pixel (2, 0).
+        let mut image = egui::ColorImage::new([4, 2], vec![Color32::BLACK; 8]);
+        image.pixels[2] = Color32::from_rgb(255, 128, 0);
+        let c = screenshot_colour(&image, Pos2::new(1.2, 0.4), 2.0).unwrap();
+        let want = srgb3_to_linear([1.0, 128.0 / 255.0, 0.0]);
+        assert!(c.iter().zip(&want).all(|(a, b)| (a - b).abs() < 1e-6), "{c:?}");
+        assert_eq!(screenshot_colour(&image, Pos2::new(0.1, 0.1), 2.0), Some([0.0; 3]));
+        assert_eq!(screenshot_colour(&image, Pos2::new(5.0, 0.0), 2.0), None, "outside the window");
+        assert_eq!(screenshot_colour(&image, Pos2::new(-1.0, 0.0), 2.0), None);
+    }
+
+    #[test]
+    fn a_pick_is_delivered_to_the_waiting_swatch_and_srgb_swatches_round_trip() {
+        let ctx = egui::Context::default();
+        let target = Id::new("some swatch");
+        ctx.data_mut(|d| d.insert_temp(pick_target_id(), target));
+        deliver_pick(&ctx, [0.25, 0.5, 0.75]);
+        assert!(pick_target(&ctx).is_none(), "the pick ends");
+        assert_eq!(ctx.data(|d| d.get_temp::<[f32; 3]>(target.with("picked"))), Some([0.25, 0.5, 0.75]));
+        // Recent colours are shared through the context.
+        share_recent(&ctx, &[[1.0, 0.0, 0.0]]);
+        assert_eq!(shared_recent(&ctx), Some(vec![[1.0, 0.0, 0.0]]));
+    }
 }
 
 #[cfg(test)]

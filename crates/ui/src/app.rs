@@ -2633,7 +2633,17 @@ impl eframe::App for SubcraftApp {
         }
         self.mark("bars");
         dialogs::bake_mode(&mut self.state, ui, ctx.input(|i| i.time));
+        // Every colour swatch shares the saved recent colours.
+        let recent_before = self.state.recovery.prefs.recent_colors.clone();
+        crate::color_picker::share_recent(&ctx, &recent_before);
         self.workspace(ui);
+        if let Some(recent) = crate::color_picker::shared_recent(&ctx) && recent != recent_before {
+            self.state.recovery.prefs.recent_colors = recent;
+        }
+        // The eyedropper anywhere in the window (the 3D view answers on the model itself).
+        if let Some(message) = crate::color_picker::screen_pick(&ctx) {
+            self.state.set_status(message, ctx.input(|i| i.time));
+        }
         // Actions the panels asked for (the Pen panel's buttons), run like their shortcuts.
         for action in std::mem::take(&mut self.state.pending_actions) {
             self.perform(action, ui.input(|i| i.time));

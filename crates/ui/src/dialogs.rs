@@ -1897,7 +1897,7 @@ fn visualization_settings(ui: &mut egui::Ui, b: &mut BakeUi) {
                         Some(on) => { ui.checkbox(on, label); }
                         None => { ui.label(dim(label)); }
                     }
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| egui::color_picker::color_edit_button_rgb(ui, color));
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| crate::color_picker::swatch_srgb(ui, color));
                 });
             };
             color_row(ui, Some(&mut b.vis.show_high), tr("High poly mesh"), &mut b.vis.high_color);
@@ -1914,7 +1914,7 @@ fn visualization_settings(ui: &mut egui::Ui, b: &mut BakeUi) {
             if b.vis.neutral_material {
                 ui.horizontal(|ui| {
                     ui.label(dim(tr("Color")));
-                    egui::color_picker::color_edit_button_rgb(ui, &mut b.vis.neutral_color);
+                    crate::color_picker::swatch_srgb(ui, &mut b.vis.neutral_color);
                 });
                 crate::widgets::slider_row(ui, tr("Roughness"), egui::Slider::new(&mut b.vis.neutral_roughness, 0.0..=1.0));
                 crate::widgets::slider_row(ui, tr("Metallic"), egui::Slider::new(&mut b.vis.neutral_metallic, 0.0..=1.0));

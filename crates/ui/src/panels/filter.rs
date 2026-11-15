@@ -197,7 +197,7 @@ pub fn editor(ui: &mut Ui, filter: &mut Filter, channel: Option<ChannelKind>) ->
             for (name, c) in [("From", from), ("To", to)] {
                 prop_row(ui, name, |ui| {
                     let mut srgb = linear3_to_srgb(*c);
-                    if ui.color_edit_button_rgb(&mut srgb).changed() { *c = srgb3_to_linear(srgb); changed = true; }
+                    if crate::color_picker::swatch_srgb(ui, &mut srgb).changed() { *c = srgb3_to_linear(srgb); changed = true; }
                 });
             }
             changed |= slider_row(ui, "Tolerance", egui::Slider::new(tolerance, 0.0..=2.0)).changed();
@@ -270,7 +270,7 @@ pub fn editor(ui: &mut Ui, filter: &mut Filter, channel: Option<ChannelKind>) ->
             changed |= slider_row(ui, "Opacity", egui::Slider::new(opacity, 0.0..=1.0)).changed();
             prop_row(ui, "Color", |ui| {
                 let mut srgb = linear3_to_srgb(*color);
-                if ui.color_edit_button_rgb(&mut srgb).changed() { *color = srgb3_to_linear(srgb); changed = true; }
+                if crate::color_picker::swatch_srgb(ui, &mut srgb).changed() { *color = srgb3_to_linear(srgb); changed = true; }
             });
             ui.weak("Shadow of the paint coverage, under the content");
         }
@@ -284,7 +284,7 @@ pub fn editor(ui: &mut Ui, filter: &mut Filter, channel: Option<ChannelKind>) ->
             changed |= slider_row(ui, "Opacity", egui::Slider::new(opacity, 0.0..=1.0)).changed();
             prop_row(ui, "Color", |ui| {
                 let mut srgb = linear3_to_srgb(*color);
-                if ui.color_edit_button_rgb(&mut srgb).changed() { *color = srgb3_to_linear(srgb); changed = true; }
+                if crate::color_picker::swatch_srgb(ui, &mut srgb).changed() { *color = srgb3_to_linear(srgb); changed = true; }
             });
             ui.weak(if channel.is_some_and(|c| c.is_color()) { "Glow around the paint coverage, under the content" } else { "Glow around bright values (masks and gray channels use the color's brightness)" });
         }
@@ -497,7 +497,7 @@ fn gradient_editor(ui: &mut Ui, gradient: &mut Gradient) -> bool {
         ui.push_id(("gradient_stop", i), |ui| {
             ui.horizontal(|ui| {
                 let mut rgb = linear3_to_srgb(stop.color);
-                if ui.color_edit_button_rgb(&mut rgb).changed() { stop.color = srgb3_to_linear(rgb); changed = true; }
+                if crate::color_picker::swatch_srgb(ui, &mut rgb).changed() { stop.color = srgb3_to_linear(rgb); changed = true; }
                 let r = ui.add(egui::Slider::new(&mut stop.position, 0.0..=1.0).fixed_decimals(3));
                 if r.changed() { changed = true; moved = true; }
                 if ui.add_enabled(count > 1, egui::Button::new("x")).on_hover_text("Remove stop").clicked() { remove = Some(i); }

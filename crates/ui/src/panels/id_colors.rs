@@ -109,7 +109,7 @@ pub fn section(state: &mut UiState, ui: &mut Ui) {
     let mut apply = false;
     ui.horizontal(|ui| {
         ui.label(RichText::new("New color").small().color(TEXT_DIM()));
-        egui::color_picker::color_edit_button_rgb(ui, &mut state.id_palette_new);
+        crate::color_picker::swatch_srgb(ui, &mut state.id_palette_new);
         // The text being typed is kept while the field has focus: rebuilt from the color every
         // frame, a partial value ("#3A7FC" after a Backspace) snapped back (QA 2026-11).
         let mut text: String = ui.data(|d| d.get_temp(hex_text())).unwrap_or_else(|| hex(state.id_palette_new));
