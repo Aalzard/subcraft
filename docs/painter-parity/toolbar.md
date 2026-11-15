@@ -133,7 +133,7 @@ Layout notes: with a Path tool active the left side shows path controls in the o
 | Tangents | Path display settings | not documented | done: tangent handles of the selected point shown (and grabbable) or hidden | crates/ui/src/pen.rs (PenDisplay, draw), crates/ui/src/viewport.rs (Pen tool) | - |
 | Path direction | Path display settings | not documented | done: arrows along the path (off by default) | crates/ui/src/pen.rs (PenDisplay, draw), crates/ui/src/viewport.rs (Pen tool) | - |
 | Path preview | Path settings menu; Shift + P (11.0) | on | done: Shift+P toggles the dotted next segment | crates/ui/src/viewport.rs (Pen tool) | - |
-| Angle snapping settings | Path settings menu (11.0) | not documented | missing | - | - |
+| Angle snapping settings | Path settings menu (11.0) | not documented | done: Pen properties > Snap angle, 1-90 degrees (15 by default) | crates/ui/src/pen.rs (PenSnap::angle), crates/ui/src/viewport.rs (Pen tool) | - |
 | Snap to vertices | Path settings menu, magnet (11.0) | off | done: Pen properties > Snap > Vertices; new and moved points jump to a vertex within 10 points (a ring shows the target) | crates/ui/src/pen.rs (snap_to_triangle), crates/ui/src/viewport.rs (pen_snapped) | - |
 | Snap to edges | Path settings menu, magnet (11.0) | off | done: Pen properties > Snap > Edges; onto the nearest edge of the triangle under the pointer | crates/ui/src/pen.rs (snap_to_triangle), crates/ui/src/viewport.rs (pen_snapped) | - |
 | Snap to center of edges | Path settings menu, magnet (11.0) | off | done: Pen properties > Snap > Edge centres | crates/ui/src/pen.rs (snap_to_triangle), crates/ui/src/viewport.rs (pen_snapped) | - |

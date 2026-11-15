@@ -476,7 +476,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         // 15 degree steps; Shift keeps the new point straight (no tangents).
                         let mut at = if hit.is_none() { pen_snapped(state, &camera, rect, pixel_scale, p) } else { p };
                         if hit.is_none() && ctrl && let Some(prev) = pen_last_point(state, &camera, rect) {
-                            at = snap_angle(prev, p, 15f32.to_radians());
+                            at = snap_angle(prev, p, state.pen_snap.angle());
                         }
                         let r = state.pen.begin_surface(&mut state.session, &camera, to_screen(at), hit);
                         if r.is_ok() && hit.is_none() && mods.shift {
@@ -911,7 +911,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     if state.tool == Tool::Pen && segment_preview && !state.pen.is_editing() && let Some(cursor) = response.hover_pos()
         && let Some(last) = pen_last_point(state, &camera, rect)
     {
-        let to = if mods.ctrl || mods.command { snap_angle(last, cursor, 15f32.to_radians()) } else { cursor };
+        let to = if mods.ctrl || mods.command { snap_angle(last, cursor, state.pen_snap.angle()) } else { cursor };
         painter.extend(egui::Shape::dashed_line(&[last, to], Stroke::new(1.2, Color32::from_white_alpha(190)), 5.0, 4.0));
     }
     // The texture set's other paths, in the unselected colour (Pen properties > Display).
