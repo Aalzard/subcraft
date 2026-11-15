@@ -322,11 +322,12 @@ mod tests {
             (egui::Key::C, egui::Modifiers::NONE, None),
         ] {
             let input = egui::RawInput { events: vec![key(k, m)], ..Default::default() };
-            let _ = ctx.run_ui(input, |ui| {
+            let mut out = ctx.run_ui(input, |ui| {
                 got.push((key_action(ui.ctx()), want.clone()));
                 // Consumed: nothing behind the panel sees the key again this frame.
                 assert!(key_action(ui.ctx()).is_none());
             });
+            out.textures_delta.clear();
         }
         for (got, want) in got {
             assert_eq!(got, want);
