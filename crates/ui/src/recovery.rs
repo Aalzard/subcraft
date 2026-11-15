@@ -42,6 +42,8 @@ pub struct Preferences {
     /// Display sizes only; independent of source images and document texture resolution.
     pub shelf_preview_size: u32,
     pub layer_preview_size: u32,
+    /// Painter's "Use simplified thumbnails" (Settings > General > Layer stack).
+    pub simplified_layer_thumbnails: bool,
     /// Assets panel in List view (one row per asset) instead of thumbnails.
     pub shelf_list_view: bool,
     /// Assets panel saved searches (Painter keeps them in Shelf.ini).
@@ -146,6 +148,7 @@ impl Default for Preferences {
             ui_size_percent: DEFAULT_UI_SIZE,
             shelf_preview_size: 88,
             layer_preview_size: 36,
+            simplified_layer_thumbnails: false,
             shelf_list_view: false,
             shelf_saved_searches: Vec::new(),
             extra_libraries: Vec::new(),
@@ -445,6 +448,8 @@ pub fn preferences_window(state: &mut UiState, ctx: &egui::Context) {
             .on_hover_text(tr("Asks GitHub for the latest release in the background and points at the update button when there is a new one."));
         ui.checkbox(&mut rec.prefs.use_gpu_baking, tr("Use GPU for baking"))
             .on_hover_text("Bakes ambient occlusion and thickness on the graphics card, much faster on big meshes. If it is off or fails, the processor bakes them instead. The Bake window shows which one ran.");
+        ui.checkbox(&mut rec.prefs.simplified_layer_thumbnails, "Use simplified thumbnails")
+            .on_hover_text("The layer stack shows a plain icon instead of rendering each layer, mask and effect preview: faster with heavy stacks.");
         ui.checkbox(&mut rec.prefs.only_selected_set_painting, "Only display the selected material when painting")
             .on_hover_text("While a stroke is in progress the 3D view shows only the texture set being painted, so nothing in front of it gets in the way.");
         ui.horizontal(|ui| {
