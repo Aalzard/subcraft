@@ -16,5 +16,10 @@
     "metallic": "metal_test_metallic.png",
     "emissive": "metal_test_emissive.png"
   },
-  "preview": "preview.png"
+  "preview": "preview.png",
+  "defaults": {
+    "normal_strength": 0.5,
+    "height_strength": 0.25,
+    "tiling": 2.0
+  }
 }

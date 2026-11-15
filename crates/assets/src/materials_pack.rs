@@ -7,8 +7,12 @@
 //! { "name": "wood_ebony", "display_name": "Wood Ebony", "category": "Wood", "tags": ["ebony"],
 //!   "maps": { "basecolor": "wood_ebony_basecolor.png", "normal_gl": "...", "height": "...",
 //!             "roughness": "...", "ao": "..." },
-//!   "preview": "preview.png" }
+//!   "preview": "preview.png",
+//!   "defaults": { "normal_strength": 0.15, "height_strength": 0.07, "tiling": 3.0 } }
 //! ```
+//!
+//! `defaults` (optional, any field may be left out) sets the applied fill layer's Normal and
+//! Height strengths and its UV tiling; missing values use [`PackDefaults::FALLBACK`].
 //!
 //! Folders whose name starts with `_` or `.` (tools, caches) and folders without a readable
 //! `material.json` are skipped. Map files are read only when a material is applied.
@@ -33,6 +37,50 @@ pub struct PackMaterial {
     /// metallic, emissive.
     pub maps: Vec<PathBuf>,
     pub preview: Option<PathBuf>,
+    /// Strengths and tiling of the fill layer the material becomes.
+    pub defaults: PackDefaults,
+}
+
+/// How a pack material is applied: Normal and Height channel strengths and the UV tiling
+/// (repeats per UV unit) of its fill layer.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PackDefaults {
+    pub normal_strength: f32,
+    pub height_strength: f32,
+    pub tiling: f32,
+}
+
+impl PackDefaults {
+    /// For materials (and v1 packs) without a `defaults` block: the maps are authored strong
+    /// and at a scale that reads well tiled three times.
+    pub const FALLBACK: Self = Self { normal_strength: 0.15, height_strength: 0.07, tiling: 3.0 };
+}
+
+impl Default for PackDefaults {
+    fn default() -> Self {
+        Self::FALLBACK
+    }
+}
+
+/// The optional `defaults` block; each missing (or invalid) value falls back on its own.
+#[derive(serde::Deserialize, Default)]
+#[serde(default)]
+struct DefaultsJson {
+    normal_strength: Option<f32>,
+    height_strength: Option<f32>,
+    tiling: Option<f32>,
+}
+
+impl DefaultsJson {
+    fn resolve(&self) -> PackDefaults {
+        let f = PackDefaults::FALLBACK;
+        let strength = |v: Option<f32>, d: f32| v.filter(|v| v.is_finite() && *v >= 0.0).unwrap_or(d);
+        PackDefaults {
+            normal_strength: strength(self.normal_strength, f.normal_strength),
+            height_strength: strength(self.height_strength, f.height_strength),
+            tiling: self.tiling.filter(|v| v.is_finite() && *v > 0.0).unwrap_or(f.tiling),
+        }
+    }
 }
 
 #[derive(serde::Deserialize, Default)]
@@ -45,6 +93,7 @@ struct MaterialJson {
     /// Map key → file name.
     maps: serde_json::Map<String, serde_json::Value>,
     preview: String,
+    defaults: DefaultsJson,
 }
 
 /// Read one material folder, or `None` when it has no usable `material.json` or no maps.
@@ -66,6 +115,7 @@ pub fn read_material(folder: &Path) -> Option<PackMaterial> {
         tags: json.tags,
         maps,
         preview,
+        defaults: json.defaults.resolve(),
     })
 }
 
@@ -128,5 +178,33 @@ mod tests {
         assert!(!pack[0].maps.iter().any(|p| p.to_string_lossy().contains("emissive")));
         assert!(load_pack(&root.join("missing")).is_empty());
         std::fs::remove_dir_all(&root).ok();
+    }
+
+    fn material_with(name: &str, extra: &str) -> PackMaterial {
+        let dir = temp(name).join("mat");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("mat_basecolor.png"), b"x").unwrap();
+        std::fs::write(dir.join("material.json"), format!(r#"{{ "name": "mat", "maps": {{ "basecolor": "mat_basecolor.png" }}{extra} }}"#)).unwrap();
+        let m = read_material(&dir).unwrap();
+        std::fs::remove_dir_all(dir.parent().unwrap()).ok();
+        m
+    }
+
+    #[test]
+    fn defaults_are_read_from_material_json() {
+        let m = material_with("defaults", r#", "defaults": { "normal_strength": 0.4, "height_strength": 0.2, "tiling": 5.0 }"#);
+        assert_eq!(m.defaults, PackDefaults { normal_strength: 0.4, height_strength: 0.2, tiling: 5.0 });
+    }
+
+    #[test]
+    fn missing_defaults_fall_back_per_value() {
+        // v1 packs: no block at all.
+        assert_eq!(material_with("no-defaults", "").defaults, PackDefaults::FALLBACK);
+        assert_eq!(PackDefaults::FALLBACK, PackDefaults { normal_strength: 0.15, height_strength: 0.07, tiling: 3.0 });
+        // A partial block keeps what it gives; invalid values (zero tiling, negative) fall back.
+        let m = material_with("partial-defaults", r#", "defaults": { "tiling": 2.0 }"#);
+        assert_eq!(m.defaults, PackDefaults { tiling: 2.0, ..PackDefaults::FALLBACK });
+        let m = material_with("bad-defaults", r#", "defaults": { "normal_strength": -1.0, "tiling": 0.0, "height_strength": 0.5 }"#);
+        assert_eq!(m.defaults, PackDefaults { height_strength: 0.5, ..PackDefaults::FALLBACK });
     }
 }
