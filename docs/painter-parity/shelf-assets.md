@@ -128,16 +128,16 @@ Layout notes: one row of eight icons under the search field, in the order below.
 | Thumbnail size icon | Bottom bar, left | Medium | done | crates/ui/src/panels/shelf.rs (size_menu) | - |
 | Import resources (+) button | Bottom bar | - | partial: per-category import button opening a file picker, no import window | crates/ui/src/panels/shelf.rs:867 | - |
 | New sub-library tab button | Bottom bar | - | done | crates/ui/src/panels/shelf.rs (bottom_toolbar) | - |
-| Auto-update (double arrows) menu button | Bottom bar | - | missing | - | - |
-| Auto-update: Assets panel | Auto-update menu, Automatic updates | off (unverified) | missing | - | - |
+| Auto-update (double arrows) menu button | Bottom bar | - | done: circular-arrows button in the bottom bar (accent while automatic updates are on) | crates/ui/src/panels/shelf.rs (auto_update_menu), crates/ui/src/libraries.rs (auto_update_assets) | - |
+| Auto-update: Assets panel | Auto-update menu, Automatic updates | off (unverified) | done: Automatic updates > Assets panel (off by default; also in Preferences > Libraries) | crates/ui/src/panels/shelf.rs (auto_update_menu), crates/ui/src/libraries.rs (auto_update_assets) | - |
 | Auto-update: Resources used in project | Auto-update menu, Automatic updates | off (unverified) | missing | - | - |
-| Auto-update: Update every x minutes | Auto-update menu | not documented; 0 = every few seconds | missing | - | - |
-| Auto-update: Update assets panel (manual) | Auto-update menu, Manual updates | - | partial: Refresh libraries in Settings > Libraries; no auto-update menu | crates/ui/src/libraries.rs (refresh_libraries) | - |
+| Auto-update: Update every x minutes | Auto-update menu | not documented; 0 = every few seconds | done: 0-60 minutes, 0 = every few seconds | crates/ui/src/panels/shelf.rs (auto_update_menu), crates/ui/src/libraries.rs (auto_update_assets) | - |
+| Auto-update: Update assets panel (manual) | Auto-update menu, Manual updates | - | done: Manual updates > Update assets panel (reads every library folder again) | crates/ui/src/panels/shelf.rs (auto_update_menu), crates/ui/src/libraries.rs (auto_update_assets) | - |
 | Auto-update: Update resources used in project (manual) | Auto-update menu, Manual updates | - | missing | - | - |
 | Auto-update: Skip assets when their parameters mismatch | Auto-update menu, Advanced | on (unverified) | missing | - | - |
 | Auto-update: open log icon (warning badge on issues) | Top right of the auto-update menu | - | missing | - | - |
 | Auto-update results in Log window, Assets tab | Log window | - | missing | - | - |
-| Update check when the application regains focus | Behaviour with automatic updates on | - | missing | - | - |
+| Update check when the application regains focus | Behaviour with automatic updates on | - | done: with automatic updates on, the folders are checked when SubCraft comes back into focus | crates/ui/src/panels/shelf.rs (auto_update_menu), crates/ui/src/libraries.rs (auto_update_assets) | - |
 
 ## Libraries
 

@@ -2126,6 +2126,7 @@ fn bottom_toolbar(state: &mut UiState, ui: &mut Ui) {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 4.0;
             size_menu(ui, &mut state.recovery.prefs);
+            auto_update_menu(ui, state);
             if icon_button(ui, crate::icons::PLUS, tr("Import resources…")).clicked() {
                 state.import.open = true;
             }
@@ -2211,6 +2212,47 @@ fn size_menu(ui: &mut Ui, prefs: &mut crate::recovery::Preferences) {
         }
     });
     resp.response.on_hover_text(tr("Thumbnail size"));
+}
+
+/// How often the automatic update checks, in words.
+pub fn update_every_label(minutes: u32) -> String {
+    match minutes {
+        0 => "every few seconds".to_string(),
+        1 => "every minute".to_string(),
+        m => format!("every {m} minutes"),
+    }
+}
+
+/// Painter's auto-update menu (the double arrows of the bottom bar): the Assets panel's
+/// automatic update and how often it checks (the same settings as Preferences > Libraries), and
+/// a manual update of the Assets panel now.
+fn auto_update_menu(ui: &mut Ui, state: &mut UiState) {
+    let on = state.recovery.prefs.auto_update_assets;
+    let colour = if on { theme::ACCENT() } else { theme::TEXT_DIM() };
+    let label = RichText::new(crate::icons::REDO).font(theme::font(12.0)).color(colour);
+    let resp = ui.menu_button(label, |ui| {
+        ui.label(RichText::new("Automatic updates").font(theme::font_strong(11.5)).color(theme::TEXT()));
+        let prefs = &mut state.recovery.prefs;
+        ui.checkbox(&mut prefs.auto_update_assets, "Assets panel")
+            .on_hover_text("Check the library folders and read them again when files were added, removed or changed (also when SubCraft comes back into focus)");
+        ui.add_enabled_ui(prefs.auto_update_assets, |ui| {
+            ui.horizontal(|ui| {
+                ui.label("Update every");
+                ui.add(egui::DragValue::new(&mut prefs.auto_update_minutes).range(0..=60).suffix(" min"))
+                    .on_hover_text("0 checks every few seconds");
+            });
+            ui.label(RichText::new(update_every_label(prefs.auto_update_minutes)).small().color(theme::TEXT_FAINT()));
+        });
+        ui.separator();
+        ui.label(RichText::new("Manual updates").font(theme::font_strong(11.5)).color(theme::TEXT()));
+        if ui.button("Update assets panel").on_hover_text("Read every library folder again now").clicked() {
+            state.refresh_libraries();
+            state.set_status("Assets panel updated from the library folders", ui.input(|i| i.time));
+            ui.close();
+        }
+    });
+    let tip = if on { format!("Auto-update: on, {}", update_every_label(state.recovery.prefs.auto_update_minutes)) } else { "Auto-update: off".to_string() };
+    resp.response.on_hover_text(tip);
 }
 
 /// Grayscale bitmap → egui image.
@@ -2771,5 +2813,15 @@ mod stack_drop_tests {
         // One undo step brings the replaced effects back.
         s.session.execute(subcraft_app::Command::Undo).unwrap();
         assert_eq!(count(&s), own * 2);
+    }
+}
+
+#[cfg(test)]
+mod auto_update_tests {
+    #[test]
+    fn the_update_interval_reads_in_words() {
+        assert_eq!(super::update_every_label(0), "every few seconds");
+        assert_eq!(super::update_every_label(1), "every minute");
+        assert_eq!(super::update_every_label(15), "every 15 minutes");
     }
 }

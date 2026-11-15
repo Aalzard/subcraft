@@ -116,9 +116,9 @@ Layout notes: the dropdown at the top right of each view switches between Materi
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Context menu: floating Properties of the current tool / layer / effect at the cursor | RMB click in the 3D view | editable shortcut "Context menu" | partial: RMB opens a part menu (target kind, part actions, Show all parts, Eyedropper), not Properties | crates/ui/src/viewport.rs:162 | #131 |
+| Context menu: floating Properties of the current tool / layer / effect at the cursor | RMB click in the 3D view | editable shortcut "Context menu" | done: RMB opens the floating Properties of the current tool / layer at the cursor, with the part actions behind its header button | crates/ui/src/view_props.rs, crates/ui/src/panels/brush.rs (Polygon Fill Blending) | #131 |
 | Floating Properties closes on click outside | 3D view | - | done (earlier): the right-click Properties popup closes on Esc, its close button or a click outside | crates/ui/src/view_props.rs | #131 |
-| Extra Polygon Fill blend modes in the right-click panel | RMB in the viewport (12.2) | - | missing | - | - |
+| Extra Polygon Fill blend modes in the right-click panel | RMB in the viewport (12.2) | - | done: the right-click Properties of the Polygon Fill tool has its Blending dropdown (every layer blend mode) | crates/ui/src/view_props.rs, crates/ui/src/panels/brush.rs (Polygon Fill Blending) | - |
 
 ## Painting interactions in the viewport
 
