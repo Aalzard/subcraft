@@ -106,3 +106,18 @@ fn a_fill_box_counts_what_it_would_fill_without_filling() {
     assert_eq!(s.polygon_fill_box_count(&cam, Vec2::ZERO, Vec2::splat(4.0), PolygonFillMode::Polygon, true, H::Intersection), (0, 0), "a box off the model");
     assert_eq!(s.history().entries().len(), entries, "counting fills nothing");
 }
+
+#[test]
+fn a_fill_into_a_mask_ignores_the_tool_blending_mode() {
+    let mut s = Session::new(primitives::cube(2.0), 64);
+    let cam = Camera::perspective(Vec3::new(0.0, 0.0, 5.0), Vec3::ZERO, Vec3::Y, 40.0, 0.1, 100.0, [512, 512]);
+    s.execute(Command::AddLayer(subcraft_app::NewLayer::Fill)).unwrap();
+    // Multiply over the new black mask would keep it black; Painter greys blending out on masks.
+    s.brush.fill_blend = subcraft_doc::BlendMode::Multiply;
+    let at = cam.project(Vec3::new(0.1, 0.1, 1.0)).unwrap().truncate();
+    assert!(!s.polygon_fill(&cam, at, PolygonFillMode::UvIsland).unwrap().is_empty());
+    let mask = s.selected_layer().unwrap().mask.clone().expect("the fill made a black mask");
+    let uv = s.pick(&cam, at).unwrap().uv;
+    let v = mask.base.get((uv.x * 64.0) as u32, (uv.y * 64.0) as u32)[0];
+    assert!((v - 1.0).abs() < 1e-3, "the mask is filled white, not multiplied: {v}");
+}

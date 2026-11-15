@@ -3233,7 +3233,10 @@ impl Session {
             return Err(e);
         }
         let mut active = self.stroke.take().expect("just begun");
-        active.stroke.set_fill_blend(self.brush.fill_blend);
+        // Painter greys the tool blending out when painting a mask: a mask fill just paints.
+        if !self.brush.target.is_mask() {
+            active.stroke.set_fill_blend(self.brush.fill_blend);
+        }
         let result = self.with_stroke_context(active.texture_set, camera, f, active);
         if let Some(a) = self.stroke.as_mut() {
             a.label = "Polygon Fill";

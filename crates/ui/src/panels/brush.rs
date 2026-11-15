@@ -88,14 +88,18 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         });
                     });
                     prop_row(ui, "Fill by", |ui| crate::brush_bar::fill_mode_combo(ui, &mut state.fill_mode, "fill_mode_panel"));
+                    // Greyed out when the fill lands in a mask (Painter): masks take the value as is.
+                    let on_mask = !crate::brush_bar::blending_applies(state.session.polygon_fill_destination());
                     prop_row(ui, "Blending", |ui| {
                         let current = state.session.brush.fill_blend;
-                        egui::ComboBox::from_id_salt("fill_blend").selected_text(current.label()).show_ui(ui, |ui| {
-                            for m in subcraft_doc::BlendMode::ALL.into_iter().filter(|m| !matches!(m, subcraft_doc::BlendMode::Passthrough | subcraft_doc::BlendMode::Disable)) {
-                                ui.selectable_value(&mut state.session.brush.fill_blend, m, m.label());
-                            }
-                        }).response
-                    }).on_hover_text("How the fill combines with what the layer already holds (the layer blending modes); Stroke opacity is its opacity");
+                        ui.add_enabled_ui(!on_mask, |ui| {
+                            egui::ComboBox::from_id_salt("fill_blend").selected_text(current.label()).show_ui(ui, |ui| {
+                                for m in subcraft_doc::BlendMode::ALL.into_iter().filter(|m| !matches!(m, subcraft_doc::BlendMode::Passthrough | subcraft_doc::BlendMode::Disable)) {
+                                    ui.selectable_value(&mut state.session.brush.fill_blend, m, m.label());
+                                }
+                            }).response
+                        }).inner
+                    }).on_hover_text(if on_mask { "Blending does not apply when the fill paints a mask" } else { "How the fill combines with what the layer already holds (the layer blending modes); Stroke opacity is its opacity" });
                     if !state.fill_selection.is_loop() {
                         prop_row(ui, "Hit-test", |ui| {
                             use subcraft_paint::PolygonHitTest;

@@ -25,6 +25,7 @@ pub fn blend_offered(mode: subcraft_doc::BlendMode, kind: subcraft_core::Channel
 }
 
 pub fn show(state: &mut UiState, ui: &mut Ui) {
+    let mask_target = state.session.brush.target.is_mask();
     let mut material = state.session.brush.material.clone();
     let original = material.clone();
     let mut dropped = None;
@@ -74,8 +75,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     ui.set_min_width(ui.available_width());
                     ui.horizontal(|ui| {
                         ui.label(egui::RichText::new(kind.display_name()).font(theme::font_strong(12.5)).color(theme::TEXT()));
-                        // Painter's per-channel tool blending.
-                        if enabled {
+                        // Painter's per-channel tool blending (greyed out when painting a mask).
+                        if enabled && !mask_target {
                             // Field access: `entry` borrows the channel map meanwhile.
                             let current = material.channel_blend.get(&kind).copied().unwrap_or(subcraft_doc::BlendMode::Normal);
                             let modes = subcraft_doc::BlendMode::ALL.into_iter().filter(|m| blend_offered(*m, kind));
@@ -163,14 +164,16 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     }
     if material.channels.get(&subcraft_core::ChannelKind::Normal).is_some_and(|c| c.enabled) {
     prop_row(ui, "Normal blend", |ui| {
-        segmented(
-            ui,
-            &mut material.normal_blend,
-            &[
-                (NormalPaintBlend::Replace, "Replace"),
-                (NormalPaintBlend::Detail, "Detail"),
-            ],
-        );
+        ui.add_enabled_ui(!mask_target, |ui| {
+            segmented(
+                ui,
+                &mut material.normal_blend,
+                &[
+                    (NormalPaintBlend::Replace, "Replace"),
+                    (NormalPaintBlend::Detail, "Detail"),
+                ],
+            );
+        });
     });
     hint(
         ui,
