@@ -43,6 +43,9 @@ pub enum Tab {
     /// Painter's LOG panel (General / Assets messages). Optional: closed until Window > Views
     /// opens it.
     Log,
+    /// The "Painter (pen)" workspace's panel for tablet users: colour wheel, big shortcut
+    /// buttons and the active brush's settings.
+    Pen,
 }
 
 impl Tab {
@@ -62,6 +65,7 @@ impl Tab {
             Tab::SubLibrary(_) => tr("Assets"),
             Tab::ShaderSettings => tr("Shader Settings"),
             Tab::Log => tr("Log"),
+            Tab::Pen => "Pen",
         }
     }
 
@@ -79,6 +83,7 @@ impl Tab {
             Tab::DisplaySettings => icons::SUN,
             Tab::ShaderSettings => icons::SPARKLE,
             Tab::Log => icons::INFO,
+            Tab::Pen => icons::PAINT_BRUSH,
         }
     }
 }
@@ -251,6 +256,45 @@ pub fn default_layout() -> DockState<Tab> {
     for visible in [Tab::Shelf, Tab::Layers, Tab::Viewport] {
         if let Some(path) = dock.find_tab(&visible) { let _ = dock.set_active_tab(path); }
     }
+    dock
+}
+
+/// Workspace layouts offered in Window > Layout.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WorkspaceLayout {
+    /// Painter's panel arrangement ([`default_layout`]).
+    Standard,
+    /// For pen and tablet users: the Pen panel (colour wheel, big shortcut buttons, the brush
+    /// settings) on the left, the views in the middle, Layers and Properties on the right.
+    PenPainter,
+}
+
+impl WorkspaceLayout {
+    pub const ALL: [Self; 2] = [Self::Standard, Self::PenPainter];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Standard => "Standard",
+            Self::PenPainter => "Painter (pen)",
+        }
+    }
+
+    pub fn build(self) -> DockState<Tab> {
+        match self {
+            Self::Standard => default_layout(),
+            Self::PenPainter => pen_layout(),
+        }
+    }
+}
+
+/// The "Painter (pen)" workspace: Pen | 3D, 2D | Layers over Properties.
+pub fn pen_layout() -> DockState<Tab> {
+    let mut dock = DockState::new(vec![Tab::Viewport, Tab::UvView]);
+    let surface = dock.main_surface_mut();
+    let [center, _pen] = surface.split_left(NodeIndex::root(), 0.27, vec![Tab::Pen]);
+    let [_, right] = surface.split_right(center, 0.74, vec![Tab::Layers]);
+    surface.split_below(right, 0.45, vec![Tab::Properties]);
+    if let Some(path) = dock.find_tab(&Tab::Viewport) { let _ = dock.set_active_tab(path); }
     dock
 }
 
@@ -504,7 +548,8 @@ pub fn layout_is_valid(dock: &DockState<Tab>) -> bool {
     // the Docks toolbar) but appears at most once; Brush is the legacy tab of old layouts.
     let required = [Tab::Viewport, Tab::UvView];
     if !required.iter().all(|t| seen.get(t) == Some(&1)) || seen.values().any(|&n| n > 1) { return false; }
-    if seen.keys().any(|t| !required.contains(t) && !crate::docks::closeable(*t) && *t != Tab::Brush) { return false; }
+    // The Pen panel belongs to the pen workspace (Window > Layout), so a saved pen layout loads.
+    if seen.keys().any(|t| !required.contains(t) && !crate::docks::closeable(*t) && !matches!(t, Tab::Brush | Tab::Pen)) { return false; }
     if dock.iter_surfaces().count() != 1 { return false; }
     dock.iter_all_nodes().all(|(_, node)| match node {
         Node::Horizontal(split) | Node::Vertical(split) => split.fraction.is_finite() && (0.04..=0.96).contains(&split.fraction),
@@ -597,6 +642,24 @@ mod layout_tests {
         doubled.push_to_focused_leaf(Tab::Viewport);
         assert!(!layout_is_valid(&doubled));
     }
+    #[test]
+    fn the_pen_workspace_layout_switches_in_and_out() {
+        let pen = WorkspaceLayout::PenPainter.build();
+        for tab in [Tab::Pen, Tab::Viewport, Tab::UvView, Tab::Layers, Tab::Properties] {
+            assert!(pen.find_tab(&tab).is_some(), "{tab:?} is in the pen workspace");
+        }
+        assert!(layout_is_valid(&pen), "a loadable layout");
+        // The Pen panel sits left of the views, Layers and Properties right of them.
+        let at = |t: Tab| pen.find_tab(&t).unwrap();
+        assert_ne!(at(Tab::Pen).node, at(Tab::Viewport).node);
+        assert_eq!(at(Tab::Viewport).node, at(Tab::UvView).node, "the views share the centre");
+        // Back to the standard layout: Painter's arrangement, no Pen panel.
+        let standard = WorkspaceLayout::Standard.build();
+        assert!(standard.find_tab(&Tab::Pen).is_none());
+        assert_eq!(format!("{:?}", standard.main_surface()), format!("{:?}", default_layout().main_surface()));
+        assert_eq!(WorkspaceLayout::ALL.map(|l| l.label()), ["Standard", "Painter (pen)"]);
+    }
+
     #[test]
     fn default_layout_matches_painter_with_nothing_below_the_centre() {
         let dock = default_layout();
@@ -1980,6 +2043,18 @@ impl SubcraftApp {
                     self.state.hide_ui = false;
                     ui.close();
                 }
+                ui.menu_button(format!("{}   Layout", icons::SQUARES), |ui| {
+                    for layout in WorkspaceLayout::ALL {
+                        if ui.button(layout.label()).on_hover_text(match layout {
+                            WorkspaceLayout::Standard => "Painter's panel arrangement",
+                            WorkspaceLayout::PenPainter => "For pen and tablet users: colour wheel, big shortcut buttons and the brush settings beside the views",
+                        }).clicked() {
+                            self.dock = layout.build();
+                            self.state.hide_ui = false;
+                            ui.close();
+                        }
+                    }
+                });
             });
             ui.menu_button(tr("Viewport"), |ui| {
                 ui.set_min_width(260.0);
@@ -2336,13 +2411,14 @@ impl egui_dock::TabViewer for Viewer<'_> {
             Tab::SubLibrary(id) => crate::edit_profile::time_tab("  tab Sub-library", || panels::shelf::show_sub_library(self.state, ui, *id)),
             Tab::ShaderSettings => crate::edit_profile::time_tab("  tab Shader settings", || panels::shader_settings::show(self.state, ui)),
             Tab::Log => crate::edit_profile::time_tab("  tab Log", || panels::log::show(self.state, ui)),
+            Tab::Pen => crate::edit_profile::time_tab("  tab Pen", || panels::pen::show(self.state, ui)),
         }
     }
 
     fn is_closeable(&self, tab: &Tab) -> bool {
         // Every panel but the 3D and 2D views closes with its tab's X and comes back from the
         // Docks toolbar or Window > Views; a sub-library closes for good.
-        crate::docks::closeable(*tab) || matches!(tab, Tab::SubLibrary(_))
+        crate::docks::closeable(*tab) || matches!(tab, Tab::SubLibrary(_) | Tab::Pen)
     }
 
     fn on_close(&mut self, tab: &mut Tab) -> egui_dock::tab_viewer::OnCloseResponse {
@@ -2355,7 +2431,8 @@ impl egui_dock::TabViewer for Viewer<'_> {
     fn scroll_bars(&self, tab: &Tab) -> [bool; 2] {
         // These panels own bounded vertical lists and pinned preview-size footers. The dock's
         // extra scroll area would let content widen itself and scroll the footer offscreen.
-        if matches!(tab, Tab::Shelf | Tab::SubLibrary(_) | Tab::Layers | Tab::TextureSetList) { [false, false] } else { [true, true] }
+        // The Pen panel's brush settings scroll on their own under its fixed wheel and buttons.
+        if matches!(tab, Tab::Shelf | Tab::SubLibrary(_) | Tab::Layers | Tab::TextureSetList | Tab::Pen) { [false, false] } else { [true, true] }
     }
 
     fn clear_background(&self, tab: &Tab) -> bool {
@@ -2524,6 +2601,10 @@ impl eframe::App for SubcraftApp {
         self.mark("bars");
         dialogs::bake_mode(&mut self.state, ui, ctx.input(|i| i.time));
         self.workspace(ui);
+        // Actions the panels asked for (the Pen panel's buttons), run like their shortcuts.
+        for action in std::mem::take(&mut self.state.pending_actions) {
+            self.perform(action, ui.input(|i| i.time));
+        }
         self.mark("workspace (docked panels)");
         if let Some(layer) = ctx.data_mut(|data| data.remove_temp::<subcraft_core::LayerId>(egui::Id::new("inspect_mask"))) {
             self.state.layer_previews.inspect = Some(layer);

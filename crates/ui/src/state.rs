@@ -289,6 +289,11 @@ pub struct UiState {
     pub uv_edges: HashMap<u32, Vec<[Vec2; 2]>>,
     /// UV units per object unit of each material slot (2D brush cursor size).
     pub uv_density: HashMap<u32, f32>,
+    /// App actions a panel asked for this frame (the Pen panel's buttons); the app runs them
+    /// after the panels, like their shortcuts.
+    pub pending_actions: Vec<subcraft_app::Action>,
+    /// The Pen panel's second colour (linear), swapped with the brush colour.
+    pub pen_second_color: [f32; 3],
     /// Painter's quick setup: a texture dropped on the model waits for its channel, picked from a
     /// menu at this screen point.
     pub drop_channel_menu: Option<(egui::Pos2, std::path::PathBuf)>,
@@ -546,6 +551,8 @@ impl UiState {
             tablet: Default::default(),
             uv_edges: HashMap::new(),
             uv_density: HashMap::new(),
+            pending_actions: Vec::new(),
+            pen_second_color: [1.0; 3],
             drop_channel_menu: None,
             brush_footprint: None,
             rename: None,
