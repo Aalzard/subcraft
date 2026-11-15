@@ -258,7 +258,7 @@ Layout notes: selecting a fill layer or fill effect with a 3D projection shows a
 | Translation: drag in camera plane | LMB drag on the centre | - | done | crates/ui/src/projection_gizmo.rs (manipulate) | - |
 | Translation constrained (grid steps) | Shift + LMB drag | step from Manipulator settings | done: step in the manipulator settings | crates/ui/src/projection_gizmo.rs | - |
 | Rotation around one axis | LMB drag on a ring | - | done | crates/ui/src/projection_gizmo.rs (manipulate) | - |
-| Free rotation on all axes | LMB drag between the rings | - | missing | - | - |
+| Free rotation on all axes | LMB drag between the rings | - | done: drag between the rings (trackball) | crates/ui/src/projection_gizmo.rs (free_rotated) | - |
 | Rotation constrained (angle steps) | Shift + LMB drag | step from Manipulator settings | done: step in the manipulator settings | crates/ui/src/projection_gizmo.rs | - |
 | Scale along one axis | LMB drag on an axis handle | - | done | crates/ui/src/projection_gizmo.rs (manipulate) | - |
 | Scale constrained (steps) | Shift + LMB drag | same step as translation | done: same step as translation | crates/ui/src/projection_gizmo.rs | - |

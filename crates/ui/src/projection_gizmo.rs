@@ -6,7 +6,8 @@
 //! * Translate: drag an axis handle to move along that axis of the box, a plane handle (the small
 //!   squares between two axes) to move in that plane of the box, or the centre handle to move in
 //!   the view plane.
-//! * Rotate: drag a ring to turn the box about that axis.
+//! * Rotate: drag a ring to turn the box about that axis, or between the rings to turn it
+//!   freely (about the axis across the drag, like a trackball).
 //! * Scale: drag an axis handle to scale along that axis, or the centre handle (left / right) to
 //!   scale all three.
 //! * Shift while dragging snaps to the steps of the manipulator settings.
@@ -175,6 +176,20 @@ pub fn rotated(start: &ProjectionTransform, axis: usize, deg: f32, step: Option<
     t
 }
 
+/// Free rotation: degrees per screen point of drag.
+const FREE_DEG_PER_POINT: f32 = 0.5;
+
+/// `start` turned freely by a screen drag `drag` (points, y down), with the camera's `right`
+/// and `up` directions in object space: about the axis across the drag (dragging right turns
+/// the front of the box to the right), by half a degree per point; with a step, the angle snaps.
+pub fn free_rotated(start: &ProjectionTransform, drag: Vec2, right: Vec3, up: Vec3, step: Option<f32>) -> ProjectionTransform {
+    let axis = up * drag.x + right * drag.y;
+    let deg = snap(drag.length() * FREE_DEG_PER_POINT, step);
+    let mut t = *start;
+    t.rotation_deg = start.rotated_about_axis(axis.to_array(), deg);
+    t
+}
+
 /// How many times the segment `a -> b` the pointer moved along it from `from` to `to`.
 pub fn along(from: Pos2, to: Pos2, a: Pos2, b: Pos2) -> f32 {
     let d = b - a;
@@ -238,6 +253,11 @@ const PLANE_NEAR: f32 = 0.22;
 const PLANE_FAR: f32 = 0.42;
 
 const RING_SEGMENTS: usize = 48;
+
+/// Screen radius of the free-rotation area: inside the rings (the longest projected axis).
+fn free_radius(ends: &[Option<Pos2>; 3], centre: Pos2) -> f32 {
+    ends.iter().flatten().map(|e| e.distance(centre)).fold(0.0, f32::max) * 0.9
+}
 const HANDLE_RADIUS: f32 = 6.0;
 
 /// Screen points of the ring about `axis`.
@@ -263,6 +283,8 @@ fn ring_distance(points: &[Option<Pos2>], p: Pos2) -> f32 {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Handle {
+    /// Between the rings: free rotation.
+    Free,
     Axis(usize),
     /// The plane handle normal to that axis.
     Plane(usize),
@@ -325,6 +347,8 @@ pub fn manipulate(
                 .filter(|(_, d)| *d <= HANDLE_RADIUS)
                 .min_by(|a, b| a.1.total_cmp(&b.1))
                 .map(|(i, _)| (Handle::Ring(i), centre))
+                // Inside the rings but on none of them: free rotation.
+                .or_else(|| (centre.distance(p) < free_radius(&ends, centre)).then_some((Handle::Free, centre)))
         } else {
             let axis = (0..3)
                 .filter_map(|i| ends[i].map(|e| (i, e, e.distance(p))))
@@ -371,6 +395,12 @@ pub fn manipulate(
             }
             (Handle::Centre, GizmoMode::Scale) => Some(scaled(&g.start, None, 1.0 + (p.x - g.from.x) / 120.0, grid)),
             (Handle::Centre, _) => on_view_plane(camera, g.lay.centre, to_paint(p)).map(|target| translated(&g.start, (target - g.lay.centre) / frame.extent, grid)),
+            (Handle::Free, _) => {
+                let inv = camera.view.inverse();
+                let (right, up) = (inv.transform_vector3(Vec3::X), inv.transform_vector3(Vec3::Y));
+                let drag = Vec2::new(p.x - g.from.x, p.y - g.from.y);
+                Some(free_rotated(&g.start, drag, right, up, shift.then(|| state.gizmo.angle())))
+            }
             (Handle::Ring(i), _) => {
                 let turn = screen_turn(g.centre, g.from, p);
                 // Seen from the tip of the axis a positive turn is counter-clockwise, which on
@@ -427,6 +457,9 @@ pub fn overlay(state: &UiState, painter: &egui::Painter, rect: Rect, pixel_scale
     let Some(centre) = pos(lay.centre) else { return };
     match state.gizmo.mode {
         GizmoMode::Rotate => {
+            // The free-rotation area between the rings.
+            let ends = [0usize, 1, 2].map(|i| pos(lay.centre + lay.axes[i] * lay.len));
+            painter.circle_stroke(centre, free_radius(&ends, centre), Stroke::new(1.0, Color32::from_white_alpha(60)));
             for i in 0..3 {
                 let points: Vec<Pos2> = ring(&lay, i, camera, rect, pixel_scale).into_iter().flatten().collect();
                 if points.len() > 1 {
@@ -465,7 +498,7 @@ pub fn overlay(state: &UiState, painter: &egui::Painter, rect: Rect, pixel_scale
 
     let hint = match state.gizmo.mode {
         GizmoMode::Translate => "Projection \u{00b7} Move: drag an axis, a square for two axes, or the centre for the view plane (Shift: steps, Ctrl: precise) \u{00b7} W / E / R tool, Q hide, + / - size",
-        GizmoMode::Rotate => "Projection \u{00b7} Rotate: drag a ring (Shift: steps, Ctrl: precise) \u{00b7} W / E / R tool, Q hide, + / - size",
+        GizmoMode::Rotate => "Projection \u{00b7} Rotate: drag a ring, or between them to turn freely (Shift: steps, Ctrl: precise) \u{00b7} W / E / R tool, Q hide, + / - size",
         GizmoMode::Scale => "Projection \u{00b7} Scale: drag an axis, or the centre for all three (Shift: steps, Ctrl: precise) \u{00b7} W / E / R tool, Q hide, + / - size",
     };
     let at = rect.center_bottom() - egui::vec2(0.0, 42.0);
@@ -557,6 +590,27 @@ mod tests {
         let rev = [sq[3], sq[2], sq[1], sq[0]];
         assert!(in_quad(Pos2::new(5.0, 5.0), &sq) && in_quad(Pos2::new(5.0, 5.0), &rev));
         assert!(!in_quad(Pos2::new(11.0, 5.0), &sq) && !in_quad(Pos2::new(5.0, -1.0), &rev));
+    }
+
+    #[test]
+    fn free_rotation_turns_about_the_axis_across_the_drag() {
+        let id = ProjectionTransform::default();
+        // Camera looking down -Z: right is +X, up is +Y. A drag to the right turns about +Y.
+        let (right, up) = (Vec3::X, Vec3::Y);
+        let t = free_rotated(&id, Vec2::new(180.0, 0.0), right, up, None);
+        assert!(close(t.rotation_deg, [0.0, 90.0, 0.0]), "{:?}", t.rotation_deg);
+        // A drag down turns about +X; with steps, 37 degrees snap to 30.
+        let t = free_rotated(&id, Vec2::new(0.0, 74.0), right, up, Some(15.0));
+        assert!(close(t.rotation_deg, [30.0, 0.0, 0.0]), "{:?}", t.rotation_deg);
+        // The turn is about the scene axis, after the box's own rotation: a box turned 90 about Z,
+        // then 90 about the scene's X, maps its X axis to the scene's Z.
+        let turned = ProjectionTransform { rotation_deg: [0.0, 0.0, 90.0], ..id };
+        let t = ProjectionTransform { rotation_deg: turned.rotated_about_axis([1.0, 0.0, 0.0], 90.0), ..id };
+        let r = t.rotation();
+        let x_axis = Vec3::new(r[0][0], r[1][0], r[2][0]);
+        assert!(x_axis.distance(Vec3::Z) < 1e-4, "{x_axis:?}");
+        // No drag, no turn.
+        assert!(close(free_rotated(&turned, Vec2::ZERO, right, up, None).rotation_deg, turned.rotation_deg));
     }
 
     #[test]

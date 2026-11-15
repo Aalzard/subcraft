@@ -291,6 +291,32 @@ impl ProjectionTransform {
         Self::euler_of(m)
     }
 
+    /// The rotation angles after turning the box by `deg` about the scene axis `axis` (any
+    /// direction; the manipulator's free rotation).
+    pub fn rotated_about_axis(&self, axis: [f32; 3], deg: f32) -> [f32; 3] {
+        let len = (axis[0] * axis[0] + axis[1] * axis[1] + axis[2] * axis[2]).sqrt();
+        if len < 1e-12 || !deg.is_finite() {
+            return self.rotation_deg;
+        }
+        let [x, y, z] = axis.map(|c| c / len);
+        let (s, c) = deg.to_radians().sin_cos();
+        let t = 1.0 - c;
+        // Rodrigues' rotation matrix (rows), applied after the box's own rotation.
+        let turn = [
+            [t * x * x + c, t * x * y - s * z, t * x * z + s * y],
+            [t * x * y + s * z, t * y * y + c, t * y * z - s * x],
+            [t * x * z - s * y, t * y * z + s * x, t * z * z + c],
+        ];
+        let r = self.rotation();
+        let mut m = [[0.0f32; 3]; 3];
+        for (i, row) in m.iter_mut().enumerate() {
+            for (j, v) in row.iter_mut().enumerate() {
+                *v = turn[i][0] * r[0][j] + turn[i][1] * r[1][j] + turn[i][2] * r[2][j];
+            }
+        }
+        Self::euler_of(m)
+    }
+
     /// A bounding-cube position and normal in the box's own frame (the box is the unit cube
     /// there): the inverse of scale, rotation and offset. The normal is renormalised.
     pub fn to_local(&self, pos: [f32; 3], normal: [f32; 3]) -> ([f32; 3], [f32; 3]) {
