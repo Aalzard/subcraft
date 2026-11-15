@@ -180,9 +180,9 @@ Layout notes: shown when a fill layer or fill effect uses Tri-planar, Planar, Sp
 | Warp edition menu | Contextual toolbar, Warp | - | partial: the Edit row in Properties, not on the contextual toolbar | crates/ui/src/warp_view.rs | - |
 | Transform warp | Warp edition menu; Shift + V toggles | default | done: Shift+V toggles | crates/ui/src/warp_view.rs | - |
 | Edit vertices | Warp edition menu; Shift + V toggles | - | done: Shift+V toggles | crates/ui/src/warp_view.rs | - |
-| Split warp crosswise | Warp edition menu | - | partial: through the middle cells, from Properties | crates/ui/src/panels/properties.rs (warp_rows) | - |
-| Split warp horizontally | Warp edition menu | - | partial: through the middle cells, from Properties | crates/ui/src/panels/properties.rs (warp_rows) | - |
-| Split warp vertically | Warp edition menu | - | partial: through the middle cells, from Properties | crates/ui/src/panels/properties.rs (warp_rows) | - |
+| Split warp crosswise | Warp edition menu | - | done: Split tool in the Warp settings, click a cell in the 3D view | crates/ui/src/warp_view.rs (SplitKind, cell_at, split_cell) | - |
+| Split warp horizontally | Warp edition menu | - | done: Split tool, a row through the clicked cell | crates/ui/src/warp_view.rs (SplitKind, cell_at, split_cell) | - |
+| Split warp vertically | Warp edition menu | - | done: Split tool, a column through the clicked cell | crates/ui/src/warp_view.rs (SplitKind, cell_at, split_cell) | - |
 | Warp projection settings menu | Contextual toolbar, Warp | - | partial: rows in Properties | crates/ui/src/panels/properties.rs (warp_rows) | - |
 | Rows and columns | Warp projection settings | editable only before any point is moved | done: locked once a point moved | crates/ui/src/panels/properties.rs (warp_rows) | - |
 | Handle size | Warp projection settings | not documented | done | crates/ui/src/warp_view.rs | - |

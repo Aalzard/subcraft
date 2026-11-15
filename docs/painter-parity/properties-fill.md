@@ -168,10 +168,10 @@ Layout notes: Filtering, UV Wrap, then the UV transformations group (Scale mode,
 | 3D projection: Scale X, Y, Z | Properties > Fill > 3D projection | not documented | done: 3D projection group in Properties > Fill | crates/doc/src/fill.rs (ProjectionTransform), crates/ui/src/panels/properties.rs | - |
 | Warp edition menu: Transform warp | Contextual toolbar | default (unverified) | done: Properties > Edit row; drag a point to move the whole grid in the view plane | crates/ui/src/warp_view.rs | - |
 | Warp edition menu: Edit vertices | Contextual toolbar | option | done: Properties > Edit row | crates/ui/src/warp_view.rs | - |
-| Warp edition menu: Split warp crosswise | Contextual toolbar | action | partial: splits through the middle cells (no interactive split line) | crates/ui/src/panels/properties.rs (warp_rows) | - |
-| Warp edition menu: Split warp horizontally | Contextual toolbar | action | partial: a row through the middle cells | crates/ui/src/panels/properties.rs (warp_rows) | - |
-| Warp edition menu: Split warp vertically | Contextual toolbar | action | partial: a column through the middle cells | crates/ui/src/panels/properties.rs (warp_rows) | - |
-| Cancel a split tool with Escape | Viewport | n/a | missing | - | - |
+| Warp edition menu: Split warp crosswise | Contextual toolbar | action | done: Split tool Crosswise in the Warp settings; click a cell in the 3D view (a dashed preview shows the cut); the middle-cell buttons in Properties stay | crates/ui/src/warp_view.rs (SplitKind, cell_at, split_cell) | - |
+| Warp edition menu: Split warp horizontally | Contextual toolbar | action | done: Split tool Horizontally; a row through the clicked cell | crates/ui/src/warp_view.rs (SplitKind, cell_at, split_cell) | - |
+| Warp edition menu: Split warp vertically | Contextual toolbar | action | done: Split tool Vertically; a column through the clicked cell | crates/ui/src/warp_view.rs (SplitKind, cell_at, split_cell) | - |
+| Cancel a split tool with Escape | Viewport | n/a | done: Esc stops the split tool (before it clears a vertex selection) | crates/ui/src/warp_view.rs (SplitKind, cell_at, split_cell) | - |
 | Toggle warp edition mode shortcut (Transform warp / Edit vertices) | Shortcut (Shift+V per SubCraft's Painter key table) | n/a | done: Shift+V over the 3D view | crates/ui/src/warp_view.rs | - |
 | Warp projection settings: Rows and columns (editable only while no point was moved) | Contextual toolbar > settings | not documented | done: 1-6 each, locked once a point moved or the grid was split | crates/ui/src/panels/properties.rs (warp_rows) | - |
 | Warp projection settings: Handle size | Contextual toolbar > settings | not documented | done: Properties > Handles | crates/ui/src/warp_view.rs | - |
