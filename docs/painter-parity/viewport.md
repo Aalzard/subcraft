@@ -245,26 +245,26 @@ Layout notes: selecting a fill layer or fill effect with a 3D projection shows a
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Show/Hide manipulator | Q | shown | missing | - | - |
-| Increase the manipulator size | + | - | missing | - | - |
-| Decrease the manipulator size | - | - | missing | - | - |
+| Show/Hide manipulator | Q | shown | done: Q while a fill projection manipulator is active | crates/ui/src/projection_gizmo.rs, crates/ui/src/app.rs (shortcuts) | - |
+| Increase the manipulator size | + | - | done: + (or =), 0.5-2.0 in steps of 0.25 | crates/ui/src/projection_gizmo.rs | - |
+| Decrease the manipulator size | - | - | done: - | crates/ui/src/projection_gizmo.rs | - |
 | Cycle through manipulation spaces (local / world) | T | - | missing | - | - |
-| Translate tool | W | - | missing | - | - |
-| Rotate tool | E | - | missing | - | - |
-| Scale tool | R | - | missing | - | - |
+| Translate tool | W | - | done: W | crates/ui/src/projection_gizmo.rs | - |
+| Rotate tool | E | - | done: E while the manipulator is shown (otherwise the eraser) | crates/ui/src/projection_gizmo.rs | - |
+| Scale tool | R | - | done: R | crates/ui/src/projection_gizmo.rs | - |
 | Surface tool (Planar and Warp only) | Shift + W | - | missing | - | - |
-| Translation: drag one axis | LMB drag on an axis | - | missing | - | - |
+| Translation: drag one axis | LMB drag on an axis | - | done | crates/ui/src/projection_gizmo.rs (manipulate) | - |
 | Translation: drag a two-axis plane | LMB drag on a plane handle | - | missing | - | - |
-| Translation: drag in camera plane | LMB drag on the centre | - | missing | - | - |
-| Translation constrained (grid steps) | Shift + LMB drag | step from Manipulator settings | missing | - | - |
-| Rotation around one axis | LMB drag on a ring | - | missing | - | - |
+| Translation: drag in camera plane | LMB drag on the centre | - | done | crates/ui/src/projection_gizmo.rs (manipulate) | - |
+| Translation constrained (grid steps) | Shift + LMB drag | step from Manipulator settings | done: step in the manipulator settings | crates/ui/src/projection_gizmo.rs | - |
+| Rotation around one axis | LMB drag on a ring | - | done | crates/ui/src/projection_gizmo.rs (manipulate) | - |
 | Free rotation on all axes | LMB drag between the rings | - | missing | - | - |
-| Rotation constrained (angle steps) | Shift + LMB drag | step from Manipulator settings | missing | - | - |
-| Scale along one axis | LMB drag on an axis handle | - | missing | - | - |
-| Scale constrained (steps) | Shift + LMB drag | same step as translation | missing | - | - |
+| Rotation constrained (angle steps) | Shift + LMB drag | step from Manipulator settings | done: step in the manipulator settings | crates/ui/src/projection_gizmo.rs | - |
+| Scale along one axis | LMB drag on an axis handle | - | done | crates/ui/src/projection_gizmo.rs (manipulate) | - |
+| Scale constrained (steps) | Shift + LMB drag | same step as translation | done: same step as translation | crates/ui/src/projection_gizmo.rs | - |
 | Surface manipulator: drag to snap onto the mesh | LMB drag (Planar, Warp) | - | missing | - | - |
-| Precision mode | Ctrl while dragging a manipulator (10.0) | - | missing | - | - |
-| Projection volume / plane preview in the view | 3D view | - | missing | - | - |
+| Precision mode | Ctrl while dragging a manipulator (10.0) | - | done: the handles follow a tenth of the pointer movement | crates/ui/src/projection_gizmo.rs (manipulate) | - |
+| Projection volume / plane preview in the view | 3D view | - | done: the projection box is drawn with the manipulator | crates/ui/src/projection_gizmo.rs (overlay) | - |
 | Toggle warp edition mode (Transform warp / Edit vertices) | Shift + V | Transform warp | done: Shift+V over the 3D view | crates/ui/src/warp_view.rs | - |
 | Warp: select a grid point | LMB click on a point | - | done | crates/ui/src/warp_view.rs | - |
 | Warp: add to selection | Shift + LMB click | - | done | crates/ui/src/warp_view.rs | - |
