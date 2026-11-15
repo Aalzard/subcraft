@@ -9,6 +9,30 @@ use subcraft_doc::{AnchorDomain, AnchorIndex, AnchorInfo, AnchorInput, RefSite, 
 use crate::theme::{self, TEXT_DIM, TEXT_FAINT};
 use crate::widgets::*;
 
+/// Where a jump request is kept: the layer to select and whether its mask stack is meant.
+pub fn jump_request_id() -> egui::Id {
+    egui::Id::new("anchor_jump")
+}
+
+fn request_jump(ui: &Ui, layer: subcraft_core::LayerId, mask: bool) {
+    ui.ctx().data_mut(|d| d.insert_temp(jump_request_id(), (layer, mask)));
+}
+
+/// Commands that select `layer` and its content or mask stack (a jump between an anchor and the
+/// layers that read it).
+pub fn jump_commands(layer: subcraft_core::LayerId, mask: bool) -> Vec<subcraft_app::Command> {
+    let target = if mask { subcraft_app::LayerTarget::Mask } else { subcraft_app::LayerTarget::Content };
+    vec![subcraft_app::Command::SelectLayer(Some(layer)), subcraft_app::Command::SelectLayerTarget { layer, target }]
+}
+
+/// Carry out a jump asked for by an anchor's reader list or a picker's "go to" button (once per
+/// frame).
+pub fn handle_jump(state: &mut crate::state::UiState, ctx: &egui::Context, now: f64) {
+    if let Some((layer, mask)) = ctx.data_mut(|d| d.remove_temp::<(subcraft_core::LayerId, bool)>(jump_request_id())) {
+        state.run(jump_commands(layer, mask), now);
+    }
+}
+
 /// Label of an anchor in a picker: its name and the layer it sits in.
 pub fn label(a: &AnchorInfo) -> String {
     let domain = if a.domain == AnchorDomain::Mask { " (mask)" } else { "" };
@@ -60,6 +84,12 @@ pub fn picker(
                 ui.label(RichText::new("No anchor point below. Add one to a lower layer's content or mask (Add › Anchor Point).").small().color(TEXT_FAINT()));
             }
         });
+        // Painter: jump from the slot to the anchor it reads.
+        if let Some(a) = current
+            && crate::widgets::icon_button(ui, crate::icons::ARROW_DOWN, &format!("Go to the anchor point in \"{}\"", a.layer_name)).clicked()
+        {
+            request_jump(ui, a.layer, a.domain == AnchorDomain::Mask);
+        }
     });
     if let Some(i) = input.as_mut()
         && current.is_some_and(|a| a.domain == AnchorDomain::Content)
@@ -79,6 +109,29 @@ pub fn picker(
         }
     }
     changed
+}
+
+#[cfg(test)]
+mod jump_tests {
+    use super::*;
+
+    #[test]
+    fn a_jump_selects_the_layer_and_its_stack() {
+        let layer = subcraft_core::LayerId::new();
+        let cmds = jump_commands(layer, true);
+        assert_eq!(cmds[0], subcraft_app::Command::SelectLayer(Some(layer)));
+        assert_eq!(cmds[1], subcraft_app::Command::SelectLayerTarget { layer, target: subcraft_app::LayerTarget::Mask });
+        assert!(matches!(jump_commands(layer, false)[1], subcraft_app::Command::SelectLayerTarget { target: subcraft_app::LayerTarget::Content, .. }));
+        // The request travels through the context's temporary data and is used once.
+        let ctx = egui::Context::default();
+        let mut state = crate::state::UiState::new(subcraft_app::Session::sample(), None);
+        let paint = state.session.selection().layer.unwrap();
+        state.session.execute(subcraft_app::Command::AddLayer(subcraft_app::NewLayer::Fill)).unwrap();
+        ctx.data_mut(|d| d.insert_temp(jump_request_id(), (paint, false)));
+        handle_jump(&mut state, &ctx, 0.0);
+        assert_eq!(state.session.selection().layer, Some(paint));
+        assert_eq!(ctx.data(|d| d.get_temp::<(subcraft_core::LayerId, bool)>(jump_request_id())), None);
+    }
 }
 
 /// A reference problem, in the warning color.
@@ -112,7 +165,11 @@ pub fn anchor_info(ui: &mut Ui, index: &AnchorIndex, anchor: subcraft_core::Effe
         };
         let who = index.layer_name(r.site.layer()).unwrap_or("a layer");
         let text = RichText::new(format!("• {who}: {place}")).small();
-        ui.label(if r.status.is_ok() { text.color(TEXT_DIM()) } else { text.color(theme::WARNING()) })
-            .on_hover_text(r.status.message());
+        let text = if r.status.is_ok() { text.color(TEXT_DIM()) } else { text.color(theme::WARNING()) };
+        // Painter: click a reader to jump to the layer that reads this anchor.
+        let row = ui.add(egui::Label::new(text).sense(egui::Sense::click())).on_hover_text(format!("{} · click to go to this layer", r.status.message()));
+        if row.clicked() {
+            request_jump(ui, r.site.layer(), matches!(r.site, RefSite::Mask { .. }));
+        }
     }
 }
