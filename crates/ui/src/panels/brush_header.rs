@@ -22,6 +22,8 @@ pub struct PreviewCache {
     /// The material sphere and the material values it shows.
     material_key: u64,
     material: Option<egui::TextureHandle>,
+    /// Turn of the preview's light around the sphere (radians), set by dragging it.
+    pub light_yaw: f32,
 }
 
 /// Side of the material preview sphere in texels (and points).
@@ -43,8 +45,9 @@ fn sphere_texel(m: &subcraft_paint::BrushMaterial) -> subcraft_materials::uv_mat
 /// Painter's Material Preview: a sphere lit by the studio light of the 2D view's Material
 /// display ([`subcraft_materials::uv_material::shade`]) with the brush material's base colour,
 /// roughness and metallic (images in slots are not shown). Antialiased edge, sRGB.
-pub fn sphere_image(m: &subcraft_paint::BrushMaterial) -> egui::ColorImage {
+pub fn sphere_image(m: &subcraft_paint::BrushMaterial, light_yaw: f32) -> egui::ColorImage {
     let t = sphere_texel(m);
+    let light = subcraft_materials::uv_material::light_turned(light_yaw);
     let mut rgba = Vec::with_capacity(SPHERE * SPHERE * 4);
     for py in 0..SPHERE {
         for px in 0..SPHERE {
@@ -59,7 +62,7 @@ pub fn sphere_image(m: &subcraft_paint::BrushMaterial) -> egui::ColorImage {
             // The sphere's normal facing the viewer (screen y down, normal y up).
             let z = (1.0 - r2.min(1.0)).sqrt();
             let normal = [x * 0.5 + 0.5, -y * 0.5 + 0.5, z * 0.5 + 0.5];
-            let c = subcraft_materials::uv_material::shade(subcraft_materials::uv_material::UvTexel { normal, ..t });
+            let c = subcraft_materials::uv_material::shade_lit(subcraft_materials::uv_material::UvTexel { normal, ..t }, light);
             let srgb = subcraft_core::color::linear3_to_srgb(c.map(|v| if v.is_finite() { v.clamp(0.0, 1.0) } else { 0.0 }));
             rgba.extend(srgb.map(|v| (v * 255.0).round() as u8));
             rgba.push((coverage * 255.0).round() as u8);
@@ -68,10 +71,10 @@ pub fn sphere_image(m: &subcraft_paint::BrushMaterial) -> egui::ColorImage {
     egui::ColorImage::from_rgba_unmultiplied([SPHERE, SPHERE], &rgba)
 }
 
-fn material_key(m: &subcraft_paint::BrushMaterial) -> u64 {
+fn material_key(m: &subcraft_paint::BrushMaterial, light_yaw: f32) -> u64 {
     let t = sphere_texel(m);
     let mut h = std::collections::hash_map::DefaultHasher::new();
-    for v in t.base.into_iter().chain([t.roughness, t.metallic]) {
+    for v in t.base.into_iter().chain([t.roughness, t.metallic, light_yaw]) {
         v.to_bits().hash(&mut h);
     }
     h.finish()
@@ -79,9 +82,10 @@ fn material_key(m: &subcraft_paint::BrushMaterial) -> u64 {
 
 /// Re-render the material sphere when the brush material's values changed.
 pub fn refresh_material(state: &mut UiState, ctx: &egui::Context) -> egui::TextureId {
-    let key = material_key(&state.session.brush.material);
+    let yaw = state.tip_preview.light_yaw;
+    let key = material_key(&state.session.brush.material, yaw);
     if state.tip_preview.material_key != key || state.tip_preview.material.is_none() {
-        let image = sphere_image(&state.session.brush.material);
+        let image = sphere_image(&state.session.brush.material, yaw);
         state.tip_preview.material = Some(ctx.load_texture("brush-material-preview", image, egui::TextureOptions::LINEAR));
         state.tip_preview.material_key = key;
     }
@@ -148,8 +152,11 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             ui.add(egui::Image::new((texture, egui::vec2(w, w * PREVIEW[1] as f32 / PREVIEW[0] as f32))).corner_radius(3.0));
             // Painter's Material Preview: the paint material on a lit sphere.
             ui.horizontal(|ui| {
-                ui.add(egui::Image::new((sphere, egui::vec2(SPHERE as f32, SPHERE as f32))))
-                    .on_hover_text("The brush material (base colour, roughness, metallic) on a lit sphere");
+                let r = ui.add(egui::Image::new((sphere, egui::vec2(SPHERE as f32, SPHERE as f32))).sense(egui::Sense::drag()))
+                    .on_hover_text("The brush material (base colour, roughness, metallic) on a lit sphere · drag to turn the light");
+                if r.dragged() {
+                    state.tip_preview.light_yaw = (state.tip_preview.light_yaw + r.drag_delta().x * 0.03).rem_euclid(std::f32::consts::TAU);
+                }
                 ui.label(RichText::new("Material").small().color(theme::TEXT_DIM()));
             });
             if let Some(p) = pending {
@@ -169,7 +176,7 @@ mod material_preview_tests {
     #[test]
     fn the_sphere_shows_the_material_lit() {
         let red = subcraft_paint::BrushMaterial::with(&[(ChannelKind::BaseColor, ChannelValue::rgb(0.8, 0.05, 0.05)), (ChannelKind::Roughness, ChannelValue::scalar(0.6))]);
-        let img = sphere_image(&red);
+        let img = sphere_image(&red, 0.0);
         assert_eq!(img.size, [SPHERE, SPHERE]);
         let at = |x: usize, y: usize| img.pixels[y * SPHERE + x];
         assert_eq!(at(0, 0).a(), 0, "outside the sphere is transparent");
@@ -182,7 +189,12 @@ mod material_preview_tests {
         let mut off = red.clone();
         off.disable(ChannelKind::BaseColor);
         assert_eq!(sphere_texel(&off).base, subcraft_materials::uv_material::UvTexel::default().base);
-        assert_ne!(material_key(&red), material_key(&off));
+        assert_ne!(material_key(&red, 0.0), material_key(&off, 0.0));
+        // Turning the light a quarter: the key changes and the bright side moves to the right.
+        assert_ne!(material_key(&red, 0.0), material_key(&red, 1.0));
+        let turned = sphere_image(&red, std::f32::consts::FRAC_PI_2);
+        let at2 = |x: usize, y: usize| turned.pixels[y * SPHERE + x];
+        assert!(at2(3 * SPHERE / 4, SPHERE / 2).r() > at2(SPHERE / 4, SPHERE / 2).r());
     }
 }
 

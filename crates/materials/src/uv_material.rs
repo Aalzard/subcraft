@@ -57,8 +57,20 @@ fn dot(a: [f32; 3], b: [f32; 3]) -> f32 {
 /// ambient term, all times the texel's ambient occlusion. Not clamped above 1 (the caller
 /// tone-maps or clamps).
 pub fn shade(t: UvTexel) -> [f32; 3] {
+    shade_lit(t, LIGHT)
+}
+
+/// The key light direction turned by `yaw` radians around the vertical (up) axis: what the
+/// Material Preview's drag does.
+pub fn light_turned(yaw: f32) -> [f32; 3] {
+    let (s, c) = yaw.sin_cos();
+    normalize([LIGHT[0] * c + LIGHT[2] * s, LIGHT[1], -LIGHT[0] * s + LIGHT[2] * c])
+}
+
+/// [`shade`] with the key light coming from `light` (tangent space, towards the viewer).
+pub fn shade_lit(t: UvTexel, light: [f32; 3]) -> [f32; 3] {
     let n = combined_normal(normalize([t.normal[0] * 2.0 - 1.0, t.normal[1] * 2.0 - 1.0, t.normal[2] * 2.0 - 1.0]), t.bump);
-    let l = normalize(LIGHT);
+    let l = normalize(light);
     let v = [0.0, 0.0, 1.0];
     let h = normalize([l[0] + v[0], l[1] + v[1], l[2] + v[2]]);
     let metal = t.metallic.clamp(0.0, 1.0);
@@ -129,6 +141,19 @@ mod tests {
         let toward = shade(UvTexel { bump: normalize([-0.5, 0.5, 0.7]), ..Default::default() });
         let away = shade(UvTexel { bump: normalize([0.5, -0.5, 0.7]), ..Default::default() });
         assert!(toward[0] > away[0] * 1.5);
+    }
+
+    #[test]
+    fn turning_the_light_moves_the_bright_side() {
+        assert_eq!(light_turned(0.0), normalize(LIGHT));
+        assert_eq!(shade_lit(UvTexel::default(), LIGHT), shade(UvTexel::default()));
+        // Half a turn: the light comes from the right; a normal facing right is now the bright one.
+        let right = UvTexel { normal: [0.5 + 0.5 * 0.7, 0.5, 0.5 + 0.5 * 0.7], ..Default::default() };
+        let left = UvTexel { normal: [0.5 - 0.5 * 0.7, 0.5, 0.5 + 0.5 * 0.7], ..Default::default() };
+        let back = light_turned(std::f32::consts::PI);
+        assert!(back[0] > 0.0);
+        assert!(shade_lit(right, light_turned(std::f32::consts::FRAC_PI_2))[0] > shade_lit(left, light_turned(std::f32::consts::FRAC_PI_2))[0]);
+        assert!(shade(left)[0] > shade(right)[0], "the default light is on the left");
     }
 
     #[test]

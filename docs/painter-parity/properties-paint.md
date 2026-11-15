@@ -37,7 +37,7 @@ Layout notes: two thumbnails side by side at the very top of the tool properties
 | Brush Preview (stroke rendered from the brush parameters) | Properties > top | n/a | partial: one stamp plus a fixed example stroke; ignores jitter, follow path, material | crates/ui/src/panels/brush_header.rs:56 | - |
 | Click-drag in the Brush Preview to draw a custom test stroke | Properties > top | n/a | missing | - | - |
 | Material Preview (lit sphere of the current paint material) | Properties > top | n/a | done: a sphere under the tip preview, lit like the 2D view's Material display, with the brush's base colour, roughness and metallic (slot images not shown) | crates/ui/src/panels/brush_header.rs | (this PR) |
-| Click-drag in the Material Preview to rotate its lighting | Properties > top | n/a | missing | - | - |
+| Click-drag in the Material Preview to rotate its lighting | Properties > top | n/a | done: a horizontal drag turns the light around the sphere | crates/ui/src/panels/brush_header.rs | (this PR) |
 
 ## Brush
 
