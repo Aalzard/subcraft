@@ -141,6 +141,10 @@ pub enum FileFormat {
     Ppm16,
     /// Portable float map (gray or RGB).
     Pfm32,
+    /// GIF: 256 colours picked from the image (NeuQuant), one-bit transparency.
+    Gif8,
+    /// Wireless bitmap: one bit per texel (black below one half), no alpha.
+    Wbmp1,
 }
 
 /// File container of a [`FileFormat`] (what the preset editor's "Format" menu picks).
@@ -158,6 +162,8 @@ pub enum Container {
     Pgm,
     Ppm,
     Pfm,
+    Gif,
+    Wbmp,
 }
 
 /// Bits per component (32 = float).
@@ -174,9 +180,10 @@ pub enum BitDepth {
 
 impl Container {
     /// Alphabetical by extension, like Painter's File type menu.
-    pub const ALL: [Container; 12] = [
+    pub const ALL: [Container; 14] = [
         Container::Bmp,
         Container::Exr,
+        Container::Gif,
         Container::Hdr,
         Container::Jpeg,
         Container::Pbm,
@@ -186,6 +193,7 @@ impl Container {
         Container::Ppm,
         Container::Tga,
         Container::Tiff,
+        Container::Wbmp,
         Container::Webp,
     ];
 
@@ -203,6 +211,8 @@ impl Container {
             Container::Pgm => "PGM",
             Container::Ppm => "PPM",
             Container::Pfm => "PFM",
+            Container::Gif => "GIF",
+            Container::Wbmp => "WBMP",
         }
     }
 
@@ -210,11 +220,11 @@ impl Container {
     pub fn depths(self) -> &'static [BitDepth] {
         match self {
             Container::Png => &[BitDepth::B8, BitDepth::B16],
-            Container::Tga | Container::Jpeg | Container::Bmp | Container::Webp => &[BitDepth::B8],
+            Container::Tga | Container::Jpeg | Container::Bmp | Container::Webp | Container::Gif => &[BitDepth::B8],
             Container::Exr => &[BitDepth::F16, BitDepth::F32],
             Container::Hdr => &[BitDepth::F32],
             Container::Tiff => &[BitDepth::B8, BitDepth::B16, BitDepth::F32],
-            Container::Pbm => &[BitDepth::B1],
+            Container::Pbm | Container::Wbmp => &[BitDepth::B1],
             Container::Pgm | Container::Ppm => &[BitDepth::B8, BitDepth::B16],
             Container::Pfm => &[BitDepth::F32],
         }
@@ -234,7 +244,7 @@ impl BitDepth {
 }
 
 impl FileFormat {
-    pub const ALL: [FileFormat; 18] = [
+    pub const ALL: [FileFormat; 20] = [
         FileFormat::Png8,
         FileFormat::Png16,
         FileFormat::Tga8,
@@ -253,6 +263,8 @@ impl FileFormat {
         FileFormat::Ppm8,
         FileFormat::Ppm16,
         FileFormat::Pfm32,
+        FileFormat::Gif8,
+        FileFormat::Wbmp1,
     ];
 
     pub fn container(self) -> Container {
@@ -269,13 +281,15 @@ impl FileFormat {
             FileFormat::Pgm8 | FileFormat::Pgm16 => Container::Pgm,
             FileFormat::Ppm8 | FileFormat::Ppm16 => Container::Ppm,
             FileFormat::Pfm32 => Container::Pfm,
+            FileFormat::Gif8 => Container::Gif,
+            FileFormat::Wbmp1 => Container::Wbmp,
         }
     }
 
     pub fn depth(self) -> BitDepth {
         match self {
-            FileFormat::Pbm1 => BitDepth::B1,
-            FileFormat::Png8 | FileFormat::Tga8 | FileFormat::Jpeg | FileFormat::Tiff8 | FileFormat::Bmp8 | FileFormat::Webp8 | FileFormat::Pgm8 | FileFormat::Ppm8 => BitDepth::B8,
+            FileFormat::Pbm1 | FileFormat::Wbmp1 => BitDepth::B1,
+            FileFormat::Png8 | FileFormat::Tga8 | FileFormat::Jpeg | FileFormat::Tiff8 | FileFormat::Bmp8 | FileFormat::Webp8 | FileFormat::Pgm8 | FileFormat::Ppm8 | FileFormat::Gif8 => BitDepth::B8,
             FileFormat::Png16 | FileFormat::Tiff16 | FileFormat::Pgm16 | FileFormat::Ppm16 => BitDepth::B16,
             FileFormat::Exr16 => BitDepth::F16,
             FileFormat::Exr32 | FileFormat::Tiff32 | FileFormat::Hdr32 | FileFormat::Pfm32 => BitDepth::F32,
@@ -313,6 +327,8 @@ impl FileFormat {
             (Container::Ppm, BitDepth::B16) => FileFormat::Ppm16,
             (Container::Ppm, _) => FileFormat::Ppm8,
             (Container::Pfm, _) => FileFormat::Pfm32,
+            (Container::Gif, _) => FileFormat::Gif8,
+            (Container::Wbmp, _) => FileFormat::Wbmp1,
         }
     }
 
@@ -330,6 +346,8 @@ impl FileFormat {
             FileFormat::Pgm8 | FileFormat::Pgm16 => "pgm",
             FileFormat::Ppm8 | FileFormat::Ppm16 => "ppm",
             FileFormat::Pfm32 => "pfm",
+            FileFormat::Gif8 => "gif",
+            FileFormat::Wbmp1 => "wbmp",
         }
     }
 
@@ -353,6 +371,8 @@ impl FileFormat {
             FileFormat::Ppm8 => "PPM 8-bit",
             FileFormat::Ppm16 => "PPM 16-bit",
             FileFormat::Pfm32 => "PFM 32-bit float",
+            FileFormat::Gif8 => "GIF 8-bit (256 colours)",
+            FileFormat::Wbmp1 => "WBMP 1-bit",
         }
     }
 
@@ -363,7 +383,7 @@ impl FileFormat {
     /// Whether the file stores a fourth (alpha) component. JPEG, Radiance HDR and the Netpbm
     /// formats don't: they drop it.
     pub fn has_alpha(self) -> bool {
-        !matches!(self.container(), Container::Jpeg | Container::Hdr | Container::Pbm | Container::Pgm | Container::Ppm | Container::Pfm)
+        !matches!(self.container(), Container::Jpeg | Container::Hdr | Container::Pbm | Container::Pgm | Container::Ppm | Container::Pfm | Container::Wbmp)
     }
 
     /// 8 bits per component: the formats "8-bit + dithering" applies to.
@@ -544,8 +564,60 @@ pub fn encode_image_dithered(width: u32, height: u32, comps: usize, data: &[f32]
             let bits16 = format.depth() == BitDepth::B16;
             return Ok(encode(width, height, comps, data, kind, bits16, |d: &[f32]| quantize8(d, dither)));
         }
+        FileFormat::Gif8 => {
+            // The GIF encoder takes RGB or RGBA: gray is repeated, gray + alpha keeps its alpha.
+            let rgba: Vec<f32> = match comps {
+                1 => data.iter().flat_map(|&g| [g, g, g, 1.0]).collect(),
+                2 => gray_alpha_to_rgba(data),
+                3 => data.chunks_exact(3).flat_map(|p| [p[0], p[1], p[2], 1.0]).collect(),
+                4 => data.to_vec(),
+                n => return Err(ImageIoError::Unsupported(format!("{n} components"))),
+            };
+            let bytes = quantize8(&rgba, dither);
+            // Speed 10 of 30 (1 is the slowest, best palette): fast enough for 4K maps.
+            let mut encoder = image::codecs::gif::GifEncoder::new_with_speed(&mut out, 10);
+            encoder.encode(&bytes, width, height, image::ExtendedColorType::Rgba8)?;
+        }
+        FileFormat::Wbmp1 => {
+            if !(1..=4).contains(&comps) {
+                return Err(ImageIoError::Unsupported(format!("{comps} components")));
+            }
+            return Ok(encode_wbmp(width, height, comps, data));
+        }
     }
     Ok(out.into_inner())
+}
+
+/// WBMP type 0: a zero type and header byte, the width and height as multi-byte integers (7 bits
+/// per byte, high bit set on all but the last), then rows of bits padded to a byte, 1 = white.
+/// A texel is white when its gray (Rec. 709 luma for colour) is at least one half; alpha is dropped.
+fn encode_wbmp(width: u32, height: u32, comps: usize, data: &[f32]) -> Vec<u8> {
+    fn multibyte(out: &mut Vec<u8>, mut v: u32) {
+        let mut groups = vec![(v & 0x7f) as u8];
+        v >>= 7;
+        while v > 0 {
+            groups.push((v & 0x7f) as u8 | 0x80);
+            v >>= 7;
+        }
+        out.extend(groups.iter().rev());
+    }
+    let mut out = vec![0u8, 0u8];
+    multibyte(&mut out, width);
+    multibyte(&mut out, height);
+    let gray = |p: &[f32]| if p.len() <= 2 { p[0] } else { 0.2126 * p[0] + 0.7152 * p[1] + 0.0722 * p[2] };
+    let grays: Vec<f32> = data.chunks_exact(comps).map(gray).collect();
+    for row in grays.chunks_exact((width as usize).max(1)).take(height as usize) {
+        for byte in row.chunks(8) {
+            let mut b = 0u8;
+            for (i, &g) in byte.iter().enumerate() {
+                if g >= 0.5 {
+                    b |= 0x80u8 >> i;
+                }
+            }
+            out.push(b);
+        }
+    }
+    out
 }
 
 fn drop_alpha(data: &[f32]) -> Vec<f32> {
@@ -729,6 +801,38 @@ mod tests {
         assert_eq!(FileFormat::from_parts(Container::Pfm, BitDepth::F16), FileFormat::Pfm32);
         assert_eq!(FileFormat::from_parts(Container::Pgm, BitDepth::F32), FileFormat::Pgm16);
         assert_eq!(FileFormat::from_parts(Container::Png, BitDepth::B1), FileFormat::Png8);
+    }
+
+    #[test]
+    fn gif_and_wbmp_encode() {
+        // GIF: a few flat colours (well under 256) come back exactly; gray reads back as gray.
+        let colours = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0], [1.0, 1.0, 1.0]];
+        let data: Vec<f32> = (0..8 * 4).flat_map(|i| colours[i % 4]).collect();
+        let bytes = encode_image(8, 4, 3, &data, FileFormat::Gif8).unwrap();
+        assert_eq!(guess_extension(&bytes, None), "gif");
+        let b = decode_bitmap(&bytes, Some("t.gif")).unwrap();
+        assert_eq!((b.width, b.height), (8, 4));
+        for i in 0..32u32 {
+            let t = b.texel(i % 8, i / 8, false);
+            let want = colours[i as usize % 4];
+            assert!((0..3).all(|c| (t[c] - want[c]).abs() < 0.02), "texel {i}: {t:?} vs {want:?}");
+        }
+        let gray = encode_image(2, 2, 2, &[0.0, 1.0, 1.0, 1.0, 0.0, 1.0, 1.0, 1.0], FileFormat::Gif8).unwrap();
+        let g = decode_bitmap(&gray, Some("t.gif")).unwrap();
+        assert!(g.texel(0, 0, false)[0] < 0.02 && g.texel(1, 0, false)[0] > 0.98);
+        assert!(FileFormat::Gif8.has_alpha() && FileFormat::Gif8.is_8bit());
+        // WBMP: header 0 0, width 10, height 2, then 2 bytes per row, white bits set.
+        let row: Vec<f32> = (0..10).map(|i| if i % 3 == 0 { 1.0 } else { 0.0 }).collect();
+        let data: Vec<f32> = row.iter().chain(&row).copied().collect();
+        let w = encode_image(10, 2, 1, &data, FileFormat::Wbmp1).unwrap();
+        assert_eq!(w, [0, 0, 10, 2, 0b1001_0010, 0b0100_0000, 0b1001_0010, 0b0100_0000]);
+        // Sizes past 127 take more than one byte: 300 = 0b10_0101100.
+        let big = encode_image(300, 1, 1, &vec![0.0; 300], FileFormat::Wbmp1).unwrap();
+        assert_eq!(&big[..5], [0, 0, 0x82, 0x2c, 1]);
+        assert_eq!(big.len(), 5 + 300usize.div_ceil(8));
+        assert!(!FileFormat::Wbmp1.has_alpha() && !FileFormat::Wbmp1.is_8bit());
+        assert_eq!(FileFormat::from_parts(Container::Wbmp, BitDepth::B8), FileFormat::Wbmp1);
+        assert_eq!(FileFormat::from_parts(Container::Gif, BitDepth::B16), FileFormat::Gif8);
     }
 
     #[test]
