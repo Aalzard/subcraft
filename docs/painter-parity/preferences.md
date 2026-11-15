@@ -185,9 +185,9 @@ Layout notes: used as `"Adobe Substance 3D Painter.exe" --command [option]`. Sub
 |---|---|---|---|---|---|
 | --help | Command line | - | done | apps/subcraft/src/main.rs:185 | - |
 | -h | Command line | - | done | apps/subcraft/src/main.rs:185 | - |
-| -? | Command line | - | missing | - | - |
-| --version | Command line | - | missing | - | - |
-| -v | Command line | - | missing | - | - |
+| -? | Command line | - | done | apps/subcraft/src/main.rs:211 | - |
+| --version | Command line | - | done: prints "SubCraft <version>" and exits before start-up | apps/subcraft/src/main.rs:229 | - |
+| -v | Command line | - | done | apps/subcraft/src/main.rs:229 | - |
 | --mesh (new project from a mesh) | Command line | mesh path | partial: a bare path argument, or --new-project to open the dialog | apps/subcraft/src/main.rs:189 | - |
 | --mesh with a project path (update the mesh of that project) | Command line | mesh path + .spp path | partial: --reload-mesh opens the Reload Mesh window | apps/subcraft/src/main.rs:166 | - |
 | --mesh-map (repeatable baked map files) | Command line | file named TextureSetName_MapName | missing | - | #137 |
