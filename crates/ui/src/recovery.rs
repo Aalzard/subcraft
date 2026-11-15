@@ -79,6 +79,11 @@ pub struct Preferences {
     /// Window > Toolbars: the tool rail and the status bar.
     pub show_tools_toolbar: bool,
     pub show_status_bar: bool,
+    /// Window > Toolbars > Docks: the closed panels' buttons in the header.
+    pub show_docks_toolbar: bool,
+    /// The tool rail docked on the right edge of the window instead of the left (Painter lets
+    /// the tool bar be dragged to either edge).
+    pub tools_on_right: bool,
     /// Which keyboard shortcut table is active (SubCraft default or Substance Painter).
     pub keymap: subcraft_app::KeymapPreset,
     /// Keys the user rebound in Settings > Shortcuts, on top of `keymap`.
@@ -157,6 +162,8 @@ impl Default for Preferences {
             camera_speed: Default::default(),
             materials_pack: String::new(),
             show_tools_toolbar: true,
+            show_docks_toolbar: true,
+            tools_on_right: false,
             show_status_bar: true,
             keymap: Default::default(),
             custom_keys: Default::default(),
@@ -626,6 +633,8 @@ mod tests {
         assert_eq!(p.theme, crate::theme::ThemeKind::Dark);
         p.theme = crate::theme::ThemeKind::Light;
         p.autosave_minutes = 7;
+        let d = Preferences::default();
+        assert!(d.show_docks_toolbar && !d.tools_on_right, "Docks shown, tools on the left by default");
         assert_eq!(Preferences::default().history_steps, DEFAULT_HISTORY_STEPS);
         assert!(HISTORY_STEPS_RANGE.contains(&DEFAULT_HISTORY_STEPS));
         let json = serde_json::to_string(&p).unwrap();
