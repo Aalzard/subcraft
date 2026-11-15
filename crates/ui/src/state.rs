@@ -939,6 +939,11 @@ impl UiState {
             self.uploaded_view_revision = self.session.view_revision();
             self.uploaded_channels = channels;
             self.gpu_dirty = false;
+            // `set_mesh` dropped the mask shown alone (uploaded by `mask_view::sync` above); it is
+            // uploaded again below. It used to stay black until the document changed.
+            if let Some(view) = &mut self.mask_view {
+                view.forget_upload();
+            }
         }
         // Bounded per frame so editing never stalls the UI; the rest follows on the next frames.
         // Several panels sync in one frame: they share one budget (see `begin_frame`).
@@ -1028,6 +1033,9 @@ impl UiState {
                 }
                 self.uploaded_maps.insert(key, img.clone());
             }
+        }
+        if full && self.mask_view.is_some() {
+            crate::mask_view::sync(self);
         }
     }
 }

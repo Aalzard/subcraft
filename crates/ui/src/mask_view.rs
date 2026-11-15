@@ -13,6 +13,14 @@ pub struct MaskView {
     uploaded: Option<(u64, web_time::Instant)>,
 }
 
+impl MaskView {
+    /// The uploaded mask is gone from the GPU (a full upload starts from empty materials):
+    /// upload it again on the next sync.
+    pub fn forget_upload(&mut self) {
+        self.uploaded = None;
+    }
+}
+
 /// Re-evaluate at most this often while the document keeps changing (painting into the mask).
 const REFRESH_SECONDS: f64 = 0.25;
 
