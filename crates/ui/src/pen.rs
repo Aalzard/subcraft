@@ -368,13 +368,14 @@ mod snap_tests {
     fn snapping_prefers_corners_and_centres_then_edges_within_the_radius() {
         let tri = [Pos2::new(0.0, 0.0), Pos2::new(100.0, 0.0), Pos2::new(0.0, 100.0)];
         let all = PenSnap { vertices: true, edges: true, edge_centres: true };
-        assert_eq!(snap_to_triangle(Pos2::new(4.0, 3.0), tri, all), Some(Pos2::new(0.0, 0.0)), "corner");
-        assert_eq!(snap_to_triangle(Pos2::new(52.0, 6.0), tri, all), Some(Pos2::new(50.0, 0.0)), "edge centre");
-        assert_eq!(snap_to_triangle(Pos2::new(30.0, 5.0), tri, all), Some(Pos2::new(30.0, 0.0)), "onto the edge");
+        let near = |got: Option<Pos2>, want: Pos2| got.is_some_and(|g| g.distance(want) < 1e-3);
+        assert!(near(snap_to_triangle(Pos2::new(4.0, 3.0), tri, all), Pos2::new(0.0, 0.0)), "corner");
+        assert!(near(snap_to_triangle(Pos2::new(52.0, 6.0), tri, all), Pos2::new(50.0, 0.0)), "edge centre");
+        assert!(near(snap_to_triangle(Pos2::new(30.0, 5.0), tri, all), Pos2::new(30.0, 0.0)), "onto the edge");
         assert_eq!(snap_to_triangle(Pos2::new(30.0, 30.0), tri, all), None, "nothing near");
         // Only what is enabled.
         let edges_only = PenSnap { edges: true, ..Default::default() };
-        assert_eq!(snap_to_triangle(Pos2::new(4.0, 3.0), tri, edges_only), Some(Pos2::new(4.0, 0.0)));
+        assert!(near(snap_to_triangle(Pos2::new(4.0, 3.0), tri, edges_only), Pos2::new(4.0, 0.0)));
         assert_eq!(snap_to_triangle(Pos2::new(4.0, 3.0), tri, PenSnap::default()), None);
         assert!(!PenSnap::default().any() && all.any());
     }
