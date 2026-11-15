@@ -330,8 +330,6 @@ impl PenRasterizer {
         let end_dir = points.windows(2).rev().map(|w| w[1] - w[0]).find(|&d| direction(d)).unwrap_or(Vec2::X);
         let (first, final_point) = (points.first().copied().unwrap_or_default(), points.last().copied().unwrap_or_default());
         let aspect = image.map_or(1.0, |b| b.width as f32 / b.height.max(1) as f32);
-        let copy_length = settings.copy_length(total, 2.0 * radius, aspect);
-        let single = settings.single_copy();
         let colored = settings.color_from_image && image.is_some();
         let done: Vec<(usize, Vec<f32>, Vec<[f32; 3]>)> = self.tiles[self.tile..].par_iter().map(|&tile| {
             let mut coverage = vec![0.0f32; TILE_TEXELS];
@@ -363,11 +361,7 @@ impl PenRasterizer {
                 }
                 let edge = (radius + 0.5 - dist).clamp(0.0, 1.0);
                 if edge <= 0.0 { continue; }
-                let along = (arc[i] + (arc[i + 1] - arc[i]) * t) / copy_length;
-                let k = along.floor();
-                if single && k >= 1.0 { continue; }
-                let mut u = along - k;
-                if settings.mirror && (k as i64).rem_euclid(2) == 1 { u = 1.0 - u; }
+                let Some(u) = settings.image_u(arc[i] + (arc[i + 1] - arc[i]) * t, total, 2.0 * radius, aspect) else { continue };
                 let mut v = (0.5 + side / (2.0 * radius)).clamp(0.0, 1.0);
                 if settings.flip { v = 1.0 - v; }
                 let a = match image {
@@ -559,6 +553,38 @@ mod run_tests {
         path.ribbon = Some(PathRibbon { mode: RibbonMode::KeepAspect, tiling: RibbonTiling::None, ..Default::default() });
         let once = render(&path, &along);
         assert!(once.get(40, 128)[3] > 0.99 && once.get(150, 128)[3] == 0.0, "{:?} {:?}", once.get(40, 128), once.get(150, 128));
+    }
+
+    #[test]
+    fn stretch_between_offsets_keeps_the_end_caps() {
+        use subcraft_doc::{PathRibbon, RibbonMode, RibbonTiling};
+        // A 2:1 image on a path 20 wide: 40 texels of image at its own size. Offsets 0.25 / 0.25:
+        // 10-texel caps at each end, the image's middle half over the rest.
+        let r = PathRibbon { stretch_between_offsets: true, start_offset: 0.25, end_offset: 0.25, tiling: RibbonTiling::None, ..Default::default() };
+        let u = |s: f32, length: f32| r.image_u(s, length, 20.0, 2.0).unwrap();
+        assert!((u(5.0, 200.0) - 0.125).abs() < 1e-6, "start cap at the image's own size");
+        assert!((u(10.0, 200.0) - 0.25).abs() < 1e-5);
+        assert!((u(100.0, 200.0) - 0.5).abs() < 1e-5, "the middle stretched over the rest");
+        assert!((u(195.0, 200.0) - 0.875).abs() < 1e-6, "end cap");
+        assert!((u(200.0, 200.0) - 1.0).abs() < 1e-6);
+        // The caps keep their length whatever the path's length.
+        assert!((u(5.0, 1000.0) - 0.125).abs() < 1e-6);
+        // A path shorter than both caps: they shrink together, the middle disappears.
+        assert!((u(4.0, 16.0) - 0.125).abs() < 1e-6 && (u(12.0, 16.0) - 0.875).abs() < 1e-6);
+        // Auto tiles the middle: 180 texels of middle for a 20-texel middle part makes 9 copies.
+        let auto = PathRibbon { tiling: RibbonTiling::Auto, ..r };
+        assert!((auto.image_u(20.0, 200.0, 20.0, 2.0).unwrap() - 0.5).abs() < 1e-4, "halfway through the first copy");
+        assert!((auto.image_u(30.0, 200.0, 20.0, 2.0).unwrap() - 0.25).abs() < 1e-4, "each copy restarts at the start offset");
+        // Off, or in Keep aspect ratio mode, the offsets do nothing.
+        let off = PathRibbon { stretch_between_offsets: false, ..r };
+        assert_eq!(off.offsets(), (0.0, 0.0));
+        assert!((off.image_u(100.0, 200.0, 20.0, 2.0).unwrap() - 0.5).abs() < 1e-6);
+        assert_eq!(PathRibbon { mode: RibbonMode::KeepAspect, ..r }.offsets(), (0.0, 0.0));
+        // Offsets that add up past the whole image are clamped to fit.
+        assert_eq!(PathRibbon { start_offset: 0.75, end_offset: 0.5, ..r }.offsets(), (0.75, 0.25));
+        // Not written when unused; older files read without them.
+        let json = serde_json::to_string(&PathRibbon::default()).unwrap();
+        assert!(!json.contains("offset"), "{json}");
     }
 
     #[test]

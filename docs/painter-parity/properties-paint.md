@@ -284,9 +284,9 @@ Layout notes: groups in order: Size, Opacity, Stroke, Stretching & Tiling (a mod
 | Omit ends when closed | Properties > Stroke | not documented | missing | - | - |
 | Mode: Stretch along path | Properties > Stretching & Tiling | default | done: Copies over the length | crates/paint/src/pen.rs (run_ribbon), crates/ui/src/pen.rs (ribbon_rows) | - |
 | Mode: Keep aspect ratio | Properties > Stretching & Tiling | option | done: copies keep the image's aspect at the path width, scaled by Aspect factor | crates/paint/src/pen.rs (run_ribbon), crates/ui/src/pen.rs (ribbon_rows) | - |
-| Stretch between offsets only | Stretching & Tiling (Stretch along path) | not documented | missing | - | - |
-| Start offset | Stretching & Tiling (Stretch along path) | not documented | missing | - | - |
-| End offset | Stretching & Tiling (Stretch along path) | not documented | missing | - | - |
+| Stretch between offsets only | Stretching & Tiling (Stretch along path) | not documented | done: the image ends before / after the offsets keep their length at the path width; only the middle stretches (and tiles) | crates/doc/src/pen.rs (PathRibbon::image_u), crates/ui/src/pen.rs (ribbon_rows) | - |
+| Start offset | Stretching & Tiling (Stretch along path) | not documented | done: 0-1 of the image | crates/doc/src/pen.rs (PathRibbon::image_u), crates/ui/src/pen.rs (ribbon_rows) | - |
+| End offset | Stretching & Tiling (Stretch along path) | not documented | done: 0-1 of the image, clamped so both fit | crates/doc/src/pen.rs (PathRibbon::image_u), crates/ui/src/pen.rs (ribbon_rows) | - |
 | Tiling mode (dropdown) | Stretching & Tiling (both modes) | Auto | done: None / Auto / Custom; new ribbons use Auto, ribbons saved before keep Custom | crates/doc/src/pen.rs (RibbonTiling, copy_length), crates/paint/src/pen.rs (run_ribbon), crates/ui/src/pen.rs (ribbon_rows) | - |
 | Tiling mode: None | Stretching & Tiling > Tiling mode | option | done: one copy over the length (Stretch) or once from the start (Keep aspect ratio) | crates/doc/src/pen.rs (RibbonTiling, copy_length), crates/paint/src/pen.rs (run_ribbon), crates/ui/src/pen.rs (ribbon_rows) | - |
 | Tiling mode: Auto | Stretching & Tiling > Tiling mode | default | done: whole copies close to the image aspect at the path width (Stretch); copies to the end (Keep aspect ratio) | crates/doc/src/pen.rs (RibbonTiling, copy_length), crates/paint/src/pen.rs (run_ribbon), crates/ui/src/pen.rs (ribbon_rows) | - |
