@@ -292,6 +292,9 @@ pub struct UiState {
     pub uv_edges: HashMap<u32, Vec<[Vec2; 2]>>,
     /// UV units per object unit of each material slot (2D brush cursor size).
     pub uv_density: HashMap<u32, f32>,
+    /// Polygon Fill box tooltip: the box (rounded pixels) it was counted for and (elements,
+    /// triangles), so a drag counts again only when the box changes.
+    pub fill_count: Option<([i32; 4], (usize, usize))>,
     /// App actions a panel asked for this frame (the Pen panel's buttons); the app runs them
     /// after the panels, like their shortcuts.
     pub pending_actions: Vec<subcraft_app::Action>,
@@ -555,6 +558,7 @@ impl UiState {
             tablet: Default::default(),
             uv_edges: HashMap::new(),
             uv_density: HashMap::new(),
+            fill_count: None,
             pending_actions: Vec::new(),
             pen_second_color: [1.0; 3],
             drop_channel_menu: None,

@@ -248,6 +248,14 @@ pub fn keep_contained(mesh: &Mesh, geometry: &TextureSetGeometry, tris: &[u32], 
     out
 }
 
+/// How many elements of `mode` the triangles `tris` belong to (single triangles count one each).
+pub fn count_elements(mesh: &Mesh, geometry: &TextureSetGeometry, tris: &[u32], mode: PolygonFillMode) -> usize {
+    match groups(mesh, geometry, mode) {
+        None => tris.len(),
+        Some(g) => tris.iter().map(|&t| g(t as usize)).collect::<std::collections::HashSet<_>>().len(),
+    }
+}
+
 /// Screen centre of a set of triangles: the mean of their 3D centroids, projected.
 pub fn screen_centre(mesh: &Mesh, camera: &Camera, tris: &[u32]) -> Option<Vec2> {
     if tris.is_empty() {
