@@ -215,8 +215,12 @@ pub(crate) fn fill_symmetry_toggle(ui: &mut Ui, state: &mut crate::state::UiStat
         let saved = ui.data(|d| d.get_temp::<subcraft_doc::FillSymmetry>(saved_id));
         let (symmetry, keep) = toggled_fill_symmetry(projection.symmetry, saved);
         ui.data_mut(|d| match keep {
-            Some(s) => d.insert_temp(saved_id, s),
-            None => d.remove::<subcraft_doc::FillSymmetry>(saved_id),
+            Some(s) => {
+                d.insert_temp(saved_id, s);
+            }
+            None => {
+                d.remove::<subcraft_doc::FillSymmetry>(saved_id);
+            }
         });
         let projection = subcraft_doc::Projection { symmetry, ..projection };
         if let Err(e) = state.session.execute(subcraft_app::Command::SetFillProjection { layer: id, projection }) {
