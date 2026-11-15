@@ -328,6 +328,15 @@ impl PenEditor {
         self.release(session)
     }
 
+    /// Run the path the other way (Painter's Reverse path direction), as one undo step.
+    pub fn reverse_path(&mut self, session: &Session) -> Result<(), CommandError> {
+        let mut path = self.preview(session).ok_or_else(|| error("select a pen path"))?.clone();
+        if path.anchors.len() < 2 { return Ok(()); }
+        path.reverse();
+        self.set_path(session, path)?; self.gesture.as_mut().unwrap().label = "Reverse pen path";
+        self.release(session)
+    }
+
     /// Switch point `id` between corner and smooth (a double-click on it).
     pub fn toggle_point(&mut self, session: &Session, id: AnchorId) -> Result<(), CommandError> {
         let smooth = self.preview(session).ok_or_else(|| error("select a pen path"))?.is_smooth(id);

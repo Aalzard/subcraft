@@ -16,10 +16,10 @@ Layout notes: a narrow vertical strip, top left of the main window by default; i
 | Path tools button (opens the path type menu) | Tools toolbar, third icon | no default shortcut ("Select paint along path tool" is unbound) | partial: single Pen tool, last in the rail; P by default | crates/ui/src/app.rs:1069 | - |
 | Paint along path | Path tools menu | - | partial: Pen paths are edited in UV space with their own stroke style, not the brush engine on the 3D surface | crates/app/src/pen.rs:1 | - |
 | Ribbon path | Path tools menu | - | partial: Path type dropdown in the pen Properties, no Path tools menu | crates/ui/src/pen.rs | - |
-| Filled path | Path tools menu | - | missing | - | - |
+| Filled path | Path tools menu | - | done: Path type Filled (the interior is filled) | crates/doc/src/pen.rs (PathKind::Filled), crates/ui/src/pen.rs | - |
 | Erase along path | Path tools menu | - | partial: Paths panel right-click > Erase along path runs the path once with the current brush on the paint layer below it (one undo step); not a live, editable path type | crates/app/src/path_apply.rs, crates/ui/src/paths_panel.rs | - |
 | Smudge along path | Path tools menu | - | partial: Paths panel right-click > Smudge along path runs the path once with the current brush on the paint layer below it (one undo step); not a live, editable path type | crates/app/src/path_apply.rs, crates/ui/src/paths_panel.rs | - |
-| Projection | Tools toolbar; 3 | - | missing | - | - |
+| Projection | Tools toolbar; 3 | - | done: Projection tool; 3 | crates/ui/src/app.rs (Tool::Projection) | - |
 | Physical projection (particles) | Tools toolbar, Projection second mode; Ctrl + 3 | - | missing | - | - |
 | Polygon Fill | Tools toolbar; 4 | - | done | crates/ui/src/app.rs:1065 | - |
 | Smudge | Tools toolbar; 5 | - | partial: placed after Clone in the rail | crates/ui/src/app.rs:1067 | - |
@@ -132,14 +132,14 @@ Layout notes: with a Path tool active the left side shows path controls in the o
 | Normals | Path display settings | off (unverified) | missing | - | - |
 | Tangents | Path display settings | not documented | missing | - | - |
 | Path direction | Path display settings | not documented | missing | - | - |
-| Path preview | Path settings menu; Shift + P (11.0) | on | missing | - | - |
+| Path preview | Path settings menu; Shift + P (11.0) | on | done: Shift+P toggles the dotted next segment | crates/ui/src/viewport.rs (Pen tool) | - |
 | Angle snapping settings | Path settings menu (11.0) | not documented | missing | - | - |
 | Snap to vertices | Path settings menu, magnet (11.0) | off | missing | - | - |
 | Snap to edges | Path settings menu, magnet (11.0) | off | missing | - | - |
 | Snap to center of edges | Path settings menu, magnet (11.0) | off | missing | - | - |
 | Path type button (switch Paint / Ribbon / Filled / Erase / Smudge) | Contextual toolbar, Path tools | - | partial: Paint, Filled and Ribbon in the pen Properties' Path type dropdown | crates/ui/src/pen.rs | - |
-| Reverse path direction | Contextual toolbar, Path tools | - | missing | - | - |
-| Toggle corner / smooth | Contextual toolbar, Path tools | shortcut unbound | missing | - | - |
+| Reverse path direction | Contextual toolbar, Path tools | - | done: Reverse button in the Pen properties | crates/doc/src/pen.rs (PenPath::reverse), crates/app/src/pen.rs (reverse_path), crates/ui/src/pen.rs | - |
+| Toggle corner / smooth | Contextual toolbar, Path tools | shortcut unbound | done: Corner / Smooth buttons in the Pen properties; double-click a point | crates/ui/src/pen.rs, crates/ui/src/viewport.rs (Pen tool) | - |
 | Custom tangents | Contextual toolbar, Path tools | off | missing | - | - |
 | Open / close path | Contextual toolbar, Path tools | open | partial: "Closed path" checkbox in the pen panel | crates/ui/src/pen.rs:98 | - |
 | Delete vertex | Contextual toolbar, Path tools | - | partial: Delete / Backspace key only | crates/ui/src/pen.rs:60 | - |
@@ -156,21 +156,21 @@ Layout notes: shown when a fill layer or fill effect uses Tri-planar, Planar, Sp
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Show/Hide manipulator | Contextual toolbar; Q | shown | missing | - | - |
-| Manipulator settings menu | Contextual toolbar | - | missing | - | - |
-| Manipulator size | Manipulator settings; + / - | not documented | missing | - | - |
-| Grid steps | Manipulator settings | not documented | missing | - | - |
-| Angle steps | Manipulator settings | not documented | missing | - | - |
-| Translation manipulator | Contextual toolbar; W | selected (unverified) | missing | - | - |
-| Rotation manipulator | Contextual toolbar; E | - | missing | - | - |
-| Scale manipulator | Contextual toolbar; R | - | missing | - | - |
-| Surface manipulator (Planar and Warp only) | Contextual toolbar; Shift + W | - | missing | - | - |
+| Show/Hide manipulator | Contextual toolbar; Q | shown | done: Show in the manipulator settings; Q | crates/ui/src/projection_gizmo.rs (settings_ui, handle_key) | - |
+| Manipulator settings menu | Contextual toolbar | - | done: manipulator settings in Properties > Fill (tool, space, size, steps) | crates/ui/src/projection_gizmo.rs (settings_ui) | - |
+| Manipulator size | Manipulator settings; + / - | not documented | done: 0.5-2 slider; + / - | crates/ui/src/projection_gizmo.rs (settings_ui, handle_key) | - |
+| Grid steps | Manipulator settings | not documented | done: Shift+drag step for move and scale | crates/ui/src/projection_gizmo.rs (settings_ui) | - |
+| Angle steps | Manipulator settings | not documented | done: Shift+drag step for rotation | crates/ui/src/projection_gizmo.rs (settings_ui) | - |
+| Translation manipulator | Contextual toolbar; W | selected (unverified) | done: Move; W | crates/ui/src/projection_gizmo.rs | - |
+| Rotation manipulator | Contextual toolbar; E | - | done: Rotate; E | crates/ui/src/projection_gizmo.rs | - |
+| Scale manipulator | Contextual toolbar; R | - | done: Scale; R | crates/ui/src/projection_gizmo.rs | - |
+| Surface manipulator (Planar and Warp only) | Contextual toolbar; Shift + W | - | partial: Surface, Shift+W, planar only | crates/ui/src/projection_gizmo.rs (surface_snapped) | - |
 | Manipulator space: Local space | Contextual toolbar; T cycles | not documented | done: Local in the manipulator settings (default) | crates/ui/src/projection_gizmo.rs (GizmoEdit::world, layout_for) | - |
 | Manipulator space: World space | Contextual toolbar; T cycles | not documented | done: World in the manipulator settings; T switches | crates/ui/src/projection_gizmo.rs (GizmoEdit::world, layout_for) | - |
-| Mirror on X | Contextual toolbar | - | missing | - | - |
-| Mirror on Y | Contextual toolbar | - | missing | - | - |
-| Mirror on Z | Contextual toolbar | - | missing | - | - |
-| Reset transformation | Contextual toolbar | - | missing | - | - |
+| Mirror on X | Contextual toolbar | - | done: Mirror X in Properties > Fill > 3D projection | crates/doc/src/fill.rs (ProjectionTransform::mirror), crates/ui/src/panels/properties.rs | - |
+| Mirror on Y | Contextual toolbar | - | done: Mirror Y in Properties > Fill > 3D projection | crates/doc/src/fill.rs (ProjectionTransform::mirror), crates/ui/src/panels/properties.rs | - |
+| Mirror on Z | Contextual toolbar | - | done: Mirror Z in Properties > Fill > 3D projection | crates/doc/src/fill.rs (ProjectionTransform::mirror), crates/ui/src/panels/properties.rs | - |
+| Reset transformation | Contextual toolbar | - | done: Reset in Properties > Fill > 3D projection | crates/ui/src/panels/properties.rs (transform3_group) | - |
 | Symmetry button for fill layers | Contextual toolbar (11.1) | off | missing | - | - |
 
 ## Contextual toolbar: Warp projection extras
