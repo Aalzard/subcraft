@@ -155,7 +155,7 @@ Layout notes: Filtering, UV Wrap, then the UV transformations group (Scale mode,
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Quick setup: drop an Alpha / Procedural / Texture from Assets onto the mesh, then choose the channel in a popup menu | Viewport | n/a | missing | - | - |
+| Quick setup: drop an Alpha / Procedural / Texture from Assets onto the mesh, then choose the channel in a popup menu | Viewport | n/a | partial: a texture dropped on the model opens a menu of the texture set's channels; the pick adds a fill layer filling that channel (alphas keep their own drop behaviour; no procedurals in the Shelf) | crates/ui/src/viewport.rs | (this PR) |
 | Quick setup with a Material: Alt + drop | Viewport | n/a | missing | - | - |
 | Filtering (same three options) | Properties > Fill | Bilinear &#124; HQ | done: the shared Filtering row | crates/ui/src/panels/properties.rs (projection_options) | - |
 | UV wrap (four options) | Properties > Fill | Repeat | done: inside the grid | crates/ui/src/panels/properties.rs (projection_options) | - |
