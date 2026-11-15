@@ -80,7 +80,7 @@ Layout notes: Painter lists the formats alphabetically by extension in the File 
 |---|---|---|---|---|---|
 | bmp (Bitmap) | File type | 8, 8 + dithering | done (8, 8 + dithering) | crates/image/src/io.rs | chunk 21 |
 | exr (OpenEXR) | File type | 16f, 32f | done (16f through the exr crate, 32f) | crates/image/src/io.rs | chunk 21 |
-| gif | File type | 8, 8 + dithering | missing | - | - |
+| gif | File type | 8, 8 + dithering | done (8, 8 + dithering; 256 colours picked from the image, alpha kept as one-bit transparency) | crates/image/src/io.rs | - |
 | hdr (Radiance HDR) | File type | 32f | done (RGB only: alpha dropped) | crates/image/src/io.rs | chunk 21 |
 | ico | File type | 8, 8 + dithering | missing | - | - |
 | j2k (JPEG 2000) | File type | 8, 8 + dithering, 16 | missing | - | - |
@@ -96,7 +96,7 @@ Layout notes: Painter lists the formats alphabetically by extension in the File 
 | psd (container: all maps of a set in one file, folders become groups) | File type | 8, 8 + dithering, 16 | missing (layered PSD exists only for the per-channel PhotoCraft exchange, crates/export/src/psd.rs:212) | - | - |
 | targa | File type | 8, 8 + dithering | done (8, 8 + dithering) | crates/image/src/io.rs | chunk 21 |
 | tiff | File type | 8, 8 + dithering, 16, 32f | done (8, 8 + dithering, 16, 32f) | crates/image/src/io.rs | #124, chunk 21 |
-| wbmp | File type | 8, 8 + dithering | missing | - | - |
+| wbmp | File type | 8, 8 + dithering | done (1-bit, white from one half; a WBMP file can't store 8-bit) | crates/image/src/io.rs (encode_wbmp) | - |
 | webp | File type | 8, 8 + dithering | done (8, 8 + dithering; lossless) | crates/image/src/io.rs | chunk 21 |
 | xpm | File type | 8, 8 + dithering | missing | - | - |
 | sbsar (bundle the outputs into one Substance archive) | File type (added in 8.2) | - | missing | - | - |

@@ -378,6 +378,8 @@ mod painter {
             "pgm" => Container::Pgm,
             "ppm" => Container::Ppm,
             "pfm" => Container::Pfm,
+            "gif" => Container::Gif,
+            "wbmp" => Container::Wbmp,
             other => {
                 warnings.push(format!("{preset}: file format \"{other}\" is not supported, using PNG"));
                 Container::Png
