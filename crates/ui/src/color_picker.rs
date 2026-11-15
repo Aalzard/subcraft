@@ -247,6 +247,32 @@ pub fn color_button(ui: &mut Ui, id_salt: impl std::hash::Hash + std::fmt::Debug
     edit
 }
 
+/// The whole picker shown in place (no swatch, no popup), for panels that keep it open: the Pen
+/// panel's colour wheel. `rgb` is linear. Finished picks go to the front of `recent`.
+pub fn inline_picker(ui: &mut Ui, id_salt: impl std::hash::Hash + std::fmt::Debug, rgb: &mut [f32; 3], recent: &mut Vec<[f32; 3]>) -> Edit {
+    let id = ui.make_persistent_id(("color_picker_inline", id_salt));
+    let state_id = id.with("state");
+    let mut st = ui.data_mut(|d| d.get_temp::<PickerState>(state_id)).unwrap_or_else(|| PickerState::new(*rgb));
+    st.open = true;
+    let mut edit = Edit::default();
+    if let Some(picked) = ui.data_mut(|d| d.remove_temp::<[f32; 3]>(id.with("picked"))) {
+        if !same(*rgb, picked) {
+            *rgb = picked;
+            edit.changed = true;
+        }
+        edit.done = true;
+    }
+    let body = picker_body(ui, id, rgb, &mut st, recent);
+    edit.changed |= body.changed;
+    edit.done |= body.done;
+    if edit.done && !same(st.old, *rgb) {
+        push_recent(recent, *rgb);
+        st.old = *rgb;
+    }
+    ui.data_mut(|d| d.insert_temp(state_id, st));
+    edit
+}
+
 fn paint_swatch(ui: &Ui, rect: Rect, linear: [f32; 3], hovered: bool) {
     let stroke = if hovered { Stroke::new(1.0, TEXT()) } else { Stroke::new(1.0, BORDER_STRONG()) };
     ui.painter().rect(rect, CornerRadius::same(theme::radius()), swatch_color(linear), stroke, egui::StrokeKind::Inside);

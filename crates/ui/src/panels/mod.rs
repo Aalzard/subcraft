@@ -11,6 +11,7 @@ pub mod id_colors;
 pub mod layers;
 pub mod mask;
 pub mod parts;
+pub mod pen;
 pub mod properties;
 pub mod channels;
 pub mod display_settings;
