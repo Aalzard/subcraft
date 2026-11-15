@@ -105,3 +105,27 @@ fn synchronous_export_cannot_leave_a_stale_viewport_composite() {
     ui.gpu_dirty = true;
     assert!(render(&mut ui) == after, "incremental viewport equals a forced complete upload");
 }
+
+/// A full upload (here forced; also a channel added, parts hidden, a texture dropped) rebuilds
+/// the GPU materials and dropped the mask shown alone: the view went black until the document
+/// changed again.
+#[test]
+fn a_full_upload_keeps_the_mask_shown_alone() {
+    let _gpu = gpu_test();
+    let Some(mut ui) = ui_state() else { eprintln!("no adapter: skipping"); return };
+    ui.session.execute(subcraft_app::Command::AddLayer(subcraft_app::NewLayer::Fill)).unwrap();
+    let layer = ui.session.selection().layer.unwrap();
+    ui.session.execute(subcraft_app::Command::AddMask { layer, white: true }).unwrap();
+    subcraft_ui::mask_view::toggle(&mut ui, layer);
+    let shown = |ui: &mut UiState| {
+        render(ui);
+        let mut params = ui.camera.view_params([128, 128]);
+        params.mask_view = true;
+        let rs = ui.render_state.as_ref().unwrap();
+        ui.renderer.as_mut().unwrap().render(&rs.device, &rs.queue, [128, 128], &params).read_rgba8(&rs.device, &rs.queue)
+    };
+    let white = shown(&mut ui);
+    assert!(visible_pixels(&white) > 1000, "the white mask shows");
+    ui.gpu_dirty = true;
+    assert_eq!(shown(&mut ui), white, "still shown after a full upload");
+}
