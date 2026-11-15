@@ -280,8 +280,8 @@ Layout notes: an anchor point is a named marker in a content or mask stack. Its 
 | Moving an anchor above its reference breaks the link (undo restores it) | Layer stack | n/a | done (reference flagged, input ignored) | crates/ui/src/panels/layers.rs:342 | - |
 | No references across texture sets | Layer stack | n/a | done | crates/ui/src/panels/anchor.rs:36 | - |
 | Anchor Properties list every layer that references it | Properties > Anchor point | n/a | done | crates/ui/src/panels/anchor.rs:102 | - |
-| Click a reference in that list to jump to the referencing layer | Properties > Anchor point | n/a | missing | - | - |
-| Jump from a fill layer/effect to the anchor it uses | Properties > slot | n/a | missing | - | - |
+| Click a reference in that list to jump to the referencing layer | Properties > Anchor point | n/a | done: selects that layer (its mask stack for a mask reference) | crates/ui/src/panels/anchor.rs | (this PR) |
+| Jump from a fill layer/effect to the anchor it uses | Properties > slot | n/a | done: a go-to button beside every anchor picker selects the anchor's layer and stack | crates/ui/src/panels/anchor.rs | (this PR) |
 | References kept when layers are duplicated or copy/pasted together | Layer stack | n/a | done | crates/app/src/clipboard.rs:209 | - |
 | Levels on the referenced value (SubCraft extra on Anchor Reference) | n/a | n/a | done | crates/ui/src/panels/properties.rs:533 | - |
 | Micro details / micro height options in generators driven by an anchor | Generator parameters | off | partial: "Micro effect" on generators | crates/ui/src/panels/properties.rs:625 | - |
