@@ -132,6 +132,8 @@ impl PenEditor {
         self.select_points(session, &ids, false);
     }
     pub fn is_editing(&self) -> bool { self.gesture.is_some() }
+    /// Whether the current gesture moves a point (not a tangent handle).
+    pub fn dragging_anchor(&self) -> bool { self.gesture.as_ref().and_then(|g| g.handle).is_some_and(|h| h.handle == Handle::Anchor) }
     pub fn is_pending(&self) -> bool { !self.pending.is_empty() }
     pub fn progress(&self) -> f32 { self.pending.front().map_or(1.0, |p| p.raster.progress()) }
 

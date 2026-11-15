@@ -123,20 +123,20 @@ Layout notes: with a Path tool active the left side shows path controls in the o
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Show / hide viewport interface | Contextual toolbar, Path tools | shown | missing | - | - |
-| Display settings menu | Contextual toolbar, Path tools | - | missing | - | - |
-| Handle size | Path display settings | not documented | missing | - | - |
-| Path width | Path display settings | not documented | missing | - | - |
-| Path color | Path display settings | not documented | missing | - | - |
-| Unselected path color | Path display settings | not documented | missing | - | - |
-| Normals | Path display settings | off (unverified) | missing | - | - |
-| Tangents | Path display settings | not documented | missing | - | - |
-| Path direction | Path display settings | not documented | missing | - | - |
+| Show / hide viewport interface | Contextual toolbar, Path tools | shown | done: Pen properties > Display > Show paths | crates/ui/src/pen.rs (PenDisplay, draw), crates/ui/src/viewport.rs (Pen tool) | - |
+| Display settings menu | Contextual toolbar, Path tools | - | done: Pen properties > Display | crates/ui/src/pen.rs (PenDisplay, draw), crates/ui/src/viewport.rs (Pen tool) | - |
+| Handle size | Path display settings | not documented | done: 2-10 points | crates/ui/src/pen.rs (PenDisplay, draw), crates/ui/src/viewport.rs (Pen tool) | - |
+| Path width | Path display settings | not documented | done: 0.5-6 points | crates/ui/src/pen.rs (PenDisplay, draw), crates/ui/src/viewport.rs (Pen tool) | - |
+| Path color | Path display settings | not documented | done: colour button, Theme goes back to the accent colour | crates/ui/src/pen.rs (PenDisplay, draw), crates/ui/src/viewport.rs (Pen tool) | - |
+| Unselected path color | Path display settings | not documented | done: the texture set's other paths drawn thinner in this colour | crates/ui/src/pen.rs (PenDisplay, draw), crates/ui/src/viewport.rs (Pen tool) | - |
+| Normals | Path display settings | off (unverified) | done: ticks across the path (off by default) | crates/ui/src/pen.rs (PenDisplay, draw), crates/ui/src/viewport.rs (Pen tool) | - |
+| Tangents | Path display settings | not documented | done: tangent handles of the selected point shown (and grabbable) or hidden | crates/ui/src/pen.rs (PenDisplay, draw), crates/ui/src/viewport.rs (Pen tool) | - |
+| Path direction | Path display settings | not documented | done: arrows along the path (off by default) | crates/ui/src/pen.rs (PenDisplay, draw), crates/ui/src/viewport.rs (Pen tool) | - |
 | Path preview | Path settings menu; Shift + P (11.0) | on | done: Shift+P toggles the dotted next segment | crates/ui/src/viewport.rs (Pen tool) | - |
 | Angle snapping settings | Path settings menu (11.0) | not documented | missing | - | - |
-| Snap to vertices | Path settings menu, magnet (11.0) | off | missing | - | - |
-| Snap to edges | Path settings menu, magnet (11.0) | off | missing | - | - |
-| Snap to center of edges | Path settings menu, magnet (11.0) | off | missing | - | - |
+| Snap to vertices | Path settings menu, magnet (11.0) | off | done: Pen properties > Snap > Vertices; new and moved points jump to a vertex within 10 points (a ring shows the target) | crates/ui/src/pen.rs (snap_to_triangle), crates/ui/src/viewport.rs (pen_snapped) | - |
+| Snap to edges | Path settings menu, magnet (11.0) | off | done: Pen properties > Snap > Edges; onto the nearest edge of the triangle under the pointer | crates/ui/src/pen.rs (snap_to_triangle), crates/ui/src/viewport.rs (pen_snapped) | - |
+| Snap to center of edges | Path settings menu, magnet (11.0) | off | done: Pen properties > Snap > Edge centres | crates/ui/src/pen.rs (snap_to_triangle), crates/ui/src/viewport.rs (pen_snapped) | - |
 | Path type button (switch Paint / Ribbon / Filled / Erase / Smudge) | Contextual toolbar, Path tools | - | partial: Paint, Filled and Ribbon in the pen Properties' Path type dropdown | crates/ui/src/pen.rs | - |
 | Reverse path direction | Contextual toolbar, Path tools | - | done: Reverse button in the Pen properties | crates/doc/src/pen.rs (PenPath::reverse), crates/app/src/pen.rs (reverse_path), crates/ui/src/pen.rs | - |
 | Toggle corner / smooth | Contextual toolbar, Path tools | shortcut unbound | done: Corner / Smooth buttons in the Pen properties; double-click a point | crates/ui/src/pen.rs, crates/ui/src/viewport.rs (Pen tool) | - |
