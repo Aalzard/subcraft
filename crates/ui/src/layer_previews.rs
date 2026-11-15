@@ -20,6 +20,35 @@ pub struct PreviewUi {
     textures: HashMap<PreviewKey, Texture>,
     clock: u64,
     pub inspect: Option<LayerId>,
+    /// Painter's "Use simplified thumbnails": no rendered previews, a plain icon per thumbnail
+    /// (nothing is evaluated for them, which saves time on heavy stacks).
+    pub simplified: bool,
+}
+
+/// The icon a simplified thumbnail shows for `key`: an effect, a mask or layer content.
+pub fn simplified_icon(key: &PreviewKey) -> &'static str {
+    if key.effect.is_some() {
+        crate::icons::SLIDERS
+    } else if key.mask {
+        crate::icons::MASK
+    } else {
+        crate::icons::IMAGE
+    }
+}
+
+#[cfg(test)]
+mod simplified_tests {
+    use super::*;
+
+    #[test]
+    fn simplified_thumbnails_name_what_they_stand_for() {
+        let key = PreviewKey { layer: LayerId::new(), channel: ChannelKind::BaseColor, mask: false, effect: None, size: 64 };
+        assert_eq!(simplified_icon(&key), crate::icons::IMAGE);
+        assert_eq!(simplified_icon(&PreviewKey { mask: true, ..key }), crate::icons::MASK);
+        assert_eq!(simplified_icon(&PreviewKey { effect: Some(subcraft_core::EffectId::new()), ..key }), crate::icons::SLIDERS);
+        assert!(!PreviewUi::default().simplified, "rendered previews by default");
+        assert!(!crate::recovery::Preferences::default().simplified_layer_thumbnails);
+    }
 }
 
 impl PreviewUi {
@@ -80,7 +109,9 @@ impl PreviewUi {
                 );
             }
         }
-        if let Some(image) = self.cache.request(session, key) {
+        if self.simplified {
+            painter.text(rect.center(), egui::Align2::CENTER_CENTER, simplified_icon(&key), theme::font(side * 0.45), theme::TEXT_DIM());
+        } else if let Some(image) = self.cache.request(session, key) {
             let pixels =
                 || egui::ColorImage::from_rgba_unmultiplied([image.size as usize; 2], &image.rgba);
             if let Some(texture) = self.textures.get_mut(&key) {

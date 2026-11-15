@@ -481,6 +481,7 @@ Files: {}", ex.dir().display()));
     // must only use the space that is left (it scrolls).
     let rows_height = (ui.available_height() - 44.0).max(0.0);
     let preview_size = state.recovery.prefs.layer_preview_size.clamp(24, 64) as f32;
+    state.layer_previews.simplified = state.recovery.prefs.simplified_layer_thumbnails;
     egui::ScrollArea::vertical()
         .id_salt("layer_rows")
         .auto_shrink([false, false])

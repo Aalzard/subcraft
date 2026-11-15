@@ -39,7 +39,7 @@ Layout notes: Edit > Settings opens one window with three sections chosen on the
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
 | Default UV scale for materials | Settings > General > Layer stack | not documented | partial: UV tiling of new fill layers; smart materials and shelf drops keep their own scale | crates/app/src/session.rs (default_uv_scale) | #210 |
-| Use simplified thumbnails | Settings > General > Layer stack | not documented | missing | - | - |
+| Use simplified thumbnails | Settings > General > Layer stack | not documented | done: Preferences checkbox (off by default); layer, mask and effect thumbnails show a plain icon and nothing is rendered for them | crates/ui/src/layer_previews.rs | (this PR) |
 
 ## General: Camera options
 
