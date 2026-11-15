@@ -121,3 +121,18 @@ fn selecting_a_layer_outside_the_multi_selection_clears_it() {
     state.begin_frame();
     assert!(state.multi.ids.is_empty());
 }
+
+/// A cleared baked map stayed on the GPU (baked AO kept darkening the model when the set has no
+/// AO channel) until an unrelated full upload: the sync must notice the map is gone.
+#[test]
+fn a_cleared_baked_map_is_noticed_by_the_gpu_sync() {
+    let mut state = state();
+    let ts = state.session.selection().texture_set;
+    let ao = subcraft_image::TiledImage::new(64, 64, 1, [0.25; 4]);
+    state.session.set_mesh_maps(ts, [(subcraft_core::MeshMapKind::AmbientOcclusion, ao.clone())].into_iter().collect());
+    // What `sync_gpu` records after uploading it.
+    state.uploaded_maps.insert((ts, subcraft_core::MeshMapKind::AmbientOcclusion), ao);
+    assert!(!mesh_maps_removed(&state.uploaded_maps, &state.session), "the uploaded map is still current");
+    state.session.execute(Command::ClearMeshMap { texture_set: ts, kind: subcraft_core::MeshMapKind::AmbientOcclusion }).unwrap();
+    assert!(mesh_maps_removed(&state.uploaded_maps, &state.session), "the cleared map must leave the GPU");
+}

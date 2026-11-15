@@ -916,7 +916,11 @@ impl UiState {
         // Export/sampling may synchronously install the final composite and consume its tile
         // notifications between frames. Refresh it instead of leaving a partial GPU result.
         let external_composite = self.uploaded_composite_generation != self.session.composite_generation();
-        let full = self.gpu_dirty || view_changed || channels_changed || external_composite;
+        // A cleared baked map (and the baked AO standing in for a missing AO channel) stayed on the
+        // GPU, still shading the model, until an unrelated full upload. A full upload starts from
+        // empty materials, so it drops it.
+        let maps_removed = mesh_maps_removed(&self.uploaded_maps, &self.session);
+        let full = self.gpu_dirty || view_changed || channels_changed || external_composite || maps_removed;
         if full {
             renderer.set_mesh(&rs.device, &self.session.viewport_scene().mesh);
             self.uploaded_view_revision = self.session.view_revision();
@@ -995,6 +999,9 @@ impl UiState {
         self.uploaded_composite_generation = session.composite_generation();
         // Baked maps: re-upload when a bake replaced them. Baked AO also shades the viewport
         // when the texture set has no Ambient Occlusion channel of its own.
+        if full {
+            self.uploaded_maps.clear();
+        }
         for ts in &session.document().texture_sets {
             let Some(maps) = session.mesh_maps(ts.id) else { continue };
             for (kind, img) in maps.iter() {
@@ -1010,6 +1017,12 @@ impl UiState {
             }
         }
     }
+}
+
+/// Whether a mesh map uploaded to the GPU is no longer in the session (cleared, or its texture
+/// set removed).
+fn mesh_maps_removed(uploaded: &HashMap<(subcraft_core::TextureSetId, subcraft_core::MeshMapKind), subcraft_image::TiledImage>, session: &Session) -> bool {
+    uploaded.keys().any(|(ts, kind)| session.mesh_maps(*ts).and_then(|m| m.get(*kind)).is_none())
 }
 
 /// Built-in brush presets: ours first, then the open-pack channel presets whose names are not
