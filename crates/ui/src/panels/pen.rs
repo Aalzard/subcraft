@@ -74,9 +74,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         if big(ui, crate::icons::SQUARES, "Hide UI", "Hide every panel (Tab brings them back)", false) { queue(Action::HideUi); }
     });
     if let Some(up) = flow {
-        let s = &mut state.session.brush.settings;
-        s.flow = flow_step(s.flow, up);
-        state.set_status(format!("Flow {:.0}%", s.flow * 100.0), now);
+        let flow = flow_step(state.session.brush.settings.flow, up);
+        state.session.brush.settings.flow = flow;
+        state.set_status(format!("Flow {:.0}%", flow * 100.0), now);
     }
     if swap {
         let mut material = state.session.brush.material.clone();
