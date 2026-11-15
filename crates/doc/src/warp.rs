@@ -175,6 +175,49 @@ impl WarpGrid {
         g
     }
 
+    /// Where point `i` sits on the flat grid of `axis`: its image coordinates on the plane at
+    /// depth 0.5 (splits keep their place).
+    pub fn flat_point(&self, axis: u8, i: usize) -> [f32; 3] {
+        from_plane_coords(self.grid_coords(i), axis.min(2), 0.5)
+    }
+
+    /// Points `indices` back to their flat place (Painter's Reset selected vertices); indices
+    /// outside the grid are ignored.
+    pub fn reset_points(&mut self, axis: u8, indices: &[usize]) {
+        let n = self.points().len();
+        for &i in indices.iter().filter(|&&i| i < n) {
+            self.points[i] = self.flat_point(axis, i);
+        }
+    }
+
+    /// Every point back to its flat place, keeping the rows, columns and splits (Painter's Reset
+    /// all vertices).
+    pub fn reset_all(&mut self, axis: u8) {
+        let all: Vec<usize> = (0..self.points().len()).collect();
+        self.reset_points(axis, &all);
+    }
+
+    /// The grid moved back as a whole so that, on average, its points sit where the flat grid
+    /// has them (Painter's Restore the global transformation): the shape of the edits stays.
+    pub fn restore_global(&mut self, axis: u8) {
+        let n = self.points().len();
+        if n == 0 {
+            return;
+        }
+        let mut mean = [0.0f32; 3];
+        for i in 0..n {
+            let flat = self.flat_point(axis, i);
+            for k in 0..3 {
+                mean[k] += (self.points[i][k] - flat[k]) / n as f32;
+            }
+        }
+        for p in &mut self.points[..n] {
+            for k in 0..3 {
+                p[k] = (p[k] - mean[k]).clamp(-MAX_WARP_COORD, MAX_WARP_COORD);
+            }
+        }
+    }
+
     /// Whether the grid is still the flat, evenly divided grid of `axis` (rows and columns can
     /// then still be changed, as in Painter).
     pub fn is_flat(&self, axis: u8) -> bool {
@@ -280,6 +323,47 @@ fn barycentric(p: [f32; 2], a: [f32; 2], b: [f32; 2], c: [f32; 2]) -> Option<[f3
     let l1 = (v2[0] * v1[1] - v1[0] * v2[1]) / den;
     let l2 = (v0[0] * v2[1] - v2[0] * v0[1]) / den;
     Some([1.0 - l1 - l2, l1, l2])
+}
+
+#[cfg(test)]
+mod reset_tests {
+    use super::*;
+
+    #[test]
+    fn reset_selected_all_and_global() {
+        let flat = WarpGrid::planar(2, 2, 2);
+        let mut g = flat;
+        // Move the whole grid by (0.1, 0, 0.2), then pull one point further.
+        for i in 0..g.points().len() {
+            let p = g.points()[i];
+            g.set_point(i, [p[0] + 0.1, p[1], p[2] + 0.2]);
+        }
+        let p4 = g.points()[4];
+        g.set_point(4, [p4[0], p4[1] + 0.3, p4[2]]);
+        // Restore the global transformation: the average move goes, the pulled point keeps its
+        // offset from the others.
+        let mut global = g;
+        global.restore_global(2);
+        let d = |a: [f32; 3], b: [f32; 3]| (0..3).map(|k| (a[k] - b[k]).abs()).fold(0.0, f32::max);
+        let shift = 0.3 / 9.0;
+        assert!(d(global.points()[0], [flat.points()[0][0], flat.points()[0][1] - shift, flat.points()[0][2]]) < 1e-5, "{:?}", global.points()[0]);
+        assert!((global.points()[4][1] - global.points()[0][1] - (flat.points()[4][1] - flat.points()[0][1]) - 0.3).abs() < 1e-5);
+        // Reset selected: only those points go back.
+        let mut some = g;
+        some.reset_points(2, &[4, 99]);
+        assert!(d(some.points()[4], flat.points()[4]) < 1e-6 && d(some.points()[0], g.points()[0]) < 1e-6);
+        // Reset all: the flat grid again.
+        let mut all = g;
+        all.reset_all(2);
+        assert!(all.is_flat(2));
+        // A split keeps its place.
+        let mut split = flat;
+        assert!(split.split_column(0));
+        let moved = split.points()[1];
+        split.set_point(1, [moved[0], moved[1] + 0.5, moved[2]]);
+        split.reset_all(2);
+        assert!(d(split.points()[1], moved) < 1e-6);
+    }
 }
 
 #[cfg(test)]

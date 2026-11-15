@@ -253,6 +253,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     }
                     if proj.mode == ProjectionMode::Warp {
                         crate::warp_view::settings_ui(ui, &mut state.warp);
+                        let selection: &[usize] = if state.warp.layer == Some(id) { &state.warp.selection } else { &[] };
+                        if let Some(reset) = crate::warp_view::reset_ui(ui, &proj, selection) {
+                            cmds.push(Command::SetFillProjection { layer: id, projection: reset });
+                        }
                     }
                     if proj.has_transform3() {
                         crate::projection_gizmo::settings_ui(ui, &mut state.gizmo);

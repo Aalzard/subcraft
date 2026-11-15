@@ -68,6 +68,29 @@ pub fn settings_ui(ui: &mut Ui, warp: &mut WarpEdit) {
     });
 }
 
+/// Painter's Warp Reset menu: restore the global transformation, reset all vertices, reset the
+/// selected vertices (`selection`, the Edit vertices selection of this layer). Returns the
+/// projection with the reset grid when a button was clicked.
+pub fn reset_ui(ui: &mut Ui, projection: &Projection, selection: &[usize]) -> Option<Projection> {
+    let axis = projection.planar_axis;
+    let grid = projection.warp_grid();
+    let flat = grid.is_flat(axis);
+    let mut out = None;
+    crate::widgets::prop_row(ui, "Reset", |ui| {
+        let mut act = |ui: &mut Ui, enabled: bool, label: &str, tip: &str, f: &dyn Fn(&mut subcraft_doc::WarpGrid)| {
+            if ui.add_enabled(enabled, egui::Button::new(label).small()).on_hover_text(tip).clicked() {
+                let mut g = grid;
+                f(&mut g);
+                out = Some(Projection { warp: Some(g), ..*projection });
+            }
+        };
+        act(ui, !flat, "Global", "Move the grid back as a whole; the shape of the vertex edits stays", &|g| g.restore_global(axis));
+        act(ui, !flat, "All vertices", "Every point back to its flat place (rows, columns and splits stay)", &|g| g.reset_all(axis));
+        act(ui, !flat && !selection.is_empty(), "Selected", "The selected points back to their flat place", &|g| g.reset_points(axis, selection));
+    });
+    out
+}
+
 /// The selected fill layer with a Warp projection, if any.
 pub fn active(state: &UiState) -> Option<(LayerId, Projection)> {
     let layer = state.session.selected_layer()?;
