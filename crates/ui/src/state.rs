@@ -80,6 +80,8 @@ pub struct UvMaterialImage {
     /// When it was built (UI seconds): rebuilt at most every quarter second while edits arrive.
     pub built: f64,
     pub texture: egui::TextureHandle,
+    /// Changes (GPU uploads) arrived after it was built that it does not show yet.
+    pub pending: bool,
 }
 
 pub struct UvView {
