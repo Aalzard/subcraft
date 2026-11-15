@@ -79,3 +79,15 @@ fn the_stroke_blocker_names_why_a_stroke_would_be_refused() {
     assert!(s.ensure_paint_layer().is_some());
     assert_eq!(s.selected_texture_set().layers.len(), layers + 1);
 }
+
+#[test]
+fn the_colour_eyedropper_reads_the_base_colour_under_the_cursor() {
+    let mut s = Session::new(primitives::cube(2.0), 64);
+    let cam = Camera::perspective(Vec3::new(0.0, 0.0, 5.0), Vec3::ZERO, Vec3::Y, 40.0, 0.1, 100.0, [512, 512]);
+    let on = cam.project(Vec3::new(0.2, 0.2, 1.0)).unwrap().truncate();
+    let picked = s.sample_colour_at(&cam, on).expect("the model is under the cursor");
+    let ts = s.selected_texture_set().id;
+    let uv = s.pick(&cam, on).unwrap().uv;
+    assert_eq!(Some(picked), s.sample_uv(ts, uv, ChannelKind::BaseColor).map(|v| v.0), "the composite's base colour there");
+    assert_eq!(s.sample_colour_at(&cam, Vec2::new(2.0, 2.0)), None, "off the model");
+}

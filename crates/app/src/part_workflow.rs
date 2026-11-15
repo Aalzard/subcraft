@@ -310,6 +310,14 @@ impl Session {
         for channel in channels { if let Some(value) = self.sample_uv(texture_set, uv, channel) { self.brush.material.set(channel, value); } }
     }
 
+    /// The material's base colour (linear) on the model under `screen`, for the colour pickers'
+    /// eyedropper; `None` off the model.
+    pub fn sample_colour_at(&mut self, camera: &Camera, screen: Vec2) -> Option<[f32; 3]> {
+        let pick = self.pick(camera, screen)?;
+        let ts = self.document().texture_set_for_slot(pick.material_slot)?.id;
+        self.sample_uv(ts, pick.uv, ChannelKind::BaseColor).map(|v| v.0)
+    }
+
     pub fn sample_surface(&mut self, camera: &Camera, screen: Vec2, material: bool) -> bool {
         let Some(pick) = self.pick(camera, screen) else { return false };
         let Some(ts) = self.document().texture_set_for_slot(pick.material_slot).map(|ts| ts.id) else { return false };

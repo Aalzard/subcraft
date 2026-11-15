@@ -461,7 +461,19 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             }
     }
     let paint_tool = !bake_mode && matches!(state.tool, Tool::Brush | Tool::Eraser | Tool::Clone | Tool::Smudge | Tool::Projection) && !picking;
-    if !bake_mode && primary_pressed && response.hovered() && !alt && !stencil_edit && !picking && state.tool != Tool::Pen && !lmb_adjust {
+    // A colour picker waits for a colour from the model: this click answers it (no tool action).
+    let colour_pick = crate::color_picker::pick_target(ui.ctx()).is_some();
+    if colour_pick && response.hovered() && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+        crate::color_picker::cancel_pick(ui.ctx());
+    } else if colour_pick && primary_pressed && response.hovered() && !alt && let Some(p) = pointer {
+        match state.session.sample_colour_at(&camera, to_screen(p)) {
+            Some(c) => {
+                crate::color_picker::deliver_pick(ui.ctx(), c);
+                state.set_status("Picked the colour from the model", now);
+            }
+            None => state.set_status("Click the model to pick a colour (Esc cancels)", now),
+        }
+    } else if !bake_mode && primary_pressed && response.hovered() && !alt && !stencil_edit && !picking && state.tool != Tool::Pen && !lmb_adjust {
         if let Some(p) = pointer {
             let sp = to_screen(p);
             match state.tool {
@@ -979,6 +991,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             what.push_str(", only on the part under the cursor");
         }
         pill(&painter, rect.center_top() + egui::vec2(0.0, 14.0), egui::Align2::CENTER_TOP, &format!("Release to: {what}"), theme::OVERLAY_TEXT);
+    }
+    if crate::color_picker::pick_target(ui.ctx()).is_some() {
+        pill(&painter, rect.center_top() + egui::vec2(0.0, 14.0), egui::Align2::CENTER_TOP, "Click the model to pick its colour · Esc cancels", theme::OVERLAY_TEXT);
     }
     // Painter's mask view: say what is shown and how to get back; Esc goes back too.
     if let Some(text) = crate::mask_view::label(state) {
