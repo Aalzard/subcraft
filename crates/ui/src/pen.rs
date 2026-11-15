@@ -169,6 +169,14 @@ fn ribbon_rows(state: &mut UiState, ui: &mut Ui, path: &mut PenPath) -> bool {
         ui.add_enabled_ui(ribbon.tiling == RibbonTiling::Custom, |ui| {
             changed |= crate::widgets::slider_row(ui, "Copies", egui::Slider::new(&mut ribbon.tiles, PathRibbon::TILES).logarithmic(true)).changed();
         });
+        // Painter's end caps: the image's ends keep their length, only its middle stretches.
+        changed |= ui.checkbox(&mut ribbon.stretch_between_offsets, "Stretch between offsets only")
+            .on_hover_text("The parts of the image before the start offset and after the end offset keep their length at the path's width; only the part between them stretches")
+            .changed();
+        ui.add_enabled_ui(ribbon.stretch_between_offsets, |ui| {
+            changed |= crate::widgets::slider_row(ui, "Start offset", egui::Slider::new(&mut ribbon.start_offset, 0.0..=1.0)).changed();
+            changed |= crate::widgets::slider_row(ui, "End offset", egui::Slider::new(&mut ribbon.end_offset, 0.0..=1.0)).changed();
+        });
     } else {
         changed |= crate::widgets::slider_row(ui, "Aspect factor", egui::Slider::new(&mut ribbon.tiles, PathRibbon::TILES).logarithmic(true)).changed();
     }

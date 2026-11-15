@@ -114,6 +114,20 @@ pub struct PathRibbon {
     /// How many copies run along the path.
     #[serde(default = "tiling_before_modes")]
     pub tiling: RibbonTiling,
+    /// Stretch along path: only the part of the image between the offsets stretches; the parts
+    /// before `start_offset` and after `end_offset` keep their length at the path's width (end
+    /// caps).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub stretch_between_offsets: bool,
+    /// Fractions of the image (0..=1, together at most 1) kept unstretched at the start and end.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub start_offset: f32,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub end_offset: f32,
+}
+
+fn is_zero(v: &f32) -> bool {
+    *v == 0.0
 }
 
 impl PathRibbon {
@@ -139,11 +153,82 @@ impl PathRibbon {
     pub fn single_copy(&self) -> bool {
         self.mode == RibbonMode::KeepAspect && self.tiling == RibbonTiling::None
     }
+
+    /// The start and end offsets in effect: clamped so they fit together in the image; zero
+    /// unless Stretch between offsets only is on in Stretch mode.
+    pub fn offsets(&self) -> (f32, f32) {
+        if self.mode != RibbonMode::Stretch || !self.stretch_between_offsets {
+            return (0.0, 0.0);
+        }
+        let start = if self.start_offset.is_finite() { self.start_offset.clamp(0.0, 1.0) } else { 0.0 };
+        let end = if self.end_offset.is_finite() { self.end_offset.clamp(0.0, 1.0 - start) } else { 0.0 };
+        (start, end)
+    }
+
+    /// Image coordinate along the path (0..=1, across the image's width) at distance `s` from the
+    /// start of a path `length` long and `width` wide, for an image `aspect` wide; `None` where
+    /// nothing is drawn (past the single copy). Mirroring every second copy is applied.
+    pub fn image_u(&self, s: f32, length: f32, width: f32, aspect: f32) -> Option<f32> {
+        let copy = |along: f32| {
+            let k = along.floor();
+            let u = along - k;
+            if self.mirror && (k as i64).rem_euclid(2) == 1 { 1.0 - u } else { u }
+        };
+        let (start, end) = self.offsets();
+        if start + end <= 0.0 {
+            let along = s / self.copy_length(length, width, aspect);
+            if self.single_copy() && along.floor() >= 1.0 {
+                return None;
+            }
+            return Some(copy(along));
+        }
+        // End caps at the image's own length (shrunk together when the path is shorter), the
+        // middle of the image stretched (and tiled) over the rest.
+        let length = length.max(1e-3);
+        let natural = (width * aspect).max(1e-3);
+        let (mut cap_a, mut cap_b) = (start * natural, end * natural);
+        if cap_a + cap_b > length {
+            let f = length / (cap_a + cap_b);
+            cap_a *= f;
+            cap_b *= f;
+        }
+        let s = s.clamp(0.0, length);
+        if cap_a > 0.0 && s < cap_a {
+            return Some(s / cap_a * start);
+        }
+        if cap_b > 0.0 && s > length - cap_b {
+            return Some(1.0 - (length - s) / cap_b * end);
+        }
+        let middle = 1.0 - start - end;
+        let span = length - cap_a - cap_b;
+        if middle <= 0.0 || span <= 1e-6 {
+            return Some(start);
+        }
+        let copies = match self.tiling {
+            RibbonTiling::None => 1.0,
+            RibbonTiling::Auto => (span / (natural * middle)).round().max(1.0),
+            RibbonTiling::Custom => self.tiles.max(1e-3),
+        };
+        // The last texel of the middle belongs to the last copy, not the start of a new one.
+        let along = ((s - cap_a) / span * copies).min(copies - 1e-4);
+        Some(start + copy(along) * middle)
+    }
 }
 
 impl Default for PathRibbon {
     fn default() -> Self {
-        Self { image: None, mode: RibbonMode::Stretch, tiles: 1.0, mirror: false, flip: false, color_from_image: true, tiling: RibbonTiling::Auto }
+        Self {
+            image: None,
+            mode: RibbonMode::Stretch,
+            tiles: 1.0,
+            mirror: false,
+            flip: false,
+            color_from_image: true,
+            tiling: RibbonTiling::Auto,
+            stretch_between_offsets: false,
+            start_offset: 0.0,
+            end_offset: 0.0,
+        }
     }
 }
 
@@ -254,6 +339,7 @@ impl PenPath {
         { return Err("invalid pen width, hardness or opacity"); }
         if self.stamp.is_some_and(|s| !s.spacing.is_finite() || !PathStamp::SPACING.contains(&s.spacing)) { return Err("pen stamp spacing must be between 2 % and 400 % of the tip"); }
         if self.ribbon.is_some_and(|r| !r.tiles.is_finite() || !PathRibbon::TILES.contains(&r.tiles)) { return Err("ribbon tiling must be between 0.05 and 256"); }
+        if self.ribbon.is_some_and(|r| !(0.0..=1.0).contains(&r.start_offset) || !(0.0..=1.0).contains(&r.end_offset)) { return Err("ribbon offsets must be between 0 and 1"); }
         if self.values.is_empty() || self.values.values().any(|v| !v.0.iter().all(|x| x.is_finite() && x.abs() <= 65504.0)) { return Err("pen channels must contain finite, representable values"); }
         let mut ids = BTreeSet::new();
         for a in &self.anchors {
