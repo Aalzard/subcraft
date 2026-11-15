@@ -875,7 +875,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 let hardness = state.session.brush.settings.hardness;
                 // Full preview: the tip itself (alpha shape, angle, roundness), cached as a texture.
                 // A stroke here would be refused (a fill layer, a path...): say so at the cursor.
-                let blocked = state.session.stroke_blocker().filter(|e| *e != subcraft_paint::PaintError::NoCloneSource);
+                let blocked = state.session.stroke_blocker(crate::brush_bar::stroke_mode(state.tool)).filter(|e| *e != subcraft_paint::PaintError::NoCloneSource);
                 if let Some(reason) = blocked {
                     crate::brush_cursor::draw_blocked(&painter, p, r_px, &reason.to_string());
                 } else {

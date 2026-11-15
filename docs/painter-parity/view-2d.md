@@ -88,7 +88,7 @@ Layout notes: every paint tool works in the 2D view except the Path tools, which
 | Clone brush preview in the 2D view | 2D view overlay (2018.3) | - | partial: source cross and offset circle, no image preview | crates/ui/src/panels/uv_view.rs | - |
 | Material picker in the 2D view | P, then LMB | - | done: Eyedropper tool, Shift+click picks the material | crates/ui/src/panels/uv_view.rs | - |
 | Painting limited to the 0-1 range in regular projects | 2D view | - | done | crates/ui/src/panels/uv_view.rs:177 | - |
-| Brush cursor in the 2D view | 2D view overlay | - | partial: outline circle for brush, eraser, smudge and clone; with the Full preview style, the tip's footprint (alpha shape, angle, roundness) turned with the view; where a stroke would be refused, the struck-through circle with the reason (as in the 3D view) | crates/ui/src/panels/uv_view.rs | - |
+| Brush cursor in the 2D view | 2D view overlay | - | partial: outline circle for brush, eraser, smudge and clone; with the Full preview style, the tip's footprint (alpha shape, angle, roundness) turned with the view; where a stroke would be refused (see viewport.md), the struck-through circle with the reason (as in the 3D view) | crates/ui/src/panels/uv_view.rs | - |
 | Draw straight lines | Shift + LMB | - | done | crates/ui/src/panels/uv_view.rs:214 | - |
 | Draw straight lines with snapping | Ctrl + Shift + LMB | every 5 degrees | done | crates/ui/src/panels/uv_view.rs | - |
 | Dotted straight-line preview | 2D view overlay while Shift is held | - | done | crates/ui/src/panels/uv_view.rs | - |
