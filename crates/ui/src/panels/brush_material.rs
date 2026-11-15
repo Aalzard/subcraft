@@ -79,7 +79,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                             // Field access: `entry` borrows the channel map meanwhile.
                             let current = material.channel_blend.get(&kind).copied().unwrap_or(subcraft_doc::BlendMode::Normal);
                             let modes = subcraft_doc::BlendMode::ALL.into_iter().filter(|m| blend_offered(*m, kind));
-                            let picked = egui::ComboBox::from_id_salt(("brush_channel_blend", kind)).width(112.0).selected_text(current.label())
+                            let picked = egui::ComboBox::from_id_salt(("brush_channel_blend", kind)).width(132.0).selected_text(format!("Blend: {}", current.label()))
                                 .show_ui(ui, |ui| super::layers::blend_mode_list(ui, modes, current))
                                 .inner
                                 .flatten();
