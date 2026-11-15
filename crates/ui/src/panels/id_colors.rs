@@ -20,15 +20,21 @@ pub fn hex(c: [f32; 3]) -> String {
     format!("#{:02X}{:02X}{:02X}", q(c[0]), q(c[1]), q(c[2]))
 }
 
-/// Palette of `ts`, recomputed only when its maps or the document change.
+/// Palette of `ts`. The colors (a pass over every texel of the ID map) are recomputed only when
+/// the maps change; the mask counts when the document changes. Keyed on the document revision as a
+/// whole, the full pass ran on every brush dab while the panel was open.
 pub fn palette(state: &mut UiState, ts: TextureSetId) -> Option<Vec<IdPaletteEntry>> {
-    let key = (ts, state.session.maps_generation(), state.session.revision());
-    if let Some((k, p)) = &state.id_palette_cache && *k == key {
-        return Some(p.clone());
+    let (generation, revision) = (state.session.maps_generation(), state.session.revision());
+    if !state.id_palette_cache.as_ref().is_some_and(|((t, g, _), _)| *t == ts && *g == generation) {
+        let colors = state.session.id_map_colors(ts)?;
+        state.id_palette_cache = Some(((ts, generation, u64::MAX), colors));
     }
-    let p = state.session.id_palette(ts)?;
-    state.id_palette_cache = Some((key, p.clone()));
-    Some(p)
+    let ((_, _, counted), p) = state.id_palette_cache.as_mut()?;
+    if *counted != revision {
+        state.session.count_id_masks(ts, p);
+        *counted = revision;
+    }
+    Some(p.clone())
 }
 
 /// A color picked in the 3D / 2D view with the editor's eyedropper: select it and feed it to the
@@ -275,5 +281,38 @@ mod tests {
         let c = parse_hex("#3A7FC0").unwrap();
         assert_eq!(hex(c), "#3A7FC0");
         assert_eq!(parse_hex("12345"), None);
+    }
+}
+
+#[cfg(test)]
+mod palette_cache_tests {
+    use super::*;
+
+    /// The colors come from a pass over every texel of the ID map: a document edit (every brush
+    /// dab is one) must only recount the masks, a map change must recompute the colors.
+    #[test]
+    fn document_edits_recount_masks_without_rereading_the_id_map() {
+        let mut state = UiState::new(subcraft_app::Session::new(subcraft_mesh::primitives::plane(2.0, 2), 64), None);
+        let ts = state.session.selected_texture_set().id;
+        let mut img = subcraft_image::TiledImage::new(64, 64, 3, [0.0; 4]);
+        for y in 0..64 { for x in 0..64 { img.set(x, y, if x < 16 { [0.2, 0.6, 0.9, 1.0] } else { [0.9, 0.3, 0.3, 1.0] }); } }
+        state.session.set_mesh_maps(ts, std::collections::BTreeMap::from([(subcraft_core::MeshMapKind::Id, img)]));
+        let _ = state.session.execute(subcraft_app::Command::AddLayer(subcraft_app::NewLayer::Fill));
+        assert_eq!(palette(&mut state, ts).unwrap().len(), 2);
+        // Mark the cached colors: a re-read of the map would replace the mark.
+        let marked = [0.123, 0.456, 0.789];
+        state.id_palette_cache.as_mut().unwrap().1[0].color = marked;
+        let blue = state.session.id_map_color(ts, glam::Vec2::new(0.1, 0.5)).unwrap();
+        let revision = state.session.revision();
+        picked(&mut state, ts, blue, 0.0);
+        assert_ne!(state.session.revision(), revision, "the pick edited the document");
+        let after_edit = palette(&mut state, ts).unwrap();
+        assert!(after_edit.iter().any(|e| e.color == marked), "a document edit re-read the whole ID map");
+        assert_eq!(after_edit.iter().find(|e| same_id(e.color, blue)).map(|e| e.masks), Some(1), "but the mask counts follow it");
+        // A new ID map: the colors are read again.
+        state.session.set_mesh_maps(ts, std::collections::BTreeMap::from([(subcraft_core::MeshMapKind::Id, subcraft_image::TiledImage::new(64, 64, 3, [0.5; 4]))]));
+        let after_map = palette(&mut state, ts).unwrap();
+        assert_eq!(after_map.len(), 1);
+        assert!(after_map.iter().all(|e| e.color != marked));
     }
 }
