@@ -165,8 +165,8 @@ Layout notes: shown when a fill layer or fill effect uses Tri-planar, Planar, Sp
 | Rotation manipulator | Contextual toolbar; E | - | missing | - | - |
 | Scale manipulator | Contextual toolbar; R | - | missing | - | - |
 | Surface manipulator (Planar and Warp only) | Contextual toolbar; Shift + W | - | missing | - | - |
-| Manipulator space: Local space | Contextual toolbar; T cycles | not documented | missing | - | - |
-| Manipulator space: World space | Contextual toolbar; T cycles | not documented | missing | - | - |
+| Manipulator space: Local space | Contextual toolbar; T cycles | not documented | done: Local in the manipulator settings (default) | crates/ui/src/projection_gizmo.rs (GizmoEdit::world, layout_for) | - |
+| Manipulator space: World space | Contextual toolbar; T cycles | not documented | done: World in the manipulator settings; T switches | crates/ui/src/projection_gizmo.rs (GizmoEdit::world, layout_for) | - |
 | Mirror on X | Contextual toolbar | - | missing | - | - |
 | Mirror on Y | Contextual toolbar | - | missing | - | - |
 | Mirror on Z | Contextual toolbar | - | missing | - | - |
