@@ -74,6 +74,23 @@ pub(crate) fn fill_mode_combo(ui: &mut Ui, mode: &mut subcraft_paint::PolygonFil
         .on_hover_text("Polygon fill: what a click or a box fills")
 }
 
+/// Whether the tool blending modes apply where the paint lands: not in a mask (Painter greys
+/// them out there), nor when nothing takes the paint.
+pub fn blending_applies(destination: Option<subcraft_app::LayerTarget>) -> bool {
+    destination == Some(subcraft_app::LayerTarget::Content)
+}
+
+#[cfg(test)]
+mod blending_tests {
+    #[test]
+    fn tool_blending_applies_to_layer_content_only() {
+        use subcraft_app::LayerTarget;
+        assert!(super::blending_applies(Some(LayerTarget::Content)));
+        assert!(!super::blending_applies(Some(LayerTarget::Mask)));
+        assert!(!super::blending_applies(None));
+    }
+}
+
 /// The stroke mode a painting tool starts its strokes in.
 pub fn stroke_mode(tool: crate::state::Tool) -> subcraft_paint::StrokeMode {
     use crate::state::Tool;

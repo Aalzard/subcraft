@@ -35,7 +35,7 @@ Layout notes: a mask is added from the Create Mask button in the Layers header o
 | Red line under the mask thumbnail when the mask has effects | Mask thumbnail | grey | done | crates/ui/src/panels/layers.rs:485 | - |
 | Paint tools switch to greyscale when the mask is selected | Tool properties | n/a | done | crates/ui/src/panels/mask.rs:69 | - |
 | Invert grayscale tool value while painting a mask | Shortcut | X | done (X in the Painter key preset; X stays symmetry in SubCraft's own keys) | crates/app/src/actions.rs:287 | - |
-| Tool blending mode greyed out when painting in a mask | Tool properties | n/a | missing | - | - |
+| Tool blending mode greyed out when painting in a mask | Tool properties | n/a | done: Polygon Fill Blending, the channel rows' blending and Normal blend are greyed out when the paint lands in a mask, and a mask fill ignores them | crates/ui/src/panels/brush.rs | (this PR) |
 
 ## Mask context menu (right-click on the mask thumbnail)
 
