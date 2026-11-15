@@ -305,7 +305,11 @@ pub fn screenshot_colour(image: &egui::ColorImage, pos: Pos2, pixels_per_point: 
 /// screenshot of the window. Esc cancels. Call once per frame after the panels; returns a
 /// status line when a colour was picked.
 pub fn screen_pick(ctx: &egui::Context) -> Option<&'static str> {
-    let model = ctx.data_mut(|d| d.remove_temp::<Rect>(model_rect_id()));
+    let model = ctx.data_mut(|d| {
+        let rect = d.get_temp::<Rect>(model_rect_id());
+        d.remove::<Rect>(model_rect_id());
+        rect
+    });
     if pick_target(ctx).is_none() {
         ctx.data_mut(|d| d.remove::<Pos2>(pending_id()));
         return None;
