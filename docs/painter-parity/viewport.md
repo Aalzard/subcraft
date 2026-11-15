@@ -252,7 +252,7 @@ Layout notes: selecting a fill layer or fill effect with a 3D projection shows a
 | Translate tool | W | - | done: W | crates/ui/src/projection_gizmo.rs | - |
 | Rotate tool | E | - | done: E while the manipulator is shown (otherwise the eraser) | crates/ui/src/projection_gizmo.rs | - |
 | Scale tool | R | - | done: R | crates/ui/src/projection_gizmo.rs | - |
-| Surface tool (Planar and Warp only) | Shift + W | - | missing | - | - |
+| Surface tool (Planar and Warp only) | Shift + W | - | partial: Shift+W, planar projections only (not Warp) | crates/ui/src/projection_gizmo.rs (surface_snapped) | - |
 | Translation: drag one axis | LMB drag on an axis | - | done | crates/ui/src/projection_gizmo.rs (manipulate) | - |
 | Translation: drag a two-axis plane | LMB drag on a plane handle | - | done: squares between two axes move the box in that plane (Shift: steps) | crates/ui/src/projection_gizmo.rs (plane_quad, manipulate) | - |
 | Translation: drag in camera plane | LMB drag on the centre | - | done | crates/ui/src/projection_gizmo.rs (manipulate) | - |
@@ -262,7 +262,7 @@ Layout notes: selecting a fill layer or fill effect with a 3D projection shows a
 | Rotation constrained (angle steps) | Shift + LMB drag | step from Manipulator settings | done: step in the manipulator settings | crates/ui/src/projection_gizmo.rs | - |
 | Scale along one axis | LMB drag on an axis handle | - | done | crates/ui/src/projection_gizmo.rs (manipulate) | - |
 | Scale constrained (steps) | Shift + LMB drag | same step as translation | done: same step as translation | crates/ui/src/projection_gizmo.rs | - |
-| Surface manipulator: drag to snap onto the mesh | LMB drag (Planar, Warp) | - | missing | - | - |
+| Surface manipulator: drag to snap onto the mesh | LMB drag (Planar, Warp) | - | partial: planar projections only (Warp keeps its grid tools); the centre dragged over the model moves the box onto the surface and turns its projection axis to the normal | crates/ui/src/projection_gizmo.rs (surface_snapped) | - |
 | Precision mode | Ctrl while dragging a manipulator (10.0) | - | done: the handles follow a tenth of the pointer movement | crates/ui/src/projection_gizmo.rs (manipulate) | - |
 | Projection volume / plane preview in the view | 3D view | - | done: the projection box is drawn with the manipulator | crates/ui/src/projection_gizmo.rs (overlay) | - |
 | Toggle warp edition mode (Transform warp / Edit vertices) | Shift + V | Transform warp | done: Shift+V over the 3D view | crates/ui/src/warp_view.rs | - |

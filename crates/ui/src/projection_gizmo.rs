@@ -10,6 +10,8 @@
 //!   freely (about the axis across the drag, like a trackball).
 //! * Scale: drag an axis handle to scale along that axis, or the centre handle (left / right) to
 //!   scale all three.
+//! * Surface (planar projections): drag the centre over the model; the box snaps to the surface
+//!   under the pointer and turns its projection axis to the surface normal.
 //! * Shift while dragging snaps to the steps of the manipulator settings.
 //!
 //! Every drag is one undo step (the projection edit merges until the release seals it).
@@ -29,6 +31,8 @@ pub enum GizmoMode {
     Translate,
     Rotate,
     Scale,
+    /// Planar only: the centre dragged over the model snaps the projection onto the surface.
+    Surface,
 }
 
 /// Manipulator state kept across frames (not saved).
@@ -64,7 +68,19 @@ impl GizmoEdit {
     /// W / E / R pick Move / Rotate / Scale (only while it is shown, so E stays the eraser
     /// otherwise), + and - change its size. Returns whether the key was used.
     pub fn handle_key(&mut self, key: egui::Key) -> bool {
+        self.handle_key_with(key, false)
+    }
+
+    /// [`GizmoEdit::handle_key`] with Shift held: Shift+W picks the Surface tool.
+    pub fn handle_key_with(&mut self, key: egui::Key, shift: bool) -> bool {
         use egui::Key as K;
+        if shift && key == K::W {
+            if !self.visible {
+                return false;
+            }
+            self.mode = GizmoMode::Surface;
+            return true;
+        }
         let mode = match key {
             K::Q => {
                 self.visible = !self.visible;
@@ -105,7 +121,7 @@ impl GizmoEdit {
 
     /// Whether the handles follow the scene's axes now (world space, not Scale).
     pub fn uses_world(&self) -> bool {
-        self.world && self.mode != GizmoMode::Scale
+        self.world && matches!(self.mode, GizmoMode::Translate | GizmoMode::Rotate)
     }
 
     fn size(&self) -> f32 {
@@ -127,6 +143,7 @@ pub fn settings_ui(ui: &mut Ui, gizmo: &mut GizmoEdit) {
         ui.selectable_value(&mut gizmo.mode, GizmoMode::Translate, "Move").on_hover_text("Drag an axis handle, or the centre to move in the view plane");
         ui.selectable_value(&mut gizmo.mode, GizmoMode::Rotate, "Rotate").on_hover_text("Drag a ring to turn the projection about that axis");
         ui.selectable_value(&mut gizmo.mode, GizmoMode::Scale, "Scale").on_hover_text("Drag an axis handle, or the centre to scale all three axes");
+        ui.selectable_value(&mut gizmo.mode, GizmoMode::Surface, "Surface").on_hover_text("Planar projections: drag the centre over the model to snap the projection onto the surface (Shift+W)");
     });
     crate::widgets::prop_row(ui, "Manipulator space", |ui| {
         ui.selectable_value(&mut gizmo.world, false, "Local").on_hover_text("Move and turn along the projection box's own axes (T switches)");
@@ -139,6 +156,11 @@ pub fn settings_ui(ui: &mut Ui, gizmo: &mut GizmoEdit) {
         ui.add(egui::DragValue::new(&mut gizmo.grid_step).speed(0.005).range(0.001..=1.0).max_decimals(3)).on_hover_text("Move and scale step while Shift is held");
         ui.add(egui::DragValue::new(&mut gizmo.angle_step).speed(0.5).range(1.0..=90.0).suffix("\u{00b0}")).on_hover_text("Rotation step while Shift is held");
     });
+}
+
+/// The tool in effect for `projection`: Surface only snaps planar projections (others move).
+fn effective_mode(mode: GizmoMode, projection: &Projection) -> GizmoMode {
+    if mode == GizmoMode::Surface && projection.mode != subcraft_doc::ProjectionMode::Planar { GizmoMode::Translate } else { mode }
 }
 
 /// The selected fill layer whose projection has a 3D transform, if any.
@@ -210,6 +232,28 @@ pub fn rotated_about_scene_axis(start: &ProjectionTransform, axis: usize, deg: f
     dir[axis.min(2)] = 1.0;
     let mut t = *start;
     t.rotation_deg = start.rotated_about_axis(dir, snap(deg, step));
+    t
+}
+
+/// `start` snapped onto the surface at `position` with normal `normal` (object space): the box
+/// centre moves there and the box's projection axis `axis` turns, by the smallest turn, to lie
+/// along the normal (whichever way it pointed closer to). Scale is kept.
+pub fn surface_snapped(start: &ProjectionTransform, axis: usize, frame: CubeFrame, position: Vec3, normal: Vec3) -> ProjectionTransform {
+    let mut t = *start;
+    let centre = frame.to_normalized(position);
+    t.offset = centre.map(|c| (c - 0.5).clamp(-ProjectionTransform::MAX_OFFSET, ProjectionTransform::MAX_OFFSET));
+    let n = normal.normalize_or_zero();
+    if n == Vec3::ZERO {
+        return t;
+    }
+    let r = start.rotation();
+    let a = axis.min(2);
+    let current = Vec3::new(r[0][a], r[1][a], r[2][a]);
+    let target = if current.dot(n) >= 0.0 { n } else { -n };
+    let (turn_axis, angle) = glam::Quat::from_rotation_arc(current, target).to_axis_angle();
+    if angle.abs() > 1e-5 {
+        t.rotation_deg = start.rotated_about_axis(turn_axis.to_array(), angle.to_degrees());
+    }
     t
 }
 
@@ -320,6 +364,8 @@ fn ring_distance(points: &[Option<Pos2>], p: Pos2) -> f32 {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Handle {
+    /// The centre in Surface mode.
+    Surface,
     /// Between the rings: free rotation.
     Free,
     Axis(usize),
@@ -370,7 +416,7 @@ pub fn manipulate(
     };
     let frame = CubeFrame::of(state);
     let lay = state.gizmo.layout_for(&projection.transform3, frame);
-    let mode = state.gizmo.mode;
+    let mode = effective_mode(state.gizmo.mode, &projection);
     let to_paint = |p: Pos2| Vec2::new((p.x - rect.min.x) * pixel_scale.x, (p.y - rect.min.y) * pixel_scale.y);
     let mut gesture: Option<Gesture> = ui.data(|d| d.get_temp(gesture_id()));
 
@@ -378,7 +424,9 @@ pub fn manipulate(
         && let Some(centre) = to_pos(camera, rect, pixel_scale, lay.centre)
     {
         let ends = [0usize, 1, 2].map(|i| to_pos(camera, rect, pixel_scale, lay.centre + lay.axes[i] * lay.len));
-        let hit = if mode == GizmoMode::Rotate {
+        let hit = if mode == GizmoMode::Surface {
+            (centre.distance(p) <= HANDLE_RADIUS + 3.0).then_some((Handle::Surface, centre))
+        } else if mode == GizmoMode::Rotate {
             (0..3)
                 .map(|i| (i, ring_distance(&ring(&lay, i, camera, rect, pixel_scale), p)))
                 .filter(|(_, d)| *d <= HANDLE_RADIUS)
@@ -432,6 +480,9 @@ pub fn manipulate(
             }
             (Handle::Centre, GizmoMode::Scale) => Some(scaled(&g.start, None, 1.0 + (p.x - g.from.x) / 120.0, grid)),
             (Handle::Centre, _) => on_view_plane(camera, g.lay.centre, to_paint(p)).map(|target| translated(&g.start, (target - g.lay.centre) / frame.extent, grid)),
+            (Handle::Surface, _) => state.session.pick(camera, to_paint(p)).map(|hit| {
+                surface_snapped(&g.start, projection.planar_axis as usize, frame, hit.position, hit.normal)
+            }),
             (Handle::Free, _) => {
                 let inv = camera.view.inverse();
                 let (right, up) = (inv.transform_vector3(Vec3::X), inv.transform_vector3(Vec3::Y));
@@ -497,7 +548,8 @@ pub fn overlay(state: &UiState, painter: &egui::Painter, rect: Rect, pixel_scale
     }
 
     let Some(centre) = pos(lay.centre) else { return };
-    match state.gizmo.mode {
+    let shown = effective_mode(state.gizmo.mode, &projection);
+    match shown {
         GizmoMode::Rotate => {
             // The free-rotation area between the rings.
             let ends = [0usize, 1, 2].map(|i| pos(lay.centre + lay.axes[i] * lay.len));
@@ -538,7 +590,8 @@ pub fn overlay(state: &UiState, painter: &egui::Painter, rect: Rect, pixel_scale
         }
     }
 
-    let hint = match state.gizmo.mode {
+    let hint = match shown {
+        GizmoMode::Surface => "Projection \u{00b7} Surface: drag the centre over the model to snap the projection onto it \u{00b7} W / E / R tool, Q hide, + / - size",
         GizmoMode::Translate => "Projection \u{00b7} Move: drag an axis, a square for two axes, or the centre for the view plane (Shift: steps, Ctrl: precise) \u{00b7} W / E / R tool, T space, Q hide, + / - size",
         GizmoMode::Rotate => "Projection \u{00b7} Rotate: drag a ring, or between them to turn freely (Shift: steps, Ctrl: precise) \u{00b7} W / E / R tool, T space, Q hide, + / - size",
         GizmoMode::Scale => "Projection \u{00b7} Scale: drag an axis, or the centre for all three (Shift: steps, Ctrl: precise) \u{00b7} W / E / R tool, T space, Q hide, + / - size",
@@ -674,6 +727,31 @@ mod tests {
         // Hidden, T is left to the keymap.
         g.visible = false;
         assert!(!g.handle_key(egui::Key::T) && g.world);
+    }
+
+    #[test]
+    fn surface_snap_moves_onto_the_hit_and_faces_its_normal() {
+        let frame = CubeFrame { min: Vec3::new(-1.0, -1.0, -1.0), extent: 2.0 };
+        let id = ProjectionTransform::default();
+        // A hit on the +X face at (1, 0.5, 0): the centre goes there, the Z projection axis turns to X.
+        let t = surface_snapped(&id, 2, frame, Vec3::new(1.0, 0.5, 0.0), Vec3::X);
+        assert!(close(t.offset, [0.5, 0.25, 0.0]), "{:?}", t.offset);
+        let r = t.rotation();
+        assert!(Vec3::new(r[0][2], r[1][2], r[2][2]).distance(Vec3::X) < 1e-4, "{:?}", t.rotation_deg);
+        // Facing the other way (normal -Z on a Z projection): no turn, only the move.
+        let t = surface_snapped(&id, 2, frame, Vec3::ZERO, Vec3::NEG_Z);
+        assert!(close(t.rotation_deg, [0.0, 0.0, 0.0]) && close(t.offset, [0.0, 0.0, 0.0]));
+        // Scale is kept.
+        let big = ProjectionTransform { scale: [2.0, 2.0, 0.5], ..id };
+        assert_eq!(surface_snapped(&big, 2, frame, Vec3::ZERO, Vec3::Y).scale, big.scale);
+        // Shift+W picks Surface; Surface only applies to planar projections.
+        let mut g = GizmoEdit::default();
+        assert!(g.handle_key_with(egui::Key::W, true) && g.mode == GizmoMode::Surface);
+        assert!(!g.uses_world());
+        let planar = Projection { mode: subcraft_doc::ProjectionMode::Planar, ..Projection::default() };
+        let triplanar = Projection { mode: subcraft_doc::ProjectionMode::Triplanar, ..Projection::default() };
+        assert_eq!(effective_mode(GizmoMode::Surface, &planar), GizmoMode::Surface);
+        assert_eq!(effective_mode(GizmoMode::Surface, &triplanar), GizmoMode::Translate);
     }
 
     #[test]

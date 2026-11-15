@@ -202,7 +202,7 @@ Layout notes: applies to Tri-planar, Planar, Spherical, Cylindrical and Warp. Th
 | Translation manipulator | Contextual toolbar | n/a | done: Move, picked in Properties (no W shortcut: W is a tool key) | crates/ui/src/projection_gizmo.rs:67 | chunk 9 (part 3) |
 | Rotation manipulator | Contextual toolbar | n/a | done: picked in Properties (no E shortcut: E is the Eraser) | crates/ui/src/projection_gizmo.rs:67 | chunk 9 (part 3) |
 | Scale manipulator | Contextual toolbar | n/a | done: picked in Properties (no R shortcut) | crates/ui/src/projection_gizmo.rs:67 | chunk 9 (part 3) |
-| Surface manipulator (Planar and Warp only) | Contextual toolbar | n/a | missing | - | - |
+| Surface manipulator (Planar and Warp only) | Contextual toolbar | n/a | partial: Surface in the manipulator settings (Shift+W), planar only | crates/ui/src/projection_gizmo.rs (surface_snapped) | - |
 | Manipulator space: Local space | Contextual toolbar | not documented | done: the handles always follow the projection box (local space) | crates/ui/src/projection_gizmo.rs:239 | chunk 9 (part 3) |
 | Manipulator space: World space | Contextual toolbar | not documented | done: Local / World in the manipulator settings, T switches; Move and Rotate follow the scene axes, Scale keeps the box axes | crates/ui/src/projection_gizmo.rs (GizmoEdit::world, layout_for) | - |
 | Mirror on X | Contextual toolbar | n/a | done: Mirror X / Y / Z toggles in Properties > Fill > 3D projection (the image flips; the facing side stays) | crates/doc/src/fill.rs (ProjectionTransform::mirror), crates/ui/src/panels/properties.rs (transform3_group) | - |
@@ -218,7 +218,7 @@ Layout notes: applies to Tri-planar, Planar, Spherical, Cylindrical and Warp. Th
 | Rotate in steps: Shift+drag | 3D view manipulator | n/a | done | crates/ui/src/projection_gizmo.rs:239 | chunk 9 (part 3) |
 | Scale along one axis: drag an axis handle | 3D view manipulator | n/a | done; the centre handle scales all three | crates/ui/src/projection_gizmo.rs:239 | chunk 9 (part 3) |
 | Scale in steps: Shift+drag | 3D view manipulator | n/a | done | crates/ui/src/projection_gizmo.rs:239 | chunk 9 (part 3) |
-| Surface: drag the manipulator over the mesh to snap the projection onto it | 3D view manipulator | n/a | missing | - | - |
+| Surface: drag the manipulator over the mesh to snap the projection onto it | 3D view manipulator | n/a | partial: planar projections only (Warp keeps its grid tools); the centre dragged over the model moves the box onto the surface and turns its projection axis to the normal | crates/ui/src/projection_gizmo.rs (surface_snapped) | - |
 
 ## Symmetry on fill projections
 
