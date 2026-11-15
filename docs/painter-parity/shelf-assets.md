@@ -13,7 +13,7 @@ Layout notes: the Assets panel is docked vertically on the left edge by default.
 | Undock / dock horizontally or on another screen | Panel title bar drag | - | missing (unverified in code: no floating shelf) | - | - |
 | Reduced width: asset-type icons collapse into one multi-select menu | Narrow panel | automatic | partial: icons wrap onto more rows, never a menu | crates/ui/src/panels/shelf.rs:820 | - |
 | Mouse wheel scroll in the list | Assets list | - | done | crates/ui/src/panels/shelf.rs:534 | - |
-| Ctrl+Alt+drag to scroll a panel | Any panel | - | missing | - | - |
+| Ctrl+Alt+drag to scroll a panel | Any panel | - | done | crates/ui/src/panel_scroll.rs | - |
 | Filter area | Top of panel | - | done | crates/ui/src/panels/shelf.rs:797 | - |
 | Assets list | Middle of panel | - | done | crates/ui/src/panels/shelf.rs:534 | - |
 | Bottom bar | Bottom of panel | - | done | crates/ui/src/panels/shelf.rs:856 | - |

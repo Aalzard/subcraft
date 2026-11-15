@@ -27,6 +27,7 @@ pub const FIXED_GESTURES: &[(&str, &str)] = &[
     ("Brush flow / angle", "Ctrl+LMB drag (left-right / up-down)"),
     ("Stencil move / rotate / scale", "hold S, then MMB / LMB / RMB drag; hold N to ignore it"),
     ("Clone source", "Ctrl+click or hold V and click"),
+    ("Scroll the panel under the pointer (tablet scroll)", "Ctrl+Alt+LMB drag over a panel"),
 ];
 
 /// Case-insensitive match of every word of `query` against `haystack`.

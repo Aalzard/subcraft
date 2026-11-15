@@ -36,7 +36,7 @@ Layout notes: all navigation is a held modifier plus a mouse drag; the same comb
 | Texture set selection | Ctrl + Alt + RMB click on the mesh | editable shortcut | done: Ctrl+Alt+right-click selects the texture set of the part under the cursor (Painter navigation) | crates/ui/src/viewport.rs (pick_set) | 163 |
 | Texture Set highlight under cursor | Hold Ctrl + Alt over the model (12.2) | hidden while LMB is down or panning | done: while Ctrl+Alt is held, not while painting or navigating; a warm tint | crates/ui/src/viewport.rs, crates/render/src/viewport.wgsl | 258 |
 | Texture Set / UV Tile highlight from the list | Hover a row in the Texture Set list (12.2) | not documented | partial: hovering a Texture Set List row highlights its set; no UV tile highlight | crates/ui/src/panels/texture_sets.rs (set_rows) | 258 |
-| Tablet scroll | Ctrl + Alt + click drag scrolls panels (2019.3) | not documented | missing | - | - |
+| Tablet scroll | Ctrl + Alt + click drag scrolls panels (2019.3) | not documented | done: over panels and floating windows; the views keep Ctrl+Alt+LMB as pan | crates/ui/src/panel_scroll.rs | - |
 
 ## Camera commands and projection
 

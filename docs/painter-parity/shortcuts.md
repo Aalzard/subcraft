@@ -172,7 +172,7 @@ Layout notes: these act only while the pointer is over the layer stack.
 | Rename layer | Layer stack | Double-click name (unverified) | done | crates/ui/src/panels/layers.rs:403 | - |
 | Rename Texture Set | Texture Set List | Double-click name | done | crates/ui/src/panels/texture_sets.rs:79 | - |
 | Multi-select asset type filters | Assets | Ctrl+click | missing | - | - |
-| Scroll any panel by dragging | Any window | Ctrl+Alt+drag | missing | - | - |
+| Scroll any panel by dragging | Any window | Ctrl+Alt+drag | done: a short Ctrl+Alt+click still reaches the widget; the 3D and 2D views keep Ctrl+Alt+LMB as pan | crates/ui/src/panel_scroll.rs | - |
 | Scroll assets | Assets | Mouse wheel | done | crates/ui/src/panels/shelf.rs | - |
 | Pick the edited channel's raw value with the eyedropper | Colour picker eyedropper over the viewport | Shift | partial: Shift+click with the Eyedropper picks the whole material instead | crates/ui/src/viewport.rs:295 | #141 |
 | Isolate one mesh map in the bake list | Baking window | Alt+click | done: Alt+click a map's tick box bakes only that map; Alt+click it again ticks all maps | crates/ui/src/dialogs.rs | (this PR) |

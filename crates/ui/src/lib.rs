@@ -43,6 +43,7 @@ pub mod pen_input;
 pub mod tablet;
 pub mod text_panel;
 pub mod panels;
+pub mod panel_scroll;
 pub mod recovery;
 pub mod spp_import;
 pub mod state;
