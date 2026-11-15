@@ -24,6 +24,9 @@ pub struct PreviewCache {
     material: Option<egui::TextureHandle>,
     /// Turn of the preview's light around the sphere (radians), set by dragging it.
     pub light_yaw: f32,
+    /// Painter's custom test stroke: the path dragged over the tip preview (preview pixels);
+    /// empty for the default example.
+    pub test_stroke: Vec<glam::Vec2>,
 }
 
 /// Side of the material preview sphere in texels (and points).
@@ -99,6 +102,9 @@ fn preview_key(state: &UiState) -> u64 {
     for v in [b.settings.hardness, b.settings.spacing, b.settings.angle_deg, b.settings.roundness, b.settings.flow] {
         v.to_bits().hash(&mut h);
     }
+    for p in &state.tip_preview.test_stroke {
+        (p.x.to_bits(), p.y.to_bits()).hash(&mut h);
+    }
     h.finish()
 }
 
@@ -107,7 +113,12 @@ pub fn refresh(state: &mut UiState, ctx: &egui::Context) -> egui::TextureId {
     let key = preview_key(state);
     if state.tip_preview.key != key || state.tip_preview.texture.is_none() {
         let b = &state.session.brush;
-        let rgba = subcraft_paint::tip_preview::render_tip_preview(b.alpha.as_deref(), &b.settings, PREVIEW[0], PREVIEW[1]);
+        let path = &state.tip_preview.test_stroke;
+        let rgba = if path.is_empty() {
+            subcraft_paint::tip_preview::render_tip_preview(b.alpha.as_deref(), &b.settings, PREVIEW[0], PREVIEW[1])
+        } else {
+            subcraft_paint::tip_preview::render_tip_stroke(b.alpha.as_deref(), &b.settings, PREVIEW[0], PREVIEW[1], path)
+        };
         let image = egui::ColorImage::from_rgba_unmultiplied([PREVIEW[0] as usize, PREVIEW[1] as usize], &rgba);
         state.tip_preview.texture = Some(ctx.load_texture("brush-tip-preview", image, egui::TextureOptions::LINEAR));
         state.tip_preview.key = key;
@@ -149,7 +160,21 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             ui.add_space(4.0);
             // Shrinks with a narrow panel (never widens the card past it).
             let w = ui.available_width().min(PREVIEW[0] as f32).max(1.0);
-            ui.add(egui::Image::new((texture, egui::vec2(w, w * PREVIEW[1] as f32 / PREVIEW[0] as f32))).corner_radius(3.0));
+            let preview = ui.add(egui::Image::new((texture, egui::vec2(w, w * PREVIEW[1] as f32 / PREVIEW[0] as f32))).corner_radius(3.0).sense(egui::Sense::click_and_drag()))
+                .on_hover_text("Drag here to try the brush along your own stroke · double-click: back to the example");
+            // Painter: click-drag in the Brush Preview draws a custom test stroke.
+            if preview.double_clicked() {
+                state.tip_preview.test_stroke.clear();
+            } else if let Some(pos) = preview.interact_pointer_pos().filter(|_| preview.dragged() || preview.drag_started()) {
+                if preview.drag_started() {
+                    state.tip_preview.test_stroke.clear();
+                }
+                let rect = preview.rect;
+                let p = glam::Vec2::new((pos.x - rect.min.x) / rect.width() * PREVIEW[0] as f32, (pos.y - rect.min.y) / rect.height() * PREVIEW[1] as f32);
+                if state.tip_preview.test_stroke.last().is_none_or(|q| q.distance(p) >= 2.0) {
+                    state.tip_preview.test_stroke.push(p);
+                }
+            }
             // Painter's Material Preview: the paint material on a lit sphere.
             ui.horizontal(|ui| {
                 let r = ui.add(egui::Image::new((sphere, egui::vec2(SPHERE as f32, SPHERE as f32))).sense(egui::Sense::drag()))
