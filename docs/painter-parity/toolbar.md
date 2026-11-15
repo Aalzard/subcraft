@@ -115,7 +115,7 @@ Layout notes: the Contextual toolbar is fixed above the viewports and cannot be 
 | Hide While Painting (brush tool) | Symmetry settings menu > display | not documented | done | crates/ui/src/brush_bar.rs (symmetry_display) | - |
 | Show Axis position manipulator | Symmetry settings menu > display | off | done: drags the radial pivot | crates/ui/src/brush_bar.rs (symmetry_display) | - |
 | Manipulator Size | Symmetry settings menu > display | not documented | done | crates/ui/src/brush_bar.rs (symmetry_display) | - |
-| Symmetry button greyed out for unsupported fill projections | Contextual toolbar with a fill layer | - | missing | - | - |
+| Symmetry button greyed out for unsupported fill projections | Contextual toolbar with a fill layer | - | done: the fill symmetry button is greyed out for UV projection (with a hover note) | crates/ui/src/brush_bar.rs (fill_symmetry_toggle), crates/ui/src/viewport_bar.rs | - |
 
 ## Contextual toolbar: Path tools
 
@@ -171,7 +171,7 @@ Layout notes: shown when a fill layer or fill effect uses Tri-planar, Planar, Sp
 | Mirror on Y | Contextual toolbar | - | done: Mirror Y in Properties > Fill > 3D projection | crates/doc/src/fill.rs (ProjectionTransform::mirror), crates/ui/src/panels/properties.rs | - |
 | Mirror on Z | Contextual toolbar | - | done: Mirror Z in Properties > Fill > 3D projection | crates/doc/src/fill.rs (ProjectionTransform::mirror), crates/ui/src/panels/properties.rs | - |
 | Reset transformation | Contextual toolbar | - | done: Reset in Properties > Fill > 3D projection | crates/ui/src/panels/properties.rs (transform3_group) | - |
-| Symmetry button for fill layers | Contextual toolbar (11.1) | off | missing | - | - |
+| Symmetry button for fill layers | Contextual toolbar (11.1) | off | done: with a fill layer selected, a Symmetry button switches its projection symmetry on / off (the setup is remembered; Properties > Fill > Symmetry edits it) | crates/ui/src/brush_bar.rs (fill_symmetry_toggle), crates/ui/src/viewport_bar.rs | - |
 
 ## Contextual toolbar: Warp projection extras
 

@@ -472,6 +472,7 @@ pub fn show(ui: &mut Ui, state: &mut crate::state::UiState) {
                         let destination = state.session.polygon_fill_destination();
                         crate::brush_bar::fill_options(ui, &mut state.fill_mode, Some(&mut state.fill_visible_only), destination, "fill_mode_3d");
                     }
+                    crate::brush_bar::fill_symmetry_toggle(ui, state);
                 }
             });
             if painting && !inline {
@@ -482,6 +483,7 @@ pub fn show(ui: &mut Ui, state: &mut crate::state::UiState) {
                         let destination = state.session.polygon_fill_destination();
                         crate::brush_bar::fill_options(ui, &mut state.fill_mode, Some(&mut state.fill_visible_only), destination, "fill_mode_3d");
                     }
+                    crate::brush_bar::fill_symmetry_toggle(ui, state);
                 });
             }
             if painting {

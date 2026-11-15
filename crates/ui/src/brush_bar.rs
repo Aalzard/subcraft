@@ -182,6 +182,53 @@ pub(crate) fn toggle_lazy(options: &mut StrokeOptions, saved: &mut Option<f32>) 
     }
 }
 
+/// The fill symmetry after its toolbar button: off remembers the setup in `saved`; on brings
+/// the remembered one back, or a mirror across X through the middle.
+pub(crate) fn toggled_fill_symmetry(current: subcraft_doc::FillSymmetry, saved: Option<subcraft_doc::FillSymmetry>) -> (subcraft_doc::FillSymmetry, Option<subcraft_doc::FillSymmetry>) {
+    use subcraft_doc::FillSymmetry;
+    if current.is_none() {
+        (saved.filter(|s| !s.is_none()).unwrap_or_else(FillSymmetry::mirror), None)
+    } else {
+        (FillSymmetry::None, Some(current))
+    }
+}
+
+/// Painter's Symmetry button for fill layers: with a fill layer selected, the contextual
+/// toolbar switches its projection's symmetry on and off (the setup is in Properties > Fill >
+/// Symmetry). Greyed out for projections that cannot be mirrored (UV).
+pub(crate) fn fill_symmetry_toggle(ui: &mut Ui, state: &mut crate::state::UiState) {
+    let Some(layer) = state.session.selected_layer() else { return };
+    let subcraft_doc::LayerContent::Fill(f) = &layer.content else { return };
+    let (id, projection) = (layer.id, f.projection);
+    let supported = projection.is_3d();
+    let on = supported && !projection.symmetry.is_none();
+    let saved_id = egui::Id::new(("fill_symmetry_saved", id));
+    ui.separator();
+    let response = ui
+        .add_enabled_ui(supported, |ui| {
+            widgets::icon_toggle(ui, icons::SYMMETRY, on, if on { "Fill symmetry is on · click to switch it off" } else { "Fill symmetry is off · click to mirror the fill (Properties > Fill > Symmetry sets it up)" })
+        })
+        .inner;
+    let response = response.on_disabled_hover_text("Fill symmetry needs a 3D projection (not UV)");
+    response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, supported, on, "Fill symmetry"));
+    if response.clicked() {
+        let saved = ui.data(|d| d.get_temp::<subcraft_doc::FillSymmetry>(saved_id));
+        let (symmetry, keep) = toggled_fill_symmetry(projection.symmetry, saved);
+        ui.data_mut(|d| match keep {
+            Some(s) => {
+                d.insert_temp(saved_id, s);
+            }
+            None => {
+                d.remove::<subcraft_doc::FillSymmetry>(saved_id);
+            }
+        });
+        let projection = subcraft_doc::Projection { symmetry, ..projection };
+        if let Err(e) = state.session.execute(subcraft_app::Command::SetFillProjection { layer: id, projection }) {
+            state.set_status(e.to_string(), ui.input(|i| i.time));
+        }
+    }
+}
+
 /// Painter's three buttons: Symmetry on / off, its settings menu, and Lazy mouse on / off.
 fn stroke_options(ui: &mut Ui, options: &mut StrokeOptions, view: &mut crate::viewport_bar::ViewportPrefs) {
     let saved_id = egui::Id::new("brush_bar_saved_stroke_options");
@@ -615,5 +662,21 @@ mod tests {
     fn every_pressure_curve_has_its_own_tooltip() {
         let tips: std::collections::BTreeSet<_> = subcraft_paint::PressureCurve::ALL.into_iter().map(pressure_tip).collect();
         assert_eq!(tips.len(), subcraft_paint::PressureCurve::ALL.len());
+    }
+}
+
+#[cfg(test)]
+mod fill_symmetry_tests {
+    use subcraft_doc::FillSymmetry;
+
+    #[test]
+    fn the_fill_symmetry_button_remembers_the_setup() {
+        let radial = FillSymmetry::Radial { axis: 2, count: 6, flip: true, center: [0.5; 3] };
+        // Off: remembered; on again: the same setup back.
+        let (off, saved) = super::toggled_fill_symmetry(radial, None);
+        assert!(off.is_none() && saved == Some(radial));
+        assert_eq!(super::toggled_fill_symmetry(off, saved), (radial, None));
+        // Nothing remembered: a mirror across X through the middle.
+        assert_eq!(super::toggled_fill_symmetry(FillSymmetry::None, None).0, FillSymmetry::mirror());
     }
 }
