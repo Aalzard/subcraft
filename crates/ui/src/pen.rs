@@ -222,6 +222,8 @@ pub fn properties(state: &mut UiState, ui: &mut Ui, path: &PenPath, now: f64) {
             if ui.add_enabled(selected, egui::Button::new(label)).clicked() && let Err(e) = state.pen.shape_point(&state.session, smooth) { state.set_status(e.to_string(), now); }
         }
         if ui.add_enabled(selected, egui::Button::new("Delete point")).clicked() && let Err(e) = state.pen.delete_anchor(&state.session) { state.set_status(e.to_string(), now); }
+        if ui.add_enabled(path.anchors.len() > 1, egui::Button::new("Reverse")).on_hover_text("Run the path the other way: stamps and a ribbon's image start from the other end").clicked()
+            && let Err(e) = state.pen.reverse_path(&state.session) { state.set_status(e.to_string(), now); }
     });
     let mut path = path.clone(); let mut changed = false;
     // Painter's path types: a stroke along the curve, or its filled interior.

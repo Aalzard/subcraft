@@ -415,6 +415,16 @@ impl PenPath {
         Some(id)
     }
 
+    /// Run the path the other way (Painter's Reverse path direction): the points in reverse
+    /// order, each with its two tangents swapped, so the curve keeps its shape. What follows the
+    /// direction (the stamps' start, a ribbon's image) starts from the other end.
+    pub fn reverse(&mut self) {
+        self.anchors.reverse();
+        for a in &mut self.anchors {
+            std::mem::swap(&mut a.incoming, &mut a.outgoing);
+        }
+    }
+
     /// Whether a point has tangent handles (smooth) or none (corner).
     pub fn is_smooth(&self, id: AnchorId) -> bool {
         self.anchors.iter().find(|a| a.id == id).is_some_and(|a| a.incoming.length_squared() > 1e-12 || a.outgoing.length_squared() > 1e-12)

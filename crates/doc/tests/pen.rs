@@ -100,3 +100,29 @@ fn splitting_a_curved_segment_keeps_its_shape() {
     assert!(p.split_segment(5, 0.5).is_none(), "no such segment");
 }
 
+#[test]
+fn reversing_a_path_keeps_its_curve_and_swaps_its_ends() {
+    let mut a = subcraft_doc::PenAnchor::new(glam::Vec2::new(0.1, 0.2));
+    a.outgoing = glam::Vec2::new(0.1, 0.0);
+    a.incoming = glam::Vec2::new(-0.05, 0.0);
+    let mut b = subcraft_doc::PenAnchor::new(glam::Vec2::new(0.6, 0.7));
+    b.incoming = glam::Vec2::new(0.0, -0.2);
+    let c = subcraft_doc::PenAnchor::new(glam::Vec2::new(0.9, 0.3));
+    let ids = (a.id, b.id, c.id);
+    let first = a.clone();
+    let mut path = subcraft_doc::PenPath { anchors: vec![a, b, c], closed: false, radius: 0.02, hardness: 1.0, opacity: 1.0, values: Default::default(), kind: Default::default(), stamp: None, ribbon: None };
+    let before: Vec<_> = (0..path.segment_count()).map(|i| path.segment(i).unwrap()).collect();
+    path.reverse();
+    assert_eq!(path.anchors.iter().map(|p| p.id).collect::<Vec<_>>(), vec![ids.2, ids.1, ids.0]);
+    assert_eq!((path.anchors[1].incoming, path.anchors[1].outgoing), (glam::Vec2::ZERO, glam::Vec2::new(0.0, -0.2)));
+    // Each segment is the original one with its control points in reverse order: the same curve.
+    let n = before.len();
+    for i in 0..n {
+        let [p0, p1, p2, p3] = path.segment(i).unwrap();
+        let [q0, q1, q2, q3] = before[n - 1 - i];
+        assert!(p0.distance(q3) < 1e-6 && p1.distance(q2) < 1e-6 && p2.distance(q1) < 1e-6 && p3.distance(q0) < 1e-6, "segment {i}");
+    }
+    // Twice is the original.
+    path.reverse();
+    assert_eq!(path.anchors[0], first);
+}
