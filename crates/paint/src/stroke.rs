@@ -454,6 +454,7 @@ impl Stroke {
                 let offset = s.position_jitter_axis.offset(sample.dir, rand01(s.seed, k, 3), rand01(s.seed, k, 4));
                 pos += offset * position_jitter * 2.0 * radius_uv * scale * res;
             }
+            pos += s.alternate_shift(k, sample.dir) * radius_uv * scale * res;
             stamps.push(Stamp {
                 camera: 0,
                 screen: pos,
@@ -567,10 +568,13 @@ impl Stroke {
                 angle += sample.dir.y.atan2(sample.dir.x);
             }
             let mut screen = sample.pos;
-            if position_jitter > 0.0 {
+            if position_jitter > 0.0 || s.alternate_offset != 0.0 {
                 let r_px = radius * ctx.camera.pixels_per_unit(self.depth_hint(ctx));
-                let offset = s.position_jitter_axis.offset(sample.dir, rand01(s.seed, k, 3), rand01(s.seed, k, 4));
-                screen += offset * position_jitter * 2.0 * r_px;
+                if position_jitter > 0.0 {
+                    let offset = s.position_jitter_axis.offset(sample.dir, rand01(s.seed, k, 3), rand01(s.seed, k, 4));
+                    screen += offset * position_jitter * 2.0 * r_px;
+                }
+                screen += s.alternate_shift(k, sample.dir) * r_px;
             }
             let mut dabs = vec![Dab { screen, radius, flow, angle, roundness: s.roundness, hardness: s.hardness }];
             if s.scatter_count > 0 {

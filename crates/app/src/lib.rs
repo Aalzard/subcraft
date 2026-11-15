@@ -12,6 +12,7 @@ pub mod bake_config;
 mod guides;
 pub mod brush_builtin;
 pub mod brush_preset;
+pub mod stitch;
 pub mod brush_textures;
 pub mod command;
 pub mod diagnostics;

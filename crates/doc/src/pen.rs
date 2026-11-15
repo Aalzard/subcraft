@@ -328,15 +328,24 @@ pub struct PathStamp {
     pub spacing: f32,
     /// Turn each stamp along the curve (Follow path); otherwise the tip stays upright.
     pub follow: bool,
+    /// Every second stamp moves across the path by this fraction of the width's half
+    /// (alternating sides). 0 = off.
+    #[serde(default, skip_serializing_if = "no_alternate")]
+    pub alternate: f32,
+}
+
+fn no_alternate(v: &f32) -> bool {
+    *v == 0.0
 }
 
 impl PathStamp {
     pub const SPACING: std::ops::RangeInclusive<f32> = 0.02..=4.0;
+    pub const ALTERNATE: std::ops::RangeInclusive<f32> = -1.0..=1.0;
 }
 
 impl Default for PathStamp {
     fn default() -> Self {
-        Self { alpha: None, spacing: 0.25, follow: true }
+        Self { alpha: None, spacing: 0.25, follow: true, alternate: 0.0 }
     }
 }
 
@@ -423,6 +432,7 @@ impl PenPath {
             || !self.opacity.is_finite() || !(0.0..=1.0).contains(&self.opacity)
         { return Err("invalid pen width, hardness or opacity"); }
         if self.stamp.is_some_and(|s| !s.spacing.is_finite() || !PathStamp::SPACING.contains(&s.spacing)) { return Err("pen stamp spacing must be between 2 % and 400 % of the tip"); }
+        if self.stamp.is_some_and(|s| !PathStamp::ALTERNATE.contains(&s.alternate)) { return Err("pen stamp alternate offset must be between -1 and 1"); }
         if self.ribbon.is_some_and(|r| !r.tiles.is_finite() || !PathRibbon::TILES.contains(&r.tiles)) { return Err("ribbon tiling must be between 0.05 and 256"); }
         if self.ribbon.is_some_and(|r| !(0.0..=1.0).contains(&r.start_offset) || !(0.0..=1.0).contains(&r.end_offset)) { return Err("ribbon offsets must be between 0 and 1"); }
         if self.values.is_empty() || self.values.values().any(|v| !v.0.iter().all(|x| x.is_finite() && x.abs() <= 65504.0)) { return Err("pen channels must contain finite, representable values"); }

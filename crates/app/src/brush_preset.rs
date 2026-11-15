@@ -534,7 +534,7 @@ pub fn builtin() -> Vec<BrushPreset> {
         user_file: None,
     };
     let d = BrushSettings::default();
-    vec![
+    let mut list = vec![
         preset("Soft Airbrush", None, BrushSettings { size: 12.0, hardness: 0.0, flow: 0.15, spacing: 0.08, ..d }, &[]),
         preset(
             "Dirt Grunge",
@@ -572,5 +572,10 @@ pub fn builtin() -> Vec<BrushPreset> {
             BrushSettings { size: 2.0, hardness: 0.3, spacing: 4.0, ..d },
             &[(Height, s(0.6))],
         ),
-    ]
+    ];
+    // Stitch brushes: the stitch tips stamped one diameter apart along the stroke, with height.
+    for stitch in &crate::stitch::STITCHES {
+        list.push(preset(stitch.name, Some(stitch.tip), stitch.brush_settings(), &stitch.channels()));
+    }
+    list
 }

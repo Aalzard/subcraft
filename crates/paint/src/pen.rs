@@ -64,7 +64,9 @@ impl PenRasterizer {
         let stamped = path.kind == PathKind::Paint && path.stamp.is_some();
         // A filled path only needs the segments near a texel for its anti-aliased edge; a tip
         // image reaches to the corners of its square.
-        let radius = if filled { 1.5 } else if stamped { path.radius * resolution as f32 * std::f32::consts::SQRT_2 + 1.0 } else { path.radius * resolution as f32 + 1.0 };
+        // Alternating stamps sit up to one more radius off the curve.
+        let alternate = path.stamp.map_or(0.0, |s| s.alternate.abs());
+        let radius = if filled { 1.5 } else if stamped { path.radius * resolution as f32 * (std::f32::consts::SQRT_2 + alternate) + 1.0 } else { path.radius * resolution as f32 + 1.0 };
         let mut references = 0;
         for (i, segment) in points.windows(2).enumerate() {
             let lo = segment[0].min(segment[1]) - Vec2::splat(radius);
@@ -90,10 +92,17 @@ impl PenRasterizer {
             bins.iter().enumerate().filter(|(_, b)| !b.is_empty()).map(|(i, _)| i).collect()
         };
         let images = path.values.keys().map(|&k| (k, empty_paint_image(k, resolution))).collect();
-        let (stamps, segment_stamps) = match path.stamp.filter(|_| stamped) {
+        let (mut stamps, segment_stamps) = match path.stamp.filter(|_| stamped) {
             Some(st) => place_stamps(&points, (st.spacing * 2.0 * path.radius * resolution as f32).max(0.5))?,
             None => (Vec::new(), Vec::new()),
         };
+        // Alternating offset: every second stamp moves across the path (to its left).
+        if let Some(st) = path.stamp.filter(|s| stamped && s.alternate != 0.0) {
+            let shift = st.alternate * path.radius * resolution as f32;
+            for (centre, angle) in stamps.iter_mut().skip(1).step_by(2) {
+                *centre += Vec2::from_angle(*angle).perp() * shift;
+            }
+        }
         Ok(Self { path: path.clone(), points, bins, tiles, tile: 0, pixel: 0, segment: 0, distance: f32::INFINITY, coverage: vec![0.0; TILE_TEXELS], images, resolution, alpha: None, stamps, segment_stamps })
     }
 
@@ -459,7 +468,7 @@ mod run_tests {
         let mut path = PenPath { anchors, closed: false, radius: 0.02, hardness: 1.0, opacity: 1.0, values, kind: subcraft_doc::PathKind::Paint, stamp: None, ribbon: None };
         let continuous = { let mut r = PenRasterizer::new(&path, 256).unwrap(); r.run(); r.finish().unwrap() };
         // Spacing 2: a stamp every two diameters (20.48 texels, radius 5.12) from x = 25.6.
-        path.stamp = Some(subcraft_doc::PathStamp { alpha: None, spacing: 2.0, follow: true });
+        path.stamp = Some(subcraft_doc::PathStamp { alpha: None, spacing: 2.0, follow: true, alternate: 0.0 });
         let mut r = PenRasterizer::new(&path, 256).unwrap();
         r.step(1);
         assert!(r.is_done(), "a stamped path rasterizes in one pass");
@@ -470,8 +479,19 @@ mod run_tests {
         assert!(a.get(35, 127)[3] > 0.9, "the continuous stroke covers it");
         assert_eq!(b.get(128, 100)[3], 0.0, "nothing away from the path");
         // Spacing outside its range is refused by validation.
-        path.stamp = Some(subcraft_doc::PathStamp { alpha: None, spacing: 0.0, follow: true });
+        path.stamp = Some(subcraft_doc::PathStamp { alpha: None, spacing: 0.0, follow: true, alternate: 0.0 });
         assert!(PenRasterizer::new(&path, 256).is_err());
+        // Alternating offset 1: the second stamp (x = 46) moves one radius (5.12 texels) to the
+        // path's left, which is +y in texels for a path going +x; the first stays on the line.
+        path.stamp = Some(subcraft_doc::PathStamp { alpha: None, spacing: 2.0, follow: true, alternate: 1.0 });
+        let mut r = PenRasterizer::new(&path, 256).unwrap();
+        r.step(1);
+        let shifted = r.finish().unwrap();
+        let c = &shifted[&ChannelKind::BaseColor];
+        assert!(c.get(25, 127)[3] > 0.9, "first stamp on the path");
+        assert!(c.get(46, 132)[3] > 0.9 && c.get(46, 122)[3] == 0.0, "second stamp moved across: {:?} {:?}", c.get(46, 132), c.get(46, 122));
+        path.stamp = Some(subcraft_doc::PathStamp { alpha: None, spacing: 2.0, follow: true, alternate: 3.0 });
+        assert!(PenRasterizer::new(&path, 256).is_err(), "alternate offset outside -1..=1 is refused");
     }
 
     /// QA 2026-11: only a one-segment ribbon had square ends. With a first (or last) segment

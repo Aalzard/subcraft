@@ -155,6 +155,9 @@ pub struct BrushSettings {
     pub roundness: f32,
     /// Add the screen-space stroke direction to the angle.
     pub follow_path: bool,
+    /// Every second stamp moves across the stroke by this fraction of the radius (alternating
+    /// sides: stitches, zigzags). 0 = off.
+    pub alternate_offset: f32,
     /// Random size reduction per stamp (0..1, fraction of the size).
     pub size_jitter: f32,
     /// Random flow reduction per stamp (0..1).
@@ -215,6 +218,7 @@ impl Default for BrushSettings {
             angle_deg: 0.0,
             roundness: 1.0,
             follow_path: false,
+            alternate_offset: 0.0,
             size_jitter: 0.0,
             flow_jitter: 0.0,
             angle_jitter_deg: 0.0,
@@ -246,6 +250,18 @@ impl Default for BrushSettings {
 }
 
 impl BrushSettings {
+    /// Range of [`BrushSettings::alternate_offset`].
+    pub const ALTERNATE_OFFSET: std::ops::RangeInclusive<f32> = -1.0..=1.0;
+
+    /// Offset of stamp `k` across a stroke going along `dir`, in radii: every second stamp is
+    /// pushed to the left of the stroke by [`BrushSettings::alternate_offset`].
+    pub fn alternate_shift(&self, k: u32, dir: glam::Vec2) -> glam::Vec2 {
+        if self.alternate_offset == 0.0 || k % 2 == 0 {
+            return glam::Vec2::ZERO;
+        }
+        dir.normalize_or_zero().perp() * self.alternate_offset
+    }
+
     /// World (object-space) radius for a mesh with bounding-box diagonal `diagonal`, in
     /// [`SizeSpace::Object`] (the other spaces need [`BrushSettings::radius_in`]).
     pub fn radius(&self, diagonal: f32) -> f32 {
@@ -827,6 +843,25 @@ impl PolygonFillMode {
             Self::UvIsland => "UV island",
             Self::Object => "Object",
         }
+    }
+}
+
+#[cfg(test)]
+mod alternate_tests {
+    use super::*;
+
+    #[test]
+    fn every_second_stamp_moves_across_the_stroke() {
+        let s = BrushSettings { alternate_offset: 0.5, ..Default::default() };
+        let dir = glam::Vec2::new(3.0, 0.0);
+        assert_eq!(s.alternate_shift(0, dir), glam::Vec2::ZERO);
+        assert_eq!(s.alternate_shift(1, dir), glam::Vec2::new(0.0, 0.5), "across the stroke, half a radius");
+        assert_eq!(s.alternate_shift(2, dir), glam::Vec2::ZERO);
+        assert_eq!(BrushSettings::default().alternate_shift(1, dir), glam::Vec2::ZERO, "off by default");
+        // Brush files written before the setting read it as off.
+        let mut json = serde_json::to_value(BrushSettings::default()).unwrap();
+        json.as_object_mut().unwrap().remove("alternate_offset");
+        assert_eq!(serde_json::from_value::<BrushSettings>(json).unwrap().alternate_offset, 0.0);
     }
 }
 

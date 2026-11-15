@@ -137,6 +137,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     .on_hover_text("Distance between stamps, in brush diameters");
                 slider_row(ui, "Angle", egui::Slider::new(&mut s.angle_deg, -180.0..=180.0).suffix("°"));
                 prop_row(ui, "", |ui| ui.checkbox(&mut s.follow_path, "Follow Path"));
+                slider_row(ui, "Alternate offset", egui::Slider::new(&mut s.alternate_offset, subcraft_paint::BrushSettings::ALTERNATE_OFFSET))
+                    .on_hover_text("Every second stamp moves across the stroke by this fraction of the radius (stitches, zigzags)");
                 super::brush_rows::jitters(ui, s);
                 prop_row(ui, "Alignment", |ui| {
                     egui::ComboBox::from_id_salt("align")
