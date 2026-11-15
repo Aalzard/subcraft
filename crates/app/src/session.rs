@@ -941,6 +941,17 @@ impl Session {
         guides
     }
 
+    /// Where the active radial symmetry's axis meets the surface (object space), for Show
+    /// Intersection; empty without radial symmetry.
+    pub fn radial_axis_hits(&self) -> Vec<Vec3> {
+        let options = &self.brush.options;
+        let mirrors = options.symmetry.iter().filter(|&&m| m).count();
+        if !options.has_symmetry() || options.radial.effective_count(mirrors) < 2 {
+            return Vec::new();
+        }
+        crate::guides::radial_axis_hits(&self.scene.mesh, &self.scene.bvh, &options.radial)
+    }
+
     /// Every guide line of the active symmetry: plane intersections, plane outlines, radial axis.
     pub fn symmetry_guide_segments(&self) -> Vec<[Vec3; 2]> {
         self.symmetry_guides().segments(true, true, true)

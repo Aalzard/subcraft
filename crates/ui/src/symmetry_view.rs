@@ -279,6 +279,18 @@ pub fn overlay(state: &UiState, ui: &Ui, painter: &egui::Painter, rect: Rect, pi
     if state.painting {
         return;
     }
+    // Where the radial axis meets the surface (Show Intersection); faint where the model hides it.
+    if display.show_intersection {
+        for p in state.session.radial_axis_hits() {
+            let Some(s) = camera.project(p) else { continue };
+            let at = to_pos(rect, pixel_scale, s);
+            let depth = camera.view.transform_point3(p).z.abs();
+            let visible = state.session.pick(camera, glam::Vec2::new(s.x, s.y)).is_none_or(|h| depth <= h.depth * 1.01 + 1e-4);
+            let (fill, ring) = if visible { (Color32::from_rgb(84, 144, 240), Color32::from_black_alpha(170)) } else { (Color32::from_rgba_unmultiplied(84, 144, 240, 70), Color32::from_black_alpha(60)) };
+            painter.circle_filled(at, 4.5, fill);
+            painter.circle_stroke(at, 4.5, Stroke::new(1.5, ring));
+        }
+    }
     let shapes = handle_shapes(state);
     if shapes.is_empty() {
         return;

@@ -117,7 +117,7 @@ Layout notes: the dropdown at the top right of each view switches between Materi
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
 | Context menu: floating Properties of the current tool / layer / effect at the cursor | RMB click in the 3D view | editable shortcut "Context menu" | partial: RMB opens a part menu (target kind, part actions, Show all parts, Eyedropper), not Properties | crates/ui/src/viewport.rs:162 | #131 |
-| Floating Properties closes on click outside | 3D view | - | missing | - | #131 |
+| Floating Properties closes on click outside | 3D view | - | done (earlier): the right-click Properties popup closes on Esc, its close button or a click outside | crates/ui/src/view_props.rs | #131 |
 | Extra Polygon Fill blend modes in the right-click panel | RMB in the viewport (12.2) | - | missing | - | - |
 
 ## Painting interactions in the viewport
@@ -201,7 +201,7 @@ Layout notes: display options (plane, intersection, cursor, manipulator) are onl
 | Hide second cursor while painting | 3D view (Hide While Painting) | not documented | done: Display Settings > Viewport > Hide while painting, off by default | crates/ui/src/viewport_bar.rs (symmetry_cursor_hide_painting) | 262 |
 | Mirror axis-position manipulator (drag handles) | 3D view | off until enabled | done: a handle per mirror plane moves it along its axis; the radial pivot moves across its plane | crates/ui/src/symmetry_view.rs (manipulate) | - |
 | Radial axis line | 3D view (Show Axis) | not documented | done: own Show Axis toggle | crates/app/src/guides.rs (radial_guides) | - |
-| Radial axis / mesh intersection point | 3D view (Show Intersection) | not documented | missing | - | - |
+| Radial axis / mesh intersection point | 3D view (Show Intersection) | not documented | done: a dot where the radial axis crosses the surface (faint when hidden by the model) | crates/ui/src/symmetry_view.rs | (this PR) |
 | Radial axis-position manipulator | 3D view (Show Axis position manipulator) | off | missing | - | - |
 
 ## Quick mask
