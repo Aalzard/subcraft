@@ -150,10 +150,17 @@ fn run_app() -> anyhow::Result<()> {
                     .ok_or_else(|| anyhow::anyhow!("unknown bake map {name}"))?);
             }
             "--mesh-map" => {
-                let name = args.next().ok_or_else(|| anyhow::anyhow!("--mesh-map expects a mesh-map key"))?;
-                options.mesh_map = Some(subcraft_app::MeshMapKind::ALL.into_iter().find(|k| k.key() == name)
-                    .ok_or_else(|| anyhow::anyhow!("unknown mesh map {name}"))?);
+                // A mesh-map key shows that map; anything else is Painter's `--mesh-map <file>`
+                // (repeatable): a baked map imported by its TextureSetName_MapName file name.
+                let word = args.next_os().ok_or_else(|| anyhow::anyhow!("--mesh-map expects a mesh-map key or a baked map image"))?;
+                match mesh_map_arg(word) {
+                    MeshMapArg::Key(kind) => options.mesh_map = Some(kind),
+                    MeshMapArg::File(path) => options.mesh_map_files.push(path),
+                }
             }
+            "--disable-version-checking" => options.disable_version_checking = true,
+            // Painter's flag: UDIM tiles already import as separate texture sets.
+            "--split-by-udim" => {}
             "--bake-size" => {
                 options.bake_size = Some(args.next().and_then(|s| s.parse::<u32>().ok()).filter(|s| [256, 512, 1024, 2048, 4096].contains(s))
                     .ok_or_else(|| anyhow::anyhow!("--bake-size expects 256, 512, 1024, 2048 or 4096"))?);
@@ -209,7 +216,7 @@ fn run_app() -> anyhow::Result<()> {
                 options.autosave_interval = args.next().and_then(|s| s.parse::<f64>().ok()).map(std::time::Duration::from_secs_f64);
             }
             "-h" | "--help" | "-?" => {
-                println!("usage: subcraft [project.subcraft | mesh file] [--demo] [--view-2d] [--brush-panel] [--display-settings [environment|camera|post|render|visualization]] [--bake-high mesh] [--bake-preview] [--bake-preview-map map_key] [--bake-match always|name] [--bake-place auto,center,origin,offset=x:y:z,scale=s,rot=x:y:z] [--environment name] [--bake-size 256|512|1024|2048|4096] [--symmetry xyz] [--radial y8] [--screenshot out.png] [--path-trace [samples]] [--welcome] [--quick-start] [--guide-step 1..6] [--reset-layout] [--window-size WxH] [--camera yaw,pitch,zoom[,x,y,z]] [--scale 1.5] [--theme dark|light|painter] [--x11] [--recover] [--autosave-interval seconds] [--export-path folder] [--version | -v]");
+                println!("usage: subcraft [project.subcraft | mesh file] [--demo] [--view-2d] [--brush-panel] [--display-settings [environment|camera|post|render|visualization]] [--bake-high mesh] [--bake-preview] [--bake-preview-map map_key] [--bake-match always|name] [--bake-place auto,center,origin,offset=x:y:z,scale=s,rot=x:y:z] [--environment name] [--bake-size 256|512|1024|2048|4096] [--symmetry xyz] [--radial y8] [--screenshot out.png] [--path-trace [samples]] [--welcome] [--quick-start] [--guide-step 1..6] [--reset-layout] [--window-size WxH] [--camera yaw,pitch,zoom[,x,y,z]] [--scale 1.5] [--theme dark|light|painter] [--x11] [--recover] [--autosave-interval seconds] [--export-path folder] [--mesh-map key | baked_map.png ...] [--mesh-maps a.png,b.png] [--disable-version-checking] [--split-by-udim] [--version | -v]");
                 return Ok(());
             }
             _ => options.mesh = Some(std::path::PathBuf::from(raw)),
@@ -249,9 +256,31 @@ impl Args {
     }
 }
 
+/// What a `--mesh-map` word names: a mesh map to show (its key), or a baked map file to import.
+#[derive(Debug, PartialEq)]
+enum MeshMapArg {
+    Key(subcraft_app::MeshMapKind),
+    File(std::path::PathBuf),
+}
+
+fn mesh_map_arg(word: std::ffi::OsString) -> MeshMapArg {
+    let text = word.to_string_lossy();
+    match subcraft_app::MeshMapKind::ALL.into_iter().find(|k| k.key() == text) {
+        Some(kind) => MeshMapArg::Key(kind),
+        None => MeshMapArg::File(word.into()),
+    }
+}
+
 #[cfg(test)]
 mod args_tests {
-    use super::{info_text, Args};
+    use super::{info_text, mesh_map_arg, Args, MeshMapArg};
+
+    #[test]
+    fn mesh_map_words_are_keys_or_baked_map_files() {
+        let kind = subcraft_app::MeshMapKind::ALL[0];
+        assert_eq!(mesh_map_arg(kind.key().into()), MeshMapArg::Key(kind));
+        assert_eq!(mesh_map_arg("Body_ambient_occlusion.png".into()), MeshMapArg::File("Body_ambient_occlusion.png".into()));
+    }
 
     #[test]
     fn version_flags_print_the_version_and_other_words_start_the_app() {
