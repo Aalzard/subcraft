@@ -160,8 +160,12 @@ pub struct PathStamp {
     pub follow: bool,
     /// Every second stamp moves across the path by this fraction of the width's half
     /// (alternating sides). 0 = off.
-    #[serde(default, skip_serializing_if = "is_zero")]
+    #[serde(default, skip_serializing_if = "no_alternate")]
     pub alternate: f32,
+}
+
+fn no_alternate(v: &f32) -> bool {
+    *v == 0.0
 }
 
 impl PathStamp {
