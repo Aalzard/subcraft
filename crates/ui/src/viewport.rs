@@ -1162,13 +1162,21 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         subcraft_paint::PaintTarget::Content => {}
     }
     brush_notice(state, ui, &painter, rect, now);
-    // Painter's engine progress bar: a thin moving bar at the top while layers are computed;
-    // paused (Shift+Esc), a notice instead and nothing moves.
+    // Painter's engine progress bar: a thin moving bar at the top while layers are computed for
+    // a while (not for the updates every brush dab causes); paused (Shift+Esc), a notice instead
+    // and nothing moves.
     if state.session.engine_paused() {
+        state.computing_since = None;
         pill(&painter, rect.center_top() + egui::vec2(0.0, 44.0), egui::Align2::CENTER_TOP, crate::i18n::tr("Computation paused · Shift+Esc to resume"), ACCENT());
-    } else if state.session.composites_pending() {
-        computing_bar(&painter, rect, now);
-        ui.ctx().request_repaint();
+    } else {
+        let pending = state.session.composites_pending();
+        let stroke = state.painting || state.uv.painting;
+        if computing_bar_visible(&mut state.computing_since, pending, stroke, now) {
+            computing_bar(&painter, rect, now);
+        }
+        if pending {
+            ui.ctx().request_repaint();
+        }
     }
     rendering_toggle(state, ui, rect, bake_mode);
     // Texture set highlight under the cursor while Ctrl+Alt (texture set selection) is held, not
@@ -1355,6 +1363,21 @@ pub fn computing_phase(now: f64) -> f32 {
     (now * 0.8).rem_euclid(1.0) as f32
 }
 
+/// Seconds layer computation has to keep running, outside a stroke, before the progress bar
+/// shows: the short recomputes after each dab or edit don't flash it.
+pub const COMPUTING_BAR_DELAY: f64 = 0.5;
+
+/// Whether the 3D view shows its progress bar this frame. `since` remembers when the current
+/// stretch of computation began; a stroke in progress restarts it, so painting never shows the
+/// bar (issue #82) and a heavy recompute after the stroke shows it once it outlasts the delay.
+pub fn computing_bar_visible(since: &mut Option<f64>, pending: bool, painting: bool, now: f64) -> bool {
+    if !pending || painting {
+        *since = None;
+        return false;
+    }
+    now - *since.get_or_insert(now) >= COMPUTING_BAR_DELAY
+}
+
 fn computing_bar(painter: &egui::Painter, rect: Rect, now: f64) {
     let track = Rect::from_min_size(rect.left_top(), egui::vec2(rect.width(), 2.0));
     painter.rect_filled(track, 0.0, Color32::from_white_alpha(18));
@@ -1368,7 +1391,7 @@ fn computing_bar(painter: &egui::Painter, rect: Rect, now: f64) {
 
 #[cfg(test)]
 mod light_tests {
-    use super::{computing_phase, lit_direction};
+    use super::{computing_bar_visible, computing_phase, lit_direction, COMPUTING_BAR_DELAY};
     use glam::Vec3;
 
     #[test]
@@ -1390,6 +1413,27 @@ mod light_tests {
         assert_eq!(computing_phase(0.0), 0.0);
         assert!((computing_phase(0.5) - 0.4).abs() < 1e-6);
         assert!(computing_phase(1.25) < 0.05, "wraps back to the start");
+    }
+
+    #[test]
+    fn the_progress_bar_waits_and_never_shows_while_painting() {
+        let mut since = None;
+        assert!(!computing_bar_visible(&mut since, false, false, 0.0), "nothing to compute");
+        // A stroke keeps the layers recomputing for its whole length: no bar.
+        for i in 0..100 {
+            assert!(!computing_bar_visible(&mut since, true, true, i as f64 * 0.1));
+        }
+        // After the stroke, a short recompute stays hidden...
+        assert!(!computing_bar_visible(&mut since, true, false, 10.0));
+        assert!(!computing_bar_visible(&mut since, true, false, 10.0 + COMPUTING_BAR_DELAY * 0.5));
+        assert!(!computing_bar_visible(&mut since, false, false, 10.4));
+        // ...a long one shows once it outlasts the delay.
+        assert!(!computing_bar_visible(&mut since, true, false, 20.0));
+        assert!(computing_bar_visible(&mut since, true, false, 20.0 + COMPUTING_BAR_DELAY));
+        assert!(computing_bar_visible(&mut since, true, false, 25.0));
+        // A new stroke hides it again.
+        assert!(!computing_bar_visible(&mut since, true, true, 25.1));
+        assert!(!computing_bar_visible(&mut since, true, false, 25.2), "the delay starts over");
     }
 }
 
