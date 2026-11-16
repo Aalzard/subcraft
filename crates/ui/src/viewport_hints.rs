@@ -84,6 +84,14 @@ pub fn build(c: &HintContext) -> Vec<Hint> {
         return out;
     }
     // Alt held: only navigation counts (Painter shows the camera gestures).
+    if c.alt && c.nav == NavScheme::Blender {
+        // Blender's Emulate 3 Button Mouse: Alt+LMB is MMB (issue #583).
+        out.push(h("Alt+LMB", "Orbit"));
+        out.push(h("Alt+Shift+LMB", "Pan"));
+        out.push(h("Alt+Ctrl+LMB", "Zoom"));
+        out.push(h("Alt+MMB click", "Center on the model"));
+        return out;
+    }
     if c.alt && c.nav.alt_navigates() {
         out.push(h("Alt+LMB", "Orbit"));
         out.push(h("Alt+MMB", "Pan"));
@@ -314,11 +322,13 @@ mod tests {
         c.shift = true;
         let w = whats(&c);
         assert!(w.contains(&"Straight line from the last point") && w.contains(&"Orbit") && !w.contains(&"Lazy mouse"));
-        // Blender scheme: Alt is not a navigation modifier, so it leaves the normal list.
+        // Blender scheme: Alt+LMB stands in for MMB, so Alt shows the pen navigation.
         let mut b = ctx(Tool::Brush);
         b.nav = NavScheme::Blender;
         b.alt = true;
-        assert!(whats(&b).contains(&"Paint"));
+        let w = whats(&b);
+        assert!(!w.contains(&"Paint") && w.contains(&"Orbit") && w.contains(&"Pan") && w.contains(&"Zoom"));
+        assert_eq!(keys_of(&b, "Pan"), "Alt+Shift+LMB");
     }
 
     #[test]
@@ -354,8 +364,8 @@ mod tests {
         let mut c = ctx(Tool::Brush);
         assert_eq!(keys_of(&c, "Orbit"), "Alt+LMB or RMB (add Shift to snap every 90°)");
         c.nav = NavScheme::Blender;
-        assert_eq!(keys_of(&c, "Orbit"), "MMB (Alt+MMB click centers the view on the model)");
-        assert_eq!(keys_of(&c, "Pan"), "Shift+MMB");
+        assert_eq!(keys_of(&c, "Orbit"), "MMB or Alt+LMB (Alt+MMB click centers the view on the model)");
+        assert_eq!(keys_of(&c, "Pan"), "Shift+MMB or Alt+Shift+LMB");
     }
 
     #[test]
