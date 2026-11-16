@@ -361,6 +361,27 @@ fn general(state: &mut UiState, ui: &mut Ui, cmds: &mut Vec<Command>) {
     crate::panels::shader_settings::apply(state, shader_ops);
     ui.horizontal(|ui| { crate::viewport_bar::albedo_filter(ui, state); });
     transparency(state, ui, cmds);
+    udim_tiles(state, ui, cmds);
+}
+
+/// Issue #581: Painter's UDIM workflow for a set split into UDIM tiles. Shown only for those.
+fn udim_tiles(state: &UiState, ui: &mut Ui, cmds: &mut Vec<Command>) {
+    let ts = state.session.selected_texture_set();
+    let (id, on) = (ts.id, ts.paint_across_udims);
+    let tiles = state.session.document().udim_group(id).len();
+    if tiles < 2 {
+        return;
+    }
+    ui.horizontal(|ui| {
+        field_label(ui, "UDIM tiles");
+        let mut t = on;
+        ui.checkbox(&mut t, "Paint across UDIM tiles").on_hover_text(format!(
+            "Treat the {tiles} tiles of \"{}\" as one: 3D strokes cross tile borders, and materials, smart materials \
+             and new layers are added to every tile (renaming or deleting a layer does the same on every tile).",
+            ts.base_name()
+        ));
+        if t != on { cmds.push(Command::SetPaintAcrossUdims { texture_set: id, on: t }); }
+    });
 }
 
 /// Issue #145: a texture set that starts empty (unpainted texels have alpha 0) and how the

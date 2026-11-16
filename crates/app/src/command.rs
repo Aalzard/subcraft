@@ -33,6 +33,9 @@ pub enum Command {
     /// Start the texture set's layer stack transparent (alpha 0) or at the opaque channel
     /// defaults (issue #145).
     SetTransparent { texture_set: TextureSetId, transparent: bool },
+    /// Painter's UDIM workflow (issue #581) for every tile of the set's UDIM group: 3D strokes
+    /// cross tile borders, and materials, smart materials and new layers go to every tile.
+    SetPaintAcrossUdims { texture_set: TextureSetId, on: bool },
     /// Viewport alpha mode, threshold and dithering of a texture set (display only).
     SetAlphaSettings { texture_set: TextureSetId, alpha: subcraft_doc::AlphaSettings },
     SelectLayer(Option<LayerId>),
