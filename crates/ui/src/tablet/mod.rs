@@ -175,12 +175,15 @@ pub enum ToolEvent {
     Frame,
 }
 
-/// Stylus button codes (linux/input-event-codes.h) to egui buttons: the lower barrel button is a
-/// right click, the upper one a middle click (both like Krita / Blender defaults).
+/// Stylus button codes (linux/input-event-codes.h) to egui buttons, the same buttons X11 gives
+/// the pen (xf86-input-libinput and xf86-input-wacom defaults), so a pen behaves alike on native
+/// Wayland and XWayland (issue #82): the lower barrel button is a middle click (X button 2), the
+/// upper one a right click (button 3), a third button X's button 8 (back, egui's `Extra1`).
 pub fn stylus_button(code: u32) -> Option<PointerButton> {
     match code {
-        0x14b => Some(PointerButton::Secondary), // BTN_STYLUS
-        0x14c | 0x149 => Some(PointerButton::Middle), // BTN_STYLUS2, BTN_STYLUS3
+        0x14b => Some(PointerButton::Middle),    // BTN_STYLUS
+        0x14c => Some(PointerButton::Secondary), // BTN_STYLUS2
+        0x149 => Some(PointerButton::Extra1),    // BTN_STYLUS3
         _ => None,
     }
 }
@@ -439,15 +442,29 @@ mod tests {
     }
 
     #[test]
-    fn stylus_buttons_are_right_and_middle_clicks() {
+    fn stylus_buttons_match_x11() {
         use ToolEvent::*;
+        // Lower barrel button = MMB (pan), upper = RMB, as X11 / XWayland deliver them.
+        assert_eq!(stylus_button(0x14b), Some(PointerButton::Middle));
+        assert_eq!(stylus_button(0x14c), Some(PointerButton::Secondary));
+        assert_eq!(stylus_button(0x149), Some(PointerButton::Extra1));
+        assert_eq!(stylus_button(0x110), None);
+        assert_eq!(stylus_button(0x14a), None, "BTN_TOUCH is the tip (down / up events), not a button");
         let mut m = ToolMapper::default();
         run(&mut m, &[ProximityIn { on_window: true }, Motion { x: 2.0, y: 3.0 }, Frame]);
         let b = stylus_button(0x14b).unwrap();
-        let out = run(&mut m, &[Button { button: b, pressed: true }, Frame, Button { button: b, pressed: false }, Frame]);
-        assert_eq!(buttons(&out), vec![(PointerButton::Secondary, true), (PointerButton::Secondary, false)]);
-        assert_eq!(stylus_button(0x14c), Some(PointerButton::Middle));
-        assert_eq!(stylus_button(0x110), None);
+        let out = run(&mut m, &[Button { button: b, pressed: true }, Frame, Motion { x: 9.0, y: 3.0 }, Frame, Button { button: b, pressed: false }, Frame]);
+        // Only the middle button: no primary press (the tip is up) and no modifiers, so neither
+        // scheme reads it as an Alt+LMB orbit.
+        assert_eq!(buttons(&out), vec![(PointerButton::Middle, true), (PointerButton::Middle, false)]);
+        assert!(touches(&out).is_empty(), "hovering with the button held is not a stroke");
+        for e in &out {
+            if let Event::PointerButton { modifiers, .. } = e {
+                assert_eq!(*modifiers, Modifiers::NONE);
+            }
+        }
+        let fin = finish_events(out, 1.0, Modifiers::NONE, None);
+        assert!(fin.iter().all(|e| !matches!(e, Event::PointerButton { button: PointerButton::Primary, .. } | Event::PointerButton { modifiers: Modifiers { alt: true, .. }, .. })));
     }
 
     #[test]

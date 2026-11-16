@@ -245,6 +245,9 @@ pub struct UiState {
     /// Ctrl+Alt+drag scrolls the panel under the pointer (Painter's tablet scroll).
     pub panel_scroll: crate::panel_scroll::PanelScroll,
     pub painting: bool,
+    /// Time (seconds) layer computation started running with no stroke in progress; the 3D
+    /// view's progress bar waits for it to last a moment (see `viewport::computing_bar_visible`).
+    pub computing_since: Option<f64>,
     /// Pen pressure of the current contact (1.0 for a mouse).
     pub pen_pressure: f32,
     /// Pen / touch contact to primary-button mapping applied to raw input.
@@ -541,6 +544,7 @@ impl UiState {
             panel_scroll: Default::default(),
             uv: UvView { zoom: 1.0, offset: egui::Vec2::ZERO, rotation: 0.0, rotation_raw: 0.0, source: PreviewSource::Channel(ChannelKind::BaseColor), texture: None, painting: false, last_point: None, fill_box: None, parts_box: None, frame: None, material: false, material_image: None },
             painting: false,
+            computing_since: None,
             paint_isolated: false,
             picking_parts: false,
             warp: Default::default(),
