@@ -1020,6 +1020,52 @@ fn the_id_map_reads_the_chosen_vertex_color_set() {
     assert!(close(l, [1.0, 1.0, 1.0]) && close(r, [0.0, 0.0, 1.0]), "mirrored: {l:?} {r:?}");
 }
 
+/// One side of the plane (`x0..x1`) as its own high-poly file, every corner coloured per set.
+fn side_high(name: &str, x0: f32, x1: f32, sets: &[[f32; 4]]) -> Mesh {
+    let mut b = MeshBuilder::new(name);
+    let p = |x: f32, z: f32| Corner { position: Vec3::new(x, 0.005, z), normal: Some(Vec3::Y), uv: None };
+    b.object(name);
+    let m = b.material(name);
+    let colors: Vec<[[f32; 4]; 3]> = sets.iter().map(|c| [*c; 3]).collect();
+    for tri in [[p(x0, -1.0), p(x1, 1.0), p(x1, -1.0)], [p(x0, -1.0), p(x0, 1.0), p(x1, 1.0)]] {
+        b.push_triangle_color_sets(m, tri, &colors);
+    }
+    b.build_for_baking().unwrap()
+}
+
+#[test]
+fn each_high_poly_file_reads_its_own_vertex_color_set() {
+    // Issue #366: the main file (left) and an extra file (right), two colour sets each.
+    let (red, green, blue, white) = ([1.0, 0.0, 0.0, 1.0], [0.0, 1.0, 0.0, 1.0], [0.0, 0.0, 1.0, 1.0], [1.0, 1.0, 1.0, 1.0]);
+    let left = side_high("left", -1.0, -0.01, &[red, green]);
+    let right = side_high("right", 0.01, 1.0, &[blue, white]);
+    let high = Mesh::merged(&[&left, &right]);
+    assert_eq!(high.file_count(), 2);
+    let with = |main: u32, extra: Vec<Option<u32>>| BakeSettings { id_source: IdSource::VertexColor, vertex_color_set: main, extra_vertex_color_sets: extra, ..settings(&[MeshMapKind::Id]) };
+    // No per-file choice: every file reads the main set, as before.
+    let (l, r, w) = id_bake_with(&high, &with(0, Vec::new()));
+    assert!(close(l, [1.0, 0.0, 0.0]) && close(r, [0.0, 0.0, 1.0]) && w.is_empty(), "{l:?} {r:?} {w:?}");
+    let (l, r, _) = id_bake_with(&high, &with(1, vec![None]));
+    assert!(close(l, [0.0, 1.0, 0.0]) && close(r, [1.0, 1.0, 1.0]), "{l:?} {r:?}");
+    // The extra file picks its own set.
+    let (l, r, w) = id_bake_with(&high, &with(0, vec![Some(1)]));
+    assert!(close(l, [1.0, 0.0, 0.0]) && close(r, [1.0, 1.0, 1.0]) && w.is_empty(), "{l:?} {r:?} {w:?}");
+    let (l, r, _) = id_bake_with(&high, &with(1, vec![Some(0)]));
+    assert!(close(l, [0.0, 1.0, 0.0]) && close(r, [0.0, 0.0, 1.0]), "{l:?} {r:?}");
+    // An extra file asking for a set nobody has: its parts get generated colours and a warning;
+    // the main file keeps its colours.
+    let (l, r, w) = id_bake_with(&high, &with(0, vec![Some(5)]));
+    let (_, mr, _) = id_bake(&high, IdSource::MeshId);
+    assert!(close(l, [1.0, 0.0, 0.0]) && close(r, mr), "{l:?} {r:?}");
+    assert!(w.iter().any(|w| w.contains("file 2 has no vertex colour set 6")), "{w:?}");
+    // Every file asking for missing sets: the whole map falls back, naming the asked sets.
+    let (_, _, w) = id_bake_with(&high, &with(4, vec![Some(6)]));
+    assert!(w.iter().any(|w| w.contains("not set 5, 7")), "{w:?}");
+    // The settings helper: missing entries follow the main set.
+    let s = with(2, vec![None, Some(0)]);
+    assert_eq!((s.vertex_color_set_of(0), s.vertex_color_set_of(1), s.vertex_color_set_of(2), s.vertex_color_set_of(3)), (2, 2, 0, 2));
+}
+
 /// Issue #466: low-poly texels whose rays miss the high poly (next to its open edges, or in a gap
 /// between its parts) were written black on the ID map, and dilation spread them into lines.
 #[test]

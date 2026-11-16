@@ -1066,6 +1066,12 @@ impl BakeUi {
         self.skip_sets = files.skip_sets.into_iter().collect();
     }
 
+    /// Drop additional high-poly file `i` with its vertex colour set choice.
+    pub fn remove_extra_high(&mut self, i: usize) {
+        if i < self.extra_high.len() { self.extra_high.remove(i); }
+        if i < self.settings.extra_vertex_color_sets.len() { self.settings.extra_vertex_color_sets.remove(i); }
+    }
+
     pub fn preview_pending(&self) -> bool { self.preview_job.is_some() }
     /// The heatmap is drawn: toggled on, the overlay is showing, and a check has finished.
     pub fn heatmap_shown(&self) -> bool { self.miss_heatmap && self.overlay_active() && self.cage_result.is_some() }
@@ -1399,6 +1405,8 @@ fn start_bake(state: &mut UiState, only: Option<&[subcraft_core::MeshMapKind]>, 
     settings.placement = state.session.settings().bake_placement.clone();
     state.bake.job_maps = settings.maps.clone();
     state.bake.map_rows = settings.maps.iter().map(|&kind| subcraft_app::MapProgress { kind, state: subcraft_app::MapState::Waiting, seconds: 0. }).collect();
+    let (extra_high_polys, extra_sets) = extra_high_files(&state.bake.extra_high, &settings.extra_vertex_color_sets);
+    settings.extra_vertex_color_sets = extra_sets;
     let request = subcraft_app::BakeRequest {
         settings,
         high_poly: (!state.bake.high_poly.trim().is_empty()).then(|| PathBuf::from(state.bake.high_poly.trim())),
@@ -1408,11 +1416,18 @@ fn start_bake(state: &mut UiState, only: Option<&[subcraft_core::MeshMapKind]>, 
         && state.bake.preview_scene.as_ref().is_some_and(|m| std::sync::Arc::ptr_eq(m, &state.session.scene().mesh)))
         .then(|| state.bake.preview_source.clone()).flatten();
     let files = subcraft_app::BakeFiles {
-        extra_high_polys: state.bake.extra_high.iter().map(|p| p.trim()).filter(|p| !p.is_empty()).map(PathBuf::from).collect(),
+        extra_high_polys,
         cage: (!state.bake.cage_file.trim().is_empty()).then(|| PathBuf::from(state.bake.cage_file.trim())),
     };
     state.bake.job = Some(state.session.start_bake_files(request, prepared, files));
     state.set_status("Baking…", now);
+}
+
+/// The additional high-poly files to bake (blank entries dropped) with each one's vertex colour
+/// set choice, kept in step (issue #366).
+fn extra_high_files(paths: &[String], sets: &[Option<u32>]) -> (Vec<PathBuf>, Vec<Option<u32>>) {
+    paths.iter().enumerate().map(|(i, p)| (p.trim(), sets.get(i).copied().flatten()))
+        .filter(|(p, _)| !p.is_empty()).map(|(p, set)| (PathBuf::from(p), set)).unzip()
 }
 
 /// The texture sets, each with its bake tick. Clicking a name selects the set.
@@ -1561,6 +1576,7 @@ fn reset_parameters(b: &mut BakeUi, baker: Option<subcraft_core::MeshMapKind>) {
             s.id_source = d.id_source;
             s.id_generator = d.id_generator;
             s.vertex_color_set = d.vertex_color_set;
+            s.extra_vertex_color_sets = d.extra_vertex_color_sets;
         }
         Some(MeshMapKind::Normal | MeshMapKind::WorldSpaceNormal) => {}
     }
@@ -1659,6 +1675,36 @@ fn map_settings_panel(ui: &mut egui::Ui, b: &mut BakeUi) {
                     Some(n) => { ui.label(RichText::new(crate::i18n::trf("The high poly has {} vertex color set(s).", &[&n])).small().color(theme::TEXT_FAINT())); }
                     None => {}
                 }
+                // Issue #366: each additional high-poly file can read its own set.
+                if !b.high_poly.trim().is_empty() && !b.extra_high.is_empty() {
+                    ui.add_space(4.0);
+                    ui.label(dim(tr("Additional high-poly files")));
+                    let s = &mut b.settings;
+                    let same = tr("Same as main high poly");
+                    for (i, path) in b.extra_high.iter().enumerate() {
+                        let name = std::path::Path::new(path.trim()).file_name().map_or_else(|| path.clone(), |n| n.to_string_lossy().into_owned());
+                        // Untouched files keep no entry, so settings (and saved projects) stay as before.
+                        let before = s.extra_vertex_color_sets.get(i).copied().flatten();
+                        let mut picked = before;
+                        let choice = &mut picked;
+                        ui.horizontal(|ui| {
+                            ui.add(egui::Label::new(dim(&name)).truncate()).on_hover_text(path.as_str());
+                            let shown = choice.map_or_else(|| same.to_string(), |set| format!("{}", set + 1));
+                            egui::ComboBox::from_id_salt(("bake_extra_vertex_color_set", i)).selected_text(shown).show_ui(ui, |ui| {
+                                ui.selectable_value(choice, None, same);
+                                for set in 0..8u32 {
+                                    ui.selectable_value(choice, Some(set), format!("{} (COLOR_{set})", set + 1));
+                                }
+                            });
+                        })
+                        .response
+                        .on_hover_text(tr("Which vertex color set the ID map reads on this additional high-poly file"));
+                        if picked != before {
+                            if s.extra_vertex_color_sets.len() <= i { s.extra_vertex_color_sets.resize(i + 1, None); }
+                            s.extra_vertex_color_sets[i] = picked;
+                        }
+                    }
+                }
             }
             let s = &mut b.settings;
             if matches!(s.id_source, IdSource::MeshId | IdSource::Submesh | IdSource::FileId) {
@@ -1753,7 +1799,7 @@ fn common_settings(ui: &mut egui::Ui, b: &mut BakeUi, f: &BakeFrame, bake_match:
                     ui.add(egui::Label::new(dim(path)).wrap());
                 });
             }
-            if let Some(i) = remove { b.extra_high.remove(i); }
+            if let Some(i) = remove { b.remove_extra_high(i); }
             ui.add_space(4.0);
             if secondary_button(ui, format!("{}  {}", icons::FOLDER_OPEN, tr("Add high-poly file…"))).on_hover_text(tr("Bake against several high-poly files at once")).clicked() {
                 crate::files::pick(ui.ctx(), crate::files::Purpose::BakeHighPolyExtra, crate::files::MESHES, true, None);
@@ -2405,7 +2451,42 @@ mod bake_tests {
         assert!(has_text(&output, "Color generator"), "generated ID colours offer a generator");
         state.bake.settings.id_source = subcraft_bake::IdSource::VertexColor;
         assert!(!has_text(&shown(&mut state, MeshMapKind::Id), "Color generator"));
+        // One high poly: only the main set, exactly as before (issue #366).
+        state.bake.high_poly = "parts_high.glb".into();
+        let output = shown(&mut state, MeshMapKind::Id);
+        assert!(has_text(&output, "Vertex color set") && !has_text(&output, "Additional high-poly files"));
+        assert!(state.bake.settings.extra_vertex_color_sets.is_empty());
+        // Additional high polys: one set picker per file, starting at "same as main".
+        state.bake.extra_high = vec!["C:/models/bolts_high.glb".into(), "straps_high.glb".into()];
+        let output = shown(&mut state, MeshMapKind::Id);
+        for text in ["Additional high-poly files", "bolts_high.glb", "straps_high.glb", "Same as main high poly"] { assert!(has_text(&output, text), "{text}"); }
+        assert!(state.bake.settings.extra_vertex_color_sets.is_empty(), "drawing the pickers changes nothing");
+        state.bake.high_poly.clear();
+        state.bake.extra_high.clear();
+        state.bake.settings.extra_vertex_color_sets.clear();
         assert!(has_text(&shown(&mut state, MeshMapKind::Normal), "no settings of its own"));
+    }
+
+    #[test]
+    fn extra_high_poly_files_keep_their_vertex_color_sets_in_step() {
+        // Blank entries are dropped together with their choice; missing choices are "same as main".
+        let paths = vec!["a.glb".to_string(), "  ".into(), "c.glb".into(), "d.glb".into()];
+        let (files, sets) = extra_high_files(&paths, &[Some(1), Some(2), Some(3)]);
+        assert_eq!(files, [PathBuf::from("a.glb"), PathBuf::from("c.glb"), PathBuf::from("d.glb")]);
+        assert_eq!(sets, [Some(1), Some(3), None]);
+        // Removing a file removes its choice.
+        let mut b = BakeUi::default();
+        b.extra_high = vec!["a.glb".into(), "b.glb".into(), "c.glb".into()];
+        b.settings.extra_vertex_color_sets = vec![Some(0), Some(1), Some(2)];
+        b.remove_extra_high(1);
+        assert_eq!(b.extra_high, ["a.glb", "c.glb"]);
+        assert_eq!(b.settings.extra_vertex_color_sets, [Some(0), Some(2)]);
+        // The choices are saved with the project and come back.
+        let config = b.config();
+        assert_eq!(config.extra_vertex_color_sets, [Some(0), Some(2)]);
+        let mut back = BakeUi::default();
+        back.apply_config(&config);
+        assert_eq!((back.extra_high.clone(), back.settings.extra_vertex_color_sets.clone()), (b.extra_high.clone(), vec![Some(0), Some(2)]));
     }
 
     #[test]

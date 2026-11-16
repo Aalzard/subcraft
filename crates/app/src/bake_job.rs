@@ -53,6 +53,19 @@ impl BakeLogLine {
     }
 }
 
+/// High-poly files that lack the vertex colour set the ID map reads on them while another file
+/// has it (issue #366): joined, their parts read that set as white. A set no file has is
+/// reported by the baker itself.
+pub(crate) fn missing_color_set_warnings(settings: &BakeSettings, parts: &[&Mesh]) -> Vec<String> {
+    parts.iter().enumerate().filter_map(|(file, part)| {
+        let set = settings.vertex_color_set_of(file as u32);
+        let others_have = parts.iter().any(|p| p.color_set(set as usize).is_some());
+        (part.color_set(set as usize).is_none() && others_have).then(|| {
+            format!("ID map: high-poly file {} ({}) has {} vertex colour set(s), not set {}, so its parts read white", file + 1, part.name, part.color_set_count(), set + 1)
+        })
+    }).collect()
+}
+
 /// The whole log as plain text (for Copy).
 pub fn log_text(lines: &[BakeLogLine]) -> String {
     lines.iter().map(BakeLogLine::plain).collect::<Vec<_>>().join("\n")
@@ -195,6 +208,9 @@ impl BakeJob {
                         }
                     }
                     let refs: Vec<&Mesh> = parts.iter().map(|m| m.as_ref()).collect();
+                    if request.settings.id_source == subcraft_bake::IdSource::VertexColor && request.settings.maps.contains(&MeshMapKind::Id) {
+                        for text in missing_color_set_warnings(&request.settings, &refs) { say(BakeLogLevel::Warning, text); }
+                    }
                     Some(Arc::new(Mesh::merged(&refs)))
                 }
                 other => other,
@@ -504,5 +520,28 @@ impl BakePreviewJob {
             Err(TryRecvError::Empty) => None,
             Err(TryRecvError::Disconnected) => Some(Err("high-poly preview worker stopped unexpectedly".into())),
         }
+    }
+    #[test]
+    fn a_high_poly_file_without_its_chosen_color_set_is_reported() {
+        let plane = |sets: usize| {
+            let mut m = subcraft_mesh::primitives::plane(1., 1);
+            let corners = 3 * m.triangle_count();
+            if sets > 0 { m.corner_colors = vec![[1.0; 4]; corners]; }
+            m.extra_color_sets = vec![vec![[0.5; 4]; corners]; sets.saturating_sub(1)];
+            m.name = format!("part{sets}");
+            m
+        };
+        let (two, one) = (plane(2), plane(1));
+        let parts = [&two, &one];
+        // Every file reads set 1 by default: the second has only one set.
+        let w = missing_color_set_warnings(&BakeSettings { vertex_color_set: 1, ..Default::default() }, &parts);
+        assert_eq!(w.len(), 1, "{w:?}");
+        assert!(w[0].contains("file 2 (part1) has 1 vertex colour set(s), not set 2"), "{w:?}");
+        // The second file picks its own first set: nothing to report.
+        let s = BakeSettings { vertex_color_set: 1, extra_vertex_color_sets: vec![Some(0)], ..Default::default() };
+        assert!(missing_color_set_warnings(&s, &parts).is_empty());
+        // A set no file has is left to the baker's own warning.
+        let s = BakeSettings { vertex_color_set: 0, extra_vertex_color_sets: vec![Some(5)], ..Default::default() };
+        assert!(missing_color_set_warnings(&s, &parts).is_empty());
     }
 }
