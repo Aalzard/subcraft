@@ -5,6 +5,9 @@ What changed in SubCraft, newest first. Download the latest build from the
 
 ## Unreleased
 
+### Added
+- **Paint across UDIM tiles** (Texture Set Settings, UDIM projects): the tiles of a texture set work as one, like Painter's UDIM workflow. 3D strokes cross tile borders, and materials, smart materials dropped on the model and new layers go to every tile in one undo step; renaming or deleting a layer does it on every tile. Off by default, so existing projects behave as before (#581).
+
 ## 0.4.2 - 2026-11-15
 
 ### Highlights

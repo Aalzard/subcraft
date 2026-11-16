@@ -2912,6 +2912,9 @@ impl Session {
         {
             let mut active = last.active;
             active.stroke.lift_pen();
+            for (_, partner) in &mut active.partners {
+                partner.lift_pen();
+            }
             active.camera = None;
             self.stroke = Some(active);
             return Ok(());
