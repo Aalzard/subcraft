@@ -8,7 +8,7 @@ SubCraft 0.4.3.
 - **2D view UV frame manipulator**: move, rotate and scale a fill layer's UV transform in the 2D view, with Mirror X / Y.
 - **Blender navigation for pens**: Alt+LMB acts as the middle button, so a pen can orbit, pan and zoom. Thanks to @hced (#583).
 - **ID map baking**: a vertex colour set for each additional high-poly file. Thanks to @HFutabaH (#366).
-- **Fixed**: GLB files with custom vertex attributes now import (thanks to @HFutabaH, #582); on Wayland the lower pen barrel button pans as on X11 (thanks to @hced, #82); no progress bar during brush strokes.
+- **Fixed**: GLB files with custom vertex attributes now import (thanks to @HFutabaH, #582); on Wayland the lower pen barrel button pans as on X11 (thanks to @ivxvm, #82); no progress bar during brush strokes.
 - Also: ribbon path tiling and alignment options, Warp projection reset and split tools, automatic ID mask on Ctrl+drop, Grayscale custom weights, GIF and WBMP export, and a Shelf auto-update menu.
 
 Full details: [CHANGELOG.md](https://github.com/Aalzard/subcraft/blob/main/CHANGELOG.md).
