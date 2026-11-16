@@ -5,8 +5,31 @@ What changed in SubCraft, newest first. Download the latest build from the
 
 ## Unreleased
 
-### Added
-- **Paint across UDIM tiles** (Texture Set Settings, UDIM projects): the tiles of a texture set work as one, like Painter's UDIM workflow. 3D strokes cross tile borders, and materials, smart materials dropped on the model and new layers go to every tile in one undo step; renaming or deleting a layer does it on every tile. Off by default, so existing projects behave as before (#581).
+## 0.4.3 - 2026-11-16
+
+### Highlights
+- **Stitch brushes**: Stitch Straight, Cross, Zigzag and Needle Holes tips that join into a line of stitches along a brush stroke or a pen path, with a raised cord profile in Height, and Brush > Alternate offset for every second stamp (#561, issue #553).
+- **Eyedropper on every colour swatch**: every colour field uses SubCraft's colour picker, and its eyedropper samples anywhere in the SubCraft window, such as a reference image shown in it; this fixes the eyedropper on a fill layer's Base Color doing nothing (#577, issue #575).
+- **Paint across UDIM tiles** (Texture Set Settings, UDIM projects): the tiles of a texture set work as one, like Painter's UDIM workflow. 3D strokes cross tile borders, and materials, smart materials dropped on the model and new layers go to every tile in one undo step; renaming or deleting a layer does it on every tile. Off by default, so existing projects behave as before (#588, issue #581).
+- **Pen tool**: snap points to the model's vertices, edges and edge centres; a Snap angle setting (#578); select several points with a rectangle or Ctrl+A and move or delete them together (#563); Reverse path direction (#569); path display settings for paths, handles, tangents, normals and direction arrows, with other visible paths drawn thinner (#571); Delete, Ctrl+C and Ctrl+V on the hovered row of the Paths panel (#564).
+- **Projection manipulator**: Q / W / E / R / + / - keys and Ctrl precision drag (#556), plane handles to move in two axes (#557), free rotation between the rings (#565), Local / World space with T (#567) and a Surface tool (Shift+W) that snaps a planar projection onto the model (#568).
+- **Fill projection Mirror**: Mirror on X / Y / Z for a fill layer's 3D projection (#566), and a Symmetry button for fill layers in the contextual toolbar (#580).
+- **2D view UV frame manipulator**: move, rotate and scale a fill layer's UV transform directly in the 2D view, with Mirror X / Y (#572).
+- **Blender navigation for pens**: with 3D Navigation set to Blender, Alt+LMB stands in for the middle button, so Alt+drag orbits, Alt+Shift+drag pans and Alt+Ctrl+drag zooms (#584, issue #583).
+- **ID map baking with several high-poly files**: a vertex colour set choice for each additional high-poly file, used by the ID map with the Vertex color source (#587, issue #366).
+
+### Also added
+- Ribbon path: Tiling mode None / Auto / Custom (#559), Stretch between offsets only with Start and End offset (#560), and Keep aspect ratio Ratio, Alignment and Remove clipped tiles (#562).
+- Warp projection: a Reset menu (global, all vertices, selected) (#573) and an interactive split tool, with Esc to cancel (#574).
+- Ctrl+drop of a material on a model with a baked ID map adds an automatic ID colour mask for the colour under the cursor (#555).
+- Grayscale filter: custom Red / Green / Blue weights (#576).
+- Export: GIF and WBMP file types (#558).
+- Shelf: an auto-update menu in the bottom bar, with automatic updates, the update interval and a manual update (#579).
+
+### Fixed
+- GLB files with custom vertex attributes (for example Blender's `_EXPORT_`) failed to import (#585, issue #582).
+- Linux: on Wayland the lower pen barrel button acts as the middle button, as on X11, so it pans instead of orbiting (#586, issue #82).
+- The progress bar at the top of the 3D view no longer runs during every brush stroke (#586).
 
 ## 0.4.2 - 2026-11-15
 
