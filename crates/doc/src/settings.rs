@@ -131,6 +131,9 @@ pub struct BakeConfig {
     /// Vertex colour set the ID map reads with the vertex colour source (0 = the first).
     #[serde(skip_serializing_if = "is_zero")]
     pub vertex_color_set: u32,
+    /// Vertex colour set of each file in `extra_high`, in order (`None`: `vertex_color_set`).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub extra_vertex_color_sets: Vec<Option<u32>>,
     pub dilation: u32,
     pub diffusion: bool,
     /// Supersampling per side: 1, 2, 4 or 8.
@@ -159,7 +162,7 @@ impl Default for BakeConfig {
             thickness_samples: 16, thickness_distance: 0.5, thickness_min_distance: 0.0, thickness_spread_angle: 180.0,
             thickness_distribution: "cosine".into(), curvature_radius: 0.02, curvature_from_normal: false,
             normal_curvature_width: 2.0, normal_curvature_intensity: 1.0, cage_front: 0.01, cage_rear: 0.01,
-            id_source: "mesh_id".into(), id_generator: "hue_shift".into(), vertex_color_set: 0, dilation: 16, diffusion: true, antialiasing: 1,
+            id_source: "mesh_id".into(), id_generator: "hue_shift".into(), vertex_color_set: 0, extra_vertex_color_sets: Vec::new(), dilation: 16, diffusion: true, antialiasing: 1,
             average_normals: false, ignore_backface: false, position_axis: None, position_normalization: "bounding_box".into(), position_scale: 1.0,
             height_range: None,
         }
@@ -251,6 +254,14 @@ mod bake_config_tests {
         let bake = partial.bake.unwrap();
         assert_eq!((bake.high_poly.as_str(), bake.ao_samples, bake.dilation), ("a_high.fbx", 64, 16));
         assert_eq!(bake.maps, subcraft_core::MeshMapKind::ALL.to_vec());
+        // Issue #366: files saved before per-file vertex colour sets read as "same as the main
+        // file", and the key is only written when a file has its own set.
+        assert!(bake.extra_vertex_color_sets.is_empty());
+        let json = serde_json::to_string(&BakeConfig::default()).unwrap();
+        assert!(!json.contains("extra_vertex_color_sets"), "{json}");
+        let per_file = BakeConfig { extra_high: vec!["b.glb".into(), "c.glb".into()], extra_vertex_color_sets: vec![None, Some(1)], ..Default::default() };
+        let back: BakeConfig = serde_json::from_str(&serde_json::to_string(&per_file).unwrap()).unwrap();
+        assert_eq!(back.extra_vertex_color_sets, [None, Some(1)]);
     }
 }
 

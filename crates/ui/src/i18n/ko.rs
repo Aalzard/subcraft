@@ -1045,4 +1045,7 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Download SubCraft Materials: a pack of tileable PBR materials (1K or 2K)", "SubCraft 재질 다운로드: 이음매 없이 반복되는 PBR 재질 팩 (1K 또는 2K)"),
     ("Normalization scale", "정규화 배율"),
     ("Map value per world unit; the world origin is at 0.5", "월드 단위당 맵 값입니다. 월드 원점은 0.5입니다"),
+    ("Additional high-poly files", "추가 하이 폴리 파일"),
+    ("Same as main high poly", "메인 하이 폴리와 동일"),
+    ("Which vertex color set the ID map reads on this additional high-poly file", "ID 맵이 이 추가 하이 폴리 파일에서 읽을 버텍스 컬러 세트"),
 ];

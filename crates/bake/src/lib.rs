@@ -345,7 +345,22 @@ pub struct BakeSettings {
     pub height: HeightNormalization,
     pub id_generator: IdGenerator,
     /// The vertex colour set the ID map reads with [`IdSource::VertexColor`] (0 = the first).
+    /// With several high-poly files this is the set of the main (first) file.
     pub vertex_color_set: u32,
+    /// The vertex colour set of each additional high-poly file, in file order (entry 0 = the
+    /// second file). `None` or a missing entry: the main file's [`Self::vertex_color_set`].
+    pub extra_vertex_color_sets: Vec<Option<u32>>,
+}
+
+impl BakeSettings {
+    /// The vertex colour set the ID map reads on triangles from high-poly file `file`
+    /// (0 = the main file; see [`subcraft_mesh::Mesh::file_of`]).
+    pub fn vertex_color_set_of(&self, file: u32) -> u32 {
+        match file.checked_sub(1) {
+            None => self.vertex_color_set,
+            Some(i) => self.extra_vertex_color_sets.get(i as usize).copied().flatten().unwrap_or(self.vertex_color_set),
+        }
+    }
 }
 
 impl Default for BakeSettings {
@@ -378,6 +393,7 @@ impl Default for BakeSettings {
             height: HeightNormalization::default(),
             id_generator: IdGenerator::default(),
             vertex_color_set: 0,
+            extra_vertex_color_sets: Vec::new(),
         }
     }
 }
@@ -789,12 +805,26 @@ fn bake_core(
     // The ID source the mesh can actually serve: a file without the asked colours falls back to
     // generated ones, and says so.
     let id_source = match settings.id_source {
-        IdSource::VertexColor if wanted(MeshMapKind::Id) && detail_geo.mesh.color_set(settings.vertex_color_set as usize).is_none() => {
+        // Every file reads its own set (issue #366); one file reads `vertex_color_set` as before.
+        IdSource::VertexColor if wanted(MeshMapKind::Id) && (0..detail_geo.mesh.file_count()).all(|f| detail_geo.mesh.color_set(settings.vertex_color_set_of(f) as usize).is_none()) => {
+            let mut asked: Vec<u32> = (0..detail_geo.mesh.file_count()).map(|f| settings.vertex_color_set_of(f) + 1).collect();
+            asked.sort_unstable();
+            asked.dedup();
+            let asked = asked.iter().map(u32::to_string).collect::<Vec<_>>().join(", ");
             match detail_geo.mesh.color_set_count() {
                 0 => progress.warn("ID map: the model has no vertex colours, so one colour per mesh element was used instead".into()),
-                n => progress.warn(format!("ID map: the model has {n} vertex colour set(s), not set {}, so one colour per mesh element was used instead", settings.vertex_color_set + 1)),
+                n => progress.warn(format!("ID map: the model has {n} vertex colour set(s), not set {asked}, so one colour per mesh element was used instead")),
             }
             IdSource::MeshId
+        }
+        IdSource::VertexColor if wanted(MeshMapKind::Id) && detail_geo.mesh.file_count() > 1 => {
+            for f in 0..detail_geo.mesh.file_count() {
+                let set = settings.vertex_color_set_of(f);
+                if detail_geo.mesh.color_set(set as usize).is_none() {
+                    progress.warn(format!("ID map: high-poly file {} has no vertex colour set {}, so its parts got one colour per mesh element instead", f + 1, set + 1));
+                }
+            }
+            IdSource::VertexColor
         }
         IdSource::MaterialColor if wanted(MeshMapKind::Id) && detail_geo.mesh.material_colors.iter().all(Option::is_none) => {
             progress.warn("ID map: the model's materials have no colours, so one colour per object / material was used instead".into());
@@ -887,7 +917,7 @@ fn bake_core(
                         IdSource::VertexColor => {
                             let [a, b, c] = mesh.tri_positions(tri);
                             let l = normal_curvature::barycentric(d.position, a, b, c);
-                            match mesh.corner_color_in(settings.vertex_color_set as usize, tri, l[1], l[2]) {
+                            match mesh.corner_color_in(settings.vertex_color_set_of(mesh.file_of(tri)) as usize, tri, l[1], l[2]) {
                                 Some(c) => [c[0].clamp(0.0, 1.0), c[1].clamp(0.0, 1.0), c[2].clamp(0.0, 1.0)],
                                 None => generated(elements.as_ref().map_or(0, |e| e[tri])),
                             }
