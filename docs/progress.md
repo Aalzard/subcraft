@@ -5726,3 +5726,59 @@ symmetry. `crates/app/tests/uv_tools.rs` covers session routing: the 2D clone so
   `id_sources_the_model_lacks_fall_back_to_generated_colours_with_a_warning`; mesh
   `obj_vertex_colors_and_material_colors_are_read`. Nothing was built or run locally (coordinator's rule after
   the PC's power cuts), and no capture was taken.
+
+### Session 134 - Export to Blender round trip: sculpt in Blender, bake back in SubCraft (2026-11-14, branch `claude/blender-bridge`)
+
+* **Asked:** one click to see the textured model in Blender, and one click to bring a Blender sculpt (Multires on
+  a game low poly, e.g. an AI-generated one) back as the bake high poly, with the low poly and UVs untouched.
+  Optional and offline. User guide: `docs/blender-bridge.md`.
+* **Export (`export::blender`):** low poly as a *welded* OBJ (SubCraft vertices split for UVs / normals share one
+  position, so Blender gets a closed, sculptable surface; UVs and normals kept per corner), textures through the
+  normal texture export with any preset (new built-in default "Blender bridge (Principled BSDF + AO + Opacity)",
+  appended last to `ExportTemplate::builtin()`), `bridge.json` (per material: file, role, packed component,
+  invert, sRGB, DirectX) and `subcraft_bridge.py`. Roles are derived from each map's sources, so Unreal ORM,
+  Unity mask maps, smoothness, alpha in Base Color and DirectX normals are wired correctly too.
+* **Blender script:** imports the OBJ with SubCraft's axes, empties the startup scene (data API only; a saved
+  .blend is left alone), builds a Principled BSDF (Base Color / Emission sRGB, the rest Non-Color, Normal Map node,
+  green flip for DirectX, Separate Color for packed maps, 1 - x for smoothness, Alpha + dithered blending, AO
+  loaded but not connected), mesh-only mode clears custom normals and shades smooth, switches to Material
+  Preview, frames the model, and skips the splash for this launch (preference restored, preferences file
+  unchanged: same checksum before and after). Sidebar tab **SubCraft > Send to SubCraft** exports the selection
+  with modifiers, Multires at its highest level whatever the viewport shows, to `from_blender/sculpt_high.obj`
+  through a temporary file + rename, then restores the levels and the mode.
+* **App (`app::blender`):** Blender search: the setting, `SUBCRAFT_BLENDER`, `PATH`, Start-menu shortcuts (found
+  the owner's Blender 5.1 in `E:\Applications\Blender`, which no install folder rule covers; the launcher is
+  swapped for `blender.exe`), Program Files / Steam / %LOCALAPPDATA% (Windows), snap / flatpak / ~ / /opt (Linux),
+  /Applications (macOS); newest version first (numeric). Launch with `CREATE_NO_WINDOW`, output in
+  `blender_log.txt`. `Link` watches the return file (settled over two checks, an older sculpt is ignored).
+* **UI:** File > Export to Blender… (also File > Send to): preset, Include textures, Blender path (also in
+  Settings > General), exchange folder (`<project>_blender/` next to a saved project, else temp), link status.
+  A sculpt coming back sets the Bake window's high poly and opens it. Translated (ko, zh-Hant). Capture tools
+  `blender`, `blender-send`, `blender-send-mesh`, `blender-roundtrip` (holds the screenshot until the sculpt is back).
+* **Tests:** export `welded_obj_shares_positions_and_keeps_uvs_and_normals`,
+  `bridge_writes_mesh_textures_and_a_manifest_with_roles_and_colour_spaces`, `mesh_only_bridge_writes_no_textures`,
+  `packed_and_directx_templates_map_to_components`, `script_declares_the_send_back_operator`; app
+  `newest_blender_install_comes_first_and_the_env_override_before_it`,
+  `a_start_menu_shortcut_leads_to_blender_beside_its_launcher`, `link_reports_a_new_sculpt_once_it_has_settled`,
+  `exchange_folder_sits_next_to_a_saved_project`, `write_produces_the_exchange_folder_from_a_session`: all pass.
+* **Verified in the running app with a real Blender:** `subcraft --demo --capture-tool blender-roundtrip` with the
+  owner's Blender 5.1.1 (a test-only wrapper added a timer standing in for the person: screenshot, Multires x2 +
+  noise displacement, Send to SubCraft). Blender opened on the textured model (9,458 welded vertices, 18,720
+  triangles, Material Preview), the material read back as Base Color (sRGB), Metallic / Roughness / Normal
+  (Non-Color) through a Normal Map node; the sculpt came back (32.7 MB, 897k lines at Multires level 2 although the
+  viewport showed level 1) and SubCraft opened the Bake window with it as the high poly. Blender 4.5.16 LTS
+  (portable, in `D:\SubCraft-build`; partly undeletable, see below) passed the headless script test (import, Multires export, mode and levels restored).
+* **Bake from the returned sculpt:** `subcraft --demo --bake-high sculpt_high.obj --bake-size 1024
+  --bake-preview-map normal_base`: the lumpy stand-in sculpt (Multires x2 + displacement suited to the model's
+  ~200-unit size) baked into the low poly's normal map in 15 s; bounding boxes of low poly and sculpt match
+  (±99.24 vs ±99.10, the rest is Catmull-Clark shrink), placement offsets 0, cage misses 0.3 %. Screenshots:
+  `docs/screenshots/blender-bridge-*.png` (dialog, textured model and node tree in Blender 5.1, the sculpt, the
+  Bake window with the sculpt as high poly, the baked normal).
+* **Not run locally:** the ui crate's i18n test and the full workspace tests: build artifacts on D: kept coming
+  out corrupt (E0786 invalid metadata, LNK1285 corrupt PDB, a compiler panic decoding metadata) and Windows
+  reports `D:\SubCraft-build\blender-portable` as "corrupted and unreadable"; CI on the PR runs them.
+* **Found by running it:** the owner's startup file has its own Cube, so the first run sculpted that instead (now
+  the startup scene is emptied); reloading the home file from the startup script broke the context of later
+  operators (now data API only); the splash covered the model (now skipped once).
+* **Not done:** no file watching outside a running link (after a restart, pick `from_blender/sculpt_high.obj` in
+  the Bake window by hand); UDIM tiles load as a tiled image but were not run; no Linux / macOS run.

@@ -6,6 +6,7 @@
 //! all absent are skipped. Color channels are sRGB-encoded for integer formats and stay linear in
 //! EXR. Data channels are never color-transformed.
 
+pub mod blender;
 pub mod builtin_presets;
 pub mod layer_export;
 pub mod mesh_export;
@@ -641,7 +642,7 @@ impl<'a> Dense<'a> {
 
 /// Normal convention of `map`: the export window's override, else the map's, else the
 /// template's, else the source's own.
-fn normal_directx(map: &OutputMap, settings: &ExportSettings, source: bool) -> bool {
+pub(crate) fn normal_directx(map: &OutputMap, settings: &ExportSettings, source: bool) -> bool {
     settings.normal_directx.or(map.normal_directx).or(settings.template.normal_directx).unwrap_or(source)
 }
 

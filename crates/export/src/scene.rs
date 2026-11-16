@@ -128,7 +128,7 @@ fn usd_material_names(mesh: &Mesh, slots: usize) -> Vec<String> {
 /// One distinct OBJ / MTL material name per slot. Two slots with the same name (or names that
 /// only differ in characters a file name cannot hold) used to share one `newmtl`, so the importing
 /// program merged them and the second slot's textures were lost.
-fn obj_material_names(mesh: &Mesh, slots: usize) -> Vec<String> {
+pub(crate) fn obj_material_names(mesh: &Mesh, slots: usize) -> Vec<String> {
     let mut taken = std::collections::HashSet::new();
     (0..slots)
         .map(|slot| {
