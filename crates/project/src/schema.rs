@@ -85,6 +85,10 @@ pub struct TextureSetV1 {
     /// Schema 13: UDIM tile `[column, row]` this set paints (absent = ordinary set).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub udim_tile: Option<[i32; 2]>,
+    /// Paint across the UDIM tiles of this set's group (issue #581). Additive and optional:
+    /// absent means off (each tile paints on its own), older readers ignore it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub paint_across_udims: bool,
     /// Schema 18: the layer stack starts transparent instead of at the channel defaults.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub transparent: bool,
@@ -334,6 +338,8 @@ mod mixing_tests {
         let ts: super::TextureSetV1 = serde_json::from_str(json).unwrap();
         assert_eq!(ts.mixing, subcraft_doc::MixingSettings::LEGACY);
         assert_eq!(ts.description, "");
+        assert!(!ts.paint_across_udims, "issue #581: absent means each UDIM tile paints on its own");
+        assert!(!serde_json::to_string(&ts).unwrap().contains("paint_across_udims"), "off is not written: older readers see the same file");
         let back: super::TextureSetV1 = serde_json::from_str(&serde_json::to_string(&super::TextureSetV1 { mixing: subcraft_doc::MixingSettings::default(), ..ts }).unwrap()).unwrap();
         assert_eq!(back.mixing, subcraft_doc::MixingSettings::default(), "saved settings load back");
     }

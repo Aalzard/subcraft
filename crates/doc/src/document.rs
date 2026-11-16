@@ -32,6 +32,27 @@ impl Document {
         self.texture_sets.iter().find(|t| t.material_slot == slot)
     }
 
+    /// Every UDIM tile set of `id`'s group (the same base name, e.g. `Body.1001`, `Body.1002`),
+    /// `id` included, in document order. Empty when `id` is not a UDIM tile set.
+    pub fn udim_group(&self, id: TextureSetId) -> Vec<TextureSetId> {
+        let Some(ts) = self.texture_set(id).filter(|t| t.udim_tile.is_some()) else { return Vec::new() };
+        let base = ts.base_name();
+        self.texture_sets.iter().filter(|t| t.udim_tile.is_some() && t.base_name() == base).map(|t| t.id).collect()
+    }
+
+    /// The other tiles a stroke or a new layer on `id` also goes to (Painter's UDIM workflow,
+    /// issue #581): the sets of its UDIM group with "paint across UDIM tiles" on, when `id` has
+    /// it on too. Empty for ordinary sets and whenever the option is off.
+    pub fn udim_paint_partners(&self, id: TextureSetId) -> Vec<TextureSetId> {
+        if !self.texture_set(id).is_some_and(|t| t.paint_across_udims) {
+            return Vec::new();
+        }
+        self.udim_group(id)
+            .into_iter()
+            .filter(|&o| o != id && self.texture_set(o).is_some_and(|t| t.paint_across_udims))
+            .collect()
+    }
+
     /// Approximate bytes of unique raster data referenced by this document.
     pub fn raster_bytes(&self) -> usize {
         let mut total = 0;

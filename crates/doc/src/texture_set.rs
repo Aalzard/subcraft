@@ -230,6 +230,11 @@ pub struct TextureSet {
     /// The UDIM tile (`[column, row]` in stored UV space, see `subcraft_mesh::regroup`) this set
     /// paints; `None` for an ordinary set. Its mesh slot was moved into the 0..1 square.
     pub udim_tile: Option<[i32; 2]>,
+    /// Painter's UDIM workflow for this set's tile group (issue #581): a 3D stroke on any tile
+    /// of the group also paints the matching layer of the other tiles that have it on, and a
+    /// material, smart material or new layer added to one tile is added to all of them. Only
+    /// meaningful on UDIM tile sets; off by default (each tile is its own texture set).
+    pub paint_across_udims: bool,
     /// Start empty: every channel's stack begins transparent (alpha 0) instead of the opaque
     /// channel default, so unpainted texels export with alpha 0 (issue #145).
     pub transparent: bool,
@@ -262,6 +267,7 @@ impl TextureSet {
             user_channel_names: Default::default(),
             layers: Vec::new(),
             udim_tile: None,
+            paint_across_udims: false,
             transparent: false,
             alpha: AlphaSettings::default(),
             id_color_edits: Vec::new(),
@@ -328,6 +334,21 @@ impl TextureSet {
             None
         }
         rec(&self.layers, id)
+    }
+
+    /// The layer at the same place in this set's tree as `id` is in `other`, when it has the
+    /// same name and kind there (how the tiles of a UDIM group find each other's layers).
+    pub fn corresponding_layer(&self, other: &TextureSet, id: LayerId) -> Option<LayerId> {
+        let source = other.find(id)?;
+        let path = other.path_of(id)?;
+        let mut list: &[Arc<Layer>] = &self.layers;
+        let mut node: Option<&Arc<Layer>> = None;
+        for &i in &path {
+            let l = list.get(i)?;
+            list = l.children();
+            node = Some(l);
+        }
+        node.filter(|l| l.name == source.name && l.kind() == source.kind()).map(|l| l.id)
     }
 
     fn path_of(&self, id: LayerId) -> Option<Vec<usize>> {

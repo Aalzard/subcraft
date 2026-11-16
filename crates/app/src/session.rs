@@ -175,6 +175,9 @@ struct ActiveStroke {
     /// What the stroke was painted with, when a later stroke may continue it (paint and erase
     /// strokes); `None` for strokes that cannot be continued.
     key: Option<ContinueKey>,
+    /// The same stroke on the matching layer of the other UDIM tiles of the set (issue #581,
+    /// "paint across UDIM tiles"); empty otherwise.
+    partners: Vec<(TextureSetId, Stroke)>,
 }
 
 /// What must stay the same for a stroke to continue the previous one.
@@ -289,6 +292,8 @@ pub struct Session {
     last_stroke: Option<LastStroke>,
     /// The next stroke continues the last one (A held when it starts).
     continue_stroke: bool,
+    /// An operation is being repeated on the UDIM tiles of a group (no nested repetition).
+    across_udims: bool,
     /// Clone tool: object-space source point, and the screen offset the first stroke fixed.
     clone_source: Option<Vec3>,
     clone_offset: Option<Vec2>,
@@ -418,6 +423,7 @@ impl Session {
             stroke: None,
             last_stroke: None,
             continue_stroke: false,
+            across_udims: false,
             clone_source: None,
             clone_offset: None,
             clone_source_uv: None,
@@ -1370,6 +1376,23 @@ impl Session {
         if self.stroke.is_some() && !matches!(cmd, Command::Seal) {
             return Err(CommandError::StrokeInProgress);
         }
+        // Painter's UDIM workflow (issue #581): with "paint across UDIM tiles" on, new layers,
+        // renames and deletions happen on every tile of the group, so the stacks stay alike.
+        if !self.across_udims {
+            match cmd {
+                Command::AddLayer(kind) if !self.doc.udim_paint_partners(self.selection.texture_set).is_empty() => {
+                    return self.across_udim_tiles(|s| s.execute(Command::AddLayer(kind)));
+                }
+                Command::Rename { layer, ref name } if self.has_udim_partners(layer) => {
+                    let name = name.clone();
+                    return self.execute_across_udims(layer, cmd, move |l| Command::Rename { layer: l, name: name.clone() });
+                }
+                Command::DeleteLayer(layer) if self.has_udim_partners(layer) => {
+                    return self.execute_across_udims(layer, cmd, Command::DeleteLayer);
+                }
+                _ => {}
+            }
+        }
         match cmd {
             Command::SetBrushSettings(settings) => self.brush.settings = checked_brush_settings(settings)?,
             Command::SetStrokeOptions(options) => self.brush.options = checked_stroke_options(options)?,
@@ -1692,6 +1715,24 @@ impl Session {
                 if ts.transparent != transparent {
                     ts.transparent = transparent;
                     self.commit(if transparent { "Transparent texture set" } else { "Opaque texture set" }, None);
+                }
+            }
+            Command::SetPaintAcrossUdims { texture_set, on } => {
+                let group = self.doc.udim_group(texture_set);
+                if group.len() < 2 {
+                    return Err(CommandError::Invalid("paint across UDIM tiles needs a texture set split into UDIM tiles".into()));
+                }
+                let mut changed = false;
+                for id in group {
+                    if let Some(ts) = self.doc.texture_set_mut(id)
+                        && ts.paint_across_udims != on
+                    {
+                        ts.paint_across_udims = on;
+                        changed = true;
+                    }
+                }
+                if changed {
+                    self.commit(if on { "Paint Across UDIM Tiles" } else { "Paint UDIM Tiles Separately" }, None);
                 }
             }
             Command::SetAlphaSettings { texture_set, alpha } => {
@@ -2871,6 +2912,9 @@ impl Session {
         {
             let mut active = last.active;
             active.stroke.lift_pen();
+            for (_, partner) in &mut active.partners {
+                partner.lift_pen();
+            }
             active.camera = None;
             self.stroke = Some(active);
             return Ok(());
@@ -2942,7 +2986,8 @@ impl Session {
         };
         let key = self.continue_key(uv.is_some());
         let ts_id = self.selected_texture_set().id;
-        self.stroke = Some(ActiveStroke { stroke, texture_set: ts_id, label, camera: None, quick: false, key });
+        let partners = if uv.is_none() && stamp.is_none() { self.partner_strokes(layer, &material) } else { Vec::new() };
+        self.stroke = Some(ActiveStroke { stroke, texture_set: ts_id, label, camera: None, quick: false, key, partners });
         Ok(())
     }
 
@@ -2966,7 +3011,7 @@ impl Session {
             .with_stencil(if b.stencil_bypass { None } else { b.stencil.clone() })
             .with_uv_view(view);
         self.quick_scratch = Some(scratch);
-        self.stroke = Some(ActiveStroke { stroke, texture_set: self.selection.texture_set, label: "Quick Mask Stroke", camera: None, quick: true, key: None });
+        self.stroke = Some(ActiveStroke { stroke, texture_set: self.selection.texture_set, label: "Quick Mask Stroke", camera: None, quick: true, key: None, partners: Vec::new() });
         Ok(())
     }
 
@@ -3083,9 +3128,13 @@ impl Session {
     pub fn stroke_to(&mut self, camera: &Camera, screen: Vec2, line: bool) -> Result<Vec<usize>, PaintError> {
         let Some(mut active) = self.stroke.take() else { return Ok(Vec::new()) };
         active.camera = Some(*camera);
-        let result = self.with_stroke_context(active.texture_set, camera, |stroke, ts, ctx| {
+        let paint = move |stroke: &mut Stroke, ts: &mut TextureSet, ctx: &PaintContext| {
             if line { stroke.line_to(ts, ctx, screen) } else { stroke.add_point(ts, ctx, screen) }
-        }, active);
+        };
+        let result = self.with_stroke_context(active.texture_set, camera, paint, active);
+        if self.paint_partners(camera, paint) {
+            self.revision += 1;
+        }
         if result.as_ref().is_ok_and(|t| !t.is_empty()) {
             self.revision += 1;
         }
@@ -3105,7 +3154,11 @@ impl Session {
             return Ok(Vec::new());
         }
         active.camera = Some(*camera);
-        let result = self.with_stroke_context(active.texture_set, camera, |stroke, ts, ctx| stroke.add_points(ts, ctx, screens), active);
+        let paint = |stroke: &mut Stroke, ts: &mut TextureSet, ctx: &PaintContext| stroke.add_points(ts, ctx, screens);
+        let result = self.with_stroke_context(active.texture_set, camera, paint, active);
+        if self.paint_partners(camera, paint) {
+            self.revision += 1;
+        }
         if result.as_ref().is_ok_and(|t| !t.is_empty()) {
             self.revision += 1;
         }
@@ -3333,6 +3386,180 @@ impl Session {
         result
     }
 
+    /// Strokes on the other UDIM tiles of the selected set for a stroke on `layer` (issue #581):
+    /// one per tile with "paint across UDIM tiles" on whose stack has the matching layer and
+    /// takes the stroke. Only 3D paint, erase and smudge strokes on a layer's content or mask
+    /// cross tiles; clone strokes, effect targets and an applied quick mask stay on one tile.
+    fn partner_strokes(&self, layer: LayerId, material: &subcraft_paint::BrushMaterial) -> Vec<(TextureSetId, Stroke)> {
+        let b = &self.brush;
+        if !matches!(b.mode, StrokeMode::Paint | StrokeMode::Erase | StrokeMode::Smudge)
+            || !matches!(b.target, PaintTarget::Content | PaintTarget::MaskBase)
+            || self.applied_quick_mask().is_some()
+        {
+            return Vec::new();
+        }
+        let source = self.selected_texture_set();
+        let mut out = Vec::new();
+        for id in self.doc.udim_paint_partners(source.id) {
+            let Some(ts) = self.doc.texture_set(id) else { continue };
+            let Some(l) = ts.corresponding_layer(source, layer) else { continue };
+            if subcraft_doc::instance::root_of(ts, l).is_some() {
+                continue;
+            }
+            let Ok(stroke) = Stroke::begin(ts, l, b.target, b.mode, b.settings, b.options, material) else { continue };
+            let stroke = stroke
+                .with_resources(self.resources())
+                .with_alpha(b.alpha.clone())
+                .with_stencil(if b.stencil_bypass { None } else { b.stencil.clone() });
+            out.push((id, stroke));
+        }
+        out
+    }
+
+    /// Run `f` for every partner stroke of the active stroke on its own tile (same screen input,
+    /// each tile's own geometry). Returns whether any of them painted.
+    fn paint_partners(&mut self, camera: &Camera, f: impl Fn(&mut Stroke, &mut TextureSet, &PaintContext) -> Result<Vec<usize>, PaintError>) -> bool {
+        let Some(active) = self.stroke.as_mut() else { return false };
+        if active.partners.is_empty() {
+            return false;
+        }
+        let mut partners = std::mem::take(&mut active.partners);
+        let mut painted = false;
+        let mut done = Vec::with_capacity(partners.len());
+        {
+            let view = self.viewport_scene();
+            for (id, stroke) in &mut partners {
+                let Some(mut ts) = self.doc.texture_set(*id).cloned() else { continue };
+                let geo = self.scene.geometry.get(ts.material_slot, ts.resolution);
+                let ctx = PaintContext { mesh: &view.mesh, bvh: &view.bvh, geometry: &geo, camera, depth: &view.depth };
+                if f(stroke, &mut ts, &ctx).is_ok_and(|t| !t.is_empty()) {
+                    painted = true;
+                }
+                done.push((*id, ts));
+            }
+        }
+        for (id, ts) in done {
+            if let Some(slot) = self.doc.texture_set_mut(id) {
+                *slot = ts;
+            }
+        }
+        if let Some(active) = self.stroke.as_mut() {
+            active.partners = partners;
+        }
+        painted
+    }
+
+    /// The UDIM tiles a stroke on the selected texture set also paints right now (issue #581).
+    pub fn udim_paint_partners(&self) -> Vec<TextureSetId> {
+        self.doc.udim_paint_partners(self.selection.texture_set)
+    }
+
+    fn has_udim_partners(&self, layer: LayerId) -> bool {
+        self.texture_set_of(layer).is_some_and(|ts| !self.doc.udim_paint_partners(ts).is_empty())
+    }
+
+    /// Run `f` on the selected texture set, then again on each other UDIM tile of its group with
+    /// "paint across UDIM tiles" on, with the matching layer selected there (issue #581: a
+    /// material, smart material or new layer goes to every tile, so their stacks stay alike and
+    /// strokes find their layer on every tile). One undo step; the selection stays on the
+    /// selected set. Without partner tiles this is exactly `f(self)`.
+    pub(crate) fn across_udim_tiles<R>(&mut self, mut f: impl FnMut(&mut Self) -> Result<R, CommandError>) -> Result<R, CommandError> {
+        let primary = self.selection.texture_set;
+        let partners = if self.across_udims || self.stroke.is_some() { Vec::new() } else { self.doc.udim_paint_partners(primary) };
+        if partners.is_empty() {
+            return f(self);
+        }
+        let Some(source) = self.doc.texture_set(primary).cloned() else { return f(self) };
+        let selected = self.selection.layer;
+        let targets: Vec<(TextureSetId, Option<LayerId>)> = partners
+            .iter()
+            .map(|&id| (id, selected.and_then(|l| self.doc.texture_set(id)?.corresponding_layer(&source, l))))
+            .collect();
+        let pushes = self.history.pushes();
+        let counter = self.layer_counter;
+        self.across_udims = true;
+        let result = match f(self) {
+            Ok(r) => r,
+            Err(e) => {
+                self.across_udims = false;
+                return Err(e);
+            }
+        };
+        let (selection, target, effect, counter_after) = (self.selection, self.brush.target, self.effect, self.layer_counter);
+        for (id, layer) in targets {
+            self.selection = Selection { texture_set: id, layer };
+            self.brush.target = PaintTarget::Content;
+            self.effect = None;
+            // The same numbered name ("Layer 3") on every tile, so the layers match up.
+            self.layer_counter = counter;
+            if let Err(e) = f(self) {
+                log::warn!("UDIM tile {}: {e}", self.doc.texture_set(id).map_or("?", |t| t.name.as_str()));
+            }
+        }
+        self.across_udims = false;
+        self.selection = selection;
+        self.brush.target = target;
+        self.effect = effect;
+        self.layer_counter = counter_after;
+        self.squash_since(pushes);
+        self.revision += 1;
+        Ok(result)
+    }
+
+    /// `cmd` on `layer`, then the same command on the matching layer of every partner UDIM tile
+    /// of its set (`make` builds the command for a layer). One undo step.
+    fn execute_across_udims(&mut self, layer: LayerId, cmd: Command, make: impl Fn(LayerId) -> Command) -> Result<(), CommandError> {
+        let Some(source) = self.texture_set_of(layer).and_then(|id| self.doc.texture_set(id)).cloned() else { return self.execute_once(cmd) };
+        let targets: Vec<LayerId> = self
+            .doc
+            .udim_paint_partners(source.id)
+            .into_iter()
+            .filter_map(|id| self.doc.texture_set(id)?.corresponding_layer(&source, layer))
+            .collect();
+        if targets.is_empty() {
+            return self.execute_once(cmd);
+        }
+        let pushes = self.history.pushes();
+        self.across_udims = true;
+        let result = self.execute(cmd);
+        if result.is_ok() {
+            let after = (self.selection, self.brush.target, self.effect);
+            for l in targets {
+                if let Err(e) = self.execute(make(l)) {
+                    log::warn!("UDIM tile: {e}");
+                }
+            }
+            // Partner tiles never take the selection.
+            (self.selection, self.brush.target, self.effect) = after;
+            self.squash_since(pushes);
+            self.revision += 1;
+        }
+        self.across_udims = false;
+        result
+    }
+
+    fn execute_once(&mut self, cmd: Command) -> Result<(), CommandError> {
+        let busy = std::mem::replace(&mut self.across_udims, true);
+        let result = self.execute(cmd);
+        self.across_udims = busy;
+        result
+    }
+
+    /// Fold the history entries recorded since `pushes` into one, labelled after the first.
+    fn squash_since(&mut self, pushes: u64) {
+        let n = (self.history.pushes() - pushes) as usize;
+        if n > 1 {
+            let entries = self.history.entries();
+            let label = entries.get(entries.len().saturating_sub(n)).map(|e| e.label.clone());
+            if self.history.squash_last(n)
+                && let Some(label) = label
+            {
+                self.history.relabel_current(label);
+            }
+        }
+    }
+
+
     /// Finish the stroke: the post-stroke document becomes one history entry (none if nothing
     /// was painted).
     pub fn end_stroke(&mut self) {
@@ -3347,6 +3574,9 @@ impl Session {
                     Ok(tiles)
                 };
                 if self.with_stroke_context(active.texture_set, &camera, run, active).is_ok_and(|t| !t.is_empty()) {
+                    self.revision += 1;
+                }
+                if self.paint_partners(&camera, run) {
                     self.revision += 1;
                 }
             } else {
@@ -3753,8 +3983,12 @@ impl Session {
     /// (channels and name; its mask, parts, opacity and blend modes stay), otherwise it adds a new
     /// fill layer above the selection. One undo step either way. Returns true when it swapped.
     pub fn apply_material(&mut self, preset: &subcraft_assets::MaterialPreset) -> Result<bool, CommandError> {
+        self.across_udim_tiles(|s| s.apply_material_here(preset))
+    }
+
+    fn apply_material_here(&mut self, preset: &subcraft_assets::MaterialPreset) -> Result<bool, CommandError> {
         let Some(old) = self.selected_layer().filter(|l| matches!(l.content, subcraft_doc::LayerContent::Fill(_))).cloned() else {
-            self.add_material(preset)?;
+            self.add_material_here(preset)?;
             return Ok(false);
         };
         let ids = self.import_preset_images(&preset.images)?;
@@ -3768,6 +4002,10 @@ impl Session {
 
     /// Add a material preset as a fill layer above the selection.
     pub fn add_material(&mut self, preset: &subcraft_assets::MaterialPreset) -> Result<(), CommandError> {
+        self.across_udim_tiles(|s| s.add_material_here(preset))
+    }
+
+    fn add_material_here(&mut self, preset: &subcraft_assets::MaterialPreset) -> Result<(), CommandError> {
         let ids = self.import_preset_images(&preset.images)?;
         let layer = preset.build_with(self.selected_texture_set(), &ids);
         self.execute(Command::InsertLayer { layer: Box::new(layer), label: format!("Material: {}", preset.name) })
@@ -3775,6 +4013,10 @@ impl Session {
 
     /// Add a smart material (folder of masked layers) above the selection.
     pub fn add_smart_material(&mut self, smart: &subcraft_assets::SmartMaterial) -> Result<(), CommandError> {
+        self.across_udim_tiles(|s| s.add_smart_material_here(smart))
+    }
+
+    fn add_smart_material_here(&mut self, smart: &subcraft_assets::SmartMaterial) -> Result<(), CommandError> {
         for r in smart.resources() {
             self.resources.insert_shared(r.clone());
         }

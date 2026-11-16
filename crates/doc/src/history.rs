@@ -111,6 +111,13 @@ impl History {
         self.pushes
     }
 
+    /// Rename the current entry (a compound action named after what the user did).
+    pub fn relabel_current(&mut self, label: impl Into<String>) {
+        if let Some(e) = self.entries.get_mut(self.cursor) {
+            e.label = label.into();
+        }
+    }
+
     /// Fold the last `n` entries into one (the last state, labelled after the first), so one
     /// compound action undoes in one step. Only at the end of the history, and never into the
     /// first entry; returns whether anything was folded.
