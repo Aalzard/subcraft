@@ -169,9 +169,23 @@ fn load_obj(path: &Path, b: &mut MeshBuilder, warnings: &mut Vec<String>) -> Res
 /// while validating, so a damaged file whose attribute names an accessor that does not exist
 /// panicked the whole app: check those indices before handing the file over.
 pub(crate) fn open_gltf(bytes: &[u8]) -> Result<gltf::Gltf, String> {
-    let json: std::borrow::Cow<[u8]> =
-        if bytes.starts_with(b"glTF") { gltf::Glb::from_slice(bytes).map_err(|e| e.to_string())?.json } else { bytes.into() };
-    let root = gltf::json::Root::from_slice(&json).map_err(|e| e.to_string())?;
+    let (json, blob): (std::borrow::Cow<[u8]>, Option<Vec<u8>>) = if bytes.starts_with(b"glTF") {
+        let glb = gltf::Glb::from_slice(bytes).map_err(|e| e.to_string())?;
+        (glb.json, glb.bin.map(|b| b.into_owned()))
+    } else {
+        (bytes.into(), None)
+    };
+    let mut root = gltf::json::Root::from_slice(&json).map_err(|e| e.to_string())?;
+    // Custom vertex attributes (issue #582). Names starting with `_` (Blender's `_EXPORT_`...) are
+    // legal application-specific data and read as `Semantic::Extras`, which SubCraft ignores. Any
+    // other name the library does not know (`EXPORT`, `TEXCOORD_X`...) used to reject the whole
+    // file as "invalid semantic name": drop that attribute instead, the geometry does not need it.
+    use gltf::json::validation::Checked;
+    for mesh in &mut root.meshes {
+        for primitive in &mut mesh.primitives {
+            primitive.attributes.retain(|semantic, _| matches!(semantic, Checked::Valid(_)));
+        }
+    }
     for mesh in &root.meshes {
         for primitive in &mesh.primitives {
             if primitive.attributes.values().any(|index| index.value() >= root.accessors.len()) {
@@ -181,7 +195,6 @@ pub(crate) fn open_gltf(bytes: &[u8]) -> Result<gltf::Gltf, String> {
     }
     // The library does not check that an accessor fits its buffer view either: a damaged `count`
     // (4 billion vertices in a 100 byte file) ran for minutes and then asked for 20 GB.
-    use gltf::json::validation::Checked;
     let too_big = || "an accessor is larger than the data it points at".to_string();
     for accessor in &root.accessors {
         let (Checked::Valid(component), Checked::Valid(kind)) = (&accessor.component_type, &accessor.type_) else { continue };
@@ -231,7 +244,8 @@ pub(crate) fn open_gltf(bytes: &[u8]) -> Result<gltf::Gltf, String> {
     if removed != nodes {
         return Err("the node hierarchy contains a cycle".into());
     }
-    gltf::Gltf::from_slice(bytes).map_err(|e| e.to_string())
+    let document = gltf::Document::from_json(root).map_err(|e| e.to_string())?;
+    Ok(gltf::Gltf { document, blob })
 }
 
 fn load_gltf(path: &Path, b: &mut MeshBuilder, warnings: &mut Vec<String>) -> Result<(), ImportError> {
@@ -579,6 +593,61 @@ mod tests {
         assert_eq!(rep.mesh.materials[0].name, "Painted");
         assert!((rep.mesh.bounds.min.z - 1.0).abs() < 1e-6, "node transform applied");
         assert!(rep.mesh.normals.iter().all(|n| (n.z - 1.0).abs() < 1e-5));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A GLB with custom vertex attributes (issue #582): Blender writes `_EXPORT_` style names
+    /// (legal, application specific) and some tools write names glTF does not define at all.
+    /// Neither may reject the file; the geometry imports and the custom data is ignored.
+    #[test]
+    fn glb_with_custom_vertex_attributes_imports() {
+        let positions: [f32; 9] = [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0];
+        let uvs: [f32; 6] = [0.0, 1.0, 1.0, 1.0, 0.0, 0.0];
+        let custom: [f32; 3] = [0.25, 0.5, 0.75];
+        let mut bin: Vec<u8> = Vec::new();
+        for v in positions.iter().chain(uvs.iter()).chain(custom.iter()) {
+            bin.extend_from_slice(&v.to_le_bytes());
+        }
+        let json = format!(
+            r#"{{"asset":{{"version":"2.0"}},"scene":0,"scenes":[{{"nodes":[0]}}],"nodes":[{{"mesh":0}}],
+            "meshes":[{{"primitives":[{{"attributes":{{"POSITION":0,"TEXCOORD_0":1,"_EXPORT_":2,"EXPORT_WEIGHT":2,"TEXCOORD_X":2}}}}]}}],
+            "buffers":[{{"byteLength":{len}}}],
+            "bufferViews":[{{"buffer":0,"byteOffset":0,"byteLength":36}},{{"buffer":0,"byteOffset":36,"byteLength":24}},
+                           {{"buffer":0,"byteOffset":60,"byteLength":12}}],
+            "accessors":[{{"bufferView":0,"componentType":5126,"count":3,"type":"VEC3","min":[0,0,0],"max":[1,1,0]}},
+                         {{"bufferView":1,"componentType":5126,"count":3,"type":"VEC2"}},
+                         {{"bufferView":2,"componentType":5126,"count":3,"type":"SCALAR"}}]}}"#,
+            len = bin.len()
+        );
+        let mut json = json.into_bytes();
+        while json.len() % 4 != 0 {
+            json.push(b' ');
+        }
+        while bin.len() % 4 != 0 {
+            bin.push(0);
+        }
+        let mut glb: Vec<u8> = Vec::new();
+        glb.extend_from_slice(b"glTF");
+        glb.extend_from_slice(&2u32.to_le_bytes());
+        glb.extend_from_slice(&((12 + 8 + json.len() + 8 + bin.len()) as u32).to_le_bytes());
+        glb.extend_from_slice(&(json.len() as u32).to_le_bytes());
+        glb.extend_from_slice(b"JSON");
+        glb.extend_from_slice(&json);
+        glb.extend_from_slice(&(bin.len() as u32).to_le_bytes());
+        glb.extend_from_slice(b"BIN\0");
+        glb.extend_from_slice(&bin);
+
+        let dir = tmp("glb-custom-attr");
+        let path = dir.join("custom.glb");
+        std::fs::write(&path, &glb).unwrap();
+        let rep = import_mesh(&path).unwrap();
+        assert_eq!(rep.mesh.triangle_count(), 1);
+        assert!(rep.mesh.uvs.iter().all(|u| u.is_finite()));
+        // The underscore name is kept as application data, the unknown ones are dropped.
+        let gltf = open_gltf(&glb).unwrap();
+        let semantics: Vec<_> = gltf.meshes().next().unwrap().primitives().next().unwrap().attributes().map(|(s, _)| s).collect();
+        assert!(semantics.contains(&gltf::Semantic::Extras("EXPORT_".into())));
+        assert_eq!(semantics.len(), 3);
         std::fs::remove_dir_all(&dir).ok();
     }
 
