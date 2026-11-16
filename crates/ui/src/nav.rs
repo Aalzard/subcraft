@@ -33,7 +33,7 @@ impl NavScheme {
     pub fn help(self) -> [(&'static str, &'static str); 4] {
         match self {
             NavScheme::Painter => [("Orbit", "Alt+LMB or RMB drag (add Shift to snap every 90°)"), ("Pan", "MMB or Ctrl+Alt+LMB drag"), ("Zoom", "Wheel or Alt+RMB drag"), ("Rotate environment", "Shift+RMB drag")],
-            NavScheme::Blender => [("Orbit", "MMB drag (Alt+MMB click centers the view on the model)"), ("Pan", "Shift+MMB drag"), ("Zoom", "Wheel or Ctrl+MMB drag"), ("Rotate environment", "Shift+RMB drag")],
+            NavScheme::Blender => [("Orbit", "MMB or Alt+LMB drag (Alt+MMB click centers the view on the model)"), ("Pan", "Shift+MMB or Alt+Shift+LMB drag"), ("Zoom", "Wheel, Ctrl+MMB or Alt+Ctrl+LMB drag"), ("Rotate environment", "Shift+RMB drag")],
         }
     }
     /// Short orbit hint for the status bar.
@@ -44,8 +44,9 @@ impl NavScheme {
         }
     }
     /// Whether Alt is a navigation modifier (and so must not paint / open menus).
+    /// Both schemes: Blender's Alt+LMB stands in for MMB (its "Emulate 3 Button Mouse", for pens).
     pub fn alt_navigates(self) -> bool {
-        self == NavScheme::Painter
+        true
     }
 }
 
@@ -102,9 +103,12 @@ pub fn mode_for(scheme: NavScheme, i: NavInput) -> NavMode {
             }
         }
         NavScheme::Blender => {
-            if i.shift && i.secondary && !i.middle {
+            // Alt+LMB acts as MMB, like Blender's "Emulate 3 Button Mouse" (issue #583): with a pen
+            // Alt+drag orbits, Alt+Shift+drag pans and Alt+Ctrl+drag zooms.
+            let middle = i.middle || (i.primary && i.alt);
+            if i.shift && i.secondary && !middle {
                 NavMode::Environment
-            } else if !i.middle {
+            } else if !middle {
                 NavMode::None
             } else if i.ctrl {
                 NavMode::Zoom
@@ -511,7 +515,7 @@ mod tests {
         assert_eq!(mode_for(p, inp(true, false, false, true, false, true)), NavMode::OrbitSnap);
         assert_eq!(mode_for(p, inp(true, false, false, false, false, true)), NavMode::Orbit, "without Shift it orbits freely");
         assert_eq!(mode_for(p, inp(true, false, false, true, false, false)), NavMode::None, "Shift+LMB is the straight line");
-        assert_eq!(mode_for(NavScheme::Blender, inp(true, false, false, true, false, true)), NavMode::None);
+        assert_eq!(mode_for(NavScheme::Blender, inp(true, false, false, true, false, true)), NavMode::Pan, "Blender: Alt+Shift+LMB is Shift+MMB");
         // Releasing Shift mid-drag continues as a free orbit with no jump.
         let mut d = NavDrag::begin(p, inp(true, false, false, true, false, true), Vec2::ZERO).unwrap();
         assert_eq!(d.step(p, inp(true, false, false, true, false, true), Vec2::new(8.0, 0.0)), Some((NavMode::OrbitSnap, Vec2::new(8.0, 0.0))));
@@ -541,8 +545,14 @@ mod tests {
         assert_eq!(mode_for(b, inp(false, true, false, true, false, false)), NavMode::Pan);
         assert_eq!(mode_for(b, inp(false, true, false, false, true, false)), NavMode::Zoom);
         assert_eq!(mode_for(b, inp(false, true, false, true, true, false)), NavMode::Zoom, "ctrl wins");
-        // Painter's combinations do nothing here.
-        assert_eq!(mode_for(b, inp(true, false, false, false, false, true)), NavMode::None);
+        // Alt+LMB stands in for MMB (Blender's Emulate 3 Button Mouse, issue #583).
+        assert_eq!(mode_for(b, inp(true, false, false, false, false, true)), NavMode::Orbit, "Alt+LMB orbits");
+        assert_eq!(mode_for(b, inp(true, false, false, true, false, true)), NavMode::Pan, "Alt+Shift+LMB pans");
+        assert_eq!(mode_for(b, inp(true, false, false, false, true, true)), NavMode::Zoom, "Alt+Ctrl+LMB zooms");
+        assert_eq!(mode_for(b, inp(true, false, false, false, false, false)), NavMode::None, "plain LMB paints");
+        assert_eq!(mode_for(b, inp(true, false, false, true, false, false)), NavMode::None, "Shift+LMB is the straight line");
+        assert!(b.alt_navigates(), "Alt+LMB must not paint under Blender navigation");
+        // Painter's RMB orbit does nothing here.
         assert_eq!(mode_for(b, inp(false, false, true, false, false, false)), NavMode::None);
         assert_eq!(mode_for(b, inp(false, false, false, true, true, false)), NavMode::None, "modifiers alone");
         assert_eq!(mode_for(b, inp(false, false, true, true, false, false)), NavMode::Environment, "Shift+RMB rotates the environment");
