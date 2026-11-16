@@ -400,6 +400,30 @@ mod tests {
     }
 
     #[test]
+    fn a_high_poly_file_without_its_chosen_color_set_is_reported() {
+        let plane = |sets: usize| {
+            let mut m = subcraft_mesh::primitives::plane(1., 1);
+            let corners = 3 * m.triangle_count();
+            if sets > 0 { m.corner_colors = vec![[1.0; 4]; corners]; }
+            m.extra_color_sets = vec![vec![[0.5; 4]; corners]; sets.saturating_sub(1)];
+            m.name = format!("part{sets}");
+            m
+        };
+        let (two, one) = (plane(2), plane(1));
+        let parts = [&two, &one];
+        // Every file reads set 1 by default: the second has only one set.
+        let w = missing_color_set_warnings(&BakeSettings { vertex_color_set: 1, ..Default::default() }, &parts);
+        assert_eq!(w.len(), 1, "{w:?}");
+        assert!(w[0].contains("file 2 (part1) has 1 vertex colour set(s), not set 2"), "{w:?}");
+        // The second file picks its own first set: nothing to report.
+        let s = BakeSettings { vertex_color_set: 1, extra_vertex_color_sets: vec![Some(0)], ..Default::default() };
+        assert!(missing_color_set_warnings(&s, &parts).is_empty());
+        // A set no file has is left to the baker's own warning.
+        let s = BakeSettings { vertex_color_set: 0, extra_vertex_color_sets: vec![Some(5)], ..Default::default() };
+        assert!(missing_color_set_warnings(&s, &parts).is_empty());
+    }
+
+    #[test]
     fn complete_maps_arrive_independently_and_leave_authored_channels_untouched() {
         let mut session = Session::new(subcraft_mesh::primitives::plane(2., 1), 128);
         let before = session.document().clone();
@@ -520,28 +544,5 @@ impl BakePreviewJob {
             Err(TryRecvError::Empty) => None,
             Err(TryRecvError::Disconnected) => Some(Err("high-poly preview worker stopped unexpectedly".into())),
         }
-    }
-    #[test]
-    fn a_high_poly_file_without_its_chosen_color_set_is_reported() {
-        let plane = |sets: usize| {
-            let mut m = subcraft_mesh::primitives::plane(1., 1);
-            let corners = 3 * m.triangle_count();
-            if sets > 0 { m.corner_colors = vec![[1.0; 4]; corners]; }
-            m.extra_color_sets = vec![vec![[0.5; 4]; corners]; sets.saturating_sub(1)];
-            m.name = format!("part{sets}");
-            m
-        };
-        let (two, one) = (plane(2), plane(1));
-        let parts = [&two, &one];
-        // Every file reads set 1 by default: the second has only one set.
-        let w = missing_color_set_warnings(&BakeSettings { vertex_color_set: 1, ..Default::default() }, &parts);
-        assert_eq!(w.len(), 1, "{w:?}");
-        assert!(w[0].contains("file 2 (part1) has 1 vertex colour set(s), not set 2"), "{w:?}");
-        // The second file picks its own first set: nothing to report.
-        let s = BakeSettings { vertex_color_set: 1, extra_vertex_color_sets: vec![Some(0)], ..Default::default() };
-        assert!(missing_color_set_warnings(&s, &parts).is_empty());
-        // A set no file has is left to the baker's own warning.
-        let s = BakeSettings { vertex_color_set: 0, extra_vertex_color_sets: vec![Some(5)], ..Default::default() };
-        assert!(missing_color_set_warnings(&s, &parts).is_empty());
     }
 }
