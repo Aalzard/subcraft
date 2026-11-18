@@ -176,6 +176,66 @@ fn materials_and_smart_materials_go_to_every_tile() {
     assert_eq!(names(&s, 1).last().unwrap(), &library[0].name);
 }
 
+/// Issue #581 follow-up: with the option off a material goes onto one tile only, so the stacks
+/// differ. Turning the option back on must still pair the layers both tiles have.
+#[test]
+fn strokes_still_cross_after_a_material_went_onto_one_tile_only() {
+    let mut s = session();
+    let library = subcraft_assets::presets::materials();
+    turn_on(&mut s);
+    let first = s.document().texture_sets[0].id;
+    s.execute(Command::SetPaintAcrossUdims { texture_set: first, on: false }).unwrap();
+    s.add_material(&library[0]).unwrap();
+    assert_eq!((names(&s, 0).len(), names(&s, 1).len()), (2, 1), "the material is on the selected tile only");
+    turn_on(&mut s);
+
+    // A new paint layer goes onto both tiles (above the material on one, straight on the base
+    // layer on the other), and a stroke on it crosses the border.
+    s.execute(Command::AddLayer(NewLayer::Paint)).unwrap();
+    assert_eq!(names(&s, 0).last(), names(&s, 1).last());
+    assert_eq!((names(&s, 0).len(), names(&s, 1).len()), (3, 2));
+    stroke_across(&mut s);
+    let (a, b) = (painted_texels(&s, 0), painted_texels(&s, 1));
+    assert!(a > 100 && b > 100, "both tiles painted on the new layer: {a} / {b}");
+
+    // The layer under the material, which both tiles always had, pairs up too.
+    let base = s.document().texture_sets[0].layers[0].id;
+    let other = &s.document().texture_sets[1];
+    assert_eq!(other.corresponding_layer(&s.document().texture_sets[0], base), Some(other.layers[0].id));
+    // The material has no counterpart on the other tile: a stroke on it stays on its tile.
+    let material = s.document().texture_sets[0].layers[1].id;
+    assert_eq!(other.corresponding_layer(&s.document().texture_sets[0], material), None);
+    // Renaming the shared layer still reaches both tiles.
+    let top = s.selection().layer.unwrap();
+    s.execute(Command::Rename { layer: top, name: "Details".into() }).unwrap();
+    assert_eq!(names(&s, 0).last().unwrap(), "Details");
+    assert_eq!(names(&s, 1).last().unwrap(), "Details");
+}
+
+#[test]
+fn layers_with_the_same_name_pair_up_by_their_rank() {
+    use subcraft_doc::{Layer, TextureSet};
+    let stack = |names: &[&str]| {
+        let mut ts = TextureSet::new("t", 0, 64);
+        for n in names {
+            let l = Layer::new_paint(*n, &ts);
+            ts.insert_above(None, l);
+        }
+        ts
+    };
+    let a = stack(&["Paint", "Extra", "Paint", "Paint"]);
+    let b = stack(&["Paint", "Paint", "Paint"]);
+    for (ia, ib) in [(0, 0), (2, 1), (3, 2)] {
+        assert_eq!(b.corresponding_layer(&a, a.layers[ia].id), Some(b.layers[ib].id), "a[{ia}] pairs with b[{ib}]");
+    }
+    assert_eq!(b.corresponding_layer(&a, a.layers[1].id), None, "no layer of that name on the other tile");
+    // Identical stacks pair up position for position, as before.
+    let c = stack(&["Paint", "Extra", "Paint", "Paint"]);
+    for i in 0..4 {
+        assert_eq!(c.corresponding_layer(&a, a.layers[i].id), Some(c.layers[i].id));
+    }
+}
+
 #[test]
 fn the_option_is_saved_with_the_project() {
     let dir = std::env::temp_dir().join(format!("subcraft-udim-across-{}", std::process::id()));
