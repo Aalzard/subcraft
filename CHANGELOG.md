@@ -5,6 +5,9 @@ What changed in SubCraft, newest first. Download the latest build from the
 
 ## Unreleased
 
+### Added
+- Assets panel: generators show a preview thumbnail, the generator alone in a mask on a cube, so you can tell them apart before dragging one onto a mask (issue #591).
+
 ## 0.4.3 - 2026-11-16
 
 ### Highlights

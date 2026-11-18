@@ -48,13 +48,19 @@ pub struct PreviewScene {
 
 impl PreviewScene {
     fn new(mesh: Mesh, bake_maps: bool, resolution: u32) -> Self {
+        let maps = if bake_maps { vec![MeshMapKind::Curvature, MeshMapKind::AmbientOcclusion] } else { Vec::new() };
+        Self::with_maps(mesh, maps, resolution)
+    }
+
+    /// A scene with `kinds` baked from the mesh itself (none: no bake at all).
+    fn with_maps(mesh: Mesh, kinds: Vec<MeshMapKind>, resolution: u32) -> Self {
         let mesh = Arc::new(mesh);
-        let maps = if bake_maps {
+        let maps = if !kinds.is_empty() {
             let bvh = Bvh::build(&mesh);
             let input = BakeInput { low: Geometry { mesh: &mesh, bvh: &bvh }, high: None, material_slot: 0 };
             let settings = BakeSettings {
                 size: resolution,
-                maps: vec![MeshMapKind::Curvature, MeshMapKind::AmbientOcclusion],
+                maps: kinds,
                 ao_samples: 16,
                 curvature_radius: 0.03,
                 // A 256 px sphere bakes in a few milliseconds on the processor. On the GPU it
@@ -97,6 +103,16 @@ impl PreviewScene {
     /// A cube with baked curvature + AO (edges for wear generators).
     pub fn cube() -> Self {
         Self::new(primitives::cube(1.6), true, THUMB_RESOLUTION)
+    }
+
+    /// Mesh maps the generator preview bakes: every map a generator can read from the mesh alone.
+    pub const GENERATOR_MAPS: [MeshMapKind; 5] =
+        [MeshMapKind::Curvature, MeshMapKind::AmbientOcclusion, MeshMapKind::WorldSpaceNormal, MeshMapKind::Position, MeshMapKind::Thickness];
+
+    /// The cube the Shelf previews mask generators on: its edges and faces give the edge, cavity,
+    /// direction and gradient generators something to show, which a smooth sphere does not.
+    pub fn generator_cube() -> Self {
+        Self::with_maps(primitives::cube(1.6), Self::GENERATOR_MAPS.to_vec(), THUMB_RESOLUTION)
     }
 
     /// Texture set to build preview layers against.
