@@ -74,21 +74,57 @@ impl MeshMaps {
         } else {
             // Bilinear, so a map baked below the set's resolution (1024 on a 2048 set) is smooth
             // instead of 2 x 2 blocks.
-            let (w, h) = (img.width(), img.height());
-            for (i, o) in out.iter_mut().enumerate() {
-                let [u, v] = geo.uv(i);
-                let fx = (u * w as f32 - 0.5).clamp(0.0, (w - 1) as f32);
-                let fy = (v * h as f32 - 0.5).clamp(0.0, (h - 1) as f32);
-                let (x0, y0) = (fx.floor() as u32, fy.floor() as u32);
-                let (x1, y1) = ((x0 + 1).min(w - 1), (y0 + 1).min(h - 1));
-                let (tx, ty) = (fx - x0 as f32, fy - y0 as f32);
-                let (a, b, c, d) = (expand(img.get(x0, y0)), expand(img.get(x1, y0)), expand(img.get(x0, y1)), expand(img.get(x1, y1)));
-                let mut px = [0.0f32; 3];
-                for k in 0..3 {
-                    px[k] = (a[k] * (1.0 - tx) + b[k] * tx) * (1.0 - ty) + (c[k] * (1.0 - tx) + d[k] * tx) * ty;
-                }
-                *o = px;
-            }
+            resample(geo, img.width(), img.height(), |x, y| expand(img.get(x, y)), out);
         }
+    }
+}
+
+/// Bilinear samples of a `w` x `h` map at the texel centres of `geo`'s tile. `texel` reads one
+/// map texel (already expanded to 3 components).
+///
+/// A texel's U depends only on its column and its V only on its row, so the sample positions and
+/// weights are worked out once per column and once per row. When the map texels the tile reads
+/// form a small window (a map baked at or below the set's resolution), each of them is read once
+/// into a buffer instead of four times per output texel, each read going through the tiled
+/// image's tile lookup and half-float decode. The arithmetic is the same either way, so the
+/// result is bit-identical to sampling every texel on its own.
+fn resample(geo: &TileGeometry, w: u32, h: u32, texel: impl Fn(u32, u32) -> [f32; 3], out: &mut [[f32; 3]]) {
+    let side = TILE_SIZE as usize;
+    let axis = |t: f32, n: u32| {
+        let f = (t * n as f32 - 0.5).clamp(0.0, (n - 1) as f32);
+        let p0 = f.floor() as u32;
+        (p0, (p0 + 1).min(n - 1), f - p0 as f32)
+    };
+    let cols: Vec<(u32, u32, f32)> = (0..side).map(|x| axis(geo.uv(x)[0], w)).collect();
+    let rows: Vec<(u32, u32, f32)> = (0..side).map(|y| axis(geo.uv(y * side)[1], h)).collect();
+    let mix = |a: [f32; 3], b: [f32; 3], c: [f32; 3], d: [f32; 3], tx: f32, ty: f32| {
+        let mut px = [0.0f32; 3];
+        for k in 0..3 {
+            px[k] = (a[k] * (1.0 - tx) + b[k] * tx) * (1.0 - ty) + (c[k] * (1.0 - tx) + d[k] * tx) * ty;
+        }
+        px
+    };
+    // Positions grow with the column / row, so the window is spanned by the first and last.
+    let (wx0, wx1) = (cols[0].0, cols[side - 1].1);
+    let (wy0, wy1) = (rows[0].0, rows[side - 1].1);
+    let (ww, wh) = ((wx1 - wx0 + 1) as usize, (wy1 - wy0 + 1) as usize);
+    if ww * wh > 4 * TILE_TEXELS {
+        // A map above the set's resolution: a window would read more texels than the samples do.
+        for (i, o) in out.iter_mut().enumerate() {
+            let ((x0, x1, tx), (y0, y1, ty)) = (cols[i % side], rows[i / side]);
+            *o = mix(texel(x0, y0), texel(x1, y0), texel(x0, y1), texel(x1, y1), tx, ty);
+        }
+        return;
+    }
+    let mut window = Vec::with_capacity(ww * wh);
+    for y in wy0..=wy1 {
+        for x in wx0..=wx1 {
+            window.push(texel(x, y));
+        }
+    }
+    let at = |x: u32, y: u32| window[(y - wy0) as usize * ww + (x - wx0) as usize];
+    for (i, o) in out.iter_mut().enumerate() {
+        let ((x0, x1, tx), (y0, y1, ty)) = (cols[i % side], rows[i / side]);
+        *o = mix(at(x0, y0), at(x1, y0), at(x0, y1), at(x1, y1), tx, ty);
     }
 }
