@@ -91,3 +91,18 @@ fn builtin_brush_presets_find_their_tips_and_set_the_brush() {
         assert_eq!(s.brush.alpha_name, p.tip.clone().unwrap_or_else(|| "Round".into()), "{}", p.name);
     }
 }
+#[test]
+fn a_plain_texture_dropped_on_a_channel_row_goes_into_that_channel() {
+    // A grunge is not a named map (its name says nothing), so the row it lands on decides.
+    let mut s=session();Destination::capture(&s,None).apply(&mut s,"Fill",Kind::Normal,normal()).unwrap();let id=s.selected_layer().unwrap().id;
+    let gray=||Bitmap::new_u8(2,1,1,vec![0,255]);
+    Destination::capture(&s,Some((id,ChannelKind::Roughness))).apply(&mut s,"Dirt Grunge",Kind::Texture,gray()).unwrap();
+    let LayerContent::Fill(f)=&s.selected_layer().unwrap().content else {panic!()};
+    assert!(matches!(f.channels[&ChannelKind::Roughness].source,FillSource::Bitmap{..}),"roughness uses the image");
+    assert!(matches!(f.channels[&ChannelKind::Normal].source,FillSource::Bitmap{..}),"the other channels are untouched");
+    assert_eq!(s.selected_texture_set().layers.len(),1+1,"no layer was added (the base layer and the fill)");
+    // A normal row refuses it, and without a row it becomes a Base Color layer as before.
+    assert!(Destination::capture(&s,Some((id,ChannelKind::Normal))).apply(&mut s,"Dirt Grunge",Kind::Texture,gray()).is_err());
+    Destination::capture(&s,None).apply(&mut s,"Dirt Grunge",Kind::Texture,gray()).unwrap();
+    let LayerContent::Fill(f)=&s.selected_layer().unwrap().content else {panic!()};assert!(f.channels[&ChannelKind::BaseColor].enabled);
+}

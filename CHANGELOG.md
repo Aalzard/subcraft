@@ -5,6 +5,12 @@ What changed in SubCraft, newest first. Download the latest build from the
 
 ## Unreleased
 
+### Added
+- Assets panel: a Grunges category under Textures with the built-in Dirt Grunge map (the one the Dirt and Edge wear generators break up with). Drag it onto a mask, a channel row of a fill layer, the model or a layer (issue #591).
+
+### Changed
+- A texture dropped on a layer's mask thumbnail now goes into that mask as an image effect. It used to go into the active channel of the fill layer, which is what dropping it on a channel row does.
+
 ## 0.4.3 - 2026-11-16
 
 ### Highlights

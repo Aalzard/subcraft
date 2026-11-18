@@ -234,3 +234,36 @@ fn breadcrumbs_find_libraries_and_folders_named_with_any_letters() {
     assert_eq!(crumb_place(&path, &places), (Some("Été".to_string()), Some("Ömer Grunges".to_string())));
     assert_eq!(crumb_place(&places[0].path(), &places), (Some("Été".to_string()), None));
 }
+
+#[test]
+fn the_built_in_grunge_is_a_texture_under_grunges_and_goes_into_masks() {
+    use subcraft_assets::starter::{ENTRIES, GRUNGES, Kind};
+    use subcraft_doc::MaskEffectKind;
+    let mut s = state();
+    let grunge = ENTRIES.iter().position(|e| e.kind == Kind::Texture).expect("a built-in grunge");
+    let normal = ENTRIES.iter().position(|e| e.kind == Kind::Normal).unwrap();
+    // Listed under Textures, in the Grunges folder (the chip filters on it); the normal maps keep theirs.
+    let textures = items(&s, ShelfTab::Textures);
+    let item = textures.iter().find(|i| i.starter && i.index == grunge).expect("listed under Textures");
+    assert_eq!((item.name.as_str(), item.folder.as_deref()), ("Dirt Grunge", Some(GRUNGES)));
+    assert!(items(&s, ShelfTab::NormalMaps).iter().filter(|i| i.starter).all(|i| i.folder.as_deref() == Some("Starter pack")));
+
+    // It can go into a mask; a built-in normal map still cannot.
+    assert!(is_starter_texture(ShelfDrag::Starter(grunge)) && !is_starter_texture(ShelfDrag::Starter(normal)));
+    assert!(ghost_mask_accepts(ShelfDrag::Starter(grunge)) && !ghost_mask_accepts(ShelfDrag::Starter(normal)));
+    assert_eq!(drop_label(ShelfDrag::Starter(grunge), false, Some("Rust"), true), "Use this image in the mask of \"Rust\"");
+    assert_eq!(drop_label(ShelfDrag::Texture(0), false, Some("Rust"), true), "Use this image in the mask of \"Rust\"");
+
+    s.run(vec![subcraft_app::Command::AddLayer(subcraft_app::NewLayer::Fill)], 0.0);
+    let layer = s.session.selection().layer.unwrap();
+    let images = |s: &UiState| s.session.selected_texture_set().find(layer).unwrap().mask.as_ref().map_or(0, |m| m.effects.iter().filter(|e| matches!(e.kind, MaskEffectKind::Image { .. })).count());
+    apply_ghost_mask_drop(&mut s, layer, ShelfDrag::Starter(normal), 0.0);
+    assert_eq!(images(&s), 0, "a normal map is refused");
+    apply_ghost_mask_drop(&mut s, layer, ShelfDrag::Starter(grunge), 0.0);
+    assert_eq!(images(&s), 1, "the grunge is an image effect of the new mask");
+    // Dropped again (as on the mask's thumbnail): a second effect, and the same stored image.
+    let resources = s.session.resources().iter().count();
+    apply_ghost_mask_drop(&mut s, layer, ShelfDrag::Starter(grunge), 0.0);
+    assert_eq!(images(&s), 2);
+    assert_eq!(s.session.resources().iter().count(), resources, "the image is stored once");
+}

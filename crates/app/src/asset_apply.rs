@@ -50,7 +50,9 @@ impl Destination {
         }
         if let Some(channel)=self.brush_channel { return session.set_brush_channel_bitmap(channel,name,bitmap); }
         let ts=session.document().texture_set(self.selection.texture_set).ok_or("Texture set no longer exists")?;
-        let channel=if kind==Kind::Normal {ChannelKind::Normal} else {match subcraft_assets::texture_maps::classify(name) {subcraft_assets::texture_maps::Classified::Map(m)=>m.channel,_=>ChannelKind::BaseColor}};
+        // A plain texture (a grunge) dropped on a channel row goes into that channel, whatever its name.
+        let dropped=self.channel.map(|(_,ch)|ch).filter(|ch|kind==Kind::Texture&&!matches!(ch,ChannelKind::Normal|ChannelKind::CoatNormal));
+        let channel=if let Some(ch)=dropped {ch} else if kind==Kind::Normal {ChannelKind::Normal} else {match subcraft_assets::texture_maps::classify(name) {subcraft_assets::texture_maps::Classified::Map(m)=>m.channel,_=>ChannelKind::BaseColor}};
         if !ts.has_channel(channel) { return Err("Texture set does not contain that channel".into()); }
         if let Some((id,ch))=self.channel {
             if ch!=channel { return Err(format!("Drop this image on {}",channel.display_name())); }
