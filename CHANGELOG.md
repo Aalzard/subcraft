@@ -5,6 +5,9 @@ What changed in SubCraft, newest first. Download the latest build from the
 
 ## Unreleased
 
+### Added
+- Fill layers: drag an alpha from the Assets panel onto a channel row (Roughness, Height, Base Color and the others, not normal maps) to use its picture as that channel's image, as textures already could (issue #591).
+
 ## 0.4.3 - 2026-11-16
 
 ### Highlights
