@@ -248,6 +248,20 @@ fn fill_channel_image_adjust_is_written_only_when_set() {
 }
 
 #[test]
+fn image_mask_balance_and_contrast_are_written_only_when_set() {
+    use crate::schema::MaskEffectKindV1;
+    let image = |balance, contrast| MaskEffectKindV1::Image { resource: uuid::Uuid::nil(), projection: subcraft_doc::Projection::default(), invert: false, balance, contrast };
+    // Neutral: neither field is written, and a file without them reads as neutral.
+    let neutral = serde_json::to_string(&image(0.5, 0.0)).unwrap();
+    assert!(!neutral.contains("balance") && !neutral.contains("contrast"), "{neutral}");
+    assert_eq!(serde_json::from_str::<MaskEffectKindV1>(&neutral).unwrap(), image(0.5, 0.0));
+    // Set: written and read back.
+    let text = serde_json::to_string(&image(0.3, 0.6)).unwrap();
+    assert!(text.contains(r#""balance":0.3"#) && text.contains(r#""contrast":0.6"#), "{text}");
+    assert_eq!(serde_json::from_str::<MaskEffectKindV1>(&text).unwrap(), image(0.3, 0.6));
+}
+
+#[test]
 fn baked_mesh_maps_roundtrip() {
     let doc = rich_document();
     let mut maps = MeshMapSet::new();
@@ -481,7 +495,7 @@ fn image_mask_effect_keeps_its_image() {
     let mut mask = Mask::new(128, false);
     let mut projection = Projection::default();
     projection.scale = [3.0, 3.0];
-    mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Image { resource: id, projection, invert: true })));
+    mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Image { resource: id, projection, invert: true, balance: 0.3, contrast: 0.6 })));
     layer.mask = Some(mask);
     ts.insert_above(None, layer);
     let doc = Document { texture_sets: vec![ts] };

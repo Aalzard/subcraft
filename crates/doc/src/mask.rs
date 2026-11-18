@@ -1443,8 +1443,9 @@ pub enum MaskEffectKind {
     Filter(crate::Filter),
     Invert,
     /// Grayscale from an imported image through a projection: the image's alpha if it has one
-    /// (a logo on a transparent background), else its brightness.
-    Image { resource: subcraft_core::ResourceId, projection: Projection, invert: bool },
+    /// (a logo on a transparent background), else its brightness. The brightness goes through
+    /// Balance / Contrast ([`balance_contrast`]; 0.5 and 0 change nothing), then Invert.
+    Image { resource: subcraft_core::ResourceId, projection: Projection, invert: bool, balance: f32, contrast: f32 },
     /// Selection by baked ID map color (ADR-0041). Without a baked ID map it is black.
     IdColor(IdColorMask),
     /// Painter's Compare Mask: compares two operands (layers below, this layer, this mask or a

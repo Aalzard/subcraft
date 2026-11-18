@@ -562,7 +562,9 @@ fn eval_edge_spread(g: &Generator, spread: subcraft_doc::EdgeSpread, tc: &TileCo
 /// Image mask effect. With alpha: value 1 (0 inverted) with coverage = alpha, so a logo on a
 /// transparent background stamps onto the mask. Without alpha: value = Rec.709 luminance of the
 /// raw (not color-transformed) pixels. A missing resource contributes nothing.
-fn eval_image(resource: subcraft_core::ResourceId, projection: &Projection, invert: bool, tc: &TileContext, e: &mut [[f32; 4]]) {
+fn eval_image(resource: subcraft_core::ResourceId, projection: &Projection, invert: bool, (balance, contrast): (f32, f32), tc: &TileContext, e: &mut [[f32; 4]]) {
+    // Balance 0.5 / Contrast 0 is the identity; skipping it keeps older masks bit-exact.
+    let remap = balance != 0.5 || contrast != 0.0;
     let Some(bmp) = tc.sample.resources.bitmap(resource) else {
         e.fill([0.0; 4]);
         return;
@@ -581,6 +583,7 @@ fn eval_image(resource: subcraft_core::ResourceId, projection: &Projection, inve
         // without alpha takes it here.
         let c = cover.as_ref().map_or(1.0, |c| c[i]);
         let (v, a) = if has_alpha { (1.0, s[3]) } else { (0.2126 * s[0] + 0.7152 * s[1] + 0.0722 * s[2], c) };
+        let v = if remap { subcraft_doc::mask::balance_contrast(v.clamp(0.0, 1.0), balance, contrast) } else { v };
         *o = [if invert { 1.0 - v } else { v }, a.clamp(0.0, 1.0), 0.0, 0.0];
     }
 }
@@ -652,7 +655,7 @@ pub(crate) fn evaluate_effect(kind: &MaskEffectKind, tc: &TileContext, m: &[f32]
                     *o = [1.0 - v, 1.0, 0.0, 0.0];
                 }
             }
-            MaskEffectKind::Image { resource, projection, invert } => eval_image(*resource, projection, *invert, tc, e),
+            MaskEffectKind::Image { resource, projection, invert, balance, contrast } => eval_image(*resource, projection, *invert, (*balance, *contrast), tc, e),
             MaskEffectKind::IdColor(id) => eval_id_color(id, tc, e),
             // Without the layer stack (local previews), the layers read as 0.
             MaskEffectKind::Compare(c) => eval_compare(c, m, None, None, e),
