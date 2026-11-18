@@ -534,7 +534,7 @@ fn fill_channels(session: &mut Session, ts: TextureSetId, chs: &Map<String, Valu
                     Some(p) => FillSource::Bitmap { resource: session.import_image(&p)? },
                     None => source.unwrap_or_else(|| FillSource::uniform(k.default_paint_value())),
                 };
-                out.insert(k, FillChannel { enabled, source, strength: strength.unwrap_or(1.0) });
+                out.insert(k, FillChannel { enabled, strength: strength.unwrap_or(1.0), ..FillChannel::new(source) });
             }
         }
     }

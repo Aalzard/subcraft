@@ -378,3 +378,80 @@ fn a_texture_dropped_on_the_model_fills_the_channel_picked_from_the_menu() {
         assert_eq!(s.selected_texture_set().layers.len(), layers + 1);
     }
 }
+
+/// Set the Roughness channel of the selected fill layer to `res` with `adjust`, and recomposite.
+fn set_roughness_adjust(s: &mut Session, res: subcraft_core::ResourceId, adjust: subcraft_doc::ImageAdjust) {
+    let layer = s.selected_layer().unwrap().id;
+    let fill = FillChannel { adjust, ..FillChannel::new(FillSource::Bitmap { resource: res }) };
+    s.execute(Command::SetFillChannel { layer, channel: ChannelKind::Roughness, fill }).unwrap();
+    s.update_composites();
+}
+
+#[test]
+fn image_fill_balance_contrast_and_invert_remap_the_image() {
+    use subcraft_doc::ImageAdjust;
+    let dir = temp_dir("adjust");
+    let path = dir.join("halves.png");
+    write_halves(&path, 64, 192, FileFormat::Png8);
+    let (mut s, res) = session_with_image_fill(&path);
+    let (a, b) = (64.0 / 255.0, 192.0 / 255.0);
+    let tol = 2e-3; // f16 storage
+    let rough = |s: &Session| (texel(s, ChannelKind::Roughness, 0.1, 0.25), texel(s, ChannelKind::Roughness, 0.9, 0.25));
+
+    // Neutral settings leave the image exactly as it was.
+    let before = rough(&s);
+    set_roughness_adjust(&mut s, res, ImageAdjust::default());
+    assert_eq!(rough(&s), before, "the default changes nothing");
+
+    // Invert alone: 1 - value.
+    set_roughness_adjust(&mut s, res, ImageAdjust { invert: true, ..ImageAdjust::default() });
+    let (l, r) = rough(&s);
+    assert!((l - (1.0 - a)).abs() < tol && (r - (1.0 - b)).abs() < tol, "inverted: {l} {r}");
+
+    // Contrast 0.5 around the middle: a ramp 0.5 wide centred on 0.5, so 0.25 -> 0 and 0.75 -> 1
+    // (clamped beyond those).
+    set_roughness_adjust(&mut s, res, ImageAdjust { contrast: 0.5, ..ImageAdjust::default() });
+    let (l, r) = rough(&s);
+    let ramp = |v: f32| ((v - 0.25) / 0.5).clamp(0.0, 1.0);
+    assert!(((l - ramp(a)).abs() < tol) && ((r - ramp(b)).abs() < tol), "contrast: {l} {r}");
+    // A gentler contrast keeps both halves inside the ramp: 0.2 -> a ramp 0.8 wide from 0.1.
+    set_roughness_adjust(&mut s, res, ImageAdjust { contrast: 0.2, ..ImageAdjust::default() });
+    let (l, r) = rough(&s);
+    assert!(((l - (a - 0.1) / 0.8).abs() < tol) && ((r - (b - 0.1) / 0.8).abs() < tol), "contrast 0.2: {l} {r}");
+
+    // Full contrast is a threshold at 1 - balance; a higher balance turns more of the image white.
+    set_roughness_adjust(&mut s, res, ImageAdjust { contrast: 1.0, ..ImageAdjust::default() });
+    assert_eq!(rough(&s), (0.0, 1.0), "threshold at 0.5");
+    set_roughness_adjust(&mut s, res, ImageAdjust { balance: 0.9, contrast: 1.0, invert: false });
+    assert_eq!(rough(&s), (1.0, 1.0), "balance 0.9: threshold at 0.1");
+
+    // The other channel of the same layer keeps its own (neutral) settings.
+    assert!((texel(&s, ChannelKind::BaseColor, 0.1, 0.25) - srgb_to_linear(a)).abs() < tol, "base color untouched");
+
+    // Saved with the project (undo is the channel edit's own, see `choosing_an_image_is_undoable`).
+    let project = dir.join("adjust.subcraft");
+    s.save(Some(&project)).unwrap();
+    let mut reopened = Session::open_project(&project).unwrap();
+    reopened.update_composites();
+    let LayerContent::Fill(f) = &reopened.selected_layer().unwrap().content else { panic!("fill layer") };
+    assert_eq!(f.channels[&ChannelKind::Roughness].adjust, ImageAdjust { balance: 0.9, contrast: 1.0, invert: false });
+    assert_eq!(f.channels[&ChannelKind::BaseColor].adjust, ImageAdjust::default());
+    assert_eq!(rough(&reopened), (1.0, 1.0), "same composite after reopen");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn image_adjust_leaves_normal_maps_and_other_sources_alone() {
+    use subcraft_doc::ImageAdjust;
+    let strong = ImageAdjust { balance: 0.9, contrast: 1.0, invert: true };
+    let res = subcraft_core::ResourceId::new();
+    let image = FillSource::Bitmap { resource: res };
+    assert!(strong.applies(ChannelKind::Roughness, &image));
+    assert!(strong.applies(ChannelKind::BaseColor, &image));
+    assert!(!strong.applies(ChannelKind::Normal, &image), "a normal map is never remapped");
+    assert!(!strong.applies(ChannelKind::Roughness, &FillSource::uniform(subcraft_core::ChannelValue::scalar(0.5))), "image sources only");
+    assert!(!ImageAdjust::default().applies(ChannelKind::Roughness, &image), "neutral settings skip the pass");
+    // Values outside 0..=1 are clamped first, and the remap is the mask generators' own.
+    assert_eq!(ImageAdjust::default().apply(1.5), 1.0);
+    assert_eq!(ImageAdjust { invert: true, ..ImageAdjust::default() }.apply(0.25), 0.75);
+}
