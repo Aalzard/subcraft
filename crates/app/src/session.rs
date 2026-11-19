@@ -1396,6 +1396,49 @@ impl Session {
                 Command::DeleteLayer(layer) if self.has_udim_partners(layer) => {
                     return self.execute_across_udims(layer, cmd, Command::DeleteLayer);
                 }
+                // Every way a layer is added (pack materials, textures, filters, imports, pasted
+                // layers built elsewhere) ends in one of these, so it reaches every tile. A layer
+                // on one tile only shows in that tile's list, yet still renders, and a drop on the
+                // model switches the list to the tile under the cursor (issue #581 follow-up).
+                // A layer that already holds painted texels (a pasted paint layer, a path or text
+                // drawn on this tile) stays here: its pixels belong to this tile's UVs.
+                Command::InsertLayer { ref layer, .. } | Command::InsertLayerWithChannels { ref layer, .. }
+                    if !holds_texels(layer) && !self.doc.udim_paint_partners(self.selection.texture_set).is_empty() =>
+                {
+                    let mut first = true;
+                    return self.across_udim_tiles(move |s| {
+                        let mut cmd = cmd.clone();
+                        if !std::mem::take(&mut first) {
+                            let (Command::InsertLayer { layer, .. } | Command::InsertLayerWithChannels { layer, .. }) = &mut cmd else { unreachable!("matched above") };
+                            **layer = layer.duplicate_with_new_ids();
+                        }
+                        s.execute(cmd)
+                    });
+                }
+                Command::DuplicateLayer(layer) if self.has_udim_partners(layer) => {
+                    return self.execute_across_udims(layer, cmd, Command::DuplicateLayer);
+                }
+                Command::SetVisible { layer, visible } if self.has_udim_partners(layer) => {
+                    return self.execute_across_udims(layer, cmd, move |l| Command::SetVisible { layer: l, visible });
+                }
+                Command::AddMask { layer, white } if self.has_udim_partners(layer) => {
+                    return self.execute_across_udims(layer, cmd, move |l| Command::AddMask { layer: l, white });
+                }
+                // Ctrl-drop on one part of the model: the other tiles' copies take the same part
+                // filter, so they stay empty there instead of covering the whole tile.
+                Command::SetParts { layer, ref parts } if self.has_udim_partners(layer) => {
+                    let parts = parts.clone();
+                    return self.execute_across_udims(layer, cmd, move |l| Command::SetParts { layer: l, parts: parts.clone() });
+                }
+                Command::RemoveMask(layer) if self.has_udim_partners(layer) => {
+                    return self.execute_across_udims(layer, cmd, Command::RemoveMask);
+                }
+                Command::SetBlendMode { layer, channel, mode } if self.has_udim_partners(layer) => {
+                    return self.execute_across_udims(layer, cmd, move |l| Command::SetBlendMode { layer: l, channel, mode });
+                }
+                Command::SetBlendOpacity { layer, channel, opacity } if self.has_udim_partners(layer) => {
+                    return self.execute_across_udims(layer, cmd, move |l| Command::SetBlendOpacity { layer: l, channel, opacity });
+                }
                 _ => {}
             }
         }
@@ -4190,6 +4233,16 @@ fn same_composite_inputs(a: &TextureSet, b: &TextureSet) -> bool {
         && a.channels == b.channels
         && a.layers.len() == b.layers.len()
         && a.layers.iter().zip(&b.layers).all(|(x, y)| Arc::ptr_eq(x, y))
+}
+
+/// Whether a layer tree holds painted texels (paint strokes or a painted mask), which belong to
+/// one texture set's UVs.
+fn holds_texels(layer: &Layer) -> bool {
+    let painted = match &layer.content {
+        subcraft_doc::LayerContent::Paint(p) => p.channels.values().any(|img| img.allocated_tiles() > 0),
+        _ => false,
+    };
+    painted || layer.mask.as_ref().is_some_and(|m| m.base.allocated_tiles() > 0) || layer.children().iter().any(|c| holds_texels(c))
 }
 
 /// Give every layer of a tree its blend entry for a channel the texture set just gained

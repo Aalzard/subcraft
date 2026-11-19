@@ -212,6 +212,70 @@ fn strokes_still_cross_after_a_material_went_onto_one_tile_only() {
     assert_eq!(names(&s, 1).last().unwrap(), "Details");
 }
 
+/// Issue #581, second follow-up: dragging materials onto the model left layers on one tile only.
+/// A drop selects the tile under the cursor, and the Layers panel shows that tile's stack, so a
+/// one-tile layer vanished from the list yet still rendered, survived "delete all", and came
+/// back when a later drop landed on the first tile. Every way of adding a layer now reaches
+/// every tile, and the layer's visibility, mask and blending follow along.
+#[test]
+fn every_way_of_adding_a_layer_reaches_every_tile() {
+    let mut s = session();
+    turn_on(&mut s);
+    let second = s.document().texture_sets[1].id;
+    let alike = |s: &Session| assert_eq!(names(s, 0), names(s, 1), "the stacks stay alike");
+
+    // An image dropped as a texture layer (the path pack materials and the Textures shelf take).
+    let dir = std::env::temp_dir().join(format!("subcraft-udim-drop-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let png = dir.join("scratches_roughness.png");
+    let (bytes, _) = subcraft_image::encode_bitmap(&subcraft_image::Bitmap::new_u8(2, 2, 4, [90, 90, 90, 255].repeat(4))).unwrap();
+    std::fs::write(&png, bytes).unwrap();
+    let before = s.history().entries().len();
+    s.add_texture_layer(&png).unwrap();
+    alike(&s);
+    assert_eq!(s.history().entries().len(), before + 1, "one undo step");
+    // Its quick-setup form, dropped on the other tile of the model.
+    s.execute(Command::SelectTextureSet(second)).unwrap();
+    s.add_texture_layer_in(&png, K::BaseColor).unwrap();
+    alike(&s);
+    assert_eq!(s.selection().texture_set, second, "the selection stays on the tile it was on");
+    // A filter layer.
+    s.add_filter_layer(subcraft_doc::Filter::ALL[0]).unwrap();
+    alike(&s);
+    // A layer id is never shared between tiles.
+    let ids = |set: usize| s.document().texture_sets[set].layers.iter().map(|l| l.id).collect::<Vec<_>>();
+    assert!(ids(0).iter().all(|id| !ids(1).contains(id)));
+
+    // Ctrl-drop's black mask, hiding, blending and duplicating reach the other tile's copy.
+    let top = s.selection().layer.unwrap();
+    s.execute(Command::AddMask { layer: top, white: false }).unwrap();
+    s.execute(Command::SetVisible { layer: top, visible: false }).unwrap();
+    s.execute(Command::SetBlendOpacity { layer: top, channel: K::BaseColor, opacity: 0.25 }).unwrap();
+    let first_top = s.document().texture_sets[0].layers.last().unwrap().clone();
+    assert!(first_top.mask.is_some() && !first_top.visible);
+    assert_eq!(first_top.blend.get(&K::BaseColor).map(|b| b.opacity), Some(0.25));
+    s.execute(Command::DuplicateLayer(top)).unwrap();
+    alike(&s);
+
+    // Deleting every layer from one tile's list leaves nothing behind on the other.
+    while let Some(l) = s.document().texture_sets[1].layers.last().map(|l| l.id) {
+        s.execute(Command::DeleteLayer(l)).unwrap();
+    }
+    assert!(names(&s, 0).is_empty(), "nothing left on the first tile: {:?}", names(&s, 0));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A layer that already holds painted texels belongs to its tile's UVs, so it is not copied.
+#[test]
+fn a_layer_with_painted_texels_stays_on_its_tile() {
+    let mut s = session();
+    turn_on(&mut s);
+    stroke_across(&mut s);
+    let painted = s.document().texture_sets[0].layers.last().unwrap().duplicate_with_new_ids();
+    s.execute(Command::InsertLayer { layer: Box::new(painted), label: "Paste".into() }).unwrap();
+    assert_eq!((names(&s, 0).len(), names(&s, 1).len()), (2, 1));
+}
+
 #[test]
 fn layers_with_the_same_name_pair_up_by_their_rank() {
     use subcraft_doc::{Layer, TextureSet};
