@@ -259,9 +259,9 @@ Layout notes: channel toggle buttons in Texture Set channel order with short low
 | Height uniform value | Properties > Material > Height | -1 to 1 | done | crates/ui/src/widgets.rs:56 | - |
 | Per-channel resource slot (bitmap, Substance, text, vector graphic) | Properties > Material > channel row | empty | partial: bitmap images only | crates/ui/src/panels/properties.rs:868 | - |
 | Click the slot to choose a resource from a mini asset browser | Properties > Material > channel row | n/a | partial: opens a file dialog | crates/ui/src/panels/properties.rs:221 | - |
-| Drag a texture from Assets onto a channel slot | Properties > Material > channel row | n/a | done | crates/ui/src/panels/properties.rs:299 | - |
+| Drag a texture or an alpha from Assets onto a channel slot | Properties > Material > channel row | n/a | done (alphas: every channel but the normal maps) | crates/ui/src/panels/properties.rs:299 | - |
 | Remove the resource from a slot (back to the uniform colour) | Properties > Material > channel row | n/a | partial: switch the source dropdown back to "Uniform" | crates/ui/src/panels/properties.rs:232 | - |
-| Per-slot Substance parameters (procedural / grunge in one channel) | Properties > Material > channel row | per resource | partial: built-in procedural patterns with Scale, Balance, Contrast, Seed, Low, High, Invert | crates/ui/src/panels/properties.rs:772 | - |
+| Per-slot Substance parameters (procedural / grunge in one channel) | Properties > Material > channel row | per resource | partial: built-in procedural patterns with Scale, Balance, Contrast, Seed, Low, High, Invert; bitmap images with Balance, Contrast, Invert (not normal maps) | crates/ui/src/panels/properties.rs:772 | - |
 | Bitmap colour space dropdown on a slot (sRGB / linear, normal DirectX / OpenGL) | Properties > Material > slot arrow | auto; normals DirectX | missing: colour space is fixed by channel type | - | - |
 | Baked mesh map used in a slot (for example baked AO or Normal in its channel) | Properties > Material > channel row | n/a | done | crates/ui/src/panels/properties.rs:789 | - |
 | Anchor point referenced from a slot | Properties > Material > slot | n/a | done | crates/ui/src/panels/properties.rs:240 | - |

@@ -34,7 +34,7 @@ Layout notes: A generator is an effect row under a layer (content stack) or unde
 | Effect opacity | Properties > Generator | 100; 0-100 (unverified) | done | crates/ui/src/panels/properties.rs:512 | - |
 | Generators category in the Assets panel | Assets panel | - | missing | - | - |
 | Drag a custom generator (.sbsar) onto the Assets panel to import it | Assets panel | - | missing | - | - |
-| Generator preview sphere thumbnails | Assets panel | - | missing | - | - |
+| Generator preview sphere thumbnails | Assets panel | - | done: rendered on a cube (edges and faces show more than a sphere); 3D Distance, Grayscale Conversion and Mesh Map: ID stay blank without an input | crates/ui/src/panels/shelf.rs | - |
 | Painter Generator graph template | Substance 3D Designer | - | n/a: Designer feature | - | - |
 
 ## 3D Distance

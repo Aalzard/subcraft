@@ -64,6 +64,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     let mut cmds = Vec::new();
     let mut texture_drop: Option<(ChannelKind, std::path::PathBuf)> = None;
     let mut starter_drop = None;
+    let mut alpha_drop = None;
     let id = layer.id;
     let channels = state.session.channels();
     let part_kind = layer.parts.as_ref().map_or(subcraft_core::PartKind::Connected, |p| p.kind);
@@ -347,7 +348,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     }
                     });
                     // Drag a texture from Shelf → Textures onto this row to use it here.
-                    let is_texture = |d: &crate::panels::shelf::ShelfDrag| matches!(d, crate::panels::shelf::ShelfDrag::Texture(_)|crate::panels::shelf::ShelfDrag::Starter(_));
+                    let is_texture = |d: &crate::panels::shelf::ShelfDrag| matches!(d, crate::panels::shelf::ShelfDrag::Texture(_)|crate::panels::shelf::ShelfDrag::Starter(_)) || (matches!(d, crate::panels::shelf::ShelfDrag::Alpha(_)) && !matches!(kind, ChannelKind::Normal | ChannelKind::CoatNormal));
                     if row.response.dnd_hover_payload::<crate::panels::shelf::ShelfDrag>().is_some_and(|d| is_texture(&d)) {
                         ui.painter().rect_stroke(row.response.rect, 0.0, egui::Stroke::new(1.5, ACCENT()), egui::StrokeKind::Inside);
                     }
@@ -364,6 +365,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         match *d {
                             crate::panels::shelf::ShelfDrag::Texture(i)=>if let Some(path)=state.textures.items.get(i).map(|t|t.path.clone()) {texture_drop=Some((*kind,path));},
                             crate::panels::shelf::ShelfDrag::Starter(i)=>starter_drop=Some((i,*kind)),
+                            // An alpha from the Shelf: its picture becomes this channel's image.
+                            crate::panels::shelf::ShelfDrag::Alpha(i)=>alpha_drop=Some((i,*kind)),
                             _=>{},
                         }
                     }
@@ -459,6 +462,14 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     }
     state.run(cmds, now);
     if let Some((i,channel))=starter_drop {state.asset_preview.queue(&state.session,i,Some((id,channel)));}
+    if let Some((i, channel)) = alpha_drop
+        && let Some(alpha) = state.library.alphas.get(i).cloned()
+    {
+        match state.session.set_fill_channel_alpha(id, channel, &alpha) {
+            Ok(()) => state.set_status(format!("{} now uses {}", channel.display_name(), alpha.name), now),
+            Err(e) => state.set_status(format!("Alpha: {e}"), now),
+        }
+    }
     if let Some((channel, path)) = texture_drop {
         match state.session.set_fill_channel_image(id, channel, &path) {
             Ok(()) => state.set_status(
@@ -1130,10 +1141,12 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
                     }
                     hint(ui, tr("Filters the mask below this effect; opacity mixes the result with that input."));
                 }
-                MaskEffectKind::Image { resource, projection, invert } => {
+                MaskEffectKind::Image { resource, projection, invert, balance, contrast } => {
                     if image_row(ui, state, *resource) {
                         crate::files::pick(ui.ctx(), crate::files::Purpose::MaskImage { layer, effect: e.id }, crate::files::IMAGES, false, None);
                     }
+                    changed |= slider_row(ui, tr("Balance"), egui::Slider::new(balance, 0.0..=1.0)).changed();
+                    changed |= slider_row(ui, tr("Contrast"), egui::Slider::new(contrast, 0.0..=1.0)).changed();
                     prop_row(ui, "", |ui| changed |= ui.checkbox(invert, tr("Invert")).changed());
                     changed |= projection_editor(ui, projection);
                     changed |= projection_options(ui, projection);
@@ -1480,6 +1493,12 @@ pub(crate) fn source_controls(ui: &mut Ui, state: &mut UiState, kind: ChannelKin
                 } else {
                     "Data image: used as-is (no color conversion). Tiling and rotation are under Projection."
                 });
+                // The same remap a procedural source has. A normal map is left as it is.
+                if !matches!(kind, ChannelKind::Normal | ChannelKind::CoatNormal) {
+                    changed |= slider_row(ui, tr("Balance"), egui::Slider::new(&mut ch.adjust.balance, 0.0..=1.0)).changed();
+                    changed |= slider_row(ui, tr("Contrast"), egui::Slider::new(&mut ch.adjust.contrast, 0.0..=1.0)).changed();
+                    prop_row(ui, "", |ui| changed |= ui.checkbox(&mut ch.adjust.invert, tr("Invert")).changed());
+                }
             }
         }
     }

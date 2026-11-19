@@ -112,8 +112,8 @@ impl Writer {
                 MaskEffectKind::Levels(l) => MaskEffectKindV1::Levels { levels: *l },
                 MaskEffectKind::Filter(filter) => MaskEffectKindV1::Filter { filter: *filter },
                 MaskEffectKind::Invert => MaskEffectKindV1::Invert,
-                MaskEffectKind::Image { resource, projection, invert } => {
-                    MaskEffectKindV1::Image { resource: resource.0, projection: *projection, invert: *invert }
+                MaskEffectKind::Image { resource, projection, invert, balance, contrast } => {
+                    MaskEffectKindV1::Image { resource: resource.0, projection: *projection, invert: *invert, balance: *balance, contrast: *contrast }
                 }
                 MaskEffectKind::IdColor(id) => MaskEffectKindV1::IdColor { id_color: id.clone() },
                 MaskEffectKind::Anchor => MaskEffectKindV1::Anchor,
@@ -183,13 +183,13 @@ fn blends(blend: &BTreeMap<subcraft_core::ChannelKind, ChannelBlend>) -> Vec<Ble
 }
 
 fn fill_channels(f: &FillContent) -> Vec<FillChannelV1> {
-    f.channels.iter().map(|(&channel, c)| FillChannelV1 { channel, enabled: c.enabled, source: c.source.clone(), strength: c.strength }).collect()
+    f.channels.iter().map(|(&channel, c)| FillChannelV1 { channel, enabled: c.enabled, source: c.source.clone(), strength: c.strength, adjust: c.adjust }).collect()
 }
 
 fn read_fill(projection: Projection, channels: &[FillChannelV1]) -> FillContent {
     FillContent {
         projection,
-        channels: channels.iter().map(|c| (c.channel, FillChannel { enabled: c.enabled, source: c.source.clone(), strength: c.strength })).collect(),
+        channels: channels.iter().map(|c| (c.channel, FillChannel { enabled: c.enabled, source: c.source.clone(), strength: c.strength, adjust: c.adjust })).collect(),
     }
 }
 
@@ -565,9 +565,10 @@ impl<R: Read + Seek> Loader<'_, R> {
                 MaskEffectKind::Filter(*filter)
             }
             MaskEffectKindV1::Invert => MaskEffectKind::Invert,
-            MaskEffectKindV1::Image { resource, projection, invert } => {
+            MaskEffectKindV1::Image { resource, projection, invert, balance, contrast } => {
                 self.check_projection(projection)?;
-                MaskEffectKind::Image { resource: ResourceId(*resource), projection: *projection, invert: *invert }
+                if !(0.0..=1.0).contains(balance) || !(0.0..=1.0).contains(contrast) { return Err(ProjectError::Invalid("invalid image mask balance / contrast".into())); }
+                MaskEffectKind::Image { resource: ResourceId(*resource), projection: *projection, invert: *invert, balance: *balance, contrast: *contrast }
             }
             MaskEffectKindV1::IdColor { id_color } => {
                 if !id_color.valid() { return Err(ProjectError::Invalid("invalid ID color mask".into())); }

@@ -6,10 +6,8 @@ What changed in SubCraft, newest first. Download the latest build from the
 ## Unreleased
 
 ### Added
-- Assets panel: a Grunges category under Textures with the built-in Dirt Grunge map (the one the Dirt and Edge wear generators break up with). Drag it onto a mask, a channel row of a fill layer, the model or a layer (issue #591).
-
-### Changed
-- A texture dropped on a layer's mask thumbnail now goes into that mask as an image effect. It used to go into the active channel of the fill layer, which is what dropping it on a channel row does.
+- Fill layers: Balance, Contrast and Invert on an image used in a channel (Roughness, Base Color, Height and the others, not normal maps), the same controls a procedural pattern has. They are saved with the project and change nothing at their defaults (issue #591).
+- Masks: Balance and Contrast on the Image effect, next to Invert, so a grunge or alpha image can be tightened or thresholded without adding a Levels effect (issue #591).
 
 ## 0.4.3 - 2026-11-16
 

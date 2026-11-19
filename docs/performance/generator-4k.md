@@ -135,7 +135,12 @@ The second Dirt run and the Edges / Directional pair ran while other sessions' c
 * Layers above the edited generator are still re-evaluated on every step (their masks are not
   cached); a per-layer mask cache (about 64 MB per masked layer at 4K) would bring a bottom-of-stack
   edit close to a top-of-stack one.
-* Mesh maps baked below the set resolution are resampled on every read (could be cached like
-  procedural fields).
+* Mesh maps baked below the set resolution are resampled on every read. Each read is now 7 to 9
+  times faster (2026-11-18, `materials::sample::mesh_maps::resample`: the map texels a tile needs
+  are read once into a window instead of four times per output texel, bit-identical). Release
+  build, one thread, reading every tile once: 4096 set / 1024 map 641 ms to 69 ms, 4096 / 2048
+  735 ms to 95 ms, 2048 / 1024 162 ms to 24 ms (`mesh_map_resampling_timing`, ignored test).
+  Caching the resampled tiles like procedural fields would remove the remaining cost.
 * Unrelated, seen in every app log: the viewport's `grid pipeline` fails wgpu validation every frame
-  (sample count 4 pipeline in a sample count 1 pass).
+  (sample count 4 pipeline in a sample count 1 pass). Since fixed: the grid has a 1-sample
+  pipeline it uses when the pass is not antialiased (`crates/render/src/grid.rs`).

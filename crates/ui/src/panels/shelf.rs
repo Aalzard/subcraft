@@ -200,7 +200,7 @@ fn starter_texture_resource(s: &mut UiState, index: usize) -> Result<subcraft_co
 pub fn apply_ghost_mask_drop(s: &mut UiState, layer: subcraft_core::LayerId, item: ShelfDrag, now: f64) {
     use subcraft_app::{Command, LayerTarget};
     use subcraft_doc::{MaskEffectKind, Projection};
-    let image = |resource| MaskEffectKind::Image { resource, projection: Projection::default(), invert: false };
+    let image = |resource| MaskEffectKind::Image { resource, projection: Projection::default(), invert: false, balance: 0.5, contrast: 0.0 };
     let result: Result<(), String> = match item {
         ShelfDrag::Alpha(i) => match s.library.alphas.get(i).cloned() {
             Some(a) => s.session.apply_alpha_to_mask(layer, &a).map_err(|e| e.to_string()),
@@ -249,7 +249,7 @@ pub fn apply_effect_drop(s: &mut UiState, drop: crate::panels::effects::ShelfEff
     use subcraft_app::{Command, LayerTarget};
     use subcraft_doc::{ContentEffectKind, MaskEffectKind, Projection};
     let crate::panels::effects::ShelfEffectDrop { layer, domain, above, item } = drop;
-    let image = |resource| MaskEffectKind::Image { resource, projection: Projection::default(), invert: false };
+    let image = |resource| MaskEffectKind::Image { resource, projection: Projection::default(), invert: false, balance: 0.5, contrast: 0.0 };
     let mask = domain == LayerTarget::Mask;
     let effects: Result<Vec<MaskEffectKind>, String> = match item {
         ShelfDrag::Filter(i) if !mask => {
@@ -482,6 +482,13 @@ enum SceneKind {
     Sphere,
     /// Sphere with baked mesh maps (smart materials and masks).
     BakedSphere,
+    /// Cube with every mesh map a generator reads (generator thumbnails).
+    GeneratorCube,
+}
+
+/// Thumbnail id of a Shelf generator: generators are built in, so the id comes from the name.
+pub(crate) fn generator_thumb_id(name: &str) -> AssetId {
+    AssetId::from_name(&format!("generator-thumbnail:{name}"))
 }
 
 pub struct ShelfUi {
@@ -510,6 +517,7 @@ pub struct ShelfUi {
     thumbs: HashMap<AssetId, egui::TextureHandle>,
     sphere: Option<Arc<PreviewScene>>,
     baked_sphere: Option<Arc<PreviewScene>>,
+    generator_cube: Option<Arc<PreviewScene>>,
     /// Thumbnail being composited on a worker thread (the composite is far longer than a frame).
     compositing: Option<Compositing>,
     renderer: Option<(ViewportRenderer, Option<SceneKind>)>,
@@ -554,6 +562,7 @@ impl Default for ShelfUi {
             want_environment_thumbs: false,
             sphere: None,
             baked_sphere: None,
+            generator_cube: None,
             compositing: None,
             renderer: None,
             pending: None,
@@ -1668,7 +1677,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         }
                         shown += 1;
                         let tip = if has_layer { "Click: add to the selected layer's mask (a black mask is created if it has none). Drag onto a layer, a mask or the model" } else { "Select a layer first, or drag onto a layer in the stack" };
-                        let resp = tile(ui, tile_size, None, &name, false, tip);
+                        let resp = tile(ui, tile_size, thumbs.get(&generator_thumb_id(&name)), &name, false, tip);
                         resp.dnd_set_drag_payload(ShelfDrag::Generator(i));
                         if resp.clicked() && has_layer {
                             action = Some(Box::new(move |s: &mut UiState| apply_shelf_item_with(s, ShelfDrag::Generator(i), false, now)));
@@ -2361,7 +2370,11 @@ pub(crate) fn generate_one_thumbnail(state: &mut UiState, ctx: &egui::Context) {
     }
     let job = thumbnail_tabs(&state.shelf).into_iter().find_map(|tab| match tab {
         // Texture thumbnails come from their own background loader.
-        ShelfTab::Textures | ShelfTab::NormalMaps | ShelfTab::Filters | ShelfTab::Generators => None,
+        ShelfTab::Textures | ShelfTab::NormalMaps | ShelfTab::Filters => None,
+        // A generator alone in a black mask, on the cube.
+        ShelfTab::Generators => crate::panels::layers::shelf_generators().into_iter().find(|(name, _)| missing(&generator_thumb_id(name))).map(|(name, kind)| {
+            Job::Layer(generator_thumb_id(&name), SceneKind::GeneratorCube, Box::new(move |ts| generator_preview_layer(ts, kind)), Vec::new())
+        }),
         // Brush presets show their tip's thumbnail.
         ShelfTab::Brushes | ShelfTab::Alphas => lib.alphas.iter().position(|a| missing(&a.id)).map(Job::Alpha),
         ShelfTab::Materials => lib.materials.iter().find(|m| missing(&m.id)).map(|m| {
@@ -2408,12 +2421,14 @@ pub(crate) fn generate_one_thumbnail(state: &mut UiState, ctx: &egui::Context) {
     let existing = match kind {
         SceneKind::Sphere => state.shelf.sphere.clone(),
         SceneKind::BakedSphere => state.shelf.baked_sphere.clone(),
+        SceneKind::GeneratorCube => state.shelf.generator_cube.clone(),
     };
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         let scene = existing.unwrap_or_else(|| Arc::new(match kind {
             SceneKind::Sphere => PreviewScene::sphere(),
             SceneKind::BakedSphere => PreviewScene::baked_sphere(),
+            SceneKind::GeneratorCube => PreviewScene::generator_cube(),
         }));
         let composite = match &layer_fn {
             Some(f) => scene.composite_with(f(scene.texture_set()), &images),
@@ -2443,6 +2458,7 @@ fn render_composited(state: &mut UiState, ctx: &egui::Context, rs: &subcraft_ren
     match kind {
         SceneKind::Sphere => state.shelf.sphere = Some(scene.clone()),
         SceneKind::BakedSphere => state.shelf.baked_sphere = Some(scene.clone()),
+        SceneKind::GeneratorCube => state.shelf.generator_cube = Some(scene.clone()),
     }
     let mesh = scene.mesh.clone();
     let (renderer, current) = state.shelf.renderer.get_or_insert_with(|| (ViewportRenderer::new(&rs.device, &rs.queue), None));
@@ -2455,7 +2471,8 @@ fn render_composited(state: &mut UiState, ctx: &egui::Context, rs: &subcraft_ren
             renderer.upload_channel(&rs.device, &rs.queue, 0, k, img, None);
         }
     }
-    let eye = Vec3::new(0.0, 0.3, 3.4);
+    // The cube is seen from a corner, so three faces and their edges show.
+    let eye = if kind == SceneKind::GeneratorCube { Vec3::new(2.3, 1.9, 2.6) } else { Vec3::new(0.0, 0.3, 3.4) };
     let view = Mat4::look_at_rh(eye, Vec3::ZERO, Vec3::Y);
     let mut params = ViewParams::new(view, Mat4::perspective_rh(38f32.to_radians(), 1.0, 0.1, 50.0));
     params.background = [0.035, 0.036, 0.04];
@@ -2488,6 +2505,11 @@ fn mask_preview_layer(ts: &subcraft_doc::TextureSet, effects: &[subcraft_doc::Ma
     mask.effects = effects.iter().cloned().map(|k| Arc::new(MaskEffect::new(k))).collect();
     l.mask = Some(mask);
     l
+}
+
+/// A generator alone in a black mask over a plain colour (for generator thumbnails).
+fn generator_preview_layer(ts: &subcraft_doc::TextureSet, kind: subcraft_doc::GeneratorKind) -> Layer {
+    mask_preview_layer(ts, &[subcraft_doc::MaskEffectKind::Generator(subcraft_doc::Generator::new(kind))])
 }
 
 /// "Open library folder" (creates it on first use so the user can drop files in).

@@ -207,10 +207,26 @@ pub struct FillChannelV1 {
     /// Added after schema 2 shipped; older files have none and mean 1.0. Older readers ignore it.
     #[serde(default = "one")]
     pub strength: f32,
+    /// Balance / Contrast / Invert of an image source. Not written while neutral, so files
+    /// without it stay byte-identical; older readers ignore it.
+    #[serde(default, skip_serializing_if = "subcraft_doc::ImageAdjust::is_identity")]
+    pub adjust: subcraft_doc::ImageAdjust,
 }
 
 fn one() -> f32 {
     1.0
+}
+
+fn half() -> f32 {
+    0.5
+}
+
+fn is_half(v: &f32) -> bool {
+    *v == 0.5
+}
+
+fn is_zero(v: &f32) -> bool {
+    *v == 0.0
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -306,7 +322,17 @@ pub enum MaskEffectKindV1 {
     Filter { filter: subcraft_doc::Filter },
     Invert,
     /// Schema 2.
-    Image { resource: Uuid, projection: Projection, invert: bool },
+    Image {
+        resource: Uuid,
+        projection: Projection,
+        invert: bool,
+        /// Balance / Contrast of the image's brightness. Not written while neutral (0.5 / 0),
+        /// so files without them are unchanged; older readers ignore them.
+        #[serde(default = "half", skip_serializing_if = "is_half")]
+        balance: f32,
+        #[serde(default, skip_serializing_if = "is_zero")]
+        contrast: f32,
+    },
     /// Schema 15 (ADR-0041).
     IdColor { id_color: subcraft_doc::IdColorMask },
     /// Schema 17 (ADR-0045): anchor point in a mask stack.

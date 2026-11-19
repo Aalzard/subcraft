@@ -267,3 +267,41 @@ fn the_built_in_grunge_is_a_texture_under_grunges_and_goes_into_masks() {
     assert_eq!(images(&s), 2);
     assert_eq!(s.session.resources().iter().count(), resources, "the image is stored once");
 }
+
+/// Share of the preview's texels a generator reveals (its layer shows through the mask).
+fn generator_coverage(scene: &PreviewScene, kind: subcraft_doc::GeneratorKind) -> f32 {
+    let hidden = scene.composite(mask_preview_layer(scene.texture_set(), &[]));
+    let shown = scene.composite(generator_preview_layer(scene.texture_set(), kind));
+    let (a, b) = (hidden.channel(ChannelKind::BaseColor).unwrap(), shown.channel(ChannelKind::BaseColor).unwrap());
+    let n = a.width();
+    let mut changed = 0u32;
+    for y in 0..n {
+        for x in 0..n {
+            if a.get(x, y) != b.get(x, y) {
+                changed += 1;
+            }
+        }
+    }
+    changed as f32 / (n * n) as f32
+}
+
+#[test]
+fn every_shelf_generator_has_its_own_thumbnail_and_the_cube_gives_it_something_to_show() {
+    let generators = crate::panels::layers::shelf_generators();
+    let ids: std::collections::HashSet<AssetId> = generators.iter().map(|(name, _)| generator_thumb_id(name)).collect();
+    assert_eq!(ids.len(), generators.len(), "one thumbnail id per generator");
+    let scene = PreviewScene::generator_cube();
+    let coverage: Vec<(String, f32)> = generators.into_iter().map(|(name, kind)| (name, generator_coverage(&scene, kind))).collect();
+    let of = |name: &str| coverage.iter().find(|(n, _)| n == name).unwrap_or_else(|| panic!("generator {name}")).1;
+    // Edge wear follows the cube's edges, so it shows on part of the surface only.
+    assert!((0.05..0.9).contains(&of("Edges")), "edges: {}", of("Edges"));
+    assert!((0.05..0.95).contains(&of("Position Gradient")), "position gradient: {}", of("Position Gradient"));
+    // The maps a generator reads from the mesh alone are baked for the preview.
+    for map in ["Mesh Map: Ambient Occlusion", "Mesh Map: Curvature", "Mesh Map: World Space Normal", "Mesh Map: Position", "Mesh Map: Thickness"] {
+        assert!(of(map) > 0.5, "{map}: {}", of(map));
+    }
+    // A few have nothing to show without an input of their own (a picked point, a layer below,
+    // an ID map); every other tile is a real preview.
+    let blank: Vec<&str> = coverage.iter().filter(|(_, c)| *c == 0.0).map(|(n, _)| n.as_str()).collect();
+    assert_eq!(blank, ["3D Distance", "Grayscale Conversion", "Mesh Map: ID"], "{coverage:?}");
+}
