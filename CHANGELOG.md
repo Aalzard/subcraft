@@ -5,6 +5,8 @@ What changed in SubCraft, newest first. Download the latest build from the
 
 ## Unreleased
 
+## 0.4.5 - 2026-11-19
+
 ### Added
 - Reimport mesh: Reassign Texture Sets. Project configuration lists every material of the reimported model with a Texture set choice, so a material renamed in the modelling program can continue its old texture set (layers, baked maps) instead of starting empty while the old set is kept without geometry. Choosing a set that another material had makes that one a new set, and the UV comparison and the suggested Preserve strokes setting follow the choice.
 - Layers: a Search layers field under Channel filters the stack by layer name (any case). Matching layers show with the folders around them, opened even when collapsed; a folder whose name matches shows its whole content. Esc or the x clears it, and each texture set keeps its own search.
