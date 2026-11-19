@@ -458,6 +458,8 @@ Files: {}", ex.dir().display()));
     let ts = state.session.selected_texture_set();
     let mut save_request: Option<(subcraft_core::LayerId, bool)> = None;
     let mut drop_request: Option<(subcraft_core::LayerId, ShelfDrag, bool)> = None;
+    // An image dropped on a mask thumbnail: it becomes an image effect of that mask.
+    let mut mask_image_drop: Option<(subcraft_core::LayerId, ShelfDrag)> = None;
     // A Shelf item dropped on a mask-less row's ghost mask slot.
     let mut ghost_drop: Option<(subcraft_core::LayerId, ShelfDrag)> = None;
     let dragging_shelf = egui::DragAndDrop::payload::<ShelfDrag>(ui.ctx()).map(|p| *p);
@@ -561,7 +563,11 @@ Files: {}", ex.dir().display()));
                         && let Some(item) = thumb.dnd_release_payload::<ShelfDrag>() {
                         // On a mask everything applies in place; a smart mask keeps Alt's own meaning
                         // (replace the mask's effects).
-                        drop_request = Some((l.id, *item, alt || !matches!(*item, ShelfDrag::SmartMask(_))));
+                        if matches!(*item, ShelfDrag::Texture(_)) || shelf::is_starter_texture(*item) {
+                            mask_image_drop = Some((l.id, *item));
+                        } else {
+                            drop_request = Some((l.id, *item, alt || !matches!(*item, ShelfDrag::SmartMask(_))));
+                        }
                     }
                     if !mask.enabled { ui.painter().line_segment([thumb.rect.left_bottom(), thumb.rect.right_top()], egui::Stroke::new(1.5, theme::WARNING())); }
                     effect_line(ui, thumb.rect, !mask.effects.is_empty());
@@ -992,6 +998,9 @@ Files: {}", ex.dir().display()));
         drop_request = None;
         egui::DragAndDrop::clear_payload(ui.ctx());
         shelf::apply_effect_drop(state, drop, now);
+    }
+    if let Some((layer, item)) = mask_image_drop {
+        shelf::apply_ghost_mask_drop(state, layer, item, now);
     }
     if let Some((layer, item, alt)) = drop_request {
         if layer != LayerId::default() { state.run(vec![Command::SelectLayer(Some(layer))], now); }

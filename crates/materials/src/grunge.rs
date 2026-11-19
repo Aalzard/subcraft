@@ -13,7 +13,9 @@ use std::sync::LazyLock;
 use glam::{Vec2, Vec3};
 use subcraft_doc::ProceduralParams;
 
-const PNG: &[u8] = include_bytes!("../../../assets/grunge/dirt_grunge.png");
+/// The bundled map as an encoded PNG (also the Assets panel's "Dirt Grunge" texture). A `static`, so the
+/// executable holds one copy however many crates read it.
+pub static DIRT_GRUNGE_PNG: &[u8] = include_bytes!("../../../assets/grunge/dirt_grunge.png");
 
 struct Map {
     size: usize,
@@ -21,7 +23,7 @@ struct Map {
 }
 
 static MAP: LazyLock<Map> = LazyLock::new(|| {
-    let bmp = subcraft_image::io::decode_bitmap(PNG, Some("dirt_grunge.png")).expect("bundled grunge map decodes");
+    let bmp = subcraft_image::io::decode_bitmap(DIRT_GRUNGE_PNG, Some("dirt_grunge.png")).expect("bundled grunge map decodes");
     assert_eq!(bmp.width, bmp.height, "grunge map is square");
     let size = bmp.width as usize;
     let values = (0..size * size)

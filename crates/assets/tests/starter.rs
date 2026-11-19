@@ -5,15 +5,19 @@ use subcraft_image::{Bitmap,BitmapData};
 fn finish(b: Bitmap,k: Kind,s: Settings,side: u32,budget: usize)->Bitmap {let mut j=ImageJob::new(Arc::new(b),k,s,side).unwrap();j.step(0);assert_eq!(j.progress(),0.0);while !j.is_done(){j.step(budget);}j.finish().unwrap()}
 
 #[test]
-fn catalog_has_194_unique_small_thumbnails_and_lossless_full_size_pngs() {
-    assert_eq!(starter::ENTRIES.len(),194);let mut ids=BTreeSet::new();let mut normals=0;let mut small=0;let mut bytes=0;let mut thumbs=0;
+fn catalog_has_195_unique_small_thumbnails_and_lossless_full_size_pngs() {
+    assert_eq!(starter::ENTRIES.len(),195);let mut ids=BTreeSet::new();let mut normals=0;let mut small=0;let mut bytes=0;let mut thumbs=0;
     for (i,e) in starter::ENTRIES.iter().enumerate() {
         assert!(ids.insert(e.id()));let full=starter::encoded(i).unwrap();assert_eq!(e.bytes,full.len());bytes+=full.len();thumbs+=e.thumb.len();
         let b=subcraft_image::io::decode_bitmap(full,Some(e.file)).unwrap();if (b.width,b.height)==(512,512) {small+=1;assert_eq!(e.kind,Kind::Alpha);} else {assert_eq!((b.width,b.height),(1024,1024));}
         let t=subcraft_image::io::decode_bitmap(e.thumb,Some("thumb.png")).unwrap();assert_eq!((t.width,t.height),(96,96));
         if e.kind==Kind::Normal {normals+=1;assert_eq!(b.channels,3);assert!(e.tileable());}else{assert_eq!(b.channels,1);assert!(!e.tileable());}
     }
-    assert_eq!((normals,small),(110,4));assert_eq!(bytes,92_194_344);assert!(thumbs<1_600_000);assert!(starter::encoded(194).is_none());
+    // 194 is the Dirt Grunge texture: the map the generators use, not a second copy of it.
+    assert_eq!((normals,small),(110,4));assert_eq!(bytes,92_194_344+954_546);assert!(thumbs<1_640_000);assert!(starter::encoded(195).is_none());
+    let grunge=&starter::ENTRIES[194];assert_eq!((grunge.name,grunge.kind,grunge.folder()),("Dirt Grunge",Kind::Texture,starter::GRUNGES));
+    assert!(std::ptr::eq(starter::encoded(194).unwrap().as_ptr(),subcraft_materials::grunge::DIRT_GRUNGE_PNG.as_ptr()),"shared with the generators");
+    assert!(starter::ENTRIES.iter().filter(|e|e.kind!=Kind::Texture).all(|e|e.folder()=="Starter pack"));
 }
 #[test]
 fn neutral_normal_and_zero_strength_are_linear_unit_vectors() {
@@ -57,7 +61,7 @@ fn sample_stroke_and_lit_normal_preview_contain_image_detail() {
 fn imported_generator_batch_normals_read_as_tangent_space_data_and_alphas_as_gray_masks() {
     // Entries 160..190 are normal maps (flat areas are (0.5, 0.5, 1)); 190..194 are alpha brushes.
     let mut seen = 0;
-    for (i, e) in starter::ENTRIES.iter().enumerate().skip(160) {
+    for (i, e) in starter::ENTRIES.iter().enumerate().skip(160).take(34) {
         let b = subcraft_image::io::decode_bitmap(starter::encoded(i).unwrap(), Some(e.file)).unwrap();
         let (mut sum, mut n) = ([0.0f32; 3], 0.0f32);
         for y in (0..b.height).step_by(8) { for x in (0..b.width).step_by(8) { let t = b.texel(x, y, false); for c in 0..3 { sum[c] += t[c]; } n += 1.0; } }

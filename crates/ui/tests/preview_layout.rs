@@ -40,8 +40,9 @@ fn shelf_wraps_all_categories_downward_without_horizontal_overflow() {
                 assert!(bounds.right() <= width + 0.5, "panel grew horizontally: {tab:?}, {width}, {size}: {bounds:?}");
                 assert!(bounds.bottom() <= 600.5, "footer pushed below panel: {tab:?}, {width}, {size}");
                 let tiles = tiles(&out, size as f32);
-                // Textures holds only the user's own color images; a fresh install has none.
-                if tab == ShelfTab::Textures { assert!(tiles.is_empty(), "no starter normal maps under Textures"); continue; }
+                // Textures holds the user's own color images and the built-in grunge: on a fresh
+                // install that one tile, and none of the starter normal maps.
+                if tab == ShelfTab::Textures { assert_eq!(tiles.len(), 1, "only the built-in grunge under Textures, no starter normal maps"); continue; }
                 assert!(!tiles.is_empty(), "expected assets in {tab:?}");
                 for rect in &tiles { assert!(rect.left() >= 0.0 && rect.right() <= width, "tile off right edge at {width}, {size}: {rect:?}"); }
                 if tiles.len() * (size as usize + 10) > width as usize {

@@ -328,7 +328,7 @@ pub fn shelf(state: &mut UiState, ui: &mut egui::Ui, side: f32, tab: crate::pane
         let tip=match kind {
             Kind::Normal=>"CC0 Starter pack normal map: click to use it as the normal-map brush, double-click to preview and adjust. Drag it onto Normal, the model or a layer.",
             Kind::Alpha=>"CC0 Starter pack alpha: click to use it as the brush tip, double-click to preview and adjust (or use it as a height brush).",
-            Kind::Texture=>"CC0 Starter pack: click to preview and adjust.",
+            Kind::Texture=>"CC0 grunge texture: click to preview and adjust. Drag it onto a mask, a channel of a fill layer, the model or a layer.",
         };
         let selected=match kind {
             Kind::Normal=>state.session.brush.material.stamp.as_ref().is_some_and(|s|s.kind==subcraft_paint::StampKind::Normal&&s.name==e.name),
@@ -336,7 +336,7 @@ pub fn shelf(state: &mut UiState, ui: &mut egui::Ui, side: f32, tab: crate::pane
             Kind::Texture=>false,
         };
         let resp=crate::panels::shelf::tile(ui,side,state.asset_preview.thumbs.get(&i),e.name,selected,tip);
-        if kind==Kind::Normal {resp.dnd_set_drag_payload(ShelfDrag::Starter(i));}
+        if kind!=Kind::Alpha {resp.dnd_set_drag_payload(ShelfDrag::Starter(i));}
         if kind==Kind::Texture {if resp.clicked() {clicked=Some(i);}}
         else if resp.double_clicked() {clicked=Some(i);} else if resp.clicked() {stamped=Some(i);}
     }

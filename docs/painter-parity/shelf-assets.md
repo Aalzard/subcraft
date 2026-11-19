@@ -177,7 +177,7 @@ Layout notes: rows are grouped by asset type, then by target (viewport, layer st
 | Alpha / texture: drag into the layer stack opens a menu asking the target channel | Layer stack | - | partial: texture drop adds a fill layer without a channel menu; alpha drop goes to the layer mask | crates/ui/src/panels/layers.rs:411 | - |
 | Texture: drag onto a channel slot of a fill layer | Properties | - | done | crates/ui/src/panels/properties.rs:299 | - |
 | Texture: drag onto a channel slot of the paint tool material | Properties > Material | - | done | crates/ui/src/panels/brush_material.rs:112 | - |
-| Texture (grunge / procedural): drag onto a mask to add a fill effect | Layer stack mask | (unverified) | partial: alphas only | crates/ui/src/panels/layers.rs:305 | - |
+| Texture (grunge / procedural): drag onto a mask to add a fill effect | Layer stack mask | (unverified) | partial: textures, the built-in grunge and alphas become an Image effect (not a fill effect), on the mask thumbnail, the ghost mask slot or between effect rows | crates/ui/src/panels/layers.rs:305 | - |
 | Hard-surface normal: click to stamp with the normal channel | Assets list | (unverified) | done (normal / height stamp brush) | crates/ui/src/panels/shelf.rs:566 | - |
 | Environment map: drag onto the viewport | Viewport | - | partial: click on the tile selects it, no drag | crates/ui/src/panels/shelf.rs:737 | - |
 | Environment map: pick in Display settings | Display settings | - | partial: rotation and intensity sliders inside the shelf | crates/ui/src/panels/shelf.rs:838 | - |
@@ -378,7 +378,7 @@ Layout notes: counts of Adobe's starter assets are not given in the public help 
 | Tools | Starter assets | count not documented | missing | - | - |
 | Alphas | Starter assets | count not documented | done (own content) | crates/assets/src/alphas.rs:39 | - |
 | Brush makers | Starter assets, Alphas | count not documented | missing | - | - |
-| Grunges | Starter assets, Textures | count not documented | partial: starter texture pack | crates/assets/src/starter.rs:1 | - |
+| Grunges | Starter assets, Textures | count not documented | partial: one built-in map (Dirt Grunge) under a Grunges category; Painter ships many | crates/assets/src/starter.rs:1 | - |
 | Procedurals | Starter assets, Textures | count not documented | missing | - | - |
 | Hard-surface normals | Starter assets, Textures | count not documented | partial: starter normal maps | crates/assets/src/starter.rs:1 | - |
 | Colour LUTs | Starter assets, Textures | count not documented | missing | - | - |

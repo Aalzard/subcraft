@@ -75,6 +75,8 @@ pub fn drop_label(item: ShelfDrag, alt: bool, target: Option<&str>, on_mask: boo
         ShelfDrag::SmartMaterial(_) => format!("Add smart material above{t}"),
         ShelfDrag::SmartMask(_) if alt => format!("Replace the mask effects of{t}"),
         ShelfDrag::SmartMask(_) => format!("Apply mask to{t} (Ctrl or Alt: replace its effects)"),
+        ShelfDrag::Texture(_) if on_mask => format!("Use this image in the mask of{t}"),
+        ShelfDrag::Starter(_) if on_mask && is_starter_texture(item) => format!("Use this image in the mask of{t}"),
         ShelfDrag::Texture(_) | ShelfDrag::Starter(_) if alt => format!("Use this image in the active channel of{t}"),
         ShelfDrag::Texture(_) | ShelfDrag::Starter(_) => format!("Add texture layer above{t}"),
         ShelfDrag::Alpha(_) if on_mask || target.is_some() => format!("Use this alpha in the mask of{t}"),
@@ -174,8 +176,22 @@ pub fn ghost_mask_accepts(item: ShelfDrag) -> bool {
     match item {
         ShelfDrag::Alpha(_) | ShelfDrag::SmartMask(_) | ShelfDrag::Texture(_) | ShelfDrag::Generator(_) => true,
         ShelfDrag::Filter(i) => subcraft_doc::Filter::ALL.get(i).is_some_and(|f| f.supports_mask()),
-        ShelfDrag::Material(_) | ShelfDrag::SmartMaterial(_) | ShelfDrag::Starter(_) | ShelfDrag::PackMaterial(_) => false,
+        ShelfDrag::Starter(_) => is_starter_texture(item),
+        ShelfDrag::Material(_) | ShelfDrag::SmartMaterial(_) | ShelfDrag::PackMaterial(_) => false,
     }
+}
+
+/// Whether `item` is a built-in texture (a grunge): it goes into masks and onto any channel row,
+/// unlike the built-in normal maps.
+pub fn is_starter_texture(item: ShelfDrag) -> bool {
+    matches!(item, ShelfDrag::Starter(i) if subcraft_assets::starter::ENTRIES.get(i).is_some_and(|e| e.kind == subcraft_assets::starter::Kind::Texture))
+}
+
+/// Built-in texture `index` as an image resource of the project (shared when already there).
+fn starter_texture_resource(s: &mut UiState, index: usize) -> Result<subcraft_core::ResourceId, String> {
+    let entry = subcraft_assets::starter::ENTRIES.get(index).ok_or("Unknown built-in image")?;
+    let bytes = subcraft_assets::starter::encoded(index).ok_or("Unknown built-in image")?;
+    s.session.import_image_bytes(&format!("{}.png", entry.name), bytes.to_vec())
 }
 
 /// Painter's ghost mask slot: `item` dropped on it gives `layer` a black mask with the item
@@ -211,7 +227,11 @@ pub fn apply_ghost_mask_drop(s: &mut UiState, layer: subcraft_core::LayerId, ite
             Some((name, kind)) => s.session.execute(Command::ApplyMaskEffects { layer, effects: vec![MaskEffectKind::Generator(subcraft_doc::Generator::new(kind))], label: format!("Mask generator: {name}") }).map_err(|e| e.to_string()),
             None => Ok(()),
         },
-        ShelfDrag::Material(_) | ShelfDrag::SmartMaterial(_) | ShelfDrag::Starter(_) | ShelfDrag::PackMaterial(_) => Err("Materials do not go into a mask: drop them on the row".to_string()),
+        ShelfDrag::Starter(i) if is_starter_texture(item) => starter_texture_resource(s, i).and_then(|resource| {
+            s.session.execute(Command::ApplyMaskEffects { layer, effects: vec![image(resource)], label: "Mask image".into() }).map_err(|e| e.to_string())
+        }),
+        ShelfDrag::Starter(_) => Err("A normal map does not go into a mask: drop it on the row".to_string()),
+        ShelfDrag::Material(_) | ShelfDrag::SmartMaterial(_) | ShelfDrag::PackMaterial(_) => Err("Materials do not go into a mask: drop them on the row".to_string()),
     };
     match result {
         Ok(()) => {
@@ -265,6 +285,7 @@ pub fn apply_effect_drop(s: &mut UiState, drop: crate::panels::effects::ShelfEff
             Some(p) => s.session.import_image(&p).map(|r| vec![image(r)]),
             None => Ok(Vec::new()),
         },
+        ShelfDrag::Starter(i) if mask && is_starter_texture(item) => starter_texture_resource(s, i).map(|r| vec![image(r)]),
         ShelfDrag::SmartMask(i) if mask => match s.library.smart_masks.get(i).cloned() {
             Some(m) => {
                 for r in &m.resources { s.session.share_resource(r.clone()); }
@@ -669,7 +690,7 @@ pub fn items(state: &UiState, tab: ShelfTab) -> Vec<Item> {
             name: e.name.to_string(),
             usage,
             library: STARTER.to_string(),
-            folder: Some("Starter pack".into()),
+            folder: Some(e.folder().into()),
             tags: Vec::new(),
             tileable: e.tileable(),
         })
@@ -2538,6 +2559,11 @@ fn filter_row(state: &mut UiState, ui: &mut Ui) {
         }
     }
     if matches!(state.shelf.tab,ShelfTab::NormalMaps|ShelfTab::Alphas) {chips.push((Chip::Category("Starter pack".into()),"Starter pack".into()));}
+    // The built-in grunge textures (Painter's Grunges).
+    if state.shelf.tab == ShelfTab::Textures {
+        let grunges = subcraft_assets::starter::GRUNGES;
+        chips.push((Chip::Category(grunges.into()), grunges.into()));
+    }
     egui::Frame::new().inner_margin(egui::Margin { left: theme::PAD, right: theme::PAD, top: 4, bottom: 6 }).show(ui, |ui| {
         ui.horizontal_wrapped(|ui| {
             let filter = &mut state.shelf.filter;

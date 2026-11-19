@@ -2,7 +2,11 @@
 use subcraft_core::AssetId;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)] pub enum Kind { Normal, Alpha, Texture }
 #[derive(Debug)] pub struct Entry { pub name: &'static str, pub kind: Kind, pub file: &'static str, pub bytes: usize, pub thumb: &'static [u8] }
-impl Entry { pub fn id(&self) -> AssetId { AssetId::from_name(&format!("starter/{}", self.file)) } pub fn tileable(&self) -> bool { self.kind == Kind::Normal } }
+impl Entry { pub fn id(&self) -> AssetId { AssetId::from_name(&format!("starter/{}", self.file)) } pub fn tileable(&self) -> bool { self.kind == Kind::Normal }
+    /// Folder the Assets panel files the entry under: grunge textures have their own.
+    pub fn folder(&self) -> &'static str { if self.kind == Kind::Texture { GRUNGES } else { "Starter pack" } } }
+/// Folder (and category chip) of the built-in grunge textures.
+pub const GRUNGES: &str = "Grunges";
 pub static ENTRIES: &[Entry] = &[
     Entry { name: "Alien Organic Hull", kind: Kind::Normal, file: "textures/AlienOrganicHull_Normal.png", bytes: 821091, thumb: include_bytes!("../../../assets/starter-pack/thumbnails/AlienOrganicHull_Normal.png") },
     Entry { name: "Animal Fur Clumps", kind: Kind::Normal, file: "textures/AnimalFurClumps_Normal.png", bytes: 1504731, thumb: include_bytes!("../../../assets/starter-pack/thumbnails/AnimalFurClumps_Normal.png") },
@@ -198,6 +202,8 @@ pub static ENTRIES: &[Entry] = &[
     Entry { name: "Hex Nut Face", kind: Kind::Alpha, file: "alphas/HexNutFace_Alpha.png", bytes: 90169, thumb: include_bytes!("../../../assets/starter-pack/thumbnails/HexNutFace_Alpha.png") },
     Entry { name: "Phillips Screw Head", kind: Kind::Alpha, file: "alphas/PhillipsScrewHead_Alpha.png", bytes: 106227, thumb: include_bytes!("../../../assets/starter-pack/thumbnails/PhillipsScrewHead_Alpha.png") },
     Entry { name: "Torx Screw Head", kind: Kind::Alpha, file: "alphas/TorxScrewHead_Alpha.png", bytes: 86571, thumb: include_bytes!("../../../assets/starter-pack/thumbnails/TorxScrewHead_Alpha.png") },
+    // The grunge map the Dirt and Edge wear generators break up with (crates/materials/src/grunge.rs), as a texture.
+    Entry { name: "Dirt Grunge", kind: Kind::Texture, file: "grunge/dirt_grunge.png", bytes: 954546, thumb: include_bytes!("../../../assets/starter-pack/thumbnails/DirtGrunge_Texture.png") },
 ];
 pub fn encoded(index: usize) -> Option<&'static [u8]> { Some(match index {
     0 => include_bytes!("../../../assets/starter-pack/textures/AlienOrganicHull_Normal.png"),
@@ -394,5 +400,6 @@ pub fn encoded(index: usize) -> Option<&'static [u8]> { Some(match index {
     191 => include_bytes!("../../../assets/starter-pack/alphas/HexNutFace_Alpha.png"),
     192 => include_bytes!("../../../assets/starter-pack/alphas/PhillipsScrewHead_Alpha.png"),
     193 => include_bytes!("../../../assets/starter-pack/alphas/TorxScrewHead_Alpha.png"),
+    194 => subcraft_materials::grunge::DIRT_GRUNGE_PNG,
 _ => return None,
 }) }
