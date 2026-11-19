@@ -5,8 +5,8 @@ What changed in SubCraft, newest first. Download the latest build from the
 
 ## Unreleased
 
-### Faster
-- Mesh maps baked at a lower resolution than the texture set (for example 1024 maps on a 4096 set) are read about 7 to 9 times faster, which speeds up every generator, mesh map fill and smart material that reads them. The result is unchanged, texel for texel.
+### Added
+- Fill layers: Balance, Contrast and Invert on an image used in a channel (Roughness, Base Color, Height and the others, not normal maps), the same controls a procedural pattern has. They are saved with the project and change nothing at their defaults (issue #591).
 
 ## 0.4.3 - 2026-11-16
 
