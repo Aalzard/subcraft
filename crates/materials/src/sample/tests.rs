@@ -134,6 +134,84 @@ fn mesh_map_reads_caller_values_or_neutral() {
     assert_eq!(out[0], [0.5, 0.5, 0.5, 1.0]);
 }
 
+/// The resampling of a map baked at another resolution than the set's matches, bit for bit, the
+/// plain per-texel bilinear sample it replaced (four reads per texel), for maps below, at a
+/// non-multiple of, and above the set's resolution, gray and color, on every tile.
+#[test]
+fn mesh_map_resampling_matches_per_texel_bilinear_exactly() {
+    let mesh = Arc::new(primitives::plane(1.0, 1));
+    let reference = |img: &TiledImage, geo: &super::geometry::TileGeometry| -> Vec<[f32; 3]> {
+        let expand = |px: [f32; 4]| if img.comps() <= 2 { [px[0]; 3] } else { [px[0], px[1], px[2]] };
+        let (w, h) = (img.width(), img.height());
+        (0..TILE_TEXELS)
+            .map(|i| {
+                let [u, v] = geo.uv(i);
+                let fx = (u * w as f32 - 0.5).clamp(0.0, (w - 1) as f32);
+                let fy = (v * h as f32 - 0.5).clamp(0.0, (h - 1) as f32);
+                let (x0, y0) = (fx.floor() as u32, fy.floor() as u32);
+                let (x1, y1) = ((x0 + 1).min(w - 1), (y0 + 1).min(h - 1));
+                let (tx, ty) = (fx - x0 as f32, fy - y0 as f32);
+                let (a, b, c, d) = (expand(img.get(x0, y0)), expand(img.get(x1, y0)), expand(img.get(x0, y1)), expand(img.get(x1, y1)));
+                let mut px = [0.0f32; 3];
+                for k in 0..3 {
+                    px[k] = (a[k] * (1.0 - tx) + b[k] * tx) * (1.0 - ty) + (c[k] * (1.0 - tx) + d[k] * tx) * ty;
+                }
+                px
+            })
+            .collect()
+    };
+    for (set, map, comps) in [(256u32, 128u32, 1usize), (256, 64, 3), (256, 96, 1), (128, 100, 3), (128, 512, 1), (128, 192, 3)] {
+        let geo = TextureSetGeometry::new(mesh.clone(), 0, set);
+        let mut img = TiledImage::new(map, map, comps, [0.0; 4]);
+        for y in 0..map {
+            for x in 0..map {
+                let v = |k: u32| ((x * 7 + y * 13 + k * 31) % 97) as f32 / 96.0;
+                img.set(x, y, [v(0), v(1), v(2), 1.0]);
+            }
+        }
+        let mut maps = MeshMaps::new();
+        maps.insert(MeshMapKind::Curvature, img.clone());
+        let mut out = vec![[0.0f32; 3]; TILE_TEXELS];
+        for t in 0..geo.tile_count() {
+            let tile = geo.tile(t);
+            maps.read_tile(MeshMapKind::Curvature, &tile, &mut out);
+            let expected = reference(&img, &tile);
+            let same = out.iter().zip(&expected).all(|(a, b)| a.iter().zip(b).all(|(x, y)| x.to_bits() == y.to_bits()));
+            assert!(same, "set {set}, map {map}, {comps} comps, tile {t}: differs from the per-texel sample");
+        }
+    }
+}
+
+/// How long reading every tile of a low-resolution map takes (run with `--ignored --nocapture`).
+#[test]
+#[ignore]
+fn mesh_map_resampling_timing() {
+    let mesh = Arc::new(primitives::plane(1.0, 1));
+    for (set, map) in [(4096u32, 1024u32), (4096, 2048), (2048, 1024)] {
+        let geo = TextureSetGeometry::new(mesh.clone(), 0, set);
+        let mut img = TiledImage::new(map, map, 1, [0.0; 4]);
+        for y in (0..map).step_by(3) {
+            for x in (0..map).step_by(5) {
+                img.set(x, y, [((x ^ y) % 255) as f32 / 255.0; 4]);
+            }
+        }
+        let mut maps = MeshMaps::new();
+        maps.insert(MeshMapKind::Curvature, img);
+        let tiles: Vec<_> = (0..geo.tile_count()).map(|t| geo.tile(t)).collect();
+        let mut out = vec![[0.0f32; 3]; TILE_TEXELS];
+        let mut best = f64::MAX;
+        for _ in 0..3 {
+            let start = std::time::Instant::now();
+            for tile in &tiles {
+                maps.read_tile(MeshMapKind::Curvature, tile, &mut out);
+                std::hint::black_box(&out);
+            }
+            best = best.min(start.elapsed().as_secs_f64());
+        }
+        println!("TIMING set {set} map {map}: {:.1} ms for {} tiles (single thread, best of 3)", best * 1000.0, tiles.len());
+    }
+}
+
 #[test]
 fn geometry_positions_are_normalized_and_cached() {
     let mesh = Arc::new(primitives::cube(2.0));
