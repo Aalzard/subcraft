@@ -1130,10 +1130,12 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
                     }
                     hint(ui, tr("Filters the mask below this effect; opacity mixes the result with that input."));
                 }
-                MaskEffectKind::Image { resource, projection, invert } => {
+                MaskEffectKind::Image { resource, projection, invert, balance, contrast } => {
                     if image_row(ui, state, *resource) {
                         crate::files::pick(ui.ctx(), crate::files::Purpose::MaskImage { layer, effect: e.id }, crate::files::IMAGES, false, None);
                     }
+                    changed |= slider_row(ui, tr("Balance"), egui::Slider::new(balance, 0.0..=1.0)).changed();
+                    changed |= slider_row(ui, tr("Contrast"), egui::Slider::new(contrast, 0.0..=1.0)).changed();
                     prop_row(ui, "", |ui| changed |= ui.checkbox(invert, tr("Invert")).changed());
                     changed |= projection_editor(ui, projection);
                     changed |= projection_options(ui, projection);
