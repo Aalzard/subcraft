@@ -5,9 +5,23 @@ What changed in SubCraft, newest first. Download the latest build from the
 
 ## Unreleased
 
+## 0.4.4 - 2026-11-19
+
 ### Added
-- Fill layers: Balance, Contrast and Invert on an image used in a channel (Roughness, Base Color, Height and the others, not normal maps), the same controls a procedural pattern has. They are saved with the project and change nothing at their defaults (issue #591).
-- Masks: Balance and Contrast on the Image effect, next to Invert, so a grunge or alpha image can be tightened or thresholded without adding a Levels effect (issue #591).
+- Fill layers: Balance, Contrast and Invert on an image used in a channel (Roughness, Base Color, Height and the others, not normal maps), the same controls a procedural pattern has. They are saved with the project and change nothing at their defaults (#592, issue #591).
+- Masks: Balance and Contrast on the Image effect, next to Invert, so a grunge or alpha image can be tightened or thresholded without adding a Levels effect (#599, issue #591).
+- Fill layers: drag an alpha from the Assets panel onto a channel row (Roughness, Height, Base Color and the others, not normal maps) to use its picture as that channel's image, as textures already could (#595, issue #591).
+- Assets panel: generators show a preview thumbnail, the generator alone in a mask on a cube, so you can tell them apart before dragging one onto a mask (#594, issue #591).
+- Assets panel: a Grunges category under Textures with the built-in Dirt Grunge map (the one the Dirt and Edge wear generators break up with). Drag it onto a mask, a channel row of a fill layer, the model or a layer (#596, issue #591).
+
+### Changed
+- A texture dropped on a layer's mask thumbnail now goes into that mask as an image effect. It used to go into the active channel of the fill layer, which is what dropping it on a channel row does (#596).
+
+### Faster
+- Mesh maps baked at a lower resolution than the texture set (for example 1024 maps on a 4096 set) are read about 7 to 9 times faster, which speeds up every generator, mesh map fill and smart material that reads them. The result is unchanged, texel for texel (#598).
+
+### Fixed
+- Paint across UDIM tiles: once a material or layer had gone onto one tile only (with the option off), strokes and layer changes on the layers above it no longer reached the other tiles. Layers are now paired between tiles by name instead of by their position in the stack, so the layers both tiles have still line up (#597, issue #581).
 
 ## 0.4.3 - 2026-11-16
 
