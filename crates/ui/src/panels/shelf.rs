@@ -184,7 +184,7 @@ pub fn ghost_mask_accepts(item: ShelfDrag) -> bool {
 pub fn apply_ghost_mask_drop(s: &mut UiState, layer: subcraft_core::LayerId, item: ShelfDrag, now: f64) {
     use subcraft_app::{Command, LayerTarget};
     use subcraft_doc::{MaskEffectKind, Projection};
-    let image = |resource| MaskEffectKind::Image { resource, projection: Projection::default(), invert: false };
+    let image = |resource| MaskEffectKind::Image { resource, projection: Projection::default(), invert: false, balance: 0.5, contrast: 0.0 };
     let result: Result<(), String> = match item {
         ShelfDrag::Alpha(i) => match s.library.alphas.get(i).cloned() {
             Some(a) => s.session.apply_alpha_to_mask(layer, &a).map_err(|e| e.to_string()),
@@ -229,7 +229,7 @@ pub fn apply_effect_drop(s: &mut UiState, drop: crate::panels::effects::ShelfEff
     use subcraft_app::{Command, LayerTarget};
     use subcraft_doc::{ContentEffectKind, MaskEffectKind, Projection};
     let crate::panels::effects::ShelfEffectDrop { layer, domain, above, item } = drop;
-    let image = |resource| MaskEffectKind::Image { resource, projection: Projection::default(), invert: false };
+    let image = |resource| MaskEffectKind::Image { resource, projection: Projection::default(), invert: false, balance: 0.5, contrast: 0.0 };
     let mask = domain == LayerTarget::Mask;
     let effects: Result<Vec<MaskEffectKind>, String> = match item {
         ShelfDrag::Filter(i) if !mask => {

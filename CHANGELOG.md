@@ -7,7 +7,7 @@ What changed in SubCraft, newest first. Download the latest build from the
 
 ### Added
 - Fill layers: Balance, Contrast and Invert on an image used in a channel (Roughness, Base Color, Height and the others, not normal maps), the same controls a procedural pattern has. They are saved with the project and change nothing at their defaults (issue #591).
-- Assets panel: generators show a preview thumbnail, the generator alone in a mask on a cube, so you can tell them apart before dragging one onto a mask (issue #591).
+- Masks: Balance and Contrast on the Image effect, next to Invert, so a grunge or alpha image can be tightened or thresholded without adding a Levels effect (issue #591).
 
 ## 0.4.3 - 2026-11-16
 

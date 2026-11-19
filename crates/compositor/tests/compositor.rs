@@ -712,15 +712,35 @@ fn image_mask_uses_alpha_or_raw_brightness() {
     let gray = add(&mut fx, Bitmap::new_u8(8, 1, 1, halves([64; 4], [192; 4], 1)));
     let (left, right) = (RES / 4, 3 * RES / 4);
 
-    let eval = |fx: &Fixture, resource: ResourceId, invert: bool| {
+    let eval_levels = |fx: &Fixture, resource: ResourceId, invert: bool, balance: f32, contrast: f32| {
         let mut ts = texture_set();
         let mut l = fill_layer(&ts, &[(ChannelKind::Roughness, ChannelValue::scalar(1.0))]);
         let mut mask = Mask::new(RES, false);
-        mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Image { resource, projection: Projection::default(), invert })));
+        mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Image { resource, projection: Projection::default(), invert, balance, contrast })));
         l.mask = Some(mask);
         ts.insert_above(None, l);
         composite_full(&ts, &fx.ctx())
     };
+    let eval = |fx: &Fixture, resource: ResourceId, invert: bool| eval_levels(fx, resource, invert, 0.5, 0.0);
+
+    // Balance / Contrast remap the brightness before Invert. Contrast 0.2: a ramp 0.8 wide from 0.1.
+    let c = eval_levels(&fx, gray, false, 0.5, 0.2);
+    assert_scalar(&c, ChannelKind::Roughness, left, RES / 2, 0.3 + 0.7 * (64.0 / 255.0 - 0.1) / 0.8);
+    assert_scalar(&c, ChannelKind::Roughness, right, RES / 2, 0.3 + 0.7 * (192.0 / 255.0 - 0.1) / 0.8);
+    // Full contrast is a threshold at 1 - balance: the dark half goes black, the bright half white.
+    let c = eval_levels(&fx, gray, false, 0.5, 1.0);
+    assert_scalar(&c, ChannelKind::Roughness, left, RES / 2, 0.3);
+    assert_scalar(&c, ChannelKind::Roughness, right, RES / 2, 1.0);
+    let c = eval_levels(&fx, gray, true, 0.5, 1.0);
+    assert_scalar(&c, ChannelKind::Roughness, left, RES / 2, 1.0);
+    assert_scalar(&c, ChannelKind::Roughness, right, RES / 2, 0.3);
+    // A higher balance moves the threshold down, so the dark half turns white too.
+    let c = eval_levels(&fx, gray, false, 0.9, 1.0);
+    assert_scalar(&c, ChannelKind::Roughness, left, RES / 2, 1.0);
+    // An alpha image keeps its shape whatever the settings: its value is white, its alpha the shape.
+    let c = eval_levels(&fx, logo, false, 0.2, 0.7);
+    assert_scalar(&c, ChannelKind::Roughness, left, RES / 2, 0.3);
+    assert_scalar(&c, ChannelKind::Roughness, right, RES / 2, 1.0);
 
     // Alpha image: transparent part leaves the black mask, opaque part reveals the layer.
     let c = eval(&fx, logo, false);
@@ -1029,15 +1049,15 @@ fn mask_image_and_procedural_fill_respect_uv_wrap() {
     // Tiling 2 without repetition: the image is the top-left quarter only.
     let quarter = |uv_wrap| Projection { scale: [2.0, 2.0], uv_wrap, ..Projection::default() };
     let (near, far) = (RES / 4, 3 * RES / 4);
-    let c = eval(MaskEffectKind::Image { resource: white, projection: quarter(UvWrap::None), invert: false });
+    let c = eval(MaskEffectKind::Image { resource: white, projection: quarter(UvWrap::None), invert: false, balance: 0.5, contrast: 0.0 });
     assert_scalar(&c, ChannelKind::Roughness, near, near, 1.0);
     for (x, y) in [(far, near), (near, far), (far, far)] {
         assert_scalar(&c, ChannelKind::Roughness, x, y, 0.3);
     }
-    let c = eval(MaskEffectKind::Image { resource: white, projection: quarter(UvWrap::RepeatHorizontal), invert: false });
+    let c = eval(MaskEffectKind::Image { resource: white, projection: quarter(UvWrap::RepeatHorizontal), invert: false, balance: 0.5, contrast: 0.0 });
     assert_scalar(&c, ChannelKind::Roughness, far, near, 1.0);
     assert_scalar(&c, ChannelKind::Roughness, near, far, 0.3);
-    let c = eval(MaskEffectKind::Image { resource: white, projection: quarter(UvWrap::Repeat), invert: false });
+    let c = eval(MaskEffectKind::Image { resource: white, projection: quarter(UvWrap::Repeat), invert: false, balance: 0.5, contrast: 0.0 });
     assert_scalar(&c, ChannelKind::Roughness, far, far, 1.0);
     // Procedural fill: identical inside the square, the black mask outside.
     let params = ProceduralParams { invert: true, ..ProceduralParams::new(ProceduralKind::Checker) };

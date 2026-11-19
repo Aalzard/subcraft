@@ -705,6 +705,8 @@ fn mask_kind(session: &mut Session, spec: &Value) -> Res<MaskEffectKind> {
             resource: session.import_image(&paths::input(a.req_str("image")?))?,
             projection: a.get("projection").map(|p| crate::params::projection_with_defaults(&Projection::default(), p)).transpose()?.unwrap_or_default(),
             invert: a.bool("invert")?.unwrap_or(false),
+            balance: a.f32("balance")?.unwrap_or(0.5).clamp(0.0, 1.0),
+            contrast: a.f32("contrast")?.unwrap_or(0.0).clamp(0.0, 1.0),
         },
         "paint" => return Err("a mask's base is already paintable: paint_stroke with target mask".into()),
         other => return Err(format!("unknown mask effect type `{other}`")),
@@ -827,12 +829,14 @@ fn tweak_effect(session: &mut Session, ts: TextureSetId, id: LayerId, eid: Effec
                             projection: a.get("projection").map(|pp| crate::params::projection_with_defaults(projection, pp)).transpose()?.unwrap_or(*projection),
                         }
                     }
-                    MaskEffectKind::Image { resource, projection, invert } => {
+                    MaskEffectKind::Image { resource, projection, invert, balance, contrast } => {
                         let a = Args(p.as_object().ok_or("params must be an object")?);
                         MaskEffectKind::Image {
                             resource: *resource,
                             projection: a.get("projection").map(|pp| crate::params::projection_with_defaults(projection, pp)).transpose()?.unwrap_or(*projection),
                             invert: a.bool("invert")?.unwrap_or(*invert),
+                            balance: a.f32("balance")?.unwrap_or(*balance).clamp(0.0, 1.0),
+                            contrast: a.f32("contrast")?.unwrap_or(*contrast).clamp(0.0, 1.0),
                         }
                     }
                     MaskEffectKind::IdColor(c) => MaskEffectKind::IdColor(with_defaults("id color mask", c, p)?),

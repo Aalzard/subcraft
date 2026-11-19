@@ -256,7 +256,7 @@ pub fn mask_effect(e: &MaskEffect, detail: bool) -> Value {
             MaskEffectKind::Levels(l) => serde_json::to_value(l).unwrap_or(Value::Null),
             MaskEffectKind::Filter(f) => serde_json::to_value(f).unwrap_or(Value::Null),
             MaskEffectKind::Invert => json!({}),
-            MaskEffectKind::Image { resource, projection, invert } => json!({ "resource": resource.to_string(), "projection": projection, "invert": invert }),
+            MaskEffectKind::Image { resource, projection, invert, balance, contrast } => json!({ "resource": resource.to_string(), "projection": projection, "invert": invert, "balance": balance, "contrast": contrast }),
             MaskEffectKind::IdColor(c) => serde_json::to_value(c).unwrap_or(Value::Null),
             MaskEffectKind::Compare(c) => serde_json::to_value(c).unwrap_or(Value::Null),
             MaskEffectKind::Anchor => json!({}),
