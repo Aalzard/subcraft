@@ -1491,6 +1491,12 @@ pub(crate) fn source_controls(ui: &mut Ui, state: &mut UiState, kind: ChannelKin
                 } else {
                     "Data image: used as-is (no color conversion). Tiling and rotation are under Projection."
                 });
+                // The same remap a procedural source has. A normal map is left as it is.
+                if !matches!(kind, ChannelKind::Normal | ChannelKind::CoatNormal) {
+                    changed |= slider_row(ui, tr("Balance"), egui::Slider::new(&mut ch.adjust.balance, 0.0..=1.0)).changed();
+                    changed |= slider_row(ui, tr("Contrast"), egui::Slider::new(&mut ch.adjust.contrast, 0.0..=1.0)).changed();
+                    prop_row(ui, "", |ui| changed |= ui.checkbox(&mut ch.adjust.invert, tr("Invert")).changed());
+                }
             }
         }
     }

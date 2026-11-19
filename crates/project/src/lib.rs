@@ -183,13 +183,13 @@ fn blends(blend: &BTreeMap<subcraft_core::ChannelKind, ChannelBlend>) -> Vec<Ble
 }
 
 fn fill_channels(f: &FillContent) -> Vec<FillChannelV1> {
-    f.channels.iter().map(|(&channel, c)| FillChannelV1 { channel, enabled: c.enabled, source: c.source.clone(), strength: c.strength }).collect()
+    f.channels.iter().map(|(&channel, c)| FillChannelV1 { channel, enabled: c.enabled, source: c.source.clone(), strength: c.strength, adjust: c.adjust }).collect()
 }
 
 fn read_fill(projection: Projection, channels: &[FillChannelV1]) -> FillContent {
     FillContent {
         projection,
-        channels: channels.iter().map(|c| (c.channel, FillChannel { enabled: c.enabled, source: c.source.clone(), strength: c.strength })).collect(),
+        channels: channels.iter().map(|c| (c.channel, FillChannel { enabled: c.enabled, source: c.source.clone(), strength: c.strength, adjust: c.adjust })).collect(),
     }
 }
 
