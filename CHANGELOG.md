@@ -5,6 +5,9 @@ What changed in SubCraft, newest first. Download the latest build from the
 
 ## Unreleased
 
+### Fixed
+- Paint across UDIM tiles: pack materials, textures, filters, imported smart materials and duplicated layers went onto one tile only. A drop on the model shows the tile under the cursor, so such a layer vanished from the Layers panel while it still rendered, survived deleting every layer, and came back with a later drop (issue #581). Every way of adding a layer now reaches every tile, and hiding a layer, its mask, its blending and Ctrl-drop's part filter follow on the other tiles. A layer that already holds painted pixels stays on its own tile.
+
 ## 0.4.5 - 2026-11-19
 
 ### Added
