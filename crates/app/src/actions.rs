@@ -391,15 +391,15 @@ pub const PAINTER_REFERENCE: &[PainterEntry] = &[
     e("General", "Ctrl+Shift+B", "Bake mesh maps", Support::Added, Action::Bake, Shortcut::ctrl_shift(Key::B), "Ctrl+B kept as well"),
     e("General", "Ctrl+Shift+R", "Reimport mesh", Support::Added, Action::ReimportMesh, Shortcut::ctrl_shift(Key::R), "opens Project configuration with Reimport mesh ticked and the model file checked"),
     // Manipulator / transform
-    none("Manipulator", "Q", "Show/hide manipulator", "no layer transform manipulator"),
-    none("Manipulator", "+", "Increase manipulator size", "no manipulator"),
-    none("Manipulator", "-", "Decrease manipulator size", "no manipulator"),
-    none("Manipulator", "T", "Cycle manipulation spaces", "no manipulator"),
+    gesture("Manipulator", "Q", "Show/hide manipulator", "while a fill layer's 3D projection manipulator is active (tri-planar, planar, spherical, cylindrical)"),
+    gesture("Manipulator", "+", "Increase manipulator size", "projection manipulator active; = works too"),
+    gesture("Manipulator", "-", "Decrease manipulator size", "projection manipulator active"),
+    gesture("Manipulator", "T", "Cycle manipulation spaces", "projection manipulator active: box axes / world axes"),
     gesture("Manipulator", "Shift+V", "Toggle warp edition mode", "with a Warp fill layer selected, over the 3D view: Transform warp / Edit vertices"),
-    none("Manipulator", "W", "Translate tool", "no manipulator"),
-    none("Manipulator", "E", "Rotate tool", "no manipulator (E stays Eraser)"),
-    none("Manipulator", "R", "Scale tool", "no manipulator"),
-    none("Manipulator", "Shift+W", "Surface tool", "no equivalent"),
+    gesture("Manipulator", "W", "Translate tool", "projection manipulator active; otherwise W keeps its tool meaning"),
+    gesture("Manipulator", "E", "Rotate tool", "projection manipulator active; otherwise E stays Eraser"),
+    gesture("Manipulator", "R", "Scale tool", "projection manipulator active"),
+    gesture("Manipulator", "Shift+W", "Surface tool", "planar projection: the box snaps to the surface under the pointer"),
     e("Tools", "L", "Symmetry", Support::Added, Action::ToggleSymmetry, Shortcut::key(Key::L), "symmetry on / off; the last axes come back, as with the toolbar button"),
     e("Tools", "Shift+Esc", "Pause engine computation", Support::Added, Action::PauseEngine, Shortcut::shift(Key::Escape), "layer computation waits (the 3D view says so) until Shift+Esc again; export and save still compute"),
     // Tools
@@ -470,7 +470,7 @@ pub const PAINTER_REFERENCE: &[PainterEntry] = &[
     gesture("Layers", "Alt+LMB on mask", "Display mask in viewport", "already worked: opens the mask inspector"),
     gesture("Layers", "Shift+LMB on mask", "Disable/enable mask", "already worked"),
     gesture("Layers", "Ctrl+drag & drop", "Drag material", "added: a material dropped on the model with Ctrl held shows only on the part under the cursor (geometry mask)"),
-    none("Layers", "Shift / Ctrl (drag)", "Manipulator snapping / mirror", "no manipulator"),
+    gesture("Layers", "Shift / Ctrl (drag)", "Manipulator snapping / mirror", "Shift snaps a projection manipulator drag to the manipulator steps; Ctrl mirror is not there"),
 ];
 
 /// `docs/painter-shortcuts-table.md`: one row per entry of [`PAINTER_REFERENCE`] (a test keeps the
@@ -513,10 +513,10 @@ mod tests {
     fn painter_coverage_counts() {
         let count = |s: Support| PAINTER_REFERENCE.iter().filter(|e| e.support == s).count();
         let covered = PAINTER_REFERENCE.len() - count(Support::None);
-        assert!(covered >= 76, "{covered} of {} Painter shortcuts are covered", PAINTER_REFERENCE.len());
-        // What is left has no SubCraft feature behind it: the layer transform manipulator keys,
-        // particle tools and animation (plus Save as, which Painter leaves without a key).
-        assert!(count(Support::None) <= 14, "{}", count(Support::None));
+        assert!(covered >= 85, "{covered} of {} Painter shortcuts are covered", PAINTER_REFERENCE.len());
+        // What is left has no SubCraft feature behind it: particle tools and animation (plus
+        // Save as, which Painter leaves without a key).
+        assert!(count(Support::None) <= 5, "{}", count(Support::None));
     }
 
     #[test]

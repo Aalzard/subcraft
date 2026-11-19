@@ -292,11 +292,7 @@ pub fn prepare_mesh(
         let old = old_doc.texture_sets.iter().find(|ts| !used.contains(&ts.id) && (sole || old_names(&old_mesh, ts).contains(&plan.name.as_str())));
         let uv_moved = old.map(|ts| {
             used.push(ts.id);
-            let source = TransferSource { mesh: &old_mesh, bvh: old_bvh, material: ts.material_slot };
-            let target = TransferTarget { mesh: &mesh, triangles: mesh.material_triangles(slot as u32), resolution: PROBE_RESOLUTION };
-            // Inside texels only: rim texels on seams can resolve to the neighbouring island.
-            let options = CorrespondenceOptions { tile_size: TILE_SIZE, expand: 0.0, max_distance: diagonal * 0.05 };
-            build_correspondence(source, target, options, &AtomicUsize::new(0), &progress.cancel).map_or(0.0, |c| c.moved_fraction(1.0))
+            uv_moved_share(&old_mesh, old_bvh, ts, &mesh, slot, diagonal, &progress.cancel)
         });
         progress.done.fetch_add(1, Ordering::Relaxed);
         sets.push(SetMatch { name: plan.name.clone(), old: old.map(|ts| ts.id), uv_moved });
@@ -304,9 +300,70 @@ pub fn prepare_mesh(
     if progress.is_cancelled() {
         return Err("mesh reload cancelled".into());
     }
-    let unmatched_old = old_doc.texture_sets.iter().filter(|ts| !used.contains(&ts.id)).map(|ts| ts.name.clone()).collect();
-    let suggested = if sets.iter().any(|s| s.uv_moved.is_some_and(|m| m > MOVED_SHARE)) { ReloadMode::Reproject } else { ReloadMode::KeepUvs };
-    Ok(PreparedReload { path: path.to_path_buf(), triangles: mesh.triangle_count(), mesh, plans, base_mesh: old_mesh, warnings, sets, unmatched_old, suggested })
+    let mut prepared = PreparedReload {
+        path: path.to_path_buf(),
+        triangles: mesh.triangle_count(),
+        mesh,
+        plans,
+        base_mesh: old_mesh,
+        warnings,
+        sets,
+        unmatched_old: Vec::new(),
+        suggested: ReloadMode::KeepUvs,
+    };
+    prepared.refresh(old_doc);
+    Ok(prepared)
+}
+
+/// Share (0..1) of new slot `slot`'s surface whose UVs moved compared with the existing set `ts`
+/// (a quick low-resolution comparison).
+fn uv_moved_share(old_mesh: &Mesh, old_bvh: &Bvh, ts: &TextureSet, mesh: &Mesh, slot: usize, diagonal: f32, cancel: &AtomicBool) -> f32 {
+    let source = TransferSource { mesh: old_mesh, bvh: old_bvh, material: ts.material_slot };
+    let target = TransferTarget { mesh, triangles: mesh.material_triangles(slot as u32), resolution: PROBE_RESOLUTION };
+    // Inside texels only: rim texels on seams can resolve to the neighbouring island.
+    let options = CorrespondenceOptions { tile_size: TILE_SIZE, expand: 0.0, max_distance: diagonal * 0.05 };
+    build_correspondence(source, target, options, &AtomicUsize::new(0), cancel).map_or(0.0, |c| c.moved_fraction(1.0))
+}
+
+impl PreparedReload {
+    /// Painter's Reassign Texture Sets: new slot `slot` continues the existing texture set `old`
+    /// (its layers, baked maps and identity), or becomes a new, empty set with `None`. A texture set
+    /// continues one slot only, so the slot that had `old` before becomes a new set. Use it when a
+    /// material was renamed in the modelling program and its name no longer matches.
+    pub fn reassign(&mut self, slot: usize, old: Option<TextureSetId>, old_bvh: &Bvh, old_doc: &Document) {
+        if slot >= self.sets.len() || self.sets[slot].old == old {
+            return;
+        }
+        let Some(old) = old else {
+            self.sets[slot].old = None;
+            self.sets[slot].uv_moved = None;
+            self.refresh(old_doc);
+            return;
+        };
+        let Some(ts) = old_doc.texture_set(old) else { return };
+        for s in &mut self.sets {
+            if s.old == Some(old) {
+                s.old = None;
+                s.uv_moved = None;
+            }
+        }
+        let diagonal = self.base_mesh.bounds.diagonal().max(self.mesh.bounds.diagonal());
+        let moved = uv_moved_share(&self.base_mesh, old_bvh, ts, &self.mesh, slot, diagonal, &AtomicBool::new(false));
+        self.sets[slot].old = Some(old);
+        self.sets[slot].uv_moved = Some(moved);
+        self.refresh(old_doc);
+    }
+
+    /// The existing texture sets a slot could continue: id and name, in project order.
+    pub fn candidates(old_doc: &Document) -> Vec<(TextureSetId, String)> {
+        old_doc.texture_sets.iter().map(|ts| (ts.id, ts.name.clone())).collect()
+    }
+
+    /// Recompute what follows from the matches: unmatched sets and the suggested mode.
+    fn refresh(&mut self, old_doc: &Document) {
+        self.unmatched_old = old_doc.texture_sets.iter().filter(|ts| !self.sets.iter().any(|s| s.old == Some(ts.id))).map(|ts| ts.name.clone()).collect();
+        self.suggested = if self.sets.iter().any(|s| s.uv_moved.is_some_and(|m| m > MOVED_SHARE)) { ReloadMode::Reproject } else { ReloadMode::KeepUvs };
+    }
 }
 
 /// Baked mesh maps per texture set.
