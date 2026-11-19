@@ -336,19 +336,27 @@ impl TextureSet {
         rec(&self.layers, id)
     }
 
-    /// The layer at the same place in this set's tree as `id` is in `other`, when it has the
-    /// same name and kind there (how the tiles of a UDIM group find each other's layers).
+    /// The layer of this set that matches `id` of `other` (how the tiles of a UDIM group find each
+    /// other's layers): at every level of the tree, the layer with the same name and kind, and
+    /// when several siblings share those, the one at the same rank among them.
+    ///
+    /// Matching by name rather than by position keeps the tiles together when their stacks are
+    /// not the same, for example after a material went onto one tile only while "paint across
+    /// UDIM tiles" was off (issue #581): the layers both tiles have still pair up.
     pub fn corresponding_layer(&self, other: &TextureSet, id: LayerId) -> Option<LayerId> {
-        let source = other.find(id)?;
         let path = other.path_of(id)?;
-        let mut list: &[Arc<Layer>] = &self.layers;
+        let (mut theirs, mut ours): (&[Arc<Layer>], &[Arc<Layer>]) = (&other.layers, &self.layers);
         let mut node: Option<&Arc<Layer>> = None;
         for &i in &path {
-            let l = list.get(i)?;
-            list = l.children();
+            let source = theirs.get(i)?;
+            let alike = |l: &&Arc<Layer>| l.name == source.name && l.kind() == source.kind();
+            let rank = theirs[..i].iter().filter(alike).count();
+            let l = ours.iter().filter(alike).nth(rank)?;
+            theirs = source.children();
+            ours = l.children();
             node = Some(l);
         }
-        node.filter(|l| l.name == source.name && l.kind() == source.kind()).map(|l| l.id)
+        node.map(|l| l.id)
     }
 
     fn path_of(&self, id: LayerId) -> Option<Vec<usize>> {
