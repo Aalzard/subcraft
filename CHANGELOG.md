@@ -8,8 +8,12 @@ What changed in SubCraft, newest first. Download the latest build from the
 ### Added
 - Reimport mesh: Reassign Texture Sets. Project configuration lists every material of the reimported model with a Texture set choice, so a material renamed in the modelling program can continue its old texture set (layers, baked maps) instead of starting empty while the old set is kept without geometry. Choosing a set that another material had makes that one a new set, and the UV comparison and the suggested Preserve strokes setting follow the choice.
 
+### Faster
+- The exact result after dragging a generator slider on a large texture set arrives about twice as fast while other programs keep the processor busy (4096² Dirt drag with 16 busy threads: 5.7 s to 2.7 s). Previews during the drag and an idle machine are unchanged.
+
 ### Fixed
 - Help > Shortcuts: the projection manipulator keys (Q, W, E, R, T, Shift+W, + and -) were listed as having no equivalent; they work while a fill layer's 3D projection manipulator is shown.
+- Compositing could hang for good the first time a Curvature generator with Medium or Coarse detail was evaluated.
 
 ## 0.4.4 - 2026-11-19
 

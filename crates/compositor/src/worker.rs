@@ -37,6 +37,21 @@ use crate::{ChangedTiles, Composite, CompositeCache, EvalContext};
 
 /// Work per slice before the worker publishes progress and looks for a newer snapshot.
 const SLICE: Duration = Duration::from_millis(8);
+/// Longest slice: while no newer snapshot arrives the slice doubles up to this. Every slice is a
+/// fork-join over the pool, so it lasts as long as its slowest thread; with other programs busy
+/// (a build, a game) threads wait for the OS scheduler, and with 8 ms slices the exact result after
+/// a 4096² generator drag took about 10 times as long as one blocking update (5.7 s against
+/// 0.35 s; 2.7 s with this cap, unchanged on an idle machine). A slider drag sends a snapshot
+/// every frame, which keeps the short slice, so previews stay as quick.
+const MAX_SLICE: Duration = Duration::from_millis(64);
+/// How long no new snapshot must arrive before slices start to grow (a few frames).
+const QUIET: Duration = Duration::from_millis(100);
+
+/// The next slice: [`SLICE`] while snapshots keep coming (`quiet` false), else doubling up to
+/// [`MAX_SLICE`].
+fn next_slice(slice: Duration, quiet: bool) -> Duration {
+    if quiet { (slice * 2).min(MAX_SLICE) } else { SLICE }
+}
 
 /// Everything one texture set's evaluation reads, owned (cheap: layers, tiles and resources are
 /// shared).
@@ -267,6 +282,8 @@ fn run(shared: &Shared, pool: &rayon::ThreadPool) {
     // exact composite changed since (their baseline is remade at the next idle).
     let mut baselines: HashMap<TextureSetId, Composite> = HashMap::new();
     let mut outdated: BTreeSet<TextureSetId> = BTreeSet::new();
+    let mut slice = SLICE;
+    let mut last_snapshot = std::time::Instant::now();
     loop {
         let fresh = {
             let mut st = shared.lock();
@@ -286,6 +303,12 @@ fn run(shared: &Shared, pool: &rayon::ThreadPool) {
             }
         };
         let (generation, snap) = current.as_ref().expect("a snapshot was taken");
+        if fresh {
+            last_snapshot = std::time::Instant::now();
+            slice = SLICE;
+        } else {
+            slice = next_slice(slice, last_snapshot.elapsed() >= QUIET);
+        }
         if fresh {
             caches.retain(|id, _| snap.sets.iter().any(|s| s.texture_set.id == *id));
             geometry.retain(|id, _| caches.contains_key(id));
@@ -372,7 +395,7 @@ fn run(shared: &Shared, pool: &rayon::ThreadPool) {
                 let id = set.texture_set.id;
                 let cache = caches.get_mut(&id).expect("inserted for every set");
                 let ctx = EvalContext { geometry: &set.geometry, resources: &snap.resources, mesh_maps: &set.mesh_maps };
-                let tiles = cache.update_within(&set.texture_set, &ctx, Some(SLICE));
+                let tiles = cache.update_within(&set.texture_set, &ctx, Some(slice));
                 if tiles.is_empty() {
                     continue;
                 }
@@ -466,5 +489,23 @@ fn run(shared: &Shared, pool: &rayon::ThreadPool) {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod slice_tests {
+    use super::*;
+
+    #[test]
+    fn slices_stay_short_while_snapshots_come_and_grow_to_the_cap_when_quiet() {
+        assert_eq!(next_slice(SLICE, false), SLICE);
+        assert_eq!(next_slice(MAX_SLICE, false), SLICE, "a new snapshot brings the short slice back");
+        let mut s = SLICE;
+        let mut steps = Vec::new();
+        for _ in 0..6 {
+            s = next_slice(s, true);
+            steps.push(s.as_millis());
+        }
+        assert_eq!(steps, [16, 32, 64, 64, 64, 64]);
     }
 }
