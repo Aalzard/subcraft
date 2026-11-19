@@ -15,15 +15,15 @@
 | General | `Ctrl+Shift+E` | Export textures | Export | already the same |  |
 | General | `Ctrl+Shift+B` | Bake mesh maps | Bake | added (key was free) | Ctrl+B kept as well |
 | General | `Ctrl+Shift+R` | Reimport mesh | ReimportMesh | added (key was free) | opens Project configuration with Reimport mesh ticked and the model file checked |
-| Manipulator | `Q` | Show/hide manipulator |  | no equivalent | no layer transform manipulator |
-| Manipulator | `+` | Increase manipulator size |  | no equivalent | no manipulator |
-| Manipulator | `-` | Decrease manipulator size |  | no equivalent | no manipulator |
-| Manipulator | `T` | Cycle manipulation spaces |  | no equivalent | no manipulator |
+| Manipulator | `Q` | Show/hide manipulator |  | mouse / hold key | while a fill layer's 3D projection manipulator is active (tri-planar, planar, spherical, cylindrical) |
+| Manipulator | `+` | Increase manipulator size |  | mouse / hold key | projection manipulator active; = works too |
+| Manipulator | `-` | Decrease manipulator size |  | mouse / hold key | projection manipulator active |
+| Manipulator | `T` | Cycle manipulation spaces |  | mouse / hold key | projection manipulator active: box axes / world axes |
 | Manipulator | `Shift+V` | Toggle warp edition mode |  | mouse / hold key | with a Warp fill layer selected, over the 3D view: Transform warp / Edit vertices |
-| Manipulator | `W` | Translate tool |  | no equivalent | no manipulator |
-| Manipulator | `E` | Rotate tool |  | no equivalent | no manipulator (E stays Eraser) |
-| Manipulator | `R` | Scale tool |  | no equivalent | no manipulator |
-| Manipulator | `Shift+W` | Surface tool |  | no equivalent | no equivalent |
+| Manipulator | `W` | Translate tool |  | mouse / hold key | projection manipulator active; otherwise W keeps its tool meaning |
+| Manipulator | `E` | Rotate tool |  | mouse / hold key | projection manipulator active; otherwise E stays Eraser |
+| Manipulator | `R` | Scale tool |  | mouse / hold key | projection manipulator active |
+| Manipulator | `Shift+W` | Surface tool |  | mouse / hold key | planar projection: the box snaps to the surface under the pointer |
 | Tools | `L` | Symmetry | ToggleSymmetry | added (key was free) | symmetry on / off; the last axes come back, as with the toolbar button |
 | Tools | `Shift+Esc` | Pause engine computation | PauseEngine | added (key was free) | layer computation waits (the 3D view says so) until Shift+Esc again; export and save still compute |
 | Tools | `1` | Paint tool | BrushTool | added (key was free) | B kept as well in the SubCraft key set |
@@ -90,4 +90,4 @@
 | Layers | `Alt+LMB on mask` | Display mask in viewport |  | mouse / hold key | already worked: opens the mask inspector |
 | Layers | `Shift+LMB on mask` | Disable/enable mask |  | mouse / hold key | already worked |
 | Layers | `Ctrl+drag & drop` | Drag material |  | mouse / hold key | added: a material dropped on the model with Ctrl held shows only on the part under the cursor (geometry mask) |
-| Layers | `Shift / Ctrl (drag)` | Manipulator snapping / mirror |  | no equivalent | no manipulator |
+| Layers | `Shift / Ctrl (drag)` | Manipulator snapping / mirror |  | mouse / hold key | Shift snaps a projection manipulator drag to the manipulator steps; Ctrl mirror is not there |

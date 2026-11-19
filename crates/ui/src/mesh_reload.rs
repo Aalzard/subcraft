@@ -127,6 +127,9 @@ pub fn start_check(state: &mut UiState) {
     r.check = Some(state.session.start_mesh_reload_check(&path));
 }
 
+/// The "Texture set" choice that makes a material a new, empty set.
+const NEW_SET: &str = "New texture set";
+
 fn dim(text: &str) -> RichText {
     RichText::new(text).color(TEXT_DIM())
 }
@@ -191,6 +194,8 @@ pub fn window(state: &mut UiState, ctx: &egui::Context, now: f64) {
     let mut close = false;
     let source = state.session.mesh_source().map(Path::to_path_buf);
     let tiles = uv_tile_summary(state.session.document().texture_sets.iter().map(|t| t.udim_number()));
+    let candidates = PreparedReload::candidates(state.session.document());
+    let mut reassign: Option<(usize, Option<subcraft_core::TextureSetId>)> = None;
     egui::Window::new(RichText::new("Project configuration").font(theme::font_strong(14.0))).open(&mut open).collapsible(false).default_width(480.0).show(ctx, |ui| {
         let busy = state.mesh_reload.busy();
         let r = &mut state.mesh_reload;
@@ -224,14 +229,41 @@ pub fn window(state: &mut UiState, ctx: &egui::Context, now: f64) {
         }
         if r.reimport && let Some(p) = r.prepared.clone() {
             ui.add_space(4.0);
-            for s in &p.sets {
-                let text = match (s.old, s.uv_moved) {
-                    (Some(_), Some(m)) if m > 0.02 => format!("{}  matched, UVs changed ({:.0}% moved)", s.name, m * 100.0),
-                    (Some(_), _) => format!("{}  matched, UVs unchanged", s.name),
-                    (None, _) => format!("{}  new material: new empty texture set", s.name),
-                };
-                ui.label(text);
-            }
+            ui.add_enabled_ui(!busy, |ui| {
+                egui::Grid::new("reassign_texture_sets").num_columns(3).spacing([8.0, 4.0]).show(ui, |ui| {
+                    ui.label(dim("Material"));
+                    ui.label(dim("Texture set"));
+                    ui.label("");
+                    ui.end_row();
+                    for (slot, s) in p.sets.iter().enumerate() {
+                        ui.label(&s.name);
+                        let current = s.old.and_then(|id| candidates.iter().find(|c| c.0 == id)).map_or(NEW_SET.to_string(), |c| c.1.clone());
+                        egui::ComboBox::from_id_salt(("reassign_set", slot)).selected_text(current).width(160.0).show_ui(ui, |ui| {
+                            if ui.selectable_label(s.old.is_none(), NEW_SET).clicked() {
+                                reassign = Some((slot, None));
+                            }
+                            for (id, name) in &candidates {
+                                let taken = p.sets.iter().enumerate().find(|(i, o)| *i != slot && o.old == Some(*id)).map(|(_, o)| o.name.as_str());
+                                let label = match taken {
+                                    Some(by) => format!("{name}  (now on {by})"),
+                                    None => name.clone(),
+                                };
+                                if ui.selectable_label(s.old == Some(*id), label).clicked() {
+                                    reassign = Some((slot, Some(*id)));
+                                }
+                            }
+                        })
+                        .response
+                        .on_hover_text("Reassign Texture Sets: the existing texture set whose layers this material continues (for a material renamed in the modelling program)");
+                        ui.label(dim(&match (s.old, s.uv_moved) {
+                            (Some(_), Some(m)) if m > 0.02 => format!("UVs changed ({:.0}% moved)", m * 100.0),
+                            (Some(_), _) => "UVs unchanged".to_string(),
+                            (None, _) => "new, empty".to_string(),
+                        }));
+                        ui.end_row();
+                    }
+                });
+            });
             for name in &p.unmatched_old {
                 ui.label(RichText::new(format!("{name}  no matching material: kept, but not shown on the model")).color(theme::WARNING()));
             }
@@ -292,6 +324,20 @@ pub fn window(state: &mut UiState, ctx: &egui::Context, now: f64) {
     });
     if check {
         start_check(state);
+    }
+    if let Some((slot, old)) = reassign
+        && let Some(mut p) = state.mesh_reload.prepared.take()
+    {
+        // Only this window holds the checked reload until OK starts it.
+        let mode_was_suggested = state.mesh_reload.mode == Some(p.suggested);
+        match Arc::get_mut(&mut p) {
+            Some(prepared) => state.session.reassign_mesh_reload(prepared, slot, old),
+            None => state.mesh_reload.error = Some("the reimport is already running".into()),
+        }
+        if mode_was_suggested {
+            state.mesh_reload.mode = Some(p.suggested);
+        }
+        state.mesh_reload.prepared = Some(p);
     }
     if cancel_job && let Some(job) = state.mesh_reload.job.take() {
         job.cancel();

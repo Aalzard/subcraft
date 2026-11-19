@@ -216,6 +216,46 @@ fn texture_sets_follow_material_names() {
 }
 
 #[test]
+fn a_renamed_material_can_be_reassigned_to_its_old_texture_set() {
+    let mut s = Session::new(primitives::sample_crate(), RES);
+    let old = s.document().texture_sets.clone();
+    // The new version renames Body to Lid; by name it would be a new, empty set.
+    let mesh = s.scene().mesh.clone();
+    let slot_of: Vec<u32> = mesh.tri_material.clone();
+    let (new_mesh, _) = mesh.regroup(&["Lid".to_string(), "Trim".to_string()], &slot_of, &[]);
+    let mut prepared = s.check_mesh_reload(&PathBuf::from("crate_v2.obj"), new_mesh).unwrap();
+    assert_eq!(prepared.added(), ["Lid"]);
+    assert_eq!(prepared.unmatched_old, ["Body"]);
+    let lid = prepared.sets.iter().position(|m| m.name == "Lid").unwrap();
+    s.reassign_mesh_reload(&mut prepared, lid, Some(old[0].id));
+    assert!(prepared.added().is_empty() && prepared.unmatched_old.is_empty(), "{:?}", prepared.sets);
+    assert_eq!(prepared.sets[lid].uv_moved.map(|m| m < 0.02), Some(true), "same UVs: {:?}", prepared.sets[lid]);
+    assert_eq!(prepared.suggested, ReloadMode::KeepUvs);
+    // Taking Trim's set for Lid makes the Trim slot a new set and leaves Body unmatched.
+    s.reassign_mesh_reload(&mut prepared, lid, Some(old[1].id));
+    let trim = prepared.sets.iter().position(|m| m.name == "Trim").unwrap();
+    assert_eq!(prepared.sets[trim].old, None);
+    assert_eq!(prepared.added(), ["Trim"]);
+    assert_eq!(prepared.unmatched_old, ["Body"]);
+    // Back to the right pairing, and a reassign to "new set" works too.
+    s.reassign_mesh_reload(&mut prepared, trim, Some(old[1].id));
+    s.reassign_mesh_reload(&mut prepared, lid, None);
+    assert_eq!(prepared.added(), ["Lid"]);
+    s.reassign_mesh_reload(&mut prepared, lid, Some(old[0].id));
+    let report = s.apply_mesh_reload(Arc::new(prepared), ReloadMode::KeepUvs).unwrap();
+    assert_eq!(report.matched, ["Body", "Trim"]);
+    assert!(report.added.is_empty() && report.kept_without_geometry.is_empty(), "{report:?}");
+    let sets = s.document().texture_sets.clone();
+    assert_eq!(sets.len(), 2);
+    assert_eq!(sets[0].id, old[0].id, "Body's set continues on the Lid material");
+    assert_eq!(sets[0].layers, old[0].layers);
+    assert_eq!(s.scene().mesh.materials[sets[0].material_slot as usize].name, "Lid");
+    // A later reload of the same file matches it by its material name, with no reassigning.
+    let again = s.check_mesh_reload(&PathBuf::from("crate_v2.obj"), s.scene().mesh.as_ref().clone()).unwrap();
+    assert_eq!(again.matched(), 2, "{:?}", again.sets);
+}
+
+#[test]
 fn reloaded_project_saves_and_reopens_with_stale_maps_flagged() {
     let mut s = cube_session();
     paint(&mut s, |_| true);

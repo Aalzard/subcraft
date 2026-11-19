@@ -835,6 +835,12 @@ impl Session {
         crate::mesh_reload::prepare_mesh(path, mesh, Vec::new(), self.scene.mesh.clone(), &self.scene.bvh, self.history.current(), &progress)
     }
 
+    /// Reassign Texture Sets in a checked reload: new slot `slot` continues the existing set `old`
+    /// (`None`: a new, empty set). See [`crate::mesh_reload::PreparedReload::reassign`].
+    pub fn reassign_mesh_reload(&self, prepared: &mut crate::mesh_reload::PreparedReload, slot: usize, old: Option<TextureSetId>) {
+        prepared.reassign(slot, old, &self.scene.bvh, self.history.current());
+    }
+
     /// Step 2, in the background: build the reloaded document with `mode`.
     pub fn start_mesh_reload(&self, prepared: Arc<crate::mesh_reload::PreparedReload>, mode: crate::mesh_reload::ReloadMode) -> crate::mesh_reload::MeshReloadJob<crate::mesh_reload::ReloadOutput> {
         let (bvh, doc, maps) = (self.scene.bvh.clone(), self.history.current().clone(), self.mesh_map_set());
