@@ -5,6 +5,12 @@ What changed in SubCraft, newest first. Download the latest build from the
 
 ## Unreleased
 
+### Faster
+- The exact result after dragging a generator slider on a large texture set arrives about twice as fast while other programs keep the processor busy (4096² Dirt drag with 16 busy threads: 5.7 s to 2.7 s). Previews during the drag and an idle machine are unchanged.
+
+### Fixed
+- Compositing could hang for good the first time a Curvature generator with Medium or Coarse detail was evaluated.
+
 ## 0.4.4 - 2026-11-19
 
 ### Added
