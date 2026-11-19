@@ -1855,6 +1855,10 @@ impl SubcraftApp {
                     ui.close();
                     dialogs::save_copy(&mut self.state, now);
                 }
+                if item(ui, icons::SAVE, tr("Save as template…"), "") {
+                    ui.close();
+                    crate::save_template::open(&mut self.state);
+                }
                 ui.separator();
                 ui.menu_button(format!("{}   {}", icons::IMAGE, tr("Import resources")), |ui| {
                     ui.set_min_width(220.0);
@@ -2657,6 +2661,7 @@ impl eframe::App for SubcraftApp {
         let now = ctx.input(|i| i.time);
         crate::asset_preview::show(&mut self.state,&ctx);
         crate::render_export::window(&mut self.state, &ctx);
+        crate::save_template::window(&mut self.state, &ctx, now);
         crate::materials_download::window(&mut self.state, &ctx);
         panels::display_settings::sync_project(&mut self.state);
         crate::view_state::sync(&mut self.state);

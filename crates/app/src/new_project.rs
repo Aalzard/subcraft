@@ -125,6 +125,9 @@ pub struct NewProjectSettings {
     pub high_poly: Option<PathBuf>,
     /// Read the cameras stored in the mesh file (glTF, GLB, FBX) into the project.
     pub import_cameras: bool,
+    /// Export preset of the new project when it is not the template's (a user template made from a
+    /// project keeps that project's preset).
+    pub export_template: Option<String>,
 }
 
 impl Default for NewProjectSettings {
@@ -140,6 +143,7 @@ impl Default for NewProjectSettings {
             udim: true,
             high_poly: None,
             import_cameras: true,
+            export_template: None,
         }
     }
 }
@@ -148,6 +152,7 @@ impl NewProjectSettings {
     /// Switch template: channels and normal format follow it.
     pub fn apply_template(&mut self, template: ProjectTemplate) {
         self.template = template;
+        self.export_template = None;
         self.channels = template.channels();
         self.normal_format = template.normal_format();
     }
@@ -171,7 +176,7 @@ impl NewProjectSettings {
         self.resolution_overrides.get(set_name).copied().unwrap_or(self.resolution)
     }
 
-    fn valid_resolution(r: u32) -> u32 {
+    pub(crate) fn valid_resolution(r: u32) -> u32 {
         subcraft_doc::RESOLUTIONS.iter().copied().min_by_key(|v| v.abs_diff(r)).unwrap_or(2048)
     }
 }
@@ -410,7 +415,7 @@ impl Session {
         let mut session = Session::from_parts(mesh, Document { texture_sets: sets }, ResourceStore::default(), "New Project");
         session.set_settings(ProjectSettings {
             normal_format: Some(settings.normal_format),
-            export_template: settings.template.export_template().to_string(),
+            export_template: settings.export_template.clone().unwrap_or_else(|| settings.template.export_template().to_string()),
             ..Default::default()
         });
         Ok(session)

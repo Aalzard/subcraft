@@ -35,6 +35,7 @@ pub mod new_project;
 pub mod nav;
 pub mod orbit;
 pub mod render_export;
+pub mod save_template;
 pub mod pen;
 pub mod part_overlay;
 pub mod paths_panel;

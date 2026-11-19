@@ -343,7 +343,7 @@ pub fn import_spp_cached(path: &Path, control: &Arc<ImportControl>, cache: Optio
         // DirectX normals. The channel is stored as OpenGL internally and exported in the project's format.
         let project_normal_dx = project.texture_sets.iter().all(|s| s.normal_syscoord == 0);
         settings.normal_format = if project_normal_dx { NormalFormat::DirectX } else { NormalFormat::OpenGl };
-        let template_name = settings.template.export_template().to_string();
+        let template_name = settings.export_template.clone().unwrap_or_else(|| settings.template.export_template().to_string());
         let base = Session::from_mesh_with(mesh, &settings)?;
         let mut doc = base.document().clone();
         let mesh = base.scene().mesh.as_ref().clone();

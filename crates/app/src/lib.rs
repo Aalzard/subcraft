@@ -31,6 +31,7 @@ pub mod flatten;
 pub mod instances;
 pub mod mask_tools;
 pub mod new_project;
+pub mod user_templates;
 pub mod effect_stack;
 pub mod export_presets;
 pub mod filter_shelf;
