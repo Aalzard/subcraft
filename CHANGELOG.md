@@ -5,6 +5,9 @@ What changed in SubCraft, newest first. Download the latest build from the
 
 ## Unreleased
 
+### Added
+- File > Save as template: saves the open project's setup (channels of its texture sets, most common resolution, normal format, export preset, UDIM tiles) under a name. New Project lists it under Your templates in the Template list; picking it keeps the high poly and per-material resolutions chosen for the model. Layers are not part of a template, as in Painter.
+
 ## 0.4.4 - 2026-11-19
 
 ### Added
