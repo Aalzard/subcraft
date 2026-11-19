@@ -223,6 +223,31 @@ fn document_roundtrips_exactly() {
 }
 
 #[test]
+fn fill_channel_image_adjust_is_written_only_when_set() {
+    use subcraft_doc::ImageAdjust;
+    let channel = |adjust| crate::schema::FillChannelV1 {
+        channel: ChannelKind::Roughness,
+        enabled: true,
+        source: FillSource::Bitmap { resource: subcraft_core::ResourceId::new() },
+        strength: 1.0,
+        adjust,
+    };
+    // Neutral: the field is absent, so files written before it existed are unchanged.
+    let neutral = serde_json::to_string(&channel(ImageAdjust::default())).unwrap();
+    assert!(!neutral.contains("adjust"), "{neutral}");
+    let back: crate::schema::FillChannelV1 = serde_json::from_str(&neutral).unwrap();
+    assert_eq!(back.adjust, ImageAdjust::default(), "a file without the field reads as neutral");
+    // Set: written and read back.
+    let set = ImageAdjust { balance: 0.3, contrast: 0.6, invert: true };
+    let text = serde_json::to_string(&channel(set)).unwrap();
+    assert!(text.contains(r#""adjust":{"balance":0.3,"contrast":0.6,"invert":true}"#), "{text}");
+    assert_eq!(serde_json::from_str::<crate::schema::FillChannelV1>(&text).unwrap().adjust, set);
+    // A partly written object fills the rest with the neutral values.
+    let partial = neutral.replacen('{', r#"{"adjust":{"invert":true},"#, 1);
+    assert_eq!(serde_json::from_str::<crate::schema::FillChannelV1>(&partial).unwrap().adjust, ImageAdjust { invert: true, ..ImageAdjust::default() });
+}
+
+#[test]
 fn baked_mesh_maps_roundtrip() {
     let doc = rich_document();
     let mut maps = MeshMapSet::new();
