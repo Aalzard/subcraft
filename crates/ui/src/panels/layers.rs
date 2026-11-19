@@ -260,6 +260,43 @@ fn rows<'a>(list: &'a [Arc<Layer>], depth: usize, out: &mut Vec<(usize, &'a Laye
     }
 }
 
+/// The rows the layer stack shows while its search field holds `query`: every layer whose name
+/// contains it (any case), with the folders around it, which open for the search even when they
+/// are collapsed. A folder whose own name matches shows with its whole content. An empty query
+/// shows the usual rows.
+pub fn filtered_rows<'a>(list: &'a [Arc<Layer>], query: &str, out: &mut Vec<(usize, &'a Layer)>) {
+    let query = query.trim().to_lowercase();
+    if query.is_empty() {
+        rows(list, 0, out);
+        return;
+    }
+    fn matches(l: &Layer, q: &str) -> bool {
+        l.name.to_lowercase().contains(q)
+            || matches!(&l.content, subcraft_doc::LayerContent::Group(g) if g.children.iter().any(|c| matches(c, q)))
+    }
+    fn walk<'a>(list: &'a [Arc<Layer>], depth: usize, q: &str, out: &mut Vec<(usize, &'a Layer)>) {
+        for l in list.iter().rev().filter(|l| matches(l, q)) {
+            out.push((depth, l));
+            if let subcraft_doc::LayerContent::Group(g) = &l.content {
+                if l.name.to_lowercase().contains(q) {
+                    all(&g.children, depth + 1, out);
+                } else {
+                    walk(&g.children, depth + 1, q, out);
+                }
+            }
+        }
+    }
+    fn all<'a>(list: &'a [Arc<Layer>], depth: usize, out: &mut Vec<(usize, &'a Layer)>) {
+        for l in list.iter().rev() {
+            out.push((depth, l));
+            if let subcraft_doc::LayerContent::Group(g) = &l.content {
+                all(&g.children, depth + 1, out);
+            }
+        }
+    }
+    walk(list, 0, &query, out);
+}
+
 /// Files dropped from the OS that the layer stack takes: only when every one is an image (models,
 /// projects and smart materials stay with the window-wide handler).
 pub fn image_drops(paths: &[std::path::PathBuf]) -> Option<Vec<std::path::PathBuf>> {
@@ -333,6 +370,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     // Export flattened / Export mask: (layers, masks).
     let mut export_request: Option<(Vec<LayerId>, bool)> = None;
     let cancel_rename = rename.is_some() && ui.input(|i| i.key_pressed(egui::Key::Escape));
+    let layer_query_id = egui::Id::new(("layer_search", state.session.selection().texture_set));
+    let mut layer_query = ui.data(|d| d.get_temp::<String>(layer_query_id)).unwrap_or_default();
 
     // Edit in PhotoCraft is running for this texture set: say so and offer to stop.
     if let Some(ex) = &state.photocraft
@@ -446,7 +485,20 @@ Files: {}", ex.dir().display()));
                 }
             });
         });
+        // Search the stack by layer name (Painter's layer filter): matches and the folders around
+        // them stay; Esc or the x clears it.
+        ui.add_space(2.0);
+        ui.horizontal(|ui| {
+            let edit = ui.add(egui::TextEdit::singleline(&mut layer_query).hint_text(tr("Search layers")).desired_width((ui.available_width() - 24.0).max(60.0)));
+            if edit.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                layer_query.clear();
+            }
+            if !layer_query.is_empty() && icon_button(ui, icons::X, "Clear the layer search").clicked() {
+                layer_query.clear();
+            }
+        });
     });
+    ui.data_mut(|d| d.insert_temp(layer_query_id, layer_query.clone()));
     divider(ui);
 
     // Blend mode and opacity of the active channel sit on the right of every layer row.
@@ -474,10 +526,14 @@ Files: {}", ex.dir().display()));
     let alt = ui.input(|i| i.modifiers.alt);
     let mut open: Vec<OpenFolder> = Vec::new();
     let mut list = Vec::new();
-    rows(&ts.layers, 0, &mut list);
+    filtered_rows(&ts.layers, &layer_query, &mut list);
+    let searching = !layer_query.trim().is_empty();
     // Anchor references that cannot be evaluated are flagged on their layer's row (ADR-0045).
     let anchor_index = subcraft_doc::anchor::has_references(&ts.layers).then(|| subcraft_doc::AnchorIndex::build(&ts.layers));
-    let order: Vec<LayerId> = list.iter().map(|(_, l)| l.id).collect();
+    // The selection keeps layers the search hides.
+    let mut unfiltered = Vec::new();
+    rows(&ts.layers, 0, &mut unfiltered);
+    let order: Vec<LayerId> = unfiltered.iter().map(|(_, l)| l.id).collect();
     state.multi.retain_existing(&order);
     // Default min height (64 px) would let rows spill past the panel when it is short; the list
     // must only use the space that is left (it scrolls).
@@ -517,7 +573,8 @@ Files: {}", ex.dir().display()));
             drop_on_top = true;
         }
         if list.is_empty() {
-            empty_state(ui, icons::STACK, "No layers yet. Add one above.");
+            if searching { empty_state(ui, icons::STACK, "No layer name matches the search."); }
+            else { empty_state(ui, icons::STACK, "No layers yet. Add one above."); }
         }
         for (index, (depth, l)) in list.iter().enumerate() {
             // Reserve room for names and the blend/opacity column even in a narrow dock.
@@ -1324,6 +1381,41 @@ mod smart_material_search_tests {
         assert_eq!(smart_material_matches(names.iter().copied(), "steel"), [0, 1]);
         assert_eq!(smart_material_matches(names.iter().copied(), "STEEL paint"), [1]);
         assert!(smart_material_matches(names.iter().copied(), "glass").is_empty());
+    }
+}
+
+#[cfg(test)]
+mod layer_search_tests {
+    use super::*;
+    use subcraft_doc::{GroupContent, TextureSet};
+
+    fn names(list: &[(usize, &Layer)]) -> Vec<String> {
+        list.iter().map(|(d, l)| format!("{d}:{}", l.name)).collect()
+    }
+
+    #[test]
+    fn the_layer_search_keeps_matches_with_their_folders_open_and_a_matching_folder_whole() {
+        let ts = TextureSet::new("Body", 0, 64);
+        let leaf = |n: &str| Arc::new(Layer::new_paint(n, &ts));
+        let folder = |n: &str, children: Vec<Arc<Layer>>, expanded: bool| {
+            let mut f = Layer::new_folder(n, &ts);
+            f.content = LayerContent::Group(GroupContent { children, expanded });
+            Arc::new(f)
+        };
+        // Bottom to top, as stored: Base, Wear folder (collapsed) with Rust and Dirt, Rust decal.
+        let layers = vec![leaf("Base"), folder("Wear", vec![leaf("Rust edges"), leaf("Dirt")], false), leaf("Rust decal")];
+        let mut out = Vec::new();
+        filtered_rows(&layers, "", &mut out);
+        assert_eq!(names(&out), ["0:Rust decal", "0:Wear", "0:Base"], "no search: the collapsed folder stays shut");
+        out.clear();
+        filtered_rows(&layers, " RUST ", &mut out);
+        assert_eq!(names(&out), ["0:Rust decal", "0:Wear", "1:Rust edges"], "matches in a collapsed folder show inside it");
+        out.clear();
+        filtered_rows(&layers, "wear", &mut out);
+        assert_eq!(names(&out), ["0:Wear", "1:Dirt", "1:Rust edges"], "a matching folder shows its whole content");
+        out.clear();
+        filtered_rows(&layers, "glass", &mut out);
+        assert!(out.is_empty());
     }
 }
 

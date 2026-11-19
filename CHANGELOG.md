@@ -7,6 +7,8 @@ What changed in SubCraft, newest first. Download the latest build from the
 
 ### Added
 - Reimport mesh: Reassign Texture Sets. Project configuration lists every material of the reimported model with a Texture set choice, so a material renamed in the modelling program can continue its old texture set (layers, baked maps) instead of starting empty while the old set is kept without geometry. Choosing a set that another material had makes that one a new set, and the UV comparison and the suggested Preserve strokes setting follow the choice.
+- Layers: a Search layers field under Channel filters the stack by layer name (any case). Matching layers show with the folders around them, opened even when collapsed; a folder whose name matches shows its whole content. Esc or the x clears it, and each texture set keeps its own search.
+- Render: turntables also save `turntable.gif` next to the PNG frames, a looping 640 px animation of one turn in 4 seconds to share (Animated GIF, on by default; the frames keep full quality).
 
 ### Faster
 - The exact result after dragging a generator slider on a large texture set arrives about twice as fast while other programs keep the processor busy (4096² Dirt drag with 16 busy threads: 5.7 s to 2.7 s). Previews during the drag and an idle machine are unchanged.
