@@ -5,6 +5,10 @@ What changed in SubCraft, newest first. Download the latest build from the
 
 ## Unreleased
 
+### Added
+- Layers: a Search layers field under Channel filters the stack by layer name (any case). Matching layers show with the folders around them, opened even when collapsed; a folder whose name matches shows its whole content. Esc or the x clears it, and each texture set keeps its own search.
+- Render: turntables also save `turntable.gif` next to the PNG frames, a looping 640 px animation of one turn in 4 seconds to share (Animated GIF, on by default; the frames keep full quality).
+
 ## 0.4.4 - 2026-11-19
 
 ### Added

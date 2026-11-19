@@ -27,12 +27,56 @@ pub struct ExportSettings {
     pub scale: u32,
     /// Alpha channel instead of the background color (two renders over black and white).
     pub transparent: bool,
+    /// A turntable also writes `turntable.gif`, a looping animation to share (see [`GIF_SIDE`]).
+    pub gif: bool,
 }
 
 impl Default for ExportSettings {
     fn default() -> Self {
-        Self { size: 2048, supersample: true, frames: 36, scale: 1, transparent: false }
+        Self { size: 2048, supersample: true, frames: 36, scale: 1, transparent: false, gif: true }
     }
+}
+
+/// Long side of the turntable GIF: GIF has 256 colours per frame and no compression worth the
+/// name at large sizes, so it is a preview to post; the PNG frames stay the full-quality output.
+pub const GIF_SIDE: u32 = 640;
+/// One full turn of the GIF lasts this long, whatever the frame count.
+pub const GIF_TURN_MS: u32 = 4000;
+/// Name of the GIF written next to the frames.
+pub const GIF_NAME: &str = "turntable.gif";
+
+/// Writes turntable frames into a looping animated GIF, scaled down to [`GIF_SIDE`].
+pub struct TurntableGif {
+    encoder: image::codecs::gif::GifEncoder<std::io::BufWriter<std::fs::File>>,
+    delay: image::Delay,
+}
+
+impl TurntableGif {
+    pub fn create(path: &std::path::Path, frames: u32) -> Result<Self, String> {
+        let file = std::fs::File::create(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        // Speed 10 of 30: NeuQuant quality close to the slowest setting at a fraction of its time.
+        let mut encoder = image::codecs::gif::GifEncoder::new_with_speed(std::io::BufWriter::new(file), 10);
+        encoder.set_repeat(image::codecs::gif::Repeat::Infinite).map_err(|e| e.to_string())?;
+        Ok(Self { encoder, delay: image::Delay::from_numer_denom_ms(GIF_TURN_MS, frames.max(1)) })
+    }
+
+    /// Add one frame (sRGB RGBA8 of `size`; alpha 0 becomes the GIF's transparent colour).
+    pub fn add(&mut self, pixels: &[u8], size: [u32; 2]) -> Result<(), String> {
+        let img = image::RgbaImage::from_raw(size[0], size[1], pixels.to_vec()).ok_or("frame size does not match its pixels")?;
+        let [w, h] = gif_size(size);
+        let img = if [w, h] == size { img } else { image::imageops::resize(&img, w, h, image::imageops::FilterType::Triangle) };
+        self.encoder.encode_frame(image::Frame::from_parts(img, 0, 0, self.delay)).map_err(|e| e.to_string())
+    }
+}
+
+/// Size of a GIF frame for a `size` picture: the long side at most [`GIF_SIDE`], aspect kept.
+pub fn gif_size(size: [u32; 2]) -> [u32; 2] {
+    let long = size[0].max(size[1]).max(1);
+    if long <= GIF_SIDE {
+        return size;
+    }
+    let k = GIF_SIDE as f32 / long as f32;
+    [((size[0] as f32 * k).round() as u32).max(1), ((size[1] as f32 * k).round() as u32).max(1)]
 }
 
 impl ExportSettings {
@@ -91,12 +135,15 @@ fn window_body(state: &mut UiState, ui: &mut egui::Ui) {
                     for f in FRAME_COUNTS { ui.selectable_value(&mut settings.frames, f, f.to_string()); }
                 });
                 ui.end_row();
+                ui.label(tr("Turntable GIF"));
+                ui.checkbox(&mut settings.gif, tr("Animated GIF")).on_hover_text(tr("Also save turntable.gif next to the frames: a looping 640 px animation to share (GIF has 256 colours; the PNG frames keep full quality)"));
+                ui.end_row();
             });
             ui.horizontal(|ui| {
                 if ui.button(tr("Save image…")).on_hover_text(tr("Render the current view as a PNG")).clicked() {
                     state.render_request = Some(RenderRequest::Image);
                 }
-                if ui.button(tr("Render turntable…")).on_hover_text(tr("A full turn around the model as numbered PNG frames in a folder")).clicked() {
+                if ui.button(tr("Render turntable…")).on_hover_text(tr("A full turn around the model as numbered PNG frames in a folder, and an animated GIF when ticked")).clicked() {
                     state.render_request = Some(RenderRequest::Turntable);
                 }
             });
@@ -227,11 +274,48 @@ pub fn run(state: &mut UiState, job: &Job) -> Result<String, String> {
         Job::Turntable(dir) => {
             std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
             let frames = state.render_export.frames;
+            let mut gif = if state.render_export.gif { Some(TurntableGif::create(&dir.join(GIF_NAME), frames)?) } else { None };
             for (i, yaw) in offline::turntable_yaws(camera.yaw, frames).into_iter().enumerate() {
                 let (pixels, size) = render_frame(state, crate::orbit::OrbitCamera { yaw, ..camera }, picture, supersample, transparent)?;
                 save_png(&dir.join(offline::turntable_file_name(i as u32)), &pixels, size)?;
+                if let Some(gif) = &mut gif {
+                    gif.add(&pixels, size)?;
+                }
             }
-            Ok(format!("Saved {frames} turntable frames to {}", dir.display()))
+            let also = if gif.is_some() { format!(" and {GIF_NAME}") } else { String::new() };
+            Ok(format!("Saved {frames} turntable frames{also} to {}", dir.display()))
         }
+    }
+}
+
+#[cfg(test)]
+mod gif_tests {
+    use super::*;
+
+    #[test]
+    fn the_turntable_gif_loops_every_frame_scaled_down_with_the_aspect_kept() {
+        assert_eq!(gif_size([2048, 1152]), [640, 360]);
+        assert_eq!(gif_size([1152, 2048]), [360, 640]);
+        assert_eq!(gif_size([500, 300]), [500, 300], "small pictures keep their size");
+        let dir = std::env::temp_dir().join(format!("subcraft-gif-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(GIF_NAME);
+        let size = [1280u32, 720];
+        let mut gif = TurntableGif::create(&path, 3).unwrap();
+        for i in 0..3u8 {
+            let pixels: Vec<u8> = (0..size[0] * size[1]).flat_map(|_| [i * 100, 50, 200, 255]).collect();
+            gif.add(&pixels, size).unwrap();
+        }
+        drop(gif);
+        use image::AnimationDecoder;
+        let decoder = image::codecs::gif::GifDecoder::new(std::io::BufReader::new(std::fs::File::open(&path).unwrap())).unwrap();
+        let frames = decoder.into_frames().collect_frames().unwrap();
+        assert_eq!(frames.len(), 3);
+        assert_eq!(frames[0].buffer().dimensions(), (640, 360));
+        let (num, den) = frames[0].delay().numer_denom_ms();
+        assert!((num as f32 / den as f32 - GIF_TURN_MS as f32 / 3.0).abs() <= 10.0, "{num}/{den} ms");
+        let px = frames[2].buffer().get_pixel(10, 10).0;
+        assert!(px[0].abs_diff(200) <= 8 && px[2].abs_diff(200) <= 8, "{px:?}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
