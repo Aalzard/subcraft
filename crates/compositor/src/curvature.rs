@@ -8,7 +8,6 @@
 
 use std::sync::{Arc, Mutex, OnceLock};
 
-use rayon::prelude::*;
 use subcraft_doc::{CurvatureDetail, CurvatureDetailMode};
 use subcraft_image::{TILE_TEXELS, TiledImage};
 use subcraft_materials::sample::TileGeometry;
@@ -40,9 +39,12 @@ impl Grid {
         let comps = img.comps();
         let cell_x = |x: u32| (x as u64 * g as u64 / w as u64) as u32;
         let cell_y = |y: u32| (y as u64 * g as u64 / h as u64) as u32;
-        // Per tile: sums over the cells it touches; tiles never write shared state.
+        // Per tile: sums over the cells it touches. Serial on purpose: `grid` builds this inside a
+        // `OnceLock` from tiles that are themselves rayon tasks. A parallel build let the building
+        // thread steal another tile that waited on the same lock (or left its split work queued on
+        // threads blocked on it), and compositing hung for good. One pass over the map, once per
+        // baked map, is cheap.
         let partials: Vec<(u32, u32, u32, Vec<f32>, Vec<u32>)> = (0..img.tile_count())
-            .into_par_iter()
             .map(|ti| {
                 let r = img.tile_rect(ti);
                 let (cx0, cy0) = (cell_x(r.x0 as u32), cell_y(r.y0 as u32));

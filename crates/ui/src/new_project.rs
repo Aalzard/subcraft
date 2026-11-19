@@ -51,6 +51,10 @@ pub struct NewProjectUi {
     /// The planned texture sets the mesh maps were last matched to: they are re-matched only
     /// when these change, so a set chosen by hand in the table stays chosen.
     matched_keys: Vec<subcraft_app::mesh_map_import::SetKey>,
+    /// Templates saved with File > Save as template (read when the window opens).
+    pub user_templates: Vec<subcraft_app::user_templates::UserTemplate>,
+    /// The user template picked in the Template list, if one is.
+    pub user_template: Option<String>,
 }
 
 impl Default for NewProjectUi {
@@ -66,6 +70,8 @@ impl Default for NewProjectUi {
             // On whichever way the window is opened (`show_window` or a launch option).
             derive_curvature: true,
             matched_keys: Vec::new(),
+            user_templates: Vec::new(),
+            user_template: None,
         }
     }
 }
@@ -74,13 +80,16 @@ impl NewProjectUi {
     /// Open the window, starting from the choices made last time.
     pub fn show_window(&mut self, remembered: &NewProjectSettings) {
         self.open = true;
-        self.settings = NewProjectSettings { high_poly: None, resolution_overrides: Default::default(), ..remembered.clone() };
+        // A user template's export preset is not remembered: the Template list shows a built-in one.
+        self.settings = NewProjectSettings { high_poly: None, resolution_overrides: Default::default(), export_template: None, ..remembered.clone() };
         self.model = None;
         self.high = None;
         self.error = None;
         self.mesh_maps.clear();
         self.matched_keys.clear();
         self.derive_curvature = true;
+        self.user_templates = subcraft_app::user_templates::templates_dir().map(|d| subcraft_app::user_templates::list(&d)).unwrap_or_default();
+        self.user_template = None;
     }
 
     /// The texture sets the project will get, as the mesh-map matcher sees them.
@@ -297,6 +306,17 @@ fn group_digits(n: usize) -> String {
     out
 }
 
+/// What a user template sets up, for its tooltip and the line under the Template list.
+pub fn user_template_summary(t: &subcraft_app::user_templates::UserTemplate) -> String {
+    let s = &t.settings;
+    let channels: Vec<&str> = s.channels.iter().map(|k| k.display_name()).collect();
+    let mut out = format!("Your template: {} px, {}", s.resolution, channels.join(", "));
+    if let Some(export) = &s.export_template {
+        out.push_str(&format!(". Export preset: {export}"));
+    }
+    out
+}
+
 fn project_section(ui: &mut Ui, np: &mut NewProjectUi) {
     let uses_udim = np.model.as_ref().is_some_and(|m| m.summary.uses_udim());
     crate::widgets::card(ui, theme::channel_accent(ChannelKind::Roughness), |ui| {
@@ -306,17 +326,42 @@ fn project_section(ui: &mut Ui, np: &mut NewProjectUi) {
         egui::Grid::new("np_project").num_columns(2).spacing([14.0, 8.0]).show(ui, |ui| {
             ui.label("Template");
             let mut template = np.settings.template;
-            egui::ComboBox::from_id_salt("np_template").selected_text(template.label()).width(260.0).show_ui(ui, |ui| {
+            let mut picked_user: Option<usize> = None;
+            let shown = np.user_template.clone().unwrap_or_else(|| template.label().to_string());
+            egui::ComboBox::from_id_salt("np_template").selected_text(shown).width(260.0).show_ui(ui, |ui| {
                 for t in ProjectTemplate::ALL {
-                    ui.selectable_value(&mut template, t, t.label()).on_hover_text(t.description());
+                    let current = np.user_template.is_none() && template == t;
+                    if ui.selectable_label(current, t.label()).on_hover_text(t.description()).clicked() {
+                        template = t;
+                        np.user_template = None;
+                    }
+                }
+                if !np.user_templates.is_empty() {
+                    ui.separator();
+                    ui.label(RichText::new("Your templates").small().color(TEXT_DIM()));
+                    for (i, t) in np.user_templates.iter().enumerate() {
+                        let current = np.user_template.as_deref() == Some(t.name.as_str());
+                        if ui.selectable_label(current, &t.name).on_hover_text(user_template_summary(t)).clicked() {
+                            picked_user = Some(i);
+                        }
+                    }
                 }
             });
-            if template != np.settings.template {
+            if let Some(i) = picked_user {
+                let t = np.user_templates[i].clone();
+                t.apply_to(&mut np.settings);
+                np.user_template = Some(t.name);
+            } else if template != np.settings.template {
                 np.settings.apply_template(template);
+                np.user_template = None;
             }
             ui.end_row();
             ui.label("");
-            ui.add(egui::Label::new(RichText::new(np.settings.template.description()).small().color(TEXT_DIM())).wrap());
+            let description = match np.user_templates.iter().find(|t| np.user_template.as_deref() == Some(t.name.as_str())) {
+                Some(t) => user_template_summary(t),
+                None => np.settings.template.description().to_string(),
+            };
+            ui.add(egui::Label::new(RichText::new(description).small().color(TEXT_DIM())).wrap());
             ui.end_row();
             ui.label("Resolution");
             egui::ComboBox::from_id_salt("np_resolution").selected_text(format!("{0} x {0}", np.settings.resolution)).show_ui(ui, |ui| {

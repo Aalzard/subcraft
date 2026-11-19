@@ -221,6 +221,8 @@ pub struct UiState {
     pub capture_during_load: bool,
     /// "Render quality" window open, its export settings, and a pending export request.
     pub render_window: bool,
+    /// File > Save as template: the name being typed (Some while the window is open).
+    pub save_template: Option<String>,
     /// Display Settings panel: the group a jump button asked to scroll to.
     pub display_jump: Option<crate::panels::display_settings::Section>,
     /// A shader menu asked for the Shader Settings panel (opened by the app next frame).
@@ -527,6 +529,7 @@ impl UiState {
             capture_tool: None,
             capture_during_load: false,
             render_window: false,
+            save_template: None,
             display_jump: None,
             open_shader_settings: false,
             display_loaded: false,
