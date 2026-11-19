@@ -191,7 +191,7 @@ mod tests {
         let img = ResourceId::new();
         let mut mask = Mask::new(256, false);
         mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Generator(Generator::new(GeneratorKind::Edges)))));
-        mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Image { resource: img, projection: Projection::default(), invert: false })));
+        mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Image { resource: img, projection: Projection::default(), invert: false, balance: 0.5, contrast: 0.0 })));
         paint.mask = Some(mask);
         if let LayerContent::Group(g) = &mut folder.content {
             g.children.push(Arc::new(paint));

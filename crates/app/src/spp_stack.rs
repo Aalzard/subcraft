@@ -626,7 +626,7 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
                             SourceInfo::Bitmap { url, .. } => match self.bitmap(url, false).filter(|_| !skip("mask_bitmaps")) {
                                 Some(resource) => {
                                     self.stats.exact += 1;
-                                    vec![MaskEffect::new(MaskEffectKind::Image { resource, projection, invert: false })]
+                                    vec![MaskEffect::new(MaskEffectKind::Image { resource, projection, invert: false, balance: 0.5, contrast: 0.0 })]
                                 }
                                 None => {
                                     self.stats.skip("bitmap in a mask");
@@ -855,7 +855,7 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
         let levels = Levels { in_low, in_high: in_low + width, gamma, out_low: 0.0, out_high: 1.0, ..Levels::default() };
         let id = self.embedded_image_leveled(&g.url, levels)?;
         self.stats.approximate += 1;
-        Some(vec![MaskEffect::new(MaskEffectKind::Image { resource: id, projection, invert })])
+        Some(vec![MaskEffect::new(MaskEffectKind::Image { resource: id, projection, invert, balance: 0.5, contrast: 0.0 })])
     }
 
     /// An imported image of the project (`.image` resource) as a texture resource, decoded once.

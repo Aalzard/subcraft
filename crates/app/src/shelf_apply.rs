@@ -20,7 +20,7 @@ impl Session {
         let bitmap = alpha.bitmap.as_ref().ok_or_else(|| invalid("the round tip has no picture; pick an image alpha"))?;
         let (encoded, ext) = subcraft_image::encode_bitmap(bitmap).map_err(|e| invalid(e.to_string()))?;
         let id = self.import_image_bytes(&format!("{}.{ext}", alpha.name), encoded).map_err(invalid)?;
-        let kind = MaskEffectKind::Image { resource: id, projection: Projection::default(), invert: false };
+        let kind = MaskEffectKind::Image { resource: id, projection: Projection::default(), invert: false, balance: 0.5, contrast: 0.0 };
         self.execute(Command::ApplyMaskEffects { layer, effects: vec![kind], label: format!("Mask alpha: {}", alpha.name) })
     }
 
