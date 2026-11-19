@@ -207,6 +207,10 @@ pub struct FillChannelV1 {
     /// Added after schema 2 shipped; older files have none and mean 1.0. Older readers ignore it.
     #[serde(default = "one")]
     pub strength: f32,
+    /// Balance / Contrast / Invert of an image source. Not written while neutral, so files
+    /// without it stay byte-identical; older readers ignore it.
+    #[serde(default, skip_serializing_if = "subcraft_doc::ImageAdjust::is_identity")]
+    pub adjust: subcraft_doc::ImageAdjust,
 }
 
 fn one() -> f32 {

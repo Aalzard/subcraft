@@ -57,6 +57,43 @@ pub fn empty_paint_image(kind: ChannelKind, resolution: u32) -> TiledImage {
     TiledImage::new(resolution, resolution, comps, fill)
 }
 
+/// Balance / Contrast / Invert of an image used as a fill channel's source, the same remap a
+/// procedural source has (see [`crate::mask::balance_contrast`]). The default changes nothing.
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct ImageAdjust {
+    /// 0..=1; 0.5 is neutral, higher gives more white.
+    pub balance: f32,
+    /// 0..=1; 0 is neutral, 1 a hard threshold.
+    pub contrast: f32,
+    pub invert: bool,
+}
+
+impl Default for ImageAdjust {
+    fn default() -> Self {
+        Self { balance: 0.5, contrast: 0.0, invert: false }
+    }
+}
+
+impl ImageAdjust {
+    /// True when the image passes through unchanged.
+    pub fn is_identity(&self) -> bool {
+        *self == Self::default()
+    }
+
+    /// One value component (0..=1) through Balance / Contrast, then Invert.
+    pub fn apply(&self, v: f32) -> f32 {
+        let v = crate::mask::balance_contrast(v.clamp(0.0, 1.0), self.balance, self.contrast);
+        if self.invert { 1.0 - v } else { v }
+    }
+
+    /// Whether the adjustment acts on `kind` with `source`: image sources only, and never a
+    /// normal map (remapping its components would bend the directions it stores).
+    pub fn applies(&self, kind: ChannelKind, source: &FillSource) -> bool {
+        matches!(source, FillSource::Bitmap { .. }) && !matches!(kind, ChannelKind::Normal | ChannelKind::CoatNormal) && !self.is_identity()
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct FillChannel {
     pub enabled: bool,
@@ -64,24 +101,27 @@ pub struct FillChannel {
     /// Strength of the channel's result (1 = as is). Height: bump scale; Normal: tilt scale
     /// (0 = flat); Base Color / Emissive: brightness; other channels: value multiplier.
     pub strength: f32,
+    /// Balance / Contrast / Invert of an image source, applied before `strength`. Ignored by
+    /// every other source and by normal channels.
+    pub adjust: ImageAdjust,
 }
 
 impl FillChannel {
     pub fn new(source: FillSource) -> Self {
-        Self { enabled: true, source, strength: 1.0 }
+        Self { enabled: true, source, strength: 1.0, adjust: ImageAdjust::default() }
     }
 
     /// What a fill layer gets when `kind` is added to it. Emission starts white at Intensity 3
     /// (a visible glow from the default viewport glow); the rest use their usual paint value.
     pub fn default_for(kind: ChannelKind) -> Self {
         match kind {
-            ChannelKind::Emissive => Self { enabled: true, source: FillSource::uniform(subcraft_core::ChannelValue::rgb(1.0, 1.0, 1.0)), strength: 3.0 },
+            ChannelKind::Emissive => Self { strength: 3.0, ..Self::new(FillSource::uniform(subcraft_core::ChannelValue::rgb(1.0, 1.0, 1.0))) },
             _ => Self::new(FillSource::uniform(kind.default_paint_value())),
         }
     }
 
     pub fn disabled(source: FillSource) -> Self {
-        Self { enabled: false, source, strength: 1.0 }
+        Self { enabled: false, ..Self::new(source) }
     }
 }
 

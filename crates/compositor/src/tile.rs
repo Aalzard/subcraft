@@ -277,6 +277,15 @@ pub(crate) fn eval_fill(fill: &subcraft_doc::FillContent, kind: ChannelKind, tc:
     }
     let filter = if kind == ChannelKind::BaseColor { tc.albedo_filter } else { subcraft_image::TextureFilter::Bilinear };
     eval_fill_tile_filtered(&ch.source, kind.is_color(), &fill.projection, tc.geo, &tc.sample, filter, out);
+    // Balance / Contrast / Invert of an image source; alpha (coverage) is left alone.
+    if ch.adjust.applies(kind, &ch.source) {
+        let n = kind.components().min(3);
+        for px in out.iter_mut() {
+            for c in px.iter_mut().take(n) {
+                *c = ch.adjust.apply(*c);
+            }
+        }
+    }
     crate::strength::apply_strength(kind, ch.strength, out);
     if kind.components() == 1 {
         for px in out.iter_mut() {
