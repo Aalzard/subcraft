@@ -291,6 +291,7 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Release notes", "版本說明"),
     ("Documentation", "說明文件"),
     ("Forums", "論壇"),
+    ("Discord server", "Discord 伺服器"),
     ("Give feedback", "提供意見回饋"),
     ("What's new", "新功能"),
     ("Width", "寬度"),

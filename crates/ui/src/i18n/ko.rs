@@ -291,6 +291,7 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Release notes", "릴리스 노트"),
     ("Documentation", "문서"),
     ("Forums", "포럼"),
+    ("Discord server", "Discord 서버"),
     ("Give feedback", "피드백 보내기"),
     ("What's new", "새로운 기능"),
     ("Width", "너비"),
