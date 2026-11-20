@@ -133,6 +133,8 @@ pub struct UiState {
     pub graphics: crate::graphics::GraphicsUi,
     pub asset_preview: crate::asset_preview::AssetPreviewUi,
     pub welcome: crate::welcome::WelcomeUi,
+    /// The occasional Discord invitation.
+    pub community: crate::community::CommunityUi,
 
     pub updater: Option<subcraft_app::updater::Updater>,
     /// The startup update check is running or found a release: show the callout at the update
@@ -479,6 +481,7 @@ impl UiState {
             graphics,
             asset_preview: Default::default(),
             welcome: Default::default(),
+            community: Default::default(),
 
             updater: subcraft_app::updater::Updater::new().ok(),
             update_notice: false,

@@ -68,6 +68,7 @@ pub mod warp_view;
 pub mod widgets;
 pub mod window_frame;
 pub mod welcome;
+pub mod community;
 
 pub mod updates;
 

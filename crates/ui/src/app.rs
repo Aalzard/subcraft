@@ -98,6 +98,8 @@ pub struct LaunchOptions {
     pub welcome: bool,
     /// Open a step of the in-app guide (zero-based).
     pub guide_step: Option<usize>,
+    /// Show the Discord invitation right away (scripted captures).
+    pub discord_invite: bool,
 
     /// Open a workspace snapshot preserved during an in-app update.
     pub resume_update: Option<PathBuf>,
@@ -228,6 +230,12 @@ impl LaunchOptions {
     /// The Export window's folder at launch: `--export-path` when given, else `default`.
     pub fn export_folder(&self, default: &str) -> String {
         self.export_path.as_ref().map_or_else(|| default.to_string(), |p| p.display().to_string())
+    }
+
+    /// A person is using this run: not a scripted capture, render, demo, profile or update restart.
+    fn interactive(&self) -> bool {
+        self.screenshot.is_none() && !self.demo && self.render_job.is_none() && self.profile_edits.is_none()
+            && self.profile_view.is_none() && self.resume_update.is_none()
     }
 
     fn shows_welcome(&self, enabled: bool, recovered: bool) -> bool {
@@ -1162,6 +1170,11 @@ impl SubcraftApp {
             let _ = state.session.execute(Command::SetResolution { texture_set: None, resolution });
         }
         state.welcome.open = options.shows_welcome(state.recovery.prefs.show_welcome, state.session.is_recovered());
+        // Scripted runs (screenshots, demos, profiles, update restarts) neither count nor invite.
+        if options.interactive() && state.recovery.prefs.community.launch() {
+            state.community.due_at = Some(crate::community::DELAY_SECONDS);
+        }
+        if options.discord_invite { state.community.due_at = Some(0.0); }
         if let Some(view) = options.camera {
             state.camera_view = Some(view);
             state.camera = crate::orbit::OrbitCamera::framing_with(&state.session.scene().mesh.bounds, Some(&view));
@@ -2145,6 +2158,7 @@ impl SubcraftApp {
                     ui.close();
                 }
                 link(ui, tr("Forums"), HELP_FORUMS);
+                link(ui, tr("Discord server"), crate::community::DISCORD_INVITE);
                 ui.separator();
                 if item(ui, icons::INFO, tr("Report a bug…"), "") {
                     self.state.bug_report.open = true;
@@ -2702,6 +2716,7 @@ impl eframe::App for SubcraftApp {
         }
 
         crate::updates::tick(&mut self.state, &ctx);
+        crate::community::show(&mut self.state, &ctx, now);
         self.mark("dialogs+welcome");
         if self.test_crash && self.frames > 30 {
             panic!("test crash requested with --test-crash");

@@ -72,6 +72,7 @@ fn run_app() -> anyhow::Result<()> {
         match a.as_str() {
             "--preferences" => options.preferences = true,
             "--welcome" => options.welcome = true,
+            "--discord-invite" => options.discord_invite = true,
             "--quick-start" => options.guide_step = Some(0),
             "--guide-step" => {
                 let step = args.next().and_then(|s| s.parse::<usize>().ok()).filter(|s| (1..=6).contains(s))

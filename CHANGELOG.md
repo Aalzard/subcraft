@@ -5,6 +5,9 @@ What changed in SubCraft, newest first. Download the latest build from the
 
 ## Unreleased
 
+### Added
+- A SubCraft Discord server: Help → Discord server opens the invite, and an occasional card in the bottom-right corner offers it too. It shows a minute and a half into a session, from the third launch, and then every tenth launch until you join or pick "Don't show again". It waits while another window or a bake needs you.
+
 ### Fixed
 - Paint across UDIM tiles: pack materials, textures, filters, imported smart materials and duplicated layers went onto one tile only. A drop on the model shows the tile under the cursor, so such a layer vanished from the Layers panel while it still rendered, survived deleting every layer, and came back with a later drop (issue #581). Every way of adding a layer now reaches every tile, and hiding a layer, its mask, its blending and Ctrl-drop's part filter follow on the other tiles. A layer that already holds painted pixels stays on its own tile.
 

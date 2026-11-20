@@ -121,6 +121,8 @@ pub struct Preferences {
     /// with this false).
     #[serde(default)]
     pub ui_size_85: bool,
+    /// Launch count and the answer to the Discord invitation.
+    pub community: crate::community::CommunityPrefs,
 }
 
 impl Preferences {
@@ -188,6 +190,7 @@ impl Default for Preferences {
             theme: Default::default(),
             recent_colors: Vec::new(),
             ui_size_85: true,
+            community: Default::default(),
         }
     }
 }
