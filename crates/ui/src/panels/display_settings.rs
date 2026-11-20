@@ -137,6 +137,17 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     egui::Frame::new().inner_margin(egui::Margin::symmetric(8, 6)).show(ui, |ui| {
         ui.set_min_width(ui.available_width());
         jump_buttons(state, ui);
+        ui.horizontal_wrapped(|ui| {
+            ui.menu_button(format!("{}  {}", crate::icons::UNDO, tr("Reset all")), |ui| {
+                ui.set_max_width(260.0);
+                ui.label(RichText::new(tr("Put every display setting back to its default. The environment map and the colour LUT stay.")).color(TEXT_DIM()));
+                if ui.button(tr("Reset all display settings")).clicked() {
+                    reset_all(state);
+                    ui.close();
+                }
+            }).response.on_hover_text(tr("Put every setting of this panel back to its default"));
+            ui.label(RichText::new(tr("Ctrl+click a setting or right-click its name to reset it; a dot marks the changed ones.")).small().color(TEXT_DIM()));
+        });
         ui.add_space(4.0);
         let channels: Vec<_> = state.session.selected_texture_set().channel_kinds().collect();
         {
@@ -174,6 +185,75 @@ fn jump_buttons(state: &mut UiState, ui: &mut Ui) {
             }
         }
     });
+}
+
+/// Put every setting of the panel back to its default. The environment map and the colour LUT
+/// are choices of an asset rather than settings, so they stay; so do the view mode, the camera
+/// bookmarks and the brush / symmetry options the panel does not show.
+pub fn reset_all(state: &mut UiState) {
+    let prefs = &mut state.recovery.prefs.viewport;
+    let mut fresh = crate::viewport_bar::ViewportPrefs::default();
+    fresh.view_mode = prefs.view_mode;
+    fresh.mesh_map = prefs.mesh_map;
+    fresh.solo = prefs.solo;
+    fresh.path_tracing = prefs.path_tracing;
+    fresh.symmetry_display = std::mem::take(&mut prefs.symmetry_display);
+    fresh.pressure_curve = std::mem::take(&mut prefs.pressure_curve);
+    fresh.camera_bookmarks = std::mem::take(&mut prefs.camera_bookmarks);
+    fresh.display.env_map = prefs.display.env_map.take();
+    fresh.display.color_lut = prefs.display.color_lut;
+    *prefs = fresh;
+    state.env.rotation_deg = default_env_rotation(state);
+    set_fov(&mut state.camera, DEFAULTS.fov);
+    state.stencil_display = Default::default();
+}
+
+/// The environment rotation a reset goes back to: the startup environment is turned so its sun
+/// lights the model from the front; any other map starts unturned.
+fn default_env_rotation(state: &UiState) -> f32 {
+    use crate::panels::shelf::{DEFAULT_ENVIRONMENT, DEFAULT_ENVIRONMENT_ROTATION_DEG};
+    let startup = state.library.environments.get(state.env.index).is_some_and(|e| e.name == DEFAULT_ENVIRONMENT);
+    if startup { DEFAULT_ENVIRONMENT_ROTATION_DEG } else { DEFAULTS.env_rotation }
+}
+
+static DEFAULTS: std::sync::LazyLock<subcraft_doc::DisplaySettings> = std::sync::LazyLock::new(Default::default);
+static VIEW_DEFAULTS: std::sync::LazyLock<crate::viewport_bar::ViewportPrefs> = std::sync::LazyLock::new(Default::default);
+
+/// A row label that also takes the reset gestures.
+fn label(ui: &mut Ui, text: &str) -> egui::Response {
+    ui.add(egui::Label::new(text).sense(egui::Sense::click()))
+}
+
+/// The reset gestures of a settings row whose value differs from its default (`changed`): a dot
+/// before the label, Ctrl+click on the label or the control, and a right-click menu on the label.
+/// (Not on the control: a dropdown's or colour swatch's own popup shares its id with that menu.)
+/// True when the user asked for the default back.
+fn wants_reset(label: &egui::Response, control: &egui::Response, changed: bool) -> bool {
+    // `interact_rect` is the part of the label inside the scroll area: rows scrolled out of view
+    // must not paint their dot over other panels.
+    if changed && label.interact_rect.height() > 0.0 {
+        let at = label.rect.left_center() - egui::vec2(5.0, 0.0);
+        let clip = label.interact_rect.expand2(egui::vec2(8.0, 0.0));
+        label.ctx.layer_painter(label.layer_id).with_clip_rect(clip).circle_filled(at, 2.5, theme::ACCENT());
+    }
+    let ctrl = label.ctx.input(|i| i.modifiers.command);
+    let mut go = changed && ctrl && (label.clicked() || control.clicked());
+    label.context_menu(|ui| {
+        if ui.add_enabled(changed, egui::Button::new(format!("{}  {}", crate::icons::UNDO, tr("Reset to default")))).clicked() {
+            go = true;
+            ui.close();
+        }
+    });
+    go
+}
+
+/// Make a settings row resettable to `default` (see [`wants_reset`]). True when it was reset.
+fn reset<T: PartialEq + Clone>(label: &egui::Response, control: &egui::Response, value: &mut T, default: &T) -> bool {
+    let go = wants_reset(label, control, *value != *default);
+    if go {
+        *value = default.clone();
+    }
+    go
 }
 
 /// A small heading inside a section; `text` is already translated.
@@ -220,46 +300,57 @@ pub fn environment(state: &mut UiState, ui: &mut Ui) {
             state.env.index = env.0;
         }
         ui.end_row();
+        let rotation = default_env_rotation(state);
         let display = &mut state.recovery.prefs.viewport.display;
-        ui.label(tr("Environment opacity"));
-        ui.add(egui::Slider::new(&mut display.env_opacity, 0.0..=1.0).custom_formatter(|v, _| format!("{:.0}", v * 100.0)).custom_parser(|s| s.trim().parse::<f64>().ok().map(|v| v / 100.0)).suffix("%"))
+        let def = &*DEFAULTS;
+        let l = label(ui, tr("Environment opacity"));
+        let r = ui.add(egui::Slider::new(&mut display.env_opacity, 0.0..=1.0).custom_formatter(|v, _| format!("{:.0}", v * 100.0)).custom_parser(|s| s.trim().parse::<f64>().ok().map(|v| v / 100.0)).suffix("%"))
             .on_hover_text(tr("How much of the environment map shows behind the model. 0 is the plain background."));
+        reset(&l, &r, &mut display.env_opacity, &def.env_opacity);
         ui.end_row();
-        ui.label(tr("Environment exposure (EV)"));
-        ui.add(egui::Slider::new(&mut display.env_exposure, -5.0..=5.0).fixed_decimals(2)).on_hover_text(tr("Brightness of the environment in stops: +1 doubles the light, -1 halves it"));
+        let l = label(ui, tr("Environment exposure (EV)"));
+        let r = ui.add(egui::Slider::new(&mut display.env_exposure, -5.0..=5.0).fixed_decimals(2)).on_hover_text(tr("Brightness of the environment in stops: +1 doubles the light, -1 halves it"));
+        reset(&l, &r, &mut display.env_exposure, &def.env_exposure);
         ui.end_row();
-        ui.label(tr("Environment rotation"));
-        ui.add(egui::Slider::new(&mut state.env.rotation_deg, -180.0..=180.0).suffix("°").fixed_decimals(0)).on_hover_text(tr("Turn the lighting around the model (also Shift + right mouse drag in the 3D view)"));
+        let l = label(ui, tr("Environment rotation"));
+        let r = ui.add(egui::Slider::new(&mut state.env.rotation_deg, -180.0..=180.0).suffix("°").fixed_decimals(0)).on_hover_text(tr("Turn the lighting around the model (also Shift + right mouse drag in the 3D view)"));
+        reset(&l, &r, &mut state.env.rotation_deg, &rotation);
         ui.end_row();
-        ui.label(tr("Environment blur"));
-        ui.add_enabled(display.env_opacity > 0.0, egui::Slider::new(&mut display.env_blur, 0.0..=1.0)).on_hover_text(tr("Blur of the environment shown behind the model"));
+        let l = label(ui, tr("Environment blur"));
+        let r = ui.add_enabled(display.env_opacity > 0.0, egui::Slider::new(&mut display.env_blur, 0.0..=1.0)).on_hover_text(tr("Blur of the environment shown behind the model"));
+        reset(&l, &r, &mut display.env_blur, &def.env_blur);
         ui.end_row();
-        ui.label(tr("Environment alignment"));
-        egui::ComboBox::from_id_salt("display_env_alignment").selected_text(tr(display.env_alignment.label())).show_ui(ui, |ui| {
+        let l = label(ui, tr("Environment alignment"));
+        let r = egui::ComboBox::from_id_salt("display_env_alignment").selected_text(tr(display.env_alignment.label())).show_ui(ui, |ui| {
             for a in subcraft_doc::EnvAlignment::ALL {
                 ui.selectable_value(&mut display.env_alignment, a, tr(a.label()));
             }
         }).response.on_hover_text(tr("World: the environment stays put while the camera orbits. Local: it turns with the camera, so the lighting follows the view."));
+        reset(&l, &r, &mut display.env_alignment, &def.env_alignment);
         ui.end_row();
     });
     // Painter's Environment settings > Shadows: cast by the key light, in the raster view.
     let display = &mut state.recovery.prefs.viewport.display;
+    let def = &*DEFAULTS;
     sub_header(ui, tr("Shadows"));
     grid(ui, "display_shadows", |ui| {
-        ui.label(tr("Enable"));
-        ui.checkbox(&mut display.shadows, "").on_hover_text(tr("The model casts the key light's shadow on itself in the 3D view (the Rendering mode always has shadows)"));
+        let l = label(ui, tr("Enable"));
+        let r = ui.checkbox(&mut display.shadows, "").on_hover_text(tr("The model casts the key light's shadow on itself in the 3D view (the Rendering mode always has shadows)"));
+        reset(&l, &r, &mut display.shadows, &def.shadows);
         ui.end_row();
-        ui.label(tr("Computation mode"));
-        ui.add_enabled_ui(display.shadows, |ui| {
+        let l = label(ui, tr("Computation mode"));
+        let r = ui.add_enabled_ui(display.shadows, |ui| {
             egui::ComboBox::from_id_salt("display_shadow_mode").selected_text(shadow_mode_label(display.shadow_mode)).show_ui(ui, |ui| {
                 for m in subcraft_doc::ShadowMode::MENU {
                     ui.selectable_value(&mut display.shadow_mode, m, shadow_mode_label(m));
                 }
-            }).response.on_hover_text(tr("Intensive is sharper and slower, Lightweight softer and faster"));
-        });
+            }).response.on_hover_text(tr("Intensive is sharper and slower, Lightweight softer and faster"))
+        }).inner;
+        reset(&l, &r, &mut display.shadow_mode, &def.shadow_mode);
         ui.end_row();
-        ui.label(tr("Shadows opacity"));
-        ui.add_enabled(display.shadows, egui::Slider::new(&mut display.shadow_opacity, 0.0..=1.0)).on_hover_text(tr("How dark the shadows are: 1 blocks all of the key light"));
+        let l = label(ui, tr("Shadows opacity"));
+        let r = ui.add_enabled(display.shadows, egui::Slider::new(&mut display.shadow_opacity, 0.0..=1.0)).on_hover_text(tr("How dark the shadows are: 1 blocks all of the key light"));
+        reset(&l, &r, &mut display.shadow_opacity, &def.shadow_opacity);
         ui.end_row();
     });
 }
@@ -310,65 +401,84 @@ pub fn camera(state: &mut UiState, ui: &mut Ui) {
         let camera = &mut state.camera;
         let prefs = &mut state.recovery.prefs.viewport;
         grid(ui, "display_camera_grid", |ui| {
-            ui.label(tr("Projection"));
-            ui.horizontal(|ui| {
-                ui.selectable_value(&mut prefs.orthographic, false, tr("Perspective"));
-                ui.selectable_value(&mut prefs.orthographic, true, tr("Orthographic"));
-            });
+            let def = &*DEFAULTS;
+            let view = &*VIEW_DEFAULTS;
+            let l = label(ui, tr("Projection"));
+            let r = ui.horizontal(|ui| {
+                ui.selectable_value(&mut prefs.orthographic, false, tr("Perspective")) | ui.selectable_value(&mut prefs.orthographic, true, tr("Orthographic"))
+            }).inner;
+            reset(&l, &r, &mut prefs.orthographic, &view.orthographic);
             ui.end_row();
-            ui.label(tr("Camera rotation"));
-            ui.horizontal(|ui| {
-                ui.selectable_value(&mut prefs.free_rotation, false, tr("Constrained")).on_hover_text(tr("Orbit around the world vertical; the horizon stays level"));
-                ui.selectable_value(&mut prefs.free_rotation, true, tr("Free")).on_hover_text(tr("Orbit around the view's own axes: the camera can roll and go over the top"));
-            });
+            let l = label(ui, tr("Camera rotation"));
+            let r = ui.horizontal(|ui| {
+                ui.selectable_value(&mut prefs.free_rotation, false, tr("Constrained")).on_hover_text(tr("Orbit around the world vertical; the horizon stays level"))
+                    | ui.selectable_value(&mut prefs.free_rotation, true, tr("Free")).on_hover_text(tr("Orbit around the view's own axes: the camera can roll and go over the top"))
+            }).inner;
+            reset(&l, &r, &mut prefs.free_rotation, &view.free_rotation);
             ui.end_row();
-            ui.label(tr("Field of view"));
+            let l = label(ui, tr("Field of view"));
             let mut fov = camera.fov_y_deg;
-            if ui.add_enabled(!prefs.orthographic, egui::Slider::new(&mut fov, subcraft_doc::display::FOV_RANGE).suffix("°").fixed_decimals(1)).on_hover_text(tr("Vertical field of view. The camera moves so the model keeps its size.")).changed() {
+            let r = ui.add_enabled(!prefs.orthographic, egui::Slider::new(&mut fov, subcraft_doc::display::FOV_RANGE).suffix("°").fixed_decimals(1)).on_hover_text(tr("Vertical field of view. The camera moves so the model keeps its size."));
+            if r.changed() {
                 set_fov(camera, fov);
             }
+            if wants_reset(&l, &r, (camera.fov_y_deg - def.fov).abs() > 1e-3) {
+                set_fov(camera, def.fov);
+            }
             ui.end_row();
-            ui.label(tr("Focal length (mm)"));
+            let l = label(ui, tr("Focal length (mm)"));
             let (near, far) = (subcraft_doc::display::focal_length_mm(*subcraft_doc::display::FOV_RANGE.end()), subcraft_doc::display::focal_length_mm(*subcraft_doc::display::FOV_RANGE.start()));
             let mut focal = subcraft_doc::display::focal_length_mm(camera.fov_y_deg);
-            if ui.add_enabled(!prefs.orthographic, egui::Slider::new(&mut focal, near..=far).logarithmic(true).fixed_decimals(1)).on_hover_text(tr("The same lens as a focal length on a full-frame (36 x 24 mm) sensor")).changed() {
+            let r = ui.add_enabled(!prefs.orthographic, egui::Slider::new(&mut focal, near..=far).logarithmic(true).fixed_decimals(1)).on_hover_text(tr("The same lens as a focal length on a full-frame (36 x 24 mm) sensor"));
+            if r.changed() {
                 set_fov(camera, subcraft_doc::display::fov_from_focal_length(focal));
             }
+            if wants_reset(&l, &r, (camera.fov_y_deg - def.fov).abs() > 1e-3) {
+                set_fov(camera, def.fov);
+            }
             ui.end_row();
-            ui.label(tr("Focus distance"));
+            let l = label(ui, tr("Focus distance"));
             let mut focus = prefs.focus_distance(camera.eye_distance());
-            if ui.add_enabled(prefs.dof, egui::Slider::new(&mut focus, scene * 0.01..=scene * 20.0).logarithmic(true)).on_hover_text(tr("Distance from the camera, in scene units, that is sharp; it stays put while zooming. Ctrl + middle click in the 3D view focuses on the point under the cursor. Needs Depth of field (Post effects).")).changed() {
+            let r = ui.add_enabled(prefs.dof, egui::Slider::new(&mut focus, scene * 0.01..=scene * 20.0).logarithmic(true)).on_hover_text(tr("Distance from the camera, in scene units, that is sharp; it stays put while zooming. Ctrl + middle click in the 3D view focuses on the point under the cursor. Needs Depth of field (Post effects)."));
+            if r.changed() {
                 prefs.dof_focus_distance = Some(focus);
             }
+            reset(&l, &r, &mut prefs.display.dof_focus_distance, &def.dof_focus_distance);
             ui.end_row();
             ui.label(tr("Focus point"));
             pick = ui.add_enabled(prefs.dof, egui::Button::new(tr("Pick in 3D view"))).on_hover_text(tr("Click the model in the 3D view to focus on that spot")).clicked();
             ui.end_row();
-            ui.label(tr("Auto-focus"));
-            ui.add_enabled(prefs.dof, egui::Checkbox::without_text(&mut prefs.display.dof_autofocus)).on_hover_text(tr("Keep the focus on whatever is at the centre of the 3D view"));
+            let l = label(ui, tr("Auto-focus"));
+            let r = ui.add_enabled(prefs.dof, egui::Checkbox::without_text(&mut prefs.display.dof_autofocus)).on_hover_text(tr("Keep the focus on whatever is at the centre of the 3D view"));
+            reset(&l, &r, &mut prefs.display.dof_autofocus, &def.dof_autofocus);
             ui.end_row();
-            ui.label(tr("Aperture"));
-            ui.add_enabled(prefs.dof, egui::Slider::new(&mut prefs.dof_amount, 0.0..=1.0)).on_hover_text(tr("Strength of the depth-of-field blur. Needs Depth of field (Post effects)."));
+            let l = label(ui, tr("Aperture"));
+            let r = ui.add_enabled(prefs.dof, egui::Slider::new(&mut prefs.dof_amount, 0.0..=1.0)).on_hover_text(tr("Strength of the depth-of-field blur. Needs Depth of field (Post effects)."));
+            reset(&l, &r, &mut prefs.display.dof_amount, &def.dof_amount);
             ui.end_row();
-            ui.label(tr("Anti-aliasing"));
-            ui.checkbox(&mut prefs.antialias, "").on_hover_text(tr("Anti-aliasing · smooth edges (4x MSAA); off is faster"));
+            let l = label(ui, tr("Anti-aliasing"));
+            let r = ui.checkbox(&mut prefs.antialias, "").on_hover_text(tr("Anti-aliasing · smooth edges (4x MSAA); off is faster"));
+            reset(&l, &r, &mut prefs.display.antialias, &def.antialias);
             ui.end_row();
-            ui.label(tr("Temporal anti-aliasing"));
-            ui.checkbox(&mut prefs.display.taa, "").on_hover_text(tr("While the view is still, frames drawn with sub-pixel shifts are averaged into a smoother image"));
+            let l = label(ui, tr("Temporal anti-aliasing"));
+            let r = ui.checkbox(&mut prefs.display.taa, "").on_hover_text(tr("While the view is still, frames drawn with sub-pixel shifts are averaged into a smoother image"));
+            reset(&l, &r, &mut prefs.display.taa, &def.taa);
             ui.end_row();
-            ui.label(tr("Accumulations"));
-            ui.add_enabled_ui(prefs.display.taa, |ui| {
+            let l = label(ui, tr("Accumulations"));
+            let r = ui.add_enabled_ui(prefs.display.taa, |ui| {
                 egui::ComboBox::from_id_salt("taa_accumulations").selected_text(prefs.display.taa_accumulations.to_string()).show_ui(ui, |ui| {
                     for n in crate::viewport::TAA_ACCUMULATIONS {
                         ui.selectable_value(&mut prefs.display.taa_accumulations, n, n.to_string());
                     }
-                });
-            }).response.on_hover_text(tr("Frames averaged before the image is final: 16 suits most views, 64 very contrasted ones"));
+                }).response
+            }).inner.on_hover_text(tr("Frames averaged before the image is final: 16 suits most views, 64 very contrasted ones"));
+            reset(&l, &r, &mut prefs.display.taa_accumulations, &def.taa_accumulations);
             ui.end_row();
             // Painter's Color profile: the material view raw (linear values, not sRGB) or
             // through the project's colour LUT.
-            ui.label(tr("Color profile"));
-            ui.checkbox(&mut prefs.display.color_profile, "").on_hover_text(tr("Show the material view as linear raw values instead of sRGB, or through the project's colour LUT"));
+            let l = label(ui, tr("Color profile"));
+            let r = ui.checkbox(&mut prefs.display.color_profile, "").on_hover_text(tr("Show the material view as linear raw values instead of sRGB, or through the project's colour LUT"));
+            reset(&l, &r, &mut prefs.display.color_profile, &def.color_profile);
             ui.end_row();
             ui.label(tr("Color LUT"));
             ui.add_enabled_ui(prefs.display.color_profile, |ui| {
@@ -384,9 +494,10 @@ pub fn camera(state: &mut UiState, ui: &mut Ui) {
                 });
             });
             ui.end_row();
-            ui.label(tr("White point"));
-            ui.add_enabled(prefs.display.color_profile, egui::Slider::new(&mut prefs.display.white_point, 0.1..=100.0).logarithmic(true))
+            let l = label(ui, tr("White point"));
+            let r = ui.add_enabled(prefs.display.color_profile, egui::Slider::new(&mut prefs.display.white_point, 0.1..=100.0).logarithmic(true))
                 .on_hover_text(tr("The brightest value shown: values are divided by it and clamped before the colour LUT. Above 1 for very bright content such as the sun"));
+            reset(&l, &r, &mut prefs.display.white_point, &def.white_point);
             ui.end_row();
         });
     }
@@ -400,11 +511,12 @@ pub fn camera(state: &mut UiState, ui: &mut Ui) {
 
 /// One entry of the post-effect stack: a collapsible row whose header carries the effect's own
 /// on/off switch. The parameters are greyed out while the effect (or the whole stack) is off.
-fn effect(ui: &mut Ui, id: &str, name: &str, on: &mut bool, stack_on: bool, default_open: bool, body: impl FnOnce(&mut Ui)) {
+fn effect(ui: &mut Ui, id: &str, name: &str, on: &mut bool, on_default: bool, stack_on: bool, default_open: bool, body: impl FnOnce(&mut Ui)) {
     let header_id = ui.make_persistent_id(("display_effect", id));
     egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), header_id, default_open)
         .show_header(ui, |ui| {
-            ui.add_enabled(stack_on, egui::Checkbox::new(on, RichText::new(name).color(theme::TEXT())));
+            let r = ui.add_enabled(stack_on, egui::Checkbox::new(on, RichText::new(name).color(theme::TEXT())));
+            reset(&r, &r, on, &on_default);
         })
         .body(|ui| {
             let enabled = *on && stack_on;
@@ -412,10 +524,11 @@ fn effect(ui: &mut Ui, id: &str, name: &str, on: &mut bool, stack_on: bool, defa
         });
 }
 
-/// A slider row of an effect's grid.
-fn slider(ui: &mut Ui, label: &str, value: &mut f32, range: std::ops::RangeInclusive<f32>, tip: &str) -> egui::Response {
-    ui.label(label);
+/// A slider row of an effect's grid, resettable to `default`.
+fn slider(ui: &mut Ui, text: &str, value: &mut f32, default: f32, range: std::ops::RangeInclusive<f32>, tip: &str) -> egui::Response {
+    let l = label(ui, text);
     let r = ui.add(egui::Slider::new(value, range)).on_hover_text(tip);
+    reset(&l, &r, value, &default);
     ui.end_row();
     r
 }
@@ -425,124 +538,137 @@ fn slider(ui: &mut Ui, label: &str, value: &mut f32, range: std::ops::RangeInclu
 pub fn post_effects(state: &mut UiState, ui: &mut Ui) {
     let mut pick = false;
     let d = &mut state.recovery.prefs.viewport.display;
+    let def = &*DEFAULTS;
     ui.horizontal(|ui| {
-        ui.checkbox(&mut d.post_effects, tr("Activate Post Effects")).on_hover_text(tr("Master switch of every effect below. Off shows the plain render."));
+        let r = ui.checkbox(&mut d.post_effects, tr("Activate Post Effects")).on_hover_text(tr("Master switch of every effect below. Off shows the plain render."));
+        reset(&r, &r, &mut d.post_effects, &def.post_effects);
         // At the top, so it stays in reach however many effects are expanded below.
         if ui.button(tr("Reset look")).on_hover_text(tr("Put every post effect back to its default")).clicked() {
             d.reset_post_effects();
         }
     });
     let all = d.post_effects;
-    effect(ui, "display_dof", tr("Depth of field"), &mut d.dof, all, true, |ui| {
-        slider(ui, tr("Focus range"), &mut d.dof_range, 0.0..=50.0, tr("Depth that stays sharp around the focus distance, in percent of the model size"));
+    effect(ui, "display_dof", tr("Depth of field"), &mut d.dof, def.dof, all, true, |ui| {
+        slider(ui, tr("Focus range"), &mut d.dof_range, def.dof_range, 0.0..=50.0, tr("Depth that stays sharp around the focus distance, in percent of the model size"));
         ui.label(tr("Focus point"));
         pick = ui.button(tr("Pick in 3D view")).on_hover_text(tr("Click the model in the 3D view to focus on that spot. Focus distance and Aperture are in the Camera settings.")).clicked();
         ui.end_row();
     });
-    effect(ui, "display_bloom", tr("Bloom"), &mut d.bloom_on, all, true, |ui| {
-        slider(ui, tr("Amount"), &mut d.bloom, 0.0..=2.0, tr("Glow around bright areas. 0 is off."));
-        slider(ui, tr("Threshold"), &mut d.bloom_threshold, 0.0..=1.0, tr("Brightness above which an area glows (1 is screen white)"));
-        slider(ui, tr("Falloff"), &mut d.bloom_falloff, 0.0..=1.0, tr("How far the glow spreads around the bright area"));
+    effect(ui, "display_bloom", tr("Bloom"), &mut d.bloom_on, def.bloom_on, all, true, |ui| {
+        slider(ui, tr("Amount"), &mut d.bloom, def.bloom, 0.0..=2.0, tr("Glow around bright areas. 0 is off."));
+        slider(ui, tr("Threshold"), &mut d.bloom_threshold, def.bloom_threshold, 0.0..=1.0, tr("Brightness above which an area glows (1 is screen white)"));
+        slider(ui, tr("Falloff"), &mut d.bloom_falloff, def.bloom_falloff, 0.0..=1.0, tr("How far the glow spreads around the bright area"));
     });
-    effect(ui, "display_glare", tr("Glare"), &mut d.glare_on, all, true, |ui| {
-        slider(ui, tr("Luminance"), &mut d.glare, 0.0..=16.0, tr("Brightness of the glare thrown by emissive areas. 0 is off; 0.5 to 4 looks natural."));
-        slider(ui, tr("Threshold"), &mut d.glare_threshold, 0.0..=4.0, tr("Emission below this brightness throws no glare"));
-        slider(ui, tr("Remap Factor"), &mut d.glare_remap, 0.25..=4.0, tr("Response to brightness above the threshold. 1 is neutral."));
-        ui.label(tr("Shape"));
-        egui::ComboBox::from_id_salt("display_glare_shape").selected_text(d.glare_mode.label()).width(170.0).height(400.0).show_ui(ui, |ui| {
+    effect(ui, "display_glare", tr("Glare"), &mut d.glare_on, def.glare_on, all, true, |ui| {
+        slider(ui, tr("Luminance"), &mut d.glare, def.glare, 0.0..=16.0, tr("Brightness of the glare thrown by emissive areas. 0 is off; 0.5 to 4 looks natural."));
+        slider(ui, tr("Threshold"), &mut d.glare_threshold, def.glare_threshold, 0.0..=4.0, tr("Emission below this brightness throws no glare"));
+        slider(ui, tr("Remap Factor"), &mut d.glare_remap, def.glare_remap, 0.25..=4.0, tr("Response to brightness above the threshold. 1 is neutral."));
+        let l = label(ui, tr("Shape"));
+        let r = egui::ComboBox::from_id_salt("display_glare_shape").selected_text(d.glare_mode.label()).width(170.0).height(400.0).show_ui(ui, |ui| {
             for m in GlareMode::MENU {
                 ui.selectable_value(&mut d.glare_mode, m, m.label());
             }
-        });
+        }).response;
+        reset(&l, &r, &mut d.glare_mode, &def.glare_mode);
         ui.end_row();
-        slider(ui, tr("Streak length"), &mut d.glare_length, 0.0..=1.0, tr("How long the streaks reach"));
+        slider(ui, tr("Streak length"), &mut d.glare_length, def.glare_length, 0.0..=1.0, tr("How long the streaks reach"));
     });
-    effect(ui, "display_flare", tr("Lens flare"), &mut d.flare_on, all, false, |ui| {
-        ui.label(tr("Camera"));
-        egui::ComboBox::from_id_salt("display_flare_camera").selected_text(tr(d.flare_camera.label())).show_ui(ui, |ui| {
+    effect(ui, "display_flare", tr("Lens flare"), &mut d.flare_on, def.flare_on, all, false, |ui| {
+        let l = label(ui, tr("Camera"));
+        let r = egui::ComboBox::from_id_salt("display_flare_camera").selected_text(tr(d.flare_camera.label())).show_ui(ui, |ui| {
             for c in subcraft_doc::FlareCamera::ALL {
                 ui.selectable_value(&mut d.flare_camera, c, tr(c.label()));
             }
-        });
+        }).response;
+        reset(&l, &r, &mut d.flare_camera, &def.flare_camera);
         ui.end_row();
-        slider(ui, tr("Amount"), &mut d.flare_amount, 0.0..=4.0, tr("Brightness of the ghost images. May exceed 1."));
-        slider(ui, tr("Threshold"), &mut d.flare_threshold, 0.0..=1.0, tr("Brightness above which an area throws ghosts"));
-        ui.label(tr("Unique ghosts"));
-        ui.add(egui::Slider::new(&mut d.flare_ghosts, 1..=8)).on_hover_text(tr("Number of ghost images"));
+        slider(ui, tr("Amount"), &mut d.flare_amount, def.flare_amount, 0.0..=4.0, tr("Brightness of the ghost images. May exceed 1."));
+        slider(ui, tr("Threshold"), &mut d.flare_threshold, def.flare_threshold, 0.0..=1.0, tr("Brightness above which an area throws ghosts"));
+        let l = label(ui, tr("Unique ghosts"));
+        let r = ui.add(egui::Slider::new(&mut d.flare_ghosts, 1..=8)).on_hover_text(tr("Number of ghost images"));
+        reset(&l, &r, &mut d.flare_ghosts, &def.flare_ghosts);
         ui.end_row();
-        slider(ui, tr("Ghost position scale"), &mut d.flare_position_scale, 0.1..=2.0, tr("Spacing of the ghosts along the line through the view centre"));
+        slider(ui, tr("Ghost position scale"), &mut d.flare_position_scale, def.flare_position_scale, 0.1..=2.0, tr("Spacing of the ghosts along the line through the view centre"));
     });
-    effect(ui, "display_aberration", tr("Lateral aberration"), &mut d.aberration_on, all, false, |ui| {
-        slider(ui, tr("Amount"), &mut d.aberration_amount, 0.0..=2.0, tr("Strength of the color fringes"));
-        slider(ui, tr("Radius"), &mut d.aberration_radius, 0.0..=1.0, tr("Distance from the centre where the fringes start"));
-        slider(ui, tr("Softness"), &mut d.aberration_softness, 0.0..=1.0, tr("Width of the transition around the radius"));
-        slider(ui, tr("Ratio"), &mut d.aberration_ratio, 0.25..=4.0, tr("Shape of the clean zone. 1 is circular."));
-        slider(ui, tr("Center X"), &mut d.aberration_center[0], 0.0..=1.0, tr("Centre of the effect across the view"));
-        slider(ui, tr("Center Y"), &mut d.aberration_center[1], 0.0..=1.0, tr("Centre of the effect down the view"));
-        ui.label(tr("Achromatic aberrations"));
-        ui.checkbox(&mut d.aberration_achromatic, "").on_hover_text(tr("Blur toward the edges instead of splitting the colors"));
+    effect(ui, "display_aberration", tr("Lateral aberration"), &mut d.aberration_on, def.aberration_on, all, false, |ui| {
+        slider(ui, tr("Amount"), &mut d.aberration_amount, def.aberration_amount, 0.0..=2.0, tr("Strength of the color fringes"));
+        slider(ui, tr("Radius"), &mut d.aberration_radius, def.aberration_radius, 0.0..=1.0, tr("Distance from the centre where the fringes start"));
+        slider(ui, tr("Softness"), &mut d.aberration_softness, def.aberration_softness, 0.0..=1.0, tr("Width of the transition around the radius"));
+        slider(ui, tr("Ratio"), &mut d.aberration_ratio, def.aberration_ratio, 0.25..=4.0, tr("Shape of the clean zone. 1 is circular."));
+        slider(ui, tr("Center X"), &mut d.aberration_center[0], def.aberration_center[0], 0.0..=1.0, tr("Centre of the effect across the view"));
+        slider(ui, tr("Center Y"), &mut d.aberration_center[1], def.aberration_center[1], 0.0..=1.0, tr("Centre of the effect down the view"));
+        let l = label(ui, tr("Achromatic aberrations"));
+        let r = ui.checkbox(&mut d.aberration_achromatic, "").on_hover_text(tr("Blur toward the edges instead of splitting the colors"));
+        reset(&l, &r, &mut d.aberration_achromatic, &def.aberration_achromatic);
         ui.end_row();
     });
-    effect(ui, "display_vignette", tr("Vignette"), &mut d.vignette_on, all, false, |ui| {
-        slider(ui, tr("Amount"), &mut d.vignette_amount, 0.0..=1.0, tr("How dark the corners get"));
+    effect(ui, "display_vignette", tr("Vignette"), &mut d.vignette_on, def.vignette_on, all, false, |ui| {
+        slider(ui, tr("Amount"), &mut d.vignette_amount, def.vignette_amount, 0.0..=1.0, tr("How dark the corners get"));
     });
-    effect(ui, "display_lens", tr("Lens distortion"), &mut d.lens_on, all, false, |ui| {
-        slider(ui, tr("Power"), &mut d.lens_power, -1.0..=1.0, tr("Positive bends the picture like a wide lens, negative like a telephoto"));
-        slider(ui, tr("FOV"), &mut d.lens_fov, 0.0..=1.0, tr("How far a wide-lens distortion zooms in to hide the stretched border"));
-        slider(ui, tr("Edge roundness"), &mut d.lens_roundness, 0.0..=1.0, tr("Shape of the picture's edge: 0 a rectangle, 1 an oval"));
-        slider(ui, tr("Edge smoothness"), &mut d.lens_smoothness, 0.0..=1.0, tr("Softness of that edge"));
+    effect(ui, "display_lens", tr("Lens distortion"), &mut d.lens_on, def.lens_on, all, false, |ui| {
+        slider(ui, tr("Power"), &mut d.lens_power, def.lens_power, -1.0..=1.0, tr("Positive bends the picture like a wide lens, negative like a telephoto"));
+        slider(ui, tr("FOV"), &mut d.lens_fov, def.lens_fov, 0.0..=1.0, tr("How far a wide-lens distortion zooms in to hide the stretched border"));
+        slider(ui, tr("Edge roundness"), &mut d.lens_roundness, def.lens_roundness, 0.0..=1.0, tr("Shape of the picture's edge: 0 a rectangle, 1 an oval"));
+        slider(ui, tr("Edge smoothness"), &mut d.lens_smoothness, def.lens_smoothness, 0.0..=1.0, tr("Softness of that edge"));
     });
-    effect(ui, "display_sharpen", tr("Sharpen"), &mut d.sharpen_on, all, false, |ui| {
-        slider(ui, tr("Amount"), &mut d.sharpen_amount, 0.0..=2.0, tr("Strength of the sharpening"));
-        slider(ui, tr("Diameter"), &mut d.sharpen_diameter, 1.0..=8.0, tr("Size of the detail that is sharpened, in pixels"));
+    effect(ui, "display_sharpen", tr("Sharpen"), &mut d.sharpen_on, def.sharpen_on, all, false, |ui| {
+        slider(ui, tr("Amount"), &mut d.sharpen_amount, def.sharpen_amount, 0.0..=2.0, tr("Strength of the sharpening"));
+        slider(ui, tr("Diameter"), &mut d.sharpen_diameter, def.sharpen_diameter, 1.0..=8.0, tr("Size of the detail that is sharpened, in pixels"));
     });
-    effect(ui, "display_grain", tr("Film grain"), &mut d.grain_on, all, false, |ui| {
-        slider(ui, tr("Amount"), &mut d.grain_amount, 0.0..=1.0, tr("Strength of the noise"));
-        slider(ui, tr("Radius"), &mut d.grain_radius, 1.0..=8.0, tr("Size of the grain, in pixels"));
-        ui.label(tr("Type"));
-        egui::ComboBox::from_id_salt("display_grain_type").selected_text(tr(d.grain_type.label())).show_ui(ui, |ui| {
+    effect(ui, "display_grain", tr("Film grain"), &mut d.grain_on, def.grain_on, all, false, |ui| {
+        slider(ui, tr("Amount"), &mut d.grain_amount, def.grain_amount, 0.0..=1.0, tr("Strength of the noise"));
+        slider(ui, tr("Radius"), &mut d.grain_radius, def.grain_radius, 1.0..=8.0, tr("Size of the grain, in pixels"));
+        let l = label(ui, tr("Type"));
+        let r = egui::ComboBox::from_id_salt("display_grain_type").selected_text(tr(d.grain_type.label())).show_ui(ui, |ui| {
             for t in subcraft_doc::GrainType::ALL {
                 ui.selectable_value(&mut d.grain_type, t, tr(t.label()));
             }
-        });
+        }).response;
+        reset(&l, &r, &mut d.grain_type, &def.grain_type);
         ui.end_row();
     });
-    effect(ui, "display_tone", tr("Tone mapping"), &mut d.tone_mapping_on, all, true, |ui| {
-        ui.label(tr("Exposure"));
-        ui.add(egui::Slider::new(&mut d.exposure, 0.25..=4.0).logarithmic(true)).on_hover_text(tr("Overall brightness before tone mapping"));
+    effect(ui, "display_tone", tr("Tone mapping"), &mut d.tone_mapping_on, def.tone_mapping_on, all, true, |ui| {
+        let l = label(ui, tr("Exposure"));
+        let r = ui.add(egui::Slider::new(&mut d.exposure, 0.25..=4.0).logarithmic(true)).on_hover_text(tr("Overall brightness before tone mapping"));
+        reset(&l, &r, &mut d.exposure, &def.exposure);
         ui.end_row();
-        slider(ui, tr("Gamma"), &mut d.gamma, 0.2..=3.0, tr("Display gamma after the curve. 1 leaves the picture as it is."));
-        ui.label(tr("Function"));
-        egui::ComboBox::from_id_salt("display_tone_map").selected_text(d.tone_map.label()).height(400.0).show_ui(ui, |ui| {
+        slider(ui, tr("Gamma"), &mut d.gamma, def.gamma, 0.2..=3.0, tr("Display gamma after the curve. 1 leaves the picture as it is."));
+        let l = label(ui, tr("Function"));
+        let r = egui::ComboBox::from_id_salt("display_tone_map").selected_text(d.tone_map.label()).height(400.0).show_ui(ui, |ui| {
             for t in ToneMap::MENU {
                 ui.selectable_value(&mut d.tone_map, t, t.label());
             }
         }).response.on_hover_text(tr("How bright light is squeezed into the display range. ACES is the default look; Linear clips highlights."));
+        reset(&l, &r, &mut d.tone_map, &def.tone_map);
         ui.end_row();
-        ui.label(tr("Mapping Factor"));
-        ui.add_enabled(d.tone_map.uses_mapping_factor(), egui::Slider::new(&mut d.mapping_factor, 0.1..=10.0).logarithmic(true)).on_hover_text(tr("Strength of the Reinhard and Log compression. The other functions ignore it."));
-        ui.end_row();
-    });
-    effect(ui, "display_cc", tr("Color correction"), &mut d.color_correction_on, all, false, |ui| {
-        slider(ui, tr("Saturation"), &mut d.cc_saturation, 0.0..=2.0, tr("0 is grayscale, 1 leaves the colors as they are"));
-        slider(ui, tr("Contrast"), &mut d.cc_contrast, 0.0..=2.0, tr("Spread of the tones around mid gray"));
-        slider(ui, tr("Brightness"), &mut d.cc_brightness, 0.0..=2.0, tr("Multiplies the picture"));
-        slider(ui, tr("Bias"), &mut d.cc_bias, -0.5..=0.5, tr("Added to every color"));
-        slider(ui, tr("Sepia tone ratio"), &mut d.cc_sepia, 0.0..=1.0, tr("Mix toward a warm brown monochrome"));
-        ui.label(tr("White Balance Temperature"));
-        ui.add(egui::Slider::new(&mut d.cc_temperature, 2000.0..=12000.0).suffix(" K").fixed_decimals(0)).on_hover_text(tr("Light of this temperature becomes neutral. 6500 K changes nothing."));
+        let l = label(ui, tr("Mapping Factor"));
+        let r = ui.add_enabled(d.tone_map.uses_mapping_factor(), egui::Slider::new(&mut d.mapping_factor, 0.1..=10.0).logarithmic(true)).on_hover_text(tr("Strength of the Reinhard and Log compression. The other functions ignore it."));
+        reset(&l, &r, &mut d.mapping_factor, &def.mapping_factor);
         ui.end_row();
     });
-    effect(ui, "display_ssao", tr("Ambient occlusion"), &mut d.ssao_on, all, true, |ui| {
-        slider(ui, tr("Amount"), &mut d.ssao, 0.0..=1.0, tr("Soft shadow in creases, from the view's depth. 0 is off."));
-        ui.label(tr("Radius"));
-        ui.add(egui::Slider::new(&mut d.ssao_radius, 0.5..=10.0).suffix("%")).on_hover_text(tr("How far occlusion reaches, in percent of the model size"));
+    effect(ui, "display_cc", tr("Color correction"), &mut d.color_correction_on, def.color_correction_on, all, false, |ui| {
+        slider(ui, tr("Saturation"), &mut d.cc_saturation, def.cc_saturation, 0.0..=2.0, tr("0 is grayscale, 1 leaves the colors as they are"));
+        slider(ui, tr("Contrast"), &mut d.cc_contrast, def.cc_contrast, 0.0..=2.0, tr("Spread of the tones around mid gray"));
+        slider(ui, tr("Brightness"), &mut d.cc_brightness, def.cc_brightness, 0.0..=2.0, tr("Multiplies the picture"));
+        slider(ui, tr("Bias"), &mut d.cc_bias, def.cc_bias, -0.5..=0.5, tr("Added to every color"));
+        slider(ui, tr("Sepia tone ratio"), &mut d.cc_sepia, def.cc_sepia, 0.0..=1.0, tr("Mix toward a warm brown monochrome"));
+        let l = label(ui, tr("White Balance Temperature"));
+        let r = ui.add(egui::Slider::new(&mut d.cc_temperature, 2000.0..=12000.0).suffix(" K").fixed_decimals(0)).on_hover_text(tr("Light of this temperature becomes neutral. 6500 K changes nothing."));
+        reset(&l, &r, &mut d.cc_temperature, &def.cc_temperature);
         ui.end_row();
     });
-    effect(ui, "display_glow", tr("Emission glow"), &mut d.glow_on, all, true, |ui| {
-        slider(ui, tr("Amount"), &mut d.emission_glow, 0.0..=3.0, tr("Soft glow around emissive areas only. 0 is off; the default is subtle."));
-        ui.label(tr("Radius"));
-        ui.add(egui::Slider::new(&mut d.glow_radius, 0.25..=8.0).logarithmic(true)).on_hover_text(tr("How far the glow spreads"));
+    effect(ui, "display_ssao", tr("Ambient occlusion"), &mut d.ssao_on, def.ssao_on, all, true, |ui| {
+        slider(ui, tr("Amount"), &mut d.ssao, def.ssao, 0.0..=1.0, tr("Soft shadow in creases, from the view's depth. 0 is off."));
+        let l = label(ui, tr("Radius"));
+        let r = ui.add(egui::Slider::new(&mut d.ssao_radius, 0.5..=10.0).suffix("%")).on_hover_text(tr("How far occlusion reaches, in percent of the model size"));
+        reset(&l, &r, &mut d.ssao_radius, &def.ssao_radius);
+        ui.end_row();
+    });
+    effect(ui, "display_glow", tr("Emission glow"), &mut d.glow_on, def.glow_on, all, true, |ui| {
+        slider(ui, tr("Amount"), &mut d.emission_glow, def.emission_glow, 0.0..=3.0, tr("Soft glow around emissive areas only. 0 is off; the default is subtle."));
+        let l = label(ui, tr("Radius"));
+        let r = ui.add(egui::Slider::new(&mut d.glow_radius, 0.25..=8.0).logarithmic(true)).on_hover_text(tr("How far the glow spreads"));
+        reset(&l, &r, &mut d.glow_radius, &def.glow_radius);
         ui.end_row();
     });
     ui.label(RichText::new(tr("Post effects are viewport effects: exported textures never contain them.")).small().color(TEXT_DIM()));
@@ -558,8 +684,10 @@ pub fn render(state: &mut UiState, ui: &mut Ui) {
     let prefs = &mut state.recovery.prefs.viewport;
     let tracing = prefs.path_tracing;
     ui.horizontal(|ui| crate::viewport_bar::resolution(ui, prefs));
-    ui.checkbox(&mut prefs.display.oit, tr("Order-independent transparency"))
+    let view = &*VIEW_DEFAULTS;
+    let r = ui.checkbox(&mut prefs.display.oit, tr("Order-independent transparency"))
         .on_hover_text(tr("Alpha-blended texture sets look the same whatever order their parts are drawn in: overlapping transparent surfaces are averaged by depth and coverage"));
+    reset(&r, &r, &mut prefs.display.oit, &view.display.oit);
     crate::viewport_bar::rendering_settings(ui, prefs);
 
     // Painter's Iray status block: what the Rendering mode is doing right now.
@@ -584,48 +712,60 @@ pub fn render(state: &mut UiState, ui: &mut Ui) {
 
     sub_header(ui, tr("Resolution"));
     grid(ui, "display_pt_size", |ui| {
-        ui.label(tr("Override viewport resolution"));
-        ui.checkbox(&mut prefs.pt_override, "").on_hover_text(tr("Render at a fixed size instead of the 3D view's; the picture is fitted into the view"));
+        let l = label(ui, tr("Override viewport resolution"));
+        let r = ui.checkbox(&mut prefs.pt_override, "").on_hover_text(tr("Render at a fixed size instead of the 3D view's; the picture is fitted into the view"));
+        reset(&l, &r, &mut prefs.pt_override, &view.pt_override);
         ui.end_row();
         let max = crate::viewport_bar::MAX_TRACE_SIDE;
-        ui.label(tr("Width"));
-        ui.add_enabled(prefs.pt_override, egui::DragValue::new(&mut prefs.pt_width).range(16..=max).suffix(" px"));
+        let l = label(ui, tr("Width"));
+        let r = ui.add_enabled(prefs.pt_override, egui::DragValue::new(&mut prefs.pt_width).range(16..=max).suffix(" px"));
+        reset(&l, &r, &mut prefs.pt_width, &view.pt_width);
         ui.end_row();
-        ui.label(tr("Height"));
-        ui.add_enabled(prefs.pt_override, egui::DragValue::new(&mut prefs.pt_height).range(16..=max).suffix(" px"));
+        let l = label(ui, tr("Height"));
+        let r = ui.add_enabled(prefs.pt_override, egui::DragValue::new(&mut prefs.pt_height).range(16..=max).suffix(" px"));
+        reset(&l, &r, &mut prefs.pt_height, &view.pt_height);
         ui.end_row();
     });
 
     sub_header(ui, tr("Dome"));
     grid(ui, "display_pt_dome", |ui| {
-        ui.label(tr("Clear color"));
-        ui.horizontal(|ui| {
-            ui.checkbox(&mut prefs.pt_clear, "").on_hover_text(tr("Show a solid color where the camera sees past the model; the lighting is unchanged"));
+        let l = label(ui, tr("Clear color"));
+        let r = ui.horizontal(|ui| {
+            let r = ui.checkbox(&mut prefs.pt_clear, "").on_hover_text(tr("Show a solid color where the camera sees past the model; the lighting is unchanged"));
             ui.add_enabled_ui(prefs.pt_clear, |ui| crate::color_picker::swatch_srgb(ui, &mut prefs.pt_clear_color));
-        });
+            r
+        }).inner;
+        if wants_reset(&l, &r, (prefs.pt_clear, prefs.pt_clear_color) != (view.pt_clear, view.pt_clear_color)) {
+            (prefs.pt_clear, prefs.pt_clear_color) = (view.pt_clear, view.pt_clear_color);
+        }
         ui.end_row();
     });
 
     sub_header(ui, tr("Ground"));
     ui.add_enabled_ui(prefs.pt_ground, |ui| {
         grid(ui, "display_pt_ground", |ui| {
-            for (i, label) in [tr("Ground X"), tr("Ground Y"), tr("Ground Z")].into_iter().enumerate() {
-                ui.label(label);
-                ui.add(egui::DragValue::new(&mut prefs.pt_ground_offset[i]).speed(0.01).range(-1e4..=1e4))
+            for (i, text) in [tr("Ground X"), tr("Ground Y"), tr("Ground Z")].into_iter().enumerate() {
+                let l = label(ui, text);
+                let r = ui.add(egui::DragValue::new(&mut prefs.pt_ground_offset[i]).speed(0.01).range(-1e4..=1e4))
                     .on_hover_text(tr("Offset from the default place: centred under the model, at the bottom of its bounding box"));
+                reset(&l, &r, &mut prefs.pt_ground_offset[i], &view.pt_ground_offset[i]);
                 ui.end_row();
             }
-            ui.label(tr("Reflectivity"));
-            crate::color_picker::swatch_srgb(ui, &mut prefs.pt_ground_reflectivity).on_hover_text(tr("Color of the ground's reflection; black is a plain matte floor"));
+            let l = label(ui, tr("Reflectivity"));
+            let r = crate::color_picker::swatch_srgb(ui, &mut prefs.pt_ground_reflectivity).on_hover_text(tr("Color of the ground's reflection; black is a plain matte floor"));
+            reset(&l, &r, &mut prefs.pt_ground_reflectivity, &view.pt_ground_reflectivity);
             ui.end_row();
-            ui.label(tr("Glossiness"));
-            ui.add(egui::Slider::new(&mut prefs.pt_ground_glossiness, 0.0..=1.0)).on_hover_text(tr("Sharpness of the reflection: 1 is a mirror"));
+            let l = label(ui, tr("Glossiness"));
+            let r = ui.add(egui::Slider::new(&mut prefs.pt_ground_glossiness, 0.0..=1.0)).on_hover_text(tr("Sharpness of the reflection: 1 is a mirror"));
+            reset(&l, &r, &mut prefs.pt_ground_glossiness, &view.pt_ground_glossiness);
             ui.end_row();
-            ui.label(tr("Shadow intensity"));
-            ui.add(egui::Slider::new(&mut prefs.pt_ground_shadow, 0.0..=1.0)).on_hover_text(tr("How dark the key light's shadow is on the ground"));
+            let l = label(ui, tr("Shadow intensity"));
+            let r = ui.add(egui::Slider::new(&mut prefs.pt_ground_shadow, 0.0..=1.0)).on_hover_text(tr("How dark the key light's shadow is on the ground"));
+            reset(&l, &r, &mut prefs.pt_ground_shadow, &view.pt_ground_shadow);
             ui.end_row();
-            ui.label(tr("Visible from below"));
-            ui.checkbox(&mut prefs.pt_ground_below, "").on_hover_text(tr("Show the ground when the camera is underneath it"));
+            let l = label(ui, tr("Visible from below"));
+            let r = ui.checkbox(&mut prefs.pt_ground_below, "").on_hover_text(tr("Show the ground when the camera is underneath it"));
+            reset(&l, &r, &mut prefs.pt_ground_below, &view.pt_ground_below);
             ui.end_row();
         });
     });
@@ -659,43 +799,50 @@ pub fn visualization(state: &mut UiState, ui: &mut Ui) {
     let stencil = state.session.brush.stencil.is_some();
     let prefs = &mut state.recovery.prefs.viewport;
     let shown = prefs.shown_channel();
+    let def = &*DEFAULTS;
+    let view = &*VIEW_DEFAULTS;
     sub_header(ui, tr("Texture filtering"));
     grid(ui, "display_filtering", |ui| {
         let d = &mut prefs.display;
-        ui.label(tr("Anisotropic filtering"));
-        egui::ComboBox::from_id_salt("display_anisotropy").selected_text(tr(d.anisotropy.label())).show_ui(ui, |ui| {
+        let l = label(ui, tr("Anisotropic filtering"));
+        let r = egui::ComboBox::from_id_salt("display_anisotropy").selected_text(tr(d.anisotropy.label())).show_ui(ui, |ui| {
             for a in subcraft_doc::Anisotropy::ALL {
                 ui.selectable_value(&mut d.anisotropy, a, tr(a.label()));
             }
         }).response.on_hover_text(tr("Keeps textures sharp on surfaces seen at a grazing angle. Higher is sharper and a little slower."));
+        reset(&l, &r, &mut d.anisotropy, &def.anisotropy);
         ui.end_row();
-        ui.label(tr("MipMap bias"));
+        let l = label(ui, tr("MipMap bias"));
         let labels = subcraft_doc::display::MIP_BIAS_LABELS;
-        egui::ComboBox::from_id_salt("display_mip_bias").selected_text(tr(labels[d.mip_bias.min(3) as usize])).show_ui(ui, |ui| {
+        let r = egui::ComboBox::from_id_salt("display_mip_bias").selected_text(tr(labels[d.mip_bias.min(3) as usize])).show_ui(ui, |ui| {
             for (i, label) in labels.iter().enumerate() {
                 ui.selectable_value(&mut d.mip_bias, i as u32, tr(*label));
             }
         }).response.on_hover_text(tr("Sharper settings read textures from a more detailed level; too sharp shimmers when the model moves."));
+        reset(&l, &r, &mut d.mip_bias, &def.mip_bias);
         ui.end_row();
     });
     sub_header(ui, tr("Camera frame"));
     grid(ui, "display_frame", |ui| {
         let d = &mut prefs.display;
-        ui.label(tr("Show camera frame"));
-        ui.checkbox(&mut d.camera_frame, "").on_hover_text(tr("Outline the picture a camera of this aspect ratio takes"));
+        let l = label(ui, tr("Show camera frame"));
+        let r = ui.checkbox(&mut d.camera_frame, "").on_hover_text(tr("Outline the picture a camera of this aspect ratio takes"));
+        reset(&l, &r, &mut d.camera_frame, &def.camera_frame);
         ui.end_row();
-        ui.label(tr("Aspect ratio"));
-        ui.add_enabled_ui(d.camera_frame, |ui| {
+        let l = label(ui, tr("Aspect ratio"));
+        let r = ui.add_enabled_ui(d.camera_frame, |ui| {
             let current = FRAME_RATIOS.iter().find(|r| (r.1 - d.camera_frame_ratio).abs() < 1e-3).map_or_else(|| format!("{:.2}", d.camera_frame_ratio), |r| r.0.to_string());
             egui::ComboBox::from_id_salt("display_frame_ratio").selected_text(current).show_ui(ui, |ui| {
                 for (name, ratio) in FRAME_RATIOS {
                     ui.selectable_value(&mut d.camera_frame_ratio, ratio, name);
                 }
-            });
-        });
+            }).response
+        }).inner;
+        reset(&l, &r, &mut d.camera_frame_ratio, &def.camera_frame_ratio);
         ui.end_row();
-        ui.label(tr("Gate mask opacity"));
-        ui.add_enabled(d.camera_frame, egui::Slider::new(&mut d.gate_opacity, 0.0..=1.0)).on_hover_text(tr("How dark the view is outside the frame"));
+        let l = label(ui, tr("Gate mask opacity"));
+        let r = ui.add_enabled(d.camera_frame, egui::Slider::new(&mut d.gate_opacity, 0.0..=1.0)).on_hover_text(tr("How dark the view is outside the frame"));
+        reset(&l, &r, &mut d.gate_opacity, &def.gate_opacity);
         ui.end_row();
     });
     sub_header(ui, tr("Tool display"));
@@ -703,36 +850,46 @@ pub fn visualization(state: &mut UiState, ui: &mut Ui) {
     // The same settings as the stencil display options in Properties > Brush.
     grid(ui, "display_tool", |ui| {
         let d = &mut state.stencil_display;
-        ui.label(tr("Projection preview"));
-        ui.add(egui::Slider::new(&mut d.projection_opacity, 0.0..=1.0)).on_hover_text(tr("Opacity of the Projection tool's pattern over the 3D view (0 hides it)"));
+        let tool = crate::state::StencilDisplay::default();
+        let l = label(ui, tr("Projection preview"));
+        let r = ui.add(egui::Slider::new(&mut d.projection_opacity, 0.0..=1.0)).on_hover_text(tr("Opacity of the Projection tool's pattern over the 3D view (0 hides it)"));
+        reset(&l, &r, &mut d.projection_opacity, &tool.projection_opacity);
         ui.end_row();
-        ui.label(tr("Projection preview channel"));
-        egui::ComboBox::from_id_salt("projection_preview_channel").selected_text(d.projection_channel.display_name()).show_ui(ui, |ui| {
+        let l = label(ui, tr("Projection preview channel"));
+        let r = egui::ComboBox::from_id_salt("projection_preview_channel").selected_text(d.projection_channel.display_name()).show_ui(ui, |ui| {
             for k in &projection_channels {
                 ui.selectable_value(&mut d.projection_channel, *k, k.display_name());
             }
         }).response.on_hover_text(tr("Which image of the brush material the Projection tool shows over the view"));
+        reset(&l, &r, &mut d.projection_channel, &tool.projection_channel);
         ui.end_row();
-        ui.label(tr("Hide stencil when painting"));
-        ui.checkbox(&mut d.hide_when_painting, "").on_hover_text(tr("The stencil image disappears during a stroke, so the paint is seen as it lands"));
+        let l = label(ui, tr("Hide stencil when painting"));
+        let r = ui.checkbox(&mut d.hide_when_painting, "").on_hover_text(tr("The stencil image disappears during a stroke, so the paint is seen as it lands"));
+        reset(&l, &r, &mut d.hide_when_painting, &tool.hide_when_painting);
         ui.end_row();
-        ui.label(tr("Stencil display opacity"));
-        ui.add(egui::Slider::new(&mut d.opacity, 0.0..=1.0)).on_hover_text(if stencil { tr("Opacity of the stencil image over the view") } else { tr("Opacity of the stencil image over the view (no stencil is loaded)") });
+        let l = label(ui, tr("Stencil display opacity"));
+        let r = ui.add(egui::Slider::new(&mut d.opacity, 0.0..=1.0)).on_hover_text(if stencil { tr("Opacity of the stencil image over the view") } else { tr("Opacity of the stencil image over the view (no stencil is loaded)") });
+        reset(&l, &r, &mut d.opacity, &tool.opacity);
         ui.end_row();
     });
     sub_header(ui, tr("Mesh wireframe"));
     grid(ui, "display_wire", |ui| {
-        ui.label(tr("Show mesh wireframe"));
-        ui.checkbox(&mut prefs.wireframe, "");
+        let d = &mut prefs.display;
+        let l = label(ui, tr("Show mesh wireframe"));
+        let r = ui.checkbox(&mut d.wireframe, "");
+        reset(&l, &r, &mut d.wireframe, &def.wireframe);
         ui.end_row();
-        ui.label(tr("Wireframe color"));
-        crate::color_picker::swatch_srgb(ui, &mut prefs.wire_color);
+        let l = label(ui, tr("Wireframe color"));
+        let r = crate::color_picker::swatch_srgb(ui, &mut d.wire_color);
+        reset(&l, &r, &mut d.wire_color, &def.wire_color);
         ui.end_row();
-        ui.label(tr("Wireframe opacity"));
-        ui.add(egui::Slider::new(&mut prefs.wire_opacity, 0.05..=1.0));
+        let l = label(ui, tr("Wireframe opacity"));
+        let r = ui.add(egui::Slider::new(&mut d.wire_opacity, 0.05..=1.0));
+        reset(&l, &r, &mut d.wire_opacity, &def.wire_opacity);
         ui.end_row();
-        ui.label(tr("Merge angle"));
-        ui.add(egui::Slider::new(&mut prefs.wire_angle, 0.0..=90.0).suffix("°")).on_hover_text(tr("Triangle pairs from the same polygon whose normals differ less than this are drawn as one polygon"));
+        let l = label(ui, tr("Merge angle"));
+        let r = ui.add(egui::Slider::new(&mut d.wire_angle, 0.0..=90.0).suffix("°")).on_hover_text(tr("Triangle pairs from the same polygon whose normals differ less than this are drawn as one polygon"));
+        reset(&l, &r, &mut d.wire_angle, &def.wire_angle);
         ui.end_row();
     });
     sub_header(ui, tr("Channel display"));
@@ -740,72 +897,93 @@ pub fn visualization(state: &mut UiState, ui: &mut Ui) {
     ui.add_enabled_ui(shown.is_some(), |ui| {
         grid(ui, "display_channel", |ui| {
             let d = &mut prefs.display;
-            ui.label(tr("Display solo view without lighting"));
-            ui.checkbox(&mut d.solo_unlit, "").on_hover_text(tr("On: the channel exactly as stored. Off: shaded by the light, so the model's shape stays readable."));
+            let l = label(ui, tr("Display solo view without lighting"));
+            let r = ui.checkbox(&mut d.solo_unlit, "").on_hover_text(tr("On: the channel exactly as stored. Off: shaded by the light, so the model's shape stays readable."));
+            reset(&l, &r, &mut d.solo_unlit, &def.solo_unlit);
             ui.end_row();
-            ui.label(tr("Scale HDR values"));
-            ui.add(egui::Slider::new(&mut d.hdr_scale, 0.1..=100.0).logarithmic(true)).on_hover_text(tr("The channel is divided by this before it is shown, to bring values above 1 into view"));
+            let l = label(ui, tr("Scale HDR values"));
+            let r = ui.add(egui::Slider::new(&mut d.hdr_scale, 0.1..=100.0).logarithmic(true)).on_hover_text(tr("The channel is divided by this before it is shown, to bring values above 1 into view"));
+            reset(&l, &r, &mut d.hdr_scale, &def.hdr_scale);
             ui.end_row();
-            ui.label(tr("Use +/- color for HDR values"));
-            ui.checkbox(&mut d.hdr_signed_colors, "").on_hover_text(tr("Grayscale channels: positive and negative values in two colors"));
+            let l = label(ui, tr("Use +/- color for HDR values"));
+            let r = ui.checkbox(&mut d.hdr_signed_colors, "").on_hover_text(tr("Grayscale channels: positive and negative values in two colors"));
+            reset(&l, &r, &mut d.hdr_signed_colors, &def.hdr_signed_colors);
             ui.end_row();
-            ui.label(tr("Positive color"));
-            ui.add_enabled_ui(d.hdr_signed_colors, |ui| crate::color_picker::swatch_srgb(ui, &mut d.hdr_positive));
+            let l = label(ui, tr("Positive color"));
+            let r = ui.add_enabled_ui(d.hdr_signed_colors, |ui| crate::color_picker::swatch_srgb(ui, &mut d.hdr_positive)).inner;
+            reset(&l, &r, &mut d.hdr_positive, &def.hdr_positive);
             ui.end_row();
-            ui.label(tr("Negative color"));
-            ui.add_enabled_ui(d.hdr_signed_colors, |ui| crate::color_picker::swatch_srgb(ui, &mut d.hdr_negative));
+            let l = label(ui, tr("Negative color"));
+            let r = ui.add_enabled_ui(d.hdr_signed_colors, |ui| crate::color_picker::swatch_srgb(ui, &mut d.hdr_negative)).inner;
+            reset(&l, &r, &mut d.hdr_negative, &def.hdr_negative);
             ui.end_row();
-            ui.label(tr("Color channels"));
+            let l = label(ui, tr("Color channels"));
             let color = shown.is_some_and(|k| k.components() == 3);
-            egui::ComboBox::from_id_salt("display_component").selected_text(tr(d.channel_component.label(color))).show_ui(ui, |ui| {
+            let r = egui::ComboBox::from_id_salt("display_component").selected_text(tr(d.channel_component.label(color))).show_ui(ui, |ui| {
                 for c in subcraft_doc::ChannelComponent::ALL {
                     ui.selectable_value(&mut d.channel_component, c, tr(c.label(color)));
                 }
             }).response.on_hover_text(tr("Show every component of the channel, or one of them as gray"));
+            reset(&l, &r, &mut d.channel_component, &def.channel_component);
             ui.end_row();
         });
     });
     sub_header(ui, tr("Grid"));
     grid(ui, "display_grid", |ui| {
-        ui.label(tr("Show grid"));
-        ui.checkbox(&mut prefs.grid, "");
+        let d = &mut prefs.display;
+        let l = label(ui, tr("Show grid"));
+        let r = ui.checkbox(&mut d.grid, "");
+        reset(&l, &r, &mut d.grid, &def.grid);
         ui.end_row();
-        ui.label(tr("Axis"));
-        ui.horizontal(|ui| {
-            for a in subcraft_doc::GridAxis::ALL {
-                ui.selectable_value(&mut prefs.display.grid_plane, a, a.label()).on_hover_text(tr("The axis the grid is perpendicular to (Y is the floor)"));
+        let l = label(ui, tr("Axis"));
+        let r = ui.horizontal(|ui| {
+            let mut r = ui.selectable_value(&mut d.grid_plane, subcraft_doc::GridAxis::ALL[0], subcraft_doc::GridAxis::ALL[0].label());
+            for a in &subcraft_doc::GridAxis::ALL[1..] {
+                r |= ui.selectable_value(&mut d.grid_plane, *a, a.label());
             }
-        });
+            r.on_hover_text(tr("The axis the grid is perpendicular to (Y is the floor)"))
+        }).inner;
+        reset(&l, &r, &mut d.grid_plane, &def.grid_plane);
         ui.end_row();
-        ui.label(tr("Grid color"));
-        crate::color_picker::swatch_srgb(ui, &mut prefs.display.grid_color);
+        let l = label(ui, tr("Grid color"));
+        let r = crate::color_picker::swatch_srgb(ui, &mut d.grid_color);
+        reset(&l, &r, &mut d.grid_color, &def.grid_color);
         ui.end_row();
-        ui.label(tr("Grid opacity"));
-        ui.add(egui::Slider::new(&mut prefs.display.grid_opacity, 0.0..=1.0));
+        let l = label(ui, tr("Grid opacity"));
+        let r = ui.add(egui::Slider::new(&mut d.grid_opacity, 0.0..=1.0));
+        reset(&l, &r, &mut d.grid_opacity, &def.grid_opacity);
         ui.end_row();
-        ui.label(tr("Axis guides"));
-        ui.horizontal(|ui| {
-            for (index, text) in ["X", "Y", "Z"].into_iter().enumerate() {
-                ui.checkbox(&mut prefs.grid_axes[index], text);
-            }
-        });
+        let l = label(ui, tr("Axis guides"));
+        let r = ui.horizontal(|ui| {
+            let mut r = ui.checkbox(&mut d.grid_axes[0], "X");
+            r |= ui.checkbox(&mut d.grid_axes[1], "Y");
+            r | ui.checkbox(&mut d.grid_axes[2], "Z")
+        }).inner;
+        reset(&l, &r, &mut d.grid_axes, &def.grid_axes);
         ui.end_row();
     });
     sub_header(ui, tr("Guides"));
-    ui.checkbox(&mut prefs.symmetry_guides, tr("Symmetry guides"));
-    ui.checkbox(&mut prefs.symmetry_cursor, tr("Symmetry cursors")).on_hover_text(tr("A second brush cursor where each symmetry copy of the stroke paints"));
-    ui.add_enabled(prefs.symmetry_cursor, egui::Checkbox::new(&mut prefs.symmetry_cursor_hide_painting, tr("Hide while painting")));
+    let r = ui.checkbox(&mut prefs.symmetry_guides, tr("Symmetry guides"));
+    reset(&r, &r, &mut prefs.symmetry_guides, &view.symmetry_guides);
+    let r = ui.checkbox(&mut prefs.symmetry_cursor, tr("Symmetry cursors")).on_hover_text(tr("A second brush cursor where each symmetry copy of the stroke paints"));
+    reset(&r, &r, &mut prefs.symmetry_cursor, &view.symmetry_cursor);
+    let r = ui.add_enabled(prefs.symmetry_cursor, egui::Checkbox::new(&mut prefs.symmetry_cursor_hide_painting, tr("Hide while painting")));
+    reset(&r, &r, &mut prefs.symmetry_cursor_hide_painting, &view.symmetry_cursor_hide_painting);
     ui.horizontal(|ui| {
-        ui.label(tr("Brush cursor"));
-        egui::ComboBox::from_id_salt("brush_cursor_style").selected_text(prefs.brush_cursor.label()).show_ui(ui, |ui| {
+        let l = label(ui, tr("Brush cursor"));
+        let r = egui::ComboBox::from_id_salt("brush_cursor_style").selected_text(prefs.brush_cursor.label()).show_ui(ui, |ui| {
             for style in crate::viewport_bar::BrushCursor::ALL {
                 ui.selectable_value(&mut prefs.brush_cursor, style, style.label());
             }
-        });
+        }).response;
+        reset(&l, &r, &mut prefs.brush_cursor, &view.brush_cursor);
     });
-    ui.checkbox(&mut prefs.symmetry_plane, tr("Mirror planes")).on_hover_text(tr("Each active mirror plane as a translucent sheet in its axis colour"));
-    ui.checkbox(&mut prefs.hints, tr("Viewport hints")).on_hover_text(tr("The list of mouse and key actions in the bottom-left corner of the 3D view. The grid unit is shown just above it."));
-    ui.checkbox(&mut prefs.axis_indicator, tr("Axis indicator")).on_hover_text(tr("The X, Y and Z directions of the scene in the bottom-right corner of the 3D view"));
+    let r = ui.checkbox(&mut prefs.symmetry_plane, tr("Mirror planes")).on_hover_text(tr("Each active mirror plane as a translucent sheet in its axis colour"));
+    reset(&r, &r, &mut prefs.symmetry_plane, &view.symmetry_plane);
+    let r = ui.checkbox(&mut prefs.hints, tr("Viewport hints")).on_hover_text(tr("The list of mouse and key actions in the bottom-left corner of the 3D view. The grid unit is shown just above it."));
+    reset(&r, &r, &mut prefs.hints, &view.hints);
+    let r = ui.checkbox(&mut prefs.axis_indicator, tr("Axis indicator")).on_hover_text(tr("The X, Y and Z directions of the scene in the bottom-right corner of the 3D view"));
+    reset(&r, &r, &mut prefs.axis_indicator, &view.axis_indicator);
 }
 
 /// Camera frame aspect ratios offered (name, width / height).
@@ -933,6 +1111,60 @@ mod tests {
             egui::epaint::Shape::Text(t) => Some((t.galley.job.text.clone(), t.pos.y)),
             _ => None,
         }).collect()
+    }
+
+    #[test]
+    fn ctrl_click_on_a_settings_label_puts_only_that_setting_back() {
+        let ctx = egui::Context::default();
+        crate::theme::apply(&ctx);
+        let mut s = state();
+        s.recovery.prefs.viewport.display.env_exposure = 2.0;
+        s.recovery.prefs.viewport.display.bloom = 1.2;
+        let frame = |s: &mut UiState, mut events: Vec<egui::Event>, modifiers: egui::Modifiers| {
+            events.insert(0, egui::Event::ModifiersChanged(modifiers));
+            let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(420.0, 8000.0))), events, ..Default::default() };
+            let mut out = ctx.run_ui(input, |ui| { egui::CentralPanel::default().show(ui, |ui| show(s, ui)); });
+            out.textures_delta.clear();
+            out
+        };
+        frame(&mut s, vec![], egui::Modifiers::NONE);
+        let out = frame(&mut s, vec![], egui::Modifiers::NONE);
+        let at = out.shapes.iter().find_map(|s| match &s.shape {
+            egui::epaint::Shape::Text(t) if t.galley.job.text == "Environment exposure (EV)" => Some(t.pos + egui::vec2(4.0, 4.0)),
+            _ => None,
+        }).expect("the exposure row is drawn");
+        let click = |s: &mut UiState, modifiers: egui::Modifiers| {
+            frame(s, vec![egui::Event::PointerMoved(at)], modifiers);
+            frame(s, vec![egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed: true, modifiers }], modifiers);
+            frame(s, vec![egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed: false, modifiers }], modifiers);
+        };
+        click(&mut s, egui::Modifiers::NONE);
+        assert_eq!(s.recovery.prefs.viewport.display.env_exposure, 2.0, "a plain click changes nothing");
+        click(&mut s, egui::Modifiers { ctrl: true, command: true, ..Default::default() });
+        assert_eq!(s.recovery.prefs.viewport.display.env_exposure, 0.0, "Ctrl+click puts the default back");
+        assert_eq!(s.recovery.prefs.viewport.display.bloom, 1.2, "the other settings stay");
+    }
+
+    #[test]
+    fn reset_all_puts_every_setting_back_but_keeps_the_chosen_assets_and_the_view_mode() {
+        let mut s = state();
+        let prefs = &mut s.recovery.prefs.viewport;
+        (prefs.display.bloom, prefs.display.grid, prefs.display.tone_map, prefs.display.dof_focus_distance) = (1.5, false, ToneMap::Reinhard, Some(3.0));
+        (prefs.orthographic, prefs.hints, prefs.pt_ground_glossiness, prefs.view_mode) = (true, false, 0.9, 2);
+        prefs.display.env_map = Some("Studio".into());
+        prefs.display.color_lut = Some(subcraft_core::ResourceId::new());
+        let lut = prefs.display.color_lut;
+        s.env.rotation_deg = 45.0;
+        set_fov(&mut s.camera, 70.0);
+        s.stencil_display.opacity = 0.1;
+        reset_all(&mut s);
+        let prefs = &s.recovery.prefs.viewport;
+        let def = subcraft_doc::DisplaySettings::default();
+        assert_eq!((prefs.display.bloom, prefs.display.grid, prefs.display.tone_map, prefs.display.dof_focus_distance), (def.bloom, def.grid, def.tone_map, None));
+        assert_eq!((prefs.orthographic, prefs.hints, prefs.pt_ground_glossiness), (false, true, 0.5));
+        assert_eq!((s.env.rotation_deg, s.camera.fov_y_deg), (default_env_rotation(&s), def.fov), "the startup map keeps its front lighting");
+        assert_eq!(s.stencil_display, crate::state::StencilDisplay::default());
+        assert_eq!((prefs.display.env_map.as_deref(), prefs.display.color_lut, prefs.view_mode), (Some("Studio"), lut, 2), "chosen assets and the view mode stay");
     }
 
     #[test]
