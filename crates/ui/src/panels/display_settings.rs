@@ -313,8 +313,12 @@ pub fn environment(state: &mut UiState, ui: &mut Ui) {
         reset(&l, &r, &mut display.env_exposure, &def.env_exposure);
         ui.end_row();
         let l = label(ui, tr("Environment rotation"));
-        let r = ui.add(egui::Slider::new(&mut state.env.rotation_deg, -180.0..=180.0).suffix("°").fixed_decimals(0)).on_hover_text(tr("Turn the lighting around the model (also Shift + right mouse drag in the 3D view)"));
-        reset(&l, &r, &mut state.env.rotation_deg, &rotation);
+        // One decimal: a slider rounds its value to the decimals it shows, and with none it turned
+        // the startup map's -165.6° into -166° on the first frame, which showed the "changed" dot.
+        let r = ui.add(egui::Slider::new(&mut state.env.rotation_deg, -180.0..=180.0).suffix("°").min_decimals(0).max_decimals(1)).on_hover_text(tr("Turn the lighting around the model (also Shift + right mouse drag in the 3D view)"));
+        if wants_reset(&l, &r, (state.env.rotation_deg - rotation).abs() > 0.05) {
+            state.env.rotation_deg = rotation;
+        }
         ui.end_row();
         let l = label(ui, tr("Environment blur"));
         let r = ui.add_enabled(display.env_opacity > 0.0, egui::Slider::new(&mut display.env_blur, 0.0..=1.0)).on_hover_text(tr("Blur of the environment shown behind the model"));
@@ -1143,6 +1147,20 @@ mod tests {
         click(&mut s, egui::Modifiers { ctrl: true, command: true, ..Default::default() });
         assert_eq!(s.recovery.prefs.viewport.display.env_exposure, 0.0, "Ctrl+click puts the default back");
         assert_eq!(s.recovery.prefs.viewport.display.bloom, 1.2, "the other settings stay");
+    }
+
+    #[test]
+    fn drawing_the_panel_leaves_a_fractional_environment_rotation_alone() {
+        let ctx = egui::Context::default();
+        crate::theme::apply(&ctx);
+        let mut s = state();
+        s.env.rotation_deg = crate::panels::shelf::DEFAULT_ENVIRONMENT_ROTATION_DEG;
+        for _ in 0..2 {
+            let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(420.0, 8000.0))), ..Default::default() };
+            let mut out = ctx.run_ui(input, |ui| { egui::CentralPanel::default().show(ui, |ui| show(&mut s, ui)); });
+            out.textures_delta.clear();
+        }
+        assert!((s.env.rotation_deg - crate::panels::shelf::DEFAULT_ENVIRONMENT_ROTATION_DEG).abs() < 0.01, "the slider must not round -165.6° to -166° (it showed the changed dot), got {}", s.env.rotation_deg);
     }
 
     #[test]
