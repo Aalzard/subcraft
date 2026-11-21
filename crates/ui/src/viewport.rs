@@ -290,7 +290,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     if let Some(env) = response.dnd_release_payload::<crate::panels::shelf::EnvironmentDrag>()
         && let Some(name) = state.library.environments.get(env.0).map(|e| e.name.clone())
     {
-        state.env.index = env.0;
+        state.env.choose(&state.library, env.0);
         state.set_status(format!("Environment: {name}"), now);
     }
     let env_hover = response.dnd_hover_payload::<crate::panels::shelf::EnvironmentDrag>().is_some();

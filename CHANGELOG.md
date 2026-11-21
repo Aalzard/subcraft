@@ -10,6 +10,7 @@ What changed in SubCraft, newest first. Download the latest build from the
 - Display Settings: settings can go back to their defaults (issue #607). Reset all at the top of the panel puts every display setting back; the environment map and colour LUT you picked stay. To reset one setting, Ctrl+click it or right-click its name, and a dot before a setting's name marks the ones you changed.
 
 ### Fixed
+- Environments: the studio lighting presets (Studio, Soft Studio and the others drawn as chrome balls) now turn with Shift + right drag and the Rotation slider, like HDR environments. Before, the rotation changed but the light didn't move (issue #610). Choosing a preset starts it at 0°, so its key light still comes over your shoulder.
 - Paint across UDIM tiles: pack materials, textures, filters, imported smart materials and duplicated layers went onto one tile only. A drop on the model shows the tile under the cursor, so such a layer vanished from the Layers panel while it still rendered, survived deleting every layer, and came back with a later drop (issue #581). Every way of adding a layer now reaches every tile, and hiding a layer, its mask, its blending and Ctrl-drop's part filter follow on the other tiles. A layer that already holds painted pixels stays on its own tile.
 
 ## 0.4.5 - 2026-11-19
