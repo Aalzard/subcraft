@@ -287,7 +287,7 @@ pub fn environment(state: &mut UiState, ui: &mut Ui) {
                     for (i, env) in state.library.environments.iter().enumerate() {
                         let thumb = crate::panels::shelf::thumbnail(&state.shelf, &env.id);
                         if crate::panels::shelf::tile(ui, ENV_TILE, thumb, &env.name, i == state.env.index, &env.name).clicked() {
-                            state.env.index = i;
+                            state.env.choose(&state.library, i);
                             ui.close();
                         }
                     }
@@ -297,7 +297,7 @@ pub fn environment(state: &mut UiState, ui: &mut Ui) {
         if let Some(env) = combo.dnd_release_payload::<crate::panels::shelf::EnvironmentDrag>()
             && env.0 < state.library.environments.len()
         {
-            state.env.index = env.0;
+            state.env.choose(&state.library, env.0);
         }
         ui.end_row();
         let rotation = default_env_rotation(state);

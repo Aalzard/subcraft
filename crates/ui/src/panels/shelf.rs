@@ -881,6 +881,17 @@ impl EnvUi {
             None => Self::default(),
         }
     }
+
+    /// The user picks environment `index` (Assets panel, Display Settings, a drop on the 3D view).
+    /// A studio lighting preset starts unturned, so its key light comes over the viewer's shoulder
+    /// as designed instead of from wherever the previous map's rotation points it (the startup
+    /// HDRI is turned -165.6°). An HDRI keeps the current rotation, as in Painter.
+    pub fn choose(&mut self, library: &Library, index: usize) {
+        if index != self.index && library.environments.get(index).is_some_and(|e| matches!(e.source, EnvironmentSource::Procedural(_))) {
+            self.rotation_deg = 0.0;
+        }
+        self.index = index;
+    }
 }
 
 /// The environment as the Display Settings describe it, for a camera turned `camera_yaw`
@@ -889,6 +900,34 @@ impl EnvUi {
 pub fn environment_view(display: &subcraft_doc::DisplaySettings, rotation_deg: f32, camera_yaw: f32) -> (f32, f32) {
     let follow = if display.env_alignment == subcraft_doc::EnvAlignment::Local { camera_yaw.to_degrees() } else { 0.0 };
     (wrap_rotation(rotation_deg + follow), subcraft_doc::display::ev_to_multiplier(display.env_exposure.clamp(-10.0, 10.0)))
+}
+
+/// A world direction turned by the environment rotation `rot` (radians): the inverse of the
+/// shader's environment rotation, so a light stays put relative to the map.
+fn rotate_about_y(d: Vec3, rot: f32) -> Vec3 {
+    let (s, c) = rot.sin_cos();
+    Vec3::new(c * d.x + s * d.z, d.y, -s * d.x + c * d.z)
+}
+
+/// A studio lighting preset drawn by the shader. `params.light_dir` arrives following the camera
+/// (over the viewer's shoulder, see `OrbitCamera::view_params`).
+fn apply_procedural(p: &subcraft_assets::environment::ProceduralEnv, rot: f32, intensity: f32, params: &mut ViewParams) {
+    let e = &mut params.environment;
+    e.use_hdri = false;
+    e.ground = p.ground;
+    e.horizon = p.horizon;
+    e.zenith = p.zenith;
+    e.irradiance_up = p.irradiance_up;
+    e.irradiance_down = p.irradiance_down;
+    e.panels = p.panels;
+    e.top = p.top;
+    e.key_softbox = p.key_softbox;
+    params.light_intensity = p.light_intensity * intensity;
+    params.light_color = p.light_color;
+    // The key light (and the softbox reflecting it) turns with the environment rotation, like an
+    // HDRI's sun (issue #610: Shift + right drag and the Rotation slider changed nothing here).
+    params.light_dir = rotate_about_y(params.light_dir, rot);
+    params.environment_intensity = intensity;
 }
 
 /// Configure `params` (and upload an HDRI when needed) for environment `index` of `library`.
@@ -907,21 +946,7 @@ pub fn apply_environment(
     let rot = rotation_deg.to_radians();
     params.environment.rotation = rot;
     match &env.source {
-        EnvironmentSource::Procedural(p) => {
-            let e = &mut params.environment;
-            e.use_hdri = false;
-            e.ground = p.ground;
-            e.horizon = p.horizon;
-            e.zenith = p.zenith;
-            e.irradiance_up = p.irradiance_up;
-            e.irradiance_down = p.irradiance_down;
-            e.panels = p.panels;
-            e.top = p.top;
-            e.key_softbox = p.key_softbox;
-            params.light_intensity = p.light_intensity * intensity;
-            params.light_color = p.light_color;
-            params.environment_intensity = intensity;
-        }
+        EnvironmentSource::Procedural(p) => apply_procedural(p, rot, intensity, params),
         EnvironmentSource::Hdri(_) | EnvironmentSource::Embedded(_) => {
             let Some(h) = env.source.hdri() else { return };
             if *uploaded != Some(env.id) {
@@ -936,9 +961,7 @@ pub fn apply_environment(
             params.environment.hdri_intensity = intensity;
             params.environment_intensity = 1.0;
             // World direction of the sun: inverse of the shader's environment rotation.
-            let s = Vec3::from_array(h.sun_direction);
-            let (sn, c) = rot.sin_cos();
-            params.light_dir = Vec3::new(c * s.x + sn * s.z, s.y, -sn * s.x + c * s.z);
+            params.light_dir = rotate_about_y(Vec3::from_array(h.sun_direction), rot);
             params.light_color = h.sun_color;
             params.light_intensity = 1.2 * intensity;
         }
@@ -1713,7 +1736,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                             });
                         }
                         if resp.clicked() {
-                            action = Some(Box::new(move |s: &mut UiState| s.env.index = i));
+                            action = Some(Box::new(move |s: &mut UiState| s.env.choose(&s.library, i)));
                         }
                     }
                 }
@@ -2675,6 +2698,41 @@ mod environment_tests {
         let light = Vec3::new(c * sun[0] + s * sun[2], sun[1], -s * sun[0] + c * sun[2]);
         let camera = Vec3::new(35f32.to_radians().sin(), 0.0, 35f32.to_radians().cos());
         assert!(Vec3::new(light.x, 0.0, light.z).normalize().dot(camera) > 0.7, "light {light} vs camera {camera}");
+    }
+
+    #[test]
+    fn rotating_a_studio_preset_turns_its_key_light() {
+        let library = Library::builtin();
+        let studio = library.environments.iter().find_map(|e| match &e.source { EnvironmentSource::Procedural(p) => Some(*p), _ => None }).expect("a studio preset");
+        let lit = |deg: f32| {
+            let mut params = ViewParams::new(glam::Mat4::IDENTITY, glam::Mat4::IDENTITY);
+            params.light_dir = Vec3::new(0.6, 0.75, 0.3).normalize();
+            apply_procedural(&studio, deg.to_radians(), 1.0, &mut params);
+            params.light_dir
+        };
+        assert!((lit(0.0) - Vec3::new(0.6, 0.75, 0.3).normalize()).length() < 1e-5, "unturned: the camera-following light as before");
+        let turned = lit(90.0);
+        assert!((turned.y - lit(0.0).y).abs() < 1e-5, "turns about the vertical");
+        assert!(turned.dot(lit(0.0)) < 0.7, "a quarter turn moves the light: {turned} vs {}", lit(0.0));
+        assert!((lit(360.0) - lit(0.0)).length() < 1e-4);
+    }
+
+    #[test]
+    fn choosing_a_studio_preset_starts_it_unturned_and_an_hdri_keeps_the_rotation() {
+        let mut state = UiState::new(subcraft_app::Session::new(subcraft_mesh::primitives::cube(2.0), 64), None);
+        let envs = &state.library.environments;
+        let studio = envs.iter().position(|e| matches!(e.source, EnvironmentSource::Procedural(_))).expect("a studio preset");
+        let hdri = envs.iter().position(|e| !matches!(e.source, EnvironmentSource::Procedural(_)) && e.name != DEFAULT_ENVIRONMENT);
+        assert_eq!(state.env.rotation_deg, DEFAULT_ENVIRONMENT_ROTATION_DEG);
+        state.env.choose(&state.library, studio);
+        assert_eq!((state.env.index, state.env.rotation_deg), (studio, 0.0), "not the startup HDRI's -165.6°");
+        state.env.rotation_deg = 40.0;
+        state.env.choose(&state.library, studio);
+        assert_eq!(state.env.rotation_deg, 40.0, "picking the same preset again keeps the user's turn");
+        if let Some(hdri) = hdri {
+            state.env.choose(&state.library, hdri);
+            assert_eq!((state.env.index, state.env.rotation_deg), (hdri, 40.0), "an HDRI keeps the rotation, as in Painter");
+        }
     }
 
     #[test]

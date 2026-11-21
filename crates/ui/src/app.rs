@@ -1338,7 +1338,7 @@ impl SubcraftApp {
         }
         if let Some(name) = options.environment.as_deref() {
             match state.library.environments.iter().position(|e| e.name == name) {
-                Some(i) => state.env.index = i,
+                Some(i) => state.env.choose(&state.library, i),
                 None => log::warn!("no environment named {name}"),
             }
         }
