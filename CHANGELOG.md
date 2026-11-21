@@ -12,6 +12,7 @@ What changed in SubCraft, newest first. Download the latest build from the
 ### Fixed
 - Environments: the studio lighting presets (Studio, Soft Studio and the others drawn as chrome balls) now turn with Shift + right drag and the Rotation slider, like HDR environments. Before, the rotation changed but the light didn't move (issue #610). Choosing a preset starts it at 0°, so its key light still comes over your shoulder.
 - Paint across UDIM tiles: pack materials, textures, filters, imported smart materials and duplicated layers went onto one tile only. A drop on the model shows the tile under the cursor, so such a layer vanished from the Layers panel while it still rendered, survived deleting every layer, and came back with a later drop (issue #581). Every way of adding a layer now reaches every tile, and hiding a layer, its mask, its blending and Ctrl-drop's part filter follow on the other tiles. A layer that already holds painted pixels stays on its own tile.
+- Crash reports: on macOS, a crash inside a window event (such as a redraw while resizing) ended with Rust's "panic in a function that cannot unwind", and the crash window and the bug report showed only that line instead of the actual error (issue #612). The report now names the original error and where it happened, and the abort is added to the same file.
 
 ## 0.4.5 - 2026-11-19
 
