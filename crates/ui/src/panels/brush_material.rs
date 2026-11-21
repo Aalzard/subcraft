@@ -24,10 +24,18 @@ pub fn blend_offered(mode: subcraft_doc::BlendMode, kind: subcraft_core::Channel
     }
 }
 
+/// A layer Normal blend that keeps the normals of the layers below visible under fully painted
+/// texels (the normal-map modes); Normal / Replace and the others cover them.
+pub fn layers_below_show_through(mode: subcraft_doc::BlendMode) -> bool {
+    use subcraft_doc::BlendMode as B;
+    matches!(mode, B::NormalMapCombine | B::NormalMapDetail | B::NormalMapInverseDetail)
+}
+
 pub fn show(state: &mut UiState, ui: &mut Ui) {
     let mask_target = state.session.brush.target.is_mask();
     let mut material = state.session.brush.material.clone();
     let original = material.clone();
+    let mut cover_below = None;
     let mut dropped = None;
     let mut starter_dropped = None;
     // While a texture is being dragged, channels that are switched off still accept it (the app
@@ -179,8 +187,28 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         ui,
         "Detail combines with normals already painted on this layer. Alt+click nrm to paint only normals.",
     );
+    // The brush settings above only mix with this layer; the layers below are mixed in by the
+    // layer's own Normal blend, whose default (Normal Map Detail, as in Painter) keeps their
+    // bumps. Say so where people look for it, with the one-click fix (issue #611).
+    if !mask_target && let Some(layer) = state.session.selected_layer() {
+        let mode = layer.blend_for(subcraft_core::ChannelKind::Normal).mode;
+        if layers_below_show_through(mode) {
+            hint(ui, &format!("This layer's Normal blend is {}: what you paint adds to the bumps of the layers below. Set it to Normal to cover them.", mode.label()));
+            if quiet_button(ui, crate::icons::STACK, "Cover the layers below")
+                .on_hover_text("Set this layer's Normal channel blend mode to Normal (the Layers panel shows it with Channel set to Normal)")
+                .clicked()
+            {
+                cover_below = Some(layer.id);
+            }
+        }
+    }
     }
     let now = ui.input(|i| i.time);
+    if let Some(layer) = cover_below
+        && let Err(e) = state.session.execute(Command::SetBlendMode { layer, channel: subcraft_core::ChannelKind::Normal, mode: subcraft_doc::BlendMode::Normal })
+    {
+        state.set_status(e.to_string(), now);
+    }
     if material != original
         && let Err(e) = state.session.execute(Command::SetBrushMaterial(material))
     {

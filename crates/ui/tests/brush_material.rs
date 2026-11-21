@@ -183,3 +183,25 @@ fn shelf_textures_and_starter_pack_images_drop_onto_brush_channels_even_when_swi
     assert_eq!(state.session.history().entries().len(), history);
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn the_normal_blend_note_says_lower_layers_show_through_and_one_click_covers_them() {
+    // Issue #611: the brush's Replace only mixes with this layer; the layer's own Normal blend
+    // (Normal Map Detail by default, as in Painter) keeps the bumps of the layers below.
+    let mut state = UiState::new(Session::new(subcraft_mesh::primitives::cube(2.0), 128), None);
+    let layer = state.session.selected_layer().expect("a selected layer").id;
+    let normal_blend = |s: &UiState| s.session.document().texture_sets.iter().find_map(|ts| ts.find(layer)).unwrap().blend_for(ChannelKind::Normal).mode;
+    assert!(brush_material::layers_below_show_through(normal_blend(&state)), "new layers keep the lower normals");
+    let ctx = egui::Context::default();
+    subcraft_ui::theme::apply(&ctx);
+    for _ in 0..3 {
+        frame(&mut state, &ctx, vec![]);
+    }
+    if !state.session.brush.material.channels.get(&ChannelKind::Normal).is_some_and(|c| c.enabled) {
+        click(&mut state, &ctx, "nrm");
+    }
+    click(&mut state, &ctx, "Cover the layers below");
+    assert_eq!(normal_blend(&state), subcraft_doc::BlendMode::Normal);
+    let output = frame(&mut state, &ctx, vec![]);
+    assert!(!output.shapes.iter().any(|s| matches!(&s.shape, egui::Shape::Text(t) if t.galley.text().ends_with("Cover the layers below"))), "the note goes once the layer covers");
+}
