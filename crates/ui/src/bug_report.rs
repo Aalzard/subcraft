@@ -170,8 +170,15 @@ pub fn crash_window(state: &mut UiState, ctx: &egui::Context) {
     if state.bug_report.crashes.is_empty() || !state.recovery.crashed.is_empty() {
         return;
     }
-    let (path, text) = state.bug_report.crashes.last().cloned().expect("not empty");
-    let message = diagnostics::crash_message(&text).to_string();
+    // The newest report of a real panic, not Rust's "cannot unwind" abort that followed it (#612).
+    let texts: Vec<&str> = state.bug_report.crashes.iter().map(|(_, t)| t.as_str()).collect();
+    let main = diagnostics::main_report(&texts).expect("not empty");
+    let (path, text) = state.bug_report.crashes[main].clone();
+    // The message and where it happened: the place says more than most messages.
+    let message = match diagnostics::crash_location(&text) {
+        Some(at) => format!("{}\nat {at}", diagnostics::crash_message(&text)),
+        None => diagnostics::crash_message(&text).to_string(),
+    };
     let count = state.bug_report.crashes.len();
     let mut close = false;
     let mut report = false;

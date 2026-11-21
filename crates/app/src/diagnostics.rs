@@ -388,13 +388,54 @@ pub fn install_panic_hook(dir: PathBuf) {
         {
             let _ = writeln!(f, "{} [PANIC] thread '{thread}' at {location}: {message}", timestamp());
         }
+        // Rust's abort after an earlier panic reached a frame that cannot unwind: that earlier
+        // panic is the crash, so its report gets this as a postscript instead of a second report.
+        if is_abort_message(&message)
+            && let Some(first) = FIRST_REPORT.get()
+            && append_abort(first, &message, &format!("{location} (thread '{thread}')"), &backtrace).is_ok()
+        {
+            eprintln!("SubCraft crashed. Crash report: {}", first.display());
+            previous(p);
+            return;
+        }
         let text = crash_report_text(&SystemInfo::current(), &message, &format!("{location} (thread '{thread}')"), &backtrace, &recent_lines());
         match write_crash_report(&dir, &text) {
-            Ok(path) => eprintln!("SubCraft crashed. Crash report: {}", path.display()),
+            Ok(path) => {
+                eprintln!("SubCraft crashed. Crash report: {}", path.display());
+                let _ = FIRST_REPORT.set(path);
+            }
             Err(e) => eprintln!("SubCraft crashed and the crash report could not be written: {e}"),
         }
         previous(p);
     }));
+}
+
+/// The crash report of this run's first panic.
+static FIRST_REPORT: OnceLock<PathBuf> = OnceLock::new();
+
+/// The panic Rust raises itself, and then aborts on, when a panic unwinds into a frame that cannot
+/// unwind (on macOS an AppKit callback into winit, such as a redraw during a window resize) or a
+/// destructor panics while unwinding. It says nothing about the cause: the panic before it does
+/// (issue #612, where the report showed only this line).
+pub fn is_abort_message(message: &str) -> bool {
+    message.starts_with("panic in a function that cannot unwind") || message.starts_with("panic in a destructor during cleanup")
+}
+
+fn append_abort(report: &Path, message: &str, location: &str, backtrace: &str) -> std::io::Result<()> {
+    let mut f = std::fs::OpenOptions::new().append(true).open(report)?;
+    write!(f, "\n\nThen aborted: {message}\nAt: {location}\n\nBacktrace of the abort:\n{backtrace}\n")
+}
+
+/// "Location: …" line of a report.
+pub fn crash_location(report_text: &str) -> Option<&str> {
+    report_text.lines().find_map(|l| l.strip_prefix("Location: ")).filter(|l| !l.trim().is_empty())
+}
+
+/// Which of the unseen reports (oldest first) to show and report: the newest one that names a real
+/// panic, not Rust's abort that followed it. Reports written before the hook folded the abort in
+/// (0.4.5 and older) come as a pair, so the abort's own file is skipped.
+pub fn main_report(texts: &[&str]) -> Option<usize> {
+    texts.iter().rposition(|t| !is_abort_message(crash_message(t))).or(texts.len().checked_sub(1))
 }
 
 // ----- diagnostic report -----------------------------------------------------------------------
@@ -479,6 +520,33 @@ mod tests {
         let d = std::env::temp_dir().join(format!("subcraft-diag-{name}-{}", uuid::Uuid::new_v4().simple()));
         std::fs::create_dir_all(&d).unwrap();
         d
+    }
+
+    #[test]
+    fn the_report_names_the_real_panic_not_the_abort_that_followed_it() {
+        let info = SystemInfo { version: "0.4.6".into(), os: "macOS".into(), gpu: "M1".into() };
+        let real = crash_report_text(&info, "index out of bounds: the len is 3 but the index is 7", "crates/ui/src/app.rs:42:5 (thread 'main')", "bt", &[]);
+        let abort = crash_report_text(&info, "panic in a function that cannot unwind", "library/core/src/panicking.rs:225:5 (thread 'main')", "bt", &[]);
+        assert!(is_abort_message(crash_message(&abort)) && !is_abort_message(crash_message(&real)));
+        // 0.4.5 wrote the pair as two files: the real one is picked, even though it is older.
+        assert_eq!(main_report(&[&real, &abort]), Some(0));
+        assert_eq!(main_report(&[&abort, &real, &abort]), Some(1));
+        assert_eq!(main_report(&[&abort]), Some(0), "only the abort: still shown");
+        assert_eq!(main_report(&[]), None);
+        assert_eq!(crash_location(&real), Some("crates/ui/src/app.rs:42:5 (thread 'main')"));
+    }
+
+    #[test]
+    fn the_abort_is_appended_to_the_first_report() {
+        let dir = temp_dir("abort");
+        let info = SystemInfo { version: "0.4.6".into(), os: "macOS".into(), gpu: "M1".into() };
+        let first = write_crash_report(&dir, &crash_report_text(&info, "boom", "a.rs:1:1", "bt1", &[])).unwrap();
+        append_abort(&first, "panic in a function that cannot unwind", "panicking.rs:1:1 (thread 'main')", "bt2").unwrap();
+        let text = std::fs::read_to_string(&first).unwrap();
+        assert_eq!(crash_message(&text), "boom", "the report still names the real panic");
+        assert!(text.contains("Then aborted: panic in a function that cannot unwind") && text.contains("bt2"));
+        assert_eq!(crash_files(&dir).len(), 1, "one report, not two");
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
