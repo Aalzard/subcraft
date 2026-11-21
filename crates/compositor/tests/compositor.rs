@@ -448,6 +448,35 @@ fn normal_channel_combines_with_whiteout() {
 }
 
 #[test]
+fn a_layer_on_normal_blend_covers_the_normals_below_and_the_default_keeps_them() {
+    // Issue #611: the layer's Normal blend decides whether lower bumps show through.
+    let fx = Fixture::plane();
+    let tc = texture_set();
+    let tilt = |x: f32| {
+        let n = glam::Vec3::new(x, 0.0, 1.0).normalize();
+        ChannelValue::rgb(n.x * 0.5 + 0.5, n.y * 0.5 + 0.5, n.z * 0.5 + 0.5)
+    };
+    let with = |mode: Option<subcraft_doc::BlendMode>| {
+        let mut ts = tc.clone();
+        ts.insert_above(None, fill_layer(&tc, &[(ChannelKind::Normal, tilt(0.5))]));
+        let mut top = fill_layer(&tc, &[(ChannelKind::Normal, tilt(-0.2))]);
+        if let Some(mode) = mode {
+            top.blend.insert(ChannelKind::Normal, subcraft_doc::ChannelBlend::new(mode));
+        }
+        ts.insert_above(None, top);
+        px(&composite_full(&ts, &fx.ctx()), ChannelKind::Normal, 64, 64)
+    };
+    for mode in [subcraft_doc::BlendMode::Normal, subcraft_doc::BlendMode::Replace] {
+        let covered = with(Some(mode));
+        for i in 0..3 {
+            assert!((covered[i] - tilt(-0.2).0[i]).abs() < 0.01, "{mode:?}: only the top layer's normal, got {covered:?}");
+        }
+    }
+    let detail = with(None);
+    assert!((detail[0] - tilt(-0.2).0[0]).abs() > 0.05, "the default (Normal Map Detail) keeps the lower bump: {detail:?}");
+}
+
+#[test]
 fn generator_noise_breakup_is_continuous_across_uv_seams() {
     // A flat 2×2 quad split at x = 0 into two UV islands that sit far apart (the right one is
     // also mirrored), so the seam is not a geometric edge.
