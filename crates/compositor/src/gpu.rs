@@ -23,7 +23,7 @@ use half::f16;
 use rayon::prelude::*;
 use subcraft_core::ChannelKind;
 use subcraft_doc::{BlendMode, ContentEffect, ContentEffectKind, Filter, Layer, LayerContent, TextureSet};
-use subcraft_image::{TILE_SIZE, TILE_TEXELS, Tile, slot_data_mut};
+use subcraft_image::{TILE_SIZE, TILE_TEXELS, Tile};
 
 use crate::blend::BlendTarget;
 use crate::mask::eval_mask;
@@ -761,7 +761,7 @@ fn apply(composite: &mut Composite, program: &GpuProgram, tiles: &[usize], out: 
                 if slot.as_ref().is_some_and(|tile| tile.data[..] == *encoded) {
                     return None;
                 }
-                slot_data_mut(slot, comps, &fill).copy_from_slice(encoded);
+                subcraft_image::write_slot_shared(slot, comps, &fill, encoded);
                 Some(t)
             })
             .collect();

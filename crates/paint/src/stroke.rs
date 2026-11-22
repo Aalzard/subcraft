@@ -1308,43 +1308,25 @@ pub fn triangle_at_uv(mesh: &Mesh, geometry: &TextureSetGeometry, uv: Vec2) -> O
     best.map(|b| b.1)
 }
 
-/// The threads that stamp: their own pool, one step above normal priority. A stroke changes tiles
-/// on every frame, and on a deep layer stack the compositor's threads are then busy on every core
-/// re-blending them; sharing the cores evenly made each stamp (which the user is waiting on) take
-/// several times longer than on an idle machine. The stamps come first; compositing gets the
-/// cores back as soon as the frame's stamps are down. Results do not depend on it. `None` if the
-/// pool could not be created (stamping then runs on the caller's pool as before).
+/// The threads that stamp: their own pool at normal priority. A stroke changes tiles on every
+/// frame, and on a deep layer stack the compositor's threads are then busy re-blending them;
+/// sharing the cores evenly made each stamp (which the user is waiting on) take several times
+/// longer than on an idle machine. The compositor's threads run below normal priority on Windows
+/// (see `subcraft_compositor::worker`), so the stamps still come first. They used to run above
+/// normal, which also put them ahead of every other program on the PC (issue #628). Results do
+/// not depend on it. `None` if the pool could not be created (stamping then runs on the caller's
+/// pool as before).
 fn stamp_pool() -> Option<&'static rayon::ThreadPool> {
     static POOL: std::sync::OnceLock<Option<rayon::ThreadPool>> = std::sync::OnceLock::new();
     POOL.get_or_init(|| {
         rayon::ThreadPoolBuilder::new()
             .thread_name(|i| format!("stamp-{i}"))
-            .start_handler(|_| above_normal_priority())
             .build()
             .map_err(|e| log::warn!("stamp pool: {e}"))
             .ok()
     })
     .as_ref()
 }
-
-/// Only Windows needs it: its scheduler otherwise shares the cores evenly between the composite
-/// threads and the stamping threads. Other systems keep their default.
-#[cfg(windows)]
-#[allow(unsafe_code)]
-fn above_normal_priority() {
-    const THREAD_PRIORITY_ABOVE_NORMAL: i32 = 1;
-    unsafe extern "system" {
-        fn GetCurrentThread() -> isize;
-        fn SetThreadPriority(thread: isize, priority: i32) -> i32;
-    }
-    // SAFETY: both functions take no pointers; the pseudo handle of the current thread is always
-    // valid. A failure (returns 0) leaves the priority as it was.
-    unsafe {
-        SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
-    }
-}
-#[cfg(not(windows))]
-fn above_normal_priority() {}
 
 /// Wall-clock nanoseconds spent in each stage of the stamp pipeline since the last
 /// [`profile::take`]; read by the benchmarks. Costs one `Instant::now` per stage per call.

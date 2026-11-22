@@ -28,7 +28,7 @@ pub use anchor::{AnchorDomain, AnchorIndex, AnchorInfo, AnchorInput, AnchorRef, 
 pub use blend::BlendMode;
 pub use camera::{SceneCamera, ViewState};
 pub use display::{Anisotropy, ChannelComponent, DisplaySettings, EnvAlignment, FlareCamera, GlareShape, GridAxis, GrainType, ShadowMode, ToneMap};
-pub use document::Document;
+pub use document::{Document, share_layer_uniform_tiles};
 pub use effect::{ContentEffect, ContentEffectKind};
 pub use warp::{DEFAULT_WARP_CELLS, MAX_WARP_SIDE, WarpGrid};
 pub use fill::{BackfaceCulling, ProjectionTransform, FillSymmetry, FillFiltering, FillSource, ShapeCrop, TRIPLANAR_HARD, UvWrap, ProceduralKind, ProceduralParams, ScratchParams, ScratchPreset, Projection, ProjectionMode};

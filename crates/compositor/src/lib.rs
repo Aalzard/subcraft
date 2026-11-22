@@ -27,12 +27,12 @@ use subcraft_doc::{ResourceStore, TextureSet};
 use half::f16;
 use half::slice::HalfFloatSliceExt;
 use std::sync::Arc;
-use subcraft_image::{TILE_SIZE, TILE_TEXELS, Tile, TileSlot, TiledImage, slot_data_mut};
+use subcraft_image::{TILE_SIZE, TILE_TEXELS, Tile, TileSlot, TiledImage};
 use subcraft_materials::{MeshMaps, SampleContext, TextureSetGeometry, TileGeometry};
 
 pub use blend::{BlendTarget, blend_fn, composite};
 pub use cache::CompositeCache;
-pub use prefix::{PrefixCache, PrefixStats};
+pub use prefix::{PrefixCache, PrefixStats, TOTAL_LAYER_CACHE_BYTES, layer_cache_share, layer_cache_share_for, set_total_layer_cache_budget, total_layer_cache_budget, total_layer_cache_for_memory};
 pub use tile::evaluate_tile;
 pub use worker::{CompositeWorker, Published, SetSnapshot, Snapshot, preview_resolution};
 
@@ -294,7 +294,7 @@ impl Composite {
                     if slot.as_ref().is_some_and(|tile| tile.data[..] == encoded[..n]) {
                         continue; // identical texels: keep the storage, nothing to upload
                     }
-                    slot_data_mut(slot, *comps, fill).copy_from_slice(&encoded[..n]);
+                    subcraft_image::write_slot_shared(slot, *comps, fill, &encoded[..n]);
                     changed.push(kind);
                 }
                 (t, changed)

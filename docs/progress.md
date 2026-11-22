@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-11-09 (generator sliders interactive at 4K)
+Last updated: 2026-11-22 (issue #628: RAM of big multi-set projects, desktop lag)
 
 ## Decisions
 
@@ -5726,3 +5726,77 @@ symmetry. `crates/app/tests/uv_tools.rs` covers session routing: the 2D clone so
   `id_sources_the_model_lacks_fall_back_to_generated_colours_with_a_warning`; mesh
   `obj_vertex_colors_and_material_colors_are_read`. Nothing was built or run locally (coordinator's rule after
   the PC's power cuts), and no capture was taken.
+
+## High RAM use and desktop lag on big multi-set projects (2026-11-22, issue #628, branch `claude/project-thread-3pgzan`)
+
+Report (MrHallM, v0.4.5): a Painter project with 11 texture sets at 4096² used about 30 GB of RAM and made the
+whole PC stutter while SubCraft sat idle (GPU ~99% idle). He found six causes and attached a patch plus a stand-in
+project generator. This branch rebuilds the fixes on current `main`, with one change of design (the layer cache
+budget, below) that keeps edit speed.
+
+**Desktop lag (GPU / redraw):**
+1. **2D view preview** (`render/src/lib.rs`): the 2D view converted the whole channel texture into its display image
+   on every UI frame. It now converts again only when the key changes: texture set, source, display settings, size
+   and a texture generation raised by every channel / mesh map upload or mesh change.
+2. **GPU job pacing** (`render/src/pace.rs`): discrete GPUs targeted 100 ms per compute submission (limit 250 ms),
+   integrated 40 / 120 ms. A submission cannot be interrupted, so the desktop missed frames. Now 12 / 30 ms and
+   8 / 20 ms (about one display frame), still far below the driver watchdog.
+3. **Polling while compositing** (`ui/src/app.rs`, `ui/src/viewport.rs`): pending composites asked for a repaint at
+   once, so the window redrew at the monitor's full refresh rate (200+ fps) only to look for results. Now every 16 ms
+   (`PENDING_POLL`); input still redraws at once.
+4. **TAA off re-rendered every frame** (`ui/src/viewport.rs` `taa_step`): TAA is off by default, and then every UI
+   frame rendered the whole 3D scene. With TAA off the scene is now drawn only when the view parameters, the document
+   revision, the uploads of the frame or the renderer's new `scene_generation` change. `scene_generation` is raised
+   by every renderer setter that changes the picture apart from `ViewParams` (material settings, hidden sets, overlays,
+   colour LUT, filtering, environment, mask views), only when the value really changes. A picture render resets the
+   TAA state, since it reuses the viewport's target.
+
+**CPU:** the compositing pool leaves one core free (two from 6 cores up) and runs below normal priority on Windows; the
+brush stamp pool is back to normal priority (it ran above normal, ahead of every other program), which still beats
+compositing (`compositor/src/worker.rs`, `paint/src/stroke.rs`).
+
+**RAM:**
+1. **Shared uniform tiles** (`image/src/tiled.rs`): identical single-value tiles share one allocation through a
+   weak-reference table (`shared_uniform_tile`, `write_slot_shared`, `TiledImage::share_uniform_tiles`). Bit-identical;
+   copy-on-write gives an edited tile its own copy (`Arc::make_mut` clones a shared tile, and a weak-only one is
+   disassociated from the table). Used by the compositor's CPU and GPU writes, the project raster loader (per tile
+   while decoding, so opening costs no extra pass), the `.spp` import document and the rebuilt Painter stack.
+2. **Lazy tile geometry** (`materials/src/sample/geometry.rs`): position / normal / coverage / triangle (32 bytes per
+   texel) were built for every tile a composite touched. A tile now builds them on first read; plain paint and uniform
+   fills never do. Same code, same values.
+3. **One layer-cache total** (`compositor/src/prefix.rs`, `cache.rs`, `worker.rs`, `app/src/session.rs`): the prefix and
+   content caches had 2 GB **each, per texture set** (11 sets: up to 44 GB). Now all sets share one total, an eighth of
+   the RAM between 1 and 4 GiB (`SUBCRAFT_LAYER_CACHE_MB` still overrides it). Different from the reporter's patch (a
+   1 GB total split evenly, which made low-stack edits 1.5-3x slower on his stand-in): the **selected texture set gets
+   half** of the total and the others split the rest (`Snapshot::focus`, `layer_cache_share_for`). A change of focus
+   resizes the caches in place (`PrefixCache::resize`), so the entries that fit stay.
+
+**Measured** (4-core cloud container, 15 GB RAM, release; the reporter's `standin_project` generator: 11 sets, a dense
+"flattened import" layer with ~65% flat tiles, a fill and a painted layer; `open_timing`, peak RSS from outside;
+main = `origin/main` at v0.4.6, two alternating runs each):
+
+| 11 sets at 2048² | main | branch |
+|---|---|---|
+| peak RAM (open + first composite + 4 edits) | 6036 / 6046 MB | 1423 / 1430 MB |
+| `Session::open_project` | 1042 / 763 ms | 858 / 823 ms |
+| first full composite | 4848 / 5450 ms | 2510 / 2604 ms |
+| bottom layer visibility off / on | 197 / 287, 161 / 230 ms | 221 / 275, 178 / 232 ms |
+| bottom layer opacity 0.6 / 0.9 | 33 / 31, 29 / 28 ms | 32 / 30, 28 / 27 ms |
+
+At 4096² the branch peaks at 4946 MB (main needs about 21 GB per the reporter and does not fit in this container;
+his patch: 6.0 GB on his machine). Edits unchanged; the first composite is faster because far fewer tiles are allocated.
+
+**Tests:** new `the_2d_preview_converts_again_only_when_something_changed` (render headless, ran on lavapipe, not
+skipped), `with_taa_off_the_scene_renders_only_when_something_changed`, pace tests updated to the new targets,
+`compositing_leaves_cores_free`, `all_texture_sets_share_one_layer_cache_total`,
+`resizing_the_layer_cache_keeps_what_fits_and_stays_exact`, `uniform_tiles_are_shared_exactly_and_stay_copy_on_write`,
+`tile_texels_are_built_only_when_read_and_match`. Ran: image, materials, compositor, doc, project, paint (all tests),
+render lib + `headless` + `gpu_composite`, ui lib (410), app lib (147): all pass. Not run here: the ui integration test
+binaries (1.2 GB each, they filled the disk) and the app integration tests; left to CI.
+
+**New examples (from the reporter):** `crates/app/examples/standin_project.rs` (stand-in project generator) and
+`mem_profile.rs` (RAM per stage, shared tiles counted once). Session gained `memory_diagnostics()`.
+
+**Not verified:** no run in the window or on a Windows / real GPU PC, so the idle GPU use and the desktop stutter are
+not measured here (the reporter measured them with his version of the same fixes). Not taken from his patch: the
+`SUBCRAFT_REPAINT_LOG` diagnostics.

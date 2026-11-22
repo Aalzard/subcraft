@@ -59,6 +59,7 @@ fn snapshot(ts: &TextureSet, geo: &Arc<TextureSetGeometry>) -> Snapshot {
         sets: vec![SetSnapshot { texture_set: ts.clone(), geometry: geo.clone(), mesh_maps: MeshMaps::new(), preview_geometry: None }],
         resources: ResourceStore::default(),
         invalidate: BTreeSet::new(),
+        focus: None,
     }
 }
 

@@ -25,8 +25,12 @@ pub struct TileGeometry {
     pub x0: u32,
     pub y0: u32,
     pub resolution: u32,
-    /// Per-texel data; `None` when no triangle touches the tile.
-    texels: Option<TileTexels>,
+    /// Per-texel data, built the first time something reads it (issue #628: built for every
+    /// tile of every texture set, 32 bytes per texel, although plain paint and uniform fills
+    /// never read it). Stays `None` when no triangle touches the tile.
+    texels: OnceLock<Option<TileTexels>>,
+    /// What building `texels` needs; `None` when no triangle touches the tile.
+    source: Option<Arc<SetSource>>,
     regions: Option<Arc<RegionIds>>,
     /// Procedural fields evaluated on this tile (see [`super::field`]).
     pub(crate) fields: super::field::FieldCache,
@@ -60,11 +64,22 @@ const NO_PART: u32 = u32::MAX;
 impl TileGeometry {
     /// A tile without any surface (all texels uncovered).
     pub fn empty(index: usize, x0: u32, y0: u32, resolution: u32) -> Self {
-        Self { index, x0, y0, resolution, texels: None, regions: None, fields: Default::default() }
+        Self { index, x0, y0, resolution, texels: OnceLock::new(), source: None, regions: None, fields: Default::default() }
     }
 
     pub fn is_empty(&self) -> bool {
-        self.texels.is_none()
+        self.source.is_none()
+    }
+
+    /// Whether the per-texel data has been built (tests and diagnostics).
+    pub fn texels_built(&self) -> bool {
+        self.texels.get().is_some_and(Option::is_some)
+    }
+
+    #[inline]
+    fn texels(&self) -> Option<&TileTexels> {
+        let source = self.source.as_ref()?;
+        self.texels.get_or_init(|| Some(source.build(self.index, self.x0, self.y0))).as_ref()
     }
 
     /// Texture-space texel coordinates of texel `i`.
@@ -83,17 +98,17 @@ impl TileGeometry {
 
     #[inline]
     pub fn position(&self, i: usize) -> [f32; 3] {
-        self.texels.as_ref().map_or([0.0; 3], |t| t.position[i])
+        self.texels().map_or([0.0; 3], |t| t.position[i])
     }
 
     #[inline]
     pub fn normal(&self, i: usize) -> [f32; 3] {
-        self.texels.as_ref().map_or([0.0; 3], |t| t.normal[i])
+        self.texels().map_or([0.0; 3], |t| t.normal[i])
     }
 
     #[inline]
     pub fn coverage(&self, i: usize) -> f32 {
-        self.texels.as_ref().map_or(0.0, |t| t.coverage[i])
+        self.texels().map_or(0.0, |t| t.coverage[i])
     }
 
     /// Mesh part ([`subcraft_mesh::topology::mesh_elements`]) under texel `i`, if any.
@@ -103,12 +118,12 @@ impl TileGeometry {
     }
 
     pub fn triangle(&self, i: usize) -> Option<usize> {
-        let t = self.texels.as_ref()?.part[i];
+        let t = self.texels()?.part[i];
         (t != NO_PART).then_some(t as usize)
     }
 
     pub fn region(&self, i: usize, kind: subcraft_core::PartKind) -> Option<u32> {
-        let triangle = self.texels.as_ref()?.part[i];
+        let triangle = self.texels()?.part[i];
         if triangle == NO_PART { return None; }
         let regions = self.regions.as_ref()?;
         let t = triangle as usize;
@@ -131,7 +146,8 @@ pub struct TextureSetGeometry {
     pub bounds: Aabb,
     /// Largest bounds extent; positions are divided by it.
     pub max_extent: f32,
-    bins: Vec<Vec<u32>>,
+    /// Triangles per tile, shared with the tiles that build their texels from it.
+    source: Arc<SetSource>,
     tiles: Box<[OnceLock<Arc<TileGeometry>>]>,
     /// Mesh part per triangle (computed on first use).
     parts: OnceLock<Arc<RegionIds>>,
@@ -167,6 +183,7 @@ impl TextureSetGeometry {
         }
         let bounds = mesh.bounds;
         let max_extent = bounds.extent().max_element().max(1e-12);
+        let source = Arc::new(SetSource { mesh: mesh.clone(), resolution, bounds_min: bounds.min, max_extent, bins });
         Self {
             mesh,
             material_slot,
@@ -174,7 +191,7 @@ impl TextureSetGeometry {
             tiles_x,
             bounds,
             max_extent,
-            bins,
+            source,
             tiles: (0..n).map(|_| OnceLock::new()).collect(),
             parts: OnceLock::new(),
             edges: Arc::new(OnceLock::new()),
@@ -198,9 +215,14 @@ impl TextureSetGeometry {
         self.tiles.len()
     }
 
+    /// Bytes of per-texel data built so far (diagnostics).
+    pub fn memory_bytes(&self) -> usize {
+        self.tiles.iter().filter_map(|t| t.get()).filter(|g| g.texels_built()).count() * TILE_TEXELS * 32
+    }
+
     /// Triangles whose (rim-expanded) UV footprint touches tile `index`.
     pub fn tile_triangles(&self, index: usize) -> &[u32] {
-        &self.bins[index]
+        &self.source.bins[index]
     }
 
     /// Mesh part of every triangle ([`subcraft_mesh::topology::mesh_elements`]).
@@ -252,14 +274,29 @@ impl TextureSetGeometry {
     fn build_tile(&self, index: usize) -> TileGeometry {
         let (tx, ty) = (index as u32 % self.tiles_x, index as u32 / self.tiles_x);
         let (x0, y0) = (tx * TILE_SIZE, ty * TILE_SIZE);
-        let bin = &self.bins[index];
-        if bin.is_empty() {
+        if self.source.bins[index].is_empty() {
             return TileGeometry::empty(index, x0, y0, self.resolution);
         }
+        TileGeometry { index, x0, y0, resolution: self.resolution, texels: OnceLock::new(), source: Some(self.source.clone()), regions: Some(self.regions().clone()), fields: Default::default() }
+    }
+}
+
+/// What a tile needs to build its per-texel data on first read.
+#[derive(Debug)]
+struct SetSource {
+    mesh: Arc<Mesh>,
+    resolution: u32,
+    bounds_min: Vec3,
+    max_extent: f32,
+    bins: Vec<Vec<u32>>,
+}
+
+impl SetSource {
+    fn build(&self, index: usize, x0: u32, y0: u32) -> TileTexels {
         let region = IRect::new(x0 as i32, y0 as i32, (x0 + TILE_SIZE) as i32, (y0 + TILE_SIZE) as i32);
         let s = rasterize_surface_region(
             &self.mesh,
-            bin.iter().map(|&t| t as usize),
+            self.bins[index].iter().map(|&t| t as usize),
             self.resolution,
             self.resolution,
             GEOMETRY_EXPAND,
@@ -277,13 +314,13 @@ impl TextureSetGeometry {
                 }
                 let di = ly * TILE_SIZE as usize + lx;
                 let p = Vec3::from_slice(&s.position[si][..3]);
-                position[di] = self.normalize_position(p).to_array();
+                position[di] = ((p - self.bounds_min) / self.max_extent).to_array();
                 normal[di] = [s.normal[si][0], s.normal[si][1], s.normal[si][2]];
                 coverage[di] = 1.0;
                 part[di] = s.triangle[si];
             }
         }
-        TileGeometry { index, x0, y0, resolution: self.resolution, texels: Some(TileTexels { position, normal, coverage, part }), regions: Some(self.regions().clone()), fields: Default::default() }
+        TileTexels { position, normal, coverage, part }
     }
 }
 
@@ -302,6 +339,11 @@ impl GeometryCache {
 
     pub fn mesh(&self) -> &Arc<Mesh> {
         &self.mesh
+    }
+
+    /// Bytes of per-texel tile data built so far, over every texture set (diagnostics).
+    pub fn memory_bytes(&self) -> usize {
+        self.sets.lock().values().map(|g| g.memory_bytes()).sum()
     }
 
     pub fn get(&self, material_slot: u32, resolution: u32) -> Arc<TextureSetGeometry> {
