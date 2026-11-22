@@ -5,6 +5,9 @@ What changed in SubCraft, newest first. Download the latest build from the
 
 ## Unreleased
 
+### Fixed
+- Brush presets: spacing, angle, roundness, the jitters, pen pressure and the backface angle are now checked like the other brush values. A preset file holding an infinite value (1e39) made every stamp NaN, and a roundness of 0 flattened the footprint to nothing.
+
 ## 0.4.6 - 2026-11-21
 
 ### Added

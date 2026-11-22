@@ -101,3 +101,39 @@ fn stroke_options_command_validates_shared_preset_state_without_history_or_mid_s
     );
     session.cancel_stroke();
 }
+
+/// Ten settings (spacing, angle, roundness, the jitters, pen pressure, the backface angle) were
+/// never checked: a preset file reads `1e39` as infinity, which made every stamp NaN, and a
+/// roundness of 0 flattened the footprint to nothing.
+#[test]
+fn every_numeric_brush_setting_is_finite_and_clamped() {
+    let mut session = Session::new(subcraft_mesh::primitives::cube(2.0), 64);
+    let ok = BrushSettings::default();
+    let fields: [(&str, fn(&mut BrushSettings, f32)); 10] = [
+        ("spacing", |s, v| s.spacing = v),
+        ("angle_deg", |s, v| s.angle_deg = v),
+        ("roundness", |s, v| s.roundness = v),
+        ("size_jitter", |s, v| s.size_jitter = v),
+        ("flow_jitter", |s, v| s.flow_jitter = v),
+        ("angle_jitter_deg", |s, v| s.angle_jitter_deg = v),
+        ("position_jitter", |s, v| s.position_jitter = v),
+        ("pressure_size", |s, v| s.pressure_size = v),
+        ("pressure_flow", |s, v| s.pressure_flow = v),
+        ("backface_angle_deg", |s, v| s.backface_angle_deg = v),
+    ];
+    for (name, set) in fields {
+        for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            let mut s = ok;
+            set(&mut s, bad);
+            assert!(session.execute(Command::SetBrushSettings(s)).is_err(), "{name} = {bad} is refused");
+        }
+    }
+    // Finite but silly values are clamped, and the built-in extremes (spacing 4, jitter 1.5) pass.
+    let wild = BrushSettings { spacing: 0.0, roundness: 0.0, size_jitter: 9.0, position_jitter: 99.0, pressure_size: -3.0, backface_angle_deg: 0.0, ..ok };
+    session.execute(Command::SetBrushSettings(wild)).unwrap();
+    let s = session.brush.settings;
+    assert_eq!((s.spacing, s.roundness, s.size_jitter, s.position_jitter, s.pressure_size, s.backface_angle_deg), (0.01, 0.05, 1.0, 4.0, 0.0, 10.0));
+    let builtin = BrushSettings { spacing: 4.0, position_jitter: 1.5, ..ok };
+    session.execute(Command::SetBrushSettings(builtin)).unwrap();
+    assert_eq!((session.brush.settings.spacing, session.brush.settings.position_jitter), (4.0, 1.5));
+}

@@ -207,10 +207,25 @@ struct LastStroke {
 pub(crate) fn checked_brush_settings(mut settings: BrushSettings) -> Result<BrushSettings, CommandError> {
     if [settings.size, settings.flow, settings.stroke_opacity, settings.hardness, settings.scatter_radius, settings.scatter_size_random,
         settings.scatter_rotation_deg, settings.scatter_opacity_random, settings.scatter_fall,
-        settings.smudge_strength, settings.smudge_carry, settings.smudge_falloff, settings.smudge_material, settings.alternate_offset].iter().any(|v| !v.is_finite()) {
+        settings.smudge_strength, settings.smudge_carry, settings.smudge_falloff, settings.smudge_material, settings.alternate_offset,
+        settings.spacing, settings.angle_deg, settings.roundness, settings.size_jitter, settings.flow_jitter, settings.angle_jitter_deg,
+        settings.position_jitter, settings.pressure_size, settings.pressure_flow, settings.backface_angle_deg].iter().any(|v| !v.is_finite()) {
         return Err(CommandError::Invalid("brush values must be finite".into()));
     }
     settings.size = settings.size.clamp(0.1, 100.0);
+    // Ranges of the Brush panel, widened where a built-in brush goes past them (spacing 4, position
+    // jitter 1.5). A preset file with an infinite angle made every stamp NaN, a zero roundness
+    // flattened the footprint to nothing.
+    settings.spacing = settings.spacing.clamp(0.01, 20.0);
+    settings.angle_deg = settings.angle_deg.clamp(-360.0, 360.0);
+    settings.roundness = settings.roundness.clamp(0.05, 1.0);
+    settings.size_jitter = settings.size_jitter.clamp(0.0, 1.0);
+    settings.flow_jitter = settings.flow_jitter.clamp(0.0, 1.0);
+    settings.angle_jitter_deg = settings.angle_jitter_deg.clamp(0.0, 180.0);
+    settings.position_jitter = settings.position_jitter.clamp(0.0, 4.0);
+    settings.pressure_size = settings.pressure_size.clamp(0.0, 1.0);
+    settings.pressure_flow = settings.pressure_flow.clamp(0.0, 1.0);
+    settings.backface_angle_deg = settings.backface_angle_deg.clamp(10.0, 90.0);
     settings.flow = settings.flow.clamp(0.0, 1.0);
     settings.stroke_opacity = settings.stroke_opacity.clamp(0.0, 1.0);
     settings.hardness = settings.hardness.clamp(0.0, 1.0);
