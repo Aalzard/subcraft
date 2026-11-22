@@ -6005,3 +6005,13 @@ re-measured on a GPU. Not taken from his patch: the `SUBCRAFT_REPAINT_LOG` diagn
   popup. With the Ctrl cover disabled 4 of the 5 fail. Ran `cargo test -p subcraft-ui` (596 passed),
   `cargo check --workspace --all-targets`, clippy on the ui crate (no new warnings).
 * Not run in the real app window here (no display in the cloud container).
+
+## Repo root cleanup (2026-11-22, branch `claude/project-thread-kl776f`)
+
+* Removed `SubCraft_All_60_Textures.zip`, `SubCraft_SciFi_Lines_Pack.zip`, `SubCraft_Starter_Textures.zip`
+  (49 MB) and `__pycache__/`. They were local untracked files committed by accident; every PNG in the zips is
+  byte-identical to a file in `output/`, and nothing in the build, installer or release workflows reads them.
+* Moved `generate_textures.py` and `output/` to `tools/procedural-textures/` (new README) and
+  `output/social-preview/` to `branding/social-preview/`. `.gitignore` now ignores `__pycache__/`, `*.pyc`, root `*.zip`.
+* Checked: `git grep` finds no reference to the moved paths outside docs history; the generator's default output
+  path is relative, so it still writes `output/` next to itself. No Rust code changed, so no tests were re-run.
