@@ -6017,3 +6017,6 @@ re-measured on a GPU. Not taken from his patch: the `SUBCRAFT_REPAINT_LOG` diagn
   `Cargo.toml` under `tools/` breaks `cargo build`).
 * Checked: `git grep` finds no reference to the moved paths outside docs history; the generator's default output
   path is relative, so it still writes `output/` next to itself. No Rust code changed, so no tests were re-run.
+* Moved internal notes (`HANDOFF-codex.md`, `PROMPT-claude-edge-wear.md`, `cloud-brief-engine.md`,
+  `discord-post.md`, `issue-83-reply.md`) to `docs/internal/` with a README; live links in `brush-roadmap.md`,
+  `material-workflow-roadmap.md` and the edge-wear prompt updated. Older progress entries keep their old paths.
