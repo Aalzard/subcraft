@@ -46,6 +46,7 @@ pub mod text_panel;
 pub mod panels;
 pub mod panel_scroll;
 pub mod recovery;
+pub mod reset_row;
 pub mod spp_import;
 pub mod state;
 pub mod symmetry_view;
