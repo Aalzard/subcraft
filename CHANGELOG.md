@@ -11,6 +11,7 @@ What changed in SubCraft, newest first. Download the latest build from the
 
 ### Fixed
 - Brush channels you switched off came back on when you chose a Shelf brush that carries a material (Dirt Grunge, Rust Spatter and the like), or picked a material with Shift+click, so strokes could paint height or normals you had turned off (issue #618). Those brushes now bring their colours and values but leave your channel choices; switching a channel back on lets them paint it again.
+- Paint across UDIM tiles: dragging a layer's opacity slider no longer adds an undo step per tick (it filled the history and pushed older steps out). Deleting, duplicating or hiding several layers, grouping, and moving layers up or down now happen on every tile, so the tiles' stacks stay alike instead of a deleted layer still rendering on the other tiles.
 
 ## 0.4.6 - 2026-11-21
 
