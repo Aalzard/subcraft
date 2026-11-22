@@ -5,6 +5,13 @@ What changed in SubCraft, newest first. Download the latest build from the
 
 ## Unreleased
 
+### Added
+- Eyedropper: picking from a painting tool goes back to it after one pick, so P then click picks a colour without leaving the Brush (issue #619). Chosen from the toolbar while no painting tool was in use, it stays for more picks.
+- Eyedropper: a pick samples every channel the brush paints, not only the colour. Painting colour and normals picks both, so strokes keep the lighting of what is under them, for a painterly look (issue #620). A brush that paints only colour picks the colour as before; Shift+click still picks the whole material.
+
+### Fixed
+- Brush channels you switched off came back on when you chose a Shelf brush that carries a material (Dirt Grunge, Rust Spatter and the like), or picked a material with Shift+click, so strokes could paint height or normals you had turned off (issue #618). Those brushes now bring their colours and values but leave your channel choices; switching a channel back on lets them paint it again.
+
 ## 0.4.6 - 2026-11-21
 
 ### Added

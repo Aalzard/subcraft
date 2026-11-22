@@ -528,8 +528,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             match state.tool {
                 Tool::Eyedropper => {
                     if state.session.sample_surface(&camera, sp, mods.shift) {
-                        state.gpu_dirty = true;
-                        state.set_status(if mods.shift { "Picked material" } else { "Picked color" }, now);
+                        state.picked(if mods.shift { "Picked material" } else { "Picked color" }, now);
                     }
                 }
                 Tool::Clone if (mods.command && !mods.shift) || v_down => {

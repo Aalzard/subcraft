@@ -52,6 +52,20 @@ impl Tool {
     }
 }
 
+/// A painting tool's name in status messages ("back to the Brush").
+fn tool_name(tool: Tool) -> &'static str {
+    match tool {
+        Tool::Brush => "Brush",
+        Tool::Eraser => "Eraser",
+        Tool::PolygonFill => "Polygon fill",
+        Tool::Clone => "Clone tool",
+        Tool::Smudge => "Smudge tool",
+        Tool::Projection => "Projection tool",
+        Tool::Eyedropper => "Eyedropper",
+        Tool::Pen => "Pen",
+    }
+}
+
 /// Viewport acknowledgement of the brush chosen on the Shelf. It holds, then fades out.
 #[derive(Clone, Debug, PartialEq)]
 pub struct BrushNotice {
@@ -258,6 +272,10 @@ pub struct UiState {
     pub pen_input: crate::pen_input::PenInputFixer,
     /// Native pen tablet input (Wayland tablet protocol / X11 pressure; Linux only).
     pub tablet: crate::tablet::Tablet,
+    /// The painting tool the Eyedropper was chosen from: one pick goes back to it (issue #619).
+    pub tool_before_pick: Option<Tool>,
+    /// The tool of the previous frame, to notice when the Eyedropper is chosen.
+    pub last_tool: Tool,
     /// Clicks in the 3D and 2D views show / hide the selected layer on mesh parts (its geometry
     /// mask, Properties → Parts); a drag boxes several (Ctrl+drag removes them).
     pub picking_parts: bool,
@@ -553,6 +571,8 @@ impl UiState {
             computing_since: None,
             paint_isolated: false,
             picking_parts: false,
+            tool_before_pick: None,
+            last_tool: tool,
             warp: Default::default(),
             gizmo: Default::default(),
             parts_box: None,
@@ -848,6 +868,29 @@ impl UiState {
                 self.brush_notice = Some(BrushNotice { name: selected.name, tip: selected.tip, since: now });
             }
             Err(e) => self.set_status(e, now),
+        }
+    }
+
+    /// Once a frame: remember the painting tool the Eyedropper is chosen from (P, the toolbar or
+    /// the context menu), so a pick can go back to it.
+    pub fn note_tool(&mut self) {
+        if self.tool != self.last_tool {
+            self.tool_before_pick = (self.tool == Tool::Eyedropper && self.last_tool.preset_tool().is_some()).then_some(self.last_tool);
+            self.last_tool = self.tool;
+        }
+    }
+
+    /// After an Eyedropper pick: back to the painting tool it was chosen from, so picking a
+    /// colour doesn't leave brush mode (issue #619). The Eyedropper chosen on its own stays.
+    pub fn picked(&mut self, what: &str, now: f64) {
+        self.gpu_dirty = true;
+        match self.tool_before_pick.take() {
+            Some(back) => {
+                self.tool = back;
+                self.last_tool = back;
+                self.set_status(format!("{what}, back to the {}", tool_name(back)), now);
+            }
+            None => self.set_status(what.to_string(), now),
         }
     }
 
@@ -1149,5 +1192,25 @@ mod modal_tests {
         assert!(state.modal_open());
         state.new_project.open = false;
         assert!(!state.modal_open());
+    }
+
+    /// Issue #619: picking a colour (P, then click) must not leave brush mode.
+    #[test]
+    fn a_pick_goes_back_to_the_painting_tool_the_eyedropper_was_chosen_from() {
+        let mut state = UiState::new(Session::sample(), None);
+        state.tool = Tool::Smudge;
+        state.note_tool();
+        state.tool = Tool::Eyedropper;
+        state.note_tool();
+        state.picked("Picked color", 0.0);
+        assert_eq!(state.tool, Tool::Smudge);
+        state.note_tool();
+        // Chosen from a tool without a brush (Pen), the Eyedropper stays for more picks.
+        state.tool = Tool::Pen;
+        state.note_tool();
+        state.tool = Tool::Eyedropper;
+        state.note_tool();
+        state.picked("Picked color", 0.0);
+        assert_eq!(state.tool, Tool::Eyedropper);
     }
 }

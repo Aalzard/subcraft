@@ -827,8 +827,7 @@ fn paint_input(state: &mut UiState, ui: &Ui, response: &egui::Response, image: F
     match state.tool {
         Tool::Eyedropper => {
             state.session.sample_material_at(ts_id, uv, shift);
-            state.gpu_dirty = true;
-            state.set_status(if shift { "Picked material" } else { "Picked color" }, now);
+            state.picked(if shift { "Picked material" } else { "Picked color" }, now);
             return;
         }
         Tool::PolygonFill => {

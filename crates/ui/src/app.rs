@@ -1760,7 +1760,7 @@ impl SubcraftApp {
                 (Tool::Clone, icons::COPY, crate::keys::native_string(format!("{}: Ctrl+click or hold V and click the model to set the source, then paint to copy it", tip(km, "Clone", Action::CloneTool)))),
                 (Tool::Smudge, icons::DROP, tip(km, "Smudge: drag the paint under the brush along the stroke", Action::SmudgeTool)),
                 (Tool::Projection, icons::IMAGE, tip(km, "Projection: paint the brush material cast from the view and tiled over it", Action::ProjectionTool)),
-                (Tool::Eyedropper, icons::CURSOR, tip(km, "Eyedropper (Shift+click picks material)", Action::EyedropperTool)),
+                (Tool::Eyedropper, icons::CURSOR, tip(km, "Eyedropper: picks the channels the brush paints (Shift+click picks the whole material). Chosen from a painting tool, it goes back to it after one pick", Action::EyedropperTool)),
                 (Tool::Pen, icons::CURVE, tip(km, "Pen paths: click points, drag for curves; edit anchors and handles in 2D View", Action::PenTool)),
             ] {
                 if tool_button(ui, icon, *tool == t, &tip).clicked() {
@@ -2542,6 +2542,7 @@ impl eframe::App for SubcraftApp {
         if let Some(p) = &mut self.view_profile {
             p.ui_begin(&mut self.state, &ctx);
         }
+        self.state.note_tool();
         self.state.recovery.prefs.apply_ui_size(&ctx);
         // Settings > General > Theme applies on the next frame.
         theme::follow(&ctx, shown_theme(self.state.recovery.prefs.theme, self.launch_theme));

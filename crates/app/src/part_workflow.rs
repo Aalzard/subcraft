@@ -305,9 +305,22 @@ impl Session {
         Some(ChannelValue(value))
     }
 
+    /// The eyedropper. A plain pick samples every channel the brush paints, so painting with
+    /// colour and normals picks both and strokes keep the lighting of what is under them (issue
+    /// #620); a brush painting only colour picks the colour, and one painting nothing picks the
+    /// colour and paints it. `material` (Shift) samples every channel of the set, but the
+    /// channels the user switched off stay off (issue #618).
     pub fn sample_material_at(&mut self, texture_set: TextureSetId, uv: Vec2, material: bool) {
-        let channels = if material { self.document().texture_set(texture_set).map(|ts| ts.channels.iter().map(|c| c.kind).collect()).unwrap_or_default() } else { vec![ChannelKind::BaseColor] };
-        for channel in channels { if let Some(value) = self.sample_uv(texture_set, uv, channel) { self.brush.material.set(channel, value); } }
+        let set: Vec<ChannelKind> = self.document().texture_set(texture_set).map(|ts| ts.channels.iter().map(|c| c.kind).collect()).unwrap_or_default();
+        let painted: Vec<ChannelKind> = set.iter().copied().filter(|k| self.brush.material.channels.get(k).is_some_and(|c| c.enabled)).collect();
+        let channels = if material { set } else if painted.is_empty() { vec![ChannelKind::BaseColor] } else { painted };
+        for channel in channels {
+            let Some(value) = self.sample_uv(texture_set, uv, channel) else { continue };
+            let off = self.brush.channels_off.contains(&channel);
+            let entry = self.brush.material.channels.entry(channel).or_insert(subcraft_paint::BrushChannel { enabled: false, value });
+            entry.value = value;
+            if !off || !material { entry.enabled = true; }
+        }
     }
 
     /// The material's base colour (linear) on the model under `screen`, for the colour pickers'

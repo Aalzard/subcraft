@@ -258,6 +258,19 @@ impl Session {
         }
     }
 
+    /// A preset's material with the channels the user switched off kept off (issue #618). When
+    /// that would leave nothing to paint, the preset's own choice stands: it only paints channels
+    /// the user turned off, and a brush that silently paints nothing is worse.
+    fn keep_channels_off(&self, mut material: BrushMaterial) -> BrushMaterial {
+        let off = &self.brush.channels_off;
+        if material.channels.iter().any(|(k, c)| c.enabled && !off.contains(k)) {
+            for (k, c) in material.channels.iter_mut() {
+                if off.contains(k) { c.enabled = false; }
+            }
+        }
+        material
+    }
+
     /// `Err` leaves the brush unchanged; `Ok(Some)` applied with a warning (missing tip).
     /// Only the parts the preset's kind holds are changed.
     fn load_brush_preset(&mut self, p: &BrushPreset, tips: &[BrushAlpha]) -> Result<Option<String>, String> {
@@ -295,7 +308,7 @@ impl Session {
             if let Some(s) = material.stamp.as_mut() { s.resource = Some(id); }
         }
         if p.kind == PresetKind::Material {
-            self.brush.material = material;
+            self.brush.material = self.keep_channels_off(material);
             return Ok(None);
         }
         self.brush.settings = settings;
@@ -304,7 +317,7 @@ impl Session {
             // The material in use stays; only a stamp brush (which replaces the tip) is dropped.
             self.clear_brush_stamp();
         } else if !p.material.channels.is_empty() {
-            self.brush.material = material;
+            self.brush.material = self.keep_channels_off(material);
         } else {
             self.clear_brush_stamp();
         }
