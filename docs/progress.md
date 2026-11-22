@@ -6011,7 +6011,9 @@ re-measured on a GPU. Not taken from his patch: the `SUBCRAFT_REPAINT_LOG` diagn
 * Removed `SubCraft_All_60_Textures.zip`, `SubCraft_SciFi_Lines_Pack.zip`, `SubCraft_Starter_Textures.zip`
   (49 MB) and `__pycache__/`. They were local untracked files committed by accident; every PNG in the zips is
   byte-identical to a file in `output/`, and nothing in the build, installer or release workflows reads them.
-* Moved `generate_textures.py` and `output/` to `tools/procedural-textures/` (new README) and
+* Moved `generate_textures.py` and `output/` to `scripts/procedural-textures/` (new README) and
   `output/social-preview/` to `branding/social-preview/`. `.gitignore` now ignores `__pycache__/`, `*.pyc`, root `*.zip`.
+* `tools/*` is a Cargo workspace glob, so the generator lives under `scripts/` instead (a folder without
+  `Cargo.toml` under `tools/` breaks `cargo build`).
 * Checked: `git grep` finds no reference to the moved paths outside docs history; the generator's default output
   path is relative, so it still writes `output/` next to itself. No Rust code changed, so no tests were re-run.

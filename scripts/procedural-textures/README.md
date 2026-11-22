@@ -8,7 +8,7 @@ The app does not read this folder. The textures it ships live in `assets/starter
 
 ```
 python -m pip install numpy Pillow scipy
-cd tools/procedural-textures
+cd scripts/procedural-textures
 python generate_textures.py --pack all --size 1024
 ```
 
