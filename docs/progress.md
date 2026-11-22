@@ -1,6 +1,8 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-11-09 (generator sliders interactive at 4K)
+Last updated: 2026-11-22 (export padding 3.6x, exact mask cache for layer edits)
+
+Last updated: 2026-11-22 (issue #628: RAM of big multi-set projects, desktop lag)
 
 ## Decisions
 
@@ -5726,6 +5728,259 @@ symmetry. `crates/app/tests/uv_tools.rs` covers session routing: the 2D clone so
   `id_sources_the_model_lacks_fall_back_to_generated_colours_with_a_warning`; mesh
   `obj_vertex_colors_and_material_colors_are_read`. Nothing was built or run locally (coordinator's rule after
   the PC's power cuts), and no capture was taken.
+
+### Display Settings reset follow-up, feedback on #609 (2026-11-22, branch `claude/project-thread-r2ieaz`)
+
+* **Asked (comment on #609):** Ctrl+click on a slider set it instead of resetting; Ctrl+click on a number field
+  entered edit mode; some resettable rows (checkboxes) showed no "changed" dot.
+* **Cause:** egui sliders sense drag only, so the slider took the Ctrl+press as a drag and `clicked()` never fired.
+  Number fields, checkboxes and dropdowns also saw the click before the reset ran. The Rendering mode rows
+  (Bounces, Min / Max samples, Max time, Denoise, Firefly filter, Ground shadow) and the Resolution dropdown were
+  reset by Reset all but had no dot and no per-row reset.
+* **Done:** the reset gestures moved to `ui::reset_row` (shared). While Ctrl is held, a click-and-drag cover is laid
+  over the row's control, so the Ctrl+click goes to the reset only: sliders do not move, number fields do not open,
+  checkboxes do not toggle, dropdowns do not open. Every Rendering mode row and the Resolution row (Display
+  Settings only, not the toolbar) now have the dot, Ctrl+click and right-click reset.
+* **Tests (run, `cargo test -p subcraft-ui`):** new `ctrl_click_on_a_slider_puts_the_default_back_instead_of_moving_it_to_the_click`,
+  `ctrl_click_on_a_number_field_resets_it_without_starting_to_edit_it`,
+  `ctrl_click_on_a_checkbox_resets_it_and_never_toggles_it_away_from_the_default`,
+  `every_setting_reset_all_touches_shows_the_changed_dot`. The three Ctrl+click tests fail with the cover switched
+  off, so they catch the reported bugs. No app screenshot (no GPU in the cloud container).
+
+## Faster exports and layer edits (2026-11-22, branch `claude/project-thread-0ejgc0`)
+
+Owner ask: more performance. Profiled export, layer-stack edits, painting and open/save in the cloud container
+(4 cores, release, `perf`), then fixed the two biggest bottlenecks. **Every change is bit-identical**: same
+export file bytes, same composite texel hashes on all three benchmark stacks.
+
+**Measured** (4-core cloud container, release, 2048², ms; base = `main` at v0.4.6, same machine, alternating runs):
+
+| case | main | branch | speed-up |
+|---|---|---|---|
+| export PBR Metal/Rough, 5 PNGs, infinite padding (`export_bench 2048 2`) | 3033 | 839 | 3.6x |
+| smart materials: bottom material visibility / opacity (`smart_bench 2048 4`) | 486 / 266 | 320 / 103 | 1.5x / 2.6x |
+| smart materials: top material visibility / opacity | 177 / 109 | 114 / 36 | 1.6x / 3.0x |
+| 40 layers: bottom pattern / generator level / top opacity (`big_project_bench 2048 40`, bake 512) | 2114 / 3767 / 351 | 1615 / 3539 / 323 | 1.3x / 1.06x / 1.09x |
+| 40 layers: stroke on a mid-stack mask / near the top | 1263 / 271 | 1169 / 247 | 1.08x / 1.1x |
+| unchanged (within noise): adding a smart material, first composite after open (+4%), pen strokes, save, open | | | 1.0x |
+
+Hashes: export files `b037d2112b7ce8ed`; smart materials `d0a6a7b5df14bfaf` / after strokes `cbcf7e9def3e1faf`;
+40 layers `cb5edb708e61bfaf` / after edits `f3d16e888853ffaf` (main and branch).
+
+**What changed:**
+1. **Export padding** (`export/src/lib.rs`, `image/src/dilate.rs`): infinite padding ran the jump flood once per
+   exported map (about 450 ms each at 2048², 80% of the export) although every map of a set shares one coverage.
+   It now floods once per set and copies (`apply_nearest`). The flood keeps packed `y << 16 | x` coordinates, so a
+   distance needs no division by the width (about 1.6x on its own; used by the bake, world blur and `.spp` import
+   too); images over 65535 texels per side use the old index form. `dilate_width` (Dilation N / Background /
+   Diffusion / Transparent padding, flatten exports) runs rows in parallel. Tests compare both against the old
+   serial / index code bit for bit on random coverages.
+2. **Mask cache** (`materials/src/sample/derived.rs`, `compositor/src/mask.rs`): editing a layer re-blends every
+   layer above it, and each of those re-ran its mask (generators, procedural mask fills, images, ID masks) though
+   nothing it reads had changed: about 60% of a bottom-layer edit. Each tile geometry now has a second cache next
+   to the procedural fields. A tile-local mask with at least one costly effect is cached under a key that *holds*
+   everything the evaluation reads: the effect `Arc`s, the base raster's tile, the baked maps and the image
+   resources the effects name. Copy-on-write means any edit changes one of those pointers, and a held `Arc` can
+   never be freed and reused, so a hit is exact. A key with the same effects but a repainted tile, rebaked maps or
+   a replaced image is replaced at once (old rasters are not kept alive). Budget: half the field budget, at most
+   1 GiB (144 MB for the 4-smart-material stack at 2048²); masks never evict noise fields. Spatial masks (blur,
+   Mask Editor blur) and the stage-graph path are not cached.
+
+**Tests:** new `compositor/tests/mask_cache.rs` (warm cache vs fresh caches after an edit below, an effect edit,
+a rebake, a painted base tile, a replaced image resource, disable / enable; making the probe ignore those inputs
+makes it fail), `derived` unit test, `packed_nearest_matches_the_index_reference`,
+`parallel_dilate_width_matches_the_serial_loop_bit_for_bit`. Ran (release): compositor, materials, image, export
+(all lib + integration tests) 430 passed, 3 ignored; app lib + 18 integration test files (session, mesh_reload,
+mask_*, export_*, flatten, smart_content, id_color, world_blur, bake_files, mesh_map_import, qa_regressions,
+default_model, images) 251 passed; clippy clean on the changed crates. The full workspace suite is left to CI.
+
+**Benchmarks:** new `crates/app/examples/export_bench.rs` (`-- [res] [materials] [pbr|unreal]`, `SUBCRAFT_BENCH_HASH=1`
+hashes the written files). `smart_bench` now takes `SUBCRAFT_BENCH_BAKE=<size>` and `SUBCRAFT_BENCH_REPS=<n>` and
+prints the field / mask cache sizes.
+
+**Profiled, not changed (and why):**
+* Adding a smart material (Rusty Iron 3.3 s at 2048² here) and the first composite after opening a project (6.4 s)
+  are triplanar fractal noise being evaluated for the first time (12 fields per tile, about 1.2 ms per tile each).
+  Skipping triplanar planes whose weight is under 1/4096 gained only 10% and changes texels, so it was dropped. A
+  real gain needs SIMD noise or GPU evaluation.
+* Painting: on 4 cores a 300 px stroke at 2048² is p50 10 ms / p95 18-25 ms per frame (accumulate + write stages,
+  already parallel); on the owner's 16-thread PC it measured p95 3.5 ms before. Nothing changed.
+* Viewport frame time and GPU upload: not measurable here (no GPU; llvmpipe numbers mean nothing). Upload is
+  already per dirty tile.
+* Bake 25 s at 2048² on the CPU baker here; the app bakes AO / thickness / curvature on the GPU.
+
+**Not verified:** no run on the owner's PC or in the window (headless benchmarks only); 4096² not re-measured
+(the mask budget then holds about a quarter of the stack's masks at the 384 MiB minimum budget, more on machines
+with more RAM).
+
+## High RAM use and desktop lag on big multi-set projects (2026-11-22, issue #628, branch `claude/project-thread-3pgzan`)
+
+Report (MrHallM, v0.4.5): a Painter project with 11 texture sets at 4096² used about 30 GB of RAM and made the
+whole PC stutter while SubCraft sat idle (GPU ~99% idle). He found six causes and attached a patch plus a stand-in
+project generator. This branch rebuilds the fixes on current `main`, with one change of design (the layer cache
+budget, below) that keeps edit speed.
+
+**Desktop lag (GPU / redraw):**
+1. **2D view preview** (`render/src/lib.rs`): the 2D view converted the whole channel texture into its display image
+   on every UI frame. It now converts again only when the key changes: texture set, source, display settings, size
+   and a texture generation raised by every channel / mesh map upload or mesh change.
+2. **GPU job pacing** (`render/src/pace.rs`): discrete GPUs targeted 100 ms per compute submission (limit 250 ms),
+   integrated 40 / 120 ms. A submission cannot be interrupted, so the desktop missed frames. Now 12 / 30 ms and
+   8 / 20 ms (about one display frame), still far below the driver watchdog.
+3. **Polling while compositing** (`ui/src/app.rs`, `ui/src/viewport.rs`): pending composites asked for a repaint at
+   once, so the window redrew at the monitor's full refresh rate (200+ fps) only to look for results. Now every 16 ms
+   (`PENDING_POLL`); input still redraws at once.
+4. **TAA off re-rendered every frame** (`ui/src/viewport.rs` `taa_step`): TAA is off by default, and then every UI
+   frame rendered the whole 3D scene. With TAA off the scene is now drawn only when the view parameters, the document
+   revision, the uploads of the frame or the renderer's new `scene_generation` change. `scene_generation` is raised
+   by every renderer setter that changes the picture apart from `ViewParams` (material settings, hidden sets, overlays,
+   colour LUT, filtering, environment, mask views), only when the value really changes. A picture render resets the
+   TAA state, since it reuses the viewport's target.
+
+**CPU:** the compositing pool leaves one core free (two from 6 cores up) and runs below normal priority on Windows; the
+brush stamp pool is back to normal priority (it ran above normal, ahead of every other program), which still beats
+compositing (`compositor/src/worker.rs`, `paint/src/stroke.rs`).
+
+**RAM:**
+1. **Shared uniform tiles** (`image/src/tiled.rs`): identical single-value tiles share one allocation through a
+   weak-reference table (`shared_uniform_tile`, `write_slot_shared`, `TiledImage::share_uniform_tiles`). Bit-identical;
+   copy-on-write gives an edited tile its own copy (`Arc::make_mut` clones a shared tile, and a weak-only one is
+   disassociated from the table). Used by the compositor's CPU and GPU writes, the project raster loader (per tile
+   while decoding, so opening costs no extra pass), the `.spp` import document and the rebuilt Painter stack.
+2. **Lazy tile geometry** (`materials/src/sample/geometry.rs`): position / normal / coverage / triangle (32 bytes per
+   texel) were built for every tile a composite touched. A tile now builds them on first read; plain paint and uniform
+   fills never do. Same code, same values.
+3. **One layer-cache total** (`compositor/src/prefix.rs`, `cache.rs`, `worker.rs`, `app/src/session.rs`): the prefix and
+   content caches had 2 GB **each, per texture set** (11 sets: up to 44 GB). Now all sets share one total, an eighth of
+   the RAM between 1 and 4 GiB (`SUBCRAFT_LAYER_CACHE_MB` still overrides it). Different from the reporter's patch (a
+   1 GB total split evenly, which made low-stack edits 1.5-3x slower on his stand-in): the **selected texture set gets
+   half** of the total and the others split the rest (`Snapshot::focus`, `layer_cache_share_for`). A change of focus
+   resizes the caches in place (`PrefixCache::resize`), so the entries that fit stay.
+
+**Measured** (4-core cloud container, 15 GB RAM, release; the reporter's `standin_project` generator: 11 sets, a dense
+"flattened import" layer with ~65% flat tiles, a fill and a painted layer; `open_timing`, peak RSS from outside;
+main = `origin/main` at v0.4.6, two alternating runs each):
+
+| 11 sets at 2048² | main | branch |
+|---|---|---|
+| peak RAM (open + first composite + 4 edits) | 6036 / 6046 MB | 1423 / 1430 MB |
+| `Session::open_project` | 1042 / 763 ms | 858 / 823 ms |
+| first full composite | 4848 / 5450 ms | 2510 / 2604 ms |
+| bottom layer visibility off / on | 197 / 287, 161 / 230 ms | 221 / 275, 178 / 232 ms |
+| bottom layer opacity 0.6 / 0.9 | 33 / 31, 29 / 28 ms | 32 / 30, 28 / 27 ms |
+
+At 4096² the branch peaks at 4946 MB (main needs about 21 GB per the reporter and does not fit in this container;
+his patch: 6.0 GB on his machine). Edits unchanged; the first composite is faster because far fewer tiles are allocated.
+
+**Tests:** new `the_2d_preview_converts_again_only_when_something_changed` (render headless, ran on lavapipe, not
+skipped), `with_taa_off_the_scene_renders_only_when_something_changed`, pace tests updated to the new targets,
+`compositing_leaves_cores_free`, `all_texture_sets_share_one_layer_cache_total`,
+`resizing_the_layer_cache_keeps_what_fits_and_stays_exact`, `uniform_tiles_are_shared_exactly_and_stay_copy_on_write`,
+`tile_texels_are_built_only_when_read_and_match`. Ran: image, materials, compositor, doc, project, paint (all tests),
+render lib + `headless` + `gpu_composite`, ui lib (410), app lib (147): all pass. Not run here: the ui integration test
+binaries (1.2 GB each, they filled the disk) and the app integration tests; left to CI.
+
+**New examples (from the reporter):** `crates/app/examples/standin_project.rs` (stand-in project generator) and
+`mem_profile.rs` (RAM per stage, shared tiles counted once). Session gained `memory_diagnostics()`.
+
+**Verified by the reporter** on his PC (Windows 11, RTX 5070, i7-13700K, 64 GB; the real 11-set 4K Painter project in
+the app, PR head `6ae789c5`): RAM 8.3 GB open (peak 11.8 GB while loading; was ~30 GB), SubCraft idle GPU ~11% (was
+~99%), idle CPU under 1%, no desktop stutter idle or painting; 2D/3D sync, TAA-off set hiding, set switching, undo /
+redo and save / reopen checked by hand. Follow-up: idle GPU was 4% in his own build. The remaining cause he pointed
+to, the shelf asking for a frame every 30 ms on every tab but Brushes / Alphas, now asks only while thumbnails are left
+to make (`thumbnails_pending`, test `the_shelf_asks_for_frames_only_while_thumbnails_are_left_to_make`); not yet
+re-measured on a GPU. Not taken from his patch: the `SUBCRAFT_REPAINT_LOG` diagnostics.
+
+### Generator micro details: Painter's "Use Micro Details" (2026-11-22, branch `claude/project-thread-hhrkej`)
+
+* **Why:** Painter's Dirt / Metal Edge Wear / Ambient Occlusion / Curvature generators can read the stack's Normal and
+  Height ("Micro Details"), so wear catches the small raised details of a material and dirt fills its small grooves.
+  SubCraft's generators only read the baked mesh maps, so the micro level looked different from Painter.
+* **Model:** `Generator::micro_details: Option<MicroDetails>` (`doc/src/mask.rs`): enabled, amount (the one easy
+  knob), Micro Normal / Micro Height, Curvature Type (Standard / Sobel / Smooth), Curvature Intensity, Height Details
+  Intensity, AO Radius, AO Depth. Serde default + skipped when absent: no schema bump, old files open with it off.
+  Read by Edges, Dirt, Ambient Occlusion, Concave and Mesh Map (Curvature / AO); kept but ignored on other kinds.
+* **Evaluation:** a `Node::MicroDetail` in the stage graph reads the Normal and Height accumulated below the layer (at
+  every folder level, so a generator inside a smart-material folder sees the relief under the folder), builds the
+  micro normal (normal below whiteout-blended with the height slope), measures its divergence as curvature (0.5 flat)
+  and an occlusion from how far a texel lies below its surroundings within AO Radius plus the grooves of the micro
+  normal. The generator adds `amount` of the micro curvature to its curvature and multiplies its occlusion by the
+  micro occlusion, then runs its usual threshold / breakup / spread math. Radii scale with resolution; the support
+  is capped at the 4096 radius so dirty-tile expansion stays conservative. Normal / Height are built before the other
+  channels when any generator uses micro details; the GPU compositor declines such sets (spatial), the CPU result is shown.
+* **Dirty tiles:** generators with micro details count as readers of the stack below (like Compare Mask), so a height
+  stroke under them updates the halo. Proven load-bearing: the incremental test fails without it.
+* **UI:** generator Properties: "Micro details (from Normal / Height below)" checkbox, Amount slider, and a "Micro
+  details settings" fold-out with Painter's controls.
+* **Tests:** `compositor/tests/micro_details.rs` (7: off / amount 0 / both inputs off bit-identical, dirt fills a
+  height groove and leaves open surface and ridge tops alone, edge wear catches a ridge rim and not the groove floor,
+  amount monotonic, inside a folder over relief outside it, incremental cache == full after a height edit next to a
+  tile border, deterministic), `stages` unit test (dome / bowl / flat normals for all three curvature types, Micro
+  Normal off), doc unit test, project round trip + older JSON. Compositor suite all green, doc / project tests green.
+* **Verified in a render:** `micro_details_sheet` example, images in `docs/generators/micro-details/`.
+* **Not done:** Mask Editor micro details; micro details on content (fill) generators; Painter's separate image
+  inputs for Micro Normal / Micro Height (the stack below is always used).
+* **Edge wear fix (owner report, same day):** in the demo the default Edge wear spread in blotches far beyond the
+  hole's rim and the apex itself was soft. Cause (not the micro details): Breakup and Variation shifted the baked-
+  curvature threshold both ways, so the broad, mild convexity a baked curvature has around a rounded rim wore wherever
+  the grunge was high. Now they only erode (raise the threshold), and the sharpest convexity resists erosion, so the
+  apex stays a continuous, crisp line and the grunge chips its sides. Test
+  `breakup_never_spreads_baked_wear_onto_mildly_convex_surface`; app edge tests (edge_level_spread, edge_ledge,
+  edge_corners, edge_crate_properties) still pass. Close-up before/after rendered at the rim of SubCraft_base.
+* **Edge wear rework (second owner report, same day):** the erosion fix still left gaps in the edge line at low wear,
+  and more wear only thickened a uniform band. New model (`RootWear` in `compositor/src/mask.rs`, used by every
+  generator with `level_reach`; older projects keep the legacy band): (1) a core line on the edge, from geometric
+  edge distance and from the baked-curvature apex, that only Level widens and that Breakup, Variation and Grain never
+  touch; (2) growth beyond it along a ridged vein field 8x finer than the pattern: near the line most texels wear, far
+  out only the vein crests, so higher wear reaches out in roots/cracks. Breakup eats holes into the growth only.
+  Softness is the width of the growth border in the reach, so a soft setting stays soft. Unit tests
+  `the_edge_line_is_continuous_at_any_level_whatever_the_noise` (Levels 0.02..1, 4096 noise samples, edge > 0.95) and
+  `more_level_spreads_in_roots_rather_than_a_solid_band` (coverage falls off with distance, far out < 30%). Compositor
+  suite and app edge tests pass. Before/after close-up rendered at Levels 0.05 / 0.15 / 0.3 / 0.6 (`docs/generators/edge-wear/`): before, the inner rim line breaks at 0.05/0.15 and 0.6 is a solid band; after, the line is unbroken at every level and 0.6 grows out in uneven, branching streaks. Honest limit: the growth reads as streaks/clumps more than thin hairline cracks.
+* **Edge wear, Painter model (third owner report, same day):** with Wear and Spread at maximum the wear barely
+  spread, and the grunge looked ugly. Causes: (1) Spread only grew from geometric creases sharper than 20 degrees, so
+  smooth rounded rims (most of SubCraft_base) ignored it; (2) the reach topped out at 12.5% and the vein growth wore
+  little of it; (3) the breakup was the blotchy dirt grunge. Now: `painter_wear` / `PainterWear` in
+  `compositor/src/mask.rs`: edge falloff (1 on the edge, 0 at the reach, from the surface edge distance and the baked
+  curvature, whose floor Spread lowers) -> chipped-paint grunge shifts it, never at the edge or beyond the reach ->
+  threshold `1 - 0.9 * Level` -> contrast from Softness. Reach is Spread% x 2 (max 25% of the model). Rounded edges
+  are distance sources (`edge_distance.rs`: shading normals turning faster than a 12% radius, from each triangle's
+  own corner normals so hard edges do not count; linear between rounded nodes so the line is continuous). New
+  `materials/src/chips.rs`: domain-warped two-size 3D Voronoi flakes plus fine detail, used when Grunge map is on
+  (organic noise when off; a custom grunge still wins). Tests: chips field, `painter_wear_tests` (continuous line at
+  every Level/Spread, full wear covers most of a 25% reach with a chipped border, nothing beyond it, low wear stays a
+  line, Level grows it), compositor + materials + app suites. `edge_level_spread` now asks a wide Spread at Level
+  0.065 for 1.1x the narrow one (was 1.5x): low wear is a line by the owner's request. Renders with the
+  `edge_wear_sheet` example in `docs/generators/edge-wear/`. Limit: a broad, uniform bevel (the base rim) shows
+  nothing at very low wear, like a soft curvature map in Painter.
+
+* **Edge wear, owner defaults and thinning to nothing (fourth owner report, same day):** (1) new Edge wear generators
+  now start at the owner's settings: Variation 0.8, Wear Level 0.5, Wear Contrast 0, Grunge Amount 0.5, Pattern
+  size 3%, AO Masking 0, Curvature Weight 1, Edges Smoothness 0, Grunge map on. Saved layers keep their values.
+  (2) at Wear 0 and Spread 0 the wear was still a thick line. Now the reach floor is `MIN_WEAR_REACH` 0.02 instead
+  of a fixed line width, the grunge term fades as `(1-f)^2` so it cannot push the line wide at low levels, and
+  rounded (bevelled) edges use a separate distance field whose sources sit on the bevel apex (smoothed turn rate,
+  band inset and ring min/max), so a rounded rim gives a hairline, not the whole bevel. Result: Wear 0 is empty,
+  0.02 to 0.1 is a hairline that thickens with Wear (`docs/generators/edge-wear/edge_wear_low_levels.png`).
+  Tests: `at_spread_zero_the_line_thins_with_level_and_vanishes_at_zero`; tests tuned to old defaults
+  (`edge_corners`, `edge_crate_properties`, project schema test) pin or update their values. Full suite of app,
+  project, materials, compositor, doc and ui passes.
+  **Limit:** on the round hole rim of the default model the hairline at Wear 0.02 to 0.1 is broken into segments;
+  the base rim is continuous.
+* **Edge wear on the sphere top (owner report, same day):** a ring of wear sat on the default model's sphere pole, where
+  there is no edge. Not a baking issue: where the pole fan meets the rings, the shading normals turn slightly faster
+  over one short ring of edges (turn 10.1 vs the 8.3 rounded-edge threshold), so the rounded-edge detector took it for
+  a bevel. Now a rounded band must also turn the surface through at least `MIN_ROUNDED_TURN` (0.3 rad, about 17°)
+  across its width; the pole ring turns 0.09 rad, real rims 1.7 rad or more. Test: `edge_rounded_pole`. Render:
+  `docs/generators/edge-wear/edge_wear_sphere_top_fixed.png`.
+
+### Release 0.5.0 candidate (2026-11-22, branch `claude/project-thread-m9q9zi`, PR #635)
+
+* Merged in order with merge commits: #623, #624, #632, #626, #633, #625 (head ee5199b, sphere-pole edge wear fix). #622 left out: same #618 fix as #621, already on main. #631 (viewport extended channels) left out until tested on a real GPU. `.spp` import patch left out (undecided).
+* Conflicts: `CHANGELOG.md` / `docs/progress.md` (both sides kept); #626 + #633 in `materials/src/sample/geometry.rs`: #633's lazy `TileGeometry` constructors got #626's `derived: Default::default()`.
+* Checked by reading: the #626 mask cache only serves the tile-local mask path, which never applies #625 micro details (stage-graph only, `evaluate_effect(.., None, None)`), so cached masks can't go stale on a stroke below.
+* Version 0.5.0, changelog entries for #625 / #626 / #632 / #633, `docs/release-notes-0.5.0.md`.
+* Ran: `cargo build --workspace` on the combined tree (pass). The full local test run hit the container's disk limit while linking the ui integration binaries, so the full suite is CI's run on #635. Not yet run on Windows / a real GPU: release candidate goes to the owner first.
 
 ### Session 134 - Viewport shades coat, sheen, anisotropy, subsurface, translucency, transmission; displacement preview (2026-11-22, branch `claude/project-thread-8mawyv`)
 

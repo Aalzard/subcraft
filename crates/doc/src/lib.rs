@@ -28,7 +28,7 @@ pub use anchor::{AnchorDomain, AnchorIndex, AnchorInfo, AnchorInput, AnchorRef, 
 pub use blend::BlendMode;
 pub use camera::{SceneCamera, ViewState};
 pub use display::{Anisotropy, ChannelComponent, DisplaySettings, EnvAlignment, FlareCamera, GlareShape, GridAxis, GrainType, ShadowMode, ToneMap};
-pub use document::Document;
+pub use document::{Document, share_layer_uniform_tiles};
 pub use effect::{ContentEffect, ContentEffectKind};
 pub use warp::{DEFAULT_WARP_CELLS, MAX_WARP_SIDE, WarpGrid};
 pub use fill::{BackfaceCulling, ProjectionTransform, FillSymmetry, FillFiltering, FillSource, ShapeCrop, TRIPLANAR_HARD, UvWrap, ProceduralKind, ProceduralParams, ScratchParams, ScratchPreset, Projection, ProjectionMode};
@@ -36,7 +36,7 @@ pub use filter::{BevelCorner, BevelDirection, BevelParts, GrayParts, CurvePreset
 pub use history::{History, HistoryEntry};
 pub use instance::{InstanceCache, InstanceState};
 pub use layer::{ChannelBlend, FillChannel, FillContent, GroupContent, ImageAdjust, Layer, LayerColor, LayerContent, LayerKind, PaintContent, PartMask, changed_paint_tiles, duplicate_layers_with_new_ids, empty_paint_image, same_paint_layout};
-pub use mask::{CompareMask, CompareOp, CompareOperand, LevelsHandle, LevelsRange, LEVELS_GAMMA_MAX, LEVELS_GAMMA_MIN, SelectionBackground, ShapeSettings, light_angles, light_direction, CurvatureDetail, CurvatureDetailMode, CurvatureMode, EditorCurvature, EditorDirection, EditorDirections, EditorOcclusion, EditorTexture, EditorThickness, GrayscaleType, MaskEditor, EdgeSpread, Generator, MicroDirection, MicroEffect, PainterControls, GeneratorKind, GradientAxis, IdColorMask, Levels, Mask, MaskEffect, MaskEffectKind};
+pub use mask::{CompareMask, CompareOp, CompareOperand, LevelsHandle, LevelsRange, LEVELS_GAMMA_MAX, LEVELS_GAMMA_MIN, SelectionBackground, ShapeSettings, light_angles, light_direction, CurvatureDetail, CurvatureDetailMode, CurvatureMode, EditorCurvature, EditorDirection, EditorDirections, EditorOcclusion, EditorTexture, EditorThickness, GrayscaleType, MaskEditor, EdgeSpread, Generator, MicroCurvatureType, MicroDetails, MicroDirection, MicroEffect, PainterControls, GeneratorKind, GradientAxis, IdColorMask, Levels, Mask, MaskEffect, MaskEffectKind};
 pub use pen::{PathKind, PathRibbon, PathStamp, PenAnchor, PenPath, RibbonAlign, RibbonMode, RibbonRatio, RibbonTiling};
 pub use resources::{Resource, ResourceKind, ResourceStore};
 pub use text::TextDecal;

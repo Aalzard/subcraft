@@ -36,6 +36,57 @@ impl Tile {
 
 pub type TileSlot = Option<Arc<Tile>>;
 
+/// If every texel of `data` (`comps` interleaved components) is the same, that texel.
+fn uniform_texel(data: &[f16], comps: usize) -> Option<[u16; 4]> {
+    let first = data.get(..comps)?;
+    if !data.chunks_exact(comps).all(|px| px == first) {
+        return None;
+    }
+    let mut key = [0u16; 4];
+    for (k, v) in key.iter_mut().zip(first) {
+        *k = v.to_bits();
+    }
+    Some(key)
+}
+
+type UniformKey = (u8, [u16; 4]);
+
+fn uniform_tiles() -> &'static std::sync::Mutex<std::collections::HashMap<UniformKey, std::sync::Weak<Tile>>> {
+    static TABLE: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<UniformKey, std::sync::Weak<Tile>>>> = std::sync::OnceLock::new();
+    TABLE.get_or_init(Default::default)
+}
+
+/// The one shared tile holding `data` when all its texels are equal, else `None`.
+///
+/// Issue #628: about two thirds of the tiles of a big imported project were a single flat
+/// color (empty or uniform areas), each stored at full size in the layers and again in the
+/// composites. Identical uniform tiles now share one allocation. The texels are bit-for-bit the
+/// same, and copy-on-write still gives a tile its own copy as soon as it is edited
+/// ([`slot_data_mut`] / `Arc::make_mut`). The table only holds weak references, so a uniform
+/// tile nothing uses any more is freed.
+pub fn shared_uniform_tile(data: &[f16], comps: usize) -> Option<Arc<Tile>> {
+    let key = (comps as u8, uniform_texel(data, comps)?);
+    let mut table = uniform_tiles().lock().unwrap_or_else(|p| p.into_inner());
+    if let Some(tile) = table.get(&key).and_then(std::sync::Weak::upgrade) {
+        return Some(tile);
+    }
+    if table.len() >= 4096 {
+        table.retain(|_, w| w.strong_count() > 0);
+    }
+    let tile = Arc::new(Tile { data: data.into() });
+    table.insert(key, Arc::downgrade(&tile));
+    Some(tile)
+}
+
+/// Replace a slot's texels with `data` (as [`slot_data_mut`] then a copy would), sharing the
+/// storage when the tile is uniform (see [`shared_uniform_tile`]).
+pub fn write_slot_shared(slot: &mut TileSlot, comps: usize, fill: &[f32; 4], data: &[f16]) {
+    match shared_uniform_tile(data, comps) {
+        Some(tile) => *slot = Some(tile),
+        None => slot_data_mut(slot, comps, fill).copy_from_slice(data),
+    }
+}
+
 #[derive(Clone)]
 pub struct TiledImage {
     width: u32,
@@ -263,6 +314,37 @@ impl TiledImage {
     /// Replace a tile slot wholesale (used by undo-free loaders and tests).
     pub fn set_slot(&mut self, index: usize, slot: TileSlot) {
         Arc::make_mut(&mut self.tiles)[index] = slot;
+    }
+
+    /// Make every uniform tile share its storage with identical ones (see
+    /// [`shared_uniform_tile`]). Texels are unchanged; returns how many tiles were replaced.
+    pub fn share_uniform_tiles(&mut self) -> usize {
+        let comps = self.comps();
+        let shared: Vec<(usize, Arc<Tile>)> = self
+            .tiles
+            .iter()
+            .enumerate()
+            .filter_map(|(i, t)| {
+                let t = t.as_ref()?;
+                let s = shared_uniform_tile(&t.data, comps)?;
+                (!Arc::ptr_eq(t, &s)).then_some((i, s))
+            })
+            .collect();
+        if shared.is_empty() {
+            return 0;
+        }
+        let tiles = Arc::make_mut(&mut self.tiles);
+        let n = shared.len();
+        for (i, s) in shared {
+            tiles[i] = Some(s);
+        }
+        n
+    }
+
+    /// Bytes of texel data in distinct allocations (a tile shared within the image counts once).
+    pub fn unique_memory_bytes(&self) -> usize {
+        let mut seen = std::collections::HashSet::new();
+        self.tiles.iter().flatten().filter(|t| seen.insert(Arc::as_ptr(t))).count() * TILE_TEXELS * self.comps() * 2
     }
 
     /// Drop tile allocations equal to the fill value (compaction after erase/clear).
@@ -507,5 +589,52 @@ mod tests {
         assert_eq!(img.tiles_in_rect(&IRect::new(-10, -10, 5, 5)), vec![0]);
         assert_eq!(img.tiles_in_rect(&IRect::new(60, 0, 70, 1)).len(), 2);
         assert!(img.tiles_in_rect(&IRect::new(300, 300, 400, 400)).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod shared_uniform_tests {
+    use super::*;
+
+    /// Issue #628: identical flat tiles share one allocation, bit for bit, and stay copy-on-write.
+    #[test]
+    fn uniform_tiles_are_shared_exactly_and_stay_copy_on_write() {
+        let mut a = TiledImage::new(256, 128, 3, [0.0; 4]);
+        let mut b = TiledImage::new(256, 128, 3, [0.0; 4]);
+        let flat = vec![0.3f32, 0.6, 0.123_456_7].repeat(TILE_TEXELS);
+        let mut varied = flat.clone();
+        varied[5] = 0.9;
+        for t in 0..a.tile_count() {
+            a.write_tile(t, if t == 3 { &varied } else { &flat });
+            b.write_tile(t, &flat);
+        }
+        let before = a.clone();
+        let snapshot = a.to_dense();
+        assert_eq!(a.share_uniform_tiles(), a.tile_count() - 1);
+        b.share_uniform_tiles();
+        assert_eq!(a.to_dense(), snapshot, "texels unchanged");
+        assert_eq!(a, before);
+        // One allocation for every flat tile, in both images.
+        assert!(Arc::ptr_eq(a.tile(0).unwrap(), a.tile(1).unwrap()));
+        assert!(Arc::ptr_eq(a.tile(0).unwrap(), b.tile(7).unwrap()));
+        assert!(!Arc::ptr_eq(a.tile(0).unwrap(), a.tile(3).unwrap()));
+        assert_eq!(a.unique_memory_bytes(), 2 * TILE_TEXELS * 3 * 2);
+        // Sharing again changes nothing.
+        assert_eq!(a.share_uniform_tiles(), 0);
+        // Editing one texel gives that tile its own copy; the others keep the shared values.
+        a.set(1, 1, [1.0, 0.0, 0.0, 0.0]);
+        assert_eq!(a.get(1, 1)[0], 1.0);
+        assert!(!Arc::ptr_eq(a.tile(0).unwrap(), a.tile(1).unwrap()));
+        assert_eq!(a.get(65, 1), before.get(65, 1));
+        assert_eq!(b.get(1, 1), before.get(1, 1), "the other image is untouched");
+        // The same through `write_slot_shared` (the compositor's write).
+        let mut slot: TileSlot = None;
+        let enc = TiledImage::encode_tile(&flat);
+        write_slot_shared(&mut slot, 3, &[0.0; 4], &enc);
+        assert!(Arc::ptr_eq(slot.as_ref().unwrap(), b.tile(0).unwrap()));
+        let enc_varied = TiledImage::encode_tile(&varied);
+        write_slot_shared(&mut slot, 3, &[0.0; 4], &enc_varied);
+        assert_eq!(slot.as_ref().unwrap().data, enc_varied);
+        assert_eq!(b.tile(0).unwrap().data, enc, "writing a varied tile never touches the shared one");
     }
 }

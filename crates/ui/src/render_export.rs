@@ -229,6 +229,8 @@ pub fn render_frame(state: &mut UiState, camera: crate::orbit::OrbitCamera, pict
         read(&params)
     };
     state.renderer = Some(renderer);
+    // The viewport's target now holds this picture: the 3D view must draw its own again.
+    state.taa = Default::default();
     let mut pixels = pixels?;
     if !transparent {
         for a in pixels.iter_mut().skip(3).step_by(4) { *a = 255; }

@@ -313,3 +313,80 @@ fn the_option_is_saved_with_the_project() {
     assert_eq!(reopened.document(), s.document());
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+/// Dragging an opacity slider on a layer other UDIM tiles follow must coalesce into one undo
+/// step, as it does on an ordinary tile. It used to push one entry per tick (each tile's layer
+/// has its own merge key, and the compound step was squashed unmerged), so one drag filled the
+/// undo history and pushed older steps out.
+#[test]
+fn an_opacity_drag_across_tiles_is_one_undo_step() {
+    let mut s = session();
+    turn_on(&mut s);
+    s.execute(Command::AddLayer(NewLayer::Fill)).unwrap();
+    let top = s.selection().layer.unwrap();
+    s.execute(Command::Seal).unwrap();
+    let before = s.history().entries().len();
+    let original = s.document().texture_sets[0].layers.last().unwrap().blend.get(&K::BaseColor).map(|b| b.opacity);
+    for i in 1..=20 {
+        s.execute(Command::SetBlendOpacity { layer: top, channel: K::BaseColor, opacity: i as f32 / 20.0 }).unwrap();
+    }
+    assert_eq!(s.history().entries().len(), before + 1, "the whole drag is one history entry");
+    for set in 0..2 {
+        let layer = s.document().texture_sets[set].layers.last().unwrap();
+        assert_eq!(layer.blend.get(&K::BaseColor).map(|b| b.opacity), Some(1.0), "tile {set} follows the drag");
+    }
+    s.execute(Command::Undo).unwrap();
+    for set in 0..2 {
+        let layer = s.document().texture_sets[set].layers.last().unwrap();
+        assert_eq!(layer.blend.get(&K::BaseColor).map(|b| b.opacity), original, "undo reverts tile {set}");
+    }
+}
+
+/// Multi-select actions and reordering reach every tile too. Delete layers left behind on the
+/// other tiles still rendered there (the #581 symptom), and a layer moved or hidden on one tile
+/// only made the tiles look different.
+#[test]
+fn multi_select_and_reordering_follow_onto_every_tile() {
+    let mut s = session();
+    turn_on(&mut s);
+    for name in ["A", "B", "C"] {
+        s.execute(Command::AddLayer(NewLayer::Fill)).unwrap();
+        let l = s.selection().layer.unwrap();
+        s.execute(Command::Rename { layer: l, name: name.into() }).unwrap();
+    }
+    let layers = |s: &Session, set: usize| s.document().texture_sets[set].layers.iter().map(|l| l.id).collect::<Vec<_>>();
+    assert_eq!(names(&s, 0), names(&s, 1));
+    let first = layers(&s, 0);
+
+    // Reordering.
+    s.execute(Command::MoveDown(first[2])).unwrap();
+    assert_eq!(names(&s, 0), names(&s, 1), "move down");
+    s.execute(Command::MoveUp(first[1])).unwrap();
+    assert_eq!(names(&s, 0), names(&s, 1), "move up");
+
+    // Hiding and duplicating two layers at once.
+    let first = layers(&s, 0);
+    s.execute(Command::SetLayersVisible { layers: vec![first[0], first[1]], visible: false }).unwrap();
+    for set in 0..2 {
+        let hidden: Vec<bool> = s.document().texture_sets[set].layers.iter().map(|l| !l.visible).collect();
+        assert_eq!(hidden, [true, true, false, false], "tile {set}");
+    }
+    s.execute(Command::DuplicateLayers(vec![first[0], first[2]])).unwrap();
+    assert_eq!(names(&s, 0), names(&s, 1), "duplicate");
+    assert_eq!(names(&s, 0).len(), 6);
+
+    // Grouping.
+    let first = layers(&s, 0);
+    s.execute(Command::GroupLayers(vec![first[0], first[1]])).unwrap();
+    assert_eq!(names(&s, 0), names(&s, 1), "group");
+
+    // One undo step each, and deleting several leaves nothing behind on the other tile.
+    let before = s.history().entries().len();
+    let all = layers(&s, 0);
+    s.execute(Command::DeleteLayers(all)).unwrap();
+    assert_eq!(s.history().entries().len(), before + 1, "one undo step");
+    assert!(names(&s, 0).is_empty() && names(&s, 1).is_empty(), "{:?} / {:?}", names(&s, 0), names(&s, 1));
+    s.execute(Command::Undo).unwrap();
+    assert_eq!(names(&s, 0), names(&s, 1));
+    assert!(!names(&s, 1).is_empty(), "undo brings the layers back on every tile");
+}
