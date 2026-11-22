@@ -7,7 +7,7 @@ use subcraft_app::assets::{UserAssetKind, UserLibrary};
 use subcraft_app::{Command, Session};
 use subcraft_core::ChannelKind;
 use subcraft_paint::PolygonFillMode;
-use subcraft_render::{PreviewSource, SHADED_CHANNELS, ViewportRenderer, egui_wgpu};
+use subcraft_render::{PreviewSource, VIEWPORT_CHANNELS, ViewportRenderer, egui_wgpu};
 
 use crate::orbit::OrbitCamera;
 
@@ -1031,9 +1031,9 @@ impl UiState {
         }
         let upload = |renderer: &mut ViewportRenderer, ts: subcraft_core::TextureSetId, slot: u32, changed: Option<&subcraft_app::ChangedTiles>| {
             let Some(c) = session.composite(ts) else { return };
-            // Opacity is not shaded but drives the alpha modes (issue #145).
-            // Opacity drives the alpha modes (issue #145), Specular the reflectance of non-metals.
-            for k in SHADED_CHANNELS.into_iter().chain([ChannelKind::Opacity, ChannelKind::Specular]) {
+            // Opacity drives the alpha modes (issue #145), Specular the reflectance of non-metals;
+            // coat, sheen, anisotropy, subsurface, transmission and displacement are shaded too.
+            for k in VIEWPORT_CHANNELS {
                 let Some(img) = c.channel(k) else { continue };
                 match changed {
                     None => renderer.upload_channel(&rs.device, &rs.queue, slot, k, img, None),
@@ -1053,7 +1053,7 @@ impl UiState {
         }
         // A channel shown alone that shading never reads (Opacity, Specular, a user channel):
         // uploaded whole when it is first shown, then tile by tile like the others.
-        let solo = self.recovery.prefs.viewport.solo.filter(|k| !SHADED_CHANNELS.contains(k) && *k != ChannelKind::Opacity);
+        let solo = self.recovery.prefs.viewport.solo.filter(|k| !VIEWPORT_CHANNELS.contains(k));
         if let Some(k) = solo {
             let first = full || self.uploaded_solo != solo;
             for ts in &session.document().texture_sets {

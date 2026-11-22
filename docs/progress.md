@@ -5726,3 +5726,47 @@ symmetry. `crates/app/tests/uv_tools.rs` covers session routing: the 2D clone so
   `id_sources_the_model_lacks_fall_back_to_generated_colours_with_a_warning`; mesh
   `obj_vertex_colors_and_material_colors_are_read`. Nothing was built or run locally (coordinator's rule after
   the PC's power cuts), and no capture was taken.
+
+### Session 134 - Viewport shades coat, sheen, anisotropy, subsurface, translucency, transmission; displacement preview (2026-11-22, branch `claude/project-thread-8mawyv`)
+
+* **Asked:** the gap report's top item: the 3D view shaded only metal/roughness; coat, sheen, anisotropy,
+  scattering and transmission could be painted but were not shown, and there was no displacement preview.
+* **Packing (`render/src/extended.rs`, `extended.wgsl`):** devices guarantee 16 sampled textures per stage and
+  the viewport shader already used 12, so the 16 extra channels are packed on the GPU into one RGBA16F array
+  texture (binding 13), one layer per group a texture set actually has (coat colour+opacity; coat roughness,
+  specular level, normal XY; sheen colour+opacity; sheen roughness, anisotropy vector, translucency; scattering
+  colour+amount; transmissive+IOR; displacement). Each channel keeps its own mipmapped texture; only the groups
+  whose channels changed are repacked, only inside the changed tiles' rectangle, at every mip level from the
+  matching source mip. Anisotropy is stored as level x (cos 2θ, sin 2θ) so it filters without wrapping.
+  `VIEWPORT_CHANNELS` lists everything hosts upload; the UI, shelf thumbnails and the MCP renderer use it.
+* **Shading (`viewport.wgsl`):** a set with none of these channels keeps the old shading exactly (the new
+  code only runs when one exists; test: all 16 at their defaults differ by at most 2/255).
+  Anisotropy: anisotropic GGX + correlated Smith for the key light, Filament's bent reflection normal for the
+  environment; angle 0..1 = one turn. Sheen: Charlie distribution + Neubelt visibility, environment term from
+  the three.js albedo fit, base energy scaled down. Coat: second GGX lobe with its own normal (Coat Normal),
+  roughness and F0 (0.08 x Coat Specular Level), Fresnel-dimming and tinting (Coat Color) the layer under it.
+  Subsurface: per-channel normal smoothing + wrap lighting + softened shadow edge weighted by Scattering x
+  Scattering Color. Translucency: back light through the surface plus forward scatter at thin silhouettes.
+  Transmission: environment refracted in and out of a solid body (Filament's sphere model), IOR channel 0..1 =
+  IOR 1..2 (0.5 = 1.5), tinted by Base Color, blurred by roughness. Without an HDRI the procedural sky is seen
+  through it (not the studio panels, which exist to be reflected).
+* **Displacement preview (`render/src/displace.rs`, `displace.wgsl`):** View menu > "Displacement preview"
+  with a subdivision level (Auto = finest within 1M triangles, or 0..4). The mesh is midpoint-subdivided
+  (`subcraft_mesh::subdivide::midpoint`, moved from the mesh exporter, which now calls it) and a compute pass
+  moves every vertex along its normal by (Height + Displacement) x height scale each frame, so painted height
+  reshapes the silhouette at once. Shading, shadows, the AO depth prepass, emission and OIT all draw the
+  displaced mesh. Same math as File > Export mesh with displacement. Needs compute shaders (off without).
+* **Not done / limits:** the path tracer still ignores the extended channels. Picking and painting use the
+  undisplaced mesh (the brush lands on the modelled surface). Hard edges crack open under displacement (split
+  normals), as in the mesh export. Translucency and subsurface are viewport approximations, not a diffusion
+  profile. Transmission shows the environment, not the model behind itself (no screen-space refraction).
+* **Tests (lavapipe, software Vulkan in the cloud container):** new `render/tests/extended_channels.rs` (8:
+  defaults change nothing, coat highlight + opacity 0 = none + coat tint, sheen gain at the rim > centre,
+  anisotropy angle changes streaks with a half-turn period, red bleed at the terminator, back-lit translucency,
+  glass differs from plastic and IOR bends it, one-tile incremental repack == full pack bit-exact),
+  `render/tests/displacement.rs` (2: silhouette area x1.5625 at +0.25 on a unit sphere, x0.5625 at -0.25,
+  Displacement cancels Height, off restores the exact outline; half-UV height bulges one pole only), unit tests
+  for groups, dirty-rect union, auto level, subdivision, prefs defaults. Render: `docs/screenshots/viewport-extended-channels.png`
+  (`cargo run -p subcraft-render --example extended_showcase -- out.png`).
+* **Not checked:** the View menu rows were built but not clicked in a running app; nothing ran on a real GPU
+  (needs a check on Windows/DX12: look, speed of repacking at 4K while painting coat, displacement at level 4).

@@ -43,20 +43,30 @@ pub struct GpuMesh {
     pub bounds: (glam::Vec3, glam::Vec3),
 }
 
+/// The vertex buffer contents of `mesh`.
+pub fn vertices(mesh: &Mesh) -> Vec<Vertex> {
+    (0..mesh.vertex_count())
+        .map(|i| Vertex {
+            position: mesh.positions[i].to_array(),
+            normal: mesh.normals[i].to_array(),
+            tangent: mesh.tangents.get(i).map_or([1.0, 0.0, 0.0, 1.0], |t| t.to_array()),
+            uv: mesh.uvs[i].to_array(),
+        })
+        .collect()
+}
+
 impl GpuMesh {
     pub fn new(device: &wgpu::Device, mesh: &Mesh) -> Self {
-        let verts: Vec<Vertex> = (0..mesh.vertex_count())
-            .map(|i| Vertex {
-                position: mesh.positions[i].to_array(),
-                normal: mesh.normals[i].to_array(),
-                tangent: mesh.tangents.get(i).map_or([1.0, 0.0, 0.0, 1.0], |t| t.to_array()),
-                uv: mesh.uvs[i].to_array(),
-            })
-            .collect();
+        Self::with_usage(device, mesh, &vertices(mesh), wgpu::BufferUsages::empty())
+    }
+
+    /// `verts` (the vertices of `mesh`) with `extra` usages on the vertex buffer (the
+    /// displacement preview writes positions from a compute pass).
+    pub fn with_usage(device: &wgpu::Device, mesh: &Mesh, verts: &[Vertex], extra: wgpu::BufferUsages) -> Self {
         let vertices = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("mesh vertices"),
-            contents: bytemuck::cast_slice(&verts),
-            usage: wgpu::BufferUsages::VERTEX,
+            contents: bytemuck::cast_slice(verts),
+            usage: wgpu::BufferUsages::VERTEX | extra,
         });
         let indices = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("mesh indices"),
