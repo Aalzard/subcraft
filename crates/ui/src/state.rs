@@ -464,6 +464,21 @@ pub struct UiState {
     pub bug_report: crate::bug_report::BugReportUi,
 }
 
+/// Starting values of the Polygon Fill tool options (what Ctrl+click on their rows restores).
+pub struct FillDefaults {
+    pub mode: PolygonFillMode,
+    pub visible_only: bool,
+    pub selection: subcraft_paint::PolygonSelectMode,
+    pub hit_test: subcraft_paint::PolygonHitTest,
+}
+
+pub const FILL_DEFAULTS: FillDefaults = FillDefaults {
+    mode: PolygonFillMode::UvIsland,
+    visible_only: true,
+    selection: subcraft_paint::PolygonSelectMode::Marquee,
+    hit_test: subcraft_paint::PolygonHitTest::Intersection,
+};
+
 impl UiState {
     pub fn new(mut session: Session, render_state: Option<egui_wgpu::RenderState>) -> Self {
         let tool = if session.selected_layer().is_some_and(|l| l.kind() == subcraft_doc::LayerKind::Path) { Tool::Pen } else { Tool::Brush };
@@ -533,10 +548,10 @@ impl UiState {
             pen_display: Default::default(),
             text: Default::default(),
             pen_after: None,
-            fill_mode: PolygonFillMode::UvIsland,
-            fill_visible_only: true,
-            fill_selection: subcraft_paint::PolygonSelectMode::Marquee,
-            fill_hit_test: subcraft_paint::PolygonHitTest::Intersection,
+            fill_mode: FILL_DEFAULTS.mode,
+            fill_visible_only: FILL_DEFAULTS.visible_only,
+            fill_selection: FILL_DEFAULTS.selection,
+            fill_hit_test: FILL_DEFAULTS.hit_test,
             fill_box: None,
             view_props: None,
             view_props_swallow: false,

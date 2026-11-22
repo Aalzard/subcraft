@@ -15,7 +15,7 @@ pub struct Edit {
 
 impl Edit {
     pub fn from(r: &egui::Response) -> Self {
-        Self { changed: r.changed(), done: r.drag_stopped() || r.lost_focus() }
+        Self { changed: r.changed(), done: r.drag_stopped() || r.lost_focus() || crate::reset_row::was_reset(r) }
     }
     pub fn or(self, o: Edit) -> Edit {
         Edit { changed: self.changed || o.changed, done: self.done || o.done }
@@ -144,32 +144,88 @@ pub fn row_label(text: &str) -> RichText {
 /// Labelled property row: a dimmed label column, then the editor filling the rest at a
 /// consistent control height. The label column shrinks in narrow panels.
 pub fn prop_row<R>(ui: &mut Ui, label: &str, add: impl FnOnce(&mut Ui) -> R) -> R {
+    prop_row_labelled(ui, label, add).1
+}
+
+/// [`prop_row`] that also returns the label's response (`None` without a label); the label takes clicks,
+/// for the reset gestures of [`crate::reset_row`].
+fn prop_row_labelled<R>(ui: &mut Ui, label: &str, add: impl FnOnce(&mut Ui) -> R) -> (Option<Response>, R) {
     // Narrow panels: the label goes on its own line so the control keeps the full width.
     if ui.available_width() < STACK_BELOW && !label.is_empty() {
         return ui
             .scope(|ui| {
                 ui.spacing_mut().item_spacing.y = SP_XS;
-                ui.add(egui::Label::new(row_label(label)).truncate());
+                let l = ui.add(egui::Label::new(row_label(label)).truncate().sense(Sense::click()));
                 fill_width(ui);
-                ui.horizontal(|ui| {
+                let r = ui.horizontal(|ui| {
                     ui.set_min_height(CONTROL_H);
                     add(ui)
                 })
-                .inner
+                .inner;
+                (Some(l), r)
             })
             .inner;
     }
     let label_w = (ui.available_width() * 0.38).clamp(56.0, LABEL_WIDTH);
     ui.horizontal(|ui| {
         ui.set_min_height(CONTROL_H);
-        ui.allocate_ui_with_layout(egui::vec2(label_w, CONTROL_H), Layout::left_to_right(Align::Center), |ui| {
+        let l = ui.allocate_ui_with_layout(egui::vec2(label_w, CONTROL_H), Layout::left_to_right(Align::Center), |ui| {
             ui.set_min_width(label_w);
-            ui.add(egui::Label::new(row_label(label)).truncate());
-        });
+            (!label.is_empty()).then(|| ui.add(egui::Label::new(row_label(label)).truncate().sense(Sense::click())))
+        })
+        .inner;
         fill_width(ui);
-        add(ui)
+        (l, add(ui))
     })
     .inner
+}
+
+/// A [`prop_row`] whose setting goes back to `default` with the gestures of [`crate::reset_row`]: a dot
+/// before the label while it differs, Ctrl+click on the label or the control, right-click on the label.
+/// `add` draws the control for the value and returns its response; on a reset the value is set to
+/// `default` and the returned response is marked changed, so callers that test `changed()` see it.
+pub fn prop_row_reset<T: PartialEq + Clone>(ui: &mut Ui, label: &str, value: &mut T, default: T, add: impl FnOnce(&mut Ui, &mut T) -> Response) -> Response {
+    let (l, mut r) = prop_row_labelled(ui, label, |ui| add(ui, value));
+    if crate::reset_row::reset(ui, l.as_ref().unwrap_or(&r), &r, value, &default) {
+        r.mark_changed();
+    }
+    r
+}
+
+/// A checkbox [`prop_row_reset`]: `text` beside the box, `label` in the label column (either may be empty).
+pub fn check_row_reset(ui: &mut Ui, label: &str, text: &str, value: &mut bool, default: bool) -> Response {
+    prop_row_reset(ui, label, value, default, |ui, v| ui.checkbox(v, text))
+}
+
+/// The response of a composite editor that reports an [`Edit`] (a colour swatch with its picker, a
+/// value field): the area it covers, marked changed when the editor changed. For the `add` closure of
+/// [`prop_row_reset`].
+pub fn edit_response(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> Edit) -> Response {
+    let ir = ui.scope(add);
+    let mut r = ir.response;
+    if ir.inner.changed {
+        r.mark_changed();
+    }
+    r
+}
+
+/// Resets `value` to `default` with the gestures of [`crate::reset_row`], using `r` as both the label and
+/// the control (a checkbox with its own text, a lone dropdown). Marks `r` changed on a reset.
+/// Ctrl+click on `r` puts `default` back, without the change dot and right-click menu of
+/// [`reset_on`]: for the compact controls of toolbar popups, where a nested menu would close the popup.
+pub fn ctrl_reset<T: PartialEq + Clone>(ui: &Ui, mut r: Response, value: &mut T, default: T) -> Response {
+    if crate::reset_row::ctrl_clicked(ui, &r) && *value != default {
+        *value = default;
+        r.mark_changed();
+    }
+    r
+}
+
+pub fn reset_on<T: PartialEq + Clone>(ui: &Ui, mut r: Response, value: &mut T, default: T) -> Response {
+    if crate::reset_row::reset(ui, &r, &r, value, &default) {
+        r.mark_changed();
+    }
+    r
 }
 
 /// Below this panel width, property labels stack above their controls.
@@ -199,15 +255,39 @@ pub fn slider_row_own_parser(ui: &mut Ui, label: &str, slider: egui::Slider<'_>)
     slider_row_inner(ui, label, slider.update_while_editing(false), VALUE_W, |_| {})
 }
 
+/// [`slider_row_boxed`] that goes back to `default` like [`slider_row_reset`].
+pub fn slider_row_boxed_reset<T: PartialEq + Copy>(ui: &mut Ui, label: &str, value: &mut T, default: T, slider: impl FnOnce(&mut T) -> egui::Slider<'_>, box_w: f32) -> Response {
+    let (l, mut r) = slider_row_labelled(ui, label, typed_slider(slider(value)), box_w, |_| {});
+    if crate::reset_row::reset(ui, l.as_ref().unwrap_or(&r), &r, value, &default) {
+        r.mark_changed();
+    }
+    r
+}
+
+/// [`slider_row_own_parser`] that goes back to `default` like [`slider_row_reset`].
+pub fn slider_row_own_parser_reset<T: PartialEq + Copy>(ui: &mut Ui, label: &str, value: &mut T, default: T, slider: impl FnOnce(&mut T) -> egui::Slider<'_>) -> Response {
+    let (l, mut r) = slider_row_labelled(ui, label, slider(value).update_while_editing(false), VALUE_W, |_| {});
+    if crate::reset_row::reset(ui, l.as_ref().unwrap_or(&r), &r, value, &default) {
+        r.mark_changed();
+    }
+    r
+}
+
 fn slider_row_inner(ui: &mut Ui, label: &str, slider: egui::Slider<'_>, box_w: f32, actions: impl FnOnce(&mut Ui)) -> Response {
+    slider_row_labelled(ui, label, slider, box_w, actions).1
+}
+
+/// [`slider_row_inner`] that also returns the label's response (`None` without a label).
+fn slider_row_labelled(ui: &mut Ui, label: &str, slider: egui::Slider<'_>, box_w: f32, actions: impl FnOnce(&mut Ui)) -> (Option<Response>, Response) {
     ui.scope(|ui| {
         ui.spacing_mut().item_spacing.y = SP_XS;
         quiet_value_field(ui);
+        let mut l = None;
         if !label.is_empty() {
             let w = ui.available_width();
             ui.allocate_ui_with_layout(egui::vec2(w, 18.0), Layout::right_to_left(Align::Center), |ui| {
                 actions(ui);
-                ui.with_layout(Layout::left_to_right(Align::Center), |ui| ui.add(egui::Label::new(row_label(label)).truncate()));
+                l = Some(ui.with_layout(Layout::left_to_right(Align::Center), |ui| ui.add(egui::Label::new(row_label(label)).truncate().sense(Sense::click()))).inner);
             });
         }
         fill_width(ui);
@@ -217,9 +297,25 @@ fn slider_row_inner(ui: &mut Ui, label: &str, slider: egui::Slider<'_>, box_w: f
             ui.spacing_mut().interact_size.x = box_w;
             ui.spacing_mut().slider_width = (w - box_w - sp).max(48.0);
         }
-        ui.add(slider)
+        (l, ui.add(slider))
     })
     .inner
+}
+
+/// A [`slider_row`] that goes back to `default` with the gestures of [`crate::reset_row`] (dot before the
+/// label while changed, Ctrl+click on the label or the slider, right-click on the label). `slider` builds the
+/// slider for the value. On a reset the returned response is marked changed.
+pub fn slider_row_reset<T: PartialEq + Copy>(ui: &mut Ui, label: &str, value: &mut T, default: T, slider: impl FnOnce(&mut T) -> egui::Slider<'_>) -> Response {
+    slider_row_reset_with(ui, label, value, default, slider, |_| {})
+}
+
+/// [`slider_row_reset`] with the right-aligned label-line `actions` of [`slider_row_with`].
+pub fn slider_row_reset_with<T: PartialEq + Copy>(ui: &mut Ui, label: &str, value: &mut T, default: T, slider: impl FnOnce(&mut T) -> egui::Slider<'_>, actions: impl FnOnce(&mut Ui)) -> Response {
+    let (l, mut r) = slider_row_labelled(ui, label, typed_slider(slider(value)), VALUE_W, actions);
+    if crate::reset_row::reset(ui, l.as_ref().unwrap_or(&r), &r, value, &default) {
+        r.mark_changed();
+    }
+    r
 }
 
 /// Parse a number typed into a value box: `.25`, `-.5`, `+3`, `25`, `1e-2`, `0,25` (decimal comma) and the
@@ -344,6 +440,17 @@ pub fn segmented<T: PartialEq + Copy>(ui: &mut Ui, value: &mut T, options: &[(T,
         }
     });
     changed
+}
+
+/// [`segmented`] that returns the response of the whole button row, marked changed when the value
+/// changed: for the `add` closure of [`prop_row_reset`].
+pub fn segmented_response<T: PartialEq + Copy>(ui: &mut Ui, value: &mut T, options: &[(T, &str)]) -> Response {
+    let ir = ui.scope(|ui| segmented(ui, value, options));
+    let mut r = ir.response;
+    if ir.inner {
+        r.mark_changed();
+    }
+    r
 }
 
 /// Small rectangular tag.

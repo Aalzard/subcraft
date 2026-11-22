@@ -44,6 +44,16 @@ pub fn apply_action(p: &mut BakePlacement, action: PlacementAction, low: Box3, h
     None
 }
 
+/// A [`row`] whose value goes back to `default` on Ctrl+click or from the label's right-click menu.
+fn reset_row<T: PartialEq + Clone>(ui: &mut Ui, label: &str, value: &mut T, default: T, add: impl FnOnce(&mut Ui, &mut T) -> egui::Response) {
+    let l = ui.add(egui::Label::new(RichText::new(label).color(TEXT_DIM())).sense(egui::Sense::click()));
+    ui.horizontal(|ui| {
+        let r = add(ui, value);
+        crate::reset_row::reset(ui, &l, &r, value, &default);
+    });
+    ui.end_row();
+}
+
 fn row(ui: &mut Ui, label: &str, add: impl FnOnce(&mut Ui)) {
     ui.label(RichText::new(label).color(TEXT_DIM()));
     ui.horizontal(add);
@@ -69,24 +79,27 @@ pub fn placement_section(ui: &mut Ui, p: &mut BakePlacement, low: Box3, high: Op
             });
             if secondary_button(ui, "Auto-fit scale").on_hover_text("Set the scale so the high poly's box matches the low poly's box").clicked() { action = Some(PlacementAction::AutoFit); }
         });
-        row(ui, "Scale", |ui| {
-            ui.add(egui::Slider::new(&mut p.scale, 0.01..=10.0).logarithmic(true).clamping(egui::SliderClamping::Never));
+        let d = subcraft_core::BakePlacement::default();
+        reset_row(ui, "Scale", &mut p.scale, d.scale, |ui, v| {
+            let r = ui.add(egui::Slider::new(v, 0.01..=10.0).logarithmic(true).clamping(egui::SliderClamping::Never));
             if ui.small_button("Reset").clicked() { action = Some(PlacementAction::ResetScale); }
+            r
         });
         for (i, axis) in ["Offset X (left / right)", "Offset Y (down / up)", "Offset Z (back / forward)"].into_iter().enumerate() {
-            row(ui, axis, |ui| {
-                ui.add(egui::Slider::new(&mut p.offset[i], -diag..=diag).clamping(egui::SliderClamping::Never).fixed_decimals(4));
+            reset_row(ui, axis, &mut p.offset[i], d.offset[i], |ui, v| {
+                let r = ui.add(egui::Slider::new(v, -diag..=diag).clamping(egui::SliderClamping::Never).fixed_decimals(4));
                 if ui.small_button("Reset").clicked() { action = Some(PlacementAction::ResetOffset); }
+                r
             });
         }
     });
     egui::CollapsingHeader::new("Per-axis scale and rotation").id_salt("placement_adv").show(ui, |ui| {
         egui::Grid::new("placement_adv_grid").num_columns(2).spacing([16.0, 8.0]).show(ui, |ui| {
             for (i, axis) in ["X", "Y", "Z"].into_iter().enumerate() {
-                row(ui, &format!("Stretch {axis}"), |ui| { ui.add(egui::DragValue::new(&mut p.axis_scale[i]).speed(0.005).range(0.01..=100.0)); });
+                reset_row(ui, &format!("Stretch {axis}"), &mut p.axis_scale[i], 1.0, |ui, v| ui.add(egui::DragValue::new(v).speed(0.005).range(0.01..=100.0)));
             }
             for (i, axis) in ["X", "Y", "Z"].into_iter().enumerate() {
-                row(ui, &format!("Rotate {axis} (°)"), |ui| { ui.add(egui::Slider::new(&mut p.rotation_deg[i], -180.0..=180.0)); });
+                reset_row(ui, &format!("Rotate {axis} (°)"), &mut p.rotation_deg[i], 0.0, |ui, v| ui.add(egui::Slider::new(v, -180.0..=180.0)));
             }
             row(ui, "", |ui| {
                 if ui.small_button("Reset rotation").clicked() { action = Some(PlacementAction::ResetRotation); }

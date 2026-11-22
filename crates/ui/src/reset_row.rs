@@ -1,6 +1,7 @@
 //! Settings rows that go back to their default: a dot before the name of a changed setting,
 //! Ctrl+click on the name or the control, and a right-click menu on the name. Used by the
-//! Display Settings panel and the Rendering mode settings.
+//! Display Settings panel, the Rendering mode settings and, through the `*_reset` rows of
+//! [`crate::widgets`], the property panels (layers, generators, filters, brush, ...).
 
 use crate::i18n::tr;
 use crate::theme;
@@ -14,6 +15,12 @@ pub fn label(ui: &mut Ui, text: &str) -> egui::Response {
 /// Whether a Ctrl+click is the reset gesture right now (Cmd on macOS).
 fn ctrl(ui: &Ui) -> bool {
     ui.input(|i| i.modifiers.command)
+}
+
+/// The Ctrl+click part of [`wants_reset`] alone, for compact controls in list rows (the layer and
+/// effect opacity boxes) that have no label and their own right-click menu. True on a Ctrl+click.
+pub fn ctrl_clicked(ui: &Ui, control: &egui::Response) -> bool {
+    ctrl(ui) && control.interact_rect.height() > 0.0 && ui.interact(control.interact_rect, control.id.with("ctrl_reset"), egui::Sense::click_and_drag()).clicked()
 }
 
 /// The reset gestures of a settings row whose value differs from its default (`changed`).
@@ -54,6 +61,19 @@ pub fn reset<T: PartialEq + Clone>(ui: &Ui, label: &egui::Response, control: &eg
     let go = wants_reset(ui, label, control, *value != *default);
     if go {
         *value = default.clone();
+        let pass = ui.ctx().cumulative_pass_nr();
+        ui.ctx().data_mut(|d| d.insert_temp(done_key(), (pass, control.id)));
     }
     go
+}
+
+fn done_key() -> egui::Id {
+    egui::Id::new("reset_row_done")
+}
+
+/// Whether [`reset`] put the default back into `control` this pass: a finished edit, like the end
+/// of a drag, so panels that commit on "done" (see [`crate::widgets::Edit`]) commit it too.
+pub fn was_reset(control: &egui::Response) -> bool {
+    let pass = control.ctx.cumulative_pass_nr();
+    control.ctx.data(|d| d.get_temp::<(u64, egui::Id)>(done_key())) == Some((pass, control.id))
 }

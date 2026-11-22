@@ -440,9 +440,10 @@ pub fn preferences_window(state: &mut UiState, ctx: &egui::Context) {
             .on_hover_text(tr("Colours of the panels and controls. The 3D view background is set under Background color."));
         });
         ui.horizontal(|ui| {
-            ui.label(tr("UI size"));
+            let l = crate::reset_row::label(ui, tr("UI size"));
             ui.spacing_mut().slider_width = 155.0;
-            ui.add(egui::Slider::new(&mut rec.prefs.ui_size_percent, UI_SIZE_RANGE).step_by(5.0).suffix("%"));
+            let r = ui.add(egui::Slider::new(&mut rec.prefs.ui_size_percent, UI_SIZE_RANGE).step_by(5.0).suffix("%"));
+            crate::reset_row::reset(ui, &l, &r, &mut rec.prefs.ui_size_percent, &DEFAULT_UI_SIZE);
             if secondary_button(ui, tr("Reset")).on_hover_text(tr("Reset UI size to 85%")).clicked() {
                 rec.prefs.ui_size_percent = DEFAULT_UI_SIZE;
             }
@@ -452,42 +453,48 @@ pub fn preferences_window(state: &mut UiState, ctx: &egui::Context) {
         ui.separator();
         ui.add_space(8.0);
         crate::graphics::controls(graphics, ui);
-        ui.checkbox(&mut rec.prefs.show_welcome, tr("Show welcome screen on startup"));
-        ui.checkbox(&mut rec.prefs.check_updates_on_start, tr("Check for updates when SubCraft starts"))
+        pref_check(ui, &mut rec.prefs.show_welcome, PREF_DEFAULTS.show_welcome, tr("Show welcome screen on startup"));
+        pref_check(ui, &mut rec.prefs.check_updates_on_start, PREF_DEFAULTS.check_updates_on_start, tr("Check for updates when SubCraft starts"))
             .on_hover_text(tr("Asks GitHub for the latest release in the background and points at the update button when there is a new one."));
-        ui.checkbox(&mut rec.prefs.use_gpu_baking, tr("Use GPU for baking"))
+        pref_check(ui, &mut rec.prefs.use_gpu_baking, PREF_DEFAULTS.use_gpu_baking, tr("Use GPU for baking"))
             .on_hover_text("Bakes ambient occlusion and thickness on the graphics card, much faster on big meshes. If it is off or fails, the processor bakes them instead. The Bake window shows which one ran.");
-        ui.checkbox(&mut rec.prefs.simplified_layer_thumbnails, "Use simplified thumbnails")
+        pref_check(ui, &mut rec.prefs.simplified_layer_thumbnails, PREF_DEFAULTS.simplified_layer_thumbnails, "Use simplified thumbnails")
             .on_hover_text("The layer stack shows a plain icon instead of rendering each layer, mask and effect preview: faster with heavy stacks.");
-        ui.checkbox(&mut rec.prefs.only_selected_set_painting, "Only display the selected material when painting")
+        pref_check(ui, &mut rec.prefs.only_selected_set_painting, PREF_DEFAULTS.only_selected_set_painting, "Only display the selected material when painting")
             .on_hover_text("While a stroke is in progress the 3D view shows only the texture set being painted, so nothing in front of it gets in the way.");
         ui.horizontal(|ui| {
-            ui.label(tr("3D navigation"));
-            egui::ComboBox::from_id_salt("nav_scheme").selected_text(rec.prefs.nav_scheme.label()).show_ui(ui, |ui| {
+            let l = crate::reset_row::label(ui, tr("3D navigation"));
+            let r = egui::ComboBox::from_id_salt("nav_scheme").selected_text(rec.prefs.nav_scheme.label()).show_ui(ui, |ui| {
                 for scheme in crate::nav::NavScheme::ALL {
                     ui.selectable_value(&mut rec.prefs.nav_scheme, scheme, scheme.label());
                 }
-            });
+            }).response;
+            crate::reset_row::reset(ui, &l, &r, &mut rec.prefs.nav_scheme, &PREF_DEFAULTS.nav_scheme);
         });
         for (what, how) in rec.prefs.nav_scheme.help() {
             ui.label(RichText::new(format!("{what}: {how}")).small().color(TEXT_DIM()));
         }
         general_view_settings(ui, &mut rec.prefs);
-        ui.checkbox(&mut rec.prefs.orbit_around_cursor, "Orbit around the point under the cursor")
+        pref_check(ui, &mut rec.prefs.orbit_around_cursor, PREF_DEFAULTS.orbit_around_cursor, "Orbit around the point under the cursor")
             .on_hover_text("Starting an orbit over the model turns the view around that point of the surface, as Substance Painter does. Over the background the last point is kept. Off: the view always turns around its centre. F frames the model and forgets the point.");
         let speed = &mut rec.prefs.camera_speed;
+        let ds = PREF_DEFAULTS.camera_speed;
         egui::Grid::new("camera_speed").num_columns(3).spacing([8.0, 4.0]).show(ui, |ui| {
-            ui.label(tr("Rotation speed"));
-            ui.add(egui::Slider::new(&mut speed.rotation, crate::nav::CAMERA_SPEED_RANGE).logarithmic(true));
+            use crate::reset_row::{label, reset};
+            let l = label(ui, tr("Rotation speed"));
+            let r = ui.add(egui::Slider::new(&mut speed.rotation, crate::nav::CAMERA_SPEED_RANGE).logarithmic(true));
+            reset(ui, &l, &r, &mut speed.rotation, &ds.rotation);
             ui.label("");
             ui.end_row();
-            ui.label(tr("Zoom speed"));
-            ui.add(egui::Slider::new(&mut speed.zoom, crate::nav::CAMERA_SPEED_RANGE).logarithmic(true));
-            ui.checkbox(&mut speed.zoom_invert, tr("Inverse direction"));
+            let l = label(ui, tr("Zoom speed"));
+            let r = ui.add(egui::Slider::new(&mut speed.zoom, crate::nav::CAMERA_SPEED_RANGE).logarithmic(true));
+            reset(ui, &l, &r, &mut speed.zoom, &ds.zoom);
+            pref_check(ui, &mut speed.zoom_invert, ds.zoom_invert, tr("Inverse direction"));
             ui.end_row();
-            ui.label(tr("Wheel speed"));
-            ui.add(egui::Slider::new(&mut speed.wheel, crate::nav::CAMERA_SPEED_RANGE).logarithmic(true));
-            ui.checkbox(&mut speed.wheel_invert, tr("Invert zoom"))
+            let l = label(ui, tr("Wheel speed"));
+            let r = ui.add(egui::Slider::new(&mut speed.wheel, crate::nav::CAMERA_SPEED_RANGE).logarithmic(true));
+            reset(ui, &l, &r, &mut speed.wheel, &ds.wheel);
+            pref_check(ui, &mut speed.wheel_invert, ds.wheel_invert, tr("Invert zoom"))
                 .on_hover_text(tr("Off: turning the wheel forward zooms in, as in Painter. On: forward zooms out. Applies to the 3D and 2D views."));
             ui.end_row();
         });
@@ -498,7 +505,7 @@ pub fn preferences_window(state: &mut UiState, ctx: &egui::Context) {
                 tab = SettingsTab::Shortcuts;
             }
         });
-        if ui.checkbox(&mut rec.prefs.use_gpu_compositing, tr("Use GPU for compositing"))
+        if pref_check(ui, &mut rec.prefs.use_gpu_compositing, PREF_DEFAULTS.use_gpu_compositing, tr("Use GPU for compositing"))
             .on_hover_text("Blends layers on the graphics card for big edits (opening a project, changing a layer under many others) on texture sets of 2048 and larger. Procedural fills, generator masks and blur-type filters are still computed by the processor, and sets with blur-type filters use the processor entirely. Small edits such as brush strokes always use the processor.")
             .changed()
         {
@@ -515,15 +522,20 @@ pub fn preferences_window(state: &mut UiState, ctx: &egui::Context) {
         ui.label(RichText::new(tr("Recovery copies of the open project are written in the background to SubCraft's data folder, never over your own file.")).color(TEXT_DIM()));
         ui.add_space(8.0);
         egui::Grid::new("prefs_grid").num_columns(2).spacing([16.0, 8.0]).show(ui, |ui| {
-            ui.label(RichText::new(tr("Every")).color(TEXT_DIM()));
-            ui.add(egui::Slider::new(&mut rec.prefs.autosave_minutes, 0..=30).suffix(" min").custom_formatter(|v, _| if v == 0.0 { "off".into() } else { format!("{v}") }));
+            let dim_label = |ui: &mut egui::Ui, text: &str| ui.add(egui::Label::new(RichText::new(text).color(TEXT_DIM())).sense(egui::Sense::click()));
+            let d = &*PREF_DEFAULTS;
+            let l = dim_label(ui, tr("Every"));
+            let r = ui.add(egui::Slider::new(&mut rec.prefs.autosave_minutes, 0..=30).suffix(" min").custom_formatter(|v, _| if v == 0.0 { "off".into() } else { format!("{v}") }));
+            crate::reset_row::reset(ui, &l, &r, &mut rec.prefs.autosave_minutes, &d.autosave_minutes);
             ui.end_row();
-            ui.label(RichText::new(tr("Keep")).color(TEXT_DIM()));
-            ui.add(egui::Slider::new(&mut rec.prefs.autosave_keep, 1..=10).suffix(" copies"));
+            let l = dim_label(ui, tr("Keep"));
+            let r = ui.add(egui::Slider::new(&mut rec.prefs.autosave_keep, 1..=10).suffix(" copies"));
+            crate::reset_row::reset(ui, &l, &r, &mut rec.prefs.autosave_keep, &d.autosave_keep);
             ui.end_row();
-            ui.label(RichText::new("History").color(TEXT_DIM()));
-            ui.add(egui::Slider::new(&mut rec.prefs.history_steps, HISTORY_STEPS_RANGE).suffix(" steps"))
+            let l = dim_label(ui, "History");
+            let r = ui.add(egui::Slider::new(&mut rec.prefs.history_steps, HISTORY_STEPS_RANGE).suffix(" steps"))
                 .on_hover_text("How many undo steps are kept (Painter's maximum number of history steps). More steps use more memory.");
+            crate::reset_row::reset(ui, &l, &r, &mut rec.prefs.history_steps, &d.history_steps);
             ui.end_row();
         });
         rec.autosaver.interval = rec.prefs.interval();
@@ -543,9 +555,18 @@ pub fn preferences_window(state: &mut UiState, ctx: &egui::Context) {
 }
 
 /// Settings > General: interface, layer stack, camera and temporary-files options from Painter's list.
+/// The default preferences, which Ctrl+click and the right-click menu of a row put back.
+static PREF_DEFAULTS: std::sync::LazyLock<Preferences> = std::sync::LazyLock::new(Preferences::default);
+
+/// A preference checkbox with the reset gestures of [`crate::reset_row`].
+fn pref_check(ui: &mut egui::Ui, value: &mut bool, default: bool, text: &str) -> egui::Response {
+    let r = ui.checkbox(value, text);
+    crate::widgets::reset_on(ui, r, value, default)
+}
+
 fn general_view_settings(ui: &mut egui::Ui, p: &mut Preferences) {
     // The same setting as Display Settings > Axis indicator.
-    ui.checkbox(&mut p.viewport.axis_indicator, tr("Show world axes")).on_hover_text(tr("The X, Y and Z directions of the scene in the bottom-right corner of the 3D view"));
+    pref_check(ui, &mut p.viewport.axis_indicator, PREF_DEFAULTS.viewport.axis_indicator, tr("Show world axes")).on_hover_text(tr("The X, Y and Z directions of the scene in the bottom-right corner of the 3D view"));
     ui.horizontal(|ui| {
         ui.label(tr("Background color"));
         crate::color_picker::swatch_srgb(ui, &mut p.background_top).on_hover_text(tr("Top of the 3D view"));
@@ -556,9 +577,10 @@ fn general_view_settings(ui: &mut egui::Ui, p: &mut Preferences) {
         }
     });
     ui.horizontal(|ui| {
-        ui.label(tr("Default UV scale for materials"));
-        ui.add(egui::DragValue::new(&mut p.default_uv_scale).range(0.01..=100.0).speed(0.01).max_decimals(2))
+        let l = crate::reset_row::label(ui, tr("Default UV scale for materials"));
+        let r = ui.add(egui::DragValue::new(&mut p.default_uv_scale).range(0.01..=100.0).speed(0.01).max_decimals(2))
             .on_hover_text(tr("UV tiling given to new fill layers"));
+        crate::reset_row::reset(ui, &l, &r, &mut p.default_uv_scale, &PREF_DEFAULTS.default_uv_scale);
     });
     ui.add_space(6.0);
     ui.label(RichText::new(tr("Temporary files")).font(theme::font_strong(12.5)));

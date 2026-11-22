@@ -82,7 +82,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             let mut enabled = mask.enabled;
             if ui.checkbox(&mut enabled, "Enable mask").changed() { cmds.push(Command::SetMaskEnabled { layer: layer.id, enabled }); }
             let mut material = state.session.brush.material.clone();
-            if slider_row(ui, "Paint value", egui::Slider::new(&mut material.mask_value, 0.0..=1.0)).changed() { cmds.push(Command::SetBrushMaterial(material)); }
+            let d = subcraft_paint::BrushMaterial::default().mask_value;
+            if crate::widgets::slider_row_reset(ui, "Paint value", &mut material.mask_value, d, |v| egui::Slider::new(v, 0.0..=1.0)).changed() { cmds.push(Command::SetBrushMaterial(material)); }
             ui.horizontal_wrapped(|ui| {
                 if secondary_button(ui, "Preview").clicked() { state.layer_previews.inspect = Some(layer.id); }
                 if secondary_button(ui, "Invert").clicked() { cmds.push(Command::InvertMask(layer.id)); }

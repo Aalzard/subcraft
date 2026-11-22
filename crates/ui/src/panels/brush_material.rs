@@ -7,7 +7,7 @@ use crate::{
     files::{self, Purpose},
     state::UiState,
     theme,
-    widgets::{channel_value, hint, prop_row, quiet_button, segmented},
+    widgets::{self, channel_value, hint, quiet_button},
 };
 use egui::{RichText, Ui};
 use subcraft_app::Command;
@@ -161,27 +161,30 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     if material.textures.keys().any(|kind| material.channels.get(kind).is_some_and(|c| c.enabled)) {
         ui.label(RichText::new("Image projection").strong());
         projection_editor(ui, &mut material.projection);
-        ui.checkbox(&mut material.camera_projection, "Project from the view")
+        let d = subcraft_paint::BrushMaterial::default();
+        let r = ui.checkbox(&mut material.camera_projection, "Project from the view")
             .on_hover_text("Like a slide projector: the image is cast from the camera the stroke started in, whatever the model's UVs. Scale, rotation and offset place it on screen.");
-        ui.checkbox(&mut material.texture_tiling, "Tile images")
+        widgets::reset_on(ui, r, &mut material.camera_projection, d.camera_projection);
+        let r = ui.checkbox(&mut material.texture_tiling, "Tile images")
             .on_hover_text("Off: paint only inside image coordinates 0–1");
+        widgets::reset_on(ui, r, &mut material.texture_tiling, d.texture_tiling);
         hint(
             ui,
             "UV uses the model's UVs; planar / tri-planar use the same object frame as fill layers.",
         );
     }
     if material.channels.get(&subcraft_core::ChannelKind::Normal).is_some_and(|c| c.enabled) {
-    prop_row(ui, "Normal blend", |ui| {
+    widgets::prop_row_reset(ui, "Normal blend", &mut material.normal_blend, NormalPaintBlend::Replace, |ui, v| {
         ui.add_enabled_ui(!mask_target, |ui| {
-            segmented(
+            widgets::segmented_response(
                 ui,
-                &mut material.normal_blend,
+                v,
                 &[
                     (NormalPaintBlend::Replace, "Replace"),
                     (NormalPaintBlend::Detail, "Detail"),
                 ],
-            );
-        });
+            )
+        }).inner
     });
     hint(
         ui,
