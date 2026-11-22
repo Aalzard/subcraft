@@ -123,3 +123,28 @@ fn the_eyedropper_reads_the_texture_under_a_2d_position() {
     let picked = s.brush.material.channels[&ChannelKind::BaseColor].value.0;
     assert!((picked[0] - 0.2).abs() < 0.05 && (picked[1] - 0.6).abs() < 0.05 && (picked[2] - 0.9).abs() < 0.05, "{picked:?}");
 }
+
+#[test]
+fn the_eyedropper_picks_every_channel_the_brush_paints_and_leaves_switched_off_ones_off() {
+    let mut s = session();
+    s.ensure_paint_layer();
+    let (a, _) = two_uvs(&s);
+    paint_dot(&mut s, a, [0.2, 0.6, 0.9]);
+    let ts = s.selected_texture_set().id;
+    // Colour and normals only (issue #620).
+    s.execute(Command::ToggleBrushChannel { channel: ChannelKind::BaseColor, solo: true }).unwrap();
+    s.execute(Command::ToggleBrushChannel { channel: ChannelKind::Normal, solo: false }).unwrap();
+    let mut material = s.brush.material.clone();
+    material.channels.get_mut(&ChannelKind::Normal).unwrap().value = ChannelValue::rgb(0.0, 0.0, 0.0);
+    s.execute(Command::SetBrushMaterial(material)).unwrap();
+    s.sample_material_at(ts, a, false);
+    let normal = s.brush.material.channels[&ChannelKind::Normal].value.0;
+    assert!(normal[2] > 0.5, "the normal under the brush is picked too: {normal:?}");
+    let on = |s: &Session, k| s.brush.material.channels.get(&k).is_some_and(|c| c.enabled);
+    assert!(on(&s, ChannelKind::BaseColor) && on(&s, ChannelKind::Normal));
+    assert!(!on(&s, ChannelKind::Roughness), "a plain pick switches nothing on");
+    // Shift picks the whole material, but channels switched off stay off (issue #618).
+    s.sample_material_at(ts, a, true);
+    assert!(!on(&s, ChannelKind::Roughness), "switched off by the user");
+    assert!(s.brush.material.channels.contains_key(&ChannelKind::Roughness), "its value is still picked");
+}

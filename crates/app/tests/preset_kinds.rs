@@ -223,3 +223,29 @@ fn renaming_to_a_name_with_the_same_file_keeps_one_unnumbered_file() {
     assert_eq!(reload(&lib, "Rust").settings, saved.settings);
     std::fs::remove_dir_all(&dir).ok();
 }
+
+#[test]
+fn a_shelf_brush_with_a_material_keeps_the_channels_the_user_switched_off() {
+    use subcraft_app::Command;
+    let tips = alphas::builtin();
+    let builtin = subcraft_app::brush_preset::builtin();
+    let grunge = builtin.iter().find(|p| p.name == "Dirt Grunge").expect("built-in preset");
+    let mut s = Session::new(primitives::cube(1.0), 64);
+    // Paint colour only (Alt+click), as in issue #618.
+    s.execute(Command::ToggleBrushChannel { channel: ChannelKind::BaseColor, solo: true }).unwrap();
+    s.select_shelf_brush(ShelfBrush::Preset(grunge), &tips).unwrap();
+    let on: Vec<ChannelKind> = s.brush.material.channels.iter().filter(|(_, c)| c.enabled).map(|(k, _)| *k).collect();
+    assert_eq!(on, [ChannelKind::BaseColor], "Roughness and Metallic stay off");
+    assert_eq!(s.brush.material.channels[&ChannelKind::BaseColor].value, grunge.material.channels[&ChannelKind::BaseColor].value, "the preset's colour arrives");
+
+    // Switching Roughness back on lets the next preset paint it again.
+    s.execute(Command::ToggleBrushChannel { channel: ChannelKind::Roughness, solo: false }).unwrap();
+    s.select_shelf_brush(ShelfBrush::Preset(grunge), &tips).unwrap();
+    assert!(s.brush.material.channels[&ChannelKind::Roughness].enabled);
+    assert!(!s.brush.material.channels[&ChannelKind::Metallic].enabled);
+
+    // A preset that would paint nothing the user left on keeps its own channels.
+    s.execute(Command::ToggleBrushChannel { channel: ChannelKind::Height, solo: true }).unwrap();
+    s.select_shelf_brush(ShelfBrush::Preset(grunge), &tips).unwrap();
+    assert!(s.brush.material.channels[&ChannelKind::BaseColor].enabled, "not a brush that paints nothing");
+}

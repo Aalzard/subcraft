@@ -139,6 +139,10 @@ pub struct BrushState {
     pub clone_mode: CloneSourceMode,
     /// Polygon Fill's blending mode (Painter: Properties > Polygon Fill > Blending).
     pub fill_blend: subcraft_doc::BlendMode,
+    /// Channels the user switched off with the brush channel toggles. Choosing a Shelf brush
+    /// whose preset carries a material keeps them off (issue #618): the preset brings its colours
+    /// and values, not a new say over which channels paint. Switching a channel on forgets it.
+    pub channels_off: std::collections::BTreeSet<ChannelKind>,
 }
 
 /// A surface point under the cursor.
@@ -419,6 +423,7 @@ impl Session {
                 projection: false,
                 clone_mode: CloneSourceMode::Relative,
                 fill_blend: subcraft_doc::BlendMode::Normal,
+                channels_off: Default::default(),
             },
             stroke: None,
             last_stroke: None,
@@ -2471,6 +2476,11 @@ impl Session {
                 let on = solo || !channels.get(&channel).is_some_and(|c| c.enabled);
                 if solo { for c in channels.values_mut() { c.enabled = false; } }
                 channels.entry(channel).or_insert(subcraft_paint::BrushChannel { enabled: false, value: channel.default_paint_value() }).enabled = on;
+                // Remember what the user switched off, so a Shelf brush doesn't switch it back on.
+                if solo {
+                    self.brush.channels_off = self.channels().into_iter().filter(|k| *k != channel).collect();
+                }
+                if on { self.brush.channels_off.remove(&channel); } else { self.brush.channels_off.insert(channel); }
             }
             Command::ToggleFillChannel { layer, effect, channel, solo } => {
                 self.edit_layer_set(layer, if solo { "Solo Channel" } else { "Toggle Channel" }, None, |ts| {
