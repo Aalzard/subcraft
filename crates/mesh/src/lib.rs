@@ -10,6 +10,7 @@ pub mod primitives;
 pub mod regroup;
 pub mod serialize;
 pub mod spp;
+pub mod subdivide;
 pub mod tangent;
 pub mod topology;
 pub mod transfer;

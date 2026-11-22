@@ -11,7 +11,7 @@ use subcraft_app::assets::{EnvironmentSource, Library};
 use subcraft_app::thumbnails::PreviewScene;
 use subcraft_core::{AssetId, ChannelKind, ChannelValue};
 use subcraft_doc::{FillChannel, FillSource, Layer, LayerContent, Mask, MaskEffect};
-use subcraft_render::{SHADED_CHANNELS, ViewParams, ViewportRenderer};
+use subcraft_render::{VIEWPORT_CHANNELS, ViewParams, ViewportRenderer};
 
 use crate::state::UiState;
 use crate::theme;
@@ -2500,7 +2500,7 @@ fn render_composited(state: &mut UiState, ctx: &egui::Context, rs: &subcraft_ren
         renderer.set_mesh(&rs.device, &mesh);
         *current = Some(kind);
     }
-    for k in SHADED_CHANNELS {
+    for k in VIEWPORT_CHANNELS {
         if let Some(img) = composite.channel(k) {
             renderer.upload_channel(&rs.device, &rs.queue, 0, k, img, None);
         }
