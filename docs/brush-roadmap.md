@@ -42,7 +42,7 @@ Owner follow-up (session 91; Claude handoff, implementation pending):
 - [ ] Clean surface-wrapped painting across hard corners without stretched side-face dabs.
 - [ ] Immediate Shelf brush activation, fading top-left viewport selection notice and
   double-click brush editor, preserving layer/mask/Paint-effect targeting.
-See PROMPT-claude-edge-wear.md for priority, source entry points and acceptance checks.
+See internal/PROMPT-claude-edge-wear.md for priority, source entry points and acceptance checks.
 The ordered brush-phase checklist below remains unchanged.
 
 Session 73 acceptance artwork: CORE-07 is a saved 4K cube with real high-to-low bakes, editable

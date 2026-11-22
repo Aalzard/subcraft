@@ -3,3 +3,6 @@
 /scratch
 /preview_out
 /dist
+__pycache__/
+*.pyc
+/*.zip

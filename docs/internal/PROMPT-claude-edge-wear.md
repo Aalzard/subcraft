@@ -5,7 +5,7 @@ Git metadata: E:\Applications\ArtCraft\SubCraft\.git
 Current test application: E:\Applications\ArtCraft\SubCraft\target\debug\subcraft.exe
 Do not push or release. Verify which executable you launch; older builds exist.
 
-Read first: CLAUDE.md, docs/progress.md, docs/HANDOFF-codex.md,
+Read first: CLAUDE.md, docs/progress.md, docs/internal/HANDOFF-codex.md,
 docs/material-workflow-roadmap.md, docs/layer-system-roadmap.md, docs/brush-roadmap.md,
 and ADRs 0003, 0005, 0008, 0018, 0026-0034. Inspect git status and HEAD before editing.
 Feature checkpoint: a995822; preceding documentation checkpoint: d3081ea. This handoff is
