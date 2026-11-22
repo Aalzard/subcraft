@@ -89,7 +89,9 @@ fn main() {
     // Bake every mesh map of every texture set at the set resolution.
     let sets: Vec<_> = s.document().texture_sets.iter().map(|t| (t.id, t.material_slot)).collect();
     let t = Instant::now();
-    let mut job = s.start_bake(subcraft_app::BakeRequest { settings: subcraft_bake::BakeSettings { size: res, ..Default::default() }, high_poly: None, texture_sets: sets.clone() });
+    // `SUBCRAFT_BENCH_BAKE=512` bakes smaller (quicker runs while profiling the edits).
+    let bake_size = std::env::var("SUBCRAFT_BENCH_BAKE").ok().and_then(|v| v.parse().ok()).unwrap_or(res);
+    let mut job = s.start_bake(subcraft_app::BakeRequest { settings: subcraft_bake::BakeSettings { size: bake_size, ..Default::default() }, high_poly: None, texture_sets: sets.clone() });
     while job.poll(&mut s).is_none() {
         std::thread::sleep(std::time::Duration::from_millis(5));
     }
@@ -129,7 +131,8 @@ fn main() {
     hash_line(&s, "after materials");
 
     // Layer edits.
-    let reps = 3;
+    // `SUBCRAFT_BENCH_REPS` repeats each edit more often (default 3 pairs).
+    let reps = std::env::var("SUBCRAFT_BENCH_REPS").ok().and_then(|v| v.parse().ok()).unwrap_or(3);
     for (label, id) in [("bottom", added[0]), ("top", *added.last().unwrap())] {
         let mut v = Vec::new();
         for i in 0..reps * 2 {
@@ -149,6 +152,11 @@ fn main() {
         println!("{label:<6} material: visibility {:6.0} ms, opacity {:6.0} ms (median)", median(v), median(o));
     }
     hash_line(&s, "after edits");
+    println!(
+        "cache: procedural fields {} MB, masks {} MB",
+        subcraft_materials::sample::field::cached_bytes() >> 20,
+        subcraft_materials::sample::derived::cached_bytes() >> 20
+    );
 
     // Brush strokes on a paint layer above everything.
     run(&mut s, Command::SelectLayer(None));

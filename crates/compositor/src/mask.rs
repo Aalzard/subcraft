@@ -22,6 +22,111 @@ pub fn eval_mask(mask: Option<&Mask>, tc: &TileContext) -> Option<Vec<f32>> {
 pub fn eval_mask_scaled(mask: Option<&Mask>, tc: &TileContext, radius_scale:f32) -> Option<Vec<f32>> {
     let mask = mask.filter(|m| m.enabled)?;
     if crate::stages::mask_spatial(mask) { return Some(crate::stages::mask_preview(mask,tc,radius_scale)); }
+    if radius_scale == 1.0 && worth_caching(mask) {
+        return Some(cached_mask(mask, tc).to_vec());
+    }
+    Some(eval_mask_local(mask, tc))
+}
+
+/// A mask's effects that cost more than reading a raster: only those are worth a cache entry
+/// (a plain painted mask is one tile read either way).
+fn worth_caching(mask: &Mask) -> bool {
+    mask.effects.iter().any(|e| {
+        e.visible
+            && match &e.kind {
+                MaskEffectKind::Generator(_) | MaskEffectKind::Image { .. } | MaskEffectKind::IdColor(_) => true,
+                MaskEffectKind::Fill { procedural, .. } => procedural.is_some(),
+                _ => false,
+            }
+    })
+}
+
+/// Everything a tile-local mask evaluation reads besides the tile's own geometry (the cache lives
+/// in that geometry): the effect list, the base raster's tile, the baked maps and the image
+/// resources the effects name. Every part is held by `Arc`, so a key can only match inputs that
+/// are bit-for-bit the ones it was computed from (copy-on-write replaces anything edited).
+struct MaskKey {
+    effects: Vec<std::sync::Arc<subcraft_doc::MaskEffect>>,
+    base: BaseKey,
+    maps: subcraft_materials::MeshMaps,
+    resources: Vec<Option<std::sync::Arc<subcraft_doc::Resource>>>,
+}
+
+enum BaseKey {
+    /// A base raster at the set's resolution: only this tile of it is read.
+    Tile { slot: subcraft_image::TileSlot, fill: [u32; 4] },
+    /// Any other size is resampled: the whole image.
+    Image(subcraft_image::TiledImage),
+}
+
+impl BaseKey {
+    fn of(base: &subcraft_image::TiledImage, tc: &TileContext) -> Self {
+        let geo = tc.geo;
+        if base.comps() == 1 && base.width() == geo.resolution && base.height() == geo.resolution {
+            let t = base.tile_index(geo.x0 / subcraft_image::TILE_SIZE, geo.y0 / subcraft_image::TILE_SIZE);
+            BaseKey::Tile { slot: base.slot(t).clone(), fill: base.fill().map(f32::to_bits) }
+        } else {
+            BaseKey::Image(base.clone())
+        }
+    }
+
+    fn matches(&self, base: &subcraft_image::TiledImage, tc: &TileContext) -> bool {
+        match (self, BaseKey::of(base, tc)) {
+            (BaseKey::Tile { slot: a, fill: fa }, BaseKey::Tile { slot: b, fill: fb }) => {
+                fa == &fb
+                    && match (a, &b) {
+                        (None, None) => true,
+                        (Some(x), Some(y)) => std::sync::Arc::ptr_eq(x, y),
+                        _ => false,
+                    }
+            }
+            (BaseKey::Image(a), BaseKey::Image(b)) => a.same_layout(&b) && a.same_storage(&b),
+            _ => false,
+        }
+    }
+}
+
+/// Image resources a mask's effects read, in effect order.
+fn mask_resources(mask: &Mask) -> Vec<subcraft_core::ResourceId> {
+    let mut ids = Vec::new();
+    for e in &mask.effects {
+        match &e.kind {
+            MaskEffectKind::Image { resource, .. } => ids.push(*resource),
+            MaskEffectKind::Filter(subcraft_doc::Filter::GradientDynamic { source, .. }) => ids.push(*source),
+            MaskEffectKind::Generator(g) => ids.extend(g.resources()),
+            _ => {}
+        }
+    }
+    ids
+}
+
+/// [`eval_mask_local`] through the tile's derived-value cache: layers above an edit keep their
+/// masks instead of re-running generators and procedural fills (bit-identical).
+fn cached_mask(mask: &Mask, tc: &TileContext) -> std::sync::Arc<subcraft_materials::sample::derived::Derived> {
+    use subcraft_materials::sample::derived::Probe;
+    let ids = mask_resources(mask);
+    let resources: Vec<_> = ids.iter().map(|&id| tc.sample.resources.get(id).cloned()).collect();
+    tc.geo.derived.get_or_compute::<MaskKey>(
+        |k| {
+            let same_effects = k.effects.len() == mask.effects.len() && k.effects.iter().zip(&mask.effects).all(|(a, b)| std::sync::Arc::ptr_eq(a, b));
+            if !same_effects {
+                return Probe::Miss;
+            }
+            let same_resources = k.resources.len() == resources.len()
+                && k.resources.iter().zip(&resources).all(|(a, b)| match (a, b) {
+                    (None, None) => true,
+                    (Some(x), Some(y)) => std::sync::Arc::ptr_eq(x, y),
+                    _ => false,
+                });
+            if same_resources && k.base.matches(&mask.base, tc) && k.maps.same_storage(tc.sample.mesh_maps) { Probe::Hit } else { Probe::Replace }
+        },
+        || MaskKey { effects: mask.effects.clone(), base: BaseKey::of(&mask.base, tc), maps: tc.sample.mesh_maps.clone(), resources: resources.clone() },
+        || eval_mask_local(mask, tc),
+    )
+}
+
+/// The tile-local evaluation of an enabled, non-spatial mask: base raster, then each effect.
+fn eval_mask_local(mask: &Mask, tc: &TileContext) -> Vec<f32> {
     let mut m = crate::tile::prof("mask base", || read_mask_base(&mask.base, tc));
     let mut e = vec![[0.0f32; 4]; TILE_TEXELS];
     // Anchor points change nothing and references cannot resolve without the whole texture set
@@ -39,7 +144,7 @@ pub fn eval_mask_scaled(mask: Option<&Mask>, tc: &TileContext, radius_scale:f32)
     for v in m.iter_mut() {
         *v = v.clamp(0.0, 1.0);
     }
-    Some(m)
+    m
 }
 
 /// The first component of the mask's base raster on this tile (what `read_tile_rgba` gives in

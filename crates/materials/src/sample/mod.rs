@@ -5,6 +5,7 @@
 //! color channels; scalar channels use `v0`).
 
 pub mod bitmap;
+pub mod derived;
 pub mod field;
 pub mod geometry;
 pub mod edge_distance;
