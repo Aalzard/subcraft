@@ -385,6 +385,11 @@ pub struct Generator {
     /// layers below. Absent (the default, and in every older project): colour channels only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub micro: Option<MicroEffect>,
+    /// "Micro details": also read the Normal / Height of the layers below as extra curvature and
+    /// occlusion (Painter's Use Micro Details). Absent (the default, and in every older project):
+    /// the baked maps only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub micro_details: Option<MicroDetails>,
     /// Input image (ADR-0045): an anchor point read instead of the baked mesh map (Edges, Dirt,
     /// Concave, Ambient Occlusion and Mesh Map kinds). Absent: the mesh map, as before.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -965,6 +970,77 @@ impl MaskEditor {
 }
 
 
+/// Painter's "Use Micro Details": a generator also reads the Normal and Height of the layers
+/// below it, so the fine relief of a material (a normal map's scratches, a height map's grooves)
+/// adds curvature and occlusion on top of the baked maps. Wear then catches the small raised
+/// details and dirt settles into the small crevices, as in Painter. The reverse of
+/// [`MicroEffect`], which writes a generator's mask into Normal / Height.
+///
+/// `amount` is the one control most people need; the rest are Painter's Micro Details group.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MicroDetails {
+    /// Master switch (Painter's Use Micro Details). Stored so unticking keeps the tuned values.
+    pub enabled: bool,
+    /// How strongly the micro curvature / occlusion are mixed into the baked maps, 0..1.
+    pub amount: f32,
+    /// Read the Normal channel of the layers below (Painter's Micro Normal).
+    pub micro_normal: bool,
+    /// Read the Height channel of the layers below (Painter's Micro Height).
+    pub micro_height: bool,
+    /// How the curvature is measured from the micro normal.
+    pub curvature_type: MicroCurvatureType,
+    /// Strength of the micro curvature, 0..4 (Painter's Curvature Intensity).
+    pub curvature_intensity: f32,
+    /// Strength of the height relief in the micro normal, 0..4 (Painter's Height Details Intensity).
+    pub height_intensity: f32,
+    /// Reach of the micro occlusion, 0..1 (1 = 32 texels at 2048, scaled with the resolution).
+    pub ao_radius: f32,
+    /// Darkness of the micro occlusion, 0..1 (Painter's AO Depth).
+    pub ao_depth: f32,
+}
+
+/// How [`MicroDetails`] measures curvature from the micro normal (Painter's Curvature Type).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MicroCurvatureType {
+    /// Central differences: the sharpest, one texel.
+    #[default]
+    Standard,
+    /// Sobel kernel: a little smoother, less sensitive to noise.
+    Sobel,
+    /// Over two texels with a box average across: soft, for noisy or very fine normal maps.
+    Smooth,
+}
+
+impl MicroCurvatureType {
+    pub const ALL: [Self; 3] = [Self::Standard, Self::Sobel, Self::Smooth];
+    pub fn label(self) -> &'static str {
+        match self { Self::Standard => "Standard", Self::Sobel => "Sobel", Self::Smooth => "Smooth" }
+    }
+}
+
+impl Default for MicroDetails {
+    fn default() -> Self {
+        Self { enabled: false, amount: 1.0, micro_normal: true, micro_height: true, curvature_type: MicroCurvatureType::Standard, curvature_intensity: 1.0, height_intensity: 1.0, ao_radius: 0.25, ao_depth: 0.5 }
+    }
+}
+
+impl MicroDetails {
+    /// Largest micro-occlusion radius in texels at 2048 (`ao_radius` = 1).
+    pub const MAX_AO_TEXELS: f32 = 32.0;
+    /// Texels beyond its own that a micro-details generator may read: the occlusion radius at
+    /// 4096 plus the curvature stencil. The evaluated radius never exceeds it, so dirty-tile
+    /// expansion stays conservative at any resolution.
+    pub fn support(&self) -> u32 {
+        (1.0 + self.ao_radius.clamp(0.0, 1.0) * (Self::MAX_AO_TEXELS - 1.0) * 2.0).ceil() as u32 + 2
+    }
+    /// Whether it changes anything.
+    pub fn active(&self) -> bool {
+        self.enabled && self.amount.is_finite() && self.amount > 0.0 && (self.micro_normal || self.micro_height)
+    }
+}
+
 /// Settings of a generator's micro effect (see [`Generator::micro`]). `Default` is the neutral
 /// "off" state; [`MicroEffect::enabled_for`] gives the settings a freshly ticked checkbox starts with.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
@@ -1219,6 +1295,7 @@ impl Generator {
                 ..PainterControls::default()
             }),
             micro: None,
+            micro_details: None,
             input: None,
             curvature: None,
             editor: (kind == GeneratorKind::MaskEditor).then(MaskEditor::default),
@@ -1281,6 +1358,25 @@ impl Generator {
     /// The Mask Editor has no Micro controls: a micro effect kept from the kind it was switched
     /// from used to keep changing the layers below, with no way to turn it off.
     pub fn micro_active(&self) -> bool { self.kind != GeneratorKind::MaskEditor && !self.kind.uses_shape() && self.micro.is_some_and(|m| m.height() != 0.0) }
+
+    /// Whether this kind reads curvature or occlusion, so micro details can add to it.
+    pub fn accepts_micro_details(&self) -> bool {
+        matches!(self.kind, GeneratorKind::Edges | GeneratorKind::Cavity | GeneratorKind::AmbientOcclusion | GeneratorKind::Concave | GeneratorKind::MeshMap(MeshMapKind::Curvature | MeshMapKind::AmbientOcclusion))
+    }
+
+    /// The micro details in effect: on, non-zero and read by this kind.
+    pub fn micro_details_active(&self) -> Option<MicroDetails> {
+        self.micro_details.filter(|d| d.active() && self.accepts_micro_details())
+    }
+
+    /// Switch micro details on or off, keeping tuned values.
+    pub fn set_micro_details_enabled(&mut self, on: bool) {
+        match (&mut self.micro_details, on) {
+            (Some(d), _) => d.enabled = on,
+            (None, true) => self.micro_details = Some(MicroDetails { enabled: true, ..MicroDetails::default() }),
+            (None, false) => {}
+        }
+    }
 
     /// Switch the micro effect on or off, keeping tuned values and starting from the per-kind defaults.
     pub fn set_micro_enabled(&mut self, on: bool) {
@@ -1519,6 +1615,28 @@ impl Mask {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn micro_details_activity_and_kinds() {
+        let mut g = Generator::new(GeneratorKind::Cavity);
+        assert!(g.micro_details_active().is_none(), "off by default");
+        g.set_micro_details_enabled(true);
+        assert!(g.micro_details_active().is_some());
+        g.micro_details.as_mut().unwrap().amount = 0.3;
+        g.set_micro_details_enabled(false);
+        assert!(g.micro_details_active().is_none());
+        g.set_micro_details_enabled(true);
+        assert_eq!(g.micro_details.unwrap().amount, 0.3, "tuned values survive the toggle");
+        g.set_kind(GeneratorKind::Directional);
+        assert!(g.micro_details_active().is_none(), "a kind without curvature or occlusion ignores it");
+        g.set_kind(GeneratorKind::Edges);
+        assert!(g.micro_details_active().is_some(), "and it is back with a kind that reads them");
+        let d = g.micro_details.unwrap();
+        assert!(MicroDetails { micro_normal: false, micro_height: false, ..d }.active() == false);
+        assert!(MicroDetails { amount: f32::NAN, ..d }.active() == false);
+        // The support covers the largest radius at 4096 plus the curvature stencil.
+        assert_eq!(MicroDetails { ao_radius: 1.0, ..d }.support(), 65);
+        assert_eq!(MicroDetails { ao_radius: 0.0, ..d }.support(), 3);
+    }
     use super::*;
 
     #[test]

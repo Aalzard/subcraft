@@ -33,7 +33,7 @@ pub fn eval_mask_scaled(mask: Option<&Mask>, tc: &TileContext, radius_scale:f32)
             MaskEffectKind::Fill { .. } => "mask fill (local)",
             _ => "mask effect (local)",
         };
-        crate::tile::prof(label, || evaluate_effect(&effect.kind, tc, &m, &mut e, None));
+        crate::tile::prof(label, || evaluate_effect(&effect.kind, tc, &m, &mut e, None, None));
         crate::tile::prof("mask blend (local)", || crate::blend::composite_mask_run(&mut m, &e, effect.opacity, effect.blend));
     }
     for v in m.iter_mut() {
@@ -66,7 +66,10 @@ fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
 /// noise) with a `softness`-wide transition.
 ///
 /// `input` (an anchor read as gray, ADR-0045) replaces the baked map the generator reads.
-fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]], input: Option<&[f32]>) {
+///
+/// `details` (micro details, Painter's Use Micro Details) adds the relief of the layers below to
+/// the curvature and occlusion the generator reads.
+fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]], input: Option<&[f32]>, details: Option<&[[f32; 4]]>) {
     if g.kind == GeneratorKind::MaskEditor {
         // Without a global blur the editor is local to the tile; with one, the stage graph
         // blurs `editor_raw` between these two steps.
@@ -84,7 +87,7 @@ fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]], input: 
     }
     let input = input.filter(|_| g.accepts_input());
     if g.kind == GeneratorKind::Edges && let Some(spread) = g.edge_spread {
-        eval_edge_spread(g, spread, tc, out, input);
+        eval_edge_spread(g, spread, tc, out, input, details);
         return;
     }
     let geo = tc.geo;
@@ -104,6 +107,14 @@ fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]], input: 
         }
         (None, Some(k)) => tc.sample.mesh_maps.read_tile(k, geo, &mut map),
         (None, None) => {}
+    }
+    let details = details.zip(g.micro_details_active());
+    if let Some((d, settings)) = details {
+        match map_kind {
+            Some(MeshMapKind::Curvature) => add_micro_curvature(&mut map, d, settings.amount),
+            Some(MeshMapKind::AmbientOcclusion) => add_micro_occlusion(&mut map, d, settings.amount),
+            _ => {}
+        }
     }
     let dir = Vec3::from_array(g.direction).normalize_or(Vec3::Y);
     let set = tc.set_geometry;
@@ -133,6 +144,9 @@ fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]], input: 
     if edges_masking > 0.0 && g.kind == GeneratorKind::Cavity {
         curvature = vec![[0.0f32; 3]; TILE_TEXELS];
         tc.sample.mesh_maps.read_tile(MeshMapKind::Curvature, geo, &mut curvature);
+        if let Some((d, settings)) = details {
+            add_micro_curvature(&mut curvature, d, settings.amount);
+        }
     }
     let floor = g.painter.map_or(0.0, |p| p.grunge_floor.clamp(0.0, 1.0));
     let grunge_map = (uses_grunge_map(g) || custom.is_some()) && g.kind != GeneratorKind::Edges;
@@ -429,6 +443,24 @@ pub(crate) fn editor_raw(g: &Generator, tc: &TileContext, out: &mut [f32]) {
     }
 }
 
+/// Micro details: the micro curvature (0.5 flat) added to a curvature map, `amount` of it.
+fn add_micro_curvature(map: &mut [[f32; 3]], details: &[[f32; 4]], amount: f32) {
+    let amount = amount.clamp(0.0, 1.0);
+    for (m, d) in map.iter_mut().zip(details) {
+        let v = (m[0] + (d[0] - 0.5) * amount).clamp(0.0, 1.0);
+        *m = [v; 3];
+    }
+}
+
+/// Micro details: an occlusion map darkened by the micro occlusion (1 open), `amount` of it.
+fn add_micro_occlusion(map: &mut [[f32; 3]], details: &[[f32; 4]], amount: f32) {
+    let amount = amount.clamp(0.0, 1.0);
+    for (m, d) in map.iter_mut().zip(details) {
+        let v = (m[0] * (1.0 - amount * (1.0 - d[1].clamp(0.0, 1.0)))).clamp(0.0, 1.0);
+        *m = [v; 3];
+    }
+}
+
 /// Whether the breakup reads the bundled grunge map (Painter-style Dirt / Edge wear).
 fn uses_grunge_map(g: &Generator) -> bool {
     g.painter.is_some_and(|p| p.grunge_map)
@@ -484,7 +516,7 @@ pub(crate) fn fine_noise(g: &Generator, geo: &subcraft_materials::sample::TileGe
     subcraft_materials::sample::organic_tile(&p, geo)
 }
 
-fn eval_edge_spread(g: &Generator, spread: subcraft_doc::EdgeSpread, tc: &TileContext, out: &mut [[f32; 4]], input: Option<&[f32]>) {
+fn eval_edge_spread(g: &Generator, spread: subcraft_doc::EdgeSpread, tc: &TileContext, out: &mut [[f32; 4]], input: Option<&[f32]>, details: Option<&[[f32; 4]]>) {
     let distances = tc.set_geometry.edge_distance_tile(tc.geo);
     // Variation changes the boundary even at zero Breakup. Breakup additionally erodes patches;
     // both share one cached non-periodic volume field and the existing Pattern size/Seed.
@@ -497,12 +529,19 @@ fn eval_edge_spread(g: &Generator, spread: subcraft_doc::EdgeSpread, tc: &TileCo
         ao_map = vec![[0.0; 3]; TILE_TEXELS];
         tc.sample.mesh_maps.read_tile(MeshMapKind::AmbientOcclusion, tc.geo, &mut ao_map);
     }
+    let details = details.zip(g.micro_details_active());
     let curvature_weight = painter.map_or(1.0, |p| p.curvature_weight.clamp(0.0, 2.0));
     let ao_masking = painter.map_or(0.0, |p| p.ao_masking.clamp(0.0, 1.0));
     let mut curvature = vec![[0.0; 3]; TILE_TEXELS];
     match input {
         Some(values) => curvature.iter_mut().zip(values).for_each(|(c, &v)| *c = [v; 3]),
         None => tc.sample.mesh_maps.read_tile(MeshMapKind::Curvature, tc.geo, &mut curvature),
+    }
+    if let Some((d, settings)) = details {
+        add_micro_curvature(&mut curvature, d, settings.amount);
+        if !ao_map.is_empty() {
+            add_micro_occlusion(&mut ao_map, d, settings.amount);
+        }
     }
     // Spread is a physical reach, independent of the baked-detail threshold. Multiplying by
     // Level made even maximum Spread almost disappear at the owner's Level 0.065 setting.
@@ -605,7 +644,10 @@ fn eval_id_color(id: &subcraft_doc::IdColorMask, tc: &TileContext, e: &mut [[f32
 
 /// One mask effect's `[value, coverage, _, _]` per texel. `input` is the effect's anchor input as
 /// gray (ADR-0045), when it has a resolved one.
-pub(crate) fn evaluate_effect(kind: &MaskEffectKind, tc: &TileContext, m: &[f32], e: &mut [[f32; 4]], input: Option<&[f32]>) {
+///
+/// `details` is the generator's micro detail tile (`[curvature, occlusion, _, _]`, see
+/// [`crate::stages`]), when it has micro details on and the layer stack below is known.
+pub(crate) fn evaluate_effect(kind: &MaskEffectKind, tc: &TileContext, m: &[f32], e: &mut [[f32; 4]], input: Option<&[f32]>, details: Option<&[[f32; 4]]>) {
         match kind {
             MaskEffectKind::Paint { image } => {
                 read_tile_rgba(image, tc.geo, e);
@@ -619,7 +661,7 @@ pub(crate) fn evaluate_effect(kind: &MaskEffectKind, tc: &TileContext, m: &[f32]
                     *o = [v, cover.as_ref().map_or(1.0, |c| c[i]), 0.0, 0.0];
                 }
             }
-            MaskEffectKind::Generator(g) => eval_generator(g, tc, e, input),
+            MaskEffectKind::Generator(g) => eval_generator(g, tc, e, input, details),
             MaskEffectKind::Anchor => e.fill([0.0; 4]),
             MaskEffectKind::AnchorRef { levels, .. } => match input {
                 Some(values) => {

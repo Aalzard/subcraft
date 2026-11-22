@@ -5726,3 +5726,33 @@ symmetry. `crates/app/tests/uv_tools.rs` covers session routing: the 2D clone so
   `id_sources_the_model_lacks_fall_back_to_generated_colours_with_a_warning`; mesh
   `obj_vertex_colors_and_material_colors_are_read`. Nothing was built or run locally (coordinator's rule after
   the PC's power cuts), and no capture was taken.
+
+### Generator micro details: Painter's "Use Micro Details" (2026-11-22, branch `claude/project-thread-hhrkej`)
+
+* **Why:** Painter's Dirt / Metal Edge Wear / Ambient Occlusion / Curvature generators can read the stack's Normal and
+  Height ("Micro Details"), so wear catches the small raised details of a material and dirt fills its small grooves.
+  SubCraft's generators only read the baked mesh maps, so the micro level looked different from Painter.
+* **Model:** `Generator::micro_details: Option<MicroDetails>` (`doc/src/mask.rs`): enabled, amount (the one easy
+  knob), Micro Normal / Micro Height, Curvature Type (Standard / Sobel / Smooth), Curvature Intensity, Height Details
+  Intensity, AO Radius, AO Depth. Serde default + skipped when absent: no schema bump, old files open with it off.
+  Read by Edges, Dirt, Ambient Occlusion, Concave and Mesh Map (Curvature / AO); kept but ignored on other kinds.
+* **Evaluation:** a `Node::MicroDetail` in the stage graph reads the Normal and Height accumulated below the layer (at
+  every folder level, so a generator inside a smart-material folder sees the relief under the folder), builds the
+  micro normal (normal below whiteout-blended with the height slope), measures its divergence as curvature (0.5 flat)
+  and an occlusion from how far a texel lies below its surroundings within AO Radius plus the grooves of the micro
+  normal. The generator adds `amount` of the micro curvature to its curvature and multiplies its occlusion by the
+  micro occlusion, then runs its usual threshold / breakup / spread math. Radii scale with resolution; the support
+  is capped at the 4096 radius so dirty-tile expansion stays conservative. Normal / Height are built before the other
+  channels when any generator uses micro details; the GPU compositor declines such sets (spatial), the CPU result is shown.
+* **Dirty tiles:** generators with micro details count as readers of the stack below (like Compare Mask), so a height
+  stroke under them updates the halo. Proven load-bearing: the incremental test fails without it.
+* **UI:** generator Properties: "Micro details (from Normal / Height below)" checkbox, Amount slider, and a "Micro
+  details settings" fold-out with Painter's controls.
+* **Tests:** `compositor/tests/micro_details.rs` (7: off / amount 0 / both inputs off bit-identical, dirt fills a
+  height groove and leaves open surface and ridge tops alone, edge wear catches a ridge rim and not the groove floor,
+  amount monotonic, inside a folder over relief outside it, incremental cache == full after a height edit next to a
+  tile border, deterministic), `stages` unit test (dome / bowl / flat normals for all three curvature types, Micro
+  Normal off), doc unit test, project round trip + older JSON. Compositor suite all green, doc / project tests green.
+* **Verified in a render:** `micro_details_sheet` example, images in `docs/generators/micro-details/`.
+* **Not done:** Mask Editor micro details; micro details on content (fill) generators; Painter's separate image
+  inputs for Micro Normal / Micro Height (the stack below is always used).

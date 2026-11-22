@@ -85,7 +85,7 @@ Layout notes: Global controls first, then the Use Texture / Use Micro Details to
 | Global Balance | Properties > Generator > Parameters | not documented | partial: one Balance stage only, it doubles as the per-map balance | crates/ui/src/panels/properties.rs:423 | - |
 | Global Contrast | Properties > Generator > Parameters | not documented | partial: one Contrast stage only, it doubles as the per-map contrast | crates/ui/src/panels/properties.rs:428 | - |
 | Use Texture | Properties > Generator > Parameters | not documented (toggle) | missing | - | - |
-| Use Micro Details | Properties > Generator > Parameters | not documented (toggle) | missing | - | - |
+| Use Micro Details | Properties > Generator > Parameters | not documented (toggle) | done: Micro details checkbox + Amount, settings fold-out (reads the Normal / Height below the layer) | crates/doc/src/mask.rs (MicroDetails) | - |
 | Invert | Properties > Generator > Ambient Occlusion | not documented (toggle) | missing | - | - |
 | Blur | Properties > Generator > Ambient Occlusion | not documented | missing | - | - |
 | Balance | Properties > Generator > Ambient Occlusion | not documented | missing | - | - |
@@ -99,10 +99,10 @@ Layout notes: Global controls first, then the Use Texture / Use Micro Details to
 | Brightness | Properties > Generator > Texture | not documented | missing | - | - |
 | Triplanar | Properties > Generator > Texture | not documented (toggle) | missing | - | - |
 | Triplanar Contrast | Properties > Generator > Texture | not documented | missing | - | - |
-| Micro Height (toggle) | Properties > Generator > Micro Details | not documented | missing | - | - |
-| Micro Normal (toggle) | Properties > Generator > Micro Details | not documented | missing | - | - |
-| AO Radius | Properties > Generator > Micro Details | not documented | missing | - | - |
-| AO Depth | Properties > Generator > Micro Details | not documented | missing | - | - |
+| Micro Height (toggle) | Properties > Generator > Micro Details | not documented | done: Micro details checkbox + Amount, settings fold-out (reads the Normal / Height below the layer) | crates/doc/src/mask.rs (MicroDetails) | - |
+| Micro Normal (toggle) | Properties > Generator > Micro Details | not documented | done: Micro details checkbox + Amount, settings fold-out (reads the Normal / Height below the layer) | crates/doc/src/mask.rs (MicroDetails) | - |
+| AO Radius | Properties > Generator > Micro Details | not documented | done: Micro details checkbox + Amount, settings fold-out (reads the Normal / Height below the layer) | crates/doc/src/mask.rs (MicroDetails) | - |
+| AO Depth | Properties > Generator > Micro Details | not documented | done: Micro details checkbox + Amount, settings fold-out (reads the Normal / Height below the layer) | crates/doc/src/mask.rs (MicroDetails) | - |
 
 ## Auto Stitcher
 
@@ -140,7 +140,7 @@ Layout notes: Same frame as Ambient Occlusion: global controls, two Use toggles,
 | Global Balance | Properties > Generator > Parameters | not documented | partial: one Balance stage only, it doubles as the per-map balance | crates/ui/src/panels/properties.rs:423 | - |
 | Global Contrast | Properties > Generator > Parameters | not documented | partial: one Contrast stage only, it doubles as the per-map contrast | crates/ui/src/panels/properties.rs:428 | - |
 | Use Texture | Properties > Generator > Parameters | not documented (toggle) | missing | - | - |
-| Use Micro Details | Properties > Generator > Parameters | not documented (toggle) | missing | - | - |
+| Use Micro Details | Properties > Generator > Parameters | not documented (toggle) | done: Micro details checkbox + Amount, settings fold-out (reads the Normal / Height below the layer) | crates/doc/src/mask.rs (MicroDetails) | - |
 | Invert | Properties > Generator > Curvature | not documented (toggle) | missing | - | - |
 | Mode | Properties > Generator > Curvature | not documented; options Edges / Cavities / Dual / Unprocessed | partial: chosen as the generator kind (Edges, Concave Curvature, Mesh Map: Curvature); no Dual | crates/ui/src/panels/properties.rs:548 | #131 |
 | Sharp | Properties > Generator > Curvature | not documented | missing | - | - |
@@ -161,11 +161,11 @@ Layout notes: Same frame as Ambient Occlusion: global controls, two Use toggles,
 | Brightness | Properties > Generator > Texture | not documented | missing | - | - |
 | Triplanar | Properties > Generator > Texture | not documented (toggle) | missing | - | - |
 | Triplanar Contrast | Properties > Generator > Texture | not documented | missing | - | - |
-| Micro Height (toggle) | Properties > Generator > Micro Details | not documented | missing | - | - |
-| Micro Normal (toggle) | Properties > Generator > Micro Details | not documented | missing | - | - |
-| Curvature Type | Properties > Generator > Micro Details | not documented; options Standard / Sobel / Smooth | missing | - | - |
-| Curvature Intensity | Properties > Generator > Micro Details | not documented (applies to Standard and Sobel) | missing | - | - |
-| Height Details Intensity | Properties > Generator > Micro Details | not documented | missing | - | - |
+| Micro Height (toggle) | Properties > Generator > Micro Details | not documented | done: Micro details checkbox + Amount, settings fold-out (reads the Normal / Height below the layer) | crates/doc/src/mask.rs (MicroDetails) | - |
+| Micro Normal (toggle) | Properties > Generator > Micro Details | not documented | done: Micro details checkbox + Amount, settings fold-out (reads the Normal / Height below the layer) | crates/doc/src/mask.rs (MicroDetails) | - |
+| Curvature Type | Properties > Generator > Micro Details | not documented; options Standard / Sobel / Smooth | done: Micro details checkbox + Amount, settings fold-out (reads the Normal / Height below the layer) | crates/doc/src/mask.rs (MicroDetails) | - |
+| Curvature Intensity | Properties > Generator > Micro Details | not documented (applies to Standard and Sobel) | done: Micro details checkbox + Amount, settings fold-out (reads the Normal / Height below the layer) | crates/doc/src/mask.rs (MicroDetails) | - |
+| Height Details Intensity | Properties > Generator > Micro Details | not documented | done: Micro details checkbox + Amount, settings fold-out (reads the Normal / Height below the layer) | crates/doc/src/mask.rs (MicroDetails) | - |
 
 ## Dirt
 
@@ -191,13 +191,13 @@ Layout notes: Seed and Invert first, then level / contrast, triplanar, grunge, E
 | Grunge Scale | Properties > Generator > Parameters | not documented | partial: "Pattern size" in percent of the model, 1-100 | crates/ui/src/panels/properties.rs:596 | - |
 | Use Custom Grunge | Properties > Generator > Parameters | not documented (toggle) | done: choosing an image turns it on, removing it turns it off | crates/ui/src/panels/properties.rs:441 | chunk 34 |
 | Edges Masking | Properties > Generator > Parameters | not documented | done | crates/ui/src/panels/properties.rs:450 | - |
-| Micro Height (toggle) | Properties > Generator > Micro Details | not documented | missing | - | - |
-| Micro Normal (toggle) | Properties > Generator > Micro Details | not documented | missing | - | - |
-| Curvature Type | Properties > Generator > Micro Details | not documented; options Standard / Sobel / Smooth | missing | - | - |
-| Curvature Intensity | Properties > Generator > Micro Details | not documented (applies to Standard and Sobel) | missing | - | - |
-| Height Details Intensity | Properties > Generator > Micro Details | not documented | missing | - | - |
-| AO Radius | Properties > Generator > Micro Details | not documented | missing | - | - |
-| AO Depth | Properties > Generator > Micro Details | not documented | missing | - | - |
+| Micro Height (toggle) | Properties > Generator > Micro Details | not documented | done: Micro details checkbox + Amount, settings fold-out (reads the Normal / Height below the layer) | crates/doc/src/mask.rs (MicroDetails) | - |
+| Micro Normal (toggle) | Properties > Generator > Micro Details | not documented | done: Micro details checkbox + Amount, settings fold-out (reads the Normal / Height below the layer) | crates/doc/src/mask.rs (MicroDetails) | - |
+| Curvature Type | Properties > Generator > Micro Details | not documented; options Standard / Sobel / Smooth | done: Micro details checkbox + Amount, settings fold-out (reads the Normal / Height below the layer) | crates/doc/src/mask.rs (MicroDetails) | - |
+| Curvature Intensity | Properties > Generator > Micro Details | not documented (applies to Standard and Sobel) | done: Micro details checkbox + Amount, settings fold-out (reads the Normal / Height below the layer) | crates/doc/src/mask.rs (MicroDetails) | - |
+| Height Details Intensity | Properties > Generator > Micro Details | not documented | done: Micro details checkbox + Amount, settings fold-out (reads the Normal / Height below the layer) | crates/doc/src/mask.rs (MicroDetails) | - |
+| AO Radius | Properties > Generator > Micro Details | not documented | done: Micro details checkbox + Amount, settings fold-out (reads the Normal / Height below the layer) | crates/doc/src/mask.rs (MicroDetails) | - |
+| AO Depth | Properties > Generator > Micro Details | not documented | done: Micro details checkbox + Amount, settings fold-out (reads the Normal / Height below the layer) | crates/doc/src/mask.rs (MicroDetails) | - |
 
 ## Dripping Rust
 
@@ -506,13 +506,13 @@ Layout notes: Seed and Invert, wear level / contrast, triplanar, grunge, then Ed
 | Edges Smoothness | Properties > Generator > Parameters | not documented | done | crates/ui/src/panels/properties.rs:460 | - |
 | Ambient Occlusion Masking | Properties > Generator > Parameters | not documented | done | crates/ui/src/panels/properties.rs:456 | - |
 | Curvature Weight | Properties > Generator > Parameters | not documented | done | crates/ui/src/panels/properties.rs:458 | - |
-| Micro Height (toggle) | Properties > Generator > Micro Details | not documented | missing | - | - |
-| Micro Normal (toggle) | Properties > Generator > Micro Details | not documented | missing | - | - |
-| Curvature Type | Properties > Generator > Micro Details | not documented; options Standard / Sobel / Smooth | missing | - | - |
-| Curvature Intensity | Properties > Generator > Micro Details | not documented (applies to Standard and Sobel) | missing | - | - |
-| Height Details Intensity | Properties > Generator > Micro Details | not documented | missing | - | - |
-| AO Radius | Properties > Generator > Micro Details | not documented | missing | - | - |
-| AO Depth | Properties > Generator > Micro Details | not documented | missing | - | - |
+| Micro Height (toggle) | Properties > Generator > Micro Details | not documented | done: Micro details checkbox + Amount, settings fold-out (reads the Normal / Height below the layer) | crates/doc/src/mask.rs (MicroDetails) | - |
+| Micro Normal (toggle) | Properties > Generator > Micro Details | not documented | done: Micro details checkbox + Amount, settings fold-out (reads the Normal / Height below the layer) | crates/doc/src/mask.rs (MicroDetails) | - |
+| Curvature Type | Properties > Generator > Micro Details | not documented; options Standard / Sobel / Smooth | done: Micro details checkbox + Amount, settings fold-out (reads the Normal / Height below the layer) | crates/doc/src/mask.rs (MicroDetails) | - |
+| Curvature Intensity | Properties > Generator > Micro Details | not documented (applies to Standard and Sobel) | done: Micro details checkbox + Amount, settings fold-out (reads the Normal / Height below the layer) | crates/doc/src/mask.rs (MicroDetails) | - |
+| Height Details Intensity | Properties > Generator > Micro Details | not documented | done: Micro details checkbox + Amount, settings fold-out (reads the Normal / Height below the layer) | crates/doc/src/mask.rs (MicroDetails) | - |
+| AO Radius | Properties > Generator > Micro Details | not documented | done: Micro details checkbox + Amount, settings fold-out (reads the Normal / Height below the layer) | crates/doc/src/mask.rs (MicroDetails) | - |
+| AO Depth | Properties > Generator > Micro Details | not documented | done: Micro details checkbox + Amount, settings fold-out (reads the Normal / Height below the layer) | crates/doc/src/mask.rs (MicroDetails) | - |
 
 ## Position
 

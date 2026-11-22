@@ -1045,6 +1045,35 @@ fn generator_micro_effect_round_trips_and_is_absent_in_older_files() {
     assert_eq!(back, Generator { micro: None, ..g });
 }
 
+#[test]
+fn generator_micro_details_round_trip_and_are_absent_in_older_files() {
+    let mut g = Generator::new(GeneratorKind::Cavity);
+    assert!(g.micro_details.is_none());
+    assert!(serde_json::to_value(g).unwrap().get("micro_details").is_none(), "off is not written, so older files are unchanged");
+    g.micro_details = Some(subcraft_doc::MicroDetails { enabled: true, amount: 0.6, curvature_type: subcraft_doc::MicroCurvatureType::Sobel, ao_radius: 0.4, ..Default::default() });
+    let json = serde_json::to_value(g).unwrap();
+    assert_eq!(json["micro_details"]["curvature_type"], "sobel");
+    assert_eq!(serde_json::from_value::<Generator>(json.clone()).unwrap(), g);
+    // Missing fields inside take their defaults (a hand-edited or future-trimmed file).
+    let mut partial = json.clone();
+    partial["micro_details"] = serde_json::json!({ "enabled": true });
+    let back: Generator = serde_json::from_value(partial).unwrap();
+    assert_eq!(back.micro_details, Some(subcraft_doc::MicroDetails { enabled: true, ..Default::default() }));
+    // A whole project keeps it.
+    let mut ts = TextureSet::new("Body", 0, 128);
+    let mut layer = Layer::new_fill("Dirt", &ts);
+    layer.mask = Some(Mask::new(128, false));
+    layer.mask.as_mut().unwrap().effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Generator(g))));
+    ts.insert_above(None, layer);
+    let doc = Document { texture_sets: vec![ts] };
+    let bytes = write_project(Cursor::new(Vec::new()), &primitives::sample_crate(), &doc, &ResourceStore::default(), &MeshMapSet::new()).unwrap().into_inner();
+    assert_eq!(read_project(Cursor::new(bytes)).unwrap().document, doc);
+    // Older JSON without the key opens with micro details off.
+    let mut old = serde_json::to_value(Generator::new(GeneratorKind::Cavity)).unwrap();
+    old.as_object_mut().unwrap().remove("micro_details");
+    assert!(serde_json::from_value::<Generator>(old).unwrap().micro_details.is_none());
+}
+
 /// Schema 17 (ADR-0045): anchor points, Anchor References (with Levels), anchor fill sources and
 /// generator inputs survive a round trip with their ids; the new JSON is stable; schema 16
 /// projects load unchanged; a generator without an input writes no `input` key.

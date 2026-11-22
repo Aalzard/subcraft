@@ -302,8 +302,9 @@ fn diff_lists(old: &[Arc<Layer>], new: &[Arc<Layer>], resolution: u32) -> Dirty 
     // Anchor references (ADR-0045) read other layers' content texel by texel, so a raster edit
     // also changes the readers at the same texels; any filter on a reader's path spreads it.
     // Conservatively grow by every filter of the set. Compare Masks reading the layer stack are
-    // readers too (QA 2026-11: a blur after one left the neighbouring tiles stale).
-    let readers = if subcraft_doc::anchor::has_references(new) || crate::stages::has_compare(new) { crate::stages::halo(new) } else { 0 };
+    // readers too (QA 2026-11: a blur after one left the neighbouring tiles stale), and so are
+    // generators with micro details (they read the Normal / Height below their layer).
+    let readers = if subcraft_doc::anchor::has_references(new) || crate::stages::has_compare(new) || crate::stages::has_micro_details(new) { crate::stages::halo(new) } else { 0 };
     if collect_list(old, new, &mut tiles, n, readers) { Dirty::Tiles(tiles) } else { Dirty::All }
 }
 
