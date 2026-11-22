@@ -1091,6 +1091,32 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
                             changed = true;
                         }
                     }
+                    // Micro details: the Normal / Height below add curvature and occlusion (Painter's
+                    // Use Micro Details). One Amount slider; Painter's own controls fold out below it.
+                    if g.accepts_micro_details() {
+                        let mut details_on = g.micro_details.is_some_and(|d| d.enabled);
+                        prop_row(ui, "", |ui| {
+                            if ui.checkbox(&mut details_on, tr("Micro details (from Normal / Height below)")).on_hover_text(tr("Also reads the normal and height maps of the layers below, so wear catches their small raised details and dirt settles into their small grooves, as Painter's Use Micro Details does. Needs a layer below with a Normal or Height map.")).changed() {
+                                g.set_micro_details_enabled(details_on); changed = true;
+                            }
+                        });
+                        if let Some(d) = g.micro_details.as_mut().filter(|d| d.enabled) {
+                            changed |= slider_row(ui, tr("Micro details amount"), egui::Slider::new(&mut d.amount, 0.0..=1.0)).on_hover_text(tr("How much the fine relief below adds to the baked curvature and occlusion")).changed();
+                            egui::CollapsingHeader::new(tr("Micro details settings")).id_salt("micro_details_settings").show(ui, |ui| {
+                                prop_row(ui, "", |ui| {
+                                    changed |= ui.checkbox(&mut d.micro_normal, tr("Micro Normal")).changed();
+                                    changed |= ui.checkbox(&mut d.micro_height, tr("Micro Height")).changed();
+                                });
+                                prop_row(ui, tr("Curvature Type"), |ui| for t in subcraft_doc::MicroCurvatureType::ALL {
+                                    changed |= ui.selectable_value(&mut d.curvature_type, t, tr(t.label())).changed();
+                                });
+                                changed |= slider_row(ui, tr("Curvature Intensity"), egui::Slider::new(&mut d.curvature_intensity, 0.0..=4.0)).changed();
+                                changed |= slider_row(ui, tr("Height Details Intensity"), egui::Slider::new(&mut d.height_intensity, 0.0..=4.0)).changed();
+                                changed |= slider_row(ui, tr("AO Radius"), egui::Slider::new(&mut d.ao_radius, 0.0..=1.0)).changed();
+                                changed |= slider_row(ui, tr("AO Depth"), egui::Slider::new(&mut d.ao_depth, 0.0..=1.0)).changed();
+                            });
+                        }
+                    }
                     // Micro effect: the same mask also writes Normal / Height of the layers below.
                     let mut micro_on = g.micro.is_some_and(|m| m.enabled);
                     prop_row(ui, "", |ui| {

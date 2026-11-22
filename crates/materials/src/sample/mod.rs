@@ -147,6 +147,15 @@ pub fn organic_tile_at(params: &ProceduralParams, offset: [f32; 3], geo: &TileGe
     }).collect())
 }
 
+/// The chipped-paint breakup ([`crate::chips`]) of every texel of a tile, moved by `offset`,
+/// cached like the other fields.
+pub fn chips_tile_at(params: &ProceduralParams, offset: [f32; 3], geo: &TileGeometry) -> std::sync::Arc<field::Field> {
+    geo.fields.get_or_compute(field::FieldKey::chips(params).at(offset), || (0..TILE_TEXELS).map(|i| {
+        let p = geo.position(i);
+        crate::chips::eval(params, [p[0] + offset[0], p[1] + offset[1], p[2] + offset[2]])
+    }).collect())
+}
+
 /// The bundled grunge map ([`crate::grunge`]) of every texel of a tile, moved by `offset` (same
 /// units as [`procedural_tile_at`]), cached like the other fields.
 pub fn grunge_tile_at(params: &ProceduralParams, offset: [f32; 3], geo: &TileGeometry) -> std::sync::Arc<field::Field> {

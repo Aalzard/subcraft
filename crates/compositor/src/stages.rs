@@ -118,6 +118,8 @@ enum Node<'a> {
         /// Compare Mask: the composite of the layers below and this layer's own content, in the
         /// compared channel (`None` when the effect does not read it).
         compare: [Option<usize>; 2],
+        /// Micro details: the generator's [`Node::MicroDetail`] (`None` when off).
+        details: Option<usize>,
     },
     /// A fill channel reading an anchor (ADR-0045): `source`'s `from` channel (`None`: a mask
     /// anchor) as `to`, scaled by the channel's strength.
@@ -194,6 +196,14 @@ enum Node<'a> {
         generator: &'a Generator,
         opacity: f32,
     },
+    /// Micro details (Painter's Use Micro Details): `[curvature, occlusion, 0, 1]` per texel from
+    /// the Normal and Height below a layer. `chain` holds the `[normal, height]` accumulations
+    /// below each level from the top-level ancestor down to the layer itself (inside folders the
+    /// accumulation starts transparent, so the outer levels show through it).
+    MicroDetail {
+        chain: Arc<Vec<[usize; 2]>>,
+        settings: subcraft_doc::MicroDetails,
+    },
     /// Height channel: adds the micro delta.
     MicroHeight {
         below: usize,
@@ -229,6 +239,7 @@ impl Node<'_> {
             Self::Gaussian { .. } => "gaussian pass",
             Self::EditorRaw { .. } => "mask editor",
             Self::MicroDelta { .. } => "micro delta",
+            Self::MicroDetail { .. } => "micro details",
             Self::MicroHeight { .. } => "micro height",
             Self::MicroNormal { .. } => "micro normal",
         }
@@ -560,13 +571,15 @@ impl<'a> Graph<'a> {
     fn inputs(node: &Node) -> Vec<usize> {
         match node {
             Node::Constant(_) | Node::Paint(_, _) | Node::Fill(_, _) | Node::MaskBase(_) | Node::EditorRaw { generator: _ } => Vec::new(),
-            Node::MaskEffect { input, effect: _, filtered, anchor, compare } => {
+            Node::MaskEffect { input, effect: _, filtered, anchor, compare, details } => {
                 let mut v = vec![*input];
                 v.extend(*filtered);
                 v.extend(anchor.map(|a| a.0));
                 v.extend(compare.iter().flatten().copied());
+                v.extend(*details);
                 v
             }
+            Node::MicroDetail { chain, settings: _ } => chain.iter().flatten().copied().collect(),
             Node::AnchorRead { source, from: _, to: _, strength: _ } => vec![*source],
             Node::ContentEffect { input, effect: _, kind: _, filtered } => {
                 let mut v = vec![*input];
@@ -611,7 +624,8 @@ impl<'a> Graph<'a> {
         for i in 0..n {
             let own = match &self.nodes[i] {
                 Node::AnchorRead { .. } => false,
-                Node::MaskEffect { anchor, compare, .. } => anchor.is_none() && compare.iter().all(Option::is_none),
+                Node::MaskEffect { anchor, compare, details, .. } => anchor.is_none() && compare.iter().all(Option::is_none) && details.is_none(),
+                Node::MicroDetail { .. } => false,
                 _ => true,
             };
             let inputs = Self::inputs(&self.nodes[i]);
@@ -678,9 +692,10 @@ impl<'a> Graph<'a> {
                         _ => true,
                     }
             }
-            Node::MaskEffect { input, effect, anchor, filtered, compare } => {
+            Node::MaskEffect { input, effect, anchor, filtered, compare, details } => {
                 self.uniform[*input]
                     && filtered.is_none_or(|f| self.uniform[f])
+                    && details.is_none_or(|d| self.uniform[d])
                     && anchor.is_none_or(|(a, _)| self.uniform[a])
                     && compare.iter().flatten().all(|&c| self.uniform[c])
                     && match &effect.kind {
@@ -692,6 +707,8 @@ impl<'a> Graph<'a> {
                     }
             }
             Node::EditorRaw { .. } | Node::MicroDelta { .. } | Node::MicroHeight { .. } | Node::MicroNormal { .. } => false,
+            // Flat Normal and Height below: the same flat details everywhere.
+            Node::MicroDetail { chain, .. } => chain.iter().flatten().all(|&n| self.uniform[n]),
             Node::AnchorRead { source, .. } => self.uniform[*source],
             Node::Layer {
                 below,
@@ -918,12 +935,17 @@ impl<'a> Graph<'a> {
                         (MaskEffectKind::Compare(c), Some(layer)) => self.compare_operands(layer, c),
                         _ => [None, None],
                     };
+                    let details = match (&effect.kind, owner) {
+                        (MaskEffectKind::Generator(g), Some(layer)) => g.micro_details_active().and_then(|d| self.micro_detail_node(layer, d)),
+                        _ => None,
+                    };
                     input = self.push(Node::MaskEffect {
                         input,
                         effect,
                         filtered,
                         anchor,
                         compare,
+                        details,
                     });
                     if let MaskEffectKind::Generator(g) = &effect.kind
                         && g.micro_active()
@@ -940,6 +962,58 @@ impl<'a> Graph<'a> {
             a.masks.insert(layer.id, steps);
         }
         (input, micro)
+    }
+    /// Micro details of a generator in `layer`'s mask: a [`Node::MicroDetail`] over the Normal and
+    /// Height below the layer, at every folder level from the top down.
+    fn micro_detail_node(&mut self, layer: &'a Layer, settings: subcraft_doc::MicroDetails) -> Option<usize> {
+        let path = ancestry(self.top, layer.id)?;
+        let mut chain = Vec::with_capacity(path.len());
+        for (depth, level) in path.iter().enumerate() {
+            let pair = [ChannelKind::Normal, ChannelKind::Height].map(|kind| {
+                if depth == 0 {
+                    // Top level: recorded, or rebuilt from the layers below.
+                    Some(self.layer_below(level, kind))
+                } else {
+                    // Inside a folder: only what that channel's build recorded (a folder that does
+                    // not take part in a channel never builds its children for it).
+                    self.compare_below.get(&(level.id, kind)).copied()
+                }
+            });
+            // Nothing recorded: a transparent level, so the one above shows through.
+            let normal = match pair[0] { Some(n) => n, None => self.push(Node::Constant([0.0; 4])) };
+            let height = match pair[1] { Some(n) => n, None => self.push(Node::Constant([0.0; 4])) };
+            chain.push([normal, height]);
+        }
+        Some(self.push(Node::MicroDetail { chain: Arc::new(chain), settings }))
+    }
+    /// Micro curvature and occlusion for one tile (see [`Node::MicroDetail`]).
+    fn micro_detail(&self, chain: &[[usize; 2]], settings: &subcraft_doc::MicroDetails, geo: &subcraft_materials::TileGeometry) -> Vec<[f32; 4]> {
+        let res = self.ctx.geometry.resolution;
+        let scale = res as f32 / 2048.0;
+        let support = settings.support();
+        // Occlusion radius in texels, never beyond the support the dirty-tile expansion assumes.
+        let ao_r = ((1.0 + settings.ao_radius.clamp(0.0, 1.0) * (subcraft_doc::MicroDetails::MAX_AO_TEXELS - 1.0)) * scale * self.radius_scale)
+            .clamp(1.0, support.saturating_sub(2).max(1) as f32);
+        let reach = ao_r.ceil() as u32 + 2;
+        let grids: Vec<[Neighborhood; 2]> = chain.iter().map(|pair| pair.map(|n| Neighborhood::new(self, n, geo, reach))).collect();
+        // The Normal and Height a texel sees: each level over the one above it, by its coverage.
+        let sample = |x: i32, y: i32| -> ([f32; 3], f32) {
+            let px = x.clamp(0, res as i32 - 1) as u32;
+            let py = y.clamp(0, res as i32 - 1) as u32;
+            let mut n = [0.5, 0.5, 1.0];
+            let mut h = 0.0;
+            for (depth, [gn, gh]) in grids.iter().enumerate() {
+                let a = gn.pixel(px, py);
+                let b = gh.pixel(px, py);
+                let (wa, wb) = if depth == 0 { (1.0, 1.0) } else { (a[3].clamp(0.0, 1.0), b[3].clamp(0.0, 1.0)) };
+                for c in 0..3 {
+                    n[c] += (a[c] - n[c]) * wa;
+                }
+                h += (b[0] - h) * wb;
+            }
+            (n, h)
+        };
+        micro_detail_tile(settings, res, ao_r, geo, sample)
     }
     fn stack(&mut self, layers: &'a [Arc<Layer>], mut below: usize, kind: ChannelKind) -> usize {
         for layer in layers {
@@ -1051,8 +1125,11 @@ impl<'a> Graph<'a> {
                 let mut read = |i: usize| uses[i] += 1;
                 match node {
                     Node::Constant(_) | Node::Paint(..) | Node::Fill(..) | Node::MaskBase(_) | Node::EditorRaw { .. } => {}
-                    Node::MaskEffect { input, filtered, anchor, compare, .. } => {
+                    Node::MaskEffect { input, filtered, anchor, compare, details, .. } => {
                         read(*input);
+                        if let Some(d) = details {
+                            read(*d);
+                        }
                         if let Some(f) = filtered {
                             read(*f);
                         }
@@ -1091,6 +1168,12 @@ impl<'a> Graph<'a> {
                         // itself: keep it so the generator runs once per tile.
                         shared[*mask] = true;
                         uses[*mask] += 2;
+                    }
+                    Node::MicroDetail { chain, .. } => {
+                        for &n in chain.iter().flatten() {
+                            shared[n] = true;
+                            uses[n] += 2;
+                        }
                     }
                     Node::MicroHeight { below, delta } | Node::MicroNormal { below, delta } => {
                         read(*below);
@@ -1326,6 +1409,7 @@ impl<'a> Graph<'a> {
                 filtered,
                 anchor,
                 compare,
+                details,
             } => {
                 let source = self.get(*input, tile);
                 let mut e = vec![[0.0; 4]; TILE_TEXELS];
@@ -1358,7 +1442,8 @@ impl<'a> Graph<'a> {
                 } else {
                     let m: Vec<_> = source.iter().map(|v| v[0]).collect();
                     let input = anchor.map(|(node, from)| anchor_gray(&self.get(node, tile), from));
-                    crate::mask::evaluate_effect(&effect.kind, &tc, &m, &mut e, input.as_deref());
+                    let details = details.map(|d| self.get(d, tile));
+                    crate::mask::evaluate_effect(&effect.kind, &tc, &m, &mut e, input.as_deref(), details.as_deref().map(|d| d.as_slice()));
                 }
                 let mut out = source.as_ref().clone();
                 // `[value; 3]` with the effect's coverage in alpha, blended with the mode chosen once.
@@ -1430,6 +1515,7 @@ impl<'a> Graph<'a> {
                 }
                 out
             }
+            Node::MicroDetail { chain, settings } => self.micro_detail(chain, settings, &geo),
             Node::MicroHeight { below, delta } => {
                 let mut out = self.get(*below, tile).as_ref().clone();
                 let delta = self.get(*delta, tile);
@@ -2111,6 +2197,10 @@ fn compared_channels(layers: &[Arc<Layer>]) -> Vec<ChannelKind> {
     let mut out = Vec::new();
     compares(layers, &mut out);
     let mut kinds: Vec<ChannelKind> = out.iter().map(|c| c.channel).collect();
+    // Micro details read the Normal and Height below their layers in every other channel.
+    if has_micro_details(layers) {
+        kinds.extend([ChannelKind::Normal, ChannelKind::Height]);
+    }
     kinds.sort();
     kinds.dedup();
     kinds
@@ -2132,6 +2222,137 @@ pub(crate) fn mask_spatial(mask: &Mask) -> bool {
         .any(|e| e.visible && e.opacity > 0.0 && (matches!(e.kind,MaskEffectKind::Filter(f) if f.valid() && f.supports_mask() && f.radius().is_some())
             || matches!(&e.kind, MaskEffectKind::Generator(g) if g.editor_blur() > 0.0)))
 }
+/// The layers from the top-level one down to the layer `id` (inclusive), or `None` when it is
+/// not in `layers`.
+fn ancestry(layers: &[Arc<Layer>], id: LayerId) -> Option<Vec<&Layer>> {
+    for l in layers {
+        if l.id == id {
+            return Some(vec![l]);
+        }
+        if let LayerContent::Group(g) = &l.content
+            && let Some(mut path) = ancestry(&g.children, id)
+        {
+            path.insert(0, l);
+            return Some(path);
+        }
+    }
+    None
+}
+
+/// Curvature gain of micro details at 2048: a 45 degree normal-map bevel one texel wide reaches
+/// full convexity.
+const MICRO_CURVATURE_GAIN: f32 = 1.5;
+/// Occlusion of micro details per height unit a texel lies below its surroundings, at AO Depth 1.
+const MICRO_OCCLUSION_GAIN: f32 = 12.0;
+
+/// Micro details of one tile: `[curvature (0.5 flat), occlusion (1 open), 0, 1]` per texel.
+/// `sample(x, y)` gives the encoded tangent-space normal and the height below at a texel (clamped
+/// to the texture); `ao_r` is the occlusion radius in texels.
+fn micro_detail_tile(settings: &subcraft_doc::MicroDetails, res: u32, ao_r: f32, geo: &subcraft_materials::TileGeometry, sample: impl Fn(i32, i32) -> ([f32; 3], f32)) -> Vec<[f32; 4]> {
+    use glam::{Vec2, Vec3};
+    let t = TILE_SIZE as i32;
+    let pad = ao_r.ceil() as i32 + 2;
+    let side = t + 2 * pad;
+    let (ox, oy) = (geo.x0 as i32 - pad, geo.y0 as i32 - pad);
+    let at = |x: i32, y: i32| (y * side + x) as usize;
+    let len = (side * side) as usize;
+    let (mut nb, mut hb) = (vec![Vec3::Z; len], vec![0.0f32; len]);
+    for y in 0..side {
+        for x in 0..side {
+            let (n, h) = sample(ox + x, oy + y);
+            nb[at(x, y)] = Vec3::new(n[0] * 2.0 - 1.0, n[1] * 2.0 - 1.0, n[2] * 2.0 - 1.0);
+            hb[at(x, y)] = if h.is_finite() { h } else { 0.0 };
+        }
+    }
+    // The micro normal: the normal below, the height's slope whiteout-blended on top of it.
+    let gain = res as f32 * MICRO_NORMAL_GAIN * settings.height_intensity.clamp(0.0, 4.0);
+    let use_height = settings.micro_height && gain > 0.0;
+    let mut cn = vec![Vec3::Z; len];
+    for y in 1..side - 1 {
+        for x in 1..side - 1 {
+            let mut n = if settings.micro_normal { nb[at(x, y)].normalize_or(Vec3::Z) } else { Vec3::Z };
+            if use_height {
+                let gx = (hb[at(x + 1, y)] - hb[at(x - 1, y)]) * 0.5;
+                let gy = (hb[at(x, y + 1)] - hb[at(x, y - 1)]) * 0.5;
+                if gx != 0.0 || gy != 0.0 {
+                    // OpenGL normal map, texel y grows downwards (as the micro effect).
+                    let hn = Vec3::new(-gx * gain, gy * gain, 1.0).normalize();
+                    n = Vec3::new(n.x + hn.x, n.y + hn.y, n.z * hn.z).normalize_or(Vec3::Z);
+                }
+            }
+            cn[at(x, y)] = n;
+        }
+    }
+    let k = MICRO_CURVATURE_GAIN * settings.curvature_intensity.clamp(0.0, 4.0) * res as f32 / 2048.0;
+    let depth = settings.ao_depth.clamp(0.0, 1.0);
+    // Occlusion taps: eight directions at the full and half radius.
+    let taps: Vec<(i32, i32)> = (0..16)
+        .map(|i| {
+            let angle = (i % 8) as f32 * std::f32::consts::FRAC_PI_4 + if i >= 8 { std::f32::consts::FRAC_PI_8 } else { 0.0 };
+            let r = if i >= 8 { ao_r * 0.5 } else { ao_r };
+            let d = Vec2::from_angle(angle) * r;
+            (d.x.round() as i32, d.y.round() as i32)
+        })
+        .collect();
+    let mut out = vec![[0.5, 1.0, 0.0, 1.0]; TILE_TEXELS];
+    for (i, o) in out.iter_mut().enumerate() {
+        let (tx, ty) = geo.texel_xy(i);
+        if tx >= res || ty >= res {
+            continue;
+        }
+        let (x, y) = (tx as i32 - ox, ty as i32 - oy);
+        // Divergence of the normal's slope: positive on ridges (convex), negative in grooves.
+        let div = match settings.curvature_type {
+            subcraft_doc::MicroCurvatureType::Standard => (cn[at(x + 1, y)].x - cn[at(x - 1, y)].x) * 0.5 - (cn[at(x, y + 1)].y - cn[at(x, y - 1)].y) * 0.5,
+            subcraft_doc::MicroCurvatureType::Sobel => {
+                let dx = |dy: i32| cn[at(x + 1, y + dy)].x - cn[at(x - 1, y + dy)].x;
+                let dy = |dx: i32| cn[at(x + dx, y + 1)].y - cn[at(x + dx, y - 1)].y;
+                (dx(-1) + 2.0 * dx(0) + dx(1)) / 8.0 - (dy(-1) + 2.0 * dy(0) + dy(1)) / 8.0
+            }
+            subcraft_doc::MicroCurvatureType::Smooth => {
+                let mut d = 0.0;
+                for j in -1..=1 {
+                    d += (cn[at(x + 2, y + j)].x - cn[at(x - 2, y + j)].x) * 0.25 - (cn[at(x + j, y + 2)].y - cn[at(x + j, y - 2)].y) * 0.25;
+                }
+                d / 3.0
+            }
+        };
+        let curvature = (0.5 + div * k).clamp(0.0, 1.0);
+        // Height occlusion: how far the texel lies below its surroundings.
+        let open_height = if settings.micro_height && depth > 0.0 {
+            let h = hb[at(x, y)];
+            let avg = taps.iter().map(|&(dx, dy)| hb[at(x + dx, y + dy)]).sum::<f32>() / taps.len() as f32;
+            1.0 - ((avg - h) * MICRO_OCCLUSION_GAIN * depth).clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
+        // Grooves of the micro normal hold dirt too, with or without a height map.
+        let concave = ((0.5 - curvature) * 2.0).clamp(0.0, 1.0);
+        let occlusion = open_height * (1.0 - concave * depth);
+        *o = [curvature, occlusion, 0.0, 1.0];
+    }
+    out
+}
+
+/// Whether a visible layer (anywhere in the tree) has a generator with micro details on.
+pub(crate) fn has_micro_details(layers: &[Arc<Layer>]) -> bool {
+    layers.iter().filter(|l| l.visible).any(|l| micro_details_support(l) > 0 || matches!(&l.content, LayerContent::Group(g) if has_micro_details(&g.children)))
+}
+
+/// Texels the micro details of a layer's own mask read beyond its own (0 without any).
+fn micro_details_support(l: &Layer) -> u32 {
+    let Some(m) = l.mask.as_ref().filter(|m| m.enabled) else { return 0 };
+    m.effects
+        .iter()
+        .filter(|e| e.visible && e.opacity > 0.0)
+        .filter_map(|e| match &e.kind {
+            MaskEffectKind::Generator(g) => g.micro_details_active().map(|d| d.support()),
+            _ => None,
+        })
+        .max()
+        .unwrap_or(0)
+}
+
 /// Slope per UV unit per (height unit per texel x resolution): how strongly a micro height change
 /// leans the normal.
 const MICRO_NORMAL_GAIN: f32 = 0.25;
@@ -2143,7 +2364,7 @@ pub(crate) fn micro_layer(l: &Layer) -> bool {
 }
 pub(crate) fn has_spatial(layers: &[Arc<Layer>]) -> bool {
     layers.iter().filter(|l|l.visible).any(|l| {
-        micro_layer(l) ||
+        micro_layer(l) || micro_details_support(l) > 0 ||
         l.content_effects.iter().any(
             |e| e.visible && matches!(e.kind,ContentEffectKind::Filter{filter,..} if filter.valid() && filter.radius().is_some())
                 && e.filter_channels().into_iter().any(|c| e.blend_for(c).is_active()),
@@ -2154,7 +2375,7 @@ pub(crate) fn has_spatial(layers: &[Arc<Layer>]) -> bool {
 /// Supports of the filters in a layer's own content and mask effects (not its children).
 pub(crate) fn own_halo(l: &Layer) -> u32 {
     // The micro effect's normal reads one texel of its neighbours' height.
-    let mut sum = micro_layer(l) as u32;
+    let mut sum = (micro_layer(l) as u32).saturating_add(micro_details_support(l));
     for e in l.content_effects.iter().filter(|e| e.visible) {
         if let ContentEffectKind::Filter { filter, .. } = e.kind {
             sum = sum.saturating_add(filter.support());
@@ -2181,7 +2402,7 @@ fn editor_support(kind: &MaskEffectKind) -> u32 {
 pub(crate) fn halo(layers: &[Arc<Layer>]) -> u32 {
     let mut sum = 0u32;
     for l in layers.iter().filter(|l| l.visible) {
-        sum = sum.saturating_add(micro_layer(l) as u32);
+        sum = sum.saturating_add(micro_layer(l) as u32).saturating_add(micro_details_support(l));
         for e in l.content_effects.iter().filter(|e| e.visible) {
             if let ContentEffectKind::Filter { filter, .. } = e.kind {
                 sum = sum.saturating_add(filter.support());
@@ -2302,6 +2523,34 @@ pub(crate) fn content_preview_in_stack(
 mod tests {
     use super::*;
     use rayon::prelude::*;
+    /// Micro details from a normal map alone: a dome (normals leaning outward) is convex, a bowl
+    /// (normals leaning inward) concave and occluded; a flat normal gives neutral values.
+    #[test]
+    fn micro_details_measure_curvature_from_the_normal_below() {
+        let geo = subcraft_materials::TextureSetGeometry::new(std::sync::Arc::new(subcraft_mesh::primitives::plane(2.0, 1)), 0, 64);
+        let tile = geo.tile(0);
+        let settings = subcraft_doc::MicroDetails { enabled: true, micro_height: false, ..Default::default() };
+        // Slope field of a dome (s = 1) or bowl (s = -1) centred at texel 32: OpenGL normal, texel y down.
+        let field = |s: f32| move |x: i32, y: i32| {
+            let (dx, dy) = ((x as f32 - 32.0) / 24.0, (y as f32 - 32.0) / 24.0);
+            let n = glam::Vec3::new(s * dx, -s * dy, 1.0).normalize();
+            ([n.x * 0.5 + 0.5, n.y * 0.5 + 0.5, n.z * 0.5 + 0.5], 0.0)
+        };
+        let centre = 32 * 64 + 32;
+        for kind in subcraft_doc::MicroCurvatureType::ALL {
+            let s = subcraft_doc::MicroDetails { curvature_type: kind, ..settings };
+            let dome = micro_detail_tile(&s, 64, 2.0, &tile, field(1.0));
+            let bowl = micro_detail_tile(&s, 64, 2.0, &tile, field(-1.0));
+            let flat = micro_detail_tile(&s, 64, 2.0, &tile, |_, _| ([0.5, 0.5, 1.0], 0.0));
+            assert!(dome[centre][0] > 0.5, "{kind:?} dome {:?}", dome[centre]);
+            assert!(bowl[centre][0] < 0.5 && bowl[centre][1] < 1.0, "{kind:?} bowl {:?}", bowl[centre]);
+            assert!((dome[centre][0] - 0.5 + bowl[centre][0] - 0.5).abs() < 1e-4, "{kind:?} symmetric");
+            assert!(flat.iter().all(|p| (p[0] - 0.5).abs() < 1e-6 && p[1] == 1.0), "{kind:?} flat");
+        }
+        // Micro Normal off: the normal below is ignored.
+        let off = subcraft_doc::MicroDetails { micro_normal: false, ..settings };
+        assert!((micro_detail_tile(&off, 64, 2.0, &tile, field(1.0))[centre][0] - 0.5).abs() < 1e-6);
+    }
     #[test]
     fn eviction_and_parallel_neighbor_requests_preserve_exact_results() {
         let mut ts = TextureSet::new("Cache", 0, 128);

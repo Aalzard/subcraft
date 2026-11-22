@@ -21,6 +21,8 @@ fn run(size: u32, natural: bool, level: f32) -> Run {
         fill: FillChannel::new(FillSource::uniform(ChannelValue::rgb(1.0, 1.0, 1.0))) }).unwrap();
     session.execute(Command::AddMask { layer, white: false }).unwrap();
     let mut g = Generator::new(GeneratorKind::Edges); g.noise_amount = 0.0; g.level = level;
+    // Pinned to the pre-2026-11-22 defaults this test was tuned for.
+    g.softness = 0.15; g.set_pattern_size(12.5);
     if !natural { g.edge_spread = None; }
     session.execute(Command::AddMaskEffect { layer, kind: MaskEffectKind::Generator(g) }).unwrap();
     session.update_composites();

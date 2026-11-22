@@ -138,7 +138,7 @@ fn eval_mask_local(mask: &Mask, tc: &TileContext) -> Vec<f32> {
             MaskEffectKind::Fill { .. } => "mask fill (local)",
             _ => "mask effect (local)",
         };
-        crate::tile::prof(label, || evaluate_effect(&effect.kind, tc, &m, &mut e, None));
+        crate::tile::prof(label, || evaluate_effect(&effect.kind, tc, &m, &mut e, None, None));
         crate::tile::prof("mask blend (local)", || crate::blend::composite_mask_run(&mut m, &e, effect.opacity, effect.blend));
     }
     for v in m.iter_mut() {
@@ -171,7 +171,10 @@ fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
 /// noise) with a `softness`-wide transition.
 ///
 /// `input` (an anchor read as gray, ADR-0045) replaces the baked map the generator reads.
-fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]], input: Option<&[f32]>) {
+///
+/// `details` (micro details, Painter's Use Micro Details) adds the relief of the layers below to
+/// the curvature and occlusion the generator reads.
+fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]], input: Option<&[f32]>, details: Option<&[[f32; 4]]>) {
     if g.kind == GeneratorKind::MaskEditor {
         // Without a global blur the editor is local to the tile; with one, the stage graph
         // blurs `editor_raw` between these two steps.
@@ -189,7 +192,7 @@ fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]], input: 
     }
     let input = input.filter(|_| g.accepts_input());
     if g.kind == GeneratorKind::Edges && let Some(spread) = g.edge_spread {
-        eval_edge_spread(g, spread, tc, out, input);
+        eval_edge_spread(g, spread, tc, out, input, details);
         return;
     }
     let geo = tc.geo;
@@ -209,6 +212,14 @@ fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]], input: 
         }
         (None, Some(k)) => tc.sample.mesh_maps.read_tile(k, geo, &mut map),
         (None, None) => {}
+    }
+    let details = details.zip(g.micro_details_active());
+    if let Some((d, settings)) = details {
+        match map_kind {
+            Some(MeshMapKind::Curvature) => add_micro_curvature(&mut map, d, settings.amount),
+            Some(MeshMapKind::AmbientOcclusion) => add_micro_occlusion(&mut map, d, settings.amount),
+            _ => {}
+        }
     }
     let dir = Vec3::from_array(g.direction).normalize_or(Vec3::Y);
     let set = tc.set_geometry;
@@ -238,6 +249,9 @@ fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]], input: 
     if edges_masking > 0.0 && g.kind == GeneratorKind::Cavity {
         curvature = vec![[0.0f32; 3]; TILE_TEXELS];
         tc.sample.mesh_maps.read_tile(MeshMapKind::Curvature, geo, &mut curvature);
+        if let Some((d, settings)) = details {
+            add_micro_curvature(&mut curvature, d, settings.amount);
+        }
     }
     let floor = g.painter.map_or(0.0, |p| p.grunge_floor.clamp(0.0, 1.0));
     let grunge_map = (uses_grunge_map(g) || custom.is_some()) && g.kind != GeneratorKind::Edges;
@@ -534,6 +548,24 @@ pub(crate) fn editor_raw(g: &Generator, tc: &TileContext, out: &mut [f32]) {
     }
 }
 
+/// Micro details: the micro curvature (0.5 flat) added to a curvature map, `amount` of it.
+fn add_micro_curvature(map: &mut [[f32; 3]], details: &[[f32; 4]], amount: f32) {
+    let amount = amount.clamp(0.0, 1.0);
+    for (m, d) in map.iter_mut().zip(details) {
+        let v = (m[0] + (d[0] - 0.5) * amount).clamp(0.0, 1.0);
+        *m = [v; 3];
+    }
+}
+
+/// Micro details: an occlusion map darkened by the micro occlusion (1 open), `amount` of it.
+fn add_micro_occlusion(map: &mut [[f32; 3]], details: &[[f32; 4]], amount: f32) {
+    let amount = amount.clamp(0.0, 1.0);
+    for (m, d) in map.iter_mut().zip(details) {
+        let v = (m[0] * (1.0 - amount * (1.0 - d[1].clamp(0.0, 1.0)))).clamp(0.0, 1.0);
+        *m = [v; 3];
+    }
+}
+
 /// Whether the breakup reads the bundled grunge map (Painter-style Dirt / Edge wear).
 fn uses_grunge_map(g: &Generator) -> bool {
     g.painter.is_some_and(|p| p.grunge_map)
@@ -589,19 +621,19 @@ pub(crate) fn fine_noise(g: &Generator, geo: &subcraft_materials::sample::TileGe
     subcraft_materials::sample::organic_tile(&p, geo)
 }
 
-fn eval_edge_spread(g: &Generator, spread: subcraft_doc::EdgeSpread, tc: &TileContext, out: &mut [[f32; 4]], input: Option<&[f32]>) {
+fn eval_edge_spread(g: &Generator, spread: subcraft_doc::EdgeSpread, tc: &TileContext, out: &mut [[f32; 4]], input: Option<&[f32]>, details: Option<&[[f32; 4]]>) {
     let distances = tc.set_geometry.edge_distance_tile(tc.geo);
     // Variation changes the boundary even at zero Breakup. Breakup additionally erodes patches;
     // both share one cached non-periodic volume field and the existing Pattern size/Seed.
     let offset = noise_offset(g);
     let noise_params = scaled_noise(g);
-    let noise = custom_grunge(g, &noise_params, offset, tc).unwrap_or_else(|| breakup_field(g, &noise_params, offset, tc.geo).to_vec());
     let painter = g.painter;
     let mut ao_map = Vec::new();
     if painter.is_some_and(|p| p.ao_masking > 0.0) {
         ao_map = vec![[0.0; 3]; TILE_TEXELS];
         tc.sample.mesh_maps.read_tile(MeshMapKind::AmbientOcclusion, tc.geo, &mut ao_map);
     }
+    let details = details.zip(g.micro_details_active());
     let curvature_weight = painter.map_or(1.0, |p| p.curvature_weight.clamp(0.0, 2.0));
     let ao_masking = painter.map_or(0.0, |p| p.ao_masking.clamp(0.0, 1.0));
     let mut curvature = vec![[0.0; 3]; TILE_TEXELS];
@@ -609,6 +641,17 @@ fn eval_edge_spread(g: &Generator, spread: subcraft_doc::EdgeSpread, tc: &TileCo
         Some(values) => curvature.iter_mut().zip(values).for_each(|(c, &v)| *c = [v; 3]),
         None => tc.sample.mesh_maps.read_tile(MeshMapKind::Curvature, tc.geo, &mut curvature),
     }
+    if let Some((d, settings)) = details {
+        add_micro_curvature(&mut curvature, d, settings.amount);
+        if !ao_map.is_empty() {
+            add_micro_occlusion(&mut ao_map, d, settings.amount);
+        }
+    }
+    if spread.level_reach {
+        painter_wear(g, spread, tc, &distances, &curvature, curvature_weight, &ao_map, ao_masking, &noise_params, offset, out);
+        return;
+    }
+    let noise = custom_grunge(g, &noise_params, offset, tc).unwrap_or_else(|| breakup_field(g, &noise_params, offset, tc.geo).to_vec());
     // Spread is a physical reach, independent of the baked-detail threshold. Multiplying by
     // Level made even maximum Spread almost disappear at the owner's Level 0.065 setting.
     let radius = spread.distance.clamp(0.0, 12.5) * 0.01;
@@ -664,6 +707,133 @@ fn eval_edge_spread(g: &Generator, spread: subcraft_doc::EdgeSpread, tc: &TileCo
     }
 }
 
+/// Edge wear with Level as the amount (every generator made since `EdgeSpread::level_reach`),
+/// built the way Painter's edge wear is: an edge falloff (1 on the edge, 0 at the Spread reach,
+/// from the geometric edge distance and from the baked curvature), a wear threshold (Level), a
+/// contrast (Softness) and a chipped-paint grunge that shapes the border. Level 1 with Spread at
+/// its maximum wears a quarter of the model around every edge.
+#[allow(clippy::too_many_arguments)]
+fn painter_wear(
+    g: &Generator,
+    spread: subcraft_doc::EdgeSpread,
+    tc: &TileContext,
+    distances: &[f32],
+    curvature: &[[f32; 3]],
+    curvature_weight: f32,
+    ao_map: &[[f32; 3]],
+    ao_masking: f32,
+    noise_params: &subcraft_doc::ProceduralParams,
+    offset: [f32; 3],
+    out: &mut [[f32; 4]],
+) {
+    let breakup = g.noise_amount.clamp(0.0, 1.0);
+    let variation = spread.variation.clamp(0.0, 1.0);
+    let painter = g.painter;
+    let grain = painter.map_or(0.0, |p| p.grain.clamp(0.0, 1.0)) * (breakup * 4.0).clamp(0.0, 1.0);
+    let softness = (g.softness + painter.map_or(0.0, |p| p.smoothness.clamp(0.0, 1.0))).clamp(0.02, 1.0);
+    let wear = PainterWear::new(g.level, spread.distance, variation, breakup, grain, softness);
+    // Fields only where something can be worn: tiles beyond every reach and without baked
+    // convexity skip them.
+    let rounded_tile = tc.set_geometry.rounded_edge_distance_tile(tc.geo);
+    let reachable = distances.iter().zip(rounded_tile.iter()).any(|(&d, &r)| d.min(r) < wear.reach.max(MIN_WEAR_REACH) * (1.0 + 0.6 * variation));
+    let grunge = (breakup > 0.0 && reachable || breakup > 0.0 && curvature.iter().any(|c| c[0] > 0.5)).then(|| {
+        custom_grunge(g, noise_params, offset, tc).unwrap_or_else(|| {
+            // The grunge texture (default) is the chipped-paint field; without it the organic noise.
+            if uses_grunge_map(g) {
+                subcraft_materials::sample::chips_tile_at(noise_params, offset, tc.geo).to_vec()
+            } else {
+                subcraft_materials::sample::organic_tile_at(noise_params, offset, tc.geo).to_vec()
+            }
+        })
+    });
+    let macro_field = (variation > 0.0 && reachable).then(|| subcraft_materials::sample::organic_tile_at(noise_params, offset, tc.geo));
+    let fine = (grain > 0.0).then(|| fine_noise(g, tc.geo));
+    let rounded = tc.set_geometry.rounded_edge_distance_tile(tc.geo);
+    for (i, o) in out.iter_mut().enumerate() {
+        let convex = (((curvature[i][0] - 0.5) * 2.0) * curvature_weight).clamp(0.0, 1.0);
+        let mut v = wear.eval(
+            distances[i].min(rounded[i]),
+            convex,
+            grunge.as_ref().map_or(0.5, |f| f[i]),
+            macro_field.as_ref().map_or(0.5, |f| f[i]),
+            fine.as_ref().map_or(0.5, |f| f[i]),
+        );
+        if ao_masking > 0.0 {
+            v *= 1.0 - ao_masking * (1.0 - ao_map[i][0]);
+        }
+        *o = [if g.invert { 1.0 - v } else { v }, 1.0, 0.0, 0.0];
+    }
+}
+
+/// The per-texel edge wear of [`painter_wear`].
+///
+/// The edge line is never broken: on the edge the falloff is 1 and the grunge has no say there,
+/// so even the lowest Level keeps a thin, continuous line; more Level lowers the threshold so
+/// the wear grows out along the falloff, and the grunge (strongest half way out) chips its border.
+pub(crate) struct PainterWear {
+    level: f32,
+    /// Spread reach, in units of the model's longest side.
+    pub(crate) reach: f32,
+    /// Lowest baked convexity the falloff reaches at this Spread.
+    baked_floor: f32,
+    variation: f32,
+    breakup: f32,
+    grain: f32,
+    contrast_width: f32,
+}
+
+/// Reach at Spread 100% (`EdgeSpread::distance` 12.5): a quarter of the model's longest side.
+const MAX_WEAR_REACH: f32 = 0.25;
+/// Narrowest falloff (Spread 0), in units of the model's longest side: Level 0.5 is then a line of
+/// about 2% of the model, Level 0.05 a hairline and Level 0 nothing.
+const MIN_WEAR_REACH: f32 = 0.02;
+
+impl PainterWear {
+    pub(crate) fn new(level: f32, spread: f32, variation: f32, breakup: f32, grain: f32, softness: f32) -> Self {
+        let level = level.clamp(0.0, 1.0);
+        let spread = (spread / 12.5).clamp(0.0, 1.0);
+        Self {
+            level,
+            reach: spread * MAX_WEAR_REACH,
+            // Spread widens the curvature falloff too: rounded and baked (normal-map) edges reach
+            // down into their soft halo.
+            baked_floor: 0.3 - 0.15 * spread,
+            variation,
+            breakup,
+            grain,
+            // Contrast: never wider than the Level itself, so a low Level is still a solid line.
+            contrast_width: (softness * 0.5).min(level * 0.4).max(1e-4),
+        }
+    }
+
+    /// Wear 0..1 at a texel `distance` from the nearest edge with baked convexity `convex`
+    /// (0 flat, 1 sharpest), grunge `grunge`, coarse variation field `coarse` and fine grain
+    /// `fine` (0..1 fields centred on 0.5).
+    pub(crate) fn eval(&self, distance: f32, convex: f32, grunge: f32, coarse: f32, fine: f32) -> f32 {
+        if self.level <= 0.0 {
+            return 0.0;
+        }
+        // Variation: the reach wanders along the edge.
+        let reach = self.reach * (1.0 + self.variation * ((coarse - 0.5) * 1.5).clamp(-0.3, 0.3));
+        // Even at Spread 0 the falloff has a small width, so Level thins the line down to a
+        // hairline and Level 0 removes it.
+        let reach = reach.max(MIN_WEAR_REACH);
+        let geometric = (1.0 - distance / reach).max(0.0);
+        let baked = ((convex - self.baked_floor) / (1.0 - self.baked_floor)).clamp(0.0, 1.0);
+        let falloff = geometric.max(baked);
+        if falloff <= 0.0 {
+            return 0.0;
+        }
+        // Grunge and grain move the falloff both ways, but never at its ends: the edge stays 1
+        // and the surface beyond the reach stays 0.
+        let e = ((grunge - 0.5) * 2.0) * (1.0 - self.grain * 0.35) + ((fine - 0.5) * 2.0) * self.grain * 0.35;
+        // (1 - falloff)^2: a thin line (low Level) stays clean, wide wear gets the chipped border.
+        let shaped = falloff + self.breakup * 1.4 * e * falloff.sqrt() * (1.0 - falloff) * (1.0 - falloff);
+        // Full wear stops a little short of the reach, where the grunge still shapes the border.
+        smoothstep(0.0, self.contrast_width * 2.0, shaped - (1.0 - 0.9 * self.level))
+    }
+}
+
 /// Image mask effect. With alpha: value 1 (0 inverted) with coverage = alpha, so a logo on a
 /// transparent background stamps onto the mask. Without alpha: value = Rec.709 luminance of the
 /// raw (not color-transformed) pixels. A missing resource contributes nothing.
@@ -710,7 +880,10 @@ fn eval_id_color(id: &subcraft_doc::IdColorMask, tc: &TileContext, e: &mut [[f32
 
 /// One mask effect's `[value, coverage, _, _]` per texel. `input` is the effect's anchor input as
 /// gray (ADR-0045), when it has a resolved one.
-pub(crate) fn evaluate_effect(kind: &MaskEffectKind, tc: &TileContext, m: &[f32], e: &mut [[f32; 4]], input: Option<&[f32]>) {
+///
+/// `details` is the generator's micro detail tile (`[curvature, occlusion, _, _]`, see
+/// [`crate::stages`]), when it has micro details on and the layer stack below is known.
+pub(crate) fn evaluate_effect(kind: &MaskEffectKind, tc: &TileContext, m: &[f32], e: &mut [[f32; 4]], input: Option<&[f32]>, details: Option<&[[f32; 4]]>) {
         match kind {
             MaskEffectKind::Paint { image } => {
                 read_tile_rgba(image, tc.geo, e);
@@ -724,7 +897,7 @@ pub(crate) fn evaluate_effect(kind: &MaskEffectKind, tc: &TileContext, m: &[f32]
                     *o = [v, cover.as_ref().map_or(1.0, |c| c[i]), 0.0, 0.0];
                 }
             }
-            MaskEffectKind::Generator(g) => eval_generator(g, tc, e, input),
+            MaskEffectKind::Generator(g) => eval_generator(g, tc, e, input, details),
             MaskEffectKind::Anchor => e.fill([0.0; 4]),
             MaskEffectKind::AnchorRef { levels, .. } => match input {
                 Some(values) => {
@@ -779,5 +952,88 @@ pub(crate) fn eval_compare(c: &subcraft_doc::CompareMask, m: &[f32], below: Opti
     };
     for (i, o) in e.iter_mut().enumerate() {
         *o = [c.eval(operand(c.left, i), operand(c.right, i)), 1.0, 0.0, 0.0];
+    }
+}
+
+#[cfg(test)]
+mod painter_wear_tests {
+    use super::PainterWear;
+
+    /// Deterministic samples covering the whole 0..1 range of every noise field.
+    fn samples() -> impl Iterator<Item = (f32, f32, f32)> {
+        (0..4096u32).map(|i| {
+            let h = |k: u32| {
+                let mut x = i.wrapping_mul(0x9e37_79b9) ^ k.wrapping_mul(0x85eb_ca6b);
+                x ^= x >> 16;
+                x = x.wrapping_mul(0x7feb_352d);
+                x ^= x >> 15;
+                (x % 1000) as f32 / 999.0
+            };
+            (h(1), h(2), h(3))
+        })
+    }
+
+    #[test]
+    fn the_edge_line_is_continuous_at_any_level_whatever_the_noise() {
+        for level in [0.02f32, 0.05, 0.15, 0.3, 0.6, 1.0] {
+            for spread in [0.0f32, 2.5, 12.5] {
+                let w = PainterWear::new(level, spread, 1.0, 1.0, 1.0, 0.3);
+                for (g, c, f) in samples() {
+                    let geo = w.eval(0.0, 0.0, g, c, f);
+                    let baked = w.eval(1.0, 1.0, g, c, f);
+                    assert!(geo > 0.95, "gap on the geometric edge at Level {level} Spread {spread}: {geo}");
+                    assert!(baked > 0.95, "gap on the baked apex at Level {level} Spread {spread}: {baked}");
+                }
+            }
+        }
+    }
+
+    fn coverage(w: &PainterWear, distance: f32) -> f32 {
+        let s: Vec<f32> = samples().map(|(g, c, f)| w.eval(distance, 0.0, g, c, f)).collect();
+        s.iter().filter(|&&v| v > 0.5).count() as f32 / s.len() as f32
+    }
+
+    #[test]
+    fn full_wear_and_spread_cover_most_of_a_wide_reach_with_a_chipped_border() {
+        let w = PainterWear::new(1.0, 12.5, 0.8, 0.5, 0.0, 0.3);
+        assert!((w.reach - 0.25).abs() < 1e-6);
+        // Close to the edge almost everything is worn, half way out most of it, and the border
+        // is broken up rather than a clean line.
+        assert!(coverage(&w, 0.03) > 0.95, "{}", coverage(&w, 0.03));
+        let mid = coverage(&w, 0.12);
+        assert!(mid > 0.6, "half way out at full wear: {mid}");
+        let border = coverage(&w, 0.22);
+        assert!(border > 0.05 && border < 0.95, "the border must be chipped, not all or nothing: {border}");
+        // Beyond the widest reach nothing wears.
+        assert_eq!(coverage(&w, 0.5), 0.0);
+    }
+
+    /// Owner report: with Wear and Spread at 0 the line was still thick. Its width now shrinks
+    /// with Level to a hairline and is gone at 0.
+    #[test]
+    fn at_spread_zero_the_line_thins_with_level_and_vanishes_at_zero() {
+        let width = |level: f32| {
+            let w = PainterWear::new(level, 0.0, 0.8, 0.5, 0.0, 1.0);
+            (0..2000).map(|i| i as f32 * 0.00001).filter(|&d| w.eval(d, 0.0, 0.5, 0.5, 0.5) > 0.5).fold(0.0f32, f32::max)
+        };
+        assert_eq!(width(0.0), 0.0);
+        let (w02, w05, w1, w5) = (width(0.02), width(0.05), width(0.1), width(0.5));
+        assert!(w02 < w05 && w05 < w1 && w1 < w5, "{w02} {w05} {w1} {w5}");
+        assert!(w02 < 0.0005, "Level 0.02 is a hairline: {w02}");
+        assert!(w5 < 0.012, "Level 0.5 at Spread 0 stays a line: {w5}");
+    }
+
+    #[test]
+    fn low_wear_is_a_thin_line_and_level_grows_it_outward() {
+        let low = PainterWear::new(0.05, 12.5, 0.8, 0.5, 0.0, 0.3);
+        assert!(coverage(&low, 0.05) < 0.02, "low wear stays on the edge: {}", coverage(&low, 0.05));
+        let mut last = 0.0;
+        for level in [0.1f32, 0.3, 0.5, 0.7, 1.0] {
+            let w = PainterWear::new(level, 12.5, 0.8, 0.5, 0.0, 0.3);
+            let c = coverage(&w, 0.08);
+            assert!(c >= last, "Level must grow the wear: {level} {c} {last}");
+            last = c;
+        }
+        assert!(last > 0.9);
     }
 }

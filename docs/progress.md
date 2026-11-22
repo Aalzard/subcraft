@@ -5890,3 +5890,86 @@ redo and save / reopen checked by hand. Follow-up: idle GPU was 4% in his own bu
 to, the shelf asking for a frame every 30 ms on every tab but Brushes / Alphas, now asks only while thumbnails are left
 to make (`thumbnails_pending`, test `the_shelf_asks_for_frames_only_while_thumbnails_are_left_to_make`); not yet
 re-measured on a GPU. Not taken from his patch: the `SUBCRAFT_REPAINT_LOG` diagnostics.
+
+### Generator micro details: Painter's "Use Micro Details" (2026-11-22, branch `claude/project-thread-hhrkej`)
+
+* **Why:** Painter's Dirt / Metal Edge Wear / Ambient Occlusion / Curvature generators can read the stack's Normal and
+  Height ("Micro Details"), so wear catches the small raised details of a material and dirt fills its small grooves.
+  SubCraft's generators only read the baked mesh maps, so the micro level looked different from Painter.
+* **Model:** `Generator::micro_details: Option<MicroDetails>` (`doc/src/mask.rs`): enabled, amount (the one easy
+  knob), Micro Normal / Micro Height, Curvature Type (Standard / Sobel / Smooth), Curvature Intensity, Height Details
+  Intensity, AO Radius, AO Depth. Serde default + skipped when absent: no schema bump, old files open with it off.
+  Read by Edges, Dirt, Ambient Occlusion, Concave and Mesh Map (Curvature / AO); kept but ignored on other kinds.
+* **Evaluation:** a `Node::MicroDetail` in the stage graph reads the Normal and Height accumulated below the layer (at
+  every folder level, so a generator inside a smart-material folder sees the relief under the folder), builds the
+  micro normal (normal below whiteout-blended with the height slope), measures its divergence as curvature (0.5 flat)
+  and an occlusion from how far a texel lies below its surroundings within AO Radius plus the grooves of the micro
+  normal. The generator adds `amount` of the micro curvature to its curvature and multiplies its occlusion by the
+  micro occlusion, then runs its usual threshold / breakup / spread math. Radii scale with resolution; the support
+  is capped at the 4096 radius so dirty-tile expansion stays conservative. Normal / Height are built before the other
+  channels when any generator uses micro details; the GPU compositor declines such sets (spatial), the CPU result is shown.
+* **Dirty tiles:** generators with micro details count as readers of the stack below (like Compare Mask), so a height
+  stroke under them updates the halo. Proven load-bearing: the incremental test fails without it.
+* **UI:** generator Properties: "Micro details (from Normal / Height below)" checkbox, Amount slider, and a "Micro
+  details settings" fold-out with Painter's controls.
+* **Tests:** `compositor/tests/micro_details.rs` (7: off / amount 0 / both inputs off bit-identical, dirt fills a
+  height groove and leaves open surface and ridge tops alone, edge wear catches a ridge rim and not the groove floor,
+  amount monotonic, inside a folder over relief outside it, incremental cache == full after a height edit next to a
+  tile border, deterministic), `stages` unit test (dome / bowl / flat normals for all three curvature types, Micro
+  Normal off), doc unit test, project round trip + older JSON. Compositor suite all green, doc / project tests green.
+* **Verified in a render:** `micro_details_sheet` example, images in `docs/generators/micro-details/`.
+* **Not done:** Mask Editor micro details; micro details on content (fill) generators; Painter's separate image
+  inputs for Micro Normal / Micro Height (the stack below is always used).
+* **Edge wear fix (owner report, same day):** in the demo the default Edge wear spread in blotches far beyond the
+  hole's rim and the apex itself was soft. Cause (not the micro details): Breakup and Variation shifted the baked-
+  curvature threshold both ways, so the broad, mild convexity a baked curvature has around a rounded rim wore wherever
+  the grunge was high. Now they only erode (raise the threshold), and the sharpest convexity resists erosion, so the
+  apex stays a continuous, crisp line and the grunge chips its sides. Test
+  `breakup_never_spreads_baked_wear_onto_mildly_convex_surface`; app edge tests (edge_level_spread, edge_ledge,
+  edge_corners, edge_crate_properties) still pass. Close-up before/after rendered at the rim of SubCraft_base.
+* **Edge wear rework (second owner report, same day):** the erosion fix still left gaps in the edge line at low wear,
+  and more wear only thickened a uniform band. New model (`RootWear` in `compositor/src/mask.rs`, used by every
+  generator with `level_reach`; older projects keep the legacy band): (1) a core line on the edge, from geometric
+  edge distance and from the baked-curvature apex, that only Level widens and that Breakup, Variation and Grain never
+  touch; (2) growth beyond it along a ridged vein field 8x finer than the pattern: near the line most texels wear, far
+  out only the vein crests, so higher wear reaches out in roots/cracks. Breakup eats holes into the growth only.
+  Softness is the width of the growth border in the reach, so a soft setting stays soft. Unit tests
+  `the_edge_line_is_continuous_at_any_level_whatever_the_noise` (Levels 0.02..1, 4096 noise samples, edge > 0.95) and
+  `more_level_spreads_in_roots_rather_than_a_solid_band` (coverage falls off with distance, far out < 30%). Compositor
+  suite and app edge tests pass. Before/after close-up rendered at Levels 0.05 / 0.15 / 0.3 / 0.6 (`docs/generators/edge-wear/`): before, the inner rim line breaks at 0.05/0.15 and 0.6 is a solid band; after, the line is unbroken at every level and 0.6 grows out in uneven, branching streaks. Honest limit: the growth reads as streaks/clumps more than thin hairline cracks.
+* **Edge wear, Painter model (third owner report, same day):** with Wear and Spread at maximum the wear barely
+  spread, and the grunge looked ugly. Causes: (1) Spread only grew from geometric creases sharper than 20 degrees, so
+  smooth rounded rims (most of SubCraft_base) ignored it; (2) the reach topped out at 12.5% and the vein growth wore
+  little of it; (3) the breakup was the blotchy dirt grunge. Now: `painter_wear` / `PainterWear` in
+  `compositor/src/mask.rs`: edge falloff (1 on the edge, 0 at the reach, from the surface edge distance and the baked
+  curvature, whose floor Spread lowers) -> chipped-paint grunge shifts it, never at the edge or beyond the reach ->
+  threshold `1 - 0.9 * Level` -> contrast from Softness. Reach is Spread% x 2 (max 25% of the model). Rounded edges
+  are distance sources (`edge_distance.rs`: shading normals turning faster than a 12% radius, from each triangle's
+  own corner normals so hard edges do not count; linear between rounded nodes so the line is continuous). New
+  `materials/src/chips.rs`: domain-warped two-size 3D Voronoi flakes plus fine detail, used when Grunge map is on
+  (organic noise when off; a custom grunge still wins). Tests: chips field, `painter_wear_tests` (continuous line at
+  every Level/Spread, full wear covers most of a 25% reach with a chipped border, nothing beyond it, low wear stays a
+  line, Level grows it), compositor + materials + app suites. `edge_level_spread` now asks a wide Spread at Level
+  0.065 for 1.1x the narrow one (was 1.5x): low wear is a line by the owner's request. Renders with the
+  `edge_wear_sheet` example in `docs/generators/edge-wear/`. Limit: a broad, uniform bevel (the base rim) shows
+  nothing at very low wear, like a soft curvature map in Painter.
+
+* **Edge wear, owner defaults and thinning to nothing (fourth owner report, same day):** (1) new Edge wear generators
+  now start at the owner's settings: Variation 0.8, Wear Level 0.5, Wear Contrast 0, Grunge Amount 0.5, Pattern
+  size 3%, AO Masking 0, Curvature Weight 1, Edges Smoothness 0, Grunge map on. Saved layers keep their values.
+  (2) at Wear 0 and Spread 0 the wear was still a thick line. Now the reach floor is `MIN_WEAR_REACH` 0.02 instead
+  of a fixed line width, the grunge term fades as `(1-f)^2` so it cannot push the line wide at low levels, and
+  rounded (bevelled) edges use a separate distance field whose sources sit on the bevel apex (smoothed turn rate,
+  band inset and ring min/max), so a rounded rim gives a hairline, not the whole bevel. Result: Wear 0 is empty,
+  0.02 to 0.1 is a hairline that thickens with Wear (`docs/generators/edge-wear/edge_wear_low_levels.png`).
+  Tests: `at_spread_zero_the_line_thins_with_level_and_vanishes_at_zero`; tests tuned to old defaults
+  (`edge_corners`, `edge_crate_properties`, project schema test) pin or update their values. Full suite of app,
+  project, materials, compositor, doc and ui passes.
+  **Limit:** on the round hole rim of the default model the hairline at Wear 0.02 to 0.1 is broken into segments;
+  the base rim is continuous.
+* **Edge wear on the sphere top (owner report, same day):** a ring of wear sat on the default model's sphere pole, where
+  there is no edge. Not a baking issue: where the pole fan meets the rings, the shading normals turn slightly faster
+  over one short ring of edges (turn 10.1 vs the 8.3 rounded-edge threshold), so the rounded-edge detector took it for
+  a bevel. Now a rounded band must also turn the surface through at least `MIN_ROUNDED_TURN` (0.3 rad, about 17°)
+  across its width; the pole ring turns 0.09 rad, real rims 1.7 rad or more. Test: `edge_rounded_pole`. Render:
+  `docs/generators/edge-wear/edge_wear_sphere_top_fixed.png`.
