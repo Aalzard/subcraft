@@ -85,13 +85,16 @@ pub fn window(state: &mut UiState, ctx: &egui::Context, now: f64) {
         }
         ui.add_enabled_ui(!busy, |ui| {
             egui::Grid::new("auto_uv_settings").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
-                ui.label(caption("Seam angle"));
-                ui.add(egui::Slider::new(&mut a.settings.angle_threshold_deg, 20.0..=120.0).suffix("°").integer())
+                let d = UnwrapSettings::default();
+                let l = ui.add(egui::Label::new(caption("Seam angle")).sense(egui::Sense::click()));
+                let r = ui.add(egui::Slider::new(&mut a.settings.angle_threshold_deg, 20.0..=120.0).suffix("°").integer())
                     .on_hover_text("Largest bend inside one island. Smaller angles cut more seams and distort less.");
+                crate::reset_row::reset(ui, &l, &r, &mut a.settings.angle_threshold_deg, &d.angle_threshold_deg);
                 ui.end_row();
-                ui.label(caption("Island margin"));
-                ui.add(egui::Slider::new(&mut a.settings.margin_texels, 0.0..=32.0).suffix(" px").integer())
+                let l = ui.add(egui::Label::new(caption("Island margin")).sense(egui::Sense::click()));
+                let r = ui.add(egui::Slider::new(&mut a.settings.margin_texels, 0.0..=32.0).suffix(" px").integer())
                     .on_hover_text("Gap between islands, in texels of the texture size below.");
+                crate::reset_row::reset(ui, &l, &r, &mut a.settings.margin_texels, &d.margin_texels);
                 ui.end_row();
                 ui.label(caption("Texture size"));
                 egui::ComboBox::from_id_salt("auto_uv_res").selected_text(a.settings.resolution.to_string()).show_ui(ui, |ui| {

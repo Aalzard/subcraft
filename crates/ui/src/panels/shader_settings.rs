@@ -51,15 +51,20 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         ui.add_space(6.0);
         ui.label(RichText::new(tr("COMMON PARAMETERS")).font(theme::font_strong(11.0)).color(TEXT_DIM()));
         let mut p = instance.params;
+        let d = subcraft_doc::ShaderParams::default();
         egui::Grid::new("shader_settings_common").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
-            ui.label(tr("AO Intensity"));
-            ui.add(egui::Slider::new(&mut p.ao_intensity, subcraft_doc::ShaderParams::AO_RANGE)).on_hover_text(tr("How much the Ambient occlusion channel darkens the environment light"));
+            use crate::reset_row::{label, reset};
+            let l = label(ui, tr("AO Intensity"));
+            let r = ui.add(egui::Slider::new(&mut p.ao_intensity, subcraft_doc::ShaderParams::AO_RANGE)).on_hover_text(tr("How much the Ambient occlusion channel darkens the environment light"));
+            reset(ui, &l, &r, &mut p.ao_intensity, &d.ao_intensity);
             ui.end_row();
-            ui.label(tr("Emissive Intensity"));
-            ui.add(egui::Slider::new(&mut p.emissive_intensity, subcraft_doc::ShaderParams::EMISSIVE_RANGE).logarithmic(true)).on_hover_text(tr("Multiplier of the Emissive channel"));
+            let l = label(ui, tr("Emissive Intensity"));
+            let r = ui.add(egui::Slider::new(&mut p.emissive_intensity, subcraft_doc::ShaderParams::EMISSIVE_RANGE).logarithmic(true)).on_hover_text(tr("Multiplier of the Emissive channel"));
+            reset(ui, &l, &r, &mut p.emissive_intensity, &d.emissive_intensity);
             ui.end_row();
-            ui.label(tr("Horizon Fading"));
-            ui.add(egui::Slider::new(&mut p.horizon_fading, subcraft_doc::ShaderParams::HORIZON_RANGE)).on_hover_text(tr("Fades reflections that the normal map tilts below the surface, which would otherwise see through the model"));
+            let l = label(ui, tr("Horizon Fading"));
+            let r = ui.add(egui::Slider::new(&mut p.horizon_fading, subcraft_doc::ShaderParams::HORIZON_RANGE)).on_hover_text(tr("Fades reflections that the normal map tilts below the surface, which would otherwise see through the model"));
+            reset(ui, &l, &r, &mut p.horizon_fading, &d.horizon_fading);
             ui.end_row();
         });
         if p != instance.params {

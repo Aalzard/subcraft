@@ -9,7 +9,7 @@ use subcraft_paint::StampKind;
 
 use crate::state::UiState;
 use crate::theme;
-use crate::widgets::{hint, prop_row, segmented, slider_row};
+use crate::widgets::{check_row_reset, hint, prop_row_reset, segmented_response, slider_row_own_parser_reset, slider_row_reset};
 
 /// Preview size in points.
 const PREVIEW: [u32; 2] = [264, 88];
@@ -71,23 +71,24 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             ui.add_space(4.0);
             let mut st = stamp.clone();
             let mut changed = false;
+            let ds = subcraft_paint::ImageStamp::default();
             {
+                // Defaults: a new brush's size and angles, and what picking a stamp sets.
                 let b = &mut state.session.brush.settings;
-                slider_row(ui, "Size", egui::Slider::new(&mut b.size, 0.5..=60.0).logarithmic(true).suffix("%"));
-                changed |= slider_row(ui, if height { "Height" } else { "Strength" }, egui::Slider::new(&mut st.strength, 0.0..=4.0)).changed();
-                slider_row(ui, "Rotation", egui::Slider::new(&mut b.angle_deg, -180.0..=180.0).suffix("°"));
-                slider_row(ui, "Random rotation", egui::Slider::new(&mut b.angle_jitter_deg, 0.0..=180.0).suffix("°"));
-                slider_row(ui, "Spacing", egui::Slider::new(&mut b.spacing, 0.05..=3.0).logarithmic(true))
+                let d = subcraft_paint::BrushSettings::default();
+                slider_row_reset(ui, "Size", &mut b.size, d.size, |v| egui::Slider::new(v, 0.5..=60.0).logarithmic(true).suffix("%"));
+                changed |= slider_row_reset(ui, if height { "Height" } else { "Strength" }, &mut st.strength, ds.strength, |v| egui::Slider::new(v, 0.0..=4.0)).changed();
+                slider_row_reset(ui, "Rotation", &mut b.angle_deg, d.angle_deg, |v| egui::Slider::new(v, -180.0..=180.0).suffix("°"));
+                slider_row_reset(ui, "Random rotation", &mut b.angle_jitter_deg, d.angle_jitter_deg, |v| egui::Slider::new(v, 0.0..=180.0).suffix("°"));
+                slider_row_reset(ui, "Spacing", &mut b.spacing, subcraft_app::stamp_brush::STAMP_SPACING, |v| egui::Slider::new(v, 0.05..=3.0).logarithmic(true))
                     .on_hover_text("Distance between stamps in brush diameters. 1 = one stamp per diameter; small values average the overlapping stamps");
-                crate::widgets::slider_row_own_parser(ui, "Edge softness", egui::Slider::new(&mut b.hardness, 0.0..=1.0).custom_formatter(|v, _| format!("{:.0}%", (1.0 - v) * 100.0)).custom_parser(|s| crate::widgets::parse_number(s.trim().trim_end_matches('%')).map(|v| 1.0 - v / 100.0)))
+                slider_row_own_parser_reset(ui, "Edge softness", &mut b.hardness, subcraft_app::stamp_brush::STAMP_HARDNESS, |v| egui::Slider::new(v, 0.0..=1.0).custom_formatter(|v, _| format!("{:.0}%", (1.0 - v) * 100.0)).custom_parser(|s| crate::widgets::parse_number(s.trim().trim_end_matches('%')).map(|v| 1.0 - v / 100.0)))
                     .on_hover_text("Fades the stamp out toward its rim, so no square border is left");
             }
             if !height {
-                prop_row(ui, "", |ui| changed |= ui.checkbox(&mut st.flip_green, "Flip green (OpenGL ↔ DirectX)").changed());
+                changed |= check_row_reset(ui, "", "Flip green (OpenGL ↔ DirectX)", &mut st.flip_green, ds.flip_green).changed();
             }
-            prop_row(ui, "Mode", |ui| {
-                changed |= segmented(ui, &mut st.tiled, &[(false, "Single stamp"), (true, "Tiled")]);
-            });
+            changed |= prop_row_reset(ui, "Mode", &mut st.tiled, ds.tiled, |ui, v| segmented_response(ui, v, &[(false, "Single stamp"), (true, "Tiled")])).changed();
             if changed {
                 state.session.brush.material.stamp = Some(st);
             }

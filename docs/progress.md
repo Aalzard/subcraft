@@ -5981,3 +5981,27 @@ re-measured on a GPU. Not taken from his patch: the `SUBCRAFT_REPAINT_LOG` diagn
 * Checked by reading: the #626 mask cache only serves the tile-local mask path, which never applies #625 micro details (stage-graph only, `evaluate_effect(.., None, None)`), so cached masks can't go stale on a stroke below.
 * Version 0.5.0, changelog entries for #625 / #626 / #632 / #633, `docs/release-notes-0.5.0.md`.
 * Ran: `cargo build --workspace` on the combined tree (pass). The full local test run hit the container's disk limit while linking the ui integration binaries, so the full suite is CI's run on #635. Not yet run on Windows / a real GPU: release candidate goes to the owner first.
+
+### Reset to default everywhere (2026-11-22, issue #609 follow-up, branch `claude/project-thread-r2ieaz`)
+
+* Ctrl+click, the right-click "Reset to default" menu and the change dot from Display Settings (#607, #632) now cover the
+  other panels: brush (Brush, Alpha, Stencil, Material, Clone, Smudge, Scatter, Polygon Fill options), brush rows (size,
+  flow, opacity, jitters, size space), stamp brush, brush material, every filter, layer / fill / generator / Mask Editor
+  properties, content effects (per-channel blend), text, pen paths and their display, shader settings, mask paint value,
+  Bake window (common and per-baker settings, visualization), Preferences, texture set alpha, auto UV, mesh export
+  subdivisions and high-poly placement.
+* Helpers in `widgets.rs`: `slider_row_reset(_with)`, `slider_row_boxed_reset`, `slider_row_own_parser_reset`,
+  `prop_row_reset`, `check_row_reset`, `reset_on`, `ctrl_reset` (Ctrl only, for toolbar popups where a nested menu
+  would close the popup), `edit_response`, `segmented_response`. `reset_row::ctrl_clicked` for the layer and effect
+  opacity boxes, which keep their own right-click menu. `reset_row::was_reset` makes `Edit::from` report a reset as
+  done, so panels that commit on drag end (text dialog) commit a reset at once.
+* Defaults come from the model's own constructors (`BrushSettings::default`, `Generator::new(kind)`, `Filter::ALL` via
+  `filter::default_like`, which keeps a wrapping blur wrapping, `Projection::default`, `PathRibbon::default`,
+  `bake_defaults()`, `Preferences::default`, ...). Values with no fixed default (a path's width taken from the brush,
+  a text's position, a channel's paint value, the bake resolution chosen from the texture sets) are left alone.
+* Tests: `reset_everywhere_tests.rs` drives the brush panel and filter editor with real egui input: Ctrl+click on a
+  slider rail resets instead of moving it (a plain click still moves it), checkboxes do not toggle, dropdowns do not
+  open, the dot shows only when changed, `BlurWrap` keeps wrapping, a reset is a finished `Edit`, `ctrl_reset` in a
+  popup. With the Ctrl cover disabled 4 of the 5 fail. Ran `cargo test -p subcraft-ui` (596 passed),
+  `cargo check --workspace --all-targets`, clippy on the ui crate (no new warnings).
+* Not run in the real app window here (no display in the cloud container).
