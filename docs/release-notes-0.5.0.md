@@ -5,8 +5,9 @@ SubCraft 0.5.0.
 - **Much lower memory on big projects**: an 11-set 2048² project went from 6.0 GB to 1.4 GB peak, and its first full composite is about twice as fast (issue #628).
 - **Less desktop lag**: SubCraft uses far less GPU and processor time while idle or compositing, so other programs stay smooth (issue #628).
 - **Faster exports and layer edits**: exports about 3.6 times faster, and layer edits under smart materials up to 3 times faster, with identical results.
+- **Reset to default everywhere**: Ctrl+click a setting, or right-click its name, to put its default back in the brush settings, layer and fill properties, generators and the other panels, and a dot marks the settings you changed (issue #609).
 - **Eyedropper**: one pick from a painting tool goes back to the brush, and a pick samples every channel the brush paints (issues #619, #620).
-- **Fixes**: Shelf brushes no longer switch your brush channels back on (issue #618); UDIM paint-across opacity drags and multi-layer actions; brush preset values checked; Display Settings Ctrl+click resets cleanly.
+- **Fixes**: Shelf brushes no longer switch your brush channels back on (issue #618); UDIM paint-across opacity drags and multi-layer actions; brush preset values checked.
 
 Full details: [CHANGELOG.md](https://github.com/Aalzard/subcraft/blob/main/CHANGELOG.md).
 
