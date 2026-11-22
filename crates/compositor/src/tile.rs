@@ -352,7 +352,7 @@ fn apply_content_effects(effects: &[Arc<ContentEffect>], acc: &Acc, content: &mu
                 }
                 let zeros = vec![0.0f32; TILE_TEXELS];
                 let mut out = vec![[0.0f32; 4]; TILE_TEXELS];
-                crate::mask::evaluate_effect(&subcraft_doc::MaskEffectKind::Generator(*g), tc, &zeros, &mut out, None);
+                crate::mask::evaluate_effect(&subcraft_doc::MaskEffectKind::Generator(*g), tc, &zeros, &mut out, None, None);
                 for (o, v) in e.iter_mut().zip(&out) {
                     *o = [v[0], v[0], v[0], v[1]];
                 }

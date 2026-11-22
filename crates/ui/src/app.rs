@@ -88,6 +88,11 @@ impl Tab {
     }
 }
 
+/// How often the window looks for finished background work (composites) while nothing else
+/// asks for a frame (issue #628: it redrew at the monitor's full refresh rate, 200+ fps, only to
+/// check). Input still redraws at once.
+pub(crate) const PENDING_POLL: std::time::Duration = std::time::Duration::from_millis(16);
+
 /// Command-line options.
 #[derive(Clone, Debug, Default)]
 pub struct LaunchOptions {
@@ -2606,7 +2611,7 @@ impl eframe::App for SubcraftApp {
         self.state.begin_frame();
         self.state.sync_gpu();
         if self.state.session.composites_pending() {
-            ctx.request_repaint();
+            ctx.request_repaint_after(PENDING_POLL);
         }
         if let Some(due) = crate::mask_view::refresh_due(&self.state) {
             ctx.request_repaint_after(due);

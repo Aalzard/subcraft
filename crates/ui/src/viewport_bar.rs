@@ -540,43 +540,56 @@ fn view_controls(ui: &mut Ui, state: &mut crate::state::UiState, width: f32) {
 }
 
 /// Rendering mode settings (the 3D view's Render button menu and Preferences).
+/// The default preferences, which the reset gestures go back to.
+pub(crate) static DEFAULTS: std::sync::LazyLock<ViewportPrefs> = std::sync::LazyLock::new(Default::default);
+
 pub fn rendering_settings(ui: &mut Ui, prefs: &mut ViewportPrefs) {
+    use crate::reset_row::{label, reset, wants_reset};
+    let def = &*DEFAULTS;
     ui.label(RichText::new(tr("Rendering mode")).color(TEXT_DIM()));
     egui::Grid::new("pt_settings").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
-        ui.label(tr("Bounces"));
-        ui.add(egui::Slider::new(&mut prefs.pt_bounces, 1..=16)).on_hover_text(tr("Light bounces after the first hit; more is slower and brighter in enclosed areas"));
+        let l = label(ui, tr("Bounces"));
+        let r = ui.add(egui::Slider::new(&mut prefs.pt_bounces, 1..=16)).on_hover_text(tr("Light bounces after the first hit; more is slower and brighter in enclosed areas"));
+        reset(ui, &l, &r, &mut prefs.pt_bounces, &def.pt_bounces);
         ui.end_row();
-        ui.label(tr("Min samples"));
-        ui.add(egui::Slider::new(&mut prefs.pt_min_samples, 0..=8192).logarithmic(true))
+        let l = label(ui, tr("Min samples"));
+        let r = ui.add(egui::Slider::new(&mut prefs.pt_min_samples, 0..=8192).logarithmic(true))
             .on_hover_text(tr("Samples always taken before the time limit can stop the render"));
+        reset(ui, &l, &r, &mut prefs.pt_min_samples, &def.pt_min_samples);
         ui.end_row();
-        ui.label(tr("Max samples"));
-        ui.add(egui::Slider::new(&mut prefs.pt_max_samples, 0..=8192).logarithmic(true).custom_formatter(|v, _| if v == 0.0 { "unlimited".into() } else { format!("{v}") }))
+        let l = label(ui, tr("Max samples"));
+        let r = ui.add(egui::Slider::new(&mut prefs.pt_max_samples, 0..=8192).logarithmic(true).custom_formatter(|v, _| if v == 0.0 { "unlimited".into() } else { format!("{v}") }))
             .on_hover_text(tr("Stop refining at this many samples per pixel"));
+        reset(ui, &l, &r, &mut prefs.pt_max_samples, &def.pt_max_samples);
         ui.end_row();
-        ui.label(tr("Max time"));
-        ui.horizontal(|ui| {
+        let l = label(ui, tr("Max time"));
+        let r = ui.horizontal(|ui| {
             let unit = prefs.pt_time_unit.min(TIME_UNITS.len() - 1);
             let per = TIME_UNITS[unit];
             let mut value = prefs.pt_max_time_s / per;
             let max = MAX_RENDER_TIME_S / per;
-            if ui.add(egui::DragValue::new(&mut value).range(0.0..=max).speed(0.1).custom_formatter(|v, _| if v == 0.0 { "unlimited".into() } else { format!("{v:.1}") }))
-                .on_hover_text(tr("Stop refining after this much rendering time (0 is no limit)"))
-                .changed()
-            {
+            let r = ui.add(egui::DragValue::new(&mut value).range(0.0..=max).speed(0.1).custom_formatter(|v, _| if v == 0.0 { "unlimited".into() } else { format!("{v:.1}") }))
+                .on_hover_text(tr("Stop refining after this much rendering time (0 is no limit)"));
+            if r.changed() {
                 prefs.pt_max_time_s = (value * per).clamp(0.0, MAX_RENDER_TIME_S);
             }
-            egui::ComboBox::from_id_salt("pt_time_unit").selected_text(time_unit_label(unit)).width(80.0).show_ui(ui, |ui| {
+            r | egui::ComboBox::from_id_salt("pt_time_unit").selected_text(time_unit_label(unit)).width(80.0).show_ui(ui, |ui| {
                 for i in 0..TIME_UNITS.len() {
                     ui.selectable_value(&mut prefs.pt_time_unit, i, time_unit_label(i));
                 }
-            });
-        });
+            }).response
+        }).inner;
+        if wants_reset(ui, &l, &r, (prefs.pt_max_time_s, prefs.pt_time_unit) != (def.pt_max_time_s, def.pt_time_unit)) {
+            (prefs.pt_max_time_s, prefs.pt_time_unit) = (def.pt_max_time_s, def.pt_time_unit);
+        }
         ui.end_row();
     });
-    ui.checkbox(&mut prefs.pt_denoise, tr("Denoise")).on_hover_text(tr("Edge-aware filter for a clean preview while samples are few"));
-    ui.checkbox(&mut prefs.pt_firefly, tr("Firefly filter")).on_hover_text(tr("Tone down rare, very bright speckles from bright lights seen through rough surfaces"));
-    ui.checkbox(&mut prefs.pt_ground, tr("Ground shadow")).on_hover_text(tr("A gray floor under the model that catches its shadow"));
+    let r = ui.checkbox(&mut prefs.pt_denoise, tr("Denoise")).on_hover_text(tr("Edge-aware filter for a clean preview while samples are few"));
+    reset(ui, &r, &r, &mut prefs.pt_denoise, &def.pt_denoise);
+    let r = ui.checkbox(&mut prefs.pt_firefly, tr("Firefly filter")).on_hover_text(tr("Tone down rare, very bright speckles from bright lights seen through rough surfaces"));
+    reset(ui, &r, &r, &mut prefs.pt_firefly, &def.pt_firefly);
+    let r = ui.checkbox(&mut prefs.pt_ground, tr("Ground shadow")).on_hover_text(tr("A gray floor under the model that catches its shadow"));
+    reset(ui, &r, &r, &mut prefs.pt_ground, &def.pt_ground);
 }
 
 /// Per-set document state: shared by material evaluation, preview and export.
@@ -635,8 +648,18 @@ fn grid_control(ui: &mut Ui, prefs: &mut ViewportPrefs) {
 }
 
 pub(crate) fn resolution(ui: &mut Ui, prefs: &mut ViewportPrefs) {
-    ui.add_sized([55.0, ui.spacing().interact_size.y], egui::Label::new(RichText::new(tr("Resolution")).color(TEXT_DIM())));
-    egui::ComboBox::from_id_salt("viewport_resolution")
+    resolution_row(ui, prefs, false);
+}
+
+/// The render resolution dropdown; `resettable` gives it the reset gestures of
+/// [`crate::reset_row`] (the Display Settings panel).
+pub(crate) fn resolution_row(ui: &mut Ui, prefs: &mut ViewportPrefs, resettable: bool) {
+    let mut name = egui::Label::new(RichText::new(tr("Resolution")).color(TEXT_DIM()));
+    if resettable {
+        name = name.sense(egui::Sense::click());
+    }
+    let l = ui.add_sized([55.0, ui.spacing().interact_size.y], name);
+    let r = egui::ComboBox::from_id_salt("viewport_resolution")
         .selected_text(format!("{}%", prefs.scale_percent))
         .width(76.0)
         .show_ui(ui, |ui| {
@@ -646,6 +669,9 @@ pub(crate) fn resolution(ui: &mut Ui, prefs: &mut ViewportPrefs) {
         })
         .response
         .on_hover_text(tr("Render the 3D view at a lower resolution to make it faster"));
+    if resettable {
+        crate::reset_row::reset(ui, &l, &r, &mut prefs.scale_percent, &DEFAULTS.scale_percent);
+    }
 }
 
 /// Painter's Viewport Mode dropdown (contextual toolbar): the 3D / 2D layouts of F1..F4. The

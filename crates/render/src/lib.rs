@@ -59,6 +59,16 @@ pub enum PreviewSource {
     MeshMap(MeshMapKind),
 }
 
+/// Everything a 2D view preview depends on: the same key gives the same image.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct PreviewKey {
+    material_slot: u32,
+    source: PreviewSource,
+    display: ChannelDisplay,
+    size: u32,
+    generation: u64,
+}
+
 /// Environment lighting (procedural sky + studio lights, or an uploaded HDRI).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct EnvironmentParams {
@@ -375,6 +385,15 @@ pub struct ViewportRenderer {
     target: Option<RenderTarget>,
     preview: PreviewPass,
     preview_target: Option<PreviewTarget>,
+    /// What `preview_target` holds now (issue #628: the 2D view asked for the same preview on
+    /// every UI frame and converted a whole 4K texture each time, keeping the GPU busy while idle).
+    preview_key: Option<PreviewKey>,
+    /// Preview conversions run so far (tests and diagnostics).
+    preview_runs: u64,
+    /// Raised by every change to a material or baked map texture; part of `preview_key`.
+    texture_generation: u64,
+    /// Raised by every change to what `render` draws apart from its `ViewParams`.
+    scene_generation: u64,
     post: post::PostPass,
     taa: taa::Taa,
     color_profile: color_profile::ColorProfile,
@@ -663,7 +682,7 @@ impl ViewportRenderer {
             env_texture,
             env_levels: 1,
             env_sh: [[0.0; 3]; 9],
-            material_layout, no_overlay, anisotropy: 1, sampler, nearest_sampler, mipmaps: mipmap::MipGenerator::new(device), defaults, mesh: None, materials: HashMap::new(), target: None, preview: PreviewPass::new(device), preview_target: None,
+            material_layout, no_overlay, anisotropy: 1, sampler, nearest_sampler, mipmaps: mipmap::MipGenerator::new(device), defaults, mesh: None, materials: HashMap::new(), target: None, preview: PreviewPass::new(device), preview_target: None, preview_key: None, preview_runs: 0, texture_generation: 0, scene_generation: 0,
             path_tracer: None, hidden_slots: Default::default(), path_target: None, path_support: None, shadow }
     }
 
@@ -691,6 +710,7 @@ impl ViewportRenderer {
     /// Upload a prefiltered HDRI (mip level k = level k of the data). `None` restores the
     /// placeholder; select it per frame with [`EnvironmentParams::use_hdri`].
     pub fn set_hdri(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, hdri: Option<HdriUpload>) {
+        self.scene_generation += 1;
         match hdri {
             None => {
                 self.env_texture = ChannelTexture::constant(device, queue, [0.5, 0.5, 0.5, 1.0], 4, "environment placeholder").view;
@@ -729,14 +749,20 @@ impl ViewportRenderer {
 
     /// Replace the mesh (drops all material textures).
     pub fn set_mesh(&mut self, device: &wgpu::Device, mesh: &Mesh) {
+        self.scene_generation += 1;
         self.mesh = Some(GpuMesh::new(device, mesh));
         self.materials.clear();
+        self.texture_generation += 1;
         if let Some(pt) = &mut self.path_tracer { pt.mark_all(); }
     }
 
     /// Hide the geometry of these material slots in the raster viewport.
     pub fn set_hidden_slots(&mut self, slots: impl IntoIterator<Item = u32>) {
-        self.hidden_slots = slots.into_iter().collect();
+        let slots: std::collections::HashSet<u32> = slots.into_iter().collect();
+        if slots != self.hidden_slots {
+            self.hidden_slots = slots;
+            self.scene_generation += 1;
+        }
     }
 
     pub fn has_mesh(&self) -> bool {
@@ -744,6 +770,7 @@ impl ViewportRenderer {
     }
 
     pub fn set_symmetry_guides(&mut self, device: &wgpu::Device, lines: &[[Vec3; 2]]) {
+        self.scene_generation += 1;
         if lines.is_empty() { self.symmetry = None; return; }
         self.symmetry.get_or_insert_with(|| grid::GridPass::new_guides(device)).set_lines(device, lines);
     }
@@ -751,6 +778,7 @@ impl ViewportRenderer {
     /// Upload the wireframe lines (world space) with their linear color and opacity. Call again
     /// when the lines, color or opacity change; an empty list removes the overlay.
     pub fn set_wireframe(&mut self, device: &wgpu::Device, lines: &[[Vec3; 2]], color: [f32; 3], opacity: f32) {
+        self.scene_generation += 1;
         if lines.is_empty() { self.wireframe = None; return; }
         let rgba = [color[0], color[1], color[2], opacity.clamp(0.0, 1.0)];
         self.wireframe.get_or_insert_with(|| grid::GridPass::new_guides(device)).set_lines_colored(device, lines, rgba);
@@ -758,6 +786,7 @@ impl ViewportRenderer {
 
     /// Cache display geometry once, independently of the project's mesh and material textures.
     pub fn set_bake_preview(&mut self, device: &wgpu::Device, meshes: Option<(&Mesh, &Mesh)>) {
+        self.scene_generation += 1;
         self.bake_preview.set_meshes(device, meshes);
     }
 
@@ -766,16 +795,19 @@ impl ViewportRenderer {
     /// Lines of the bake overlay's seam check: `[a, b, normal]` per hard edge of the low poly
     /// that has no UV seam (shown with `bake_vis.show_seams`). An empty list removes them.
     pub fn set_bake_seam_lines(&mut self, device: &wgpu::Device, lines: &[[glam::Vec3; 3]]) {
+        self.scene_generation += 1;
         self.bake_preview.set_seam_lines(device, lines);
     }
 
     /// Normals the bake overlay pushes its cage out along (one per low-poly vertex), or `None`
     /// for the low poly's own: pass the averaged normals when the bake uses Average normals.
     pub fn set_bake_cage_normals(&mut self, device: &wgpu::Device, low: &Mesh, normals: Option<&[glam::Vec3]>) {
+        self.scene_generation += 1;
         self.bake_preview.set_cage_normals(device, low, normals);
     }
 
     pub fn set_bake_miss_maps(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, maps: &[(u32, &subcraft_image::TiledImage)]) {
+        self.scene_generation += 1;
         self.bake_preview.set_miss_maps(device, queue, maps);
     }
 
@@ -796,6 +828,8 @@ impl ViewportRenderer {
             mat.channels.insert(kind, ChannelTexture::new_mipmapped(device, image.width(), image.comps(), kind.key(), &self.mipmaps.layout));
             mat.bind_group = None;
         }
+        self.texture_generation += 1;
+        self.scene_generation += 1;
         let tex = &mat.channels[&kind];
         match tiles {
             Some(t) if !recreate => tex.upload(queue, image, t),
@@ -813,6 +847,7 @@ impl ViewportRenderer {
     /// The mask shown by `ViewParams::mask_view` on `material_slot` (`None` forgets it). A
     /// two-component (value, alpha) image at any resolution.
     pub fn upload_mask_view(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, material_slot: u32, image: Option<&TiledImage>) {
+        self.scene_generation += 1;
         let mat = self.materials.entry(material_slot).or_default();
         mat.mask_view = image.map(|image| {
             let tex = ChannelTexture::new(device, image.width(), image.comps(), "mask view");
@@ -829,6 +864,7 @@ impl ViewportRenderer {
             if next.is_some() || mat.overlay.is_some() {
                 mat.overlay = next;
                 mat.bind_group = None;
+                self.scene_generation += 1;
             }
         }
     }
@@ -836,7 +872,9 @@ impl ViewportRenderer {
     /// Forget every uploaded mask view.
     pub fn clear_mask_views(&mut self) {
         for mat in self.materials.values_mut() {
-            mat.mask_view = None;
+            if mat.mask_view.take().is_some() {
+                self.scene_generation += 1;
+            }
         }
     }
 
@@ -847,6 +885,8 @@ impl ViewportRenderer {
         tex.upload(queue, image, &(0..image.tile_count()).collect::<Vec<_>>());
         mat.mesh_maps.insert(kind, tex);
         mat.bake_bind_groups.remove(&kind);
+        self.texture_generation += 1;
+        self.scene_generation += 1;
     }
 
     /// Render a display preview (sRGB 8-bit, egui-ready `display_view`) of an uploaded channel or
@@ -871,10 +911,29 @@ impl ViewportRenderer {
         };
         if self.preview_target.as_ref().is_none_or(|t| t.size != tex.size) {
             self.preview_target = Some(PreviewPass::target(device, tex.size));
+            self.preview_key = None;
         }
+        let key = PreviewKey { material_slot, source, display: *display, size: tex.size, generation: self.texture_generation };
         let dst = self.preview_target.as_ref().expect("created above");
-        self.preview.run(device, queue, &tex.view, is_color, tex.comps == 1, display, dst);
+        if self.preview_key != Some(key) {
+            self.preview.run(device, queue, &tex.view, is_color, tex.comps == 1, display, dst);
+            self.preview_key = Some(key);
+            self.preview_runs += 1;
+        }
         Some(dst)
+    }
+
+    /// Changes with anything uploaded or set that changes what [`Self::render`] draws for the
+    /// same `ViewParams` (textures, overlays, environment, material settings, hidden sets). The
+    /// viewport keeps its last image while neither this nor the parameters change.
+    pub fn scene_generation(&self) -> u64 {
+        self.scene_generation
+    }
+
+    /// How many times a preview was actually converted (a repeated request with nothing changed
+    /// reuses the last result).
+    pub fn preview_runs(&self) -> u64 {
+        self.preview_runs
     }
 
     /// Anisotropic filtering of the material textures: `samples` per pixel (1 = off, up to 16).
@@ -885,6 +944,7 @@ impl ViewportRenderer {
             return;
         }
         self.anisotropy = samples;
+        self.scene_generation += 1;
         self.sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("material sampler"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -910,7 +970,7 @@ impl ViewportRenderer {
     /// Change only Base Color reconstruction; reuse all channel textures and pipelines.
     pub fn set_albedo_filter(&mut self, material_slot: u32, filter: subcraft_image::TextureFilter) {
         let mat = self.materials.entry(material_slot).or_default();
-        if mat.albedo_filter != filter { mat.albedo_filter = filter; mat.bind_group = None; }
+        if mat.albedo_filter != filter { mat.albedo_filter = filter; mat.bind_group = None; self.scene_generation += 1; }
     }
 
     /// How the viewport draws a texture set's opacity (issue #145): alpha test, blending or
@@ -918,6 +978,7 @@ impl ViewportRenderer {
     pub fn set_alpha(&mut self, material_slot: u32, alpha: subcraft_doc::AlphaSettings) {
         let mat = self.materials.entry(material_slot).or_default();
         if mat.alpha != alpha {
+            self.scene_generation += 1;
             mat.alpha = alpha;
             mat.params = None;
             mat.bind_group = None;
@@ -930,6 +991,7 @@ impl ViewportRenderer {
         let shader = shader.clamped();
         let mat = self.materials.entry(material_slot).or_default();
         if mat.shader != shader {
+            self.scene_generation += 1;
             mat.shader = shader;
             mat.params = None;
             mat.bind_group = None;
@@ -1272,6 +1334,7 @@ impl ViewportRenderer {
     /// Load the colour profile's 3D LUT (`width x height` RGBA float entries in OpenColorIO's
     /// `ociolutimage` layout, see [`color_profile`]) or clear it with `None`.
     pub fn set_color_lut(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, lut: Option<(&[[f32; 4]], u32, u32)>) -> Result<(), String> {
+        self.scene_generation += 1;
         self.color_profile.set_lut(device, queue, lut)
     }
 

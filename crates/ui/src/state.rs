@@ -139,6 +139,8 @@ pub struct UiState {
     pub paint_isolated: bool,
     /// Temporal anti-aliasing progress of the 3D view.
     pub taa: crate::viewport::TaaState,
+    /// `ViewportRenderer::scene_generation` when the 3D view last looked.
+    pub renderer_generation: u64,
     pub layer_previews: crate::layer_previews::PreviewUi,
     /// A layer's mask shown alone in the 3D view (Alt+click on its mask thumbnail).
     pub mask_view: Option<crate::mask_view::MaskView>,
@@ -493,6 +495,7 @@ impl UiState {
             last_sync_tiles: 0,
             gpu_changed: false,
             taa: Default::default(),
+            renderer_generation: 0,
             layer_previews: Default::default(),
             mask_view: None,
             instantiate: None,

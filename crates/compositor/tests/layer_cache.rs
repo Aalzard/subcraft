@@ -396,3 +396,31 @@ fn channel_limited_edits_accumulate_while_tiles_are_pending() {
         assert_exact(&cache, &ts, &fx, "a single-channel edit, then a hidden layer");
     }
 }
+
+/// Issue #628: a change of focus resizes a texture set's layer cache in place. Growing keeps
+/// every entry; shrinking keeps what still fits; results stay exact either way.
+#[test]
+fn resizing_the_layer_cache_keeps_what_fits_and_stays_exact() {
+    let fx = Fixture::new();
+    let (mut ts, ids) = stack(false);
+    let mut cache = CompositeCache::new();
+    cache.set_layer_cache_budget(64 << 20);
+    cache.update(&ts, &fx.ctx());
+    let full = cache.layer_cache_stats();
+    assert!(full.entries > 1 && full.bytes > 0);
+    cache.resize_layer_cache(128 << 20);
+    assert_eq!(cache.layer_cache_stats().entries, full.entries, "growing drops nothing");
+    let half = full.bytes / 2;
+    cache.resize_layer_cache(half);
+    let shrunk = cache.layer_cache_stats();
+    assert!(shrunk.bytes <= half && shrunk.entries > 0 && shrunk.entries < full.entries, "{shrunk:?} of {full:?}");
+    ts.find_mut(ids[5]).unwrap().visible = false;
+    cache.update(&ts, &fx.ctx());
+    assert_exact(&cache, &ts, &fx, "an edit after shrinking");
+    assert!(cache.layer_cache_stats().bytes <= half);
+    cache.resize_layer_cache(0);
+    assert_eq!(cache.layer_cache_stats().bytes, 0);
+    ts.find_mut(ids[5]).unwrap().visible = true;
+    cache.update(&ts, &fx.ctx());
+    assert_exact(&cache, &ts, &fx, "an edit with the cache off");
+}

@@ -71,6 +71,32 @@ impl CompositeCache {
         self.plan.clear();
     }
 
+    /// Give this texture set its share of the layer caches when the project has `sets` texture
+    /// sets, split evenly (all sets together stay within [`crate::total_layer_cache_budget`]).
+    pub fn share_layer_cache(&mut self, sets: usize) {
+        self.share_layer_cache_for(sets, None);
+    }
+
+    /// [`Self::share_layer_cache`] when one set is being worked on (`focused`, see
+    /// [`crate::layer_cache_share_for`]): it gets half of the total. The cache is resized in place,
+    /// so what it holds survives a change of focus as far as it fits.
+    pub fn share_layer_cache_for(&mut self, sets: usize, focused: Option<bool>) {
+        self.resize_layer_cache(crate::layer_cache_share_for(sets, focused) / 2);
+    }
+
+    /// Change the layer-result cache budget (bytes) in place, keeping what still fits.
+    pub fn resize_layer_cache(&mut self, bytes: usize) {
+        if self.prefix.budget() != bytes {
+            self.prefix.resize(bytes);
+        }
+    }
+
+    /// The bytes the layer caches of this set may hold (prefix entries and the layers' own
+    /// results together).
+    pub fn layer_cache_budget(&self) -> usize {
+        self.prefix.budget() * 2
+    }
+
     /// (entries, bytes, hits) of the cache of the layers' own content and masks.
     pub fn content_cache_stats(&self) -> (usize, usize, usize) {
         self.prefix.content.stats()
@@ -302,8 +328,9 @@ fn diff_lists(old: &[Arc<Layer>], new: &[Arc<Layer>], resolution: u32) -> Dirty 
     // Anchor references (ADR-0045) read other layers' content texel by texel, so a raster edit
     // also changes the readers at the same texels; any filter on a reader's path spreads it.
     // Conservatively grow by every filter of the set. Compare Masks reading the layer stack are
-    // readers too (QA 2026-11: a blur after one left the neighbouring tiles stale).
-    let readers = if subcraft_doc::anchor::has_references(new) || crate::stages::has_compare(new) { crate::stages::halo(new) } else { 0 };
+    // readers too (QA 2026-11: a blur after one left the neighbouring tiles stale), and so are
+    // generators with micro details (they read the Normal / Height below their layer).
+    let readers = if subcraft_doc::anchor::has_references(new) || crate::stages::has_compare(new) || crate::stages::has_micro_details(new) { crate::stages::halo(new) } else { 0 };
     if collect_list(old, new, &mut tiles, n, readers) { Dirty::Tiles(tiles) } else { Dirty::All }
 }
 
