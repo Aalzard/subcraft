@@ -294,6 +294,10 @@ pub struct Session {
     continue_stroke: bool,
     /// An operation is being repeated on the UDIM tiles of a group (no nested repetition).
     across_udims: bool,
+    /// Merge key shared by every step of one slider drag run across UDIM tiles (see `commit`).
+    across_key: Option<String>,
+    /// True while `execute_across_udims` runs: its keyed edits share one merge key.
+    across_group: bool,
     /// Clone tool: object-space source point, and the screen offset the first stroke fixed.
     clone_source: Option<Vec3>,
     clone_offset: Option<Vec2>,
@@ -424,6 +428,8 @@ impl Session {
             last_stroke: None,
             continue_stroke: false,
             across_udims: false,
+            across_key: None,
+            across_group: false,
             clone_source: None,
             clone_offset: None,
             clone_source_uv: None,
@@ -1285,6 +1291,14 @@ impl Session {
         if merge_key.is_none() || self.history.current_merge_key() != merge_key.as_deref() {
             log::info!("action: {label}");
         }
+        // A drag on a layer that other UDIM tiles follow edits several layers per tick. Each
+        // layer has its own merge key, so every tick used to push a fresh entry per tile (then
+        // squashed to one): a single opacity drag filled the undo history. The tile edits of one
+        // tick share the first one's key instead, so ticks merge as they do on an ordinary tile.
+        let merge_key = match merge_key {
+            Some(key) if self.across_group => Some(self.across_key.get_or_insert(key).clone()),
+            key => key,
+        };
         self.history.push_merge(label, self.doc.clone(), merge_key);
         self.revision += 1;
     }
@@ -1429,6 +1443,33 @@ impl Session {
                 Command::SetParts { layer, ref parts } if self.has_udim_partners(layer) => {
                     let parts = parts.clone();
                     return self.execute_across_udims(layer, cmd, move |l| Command::SetParts { layer: l, parts: parts.clone() });
+                }
+                // Multi-select actions and reordering, so the tiles' stacks stay alike (a layer left
+                // behind on another tile still renders there, and the stacks drift apart).
+                Command::DeleteLayers(ref layers) if self.has_udim_partners_any(layers) => {
+                    let layers = layers.clone();
+                    return self.execute_across_udims_many(&layers, cmd, Command::DeleteLayers);
+                }
+                Command::DuplicateLayers(ref layers) if self.has_udim_partners_any(layers) => {
+                    let layers = layers.clone();
+                    return self.execute_across_udims_many(&layers, cmd, Command::DuplicateLayers);
+                }
+                Command::SetLayersVisible { ref layers, visible } if self.has_udim_partners_any(layers) => {
+                    let layers = layers.clone();
+                    return self.execute_across_udims_many(&layers, cmd, move |layers| Command::SetLayersVisible { layers, visible });
+                }
+                Command::GroupLayers(ref layers) if self.has_udim_partners_any(layers) => {
+                    let layers = layers.clone();
+                    return self.execute_across_udims_many(&layers, cmd, Command::GroupLayers);
+                }
+                Command::GroupLayer(layer) if self.has_udim_partners(layer) => {
+                    return self.execute_across_udims(layer, cmd, Command::GroupLayer);
+                }
+                Command::MoveUp(layer) if self.has_udim_partners(layer) => {
+                    return self.execute_across_udims(layer, cmd, Command::MoveUp);
+                }
+                Command::MoveDown(layer) if self.has_udim_partners(layer) => {
+                    return self.execute_across_udims(layer, cmd, Command::MoveDown);
                 }
                 Command::RemoveMask(layer) if self.has_udim_partners(layer) => {
                     return self.execute_across_udims(layer, cmd, Command::RemoveMask);
@@ -3503,6 +3544,10 @@ impl Session {
         self.doc.udim_paint_partners(self.selection.texture_set)
     }
 
+    fn has_udim_partners_any(&self, layers: &[LayerId]) -> bool {
+        layers.first().is_some_and(|&l| self.has_udim_partners(l))
+    }
+
     fn has_udim_partners(&self, layer: LayerId) -> bool {
         self.texture_set_of(layer).is_some_and(|ts| !self.doc.udim_paint_partners(ts).is_empty())
     }
@@ -3558,18 +3603,30 @@ impl Session {
     /// `cmd` on `layer`, then the same command on the matching layer of every partner UDIM tile
     /// of its set (`make` builds the command for a layer). One undo step.
     fn execute_across_udims(&mut self, layer: LayerId, cmd: Command, make: impl Fn(LayerId) -> Command) -> Result<(), CommandError> {
-        let Some(source) = self.texture_set_of(layer).and_then(|id| self.doc.texture_set(id)).cloned() else { return self.execute_once(cmd) };
-        let targets: Vec<LayerId> = self
+        self.execute_across_udims_many(&[layer], cmd, |layers| make(layers[0]))
+    }
+
+    /// [`Self::execute_across_udims`] for a command on several layers of one set (multi-select
+    /// delete, duplicate, hide): each partner tile gets the layers it has a match for.
+    fn execute_across_udims_many(&mut self, layers: &[LayerId], cmd: Command, make: impl Fn(Vec<LayerId>) -> Command) -> Result<(), CommandError> {
+        let Some(&first) = layers.first() else { return self.execute_once(cmd) };
+        let Some(source) = self.texture_set_of(first).and_then(|id| self.doc.texture_set(id)).cloned() else { return self.execute_once(cmd) };
+        let targets: Vec<Vec<LayerId>> = self
             .doc
             .udim_paint_partners(source.id)
             .into_iter()
-            .filter_map(|id| self.doc.texture_set(id)?.corresponding_layer(&source, layer))
+            .filter_map(|id| {
+                let partner = self.doc.texture_set(id)?;
+                let matched: Vec<LayerId> = layers.iter().filter_map(|&l| partner.corresponding_layer(&source, l)).collect();
+                (!matched.is_empty()).then_some(matched)
+            })
             .collect();
         if targets.is_empty() {
             return self.execute_once(cmd);
         }
         let pushes = self.history.pushes();
         self.across_udims = true;
+        (self.across_group, self.across_key) = (true, None);
         let result = self.execute(cmd);
         if result.is_ok() {
             let after = (self.selection, self.brush.target, self.effect);
@@ -3584,6 +3641,7 @@ impl Session {
             self.revision += 1;
         }
         self.across_udims = false;
+        (self.across_group, self.across_key) = (false, None);
         result
     }
 

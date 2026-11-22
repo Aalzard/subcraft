@@ -5,6 +5,9 @@ What changed in SubCraft, newest first. Download the latest build from the
 
 ## Unreleased
 
+### Fixed
+- Paint across UDIM tiles: dragging a layer's opacity slider no longer adds an undo step per tick (it filled the history and pushed older steps out). Deleting, duplicating or hiding several layers, grouping, and moving layers up or down now happen on every tile, so the tiles' stacks stay alike instead of a deleted layer still rendering on the other tiles.
+
 ## 0.4.6 - 2026-11-21
 
 ### Added
