@@ -5726,3 +5726,21 @@ symmetry. `crates/app/tests/uv_tools.rs` covers session routing: the 2D clone so
   `id_sources_the_model_lacks_fall_back_to_generated_colours_with_a_warning`; mesh
   `obj_vertex_colors_and_material_colors_are_read`. Nothing was built or run locally (coordinator's rule after
   the PC's power cuts), and no capture was taken.
+
+### Display Settings reset follow-up, feedback on #609 (2026-11-22, branch `claude/project-thread-r2ieaz`)
+
+* **Asked (comment on #609):** Ctrl+click on a slider set it instead of resetting; Ctrl+click on a number field
+  entered edit mode; some resettable rows (checkboxes) showed no "changed" dot.
+* **Cause:** egui sliders sense drag only, so the slider took the Ctrl+press as a drag and `clicked()` never fired.
+  Number fields, checkboxes and dropdowns also saw the click before the reset ran. The Rendering mode rows
+  (Bounces, Min / Max samples, Max time, Denoise, Firefly filter, Ground shadow) and the Resolution dropdown were
+  reset by Reset all but had no dot and no per-row reset.
+* **Done:** the reset gestures moved to `ui::reset_row` (shared). While Ctrl is held, a click-and-drag cover is laid
+  over the row's control, so the Ctrl+click goes to the reset only: sliders do not move, number fields do not open,
+  checkboxes do not toggle, dropdowns do not open. Every Rendering mode row and the Resolution row (Display
+  Settings only, not the toolbar) now have the dot, Ctrl+click and right-click reset.
+* **Tests (run, `cargo test -p subcraft-ui`):** new `ctrl_click_on_a_slider_puts_the_default_back_instead_of_moving_it_to_the_click`,
+  `ctrl_click_on_a_number_field_resets_it_without_starting_to_edit_it`,
+  `ctrl_click_on_a_checkbox_resets_it_and_never_toggles_it_away_from_the_default`,
+  `every_setting_reset_all_touches_shows_the_changed_dot`. The three Ctrl+click tests fail with the cover switched
+  off, so they catch the reported bugs. No app screenshot (no GPU in the cloud container).
