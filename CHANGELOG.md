@@ -5,6 +5,9 @@ What changed in SubCraft, newest first. Download the latest build from the
 
 ## Unreleased
 
+### Fixed
+- Brush channels: picking a Shelf brush that carries its own material (Dirt Grunge, Rust Spatter, Bare Metal Scratches and the like, or a saved tool preset) switched back on every channel it paints, even ones you had switched off in the Brush panel, so the next stroke painted them by accident (issue #618). A channel you switched off now stays off; the preset's value still loads, so switching the channel on again paints it. Brushes without a material already left the channels alone.
+
 ## 0.4.6 - 2026-11-21
 
 ### Added

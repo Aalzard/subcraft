@@ -236,6 +236,16 @@ impl Session {
         }
     }
 
+    /// The brush channels the user has switched off. While a normal-map stamp is active every
+    /// other channel is off only for the stamp; what counts is the set it restores afterwards.
+    fn channels_switched_off(&self) -> Vec<subcraft_core::ChannelKind> {
+        let m = &self.brush.material;
+        match &m.stamp {
+            Some(stamp) => m.channels.keys().filter(|k| !stamp.restore_channels.contains(k)).copied().collect(),
+            None => m.channels.iter().filter(|(_, c)| !c.enabled).map(|(k, _)| *k).collect(),
+        }
+    }
+
     /// Load a preset into the brush. The tip is looked up by name in `tips`; if it is missing the
     /// round tip is used and the returned message says so.
     pub fn apply_brush_preset(&mut self, p: &BrushPreset, tips: &[BrushAlpha]) -> Option<String> {
@@ -304,6 +314,14 @@ impl Session {
             // The material in use stays; only a stamp brush (which replaces the tip) is dropped.
             self.clear_brush_stamp();
         } else if !p.material.channels.is_empty() {
+            // Choosing a brush never switches on a channel the user switched off (#618): the
+            // preset's values still load, so turning the channel back on paints them. A preset
+            // with its own stamp sets its channels itself, as before.
+            if material.stamp.is_none() {
+                for kind in self.channels_switched_off() {
+                    if let Some(c) = material.channels.get_mut(&kind) { c.enabled = false; }
+                }
+            }
             self.brush.material = material;
         } else {
             self.clear_brush_stamp();

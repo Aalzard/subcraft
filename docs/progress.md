@@ -5726,3 +5726,19 @@ symmetry. `crates/app/tests/uv_tools.rs` covers session routing: the 2D clone so
   `id_sources_the_model_lacks_fall_back_to_generated_colours_with_a_warning`; mesh
   `obj_vertex_colors_and_material_colors_are_read`. Nothing was built or run locally (coordinator's rule after
   the PC's power cuts), and no capture was taken.
+
+### Issue #618 - picking a brush no longer switches disabled channels back on (2026-11-22, branch `claude/project-thread-v12q7x`)
+
+* **Cause:** `Session::load_brush_preset` replaced `brush.material` wholesale for a tool preset that carries
+  channels (built-in Dirt Grunge / Rust Spatter / Bare Metal Scratches and the others in `brush_preset::builtin()`,
+  saved tool presets). Every channel the preset lists came back enabled. "Intermittent" in the report = only these
+  presets do it; the `brush_builtin` catalog has no material and kept the channels.
+* **Fix:** channels the user switched off stay off; the preset's values still load. While a normal stamp is
+  active, "switched off" means not in the stamp's `restore_channels`. A preset with its own stamp is unchanged.
+  Material presets (choosing a material) still set the channels, as before.
+* **Tests:** `crates/app/tests/brush_channels_kept.rs` (4): channel state after selecting the preset, a real stroke
+  leaves the switched-off Roughness raster empty, stamp case, a material-less brush leaves the material untouched.
+  Mutation check: with the fix reverted, 3 of the 4 fail (the material-less case is a guard and passes either way).
+* **Run locally:** the new test file plus the related app tests (brush_presets, preset_kinds, stamp_brush,
+  brush_builtin, asset_apply, brush_textures): 43 passed. The whole `subcraft-app` suite filled the container's
+  disk while linking, so CI on the PR is the full run.
