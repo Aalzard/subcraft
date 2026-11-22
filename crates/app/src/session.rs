@@ -92,6 +92,8 @@ fn size_field_cache() {
         let total = system.total_memory();
         if total > 0 {
             subcraft_materials::sample::field::set_budget(subcraft_materials::sample::field::budget_for_memory(total));
+            // One total for the layer caches of every texture set (issue #628).
+            subcraft_compositor::set_total_layer_cache_budget(subcraft_compositor::total_layer_cache_for_memory(total));
         }
     });
 }
@@ -211,10 +213,25 @@ struct LastStroke {
 pub(crate) fn checked_brush_settings(mut settings: BrushSettings) -> Result<BrushSettings, CommandError> {
     if [settings.size, settings.flow, settings.stroke_opacity, settings.hardness, settings.scatter_radius, settings.scatter_size_random,
         settings.scatter_rotation_deg, settings.scatter_opacity_random, settings.scatter_fall,
-        settings.smudge_strength, settings.smudge_carry, settings.smudge_falloff, settings.smudge_material, settings.alternate_offset].iter().any(|v| !v.is_finite()) {
+        settings.smudge_strength, settings.smudge_carry, settings.smudge_falloff, settings.smudge_material, settings.alternate_offset,
+        settings.spacing, settings.angle_deg, settings.roundness, settings.size_jitter, settings.flow_jitter, settings.angle_jitter_deg,
+        settings.position_jitter, settings.pressure_size, settings.pressure_flow, settings.backface_angle_deg].iter().any(|v| !v.is_finite()) {
         return Err(CommandError::Invalid("brush values must be finite".into()));
     }
     settings.size = settings.size.clamp(0.1, 100.0);
+    // Ranges of the Brush panel, widened where a built-in brush goes past them (spacing 4, position
+    // jitter 1.5). A preset file with an infinite angle made every stamp NaN, a zero roundness
+    // flattened the footprint to nothing.
+    settings.spacing = settings.spacing.clamp(0.01, 20.0);
+    settings.angle_deg = settings.angle_deg.clamp(-360.0, 360.0);
+    settings.roundness = settings.roundness.clamp(0.05, 1.0);
+    settings.size_jitter = settings.size_jitter.clamp(0.0, 1.0);
+    settings.flow_jitter = settings.flow_jitter.clamp(0.0, 1.0);
+    settings.angle_jitter_deg = settings.angle_jitter_deg.clamp(0.0, 180.0);
+    settings.position_jitter = settings.position_jitter.clamp(0.0, 4.0);
+    settings.pressure_size = settings.pressure_size.clamp(0.0, 1.0);
+    settings.pressure_flow = settings.pressure_flow.clamp(0.0, 1.0);
+    settings.backface_angle_deg = settings.backface_angle_deg.clamp(10.0, 90.0);
     settings.flow = settings.flow.clamp(0.0, 1.0);
     settings.stroke_opacity = settings.stroke_opacity.clamp(0.0, 1.0);
     settings.hardness = settings.hardness.clamp(0.0, 1.0);
@@ -298,6 +315,10 @@ pub struct Session {
     continue_stroke: bool,
     /// An operation is being repeated on the UDIM tiles of a group (no nested repetition).
     across_udims: bool,
+    /// Merge key shared by every step of one slider drag run across UDIM tiles (see `commit`).
+    across_key: Option<String>,
+    /// True while `execute_across_udims` runs: its keyed edits share one merge key.
+    across_group: bool,
     /// Clone tool: object-space source point, and the screen offset the first stroke fixed.
     clone_source: Option<Vec3>,
     clone_offset: Option<Vec2>,
@@ -429,6 +450,8 @@ impl Session {
             last_stroke: None,
             continue_stroke: false,
             across_udims: false,
+            across_key: None,
+            across_group: false,
             clone_source: None,
             clone_offset: None,
             clone_source_uv: None,
@@ -594,8 +617,11 @@ impl Session {
         for u in stack.updates {
             let Some(ts) = self.doc.texture_set_mut(u.texture_set) else { continue };
             let Some(pos) = ts.layers.iter().position(|l| l.id == u.flat.id) else { continue };
-            ts.layers[pos] = u.flat;
-            ts.layers.insert(pos + 1, u.folder);
+            let (mut flat, mut folder) = (u.flat, u.folder);
+            subcraft_doc::share_layer_uniform_tiles(&mut flat);
+            subcraft_doc::share_layer_uniform_tiles(&mut folder);
+            ts.layers[pos] = flat;
+            ts.layers.insert(pos + 1, folder);
         }
         if pristine {
             self.history.reset(self.doc.clone(), "Open Painter project");
@@ -1157,6 +1183,13 @@ impl Session {
         }
     }
 
+    /// Diagnostics: (content cache bytes, tile geometry bytes, mesh map bytes).
+    pub fn memory_diagnostics(&self) -> (usize, usize, usize) {
+        let content = self.composites.values().map(|c| c.content_cache_stats().1).sum();
+        let maps = self.mesh_maps.values().map(|m| m.memory_bytes()).sum();
+        (content, self.scene.geometry.memory_bytes(), maps)
+    }
+
     /// Size and hit counters of the per-layer result caches (inline compositing; with the
     /// background worker the caches live on its thread and this is empty).
     pub fn layer_cache_stats(&self) -> subcraft_compositor::PrefixStats {
@@ -1290,6 +1323,14 @@ impl Session {
         if merge_key.is_none() || self.history.current_merge_key() != merge_key.as_deref() {
             log::info!("action: {label}");
         }
+        // A drag on a layer that other UDIM tiles follow edits several layers per tick. Each
+        // layer has its own merge key, so every tick used to push a fresh entry per tile (then
+        // squashed to one): a single opacity drag filled the undo history. The tile edits of one
+        // tick share the first one's key instead, so ticks merge as they do on an ordinary tile.
+        let merge_key = match merge_key {
+            Some(key) if self.across_group => Some(self.across_key.get_or_insert(key).clone()),
+            key => key,
+        };
         self.history.push_merge(label, self.doc.clone(), merge_key);
         self.revision += 1;
     }
@@ -1434,6 +1475,33 @@ impl Session {
                 Command::SetParts { layer, ref parts } if self.has_udim_partners(layer) => {
                     let parts = parts.clone();
                     return self.execute_across_udims(layer, cmd, move |l| Command::SetParts { layer: l, parts: parts.clone() });
+                }
+                // Multi-select actions and reordering, so the tiles' stacks stay alike (a layer left
+                // behind on another tile still renders there, and the stacks drift apart).
+                Command::DeleteLayers(ref layers) if self.has_udim_partners_any(layers) => {
+                    let layers = layers.clone();
+                    return self.execute_across_udims_many(&layers, cmd, Command::DeleteLayers);
+                }
+                Command::DuplicateLayers(ref layers) if self.has_udim_partners_any(layers) => {
+                    let layers = layers.clone();
+                    return self.execute_across_udims_many(&layers, cmd, Command::DuplicateLayers);
+                }
+                Command::SetLayersVisible { ref layers, visible } if self.has_udim_partners_any(layers) => {
+                    let layers = layers.clone();
+                    return self.execute_across_udims_many(&layers, cmd, move |layers| Command::SetLayersVisible { layers, visible });
+                }
+                Command::GroupLayers(ref layers) if self.has_udim_partners_any(layers) => {
+                    let layers = layers.clone();
+                    return self.execute_across_udims_many(&layers, cmd, Command::GroupLayers);
+                }
+                Command::GroupLayer(layer) if self.has_udim_partners(layer) => {
+                    return self.execute_across_udims(layer, cmd, Command::GroupLayer);
+                }
+                Command::MoveUp(layer) if self.has_udim_partners(layer) => {
+                    return self.execute_across_udims(layer, cmd, Command::MoveUp);
+                }
+                Command::MoveDown(layer) if self.has_udim_partners(layer) => {
+                    return self.execute_across_udims(layer, cmd, Command::MoveDown);
                 }
                 Command::RemoveMask(layer) if self.has_udim_partners(layer) => {
                     return self.execute_across_udims(layer, cmd, Command::RemoveMask);
@@ -3513,6 +3581,10 @@ impl Session {
         self.doc.udim_paint_partners(self.selection.texture_set)
     }
 
+    fn has_udim_partners_any(&self, layers: &[LayerId]) -> bool {
+        layers.first().is_some_and(|&l| self.has_udim_partners(l))
+    }
+
     fn has_udim_partners(&self, layer: LayerId) -> bool {
         self.texture_set_of(layer).is_some_and(|ts| !self.doc.udim_paint_partners(ts).is_empty())
     }
@@ -3568,18 +3640,30 @@ impl Session {
     /// `cmd` on `layer`, then the same command on the matching layer of every partner UDIM tile
     /// of its set (`make` builds the command for a layer). One undo step.
     fn execute_across_udims(&mut self, layer: LayerId, cmd: Command, make: impl Fn(LayerId) -> Command) -> Result<(), CommandError> {
-        let Some(source) = self.texture_set_of(layer).and_then(|id| self.doc.texture_set(id)).cloned() else { return self.execute_once(cmd) };
-        let targets: Vec<LayerId> = self
+        self.execute_across_udims_many(&[layer], cmd, |layers| make(layers[0]))
+    }
+
+    /// [`Self::execute_across_udims`] for a command on several layers of one set (multi-select
+    /// delete, duplicate, hide): each partner tile gets the layers it has a match for.
+    fn execute_across_udims_many(&mut self, layers: &[LayerId], cmd: Command, make: impl Fn(Vec<LayerId>) -> Command) -> Result<(), CommandError> {
+        let Some(&first) = layers.first() else { return self.execute_once(cmd) };
+        let Some(source) = self.texture_set_of(first).and_then(|id| self.doc.texture_set(id)).cloned() else { return self.execute_once(cmd) };
+        let targets: Vec<Vec<LayerId>> = self
             .doc
             .udim_paint_partners(source.id)
             .into_iter()
-            .filter_map(|id| self.doc.texture_set(id)?.corresponding_layer(&source, layer))
+            .filter_map(|id| {
+                let partner = self.doc.texture_set(id)?;
+                let matched: Vec<LayerId> = layers.iter().filter_map(|&l| partner.corresponding_layer(&source, l)).collect();
+                (!matched.is_empty()).then_some(matched)
+            })
             .collect();
         if targets.is_empty() {
             return self.execute_once(cmd);
         }
         let pushes = self.history.pushes();
         self.across_udims = true;
+        (self.across_group, self.across_key) = (true, None);
         let result = self.execute(cmd);
         if result.is_ok() {
             let after = (self.selection, self.brush.target, self.effect);
@@ -3594,6 +3678,7 @@ impl Session {
             self.revision += 1;
         }
         self.across_udims = false;
+        (self.across_group, self.across_key) = (false, None);
         result
     }
 
@@ -3750,6 +3835,7 @@ impl Session {
             let maps = self.mesh_maps.get(&ts.id).unwrap_or(&self.no_maps);
             let ctx = EvalContext { geometry: &geo, resources: &self.resources, mesh_maps: maps };
             let cache = self.composites.entry(ts.id).or_default();
+            cache.share_layer_cache_for(self.doc.texture_sets.len(), Some(ts.id == self.selection.texture_set));
             let tiles = cache.update_within(ts, &ctx, budget);
             if !tiles.is_empty() {
                 out.push(CompositeUpdate { texture_set: ts.id, material_slot: ts.material_slot, tiles, changed: cache.last_changed().clone() });
@@ -3787,7 +3873,7 @@ impl Session {
                 preview_geometry: subcraft_compositor::preview_resolution(ts.resolution).map(|r| self.scene.geometry.get(ts.material_slot, r)),
             })
             .collect();
-        let snapshot = Snapshot { sets, resources: self.resources.clone(), invalidate: std::mem::take(&mut self.invalidated) };
+        let snapshot = Snapshot { sets, resources: self.resources.clone(), invalidate: std::mem::take(&mut self.invalidated), focus: Some(self.selection.texture_set) };
         worker.submit(snapshot.clone());
         self.submitted = Some(snapshot);
     }

@@ -11,10 +11,11 @@ use crate::state::UiState;
 
 /// Width of the value box beside the text dialog's sliders (room for suffixes such as "% width").
 const VALUE_BOX_W: f32 = 90.0;
-fn slider_row(ui: &mut Ui, label: &str, slider: egui::Slider<'_>) -> egui::Response {
-    crate::widgets::slider_row_boxed(ui, label, slider, VALUE_BOX_W, |_| {})
+/// A slider row of the text dialog that goes back to `default` (Ctrl+click, right-click menu).
+fn slider_row<T: PartialEq + Copy>(ui: &mut Ui, label: &str, value: &mut T, default: T, slider: impl FnOnce(&mut T) -> egui::Slider<'_>) -> egui::Response {
+    crate::widgets::slider_row_boxed_reset(ui, label, value, default, slider, VALUE_BOX_W)
 }
-use crate::widgets::{Edit, caption, channel_value, hint, primary_button, prop_row, section, segmented};
+use crate::widgets::{Edit, caption, channel_value, hint, primary_button, prop_row, prop_row_reset, section, segmented_response};
 
 /// What the next click on the model does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -87,18 +88,20 @@ fn controls(ui: &mut Ui, d: &mut TextDecal, text_ui: &mut TextUi, embedded: &[(s
     if focus { r.request_focus(); }
     edit = edit.or(Edit::from(&r));
 
-    prop_row(ui, "Font", |ui| {
-        egui::ComboBox::from_id_salt("text_font").selected_text(font_label(&d.font, embedded)).show_ui(ui, |ui| {
+    // Defaults of a new text (`TextDecal::new`).
+    let dt = TextDecal::new("", Vec2::ZERO, Default::default());
+    let r = prop_row_reset(ui, "Font", &mut d.font, dt.font.clone(), |ui, font| {
+        egui::ComboBox::from_id_salt("text_font").selected_text(font_label(font, embedded)).show_ui(ui, |ui| {
             ui.label(caption("Bundled"));
             for (name, _) in BUNDLED_FONTS {
                 let f = FontRef::Bundled { name: (*name).into() };
-                if ui.selectable_label(d.font == f, *name).clicked() { d.font = f; edit = edit.or(Edit { changed: true, done: true }); }
+                if ui.selectable_label(*font == f, *name).clicked() { *font = f; edit = edit.or(Edit { changed: true, done: true }); }
             }
             if !embedded.is_empty() {
                 ui.separator();
                 for (id, name) in embedded {
                     let f = FontRef::Embedded { resource: *id };
-                    if ui.selectable_label(d.font == f, name).clicked() { d.font = f; edit = edit.or(Edit { changed: true, done: true }); }
+                    if ui.selectable_label(*font == f, name).clicked() { *font = f; edit = edit.or(Edit { changed: true, done: true }); }
                 }
             }
             ui.separator();
@@ -109,14 +112,15 @@ fn controls(ui: &mut Ui, d: &mut TextDecal, text_ui: &mut TextUi, embedded: &[(s
                     for info in list.iter().filter(|i| needle.is_empty() || i.family.to_lowercase().contains(&needle)).take(400) {
                         let f = FontRef::System { family: info.family.clone(), bold: info.bold, italic: info.italic };
                         let label = font_label(&f, embedded);
-                        if ui.selectable_label(d.font == f, label).clicked() { d.font = f; edit = edit.or(Edit { changed: true, done: true }); }
+                        if ui.selectable_label(*font == f, label).clicked() { *font = f; edit = edit.or(Edit { changed: true, done: true }); }
                     }
                 });
             } else if ui.button("Load installed fonts…").clicked() {
                 text_ui.system = Some(subcraft_app::text::font_library().system_fonts());
             }
-        });
+        }).response
     });
+    if r.changed() { edit = edit.or(Edit { changed: true, done: true }); }
     prop_row(ui, "", |ui| {
         if ui.button(format!("{}  Choose font file…", crate::icons::IMAGE)).on_hover_text("A .ttf / .otf file; it is embedded in the project").clicked() {
             crate::files::pick(ui.ctx(), crate::files::Purpose::Font, crate::files::FONTS, false, None);
@@ -124,31 +128,30 @@ fn controls(ui: &mut Ui, d: &mut TextDecal, text_ui: &mut TextUi, embedded: &[(s
     });
 
     let mut size = d.size * 100.0;
-    let r = slider_row(ui, "Size", egui::Slider::new(&mut size, TextDecal::MIN_SIZE * 100.0..=60.0).logarithmic(true).suffix("% width"));
+    let r = slider_row(ui, "Size", &mut size, dt.size * 100.0, |v| egui::Slider::new(v, TextDecal::MIN_SIZE * 100.0..=60.0).logarithmic(true).suffix("% width"));
     if r.changed() { d.size = size / 100.0; }
     edit = edit.or(Edit::from(&r));
-    let r = slider_row(ui, "Letter spacing", egui::Slider::new(&mut d.style.letter_spacing, -0.2..=1.0).suffix(" em"));
+    let r = slider_row(ui, "Letter spacing", &mut d.style.letter_spacing, dt.style.letter_spacing, |v| egui::Slider::new(v, -0.2..=1.0).suffix(" em"));
     edit = edit.or(Edit::from(&r));
-    let r = slider_row(ui, "Line spacing", egui::Slider::new(&mut d.style.line_spacing, 0.5..=3.0));
+    let r = slider_row(ui, "Line spacing", &mut d.style.line_spacing, dt.style.line_spacing, |v| egui::Slider::new(v, 0.5..=3.0));
     edit = edit.or(Edit::from(&r));
-    prop_row(ui, "Align", |ui| {
-        if segmented(ui, &mut d.style.align, &[(Align::Left, "Left"), (Align::Center, "Center"), (Align::Right, "Right")]) { edit = edit.or(Edit { changed: true, done: true }); }
-    });
-    prop_row(ui, "Direction", |ui| {
-        if segmented(ui, &mut d.style.direction, &[(Direction::Auto, "Auto"), (Direction::Ltr, "LTR"), (Direction::Rtl, "RTL")]) { edit = edit.or(Edit { changed: true, done: true }); }
-    });
+    let r = prop_row_reset(ui, "Align", &mut d.style.align, dt.style.align, |ui, v| segmented_response(ui, v, &[(Align::Left, "Left"), (Align::Center, "Center"), (Align::Right, "Right")]));
+    if r.changed() { edit = edit.or(Edit { changed: true, done: true }); }
+    let r = prop_row_reset(ui, "Direction", &mut d.style.direction, dt.style.direction, |ui, v| segmented_response(ui, v, &[(Direction::Auto, "Auto"), (Direction::Ltr, "LTR"), (Direction::Rtl, "RTL")]));
+    if r.changed() { edit = edit.or(Edit { changed: true, done: true }); }
     if placed {
         let mut deg = d.rotation.to_degrees();
-        let r = slider_row(ui, "Rotation", egui::Slider::new(&mut deg, -180.0..=180.0).suffix("°"));
+        let r = slider_row(ui, "Rotation", &mut deg, 0.0, |v| egui::Slider::new(v, -180.0..=180.0).suffix("°"));
         if r.changed() { d.rotation = deg.to_radians(); }
         edit = edit.or(Edit::from(&r));
         let mut c = d.center;
-        let rx = slider_row(ui, "Position X", egui::Slider::new(&mut c.x, 0.0..=1.0));
-        let ry = slider_row(ui, "Position Y", egui::Slider::new(&mut c.y, 0.0..=1.0));
+        // Where it was placed: no default to go back to.
+        let rx = crate::widgets::slider_row_boxed(ui, "Position X", egui::Slider::new(&mut c.x, 0.0..=1.0), VALUE_BOX_W, |_| {});
+        let ry = crate::widgets::slider_row_boxed(ui, "Position Y", egui::Slider::new(&mut c.y, 0.0..=1.0), VALUE_BOX_W, |_| {});
         d.center = c;
         edit = edit.or(Edit::from(&rx)).or(Edit::from(&ry));
     }
-    let r = slider_row(ui, "Opacity", egui::Slider::new(&mut d.opacity, 0.0..=1.0));
+    let r = slider_row(ui, "Opacity", &mut d.opacity, dt.opacity, |v| egui::Slider::new(v, 0.0..=1.0));
     edit = edit.or(Edit::from(&r));
     for (kind, value) in d.values.iter_mut() {
         prop_row(ui, kind.display_name(), |ui| { edit = edit.or(channel_value(ui, *kind, value)); });
@@ -286,8 +289,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui, now: f64) {
             });
             let mut t = state.text.stamp_size;
             let mut a = state.text.stamp_angle;
-            slider_row(ui, "Stamp size", egui::Slider::new(&mut t, 1.0..=100.0).logarithmic(true).suffix("%"));
-            slider_row(ui, "Stamp angle", egui::Slider::new(&mut a, -180.0..=180.0).suffix("°"));
+            let dt = TextUi::default();
+            slider_row(ui, "Stamp size", &mut t, dt.stamp_size, |v| egui::Slider::new(v, 1.0..=100.0).logarithmic(true).suffix("%"));
+            slider_row(ui, "Stamp angle", &mut a, dt.stamp_angle, |v| egui::Slider::new(v, -180.0..=180.0).suffix("°"));
             state.text.stamp_size = t;
             state.text.stamp_angle = a;
             hint(ui, "Decal layers live in UV space (they do not cross UV seams); a projected stamp is painted pixels and does.");

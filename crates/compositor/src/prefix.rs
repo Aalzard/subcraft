@@ -165,9 +165,56 @@ pub struct PrefixCache {
 }
 
 impl Default for PrefixCache {
+    /// The share of one texture set alone: half of it for the prefix entries, half for the
+    /// layers' own results.
     fn default() -> Self {
-        let mb = std::env::var("SUBCRAFT_LAYER_CACHE_MB").ok().and_then(|v| v.parse::<usize>().ok()).unwrap_or(2048);
-        Self::new(mb << 20)
+        Self::new(layer_cache_share(1) / 2)
+    }
+}
+
+/// Default total for the layer caches of all texture sets together: what one set had before.
+pub const TOTAL_LAYER_CACHE_BYTES: usize = 4 << 30;
+
+static TOTAL_BUDGET: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(TOTAL_LAYER_CACHE_BYTES);
+
+/// Set the total budget of the layer caches of all texture sets (the application sizes it from
+/// the machine's memory, see [`total_layer_cache_for_memory`]).
+pub fn set_total_layer_cache_budget(bytes: usize) {
+    TOTAL_BUDGET.store(bytes, Ordering::Relaxed);
+}
+
+/// Total budget of the layer caches of every texture set together, in bytes.
+/// `SUBCRAFT_LAYER_CACHE_MB` overrides it.
+///
+/// Issue #628: the budget used to apply to each texture set, twice (prefix entries and the
+/// layers' own results, 2 GB each), so a project with 11 sets at 4096² could hold about 44 GB.
+pub fn total_layer_cache_budget() -> usize {
+    std::env::var("SUBCRAFT_LAYER_CACHE_MB").ok().and_then(|v| v.parse::<usize>().ok()).map_or_else(|| TOTAL_BUDGET.load(Ordering::Relaxed), |mb| mb << 20)
+}
+
+/// A total for a machine with `total_memory` bytes of RAM: an eighth of it, between 1 GiB and
+/// [`TOTAL_LAYER_CACHE_BYTES`].
+pub fn total_layer_cache_for_memory(total_memory: u64) -> usize {
+    (total_memory / 8).clamp(1 << 30, TOTAL_LAYER_CACHE_BYTES as u64) as usize
+}
+
+/// The share of one texture set when the project has `sets` of them (prefix entries and the
+/// layers' own results together), split evenly.
+pub fn layer_cache_share(sets: usize) -> usize {
+    total_layer_cache_budget() / sets.max(1)
+}
+
+/// The share of one of `sets` texture sets when one of them is being worked on: that one gets
+/// half of the total (edits low in its stack stay fast, as with one set alone), the others split
+/// the other half. `focused`: `Some(true)` for the set worked on, `Some(false)` for the others,
+/// `None` when no set is (even split).
+pub fn layer_cache_share_for(sets: usize, focused: Option<bool>) -> usize {
+    let total = total_layer_cache_budget();
+    match focused {
+        _ if sets <= 1 => total,
+        Some(true) => total / 2,
+        Some(false) => total / 2 / (sets - 1),
+        None => total / sets,
     }
 }
 
@@ -191,6 +238,23 @@ impl PrefixCache {
 
     pub fn budget(&self) -> usize {
         self.budget
+    }
+
+    /// Change the budget in place: entries that still fit stay (least recently used ones go
+    /// first when it shrinks), for this cache and the layers' own results alike.
+    pub fn resize(&mut self, budget_bytes: usize) {
+        self.budget = budget_bytes;
+        {
+            let i = self.inner.get_mut().unwrap_or_else(|p| p.into_inner());
+            while i.bytes > budget_bytes {
+                let Some((_, oldest)) = i.order.pop_first() else { break };
+                if let Some(e) = i.entries.remove(&oldest) {
+                    i.bytes -= e.bytes;
+                    i.forget(oldest.1);
+                }
+            }
+        }
+        self.content.resize(budget_bytes);
     }
 
     pub fn stats(&self) -> PrefixStats {
@@ -396,6 +460,15 @@ impl ContentCache {
         self.inner.lock().unwrap_or_else(|p| p.into_inner())
     }
 
+    fn resize(&mut self, budget_bytes: usize) {
+        self.budget = budget_bytes;
+        let i = self.inner.get_mut().unwrap_or_else(|p| p.into_inner());
+        while i.bytes > budget_bytes {
+            let Some((_, &oldest)) = i.order.first_key_value() else { break };
+            i.remove(&oldest);
+        }
+    }
+
     pub(crate) fn enabled(&self) -> bool {
         self.budget > 0
     }
@@ -466,5 +539,41 @@ impl ContentCache {
         i.entries.insert(k, ContentEntry { packed, stamp, bytes, update });
         i.order.insert(stamp, k);
         i.bytes += bytes;
+    }
+}
+
+#[cfg(test)]
+mod budget_tests {
+    use super::*;
+
+    /// Issue #628: the budget applied per texture set (twice), so 11 sets at 4096² could hold
+    /// about 44 GB. All sets together now share one total.
+    #[test]
+    fn all_texture_sets_share_one_layer_cache_total() {
+        let total = total_layer_cache_budget();
+        for sets in [1, 2, 11, 40] {
+            let mut caches: Vec<crate::CompositeCache> = (0..sets).map(|_| crate::CompositeCache::new()).collect();
+            for c in &mut caches {
+                c.share_layer_cache(sets);
+            }
+            let sum: usize = caches.iter().map(crate::CompositeCache::layer_cache_budget).sum();
+            assert!(sum <= total && sum + 2 * sets >= total, "{sets} sets: {sum} of {total}");
+        }
+        // The set being worked on gets half; all together still within the total.
+        for sets in [2, 11] {
+            let mut caches: Vec<crate::CompositeCache> = (0..sets).map(|_| crate::CompositeCache::new()).collect();
+            for (i, c) in caches.iter_mut().enumerate() {
+                c.share_layer_cache_for(sets, Some(i == 0));
+            }
+            let sum: usize = caches.iter().map(crate::CompositeCache::layer_cache_budget).sum();
+            assert!(sum <= total, "{sets} sets: {sum} of {total}");
+            assert!(caches[0].layer_cache_budget() + 4 >= total / 2, "{sets} sets: focused share {}", caches[0].layer_cache_budget());
+        }
+        // One set alone keeps what a set had before (2 GiB prefix + 2 GiB content by default).
+        assert_eq!(PrefixCache::default().budget(), layer_cache_share(1) / 2);
+        // Sized from RAM: an eighth, between 1 GiB and 4 GiB.
+        assert_eq!(total_layer_cache_for_memory(4 << 30), 1 << 30);
+        assert_eq!(total_layer_cache_for_memory(16 << 30), 2 << 30);
+        assert_eq!(total_layer_cache_for_memory(64 << 30), 4 << 30);
     }
 }

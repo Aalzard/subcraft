@@ -821,6 +821,12 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 // Temporal anti-aliasing: number the frames of the average; once it has its
                 // accumulations the finished image stays on screen until something changes.
                 overlay_uploaded |= state.env.uploaded != env_before;
+                // Anything else the renderer was handed since the last frame (material settings,
+                // hidden sets, the colour LUT, filtering): with TAA off this is what decides
+                // whether the scene is drawn again (issue #628).
+                let generation = renderer.scene_generation();
+                overlay_uploaded |= state.renderer_generation != generation;
+                state.renderer_generation = generation;
                 let scene = (state.session.revision(), state.gpu_changed || state.painting || overlay_uploaded);
                 let accumulations = view.taa.then_some(view.taa_accumulations);
                 let kept = renderer.target().is_some_and(|t| t.size == render_size);
@@ -1174,7 +1180,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             computing_bar(&painter, rect, now);
         }
         if pending {
-            ui.ctx().request_repaint();
+            ui.ctx().request_repaint_after(crate::app::PENDING_POLL);
         }
     }
     rendering_toggle(state, ui, rect, bake_mode);
@@ -1599,26 +1605,33 @@ fn draw_axis_indicator(painter: &egui::Painter, centre: Pos2, view: glam::Mat4) 
 }
 
 /// Temporal anti-aliasing progress: the view the average belongs to and how many frames it has.
+/// With TAA off it remembers the view of the last drawn frame instead.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct TaaState {
     last: Option<subcraft_render::ViewParams>,
     revision: u64,
     pub frame: u32,
+    /// The last frame was drawn with TAA off (`frame` stays 0).
+    off: bool,
 }
 
 /// The next temporal anti-aliasing frame for a view drawn with `params`: `Some(n)` draws frame
-/// `n` of the average (1 starts it again, 0 means TAA is off); `None` means the average already
-/// has its `accumulations` frames, so the image on screen is final. `scene` is the document
-/// revision and whether the renderer received anything this frame; any change to it or to
-/// `params` starts a new average.
+/// `n` of the average (1 starts it again, 0 draws a plain frame because TAA is off); `None` means
+/// the image on screen is final: the average already has its `accumulations` frames, or TAA is
+/// off and nothing changed since the last plain frame (issue #628: with TAA off every UI frame
+/// re-rendered the whole scene, even while idle). `scene` is the document revision and whether
+/// the renderer received anything this frame; any change to it or to `params` starts again.
 pub fn taa_step(s: &mut TaaState, params: &subcraft_render::ViewParams, accumulations: Option<u32>, scene: (u64, bool)) -> Option<u32> {
-    let Some(n) = accumulations.map(|n| n.clamp(1, 256)) else {
-        *s = TaaState::default();
-        return Some(0);
-    };
     let key = subcraft_render::ViewParams { taa_frame: 0, ..*params };
-    if scene.1 || s.revision != scene.0 || s.last != Some(key) {
+    let changed = scene.1 || s.revision != scene.0 || s.last != Some(key);
+    let Some(n) = accumulations.map(|n| n.clamp(1, 256)) else {
+        let draw = changed || !s.off;
+        *s = TaaState { last: Some(key), revision: scene.0, frame: 0, off: true };
+        return draw.then_some(0);
+    };
+    if changed || s.off {
         s.frame = 0;
+        s.off = false;
     }
     s.last = Some(key);
     s.revision = scene.0;
@@ -1962,9 +1975,35 @@ mod tests {
         assert_eq!(taa_step(&mut s, &moved, Some(4), (1, false)), Some(1), "document revision changed");
         assert_eq!(taa_step(&mut s, &moved, Some(4), (1, true)), Some(1), "the renderer received new data");
         assert_eq!(taa_step(&mut s, &moved, Some(4), (1, false)), Some(2));
-        // Turning it off forgets the average.
+        // Turning it off forgets the average and draws one plain frame.
         assert_eq!(taa_step(&mut s, &moved, None, (1, false)), Some(0));
-        assert_eq!(s, TaaState::default());
+        assert_eq!(s.frame, 0);
+    }
+
+    /// Issue #628: with TAA off every UI frame re-rendered the whole 3D scene while idle.
+    #[test]
+    fn with_taa_off_the_scene_renders_only_when_something_changed() {
+        let view = subcraft_render::ViewParams::new(glam::Mat4::IDENTITY, glam::Mat4::IDENTITY);
+        let mut s = TaaState::default();
+        assert_eq!(taa_step(&mut s, &view, None, (0, false)), Some(0), "the first frame draws");
+        for _ in 0..5 {
+            assert_eq!(taa_step(&mut s, &view, None, (0, false)), None, "idle frames keep the image");
+        }
+        let moved = subcraft_render::ViewParams { eye: glam::Vec3::X, ..view };
+        assert_eq!(taa_step(&mut s, &moved, None, (0, false)), Some(0), "camera moved");
+        assert_eq!(taa_step(&mut s, &moved, None, (0, false)), None);
+        assert_eq!(taa_step(&mut s, &moved, None, (1, false)), Some(0), "document edited");
+        assert_eq!(taa_step(&mut s, &moved, None, (1, true)), Some(0), "new GPU data");
+        assert_eq!(taa_step(&mut s, &moved, None, (1, false)), None);
+        // The frame number does not count as a change.
+        assert_eq!(taa_step(&mut s, &subcraft_render::ViewParams { taa_frame: 3, ..moved }, None, (1, false)), None);
+        // Turning TAA on starts an average; turning it off again draws one plain frame.
+        assert_eq!(taa_step(&mut s, &moved, Some(4), (1, false)), Some(1));
+        assert_eq!(taa_step(&mut s, &moved, None, (1, false)), Some(0));
+        assert_eq!(taa_step(&mut s, &moved, None, (1, false)), None);
+        // A reset state (target resized or lost) draws again.
+        s = TaaState::default();
+        assert_eq!(taa_step(&mut s, &moved, None, (1, false)), Some(0));
     }
 
     #[test]

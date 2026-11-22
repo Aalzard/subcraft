@@ -139,6 +139,8 @@ pub struct UiState {
     pub paint_isolated: bool,
     /// Temporal anti-aliasing progress of the 3D view.
     pub taa: crate::viewport::TaaState,
+    /// `ViewportRenderer::scene_generation` when the 3D view last looked.
+    pub renderer_generation: u64,
     pub layer_previews: crate::layer_previews::PreviewUi,
     /// A layer's mask shown alone in the 3D view (Alt+click on its mask thumbnail).
     pub mask_view: Option<crate::mask_view::MaskView>,
@@ -462,6 +464,21 @@ pub struct UiState {
     pub bug_report: crate::bug_report::BugReportUi,
 }
 
+/// Starting values of the Polygon Fill tool options (what Ctrl+click on their rows restores).
+pub struct FillDefaults {
+    pub mode: PolygonFillMode,
+    pub visible_only: bool,
+    pub selection: subcraft_paint::PolygonSelectMode,
+    pub hit_test: subcraft_paint::PolygonHitTest,
+}
+
+pub const FILL_DEFAULTS: FillDefaults = FillDefaults {
+    mode: PolygonFillMode::UvIsland,
+    visible_only: true,
+    selection: subcraft_paint::PolygonSelectMode::Marquee,
+    hit_test: subcraft_paint::PolygonHitTest::Intersection,
+};
+
 impl UiState {
     pub fn new(mut session: Session, render_state: Option<egui_wgpu::RenderState>) -> Self {
         let tool = if session.selected_layer().is_some_and(|l| l.kind() == subcraft_doc::LayerKind::Path) { Tool::Pen } else { Tool::Brush };
@@ -493,6 +510,7 @@ impl UiState {
             last_sync_tiles: 0,
             gpu_changed: false,
             taa: Default::default(),
+            renderer_generation: 0,
             layer_previews: Default::default(),
             mask_view: None,
             instantiate: None,
@@ -530,10 +548,10 @@ impl UiState {
             pen_display: Default::default(),
             text: Default::default(),
             pen_after: None,
-            fill_mode: PolygonFillMode::UvIsland,
-            fill_visible_only: true,
-            fill_selection: subcraft_paint::PolygonSelectMode::Marquee,
-            fill_hit_test: subcraft_paint::PolygonHitTest::Intersection,
+            fill_mode: FILL_DEFAULTS.mode,
+            fill_visible_only: FILL_DEFAULTS.visible_only,
+            fill_selection: FILL_DEFAULTS.selection,
+            fill_hit_test: FILL_DEFAULTS.hit_test,
             fill_box: None,
             view_props: None,
             view_props_swallow: false,

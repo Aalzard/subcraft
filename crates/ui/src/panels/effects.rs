@@ -216,7 +216,10 @@ fn row_blend(ui: &mut Ui, layer: &Layer, mask: bool, id: EffectId, active: Chann
     combo.response.on_hover_text(format!("{what} blend mode: {}. Click, then Up / Down or the wheel steps through the modes.", mode.label()));
     let mut pct = opacity * 100.0;
     let drag = egui::DragValue::new(&mut pct).range(0.0..=100.0).speed(0.5).suffix("%").max_decimals(0);
-    if ui.add_sized([40.0, 18.0], drag).on_hover_text(format!("{what} opacity (drag)")).changed() {
+    let r = ui.add_sized([40.0, 18.0], drag).on_hover_text(format!("{what} opacity (drag). Ctrl+click: back to 100%"));
+    if crate::reset_row::ctrl_clicked(ui, &r) && opacity != 1.0 {
+        cmds.extend(set_row_blend(layer, mask, id, active, None, Some(1.0)));
+    } else if r.changed() {
         cmds.extend(set_row_blend(layer, mask, id, active, None, Some(pct / 100.0)));
     }
 }
@@ -818,16 +821,24 @@ fn content_editor(ui: &mut Ui, state: &mut UiState, layer: &Layer, e: &ContentEf
             if let ContentEffectKind::Fill(fill) = &eff.kind && !fill.channels.get(kind).is_some_and(|c| c.enabled) { continue; }
             let Some(blend) = eff.blend.get_mut(kind) else { continue };
             ui.push_id(("effect_blend", *kind), |ui| {
-                prop_row(ui, kind.display_name(), |ui| {
-                    egui::ComboBox::from_id_salt("mode").width(96.0).selected_text(blend.mode.label()).show_ui(ui, |ui| {
-                        for mode in BlendMode::available_for_effect(*kind == ChannelKind::Normal) {
-                            changed |= ui.selectable_value(&mut blend.mode, mode, mode.label()).changed();
-                        }
-                    });
-                    // Fit the slider and its value box in the remaining row width.
-                    ui.spacing_mut().slider_width = (ui.available_width() - 64.0).max(40.0);
-                    changed |= ui.add(egui::Slider::new(&mut blend.opacity, 0.0..=1.0).show_value(true)).changed();
-                });
+                // Default: the channel's blend mode in a new layer, at full opacity.
+                let default = subcraft_doc::ChannelBlend::new(BlendMode::default_for(*kind, false));
+                changed |= crate::widgets::prop_row_reset(ui, kind.display_name(), blend, default, |ui, blend| {
+                    crate::widgets::edit_response(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            let mut c = false;
+                            egui::ComboBox::from_id_salt("mode").width(96.0).selected_text(blend.mode.label()).show_ui(ui, |ui| {
+                                for mode in BlendMode::available_for_effect(*kind == ChannelKind::Normal) {
+                                    c |= ui.selectable_value(&mut blend.mode, mode, mode.label()).changed();
+                                }
+                            });
+                            // Fit the slider and its value box in the remaining row width.
+                            ui.spacing_mut().slider_width = (ui.available_width() - 64.0).max(40.0);
+                            c |= ui.add(egui::Slider::new(&mut blend.opacity, 0.0..=1.0).show_value(true)).changed();
+                            crate::widgets::Edit { changed: c, done: c }
+                        }).inner
+                    })
+                }).changed();
             });
         }
     }); }

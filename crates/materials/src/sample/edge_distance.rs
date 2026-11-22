@@ -6,6 +6,13 @@ use std::collections::{BTreeMap, BinaryHeap, HashMap};
 use glam::{Vec2, Vec3};
 use subcraft_mesh::{Bvh, Mesh};
 
+/// Curvature radius (fraction of the model's longest side) below which a smoothly shaded convex
+/// surface counts as a rounded edge, so Spread grows from bevels too (a sphere or a gentle
+/// cylinder stays a surface).
+const ROUNDED_EDGE_RADIUS: f32 = 0.12;
+/// Least total turn (radians) across a rounded band for it to count as an edge (about 17 degrees).
+const MIN_ROUNDED_TURN: f32 = 0.3;
+
 #[derive(Debug, Clone, Copy)]
 struct Segment(Vec3, Vec3);
 
@@ -48,6 +55,8 @@ pub struct SurfaceEdges {
     patch: Vec<usize>,
     patches: Vec<Patch>,
     local: Vec<Vec<Segment>>,
+    /// Surface distance of every node to the rounded-edge apex line.
+    rounded: Vec<f32>,
 }
 
 impl SurfaceEdges {
@@ -131,6 +140,113 @@ impl SurfaceEdges {
                 }
             }
         }
+        // Rounded edges: nodes whose shading normal turns faster than ROUNDED_EDGE_RADIUS (convex
+        // only), as distance sources a little behind a crease.
+        // The fastest turn of the shading normals over a node's edges (across a bevel, not along
+        // it), from each triangle's own corner normals: hard edges, whose corners carry split
+        // normals, never count (they are creases above when sharp enough).
+        let mut bend = vec![0.0f32; positions.len()];
+        if mesh.normals.len() == mesh.positions.len() {
+            for (t, nodes) in triangles.iter().enumerate() {
+                let corners = mesh.tri(t).map(|v| mesh.normals[v as usize]);
+                for k in 0..3 {
+                    let (i, j) = (k, (k + 1) % 3);
+                    let d = positions[nodes[i]] - positions[nodes[j]];
+                    let turn = (corners[i] - corners[j]).dot(d) / d.length_squared().max(1e-20);
+                    if turn.is_finite() {
+                        for node in [nodes[i], nodes[j]] { bend[node] = bend[node].max(turn); }
+                    }
+                }
+            }
+        }
+        // Rounded edges: the band of nodes whose shading turns faster than ROUNDED_EDGE_RADIUS. Its
+        // own line is its apex, so low wear is a thin line there and more wear widens it across
+        // the band and beyond: every band node starts behind the apex by how much gentler it
+        // turns than the sharpest turn nearby (or, on an even bevel, by how far it is from the
+        // band's middle), and other nodes by their surface distance to the band.
+        let threshold = 1.0 / ROUNDED_EDGE_RADIUS;
+        let n = positions.len();
+        let mut band: Vec<bool> = bend.iter().map(|&k| k > threshold).collect();
+        // Surface distance of every band node to the band border, and the widest such inset
+        // nearby (the band's half width there).
+        let extent_of = |band: &[bool]| -> (Vec<f32>, Vec<f32>) {
+            let mut inset = vec![f32::INFINITY; n];
+            let mut heap = BinaryHeap::new();
+            for v in 0..n {
+                if band[v] && adjacency[v].iter().any(|&(u, _)| !band[u]) { inset[v] = 0.0; heap.push(Visit(0.0, v)); }
+            }
+            while let Some(Visit(d, v)) = heap.pop() {
+                if d > inset[v] { continue; }
+                for &(u, length) in &adjacency[v] {
+                    if band[u] && d + length < inset[u] { inset[u] = d + length; heap.push(Visit(d + length, u)); }
+                }
+            }
+            let inset: Vec<f32> = inset.iter().zip(band).map(|(&d, &b)| if b && !d.is_finite() { 0.0 } else { d }).collect();
+            let mut half = inset.clone();
+            for _ in 0..6 {
+                half = (0..n).map(|v| if !band[v] { half[v] } else {
+                    adjacency[v].iter().filter(|&&(u, _)| band[u]).fold(half[v], |acc, &(u, _)| acc.max(half[u]))
+                }).collect();
+            }
+            (inset, half)
+        };
+        // A bevel turns the surface through a real angle across its width. A tessellation
+        // hiccup (e.g. where a sphere's pole fan meets its rings) turns fast over one short edge
+        // but only by a degree or two in total: not an edge.
+        {
+            let (_, half) = extent_of(&band);
+            let mut total = vec![0.0f32; n];
+            for v in 0..n {
+                if band[v] {
+                    let edge = adjacency[v].iter().map(|&(_, l)| l).sum::<f32>() / adjacency[v].len().max(1) as f32;
+                    total[v] = bend[v] * (2.0 * half[v] + edge);
+                }
+            }
+            for _ in 0..6 {
+                total = (0..n).map(|v| if !band[v] { 0.0 } else {
+                    adjacency[v].iter().filter(|&&(u, _)| band[u]).fold(total[v], |acc, &(u, _)| acc.max(total[u]))
+                }).collect();
+            }
+            for v in 0..n { band[v] = band[v] && total[v] > MIN_ROUNDED_TURN; }
+        }
+        let band = band;
+        let band_ring = |values: &[f32], pick: fn(f32, f32) -> f32| -> Vec<f32> {
+            (0..n).map(|v| if !band[v] { values[v] } else {
+                adjacency[v].iter().filter(|&&(u, _)| band[u]).fold(values[v], |acc, &(u, _)| pick(acc, values[u]))
+            }).collect()
+        };
+        // Tessellation makes the turn uneven along a rim: smooth it over the band first.
+        let mut turn = bend.clone();
+        for _ in 0..3 {
+            turn = (0..n).map(|v| if !band[v] { turn[v] } else {
+                let (sum, count) = adjacency[v].iter().filter(|&&(u, _)| band[u]).fold((turn[v], 1.0f32), |(s, c), &(u, _)| (s + turn[u], c + 1.0));
+                sum / count
+            }).collect();
+        }
+        let (inset, _) = extent_of(&band);
+        let (mut sharp, mut soft, mut half) = (turn.clone(), turn.clone(), inset.clone());
+        for _ in 0..6 {
+            sharp = band_ring(&sharp, f32::max);
+            soft = band_ring(&soft, f32::min);
+            half = band_ring(&half, f32::max);
+        }
+        let mut rounded = vec![f32::INFINITY; n];
+        let mut heap = BinaryHeap::new();
+        for v in 0..n {
+            if band[v] {
+                let gentler = half[v] * (1.0 - turn[v] / sharp[v].max(1e-6)).clamp(0.0, 1.0) * 2.0;
+                let off_middle = (half[v] - inset[v]).max(0.0);
+                let varies = (3.0 * (1.0 - soft[v] / sharp[v].max(1e-6))).clamp(0.0, 1.0);
+                rounded[v] = off_middle + (gentler.min(half[v]) - off_middle) * varies;
+                heap.push(Visit(rounded[v], v));
+            }
+        }
+        while let Some(Visit(d, v)) = heap.pop() {
+            if d > rounded[v] { continue; }
+            for &(u, length) in &adjacency[v] {
+                if !band[u] && d + length < rounded[u] { rounded[u] = d + length; heap.push(Visit(d + length, u)); }
+            }
+        }
         let mut patch_points = vec![Vec::new(); triangles.len()];
         let mut patch_area = vec![0.0; triangles.len()];
         for (t, v) in triangles.iter().enumerate() {
@@ -152,7 +268,7 @@ impl SurfaceEdges {
                 if candidate < distance[next] { distance[next] = candidate; queue.push(Visit(candidate, next)); }
             }
         }
-        Self { positions, triangles, distance, patch, patches, local }
+        Self { positions, triangles, distance, patch, patches, local, rounded }
     }
 
     /// Position must use the mesh's normalized object-space frame, matching TileGeometry.
@@ -164,6 +280,28 @@ impl SurfaceEdges {
         let sources = if patch.convex { &patch.segments } else { &self.local[triangle] };
         for &segment in sources { d = d.min(segment.distance(point)); }
         for &v in &self.triangles[triangle] { d = d.min(point.distance(self.positions[v]) + self.distance[v]); }
+        d
+    }
+
+    /// Surface distance to the apex line of the nearest rounded (bevelled) edge: linear across
+    /// each triangle, so the line is continuous.
+    pub fn rounded_distance(&self, triangle: usize, point: Vec3) -> f32 {
+        let nodes = self.triangles[triangle];
+        let start = nodes.map(|v| self.rounded[v]);
+        if start.iter().all(|s| !s.is_finite()) { return f32::INFINITY; }
+        let [a, b, c] = nodes.map(|v| self.positions[v]);
+        let mut d = nodes.iter().map(|&v| point.distance(self.positions[v]) + self.rounded[v]).fold(f32::INFINITY, f32::min);
+        if start.iter().all(|s| s.is_finite()) {
+            let (e0, e1, ep) = (b - a, c - a, point - a);
+            let (d00, d01, d11) = (e0.dot(e0), e0.dot(e1), e1.dot(e1));
+            let (d20, d21) = (ep.dot(e0), ep.dot(e1));
+            let den = d00 * d11 - d01 * d01;
+            if den.abs() > 1e-24 {
+                let v = ((d11 * d20 - d01 * d21) / den).clamp(0.0, 1.0);
+                let w = ((d00 * d21 - d01 * d20) / den).clamp(0.0, 1.0 - v);
+                d = d.min(start[0] * (1.0 - v - w) + start[1] * v + start[2] * w);
+            }
+        }
         d
     }
 }

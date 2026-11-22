@@ -86,6 +86,8 @@ pub struct Snapshot {
     pub resources: ResourceStore,
     /// Texture sets to re-evaluate completely (their mesh maps changed).
     pub invalidate: BTreeSet<TextureSetId>,
+    /// The texture set being worked on (selected): it gets the larger share of the layer caches.
+    pub focus: Option<TextureSetId>,
 }
 
 /// One texture set's progress since the last [`CompositeWorker::take`].
@@ -152,6 +154,34 @@ impl Shared {
     }
 }
 
+/// Threads of the compositing pool on a machine with `cores` hardware threads: one is left for
+/// the UI, and from 6 up a second one, so the rest of the desktop and the brush keep a core
+/// while a big project composites (issue #628).
+pub fn composite_threads(cores: usize) -> usize {
+    let free = if cores >= 6 { 2 } else { 1 };
+    cores.saturating_sub(free).max(1)
+}
+
+/// Compositing is background work: on Windows its threads run one step below normal priority, so
+/// the UI, the brush and every other program on the PC come first (issue #628). Other systems
+/// keep their default. Results do not depend on it.
+#[cfg(windows)]
+#[allow(unsafe_code)]
+fn below_normal_priority() {
+    const THREAD_PRIORITY_BELOW_NORMAL: i32 = -1;
+    unsafe extern "system" {
+        fn GetCurrentThread() -> isize;
+        fn SetThreadPriority(thread: isize, priority: i32) -> i32;
+    }
+    // SAFETY: both functions take no pointers; the pseudo handle of the current thread is always
+    // valid. A failure (returns 0) leaves the priority as it was.
+    unsafe {
+        SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
+    }
+}
+#[cfg(not(windows))]
+fn below_normal_priority() {}
+
 /// Handle of the compositing thread; dropping it stops the thread.
 pub struct CompositeWorker {
     shared: Arc<Shared>,
@@ -162,10 +192,11 @@ impl CompositeWorker {
     /// Start the worker, continuing from `caches` (composites evaluated so far; they move to the
     /// worker on success).
     pub fn spawn(caches: &mut HashMap<TextureSetId, CompositeCache>) -> std::io::Result<Self> {
-        let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).saturating_sub(1).max(1);
+        let threads = composite_threads(std::thread::available_parallelism().map_or(1, |n| n.get()));
         let pool = rayon::ThreadPoolBuilder::new()
             .num_threads(threads)
             .thread_name(|i| format!("composite-{i}"))
+            .start_handler(|_| below_normal_priority())
             .build()
             .map_err(std::io::Error::other)?;
         let state = State { adopt: std::mem::take(caches), ..Default::default() };
@@ -315,6 +346,7 @@ fn run(shared: &Shared, pool: &rayon::ThreadPool) {
             for set in &snap.sets {
                 let id = set.texture_set.id;
                 let cache = caches.entry(id).or_default();
+                cache.share_layer_cache_for(snap.sets.len(), snap.focus.map(|f| f == id));
                 // Other geometry (a new mesh) changes every tile, like changed mesh maps.
                 let same_geometry = geometry.get(&id).is_none_or(|g| Arc::ptr_eq(g, &set.geometry));
                 if snap.invalidate.contains(&id) || !same_geometry {
@@ -507,5 +539,21 @@ mod slice_tests {
             steps.push(s.as_millis());
         }
         assert_eq!(steps, [16, 32, 64, 64, 64, 64]);
+    }
+}
+
+#[cfg(test)]
+mod thread_tests {
+    use super::composite_threads;
+
+    /// Issue #628: compositing took every core but one; on a big machine two stay free.
+    #[test]
+    fn compositing_leaves_cores_free() {
+        assert_eq!(composite_threads(1), 1);
+        assert_eq!(composite_threads(2), 1);
+        assert_eq!(composite_threads(4), 3);
+        assert_eq!(composite_threads(6), 4);
+        assert_eq!(composite_threads(16), 14);
+        assert_eq!(composite_threads(24), 22);
     }
 }

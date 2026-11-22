@@ -275,7 +275,8 @@ fn stroke_options(ui: &mut Ui, options: &mut StrokeOptions, view: &mut crate::vi
             ui.separator();
             ui.label(RichText::new("Lazy Mouse").color(TEXT_DIM()));
             ui.spacing_mut().slider_width = 155.0;
-            ui.add(widgets::typed_slider(egui::Slider::new(&mut options.lazy_distance_px, 0.0..=100.0).suffix(" px")));
+            let r = ui.add(widgets::typed_slider(egui::Slider::new(&mut options.lazy_distance_px, 0.0..=100.0).suffix(" px")));
+            widgets::ctrl_reset(ui, r, &mut options.lazy_distance_px, 0.0);
             ui.label(RichText::new("Distance the brush trails the cursor · 0 px = off").small().color(TEXT_DIM()));
             ui.separator();
             display_options(ui, view);
@@ -340,8 +341,9 @@ fn mirror_positions(ui: &mut Ui, options: &mut StrokeOptions) {
         ui.label("Axis position");
         for (i, axis) in ["X", "Y", "Z"].into_iter().enumerate() {
             if options.symmetry[i] {
-                ui.add(widgets::typed_drag(egui::DragValue::new(&mut options.mirror_offset[i]).speed(0.01).max_decimals(3).prefix(format!("{axis} "))))
-                    .on_hover_text(format!("Move the {axis} mirror plane away from the model center (object units); drag its handle with the manipulator"));
+                let r = ui.add(widgets::typed_drag(egui::DragValue::new(&mut options.mirror_offset[i]).speed(0.01).max_decimals(3).prefix(format!("{axis} "))))
+                    .on_hover_text(format!("Move the {axis} mirror plane away from the model center (object units); drag its handle with the manipulator. Ctrl+click: back to the center"));
+                widgets::ctrl_reset(ui, r, &mut options.mirror_offset[i], 0.0);
             }
         }
         if options.mirror_offset.iter().any(|v| *v != 0.0) && ui.small_button("Reset").on_hover_text("Mirror planes back through the model center").clicked() {
@@ -353,28 +355,39 @@ fn mirror_positions(ui: &mut Ui, options: &mut StrokeOptions) {
 /// Symmetry display options (Painter's display group): plane, intersection and axis guides,
 /// the cursor at every copy, hide while painting, and the axis-position manipulator.
 fn symmetry_display(ui: &mut Ui, view: &mut crate::viewport_bar::ViewportPrefs) {
+    use widgets::ctrl_reset;
+    let dv = crate::viewport_bar::ViewportPrefs::default();
+    let dd = dv.symmetry_display;
     ui.horizontal(|ui| {
-        ui.checkbox(&mut view.symmetry_plane, "Plane").on_hover_text("Each active mirror plane as a translucent sheet");
-        ui.checkbox(&mut view.symmetry_guides, "Guides").on_hover_text("Intersection and radial axis lines");
+        let r = ui.checkbox(&mut view.symmetry_plane, "Plane").on_hover_text("Each active mirror plane as a translucent sheet");
+        ctrl_reset(ui, r, &mut view.symmetry_plane, dv.symmetry_plane);
+        let r = ui.checkbox(&mut view.symmetry_guides, "Guides").on_hover_text("Intersection and radial axis lines");
+        ctrl_reset(ui, r, &mut view.symmetry_guides, dv.symmetry_guides);
     });
     let guides = view.symmetry_guides;
     let d = &mut view.symmetry_display;
     ui.add_enabled_ui(guides, |ui| {
         ui.horizontal(|ui| {
-            ui.checkbox(&mut d.show_intersection, "Intersection").on_hover_text("Where the mirror plane cuts the model");
-            ui.checkbox(&mut d.show_axis, "Axis").on_hover_text("Radial axis and one spoke per copy");
+            let r = ui.checkbox(&mut d.show_intersection, "Intersection").on_hover_text("Where the mirror plane cuts the model");
+            ctrl_reset(ui, r, &mut d.show_intersection, dd.show_intersection);
+            let r = ui.checkbox(&mut d.show_axis, "Axis").on_hover_text("Radial axis and one spoke per copy");
+            ctrl_reset(ui, r, &mut d.show_axis, dd.show_axis);
         });
     });
     ui.horizontal(|ui| {
-        ui.checkbox(&mut view.symmetry_cursor, "Cursor").on_hover_text("Show the brush cursor at every copy");
-        ui.checkbox(&mut view.symmetry_cursor_hide_painting, "Hide while painting").on_hover_text("Hide the copy cursors and the guides during a stroke");
+        let r = ui.checkbox(&mut view.symmetry_cursor, "Cursor").on_hover_text("Show the brush cursor at every copy");
+        ctrl_reset(ui, r, &mut view.symmetry_cursor, dv.symmetry_cursor);
+        let r = ui.checkbox(&mut view.symmetry_cursor_hide_painting, "Hide while painting").on_hover_text("Hide the copy cursors and the guides during a stroke");
+        ctrl_reset(ui, r, &mut view.symmetry_cursor_hide_painting, dv.symmetry_cursor_hide_painting);
     });
     let d = &mut view.symmetry_display;
     ui.horizontal(|ui| {
-        ui.checkbox(&mut d.manipulator, "Manipulator").on_hover_text("Drag the handles in the 3D view to move the mirror planes or the radial axis");
+        let r = ui.checkbox(&mut d.manipulator, "Manipulator").on_hover_text("Drag the handles in the 3D view to move the mirror planes or the radial axis");
+        ctrl_reset(ui, r, &mut d.manipulator, dd.manipulator);
         ui.add_enabled_ui(d.manipulator, |ui| {
             ui.spacing_mut().slider_width = 70.0;
-            ui.add(egui::Slider::new(&mut d.manipulator_size, crate::symmetry_view::SymmetryDisplay::SIZE_RANGE).text("size"));
+            let r = ui.add(egui::Slider::new(&mut d.manipulator_size, crate::symmetry_view::SymmetryDisplay::SIZE_RANGE).text("size"));
+            ctrl_reset(ui, r, &mut d.manipulator_size, dd.manipulator_size);
         });
     });
 }
@@ -382,6 +395,7 @@ fn symmetry_display(ui: &mut Ui, view: &mut crate::viewport_bar::ViewportPrefs) 
 /// Radial symmetry: on/off, axis, copy count and an optional axis offset from the model center.
 fn radial_options(ui: &mut Ui, options: &mut StrokeOptions) {
     let radial = &mut options.radial;
+    let dr = subcraft_paint::RadialSymmetry::default();
     ui.horizontal(|ui| {
         ui.label(RichText::new("Radial symmetry").color(TEXT_DIM()));
         ui.checkbox(&mut radial.enabled, "")
@@ -401,20 +415,23 @@ fn radial_options(ui: &mut Ui, options: &mut StrokeOptions) {
             }
         });
         ui.spacing_mut().slider_width = 130.0;
-        ui.add(
+        let r = ui.add(
             widgets::typed_slider(egui::Slider::new(&mut radial.count, 2..=subcraft_paint::MAX_SYMMETRY_COPIES)
                 .text("copies")),
         );
+        widgets::ctrl_reset(ui, r, &mut radial.count, dr.count);
         ui.horizontal(|ui| {
             ui.label("Offset");
             for v in &mut radial.center_offset {
-                ui.add(widgets::typed_drag(egui::DragValue::new(v).speed(0.01).max_decimals(3)));
+                let r = ui.add(widgets::typed_drag(egui::DragValue::new(v).speed(0.01).max_decimals(3)));
+                widgets::ctrl_reset(ui, r, v, 0.0);
             }
         })
         .response
         .on_hover_text("Move the axis away from the model center (object units)");
-        ui.checkbox(&mut radial.flip, "Flip copy")
+        let r = ui.checkbox(&mut radial.flip, "Flip copy")
             .on_hover_text("Mirror every other copy, so neighbouring copies face each other");
+        widgets::ctrl_reset(ui, r, &mut radial.flip, dr.flip);
     });
     let mirrors = options.symmetry.iter().filter(|&&m| m).count();
     let effective = options.radial.effective_count(mirrors);

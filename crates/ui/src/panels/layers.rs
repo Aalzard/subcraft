@@ -744,7 +744,9 @@ Files: {}", ex.dir().display()));
                     let mut pct = b.opacity * 100.0;
                     let opacity = egui::DragValue::new(&mut pct).range(0.0..=100.0).speed(0.5).suffix("%").max_decimals(0);
                     let opacity = ui.add_sized([40.0, 18.0], opacity);
-                    if opacity.changed() {
+                    if crate::reset_row::ctrl_clicked(ui, &opacity) && b.opacity != 1.0 {
+                        cmds.push(Command::SetBlendOpacity { layer: l.id, channel: active, opacity: 1.0 });
+                    } else if opacity.changed() {
                         cmds.push(Command::SetBlendOpacity { layer: l.id, channel: active, opacity: pct / 100.0 });
                     }
                     opacity.context_menu(|ui| {
@@ -753,7 +755,7 @@ Files: {}", ex.dir().display()));
                             ui.close();
                         }
                     });
-                    opacity.on_hover_text(format!("{channel} opacity (drag). Right-click: apply to all channels."));
+                    opacity.on_hover_text(format!("{channel} opacity (drag). Ctrl+click: back to 100%. Right-click: apply to all channels."));
                 });
                 };
                 match folder {

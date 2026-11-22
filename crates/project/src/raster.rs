@@ -89,7 +89,9 @@ pub fn decode(bytes: &[u8]) -> Result<TiledImage, RasterError> {
         }
         let raw = r.take(tile_bytes)?;
         let data: Vec<f16> = raw.chunks_exact(2).map(|c| f16::from_le_bytes([c[0], c[1]])).collect();
-        img.set_slot(i, Some(Arc::new(Tile { data: data.into_boxed_slice() })));
+        // Uniform tiles share one allocation with every identical tile (issue #628).
+        let tile = subcraft_image::shared_uniform_tile(&data, comps).unwrap_or_else(|| Arc::new(Tile { data: data.into_boxed_slice() }));
+        img.set_slot(i, Some(tile));
     }
     Ok(img)
 }

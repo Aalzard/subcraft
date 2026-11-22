@@ -768,3 +768,35 @@ fn backface_culling_scales_the_coverage_and_follows_the_3d_rotation() {
     let clipped = Projection { uv_wrap: subcraft_doc::UvWrap::None, scale: [2.0, 2.0], ..planar };
     assert_eq!(projection_coverage(&clipped, sc, [0.0; 2], [0.75, 0.75, 0.3], [0.0, 0.0, 1.0]), 0.0);
 }
+
+/// Issue #628: tile geometry (32 bytes per texel) was built for every tile a composite touched,
+/// although plain paint and uniform fills never read it. It is now built on first read, with
+/// the same values.
+#[test]
+fn tile_texels_are_built_only_when_read_and_match() {
+    let mesh = Arc::new(primitives::cube(2.0));
+    let geo = TextureSetGeometry::new(mesh.clone(), 0, 256);
+    let covered: Vec<usize> = (0..geo.tile_count()).filter(|&t| !geo.tile(t).is_empty()).collect();
+    assert!(!covered.is_empty());
+    for &t in &covered {
+        assert!(!geo.tile(t).texels_built(), "tile {t} built before anything read it");
+    }
+    // Reading builds it, once, and the values match the full-surface rasterization.
+    let t = covered[covered.len() / 2];
+    let tile = geo.tile(t);
+    let first: Vec<f32> = (0..TILE_TEXELS).map(|i| tile.coverage(i)).collect();
+    assert!(tile.texels_built());
+    assert!(first.iter().any(|&c| c > 0.0));
+    let full = subcraft_mesh::uv_raster::rasterize_surface(&mesh, 0..mesh.triangle_count(), 256, 256, crate::sample::geometry::GEOMETRY_EXPAND);
+    for i in 0..TILE_TEXELS {
+        let (x, y) = tile.texel_xy(i);
+        let si = (y * 256 + x) as usize;
+        if full.covered(si) {
+            let p = geo.normalize_position(glam::Vec3::from_slice(&full.position[si][..3])).to_array();
+            let q = tile.position(i);
+            assert!((0..3).all(|c| (q[c] - p[c]).abs() < 1e-3), "texel {i}: {q:?} vs {p:?}");
+        }
+    }
+    // Another tile is still not built.
+    assert!(covered.iter().filter(|&&c| c != t).all(|&c| !geo.tile(c).texels_built()));
+}

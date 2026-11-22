@@ -46,6 +46,7 @@ pub mod text_panel;
 pub mod panels;
 pub mod panel_scroll;
 pub mod recovery;
+pub mod reset_row;
 pub mod spp_import;
 pub mod state;
 pub mod symmetry_view;
@@ -256,6 +257,9 @@ fn run_with_graphics(mut options: LaunchOptions, graphics: graphics::GraphicsUi,
 }
 
 pub mod asset_preview;
+
+#[cfg(test)]
+mod reset_everywhere_tests;
 
 #[cfg(test)]
 mod startup_tests {

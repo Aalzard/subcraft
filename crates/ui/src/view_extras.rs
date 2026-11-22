@@ -271,14 +271,18 @@ pub fn wireframe_control(ui: &mut Ui, prefs: &mut ViewportPrefs) {
     }
     egui::Popup::context_menu(&response).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
         ui.label(RichText::new("Polygon wireframe").color(TEXT_DIM()));
-        ui.checkbox(&mut prefs.wireframe, "Show wireframe");
+        let d = &*crate::viewport_bar::DEFAULTS;
+        let r = ui.checkbox(&mut prefs.wireframe, "Show wireframe");
+        crate::widgets::ctrl_reset(ui, r, &mut prefs.wireframe, d.wireframe);
         ui.horizontal(|ui| {
             ui.label("Color");
             crate::color_picker::swatch_srgb(ui, &mut prefs.wire_color);
         });
-        ui.add(egui::Slider::new(&mut prefs.wire_opacity, 0.05..=1.0).text("Opacity"));
-        ui.add(egui::Slider::new(&mut prefs.wire_angle, 0.0..=90.0).text("Merge angle").suffix("°"))
-            .on_hover_text("Triangle pairs from the same polygon whose normals differ less than this are drawn as one polygon");
+        let r = ui.add(egui::Slider::new(&mut prefs.wire_opacity, 0.05..=1.0).text("Opacity"));
+        crate::widgets::ctrl_reset(ui, r, &mut prefs.wire_opacity, d.wire_opacity);
+        let r = ui.add(egui::Slider::new(&mut prefs.wire_angle, 0.0..=90.0).text("Merge angle").suffix("°"))
+            .on_hover_text("Triangle pairs from the same polygon whose normals differ less than this are drawn as one polygon.");
+        crate::widgets::ctrl_reset(ui, r, &mut prefs.wire_angle, d.wire_angle);
     });
 }
 

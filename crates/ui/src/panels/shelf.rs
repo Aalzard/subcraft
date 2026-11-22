@@ -995,6 +995,14 @@ pub fn apply_pack_material(state: &mut UiState, material: &subcraft_assets::mate
     }
 }
 
+/// Whether the shelf still has thumbnails to make for the tabs it shows: one in flight or missing
+/// (`busy`, set by [`generate_one_thumbnail`] each frame), or pack previews not yet decoded. The
+/// texture tabs' loader asks for its own frames.
+fn thumbnails_pending(state: &UiState) -> bool {
+    let shelf = &state.shelf;
+    shelf.busy || (shelf.tabs().contains(&ShelfTab::Materials) && state.materials_pack.iter().any(|m| !shelf.thumbs.contains_key(&m.id)))
+}
+
 /// Most pack previews decoded per frame (each is a small PNG) while the Materials tab shows.
 const PACK_THUMBS_PER_FRAME: usize = 2;
 
@@ -1757,7 +1765,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     if let Some(msg) = lib_status {
         state.set_status(msg, now);
     }
-    if !matches!(state.shelf.tab, ShelfTab::Brushes | ShelfTab::Alphas) || state.shelf.thumbs.len() < state.library.alphas.len() {
+    // Thumbnails are made one per frame: keep frames coming only while some are still missing.
+    // It used to repaint every 30 ms on every tab but Brushes / Alphas, so an idle window kept
+    // drawing 30-70 frames a second (issue #628).
+    if thumbnails_pending(state) {
         ui.ctx().request_repaint_after(std::time::Duration::from_millis(30));
     }
 }
@@ -2733,6 +2744,18 @@ mod environment_tests {
             state.env.choose(&state.library, hdri);
             assert_eq!((state.env.index, state.env.rotation_deg), (hdri, 40.0), "an HDRI keeps the rotation, as in Painter");
         }
+    }
+
+    /// Issue #628: the shelf asked for a frame every 30 ms on most tabs even with every thumbnail
+    /// made, so an idle window kept drawing. Frames are asked for only while work is left.
+    #[test]
+    fn the_shelf_asks_for_frames_only_while_thumbnails_are_left_to_make() {
+        let mut state = UiState::new(subcraft_app::Session::new(subcraft_mesh::primitives::cube(2.0), 64), None);
+        state.shelf.busy = false;
+        assert!(state.materials_pack.is_empty());
+        assert!(!thumbnails_pending(&state), "nothing in flight or missing: idle");
+        state.shelf.busy = true;
+        assert!(thumbnails_pending(&state), "a thumbnail in flight or missing on a shown tab");
     }
 
     #[test]

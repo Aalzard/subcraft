@@ -14,7 +14,7 @@ use subcraft_doc::{
 use crate::icons;
 use crate::state::UiState;
 use crate::theme::{self, ACCENT, TEXT_DIM, TEXT_FAINT, VALUE_W};
-use crate::widgets::{channel_value, empty_state, fill_width, hint, icon_button, panel, primary_button, prop_row, secondary_button, section, section_with, segmented, slider_row};
+use crate::widgets::{channel_value, empty_state, fill_width, hint, icon_button, panel, primary_button, prop_row, prop_row_reset, check_row_reset, secondary_button, section, section_with, segmented_response, slider_row_reset};
 
 /// Properties is context-sensitive like Substance Painter's: while a paint layer (or a paint
 /// effect) is the target, or the brush settings were asked for, it shows the brush settings; any
@@ -539,6 +539,21 @@ fn custom_grunge_row(ui: &mut Ui, state: &mut UiState, g: &mut subcraft_doc::Gen
     pick
 }
 
+/// A linear colour row edited through an sRGB swatch, resetting to `default` (see [`crate::reset_row`]).
+/// True when the colour changed.
+pub(crate) fn linear_color_row(ui: &mut Ui, label: &str, c: &mut [f32; 3], default: [f32; 3]) -> bool {
+    let before = *c;
+    prop_row_reset(ui, label, c, default, |ui, c| {
+        let mut srgb = subcraft_core::color::linear3_to_srgb(*c);
+        let r = crate::color_picker::swatch_srgb(ui, &mut srgb);
+        if r.changed() {
+            *c = subcraft_core::color::srgb3_to_linear(srgb);
+        }
+        r
+    });
+    *c != before
+}
+
 /// A new seed for Painter's Random button: different on every click.
 pub(crate) fn random_seed() -> u32 {
     use std::hash::{BuildHasher, Hasher};
@@ -558,14 +573,16 @@ pub(crate) fn content_generator_controls(ui: &mut Ui, state: &mut UiState, g: &m
     }
     changed |= level_controls(ui, g);
     changed |= painter_controls(ui, g);
-    prop_row(ui, tr("Seed"), |ui| {
-        changed |= ui.add(egui::DragValue::new(&mut g.noise.seed).speed(1.)).changed();
+    let d = subcraft_doc::Generator::new(g.kind);
+    changed |= prop_row_reset(ui, tr("Seed"), &mut g.noise.seed, d.noise.seed, |ui, seed| {
+        let mut r = ui.add(egui::DragValue::new(seed).speed(1.));
         if ui.small_button(tr("Random")).on_hover_text(tr("Pick a new random seed")).clicked() {
-            g.noise.seed = random_seed();
-            changed = true;
+            *seed = random_seed();
+            r.mark_changed();
         }
-    });
-    prop_row(ui, "", |ui| changed |= ui.checkbox(&mut g.invert, tr("Invert")).changed());
+        r
+    }).changed();
+    changed |= check_row_reset(ui, "", tr("Invert"), &mut g.invert, d.invert).changed();
     changed
 }
 
@@ -594,78 +611,71 @@ fn generator_kind_row(ui: &mut Ui, g: &mut subcraft_doc::Generator) -> bool {
 fn shape_generator_controls(ui: &mut Ui, state: &mut UiState, g: &mut subcraft_doc::Generator) -> (bool, bool) {
     let mut s = g.shape_settings();
     let before = s;
+    // Defaults: the settings a new generator of this kind starts with.
+    let ds = subcraft_doc::Generator::new(g.kind).shape_settings();
     let mut pick = false;
-    let point = |ui: &mut Ui, label: &'static str, p: &mut [f32; 3]| {
+    let point = |ui: &mut Ui, label: &'static str, p: &mut [f32; 3], d: [f32; 3]| {
         for (axis, name) in ["X", "Y", "Z"].into_iter().enumerate() {
-            slider_row(ui, &format!("{} {name}", tr(label)), egui::Slider::new(&mut p[axis], 0.0..=1.0));
+            slider_row_reset(ui, &format!("{} {name}", tr(label)), &mut p[axis], d[axis], |v| egui::Slider::new(v, 0.0..=1.0));
         }
     };
     match g.kind {
         GeneratorKind::Distance3D => {
-            point(ui, "Position", &mut s.point);
-            slider_row(ui, tr("Radius"), egui::Slider::new(&mut s.radius, 0.0..=2.0)).on_hover_text(tr("Length of the fade, as a share of the model's longest side"));
-            slider_row(ui, tr("Offset"), egui::Slider::new(&mut s.offset, 0.0..=2.0)).on_hover_text(tr("Distance kept fully white before the fade starts"));
-            slider_row(ui, tr("Contrast"), egui::Slider::new(&mut s.contrast, 0.0..=1.0));
+            point(ui, "Position", &mut s.point, ds.point);
+            slider_row_reset(ui, tr("Radius"), &mut s.radius, ds.radius, |v| egui::Slider::new(v, 0.0..=2.0)).on_hover_text(tr("Length of the fade, as a share of the model's longest side"));
+            slider_row_reset(ui, tr("Offset"), &mut s.offset, ds.offset, |v| egui::Slider::new(v, 0.0..=2.0)).on_hover_text(tr("Distance kept fully white before the fade starts"));
+            slider_row_reset(ui, tr("Contrast"), &mut s.contrast, ds.contrast, |v| egui::Slider::new(v, 0.0..=1.0));
             hint(ui, tr("Positions are in the model's bounding box: 0 to 1 on each axis, like the colours of the Position map."));
         }
         GeneratorKind::LinearGradient3D => {
-            slider_row(ui, tr("Balance"), egui::Slider::new(&mut s.balance, 0.0..=1.0));
-            slider_row(ui, tr("Contrast"), egui::Slider::new(&mut s.contrast, 0.0..=1.0));
-            point(ui, "3D Position Start", &mut s.start);
-            point(ui, "3D Position End", &mut s.end);
+            slider_row_reset(ui, tr("Balance"), &mut s.balance, ds.balance, |v| egui::Slider::new(v, 0.0..=1.0));
+            slider_row_reset(ui, tr("Contrast"), &mut s.contrast, ds.contrast, |v| egui::Slider::new(v, 0.0..=1.0));
+            point(ui, "3D Position Start", &mut s.start, ds.start);
+            point(ui, "3D Position End", &mut s.end, ds.end);
             hint(ui, tr("Positions are in the model's bounding box: 0 to 1 on each axis, like the colours of the Position map."));
         }
         GeneratorKind::UvRandomColor => {
-            prop_row(ui, tr("Seed"), |ui| {
-                ui.add(egui::DragValue::new(&mut s.seed).speed(1.0));
+            prop_row_reset(ui, tr("Seed"), &mut s.seed, ds.seed, |ui, seed| {
+                let mut r = ui.add(egui::DragValue::new(seed).speed(1.0));
                 if ui.small_button(tr("Random")).clicked() {
-                    s.seed = s.seed.wrapping_mul(747_796_405).wrapping_add(2_891_336_453) >> 8;
+                    *seed = seed.wrapping_mul(747_796_405).wrapping_add(2_891_336_453) >> 8;
+                    r.mark_changed();
                 }
+                r
             });
-            slider_row(ui, tr("Balance"), egui::Slider::new(&mut s.balance, 0.0..=1.0));
-            slider_row(ui, tr("Contrast"), egui::Slider::new(&mut s.contrast, 0.0..=1.0));
+            slider_row_reset(ui, tr("Balance"), &mut s.balance, ds.balance, |v| egui::Slider::new(v, 0.0..=1.0));
+            slider_row_reset(ui, tr("Contrast"), &mut s.contrast, ds.contrast, |v| egui::Slider::new(v, 0.0..=1.0));
             hint(ui, tr("One random gray per UV island."));
         }
         GeneratorKind::UvBorderDistance => {
-            slider_row(ui, tr("Balance"), egui::Slider::new(&mut s.balance, 0.0..=1.0));
-            slider_row(ui, tr("Contrast"), egui::Slider::new(&mut s.contrast, 0.0..=1.0));
-            slider_row(ui, tr("Smoothness"), egui::Slider::new(&mut s.smoothness, 0.0..=1.0));
-            slider_row(ui, tr("Distance"), egui::Slider::new(&mut s.distance, 0.0..=subcraft_doc::ShapeSettings::MAX_BORDER_DISTANCE).suffix(" px"))
+            slider_row_reset(ui, tr("Balance"), &mut s.balance, ds.balance, |v| egui::Slider::new(v, 0.0..=1.0));
+            slider_row_reset(ui, tr("Contrast"), &mut s.contrast, ds.contrast, |v| egui::Slider::new(v, 0.0..=1.0));
+            slider_row_reset(ui, tr("Smoothness"), &mut s.smoothness, ds.smoothness, |v| egui::Slider::new(v, 0.0..=1.0));
+            slider_row_reset(ui, tr("Distance"), &mut s.distance, ds.distance, |v| egui::Slider::new(v, 0.0..=subcraft_doc::ShapeSettings::MAX_BORDER_DISTANCE).suffix(" px"))
                 .on_hover_text(tr("How far from a UV island border the falloff reaches"));
         }
         GeneratorKind::UvChecker => {
-            let color = |ui: &mut Ui, label: &'static str, c: &mut [f32; 3]| {
-                prop_row(ui, tr(label), |ui| {
-                    let mut srgb = subcraft_core::color::linear3_to_srgb(*c);
-                    if crate::color_picker::swatch_srgb(ui, &mut srgb).changed() {
-                        *c = subcraft_core::color::srgb3_to_linear(srgb);
-                    }
-                });
-            };
-            prop_row(ui, tr("Seed"), |ui| {
-                ui.add(egui::DragValue::new(&mut s.seed).speed(1.0));
+            let color = |ui: &mut Ui, label: &'static str, c: &mut [f32; 3], d: [f32; 3]| { linear_color_row(ui, tr(label), c, d); };
+            prop_row_reset(ui, tr("Seed"), &mut s.seed, ds.seed, |ui, seed| {
+                let mut r = ui.add(egui::DragValue::new(seed).speed(1.0));
                 if ui.small_button(tr("Random")).clicked() {
-                    s.seed = s.seed.wrapping_mul(747_796_405).wrapping_add(2_891_336_453) >> 8;
+                    *seed = seed.wrapping_mul(747_796_405).wrapping_add(2_891_336_453) >> 8;
+                    r.mark_changed();
                 }
+                r
             });
-            prop_row(ui, tr("Checker Color Mode"), |ui| {
-                ui.selectable_value(&mut s.checker_random, false, tr("Uniform"));
-                ui.selectable_value(&mut s.checker_random, true, tr("Random"));
+            prop_row_reset(ui, tr("Checker Color Mode"), &mut s.checker_random, ds.checker_random, |ui, v| {
+                ui.selectable_value(v, false, tr("Uniform")) | ui.selectable_value(v, true, tr("Random"))
             });
-            ui.add_enabled_ui(!s.checker_random, |ui| color(ui, "Checker Color", &mut s.checker_color));
-            slider_row(ui, tr("Checker Grid Tile"), egui::Slider::new(&mut s.checker_tile, 1.0..=64.0).integer());
-            slider_row(ui, tr("Checker Grid Opacity"), egui::Slider::new(&mut s.grid_opacity, 0.0..=1.0));
-            color(ui, "UV Borders Color", &mut s.border_color);
-            slider_row(ui, tr("UV Borders Width"), egui::Slider::new(&mut s.border_width, 0.0..=16.0).suffix(" px"));
+            ui.add_enabled_ui(!s.checker_random, |ui| color(ui, "Checker Color", &mut s.checker_color, ds.checker_color));
+            slider_row_reset(ui, tr("Checker Grid Tile"), &mut s.checker_tile, ds.checker_tile, |v| egui::Slider::new(v, 1.0..=64.0).integer());
+            slider_row_reset(ui, tr("Checker Grid Opacity"), &mut s.grid_opacity, ds.grid_opacity, |v| egui::Slider::new(v, 0.0..=1.0));
+            color(ui, "UV Borders Color", &mut s.border_color, ds.border_color);
+            slider_row_reset(ui, tr("UV Borders Width"), &mut s.border_width, ds.border_width, |v| egui::Slider::new(v, 0.0..=16.0).suffix(" px"));
         }
         GeneratorKind::UvTexelDensity => {
-            for (label, c) in [("Color Low", &mut s.density_low), ("Color Medium", &mut s.density_medium), ("Color High", &mut s.density_high)] {
-                prop_row(ui, tr(label), |ui| {
-                    let mut srgb = subcraft_core::color::linear3_to_srgb(*c);
-                    if crate::color_picker::swatch_srgb(ui, &mut srgb).changed() {
-                        *c = subcraft_core::color::srgb3_to_linear(srgb);
-                    }
-                });
+            for (label, c, d) in [("Color Low", &mut s.density_low, ds.density_low), ("Color Medium", &mut s.density_medium, ds.density_medium), ("Color High", &mut s.density_high, ds.density_high)] {
+                linear_color_row(ui, tr(label), c, d);
             }
             hint(ui, tr("Medium is where the texture spans the model's longest side once; Low and High are two octaves below and above."));
         }
@@ -682,23 +692,23 @@ fn shape_generator_controls(ui: &mut Ui, state: &mut UiState, g: &mut subcraft_d
                     }
                 }
             }
-            prop_row(ui, tr("Grayscale type"), |ui| {
-                egui::ComboBox::from_id_salt("grayscale_conversion_type").selected_text(s.grayscale.label()).show_ui(ui, |ui| {
+            prop_row_reset(ui, tr("Grayscale type"), &mut s.grayscale, ds.grayscale, |ui, v| {
+                egui::ComboBox::from_id_salt("grayscale_conversion_type").selected_text(v.label()).show_ui(ui, |ui| {
                     for t in subcraft_doc::GrayscaleType::ALL {
-                        ui.selectable_value(&mut s.grayscale, t, t.label());
+                        ui.selectable_value(v, t, t.label());
                     }
-                });
+                }).response
             });
-            slider_row(ui, tr("Balance"), egui::Slider::new(&mut s.balance, 0.0..=1.0));
-            slider_row(ui, tr("Contrast"), egui::Slider::new(&mut s.contrast, 0.0..=1.0));
-            slider_row(ui, tr("Tile"), egui::Slider::new(&mut s.tile, 0.1..=32.0).logarithmic(true));
-            slider_row(ui, tr("Rotation"), egui::Slider::new(&mut s.rotation, -180.0..=180.0).suffix("\u{00b0}"));
-            prop_row(ui, "", |ui| { ui.checkbox(&mut s.safe_rotation, tr("Safe Rotation")).on_hover_text(tr("Rotation in 45 degree steps")); });
+            slider_row_reset(ui, tr("Balance"), &mut s.balance, ds.balance, |v| egui::Slider::new(v, 0.0..=1.0));
+            slider_row_reset(ui, tr("Contrast"), &mut s.contrast, ds.contrast, |v| egui::Slider::new(v, 0.0..=1.0));
+            slider_row_reset(ui, tr("Tile"), &mut s.tile, ds.tile, |v| egui::Slider::new(v, 0.1..=32.0).logarithmic(true));
+            slider_row_reset(ui, tr("Rotation"), &mut s.rotation, ds.rotation, |v| egui::Slider::new(v, -180.0..=180.0).suffix("\u{00b0}"));
+            check_row_reset(ui, "", tr("Safe Rotation"), &mut s.safe_rotation, ds.safe_rotation).on_hover_text(tr("Rotation in 45 degree steps"));
         }
         _ => {}
     }
     let mut changed = false;
-    prop_row(ui, "", |ui| changed |= ui.checkbox(&mut g.invert, tr("Invert")).changed());
+    changed |= check_row_reset(ui, "", tr("Invert"), &mut g.invert, false).changed();
     if s != before {
         g.shape = Some(s);
         changed = true;
@@ -707,16 +717,16 @@ fn shape_generator_controls(ui: &mut Ui, state: &mut UiState, g: &mut subcraft_d
 }
 
 /// A blending-mode dropdown row of a Mask Editor group.
-fn editor_blend_row(ui: &mut Ui, id: &str, mode: &mut subcraft_doc::BlendMode) -> bool {
-    let mut changed = false;
-    prop_row(ui, tr("Blending Mode"), |ui| {
+fn editor_blend_row(ui: &mut Ui, id: &str, mode: &mut subcraft_doc::BlendMode, default: subcraft_doc::BlendMode) -> bool {
+    let before = *mode;
+    prop_row_reset(ui, tr("Blending Mode"), mode, default, |ui, mode| {
         egui::ComboBox::from_id_salt(("editor_blend", id)).selected_text(mode.label()).show_ui(ui, |ui| {
             for m in subcraft_doc::BlendMode::available_for_effect(false) {
-                changed |= ui.selectable_value(mode, m, m.label()).changed();
+                ui.selectable_value(mode, m, m.label());
             }
-        });
+        }).response
     });
-    changed
+    *mode != before
 }
 
 fn editor_group<R>(ui: &mut Ui, title: &'static str, body: impl FnOnce(&mut Ui) -> R) -> Option<R> {
@@ -730,87 +740,88 @@ fn mask_editor_controls(ui: &mut Ui, state: &mut UiState, g: &mut subcraft_doc::
     use subcraft_doc::{CurvatureMode, EditorDirections, GrayscaleType, MaskEditor};
     let mut ed = g.editor_settings();
     let before = ed;
+    let de = MaskEditor::default();
     let mut pick = None;
-    let unit = |ui: &mut Ui, label: &'static str, v: &mut f32| { slider_row(ui, tr(label), egui::Slider::new(v, 0.0..=1.0)); };
-    let signed = |ui: &mut Ui, label: &'static str, v: &mut f32| { slider_row(ui, tr(label), egui::Slider::new(v, -1.0..=1.0)); };
-    let toggle = |ui: &mut Ui, label: &'static str, v: &mut bool| { prop_row(ui, "", |ui| { ui.checkbox(v, tr(label)); }); };
-    toggle(ui, "Global Invert", &mut ed.global_invert);
-    slider_row(ui, tr("Global Blur"), egui::Slider::new(&mut ed.global_blur, 0.0..=MaskEditor::MAX_BLUR).suffix(" px"))
+    let unit = |ui: &mut Ui, label: &'static str, v: &mut f32, d: f32| { slider_row_reset(ui, tr(label), v, d, |v| egui::Slider::new(v, 0.0..=1.0)); };
+    let signed = |ui: &mut Ui, label: &'static str, v: &mut f32, d: f32| { slider_row_reset(ui, tr(label), v, d, |v| egui::Slider::new(v, -1.0..=1.0)); };
+    let toggle = |ui: &mut Ui, label: &'static str, v: &mut bool, d: bool| { check_row_reset(ui, "", tr(label), v, d); };
+    toggle(ui, "Global Invert", &mut ed.global_invert, de.global_invert);
+    slider_row_reset(ui, tr("Global Blur"), &mut ed.global_blur, de.global_blur, |v| egui::Slider::new(v, 0.0..=MaskEditor::MAX_BLUR).suffix(" px"))
         .on_hover_text(tr("Blurs the blended contributions before Balance and Contrast (radius in texture pixels)."));
-    unit(ui, "Global Balance", &mut ed.global_balance);
-    unit(ui, "Global Contrast", &mut ed.global_contrast);
+    unit(ui, "Global Balance", &mut ed.global_balance, de.global_balance);
+    unit(ui, "Global Contrast", &mut ed.global_contrast, de.global_contrast);
     ui.add_space(4.0);
-    unit(ui, "Texture Opacity", &mut ed.texture.opacity);
-    unit(ui, "Texture 2 Opacity", &mut ed.texture2.opacity);
-    unit(ui, "Ambient Occlusion Opacity", &mut ed.occlusion.opacity);
-    unit(ui, "Curvature Opacity", &mut ed.curvature.opacity);
-    unit(ui, "World Space Normal Opacity", &mut ed.world_normal.opacity);
-    unit(ui, "Position Gradient Opacity", &mut ed.position.opacity);
-    unit(ui, "Thickness Opacity", &mut ed.thickness.opacity);
+    unit(ui, "Texture Opacity", &mut ed.texture.opacity, de.texture.opacity);
+    unit(ui, "Texture 2 Opacity", &mut ed.texture2.opacity, de.texture2.opacity);
+    unit(ui, "Ambient Occlusion Opacity", &mut ed.occlusion.opacity, de.occlusion.opacity);
+    unit(ui, "Curvature Opacity", &mut ed.curvature.opacity, de.curvature.opacity);
+    unit(ui, "World Space Normal Opacity", &mut ed.world_normal.opacity, de.world_normal.opacity);
+    unit(ui, "Position Gradient Opacity", &mut ed.position.opacity, de.position.opacity);
+    unit(ui, "Thickness Opacity", &mut ed.thickness.opacity, de.thickness.opacity);
     ui.add_space(4.0);
-    for (slot, title, texture) in [(0u8, "Texture", &mut ed.texture), (1, "Texture 2", &mut ed.texture2)] {
+    for (slot, title, texture, dtexture) in [(0u8, "Texture", &mut ed.texture, de.texture), (1, "Texture 2", &mut ed.texture2, de.texture2)] {
         editor_group(ui, title, |ui| {
             match texture.resource {
                 Some(id) => { if image_row(ui, state, id) { pick = Some(slot); } }
                 None => { if secondary_button(ui, tr("Choose image…")).clicked() { pick = Some(slot); } }
             }
             if texture.resource.is_some() && ui.small_button(tr("Remove image")).clicked() { texture.resource = None; }
-            toggle(ui, "Invert", &mut texture.invert);
-            prop_row(ui, tr("Grayscale Conversion"), |ui| {
-                egui::ComboBox::from_id_salt(("editor_gray", slot)).selected_text(texture.grayscale.label()).show_ui(ui, |ui| {
-                    for t in GrayscaleType::ALL { ui.selectable_value(&mut texture.grayscale, t, t.label()); }
-                });
+            toggle(ui, "Invert", &mut texture.invert, dtexture.invert);
+            prop_row_reset(ui, tr("Grayscale Conversion"), &mut texture.grayscale, dtexture.grayscale, |ui, v| {
+                egui::ComboBox::from_id_salt(("editor_gray", slot)).selected_text(v.label()).show_ui(ui, |ui| {
+                    for t in GrayscaleType::ALL { ui.selectable_value(v, t, t.label()); }
+                }).response
             });
-            editor_blend_row(ui, title, &mut texture.blend);
-            slider_row(ui, tr("Scale"), egui::Slider::new(&mut texture.scale, 0.1..=32.0).logarithmic(true));
-            signed(ui, "Contrast", &mut texture.contrast);
-            signed(ui, "Brightness", &mut texture.brightness);
-            toggle(ui, "Triplanar", &mut texture.triplanar);
-            ui.add_enabled_ui(texture.triplanar, |ui| unit(ui, "Triplanar Contrast", &mut texture.triplanar_contrast));
-            toggle(ui, "Non-Square Tiling", &mut texture.non_square);
+            editor_blend_row(ui, title, &mut texture.blend, dtexture.blend);
+            slider_row_reset(ui, tr("Scale"), &mut texture.scale, dtexture.scale, |v| egui::Slider::new(v, 0.1..=32.0).logarithmic(true));
+            signed(ui, "Contrast", &mut texture.contrast, dtexture.contrast);
+            signed(ui, "Brightness", &mut texture.brightness, dtexture.brightness);
+            toggle(ui, "Triplanar", &mut texture.triplanar, dtexture.triplanar);
+            ui.add_enabled_ui(texture.triplanar, |ui| unit(ui, "Triplanar Contrast", &mut texture.triplanar_contrast, dtexture.triplanar_contrast));
+            toggle(ui, "Non-Square Tiling", &mut texture.non_square, dtexture.non_square);
         });
     }
     editor_group(ui, "Ambient Occlusion", |ui| {
-        toggle(ui, "Invert", &mut ed.occlusion.invert);
-        editor_blend_row(ui, "ao", &mut ed.occlusion.blend);
-        unit(ui, "Balance", &mut ed.occlusion.balance);
-        unit(ui, "Contrast", &mut ed.occlusion.contrast);
+        toggle(ui, "Invert", &mut ed.occlusion.invert, de.occlusion.invert);
+        editor_blend_row(ui, "ao", &mut ed.occlusion.blend, de.occlusion.blend);
+        unit(ui, "Balance", &mut ed.occlusion.balance, de.occlusion.balance);
+        unit(ui, "Contrast", &mut ed.occlusion.contrast, de.occlusion.contrast);
     });
     editor_group(ui, "Curvature", |ui| {
-        toggle(ui, "Invert", &mut ed.curvature.invert);
-        editor_blend_row(ui, "curvature", &mut ed.curvature.blend);
-        prop_row(ui, tr("Mode"), |ui| {
-            egui::ComboBox::from_id_salt("editor_curvature_mode").selected_text(ed.curvature.mode.label()).show_ui(ui, |ui| {
-                for m in CurvatureMode::ALL { ui.selectable_value(&mut ed.curvature.mode, m, m.label()); }
-            });
+        toggle(ui, "Invert", &mut ed.curvature.invert, de.curvature.invert);
+        editor_blend_row(ui, "curvature", &mut ed.curvature.blend, de.curvature.blend);
+        prop_row_reset(ui, tr("Mode"), &mut ed.curvature.mode, de.curvature.mode, |ui, v| {
+            egui::ComboBox::from_id_salt("editor_curvature_mode").selected_text(v.label()).show_ui(ui, |ui| {
+                for m in CurvatureMode::ALL { ui.selectable_value(v, m, m.label()); }
+            }).response
         });
-        signed(ui, "Contrast", &mut ed.curvature.contrast);
-        signed(ui, "Brightness", &mut ed.curvature.brightness);
+        signed(ui, "Contrast", &mut ed.curvature.contrast, de.curvature.contrast);
+        signed(ui, "Brightness", &mut ed.curvature.brightness, de.curvature.brightness);
     });
-    for (title, group) in [("World Space Normal", &mut ed.world_normal), ("Position Gradient", &mut ed.position)] {
+    for (title, group, dgroup) in [("World Space Normal", &mut ed.world_normal, de.world_normal), ("Position Gradient", &mut ed.position, de.position)] {
         editor_group(ui, title, |ui| {
-            toggle(ui, "Invert", &mut group.invert);
-            editor_blend_row(ui, title, &mut group.blend);
-            unit(ui, "Balance", &mut group.balance);
-            unit(ui, "Contrast", &mut group.contrast);
-            signed(ui, "Brightness", &mut group.brightness);
-            for (axis, label) in group.axes.iter_mut().zip(EditorDirections::AXIS_LABELS) {
-                unit(ui, label, &mut axis.amount);
+            toggle(ui, "Invert", &mut group.invert, dgroup.invert);
+            editor_blend_row(ui, title, &mut group.blend, dgroup.blend);
+            unit(ui, "Balance", &mut group.balance, dgroup.balance);
+            unit(ui, "Contrast", &mut group.contrast, dgroup.contrast);
+            signed(ui, "Brightness", &mut group.brightness, dgroup.brightness);
+            for ((axis, label), daxis) in group.axes.iter_mut().zip(EditorDirections::AXIS_LABELS).zip(dgroup.axes) {
+                unit(ui, label, &mut axis.amount, daxis.amount);
             }
-            for (axis, label) in group.axes.iter_mut().zip(EditorDirections::AXIS_LABELS) {
+            for ((axis, label), daxis) in group.axes.iter_mut().zip(EditorDirections::AXIS_LABELS).zip(dgroup.axes) {
                 ui.push_id((title, label), |ui| {
                     editor_group(ui, label, |ui| {
-                        toggle(ui, "Invert", &mut axis.invert);
-                        editor_blend_row(ui, label, &mut axis.blend);
+                        toggle(ui, "Invert", &mut axis.invert, daxis.invert);
+                        editor_blend_row(ui, label, &mut axis.blend, daxis.blend);
                     });
                 });
             }
         });
     }
     editor_group(ui, "Thickness", |ui| {
-        toggle(ui, "Invert", &mut ed.thickness.invert);
-        signed(ui, "Contrast", &mut ed.thickness.contrast);
-        signed(ui, "Brightness", &mut ed.thickness.brightness);
+        toggle(ui, "Invert", &mut ed.thickness.invert, de.thickness.invert);
+        signed(ui, "Contrast", &mut ed.thickness.contrast, de.thickness.contrast);
+        signed(ui, "Brightness", &mut ed.thickness.brightness, de.thickness.brightness);
     });
     let changed = ed != before;
     if changed { g.editor = Some(ed); }
@@ -824,6 +835,8 @@ fn mask_editor_controls(ui: &mut Ui, state: &mut UiState, g: &mut subcraft_doc::
 fn level_controls(ui: &mut Ui, g: &mut subcraft_doc::Generator) -> bool {
     let mut changed = false;
     let natural_edges = g.kind == GeneratorKind::Edges && g.edge_spread.is_some();
+    // Defaults: the values a new generator of this kind starts with.
+    let d = subcraft_doc::Generator::new(g.kind);
     if g.kind.uses_painter_names() {
         // Edges' level already grows the wear; the occlusion/map thresholds grow the mask downwards.
         let inverted = g.kind != GeneratorKind::Edges;
@@ -833,21 +846,23 @@ fn level_controls(ui: &mut Ui, g: &mut subcraft_doc::Generator) -> bool {
             _ => (tr("Balance"), "Shifts the map towards white (more mask) or black (less).", tr("Contrast"), "0 = the map itself, smooth; 1 = a hard threshold at the balance."),
         };
         let mut level = if inverted { 1.0 - g.level } else { g.level };
-        if slider_row(ui, level_label, egui::Slider::new(&mut level, 0.0..=1.0).max_decimals(3)).on_hover_text(level_tip).changed() {
+        let d_level = if inverted { 1.0 - d.level } else { d.level };
+        if slider_row_reset(ui, level_label, &mut level, d_level, |v| egui::Slider::new(v, 0.0..=1.0).max_decimals(3)).on_hover_text(level_tip).changed() {
             g.level = if inverted { 1.0 - level } else { level };
             changed = true;
         }
         let mut contrast = (1.0 - g.softness).clamp(0.0, 1.0);
-        if slider_row(ui, contrast_label, egui::Slider::new(&mut contrast, 0.0..=1.0)).on_hover_text(contrast_tip).changed() {
+        let d_contrast = (1.0 - d.softness).clamp(0.0, 1.0);
+        if slider_row_reset(ui, contrast_label, &mut contrast, d_contrast, |v| egui::Slider::new(v, 0.0..=1.0)).on_hover_text(contrast_tip).changed() {
             g.softness = (1.0 - contrast).max(0.001);
             changed = true;
         }
     } else {
-        changed |= slider_row(ui, tr("Level"), egui::Slider::new(&mut g.level, 0.0..=1.0).max_decimals(3)).on_hover_text("Threshold for the generator's source values.").changed();
-        changed |= slider_row(ui, tr("Softness"), egui::Slider::new(&mut g.softness, 0.0..=1.0)).changed();
+        changed |= slider_row_reset(ui, tr("Level"), &mut g.level, d.level, |v| egui::Slider::new(v, 0.0..=1.0).max_decimals(3)).on_hover_text("Threshold for the generator's source values.").changed();
+        changed |= slider_row_reset(ui, tr("Softness"), &mut g.softness, d.softness, |v| egui::Slider::new(v, 0.0..=1.0)).changed();
     }
     let breakup = if matches!(g.kind, GeneratorKind::Cavity | GeneratorKind::Edges) { tr("Grunge Amount") } else { tr("Breakup") };
-    changed |= slider_row(ui, breakup, egui::Slider::new(&mut g.noise_amount, 0.0..=1.0)).on_hover_text("How much the grunge breaks the mask up (0 = smooth).").changed();
+    changed |= slider_row_reset(ui, breakup, &mut g.noise_amount, d.noise_amount, |v| egui::Slider::new(v, 0.0..=1.0)).on_hover_text("How much the grunge breaks the mask up (0 = smooth).").changed();
     changed
 }
 
@@ -859,28 +874,27 @@ fn painter_controls(ui: &mut Ui, g: &mut subcraft_doc::Generator) -> bool {
     let natural_edges = g.kind == GeneratorKind::Edges && g.edge_spread.is_some();
     let mut pc = g.painter.unwrap_or_default();
     let before = pc;
+    let dpc = subcraft_doc::Generator::new(g.kind).painter.unwrap_or_default();
     if g.kind == GeneratorKind::Cavity {
-        slider_row(ui, tr("Edges Masking"), egui::Slider::new(&mut pc.edges_masking, 0.0..=1.0))
+        slider_row_reset(ui, tr("Edges Masking"), &mut pc.edges_masking, dpc.edges_masking, |v| egui::Slider::new(v, 0.0..=1.0))
             .on_hover_text("Keeps dirt off convex edges (Painter's Dirt: Edges masking). Reads the baked curvature.");
-        slider_row(ui, tr("Grunge Floor"), egui::Slider::new(&mut pc.grunge_floor, 0.0..=1.0))
+        slider_row_reset(ui, tr("Grunge Floor"), &mut pc.grunge_floor, dpc.grunge_floor, |v| egui::Slider::new(v, 0.0..=1.0))
             .on_hover_text("A faint layer of grunge over open surfaces where the dirt level leaves none, like Painter's dirt at higher Grunge Amount. Needs Grunge Amount above 0.");
     }
     if natural_edges {
-        slider_row(ui, tr("Ambient Occlusion Masking"), egui::Slider::new(&mut pc.ao_masking, 0.0..=1.0))
+        slider_row_reset(ui, tr("Ambient Occlusion Masking"), &mut pc.ao_masking, dpc.ao_masking, |v| egui::Slider::new(v, 0.0..=1.0))
             .on_hover_text("Removes wear where the surface is occluded (Painter's Metal Edge Wear: Ambient Occlusion Masking). Reads the baked AO.");
-        slider_row(ui, tr("Curvature Weight"), egui::Slider::new(&mut pc.curvature_weight, 0.0..=2.0))
+        slider_row_reset(ui, tr("Curvature Weight"), &mut pc.curvature_weight, dpc.curvature_weight, |v| egui::Slider::new(v, 0.0..=2.0))
             .on_hover_text("Strength of the baked curvature detail next to the geometric edge band (Painter: Curvature Weight). 1 = default.");
-        slider_row(ui, tr("Edges Smoothness"), egui::Slider::new(&mut pc.smoothness, 0.0..=1.0))
+        slider_row_reset(ui, tr("Edges Smoothness"), &mut pc.smoothness, dpc.smoothness, |v| egui::Slider::new(v, 0.0..=1.0))
             .on_hover_text("Extra softening of the wear boundary (Painter: Edges Smoothness).");
     }
     if g.kind != GeneratorKind::Edges || natural_edges {
         if g.kind != GeneratorKind::AmbientOcclusion && !matches!(g.kind, GeneratorKind::MeshMap(_)) {
-            prop_row(ui, "", |ui| {
-                ui.checkbox(&mut pc.grunge_map, tr("Grunge map"))
-                    .on_hover_text(tr("Break the mask up with the bundled photo-like dirt texture, as Painter's generators do. Off: a smooth procedural noise."));
-            });
+            check_row_reset(ui, "", tr("Grunge map"), &mut pc.grunge_map, dpc.grunge_map)
+                .on_hover_text(tr("Break the mask up with the bundled photo-like dirt texture, as Painter's generators do. Off: a smooth procedural noise."));
         }
-        slider_row(ui, tr("Grain"), egui::Slider::new(&mut pc.grain, 0.0..=1.0))
+        slider_row_reset(ui, tr("Grain"), &mut pc.grain, dpc.grain, |v| egui::Slider::new(v, 0.0..=1.0))
             .on_hover_text("Fine grain that chips wear and speckles dirt instead of smooth bands. Fades in with the grunge amount: 0 stays smooth.");
     }
     if pc == before {
@@ -896,21 +910,22 @@ fn curvature_controls(ui: &mut Ui, g: &mut subcraft_doc::Generator) -> bool {
     use subcraft_doc::{CurvatureDetail, CurvatureDetailMode};
     let mut d = g.curvature.unwrap_or_default();
     let before = d;
-    prop_row(ui, tr("Mode"), |ui| {
-        egui::ComboBox::from_id_salt("curvature_mode").selected_text(tr(d.mode.label())).show_ui(ui, |ui| {
+    let dd = CurvatureDetail::default();
+    prop_row_reset(ui, tr("Mode"), &mut d.mode, dd.mode, |ui, v| {
+        egui::ComboBox::from_id_salt("curvature_mode").selected_text(tr(v.label())).show_ui(ui, |ui| {
             for mode in CurvatureDetailMode::ALL {
-                ui.selectable_value(&mut d.mode, mode, tr(mode.label()));
+                ui.selectable_value(v, mode, tr(mode.label()));
             }
         })
         .response
     })
     .on_hover_text("Both: the baked map (convex bright, concave dark). Edges only: convex edges on black. Cavities only: concave creases on black.");
     let max = CurvatureDetail::MAX_WEIGHT;
-    slider_row(ui, tr("Fine detail"), egui::Slider::new(&mut d.fine, 0.0..=max))
+    slider_row_reset(ui, tr("Fine detail"), &mut d.fine, dd.fine, |v| egui::Slider::new(v, 0.0..=max))
         .on_hover_text("Weight of the baked curvature itself: small bevels and sharp edges. 1 = the map as baked.");
-    slider_row(ui, tr("Medium detail"), egui::Slider::new(&mut d.medium, 0.0..=max))
+    slider_row_reset(ui, tr("Medium detail"), &mut d.medium, dd.medium, |v| egui::Slider::new(v, 0.0..=max))
         .on_hover_text("Weight of the curvature averaged over about 1/256 of the texture: wider bevels and grooves.");
-    slider_row(ui, tr("Coarse detail"), egui::Slider::new(&mut d.coarse, 0.0..=max))
+    slider_row_reset(ui, tr("Coarse detail"), &mut d.coarse, dd.coarse, |v| egui::Slider::new(v, 0.0..=max))
         .on_hover_text("Weight of the curvature averaged over about 1/64 of the texture: large forms and broad rounded edges.");
     if d == before {
         return false;
@@ -944,14 +959,17 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
             let channels: Vec<ChannelKind> = if anchored { state.session.selected_texture_set().channel_kinds().collect() } else { Vec::new() };
             let site = subcraft_doc::RefSite::Mask { layer, effect: eff.id };
             if !matches!(eff.kind, MaskEffectKind::Anchor) {
-            prop_row(ui, tr("Blend"), |ui| {
-                egui::ComboBox::from_id_salt(("effect_blend", eff.id)).selected_text(eff.blend.label()).show_ui(ui, |ui| {
+            let blend_before = eff.blend;
+            let effect_id = eff.id;
+            prop_row_reset(ui, tr("Blend"), &mut eff.blend, subcraft_doc::BlendMode::Normal, |ui, blend| {
+                egui::ComboBox::from_id_salt(("effect_blend", effect_id)).selected_text(blend.label()).show_ui(ui, |ui| {
                     for mode in subcraft_doc::BlendMode::available_for_effect(false) {
-                        changed |= ui.selectable_value(&mut eff.blend, mode, mode.label()).changed();
+                        ui.selectable_value(blend, mode, mode.label());
                     }
-                });
+                }).response
             });
-            changed |= slider_row(ui, tr("Opacity"), egui::Slider::new(&mut eff.opacity, 0.0..=1.0)).changed();
+            changed |= eff.blend != blend_before;
+            changed |= slider_row_reset(ui, tr("Opacity"), &mut eff.opacity, 1.0, |v| egui::Slider::new(v, 0.0..=1.0)).changed();
             }
             match &mut eff.kind {
                 MaskEffectKind::Anchor => {
@@ -974,11 +992,12 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
                         changed = true;
                     }
                     if let Some(l) = levels {
-                        changed |= slider_row(ui, tr("In low"), egui::Slider::new(&mut l.in_low, 0.0..=1.0)).changed();
-                        changed |= slider_row(ui, tr("In high"), egui::Slider::new(&mut l.in_high, 0.0..=1.0)).changed();
-                        changed |= slider_row(ui, tr("Gamma"), egui::Slider::new(&mut l.gamma, 0.1..=4.0)).changed();
-                        changed |= slider_row(ui, tr("Out low"), egui::Slider::new(&mut l.out_low, 0.0..=1.0)).changed();
-                        changed |= slider_row(ui, tr("Out high"), egui::Slider::new(&mut l.out_high, 0.0..=1.0)).changed();
+                        let dl = Levels::default();
+                        changed |= slider_row_reset(ui, tr("In low"), &mut l.in_low, dl.in_low, |v| egui::Slider::new(v, 0.0..=1.0)).changed();
+                        changed |= slider_row_reset(ui, tr("In high"), &mut l.in_high, dl.in_high, |v| egui::Slider::new(v, 0.0..=1.0)).changed();
+                        changed |= slider_row_reset(ui, tr("Gamma"), &mut l.gamma, dl.gamma, |v| egui::Slider::new(v, 0.1..=4.0)).changed();
+                        changed |= slider_row_reset(ui, tr("Out low"), &mut l.out_low, dl.out_low, |v| egui::Slider::new(v, 0.0..=1.0)).changed();
+                        changed |= slider_row_reset(ui, tr("Out high"), &mut l.out_high, dl.out_high, |v| egui::Slider::new(v, 0.0..=1.0)).changed();
                     }
                     hint(ui, tr("Gray value of the anchor (color channels by luminance), times its coverage. Stack Levels or Invert above it to remap."));
                 }
@@ -1000,6 +1019,8 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
                 }
                 MaskEffectKind::Generator(g) => {
                     changed |= generator_kind_row(ui, g);
+                    // Defaults: what a new generator of this kind starts with.
+                    let dg = subcraft_doc::Generator::new(g.kind);
                     if g.accepts_input() {
                         let mut input = g.input;
                         if super::anchor::picker(ui, &anchor_index, site, &mut input, Some("Baked mesh map"), &channels, ChannelKind::Height) {
@@ -1011,13 +1032,18 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
                         }
                     }
                     if g.kind == GeneratorKind::PositionGradient {
-                        prop_row(ui, tr("Axis"), |ui| for axis in subcraft_doc::GradientAxis::ALL {
-                            changed |= ui.selectable_value(&mut g.axis, axis, axis.label()).changed();
-                        });
+                        changed |= prop_row_reset(ui, tr("Axis"), &mut g.axis, dg.axis, |ui, v| {
+                            let mut r = ui.selectable_value(v, subcraft_doc::GradientAxis::ALL[0], subcraft_doc::GradientAxis::ALL[0].label());
+                            for axis in &subcraft_doc::GradientAxis::ALL[1..] {
+                                r |= ui.selectable_value(v, *axis, axis.label());
+                            }
+                            r
+                        }).changed();
                     }
                     if g.kind == GeneratorKind::Edges {
                         let mut natural = g.edge_spread.is_some();
-                        if ui.checkbox(&mut natural, tr("Natural edge wear")).on_hover_text(tr("Surface-constrained spread with an irregular boundary. Older projects retain their original wear until enabled.")).changed() {
+                        let r = ui.checkbox(&mut natural, tr("Natural edge wear")).on_hover_text(tr("Surface-constrained spread with an irregular boundary. Older projects retain their original wear until enabled."));
+                        if crate::widgets::reset_on(ui, r, &mut natural, dg.edge_spread.is_some()).changed() {
                             g.edge_spread = natural.then(subcraft_doc::EdgeSpread::default); changed = true;
                         }
                         // Spread is always offered (wear made without natural wear, such as the
@@ -1025,7 +1051,8 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
                         // natural edge wear on with that reach.
                         let mut distance = g.edge_spread.map_or(subcraft_doc::EdgeSpread::default().distance, |s| s.distance);
                         let natural_on = g.edge_spread.is_some();
-                        if slider_row(ui, tr("Spread"), egui::Slider::new(&mut distance, 0.0..=12.5).suffix("%"))
+                        let d_distance = dg.edge_spread.map_or(subcraft_doc::EdgeSpread::default().distance, |s| s.distance);
+                        if slider_row_reset(ui, tr("Spread"), &mut distance, d_distance, |v| egui::Slider::new(v, 0.0..=12.5).suffix("%"))
                             .on_hover_text(if natural_on { "How far wear can reach from an exposed edge along the surface, as a percentage of the model's longest dimension. Level decides how much of that reach is worn. Follows connected edges, not UV islands." } else { "How far wear can reach from an exposed edge along the surface. Moving it turns on natural edge wear (this wear currently follows the baked curvature only)." })
                             .changed()
                         {
@@ -1033,7 +1060,8 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
                             changed = true;
                         }
                         if let Some(spread) = &mut g.edge_spread {
-                            changed |= slider_row(ui, tr("Variation"), egui::Slider::new(&mut spread.variation, 0.0..=1.0)).on_hover_text(tr("Irregular, chipped boundary, independent of Breakup. Zero gives a clean geometric band.")).changed();
+                            let dspread = dg.edge_spread.unwrap_or_default();
+                            changed |= slider_row_reset(ui, tr("Variation"), &mut spread.variation, dspread.variation, |v| egui::Slider::new(v, 0.0..=1.0)).on_hover_text(tr("Irregular, chipped boundary, independent of Breakup. Zero gives a clean geometric band.")).changed();
                             if !spread.level_reach {
                                 prop_row(ui, "", |ui| {
                                     if ui.checkbox(&mut spread.level_reach, tr("Level controls the amount")).on_hover_text("This wear was made when Level only selected baked detail and Spread alone set the reach. Turn on to make Level the amount of wear within Spread.").changed() { changed = true; }
@@ -1046,49 +1074,87 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
                     }
                     changed |= level_controls(ui, g);
                     let mut size = g.pattern_size();
-                    if slider_row(ui, tr("Pattern size"), egui::Slider::new(&mut size, 1.0..=100.0).logarithmic(true).suffix("%")).changed() {
+                    if slider_row_reset(ui, tr("Pattern size"), &mut size, dg.pattern_size(), |v| egui::Slider::new(v, 1.0..=100.0).logarithmic(true).suffix("%")).changed() {
                         g.set_pattern_size(size); changed = true;
                     }
                     changed |= painter_controls(ui, g);
                     if custom_grunge_row(ui, state, g, &mut changed) {
                         crate::files::pick(ui.ctx(), crate::files::Purpose::GeneratorGrunge { layer, effect: e.id }, crate::files::IMAGES, false, None);
                     }
-                    prop_row(ui, tr("Seed"), |ui| {
-                        changed |= ui.add(egui::DragValue::new(&mut g.noise.seed).speed(1.)).changed();
+                    changed |= prop_row_reset(ui, tr("Seed"), &mut g.noise.seed, dg.noise.seed, |ui, seed| {
+                        let mut r = ui.add(egui::DragValue::new(seed).speed(1.));
                         if ui.small_button(tr("Next")).on_hover_text(tr("Try the next deterministic pattern seed")).clicked() {
-                            g.noise.seed = g.noise.seed.wrapping_add(1); changed = true;
+                            *seed = seed.wrapping_add(1);
+                            r.mark_changed();
                         }
                         if ui.small_button(tr("Random")).on_hover_text(tr("Pick a new random seed")).clicked() {
-                            g.noise.seed = random_seed(); changed = true;
+                            *seed = random_seed();
+                            r.mark_changed();
                         }
-                    });
+                        r
+                    }).changed();
                     for (axis, name) in ["X", "Y", "Z"].into_iter().enumerate() {
                         let mut percent = g.offset[axis] * 100.0;
-                        if slider_row(ui, &format!("Offset {name}"), egui::Slider::new(&mut percent, -100.0..=100.0).suffix("%").max_decimals(1))
+                        if slider_row_reset(ui, &format!("Offset {name}"), &mut percent, dg.offset[axis] * 100.0, |v| egui::Slider::new(v, -100.0..=100.0).suffix("%").max_decimals(1))
                             .on_hover_text("Slides the breakup pattern through the model along this axis, as a percentage of the model's longest dimension. The seed and pattern size stay the same.").changed() {
                             g.offset[axis] = percent / 100.0; changed = true;
                         }
                     }
                     if g.kind != GeneratorKind::Edges || g.edge_spread.is_none() {
-                        changed |= ui.checkbox(&mut g.organic_breakup, tr("Reduce repetition")).changed();
+                        let r = ui.checkbox(&mut g.organic_breakup, tr("Reduce repetition"));
+                        changed |= crate::widgets::reset_on(ui, r, &mut g.organic_breakup, dg.organic_breakup).changed();
                     }
-                    prop_row(ui, "", |ui| changed |= ui.checkbox(&mut g.invert, tr("Invert")).changed());
+                    changed |= check_row_reset(ui, "", tr("Invert"), &mut g.invert, dg.invert).changed();
                     if g.kind == GeneratorKind::Directional {
                         // Painter's Light: the direction as two angles, plus attenuation.
                         let (mut h, mut v) = subcraft_doc::light_angles(g.direction);
-                        let a = slider_row(ui, tr("Horizontal Angle"), egui::Slider::new(&mut h, -180.0..=180.0).suffix("\u{00b0}")).changed();
-                        let b = slider_row(ui, tr("Vertical Angle"), egui::Slider::new(&mut v, -90.0..=90.0).suffix("\u{00b0}")).changed();
+                        let (dh, dv) = subcraft_doc::light_angles(dg.direction);
+                        let a = slider_row_reset(ui, tr("Horizontal Angle"), &mut h, dh, |x| egui::Slider::new(x, -180.0..=180.0).suffix("\u{00b0}")).changed();
+                        let b = slider_row_reset(ui, tr("Vertical Angle"), &mut v, dv, |x| egui::Slider::new(x, -90.0..=90.0).suffix("\u{00b0}")).changed();
                         if a || b {
                             g.direction = subcraft_doc::light_direction(h, v);
                             changed = true;
                         }
-                        prop_row(ui, tr("Direction"), |ui| { for value in &mut g.direction {
-                            changed |= ui.add(egui::DragValue::new(value).range(-1.0..=1.0).speed(0.01)).changed();
-                        } });
+                        changed |= prop_row_reset(ui, tr("Direction"), &mut g.direction, dg.direction, |ui, direction| {
+                            let [x, y, z] = direction;
+                            ui.add(egui::DragValue::new(x).range(-1.0..=1.0).speed(0.01))
+                                | ui.add(egui::DragValue::new(y).range(-1.0..=1.0).speed(0.01))
+                                | ui.add(egui::DragValue::new(z).range(-1.0..=1.0).speed(0.01))
+                        }).changed();
                         let mut att = g.shape.map_or(0.0, |s| s.attenuation);
-                        if slider_row(ui, tr("Light Attenuation"), egui::Slider::new(&mut att, 0.0..=1.0)).on_hover_text(tr("Fades the light toward the side of the model facing away from it")).changed() {
+                        if slider_row_reset(ui, tr("Light Attenuation"), &mut att, dg.shape.map_or(0.0, |s| s.attenuation), |v| egui::Slider::new(v, 0.0..=1.0)).on_hover_text(tr("Fades the light toward the side of the model facing away from it")).changed() {
                             g.shape = Some(subcraft_doc::ShapeSettings { attenuation: att, ..g.shape_settings() });
                             changed = true;
+                        }
+                    }
+                    // Micro details: the Normal / Height below add curvature and occlusion (Painter's
+                    // Use Micro Details). One Amount slider; Painter's own controls fold out below it.
+                    if g.accepts_micro_details() {
+                        let mut details_on = g.micro_details.is_some_and(|d| d.enabled);
+                        prop_row(ui, "", |ui| {
+                            if ui.checkbox(&mut details_on, tr("Micro details (from Normal / Height below)")).on_hover_text(tr("Also reads the normal and height maps of the layers below, so wear catches their small raised details and dirt settles into their small grooves, as Painter's Use Micro Details does. Needs a layer below with a Normal or Height map.")).changed() {
+                                g.set_micro_details_enabled(details_on); changed = true;
+                            }
+                        });
+                        if let Some(d) = g.micro_details.as_mut().filter(|d| d.enabled) {
+                            let dd = subcraft_doc::MicroDetails::default();
+                            changed |= slider_row_reset(ui, tr("Micro details amount"), &mut d.amount, dd.amount, |v| egui::Slider::new(v, 0.0..=1.0)).on_hover_text(tr("How much the fine relief below adds to the baked curvature and occlusion")).changed();
+                            egui::CollapsingHeader::new(tr("Micro details settings")).id_salt("micro_details_settings").show(ui, |ui| {
+                                changed |= check_row_reset(ui, "", tr("Micro Normal"), &mut d.micro_normal, dd.micro_normal).changed();
+                                changed |= check_row_reset(ui, "", tr("Micro Height"), &mut d.micro_height, dd.micro_height).changed();
+                                changed |= prop_row_reset(ui, tr("Curvature Type"), &mut d.curvature_type, dd.curvature_type, |ui, v| {
+                                    let all = subcraft_doc::MicroCurvatureType::ALL;
+                                    let mut r = ui.selectable_value(v, all[0], tr(all[0].label()));
+                                    for t in &all[1..] {
+                                        r |= ui.selectable_value(v, *t, tr(t.label()));
+                                    }
+                                    r
+                                }).changed();
+                                changed |= slider_row_reset(ui, tr("Curvature Intensity"), &mut d.curvature_intensity, dd.curvature_intensity, |v| egui::Slider::new(v, 0.0..=4.0)).changed();
+                                changed |= slider_row_reset(ui, tr("Height Details Intensity"), &mut d.height_intensity, dd.height_intensity, |v| egui::Slider::new(v, 0.0..=4.0)).changed();
+                                changed |= slider_row_reset(ui, tr("AO Radius"), &mut d.ao_radius, dd.ao_radius, |v| egui::Slider::new(v, 0.0..=1.0)).changed();
+                                changed |= slider_row_reset(ui, tr("AO Depth"), &mut d.ao_depth, dd.ao_depth, |v| egui::Slider::new(v, 0.0..=1.0)).changed();
+                            });
                         }
                     }
                     // Micro effect: the same mask also writes Normal / Height of the layers below.
@@ -1099,11 +1165,12 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
                         }
                     });
                     if let Some(m) = g.micro.as_mut().filter(|m| m.enabled) {
-                        changed |= slider_row(ui, tr("Micro amount"), egui::Slider::new(&mut m.amount, 0.0..=1.0)).on_hover_text(tr("Height change at full mask. Normals follow the height slope.")).changed();
-                        prop_row(ui, tr("Micro direction"), |ui| for d in [subcraft_doc::MicroDirection::Raise, subcraft_doc::MicroDirection::Carve] {
-                            changed |= ui.selectable_value(&mut m.direction, d, match d { subcraft_doc::MicroDirection::Raise => tr("Raise"), subcraft_doc::MicroDirection::Carve => tr("Carve") }).changed();
-                        });
-                        prop_row(ui, "", |ui| changed |= ui.checkbox(&mut m.grain_follows, tr("Grain follows generator")).on_hover_text(tr("Pit the micro surface with the generator's fine grain, so it is as speckled as the mask. Off: a smooth surface that follows the mask only.")).changed());
+                        let dm = subcraft_doc::MicroEffect::default();
+                        changed |= slider_row_reset(ui, tr("Micro amount"), &mut m.amount, dm.amount, |v| egui::Slider::new(v, 0.0..=1.0)).on_hover_text(tr("Height change at full mask. Normals follow the height slope.")).changed();
+                        changed |= prop_row_reset(ui, tr("Micro direction"), &mut m.direction, dm.direction, |ui, v| {
+                            ui.selectable_value(v, subcraft_doc::MicroDirection::Raise, tr("Raise")) | ui.selectable_value(v, subcraft_doc::MicroDirection::Carve, tr("Carve"))
+                        }).changed();
+                        changed |= check_row_reset(ui, "", tr("Grain follows generator"), &mut m.grain_follows, dm.grain_follows).on_hover_text(tr("Pit the micro surface with the generator's fine grain, so it is as speckled as the mask. Off: a smooth surface that follows the mask only.")).changed();
                     }
                 }
                 MaskEffectKind::Fill { value, procedural, projection } => {
@@ -1113,16 +1180,18 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
                         changed = true;
                     }
                     if let Some(p) = procedural {
-                        prop_row(ui, tr("Pattern"), |ui| egui::ComboBox::from_id_salt("mask_pattern").selected_text(p.kind.label()).show_ui(ui, |ui| {
-                            for kind in ProceduralKind::ALL { changed |= ui.selectable_value(&mut p.kind, kind, kind.label()).changed(); }
-                        }));
-                        changed |= slider_row(ui, tr("Scale"), egui::Slider::new(&mut p.scale, 1.0..=64.0)).changed();
-                        changed |= slider_row(ui, tr("Balance"), egui::Slider::new(&mut p.balance, 0.0..=1.0)).changed();
-                        changed |= slider_row(ui, tr("Contrast"), egui::Slider::new(&mut p.contrast, 0.0..=1.0)).changed();
-                        prop_row(ui, tr("Seed"), |ui| changed |= ui.add(egui::DragValue::new(&mut p.seed)).changed());
-                        changed |= ui.checkbox(&mut p.invert, tr("Invert pattern")).changed();
+                        let dp = ProceduralParams::new(p.kind);
+                        changed |= prop_row_reset(ui, tr("Pattern"), &mut p.kind, ProceduralKind::Clouds, |ui, v| egui::ComboBox::from_id_salt("mask_pattern").selected_text(v.label()).show_ui(ui, |ui| {
+                            for kind in ProceduralKind::ALL { ui.selectable_value(v, kind, kind.label()); }
+                        }).response).changed();
+                        changed |= slider_row_reset(ui, tr("Scale"), &mut p.scale, dp.scale, |v| egui::Slider::new(v, 1.0..=64.0)).changed();
+                        changed |= slider_row_reset(ui, tr("Balance"), &mut p.balance, dp.balance, |v| egui::Slider::new(v, 0.0..=1.0)).changed();
+                        changed |= slider_row_reset(ui, tr("Contrast"), &mut p.contrast, dp.contrast, |v| egui::Slider::new(v, 0.0..=1.0)).changed();
+                        changed |= prop_row_reset(ui, tr("Seed"), &mut p.seed, dp.seed, |ui, v| ui.add(egui::DragValue::new(v))).changed();
+                        let r = ui.checkbox(&mut p.invert, tr("Invert pattern"));
+                        changed |= crate::widgets::reset_on(ui, r, &mut p.invert, dp.invert).changed();
                         changed |= scratch_controls(ui, p, ("mask_scratch", 0));
-                    } else { changed |= slider_row(ui, tr("Value"), egui::Slider::new(value, 0.0..=1.0)).changed(); }
+                    } else { changed |= slider_row_reset(ui, tr("Value"), value, 1.0, |v| egui::Slider::new(v, 0.0..=1.0)).changed(); }
                     changed |= projection_editor(ui, projection);
                     changed |= projection_options(ui, projection);
                 }
@@ -1145,9 +1214,9 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
                     if image_row(ui, state, *resource) {
                         crate::files::pick(ui.ctx(), crate::files::Purpose::MaskImage { layer, effect: e.id }, crate::files::IMAGES, false, None);
                     }
-                    changed |= slider_row(ui, tr("Balance"), egui::Slider::new(balance, 0.0..=1.0)).changed();
-                    changed |= slider_row(ui, tr("Contrast"), egui::Slider::new(contrast, 0.0..=1.0)).changed();
-                    prop_row(ui, "", |ui| changed |= ui.checkbox(invert, tr("Invert")).changed());
+                    changed |= slider_row_reset(ui, tr("Balance"), balance, 0.5, |v| egui::Slider::new(v, 0.0..=1.0)).changed();
+                    changed |= slider_row_reset(ui, tr("Contrast"), contrast, 0.0, |v| egui::Slider::new(v, 0.0..=1.0)).changed();
+                    changed |= check_row_reset(ui, "", tr("Invert"), invert, false).changed();
                     changed |= projection_editor(ui, projection);
                     changed |= projection_options(ui, projection);
                     hint(ui, tr("Uses the image's transparency if it has any, otherwise its brightness."));
@@ -1196,23 +1265,26 @@ fn id_color_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_core::Layer
         state.picking_id_color = if active { None } else { Some((layer, effect)) };
         if !active { state.picking_parts = false; }
     }
+    let did = subcraft_doc::IdColorMask::default();
     let mut hardness = 1.0 - id.softness;
-    if slider_row(ui, tr("Hardness"), egui::Slider::new(&mut hardness, 0.0..=1.0).max_decimals(3)).on_hover_text(tr("1 cuts hard at the tolerance; lower values fade out beyond it")).changed() {
+    if slider_row_reset(ui, tr("Hardness"), &mut hardness, 1.0 - did.softness, |v| egui::Slider::new(v, 0.0..=1.0).max_decimals(3)).on_hover_text(tr("1 cuts hard at the tolerance; lower values fade out beyond it")).changed() {
         id.softness = (1.0 - hardness).clamp(0.0, 1.0);
         changed = true;
     }
-    changed |= slider_row(ui, tr("Tolerance"), egui::Slider::new(&mut id.tolerance, 0.0..=1.0).max_decimals(3)).on_hover_text(tr("Largest RGB distance from a picked color that still counts as a full match")).changed();
-    changed |= slider_row(ui, tr("Output value"), egui::Slider::new(&mut id.output, 0.0..=1.0)).on_hover_text(tr("Gray written where the colors match")).changed();
-    prop_row(ui, tr("Background color"), |ui| {
-        egui::ComboBox::from_id_salt("selection_background").selected_text(tr(id.background.label())).show_ui(ui, |ui| {
+    changed |= slider_row_reset(ui, tr("Tolerance"), &mut id.tolerance, did.tolerance, |v| egui::Slider::new(v, 0.0..=1.0).max_decimals(3)).on_hover_text(tr("Largest RGB distance from a picked color that still counts as a full match")).changed();
+    changed |= slider_row_reset(ui, tr("Output value"), &mut id.output, did.output, |v| egui::Slider::new(v, 0.0..=1.0)).on_hover_text(tr("Gray written where the colors match")).changed();
+    let background = id.background;
+    prop_row_reset(ui, tr("Background color"), &mut id.background, did.background, |ui, v| {
+        egui::ComboBox::from_id_salt("selection_background").selected_text(tr(v.label())).show_ui(ui, |ui| {
             for b in subcraft_doc::SelectionBackground::ALL {
-                changed |= ui.selectable_value(&mut id.background, b, tr(b.label())).changed();
+                ui.selectable_value(v, b, tr(b.label()));
             }
-        });
+        }).response
     });
+    changed |= id.background != background;
     // Older projects' invert switch: shown only while it is on, so it can be turned off.
     if id.invert {
-        prop_row(ui, "", |ui| changed |= ui.checkbox(&mut id.invert, tr("Invert")).changed());
+        changed |= check_row_reset(ui, "", tr("Invert"), &mut id.invert, did.invert).changed();
     }
     changed
 }
@@ -1248,11 +1320,12 @@ pub(crate) fn levels_editor(ui: &mut Ui, state: &mut UiState, key: subcraft_app:
     let bins: &[u32] = histogram.as_ref().map_or(&[], |h| &h.bins[shown][..]);
     histogram_strip(ui, egui::Id::new(("levels_in", key.effect)), bins, &mut r);
     output_strip(ui, egui::Id::new(("levels_out", key.effect)), &mut r);
-    slider_row(ui, tr("In low"), egui::Slider::new(&mut r.in_low, 0.0..=1.0));
-    slider_row(ui, tr("Gamma"), egui::Slider::new(&mut r.gamma, subcraft_doc::LEVELS_GAMMA_MIN..=subcraft_doc::LEVELS_GAMMA_MAX).logarithmic(true));
-    slider_row(ui, tr("In high"), egui::Slider::new(&mut r.in_high, 0.0..=1.0));
-    slider_row(ui, tr("Out low"), egui::Slider::new(&mut r.out_low, 0.0..=1.0));
-    slider_row(ui, tr("Out high"), egui::Slider::new(&mut r.out_high, 0.0..=1.0));
+    let dr = subcraft_doc::LevelsRange::default();
+    slider_row_reset(ui, tr("In low"), &mut r.in_low, dr.in_low, |v| egui::Slider::new(v, 0.0..=1.0));
+    slider_row_reset(ui, tr("Gamma"), &mut r.gamma, dr.gamma, |v| egui::Slider::new(v, subcraft_doc::LEVELS_GAMMA_MIN..=subcraft_doc::LEVELS_GAMMA_MAX).logarithmic(true));
+    slider_row_reset(ui, tr("In high"), &mut r.in_high, dr.in_high, |v| egui::Slider::new(v, 0.0..=1.0));
+    slider_row_reset(ui, tr("Out low"), &mut r.out_low, dr.out_low, |v| egui::Slider::new(v, 0.0..=1.0));
+    slider_row_reset(ui, tr("Out high"), &mut r.out_high, dr.out_high, |v| egui::Slider::new(v, 0.0..=1.0));
     if r != before {
         levels.set_component(component, r);
         changed = true;
@@ -1268,7 +1341,8 @@ pub(crate) fn levels_editor(ui: &mut Ui, state: &mut UiState, key: subcraft_app:
             levels.invert(component);
             changed = true;
         }
-        changed |= ui.checkbox(&mut levels.clamp, tr("Clamp")).on_hover_text(tr("Keep values between the input handles; off, they extend past them (HDR)")).changed();
+        let r = ui.checkbox(&mut levels.clamp, tr("Clamp")).on_hover_text(tr("Keep values between the input handles; off, they extend past them (HDR)"));
+        changed |= crate::widgets::reset_on(ui, r, &mut levels.clamp, Levels::default().clamp).changed();
     });
     changed
 }
@@ -1376,6 +1450,7 @@ fn histogram_strip(ui: &mut Ui, id: egui::Id, bins: &[u32], r: &mut subcraft_doc
 fn compare_editor(ui: &mut Ui, c: &mut subcraft_doc::CompareMask, channels: &[ChannelKind]) -> bool {
     use subcraft_doc::{CompareOp, CompareOperand};
     let mut changed = false;
+    let dc = subcraft_doc::CompareMask::default();
     prop_row(ui, tr("Channel"), |ui| {
         egui::ComboBox::from_id_salt("compare_channel").selected_text(c.channel.display_name()).show_ui(ui, |ui| {
             for k in channels {
@@ -1392,19 +1467,29 @@ fn compare_editor(ui: &mut Ui, c: &mut subcraft_doc::CompareMask, channels: &[Ch
         });
         changed
     };
-    prop_row(ui, tr("Compare"), |ui| {
-        changed |= operand(ui, "compare_left", &mut c.left);
-        egui::ComboBox::from_id_salt("compare_op").width(110.0).selected_text(tr(c.op.label())).show_ui(ui, |ui| {
-            for v in CompareOp::ALL {
-                changed |= ui.selectable_value(&mut c.op, v, tr(v.label())).changed();
-            }
-        });
-        changed |= operand(ui, "compare_right", &mut c.right);
+    // The whole comparison (left operand, operation, right operand) resets together.
+    let before = (c.left, c.op, c.right);
+    let mut cmp = before;
+    prop_row_reset(ui, tr("Compare"), &mut cmp, (dc.left, dc.op, dc.right), |ui, (left, op, right)| {
+        ui.scope(|ui| {
+            operand(ui, "compare_left", left);
+            egui::ComboBox::from_id_salt("compare_op").width(110.0).selected_text(tr(op.label())).show_ui(ui, |ui| {
+                for v in CompareOp::ALL {
+                    ui.selectable_value(op, v, tr(v.label()));
+                }
+            });
+            operand(ui, "compare_right", right);
+        })
+        .response
     });
+    if cmp != before {
+        (c.left, c.op, c.right) = cmp;
+        changed = true;
+    }
     let uses_constant = c.left == CompareOperand::Constant || c.right == CompareOperand::Constant;
-    ui.add_enabled_ui(uses_constant, |ui| changed |= slider_row(ui, tr("Constant"), egui::Slider::new(&mut c.constant, 0.0..=1.0)).changed());
-    ui.add_enabled_ui(c.op == CompareOp::Within, |ui| changed |= slider_row(ui, tr("Tolerance"), egui::Slider::new(&mut c.tolerance, 0.0..=1.0)).changed());
-    changed |= slider_row(ui, tr("Hardness"), egui::Slider::new(&mut c.hardness, 0.0..=1.0))
+    ui.add_enabled_ui(uses_constant, |ui| changed |= slider_row_reset(ui, tr("Constant"), &mut c.constant, dc.constant, |v| egui::Slider::new(v, 0.0..=1.0)).changed());
+    ui.add_enabled_ui(c.op == CompareOp::Within, |ui| changed |= slider_row_reset(ui, tr("Tolerance"), &mut c.tolerance, dc.tolerance, |v| egui::Slider::new(v, 0.0..=1.0)).changed());
+    changed |= slider_row_reset(ui, tr("Hardness"), &mut c.hardness, dc.hardness, |v| egui::Slider::new(v, 0.0..=1.0))
         .on_hover_text(tr("1 cuts hard where the comparison flips; lower values blend across it"))
         .changed();
     hint(ui, tr("White where the comparison holds. Layers Below is the channel as composited under this layer; This Layer is this layer's own content."));
@@ -1429,17 +1514,18 @@ fn scratch_controls(ui: &mut Ui, params: &mut ProceduralParams, id: (&str, u32))
         });
     });
     let s = &mut params.scratch;
-    changed |= slider_row(ui, tr("Direction"), egui::Slider::new(&mut s.angle_deg, 0.0..=180.0).suffix("°")).changed();
-    changed |= slider_row(ui, tr("Spread"), egui::Slider::new(&mut s.spread_deg, 0.0..=90.0).suffix("°")).changed();
-    changed |= slider_row(ui, tr("Length"), egui::Slider::new(&mut s.length, 0.1..=2.0)).changed();
-    changed |= slider_row(ui, tr("Length var."), egui::Slider::new(&mut s.length_var, 0.0..=1.0)).changed();
-    changed |= slider_row(ui, tr("Width"), egui::Slider::new(&mut s.width, 0.001..=0.06).logarithmic(true)).changed();
-    changed |= slider_row(ui, tr("Width var."), egui::Slider::new(&mut s.width_var, 0.0..=1.0)).changed();
-    changed |= slider_row(ui, tr("Density"), egui::Slider::new(&mut s.density, 0.0..=1.0)).changed();
-    changed |= slider_row(ui, tr("Curvature"), egui::Slider::new(&mut s.curvature, 0.0..=1.0)).changed();
-    changed |= slider_row(ui, tr("Depth falloff"), egui::Slider::new(&mut s.depth_falloff, 0.0..=1.0)).changed();
-    changed |= slider_row(ui, tr("Clustering"), egui::Slider::new(&mut s.cluster, 0.0..=1.0)).changed();
-    changed |= slider_row(ui, tr("Edge wear"), egui::Slider::new(&mut s.wear, 0.0..=1.0)).changed();
+    let ds = subcraft_doc::ScratchParams::default();
+    changed |= slider_row_reset(ui, tr("Direction"), &mut s.angle_deg, ds.angle_deg, |v| egui::Slider::new(v, 0.0..=180.0).suffix("°")).changed();
+    changed |= slider_row_reset(ui, tr("Spread"), &mut s.spread_deg, ds.spread_deg, |v| egui::Slider::new(v, 0.0..=90.0).suffix("°")).changed();
+    changed |= slider_row_reset(ui, tr("Length"), &mut s.length, ds.length, |v| egui::Slider::new(v, 0.1..=2.0)).changed();
+    changed |= slider_row_reset(ui, tr("Length var."), &mut s.length_var, ds.length_var, |v| egui::Slider::new(v, 0.0..=1.0)).changed();
+    changed |= slider_row_reset(ui, tr("Width"), &mut s.width, ds.width, |v| egui::Slider::new(v, 0.001..=0.06).logarithmic(true)).changed();
+    changed |= slider_row_reset(ui, tr("Width var."), &mut s.width_var, ds.width_var, |v| egui::Slider::new(v, 0.0..=1.0)).changed();
+    changed |= slider_row_reset(ui, tr("Density"), &mut s.density, ds.density, |v| egui::Slider::new(v, 0.0..=1.0)).changed();
+    changed |= slider_row_reset(ui, tr("Curvature"), &mut s.curvature, ds.curvature, |v| egui::Slider::new(v, 0.0..=1.0)).changed();
+    changed |= slider_row_reset(ui, tr("Depth falloff"), &mut s.depth_falloff, ds.depth_falloff, |v| egui::Slider::new(v, 0.0..=1.0)).changed();
+    changed |= slider_row_reset(ui, tr("Clustering"), &mut s.cluster, ds.cluster, |v| egui::Slider::new(v, 0.0..=1.0)).changed();
+    changed |= slider_row_reset(ui, tr("Edge wear"), &mut s.wear, ds.wear, |v| egui::Slider::new(v, 0.0..=1.0)).changed();
     hint(ui, tr("Edge wear keeps scratches near edges and grooves; it needs baked mesh maps (Ctrl+B)."));
     changed
 }
@@ -1455,24 +1541,27 @@ pub(crate) fn source_controls(ui: &mut Ui, state: &mut UiState, kind: ChannelKin
         ui.add_space(2.0);
         match &mut ch.source {
             FillSource::Uniform { value } => {
-                prop_row(ui, tr("Value"), |ui| changed |= channel_value(ui, *kind, value).changed);
+                changed |= prop_row_reset(ui, tr("Value"), value, default_uniform(*kind), |ui, v| crate::widgets::edit_response(ui, |ui| channel_value(ui, *kind, v))).changed();
             }
             FillSource::Procedural { params, low, high } => {
-                prop_row(ui, tr("Pattern"), |ui| {
-                    egui::ComboBox::from_id_salt(("kind", *kind)).selected_text(params.kind.label()).show_ui(ui, |ui| {
+                let dp = ProceduralParams::new(params.kind);
+                let pattern = params.kind;
+                prop_row_reset(ui, tr("Pattern"), &mut params.kind, ProceduralKind::Clouds, |ui, v| {
+                    egui::ComboBox::from_id_salt(("kind", *kind)).selected_text(v.label()).show_ui(ui, |ui| {
                         for k in ProceduralKind::ALL {
-                            changed |= ui.selectable_value(&mut params.kind, k, k.label()).changed();
+                            ui.selectable_value(v, k, k.label());
                         }
-                    });
+                    }).response
                 });
-                changed |= slider_row(ui, tr("Scale"), egui::Slider::new(&mut params.scale, 1.0..=64.0).step_by(1.0)).changed();
-                changed |= slider_row(ui, tr("Balance"), egui::Slider::new(&mut params.balance, 0.0..=1.0)).changed();
-                changed |= slider_row(ui, tr("Contrast"), egui::Slider::new(&mut params.contrast, 0.0..=1.0)).changed();
-                prop_row(ui, tr("Seed"), |ui| changed |= ui.add(egui::DragValue::new(&mut params.seed)).changed());
+                changed |= params.kind != pattern;
+                changed |= slider_row_reset(ui, tr("Scale"), &mut params.scale, dp.scale, |v| egui::Slider::new(v, 1.0..=64.0).step_by(1.0)).changed();
+                changed |= slider_row_reset(ui, tr("Balance"), &mut params.balance, dp.balance, |v| egui::Slider::new(v, 0.0..=1.0)).changed();
+                changed |= slider_row_reset(ui, tr("Contrast"), &mut params.contrast, dp.contrast, |v| egui::Slider::new(v, 0.0..=1.0)).changed();
+                changed |= prop_row_reset(ui, tr("Seed"), &mut params.seed, dp.seed, |ui, v| ui.add(egui::DragValue::new(v))).changed();
                 changed |= scratch_controls(ui, params, ("fill_scratch", *kind as u32));
                 prop_row(ui, tr("Low"), |ui| changed |= channel_value(ui, *kind, low).changed);
                 prop_row(ui, tr("High"), |ui| changed |= channel_value(ui, *kind, high).changed);
-                prop_row(ui, "", |ui| changed |= ui.checkbox(&mut params.invert, tr("Invert")).changed());
+                changed |= check_row_reset(ui, "", tr("Invert"), &mut params.invert, ProceduralParams::new(params.kind).invert).changed();
             }
             FillSource::MeshMap { map } => {
                 prop_row(ui, tr("Map"), |ui| {
@@ -1495,9 +1584,10 @@ pub(crate) fn source_controls(ui: &mut Ui, state: &mut UiState, kind: ChannelKin
                 });
                 // The same remap a procedural source has. A normal map is left as it is.
                 if !matches!(kind, ChannelKind::Normal | ChannelKind::CoatNormal) {
-                    changed |= slider_row(ui, tr("Balance"), egui::Slider::new(&mut ch.adjust.balance, 0.0..=1.0)).changed();
-                    changed |= slider_row(ui, tr("Contrast"), egui::Slider::new(&mut ch.adjust.contrast, 0.0..=1.0)).changed();
-                    prop_row(ui, "", |ui| changed |= ui.checkbox(&mut ch.adjust.invert, tr("Invert")).changed());
+                    let da = subcraft_doc::ImageAdjust::default();
+                    changed |= slider_row_reset(ui, tr("Balance"), &mut ch.adjust.balance, da.balance, |v| egui::Slider::new(v, 0.0..=1.0)).changed();
+                    changed |= slider_row_reset(ui, tr("Contrast"), &mut ch.adjust.contrast, da.contrast, |v| egui::Slider::new(v, 0.0..=1.0)).changed();
+                    changed |= check_row_reset(ui, "", tr("Invert"), &mut ch.adjust.invert, da.invert).changed();
                 }
             }
         }
@@ -1511,10 +1601,18 @@ pub(crate) fn source_controls(ui: &mut Ui, state: &mut UiState, kind: ChannelKin
             ChannelKind::Emissive => ("Intensity", 0.0..=10.0, "Glow intensity"),
             _ => ("Strength", 0.0..=2.0, "Multiplies the value"),
         };
-        let r = slider_row(ui, label, egui::Slider::new(&mut ch.strength, range).max_decimals(2));
+        let r = slider_row_reset(ui, label, &mut ch.strength, FillChannel::default_for(*kind).strength, |v| egui::Slider::new(v, range).max_decimals(2));
         changed |= r.on_hover_text(tip).changed();
     }
     (changed, pick_image)
+}
+
+/// The value a fill layer's channel `kind` starts with (see [`FillChannel::default_for`]).
+fn default_uniform(kind: ChannelKind) -> subcraft_core::ChannelValue {
+    match FillChannel::default_for(kind).source {
+        FillSource::Uniform { value } => value,
+        _ => kind.default_paint_value(),
+    }
 }
 
 /// What a click on the channel chips asks for.
@@ -1635,20 +1733,21 @@ pub(crate) fn block_header(ui: &mut Ui, text: &str) {
 
 /// Labelled dropdown row (label column, then the combo filling the row). `options` is
 /// (value, label); a disabled row shows the current text and nothing to pick.
-fn dropdown_row<T: PartialEq + Copy>(ui: &mut Ui, id: &str, label: &str, value: &mut T, options: &[(T, &str)], enabled: bool, why_disabled: &str) -> bool {
-    let mut changed = false;
-    let current = options.iter().find(|o| o.0 == *value).map_or("", |o| o.1);
-    prop_row(ui, label, |ui| {
+/// A dropdown row that resets to `default` (the gestures of [`crate::reset_row`]).
+fn dropdown_row<T: PartialEq + Copy>(ui: &mut Ui, id: &str, label: &str, value: &mut T, default: T, options: &[(T, &str)], enabled: bool, why_disabled: &str) -> bool {
+    let before = *value;
+    prop_row_reset(ui, label, value, default, |ui, value| {
+        let current = options.iter().find(|o| o.0 == *value).map_or("", |o| o.1);
         ui.add_enabled_ui(enabled, |ui| {
             let r = egui::ComboBox::from_id_salt(("fill_dd", id)).width(ui.available_width().max(60.0)).selected_text(current).show_ui(ui, |ui| {
                 for (v, name) in options {
-                    if ui.selectable_value(value, *v, *name).changed() { changed = true; }
+                    ui.selectable_value(value, *v, *name);
                 }
             });
-            if !enabled && !why_disabled.is_empty() { r.response.on_disabled_hover_text(why_disabled); }
-        });
+            if !enabled && !why_disabled.is_empty() { r.response.on_disabled_hover_text(why_disabled) } else { r.response }
+        }).inner
     });
-    changed
+    *value != before
 }
 
 /// The rows Painter shows between the Projection dropdown and the UV transformations group:
@@ -1656,12 +1755,13 @@ fn dropdown_row<T: PartialEq + Copy>(ui: &mut Ui, id: &str, label: &str, value: 
 pub(crate) fn projection_options(ui: &mut Ui, proj: &mut Projection) -> bool {
     use subcraft_doc::{FillFiltering, ShapeCrop, UvWrap};
     let mut changed = false;
-    changed |= dropdown_row(ui, "filtering", tr("Filtering"), &mut proj.filtering, &FillFiltering::ALL.map(|f| (f, f.label())), true, "");
+    let d = Projection::default();
+    changed |= dropdown_row(ui, "filtering", tr("Filtering"), &mut proj.filtering, d.filtering, &FillFiltering::ALL.map(|f| (f, f.label())), true, "");
     if proj.mode != ProjectionMode::Triplanar {
-        changed |= dropdown_row(ui, "wrap", tr("UV Wrap"), &mut proj.uv_wrap, &UvWrap::ALL.map(|w| (w, w.label())), true, "");
+        changed |= dropdown_row(ui, "wrap", tr("UV Wrap"), &mut proj.uv_wrap, d.uv_wrap, &UvWrap::ALL.map(|w| (w, w.label())), true, "");
     }
     if proj.mode != ProjectionMode::Uv {
-        changed |= dropdown_row(ui, "crop", tr("Shape crop"), &mut proj.shape_crop, &ShapeCrop::ALL.map(|c| (c, c.label())), true, "");
+        changed |= dropdown_row(ui, "crop", tr("Shape crop"), &mut proj.shape_crop, d.shape_crop, &ShapeCrop::ALL.map(|c| (c, c.label())), true, "");
     }
     changed
 }
@@ -1719,7 +1819,7 @@ fn wrapped_projection_rows(ui: &mut Ui, proj: &mut Projection) -> bool {
     if proj.mode != ProjectionMode::Cylindrical {
         return false;
     }
-    slider_row(ui, tr("Angle"), egui::Slider::new(&mut proj.cylinder_angle, 1.0..=360.0).suffix("\u{00b0}"))
+    slider_row_reset(ui, tr("Angle"), &mut proj.cylinder_angle, Projection::default().cylinder_angle, |v| egui::Slider::new(v, 1.0..=360.0).suffix("\u{00b0}"))
         .on_hover_text(tr("How much of the perimeter the texture covers once"))
         .changed()
 }
@@ -1732,23 +1832,24 @@ fn transform3_group(ui: &mut Ui, proj: &mut Projection) -> bool {
         return false;
     }
     let before = proj.transform3;
-    fn row(ui: &mut Ui, label: &str, values: &mut [f32; 3], speed: f64, range: std::ops::RangeInclusive<f32>, suffix: &str, hover: &str) {
-        prop_row(ui, label, |ui| {
-            for v in values.iter_mut() {
-                ui.add(egui::DragValue::new(v).speed(speed).range(range.clone()).max_decimals(3).suffix(suffix)).on_hover_text(hover);
-            }
+    fn row(ui: &mut Ui, label: &str, values: &mut [f32; 3], default: [f32; 3], speed: f64, range: std::ops::RangeInclusive<f32>, suffix: &str, hover: &str) {
+        prop_row_reset(ui, label, values, default, |ui, values| {
+            let [x, y, z] = values;
+            [x, y, z].map(|v| ui.add(egui::DragValue::new(v).speed(speed).range(range.clone()).max_decimals(3).suffix(suffix)).on_hover_text(hover))
+                .into_iter().reduce(|a, b| a | b).expect("three fields")
         });
     }
     egui::CollapsingHeader::new(RichText::new(tr("3D projection")).font(theme::font_strong(12.0)).color(theme::TEXT())).id_salt("fill_transform3").default_open(false).show(ui, |ui| {
         let t = &mut proj.transform3;
-        row(ui, tr("Offset"), &mut t.offset, 0.005, -T::MAX_OFFSET..=T::MAX_OFFSET, "", tr("X, Y, Z in units of the model's bounding box; 0 is centred"));
-        row(ui, tr("Rotation"), &mut t.rotation_deg, 0.5, -360.0..=360.0, "\u{00b0}", tr("Degrees about X, Y, Z (applied in that order)"));
-        row(ui, tr("Scale"), &mut t.scale, 0.005, T::MIN_SCALE..=T::MAX_SCALE, "", tr("Size of the projection box on X, Y, Z; with Shape crop on, a planar projection reaches as deep as its scale along the projection axis"));
+        let dt = T::default();
+        row(ui, tr("Offset"), &mut t.offset, dt.offset, 0.005, -T::MAX_OFFSET..=T::MAX_OFFSET, "", tr("X, Y, Z in units of the model's bounding box; 0 is centred"));
+        row(ui, tr("Rotation"), &mut t.rotation_deg, dt.rotation_deg, 0.5, -360.0..=360.0, "\u{00b0}", tr("Degrees about X, Y, Z (applied in that order)"));
+        row(ui, tr("Scale"), &mut t.scale, dt.scale, 0.005, T::MIN_SCALE..=T::MAX_SCALE, "", tr("Size of the projection box on X, Y, Z; with Shape crop on, a planar projection reaches as deep as its scale along the projection axis"));
         // Painter's Mirror on X / Y / Z: flips the projected image along the box's axis.
-        prop_row(ui, "Mirror", |ui| {
-            for (i, axis) in ["X", "Y", "Z"].into_iter().enumerate() {
-                ui.toggle_value(&mut t.mirror[i], axis).on_hover_text(format!("Mirror the projected image along the box's {axis} axis"));
-            }
+        prop_row_reset(ui, "Mirror", &mut t.mirror, dt.mirror, |ui, mirror| {
+            let [x, y, z] = mirror;
+            [(x, "X"), (y, "Y"), (z, "Z")].map(|(on, axis)| ui.toggle_value(on, axis).on_hover_text(format!("Mirror the projected image along the box's {axis} axis")))
+                .into_iter().reduce(|a, b| a | b).expect("three toggles")
         });
         if ui.add_enabled(!t.is_identity(), egui::Button::new(tr("Reset")).small()).clicked() {
             *t = T::default();
@@ -1765,18 +1866,17 @@ fn backface_rows(ui: &mut Ui, proj: &mut Projection) -> bool {
     }
     let before = proj.backface;
     let mut on = proj.backface.is_some();
-    prop_row(ui, "", |ui| {
-        if ui.checkbox(&mut on, tr("Backface culling")).on_hover_text(tr("Project only on the surfaces that face the projection")).changed() {
-            proj.backface = on.then(subcraft_doc::BackfaceCulling::default);
-        }
-    });
+    if check_row_reset(ui, "", tr("Backface culling"), &mut on, Projection::default().backface.is_some()).on_hover_text(tr("Project only on the surfaces that face the projection")).changed() {
+        proj.backface = on.then(subcraft_doc::BackfaceCulling::default);
+    }
     let planar = proj.mode == ProjectionMode::Planar;
     if let Some(b) = &mut proj.backface {
+        let db = subcraft_doc::BackfaceCulling::default();
         if planar {
-            slider_row(ui, tr("Culling angle"), egui::Slider::new(&mut b.angle_deg, 0.0..=180.0).suffix("\u{00b0}"))
+            slider_row_reset(ui, tr("Culling angle"), &mut b.angle_deg, db.angle_deg, |v| egui::Slider::new(v, 0.0..=180.0).suffix("\u{00b0}"))
                 .on_hover_text(tr("Surfaces turned further than this from the projection get nothing"));
         }
-        slider_row(ui, tr("Culling hardness"), egui::Slider::new(&mut b.hardness, 0.0..=1.0))
+        slider_row_reset(ui, tr("Culling hardness"), &mut b.hardness, db.hardness, |v| egui::Slider::new(v, 0.0..=1.0))
             .on_hover_text(tr("1 cuts at the angle; lower values fade the projection out before it"));
     }
     proj.backface != before
@@ -1792,6 +1892,7 @@ fn symmetry_group(ui: &mut Ui, proj: &mut Projection) -> bool {
         ui.add_enabled_ui(enabled, |ui| {
             let mut on = !proj.symmetry.is_none();
             let r = ui.checkbox(&mut on, tr("Enable symmetry"));
+            let r = crate::widgets::reset_on(ui, r, &mut on, false);
             if !enabled {
                 r.on_disabled_hover_text(tr("Symmetry needs a 3D projection (not UV)"));
             } else if r.changed() {
@@ -1801,27 +1902,26 @@ fn symmetry_group(ui: &mut Ui, proj: &mut Projection) -> bool {
                 return;
             }
             let mut radial = matches!(proj.symmetry, FillSymmetry::Radial { .. });
-            prop_row(ui, tr("Symmetry type"), |ui| {
-                let a = ui.selectable_value(&mut radial, false, tr("Mirror")).changed();
-                let b = ui.selectable_value(&mut radial, true, tr("Radial")).changed();
-                if a || b {
-                    proj.symmetry = if radial { FillSymmetry::radial() } else { FillSymmetry::mirror() };
+            if prop_row_reset(ui, tr("Symmetry type"), &mut radial, false, |ui, radial| ui.selectable_value(radial, false, tr("Mirror")) | ui.selectable_value(radial, true, tr("Radial"))).changed() {
+                proj.symmetry = if radial { FillSymmetry::radial() } else { FillSymmetry::mirror() };
+            }
+            let axis_row = |ui: &mut Ui, axis: &mut u8, default: u8| {
+                prop_row_reset(ui, tr("Axis"), axis, default, |ui, axis| segmented_response(ui, axis, &[(0u8, "X"), (1, "Y"), (2, "Z")]));
+            };
+            match (&mut proj.symmetry, FillSymmetry::mirror(), FillSymmetry::radial()) {
+                (FillSymmetry::Mirror { axis, position }, FillSymmetry::Mirror { axis: d_axis, position: d_position }, _) => {
+                    axis_row(ui, axis, d_axis);
+                    slider_row_reset(ui, tr("Axis position"), position, d_position, |v| egui::Slider::new(v, 0.0..=1.0));
                 }
-            });
-            match &mut proj.symmetry {
-                FillSymmetry::Mirror { axis, position } => {
-                    prop_row(ui, tr("Axis"), |ui| { segmented(ui, axis, &[(0u8, "X"), (1, "Y"), (2, "Z")]); });
-                    slider_row(ui, tr("Axis position"), egui::Slider::new(position, 0.0..=1.0));
-                }
-                FillSymmetry::Radial { axis, count, flip, center } => {
-                    prop_row(ui, tr("Axis"), |ui| { segmented(ui, axis, &[(0u8, "X"), (1, "Y"), (2, "Z")]); });
-                    slider_row(ui, tr("Copy count"), egui::Slider::new(count, 1..=FillSymmetry::MAX_COPIES).logarithmic(true));
-                    prop_row(ui, "", |ui| { ui.checkbox(flip, tr("Flip copy")).on_hover_text(tr("Mirror every other copy")); });
+                (FillSymmetry::Radial { axis, count, flip, center }, _, FillSymmetry::Radial { axis: d_axis, count: d_count, flip: d_flip, center: d_center }) => {
+                    axis_row(ui, axis, d_axis);
+                    slider_row_reset(ui, tr("Copy count"), count, d_count, |v| egui::Slider::new(v, 1..=FillSymmetry::MAX_COPIES).logarithmic(true));
+                    check_row_reset(ui, "", tr("Flip copy"), flip, d_flip).on_hover_text(tr("Mirror every other copy"));
                     for (i, name) in ["X", "Y", "Z"].into_iter().enumerate() {
-                        slider_row(ui, &format!("{} {name}", tr("Axis position")), egui::Slider::new(&mut center[i], 0.0..=1.0));
+                        slider_row_reset(ui, &format!("{} {name}", tr("Axis position")), &mut center[i], d_center[i], |v| egui::Slider::new(v, 0.0..=1.0));
                     }
                 }
-                FillSymmetry::None => {}
+                _ => {}
             }
         });
     });
@@ -1831,7 +1931,7 @@ fn symmetry_group(ui: &mut Ui, proj: &mut Projection) -> bool {
 /// Tri-planar Hardness 0..1 (1 = hard cut between the three planes), stored as the blend exponent.
 fn hardness_row(ui: &mut Ui, proj: &mut Projection) -> bool {
     let mut hardness = proj.hardness();
-    let changed = slider_row(ui, tr("Hardness"), egui::Slider::new(&mut hardness, 0.0..=1.0).max_decimals(3))
+    let changed = slider_row_reset(ui, tr("Hardness"), &mut hardness, Projection::default().hardness(), |v| egui::Slider::new(v, 0.0..=1.0).max_decimals(3))
         .on_hover_text(tr("How sharply the three projection planes meet: 0 blends them widely, 1 cuts"))
         .changed();
     if changed {
@@ -1845,7 +1945,8 @@ fn hardness_row(ui: &mut Ui, proj: &mut Projection) -> bool {
 /// does not exist in the engine yet and is shown disabled.
 pub(crate) fn fill_properties(ui: &mut Ui, proj: &mut Projection) -> bool {
     let mut changed = false;
-    changed |= dropdown_row(ui, "projection", tr("Projection"), &mut proj.mode,
+    let d = Projection::default();
+    changed |= dropdown_row(ui, "projection", tr("Projection"), &mut proj.mode, d.mode,
         &[(ProjectionMode::Uv, "UV projection"), (ProjectionMode::Triplanar, "Tri-planar projection"), (ProjectionMode::Planar, "Planar projection"),
             (ProjectionMode::Spherical, "Spherical projection"), (ProjectionMode::Cylindrical, "Cylindrical projection"), (ProjectionMode::Warp, "Warp projection")], true, "");
     changed |= projection_options(ui, proj);
@@ -1860,11 +1961,11 @@ pub(crate) fn fill_properties(ui: &mut Ui, proj: &mut Projection) -> bool {
     ui.add_space(4.0);
     egui::CollapsingHeader::new(RichText::new(tr("UV transformations")).font(theme::font_strong(12.0)).color(theme::TEXT())).default_open(true).show(ui, |ui| {
         let mut scale_mode = 0u8;
-        dropdown_row(ui, "scale", tr("Scale"), &mut scale_mode, &[(0u8, "Tiling")], false, "Only tiling is supported");
+        dropdown_row(ui, "scale", tr("Scale"), &mut scale_mode, 0u8, &[(0u8, "Tiling")], false, "Only tiling is supported");
         let lock_id = ui.id().with("tiling_lock");
         let mut locked = ui.data(|d| d.get_temp::<bool>(lock_id)).unwrap_or(proj.scale[0] == proj.scale[1]);
-        ui.add(egui::Label::new(crate::widgets::row_label(tr("Tiling"))));
-        ui.horizontal(|ui| {
+        let tiling_label = ui.add(egui::Label::new(crate::widgets::row_label(tr("Tiling"))).sense(egui::Sense::click()));
+        let tiling = ui.horizontal(|ui| {
             ui.spacing_mut().interact_size.x = VALUE_W; ui.spacing_mut().button_padding.x = 4.0;
             let sp = ui.spacing().item_spacing.x;
             let w = ((ui.available_width() - 26.0 - 2.0 * sp) / 2.0 - sp - VALUE_W).max(30.0);
@@ -1886,22 +1987,30 @@ pub(crate) fn fill_properties(ui: &mut Ui, proj: &mut Projection) -> bool {
                 proj.scale[1] = sy;
                 changed = true;
             }
-        });
+        }).response;
+        if crate::reset_row::wants_reset(ui, &tiling_label, &tiling, proj.scale != d.scale) {
+            proj.scale = d.scale;
+            changed = true;
+        }
         ui.data_mut(|d| d.insert_temp(lock_id, locked));
-        changed |= slider_row(ui, tr("Rotation"), egui::Slider::new(&mut proj.rotation_deg, -180.0..=180.0).suffix("°")).changed();
+        changed |= slider_row_reset(ui, tr("Rotation"), &mut proj.rotation_deg, d.rotation_deg, |v| egui::Slider::new(v, -180.0..=180.0).suffix("°")).changed();
         // Painter has no UV Offset for tri-planar (the projection moves in 3D instead).
         if proj.mode != ProjectionMode::Triplanar {
-            ui.add(egui::Label::new(crate::widgets::row_label(tr("Offset"))));
-            ui.horizontal(|ui| {
+            let offset_label = ui.add(egui::Label::new(crate::widgets::row_label(tr("Offset"))).sense(egui::Sense::click()));
+            let offset = ui.horizontal(|ui| {
                 ui.spacing_mut().interact_size.x = VALUE_W; ui.spacing_mut().button_padding.x = 4.0;
                 let sp = ui.spacing().item_spacing.x;
                 ui.spacing_mut().slider_width = ((ui.available_width() - sp) / 2.0 - sp - VALUE_W).max(30.0);
                 changed |= ui.add(egui::Slider::new(&mut proj.offset[0], -1.0..=1.0).clamping(egui::SliderClamping::Never).max_decimals(3)).changed();
                 changed |= ui.add(egui::Slider::new(&mut proj.offset[1], -1.0..=1.0).clamping(egui::SliderClamping::Never).max_decimals(3)).changed();
-            });
+            }).response;
+            if crate::reset_row::wants_reset(ui, &offset_label, &offset, proj.offset != d.offset) {
+                proj.offset = d.offset;
+                changed = true;
+            }
         }
         if matches!(proj.mode, ProjectionMode::Planar | ProjectionMode::Spherical | ProjectionMode::Cylindrical | ProjectionMode::Warp) {
-            prop_row(ui, tr("Axis"), |ui| { changed |= segmented(ui, &mut proj.planar_axis, &[(0u8, "X"), (1, "Y"), (2, "Z")]); });
+            changed |= prop_row_reset(ui, tr("Axis"), &mut proj.planar_axis, d.planar_axis, |ui, axis| segmented_response(ui, axis, &[(0u8, "X"), (1, "Y"), (2, "Z")])).changed();
         }
         // Painter's Mirror on X / Y: the texture flipped about the tile's centre.
         prop_row(ui, "Mirror", |ui| {
@@ -1973,56 +2082,54 @@ pub(crate) fn editor_modes(current: ProjectionMode) -> Vec<(ProjectionMode, &'st
 /// the brush material (fill layers use [`fill_properties`]).
 pub(crate) fn projection_editor(ui: &mut Ui, proj: &mut Projection) -> bool {
     let mut changed = false;
-    prop_row(ui, tr("Mode"), |ui| {
-        let modes = editor_modes(proj.mode);
-        changed |= segmented(ui, &mut proj.mode, &modes);
-    });
+    let d = Projection::default();
+    let modes = editor_modes(proj.mode);
+    changed |= prop_row_reset(ui, tr("Mode"), &mut proj.mode, d.mode, |ui, mode| segmented_response(ui, mode, &modes)).changed();
     // Tiling: X and Y linked by default (lock), separate when unlocked. The lock is UI state,
     // remembered per editor; it starts unlocked if the two values already differ.
     let lock_id = ui.id().with("tiling_lock");
     let mut locked = ui.data(|d| d.get_temp::<bool>(lock_id)).unwrap_or(proj.scale[0] == proj.scale[1]);
-    prop_row(ui, tr("Tiling"), |ui| {
+    changed |= prop_row_reset(ui, tr("Tiling"), &mut proj.scale, d.scale, |ui, scale| {
         fn tiling(v: &mut f32) -> egui::DragValue<'_> {
             egui::DragValue::new(v).speed(0.05).range(0.01..=256.0).max_decimals(2)
         }
-        if locked {
-            if ui.add(tiling(&mut proj.scale[0])).on_hover_text(tr("Repeats across the surface (X and Y together)")).changed() {
-                proj.scale[1] = proj.scale[0];
-                changed = true;
+        let mut r = if locked {
+            let r = ui.add(tiling(&mut scale[0])).on_hover_text(tr("Repeats across the surface (X and Y together)"));
+            if r.changed() {
+                scale[1] = scale[0];
             }
+            r
         } else {
             ui.label(RichText::new("X").color(TEXT_DIM()));
-            changed |= ui.add(tiling(&mut proj.scale[0])).changed();
+            let x = ui.add(tiling(&mut scale[0]));
             ui.label(RichText::new("Y").color(TEXT_DIM()));
-            changed |= ui.add(tiling(&mut proj.scale[1])).changed();
+            x | ui.add(tiling(&mut scale[1]))
+        };
+        // The Link box is not part of the reset (it is a view option).
+        if ui.checkbox(&mut locked, tr("Link")).on_hover_text(tr("Same tiling for X and Y; untick to set them separately")).changed() && locked && scale[1] != scale[0] {
+            scale[1] = scale[0];
+            r.mark_changed();
         }
-        if ui.checkbox(&mut locked, tr("Link")).on_hover_text(tr("Same tiling for X and Y; untick to set them separately")).changed() {
-            if locked && proj.scale[1] != proj.scale[0] {
-                proj.scale[1] = proj.scale[0];
-                changed = true;
-            }
-        }
-    });
+        r
+    }).changed();
     ui.data_mut(|d| d.insert_temp(lock_id, locked));
-    changed |= slider_row(ui, tr("Rotation"), egui::Slider::new(&mut proj.rotation_deg, -180.0..=180.0).suffix("°")).changed();
+    changed |= slider_row_reset(ui, tr("Rotation"), &mut proj.rotation_deg, d.rotation_deg, |v| egui::Slider::new(v, -180.0..=180.0).suffix("°")).changed();
     if proj.mode != ProjectionMode::Triplanar {
-        prop_row(ui, tr("Offset"), |ui| {
-            fn offset(v: &mut f32) -> egui::DragValue<'_> {
+        changed |= prop_row_reset(ui, tr("Offset"), &mut proj.offset, d.offset, |ui, offset| {
+            fn field(v: &mut f32) -> egui::DragValue<'_> {
                 egui::DragValue::new(v).speed(0.005).range(-16.0..=16.0).max_decimals(3)
             }
             ui.label(RichText::new("X").color(TEXT_DIM()));
-            changed |= ui.add(offset(&mut proj.offset[0])).changed();
+            let x = ui.add(field(&mut offset[0]));
             ui.label(RichText::new("Y").color(TEXT_DIM()));
-            changed |= ui.add(offset(&mut proj.offset[1])).changed();
-        });
+            x | ui.add(field(&mut offset[1]))
+        }).changed();
     }
     if proj.mode == ProjectionMode::Triplanar {
         changed |= hardness_row(ui, proj);
     }
     if matches!(proj.mode, ProjectionMode::Planar | ProjectionMode::Spherical | ProjectionMode::Cylindrical | ProjectionMode::Warp) {
-        prop_row(ui, tr("Axis"), |ui| {
-            changed |= segmented(ui, &mut proj.planar_axis, &[(0u8, "X"), (1, "Y"), (2, "Z")]);
-        });
+        changed |= prop_row_reset(ui, tr("Axis"), &mut proj.planar_axis, d.planar_axis, |ui, axis| segmented_response(ui, axis, &[(0u8, "X"), (1, "Y"), (2, "Z")])).changed();
     }
     changed |= wrapped_projection_rows(ui, proj);
     changed |= transform3_group(ui, proj);

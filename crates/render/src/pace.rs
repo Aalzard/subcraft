@@ -23,11 +23,14 @@ pub struct GpuBudget {
 }
 
 impl GpuBudget {
-    /// Discrete cards: start at a size they finish in well under a millisecond.
-    pub const DISCRETE: Self = Self { first_units: 2048, target: Duration::from_millis(100), max: Duration::from_millis(250), growth: 4 };
+    /// Discrete cards: start at a size they finish in well under a millisecond. The target is
+    /// about one display frame: the window shares the GPU, and a submission cannot be
+    /// interrupted, so a longer one makes the whole desktop miss frames (issue #628: 100 ms
+    /// jobs, up to 250 ms, made other programs stutter while compositing).
+    pub const DISCRETE: Self = Self { first_units: 2048, target: Duration::from_millis(12), max: Duration::from_millis(30), growth: 4 };
     /// Integrated, software and unknown adapters: a much smaller first step, a shorter target
     /// and slower growth, so even a very slow adapter stays far from the two-second watchdog.
-    pub const CAUTIOUS: Self = Self { first_units: 64, target: Duration::from_millis(40), max: Duration::from_millis(120), growth: 2 };
+    pub const CAUTIOUS: Self = Self { first_units: 64, target: Duration::from_millis(8), max: Duration::from_millis(20), growth: 2 };
 
     /// `device_type` is the `Debug` text of `wgpu::DeviceType` (as stored in `GpuCaps`).
     pub fn for_device_type(device_type: &str) -> Self {
@@ -164,7 +167,9 @@ mod tests {
         for b in [d, c] {
             assert!(b.max.as_secs_f64() * b.growth as f64 <= 1.0, "{b:?}");
         }
-        assert!(c.describe().contains("64 units") && c.describe().contains("40 ms"));
+        assert!(c.describe().contains("64 units") && c.describe().contains("8 ms"));
+        // About one display frame, so the desktop keeps drawing while compositing (issue #628).
+        assert!(d.target <= Duration::from_millis(16) && d.max <= Duration::from_millis(33), "{d:?}");
     }
 
     #[test]
@@ -183,12 +188,12 @@ mod tests {
     #[test]
     fn a_slow_submission_shrinks_at_once_to_fit_the_target() {
         let mut p = DispatchPace::new(GpuBudget::DISCRETE);
-        // 2048 units took 1 s: 100 ms fits about 204 units.
+        // 2048 units took 1 s: 12 ms fits about 24 units.
         p.record(2048, Duration::from_secs(1));
-        assert!((200..=210).contains(&p.units()), "{}", p.units());
+        assert!((23..=25).contains(&p.units()), "{}", p.units());
         // Slightly over the target (not over the limit): settle on the fitting size.
         let mut p = DispatchPace::new(GpuBudget::DISCRETE);
-        p.record(2048, Duration::from_millis(200));
+        p.record(2048, Duration::from_millis(24));
         assert_eq!(p.units(), 1024);
         // Hopelessly slow: never below one unit.
         p.record(1, Duration::from_secs(5));

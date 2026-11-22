@@ -4,6 +4,7 @@ use glam::Vec2;
 use subcraft_app::pen::{Handle, PenHit};
 use subcraft_doc::PenPath;
 use crate::{state::{Tool, UiState}, theme};
+use crate::widgets::{prop_row_reset, reset_on, slider_row_reset};
 
 /// Painter's path snapping (the magnet menu): new and moved points jump to the model's
 /// vertices, edges or edge centres near the pointer.
@@ -305,6 +306,7 @@ fn ribbon_rows(state: &mut UiState, ui: &mut Ui, path: &mut PenPath) -> bool {
     use subcraft_doc::{PathRibbon, RibbonAlign, RibbonMode, RibbonRatio, RibbonTiling};
     let mut changed = false;
     let ribbon = path.ribbon.get_or_insert_with(PathRibbon::default);
+    let d = PathRibbon::default();
     let name = ribbon.image.and_then(|id| state.session.resources().get(id)).map_or("none (solid strip)".to_string(), |r| r.name.clone());
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(format!("Image: {name}")).color(crate::theme::TEXT_DIM()));
@@ -317,62 +319,58 @@ fn ribbon_rows(state: &mut UiState, ui: &mut Ui, path: &mut PenPath) -> bool {
             changed = true;
         }
     });
-    crate::widgets::prop_row(ui, "Mode", |ui| {
-        egui::ComboBox::from_id_salt("ribbon_mode").selected_text(ribbon.mode.label()).show_ui(ui, |ui| {
-            for mode in RibbonMode::ALL {
-                changed |= ui.selectable_value(&mut ribbon.mode, mode, mode.label()).changed();
-            }
-        });
-    });
-    crate::widgets::prop_row(ui, "Tiling mode", |ui| {
-        egui::ComboBox::from_id_salt("ribbon_tiling").selected_text(ribbon.tiling.label()).show_ui(ui, |ui| {
-            for tiling in RibbonTiling::ALL {
-                changed |= ui.selectable_value(&mut ribbon.tiling, tiling, tiling.label()).changed();
-            }
-        })
-        .response
-        .on_hover_text("None: one copy. Auto: whole copies close to the image's aspect (Stretch), or copies to the end (Keep aspect ratio). Custom: the Copies value");
-    });
+    changed |= prop_row_reset(ui, "Mode", &mut ribbon.mode, d.mode, |ui, v| {
+        combo(ui, "ribbon_mode", v, &RibbonMode::ALL, |m| m.label())
+    }).changed();
+    changed |= prop_row_reset(ui, "Tiling mode", &mut ribbon.tiling, d.tiling, |ui, v| {
+        combo(ui, "ribbon_tiling", v, &RibbonTiling::ALL, |t| t.label())
+            .on_hover_text("None: one copy. Auto: whole copies close to the image's aspect (Stretch), or copies to the end (Keep aspect ratio). Custom: the Copies value")
+    }).changed();
     if ribbon.mode == RibbonMode::Stretch {
         // The number of copies only applies to Custom tiling.
         ui.add_enabled_ui(ribbon.tiling == RibbonTiling::Custom, |ui| {
-            changed |= crate::widgets::slider_row(ui, "Copies", egui::Slider::new(&mut ribbon.tiles, PathRibbon::TILES).logarithmic(true)).changed();
+            changed |= slider_row_reset(ui, "Copies", &mut ribbon.tiles, d.tiles, |v| egui::Slider::new(v, PathRibbon::TILES).logarithmic(true)).changed();
         });
         // Painter's end caps: the image's ends keep their length, only its middle stretches.
-        changed |= ui.checkbox(&mut ribbon.stretch_between_offsets, "Stretch between offsets only")
-            .on_hover_text("The parts of the image before the start offset and after the end offset keep their length at the path's width; only the part between them stretches")
-            .changed();
+        let r = ui.checkbox(&mut ribbon.stretch_between_offsets, "Stretch between offsets only")
+            .on_hover_text("The parts of the image before the start offset and after the end offset keep their length at the path's width; only the part between them stretches");
+        changed |= reset_on(ui, r, &mut ribbon.stretch_between_offsets, d.stretch_between_offsets).changed();
         ui.add_enabled_ui(ribbon.stretch_between_offsets, |ui| {
-            changed |= crate::widgets::slider_row(ui, "Start offset", egui::Slider::new(&mut ribbon.start_offset, 0.0..=1.0)).changed();
-            changed |= crate::widgets::slider_row(ui, "End offset", egui::Slider::new(&mut ribbon.end_offset, 0.0..=1.0)).changed();
+            changed |= slider_row_reset(ui, "Start offset", &mut ribbon.start_offset, d.start_offset, |v| egui::Slider::new(v, 0.0..=1.0)).changed();
+            changed |= slider_row_reset(ui, "End offset", &mut ribbon.end_offset, d.end_offset, |v| egui::Slider::new(v, 0.0..=1.0)).changed();
         });
     } else {
-        changed |= crate::widgets::slider_row(ui, "Aspect factor", egui::Slider::new(&mut ribbon.tiles, PathRibbon::TILES).logarithmic(true)).changed();
-        crate::widgets::prop_row(ui, "Ratio", |ui| {
-            egui::ComboBox::from_id_salt("ribbon_ratio").selected_text(ribbon.ratio.label()).show_ui(ui, |ui| {
-                for ratio in RibbonRatio::ALL {
-                    changed |= ui.selectable_value(&mut ribbon.ratio, ratio, ratio.label()).changed();
-                }
-            });
-        });
-        crate::widgets::prop_row(ui, "Alignment", |ui| {
-            egui::ComboBox::from_id_salt("ribbon_alignment").selected_text(ribbon.alignment.label()).show_ui(ui, |ui| {
-                for alignment in RibbonAlign::ALL {
-                    changed |= ui.selectable_value(&mut ribbon.alignment, alignment, alignment.label()).changed();
-                }
-            });
-        });
+        changed |= slider_row_reset(ui, "Aspect factor", &mut ribbon.tiles, d.tiles, |v| egui::Slider::new(v, PathRibbon::TILES).logarithmic(true)).changed();
+        changed |= prop_row_reset(ui, "Ratio", &mut ribbon.ratio, d.ratio, |ui, v| combo(ui, "ribbon_ratio", v, &RibbonRatio::ALL, |r| r.label())).changed();
+        changed |= prop_row_reset(ui, "Alignment", &mut ribbon.alignment, d.alignment, |ui, v| combo(ui, "ribbon_alignment", v, &RibbonAlign::ALL, |a| a.label())).changed();
         // Fit to path length only makes whole copies: nothing is cut.
-        changed |= ui.add_enabled(ribbon.ratio == RibbonRatio::FitWidth, egui::Checkbox::new(&mut ribbon.remove_clipped, "Remove clipped tiles"))
-            .on_hover_text("Draw only whole copies of the image, not the cut ones at the ends")
-            .changed();
+        let r = ui.add_enabled(ribbon.ratio == RibbonRatio::FitWidth, egui::Checkbox::new(&mut ribbon.remove_clipped, "Remove clipped tiles"))
+            .on_hover_text("Draw only whole copies of the image, not the cut ones at the ends");
+        changed |= reset_on(ui, r, &mut ribbon.remove_clipped, d.remove_clipped).changed();
     }
     ui.horizontal(|ui| {
-        changed |= ui.checkbox(&mut ribbon.mirror, "Mirror every 2nd copy").changed();
-        changed |= ui.checkbox(&mut ribbon.flip, "Flip image").changed();
+        let r = ui.checkbox(&mut ribbon.mirror, "Mirror every 2nd copy");
+        changed |= reset_on(ui, r, &mut ribbon.mirror, d.mirror).changed();
+        let r = ui.checkbox(&mut ribbon.flip, "Flip image");
+        changed |= reset_on(ui, r, &mut ribbon.flip, d.flip).changed();
     });
-    changed |= ui.checkbox(&mut ribbon.color_from_image, "Base Color from the image").on_hover_text("Otherwise the image only shapes the strip and Base Color is the value below").changed();
+    let r = ui.checkbox(&mut ribbon.color_from_image, "Base Color from the image").on_hover_text("Otherwise the image only shapes the strip and Base Color is the value below");
+    changed |= reset_on(ui, r, &mut ribbon.color_from_image, d.color_from_image).changed();
     changed
+}
+
+/// A dropdown of `options`; its response is marked changed when a new option was picked.
+fn combo<T: PartialEq + Copy>(ui: &mut Ui, id: &str, value: &mut T, options: &[T], label: impl Fn(T) -> &'static str) -> egui::Response {
+    let mut picked = false;
+    let mut r = egui::ComboBox::from_id_salt(id).selected_text(label(*value)).show_ui(ui, |ui| {
+        for &o in options {
+            picked |= ui.selectable_value(value, o, label(o)).changed();
+        }
+    }).response;
+    if picked {
+        r.mark_changed();
+    }
+    r
 }
 
 pub fn properties(state: &mut UiState, ui: &mut Ui, path: &PenPath, now: f64) {
@@ -389,9 +387,11 @@ pub fn properties(state: &mut UiState, ui: &mut Ui, path: &PenPath, now: f64) {
     // Painter's path display settings.
     egui::CollapsingHeader::new("Display").id_salt("pen_display").default_open(false).show(ui, |ui| {
         let d = &mut state.pen_display;
-        ui.checkbox(&mut d.show, "Show paths").on_hover_text("Show the paths and their points in the views");
-        crate::widgets::slider_row(ui, "Handle size", egui::Slider::new(&mut d.handle_size, PenDisplay::HANDLE_SIZE));
-        crate::widgets::slider_row(ui, "Path width", egui::Slider::new(&mut d.path_width, PenDisplay::PATH_WIDTH));
+        let dd = PenDisplay::default();
+        let r = ui.checkbox(&mut d.show, "Show paths").on_hover_text("Show the paths and their points in the views");
+        reset_on(ui, r, &mut d.show, dd.show);
+        slider_row_reset(ui, "Handle size", &mut d.handle_size, dd.handle_size, |v| egui::Slider::new(v, PenDisplay::HANDLE_SIZE));
+        slider_row_reset(ui, "Path width", &mut d.path_width, dd.path_width, |v| egui::Slider::new(v, PenDisplay::PATH_WIDTH));
         crate::widgets::prop_row(ui, "Path colour", |ui| {
             let mut c = d.color();
             if crate::color_picker::swatch_color32(ui, &mut c).changed() {
@@ -401,33 +401,35 @@ pub fn properties(state: &mut UiState, ui: &mut Ui, path: &PenPath, now: f64) {
                 d.path_color = None;
             }
         });
-        crate::widgets::prop_row(ui, "Other paths", |ui| {
-            crate::color_picker::swatch_color32(ui, &mut d.unselected_color).on_hover_text("Colour of the texture set's other paths");
+        prop_row_reset(ui, "Other paths", &mut d.unselected_color, dd.unselected_color, |ui, c| {
+            crate::color_picker::swatch_color32(ui, c).on_hover_text("Colour of the texture set's other paths")
         });
         ui.horizontal(|ui| {
-            ui.checkbox(&mut d.tangents, "Tangents");
-            ui.checkbox(&mut d.normals, "Normals");
-            ui.checkbox(&mut d.direction, "Direction");
+            let r = ui.checkbox(&mut d.tangents, "Tangents");
+            reset_on(ui, r, &mut d.tangents, dd.tangents);
+            let r = ui.checkbox(&mut d.normals, "Normals");
+            reset_on(ui, r, &mut d.normals, dd.normals);
+            let r = ui.checkbox(&mut d.direction, "Direction");
+            reset_on(ui, r, &mut d.direction, dd.direction);
         });
     });
     // Painter's magnet menu: snap new and moved points to the model.
     crate::widgets::prop_row(ui, "Snap", |ui| {
         let s = &mut state.pen_snap;
-        ui.toggle_value(&mut s.vertices, "Vertices").on_hover_text("New and moved points jump to the model's vertices near the pointer");
-        ui.toggle_value(&mut s.edges, "Edges").on_hover_text("New and moved points jump onto the model's edges near the pointer");
-        ui.toggle_value(&mut s.edge_centres, "Edge centres").on_hover_text("New and moved points jump to the centres of the model's edges near the pointer");
+        let r = ui.toggle_value(&mut s.vertices, "Vertices").on_hover_text("New and moved points jump to the model's vertices near the pointer");
+        reset_on(ui, r, &mut s.vertices, false);
+        let r = ui.toggle_value(&mut s.edges, "Edges").on_hover_text("New and moved points jump onto the model's edges near the pointer");
+        reset_on(ui, r, &mut s.edges, false);
+        let r = ui.toggle_value(&mut s.edge_centres, "Edge centres").on_hover_text("New and moved points jump to the centres of the model's edges near the pointer");
+        reset_on(ui, r, &mut s.edge_centres, false);
     });
-    crate::widgets::slider_row(ui, "Snap angle", egui::Slider::new(&mut state.pen_snap.angle_deg, PenSnap::ANGLE).suffix("\u{00b0}"))
+    slider_row_reset(ui, "Snap angle", &mut state.pen_snap.angle_deg, PenSnap::default().angle_deg, |v| egui::Slider::new(v, PenSnap::ANGLE).suffix("\u{00b0}"))
         .on_hover_text("Ctrl while adding a point: the direction from the previous point snaps to steps of this angle");
     let mut path = path.clone(); let mut changed = false;
     // Painter's path types: a stroke along the curve, or its filled interior.
-    crate::widgets::prop_row(ui, "Path type", |ui| {
-        egui::ComboBox::from_id_salt("pen_path_kind").selected_text(path.kind.label()).show_ui(ui, |ui| {
-            for kind in subcraft_doc::PathKind::ALL {
-                changed |= ui.selectable_value(&mut path.kind, kind, kind.label()).changed();
-            }
-        });
-    });
+    changed |= prop_row_reset(ui, "Path type", &mut path.kind, subcraft_doc::PathKind::default(), |ui, v| {
+        combo(ui, "pen_path_kind", v, &subcraft_doc::PathKind::ALL, |k| k.label())
+    }).changed();
     // Stitch presets: a stamped path of a stitch tip with its thread colour and height.
     let mut stitch = None;
     crate::widgets::prop_row(ui, "Stitch preset", |ui| {
@@ -468,11 +470,13 @@ pub fn properties(state: &mut UiState, ui: &mut Ui, path: &PenPath, now: f64) {
             path.stamp = stamped.then(|| subcraft_doc::PathStamp { alpha: state.session.brush_tip_resource(), ..Default::default() });
         }
         if let Some(stamp) = path.stamp.as_mut() {
+            let ds = subcraft_doc::PathStamp::default();
             let mut spacing = stamp.spacing * 100.0;
-            changed |= crate::widgets::slider_row(ui, "Spacing (%)", egui::Slider::new(&mut spacing, 2.0..=400.0).logarithmic(true)).changed();
+            changed |= slider_row_reset(ui, "Spacing (%)", &mut spacing, ds.spacing * 100.0, |v| egui::Slider::new(v, 2.0..=400.0).logarithmic(true)).changed();
             stamp.spacing = (spacing / 100.0).clamp(*subcraft_doc::PathStamp::SPACING.start(), *subcraft_doc::PathStamp::SPACING.end());
-            changed |= ui.checkbox(&mut stamp.follow, "Follow path").on_hover_text("Turn each stamp along the curve").changed();
-            changed |= crate::widgets::slider_row(ui, "Alternate offset", egui::Slider::new(&mut stamp.alternate, subcraft_doc::PathStamp::ALTERNATE))
+            let r = ui.checkbox(&mut stamp.follow, "Follow path").on_hover_text("Turn each stamp along the curve");
+            changed |= reset_on(ui, r, &mut stamp.follow, ds.follow).changed();
+            changed |= slider_row_reset(ui, "Alternate offset", &mut stamp.alternate, ds.alternate, |v| egui::Slider::new(v, subcraft_doc::PathStamp::ALTERNATE))
                 .on_hover_text("Every second stamp moves across the path by this fraction of half the width")
                 .changed();
             let tip = stamp.alpha.and_then(|id| state.session.resources().get(id)).map_or("Round".to_string(), |r| r.name.clone());
