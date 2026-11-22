@@ -219,3 +219,26 @@ fn deterministic() {
     let ts = scene(generator(GeneratorKind::Edges, Some(on())));
     assert_eq!(bits(&composite_full(&ts, &fx.ctx()), ChannelKind::BaseColor), bits(&composite_full(&ts, &fx.ctx()), ChannelKind::BaseColor));
 }
+
+/// Owner report 2026-11-22: default Edge wear spread in blotches far beyond the rim. The broad,
+/// mild convexity a baked curvature has around a rounded edge must stay clean at the default
+/// Wear Level: Breakup and Variation only erode wear, they never reach below the threshold.
+#[test]
+fn breakup_never_spreads_baked_wear_onto_mildly_convex_surface() {
+    let mut fx = Fx::plane();
+    // Convexity 0.5 everywhere (curvature 0.75): below the 0.7 threshold of Wear Level 0.3.
+    fx.maps.insert(subcraft_core::MeshMapKind::Curvature, TiledImage::new(RES, RES, 1, [0.75, 0.0, 0.0, 0.0]));
+    let mut g = Generator::new(GeneratorKind::Edges);
+    g.noise_amount = 0.6;
+    let mut ts = TextureSet::new("T", 0, RES);
+    let tc = ts.clone();
+    ts.insert_above(None, masked(&tc, g));
+    let m = mask_of(&composite_full(&ts, &fx.ctx()));
+    let worn = m.iter().filter(|&&v| v > 0.1).count();
+    assert_eq!(worn, 0, "{worn} texels worn on a surface below the wear threshold");
+    // A sharp apex (convexity 1) is worn with the same breakup.
+    fx.maps.insert(subcraft_core::MeshMapKind::Curvature, TiledImage::new(RES, RES, 1, [1.0, 0.0, 0.0, 0.0]));
+    let m = mask_of(&composite_full(&ts, &fx.ctx()));
+    let worn = m.iter().filter(|&&v| v > 0.5).count();
+    assert!(worn > m.len() / 3, "apex wear {worn} of {}", m.len());
+}

@@ -5756,3 +5756,11 @@ symmetry. `crates/app/tests/uv_tools.rs` covers session routing: the 2D clone so
 * **Verified in a render:** `micro_details_sheet` example, images in `docs/generators/micro-details/`.
 * **Not done:** Mask Editor micro details; micro details on content (fill) generators; Painter's separate image
   inputs for Micro Normal / Micro Height (the stack below is always used).
+* **Edge wear fix (owner report, same day):** in the demo the default Edge wear spread in blotches far beyond the
+  hole's rim and the apex itself was soft. Cause (not the micro details): Breakup and Variation shifted the baked-
+  curvature threshold both ways, so the broad, mild convexity a baked curvature has around a rounded rim wore wherever
+  the grunge was high. Now they only erode (raise the threshold), and the sharpest convexity resists erosion, so the
+  apex stays a continuous, crisp line and the grunge chips its sides. Test
+  `breakup_never_spreads_baked_wear_onto_mildly_convex_surface`; app edge tests (edge_level_spread, edge_ledge,
+  edge_corners, edge_crate_properties) still pass. Close-up before/after rendered at the rim of SubCraft_base.
+

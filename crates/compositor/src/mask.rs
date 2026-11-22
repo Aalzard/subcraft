@@ -580,7 +580,12 @@ fn eval_edge_spread(g: &Generator, spread: subcraft_doc::EdgeSpread, tc: &TileCo
         // Geometric sources are independent of contact curvature from other crate components.
         let convex = (((curvature[i][0] - 0.5) * 2.0) * curvature_weight).clamp(0.0, 1.0);
         // Coarse only: chips are skipped on tiles out of reach, and must not seam baked detail.
-        let threshold = 1.0 - g.level + (n - 0.5) * breakup + coarse * variation * 0.5;
+        // Breakup and Variation only erode the baked wear, never push it outward: shifting the
+        // threshold down let the broad, soft halo a baked curvature has around a rim wear in
+        // blotches far from the edge (owner report 2026-11-22). The sharpest convexity resists
+        // erosion, so the apex stays a continuous line and the grunge chips its sides.
+        let erosion = ((n - 0.5) * breakup + coarse * variation * 0.5).max(0.0) * (1.0 - convex * convex);
+        let threshold = 1.0 - g.level + erosion;
         let baked = if convex > 1e-4 && g.level > 0.0 {
             smoothstep(threshold - softness * 0.5, threshold + softness * 0.5, convex)
         } else { 0.0 };
