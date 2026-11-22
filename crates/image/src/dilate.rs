@@ -9,6 +9,75 @@ pub fn nearest_covered(width: usize, height: usize, covered: &[bool]) -> Vec<u32
     let n = width * height;
     assert_eq!(covered.len(), n);
     const NONE: u32 = u32::MAX;
+    if !covered.iter().any(|&c| c) {
+        return vec![NONE; n];
+    }
+    if width > 0xffff || height > 0xffff {
+        return nearest_covered_reference(width, height, covered);
+    }
+    // Seeds are stored as packed coordinates (`y << 16 | x`) while flooding, so a distance needs no
+    // division by the width (the old index form divided twice per neighbour: most of the time).
+    // Same neighbours in the same order with the same strict `<`: the same nearest texel.
+    let pack = |i: usize| ((i / width) << 16 | (i % width)) as u32;
+    let mut seed: Vec<u32> = (0..n).into_par_iter().map(|i| if covered[i] { pack(i) } else { NONE }).collect();
+    let mut next = vec![NONE; n];
+    let mut step = (width.max(height).next_power_of_two() / 2).max(1);
+    loop {
+        let src = &seed;
+        next.par_chunks_mut(width).enumerate().for_each(|(y, row)| {
+            let (yi, st) = (y as i64, step as i64);
+            for (x, out) in row.iter_mut().enumerate() {
+                let xi = x as i64;
+                let d2 = |s: u32| -> u64 {
+                    let (dx, dy) = (xi - (s & 0xffff) as i64, yi - (s >> 16) as i64);
+                    (dx * dx + dy * dy) as u64
+                };
+                let mut best = src[y * width + x];
+                let mut best_d = if best == NONE { u64::MAX } else { d2(best) };
+                for dy in [-1i64, 0, 1] {
+                    let ny = yi + dy * st;
+                    if ny < 0 || ny >= height as i64 {
+                        continue;
+                    }
+                    let base = ny as usize * width;
+                    for dx in [-1i64, 0, 1] {
+                        let nx = xi + dx * st;
+                        if nx < 0 || nx >= width as i64 {
+                            continue;
+                        }
+                        let s = src[base + nx as usize];
+                        if s != NONE {
+                            let d = d2(s);
+                            if d < best_d {
+                                best_d = d;
+                                best = s;
+                            }
+                        }
+                    }
+                }
+                *out = best;
+            }
+        });
+        std::mem::swap(&mut seed, &mut next);
+        if step == 1 {
+            break;
+        }
+        step /= 2;
+    }
+    seed.par_iter_mut().for_each(|s| {
+        if *s != NONE {
+            *s = (*s >> 16) * width as u32 + (*s & 0xffff);
+        }
+    });
+    seed
+}
+
+/// The original index-based jump flood: images wider or taller than 65535 texels, and the
+/// reference the packed version is tested against.
+fn nearest_covered_reference(width: usize, height: usize, covered: &[bool]) -> Vec<u32> {
+    use rayon::prelude::*;
+    let n = width * height;
+    const NONE: u32 = u32::MAX;
     let mut seed: Vec<u32> = (0..n).map(|i| if covered[i] { i as u32 } else { NONE }).collect();
     if !covered.iter().any(|&c| c) {
         return seed;
@@ -87,48 +156,57 @@ pub fn dilate_width(
     covered: &[bool],
     width_px: u32,
 ) -> Vec<bool> {
+    use rayon::prelude::*;
     let mut cov = covered.to_vec();
+    let mut new_cov = cov.clone();
+    let mut src = data.to_vec();
     for _ in 0..width_px {
-        let mut new_cov = cov.clone();
-        let mut writes: Vec<(usize, [f32; 4])> = Vec::new();
-        for y in 0..height {
-            for x in 0..width {
-                let i = y * width + x;
-                if cov[i] {
-                    continue;
-                }
-                let mut acc = [0.0f32; 4];
-                let mut count = 0;
-                for (dx, dy) in [(-1i32, 0i32), (1, 0), (0, -1), (0, 1), (-1, -1), (1, -1), (-1, 1), (1, 1)] {
-                    let nx = x as i32 + dx;
-                    let ny = y as i32 + dy;
-                    if nx < 0 || ny < 0 || nx >= width as i32 || ny >= height as i32 {
+        // Each ring reads the previous ring's values and coverage only (`src`, `cov`), so rows are
+        // independent: computed in parallel, the same values as the old serial loop.
+        let grew: usize = data
+            .par_chunks_mut(width * comps)
+            .zip(new_cov.par_chunks_mut(width))
+            .enumerate()
+            .map(|(y, (row, row_cov))| {
+                let mut grew = 0;
+                for x in 0..width {
+                    let i = y * width + x;
+                    if cov[i] {
                         continue;
                     }
-                    let j = ny as usize * width + nx as usize;
-                    if cov[j] {
-                        for c in 0..comps {
-                            acc[c] += data[j * comps + c];
+                    let mut acc = [0.0f32; 4];
+                    let mut count = 0;
+                    for (dx, dy) in [(-1i32, 0i32), (1, 0), (0, -1), (0, 1), (-1, -1), (1, -1), (-1, 1), (1, 1)] {
+                        let nx = x as i32 + dx;
+                        let ny = y as i32 + dy;
+                        if nx < 0 || ny < 0 || nx >= width as i32 || ny >= height as i32 {
+                            continue;
                         }
-                        count += 1;
+                        let j = ny as usize * width + nx as usize;
+                        if cov[j] {
+                            for c in 0..comps {
+                                acc[c] += src[j * comps + c];
+                            }
+                            count += 1;
+                        }
+                    }
+                    if count > 0 {
+                        for v in acc.iter_mut().take(comps) {
+                            *v /= count as f32;
+                        }
+                        row[x * comps..x * comps + comps].copy_from_slice(&acc[..comps]);
+                        row_cov[x] = true;
+                        grew += 1;
                     }
                 }
-                if count > 0 {
-                    for v in acc.iter_mut().take(comps) {
-                        *v /= count as f32;
-                    }
-                    writes.push((i, acc));
-                    new_cov[i] = true;
-                }
-            }
-        }
-        if writes.is_empty() {
+                grew
+            })
+            .sum();
+        if grew == 0 {
             break;
         }
-        for (i, v) in writes {
-            data[i * comps..i * comps + comps].copy_from_slice(&v[..comps]);
-        }
-        cov = new_cov;
+        cov.copy_from_slice(&new_cov);
+        src.copy_from_slice(data);
     }
     cov
 }
@@ -308,5 +386,89 @@ mod tests {
         let grown = dilate_width(7, 1, 1, &mut data, &cov, 2);
         assert_eq!(data, vec![0.0, 5.0, 5.0, 5.0, 5.0, 5.0, 0.0]);
         assert_eq!(grown, vec![false, true, true, true, true, true, false]);
+    }
+
+    /// A deterministic pseudo-random coverage with islands of different sizes.
+    fn random_coverage(w: usize, h: usize, seed: u32, density: u32) -> Vec<bool> {
+        let mut x = seed.wrapping_mul(2_654_435_761) | 1;
+        (0..w * h)
+            .map(|_| {
+                x ^= x << 13;
+                x ^= x >> 17;
+                x ^= x << 5;
+                x % 1000 < density
+            })
+            .collect()
+    }
+
+    #[test]
+    fn packed_nearest_matches_the_index_reference() {
+        for (w, h, density) in [(1, 1, 500), (7, 1, 200), (1, 9, 200), (37, 23, 5), (64, 64, 1), (128, 96, 30), (300, 17, 2), (256, 256, 0)] {
+            for seed in 1..4 {
+                let cov = random_coverage(w, h, seed, density);
+                assert_eq!(nearest_covered(w, h, &cov), nearest_covered_reference(w, h, &cov), "{w}x{h} density {density} seed {seed}");
+            }
+        }
+    }
+
+    /// The serial loop `dilate_width` had before it ran rows in parallel.
+    fn dilate_width_serial(width: usize, height: usize, comps: usize, data: &mut [f32], covered: &[bool], width_px: u32) -> Vec<bool> {
+        let mut cov = covered.to_vec();
+        for _ in 0..width_px {
+            let mut new_cov = cov.clone();
+            let mut writes: Vec<(usize, [f32; 4])> = Vec::new();
+            for y in 0..height {
+                for x in 0..width {
+                    let i = y * width + x;
+                    if cov[i] {
+                        continue;
+                    }
+                    let mut acc = [0.0f32; 4];
+                    let mut count = 0;
+                    for (dx, dy) in [(-1i32, 0i32), (1, 0), (0, -1), (0, 1), (-1, -1), (1, -1), (-1, 1), (1, 1)] {
+                        let nx = x as i32 + dx;
+                        let ny = y as i32 + dy;
+                        if nx < 0 || ny < 0 || nx >= width as i32 || ny >= height as i32 {
+                            continue;
+                        }
+                        let j = ny as usize * width + nx as usize;
+                        if cov[j] {
+                            for c in 0..comps {
+                                acc[c] += data[j * comps + c];
+                            }
+                            count += 1;
+                        }
+                    }
+                    if count > 0 {
+                        for v in acc.iter_mut().take(comps) {
+                            *v /= count as f32;
+                        }
+                        writes.push((i, acc));
+                        new_cov[i] = true;
+                    }
+                }
+            }
+            if writes.is_empty() {
+                break;
+            }
+            for (i, v) in writes {
+                data[i * comps..i * comps + comps].copy_from_slice(&v[..comps]);
+            }
+            cov = new_cov;
+        }
+        cov
+    }
+
+    #[test]
+    fn parallel_dilate_width_matches_the_serial_loop_bit_for_bit() {
+        for (w, h, comps, density, px) in [(53, 41, 1, 10, 3), (64, 64, 3, 2, 8), (90, 30, 4, 20, 2), (16, 16, 2, 0, 4), (33, 33, 4, 3, 40)] {
+            let cov = random_coverage(w, h, 7, density);
+            let data: Vec<f32> = (0..w * h * comps).map(|i| ((i * 2_654_435_761) % 1013) as f32 / 1013.0).collect();
+            let (mut a, mut b) = (data.clone(), data);
+            let ga = dilate_width(w, h, comps, &mut a, &cov, px);
+            let gb = dilate_width_serial(w, h, comps, &mut b, &cov, px);
+            assert_eq!(ga, gb, "{w}x{h}x{comps}");
+            assert!(a.iter().zip(&b).all(|(x, y)| x.to_bits() == y.to_bits()), "{w}x{h}x{comps}");
+        }
     }
 }

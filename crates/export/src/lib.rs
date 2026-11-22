@@ -22,7 +22,7 @@ use glam::Vec3;
 use rayon::prelude::*;
 use subcraft_core::{ChannelKind, MeshMapKind};
 use subcraft_core::color::linear_to_srgb;
-use subcraft_image::dilate::{diffuse_fill, dilate_infinite, dilate_width};
+use subcraft_image::dilate::{apply_nearest, diffuse_fill, dilate_infinite, dilate_width, nearest_covered};
 use subcraft_image::{FileFormat, TiledImage};
 use subcraft_mesh::Mesh;
 use subcraft_mesh::uv_raster::rasterize_surface;
@@ -935,6 +935,9 @@ pub(crate) fn render_maps(mesh: &Mesh, mesh_name: &str, sets: &[ExportTextureSet
         let settings = &*all.for_set(set.name);
         let Some(size) = set.channels.values().next().map(|i| i.width()) else { continue };
         let mut covered: Option<Vec<bool>> = None;
+        // Nearest island texel of every gutter texel: the same for every map of the set, so
+        // infinite padding floods once per set instead of once per map.
+        let mut nearest: Option<Vec<u32>> = None;
         let mut dense = Dense { set, size, cache: HashMap::new(), normal: None, view: None, mesh_maps: HashMap::new(), alpha: None };
         for map in settings.template.maps.iter().filter(|m| map_applies(m, set, settings) && settings.selection.is_on(set.name, &m.suffix)) {
             if map.suffix.contains(['/', '\\']) || map.suffix.contains("..") {
@@ -949,6 +952,10 @@ pub(crate) fn render_maps(mesh: &Mesh, mesh_name: &str, sets: &[ExportTextureSet
                 let covered = covered.get_or_insert_with(|| coverage(mesh, set.material_slot, size));
                 match padding {
                     Padding::Transparent(t) if format.has_alpha() => (data, comps) = pad_transparent(data, size, comps, covered, t),
+                    Padding::Infinite => {
+                        let nearest = nearest.get_or_insert_with(|| nearest_covered(size as usize, size as usize, covered));
+                        apply_nearest(comps, &mut data, covered, nearest);
+                    }
                     _ => pad(&mut data, size, comps, covered, padding, || background_value(map, settings, format)),
                 }
             }
