@@ -456,6 +456,8 @@ pub fn import_spp_cached(path: &Path, control: &Arc<ImportControl>, cache: Optio
         }
 
         let mesh_arc = std::sync::Arc::new(mesh);
+        // Flat areas (most of a big import) share one tile per value (issue #628).
+        doc.share_uniform_tiles();
         let mut session = Session::from_parts(mesh_arc.as_ref().clone(), Document { texture_sets: std::mem::take(&mut doc.texture_sets) }, resources, "Open Painter project");
         session.set_settings(ProjectSettings {
             normal_format: Some(if project_normal_dx { NormalFormat::DirectX } else { NormalFormat::OpenGl }),

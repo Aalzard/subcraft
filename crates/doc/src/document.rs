@@ -13,6 +13,16 @@ pub struct Document {
 }
 
 impl Document {
+    /// Point every uniform raster tile (all texels equal) at one shared tile per value
+    /// (issue #628). Texels stay bit-identical; copy-on-write keeps later edits local.
+    pub fn share_uniform_tiles(&mut self) {
+        for ts in &mut self.texture_sets {
+            for layer in &mut ts.layers {
+                share_layer_uniform_tiles(layer);
+            }
+        }
+    }
+
     /// One texture set per mesh material slot.
     pub fn from_material_slots(names: &[String], resolution: u32) -> Self {
         Self {
@@ -68,4 +78,13 @@ impl Document {
         }
         total
     }
+}
+
+/// [`Document::share_uniform_tiles`] for one layer subtree.
+pub fn share_layer_uniform_tiles(layer: &mut std::sync::Arc<crate::Layer>) {
+    std::sync::Arc::make_mut(layer).map_rasters(&|img| {
+        let mut img = img.clone();
+        img.share_uniform_tiles();
+        img
+    });
 }

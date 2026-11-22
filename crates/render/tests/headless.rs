@@ -688,3 +688,45 @@ fn the_channel_preview_scales_hdr_values_and_colors_their_sign() {
     assert!(near(signed[0], want[0]) && near(signed[1], want[1]) && near(signed[2], want[2]), "{:?} vs {want:?}", &signed[..4]);
 }
 
+
+/// Issue #628: the 2D view asks for its preview on every UI frame. Converting a 4K texture each
+/// time kept the GPU near 100% while idle, so a request with nothing changed must reuse the
+/// last result, and any change to the texture, the source or the display must convert again.
+#[test]
+fn the_2d_preview_converts_again_only_when_something_changed() {
+    let _gpu = gpu_test();
+    let Some((_, device, queue)) = headless::device() else {
+        eprintln!("no wgpu adapter available: skipping");
+        return;
+    };
+    use subcraft_render::{ChannelComponent, ChannelDisplay, PreviewSource};
+    let mut r = ViewportRenderer::new(&device, &queue);
+    r.set_mesh(&device, &primitives::cube(2.0));
+    let normal = PreviewSource::Channel(ChannelKind::Normal);
+    r.upload_channel(&device, &queue, 0, ChannelKind::Normal, &TiledImage::new(64, 64, 4, [0.2, 0.5, 0.8, 1.0]), None);
+    r.upload_channel(&device, &queue, 0, ChannelKind::Roughness, &TiledImage::new(64, 64, 1, [0.3; 4]), None);
+    let display = ChannelDisplay::default();
+    let first = r.preview_display(&device, &queue, 0, normal, &display).unwrap().read_rgba8(&device, &queue);
+    assert_eq!(r.preview_runs(), 1);
+    for _ in 0..10 {
+        r.preview_display(&device, &queue, 0, normal, &display).unwrap();
+    }
+    assert_eq!(r.preview_runs(), 1, "idle frames reuse the preview");
+    assert_eq!(r.preview_display(&device, &queue, 0, normal, &display).unwrap().read_rgba8(&device, &queue), first);
+    // New texture contents: converted again, and the new values show.
+    r.upload_channel(&device, &queue, 0, ChannelKind::Normal, &TiledImage::new(64, 64, 4, [0.9, 0.1, 0.1, 1.0]), Some(&[0]));
+    let changed = r.preview_display(&device, &queue, 0, normal, &display).unwrap().read_rgba8(&device, &queue);
+    assert_eq!(r.preview_runs(), 2);
+    assert!((changed[0] as i32 - 230).abs() <= 2, "{:?}", &changed[..4]);
+    // Another display setting, another channel, another texture set: each converts once.
+    let red = ChannelDisplay { component: ChannelComponent::R, ..display };
+    r.preview_display(&device, &queue, 0, normal, &red).unwrap();
+    r.preview_display(&device, &queue, 0, normal, &red).unwrap();
+    assert_eq!(r.preview_runs(), 3);
+    r.preview_display(&device, &queue, 0, PreviewSource::Channel(ChannelKind::Roughness), &red).unwrap();
+    assert_eq!(r.preview_runs(), 4);
+    r.upload_channel(&device, &queue, 1, ChannelKind::Normal, &TiledImage::new(64, 64, 4, [0.5; 4]), None);
+    r.preview_display(&device, &queue, 1, normal, &red).unwrap();
+    r.preview_display(&device, &queue, 1, normal, &red).unwrap();
+    assert_eq!(r.preview_runs(), 5);
+}

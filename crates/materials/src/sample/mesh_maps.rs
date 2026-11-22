@@ -18,6 +18,11 @@ impl MeshMaps {
         Self::default()
     }
 
+    /// Bytes held by the baked maps (diagnostics).
+    pub fn memory_bytes(&self) -> usize {
+        self.maps.values().map(|m| m.memory_bytes()).sum()
+    }
+
     pub fn insert(&mut self, kind: MeshMapKind, image: TiledImage) {
         self.maps.insert(kind, image);
     }

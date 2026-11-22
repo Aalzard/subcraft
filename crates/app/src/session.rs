@@ -92,6 +92,8 @@ fn size_field_cache() {
         let total = system.total_memory();
         if total > 0 {
             subcraft_materials::sample::field::set_budget(subcraft_materials::sample::field::budget_for_memory(total));
+            // One total for the layer caches of every texture set (issue #628).
+            subcraft_compositor::set_total_layer_cache_budget(subcraft_compositor::total_layer_cache_for_memory(total));
         }
     });
 }
@@ -615,8 +617,11 @@ impl Session {
         for u in stack.updates {
             let Some(ts) = self.doc.texture_set_mut(u.texture_set) else { continue };
             let Some(pos) = ts.layers.iter().position(|l| l.id == u.flat.id) else { continue };
-            ts.layers[pos] = u.flat;
-            ts.layers.insert(pos + 1, u.folder);
+            let (mut flat, mut folder) = (u.flat, u.folder);
+            subcraft_doc::share_layer_uniform_tiles(&mut flat);
+            subcraft_doc::share_layer_uniform_tiles(&mut folder);
+            ts.layers[pos] = flat;
+            ts.layers.insert(pos + 1, folder);
         }
         if pristine {
             self.history.reset(self.doc.clone(), "Open Painter project");
@@ -1176,6 +1181,13 @@ impl Session {
             Some(_) => self.shown.get(&ts),
             None => self.composites.get(&ts).and_then(|c| c.composite()),
         }
+    }
+
+    /// Diagnostics: (content cache bytes, tile geometry bytes, mesh map bytes).
+    pub fn memory_diagnostics(&self) -> (usize, usize, usize) {
+        let content = self.composites.values().map(|c| c.content_cache_stats().1).sum();
+        let maps = self.mesh_maps.values().map(|m| m.memory_bytes()).sum();
+        (content, self.scene.geometry.memory_bytes(), maps)
     }
 
     /// Size and hit counters of the per-layer result caches (inline compositing; with the
@@ -3823,6 +3835,7 @@ impl Session {
             let maps = self.mesh_maps.get(&ts.id).unwrap_or(&self.no_maps);
             let ctx = EvalContext { geometry: &geo, resources: &self.resources, mesh_maps: maps };
             let cache = self.composites.entry(ts.id).or_default();
+            cache.share_layer_cache_for(self.doc.texture_sets.len(), Some(ts.id == self.selection.texture_set));
             let tiles = cache.update_within(ts, &ctx, budget);
             if !tiles.is_empty() {
                 out.push(CompositeUpdate { texture_set: ts.id, material_slot: ts.material_slot, tiles, changed: cache.last_changed().clone() });
@@ -3860,7 +3873,7 @@ impl Session {
                 preview_geometry: subcraft_compositor::preview_resolution(ts.resolution).map(|r| self.scene.geometry.get(ts.material_slot, r)),
             })
             .collect();
-        let snapshot = Snapshot { sets, resources: self.resources.clone(), invalidate: std::mem::take(&mut self.invalidated) };
+        let snapshot = Snapshot { sets, resources: self.resources.clone(), invalidate: std::mem::take(&mut self.invalidated), focus: Some(self.selection.texture_set) };
         worker.submit(snapshot.clone());
         self.submitted = Some(snapshot);
     }
