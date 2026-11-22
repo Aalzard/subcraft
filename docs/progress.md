@@ -5973,3 +5973,11 @@ re-measured on a GPU. Not taken from his patch: the `SUBCRAFT_REPAINT_LOG` diagn
   a bevel. Now a rounded band must also turn the surface through at least `MIN_ROUNDED_TURN` (0.3 rad, about 17°)
   across its width; the pole ring turns 0.09 rad, real rims 1.7 rad or more. Test: `edge_rounded_pole`. Render:
   `docs/generators/edge-wear/edge_wear_sphere_top_fixed.png`.
+
+### Release 0.5.0 candidate (2026-11-22, branch `claude/project-thread-m9q9zi`, PR #635)
+
+* Merged in order with merge commits: #623, #624, #632, #626, #633, #625 (head ee5199b, sphere-pole edge wear fix). #622 left out: same #618 fix as #621, already on main. #631 (viewport extended channels) left out until tested on a real GPU. `.spp` import patch left out (undecided).
+* Conflicts: `CHANGELOG.md` / `docs/progress.md` (both sides kept); #626 + #633 in `materials/src/sample/geometry.rs`: #633's lazy `TileGeometry` constructors got #626's `derived: Default::default()`.
+* Checked by reading: the #626 mask cache only serves the tile-local mask path, which never applies #625 micro details (stage-graph only, `evaluate_effect(.., None, None)`), so cached masks can't go stale on a stroke below.
+* Version 0.5.0, changelog entries for #625 / #626 / #632 / #633, `docs/release-notes-0.5.0.md`.
+* Ran: `cargo build --workspace` on the combined tree (pass). The full local test run hit the container's disk limit while linking the ui integration binaries, so the full suite is CI's run on #635. Not yet run on Windows / a real GPU: release candidate goes to the owner first.

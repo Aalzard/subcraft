@@ -5,14 +5,25 @@ What changed in SubCraft, newest first. Download the latest build from the
 
 ## Unreleased
 
+## 0.5.0 - 2026-11-22
+
 ### Added
+- Generators: Use Micro Details, as in Substance Painter. Dirt, Edge wear, Ambient Occlusion, Concave and Curvature / AO mesh map generators can also read the Normal and Height of the layers below them (inside smart-material folders too), so wear catches the small raised details of a material and dirt settles into its small grooves. One checkbox and an Amount slider, with Painter's finer controls in a fold-out. Older projects open unchanged.
+- Edge wear: new Edge wear generators start at better defaults, and low Wear gives a thin line along the edge that grows with Wear and disappears at 0. Spread reaches much further, rounded edges wear too, and the breakup looks like chipped paint. The ring of wear that could show at the pole of a sphere is gone.
 - Eyedropper: picking from a painting tool goes back to it after one pick, so P then click picks a colour without leaving the Brush (issue #619). Chosen from the toolbar while no painting tool was in use, it stays for more picks.
 - Eyedropper: a pick samples every channel the brush paints, not only the colour. Painting colour and normals picks both, so strokes keep the lighting of what is under them, for a painterly look (issue #620). A brush that paints only colour picks the colour as before; Shift+click still picks the whole material.
+
+### Faster
+- Exports are about 3.6 times faster (5 maps at 2048²: 3.0 s to 0.8 s). Infinite padding is worked out once per texture set instead of once per map. The files are byte for byte the same.
+- Editing a layer low in a stack re-runs the masks of the layers above it only when something they read changed: up to 3 times faster opacity and visibility changes under smart materials. The result is the same, texel for texel.
+- Big projects with many texture sets use much less memory (an 11-set 2048² project: 6.0 GB to 1.4 GB peak) and the first full composite is about twice as fast (issue #628). Layer caches are now one budget for all sets (RAM / 8, 1 to 4 GB, half for the selected set), identical flat tiles share memory, and tile geometry is built only when used.
+- SubCraft puts much less load on the GPU and processor while it works or sits idle, so the rest of the desktop should stop lagging (issue #628): the 2D view converts its preview only when something changed, GPU jobs are kept to about one frame, the 3D view redraws only on change with TAA off, the Shelf stops asking for frames once its thumbnails are made, and compositing leaves a core free at lower priority.
 
 ### Fixed
 - Brush channels you switched off came back on when you chose a Shelf brush that carries a material (Dirt Grunge, Rust Spatter and the like), or picked a material with Shift+click, so strokes could paint height or normals you had turned off (issue #618). Those brushes now bring their colours and values but leave your channel choices; switching a channel back on lets them paint it again.
 - Paint across UDIM tiles: dragging a layer's opacity slider no longer adds an undo step per tick (it filled the history and pushed older steps out). Deleting, duplicating or hiding several layers, grouping, and moving layers up or down now happen on every tile, so the tiles' stacks stay alike instead of a deleted layer still rendering on the other tiles.
 - Brush presets: spacing, angle, roundness, the jitters, pen pressure and the backface angle are now checked like the other brush values. A preset file holding an infinite value (1e39) made every stamp NaN, and a roundness of 0 flattened the footprint to nothing.
+- Display Settings: Ctrl+click on a slider put it where you clicked instead of resetting it, and on a number field opened it for typing. Ctrl+click now only resets, for sliders, number fields, checkboxes and dropdowns. The Rendering mode rows (Bounces, samples, Max time, Denoise, Firefly filter, Ground shadow) and the Resolution row now also show the changed dot and can be reset one by one.
 
 ## 0.4.6 - 2026-11-21
 
