@@ -62,6 +62,8 @@ fn default_crate_overlap_gap_is_filled_and_spread_edits_undo_reopen_and_converge
         fill: FillChannel::new(FillSource::uniform(ChannelValue::rgb(1.0, 1.0, 1.0))) }).unwrap();
     session.execute(Command::AddMask { layer, white: false }).unwrap();
     let mut g = Generator::new(GeneratorKind::Edges); g.painter = None; g.noise_amount = 0.0; g.level = 0.85;
+    // The settings this was written against (the defaults before the owner's 2026-11-22 ones).
+    g.softness = 0.15; g.set_pattern_size(12.5);
     session.execute(Command::AddMaskEffect { layer, kind: MaskEffectKind::Generator(g) }).unwrap();
     session.set_mesh_maps(ts, maps); session.update_composites();
     let mut effect = session.selected_layer().unwrap().mask.as_ref().unwrap().effects[0].as_ref().clone();
@@ -127,6 +129,7 @@ fn default_crate_wear_starts_at_exposed_edges_and_reaches_at_low_level() {
             fill: FillChannel::new(FillSource::uniform(ChannelValue::rgb(1.0, 1.0, 1.0))) }).unwrap();
         session.execute(Command::AddMask { layer, white: false }).unwrap();
         let mut g = Generator::new(GeneratorKind::Edges); g.painter = None; g.noise_amount = 0.0; g.level = 0.065;
+        g.softness = 0.15; g.set_pattern_size(12.5); // the defaults this was written against
         let spread = g.edge_spread.as_mut().unwrap(); spread.distance = 12.5; spread.variation = 0.85;
         spread.level_reach = false; // The original independent-reach behavior, as saved by older projects.
         session.execute(Command::AddMaskEffect { layer, kind: MaskEffectKind::Generator(g) }).unwrap();

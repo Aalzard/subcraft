@@ -194,6 +194,16 @@ impl TextureSetGeometry {
         })
     }
 
+    /// Distance to rounded (bevelled) edges ([`super::edge_distance::SurfaceEdges::rounded_distance`]),
+    /// cached like [`Self::edge_distance_tile`].
+    pub fn rounded_edge_distance_tile(&self, geo: &TileGeometry) -> Arc<super::field::Field> {
+        geo.fields.get_or_compute(super::field::FieldKey::rounded_edge_distance(), || {
+            let edges = self.edges.get_or_init(|| super::edge_distance::SurfaceEdges::new(&self.mesh));
+            (0..TILE_TEXELS).map(|i| geo.triangle(i).map_or(f32::INFINITY, |t|
+                edges.rounded_distance(t, Vec3::from_array(geo.position(i))))).collect()
+        })
+    }
+
     pub fn tile_count(&self) -> usize {
         self.tiles.len()
     }

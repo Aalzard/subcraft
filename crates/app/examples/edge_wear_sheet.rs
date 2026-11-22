@@ -86,6 +86,7 @@ fn main() -> Result<(), String> {
                 } else {
                     g.level = level;
                     if let Some(e) = &mut g.edge_spread { e.distance = spread; }
+                    if std::env::var("MICRO").is_ok() { g.set_micro_details_enabled(true); }
                 }
                 effect.kind = MaskEffectKind::Generator(g);
                 s.execute(Command::SetMaskEffect { layer, effect }).map_err(err)?;

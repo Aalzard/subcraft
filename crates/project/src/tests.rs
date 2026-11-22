@@ -20,7 +20,7 @@ fn legacy_paint_schema_defaults_to_raster_only() {
 #[test]
 fn generator_defaults_and_schema_7_preserve_legacy_noise_and_roundtrip_new_controls() {
     let mut g = Generator::new(GeneratorKind::Edges);
-    assert_eq!(g.noise_amount, 0.3);
+    assert_eq!(g.noise_amount, 0.5); // owner default Grunge Amount (2026-11-22)
     assert!(g.painter.is_some_and(|p| p.grunge_map), "new edge wear breaks up with the grunge map");
     assert!(g.organic_breakup);
     g.set_pattern_size(25.); g.noise.seed = 47;
@@ -50,7 +50,7 @@ fn generator_defaults_and_schema_7_preserve_legacy_noise_and_roundtrip_new_contr
     }
     let legacy = read_project(Cursor::new(out.finish().unwrap().into_inner())).unwrap();
     let MaskEffectKind::Generator(back) = legacy.document.texture_sets[0].layers[0].mask.as_ref().unwrap().effects[0].kind else { panic!() };
-    assert!(!back.organic_breakup); assert_eq!((back.noise.scale, back.noise.seed, back.noise_amount), (4., 47, 0.3));
+    assert!(!back.organic_breakup); assert_eq!((back.noise.scale, back.noise.seed, back.noise_amount), (4., 47, 0.5));
     assert!(back.edge_spread.is_none());
 }
 

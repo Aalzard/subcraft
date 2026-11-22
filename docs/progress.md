@@ -5790,3 +5790,16 @@ symmetry. `crates/app/tests/uv_tools.rs` covers session routing: the 2D clone so
   `edge_wear_sheet` example in `docs/generators/edge-wear/`. Limit: a broad, uniform bevel (the base rim) shows
   nothing at very low wear, like a soft curvature map in Painter.
 
+* **Edge wear, owner defaults and thinning to nothing (fourth owner report, same day):** (1) new Edge wear generators
+  now start at the owner's settings: Variation 0.8, Wear Level 0.5, Wear Contrast 0, Grunge Amount 0.5, Pattern
+  size 3%, AO Masking 0, Curvature Weight 1, Edges Smoothness 0, Grunge map on. Saved layers keep their values.
+  (2) at Wear 0 and Spread 0 the wear was still a thick line. Now the reach floor is `MIN_WEAR_REACH` 0.02 instead
+  of a fixed line width, the grunge term fades as `(1-f)^2` so it cannot push the line wide at low levels, and
+  rounded (bevelled) edges use a separate distance field whose sources sit on the bevel apex (smoothed turn rate,
+  band inset and ring min/max), so a rounded rim gives a hairline, not the whole bevel. Result: Wear 0 is empty,
+  0.02 to 0.1 is a hairline that thickens with Wear (`docs/generators/edge-wear/edge_wear_low_levels.png`).
+  Tests: `at_spread_zero_the_line_thins_with_level_and_vanishes_at_zero`; tests tuned to old defaults
+  (`edge_corners`, `edge_crate_properties`, project schema test) pin or update their values. Full suite of app,
+  project, materials, compositor, doc and ui passes.
+  **Limit:** on the round hole rim of the default model the hairline at Wear 0.02 to 0.1 is broken into segments;
+  the base rim is continuous.

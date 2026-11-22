@@ -629,7 +629,8 @@ fn painter_wear(
     let wear = PainterWear::new(g.level, spread.distance, variation, breakup, grain, softness);
     // Fields only where something can be worn: tiles beyond every reach and without baked
     // convexity skip them.
-    let reachable = distances.iter().any(|&d| d < wear.reach * (1.0 + 0.6 * variation));
+    let rounded_tile = tc.set_geometry.rounded_edge_distance_tile(tc.geo);
+    let reachable = distances.iter().zip(rounded_tile.iter()).any(|(&d, &r)| d.min(r) < wear.reach.max(MIN_WEAR_REACH) * (1.0 + 0.6 * variation));
     let grunge = (breakup > 0.0 && reachable || breakup > 0.0 && curvature.iter().any(|c| c[0] > 0.5)).then(|| {
         custom_grunge(g, noise_params, offset, tc).unwrap_or_else(|| {
             // The grunge texture (default) is the chipped-paint field; without it the organic noise.
@@ -642,10 +643,11 @@ fn painter_wear(
     });
     let macro_field = (variation > 0.0 && reachable).then(|| subcraft_materials::sample::organic_tile_at(noise_params, offset, tc.geo));
     let fine = (grain > 0.0).then(|| fine_noise(g, tc.geo));
+    let rounded = tc.set_geometry.rounded_edge_distance_tile(tc.geo);
     for (i, o) in out.iter_mut().enumerate() {
         let convex = (((curvature[i][0] - 0.5) * 2.0) * curvature_weight).clamp(0.0, 1.0);
         let mut v = wear.eval(
-            distances[i],
+            distances[i].min(rounded[i]),
             convex,
             grunge.as_ref().map_or(0.5, |f| f[i]),
             macro_field.as_ref().map_or(0.5, |f| f[i]),
@@ -677,9 +679,9 @@ pub(crate) struct PainterWear {
 
 /// Reach at Spread 100% (`EdgeSpread::distance` 12.5): a quarter of the model's longest side.
 const MAX_WEAR_REACH: f32 = 0.25;
-/// Minimum width of the edge line, in units of the model's longest side (a texel or two at 2K),
-/// so the line stays continuous when the edge passes between texel centres.
-const EDGE_LINE: f32 = 0.0015;
+/// Narrowest falloff (Spread 0), in units of the model's longest side: Level 0.5 is then a line of
+/// about 2% of the model, Level 0.05 a hairline and Level 0 nothing.
+const MIN_WEAR_REACH: f32 = 0.02;
 
 impl PainterWear {
     pub(crate) fn new(level: f32, spread: f32, variation: f32, breakup: f32, grain: f32, softness: f32) -> Self {
@@ -708,13 +710,10 @@ impl PainterWear {
         }
         // Variation: the reach wanders along the edge.
         let reach = self.reach * (1.0 + self.variation * ((coarse - 0.5) * 1.5).clamp(-0.3, 0.3));
-        let geometric = if distance <= EDGE_LINE {
-            1.0
-        } else if reach > EDGE_LINE && distance < reach {
-            1.0 - (distance - EDGE_LINE) / (reach - EDGE_LINE)
-        } else {
-            0.0
-        };
+        // Even at Spread 0 the falloff has a small width, so Level thins the line down to a
+        // hairline and Level 0 removes it.
+        let reach = reach.max(MIN_WEAR_REACH);
+        let geometric = (1.0 - distance / reach).max(0.0);
         let baked = ((convex - self.baked_floor) / (1.0 - self.baked_floor)).clamp(0.0, 1.0);
         let falloff = geometric.max(baked);
         if falloff <= 0.0 {
@@ -723,7 +722,8 @@ impl PainterWear {
         // Grunge and grain move the falloff both ways, but never at its ends: the edge stays 1
         // and the surface beyond the reach stays 0.
         let e = ((grunge - 0.5) * 2.0) * (1.0 - self.grain * 0.35) + ((fine - 0.5) * 2.0) * self.grain * 0.35;
-        let shaped = falloff + self.breakup * 1.4 * e * falloff.sqrt() * (1.0 - falloff);
+        // (1 - falloff)^2: a thin line (low Level) stays clean, wide wear gets the chipped border.
+        let shaped = falloff + self.breakup * 1.4 * e * falloff.sqrt() * (1.0 - falloff) * (1.0 - falloff);
         // Full wear stops a little short of the reach, where the grunge still shapes the border.
         smoothstep(0.0, self.contrast_width * 2.0, shaped - (1.0 - 0.9 * self.level))
     }
@@ -874,7 +874,7 @@ mod painter_wear_tests {
             for spread in [0.0f32, 2.5, 12.5] {
                 let w = PainterWear::new(level, spread, 1.0, 1.0, 1.0, 0.3);
                 for (g, c, f) in samples() {
-                    let geo = w.eval(0.001, 0.0, g, c, f);
+                    let geo = w.eval(0.0, 0.0, g, c, f);
                     let baked = w.eval(1.0, 1.0, g, c, f);
                     assert!(geo > 0.95, "gap on the geometric edge at Level {level} Spread {spread}: {geo}");
                     assert!(baked > 0.95, "gap on the baked apex at Level {level} Spread {spread}: {baked}");
@@ -901,6 +901,21 @@ mod painter_wear_tests {
         assert!(border > 0.05 && border < 0.95, "the border must be chipped, not all or nothing: {border}");
         // Beyond the widest reach nothing wears.
         assert_eq!(coverage(&w, 0.5), 0.0);
+    }
+
+    /// Owner report: with Wear and Spread at 0 the line was still thick. Its width now shrinks
+    /// with Level to a hairline and is gone at 0.
+    #[test]
+    fn at_spread_zero_the_line_thins_with_level_and_vanishes_at_zero() {
+        let width = |level: f32| {
+            let w = PainterWear::new(level, 0.0, 0.8, 0.5, 0.0, 1.0);
+            (0..2000).map(|i| i as f32 * 0.00001).filter(|&d| w.eval(d, 0.0, 0.5, 0.5, 0.5) > 0.5).fold(0.0f32, f32::max)
+        };
+        assert_eq!(width(0.0), 0.0);
+        let (w02, w05, w1, w5) = (width(0.02), width(0.05), width(0.1), width(0.5));
+        assert!(w02 < w05 && w05 < w1 && w1 < w5, "{w02} {w05} {w1} {w5}");
+        assert!(w02 < 0.0005, "Level 0.02 is a hairline: {w02}");
+        assert!(w5 < 0.012, "Level 0.5 at Spread 0 stays a line: {w5}");
     }
 
     #[test]

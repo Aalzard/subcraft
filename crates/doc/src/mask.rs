@@ -1253,18 +1253,19 @@ impl Generator {
     /// A generator as "add generator" creates it, with Substance Painter's defaults for the kinds
     /// Painter has: Dirt (Dirt Level 0.75, Dirt Contrast 0.39, Grunge Amount 0.52, Pattern size 16%,
     /// Edges Masking 0, Grunge Floor 0.73, grunge from the bundled grunge map, Grain 0), Metal Edge
-    /// Wear (Wear Level 0.3 of the Spread reach, crisp contrast, grunge map breakup), Ambient
+    /// Wear (owner defaults: Wear Level 0.5, Wear Contrast 0, Grunge Amount 0.5, Pattern size 3%, grunge map), Ambient
     /// Occlusion (Balance 0.53, Contrast 0, no breakup, Pattern size 12.5%) and raw mesh maps
     /// (Balance 0.5, Contrast 0: the map itself, smooth, no breakup). Seed 1, offsets 0.
     pub fn new(kind: GeneratorKind) -> Self {
         let mut noise = ProceduralParams::new(crate::fill::ProceduralKind::Clouds);
         // Pattern size 12.5%; Dirt 16%.
-        noise.scale = if kind == GeneratorKind::Cavity { 100.0 / 16.0 } else { 8.0 };
+        // Edge wear: Pattern size 3% (owner's defaults, 2026-11-22).
+        noise.scale = match kind { GeneratorKind::Cavity => 100.0 / 16.0, GeneratorKind::Edges => 100.0 / 3.0, _ => 8.0 };
         let (level, softness, noise_amount) = match kind {
             // Dirt Level 0.75 = threshold 0.25 on the occlusion; Dirt Contrast 0.39; Grunge Amount 0.52.
             GeneratorKind::Cavity => (0.25, 0.61, 0.52),
-            // Wear Level 0.3; Wear Contrast 0.85; Grunge Amount 0.3.
-            GeneratorKind::Edges => (0.3, 0.15, 0.3),
+            // Owner's defaults (2026-11-22): Wear Level 0.5, Wear Contrast 0, Grunge Amount 0.5.
+            GeneratorKind::Edges => (0.5, 1.0, 0.5),
             GeneratorKind::Concave => (0.5, 0.15, 0.3),
             // Balance 0.53 (threshold 0.47), Contrast 0: smoothstep over the whole range, smooth.
             GeneratorKind::AmbientOcclusion => (0.47, 1.0, 0.0),
@@ -1933,8 +1934,12 @@ mod tests {
         let pc = dirt.painter.unwrap();
         assert!(pc.grunge_map && pc.edges_masking == 0.0 && pc.grain == 0.0);
         let wear = Generator::new(GeneratorKind::Edges);
-        assert_eq!(wear.level, 0.3);
-        assert!(wear.painter.unwrap().grunge_map && wear.edge_spread.is_some());
+        // Owner's defaults: Wear Level 0.5, Wear Contrast 0, Grunge Amount 0.5, Pattern size 3%,
+        // Variation 0.8, AO Masking 0, Curvature Weight 1, Edges Smoothness 0, Grunge map on.
+        assert_eq!((wear.level, wear.softness, wear.noise_amount), (0.5, 1.0, 0.5));
+        assert!((wear.pattern_size() - 3.0).abs() < 1e-4 && wear.edge_spread.unwrap().variation == 0.8);
+        let pc = wear.painter.unwrap();
+        assert!(pc.grunge_map && pc.ao_masking == 0.0 && pc.curvature_weight == 1.0 && pc.smoothness == 0.0);
         let ao = Generator::new(GeneratorKind::AmbientOcclusion);
         // Balance 0.53, Contrast 0, Breakup 0, Pattern size 12.5%, Seed 1, offsets 0.
         assert_eq!((ao.level, ao.softness, ao.noise_amount), (0.47, 1.0, 0.0));

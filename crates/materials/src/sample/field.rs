@@ -71,6 +71,11 @@ impl FieldKey {
         key.0[6] = u32::MAX - 1;
         key
     }
+    pub fn rounded_edge_distance() -> Self {
+        let mut key = Self::edge_distance();
+        key.0[6] = u32::MAX - 4;
+        key
+    }
     pub fn organic(params: &ProceduralParams) -> Self {
         let mut key = Self::new(params, &Projection::default());
         key.0[6] = u32::MAX; // distinct from every supported projection mode
