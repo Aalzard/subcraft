@@ -5763,4 +5763,14 @@ symmetry. `crates/app/tests/uv_tools.rs` covers session routing: the 2D clone so
   apex stays a continuous, crisp line and the grunge chips its sides. Test
   `breakup_never_spreads_baked_wear_onto_mildly_convex_surface`; app edge tests (edge_level_spread, edge_ledge,
   edge_corners, edge_crate_properties) still pass. Close-up before/after rendered at the rim of SubCraft_base.
+* **Edge wear rework (second owner report, same day):** the erosion fix still left gaps in the edge line at low wear,
+  and more wear only thickened a uniform band. New model (`RootWear` in `compositor/src/mask.rs`, used by every
+  generator with `level_reach`; older projects keep the legacy band): (1) a core line on the edge, from geometric
+  edge distance and from the baked-curvature apex, that only Level widens and that Breakup, Variation and Grain never
+  touch; (2) growth beyond it along a ridged vein field 8x finer than the pattern: near the line most texels wear, far
+  out only the vein crests, so higher wear reaches out in roots/cracks. Breakup eats holes into the growth only.
+  Softness is the width of the growth border in the reach, so a soft setting stays soft. Unit tests
+  `the_edge_line_is_continuous_at_any_level_whatever_the_noise` (Levels 0.02..1, 4096 noise samples, edge > 0.95) and
+  `more_level_spreads_in_roots_rather_than_a_solid_band` (coverage falls off with distance, far out < 30%). Compositor
+  suite and app edge tests pass. Before/after close-up rendered at Levels 0.05 / 0.15 / 0.3 / 0.6 (`docs/generators/edge-wear/`): before, the inner rim line breaks at 0.05/0.15 and 0.6 is a solid band; after, the line is unbroken at every level and 0.6 grows out in uneven, branching streaks. Honest limit: the growth reads as streaks/clumps more than thin hairline cracks.
 
