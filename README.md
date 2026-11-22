@@ -32,7 +32,10 @@ guide walks you through the basics.
   peak), and no more desktop stutter while SubCraft sits idle.
 - **Faster**: exports about 3.6x faster, layer edits in heavy stacks up to 3x faster, with identical pixels.
 - **Eyedropper** returns to your brush after one pick and samples every channel the brush paints.
-- Fixes for UDIM paint-across, brush preset validation and Display Settings reset (Ctrl+click).
+- **Reset to default everywhere**: Ctrl+click a setting, or right-click its name, to put its default back.
+  A dot marks the settings you changed, in brushes, layers, generators, filters, Bake, Preferences and more.
+- Less load on the GPU and processor while SubCraft works or sits idle.
+- Fixes for UDIM paint-across and brush preset validation.
 
 **Coming next (not in 0.5.0):** the viewport will shade clear coat, sheen, anisotropy, subsurface,
 translucency and transmission, plus a displacement preview. It is waiting for testing on real GPUs.
