@@ -38,6 +38,11 @@ impl MeshMaps {
         self.maps.iter().map(|(k, v)| (*k, v))
     }
 
+    /// True if both hold the same maps in the same storage (nothing rebaked, added or removed).
+    pub fn same_storage(&self, other: &MeshMaps) -> bool {
+        self.maps.len() == other.maps.len() && self.maps.iter().zip(&other.maps).all(|((ka, a), (kb, b))| ka == kb && a.same_layout(b) && a.same_storage(b))
+    }
+
     pub fn as_map(&self) -> &BTreeMap<MeshMapKind, TiledImage> {
         &self.maps
     }

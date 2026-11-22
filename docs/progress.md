@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-11-09 (generator sliders interactive at 4K)
+Last updated: 2026-11-22 (export padding 3.6x, exact mask cache for layer edits)
 
 ## Decisions
 
@@ -5744,3 +5744,69 @@ symmetry. `crates/app/tests/uv_tools.rs` covers session routing: the 2D clone so
   `ctrl_click_on_a_checkbox_resets_it_and_never_toggles_it_away_from_the_default`,
   `every_setting_reset_all_touches_shows_the_changed_dot`. The three Ctrl+click tests fail with the cover switched
   off, so they catch the reported bugs. No app screenshot (no GPU in the cloud container).
+
+## Faster exports and layer edits (2026-11-22, branch `claude/project-thread-0ejgc0`)
+
+Owner ask: more performance. Profiled export, layer-stack edits, painting and open/save in the cloud container
+(4 cores, release, `perf`), then fixed the two biggest bottlenecks. **Every change is bit-identical**: same
+export file bytes, same composite texel hashes on all three benchmark stacks.
+
+**Measured** (4-core cloud container, release, 2048², ms; base = `main` at v0.4.6, same machine, alternating runs):
+
+| case | main | branch | speed-up |
+|---|---|---|---|
+| export PBR Metal/Rough, 5 PNGs, infinite padding (`export_bench 2048 2`) | 3033 | 839 | 3.6x |
+| smart materials: bottom material visibility / opacity (`smart_bench 2048 4`) | 486 / 266 | 320 / 103 | 1.5x / 2.6x |
+| smart materials: top material visibility / opacity | 177 / 109 | 114 / 36 | 1.6x / 3.0x |
+| 40 layers: bottom pattern / generator level / top opacity (`big_project_bench 2048 40`, bake 512) | 2114 / 3767 / 351 | 1615 / 3539 / 323 | 1.3x / 1.06x / 1.09x |
+| 40 layers: stroke on a mid-stack mask / near the top | 1263 / 271 | 1169 / 247 | 1.08x / 1.1x |
+| unchanged (within noise): adding a smart material, first composite after open (+4%), pen strokes, save, open | | | 1.0x |
+
+Hashes: export files `b037d2112b7ce8ed`; smart materials `d0a6a7b5df14bfaf` / after strokes `cbcf7e9def3e1faf`;
+40 layers `cb5edb708e61bfaf` / after edits `f3d16e888853ffaf` (main and branch).
+
+**What changed:**
+1. **Export padding** (`export/src/lib.rs`, `image/src/dilate.rs`): infinite padding ran the jump flood once per
+   exported map (about 450 ms each at 2048², 80% of the export) although every map of a set shares one coverage.
+   It now floods once per set and copies (`apply_nearest`). The flood keeps packed `y << 16 | x` coordinates, so a
+   distance needs no division by the width (about 1.6x on its own; used by the bake, world blur and `.spp` import
+   too); images over 65535 texels per side use the old index form. `dilate_width` (Dilation N / Background /
+   Diffusion / Transparent padding, flatten exports) runs rows in parallel. Tests compare both against the old
+   serial / index code bit for bit on random coverages.
+2. **Mask cache** (`materials/src/sample/derived.rs`, `compositor/src/mask.rs`): editing a layer re-blends every
+   layer above it, and each of those re-ran its mask (generators, procedural mask fills, images, ID masks) though
+   nothing it reads had changed: about 60% of a bottom-layer edit. Each tile geometry now has a second cache next
+   to the procedural fields. A tile-local mask with at least one costly effect is cached under a key that *holds*
+   everything the evaluation reads: the effect `Arc`s, the base raster's tile, the baked maps and the image
+   resources the effects name. Copy-on-write means any edit changes one of those pointers, and a held `Arc` can
+   never be freed and reused, so a hit is exact. A key with the same effects but a repainted tile, rebaked maps or
+   a replaced image is replaced at once (old rasters are not kept alive). Budget: half the field budget, at most
+   1 GiB (144 MB for the 4-smart-material stack at 2048²); masks never evict noise fields. Spatial masks (blur,
+   Mask Editor blur) and the stage-graph path are not cached.
+
+**Tests:** new `compositor/tests/mask_cache.rs` (warm cache vs fresh caches after an edit below, an effect edit,
+a rebake, a painted base tile, a replaced image resource, disable / enable; making the probe ignore those inputs
+makes it fail), `derived` unit test, `packed_nearest_matches_the_index_reference`,
+`parallel_dilate_width_matches_the_serial_loop_bit_for_bit`. Ran (release): compositor, materials, image, export
+(all lib + integration tests) 430 passed, 3 ignored; app lib + 18 integration test files (session, mesh_reload,
+mask_*, export_*, flatten, smart_content, id_color, world_blur, bake_files, mesh_map_import, qa_regressions,
+default_model, images) 251 passed; clippy clean on the changed crates. The full workspace suite is left to CI.
+
+**Benchmarks:** new `crates/app/examples/export_bench.rs` (`-- [res] [materials] [pbr|unreal]`, `SUBCRAFT_BENCH_HASH=1`
+hashes the written files). `smart_bench` now takes `SUBCRAFT_BENCH_BAKE=<size>` and `SUBCRAFT_BENCH_REPS=<n>` and
+prints the field / mask cache sizes.
+
+**Profiled, not changed (and why):**
+* Adding a smart material (Rusty Iron 3.3 s at 2048² here) and the first composite after opening a project (6.4 s)
+  are triplanar fractal noise being evaluated for the first time (12 fields per tile, about 1.2 ms per tile each).
+  Skipping triplanar planes whose weight is under 1/4096 gained only 10% and changes texels, so it was dropped. A
+  real gain needs SIMD noise or GPU evaluation.
+* Painting: on 4 cores a 300 px stroke at 2048² is p50 10 ms / p95 18-25 ms per frame (accumulate + write stages,
+  already parallel); on the owner's 16-thread PC it measured p95 3.5 ms before. Nothing changed.
+* Viewport frame time and GPU upload: not measurable here (no GPU; llvmpipe numbers mean nothing). Upload is
+  already per dirty tile.
+* Bake 25 s at 2048² on the CPU baker here; the app bakes AO / thickness / curvature on the GPU.
+
+**Not verified:** no run on the owner's PC or in the window (headless benchmarks only); 4096² not re-measured
+(the mask budget then holds about a quarter of the stack's masks at the 384 MiB minimum budget, more on machines
+with more RAM).
