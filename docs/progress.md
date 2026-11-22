@@ -5773,4 +5773,20 @@ symmetry. `crates/app/tests/uv_tools.rs` covers session routing: the 2D clone so
   `the_edge_line_is_continuous_at_any_level_whatever_the_noise` (Levels 0.02..1, 4096 noise samples, edge > 0.95) and
   `more_level_spreads_in_roots_rather_than_a_solid_band` (coverage falls off with distance, far out < 30%). Compositor
   suite and app edge tests pass. Before/after close-up rendered at Levels 0.05 / 0.15 / 0.3 / 0.6 (`docs/generators/edge-wear/`): before, the inner rim line breaks at 0.05/0.15 and 0.6 is a solid band; after, the line is unbroken at every level and 0.6 grows out in uneven, branching streaks. Honest limit: the growth reads as streaks/clumps more than thin hairline cracks.
+* **Edge wear, Painter model (third owner report, same day):** with Wear and Spread at maximum the wear barely
+  spread, and the grunge looked ugly. Causes: (1) Spread only grew from geometric creases sharper than 20 degrees, so
+  smooth rounded rims (most of SubCraft_base) ignored it; (2) the reach topped out at 12.5% and the vein growth wore
+  little of it; (3) the breakup was the blotchy dirt grunge. Now: `painter_wear` / `PainterWear` in
+  `compositor/src/mask.rs`: edge falloff (1 on the edge, 0 at the reach, from the surface edge distance and the baked
+  curvature, whose floor Spread lowers) -> chipped-paint grunge shifts it, never at the edge or beyond the reach ->
+  threshold `1 - 0.9 * Level` -> contrast from Softness. Reach is Spread% x 2 (max 25% of the model). Rounded edges
+  are distance sources (`edge_distance.rs`: shading normals turning faster than a 12% radius, from each triangle's
+  own corner normals so hard edges do not count; linear between rounded nodes so the line is continuous). New
+  `materials/src/chips.rs`: domain-warped two-size 3D Voronoi flakes plus fine detail, used when Grunge map is on
+  (organic noise when off; a custom grunge still wins). Tests: chips field, `painter_wear_tests` (continuous line at
+  every Level/Spread, full wear covers most of a 25% reach with a chipped border, nothing beyond it, low wear stays a
+  line, Level grows it), compositor + materials + app suites. `edge_level_spread` now asks a wide Spread at Level
+  0.065 for 1.1x the narrow one (was 1.5x): low wear is a line by the owner's request. Renders with the
+  `edge_wear_sheet` example in `docs/generators/edge-wear/`. Limit: a broad, uniform bevel (the base rim) shows
+  nothing at very low wear, like a soft curvature map in Painter.
 

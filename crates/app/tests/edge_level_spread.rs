@@ -56,7 +56,9 @@ fn coverage_grows_smoothly_with_level_and_reach_grows_with_spread_and_level_zero
     }
     // Both together: a wide Spread at a low Level is still more wear than a narrow one at the same Level.
     let (wide, narrow) = (total(&c.wear(0.065, 12.5, 0.85, 1, true)), total(&c.wear(0.065, 1.5, 0.85, 1, true)));
-    assert!(wide > 1.5 * narrow, "wide {wide} vs narrow {narrow}");
+    // Owner report 2026-11-22: low wear is a thin line on the edge, whatever the Spread, so a wide
+    // Spread at Level 0.065 is only somewhat more wear (it was required to be 1.5x before).
+    assert!(wide > 1.1 * narrow, "wide {wide} vs narrow {narrow}");
 }
 
 #[test]

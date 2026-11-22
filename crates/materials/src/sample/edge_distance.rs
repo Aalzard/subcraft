@@ -6,6 +6,14 @@ use std::collections::{BTreeMap, BinaryHeap, HashMap};
 use glam::{Vec2, Vec3};
 use subcraft_mesh::{Bvh, Mesh};
 
+/// Curvature radius (fraction of the model's longest side) below which a smoothly shaded convex
+/// surface counts as a rounded edge, so Spread grows from bevels too (a sphere or a gentle
+/// cylinder stays a surface).
+const ROUNDED_EDGE_RADIUS: f32 = 0.12;
+/// How far behind a crease a rounded edge starts, at the threshold radius (tighter rounding starts
+/// closer, three times tighter at the crease itself).
+const ROUNDED_EDGE_OFFSET: f32 = 0.02;
+
 #[derive(Debug, Clone, Copy)]
 struct Segment(Vec3, Vec3);
 
@@ -48,6 +56,8 @@ pub struct SurfaceEdges {
     patch: Vec<usize>,
     patches: Vec<Patch>,
     local: Vec<Vec<Segment>>,
+    /// Start distance of every rounded-edge node (infinite for other nodes).
+    rounded: Vec<f32>,
 }
 
 impl SurfaceEdges {
@@ -131,6 +141,34 @@ impl SurfaceEdges {
                 }
             }
         }
+        // Rounded edges: nodes whose shading normal turns faster than ROUNDED_EDGE_RADIUS (convex
+        // only), as distance sources a little behind a crease.
+        // The fastest turn of the shading normals over a node's edges (across a bevel, not along
+        // it), from each triangle's own corner normals: hard edges, whose corners carry split
+        // normals, never count (they are creases above when sharp enough).
+        let mut bend = vec![0.0f32; positions.len()];
+        if mesh.normals.len() == mesh.positions.len() {
+            for (t, nodes) in triangles.iter().enumerate() {
+                let corners = mesh.tri(t).map(|v| mesh.normals[v as usize]);
+                for k in 0..3 {
+                    let (i, j) = (k, (k + 1) % 3);
+                    let d = positions[nodes[i]] - positions[nodes[j]];
+                    let turn = (corners[i] - corners[j]).dot(d) / d.length_squared().max(1e-20);
+                    if turn.is_finite() {
+                        for node in [nodes[i], nodes[j]] { bend[node] = bend[node].max(turn); }
+                    }
+                }
+            }
+        }
+        let threshold = 1.0 / ROUNDED_EDGE_RADIUS;
+        let mut rounded = vec![f32::INFINITY; positions.len()];
+        for (node, &k) in bend.iter().enumerate() {
+            if k > threshold {
+                let start = ROUNDED_EDGE_OFFSET * (1.0 - (k - threshold) / (2.0 * threshold)).clamp(0.0, 1.0);
+                rounded[node] = start;
+                if start < distance[node] { distance[node] = start; queue.push(Visit(start, node)); }
+            }
+        }
         let mut patch_points = vec![Vec::new(); triangles.len()];
         let mut patch_area = vec![0.0; triangles.len()];
         for (t, v) in triangles.iter().enumerate() {
@@ -152,7 +190,7 @@ impl SurfaceEdges {
                 if candidate < distance[next] { distance[next] = candidate; queue.push(Visit(candidate, next)); }
             }
         }
-        Self { positions, triangles, distance, patch, patches, local }
+        Self { positions, triangles, distance, patch, patches, local, rounded }
     }
 
     /// Position must use the mesh's normalized object-space frame, matching TileGeometry.
@@ -163,7 +201,32 @@ impl SurfaceEdges {
         // and actual graph paths, avoiding shortcuts across holes/concave silhouettes.
         let sources = if patch.convex { &patch.segments } else { &self.local[triangle] };
         for &segment in sources { d = d.min(segment.distance(point)); }
-        for &v in &self.triangles[triangle] { d = d.min(point.distance(self.positions[v]) + self.distance[v]); }
+        let nodes = self.triangles[triangle];
+        for &v in &nodes { d = d.min(point.distance(self.positions[v]) + self.distance[v]); }
+        // Rounded edges: linear between rounded-edge nodes (along a triangle edge whose ends are
+        // both rounded, and across a triangle that is all rounded), so a run of them is a
+        // continuous line rather than dots at the vertices.
+        let start = nodes.map(|v| self.rounded[v]);
+        let [a, b, c] = nodes.map(|v| self.positions[v]);
+        for (i, j) in [(0, 1), (1, 2), (2, 0)] {
+            if start[i].is_finite() && start[j].is_finite() {
+                let (p0, p1) = ([a, b, c][i], [a, b, c][j]);
+                let ab = p1 - p0;
+                let t = ((point - p0).dot(ab) / ab.length_squared().max(1e-20)).clamp(0.0, 1.0);
+                d = d.min(point.distance(p0 + ab * t) + start[i] * (1.0 - t) + start[j] * t);
+            }
+        }
+        if start.iter().all(|s| s.is_finite()) {
+            let (e0, e1, ep) = (b - a, c - a, point - a);
+            let (d00, d01, d11) = (e0.dot(e0), e0.dot(e1), e1.dot(e1));
+            let (d20, d21) = (ep.dot(e0), ep.dot(e1));
+            let den = d00 * d11 - d01 * d01;
+            if den.abs() > 1e-24 {
+                let v = ((d11 * d20 - d01 * d21) / den).clamp(0.0, 1.0);
+                let w = ((d00 * d21 - d01 * d20) / den).clamp(0.0, 1.0 - v);
+                d = d.min(start[0] * (1.0 - v - w) + start[1] * v + start[2] * w);
+            }
+        }
         d
     }
 }

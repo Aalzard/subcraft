@@ -522,7 +522,6 @@ fn eval_edge_spread(g: &Generator, spread: subcraft_doc::EdgeSpread, tc: &TileCo
     // both share one cached non-periodic volume field and the existing Pattern size/Seed.
     let offset = noise_offset(g);
     let noise_params = scaled_noise(g);
-    let noise = custom_grunge(g, &noise_params, offset, tc).unwrap_or_else(|| breakup_field(g, &noise_params, offset, tc.geo).to_vec());
     let painter = g.painter;
     let mut ao_map = Vec::new();
     if painter.is_some_and(|p| p.ao_masking > 0.0) {
@@ -543,6 +542,11 @@ fn eval_edge_spread(g: &Generator, spread: subcraft_doc::EdgeSpread, tc: &TileCo
             add_micro_occlusion(&mut ao_map, d, settings.amount);
         }
     }
+    if spread.level_reach {
+        painter_wear(g, spread, tc, &distances, &curvature, curvature_weight, &ao_map, ao_masking, &noise_params, offset, out);
+        return;
+    }
+    let noise = custom_grunge(g, &noise_params, offset, tc).unwrap_or_else(|| breakup_field(g, &noise_params, offset, tc.geo).to_vec());
     // Spread is a physical reach, independent of the baked-detail threshold. Multiplying by
     // Level made even maximum Spread almost disappear at the owner's Level 0.065 setting.
     let radius = spread.distance.clamp(0.0, 12.5) * 0.01;
@@ -565,26 +569,6 @@ fn eval_edge_spread(g: &Generator, spread: subcraft_doc::EdgeSpread, tc: &TileCo
     let grain = painter.map_or(0.0, |p| p.grain.clamp(0.0, 1.0)) * (breakup * 4.0).clamp(0.0, 1.0);
     let fine = (grain > 0.0).then(|| fine_noise(g, tc.geo));
     let softness = (g.softness + painter.map_or(0.0, |p| p.smoothness.clamp(0.0, 1.0))).clamp(0.02, 1.0);
-    if spread.level_reach {
-        // Root-like veins for the spread: a ridged field eight times finer than the pattern.
-        let veins = {
-            let mut p = noise_params;
-            p.scale = (noise_params.scale * 8.0).clamp(0.01, 256.0);
-            p.seed = p.seed.wrapping_add(0x5bd1);
-            subcraft_materials::sample::organic_tile_at(&p, offset, tc.geo)
-        };
-        let ctx = RootWear { level: g.level.clamp(0.0, 1.0), radius, variation, breakup, grain, softness, grunge_map };
-        for (i, o) in out.iter_mut().enumerate() {
-            let convex = (((curvature[i][0] - 0.5) * 2.0) * curvature_weight).clamp(0.0, 1.0);
-            let fine_i = fine.as_ref().map(|f| f[i]);
-            let mut v = ctx.eval(distances[i], convex, noise[i], veins[i], fine_i);
-            if ao_masking > 0.0 {
-                v *= 1.0 - ao_masking * (1.0 - ao_map[i][0]);
-            }
-            *o = [if g.invert { 1.0 - v } else { v }, 1.0, 0.0, 0.0];
-        }
-        return;
-    }
     for (i, o) in out.iter_mut().enumerate() {
         let n = noise[i];
         // Fractal volume values cluster near 0.5. Expand their useful range so Variation has
@@ -618,78 +602,130 @@ fn eval_edge_spread(g: &Generator, spread: subcraft_doc::EdgeSpread, tc: &TileCo
     }
 }
 
-/// Edge wear with Level as the amount (every generator made since `EdgeSpread::level_reach`).
+/// Edge wear with Level as the amount (every generator made since `EdgeSpread::level_reach`),
+/// built the way Painter's edge wear is: an edge falloff (1 on the edge, 0 at the Spread reach,
+/// from the geometric edge distance and from the baked curvature), a wear threshold (Level), a
+/// contrast (Softness) and a chipped-paint grunge that shapes the border. Level 1 with Spread at
+/// its maximum wears a quarter of the model around every edge.
+#[allow(clippy::too_many_arguments)]
+fn painter_wear(
+    g: &Generator,
+    spread: subcraft_doc::EdgeSpread,
+    tc: &TileContext,
+    distances: &[f32],
+    curvature: &[[f32; 3]],
+    curvature_weight: f32,
+    ao_map: &[[f32; 3]],
+    ao_masking: f32,
+    noise_params: &subcraft_doc::ProceduralParams,
+    offset: [f32; 3],
+    out: &mut [[f32; 4]],
+) {
+    let breakup = g.noise_amount.clamp(0.0, 1.0);
+    let variation = spread.variation.clamp(0.0, 1.0);
+    let painter = g.painter;
+    let grain = painter.map_or(0.0, |p| p.grain.clamp(0.0, 1.0)) * (breakup * 4.0).clamp(0.0, 1.0);
+    let softness = (g.softness + painter.map_or(0.0, |p| p.smoothness.clamp(0.0, 1.0))).clamp(0.02, 1.0);
+    let wear = PainterWear::new(g.level, spread.distance, variation, breakup, grain, softness);
+    // Fields only where something can be worn: tiles beyond every reach and without baked
+    // convexity skip them.
+    let reachable = distances.iter().any(|&d| d < wear.reach * (1.0 + 0.6 * variation));
+    let grunge = (breakup > 0.0 && reachable || breakup > 0.0 && curvature.iter().any(|c| c[0] > 0.5)).then(|| {
+        custom_grunge(g, noise_params, offset, tc).unwrap_or_else(|| {
+            // The grunge texture (default) is the chipped-paint field; without it the organic noise.
+            if uses_grunge_map(g) {
+                subcraft_materials::sample::chips_tile_at(noise_params, offset, tc.geo).to_vec()
+            } else {
+                subcraft_materials::sample::organic_tile_at(noise_params, offset, tc.geo).to_vec()
+            }
+        })
+    });
+    let macro_field = (variation > 0.0 && reachable).then(|| subcraft_materials::sample::organic_tile_at(noise_params, offset, tc.geo));
+    let fine = (grain > 0.0).then(|| fine_noise(g, tc.geo));
+    for (i, o) in out.iter_mut().enumerate() {
+        let convex = (((curvature[i][0] - 0.5) * 2.0) * curvature_weight).clamp(0.0, 1.0);
+        let mut v = wear.eval(
+            distances[i],
+            convex,
+            grunge.as_ref().map_or(0.5, |f| f[i]),
+            macro_field.as_ref().map_or(0.5, |f| f[i]),
+            fine.as_ref().map_or(0.5, |f| f[i]),
+        );
+        if ao_masking > 0.0 {
+            v *= 1.0 - ao_masking * (1.0 - ao_map[i][0]);
+        }
+        *o = [if g.invert { 1.0 - v } else { v }, 1.0, 0.0, 0.0];
+    }
+}
+
+/// The per-texel edge wear of [`painter_wear`].
 ///
-/// Painter-like (owner report 2026-11-22): the edge itself always carries a continuous line,
-/// whatever the Level, and nothing the grunge does can open gaps in it; more Level does not just
-/// thicken a band, it grows wear outward along root-like veins that thin out with the distance.
-/// Breakup and Variation only shape that growth, and only erode: they never wear surface beyond
-/// the reach (a baked curvature's soft halo around a rounded rim stays clean).
-struct RootWear {
+/// The edge line is never broken: on the edge the falloff is 1 and the grunge has no say there,
+/// so even the lowest Level keeps a thin, continuous line; more Level lowers the threshold so
+/// the wear grows out along the falloff, and the grunge (strongest half way out) chips its border.
+pub(crate) struct PainterWear {
     level: f32,
     /// Spread reach, in units of the model's longest side.
-    radius: f32,
+    pub(crate) reach: f32,
+    /// Lowest baked convexity the falloff reaches at this Spread.
+    baked_floor: f32,
     variation: f32,
     breakup: f32,
     grain: f32,
-    softness: f32,
-    grunge_map: bool,
+    contrast_width: f32,
 }
 
-impl RootWear {
-    /// Wear 0..1 at a texel `distance` from the nearest geometric edge with baked convexity
-    /// `convex` (0 flat, 1 sharpest), the breakup field `n`, the vein field `vein` and the fine
-    /// grain (all 0..1 fields centred on 0.5).
-    fn eval(&self, distance: f32, convex: f32, n: f32, vein: f32, fine: Option<f32>) -> f32 {
+/// Reach at Spread 100% (`EdgeSpread::distance` 12.5): a quarter of the model's longest side.
+const MAX_WEAR_REACH: f32 = 0.25;
+/// Minimum width of the edge line, in units of the model's longest side (a texel or two at 2K),
+/// so the line stays continuous when the edge passes between texel centres.
+const EDGE_LINE: f32 = 0.0015;
+
+impl PainterWear {
+    pub(crate) fn new(level: f32, spread: f32, variation: f32, breakup: f32, grain: f32, softness: f32) -> Self {
+        let level = level.clamp(0.0, 1.0);
+        let spread = (spread / 12.5).clamp(0.0, 1.0);
+        Self {
+            level,
+            reach: spread * MAX_WEAR_REACH,
+            // Spread widens the curvature falloff too: rounded and baked (normal-map) edges reach
+            // down into their soft halo.
+            baked_floor: 0.3 - 0.15 * spread,
+            variation,
+            breakup,
+            grain,
+            // Contrast: never wider than the Level itself, so a low Level is still a solid line.
+            contrast_width: (softness * 0.5).min(level * 0.4).max(1e-4),
+        }
+    }
+
+    /// Wear 0..1 at a texel `distance` from the nearest edge with baked convexity `convex`
+    /// (0 flat, 1 sharpest), grunge `grunge`, coarse variation field `coarse` and fine grain
+    /// `fine` (0..1 fields centred on 0.5).
+    pub(crate) fn eval(&self, distance: f32, convex: f32, grunge: f32, coarse: f32, fine: f32) -> f32 {
         if self.level <= 0.0 {
             return 0.0;
         }
-        let soft = self.softness.clamp(0.01, 1.0);
-        // Edge-ness: 1 on the edge, falling to 0 at the reach, from geometry and from the baked
-        // curvature (rounded and high-poly edges have no geometric edge).
-        // Variation lets the roots reach past the plain band, as the old boundary did.
-        let reach = self.radius * subcraft_doc::EdgeSpread::level_extent(self.level).max(0.15) * (1.0 + 0.8 * self.variation);
-        // The line on the edge: a thin core that only Level widens, never broken up.
-        let core_geo = reach * 0.35;
-        let core = if self.radius > 0.0 && distance < core_geo * 1.25 { 1.0 - smoothstep(core_geo * 0.75, core_geo * 1.25, distance) } else { 0.0 };
-        let apex = 1.0 - (0.03 + 0.2 * self.level.sqrt());
-        let core_baked = smoothstep(apex - soft * 0.5, apex + soft * 0.5, convex);
-        let core = core.max(core_baked);
-        // Growth beyond the line: how far out (0 at the line, 1 at the reach), from geometry or
-        // the baked curvature between the apex and Level's own threshold.
-        // Level reaches further into the baked halo gradually: half as far as the plain threshold.
-        let outer = apex - 0.1 - 0.5 * self.level;
-        let u_geo = if reach > 0.0 && distance < reach { ((distance - core_geo) / (reach - core_geo).max(1e-6)).clamp(0.0, 1.0) } else { 1.0 };
-        let u_baked = if convex > outer { ((apex - convex) / (apex - outer).max(1e-4)).clamp(0.0, 1.0) } else { 1.0 };
-        let u = u_geo.min(u_baked);
-        if u >= 1.0 {
-            return core;
+        // Variation: the reach wanders along the edge.
+        let reach = self.reach * (1.0 + self.variation * ((coarse - 0.5) * 1.5).clamp(-0.3, 0.3));
+        let geometric = if distance <= EDGE_LINE {
+            1.0
+        } else if reach > EDGE_LINE && distance < reach {
+            1.0 - (distance - EDGE_LINE) / (reach - EDGE_LINE)
+        } else {
+            0.0
+        };
+        let baked = ((convex - self.baked_floor) / (1.0 - self.baked_floor)).clamp(0.0, 1.0);
+        let falloff = geometric.max(baked);
+        if falloff <= 0.0 {
+            return 0.0;
         }
-        // Veins: ridged noise, high along thin lines. Near the line almost everything is worn, far
-        // out only the vein crests, so the wear reaches out in roots and cracks.
-        let ridge = (1.0 - (vein - 0.5).abs() * 8.0).clamp(0.0, 1.0);
-        // Variation 0: a clean band, the seed no longer matters.
-        let ridge = 0.5 + (ridge * ridge - 0.5) * (self.variation * 1.5).min(1.0);
-        let coarse = ((n - 0.5) * 3.0).clamp(-0.5, 0.5);
-        let need = u.powf(1.2) * (1.0 + self.variation * 0.6) - coarse * self.variation * 0.25;
-        // Softness is the width of the growth's border measured in the reach (u), so a soft
-        // setting stays soft however steep the need curve is.
-        // On baked curvature u spans only (apex - outer) of convexity, so the same Softness is
-        // wider in u there.
-        let soft_u = if u_baked < u_geo { (soft / (apex - outer).max(0.05)).min(2.0) } else { soft };
-        let width = soft_u * 0.8 * (1.4 + self.variation * 0.7);
-        // The outer part of the reach fades out so the growth never ends on a step.
-        let mut grow = smoothstep(need - width, need + width, ridge + (1.0 - u) * 0.2) * (1.0 - smoothstep(0.6, 1.0, u));
-        // Breakup eats holes into the growth (stronger further out), never into the line.
-        if self.breakup > 0.0 {
-            let hole = smoothstep(self.breakup * 0.65 - 0.2, self.breakup * 0.65, n);
-            let depth = if self.grunge_map { u.sqrt() } else { 1.0 };
-            grow *= 1.0 - (1.0 - hole) * depth;
-        }
-        if let Some(f) = fine {
-            grow *= 1.0 - self.grain * 0.65 * u * (1.0 - ((f - 0.5) * 2.5 + 0.5).clamp(0.0, 1.0));
-        }
-        core.max(grow)
+        // Grunge and grain move the falloff both ways, but never at its ends: the edge stays 1
+        // and the surface beyond the reach stays 0.
+        let e = ((grunge - 0.5) * 2.0) * (1.0 - self.grain * 0.35) + ((fine - 0.5) * 2.0) * self.grain * 0.35;
+        let shaped = falloff + self.breakup * 1.4 * e * falloff.sqrt() * (1.0 - falloff);
+        // Full wear stops a little short of the reach, where the grunge still shapes the border.
+        smoothstep(0.0, self.contrast_width * 2.0, shaped - (1.0 - 0.9 * self.level))
     }
 }
 
@@ -815,12 +851,8 @@ pub(crate) fn eval_compare(c: &subcraft_doc::CompareMask, m: &[f32], below: Opti
 }
 
 #[cfg(test)]
-mod root_wear_tests {
-    use super::RootWear;
-
-    fn wear(level: f32) -> RootWear {
-        RootWear { level, radius: 0.05, variation: 0.85, breakup: 1.0, grain: 1.0, softness: 0.1, grunge_map: true }
-    }
+mod painter_wear_tests {
+    use super::PainterWear;
 
     /// Deterministic samples covering the whole 0..1 range of every noise field.
     fn samples() -> impl Iterator<Item = (f32, f32, f32)> {
@@ -839,33 +871,49 @@ mod root_wear_tests {
     #[test]
     fn the_edge_line_is_continuous_at_any_level_whatever_the_noise() {
         for level in [0.02f32, 0.05, 0.15, 0.3, 0.6, 1.0] {
-            let w = wear(level);
-            for (n, vein, fine) in samples() {
-                // On a geometric edge and on a baked apex, no noise can open a gap.
-                let geo = w.eval(0.0, 0.0, n, vein, Some(fine));
-                let baked = w.eval(1.0, 1.0, n, vein, Some(fine));
-                assert!(geo > 0.95, "gap on the geometric edge at Level {level}: {geo}");
-                assert!(baked > 0.95, "gap on the baked apex at Level {level}: {baked}");
+            for spread in [0.0f32, 2.5, 12.5] {
+                let w = PainterWear::new(level, spread, 1.0, 1.0, 1.0, 0.3);
+                for (g, c, f) in samples() {
+                    let geo = w.eval(0.001, 0.0, g, c, f);
+                    let baked = w.eval(1.0, 1.0, g, c, f);
+                    assert!(geo > 0.95, "gap on the geometric edge at Level {level} Spread {spread}: {geo}");
+                    assert!(baked > 0.95, "gap on the baked apex at Level {level} Spread {spread}: {baked}");
+                }
             }
         }
     }
 
+    fn coverage(w: &PainterWear, distance: f32) -> f32 {
+        let s: Vec<f32> = samples().map(|(g, c, f)| w.eval(distance, 0.0, g, c, f)).collect();
+        s.iter().filter(|&&v| v > 0.5).count() as f32 / s.len() as f32
+    }
+
     #[test]
-    fn more_level_spreads_in_roots_rather_than_a_solid_band() {
-        let w = wear(0.6);
-        let reach = 0.05 * subcraft_doc::EdgeSpread::level_extent(0.6) * (1.0 + 0.8 * 0.85);
-        let coverage = |t: f32| {
-            let s: Vec<f32> = samples().map(|(n, vein, fine)| w.eval(reach * t, 0.0, n, vein, Some(fine))).collect();
-            s.iter().filter(|&&v| v > 0.5).count() as f32 / s.len() as f32
-        };
-        let (near, mid, far) = (coverage(0.5), coverage(0.6), coverage(0.75));
-        // Wear thins out with distance, and far out only a minority (the vein crests) is worn.
-        assert!(near > mid && mid > far, "coverage must fall off: {near} {mid} {far}");
-        assert!(far > 0.0 && far < 0.3, "far growth must be sparse roots, not a band: {far}");
-        // And it does reach out: a higher Level wears more than a lower one at the same distance.
-        let low = wear(0.15);
-        let at = reach * 0.4;
-        let (hi_sum, lo_sum): (f32, f32) = samples().map(|(n, v, f)| (w.eval(at, 0.0, n, v, Some(f)), low.eval(at, 0.0, n, v, Some(f)))).fold((0.0, 0.0), |a, b| (a.0 + b.0, a.1 + b.1));
-        assert!(hi_sum > lo_sum, "{hi_sum} vs {lo_sum}");
+    fn full_wear_and_spread_cover_most_of_a_wide_reach_with_a_chipped_border() {
+        let w = PainterWear::new(1.0, 12.5, 0.8, 0.5, 0.0, 0.3);
+        assert!((w.reach - 0.25).abs() < 1e-6);
+        // Close to the edge almost everything is worn, half way out most of it, and the border
+        // is broken up rather than a clean line.
+        assert!(coverage(&w, 0.03) > 0.95, "{}", coverage(&w, 0.03));
+        let mid = coverage(&w, 0.12);
+        assert!(mid > 0.6, "half way out at full wear: {mid}");
+        let border = coverage(&w, 0.22);
+        assert!(border > 0.05 && border < 0.95, "the border must be chipped, not all or nothing: {border}");
+        // Beyond the widest reach nothing wears.
+        assert_eq!(coverage(&w, 0.5), 0.0);
+    }
+
+    #[test]
+    fn low_wear_is_a_thin_line_and_level_grows_it_outward() {
+        let low = PainterWear::new(0.05, 12.5, 0.8, 0.5, 0.0, 0.3);
+        assert!(coverage(&low, 0.05) < 0.02, "low wear stays on the edge: {}", coverage(&low, 0.05));
+        let mut last = 0.0;
+        for level in [0.1f32, 0.3, 0.5, 0.7, 1.0] {
+            let w = PainterWear::new(level, 12.5, 0.8, 0.5, 0.0, 0.3);
+            let c = coverage(&w, 0.08);
+            assert!(c >= last, "Level must grow the wear: {level} {c} {last}");
+            last = c;
+        }
+        assert!(last > 0.9);
     }
 }
