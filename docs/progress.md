@@ -5797,6 +5797,10 @@ binaries (1.2 GB each, they filled the disk) and the app integration tests; left
 **New examples (from the reporter):** `crates/app/examples/standin_project.rs` (stand-in project generator) and
 `mem_profile.rs` (RAM per stage, shared tiles counted once). Session gained `memory_diagnostics()`.
 
-**Not verified:** no run in the window or on a Windows / real GPU PC, so the idle GPU use and the desktop stutter are
-not measured here (the reporter measured them with his version of the same fixes). Not taken from his patch: the
-`SUBCRAFT_REPAINT_LOG` diagnostics.
+**Verified by the reporter** on his PC (Windows 11, RTX 5070, i7-13700K, 64 GB; the real 11-set 4K Painter project in
+the app, PR head `6ae789c5`): RAM 8.3 GB open (peak 11.8 GB while loading; was ~30 GB), SubCraft idle GPU ~11% (was
+~99%), idle CPU under 1%, no desktop stutter idle or painting; 2D/3D sync, TAA-off set hiding, set switching, undo /
+redo and save / reopen checked by hand. Follow-up: idle GPU was 4% in his own build. The remaining cause he pointed
+to, the shelf asking for a frame every 30 ms on every tab but Brushes / Alphas, now asks only while thumbnails are left
+to make (`thumbnails_pending`, test `the_shelf_asks_for_frames_only_while_thumbnails_are_left_to_make`); not yet
+re-measured on a GPU. Not taken from his patch: the `SUBCRAFT_REPAINT_LOG` diagnostics.
