@@ -5803,3 +5803,9 @@ symmetry. `crates/app/tests/uv_tools.rs` covers session routing: the 2D clone so
   project, materials, compositor, doc and ui passes.
   **Limit:** on the round hole rim of the default model the hairline at Wear 0.02 to 0.1 is broken into segments;
   the base rim is continuous.
+* **Edge wear on the sphere top (owner report, same day):** a ring of wear sat on the default model's sphere pole, where
+  there is no edge. Not a baking issue: where the pole fan meets the rings, the shading normals turn slightly faster
+  over one short ring of edges (turn 10.1 vs the 8.3 rounded-edge threshold), so the rounded-edge detector took it for
+  a bevel. Now a rounded band must also turn the surface through at least `MIN_ROUNDED_TURN` (0.3 rad, about 17°)
+  across its width; the pole ring turns 0.09 rad, real rims 1.7 rad or more. Test: `edge_rounded_pole`. Render:
+  `docs/generators/edge-wear/edge_wear_sphere_top_fixed.png`.

@@ -10,6 +10,8 @@ use subcraft_mesh::{Bvh, Mesh};
 /// surface counts as a rounded edge, so Spread grows from bevels too (a sphere or a gentle
 /// cylinder stays a surface).
 const ROUNDED_EDGE_RADIUS: f32 = 0.12;
+/// Least total turn (radians) across a rounded band for it to count as an edge (about 17 degrees).
+const MIN_ROUNDED_TURN: f32 = 0.3;
 
 #[derive(Debug, Clone, Copy)]
 struct Segment(Vec3, Vec3);
@@ -163,8 +165,51 @@ impl SurfaceEdges {
         // turns than the sharpest turn nearby (or, on an even bevel, by how far it is from the
         // band's middle), and other nodes by their surface distance to the band.
         let threshold = 1.0 / ROUNDED_EDGE_RADIUS;
-        let band: Vec<bool> = bend.iter().map(|&k| k > threshold).collect();
         let n = positions.len();
+        let mut band: Vec<bool> = bend.iter().map(|&k| k > threshold).collect();
+        // Surface distance of every band node to the band border, and the widest such inset
+        // nearby (the band's half width there).
+        let extent_of = |band: &[bool]| -> (Vec<f32>, Vec<f32>) {
+            let mut inset = vec![f32::INFINITY; n];
+            let mut heap = BinaryHeap::new();
+            for v in 0..n {
+                if band[v] && adjacency[v].iter().any(|&(u, _)| !band[u]) { inset[v] = 0.0; heap.push(Visit(0.0, v)); }
+            }
+            while let Some(Visit(d, v)) = heap.pop() {
+                if d > inset[v] { continue; }
+                for &(u, length) in &adjacency[v] {
+                    if band[u] && d + length < inset[u] { inset[u] = d + length; heap.push(Visit(d + length, u)); }
+                }
+            }
+            let inset: Vec<f32> = inset.iter().zip(band).map(|(&d, &b)| if b && !d.is_finite() { 0.0 } else { d }).collect();
+            let mut half = inset.clone();
+            for _ in 0..6 {
+                half = (0..n).map(|v| if !band[v] { half[v] } else {
+                    adjacency[v].iter().filter(|&&(u, _)| band[u]).fold(half[v], |acc, &(u, _)| acc.max(half[u]))
+                }).collect();
+            }
+            (inset, half)
+        };
+        // A bevel turns the surface through a real angle across its width. A tessellation
+        // hiccup (e.g. where a sphere's pole fan meets its rings) turns fast over one short edge
+        // but only by a degree or two in total: not an edge.
+        {
+            let (_, half) = extent_of(&band);
+            let mut total = vec![0.0f32; n];
+            for v in 0..n {
+                if band[v] {
+                    let edge = adjacency[v].iter().map(|&(_, l)| l).sum::<f32>() / adjacency[v].len().max(1) as f32;
+                    total[v] = bend[v] * (2.0 * half[v] + edge);
+                }
+            }
+            for _ in 0..6 {
+                total = (0..n).map(|v| if !band[v] { 0.0 } else {
+                    adjacency[v].iter().filter(|&&(u, _)| band[u]).fold(total[v], |acc, &(u, _)| acc.max(total[u]))
+                }).collect();
+            }
+            for v in 0..n { band[v] = band[v] && total[v] > MIN_ROUNDED_TURN; }
+        }
+        let band = band;
         let band_ring = |values: &[f32], pick: fn(f32, f32) -> f32| -> Vec<f32> {
             (0..n).map(|v| if !band[v] { values[v] } else {
                 adjacency[v].iter().filter(|&&(u, _)| band[u]).fold(values[v], |acc, &(u, _)| pick(acc, values[u]))
@@ -178,18 +223,7 @@ impl SurfaceEdges {
                 sum / count
             }).collect();
         }
-        let mut inset = vec![f32::INFINITY; n];
-        let mut heap = BinaryHeap::new();
-        for v in 0..n {
-            if band[v] && adjacency[v].iter().any(|&(u, _)| !band[u]) { inset[v] = 0.0; heap.push(Visit(0.0, v)); }
-        }
-        while let Some(Visit(d, v)) = heap.pop() {
-            if d > inset[v] { continue; }
-            for &(u, length) in &adjacency[v] {
-                if band[u] && d + length < inset[u] { inset[u] = d + length; heap.push(Visit(d + length, u)); }
-            }
-        }
-        let inset: Vec<f32> = inset.iter().zip(&band).map(|(&d, &b)| if b && !d.is_finite() { 0.0 } else { d }).collect();
+        let (inset, _) = extent_of(&band);
         let (mut sharp, mut soft, mut half) = (turn.clone(), turn.clone(), inset.clone());
         for _ in 0..6 {
             sharp = band_ring(&sharp, f32::max);
@@ -197,6 +231,7 @@ impl SurfaceEdges {
             half = band_ring(&half, f32::max);
         }
         let mut rounded = vec![f32::INFINITY; n];
+        let mut heap = BinaryHeap::new();
         for v in 0..n {
             if band[v] {
                 let gentler = half[v] * (1.0 - turn[v] / sharp[v].max(1e-6)).clamp(0.0, 1.0) * 2.0;
