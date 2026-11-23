@@ -84,6 +84,28 @@ fn new_settings() -> Vec<(&'static str, Option<Generator>, Option<Generator>)> {
     ]
 }
 
+/// The Dripping Rust columns (tag `drip`).
+fn drip_settings() -> Vec<(&'static str, Option<Generator>, Option<Generator>)> {
+    let rust = |level: f32, edit: &dyn Fn(&mut subcraft_doc::DripSettings)| {
+        let mut g = Generator::new(GeneratorKind::DrippingRust);
+        g.level = level;
+        let mut d = g.drip_settings();
+        edit(&mut d);
+        g.drip = Some(d);
+        g
+    };
+    vec![
+        ("clean", None, None),
+        ("default", Some(Generator::new(GeneratorKind::DrippingRust)), None),
+        ("no drips", Some(rust(0.5, &|d| d.intensity = 0.0)), None),
+        ("long drips", Some(rust(0.5, &|d| { d.length = 0.7; d.intensity = 1.0; })), None),
+        ("smooth drips", Some(rust(0.5, &|d| d.smoothness = 1.0)), None),
+        ("hard contrast", Some(rust(0.5, &|d| d.contrast = 1.0)), None),
+        ("little rust", Some(rust(0.3, &|_| {})), None),
+        ("much rust", Some(rust(0.75, &|_| {})), None),
+    ]
+}
+
 fn main() -> Result<(), String> {
     let args: Vec<_> = std::env::args().skip(1).collect();
     let prefix = args.first().ok_or("expected output prefix")?.clone();
@@ -131,7 +153,7 @@ fn main() -> Result<(), String> {
         handles.push((ts, pair[0], pair[1]));
     }
     println!("bake {:.2}s", t0.elapsed().as_secs_f32());
-    let mut cols = if args.get(3).map(String::as_str) == Some("new") { new_settings() } else { settings() };
+    let mut cols = match args.get(3).map(String::as_str) { Some("new") => new_settings(), Some("drip") => drip_settings(), _ => settings() };
     // `legacy` renders the pre-grain model (what older projects keep): no painter controls, old Spread defaults.
     if args.get(3).map(String::as_str) == Some("legacy") {
         for (_, d, w) in cols.iter_mut() {

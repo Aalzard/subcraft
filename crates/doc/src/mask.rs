@@ -411,6 +411,37 @@ pub struct Generator {
     /// Settings of [`GeneratorKind::MaskBuilder`]. Absent for every other kind.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub builder: Option<MaskBuilder>,
+    /// Settings of [`GeneratorKind::DrippingRust`]. Absent for every other kind.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub drip: Option<DripSettings>,
+}
+
+/// The rust and its drips of [`GeneratorKind::DrippingRust`]. The generator's Level is Painter's
+/// Rust Spreading, its Softness the Spreading Smoothness, its axis the Position axis (up).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DripSettings {
+    /// Rust Contrast: how hard the rust's border is (0 = as soft as the Spreading Smoothness
+    /// makes it, 1 = a hard border).
+    pub contrast: f32,
+    /// Drips Intensity: how strongly the streaks show under the rust (0 = no drips).
+    pub intensity: f32,
+    /// Drips Smoothness: how much neighbouring streaks merge on their way down (0 = thin,
+    /// separate streaks, 1 = one soft stain).
+    pub smoothness: f32,
+    /// How far the drips run down the surface, as a share of the model's size along the axis
+    /// (Painter's Drips Samples Amount: more samples reach further).
+    pub length: f32,
+}
+
+impl Default for DripSettings {
+    fn default() -> Self { Self { contrast: 0.5, intensity: 0.7, smoothness: 0.3, length: 0.25 } }
+}
+
+impl DripSettings {
+    pub fn valid(&self) -> bool {
+        [self.contrast, self.intensity, self.smoothness, self.length].iter().all(|v| v.is_finite() && (0.0..=1.0).contains(v))
+    }
 }
 
 /// The woven glass mat of [`GeneratorKind::FiberGlass`].
@@ -1367,6 +1398,9 @@ pub enum GeneratorKind {
     /// gradient, the world normal, scratches and scattered dots added together, then one global
     /// Level / Contrast ([`Generator::builder`]).
     MaskBuilder,
+    /// Painter's Dripping Rust: rust on the edges and in the cavities, with streaks running
+    /// down the surface under it ([`Generator::drip`]).
+    DrippingRust,
 }
 
 impl GeneratorKind {
@@ -1389,6 +1423,7 @@ impl GeneratorKind {
             GeneratorKind::UvTexelDensity => "UV Texel Density".into(),
             GeneratorKind::FiberGlass => "Fiber Glass Edge Wear".into(),
             GeneratorKind::MaskBuilder => "Mask Builder".into(),
+            GeneratorKind::DrippingRust => "Dripping Rust".into(),
         }
     }
 
@@ -1434,6 +1469,8 @@ impl Generator {
             GeneratorKind::Edges | GeneratorKind::FiberGlass => (0.5, 1.0, 0.5),
             // Level 0.5, Contrast 0: the summed contributions as they are.
             GeneratorKind::MaskBuilder => (0.5, 1.0, 0.0),
+            // Rust Spreading 0.5, Spreading Smoothness 0.3, broken up by the organic noise.
+            GeneratorKind::DrippingRust => (0.5, 0.3, 0.6),
             GeneratorKind::Concave => (0.5, 0.15, 0.3),
             // Balance 0.53 (threshold 0.47), Contrast 0: smoothstep over the whole range, smooth.
             GeneratorKind::AmbientOcclusion => (0.47, 1.0, 0.0),
@@ -1451,7 +1488,7 @@ impl Generator {
             invert: false,
             noise_amount,
             noise,
-            organic_breakup: matches!(kind, GeneratorKind::Edges | GeneratorKind::FiberGlass | GeneratorKind::Cavity | GeneratorKind::Concave),
+            organic_breakup: matches!(kind, GeneratorKind::Edges | GeneratorKind::FiberGlass | GeneratorKind::Cavity | GeneratorKind::Concave | GeneratorKind::DrippingRust),
             edge_spread: kind.is_edge_wear().then(EdgeSpread::default),
             direction: [0.0, 1.0, 0.0],
             axis: GradientAxis::Y,
@@ -1471,8 +1508,12 @@ impl Generator {
             shape: kind.uses_shape().then(ShapeSettings::default),
             fiber: (kind == GeneratorKind::FiberGlass).then(FiberSettings::default),
             builder: (kind == GeneratorKind::MaskBuilder).then(MaskBuilder::default),
+            drip: (kind == GeneratorKind::DrippingRust).then(DripSettings::default),
         }
     }
+
+    /// The Dripping Rust settings in effect (the defaults when absent).
+    pub fn drip_settings(&self) -> DripSettings { self.drip.unwrap_or_default() }
 
     /// The fibre settings in effect (the defaults when absent).
     pub fn fiber_settings(&self) -> FiberSettings { self.fiber.unwrap_or_default() }
@@ -1521,6 +1562,7 @@ impl Generator {
         if kind.uses_shape() && self.shape.is_none() { self.shape = Some(ShapeSettings::default()); }
         if kind == GeneratorKind::FiberGlass && self.fiber.is_none() { self.fiber = Some(FiberSettings::default()); }
         if kind == GeneratorKind::MaskBuilder && self.builder.is_none() { self.builder = Some(MaskBuilder::default()); }
+        if kind == GeneratorKind::DrippingRust && self.drip.is_none() { self.drip = Some(DripSettings::default()); }
     }
 
     /// Image resources the generator reads (the Mask Editor's textures).
@@ -1536,7 +1578,7 @@ impl Generator {
 
     /// Whether this kind reads a baked map that an anchor input can replace.
     pub fn accepts_input(&self) -> bool {
-        !matches!(self.kind, GeneratorKind::Directional | GeneratorKind::PositionGradient | GeneratorKind::MaskEditor | GeneratorKind::MaskBuilder) && !self.kind.uses_shape()
+        !matches!(self.kind, GeneratorKind::Directional | GeneratorKind::PositionGradient | GeneratorKind::MaskEditor | GeneratorKind::MaskBuilder | GeneratorKind::DrippingRust) && !self.kind.uses_shape()
     }
 
     /// Whether the micro effect is on and strong enough to change anything.
@@ -2301,6 +2343,29 @@ mod tests {
         assert!(g.fiber.is_some() && g.edge_spread.is_some());
         assert_eq!(serde_json::to_value(GeneratorKind::FiberGlass).unwrap(), "fiber_glass");
         assert_eq!(serde_json::to_value(GeneratorKind::MaskBuilder).unwrap(), "mask_builder");
+    }
+
+    #[test]
+    fn dripping_rust_has_its_settings_and_round_trips() {
+        let g = Generator::new(GeneratorKind::DrippingRust);
+        assert!(g.drip == Some(DripSettings::default()) && g.drip_settings().valid() && g.axis == GradientAxis::Y);
+        assert!(!g.accepts_input() && !g.accepts_micro_details() && !g.kind.is_edge_wear() && !g.kind.uses_shape());
+        assert_eq!(GeneratorKind::DrippingRust.label(), "Dripping Rust");
+        assert_eq!(serde_json::to_value(GeneratorKind::DrippingRust).unwrap(), "dripping_rust");
+        let mut edited = g;
+        edited.drip = Some(DripSettings { contrast: 0.9, intensity: 0.2, smoothness: 0.7, length: 0.6 });
+        let json = serde_json::to_string(&edited).unwrap();
+        assert_eq!(serde_json::from_str::<Generator>(&json).unwrap(), edited);
+        // A file with only some of the keys reads the rest as the defaults; other kinds write none.
+        let part: DripSettings = serde_json::from_str(r#"{"length":0.5}"#).unwrap();
+        assert_eq!(part, DripSettings { length: 0.5, ..DripSettings::default() });
+        let mut other = Generator::new(GeneratorKind::Cavity);
+        assert!(!serde_json::to_string(&other).unwrap().contains("drip") && other.drip_settings() == DripSettings::default());
+        other.set_kind(GeneratorKind::DrippingRust);
+        assert!(other.drip.is_some());
+        for bad in [f32::NAN, -0.1, 1.5] {
+            assert!(!DripSettings { smoothness: bad, ..DripSettings::default() }.valid());
+        }
     }
 
     #[test]

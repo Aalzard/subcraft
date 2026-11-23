@@ -156,6 +156,9 @@ pub struct TextureSetGeometry {
     edges: Arc<OnceLock<super::edge_distance::SurfaceEdges>>,
     /// Meters of surface per UV unit of this set's triangles (computed on first use).
     uv_meters: OnceLock<f32>,
+    /// Whole-set results a caller derived from this geometry (the drips of a Dripping Rust
+    /// generator), kept while the geometry lives. A handful at most.
+    shared: Mutex<Vec<Arc<dyn std::any::Any + Send + Sync>>>,
 }
 
 impl std::fmt::Debug for TextureSetGeometry {
@@ -200,8 +203,27 @@ impl TextureSetGeometry {
             parts: OnceLock::new(),
             edges: Arc::new(OnceLock::new()),
             uv_meters: OnceLock::new(),
+            shared: Mutex::new(Vec::new()),
         }
     }
+
+    /// A whole-set result of type `T` kept with this geometry: the one `matches` accepts, or
+    /// `make()` (kept in its place; the oldest of more than [`Self::SHARED_LIMIT`] is dropped).
+    /// `make` only creates the entry, under the lock: slow work belongs in a `OnceLock` inside it.
+    pub fn shared<T: std::any::Any + Send + Sync>(&self, matches: impl Fn(&T) -> bool, make: impl FnOnce() -> T) -> Arc<T> {
+        let mut list = self.shared.lock();
+        if let Some(found) = list.iter().filter_map(|e| e.clone().downcast::<T>().ok()).find(|e| matches(e)) {
+            return found;
+        }
+        let made = Arc::new(make());
+        if list.len() >= Self::SHARED_LIMIT {
+            list.remove(0);
+        }
+        list.push(made.clone());
+        made
+    }
+
+    pub const SHARED_LIMIT: usize = 4;
 
     /// The real-world scale of this set's surface for Physical size fills: meters of model
     /// surface per UV unit (the square root of the summed 3D area over the summed UV area of the

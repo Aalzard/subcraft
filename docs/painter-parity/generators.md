@@ -205,19 +205,19 @@ Layout notes: Downward streaks from curvature and occlusion along one Position a
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Dripping Rust (generator) | Properties > Generator | used on: mask or fill | missing | - | - |
-| Curvature | Properties > Generator > Image inputs | grayscale; baked map | missing | - | - |
-| Ambient occlusion | Properties > Generator > Image inputs | grayscale; baked map | missing | - | - |
-| Position | Properties > Generator > Image inputs | colour; baked map | missing | - | - |
-| Seed | Properties > Generator > Parameters | not documented; Random button and pencil field | missing | - | - |
-| Invert | Properties > Generator > Parameters | not documented (toggle) | missing | - | - |
-| Rust Spreading | Properties > Generator > Parameters | not documented | missing | - | - |
-| Rust Contrast | Properties > Generator > Parameters | not documented | missing | - | - |
-| Spreading Smoothness | Properties > Generator > Parameters | not documented | missing | - | - |
-| Drips Intensity | Properties > Generator > Parameters | not documented | missing | - | - |
-| Drips Smoothness | Properties > Generator > Parameters | not documented | missing | - | - |
-| Drips Samples Amount | Properties > Generator > Parameters | not documented | missing | - | - |
-| Position axis | Properties > Generator > Parameters | not documented; options Y (green) / X (red) / Z (blue) | missing | - | - |
+| Dripping Rust (generator) | Properties > Generator | used on: mask or fill | partial: `DrippingRust` kind; rust on mesh edges, baked convex curvature and occlusion, streaks carried down the surface in texture space (stop at UV seams); look not checked against Painter | crates/doc/src/mask.rs (DripSettings), crates/compositor/src/drip.rs | 2026-11-23 |
+| Curvature | Properties > Generator > Image inputs | grayscale; baked map | partial: reads the baked Curvature when there is one; no slot to replace it | crates/compositor/src/drip.rs | 2026-11-23 |
+| Ambient occlusion | Properties > Generator > Image inputs | grayscale; baked map | partial: reads the baked Ambient Occlusion when there is one; no slot to replace it | crates/compositor/src/drip.rs | 2026-11-23 |
+| Position | Properties > Generator > Image inputs | colour; baked map | different: uses the mesh's own positions, no baked Position map needed | crates/compositor/src/drip.rs | 2026-11-23 |
+| Seed | Properties > Generator > Parameters | not documented; Random button and pencil field | done | crates/compositor/src/drip.rs | 2026-11-23 |
+| Invert | Properties > Generator > Parameters | not documented (toggle) | done | crates/compositor/src/drip.rs | 2026-11-23 |
+| Rust Spreading | Properties > Generator > Parameters | not documented | done: the generator's Level | crates/compositor/src/drip.rs | 2026-11-23 |
+| Rust Contrast | Properties > Generator > Parameters | not documented | done | crates/compositor/src/drip.rs | 2026-11-23 |
+| Spreading Smoothness | Properties > Generator > Parameters | not documented | done: the generator's Softness | crates/compositor/src/drip.rs | 2026-11-23 |
+| Drips Intensity | Properties > Generator > Parameters | not documented | done | crates/compositor/src/drip.rs | 2026-11-23 |
+| Drips Smoothness | Properties > Generator > Parameters | not documented | done | crates/compositor/src/drip.rs | 2026-11-23 |
+| Drips Samples Amount | Properties > Generator > Parameters | not documented | different: Drips Length (one pass reaches any length, so there is no sample count) | crates/compositor/src/drip.rs | 2026-11-23 |
+| Position axis | Properties > Generator > Parameters | not documented; options Y (green) / X (red) / Z (blue) | done: Up axis | crates/compositor/src/drip.rs | 2026-11-23 |
 
 ## Fiber Glass Edge Wear
 
