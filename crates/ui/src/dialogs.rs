@@ -964,6 +964,11 @@ pub struct BakeUi {
     auto_due: Option<f64>,
     /// The user picked a size; until then it follows the texture set resolution.
     pub size_chosen: bool,
+    /// Built-in and saved bake presets (loaded when the window first shows).
+    pub presets: Option<subcraft_app::bake_presets::BakePresets>,
+    /// Name typed for "Save as preset", and the last save / delete outcome.
+    pub preset_name: String,
+    pub preset_message: Option<String>,
     pub job: Option<subcraft_app::BakeJob>,
     /// Kept in the dialog until another bake starts, including actionable failures.
     pub result: Option<Result<usize, String>>,
@@ -1028,7 +1033,7 @@ impl Default for BakeUi {
     fn default() -> Self {
         Self { open: false,
             settings: bake_defaults(),
-            high_poly: String::new(), extra_high: Vec::new(), cage_file: String::new(), skip_sets: Default::default(), selected_baker: None, log_tab: BakeLogTab::default(), job_maps: Vec::new(), size_chosen: false, job: None, result: None, report: String::new(), notices: Vec::new(), log: Vec::new(), map_rows: Vec::new(),
+            high_poly: String::new(), extra_high: Vec::new(), cage_file: String::new(), skip_sets: Default::default(), selected_baker: None, log_tab: BakeLogTab::default(), job_maps: Vec::new(), size_chosen: false, presets: None, preset_name: String::new(), preset_message: None, job: None, result: None, report: String::new(), notices: Vec::new(), log: Vec::new(), map_rows: Vec::new(),
             preview: true, cage: true, fit_mode: Default::default(), high_opacity: 0.55, vis: Default::default(), vis_selected_only: false, seam_edges: None, seams_uploaded: false, placement_message: None, live_maps: true, displayed_map: None, follow_maps: true, preview_mesh: None,
             preview_job: None, preview_source: None, preview_path: String::new(), preview_scene: None, preview_error: None, preview_uploaded: false, preview_checked_at: 0.,
             miss_heatmap: false, cage_job: None, cage_result: None, miss_uploaded: false, cage_normals_uploaded: None, was_open: false, synced: None, baseline: None,
@@ -1069,6 +1074,32 @@ impl BakeUi {
         self.cage_file = files.cage_file;
         self.size_chosen = files.size.is_some();
         self.skip_sets = files.skip_sets.into_iter().collect();
+    }
+
+    /// Show preset `key`'s settings; the files and texture-set ticks stay.
+    pub fn apply_preset(&mut self, key: &str) {
+        let Some(config) = self.presets.as_ref().and_then(|p| p.find(key)).map(|p| p.apply_to(&self.config())) else { return };
+        self.preset_message = None;
+        self.apply_config(&config);
+    }
+
+    /// Save the current settings as a preset named [`Self::preset_name`].
+    pub fn save_preset(&mut self) {
+        let config = self.config();
+        let Some(presets) = self.presets.as_mut() else { return };
+        self.preset_message = Some(match presets.save(&self.preset_name, &config) {
+            Ok(p) => format!("{}: {}", tr("Saved preset"), p.name),
+            Err(e) => e,
+        });
+        self.preset_name.clear();
+    }
+
+    pub fn delete_preset(&mut self, key: &str) {
+        let Some(presets) = self.presets.as_mut() else { return };
+        self.preset_message = Some(match presets.delete(key) {
+            Ok(()) => tr("Preset deleted").to_string(),
+            Err(e) => e,
+        });
     }
 
     /// Drop additional high-poly file `i` with its vertex colour set choice.
@@ -1285,6 +1316,13 @@ pub fn bake_mode(state: &mut UiState, ui: &mut egui::Ui, now: f64) {
         }
     };
     state.bake.skip_sets.retain(|id| frame.sets.iter().any(|s| s.0 == *id));
+    if state.bake.presets.is_none() {
+        let presets = subcraft_app::bake_presets::BakePresets::load(state.user_library.as_ref());
+        for e in &presets.load_errors {
+            log::warn!("bake preset: {e}");
+        }
+        state.bake.presets = Some(presets);
+    }
     // Part matching and placement are project settings (saved with the project), edited here.
     let mut bake_match = state.session.settings().bake_match.clone();
     let mut placement = state.session.settings().bake_placement.clone();
@@ -1789,6 +1827,55 @@ fn map_settings_panel(ui: &mut egui::Ui, b: &mut BakeUi) {
 }
 
 /// Common settings: models, placement, output size and cage, viewport overlays.
+/// Pick a bake preset (settings only: files and texture sets stay), save the current settings as
+/// one, or delete one of your own.
+fn bake_presets_card(ui: &mut egui::Ui, b: &mut BakeUi) {
+    use crate::bake_view::card_title;
+    use crate::icons;
+    use crate::widgets::{card, icon_button};
+    let Some(presets) = b.presets.as_ref() else { return };
+    let current = b.config();
+    let matching = presets.matching(&current).map(|p| (p.key().to_string(), p.name.clone(), p.id.is_some()));
+    let (mut apply, mut delete, mut save) = (None, None, false);
+    card(ui, theme::ACCENT_DIM(), |ui| {
+        ui.set_width(ui.available_width());
+        card_title(ui, icons::SLIDERS, tr("Presets"), |_| {});
+        ui.horizontal(|ui| {
+            let shown = matching.as_ref().map_or(tr("Custom").to_string(), |m| m.1.clone());
+            egui::ComboBox::from_id_salt("bake_preset").width(200.0).selected_text(shown).show_ui(ui, |ui| {
+                for p in presets.all() {
+                    let on = matching.as_ref().is_some_and(|m| m.0 == p.key());
+                    if ui.selectable_label(on, &p.name).on_hover_text(tr("Use these settings; the files and texture sets stay")).clicked() {
+                        apply = Some(p.key().to_string());
+                    }
+                }
+            });
+            if let Some((key, _, true)) = &matching
+                && icon_button(ui, icons::TRASH, tr("Delete preset")).clicked()
+            {
+                delete = Some(key.clone());
+            }
+        });
+        ui.horizontal(|ui| {
+            ui.add(egui::TextEdit::singleline(&mut b.preset_name).hint_text(tr("Preset name")).desired_width(160.0));
+            let can = !b.preset_name.trim().is_empty();
+            save = ui.add_enabled(can, egui::Button::new(format!("{}  {}", icons::SAVE, tr("Save as preset")))).on_hover_text(tr("Save the maps and settings (not the files) to reuse in other projects")).clicked();
+        });
+        if let Some(m) = &b.preset_message {
+            ui.label(dim(m));
+        }
+    });
+    if let Some(key) = apply {
+        b.apply_preset(&key);
+    }
+    if let Some(key) = delete {
+        b.delete_preset(&key);
+    }
+    if save {
+        b.save_preset();
+    }
+}
+
 fn common_settings(ui: &mut egui::Ui, b: &mut BakeUi, f: &BakeFrame, bake_match: &mut subcraft_core::BakeMatch, placement: &mut subcraft_core::BakePlacement) {
     use crate::bake_view::{card_title, icon_toggle};
     use crate::icons;
@@ -1797,6 +1884,7 @@ fn common_settings(ui: &mut egui::Ui, b: &mut BakeUi, f: &BakeFrame, bake_match:
     let has_high = !b.high_poly.trim().is_empty();
     // Maps below the texture set's resolution look blocky: default to the largest ticked set.
     let target_res = f.sets.iter().filter(|s| !b.skip_sets.contains(&s.0)).map(|s| s.3).max().unwrap_or(1024).clamp(256, 4096);
+    bake_presets_card(ui, b);
     // --- Models -------------------------------------------------------------------
     card(ui, theme::ACCENT_DIM(), |ui| {
         ui.set_width(ui.available_width());
@@ -2304,6 +2392,31 @@ mod bake_tests {
         draw(&mut state, &ctx, vec![button(false)]);
         assert!(state.bake.job.is_some(), "the actual button starts the background job");
         assert!(state.bake.result.is_none());
+    }
+
+    #[test]
+    fn bake_presets_apply_settings_keep_files_and_save_for_other_projects() {
+        let dir = std::env::temp_dir().join(format!("ui-bake-presets-{}", subcraft_core::ObjectId::new()));
+        let mut b = BakeUi { presets: Some(subcraft_app::bake_presets::BakePresets::load_dir(Some(dir.clone()))), ..Default::default() };
+        b.high_poly = "/art/high.fbx".into();
+        b.apply_preset("High quality");
+        assert_eq!(b.high_poly, "/art/high.fbx", "the high poly stays");
+        assert_eq!((b.settings.ao_samples, b.config().antialiasing), (256, 4));
+        assert_eq!(b.presets.as_ref().unwrap().matching(&b.config()).map(|p| p.name.as_str()), Some("High quality"));
+        b.settings.ao_samples = 100;
+        assert!(b.presets.as_ref().unwrap().matching(&b.config()).is_none(), "an edit makes it Custom");
+        b.preset_name = "Mine".into();
+        b.save_preset();
+        assert!(b.preset_name.is_empty() && b.preset_message.as_deref().is_some_and(|m| m.contains("Mine")));
+        // Another project's Bake window lists it and takes its settings.
+        let mut other = BakeUi { presets: Some(subcraft_app::bake_presets::BakePresets::load_dir(Some(dir.clone()))), ..Default::default() };
+        let key = other.presets.as_ref().unwrap().user()[0].key().to_string();
+        other.apply_preset(&key);
+        assert_eq!(other.settings.ao_samples, 100);
+        assert!(other.high_poly.is_empty());
+        other.delete_preset(&key);
+        assert!(other.presets.as_ref().unwrap().user().is_empty());
+        std::fs::remove_dir_all(dir).ok();
     }
 
     #[test]

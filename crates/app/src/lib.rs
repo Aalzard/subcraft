@@ -12,6 +12,7 @@ pub mod uv_sets;
 pub mod live_link;
 pub mod bake_job;
 pub mod bake_config;
+pub mod bake_presets;
 mod guides;
 pub mod brush_builtin;
 pub mod brush_preset;
