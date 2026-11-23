@@ -84,6 +84,8 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Grid & axes", "格線與座標軸"),
     ("Ground shadow", "地面陰影"),
     ("Height bump", "高度凹凸"),
+    ("Displacement preview", "置換預覽"),
+    ("Subdivision", "細分"),
     ("Help", "說明"),
     ("High", "高"),
     ("High-poly part names end with this (case-insensitive; _hi also works)", "高模部件名稱以此結尾（不分大小寫，_hi 亦可）"),
@@ -1076,4 +1078,9 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Size (cm)", "大小 (公分)"),
     ("Width and height of one repeat on the model, in centimeters. The tiling follows the model's real size, so the pattern keeps its scale across texture sets.", "模型上單次重複的寬度與高度（公分）。拼貼會依模型的實際大小計算，讓圖樣在各紋理集之間保持相同比例。"),
     ("Same size for X and Y; click to set them separately", "X 與 Y 使用相同大小；按一下可分別設定"),
+    ("Material parameters", "材質參數"),
+    ("Put every parameter back to its default", "將所有參數還原為預設值"),
+    ("Sides", "面"),
+    ("Different on every side", "每一面都不同"),
+    ("Each of the six sides shows its own part of the pattern. Off, opposite sides show the same shapes mirrored, which looks like a butterfly on round objects", "六個面各自顯示圖樣的不同部分。關閉時，相對的兩面會顯示鏡像的相同形狀，在圓形物件上看起來像蝴蝶"),
 ];

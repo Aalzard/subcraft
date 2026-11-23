@@ -84,6 +84,8 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Grid & axes", "그리드 및 축"),
     ("Ground shadow", "바닥 그림자"),
     ("Height bump", "높이 범프"),
+    ("Displacement preview", "변위 미리보기"),
+    ("Subdivision", "세분화"),
     ("Help", "도움말"),
     ("High", "하이"),
     ("High-poly part names end with this (case-insensitive; _hi also works)", "하이 폴리 파트 이름이 이 접미사로 끝납니다(대소문자 구분 없음, _hi도 가능)"),
@@ -1076,4 +1078,9 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Size (cm)", "크기 (cm)"),
     ("Width and height of one repeat on the model, in centimeters. The tiling follows the model's real size, so the pattern keeps its scale across texture sets.", "모델에서 한 번 반복되는 너비와 높이(센티미터)입니다. 타일링이 모델의 실제 크기를 따르므로 패턴이 텍스처 세트 간에 같은 크기를 유지합니다."),
     ("Same size for X and Y; click to set them separately", "X와 Y에 같은 크기를 사용합니다. 클릭하면 따로 설정합니다"),
+    ("Material parameters", "머티리얼 매개변수"),
+    ("Put every parameter back to its default", "모든 매개변수를 기본값으로 되돌립니다"),
+    ("Sides", "면"),
+    ("Different on every side", "면마다 다르게"),
+    ("Each of the six sides shows its own part of the pattern. Off, opposite sides show the same shapes mirrored, which looks like a butterfly on round objects", "여섯 면이 각각 패턴의 다른 부분을 보여 줍니다. 끄면 마주 보는 면이 같은 모양을 거울처럼 보여 주어 둥근 물체에서 나비 모양처럼 보입니다"),
 ];

@@ -576,7 +576,7 @@ pub fn add_channel_id() -> egui::Id { egui::Id::new("tss_add_channel") }
 /// channels, then the user channels. Channels the set already has are left out.
 pub fn add_menu_groups(present: &[ChannelKind]) -> [(&'static str, Vec<ChannelKind>); 3] {
     let missing = |f: &dyn Fn(ChannelKind) -> bool| ChannelKind::ALL.iter().copied().filter(|k| !present.contains(k) && f(*k)).collect::<Vec<_>>();
-    let shaded = |k: ChannelKind| subcraft_render::SHADED_CHANNELS.contains(&k);
+    let shaded = subcraft_render::shades;
     [
         ("Supported channels", missing(&|k| !k.is_user() && shaded(k))),
         ("Unsupported channels", missing(&|k| !k.is_user() && !shaded(k))),
@@ -987,7 +987,7 @@ mod tests {
         ctx.data_mut(|d| d.insert_temp(add_several_id(), ticked.clone()));
         for _ in 0..2 { frame(&mut state, &ctx, settings); }
         let t = texts(&frame(&mut state, &ctx, settings));
-        for want in ["Add channels", "Add 2 channels", "Cancel", "Supported channels", "Unsupported channels", "Emissive"] {
+        for want in ["Add channels", "Add 2 channels", "Cancel", "Supported channels", "Emissive", "Coat Color"] {
             assert!(t.iter().any(|s| s == want), "missing {want}: {t:?}");
         }
         // The command it sends adds them as one undo step.
@@ -1018,8 +1018,8 @@ mod tests {
         let groups = add_menu_groups(&ChannelKind::METAL_ROUGH);
         assert_eq!(groups.iter().map(|(t, _)| *t).collect::<Vec<_>>(), ["Supported channels", "Unsupported channels", "User channels"]);
         assert!(groups[0].1.contains(&ChannelKind::AmbientOcclusion) && !groups[0].1.contains(&ChannelKind::BaseColor));
-        assert!(groups[1].1.contains(&ChannelKind::Specular));
-        assert!(ChannelKind::EXTENDED.iter().all(|k| groups[1].1.contains(k)), "coat, sheen... are offered as unsupported channels");
+        assert!(groups[0].1.contains(&ChannelKind::Specular) && groups[1].1.contains(&ChannelKind::Glossiness));
+        assert!(subcraft_render::EXTENDED_CHANNELS.iter().all(|k| groups[0].1.contains(k)), "coat, sheen... are shaded by the viewport");
         assert_eq!(format_badge(ChannelKind::CoatColor, ChannelFormat::Bit8), "sRGB8");
         assert_eq!(format_badge(ChannelKind::CoatNormal, ChannelFormat::Float16), "RGB16F");
         assert_eq!(format_badge(ChannelKind::SheenRoughness, ChannelFormat::Bit8), "L8");

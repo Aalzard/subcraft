@@ -254,7 +254,9 @@ pub fn smart_materials() -> Vec<SmartMaterial> {
         textured("Bricks", "Bricks", bricks),
         textured("Dusty Smooth Concrete", "Smooth Concrete", dusty_concrete),
     ];
-    vec![
+    // Procedural materials (exposed parameters, ADR-0047) lead the shelf.
+    let procedural = crate::procedural::smart_materials();
+    let rest = vec![
         smart("Worn Painted Metal", worn_painted_metal),
         smart("Rusty Iron", rusty_iron),
         smart("Dusty Plastic", dusty_plastic),
@@ -264,8 +266,8 @@ pub fn smart_materials() -> Vec<SmartMaterial> {
     .chain(crate::smart_more::smart_materials())
     .chain(crate::smart_extra::smart_materials())
     .chain(textured.into_iter().flatten())
-    .chain(pbr_pack_smart_materials())
-    .collect()
+    .chain(pbr_pack_smart_materials());
+    procedural.into_iter().chain(rest).collect()
 }
 
 /// The PBR pack's materials as smart materials: a folder with the textured base plus wear and dirt

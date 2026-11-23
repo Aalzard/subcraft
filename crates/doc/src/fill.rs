@@ -399,6 +399,11 @@ pub struct Projection {
     pub triplanar_sharpness: f32,
     /// Planar projection axis (0 = X, 1 = Y, 2 = Z).
     pub planar_axis: u8,
+    /// Tri-planar: each of the six sides reads its own part of the pattern, so the two opposite
+    /// sides (and the blend between two axes) do not show the same shapes mirrored. On for new
+    /// projections; projects saved before it existed read `false` and keep their look.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub triplanar_unique: bool,
     /// Bitmap reconstruction. Not written at its default, so older projects serialize unchanged.
     #[serde(default, skip_serializing_if = "FillFiltering::is_default")]
     pub filtering: FillFiltering,
@@ -431,6 +436,10 @@ pub struct Projection {
     pub physical_size: Option<[f32; 2]>,
 }
 
+fn is_false(v: &bool) -> bool {
+    !*v
+}
+
 fn full_turn() -> f32 {
     360.0
 }
@@ -459,6 +468,7 @@ impl Default for Projection {
             transform3: ProjectionTransform::default(),
             backface: None,
             physical_size: None,
+            triplanar_unique: true,
         }
     }
 }
@@ -826,7 +836,9 @@ mod tests {
         let json = serde_json::to_string(&p).unwrap();
         assert!(!json.contains("filtering") && !json.contains("uv_wrap") && !json.contains("shape_crop"), "{json}");
         let old: Projection = serde_json::from_str(r#"{"mode":"triplanar","scale":[1.0,1.0],"rotation_deg":0.0,"offset":[0.0,0.0],"triplanar_sharpness":8.0,"planar_axis":2}"#).unwrap();
-        assert_eq!(old, Projection { mode: ProjectionMode::Triplanar, ..Projection::default() });
+        // A file from before `triplanar_unique` keeps the mirrored sides it was made with.
+        assert_eq!(old, Projection { mode: ProjectionMode::Triplanar, triplanar_unique: false, ..Projection::default() });
+        assert!(json.contains(r#""triplanar_unique":true"#) && !serde_json::to_string(&old).unwrap().contains("triplanar_unique"), "{json}");
         let set = Projection { filtering: FillFiltering::Nearest, uv_wrap: UvWrap::RepeatHorizontal, shape_crop: ShapeCrop::Crop, ..p };
         let json = serde_json::to_string(&set).unwrap();
         assert!(json.ends_with(r#""filtering":"nearest","uv_wrap":"repeat_horizontal","shape_crop":"crop"}"#), "{json}");

@@ -6060,3 +6060,94 @@ re-measured on a GPU. Not taken from his patch: the `SUBCRAFT_REPAINT_LOG` diagn
   the sphere and the base; with Tiling they follow each part's UV density.
 * Not done: Physical size for brush materials (paint strokes keep Tiling), a per-project unit override for OBJ /
   PLY / STL files saved in centimeters (they read as meters), a material resource's own physical size.
+## Procedural materials with sliders (2026-11-23, branch `claude/project-thread-l9014a`, ADR-0047)
+
+* Format: a procedural material is an ordinary layer (a fill or a folder of masked fills) that carries
+  `MaterialControls` (`crates/doc/src/material.rs`): a list of parameters (float, colour, toggle, seed) and a
+  list of bindings. A binding is `layer [+ effect] + property + formula`. Setting a parameter evaluates the
+  formulas (`crates/doc/src/material_expr.rs`: numbers, parameter names, `+ - * /`, 13 functions) and writes the
+  results into normal layer properties. There is no second evaluator and no node graph; the compositor is unchanged.
+* Saved in projects as an optional `material` block on the layer (`LayerV1.material`, no schema bump, entries
+  read one by one so one bad entry does not lose the rest). Bindings follow the layer through duplicate and the
+  user smart-material library (ids are remapped); instances drop the controls.
+* Commands: `SetMaterialParam` (drags merge into one undo step), `ResetMaterialParams`, `SetMaterialControls`.
+* UI: "Material parameters" section in Properties (`crates/ui/src/panels/material_params.rs`), with per-row reset.
+  Parameter labels are not translated yet.
+* Content: 11 built-in materials in `crates/assets/src/procedural.rs`, first in the Smart Materials shelf under
+  the "Procedural" category.
+* Ran: `cargo check --workspace --all-targets`; `cargo test -p subcraft-doc -p subcraft-project -p subcraft-assets`
+  (all pass, 15 new doc tests, 4 new assets tests); `cargo test -p subcraft-app` (all pass, 5 new in
+  `tests/procedural_materials.rs`: sliders change the composite, one undo step per drag and bad input refused,
+  save/load + duplicate + user library keep parameters, attach/remove controls, every material composites to
+  finite in-range values); `cargo test -p subcraft-ui --lib` (420 pass). The ui integration tests and the render
+  crate were left to CI.
+* Looked at: contact sheets of all 11 at defaults and at several slider settings, rendered with the new
+  `cargo run -p subcraft-app --example material_sheet` on the baked default model. Not run in the real app
+  window (no display in the cloud container), so the panel layout itself is unseen.
+* Known limits: triplanar mask patterns look mirrored on a sphere and wood rings show a seam (both existing
+  pattern behaviour); no UI yet for authoring your own parameters (the command exists); no choice (dropdown)
+  parameters; filter and content-effect settings cannot be bound yet.
+### Session 134 - Viewport shades coat, sheen, anisotropy, subsurface, translucency, transmission; displacement preview (2026-11-22, branch `claude/project-thread-8mawyv`)
+
+* **Asked:** the gap report's top item: the 3D view shaded only metal/roughness; coat, sheen, anisotropy,
+  scattering and transmission could be painted but were not shown, and there was no displacement preview.
+* **Packing (`render/src/extended.rs`, `extended.wgsl`):** devices guarantee 16 sampled textures per stage and
+  the viewport shader already used 12, so the 16 extra channels are packed on the GPU into one RGBA16F array
+  texture (binding 13), one layer per group a texture set actually has (coat colour+opacity; coat roughness,
+  specular level, normal XY; sheen colour+opacity; sheen roughness, anisotropy vector, translucency; scattering
+  colour+amount; transmissive+IOR; displacement). Each channel keeps its own mipmapped texture; only the groups
+  whose channels changed are repacked, only inside the changed tiles' rectangle, at every mip level from the
+  matching source mip. Anisotropy is stored as level x (cos 2θ, sin 2θ) so it filters without wrapping.
+  `VIEWPORT_CHANNELS` lists everything hosts upload; the UI, shelf thumbnails and the MCP renderer use it.
+* **Shading (`viewport.wgsl`):** a set with none of these channels keeps the old shading exactly (the new
+  code only runs when one exists; test: all 16 at their defaults differ by at most 2/255).
+  Anisotropy: anisotropic GGX + correlated Smith for the key light, Filament's bent reflection normal for the
+  environment; angle 0..1 = one turn. Sheen: Charlie distribution + Neubelt visibility, environment term from
+  the three.js albedo fit, base energy scaled down. Coat: second GGX lobe with its own normal (Coat Normal),
+  roughness and F0 (0.08 x Coat Specular Level), Fresnel-dimming and tinting (Coat Color) the layer under it.
+  Subsurface: per-channel normal smoothing + wrap lighting + softened shadow edge weighted by Scattering x
+  Scattering Color. Translucency: back light through the surface plus forward scatter at thin silhouettes.
+  Transmission: environment refracted in and out of a solid body (Filament's sphere model), IOR channel 0..1 =
+  IOR 1..2 (0.5 = 1.5), tinted by Base Color, blurred by roughness. Without an HDRI the procedural sky is seen
+  through it (not the studio panels, which exist to be reflected).
+* **Displacement preview (`render/src/displace.rs`, `displace.wgsl`):** View menu > "Displacement preview"
+  with a subdivision level (Auto = finest within 1M triangles, or 0..4). The mesh is midpoint-subdivided
+  (`subcraft_mesh::subdivide::midpoint`, moved from the mesh exporter, which now calls it) and a compute pass
+  moves every vertex along its normal by (Height + Displacement) x height scale each frame, so painted height
+  reshapes the silhouette at once. Shading, shadows, the AO depth prepass, emission and OIT all draw the
+  displaced mesh. Same math as File > Export mesh with displacement. Needs compute shaders (off without).
+* **Not done / limits:** the path tracer still ignores the extended channels. Picking and painting use the
+  undisplaced mesh (the brush lands on the modelled surface). Hard edges crack open under displacement (split
+  normals), as in the mesh export. Translucency and subsurface are viewport approximations, not a diffusion
+  profile. Transmission shows the environment, not the model behind itself (no screen-space refraction).
+* **Tests (lavapipe, software Vulkan in the cloud container):** new `render/tests/extended_channels.rs` (8:
+  defaults change nothing, coat highlight + opacity 0 = none + coat tint, sheen gain at the rim > centre,
+  anisotropy angle changes streaks with a half-turn period, red bleed at the terminator, back-lit translucency,
+  glass differs from plastic and IOR bends it, one-tile incremental repack == full pack bit-exact),
+  `render/tests/displacement.rs` (2: silhouette area x1.5625 at +0.25 on a unit sphere, x0.5625 at -0.25,
+  Displacement cancels Height, off restores the exact outline; half-UV height bulges one pole only), unit tests
+  for groups, dirty-rect union, auto level, subdivision, prefs defaults. Render: `docs/screenshots/viewport-extended-channels.png`
+  (`cargo run -p subcraft-render --example extended_showcase -- out.png`).
+* **Not checked:** the View menu rows were built but not clicked in a running app; nothing ran on a real GPU
+  (needs a check on Windows/DX12: look, speed of repacking at 4K while painting coat, displacement at level 4).
+
+## Procedural materials look pass: tri-planar sides, rust (2026-11-23, branch `claude/project-thread-l9014a`)
+
+* Mirrored patterns on round shapes: tri-planar sampled the same 2D pattern for all three axes and both signs, so
+  -X showed +X mirrored and the X/Z blend was mirrored across the diagonal. New `Projection::triplanar_unique`
+  (`crates/doc/src/fill.rs`): each of the six sides is shifted (and the far side runs the other way) in
+  `sample::projection::unique_side`. +Z is unchanged. A side has zero weight where its normal changes sign, so the
+  jump cannot show.
+* Compatibility: on in `Projection::default()`, written as `"triplanar_unique":true`; a file without the key reads
+  `false`, so saved projects render exactly as before. The generators' own breakup noise and the Mask Editor
+  textures (`crates/compositor/src/mask.rs`) stay on the old sampling on purpose: they have no stored flag, so
+  changing them would move the wear in saved projects. The pattern field cache key carries the flag.
+* UI: "Sides: Different on every side" checkbox under the tri-planar Hardness row (ko, zh-Hant translated).
+* Rusted Steel: rust colour default (0.17, 0.052, 0.018) linear instead of (0.27, 0.1, 0.035), fine colour
+  variation, darker stain, and a new "Deep Rust" layer in the middle of the patches.
+* Ran: `cargo check --workspace --all-targets`; `cargo test` for doc, materials, compositor, paint, assets,
+  project, export, bake, app (1423 pass, 0 fail); `cargo test -p subcraft-ui --lib` (421 pass). New test
+  `triplanar_unique_sides_are_not_mirror_images`; two pinned-JSON tests now also pin that the old form reads
+  with the flag off.
+* Looked at: `material_sheet` renders of all 11 materials; the left/right mirror on the sphere is gone.
+  Not run in the real app window.

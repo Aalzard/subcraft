@@ -230,7 +230,7 @@ fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]], input: 
     let half = g.softness.max(1e-4) * 0.5;
     // Breakup noise is projected in 3D (triplanar on object position), never in UV: UV noise
     // jumps at every seam and would make wear follow the islands instead of the shape.
-    let noise_proj = Projection { mode: ProjectionMode::Triplanar, triplanar_sharpness: 4.0, ..Projection::default() };
+    let noise_proj = Projection { mode: ProjectionMode::Triplanar, triplanar_sharpness: 4.0, triplanar_unique: false, ..Projection::default() };
     let offset = noise_offset(g);
     let noise_params = scaled_noise(g);
     // The plain Edges threshold (no spread model) keeps its organic noise: the grunge map's broad
@@ -500,6 +500,7 @@ pub(crate) fn editor_raw(g: &Generator, tc: &TileContext, out: &mut [f32]) {
             mode: if texture.triplanar { ProjectionMode::Triplanar } else { ProjectionMode::Uv },
             scale: texture.tiling(bmp.width, bmp.height),
             triplanar_sharpness: texture.triplanar_sharpness(),
+            triplanar_unique: false,
             ..Projection::default()
         };
         let sc = projection.rotation_sin_cos();
@@ -585,7 +586,7 @@ fn breakup_field(g: &Generator, params: &subcraft_doc::ProceduralParams, offset:
 fn custom_grunge(g: &Generator, params: &subcraft_doc::ProceduralParams, offset: [f32; 3], tc: &TileContext) -> Option<Vec<f32>> {
     let bmp = tc.sample.resources.bitmap(g.painter?.custom_grunge?)?;
     let geo = tc.geo;
-    let projection = Projection { mode: ProjectionMode::Triplanar, scale: [params.scale; 2], triplanar_sharpness: 4.0, ..Projection::default() };
+    let projection = Projection { mode: ProjectionMode::Triplanar, scale: [params.scale; 2], triplanar_sharpness: 4.0, triplanar_unique: false, ..Projection::default() };
     let sc = projection.rotation_sin_cos();
     Some(
         (0..TILE_TEXELS)
