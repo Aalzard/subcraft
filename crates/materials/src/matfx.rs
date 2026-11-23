@@ -533,11 +533,12 @@ pub fn respond(filter: &MaterialFilter, pat: &[f32], s: Surface) -> Response {
             if share <= 0.0 {
                 return r;
             }
-            // A lens: full height in the middle, a steep rim.
-            let lens = |t: f32, id: f32, share: f32| if id < share { (1.0 - t * t).max(0.0).sqrt() } else { 0.0 };
+            // A lens: a paraboloid cap, so the rim meets the surface at a finite contact angle (a
+            // half ball's vertical rim aliases into a jagged outline at texture resolution).
+            let lens = |t: f32, id: f32, share: f32| if id < share { (1.0 - t * t).max(0.0) } else { 0.0 };
             let (big, small) = (lens(pat[0], pat[1], share), lens(pat[2], pat[3], share * 0.7));
             let dome = big.max(small * 0.3);
-            let m = smoothstep(0.0, 0.35, big.max(small));
+            let m = smoothstep(0.0, 0.2, big.max(small));
             r.height = dome * height * DROP_HEIGHT;
             r.roughness = roughness;
             r.roughness_alpha = m;

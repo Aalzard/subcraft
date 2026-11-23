@@ -205,7 +205,7 @@ impl MaterialFilter {
         Self::Rough { scale: 60.0, grunge_scale: 9.0, brushing: 0.6, warp: 0.3, grunge: 0.5, seed: 1 },
         Self::Raw { scale: 5.0, intensity: 0.6, seed: 1 },
         Self::DetailEdgeWear { level: 0.5, detail: 0.7, contrast: 0.6, grunge: 0.5, grunge_scale: 24.0, color: [0.56, 0.57, 0.58], roughness: 0.3, metallic: 1.0, seed: 1 },
-        Self::WaterDrops { amount: 0.5, scale: 48.0, size_variation: 0.6, direction: 0.4, top: 1.0, sides: 0.8, underside: 0.15, height: 0.6, roughness: 0.04, wet: 0.3, seed: 1 },
+        Self::WaterDrops { amount: 0.5, scale: 32.0, size_variation: 0.6, direction: 0.4, top: 1.0, sides: 0.8, underside: 0.15, height: 0.6, roughness: 0.04, wet: 0.3, seed: 1 },
     ];
 
     pub fn label(self) -> &'static str {
