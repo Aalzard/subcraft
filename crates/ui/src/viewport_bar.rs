@@ -102,6 +102,17 @@ pub struct ViewportPrefs {
     pub free_rotation: bool,
     /// Saved and imported camera viewpoints.
     pub camera_bookmarks: Vec<crate::view_extras::CameraBookmark>,
+    /// Displacement preview: the mesh subdivided and moved by Height + Displacement.
+    pub displacement: bool,
+    /// Its subdivision level; `None` picks the finest within the triangle budget.
+    pub displacement_level: Option<u32>,
+}
+
+impl ViewportPrefs {
+    /// [`subcraft_render::ViewParams::displacement`] for a mesh of `triangles`.
+    pub fn displacement_params(&self, triangles: usize) -> Option<u32> {
+        self.displacement.then(|| self.displacement_level.unwrap_or_else(|| subcraft_render::displace::auto_level(triangles)).min(subcraft_render::displace::MAX_LEVEL))
+    }
 }
 
 /// Painter's brush cursor display (contextual toolbar brush preview): the brush outline, only a
@@ -165,6 +176,8 @@ impl Default for ViewportPrefs {
             pt_ground_below: true,
             free_rotation: false,
             camera_bookmarks: Vec::new(),
+            displacement: false,
+            displacement_level: None,
         }
     }
 }
@@ -988,5 +1001,52 @@ fn hide_excluded_toggle(ui: &mut egui::Ui, state: &mut crate::state::UiState) {
     let r = ui.add_enabled_ui(enabled, |ui| crate::widgets::icon_toggle(ui, crate::icons::EYE_SLASH, on, tip)).inner;
     if r.clicked() {
         state.session.toggle_hide_excluded();
+    }
+}
+
+/// View menu rows of the displacement preview: on/off, and the subdivision level (automatic or
+/// fixed) with the triangle count it draws for a mesh of `triangles`.
+pub fn displacement_menu(ui: &mut egui::Ui, prefs: &mut ViewportPrefs, triangles: usize) {
+    use subcraft_render::displace::{MAX_LEVEL, auto_level};
+    ui.checkbox(&mut prefs.displacement, crate::i18n::tr("Displacement preview")).on_hover_text(
+        "Subdivide the mesh and move it along its normals by Height + Displacement x the height scale, \
+         as File > Export mesh with displacement does. Painting and picking still use the mesh as modelled.",
+    );
+    if !prefs.displacement {
+        return;
+    }
+    let tris = |level: u32| triangles.saturating_mul(4usize.pow(level));
+    let auto = auto_level(triangles);
+    let text = |level: Option<u32>| match level {
+        None => format!("Auto ({} levels, {} k tris)", auto, tris(auto) / 1000),
+        Some(l) => format!("{l} levels ({} k tris)", tris(l) / 1000),
+    };
+    ui.horizontal(|ui| {
+        ui.label(crate::i18n::tr("Subdivision"));
+        egui::ComboBox::from_id_salt("displacement_level").selected_text(text(prefs.displacement_level)).show_ui(ui, |ui| {
+            ui.selectable_value(&mut prefs.displacement_level, None, text(None));
+            for l in 0..=MAX_LEVEL {
+                ui.selectable_value(&mut prefs.displacement_level, Some(l), text(Some(l)));
+            }
+        });
+    });
+}
+
+#[cfg(test)]
+mod displacement_tests {
+    use super::*;
+
+    #[test]
+    fn displacement_preview_is_off_by_default_and_auto_picks_the_budget_level() {
+        let mut p = ViewportPrefs::default();
+        assert_eq!(p.displacement_params(12), None);
+        p.displacement = true;
+        assert_eq!(p.displacement_params(12), Some(subcraft_render::displace::MAX_LEVEL));
+        assert_eq!(p.displacement_params(100_000), Some(1));
+        p.displacement_level = Some(9);
+        assert_eq!(p.displacement_params(12), Some(subcraft_render::displace::MAX_LEVEL));
+        // Old preference files without the fields keep it off.
+        let old: ViewportPrefs = serde_json::from_str("{}").unwrap();
+        assert!(!old.displacement && old.displacement_level.is_none());
     }
 }
