@@ -64,7 +64,7 @@ git branch -d my-change            # delete the finished branch locally
 ```
 
 Before starting new work, read [`docs/progress.md`](progress.md): it lists what is done and the
-next steps in order. Code rules are in [`CONTRIBUTING.md`](../CONTRIBUTING.md).
+next steps in order. Code rules are in [`CONTRIBUTING.md`](../.github/CONTRIBUTING.md).
 
 ## 4. Build the Windows .exe
 
@@ -165,7 +165,7 @@ to `http://127.0.0.1:<port>`; ordinary builds always use the official HTTPS endp
 ## 7. Working with Claude Code locally (optional)
 
 [Claude Code](https://code.claude.com/docs) can work in this folder on your PC the same way it
-does in the cloud. Start it inside the SubCraft folder: it reads [`CLAUDE.md`](../CLAUDE.md)
+does in the cloud. Start it inside the SubCraft folder: it reads [`CLAUDE.md`](../.claude/CLAUDE.md)
 (project rules) and [`docs/progress.md`](progress.md) (what to do next) automatically. Ask it to
 work on a branch and open a pull request, so the protected `main` and the checks still apply.
 

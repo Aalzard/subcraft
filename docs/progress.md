@@ -6020,3 +6020,15 @@ re-measured on a GPU. Not taken from his patch: the `SUBCRAFT_REPAINT_LOG` diagn
 * Moved internal notes (`HANDOFF-codex.md`, `PROMPT-claude-edge-wear.md`, `cloud-brief-engine.md`,
   `discord-post.md`, `issue-83-reply.md`) to `docs/internal/` with a README; live links in `brush-roadmap.md`,
   `material-workflow-roadmap.md` and the edge-wear prompt updated. Older progress entries keep their old paths.
+
+## Repo front page tidy (2026-11-23, branch `claude/project-thread-kl776f`)
+
+* Moved `CODE_OF_CONDUCT.md` and `CONTRIBUTING.md` to `.github/` (GitHub still finds them there for the
+  community profile and the new-issue/PR links), `CODE_SIGNING.md` to `docs/`, and `CLAUDE.md` to
+  `.claude/CLAUDE.md` (Claude Code reads project instructions from either place).
+* Kept in the root: `README.md`, both licenses, `Cargo.toml`/`Cargo.lock`, `CHANGELOG.md` (the shipped 0.5.0
+  welcome screen links to `blob/main/CHANGELOG.md`, so moving it would break that link in installed copies).
+* Links updated in README, `docs/development.md`, `docs/signing-setup.md`, `docs/release-security.md`, ADR 0046,
+  the moved files themselves and the release-notes text in `release.yml`. The signing policy URL for the
+  SignPath application is now `https://github.com/Aalzard/subcraft/blob/main/docs/CODE_SIGNING.md`.
+* Checked: every relative link in the touched Markdown files resolves (script over `](path)` targets).
