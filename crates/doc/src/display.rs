@@ -540,6 +540,12 @@ pub struct DisplaySettings {
     pub ssr_on: bool,
     pub ssr: f32,
     pub ssr_distance: f32,
+    /// Subsurface scattering in the 3D view (Painter's project-wide switch, off by default): how
+    /// far light scatters at full Scattering, in percent of the model size, and the samples per
+    /// pixel (Painter's Sample Count).
+    pub sss_on: bool,
+    pub sss_radius: f32,
+    pub sss_samples: u32,
     pub glow_on: bool,
     /// Glare from bright emission: luminance (0 = off), shape and streak length 0..1.
     pub glare_on: bool,
@@ -685,6 +691,9 @@ impl Default for DisplaySettings {
             ssr_on: false,
             ssr: 1.0,
             ssr_distance: 50.0,
+            sss_on: false,
+            sss_radius: 2.0,
+            sss_samples: 32,
             glow_on: true,
             glare_on: true,
             glare: 0.0,

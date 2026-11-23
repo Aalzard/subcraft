@@ -220,7 +220,7 @@ Iray renders it through the MDL. The material-type rows are the starting values 
 |---|---|---|---|---|---|
 | Scattering channel | Texture Set settings > add channel | absent; black when added | missing | - | - |
 | Scattering color channel (ASM) | Texture Set settings > add channel | absent | missing | - | - |
-| Project-wide subsurface switch and Sample Count | Display Settings | off | missing | - | - |
+| Project-wide subsurface switch and Sample Count | Display Settings | off | done: Display Settings > Subsurface scattering | crates/render/src/post.wgsl (fs_sss) | - |
 | Real-time screen-space SSS in the viewport | 3D view | - | missing | - | - |
 | SSS in the Iray mode (skin / SSS MDL) | Rendering mode | - | missing | - | - |
 | Shaders with SSS support: pbr-metal-rough, pbr-metal-rough-alpha-test, pbr-coated, pbr-spec-gloss, ASM | Shader mini-shelf | - | missing | - | - |

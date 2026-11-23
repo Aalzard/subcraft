@@ -106,6 +106,13 @@ pub struct PostParams {
     pub ssr: f32,
     /// How far reflection rays travel, in scene units.
     pub ssr_distance: f32,
+    /// Subsurface scattering (0 = off, 1 = on; Painter's project-wide switch): the diffuse light
+    /// of surfaces with a Scattering channel spreads around under the surface.
+    pub sss: f32,
+    /// How far light scatters at full Scattering, in scene units.
+    pub sss_radius: f32,
+    /// Samples per pixel of the scattering blur (more is smoother and slower).
+    pub sss_samples: u32,
 }
 
 impl Default for PostParams {
@@ -137,6 +144,9 @@ impl Default for PostParams {
             contact_length: 0.05,
             ssr: 0.0,
             ssr_distance: 1.0,
+            sss: 0.0,
+            sss_radius: 0.05,
+            sss_samples: 32,
         }
     }
 }
@@ -144,12 +154,22 @@ impl Default for PostParams {
 impl PostParams {
     /// Whether any effect needs extra passes over the scene.
     pub fn active(&self) -> bool {
-        self.bloom > 0.0 || self.ssao > 0.0 || self.dof > 0.0 || self.flare > 0.0 || self.grade.active() || self.screen_space()
+        self.bloom > 0.0 || self.ssao > 0.0 || self.dof > 0.0 || self.flare > 0.0 || self.grade.active() || self.surface_pass()
     }
 
     /// Whether contact shadows or reflections need the surface pass.
     pub fn screen_space(&self) -> bool {
         self.contact_shadows > 0.0 || self.ssr > 0.0
+    }
+
+    /// Whether subsurface scattering is on.
+    pub fn subsurface(&self) -> bool {
+        self.sss > 0.0
+    }
+
+    /// Whether any effect needs the surface pass.
+    pub fn surface_pass(&self) -> bool {
+        self.screen_space() || self.subsurface()
     }
 
     /// Whether the emission glow / glare passes would add anything for a model with emission.
@@ -178,8 +198,13 @@ const AO_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R8Unorm;
 pub(crate) const HDR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 /// The surface pass (viewport.wgsl `fs_surface`): octahedral normal, roughness, reflectance.
 pub(crate) const SURFACE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
-/// The key light's share of each pixel's light (second output of the surface pass).
-pub(crate) const KEY_SHARE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R8Unorm;
+/// The key light's share of each pixel's light and the scattering colour (second output of the
+/// surface pass).
+pub(crate) const KEY_SHARE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
+/// Diffuse light arriving and the scattering amount (third output of the surface pass).
+pub(crate) const SSS_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
+/// Diffuse albedo over all the pixel's light (fourth output of the surface pass).
+pub(crate) const ALBEDO_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 const UNIFORMS: usize = 56;
 const U_AO: usize = 0;
 const U_AO_H: usize = 1;
@@ -207,6 +232,7 @@ const U_FLARE_H: usize = 46;
 const U_FLARE_V: usize = 47;
 const U_FLARE: usize = 48;
 const U_SCREEN: usize = 49;
+const U_SSS: usize = 50;
 /// Streak stages: `U_STREAK + direction * STAGES + stage` (four directions, six stages).
 const U_STREAK: usize = 16;
 const STAGES: usize = 6;
@@ -229,6 +255,10 @@ struct Targets {
     key_share: wgpu::Texture,
     /// The scene with contact shadows and reflections.
     screen: wgpu::Texture,
+    sss: wgpu::Texture,
+    albedo: wgpu::Texture,
+    /// The scene with subsurface scattering.
+    sss_out: wgpu::Texture,
 }
 
 /// What the emission pass draws.
@@ -259,6 +289,7 @@ pub(crate) struct PostPass {
     ghost_add_pipeline: wgpu::RenderPipeline,
     grade_pipeline: wgpu::RenderPipeline,
     screen_pipeline: wgpu::RenderPipeline,
+    sss_pipeline: wgpu::RenderPipeline,
     uniforms: Vec<wgpu::Buffer>,
     targets: Option<Targets>,
 }
@@ -311,6 +342,7 @@ impl PostPass {
                 tex(3, false),
                 tex(4, true),
                 tex(5, false),
+                tex(6, false),
             ],
         });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -405,6 +437,7 @@ impl PostPass {
             ghost_add_pipeline: fullscreen_blend("fs_ghost", HDR_FORMAT, additive),
             grade_pipeline: fullscreen("fs_grade", target::OUTPUT_FORMAT),
             screen_pipeline: fullscreen("fs_screen", target::OUTPUT_FORMAT),
+            sss_pipeline: fullscreen("fs_sss", target::OUTPUT_FORMAT),
             layout,
             sampler,
             dummy_color,
@@ -437,6 +470,9 @@ impl PostPass {
             surface: texture(device, "post surface", size, SURFACE_FORMAT, rt),
             key_share: texture(device, "post key light share", size, KEY_SHARE_FORMAT, rt),
             screen: texture(device, "post screen-space effects", size, target::OUTPUT_FORMAT, rt),
+            sss: texture(device, "post scattering share", size, SSS_FORMAT, rt),
+            albedo: texture(device, "post albedo", size, ALBEDO_FORMAT, rt),
+            sss_out: texture(device, "post subsurface scattering", size, target::OUTPUT_FORMAT, rt),
         });
     }
 
@@ -450,6 +486,21 @@ impl PostPass {
         depth: Option<&wgpu::TextureView>,
         ao: Option<&wgpu::TextureView>,
     ) -> wgpu::BindGroup {
+        self.bind_extra(device, uniform, src, aux, depth, ao, None)
+    }
+
+    /// [`Self::bind`] with a fifth texture (binding 6).
+    #[allow(clippy::too_many_arguments)]
+    fn bind_extra(
+        &self,
+        device: &wgpu::Device,
+        uniform: usize,
+        src: Option<&wgpu::TextureView>,
+        aux: Option<&wgpu::TextureView>,
+        depth: Option<&wgpu::TextureView>,
+        ao: Option<&wgpu::TextureView>,
+        extra: Option<&wgpu::TextureView>,
+    ) -> wgpu::BindGroup {
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("post"),
             layout: &self.layout,
@@ -460,6 +511,7 @@ impl PostPass {
                 wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::TextureView(aux.unwrap_or(&self.dummy_color)) },
                 wgpu::BindGroupEntry { binding: 4, resource: wgpu::BindingResource::TextureView(depth.unwrap_or(&self.dummy_depth)) },
                 wgpu::BindGroupEntry { binding: 5, resource: wgpu::BindingResource::TextureView(ao.unwrap_or(&self.dummy_color)) },
+                wgpu::BindGroupEntry { binding: 6, resource: wgpu::BindingResource::TextureView(extra.unwrap_or(&self.dummy_color)) },
             ],
         })
     }
@@ -528,9 +580,11 @@ impl PostPass {
         let (ao_a, ao_b, depth) = (view(&t.ao[0]), view(&t.ao[1]), view(&t.depth));
         let ssao = params.ssao > 0.0 && mesh.is_some();
         let dof = params.dof > 0.0 && mesh.is_some();
-        let screen = params.screen_space().then_some(surface).flatten();
-        let (surface_view, share_view) = (view(&t.surface), view(&t.key_share));
-        if let Some(draw) = screen {
+        let prepass = params.surface_pass().then_some(surface).flatten();
+        let screen = prepass.filter(|_| params.screen_space());
+        let sss = prepass.filter(|_| params.subsurface());
+        let (surface_view, share_view, sss_view, albedo_view) = (view(&t.surface), view(&t.key_share), view(&t.sss), view(&t.albedo));
+        if let Some(draw) = prepass {
             // Surface prepass for contact shadows and reflections; its depth also serves AO and
             // depth of field.
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -544,6 +598,18 @@ impl PostPass {
                     }),
                     Some(wgpu::RenderPassColorAttachment {
                         view: &share_view,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT), store: wgpu::StoreOp::Store },
+                    }),
+                    Some(wgpu::RenderPassColorAttachment {
+                        view: &sss_view,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT), store: wgpu::StoreOp::Store },
+                    }),
+                    Some(wgpu::RenderPassColorAttachment {
+                        view: &albedo_view,
                         depth_slice: None,
                         resolve_target: None,
                         ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT), store: wgpu::StoreOp::Store },
@@ -570,7 +636,7 @@ impl PostPass {
             }
         }
         if let (true, Some(mesh)) = (ssao || dof, mesh) {
-            if screen.is_none() {
+            if prepass.is_none() {
                 let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("post depth prepass"),
                     color_attachments: &[],
@@ -606,6 +672,13 @@ impl PostPass {
             wgpu::Extent3d { width: size[0], height: size[1], depth_or_array_layers: 1 },
         );
         let mut scene_sharp = view(&t.scene);
+        if sss.is_some() {
+            // Scattering first: contact shadows and reflections then act on the scattered light.
+            write(U_SSS, size, [params.sss_radius.max(1e-6), params.sss_samples.clamp(1, 128) as f32, 0.0, ortho], [0.0, 0.0, 0.0, focal]);
+            let out = view(&t.sss_out);
+            Self::fullscreen(encoder, &self.sss_pipeline, &self.bind_extra(device, U_SSS, Some(&scene_sharp), Some(&sss_view), Some(&depth), Some(&share_view), Some(&albedo_view)), &out);
+            scene_sharp = out;
+        }
         if screen.is_some() {
             // Key light direction in view space (towards the light).
             let l = view_matrix.transform_vector3(light_dir).normalize_or(glam::Vec3::Z);

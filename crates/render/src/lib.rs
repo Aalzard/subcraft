@@ -662,6 +662,8 @@ impl ViewportRenderer {
                 targets: &[
                     Some(wgpu::ColorTargetState { format: post::SURFACE_FORMAT, blend: None, write_mask: wgpu::ColorWrites::ALL }),
                     Some(wgpu::ColorTargetState { format: post::KEY_SHARE_FORMAT, blend: None, write_mask: wgpu::ColorWrites::ALL }),
+                    Some(wgpu::ColorTargetState { format: post::SSS_FORMAT, blend: None, write_mask: wgpu::ColorWrites::ALL }),
+                    Some(wgpu::ColorTargetState { format: post::ALBEDO_FORMAT, blend: None, write_mask: wgpu::ColorWrites::ALL }),
                 ],
             }),
             multiview_mask: None,
@@ -1318,7 +1320,7 @@ impl ViewportRenderer {
             lights: [e.panels, e.top, e.key_softbox, if e.use_hdri && self.env_levels > 1 { 1.0 } else { 0.0 }],
             env_misc: [e.rotation, e.hdri_intensity, (self.env_levels - 1) as f32,
                 bake_map.map_or(solo_mode.unwrap_or(params.view_mode.shader_mode() as f32), |k| if k.components() == 1 { 8. } else { 7. })],
-            post: [grade::tone_map_id(params.post.tone_map), params.post.mapping_factor, 0.0, 0.0],
+            post: [grade::tone_map_id(params.post.tone_map), params.post.mapping_factor, if params.post.subsurface() { 1.0 } else { 0.0 }, 0.0],
             sh,
             inv_view_proj: (params.proj * params.view).inverse().to_cols_array_2d(),
             background: [params.background[0], params.background[1], params.background[2], e.background_opacity.clamp(0.0, 1.0)],
@@ -1471,7 +1473,7 @@ impl ViewportRenderer {
         let emission_on = has_emission && params.post.wants_emission() && params.bake_map.is_none();
         if (params.post.active() || emission_on) && !params.bake_overlay {
             let draw = shown_mesh.filter(|_| emission_on).map(|mesh| post::EmissionDraw { pipeline: &self.pipeline_emissive, mesh, materials: &self.materials, hidden: &self.hidden_slots });
-            let surface = shown_mesh.filter(|_| params.post.screen_space()).map(|mesh| post::EmissionDraw { pipeline: &self.pipeline_surface, mesh, materials: &self.materials, hidden: &self.hidden_slots });
+            let surface = shown_mesh.filter(|_| params.post.surface_pass()).map(|mesh| post::EmissionDraw { pipeline: &self.pipeline_surface, mesh, materials: &self.materials, hidden: &self.hidden_slots });
             self.post.run(device, queue, &mut encoder, target, &self.globals_bg, shown_mesh, draw.as_ref(), surface.as_ref(), params.view, params.light_dir, params.proj, &params.post);
         }
         if params.taa_frame > 0 {

@@ -365,6 +365,10 @@ impl ViewportPrefs {
             contact_length: (d.contact_length.clamp(0.1, 50.0) * 0.01 * diagonal).max(1e-4),
             ssr: amount(d.ssr_on, d.ssr, 1.0),
             ssr_distance: (d.ssr_distance.clamp(1.0, 200.0) * 0.01 * diagonal).max(1e-4),
+            // Not a post effect in Painter: the master switch leaves it alone.
+            sss: if d.sss_on { 1.0 } else { 0.0 },
+            sss_radius: (d.sss_radius.clamp(0.05, 20.0) * 0.01 * diagonal).max(1e-5),
+            sss_samples: d.sss_samples.clamp(4, 128),
             emission_glow: amount(d.glow_on, d.emission_glow, 4.0),
             glow_radius: d.glow_radius.clamp(0.25, 8.0),
             glare: amount(d.glare_on, d.glare, 16.0),

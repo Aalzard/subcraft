@@ -274,8 +274,8 @@ Layout notes: this page is still in the help but the effect is not in the 12.0 e
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Subsurface scattering (project-wide enable) | Display Settings, below Post effects | off | missing | - | - |
-| Sample Count | Display Settings > Subsurface scattering | not documented; 8, 32, 64 shown as examples | missing | - | - |
+| Subsurface scattering (project-wide enable) | Display Settings, below Post effects | off | done: off by default, independent of the post-effects master switch; screen-space diffusion of the arriving light under the albedo, per-channel reach from the Scattering color, plus a Radius (percent of the model size) | crates/render/src/post.wgsl (fs_sss), crates/ui/src/panels/display_settings.rs (subsurface) | - |
+| Sample Count | Display Settings > Subsurface scattering | not documented; 8, 32, 64 shown as examples | done: 8, 16, 32 (default), 64 | crates/ui/src/panels/display_settings.rs (subsurface) | - |
 
 ## Camera settings: Color profile
 

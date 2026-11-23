@@ -502,6 +502,31 @@ fn slider(ui: &mut Ui, text: &str, value: &mut f32, default: f32, range: std::op
     r
 }
 
+/// Painter's project-wide Subsurface scattering switch and Sample Count, below the post effects.
+/// It is not one of them: the master switch leaves it alone.
+fn subsurface(d: &mut subcraft_doc::DisplaySettings, def: &subcraft_doc::DisplaySettings, ui: &mut Ui) {
+    sub_header(ui, tr("Subsurface scattering"));
+    let r = ui.checkbox(&mut d.sss_on, tr("Subsurface scattering")).on_hover_text(tr("Light spreads under the surface of texture sets with a Scattering channel, softening shadows and tinting them with the scattering colour"));
+    crate::reset_row::reset(ui, &r, &r, &mut d.sss_on, &def.sss_on);
+    grid(ui, "display_sss", |ui| {
+        let on = d.sss_on;
+        let l = label(ui, tr("Radius"));
+        let r = ui.add_enabled(on, egui::Slider::new(&mut d.sss_radius, 0.1..=10.0).suffix("%")).on_hover_text(tr("How far light scatters at full Scattering, in percent of the model size"));
+        crate::reset_row::reset(ui, &l, &r, &mut d.sss_radius, &def.sss_radius);
+        ui.end_row();
+        let l = label(ui, tr("Sample count"));
+        let r = ui.add_enabled_ui(on, |ui| {
+            egui::ComboBox::from_id_salt("display_sss_samples").selected_text(d.sss_samples.to_string()).show_ui(ui, |ui| {
+                for n in [8u32, 16, 32, 64] {
+                    ui.selectable_value(&mut d.sss_samples, n, n.to_string());
+                }
+            }).response
+        }).inner.on_hover_text(tr("Samples per pixel: more is smoother and slower"));
+        crate::reset_row::reset(ui, &l, &r, &mut d.sss_samples, &def.sss_samples);
+        ui.end_row();
+    });
+}
+
 /// The post-effect stack: the master switch, then one entry per effect in the order they are
 /// applied (Painter's list), then SubCraft's own extras. Also shown in the Render quality window.
 pub fn post_effects(state: &mut UiState, ui: &mut Ui) {
@@ -655,6 +680,7 @@ pub fn post_effects(state: &mut UiState, ui: &mut Ui) {
         ui.end_row();
     });
     ui.label(RichText::new(tr("Post effects are viewport effects: exported textures never contain them.")).small().color(TEXT_DIM()));
+    subsurface(d, def, ui);
     if pick {
         state.picking_focus = true;
     }
@@ -1087,7 +1113,10 @@ mod tests {
         let off = p.post_params(2.0);
         let plain = PostParams::default();
         assert_eq!(PostParams { ssao_radius: plain.ssao_radius, dof_range: plain.dof_range, dof_focus: plain.dof_focus, bloom_threshold: plain.bloom_threshold, ..off },
-            PostParams { emission_glow: 0.0, glare_mode: off.glare_mode, glare_threshold: off.glare_threshold, glare_remap: off.glare_remap, glare_length: off.glare_length, glow_radius: off.glow_radius, bloom_falloff: off.bloom_falloff, contact_length: off.contact_length, ssr_distance: off.ssr_distance, ..plain });
+            PostParams { emission_glow: 0.0, glare_mode: off.glare_mode, glare_threshold: off.glare_threshold, glare_remap: off.glare_remap, glare_length: off.glare_length, glow_radius: off.glow_radius, bloom_falloff: off.bloom_falloff, contact_length: off.contact_length, ssr_distance: off.ssr_distance, sss_radius: off.sss_radius, ..plain });
+        // Scattering is not a post effect: the master switch leaves it on.
+        p.display.sss_on = true;
+        assert_eq!(p.post_params(2.0).sss, 1.0);
         assert!(!off.active() && !off.wants_emission());
     }
 

@@ -587,7 +587,9 @@ fn shade(in: VsOut, front: bool) -> vec4<f32> {
         // Subsurface scattering: light spreads further for the scattering colour, so those
         // channels see a smoother normal (the geometric one) and wrap past the terminator, and
         // their shadow edges soften.
-        let w = select(vec3<f32>(0.0), clamp(x_sss.a, 0.0, 1.0) * clamp(x_sss.rgb, vec3<f32>(0.0), vec3<f32>(1.0)), sss_on);
+        // With screen-space scattering on (g.post.z = 1, post.rs `fs_sss`) the light is spread
+        // over the surface there instead, so this stand-in stays out of the way.
+        let w = select(vec3<f32>(0.0), clamp(x_sss.a, 0.0, 1.0) * clamp(x_sss.rgb, vec3<f32>(0.0), vec3<f32>(1.0)), sss_on && g.post.z < 0.5);
         let nl = mix(vec3<f32>(dot(n, l)), vec3<f32>(dot(n0, l)), w);
         let wrap = w * 0.6;
         let diff_nl = clamp((nl + wrap) / (1.0 + wrap), vec3<f32>(0.0), vec3<f32>(1.0));
@@ -742,9 +744,15 @@ fn oct_encode(n: vec3<f32>) -> vec2<f32> {
 struct SurfaceOut {
     // Octahedral world normal, roughness, reflectance at normal incidence.
     @location(0) surface: vec4<f32>,
-    // Share of the pixel's light that comes straight from the key light (what contact shadows
-    // may take away).
+    // r: share of the pixel's light that comes straight from the key light (what contact
+    // shadows may take away); gba: the scattering colour (how far each channel scatters).
     @location(1) key_share: vec4<f32>,
+    // Subsurface scattering: rgb the diffuse light arriving (before the albedo), a the
+    // scattering amount (0 = the surface does not scatter).
+    @location(2) sss: vec4<f32>,
+    // Diffuse albedo divided by all the pixel's light: turns a change of arriving light into a
+    // change of the shown colour (post.rs `fs_sss`).
+    @location(3) albedo: vec4<f32>,
 };
 
 // Surface pass for the screen-space effects (contact shadows, reflections; post.rs): the shading
@@ -779,9 +787,18 @@ fn fs_surface(in: VsOut, @builtin(front_facing) front: bool) -> SurfaceOut {
     let ambient = (diffuse * irradiance(n) * ao + env_brdf(f0, rough, nov) * environment(reflect(-v, n), l, rough)) * g.params.y;
     let lum = vec3<f32>(0.2126, 0.7152, 0.0722);
     let share = dot(direct, lum) / max(dot(direct + ambient, lum), 1e-5);
+    // Scattering: the diffuse light arriving here (spread around by the scattering pass, under
+    // the albedo), and the albedo over all the light leaving (to turn that into colour).
+    let x_sss = ext_sample(4, vec4<f32>(1.0, 1.0, 1.0, 0.0), in.uv);
+    let amount = select(0.0, clamp(x_sss.a, 0.0, 1.0), mat.ext_flags.y > 0.5);
+    let arriving = g.light_color.rgb * g.params.z * nol * shadow_visibility(in.world, n0, in.clip.xy) / PI + irradiance(n) * ao * g.params.y;
+    let emissive = material_sample(t_emissive, samp, in.uv).rgb * mat.shader.y;
+    let total = direct + ambient + emissive;
     var out: SurfaceOut;
     out.surface = vec4<f32>(oct_encode(n), rough, max(f0.r, max(f0.g, f0.b)));
-    out.key_share = vec4<f32>(clamp(share, 0.0, 1.0));
+    out.key_share = vec4<f32>(clamp(share, 0.0, 1.0), clamp(x_sss.rgb, vec3<f32>(0.0), vec3<f32>(1.0)));
+    out.sss = vec4<f32>(min(arriving, vec3<f32>(60000.0)), amount);
+    out.albedo = vec4<f32>(min(diffuse / max(total, vec3<f32>(1e-3)), vec3<f32>(60000.0)), 1.0);
     return out;
 }
 
