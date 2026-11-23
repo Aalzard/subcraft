@@ -11,12 +11,6 @@ a planning list, not a promise.
 - Editable `.sbsar` graphs: SubCraft reads what `.spp` / `.spsm` containers hold, but does not run
   Substance graphs.
 
-### Painting
-- Stroke stabilizer post-smoothing (redrawing the finished stroke along a smoothed path).
-
-### Layers and masks
-- Layer links across texture sets (one layer driving several sets).
-
 ### Baking
 - GPU path for Bent normal, Height and the high-poly projection (AO, Thickness and Curvature
   already run on the GPU).
@@ -54,7 +48,10 @@ a planning list, not a promise.
 - Mesh formats: OBJ, glTF, FBX, USD, Alembic.
 - Liquify (Push mode of the Smudge tool), Heal (Clone tool option), rectangle / ellipse Shape fill tool.
 - Bake presets (built-in and saved to the library).
-- Stabilizer presets (Off / Light / Medium / Strong / Rope), speed-adaptive smoothing, catch-up toggle.
+- Stabilizer presets (Off / Light / Medium / Strong / Rope), speed-adaptive smoothing, catch-up toggle,
+  post-smoothing (the finished stroke is painted again along a smoothed path).
+- Layer links across texture sets: "Instantiate across texture sets" and the instance list (this was
+  listed as missing by mistake).
 - Version history: each Save keeps the file it replaces; File > Version history restores one.
 - Turntable as GIF, camera bookmarks, environment rotation and blur.
 - Shelf tags and saved searches; weave, rivet, brick and fingerprint content.

@@ -143,6 +143,67 @@ impl ScreenPath {
     }
 }
 
+/// Post-smoothing at full strength: the smoothing window reaches this many view pixels of
+/// path along either side of each point.
+pub const POST_SMOOTHING_PX: f32 = 60.0;
+
+/// Post-smoothing (redraw the finished stroke along a smoothed path): each point becomes a
+/// smooth (biweight) average of its neighbours within `radius` of path length on either side.
+/// The window shrinks near the ends, so the first and last points stay where they were and the stroke
+/// still starts and stops where it was drawn. Points are weighted by the path length they
+/// stand for, so a slow part (dense events) does not pull harder than a fast one. Same count
+/// and order out as in, so per-point pressure still lines up.
+pub fn post_smooth(points: &[Vec2], radius: f32) -> Vec<Vec2> {
+    if points.len() < 3 || !(radius.is_finite() && radius > 0.0) {
+        return points.to_vec();
+    }
+    // Path length on a shaky path is mostly the shake: a wide zigzag 8 px apart has ~50 px of
+    // path per point, so one pass would average only a couple of neighbours. Each pass measures
+    // length on the previous, calmer result, so the window takes in more points every time.
+    let mut out = points.to_vec();
+    for _ in 0..POST_SMOOTHING_PASSES {
+        out = post_smooth_pass(&out, radius);
+    }
+    out
+}
+
+/// Passes of [`post_smooth`].
+const POST_SMOOTHING_PASSES: usize = 4;
+
+fn post_smooth_pass(points: &[Vec2], radius: f32) -> Vec<Vec2> {
+    let n = points.len();
+    let mut s = vec![0.0f32; n];
+    for i in 1..n {
+        s[i] = s[i - 1] + points[i].distance(points[i - 1]);
+    }
+    let total = s[n - 1];
+    // Path length each point stands for (half of each neighbouring segment).
+    let ds: Vec<f32> = (0..n).map(|i| (s[(i + 1).min(n - 1)] - s[i.saturating_sub(1)]) * 0.5).collect();
+    let mut out = Vec::with_capacity(n);
+    let mut lo = 0;
+    for i in 0..n {
+        let r = radius.min(s[i]).min(total - s[i]);
+        if r <= 1e-3 {
+            out.push(points[i]);
+            continue;
+        }
+        while s[lo] < s[i] - r {
+            lo += 1;
+        }
+        let (mut sum, mut weight) = (Vec2::ZERO, 0.0f32);
+        let mut j = lo;
+        while j < n && s[j] <= s[i] + r {
+            let d = (s[j] - s[i]) / r;
+            let w = (1.0 - d * d).max(0.0).powi(2) * ds[j].max(1e-6);
+            sum += points[j] * w;
+            weight += w;
+            j += 1;
+        }
+        out.push(if weight > 0.0 { sum / weight } else { points[i] });
+    }
+    out
+}
+
 /// Deterministic per-stamp random numbers in [0, 1).
 #[inline]
 pub fn rand01(seed: u32, stamp: u32, stream: u32) -> f32 {
@@ -274,5 +335,26 @@ mod tests {
         let mean: f32 = (0..1000).map(|i| rand01(7, i, 0)).sum::<f32>() / 1000.0;
         assert!((mean - 0.5).abs() < 0.05);
         assert!((0..1000).all(|i| (0.0..1.0).contains(&rand01(7, i, 1))));
+    }
+
+    #[test]
+    fn post_smoothing_irons_out_jitter_and_keeps_the_ends() {
+        // A horizontal line with +-4 px zigzag every point, 2 px apart.
+        let raw: Vec<Vec2> = (0..101).map(|i| Vec2::new(i as f32 * 2.0, if i % 2 == 0 { 4.0 } else { -4.0 })).collect();
+        let out = post_smooth(&raw, 30.0);
+        assert_eq!(out.len(), raw.len());
+        assert_eq!(out[0], raw[0]);
+        assert_eq!(out[100], raw[100]);
+        // Away from the ends the zigzag is nearly gone and x keeps its order.
+        assert!(out[20..80].iter().all(|p| p.y.abs() < 0.5), "{:?}", &out[20..30]);
+        assert!(out.windows(2).all(|w| w[1].x >= w[0].x));
+        // A clean straight line stays where it is; zero radius changes nothing.
+        let line: Vec<Vec2> = (0..20).map(|i| Vec2::new(i as f32, 0.0)).collect();
+        assert!(post_smooth(&line, 30.0).iter().zip(&line).all(|(a, b)| a.distance(*b) < 1e-3));
+        assert_eq!(post_smooth(&raw, 0.0), raw);
+        // A wide zigzag (+-25 px, 8 px apart: mostly up and down) still comes out nearly flat.
+        let wide: Vec<Vec2> = (0..41).map(|i| Vec2::new(i as f32 * 8.0, if i == 0 || i == 40 { 0.0 } else if i % 2 == 0 { 25.0 } else { -25.0 })).collect();
+        let out = post_smooth(&wide, POST_SMOOTHING_PX);
+        assert!(out[8..33].iter().all(|p| p.y.abs() < 5.0), "{:?}", &out[8..33]);
     }
 }

@@ -664,6 +664,9 @@ pub struct StrokeOptions {
     pub catch_up: bool,
     /// Smoothing follows the speed: full on slow, shaky movement, little on fast sweeps.
     pub adaptive_smoothing: bool,
+    /// Post-smoothing (0 = off, 1 = strongest): when the stroke ends it is painted again along
+    /// a smoothed copy of its path ([`crate::path::post_smooth`]). 3D view strokes only.
+    pub post_smoothing: f32,
     /// Mirror planes (X, Y, Z) through the mesh bounds center.
     pub symmetry: [bool; 3],
     /// Mirror plane positions: offset of each plane from the mesh bounds center along its own

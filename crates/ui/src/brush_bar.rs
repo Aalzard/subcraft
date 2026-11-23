@@ -709,7 +709,8 @@ pub(crate) fn stabilizer_preset(options: &StrokeOptions) -> Option<&'static str>
         && options.catch_up == p.3 && options.adaptive_smoothing == p.4).map(|p| p.0)
 }
 
-/// Stabilizer settings in the stroke options menu: presets, smoothing, lazy mouse, catch-up.
+/// Stabilizer settings in the stroke options menu: presets, smoothing, lazy mouse,
+/// post-smoothing, catch-up.
 fn stabilizer(ui: &mut Ui, options: &mut StrokeOptions) {
     ui.label(RichText::new(crate::i18n::tr("Stabilizer")).color(TEXT_DIM()));
     let current = stabilizer_preset(options);
@@ -734,6 +735,13 @@ fn stabilizer(ui: &mut Ui, options: &mut StrokeOptions) {
     let r = ui.add(widgets::typed_slider(egui::Slider::new(&mut options.lazy_distance_px, 0.0..=100.0).suffix(" px lazy mouse")));
     widgets::ctrl_reset(ui, r, &mut options.lazy_distance_px, 0.0);
     ui.label(RichText::new("Distance the brush trails the cursor · 0 px = off").small().color(TEXT_DIM()));
+    let mut post = options.post_smoothing * 100.0;
+    let r = ui.add(widgets::typed_slider(egui::Slider::new(&mut post, 0.0..=100.0).max_decimals(0).suffix(" % post-smoothing")))
+        .on_hover_text(crate::i18n::tr("When you lift the pen, the stroke is painted again along a smoothed path (3D view; straight lines stay as drawn)"));
+    if r.changed() {
+        options.post_smoothing = post / 100.0;
+    }
+    widgets::ctrl_reset(ui, r, &mut options.post_smoothing, 0.0);
     ui.checkbox(&mut options.adaptive_smoothing, crate::i18n::tr("Follow speed"))
         .on_hover_text(crate::i18n::tr("Full smoothing on slow, shaky movement; little on fast sweeps"));
     ui.checkbox(&mut options.catch_up, crate::i18n::tr("Catch up at the end"))

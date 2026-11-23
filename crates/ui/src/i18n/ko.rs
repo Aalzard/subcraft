@@ -1162,4 +1162,5 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Next UDIM tile", "다음 UDIM 타일"),
     ("Previous UDIM tile", "이전 UDIM 타일"),
     ("UDIM tiles of this texture set, as laid out in UV space", "UV 공간 배치대로 표시한 이 텍스처 세트의 UDIM 타일"),
+    ("When you lift the pen, the stroke is painted again along a smoothed path (3D view; straight lines stay as drawn)", "펜을 떼면 획을 부드럽게 다듬은 경로를 따라 다시 칠합니다 (3D 뷰, 직선은 그대로 유지)"),
 ];

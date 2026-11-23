@@ -1162,4 +1162,5 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Next UDIM tile", "下一個 UDIM 圖塊"),
     ("Previous UDIM tile", "上一個 UDIM 圖塊"),
     ("UDIM tiles of this texture set, as laid out in UV space", "此紋理集的 UDIM 圖塊，依 UV 空間排列"),
+    ("When you lift the pen, the stroke is painted again along a smoothed path (3D view; straight lines stay as drawn)", "抬起筆時，筆觸會沿著平滑後的路徑重新繪製（3D 檢視；直線維持原樣）"),
 ];
