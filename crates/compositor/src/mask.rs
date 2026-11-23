@@ -92,7 +92,7 @@ fn mask_resources(mask: &Mask) -> Vec<subcraft_core::ResourceId> {
     for e in &mask.effects {
         match &e.kind {
             MaskEffectKind::Image { resource, .. } => ids.push(*resource),
-            MaskEffectKind::Filter(subcraft_doc::Filter::GradientDynamic { source, .. }) => ids.push(*source),
+            MaskEffectKind::Filter(f) => ids.extend(f.resources()),
             MaskEffectKind::Generator(g) => ids.extend(g.resources()),
             _ => {}
         }

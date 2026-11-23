@@ -241,11 +241,13 @@ pub enum SlopeSource {
     Noise,
     /// The image being filtered: samples walk along its own gradient.
     Input,
+    /// A grayscale image picked by the user, tiled like the noise: reads go uphill on it.
+    Custom,
 }
 impl SlopeSource {
-    pub const ALL: [Self; 2] = [Self::Noise, Self::Input];
+    pub const ALL: [Self; 3] = [Self::Noise, Self::Input, Self::Custom];
     pub fn label(self) -> &'static str {
-        match self { Self::Noise => "Default noise", Self::Input => "Previous input" }
+        match self { Self::Noise => "Default noise", Self::Input => "Previous input", Self::Custom => "Custom noise" }
     }
 }
 
@@ -276,6 +278,8 @@ pub struct SlopeParts {
     pub samples: u32,
     pub source: SlopeSource,
     pub mode: SlopeMode,
+    /// The Custom noise image.
+    pub image: Option<subcraft_core::ResourceId>,
 }
 
 /// What sets the radius of a Non-uniform Blur at each texel.
@@ -289,11 +293,13 @@ pub enum BlurMap {
     InvertedValue,
     /// A smooth noise: patches of sharp and blurred.
     Noise,
+    /// A grayscale image picked by the user, stretched over the texture: white blurs most.
+    Image,
 }
 impl BlurMap {
-    pub const ALL: [Self; 3] = [Self::Value, Self::InvertedValue, Self::Noise];
+    pub const ALL: [Self; 4] = [Self::Value, Self::InvertedValue, Self::Noise, Self::Image];
     pub fn label(self) -> &'static str {
-        match self { Self::Value => "Bright areas", Self::InvertedValue => "Dark areas", Self::Noise => "Noise" }
+        match self { Self::Value => "Bright areas", Self::InvertedValue => "Dark areas", Self::Noise => "Noise", Self::Image => "Image" }
     }
 }
 
@@ -306,11 +312,14 @@ pub enum MatchSource {
     Average,
     /// The Source Color parameter.
     Parameter,
+    /// A colour image picked by the user, stretched over the texture: each texel moves from
+    /// the image's colour there.
+    Image,
 }
 impl MatchSource {
-    pub const ALL: [Self; 2] = [Self::Average, Self::Parameter];
+    pub const ALL: [Self; 3] = [Self::Average, Self::Parameter, Self::Image];
     pub fn label(self) -> &'static str {
-        match self { Self::Average => "Average", Self::Parameter => "Parameter" }
+        match self { Self::Average => "Average", Self::Parameter => "Parameter", Self::Image => "Input" }
     }
 }
 
@@ -474,16 +483,51 @@ pub enum Filter {
     /// `source` Input puts the reads on the line across the nearest edge of the image itself, half
     /// of them uphill and half downhill, up to `intensity` pixels each way (`scale` and `seed` are then
     /// unused). `mode` keeps the average, the darkest or the brightest read.
-    BlurSlopeMode { intensity: f32, scale: u32, seed: u32, samples: u32, source: SlopeSource, mode: SlopeMode },
+    /// `source` Custom reads `image` (grayscale, `scale` repetitions across the texture) as the
+    /// slope: each texel reads uphill on it. Without an image it does nothing.
+    BlurSlopeMode {
+        intensity: f32,
+        scale: u32,
+        seed: u32,
+        samples: u32,
+        source: SlopeSource,
+        mode: SlopeMode,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        image: Option<subcraft_core::ResourceId>,
+    },
     /// Blur whose radius changes per texel: `radius` pixels where the map is 1, none where it
     /// is 0. The map is the texel's own value, its inverse, or a noise with `scale` cells across
     /// the texture (`seed`). `samples` reads per texel on a spiral, Gaussian weighted.
-    NonUniformBlur { radius: f32, map: BlurMap, scale: u32, seed: u32, samples: u32 },
+    /// Map Image reads `image` (grayscale, stretched over the texture); without one nothing is
+    /// blurred.
+    NonUniformBlur {
+        radius: f32,
+        map: BlurMap,
+        scale: u32,
+        seed: u32,
+        samples: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        image: Option<subcraft_core::ResourceId>,
+    },
     /// Painter's Color Match: moves the colours near `source` (the Source Color, or the average
     /// of the whole input) so that the source colour becomes `target`, keeping the variation
     /// around it. Works in OKLab. `hue`, `chroma` and `luma` (0..=1) are how far from the source
     /// a colour may be and still move; 1 is no limit. Color channels only.
-    ColorMatch { source_mode: MatchSource, source: [f32; 3], target: [f32; 3], hue: f32, chroma: f32, luma: f32 },
+    /// Source mode Image takes the source colour per texel from `source_image`; a
+    /// `target_image` gives the target colour per texel instead of `target` (both stretched over
+    /// the texture). A missing source image falls back to `source`.
+    ColorMatch {
+        source_mode: MatchSource,
+        source: [f32; 3],
+        target: [f32; 3],
+        hue: f32,
+        chroma: f32,
+        luma: f32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        source_image: Option<subcraft_core::ResourceId>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_image: Option<subcraft_core::ResourceId>,
+    },
     /// [`Filter::Grayscale`] with Painter's Grayscale Conversion options (same panel): how the
     /// colour becomes gray (`mode`), then Invert, Balance (0.5 neutral) and Contrast (0 neutral)
     /// as in [`Filter::GradientCurve`].
@@ -661,18 +705,19 @@ impl Filter {
         Self::AnisotropicKuwahara { radius: 6.0, smoothness: 0.5, sharpness: 8.0, tensor_smoothness: 2.0, anisotropy: 1.0, angle: 0.0, extract_direction: true },
         // Painter documents no defaults.
         Self::Quantize { colors: 8, contour_smoothing: 0.0, dithering: 0.0, pattern: DitherPattern::Bayer4, lab: true, apply_to_alpha: false, alpha_threshold: 0.5 },
-        Self::NonUniformBlur { radius: 12.0, map: BlurMap::Value, scale: 4, seed: 1, samples: 32 },
-        Self::ColorMatch { source_mode: MatchSource::Average, source: [0.5; 3], target: [0.5; 3], hue: 1.0, chroma: 1.0, luma: 1.0 }];
+        Self::NonUniformBlur { radius: 12.0, map: BlurMap::Value, scale: 4, seed: 1, samples: 32, image: None },
+        Self::ColorMatch { source_mode: MatchSource::Average, source: [0.5; 3], target: [0.5; 3], hue: 1.0, chroma: 1.0, luma: 1.0, source_image: None, target_image: None }];
     /// A Blur Slope filter: the plain variant when the options are the defaults.
     pub fn blur_slope(p: SlopeParts) -> Self {
-        let SlopeParts { intensity, scale, seed, samples, source, mode } = p;
-        if source == SlopeSource::Noise && mode == SlopeMode::Blur { Self::BlurSlope { intensity, scale, seed, samples } } else { Self::BlurSlopeMode { intensity, scale, seed, samples, source, mode } }
+        let SlopeParts { intensity, scale, seed, samples, source, mode, image } = p;
+        // The picked image is kept while another source is selected, so switching back finds it.
+        if source == SlopeSource::Noise && mode == SlopeMode::Blur && image.is_none() { Self::BlurSlope { intensity, scale, seed, samples } } else { Self::BlurSlopeMode { intensity, scale, seed, samples, source, mode, image } }
     }
     /// Parameters of either Blur Slope variant.
     pub fn slope_parts(self) -> Option<SlopeParts> {
         match self {
-            Self::BlurSlope { intensity, scale, seed, samples } => Some(SlopeParts { intensity, scale, seed, samples, source: SlopeSource::Noise, mode: SlopeMode::Blur }),
-            Self::BlurSlopeMode { intensity, scale, seed, samples, source, mode } => Some(SlopeParts { intensity, scale, seed, samples, source, mode }),
+            Self::BlurSlope { intensity, scale, seed, samples } => Some(SlopeParts { intensity, scale, seed, samples, source: SlopeSource::Noise, mode: SlopeMode::Blur, image: None }),
+            Self::BlurSlopeMode { intensity, scale, seed, samples, source, mode, image } => Some(SlopeParts { intensity, scale, seed, samples, source, mode, image }),
             _ => None,
         }
     }
@@ -767,12 +812,56 @@ impl Filter {
         }
     }
 
-    /// The image a filter reads (Gradient Dynamic's source), when it has one.
-    pub fn resource(self) -> Option<subcraft_core::ResourceId> {
+    /// The image slots of a filter that is shown in its current mode: slot index (stable per
+    /// variant), the button text when the slot is empty, and the image in it.
+    pub fn image_slots(self) -> Vec<(usize, &'static str, Option<subcraft_core::ResourceId>)> {
         match self {
-            Self::GradientDynamic { source, .. } if source != subcraft_core::ResourceId::nil() => Some(source),
-            _ => None,
+            Self::GradientDynamic { source, .. } => vec![(0, "Choose gradient image…", (source != subcraft_core::ResourceId::nil()).then_some(source))],
+            Self::BlurSlopeMode { source: SlopeSource::Custom, image, .. } => vec![(0, "Choose noise image…", image)],
+            Self::NonUniformBlur { map: BlurMap::Image, image, .. } => vec![(0, "Choose blur map image…", image)],
+            Self::ColorMatch { source_mode, source_image, target_image, .. } => {
+                let mut slots = Vec::new();
+                if source_mode == MatchSource::Image {
+                    slots.push((0, "Choose source color image…", source_image));
+                }
+                slots.push((1, "Choose target color image…", target_image));
+                slots
+            }
+            _ => Vec::new(),
         }
+    }
+
+    /// Put `image` in a slot of [`Filter::image_slots`] (`None` empties it). False when the
+    /// filter has no such slot.
+    pub fn set_image(&mut self, slot: usize, image: Option<subcraft_core::ResourceId>) -> bool {
+        match (self, slot) {
+            (Self::GradientDynamic { source, .. }, 0) => *source = image.unwrap_or(subcraft_core::ResourceId::nil()),
+            (Self::BlurSlopeMode { image: i, .. }, 0) | (Self::NonUniformBlur { image: i, .. }, 0) => *i = image,
+            (Self::ColorMatch { source_image, .. }, 0) => *source_image = image,
+            (Self::ColorMatch { target_image, .. }, 1) => *target_image = image,
+            _ => return false,
+        }
+        true
+    }
+
+    /// Every image the filter holds, used in its current mode or not (they are saved with it).
+    pub fn resources(self) -> Vec<subcraft_core::ResourceId> {
+        match self {
+            Self::GradientDynamic { source, .. } if source != subcraft_core::ResourceId::nil() => vec![source],
+            Self::BlurSlopeMode { image, .. } | Self::NonUniformBlur { image, .. } => image.into_iter().collect(),
+            Self::ColorMatch { source_image, target_image, .. } => source_image.into_iter().chain(target_image).collect(),
+            _ => Vec::new(),
+        }
+    }
+
+    /// The first image a filter reads, when it has one.
+    pub fn resource(self) -> Option<subcraft_core::ResourceId> {
+        self.resources().first().copied()
+    }
+
+    /// Whether a Color Match reads images, which only the compositor can do.
+    pub fn match_reads_images(self) -> bool {
+        matches!(self, Self::ColorMatch { source_mode: MatchSource::Image, source_image: Some(_), .. } | Self::ColorMatch { target_image: Some(_), .. })
     }
 
     /// A Gradient Dynamic filter whose source image is still to be picked.
@@ -819,8 +908,8 @@ impl Filter {
             Self::DirectionalWarp { intensity, angle_deg } => Self::DirectionalWarp { intensity: intensity * factor, angle_deg },
             Self::Mosaic { size } => Self::Mosaic { size: ((size as f32 * factor).round() as u32).clamp(1, MAX_MOSAIC_SIZE) },
             Self::DirectionalDistance { distance, angle_deg, contrast } => Self::DirectionalDistance { distance: distance * factor, angle_deg, contrast },
-            Self::BlurSlopeMode { intensity, scale, seed, samples, source, mode } => Self::BlurSlopeMode { intensity: intensity * factor, scale, seed, samples, source, mode },
-            Self::NonUniformBlur { radius, map, scale, seed, samples } => Self::NonUniformBlur { radius: radius * factor, map, scale, seed, samples },
+            Self::BlurSlopeMode { intensity, scale, seed, samples, source, mode, image } => Self::BlurSlopeMode { intensity: intensity * factor, scale, seed, samples, source, mode, image },
+            Self::NonUniformBlur { radius, map, scale, seed, samples, image } => Self::NonUniformBlur { radius: radius * factor, map, scale, seed, samples, image },
             Self::Quantize { colors, contour_smoothing, dithering, pattern, lab, apply_to_alpha, alpha_threshold } => {
                 Self::Quantize { colors, contour_smoothing: (contour_smoothing * factor).min(MAX_QUANTIZE_SMOOTHING), dithering, pattern, lab, apply_to_alpha, alpha_threshold }
             }
@@ -1016,26 +1105,26 @@ mod tests {
         let parts = plain.slope_parts().unwrap();
         assert_eq!(Filter::blur_slope(parts), plain);
         let eat = Filter::blur_slope(SlopeParts { source: SlopeSource::Input, mode: SlopeMode::Min, ..parts });
-        assert_eq!(eat, Filter::BlurSlopeMode { intensity: 8.0, scale: 4, seed: 1, samples: 8, source: SlopeSource::Input, mode: SlopeMode::Min });
+        assert_eq!(eat, Filter::BlurSlopeMode { intensity: 8.0, scale: 4, seed: 1, samples: 8, source: SlopeSource::Input, mode: SlopeMode::Min, image: None });
         assert_eq!(Filter::blur_slope(eat.slope_parts().unwrap()), eat);
         assert!(eat.valid() && eat.label() == "Blur Slope" && eat.is_pixelwise() && eat.softens_coverage() && eat.supports_mask());
         assert_eq!((eat.radius(), eat.support()), (Some(8.0), 22), "the walk, the smoothed slope and its taps");
-        assert_eq!(Filter::BlurSlopeMode { intensity: 8.0, scale: 4, seed: 1, samples: 8, source: SlopeSource::Noise, mode: SlopeMode::Min }.support(), 9);
+        assert_eq!(Filter::BlurSlopeMode { intensity: 8.0, scale: 4, seed: 1, samples: 8, source: SlopeSource::Noise, mode: SlopeMode::Min, image: None }.support(), 9);
         assert_eq!(eat.scaled(0.5).radius(), Some(4.0));
-        assert!(Filter::BlurSlopeMode { intensity: 0.0, scale: 4, seed: 1, samples: 8, source: SlopeSource::Input, mode: SlopeMode::Max }.spatial_identity());
-        assert!(!Filter::BlurSlopeMode { intensity: 8.0, scale: 4, seed: 1, samples: 1, source: SlopeSource::Input, mode: SlopeMode::Max }.valid());
+        assert!(Filter::BlurSlopeMode { intensity: 0.0, scale: 4, seed: 1, samples: 8, source: SlopeSource::Input, mode: SlopeMode::Max, image: None }.spatial_identity());
+        assert!(!Filter::BlurSlopeMode { intensity: 8.0, scale: 4, seed: 1, samples: 1, source: SlopeSource::Input, mode: SlopeMode::Max, image: None }.valid());
         assert_eq!(serde_json::to_string(&eat).unwrap(), r#"{"kind":"blur_slope_mode","intensity":8.0,"scale":4,"seed":1,"samples":8,"source":"input","mode":"min"}"#);
 
-        let nub = Filter::NonUniformBlur { radius: 12.0, map: BlurMap::Value, scale: 4, seed: 1, samples: 32 };
+        let nub = Filter::NonUniformBlur { radius: 12.0, map: BlurMap::Value, scale: 4, seed: 1, samples: 32, image: None };
         assert!(Filter::ALL.contains(&nub) && nub.valid() && nub.label() == "Non-uniform Blur" && nub.is_pixelwise() && nub.softens_coverage());
         assert!(nub.supports_mask() && nub.supports_channel(ChannelKind::Height) && !nub.supports_channel(ChannelKind::Normal) && !nub.reads_whole_texture());
         assert_eq!((nub.radius(), nub.support(), nub.scaled(0.5).radius()), (Some(12.0), 13, Some(6.0)));
-        assert!(Filter::NonUniformBlur { radius: 0.0, map: BlurMap::Noise, scale: 4, seed: 1, samples: 32 }.spatial_identity());
+        assert!(Filter::NonUniformBlur { radius: 0.0, map: BlurMap::Noise, scale: 4, seed: 1, samples: 32, image: None }.spatial_identity());
         for bad in [
-            Filter::NonUniformBlur { radius: 33.0, map: BlurMap::Value, scale: 4, seed: 1, samples: 32 },
-            Filter::NonUniformBlur { radius: 8.0, map: BlurMap::Value, scale: 0, seed: 1, samples: 32 },
-            Filter::NonUniformBlur { radius: 8.0, map: BlurMap::Value, scale: 4, seed: 1, samples: 3 },
-            Filter::NonUniformBlur { radius: 8.0, map: BlurMap::Value, scale: 4, seed: 1, samples: MAX_BLUR_SAMPLES + 1 },
+            Filter::NonUniformBlur { radius: 33.0, map: BlurMap::Value, scale: 4, seed: 1, samples: 32, image: None },
+            Filter::NonUniformBlur { radius: 8.0, map: BlurMap::Value, scale: 0, seed: 1, samples: 32, image: None },
+            Filter::NonUniformBlur { radius: 8.0, map: BlurMap::Value, scale: 4, seed: 1, samples: 3, image: None },
+            Filter::NonUniformBlur { radius: 8.0, map: BlurMap::Value, scale: 4, seed: 1, samples: MAX_BLUR_SAMPLES + 1, image: None },
         ] {
             assert!(!bad.valid(), "{bad:?}");
         }
@@ -1043,18 +1132,55 @@ mod tests {
 
         // Color Match: colour content only. Average reads the whole texture and is staged;
         // Parameter is a point filter.
-        let average = Filter::ColorMatch { source_mode: MatchSource::Average, source: [0.5; 3], target: [0.5; 3], hue: 1.0, chroma: 1.0, luma: 1.0 };
-        let picked = Filter::ColorMatch { source_mode: MatchSource::Parameter, source: [0.5; 3], target: [0.1; 3], hue: 0.2, chroma: 1.0, luma: 1.0 };
+        let average = Filter::ColorMatch { source_mode: MatchSource::Average, source: [0.5; 3], target: [0.5; 3], hue: 1.0, chroma: 1.0, luma: 1.0, source_image: None, target_image: None };
+        let picked = Filter::ColorMatch { source_mode: MatchSource::Parameter, source: [0.5; 3], target: [0.1; 3], hue: 0.2, chroma: 1.0, luma: 1.0, source_image: None, target_image: None };
         assert!(Filter::ALL.contains(&average) && average.valid() && picked.valid() && average.label() == "Color Match");
         assert!(average.supports_channel(ChannelKind::BaseColor) && !average.supports_channel(ChannelKind::Roughness) && !average.supports_mask());
         assert!(average.is_pixelwise() && average.reads_whole_texture() && average.support() == FULL_SUPPORT && !average.softens_coverage());
         assert!(!picked.is_pixelwise() && !picked.reads_whole_texture() && picked.radius().is_none());
-        assert!(!Filter::ColorMatch { source_mode: MatchSource::Average, source: [0.5; 3], target: [0.5; 3], hue: 1.2, chroma: 1.0, luma: 1.0 }.valid());
-        assert!(!Filter::ColorMatch { source_mode: MatchSource::Average, source: [0.5; 3], target: [-0.1, 0.5, 0.5], hue: 1.0, chroma: 1.0, luma: 1.0 }.valid());
+        assert!(!Filter::ColorMatch { source_mode: MatchSource::Average, source: [0.5; 3], target: [0.5; 3], hue: 1.2, chroma: 1.0, luma: 1.0, source_image: None, target_image: None }.valid());
+        assert!(!Filter::ColorMatch { source_mode: MatchSource::Average, source: [0.5; 3], target: [-0.1, 0.5, 0.5], hue: 1.0, chroma: 1.0, luma: 1.0, source_image: None, target_image: None }.valid());
         assert_eq!(serde_json::to_string(&picked).unwrap(), r#"{"kind":"color_match","source_mode":"parameter","source":[0.5,0.5,0.5],"target":[0.1,0.1,0.1],"hue":0.2,"chroma":1.0,"luma":1.0}"#);
         for f in [eat, nub, average, picked] {
             assert_eq!(serde_json::from_str::<Filter>(&serde_json::to_string(&f).unwrap()).unwrap(), f);
         }
+    }
+
+    #[test]
+    fn image_slots_follow_the_mode_and_old_files_load_without_them() {
+        let (a, b) = (subcraft_core::ResourceId::new(), subcraft_core::ResourceId::new());
+        // Blur Slope: a slot only on the custom noise source; the image survives a mode change.
+        let mut f = Filter::BlurSlopeMode { intensity: 8.0, scale: 4, seed: 1, samples: 8, source: SlopeSource::Custom, mode: SlopeMode::Blur, image: None };
+        assert_eq!(f.image_slots(), vec![(0, "Choose noise image…", None)]);
+        assert!(f.set_image(0, Some(a)) && !f.set_image(1, Some(b)));
+        assert_eq!((f.image_slots()[0].2, f.resources(), f.resource()), (Some(a), vec![a], Some(a)));
+        let mut parts = f.slope_parts().unwrap();
+        parts.source = SlopeSource::Noise;
+        let noise = Filter::blur_slope(parts);
+        assert!(matches!(noise, Filter::BlurSlopeMode { image: Some(i), .. } if i == a), "the image is kept: {noise:?}");
+        assert!(noise.image_slots().is_empty() && noise.resources() == vec![a]);
+        assert!(Filter::BlurSlope { intensity: 8.0, scale: 4, seed: 1, samples: 8 }.image_slots().is_empty());
+        // Non-uniform Blur: a slot only on the Image map.
+        let mut f = Filter::NonUniformBlur { radius: 8.0, map: BlurMap::Image, scale: 4, seed: 1, samples: 32, image: None };
+        assert!(f.set_image(0, Some(a)) && f.image_slots() == vec![(0, "Choose blur map image…", Some(a))]);
+        assert!(Filter::NonUniformBlur { radius: 8.0, map: BlurMap::Value, scale: 4, seed: 1, samples: 32, image: Some(a) }.image_slots().is_empty());
+        // Color Match: the target slot always, the source slot in the Input mode.
+        let mut f = Filter::ColorMatch { source_mode: MatchSource::Parameter, source: [0.5; 3], target: [0.1; 3], hue: 1.0, chroma: 1.0, luma: 1.0, source_image: None, target_image: None };
+        assert_eq!(f.image_slots().iter().map(|s| s.0).collect::<Vec<_>>(), vec![1]);
+        assert!(!f.match_reads_images() && f.set_image(0, Some(a)) && !f.match_reads_images(), "a source image is unused outside the Input mode");
+        assert!(f.set_image(1, Some(b)) && f.match_reads_images() && f.resources() == vec![a, b]);
+        assert!(f.set_image(1, None) && f.resources() == vec![a]);
+        if let Filter::ColorMatch { source_mode, .. } = &mut f { *source_mode = MatchSource::Image; }
+        assert!(f.match_reads_images() && f.image_slots().iter().map(|s| s.0).collect::<Vec<_>>() == vec![0, 1]);
+        // Files: images round-trip, and files written before the slots existed still load.
+        for f in [f, noise] { assert_eq!(serde_json::from_str::<Filter>(&serde_json::to_string(&f).unwrap()).unwrap(), f); }
+        let old: Filter = serde_json::from_str(r#"{"kind":"non_uniform_blur","radius":12.0,"map":"value","scale":4,"seed":1,"samples":32}"#).unwrap();
+        assert_eq!(old, Filter::NonUniformBlur { radius: 12.0, map: BlurMap::Value, scale: 4, seed: 1, samples: 32, image: None });
+        let old: Filter = serde_json::from_str(r#"{"kind":"color_match","source_mode":"average","source":[0.5,0.5,0.5],"target":[0.1,0.1,0.1],"hue":1.0,"chroma":1.0,"luma":1.0}"#).unwrap();
+        assert!(matches!(old, Filter::ColorMatch { source_image: None, target_image: None, .. }));
+        // Gradient Dynamic keeps its one slot.
+        let mut g = Filter::gradient_dynamic();
+        assert!(g.image_slots()[0].2.is_none() && g.set_image(0, Some(a)) && g.resources() == vec![a] && g.set_image(0, None) && g.resources().is_empty());
     }
 
     #[test]

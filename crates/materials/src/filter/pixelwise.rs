@@ -45,62 +45,74 @@ pub fn directional_distance(read: impl Fn(i32, i32) -> [f32; 4], distance: f32, 
     [best, best, best, here[3]]
 }
 
-/// Blur Slope with a mode. `sample(dx, dy)` is the premultiplied, bilinear read at an offset
-/// from the texel. The reads go evenly from the texel to `offset` (the noise source, as the
-/// plain filter does) or, `two_sided`, from `-offset` to `offset` through the texel (the line
-/// across the nearest edge of the image itself, see [`slope_offset`]). Blur averages the reads;
-/// Min and Max keep the read with the lowest or highest value times coverage, from at least one
-/// read per pixel of the way on a band [`SLOPE_BAND`] pixels to each side. The result is straight alpha.
-pub fn slope_blur(sample: impl Fn(f32, f32) -> [f32; 4], offset: [f32; 2], two_sided: bool, samples: u32, mode: subcraft_doc::SlopeMode, kind: ChannelKind) -> [f32; 4] {
+/// Blur Slope with a mode. The reads go evenly from the texel to `offset` (the noise sources,
+/// as the plain filter does) or, `two_sided`, from `-offset` to `offset` through the texel (the
+/// line across the nearest edge of the image itself, see [`slope_offset`]).
+///
+/// Blur averages `samples` reads of `sample(dx, dy)`, the premultiplied bilinear read at an
+/// offset from the texel. Min and Max keep the texel with the lowest or highest value times
+/// coverage among every texel the line touches: at each stop, one per pixel of the way at
+/// least, the texels a bilinear read there would mix (`texel(dx, dy)`, straight alpha, whole
+/// offsets). Whole texels, because a bilinear read of a thin line returns a different mix at
+/// every phase, which showed as ribs along widened lines. The result is straight alpha.
+pub fn slope_blur(
+    sample: impl Fn(f32, f32) -> [f32; 4],
+    texel: impl Fn(i32, i32) -> [f32; 4],
+    offset: [f32; 2],
+    two_sided: bool,
+    samples: u32,
+    mode: subcraft_doc::SlopeMode,
+    kind: ChannelKind,
+) -> [f32; 4] {
     use subcraft_doc::SlopeMode;
     let [dx, dy] = offset;
     let length = (dx * dx + dy * dy).sqrt() * if two_sided { 2.0 } else { 1.0 };
-    // Min and Max must not step over a thin line (that showed as stripes), whatever the Quality.
     let samples = if mode == SlopeMode::Blur { samples.max(2) } else { samples.max(length.ceil() as u32 + 1) };
-    // ... and they read a band three reads wide: a single line crossing a thin, stair-stepped
-    // feature catches a different part of each step, which showed as ribs along it.
-    let side = if mode == SlopeMode::Blur || length < 1e-6 { [0.0; 2] } else { [-dy / length * SLOPE_BAND, dx / length * SLOPE_BAND].map(|v| v * if two_sided { 2.0 } else { 1.0 }) };
     // An odd count on a two-sided line, so the texel itself is one of the reads.
     let samples = if two_sided { samples | 1 } else { samples };
-    let mut out = [0.0f32; 4];
-    let mut best = f32::NAN;
-    for k in 0..samples {
+    let at = |k: u32| {
         let t = k as f32 / (samples - 1) as f32;
         let t = if two_sided { t * 2.0 - 1.0 } else { t };
-        let s = sample(dx * t, dy * t);
-        match mode {
-            SlopeMode::Blur => {
-                for c in 0..4 {
-                    out[c] += s[c] / samples as f32;
-                }
-            }
-            SlopeMode::Min | SlopeMode::Max => {
-                for w in [0.0f32, 1.0, -1.0] {
-                    // The texel itself is read once, on the centre line only.
-                    if w != 0.0 && (side == [0.0; 2] || (dx * t == 0.0 && dy * t == 0.0)) {
-                        continue;
-                    }
-                    let s = if w == 0.0 { s } else { sample(dx * t + side[0] * w, dy * t + side[1] * w) };
-                    let key = scalar(s, kind);
-                    if best.is_nan() || (mode == SlopeMode::Min && key < best) || (mode == SlopeMode::Max && key > best) {
-                        best = key;
-                        out = s;
-                    }
-                }
+        (dx * t, dy * t)
+    };
+    if mode == SlopeMode::Blur {
+        let mut out = [0.0f32; 4];
+        for k in 0..samples {
+            let (x, y) = at(k);
+            let s = sample(x, y);
+            for c in 0..4 {
+                out[c] += s[c] / samples as f32;
             }
         }
+        if out[3] > 1e-12 {
+            let a = out[3];
+            for c in &mut out[..3] {
+                *c /= a;
+            }
+        }
+        return out;
     }
-    if out[3] > 1e-12 {
-        let a = out[3];
-        for c in &mut out[..3] {
-            *c /= a;
+    let mut out = texel(0, 0);
+    let mut best = scalar(out, kind) * out[3].min(1.0);
+    for k in 0..samples {
+        let (x, y) = at(k);
+        let (x0, y0) = (x.floor(), y.floor());
+        // Only the texels with a share in the bilinear read: one column or row when on it.
+        let xs = [Some(x0 as i32), (x > x0).then_some(x0 as i32 + 1)];
+        let ys = [Some(y0 as i32), (y > y0).then_some(y0 as i32 + 1)];
+        for ty in ys.into_iter().flatten() {
+            for tx in xs.into_iter().flatten() {
+                let p = texel(tx, ty);
+                let key = scalar(p, kind) * p[3].min(1.0);
+                if (mode == SlopeMode::Min && key < best) || (mode == SlopeMode::Max && key > best) {
+                    best = key;
+                    out = p;
+                }
+            }
         }
     }
     out
 }
-
-/// Half width in pixels of the band Min and Max read along the slope line.
-pub const SLOPE_BAND: f32 = 0.75;
 
 /// Far end of the line a Blur Slope on Previous input reads along, from the gradient `g`
 /// (value change per pixel) of the smoothed image at the texel: along the gradient, `intensity`
@@ -116,12 +128,14 @@ pub fn slope_offset(g: [f32; 2], intensity: f32) -> [f32; 2] {
 }
 
 /// Radius map of a Non-uniform Blur at the texel centre (x, y): 0..=1. `value` is the texel's
-/// own value (luminance on colour, the magnitude for signed Height).
-pub fn blur_map(map: subcraft_doc::BlurMap, value: f32, x: u32, y: u32, res: u32, scale: u32, seed: u32) -> f32 {
+/// own value (luminance on colour, the magnitude for signed Height), `image` the map image's.
+pub fn blur_map(map: subcraft_doc::BlurMap, value: f32, image: Option<f32>, x: u32, y: u32, res: u32, scale: u32, seed: u32) -> f32 {
     use subcraft_doc::BlurMap;
     match map {
         BlurMap::Value => value.abs().clamp(0.0, 1.0),
         BlurMap::InvertedValue => 1.0 - value.abs().clamp(0.0, 1.0),
+        // The image's value at the texel (read by the compositor); nothing without an image.
+        BlurMap::Image => image.unwrap_or(0.0).clamp(0.0, 1.0),
         BlurMap::Noise => {
             let p = (glam::Vec2::new(x as f32, y as f32) + 0.5) / res.max(1) as f32 * scale as f32;
             // Stretched so the noise reaches both a sharp 0 and a full 1.
@@ -229,34 +243,47 @@ mod tests {
         use subcraft_doc::SlopeMode;
         let k = ChannelKind::Roughness;
         // A vertical step at x = 3.5 seen from the texel (bright to the right), full coverage.
-        let step = |dx: f32, _dy: f32| { let v = ((dx - 3.0).clamp(0.0, 1.0)) * 0.8 + 0.1; [v, v, v, 1.0] };
+        let step_at = |dx: f32| ((dx - 3.0).clamp(0.0, 1.0)) * 0.8 + 0.1;
+        let step = |dx: f32, _dy: f32| { let v = step_at(dx); [v, v, v, 1.0] };
+        let step_px = |dx: i32, _dy: i32| { let v = step_at(dx as f32); [v, v, v, 1.0] };
         let flat = |_: f32, _: f32| [0.3, 0.3, 0.3, 1.0];
+        let flat_px = |_: i32, _: i32| [0.3, 0.3, 0.3, 1.0];
         for mode in SlopeMode::ALL {
             for two_sided in [false, true] {
                 // Flat input, or no offset: the texel itself comes back.
-                let n = slope_blur(flat, [5.0, -3.0], two_sided, 8, mode, k);
+                let n = slope_blur(flat, flat_px, [5.0, -3.0], two_sided, 8, mode, k);
                 assert!((n[0] - 0.3).abs() < 1e-6 && (n[3] - 1.0).abs() < 1e-6);
-                assert!((slope_blur(step, [0.0; 2], two_sided, 8, mode, k)[0] - 0.1).abs() < 1e-6);
+                assert!((slope_blur(step, step_px, [0.0; 2], two_sided, 8, mode, k)[0] - 0.1).abs() < 1e-6);
             }
         }
         // The edge is within reach: Max takes the bright side, Min keeps the dark texel, Blur
         // lands between. Two-sided reads both ways, so the direction's sign does not matter.
         for off in [[6.0, 0.0], [-6.0, 0.0]] {
-            let (lo, mid, hi) = (slope_blur(step, off, true, 12, SlopeMode::Min, k)[0], slope_blur(step, off, true, 12, SlopeMode::Blur, k)[0], slope_blur(step, off, true, 12, SlopeMode::Max, k)[0]);
+            let run = |mode| slope_blur(step, step_px, off, true, 12, mode, k)[0];
+            let (lo, mid, hi) = (run(SlopeMode::Min), run(SlopeMode::Blur), run(SlopeMode::Max));
             assert!((lo - 0.1).abs() < 1e-6 && (hi - 0.9).abs() < 1e-6 && mid > 0.15 && mid < 0.85, "{lo} {mid} {hi}");
         }
         // Out of reach: untouched.
-        assert!((slope_blur(step, [2.0, 0.0], true, 12, SlopeMode::Max, k)[0] - 0.1).abs() < 1e-6);
+        assert!((slope_blur(step, step_px, [2.0, 0.0], true, 12, SlopeMode::Max, k)[0] - 0.1).abs() < 1e-6);
         // One-sided (noise source): only toward the offset.
-        assert!((slope_blur(step, [6.0, 0.0], false, 7, SlopeMode::Max, k)[0] - 0.9).abs() < 1e-6);
-        assert!((slope_blur(step, [-6.0, 0.0], false, 7, SlopeMode::Max, k)[0] - 0.1).abs() < 1e-6);
-        // Min and Max do not step over a one-pixel line, even at the lowest Quality.
-        let line = |dx: f32, _dy: f32| { let v = if (dx - 7.3).abs() < 0.5 { 0.0 } else { 1.0 }; [v, v, v, 1.0] };
-        assert_eq!(slope_blur(line, [12.0, 0.0], false, 2, SlopeMode::Min, k)[0], 0.0);
-        // Coverage: a transparent neighbour does not darken the colour (premultiplied average).
+        assert!((slope_blur(step, step_px, [6.0, 0.0], false, 7, SlopeMode::Max, k)[0] - 0.9).abs() < 1e-6);
+        assert!((slope_blur(step, step_px, [-6.0, 0.0], false, 7, SlopeMode::Max, k)[0] - 0.1).abs() < 1e-6);
+        // Min and Max return the exact value of a one-pixel diagonal line wherever the read
+        // line crosses it, at any slant and phase and at the lowest Quality: no ribs.
+        let diagonal = |dx: i32, dy: i32| { let v = if dx + dy == 7 { 0.0 } else { 1.0 }; [v, v, v, 1.0] };
+        let soft = |dx: f32, dy: f32| { let v = if (dx + dy - 7.0).abs() < 0.5 { 0.0 } else { 1.0 }; [v, v, v, 1.0] };
+        for i in 0..40 {
+            let a = i as f32 * 0.039;
+            let off = [a.cos() * 12.0, a.sin() * 12.0];
+            assert_eq!(slope_blur(soft, diagonal, off, false, 2, SlopeMode::Min, k)[0], 0.0, "slant {a}");
+        }
+        // Coverage: a transparent neighbour does not darken the colour (premultiplied average),
+        // and Max never picks an uncovered texel over a covered one.
         let half = |dx: f32, _dy: f32| if dx > 0.5 { [0.0; 4] } else { [0.8, 0.8, 0.8, 1.0] };
-        let b = slope_blur(half, [4.0, 0.0], false, 5, SlopeMode::Blur, k);
+        let half_px = |dx: i32, _dy: i32| if dx > 0 { [0.9, 0.9, 0.9, 0.0] } else { [0.8, 0.8, 0.8, 1.0] };
+        let b = slope_blur(half, half_px, [4.0, 0.0], false, 5, SlopeMode::Blur, k);
         assert!((b[0] - 0.8).abs() < 1e-5 && b[3] > 0.1 && b[3] < 0.9, "{b:?}");
+        assert_eq!(slope_blur(half, half_px, [4.0, 0.0], false, 5, SlopeMode::Max, k), [0.8, 0.8, 0.8, 1.0]);
         // The line follows the gradient: full length on a clear slope, shorter on a faint one,
         // none on a flat area.
         assert_eq!(slope_offset([0.0; 2], 8.0), [0.0; 2]);
@@ -278,14 +305,17 @@ mod tests {
         // The map: value, inverse (magnitude for signed Height), and a noise that tiles and
         // covers the range.
         use subcraft_doc::BlurMap;
-        assert_eq!(blur_map(BlurMap::Value, 0.3, 0, 0, 64, 4, 1), 0.3);
-        assert_eq!(blur_map(BlurMap::InvertedValue, 0.3, 0, 0, 64, 4, 1), 0.7);
-        assert_eq!(blur_map(BlurMap::Value, -0.6, 0, 0, 64, 4, 1), 0.6);
-        assert_eq!(blur_map(BlurMap::Value, 3.0, 0, 0, 64, 4, 1), 1.0);
+        assert_eq!(blur_map(BlurMap::Value, 0.3, None, 0, 0, 64, 4, 1), 0.3);
+        assert_eq!(blur_map(BlurMap::InvertedValue, 0.3, None, 0, 0, 64, 4, 1), 0.7);
+        assert_eq!(blur_map(BlurMap::Value, -0.6, None, 0, 0, 64, 4, 1), 0.6);
+        assert_eq!(blur_map(BlurMap::Value, 3.0, None, 0, 0, 64, 4, 1), 1.0);
         let (mut lo, mut hi) = (1.0f32, 0.0f32);
-        for y in 0..64 { for x in 0..64 { let m = blur_map(BlurMap::Noise, 0.0, x, y, 64, 4, 1); assert!((0.0..=1.0).contains(&m)); lo = lo.min(m); hi = hi.max(m); } }
+        for y in 0..64 { for x in 0..64 { let m = blur_map(BlurMap::Noise, 0.0, None, x, y, 64, 4, 1); assert!((0.0..=1.0).contains(&m)); lo = lo.min(m); hi = hi.max(m); } }
         assert!(lo < 0.15 && hi > 0.85, "{lo} {hi}");
-        assert_ne!(blur_map(BlurMap::Noise, 0.0, 9, 9, 64, 4, 1), blur_map(BlurMap::Noise, 0.0, 9, 9, 64, 4, 2));
+        assert_ne!(blur_map(BlurMap::Noise, 0.0, None, 9, 9, 64, 4, 1), blur_map(BlurMap::Noise, 0.0, None, 9, 9, 64, 4, 2));
+        // The image map: its value, or no blur while no image is picked.
+        assert_eq!(blur_map(BlurMap::Image, 0.9, Some(0.25), 0, 0, 64, 4, 1), 0.25);
+        assert_eq!(blur_map(BlurMap::Image, 0.9, None, 0, 0, 64, 4, 1), 0.0);
     }
 
     fn near(a: Option<[f32; 2]>, b: [f32; 2]) {

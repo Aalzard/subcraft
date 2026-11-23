@@ -88,11 +88,12 @@ impl Fragment {
                     }
                 }
             }
-            if let MaskEffectKind::Filter(f) = e.kind
-                && let Some(resource) = f.resource()
-                && !out.contains(&resource)
-            {
-                out.push(resource);
+            if let MaskEffectKind::Filter(f) = e.kind {
+                for resource in f.resources() {
+                    if !out.contains(&resource) {
+                        out.push(resource);
+                    }
+                }
             }
         }
         out
