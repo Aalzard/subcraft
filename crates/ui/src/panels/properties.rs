@@ -206,6 +206,11 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         cmds.extend(part_head);
         cmds.extend(part_cmds);
 
+        // Procedural material (ADR-0047): the layer's exposed parameters, above its own content.
+        if let Some(m) = &layer.material {
+            super::material_params::section(ui, id, m, &mut cmds);
+        }
+
         match &layer.content {
             LayerContent::Paint(p) if p.path.is_some() => {
                 let path = state.pen.preview(&state.session).cloned().unwrap_or_else(|| p.path.as_ref().unwrap().clone());

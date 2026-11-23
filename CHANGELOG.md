@@ -8,6 +8,7 @@ What changed in SubCraft, newest first. Download the latest build from the
 ### Added
 - Material filters, as Painter's MatFinish and MatFX: Galvanized, Hammered and Powder Coated finishes, and Edge Damages, Rust Weathering and Peeling Paint. One filter rewrites Base Color, Roughness, Metallic and Height of the material below it together, in object space, so nothing follows a UV seam. Find them in a layer's effect menu under Add material filter; on a Passthrough layer they process everything below. Edge Damages uses the Edge wear model, and Rust Weathering reads the baked Ambient Occlusion and Curvature when they exist.
 - PBR Validate filter: colours the Base Color green where it is physically plausible, red where it is too dark, blue where it is too bright and yellow where Metallic is neither 0 nor 1 (dielectrics 30 to 240 sRGB, metals 180 sRGB or more).
+- Procedural materials: 11 new materials in the Smart Materials shelf (category Procedural) that come with their own sliders. Painted Metal, Rusted Steel, Brushed Metal, Polished Metal, Hammered Metal, Aged Copper, Worn Plastic, Rubber, Concrete, Leather and Wood. Apply one, select its folder, and the Properties panel shows a Material parameters section: colours, edge wear, chips, rust amount, dirt, pattern scale, roughness, bump and a seed. Change them at any time; they are saved in the project, kept when you duplicate the folder or save it to your library, and each drag is one undo step. The layers inside stay normal layers, so you can still edit them by hand.
 
 ## 0.5.0 - 2026-11-22
 

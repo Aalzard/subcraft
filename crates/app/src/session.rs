@@ -2530,6 +2530,42 @@ impl Session {
                     Ok(())
                 })?;
             }
+            Command::SetMaterialParam { layer, param, value } => {
+                let key = format!("material:{layer}:{param}");
+                self.edit_layer_set(layer, "Material", Some(key), |ts| {
+                    let l = Self::layer_mut(ts, layer)?;
+                    let m = l.material.as_mut().ok_or_else(|| CommandError::Invalid("This layer has no material parameters".into()))?;
+                    let p = m.param(&param).ok_or_else(|| CommandError::Invalid(format!("No material parameter named '{param}'")))?;
+                    if p.kind.sanitize(value).is_none() {
+                        return Err(CommandError::Invalid(format!("Wrong kind of value for '{}'", p.label)));
+                    }
+                    Arc::make_mut(m).set(&param, value);
+                    l.apply_material();
+                    Ok(())
+                })?;
+            }
+            Command::ResetMaterialParams(layer) => {
+                self.edit_layer_set_if_changed(layer, "Reset Material", |ts| {
+                    let l = Self::layer_mut(ts, layer)?;
+                    let m = l.material.as_mut().ok_or_else(|| CommandError::Invalid("This layer has no material parameters".into()))?;
+                    if !m.is_default() {
+                        Arc::make_mut(m).reset();
+                    }
+                    l.apply_material();
+                    Ok(())
+                })?;
+            }
+            Command::SetMaterialControls { layer, controls } => {
+                let controls = controls.map(|c| (*c).sanitized());
+                if let Some(problem) = controls.as_ref().and_then(|c| c.validate().into_iter().next()) {
+                    return Err(CommandError::Invalid(problem));
+                }
+                let label = if controls.is_some() { "Material Parameters" } else { "Remove Material Parameters" };
+                self.edit_layer_set_if_changed(layer, label, |ts| {
+                    Self::layer_mut(ts, layer)?.material = controls.map(Arc::new);
+                    Ok(())
+                })?;
+            }
             Command::SetFillChannel { layer, channel, fill } => {
                 let key = format!("fill:{layer}:{channel:?}");
                 self.edit_layer_set(layer, "Fill", Some(key), |ts| {

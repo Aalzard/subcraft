@@ -1074,4 +1074,6 @@ pub static TABLE: &[(&str, &str)] = &[
     ("AO Depth", "AO 深度"),
     ("How much the fine relief below adds to the baked curvature and occlusion", "下方細微起伏加到烘焙曲率與遮蔽上的程度"),
     ("Also reads the normal and height maps of the layers below, so wear catches their small raised details and dirt settles into their small grooves, as Painter's Use Micro Details does. Needs a layer below with a Normal or Height map.", "同時讀取下方圖層的法線與高度貼圖，讓磨損出現在細小的凸起處、髒污積在細小的凹槽中（如 Painter 的 Use Micro Details）。需要下方有含法線或高度貼圖的圖層。"),
+    ("Material parameters", "材質參數"),
+    ("Put every parameter back to its default", "將所有參數還原為預設值"),
 ];
