@@ -336,6 +336,32 @@ impl PenEditor {
         self.pending.push_back(Pending { edit, raster }); Ok(())
     }
 
+    /// Add `path` as a new path layer named `name` above the selected layer, drawn at once.
+    /// The selection stays where it was (a companion of the selected path, like needle holes).
+    pub fn add_path_layer(&mut self, session: &mut Session, path: PenPath, name: &str) -> Result<(), CommandError> {
+        if self.gesture.is_some() || !self.pending.is_empty() { return Err(error("wait for the current path to finish drawing")); }
+        path.validate().map_err(error)?;
+        let layer = {
+            let ts = session.selected_texture_set();
+            let mut layer = Layer::new_paint(name, ts);
+            layer.parts = session.selected_layer().and_then(|l| l.parts.clone());
+            let tip = path.image_resource().and_then(|id| session.resources().bitmap(id).cloned());
+            let scene = session.scene();
+            let mut raster = PenRasterizer::new(&path, ts.resolution).map_err(error)?.with_alpha(tip)
+                .with_surface(&scene.mesh, &scene.bvh, ts.material_slot).map_err(error)?;
+            raster.run();
+            let LayerContent::Paint(p) = &mut layer.content else { return Err(error("pen layer must be paint content")); };
+            p.channels = raster.finish().ok_or_else(|| error("the path was not drawn"))?;
+            p.path = Some(path);
+            layer
+        };
+        let before = session.selection().layer;
+        session.execute(Command::InsertLayer { layer: Box::new(layer), label: format!("Add {name}") })?;
+        session.execute(Command::SelectLayer(before))?;
+        self.domain = Some(session.selection());
+        Ok(())
+    }
+
     pub fn set_path(&mut self, session: &Session, path: PenPath) -> Result<(), CommandError> {
         path.validate().map_err(error)?;
         let mut edit = self.gesture.take().map(Ok).unwrap_or_else(|| self.edit(session, false))?;

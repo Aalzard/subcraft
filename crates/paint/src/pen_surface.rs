@@ -219,11 +219,13 @@ impl SurfaceStamps {
                 bridge(w[0], w[1], radius * 0.5, 12, &project, &mut budget, run);
             }
         }
-        // Stamps along the runs, `step` apart by distance on the surface.
+        // Stamps along the runs, by distance on the surface. The spacing is fitted to each run:
+        // a whole number of steps from its first point to its last, so the stitches end on the
+        // last point and a closed path joins without a short or long last gap.
         let step = (stamp.spacing * 2.0 * radius).max(radius * 0.02);
+        let closed = path.is_closed() && runs.len() == 1;
         let mut stamps: Vec<SurfaceStamp> = Vec::new();
         for run in runs.iter().filter(|r| !r.is_empty()) {
-            let mut next = 0.0f32;
             let place = |at: Vec3, normal: Vec3, dir: Vec3, stamps: &mut Vec<SurfaceStamp>| {
                 let mut tangent = dir - normal * dir.dot(normal);
                 if tangent.length_squared() < 1e-12 {
@@ -237,26 +239,38 @@ impl SurfaceStamps {
                 };
                 stamps.push(SurfaceStamp { center: at, normal, tangent, side });
             };
-            if run.len() == 1 {
+            let length: f32 = run.windows(2).map(|w| w[0].position.distance(w[1].position)).sum();
+            if run.len() == 1 || length <= 1e-12 {
                 place(run[0].position, run[0].normal, Vec3::X, &mut stamps);
                 continue;
             }
+            let steps = ((length / step).round() as usize).max(1);
+            if steps > MAX_STAMPS || stamps.len() + steps > MAX_STAMPS {
+                return Err("too many stamps on this path: raise the spacing or the width");
+            }
+            let fitted = length / steps as f32;
+            // A closed run's last point is its first: no stamp there twice.
+            let count = if closed { steps } else { steps + 1 };
+            let (mut k, mut walked) = (0usize, 0.0f32);
             for w in run.windows(2) {
                 let d = w[1].position - w[0].position;
                 let len = d.length();
                 if len <= 1e-12 {
                     continue;
                 }
-                let dir = d / len;
-                while next <= len {
-                    let t = next / len;
-                    place(w[0].position + d * t, w[0].normal.lerp(w[1].normal, t).normalize_or(w[0].normal), dir, &mut stamps);
-                    if stamps.len() > MAX_STAMPS {
-                        return Err("too many stamps on this path: raise the spacing or the width");
+                while k < count && k as f32 * fitted <= walked + len + length * 1e-5 {
+                    let t = ((k as f32 * fitted - walked) / len).clamp(0.0, 1.0);
+                    // Onto the surface: between two route points around an edge the straight
+                    // step cuts the corner.
+                    let (mut at, mut normal) = (w[0].position + d * t, w[0].normal.lerp(w[1].normal, t).normalize_or(w[0].normal));
+                    if let Some(hit) = bvh.closest_point(at, radius, |_| true) {
+                        let sp = mesh.interpolate(hit.tri as usize, hit.u, hit.v);
+                        (at, normal) = (sp.position, surface_normal(&sp));
                     }
-                    next += step;
+                    place(at, normal, d / len, &mut stamps);
+                    k += 1;
                 }
-                next -= len;
+                walked += len;
             }
         }
         // Alternating offset: every second stamp moves across the path.
@@ -434,5 +448,32 @@ mod tests {
         // Not a surface path, or off the texture set: nothing to lay on the surface.
         assert!(SurfaceStamps::build(&path(&[Vec2::new(0.2, 0.5), Vec2::new(0.8, 0.5)], 0.02, false), &mesh, &bvh, 0, 256).unwrap().is_none());
         assert!(SurfaceStamps::build(&p, &mesh, &bvh, 7, 256).unwrap().is_none());
+    }
+    /// The spacing is fitted to the path: an open path ends with a stitch on its last point,
+    /// and a closed path's last gap is the same as every other.
+    #[test]
+    fn stamps_are_spread_evenly_from_the_first_point_to_the_last() {
+        let mesh = Arc::new(subcraft_mesh::primitives::plane(2.0, 4));
+        let bvh = Bvh::build(&mesh);
+        // 0.63 UV = 1.26 units at a step of 0.08: 15.75 steps, fitted to 16 of 0.07875.
+        let open = path(&[Vec2::new(0.2, 0.5), Vec2::new(0.83, 0.5)], 0.02, true);
+        let s = SurfaceStamps::build(&open, &mesh, &bvh, 0, 256).unwrap().unwrap();
+        assert_eq!(s.stamp_count(), 17);
+        let (first, last) = (s.stamps[0].center, s.stamps[16].center);
+        assert!((first.distance(last) - 1.26).abs() < 1e-3, "from the first point to the last: {}", first.distance(last));
+        for w in s.stamps.windows(2) {
+            assert!((w[0].center.distance(w[1].center) - 0.07875).abs() < 1e-3);
+        }
+        // A closed triangle: every gap the same, the one from the last stamp back to the first too.
+        let mut closed = path(&[Vec2::new(0.2, 0.2), Vec2::new(0.8, 0.2), Vec2::new(0.5, 0.75)], 0.02, true);
+        closed.closed = true;
+        let s = SurfaceStamps::build(&closed, &mesh, &bvh, 0, 256).unwrap().unwrap();
+        let n = s.stamps.len();
+        // Gaps along a side are the step; across a corner the chord is shorter, never longer.
+        let gaps: Vec<f32> = (0..n).map(|k| s.stamps[k].center.distance(s.stamps[(k + 1) % n].center)).collect();
+        let step = gaps.iter().copied().fold(0.0f32, f32::max);
+        assert!((step - 0.08).abs() < 0.004, "fitted step {step}");
+        assert!(gaps[n - 1] > step * 0.6 && gaps[n - 1] <= step + 1e-4, "the closing gap {} at a step of {step}", gaps[n - 1]);
+        assert!(s.stamps[0].center.distance(s.stamps[n - 1].center) > step * 0.6, "no stamp twice on the first point");
     }
 }

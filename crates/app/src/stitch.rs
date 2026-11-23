@@ -66,6 +66,35 @@ pub fn of_path(path: &PenPath, tip_name: Option<&str>) -> Option<&'static Stitch
     STITCHES.iter().find(|s| s.tip == tip && (s.alternate != 0.0) == (stamp.alternate != 0.0))
 }
 
+/// Needle holes fit this stitch: one thread per stamp along the line, with a gap between two
+/// stitches where a hole goes.
+pub fn takes_holes(stitch: &Stitch) -> bool {
+    matches!(stitch.tip, "Stitch Straight" | "Stitch Saddle") && stitch.alternate == 0.0
+}
+
+/// The needle holes of the stitched `path`: a path on the same points (with ids of their own)
+/// at the same width and spacing, stamped with the holes of `holes` (the style of
+/// Stitch: Seam Holes). Its stamps sit where the stitches do, and the holes tip has half a hole
+/// on each side, so every hole lands in the gap between two stitches.
+pub fn holes_path(path: &PenPath, holes: crate::pen::PenStyle, has_channel: impl Fn(ChannelKind) -> bool) -> PenPath {
+    let mut out = path.clone();
+    for a in &mut out.anchors {
+        a.id = subcraft_core::AnchorId::new();
+    }
+    let spacing = path.stamp.map_or(holes.stitch.spacing, |s| s.spacing);
+    let thread = std::mem::take(&mut out.values);
+    holes.stitch.apply_to_path(&mut out, holes.tip, has_channel);
+    if out.values.is_empty() {
+        out.values = thread;
+    }
+    if let Some(stamp) = out.stamp.as_mut() {
+        stamp.spacing = spacing;
+        stamp.alternate = 0.0;
+    }
+    out.opacity = 1.0;
+    out
+}
+
 impl Stitch {
     /// Half the width of a new path of this stitch, in UV units (as [`PenPath::radius`]).
     pub fn radius(&self) -> f32 {
