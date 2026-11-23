@@ -3,6 +3,7 @@
 //! them and the app turns them into commands.
 
 pub mod alphas;
+pub mod stitch_tiles;
 pub mod default_model;
 pub mod open_pack;
 pub mod pbr_pack;

@@ -199,6 +199,26 @@ in the Shelf while the Pen is active does the same as its tile.
 
 ![Every stitch drawn along a pen path, with seam grooves and needle holes](images/stitches.png)
 
+#### Stitch tiles: your own images as a stitch
+
+Under the stitch tiles the **Tiles** row draws a seam from images instead of a brush tip: a colour
+image with transparency, a height map and a normal map of one repeat of the seam, laid along the
+path and repeated in whole copies. Three samples come with SubCraft (Saddle Leather, Denim
+Topstitch, Zipper).
+
+**Import...** takes your own tile. Pick any one of its images and the others are found beside it
+by name, for example `seam_color.png`, `seam_height.png` and `seam_normal.png`. What a tile needs:
+
+- The seam runs along the image from left to right, and the right edge continues into the left.
+- The top and bottom edges of the height map are the surface level. Lighter than that is raised,
+  darker is pressed in (needle holes, a pressed seam). **Raised** sets how far.
+- The normal map is tangent space with Y up (OpenGL). It is turned along the path. It is used when
+  the tile has no height map or the texture set has no Height channel, so the relief is not
+  counted twice.
+- A tile path lies in UV space: unlike the brush-tip stitches it does not cross UV islands.
+
+![The three sample stitch tiles along pen paths](images/stitch-tiles.png)
+
 Stitches lie on the model, not in UV space, so a seam can cross UV islands: put one point on each
 side and the stitches run over the surface between them.
 

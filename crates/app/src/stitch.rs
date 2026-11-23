@@ -133,6 +133,148 @@ pub fn groove_path(path: &PenPath, has_channel: impl Fn(ChannelKind) -> bool) ->
     Some(out)
 }
 
+/// A stitch tile: one repeat of a seam as a colour image, a height map and a normal map (any of
+/// them may be missing), laid along a path as a ribbon. The images are resources of the project.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TileStyle {
+    pub image: Option<ResourceId>,
+    pub height: Option<ResourceId>,
+    pub normal: Option<ResourceId>,
+    /// Width of a new path, in percent of the texture.
+    pub size: f32,
+    pub roughness: f32,
+    /// Height value of a new path: the height map's full range reaches this far.
+    pub relief: f32,
+}
+
+impl TileStyle {
+    /// A tile of imported images, at the size and relief of a stitch.
+    pub fn imported(image: Option<ResourceId>, height: Option<ResourceId>, normal: Option<ResourceId>) -> Self {
+        Self { image, height, normal, size: 3.0, roughness: 0.7, relief: 0.6 }
+    }
+
+    /// Half the width of a new path of this tile, in UV units.
+    pub fn radius(&self) -> f32 {
+        (self.size * 0.005).clamp(0.00001, 0.5)
+    }
+
+    /// Make `path` a ribbon of this tile: whole copies along the path, each stretched a little
+    /// so the last one ends on the last point. Base Color takes the image, Height the height
+    /// map. The normal map is used when there is no height map (or no Height channel): with
+    /// both, the relief would count twice, once as Height and once as Normal.
+    pub fn apply_to_path(&self, path: &mut PenPath, has_channel: impl Fn(ChannelKind) -> bool) {
+        use subcraft_doc::{PathRibbon, RibbonMode, RibbonTiling};
+        path.kind = PathKind::Ribbon;
+        path.stamp = None;
+        path.hardness = 1.0;
+        let height = self.height.filter(|_| has_channel(ChannelKind::Height));
+        let normal = self.normal.filter(|_| height.is_none() && has_channel(ChannelKind::Normal));
+        path.ribbon = Some(PathRibbon { image: self.image, height, normal, mode: RibbonMode::Stretch, tiling: RibbonTiling::Auto, color_from_image: true, ..PathRibbon::default() });
+        let mut values = std::collections::BTreeMap::new();
+        if self.image.is_some() {
+            for (kind, value) in [(ChannelKind::BaseColor, ChannelValue::rgb(0.8, 0.8, 0.8)), (ChannelKind::Roughness, ChannelValue::scalar(self.roughness))] {
+                if has_channel(kind) {
+                    values.insert(kind, value);
+                }
+            }
+        }
+        if height.is_some() {
+            values.insert(ChannelKind::Height, ChannelValue::scalar(self.relief));
+        }
+        if normal.is_some() {
+            values.insert(ChannelKind::Normal, ChannelKind::Normal.default_value());
+        }
+        if !values.is_empty() {
+            path.values = values;
+        }
+    }
+}
+
+/// The tile `path` is drawn with: a ribbon with a height or normal map, or the ribbon of `image`.
+pub fn tile_of_path(path: &PenPath) -> Option<TileStyle> {
+    let r = path.ribbon.filter(|_| path.kind == PathKind::Ribbon)?;
+    (r.height.is_some() || r.normal.is_some()).then(|| TileStyle::imported(r.image, r.height, r.normal))
+}
+
+/// The style of a built-in sample tile: its three images as resources of the project, added
+/// when the project has no copy of them yet.
+pub fn sample_tile(session: &mut crate::Session, tile: &subcraft_assets::stitch_tiles::StitchTile) -> TileStyle {
+    let mut add = |bitmap: &std::sync::Arc<subcraft_image::Bitmap>, what: &str| session.tip_resource(bitmap.clone(), &format!("{} {what}", tile.name));
+    TileStyle { image: Some(add(&tile.color, "colour")), height: Some(add(&tile.height, "height")), normal: Some(add(&tile.normal, "normal")), size: tile.size, roughness: tile.roughness, relief: tile.relief }
+}
+
+/// The image files of one stitch tile, found from any one of them.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct TileFiles {
+    pub name: String,
+    pub color: Option<std::path::PathBuf>,
+    pub height: Option<(std::path::PathBuf, subcraft_assets::texture_maps::MapConversion)>,
+    pub normal: Option<(std::path::PathBuf, subcraft_assets::texture_maps::MapConversion)>,
+}
+
+/// The files of the tile `picked` belongs to, among `siblings` (the files of its folder): the
+/// ones with the same name before the map word (`seam_color.png`, `seam_height.png`,
+/// `seam_normal.png`). A file with no map word is the colour image.
+pub fn tile_files(picked: &std::path::Path, siblings: &[std::path::PathBuf]) -> TileFiles {
+    use subcraft_assets::texture_maps::{Classified, split_map_name};
+    let file = |p: &std::path::Path| p.file_name().and_then(|n| n.to_str()).unwrap_or_default().to_string();
+    let stem = |p: &std::path::Path| p.file_stem().and_then(|n| n.to_str()).unwrap_or_default().to_string();
+    let key = |s: &str| s.trim_end_matches(|c: char| !c.is_alphanumeric()).to_lowercase();
+    // (name before the map word, channel); a file with no map word is colour under its own name.
+    let parts = |p: &std::path::Path| match split_map_name(&file(p)) {
+        Some((name, Classified::Map(m))) => Some((name, m.channel, m.conversion)),
+        Some(_) => None,
+        None => Some((stem(p), ChannelKind::BaseColor, subcraft_assets::texture_maps::MapConversion::None)),
+    };
+    let mut out = TileFiles::default();
+    let Some((name, ..)) = parts(picked) else {
+        out.name = stem(picked);
+        out.color = Some(picked.to_path_buf());
+        return out;
+    };
+    out.name = name.trim_end_matches(|c: char| !c.is_alphanumeric()).to_string();
+    if out.name.is_empty() {
+        out.name = stem(picked);
+    }
+    let mut all: Vec<&std::path::Path> = vec![picked];
+    all.extend(siblings.iter().map(|p| p.as_path()).filter(|p| *p != picked));
+    for p in all {
+        let Some((other, channel, conversion)) = parts(p) else { continue };
+        if key(&other) != key(&name) {
+            continue;
+        }
+        match channel {
+            ChannelKind::BaseColor if out.color.is_none() => out.color = Some(p.to_path_buf()),
+            ChannelKind::Height if out.height.is_none() => out.height = Some((p.to_path_buf(), conversion)),
+            ChannelKind::Normal if out.normal.is_none() => out.normal = Some((p.to_path_buf(), conversion)),
+            _ => {}
+        }
+    }
+    out
+}
+
+impl crate::Session {
+    /// Import the stitch tile the image at `picked` belongs to: that file and the colour, height
+    /// and normal images beside it with the same name ([`tile_files`]). Returns the tile's name
+    /// and its style for new pen paths.
+    pub fn import_stitch_tile(&mut self, picked: &std::path::Path) -> Result<(String, TileStyle), String> {
+        const IMAGES: [&str; 9] = ["png", "jpg", "jpeg", "tga", "tif", "tiff", "bmp", "exr", "webp"];
+        let siblings: Vec<std::path::PathBuf> = picked.parent().and_then(|d| std::fs::read_dir(d).ok()).map(|d| {
+            let mut files: Vec<_> = d.flatten().map(|e| e.path()).filter(|p| p.extension().and_then(|e| e.to_str()).is_some_and(|e| IMAGES.contains(&e.to_lowercase().as_str()))).collect();
+            files.sort();
+            files
+        }).unwrap_or_default();
+        let files = tile_files(picked, &siblings);
+        let image = files.color.as_deref().map(|p| self.import_image(p)).transpose()?;
+        let height = files.height.as_ref().map(|(p, c)| self.import_converted(p, *c)).transpose()?;
+        let normal = files.normal.as_ref().map(|(p, c)| self.import_converted(p, *c)).transpose()?;
+        if image.is_none() && height.is_none() && normal.is_none() {
+            return Err("no colour, height or normal image found for this tile".into());
+        }
+        Ok((files.name, TileStyle::imported(image, height, normal)))
+    }
+}
+
 impl Stitch {
     /// Half the width of a new path of this stitch, in UV units (as [`PenPath::radius`]).
     pub fn radius(&self) -> f32 {
@@ -241,6 +383,46 @@ mod tests {
         assert!(groove.anchors.iter().zip(&path.anchors).all(|(a, b)| a.id != b.id && a.position == b.position));
         assert!(groove.validate().is_ok(), "{:?}", groove.validate());
         assert_eq!(of_path(&groove, None), None, "the groove is a plain line, not a stitch");
+    }
+
+    #[test]
+    fn a_tile_is_found_from_any_of_its_files() {
+        use std::path::PathBuf;
+        let dir = |f: &str| PathBuf::from("/tiles").join(f);
+        let folder = vec![dir("seam_basecolor.png"), dir("seam_height.png"), dir("seam_normal.png"), dir("other_height.png"), dir("zip.png"), dir("zip_normal.png")];
+        for picked in ["seam_basecolor.png", "seam_height.png", "seam_normal.png"] {
+            let t = tile_files(&dir(picked), &folder);
+            assert_eq!((t.name.as_str(), t.color, t.height.map(|h| h.0), t.normal.map(|n| n.0)), ("seam", Some(dir("seam_basecolor.png")), Some(dir("seam_height.png")), Some(dir("seam_normal.png"))), "{picked}");
+        }
+        // A file with no map word is the colour image, and finds its maps.
+        let t = tile_files(&dir("zip.png"), &folder);
+        assert_eq!((t.name.as_str(), t.color, t.height, t.normal.map(|n| n.0)), ("zip", Some(dir("zip.png")), None, Some(dir("zip_normal.png"))));
+        // Alone in its folder: only itself.
+        let t = tile_files(&dir("other_height.png"), &folder);
+        assert_eq!((t.color, t.height.map(|h| h.0), t.normal), (None, Some(dir("other_height.png")), None));
+    }
+
+    #[test]
+    fn a_tile_makes_a_ribbon_with_its_maps() {
+        let anchors = vec![PenAnchor::new(Vec2::new(0.1, 0.5)), PenAnchor::new(Vec2::new(0.9, 0.5))];
+        let plain = PenPath { anchors, closed: false, radius: 0.02, hardness: 0.3, opacity: 1.0, values: Default::default(), kind: PathKind::Paint, stamp: Some(Default::default()), ribbon: None };
+        let (image, height, normal) = (ResourceId::new(), ResourceId::new(), ResourceId::new());
+        let tile = TileStyle::imported(Some(image), Some(height), Some(normal));
+        let mut path = plain.clone();
+        tile.apply_to_path(&mut path, |_| true);
+        let r = path.ribbon.unwrap();
+        assert_eq!((path.kind, path.stamp, r.image, r.height, r.normal), (PathKind::Ribbon, None, Some(image), Some(height), None), "with a height map the normal map is left out");
+        assert_eq!(path.values[&ChannelKind::Height], ChannelValue::scalar(tile.relief));
+        assert!(path.values.contains_key(&ChannelKind::BaseColor) && !path.values.contains_key(&ChannelKind::Normal));
+        assert!(path.validate().is_ok(), "{:?}", path.validate());
+        assert_eq!(tile_of_path(&path).map(|t| (t.image, t.height)), Some((Some(image), Some(height))));
+        assert_eq!(tile_of_path(&plain), None);
+        // No Height channel: the normal map carries the relief.
+        let mut path = plain.clone();
+        tile.apply_to_path(&mut path, |k| k != ChannelKind::Height);
+        let r = path.ribbon.unwrap();
+        assert_eq!((r.height, r.normal), (None, Some(normal)));
+        assert_eq!(path.values[&ChannelKind::Normal], ChannelKind::Normal.default_value());
     }
 
     #[test]

@@ -1160,4 +1160,8 @@ pub static TABLE: &[(&str, &str)] = &[
     ("How strongly the streaks show under the rust. 0 = no drips.", "녹 아래 줄무늬가 얼마나 강하게 보이는지. 0 = 흘러내림 없음."),
     ("How much neighbouring streaks merge on their way down. 0 = thin, separate streaks.", "이웃한 줄무늬가 내려가며 합쳐지는 정도. 0 = 가늘고 분리된 줄무늬."),
     ("How far the drips run down the surface, as a share of the model's height.", "흘러내림이 표면을 따라 내려가는 거리, 모델 높이에 대한 비율."),
+    ("Rectangle", "사각형"),
+    ("Ellipse", "타원"),
+    ("Rounded corners: 100 % rounds the shorter sides fully", "둥근 모서리: 100 %는 짧은 변을 완전히 둥글게 만듭니다"),
+    ("Soft edge inside the shape, as a share of half its shorter side", "도형 안쪽의 부드러운 가장자리(짧은 변 절반에 대한 비율)"),
 ];

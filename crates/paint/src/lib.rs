@@ -18,6 +18,7 @@ pub mod pen;
 pub mod pen_surface;
 pub mod push;
 pub mod settings;
+pub mod shape;
 pub mod stamp;
 pub mod stencil;
 pub mod stroke;

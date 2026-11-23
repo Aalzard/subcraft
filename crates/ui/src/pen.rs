@@ -418,14 +418,81 @@ fn stitch_of(state: &UiState, path: &PenPath) -> Option<&'static subcraft_app::s
 /// Before a click that may start a new path: the chosen stitch's tip has to be a resource of
 /// the project that is open now (the choice outlives New Project / Open).
 pub fn refresh_style(state: &mut UiState) {
+    // A tile's images belong to the project it was chosen in.
+    if let Some(tile) = state.pen.tile && [tile.image, tile.height, tile.normal].into_iter().flatten().any(|id| state.session.resources().get(id).is_none()) {
+        state.pen.tile = None;
+    }
     if let Some(style) = state.pen.style && style.tip.is_none_or(|id| state.session.resources().get(id).is_none()) {
         state.pen.style = Some(subcraft_app::stitch::style(&mut state.session, style.stitch, &state.library.alphas));
     }
 }
 
+/// The sample stitch tiles, made once.
+fn sample_tiles() -> &'static [subcraft_app::assets::stitch_tiles::StitchTile] {
+    static TILES: std::sync::OnceLock<Vec<subcraft_app::assets::stitch_tiles::StitchTile>> = std::sync::OnceLock::new();
+    TILES.get_or_init(subcraft_app::assets::stitch_tiles::builtin)
+}
+
+/// The pen draws a stitch tile (colour, height and normal images laid along the path): new
+/// paths take it, and so does the selected path with `restyle_selected`.
+pub fn choose_tile(state: &mut UiState, tile: subcraft_app::stitch::TileStyle, name: &str, restyle_selected: bool, now: f64) {
+    state.pen.tile = Some(tile);
+    let selected = state.pen.preview(&state.session).cloned().filter(|_| restyle_selected);
+    let Some(mut path) = selected else {
+        state.set_status(format!("{name}: click on the model to place the points of the path, Enter finishes it"), now);
+        return;
+    };
+    let channels = state.session.channels();
+    tile.apply_to_path(&mut path, |k| channels.contains(&k));
+    match state.pen.set_path(&state.session, path).and_then(|()| state.pen.release(&state.session)) {
+        Ok(()) => state.set_status(format!("{name} on this path and on new paths"), now),
+        Err(e) => state.set_status(e.to_string(), now),
+    }
+}
+
+/// Import the stitch tile the image at `file` belongs to (the colour, height and normal images
+/// with the same name beside it) and draw with it.
+pub fn import_tile(state: &mut UiState, file: &std::path::Path, restyle_selected: bool, now: f64) {
+    match state.session.import_stitch_tile(file) {
+        Ok((name, tile)) => {
+            let parts = [("colour", tile.image.is_some()), ("height", tile.height.is_some()), ("normal", tile.normal.is_some())];
+            let found: Vec<&str> = parts.iter().filter(|p| p.1).map(|p| p.0).collect();
+            choose_tile(state, tile, &format!("Tile {name} ({})", found.join(", ")), restyle_selected, now);
+        }
+        Err(e) => state.set_status(format!("Stitch tile: {e}"), now),
+    }
+}
+
+/// The tile row under the stitch tiles: the sample tiles and Import. True when one was chosen.
+fn tile_row(state: &mut UiState, ui: &mut Ui, restyle_selected: bool, now: f64) -> bool {
+    let mut picked = None;
+    let mut import = false;
+    ui.horizontal_wrapped(|ui| {
+        ui.label(egui::RichText::new("Tiles").color(theme::TEXT_DIM())).on_hover_text("A stitch made of images: colour, height and normal laid along the path");
+        for (i, tile) in sample_tiles().iter().enumerate() {
+            if ui.small_button(tile.name.trim_start_matches("Tile: ")).on_hover_text(tile.description).clicked() {
+                picked = Some(i);
+            }
+        }
+        import = ui.small_button("Import...").on_hover_text("Use your own images as a stitch: pick the colour, height or normal image of one repeat of the seam. The others are found by name beside it (seam_color.png, seam_height.png, seam_normal.png). The seam runs along the image from left to right").clicked();
+    });
+    if let Some(i) = picked {
+        let tile = &sample_tiles()[i];
+        let style = subcraft_app::stitch::sample_tile(&mut state.session, tile);
+        choose_tile(state, style, tile.name, restyle_selected, now);
+        return true;
+    }
+    if import && let Some(file) = rfd::FileDialog::new().add_filter("Images", &["png", "jpg", "jpeg", "tga", "tif", "tiff", "bmp", "exr", "webp"]).pick_file() {
+        import_tile(state, &file, restyle_selected, now);
+        return true;
+    }
+    false
+}
+
 /// Choose what the pen draws: a stitch, or a plain line (`None`). New paths take it, and so does
 /// the path the next click would add to (the selected path, unless it was finished with Enter).
 pub fn choose_stitch(state: &mut UiState, stitch: Option<&'static subcraft_app::stitch::Stitch>, restyle_selected: bool, now: f64) {
+    state.pen.tile = None;
     state.pen.style = stitch.map(|s| subcraft_app::stitch::style(&mut state.session, s, &state.library.alphas));
     let selected = state.pen.preview(&state.session).cloned().filter(|_| restyle_selected);
     let Some(mut path) = selected else {
@@ -575,9 +642,10 @@ pub fn tool_section(state: &mut UiState, ui: &mut Ui, now: f64) {
     if let Some(choice) = stitch_row(ui, current) {
         choose_stitch(state, choice, false, now);
     }
-    let name = state.pen.style.map_or("Plain line", |s| s.stitch.name);
+    tile_row(state, ui, false, now);
+    let name = if state.pen.tile.is_some() { "Stitch tile" } else { state.pen.style.map_or("Plain line", |s| s.stitch.name) };
     ui.label(egui::RichText::new(name).strong());
-    if state.pen.style.is_some() {
+    if state.pen.style.is_some() || state.pen.tile.is_some() {
         height_note(state, ui, now);
     }
     crate::widgets::hint(ui, "Choose a stitch, then click on the model to place the points of the path (drag for a curve). Enter finishes the path. Width, spacing, thread colour and height can be changed afterwards, here.");
@@ -735,13 +803,25 @@ pub fn properties(state: &mut UiState, ui: &mut Ui, path: &PenPath, now: f64) {
         choose_stitch(state, choice, true, now);
         return;
     }
-    ui.label(egui::RichText::new(current.map_or(if path.stamp.is_some() { "Stamped tip" } else { "Plain line" }, |s| s.name)).strong());
+    if tile_row(state, ui, true, now) {
+        return;
+    }
+    let tiled = subcraft_app::stitch::tile_of_path(path).is_some();
+    ui.label(egui::RichText::new(if tiled { "Stitch tile" } else { current.map_or(if path.stamp.is_some() { "Stamped tip" } else { "Plain line" }, |s| s.name) }).strong());
     if current.is_some() && !path.values.contains_key(&subcraft_core::ChannelKind::Height) {
         height_note(state, ui, now);
     }
     let mut path = path.clone(); let mut changed = false;
     if let Some(stitch) = current {
         changed |= stitch_rows(state, ui, &mut path, stitch, now);
+    }
+    if tiled {
+        let mut size = path.radius * 200.0;
+        changed |= slider_row_reset(ui, "Stitch size", &mut size, 3.0, |v| egui::Slider::new(v, 0.05..=20.0).logarithmic(true).suffix("%")).on_hover_text("Width of the tile, in percent of the texture").changed();
+        path.radius = (size / 200.0).clamp(0.00001, 0.5);
+        if let Some(value) = path.values.get_mut(&subcraft_core::ChannelKind::Height) {
+            changed |= slider_row_reset(ui, "Raised", &mut value.0[0], 0.6, |v| egui::Slider::new(v, -1.0..=1.0)).on_hover_text("How far the tile's height map stands out of the surface").changed();
+        }
     }
     ui.horizontal_wrapped(|ui| {
         if ui.button("New path").clicked() { state.pen.new_path(&state.session); state.tool = Tool::Pen; }
@@ -961,6 +1041,44 @@ mod keyboard_tests {
             state.pen.add_path_layer(&mut state.session, groove, "Seam groove").unwrap();
             assert_eq!(state.session.selected_texture_set().layers.len(), layers + 1);
         }
+    }
+
+    /// A stitch tile: chosen before drawing it makes ribbon paths with its images, an imported
+    /// one is found from any of its files, and a stitch tile gives way to a stitch again.
+    #[test]
+    fn a_stitch_tile_is_drawn_with_the_pen_and_imported_from_files() {
+        let mut state = UiState::new(subcraft_app::Session::sample(), None);
+        state.tool = Tool::Pen;
+        let sample = &sample_tiles()[0];
+        let style = subcraft_app::stitch::sample_tile(&mut state.session, sample);
+        choose_tile(&mut state, style, sample.name, false, 0.0);
+        click(&mut state, Vec2::new(0.3, 0.3));
+        click(&mut state, Vec2::new(0.6, 0.35));
+        let path = drawn_path(&state);
+        assert_eq!(path.kind, subcraft_doc::PathKind::Ribbon);
+        assert_eq!(path.ribbon.unwrap().image, style.image);
+        assert!(subcraft_app::stitch::tile_of_path(&path).is_some() || !state.session.channels().contains(&subcraft_core::ChannelKind::Height));
+        // The panel draws with a tile chosen and on a tile path.
+        let ctx = egui::Context::default();
+        crate::theme::apply(&ctx);
+        let mut out = ctx.run_ui(egui::RawInput::default(), |ui| crate::panels::properties::show(&mut state, ui));
+        out.textures_delta.clear();
+        // Imported: three files with one name, picked by the height map.
+        let dir = std::env::temp_dir().join(format!("subcraft_tile_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for (file, rgb) in [("seam_color.png", [0.8f32, 0.2, 0.1]), ("seam_height.png", [0.7, 0.7, 0.7]), ("seam_normal.png", [0.5, 0.5, 1.0])] {
+            let data: Vec<f32> = (0..8 * 4).flat_map(|_| rgb).collect();
+            subcraft_image::save_image(&dir.join(file), 8, 4, 3, &data, subcraft_image::FileFormat::Png8).unwrap();
+        }
+        import_tile(&mut state, &dir.join("seam_height.png"), true, 0.0);
+        while state.pen.poll(&mut state.session, 1 << 20).unwrap() {}
+        let tile = state.pen.tile.expect("the imported tile is the pen's style");
+        assert!(tile.image.is_some() && tile.height.is_some() && tile.normal.is_some(), "all three images were found: {tile:?}");
+        assert_eq!(drawn_path(&state).ribbon.unwrap().image, tile.image, "the selected path took the tile");
+        let _ = std::fs::remove_dir_all(&dir);
+        // A stitch again.
+        choose_stitch(&mut state, subcraft_app::stitch::find("Stitch: Cross"), false, 0.0);
+        assert!(state.pen.tile.is_none());
     }
 
     /// The stitch choice outlives the project it was made in: its tip becomes a resource of

@@ -122,6 +122,7 @@ pub fn build(c: &HintContext) -> Vec<Hint> {
         match c.tool {
             Tool::Brush | Tool::Eraser | Tool::Smudge | Tool::Clone | Tool::Projection => out.push(h("Shift+LMB", "Straight line from the last point")),
             Tool::Eyedropper => out.push(h("Shift+LMB", "Pick material")),
+            Tool::Shape => out.push(h("Shift+drag", "Square / circle")),
             _ => {}
         }
         if let Some(k) = key(c, Action::PrevChannel) {
@@ -151,6 +152,12 @@ pub fn build(c: &HintContext) -> Vec<Hint> {
             Tool::PolygonFill => {
                 out.push(h("LMB", "Fill polygon"));
                 out.push(h("LMB drag", "Box fill"));
+            }
+            Tool::Shape => {
+                out.push(h("LMB drag", if c.mask { "Fill the shape on the mask" } else { "Fill the shape" }));
+                out.push(h("Shift+drag", "Square / circle"));
+                out.push(h("Ctrl+drag", "From the centre"));
+                out.push(h("Esc", "Cancel"));
             }
             Tool::Eyedropper => {
                 out.push(h("LMB", "Pick color"));

@@ -539,6 +539,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     else { state.set_status(crate::keys::native("Ctrl+click the model to set the clone source"), now); }
                 }
                 Tool::PolygonFill => state.fill_box = Some(p),
+                Tool::Shape => state.shape_box = Some(p),
                 _ => {
                     if let Err(e) = state.session.prepare_surface_paint(&camera, sp) { state.set_status(format!("Parts: {e}"), now); }
                     state.session.brush.mode = match state.tool {
@@ -632,6 +633,29 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             Ok(tiles) if tiles.is_empty() && crate::view_props::is_box_drag(start, end) => state.set_status("Polygon fill: the box touched no triangle of this texture set", now),
             Ok(_) => {}
             Err(e) => state.set_status(format!("Polygon fill: {e}"), now),
+        }
+    }
+
+    // ----- shape fill: the box dragged from the press is filled on release ---------------------
+    let shape_box = state.shape_box.zip(pointer).map(|(a, b)| {
+        let (min, max) = crate::shape_tool::drag_box(a.to_vec2(), b.to_vec2(), mods.shift, mods.command || mods.ctrl);
+        Rect::from_min_max(min.to_pos2(), max.to_pos2())
+    });
+    if state.shape_box.is_some() && (state.tool != Tool::Shape || bake_mode || ui.input(|i| i.key_pressed(egui::Key::Escape))) {
+        state.shape_box = None;
+    } else if state.shape_box.is_some() && !primary_down {
+        state.shape_box = None;
+        match shape_box.filter(|r| r.width() >= 2.0 && r.height() >= 2.0) {
+            None => state.set_status("Shape fill: drag a box to draw the shape", now),
+            Some(r) => {
+                if let Some(name) = state.session.ensure_paint_layer() {
+                    state.gpu_dirty = true;
+                    state.set_status(format!("Painting on a new paint layer, \"{name}\" (the selected layer was not a paint layer)"), now);
+                }
+                if let Err(e) = state.session.fill_shape_projected(&camera, to_screen(r.min), to_screen(r.max), &state.shape) {
+                    state.set_status(format!("Shape fill: {e}"), now);
+                }
+            }
         }
     }
 
@@ -1045,6 +1069,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     }
     if let (Some(a), Some(b)) = (state.parts_box, pointer) && crate::view_props::is_box_drag(a, b) {
         crate::view_props::draw_fill_box(&painter, Rect::from_two_pos(a, b), false);
+    }
+    if let Some(r) = shape_box.filter(|_| state.shape_box.is_some()) {
+        let points = crate::shape_tool::outline(&state.shape, r.min.to_vec2(), r.max.to_vec2(), |v| v.to_pos2());
+        crate::shape_tool::draw_preview(&painter, points, r);
     }
     crate::symmetry_view::overlay(state, ui, &painter, rect, pixel_scale, &camera, !bake_mode && state.tool != Tool::Pen);
     if !bake_mode {

@@ -585,6 +585,14 @@ impl Stroke {
             }
         }
         let cameras = self.cameras(ctx);
+        // Viewport size space: the first dab is sized at the depth of the surface under it, not
+        // at the model's centre (a dab on a face nearer than the centre came out too large).
+        if self.settings.size_space == SizeSpace::Viewport && self.last_depth.is_none() {
+            let (o, d) = ctx.camera.ray(samples[0].pos);
+            if let Some(hit) = ctx.bvh.intersect(o, d, 0.0, f32::INFINITY) {
+                self.last_depth = Some(ctx.camera.view_depth(o + d * hit.t).max(1e-3));
+            }
+        }
         let base_radius = self.base_radius(ctx);
         let s = &self.settings;
         let [size_jitter, flow_jitter, angle_jitter, position_jitter] = s.jitters(self.pressure);

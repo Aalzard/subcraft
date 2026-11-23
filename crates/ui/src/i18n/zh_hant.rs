@@ -1160,4 +1160,8 @@ pub static TABLE: &[(&str, &str)] = &[
     ("How strongly the streaks show under the rust. 0 = no drips.", "鏽蝕下方條痕的明顯程度。0 = 無滴流。"),
     ("How much neighbouring streaks merge on their way down. 0 = thin, separate streaks.", "相鄰條痕向下時融合的程度。0 = 細而分離的條痕。"),
     ("How far the drips run down the surface, as a share of the model's height.", "滴流沿表面向下延伸的距離，以模型高度的比例計。"),
+    ("Rectangle", "矩形"),
+    ("Ellipse", "橢圓"),
+    ("Rounded corners: 100 % rounds the shorter sides fully", "圓角：100 % 會讓較短的邊完全變圓"),
+    ("Soft edge inside the shape, as a share of half its shorter side", "形狀內側的柔和邊緣（佔較短邊一半的比例）"),
 ];

@@ -111,11 +111,13 @@ pub enum Action {
     /// Painter's Clone tool with an absolute source (Ctrl+6): every stroke copies from the source
     /// point again (6 is the relative clone, whose offset carries over between strokes).
     CloneToolAbsolute,
+    /// Shape fill (7): drag a rectangle or ellipse and fill it with the brush material.
+    ShapeTool,
 }
 
 impl Action {
     /// Every action, in declaration order (the tests check [`ACTIONS`] against it).
-    pub const ALL: [Action; 56] = [
+    pub const ALL: [Action; 57] = [
         Action::Undo, Action::Redo, Action::NewPaintLayer, Action::NewFillLayer, Action::NewFolder, Action::NewTextLayer, Action::DeleteLayer, Action::DuplicateLayer,
         Action::BrushTool, Action::EraserTool, Action::PenTool, Action::PolygonFillTool, Action::SmudgeTool, Action::CloneTool, Action::EyedropperTool,
         Action::BrushSmaller, Action::BrushLarger, Action::ToggleSymmetryX, Action::ToggleLazyMouse, Action::ResetCamera, Action::PerspectiveCamera,
@@ -126,7 +128,7 @@ impl Action {
         Action::NextCamera, Action::PrevCamera,
         Action::HideExcludedGeometry, Action::QuickMaskToggle, Action::QuickMaskClear, Action::QuickMaskInvert,
         Action::ToggleSymmetry, Action::PauseEngine, Action::ProjectionTool, Action::ReimportMesh,
-        Action::CloneToolAbsolute,
+        Action::CloneToolAbsolute, Action::ShapeTool,
     ];
 }
 
@@ -266,6 +268,7 @@ pub const ACTIONS: &[ActionInfo] = &[
     a(Action::ProjectionTool, "Projection Tool", &[Shortcut::key(Key::Num3)]),
     a(Action::ReimportMesh, "Reimport Mesh", &[Shortcut::ctrl_shift(Key::R)]),
     a(Action::CloneToolAbsolute, "Clone (absolute source)", &[Shortcut::ctrl(Key::Num6)]),
+    a(Action::ShapeTool, "Shape Fill (rectangle / ellipse)", &[Shortcut::key(Key::Num7)]),
     a(Action::ToggleLazyMouse, "Toggle Lazy Mouse", &[Shortcut::key(Key::D)]),
     a(Action::ResetCamera, "Frame Model / Reset Camera", &[Shortcut::key(Key::Home), Shortcut::key(Key::F)]),
     a(Action::PerspectiveCamera, "Perspective Camera", &[Shortcut::key(Key::F5)]),
@@ -636,7 +639,7 @@ mod tests {
             (Shortcut::ctrl(Key::G), Action::NewFolder), (Shortcut::alt(Key::H), Action::HideExcludedGeometry),
             (Shortcut::key(Key::U), Action::QuickMaskToggle), (Shortcut::key(Key::Y), Action::QuickMaskClear), (Shortcut::key(Key::I), Action::QuickMaskInvert),
             (Shortcut::shift(Key::Escape), Action::PauseEngine), (Shortcut::key(Key::Num3), Action::ProjectionTool), (Shortcut::ctrl_shift(Key::R), Action::ReimportMesh),
-            (Shortcut::ctrl(Key::Num6), Action::CloneToolAbsolute),
+            (Shortcut::ctrl(Key::Num6), Action::CloneToolAbsolute), (Shortcut::key(Key::Num7), Action::ShapeTool),
         ];
         for (s, a) in expect {
             assert_eq!(action_for(pa, s), Some(a), "{}", s.label());

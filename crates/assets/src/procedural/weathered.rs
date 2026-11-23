@@ -535,6 +535,521 @@ fn raw_steel_plate(ts: &TextureSet) -> Layer {
     r.finish(folder(&format!("{PREFIX}Raw Steel Plate"), ts, vec![surface, grime]))
 }
 
+// ----- beyond metals --------------------------------------------------------------------------
+
+fn weathered_painted_wood(ts: &TextureSet) -> Layer {
+    let mut r = Recipe::default();
+    r.param(color("paint_color", "Color", [0.1, 0.26, 0.3]).group("Paint").tip("Old oil paint: a faded blue-green by default"));
+    r.param(unit("paint_roughness", "Roughness", 0.5).group("Paint"));
+    r.param(color("wood_color", "Wood color", [0.42, 0.25, 0.12]).group("Wood"));
+    r.param(unit("grain_depth", "Grain depth", 0.5).group("Wood"));
+    r.macros(
+        (0.45, "Paint rubbed off the edges and corners down to the wood (reads the baked curvature)"),
+        (0.45, "The paint chalks, cracks and flakes off in patches, and the bare wood turns silver-grey"),
+        (0.35, "Dark dirt in the creases and lower down (reads the baked ambient occlusion)"),
+    );
+    r.param(color("dirt_color", "Dirt color", [0.05, 0.04, 0.03]).group("Weathering"));
+    r.pattern_params();
+
+    let wood = mat(ts, "Wood", vec![
+        (BaseColor, proc(ProceduralKind::Brushed, 2.0, 601, v(0.2, 0.12, 0.06), v(0.42, 0.25, 0.12))),
+        (Roughness, proc(ProceduralKind::Clouds, 5.0, 602, s(0.6), s(0.75))),
+        (Metallic, uni(0.0)),
+        (Height, proc(ProceduralKind::Brushed, 2.0, 601, s(0.0), s(0.03))),
+    ], triplanar(2.0));
+    r.range(&wood, BaseColor, "wood_color * 0.35", "wood_color");
+    r.range(&wood, Height, "0", "grain_depth * 0.06");
+    r.follow_pattern(&wood);
+
+    let fibres = masked(coat(ts, "Fibres", [0.1, 0.05, 0.02], 0.75, 0.0), ts, vec![fx(pattern(ProceduralKind::Brushed, 10.0, 603, 0.6, 0.35))]);
+    r.value(&fibres, BaseColor, "wood_color * 0.3");
+    r.bind(&fibres, Prop::Opacity { channel: None }, "0.35 + grain_depth * 0.4");
+    r.follow_pattern(&fibres);
+
+    // Bare wood left in the weather goes silver-grey.
+    let grey = more::pattern_coat(&mut r, ts, "Silvered Wood", ProceduralKind::Clouds, 3.0, 604, 0.2, 0.0, "age", 0.9, 0.1, 0.85);
+    r.value(&grey, BaseColor, "rgb(0.27, 0.27, 0.26)");
+    r.value(&grey, Roughness, "0.88");
+
+    // The paint: everything, minus the rubbed edges, minus flaked patches, minus cracks.
+    let paint = masked(
+        mat(ts, "Paint", vec![
+            (BaseColor, proc(ProceduralKind::Clouds, 3.0, 605, v(0.09, 0.24, 0.28), v(0.11, 0.28, 0.32))),
+            (Roughness, proc(ProceduralKind::Dirt, 5.0, 606, s(0.45), s(0.6))),
+            (Metallic, uni(0.0)),
+            (Height, uni(0.014)),
+        ], triplanar(2.0)),
+        ts,
+        vec![
+            fx(all_white()),
+            fx_blend(builder(607, MaskBuilder { grunge: 0.45, ao: 0.0, curvature: 0.7, curvature_boost: 0.4, curvature_noisiness: 0.6, ..MaskBuilder::default() }), BlendMode::Subtract),
+            fx_blend(pattern(ProceduralKind::Dirt, 6.0, 608, 0.6, 0.94), BlendMode::Subtract),
+            fx_blend(pattern(ProceduralKind::Cracks, 7.0, 609, 0.9, 0.85), BlendMode::Subtract),
+        ],
+    );
+    r.color(&paint, "mix(paint_color, paint_color * 0.6 + 0.25, age * 0.6)", "0.1 + age * 0.2");
+    r.roughness(&paint, "clamp(paint_roughness + age * 0.3, 0, 1)", "0.15");
+    r.bind_fx(&paint, 1, Prop::Level, "remap(wear, 0.05, 0.6)");
+    r.bind_fx(&paint, 1, Prop::Softness, "0.3");
+    r.bind_fx(&paint, 1, Prop::Opacity { channel: None }, "saturate(wear * 5)");
+    r.bind_fx(&paint, 2, Prop::PatternBalance { channel: None }, "remap(age, 0.85, 0.55)");
+    r.bind_fx(&paint, 2, Prop::Opacity { channel: None }, "saturate(age * 5)");
+    r.bind_fx(&paint, 3, Prop::PatternBalance { channel: None }, "remap(age, 0.97, 0.6)");
+    r.bind_fx(&paint, 3, Prop::Opacity { channel: None }, "saturate(age * 4)");
+    r.follow_pattern(&paint);
+
+    let mut surface = folder("Wood Surface", ts, vec![wood, fibres, grey, paint]);
+    // The very edge is splintered back to fresh pale wood.
+    let raw = filter(&mut surface, ts, MaterialFilter::EdgeDamages { amount: 0.3, spread: 1.2, scale: 28.0, depth: 0.5, color: [0.6, 0.42, 0.25], roughness: 0.85, metallic: 0.0, contrast: 0.6, seed: 101 });
+    r.drive(&surface, raw, S::Amount, "wear * 0.45");
+    r.drive(&surface, raw, S::Spread, "0.5 + wear * 0.9");
+    r.drive(&surface, raw, S::Color, "min(wood_color * 1.15, 1)");
+    r.follow_filter(&surface, raw);
+
+    let dirt = built_coat(&mut r, ts, "Soiling", 610, MaskBuilder { grunge: 0.5, ao: 0.9, curvature: 0.0, gradient: 0.25, gradient_invert: true, ao_noisiness: 0.4, ..MaskBuilder::default() }, "dirt", 0.05, 0.8, 0.9);
+    r.value(&dirt, BaseColor, "dirt_color");
+    r.value(&dirt, Roughness, "0.9");
+    r.finish(folder(&format!("{PREFIX}Weathered Painted Wood"), ts, vec![surface, dirt]))
+}
+
+/// What tells one worn cloth from another.
+struct Cloth {
+    name: &'static str,
+    group: &'static str,
+    kind: ProceduralKind,
+    seed: u32,
+    color: [f32; 3],
+    color_tip: &'static str,
+    weave_scale: f32,
+    roughness: f32,
+    /// How much the pale crossing threads show (the white specks of denim).
+    cross: f32,
+    /// Loose fibres on new cloth, before any wear (wool is fuzzy from the start).
+    nap: f32,
+    /// How pale the rubbed, threadbare areas get, 0..1.
+    bare: f32,
+    /// Wear raises little balls of fibre (pilling) instead of only flat fuzz.
+    pills: bool,
+    wear_tip: &'static str,
+    age_tip: &'static str,
+}
+
+fn worn_cloth(ts: &TextureSet, c: Cloth) -> Layer {
+    let (b, ws) = (c.seed, c.weave_scale);
+    let mut r = Recipe::default();
+    r.param(color("color", "Color", c.color).group(c.group).tip(c.color_tip));
+    r.param(unit("cross", "Cross thread", c.cross).group(c.group).tip("How much the pale crossing threads show between the coloured ones"));
+    r.param(unit("roughness", "Roughness", c.roughness).group(c.group));
+    r.param(Param::float("weave_size", "Weave size", 0.25, 4.0, 1.0).group(c.group).tip("Above 1 is thicker threads"));
+    r.param(unit("relief", "Weave relief", 0.5).group(c.group));
+    r.param(unit("nap", "Nap", c.nap).group(c.group).tip("Loose fibres standing on the cloth even when it is new"));
+    r.macros(
+        (0.45, c.wear_tip),
+        (0.4, c.age_tip),
+        (0.4, "Stains on the cloth and dark grime in the folds (reads the baked ambient occlusion)"),
+    );
+    r.pattern_params();
+
+    let weave = mat(ts, "Weave", vec![
+        (BaseColor, proc(c.kind, ws, b, v(0.1, 0.1, 0.1), v(0.2, 0.2, 0.2))),
+        (Roughness, proc(ProceduralKind::Clouds, 6.0, b + 1, s(0.85), s(0.95))),
+        (Metallic, uni(0.0)),
+        (Height, proc(c.kind, ws, b, s(0.0), s(0.03))),
+    ], triplanar(2.0));
+    r.range(&weave, BaseColor, "color * 0.45", "color * 1.1");
+    r.roughness(&weave, "roughness", "0.1");
+    r.range(&weave, Height, "0", "relief * 0.06");
+    r.bind(&weave, Prop::PatternScale { channel: Some(BaseColor) }, &format!("{ws} / weave_size"));
+    r.bind(&weave, Prop::PatternScale { channel: Some(Height) }, &format!("{ws} / weave_size"));
+    r.follow_pattern(&weave);
+
+    // The crossing threads show in the low parts of the weave, more as the dye wears out.
+    let cross_mask = MaskEffectKind::Fill {
+        value: 1.0,
+        procedural: Some(subcraft_doc::ProceduralParams { scale: ws, seed: b, balance: 0.42, contrast: 0.6, invert: true, ..subcraft_doc::ProceduralParams::new(c.kind) }),
+        projection: triplanar(2.0),
+    };
+    let cross = masked(coat(ts, "Cross Threads", [0.8, 0.8, 0.78], 0.9, 0.0), ts, vec![fx(cross_mask)]);
+    r.value(&cross, BaseColor, "mix(color, rgb(0.85, 0.85, 0.82), 0.85)");
+    r.value(&cross, Roughness, "roughness");
+    r.bind(&cross, Prop::Opacity { channel: None }, "saturate(cross + age * 0.2)");
+    r.bind_fx(&cross, 0, Prop::PatternScale { channel: None }, &format!("{ws} / weave_size"));
+    r.bind_fx(&cross, 0, Prop::PatternSeed { channel: None }, &format!("seed + {b}"));
+
+    let folds = mat(ts, "Creases", vec![(Height, proc(ProceduralKind::Clouds, 3.0, b + 2, s(0.0), s(0.1)))], triplanar(2.0));
+    r.range(&folds, Height, "0", "0.04 + age * 0.12");
+    r.follow_pattern(&folds);
+
+    // Sun bleach: strongest on the open faces that saw the light.
+    let bleach = built_coat(&mut r, ts, "Sun Bleach", b + 3, MaskBuilder { grunge: 0.55, ao: 0.6, ao_invert: true, curvature: 0.0, ..MaskBuilder::default() }, "age", 0.0, 0.5, 0.6);
+    r.value(&bleach, BaseColor, "mix(color, rgb(0.62, 0.6, 0.55), 0.5)");
+    r.value(&bleach, Roughness, "clamp(roughness + 0.05, 0, 1)");
+
+    // Threadbare: the dye is rubbed out of the high spots and the pale core of the thread shows.
+    let bare = built_coat(&mut r, ts, "Threadbare", b + 4, MaskBuilder { grunge: 0.5, ao: 0.0, curvature: 0.65, curvature_boost: 0.5, curvature_noisiness: 0.7, ..MaskBuilder::default() }, "wear", 0.0, 0.6, 0.75);
+    r.bind_fx(&bare, 0, Prop::Softness, "0.6");
+    r.value(&bare, BaseColor, &format!("mix(color, rgb(0.74, 0.73, 0.68), {})", c.bare));
+    r.value(&bare, Roughness, "1");
+
+    let fuzz = with_height(masked(coat(ts, "Loose Fibres", [0.5, 0.5, 0.5], 1.0, 0.0), ts, vec![fx(pattern(ProceduralKind::Speckles, if c.pills { 9.0 } else { 14.0 }, b + 5, 0.5, 0.3))]), ts);
+    r.value(&fuzz, BaseColor, "mix(color, rgb(0.8, 0.8, 0.75), 0.1 + wear * 0.25)");
+    r.value(&fuzz, Height, if c.pills { "0.01 + wear * 0.03" } else { "0.004" });
+    r.bind_fx(&fuzz, 0, Prop::PatternBalance { channel: None }, "remap(saturate(nap * 0.6 + wear * 0.6), 0.95, 0.4)");
+    r.bind(&fuzz, Prop::Opacity { channel: None }, "saturate((nap + wear) * 4) * 0.55");
+    r.follow_pattern(&fuzz);
+
+    let stains = more::pattern_coat(&mut r, ts, "Stains", ProceduralKind::Dirt, 3.0, b + 6, 0.2, 0.0, "dirt", 0.95, 0.5, 0.55);
+    r.value(&stains, BaseColor, "color * 0.4");
+    r.value(&stains, Roughness, "clamp(roughness - 0.15, 0, 1)");
+
+    let mut surface = folder("Cloth Surface", ts, vec![weave, cross, folds, bleach, bare, fuzz, stains]);
+    // A frayed line of pale thread right on the edges.
+    let fray = filter(&mut surface, ts, MaterialFilter::DetailEdgeWear { level: 0.4, detail: 0.0, contrast: 0.15, grunge: 0.8, grunge_scale: 8.0, color: [0.7, 0.68, 0.6], roughness: 1.0, metallic: 0.0, seed: b + 7 });
+    r.drive(&surface, fray, S::Level, "wear * 0.7");
+    r.drive(&surface, fray, S::Color, &format!("mix(color, rgb(0.8, 0.78, 0.72), {})", c.bare * 0.9));
+    r.drive(&surface, fray, S::GrungeScale, "8 * scale");
+    r.drive(&surface, fray, S::Seed, &format!("seed + {}", b + 7));
+
+    let grime = built_coat(&mut r, ts, "Fold Grime", b + 8, MaskBuilder { grunge: 0.5, ao: 1.0, curvature: 0.4, convex_range: 0.0, concave_range: 1.0, ao_noisiness: 0.4, ..MaskBuilder::default() }, "dirt", 0.0, 0.75, 0.85);
+    r.value(&grime, BaseColor, "rgb(0.05, 0.043, 0.035)");
+    r.value(&grime, Roughness, "0.9");
+    r.finish(folder(&format!("{PREFIX}{}", c.name), ts, vec![surface, grime]))
+}
+
+fn worn_canvas(ts: &TextureSet) -> Layer {
+    worn_cloth(ts, Cloth {
+        name: "Worn Canvas", group: "Canvas", kind: ProceduralKind::Weave, seed: 621,
+        color: [0.2, 0.22, 0.12], color_tip: "Dyed cotton canvas: olive drab by default",
+        weave_scale: 7.0, roughness: 0.9, cross: 0.1, nap: 0.0, bare: 0.5, pills: false,
+        wear_tip: "Edges frayed to pale thread, with threadbare patches and loose fibres around them (reads the baked curvature)",
+        age_tip: "The dye bleaches in the sun, unevenly, and the cloth creases",
+    })
+}
+
+fn worn_denim(ts: &TextureSet) -> Layer {
+    worn_cloth(ts, Cloth {
+        name: "Worn Denim", group: "Denim", kind: ProceduralKind::Twill, seed: 681,
+        color: [0.03, 0.06, 0.2], color_tip: "Indigo warp over a white weft",
+        weave_scale: 18.0, roughness: 0.92, cross: 0.3, nap: 0.0, bare: 0.75, pills: false,
+        wear_tip: "The indigo rubs off the edges and high spots to pale blue and white thread (reads the baked curvature)",
+        age_tip: "The indigo washes out, unevenly, more white weft shows and the cloth creases",
+    })
+}
+
+fn worn_wool(ts: &TextureSet) -> Layer {
+    worn_cloth(ts, Cloth {
+        name: "Worn Wool", group: "Wool", kind: ProceduralKind::Twill, seed: 701,
+        color: [0.17, 0.09, 0.045], color_tip: "Thick woven wool: a brown tweed by default",
+        weave_scale: 9.0, roughness: 0.97, cross: 0.08, nap: 0.5, bare: 0.4, pills: true,
+        wear_tip: "The nap is rubbed off the edges and high spots, and the wool pills into little balls (reads the baked curvature)",
+        age_tip: "The dye fades in the light, unevenly, and the cloth creases",
+    })
+}
+
+fn weathered_concrete(ts: &TextureSet) -> Layer {
+    let mut r = Recipe::default();
+    r.param(color("color", "Color", [0.27, 0.265, 0.25]).group("Concrete"));
+    r.param(unit("roughness", "Roughness", 0.9).group("Concrete"));
+    r.param(unit("pores", "Pores", 0.5).group("Concrete").tip("Depth of the small pits in the surface"));
+    r.param(unit("aggregate", "Aggregate", 0.4).group("Concrete").tip("The small stones and sand showing in the surface"));
+    r.macros(
+        (0.5, "Edges and corners broken off in hard chips, showing the pale stony inside (reads the baked curvature)"),
+        (0.4, "Cracks open, dark water streaks run down, and moss starts in the damp creases"),
+        (0.35, "Dark soot and dirt in the creases and lower down (reads the baked ambient occlusion)"),
+    );
+    r.param(color("moss_color", "Moss color", [0.05, 0.075, 0.025]).group("Weathering"));
+    r.pattern_params();
+
+    let base = mat(ts, "Concrete", vec![
+        (BaseColor, proc(ProceduralKind::Clouds, 8.0, 631, v(0.26, 0.26, 0.25), v(0.4, 0.4, 0.38))),
+        (Roughness, proc(ProceduralKind::Grunge, 12.0, 632, s(0.82), s(0.97))),
+        (Metallic, uni(0.0)),
+        (Height, proc(ProceduralKind::Pores, 14.0, 633, s(0.0), s(-0.05))),
+    ], triplanar(2.0));
+    r.color(&base, "color", "0.35");
+    r.roughness(&base, "roughness", "0.15");
+    r.range(&base, Height, "0", "0 - pores * 0.1");
+    r.follow_pattern(&base);
+
+    let patches = masked(coat(ts, "Patches", [0.3, 0.3, 0.29], 0.9, 0.0), ts, vec![fx(pattern(ProceduralKind::Clouds, 2.0, 634, 0.5, 0.2))]);
+    r.value(&patches, BaseColor, "color * 0.72");
+    r.value(&patches, Roughness, "roughness");
+    r.bind(&patches, Prop::Opacity { channel: None }, "0.3 + age * 0.2");
+    r.follow_pattern(&patches);
+
+    let dark_grit = masked(coat(ts, "Dark Aggregate", [0.2, 0.2, 0.19], 0.85, 0.0), ts, vec![fx(pattern(ProceduralKind::Speckles, 9.0, 635, 0.5, 0.5))]);
+    r.value(&dark_grit, BaseColor, "color * 0.5");
+    r.bind(&dark_grit, Prop::Opacity { channel: None }, "aggregate * 0.8");
+    r.follow_pattern(&dark_grit);
+    let pale_grit = masked(coat(ts, "Pale Aggregate", [0.55, 0.54, 0.5], 0.85, 0.0), ts, vec![fx(pattern(ProceduralKind::Speckles, 6.0, 636, 0.55, 0.5))]);
+    r.value(&pale_grit, BaseColor, "min(color * 1.5, 1)");
+    r.bind(&pale_grit, Prop::Opacity { channel: None }, "aggregate * 0.6");
+    r.follow_pattern(&pale_grit);
+
+    // Water streaks only where a soft cloud lets them through, so they start and stop.
+    let streaks = masked(coat(ts, "Water Streaks", [0.2, 0.19, 0.18], 0.85, 0.0), ts, vec![
+        fx(pattern(ProceduralKind::Streaks, 7.0, 637, 0.68, 0.15)),
+        fx_blend(pattern(ProceduralKind::Clouds, 3.0, 638, 0.45, 0.4), BlendMode::Multiply),
+    ]);
+    r.value(&streaks, BaseColor, "color * 0.5");
+    r.bind_fx(&streaks, 0, Prop::PatternBalance { channel: None }, "remap(age, 0.95, 0.4)");
+    r.bind(&streaks, Prop::Opacity { channel: None }, "saturate(age * 3) * 0.55");
+    r.follow_pattern(&streaks);
+
+    let cracks = with_height(masked(coat(ts, "Cracks", [0.12, 0.12, 0.11], 0.95, 0.0), ts, vec![
+        fx(pattern(ProceduralKind::Cracks, 3.0, 639, 0.6, 0.85)),
+        fx_blend(pattern(ProceduralKind::Clouds, 2.0, 640, 0.5, 0.7), BlendMode::Multiply),
+    ]), ts);
+    r.value(&cracks, BaseColor, "color * 0.25");
+    r.value(&cracks, Height, "0 - 0.04");
+    r.bind_fx(&cracks, 1, Prop::PatternBalance { channel: None }, "remap(age, 0.85, 0.2)");
+    r.bind(&cracks, Prop::Opacity { channel: None }, "saturate(age * 5) * 0.9");
+    r.follow_pattern(&cracks);
+
+    let mut surface = folder("Concrete Surface", ts, vec![base, patches, dark_grit, pale_grit, streaks, cracks]);
+    let chips = filter(&mut surface, ts, MaterialFilter::EdgeDamages { amount: 0.4, spread: 2.0, scale: 16.0, depth: 0.9, color: [0.5, 0.49, 0.46], roughness: 0.97, metallic: 0.0, contrast: 0.9, seed: 122 });
+    r.drive(&surface, chips, S::Amount, "wear * 0.8");
+    r.drive(&surface, chips, S::Spread, "0.8 + wear * 1.8");
+    r.drive(&surface, chips, S::Color, "min(color * 1.3, 1)");
+    r.follow_filter(&surface, chips);
+
+    // Moss: only late, in the damp creases and on what faces up.
+    let moss = with_height(built_coat(&mut r, ts, "Moss", 641, MaskBuilder { grunge: 0.5, ao: 0.9, curvature: 0.4, convex_range: 0.0, concave_range: 1.0, world_normal: 0.35, ao_noisiness: 0.6, ..MaskBuilder::default() }, "saturate(age * 1.6 - 0.5)", 0.0, 0.36, 0.85), ts);
+    r.bind_fx(&moss, 0, Prop::Softness, "0.4");
+    r.value(&moss, BaseColor, "moss_color");
+    r.value(&moss, Roughness, "0.95");
+    r.value(&moss, Height, "0.02");
+
+    let dirt = built_coat(&mut r, ts, "Soot", 642, MaskBuilder { grunge: 0.5, ao: 0.9, curvature: 0.0, gradient: 0.25, gradient_invert: true, ao_noisiness: 0.4, ..MaskBuilder::default() }, "dirt", 0.0, 0.75, 0.85);
+    r.value(&dirt, BaseColor, "rgb(0.045, 0.04, 0.035)");
+    r.value(&dirt, Roughness, "0.92");
+    r.finish(folder(&format!("{PREFIX}Weathered Concrete"), ts, vec![surface, moss, dirt]))
+}
+
+fn perished_rubber(ts: &TextureSet) -> Layer {
+    let mut r = Recipe::default();
+    r.param(color("color", "Color", [0.03, 0.03, 0.032]).group("Rubber"));
+    r.param(unit("roughness", "Roughness", 0.75).group("Rubber"));
+    r.param(unit("texture", "Surface texture", 0.4).group("Rubber").tip("Fine pitted relief; 0 is smooth"));
+    r.macros(
+        (0.45, "Edges rubbed smooth and shiny, with grey scuffs; past half, chunks tear out of the edges (reads the baked curvature)"),
+        (0.4, "The rubber dries out: it greys, a chalky bloom spreads and fine cracks open"),
+        (0.35, "Pale dust on what faces up and in the creases"),
+    );
+    r.param(color("dust_color", "Dust color", [0.3, 0.27, 0.22]).group("Weathering"));
+    r.pattern_params();
+
+    let base = mat(ts, "Rubber", vec![
+        (BaseColor, proc(ProceduralKind::Clouds, 5.0, 651, v(0.03, 0.03, 0.03), v(0.04, 0.04, 0.04))),
+        (Roughness, proc(ProceduralKind::Dirt, 5.0, 652, s(0.65), s(0.85))),
+        (Metallic, uni(0.0)),
+        (Height, proc(ProceduralKind::Pores, 30.0, 653, s(0.0), s(-0.01))),
+    ], triplanar(2.0));
+    r.color(&base, "mix(color, color * 0.6 + rgb(0.05, 0.047, 0.043), age * 0.4)", "0.4");
+    r.roughness(&base, "clamp(roughness + age * 0.15, 0, 1)", "0.2");
+    r.range(&base, Height, "0", "0 - texture * 0.03");
+    r.follow_pattern(&base);
+
+    let bloom = built_coat(&mut r, ts, "Bloom", 654, MaskBuilder { grunge: 0.75, ao: 0.4, ao_invert: true, curvature: 0.0, ..MaskBuilder::default() }, "age", 0.0, 0.42, 0.35);
+    r.value(&bloom, BaseColor, "mix(color, rgb(0.42, 0.41, 0.38), 0.4)");
+    r.value(&bloom, Roughness, "0.95");
+
+    let scuffs = built_coat(&mut r, ts, "Scuffs", 655, MaskBuilder { grunge: 0.25, ao: 0.0, curvature: 0.5, scratches: 0.45, scratches_amount: 0.4, scratches_scale: 1.4, curvature_boost: 0.4, curvature_noisiness: 0.5, ..MaskBuilder::default() }, "wear", 0.0, 0.4, 0.45);
+    r.bind_fx(&scuffs, 0, Prop::Softness, "0.35");
+    r.value(&scuffs, BaseColor, "mix(color, rgb(0.4, 0.4, 0.4), 0.3)");
+    r.value(&scuffs, Roughness, "clamp(roughness - 0.3, 0.1, 1)");
+
+    // Ozone cracking: fine, close cracks that open with age.
+    let crack = |r: &mut Recipe, name: &str, scale: f32, seed: u32, none: f32, full: f32| {
+        let l = with_height(masked(coat(ts, name, [0.01, 0.01, 0.01], 0.9, 0.0), ts, vec![
+            fx(pattern(ProceduralKind::Cracks, scale, seed, 0.6, 0.8)),
+            fx_blend(pattern(ProceduralKind::Clouds, 2.5, seed + 1, 0.5, 0.6), BlendMode::Multiply),
+        ]), ts);
+        r.value(&l, BaseColor, "color * 0.25");
+        r.value(&l, Height, "0 - 0.03");
+        r.bind_fx(&l, 1, Prop::PatternBalance { channel: None }, &format!("remap(age, {none}, {full})"));
+        r.bind(&l, Prop::Opacity { channel: None }, "saturate(age * 4) * 0.9");
+        r.follow_pattern(&l);
+        l
+    };
+    let fine = crack(&mut r, "Fine Cracks", 16.0, 656, 0.9, 0.45);
+    let deep = crack(&mut r, "Deep Cracks", 6.0, 658, 1.0, 0.55);
+
+    let mut surface = folder("Rubber Surface", ts, vec![base, bloom, scuffs, fine, deep]);
+    let polished = filter(&mut surface, ts, MaterialFilter::EdgeDamages { amount: 0.35, spread: 1.6, scale: 30.0, depth: 0.0, color: [0.06, 0.06, 0.06], roughness: 0.4, metallic: 0.0, contrast: 0.3, seed: 131 });
+    r.drive(&surface, polished, S::Amount, "wear * 0.9");
+    r.drive(&surface, polished, S::Spread, "0.7 + wear * 1.8");
+    r.drive(&surface, polished, S::Color, "color * 2 + 0.03");
+    r.drive(&surface, polished, S::Roughness, "clamp(roughness - 0.45, 0.1, 1)");
+    r.follow_filter(&surface, polished);
+    let torn = filter(&mut surface, ts, MaterialFilter::EdgeDamages { amount: 0.0, spread: 1.4, scale: 14.0, depth: 1.0, color: [0.02, 0.02, 0.02], roughness: 0.95, metallic: 0.0, contrast: 0.9, seed: 132 });
+    r.drive(&surface, torn, S::Amount, "saturate(wear * 2 - 1) * 0.55");
+    r.drive(&surface, torn, S::Color, "color * 0.6");
+    r.drive(&surface, torn, S::Roughness, "roughness");
+    r.follow_filter(&surface, torn);
+
+    // Dust on what faces up, broken by a cloud so even a flat top is never one even sheet.
+    let dust = masked(coat(ts, "Dust", [0.3, 0.27, 0.22], 0.97, 0.0), ts, vec![
+        fx(builder(660, MaskBuilder { grunge: 0.4, ao: 0.6, curvature: 0.0, world_normal: 0.75, ao_noisiness: 0.4, ..MaskBuilder::default() })),
+        fx_blend(pattern(ProceduralKind::Clouds, 2.5, 661, 0.5, 0.35), BlendMode::Multiply),
+    ]);
+    r.bind_fx(&dust, 0, Prop::Level, "remap(dirt, 0.1, 0.42)");
+    r.bind_fx(&dust, 0, Prop::BreakupSeed, "seed + 660");
+    r.bind_fx(&dust, 0, Prop::Softness, "0.5");
+    r.bind_fx(&dust, 1, Prop::PatternBalance { channel: None }, "remap(dirt, 0.7, 0.42)");
+    r.bind_fx(&dust, 1, Prop::PatternScale { channel: None }, "2.5 * scale");
+    r.bind_fx(&dust, 1, Prop::PatternSeed { channel: None }, "seed + 661");
+    r.bind(&dust, Prop::Opacity { channel: None }, "saturate(dirt * 4) * 0.8");
+    r.value(&dust, BaseColor, "dust_color");
+    r.value(&dust, Roughness, "0.97");
+    r.finish(folder(&format!("{PREFIX}Perished Rubber"), ts, vec![surface, dust]))
+}
+
+fn chipped_painted_plastic(ts: &TextureSet) -> Layer {
+    let mut r = Recipe::default();
+    r.param(color("paint_color", "Color", [0.7, 0.42, 0.02]).group("Paint").tip("Sprayed paint over a plastic shell: safety yellow by default"));
+    r.param(unit("gloss", "Gloss", 0.6).group("Paint"));
+    r.param(color("primer_color", "Primer", [0.42, 0.42, 0.4]).group("Paint").tip("The grey undercoat that rims every chip"));
+    r.param(color("plastic_color", "Plastic color", [0.035, 0.035, 0.04]).group("Paint").tip("The moulded plastic under the paint"));
+    r.macros(
+        (0.45, "Paint chipped off the edges: a rim of primer, then bare plastic, with scuffs around them (reads the baked curvature)"),
+        (0.3, "The paint fades and dulls in the sun and lets go in small flakes"),
+        (0.35, "Dark grime in the creases and lower down (reads the baked ambient occlusion)"),
+    );
+    r.pattern_params();
+
+    let paint = mat(ts, "Paint", vec![
+        (BaseColor, proc(ProceduralKind::Clouds, 3.0, 671, v(0.68, 0.4, 0.02), v(0.72, 0.44, 0.02))),
+        (Roughness, proc(ProceduralKind::Dirt, 4.0, 672, s(0.35), s(0.5))),
+        (Metallic, uni(0.0)),
+        (Height, proc(ProceduralKind::Clouds, 30.0, 673, s(0.0), s(0.004))),
+    ], triplanar(2.0));
+    r.color(&paint, "mix(paint_color, paint_color * 0.65 + 0.2, age * 0.4)", "0.05 + age * 0.15");
+    r.roughness(&paint, "clamp(1 - gloss * 0.95 + age * 0.3, 0, 1)", "0.12 + age * 0.15");
+    r.follow_pattern(&paint);
+
+    let scuffs = built_coat(&mut r, ts, "Scuffs", 674, MaskBuilder { grunge: 0.25, ao: 0.0, curvature: 0.5, scratches: 0.7, scratches_amount: 0.5, scratches_scale: 1.4, curvature_boost: 0.4, curvature_noisiness: 0.5, ..MaskBuilder::default() }, "wear", 0.0, 0.4, 0.6);
+    r.bind_fx(&scuffs, 0, Prop::Softness, "0.35");
+    r.value(&scuffs, BaseColor, "mix(paint_color, primer_color, 0.4)");
+    r.value(&scuffs, Roughness, "clamp(1 - gloss * 0.95 + 0.3, 0, 1)");
+
+    let mut surface = folder("Paint Surface", ts, vec![paint, scuffs]);
+    // The same edge damage twice: the primer reaches further than the bare plastic.
+    let rim = filter(&mut surface, ts, MaterialFilter::EdgeDamages { amount: 0.4, spread: 2.0, scale: 28.0, depth: 0.3, color: [0.42, 0.42, 0.4], roughness: 0.7, metallic: 0.0, contrast: 0.9, seed: 141 });
+    r.drive(&surface, rim, S::Amount, "wear * 0.8");
+    r.drive(&surface, rim, S::Spread, "0.7 + wear * 1.5");
+    r.drive(&surface, rim, S::Color, "primer_color");
+    r.follow_filter(&surface, rim);
+    let bare = filter(&mut surface, ts, MaterialFilter::EdgeDamages { amount: 0.3, spread: 2.0, scale: 28.0, depth: 0.6, color: [0.035, 0.035, 0.04], roughness: 0.45, metallic: 0.0, contrast: 0.9, seed: 141 });
+    r.drive(&surface, bare, S::Amount, "wear * 0.55");
+    r.drive(&surface, bare, S::Spread, "0.7 + wear * 1.5");
+    r.drive(&surface, bare, S::Color, "plastic_color");
+    r.follow_filter(&surface, bare);
+    let flakes = filter(&mut surface, ts, MaterialFilter::PeelingPaint { amount: 0.03, scale: 9.0, edge_bias: 0.7, thickness: 0.5, curl: 0.3, color: [0.035, 0.035, 0.04], roughness: 0.45, metallic: 0.0, rust: 0.0, seed: 142 });
+    r.drive(&surface, flakes, S::Amount, "age * age * 0.07");
+    r.drive(&surface, flakes, S::Color, "plastic_color");
+    r.follow_filter(&surface, flakes);
+
+    let grime = built_coat(&mut r, ts, "Dark Grime", 675, MaskBuilder { grunge: 0.45, ao: 1.0, curvature: 0.0, gradient: 0.2, gradient_invert: true, ao_noisiness: 0.4, ..MaskBuilder::default() }, "dirt", 0.0, 0.75, 0.85);
+    r.value(&grime, BaseColor, "rgb(0.04, 0.034, 0.028)");
+    r.value(&grime, Roughness, "0.85");
+    r.finish(folder(&format!("{PREFIX}Chipped Painted Plastic"), ts, vec![surface, grime]))
+}
+
+fn weathered_limestone(ts: &TextureSet) -> Layer {
+    let mut r = Recipe::default();
+    r.param(color("color", "Color", [0.5, 0.44, 0.33]).group("Stone").tip("Cut limestone: a warm cream by default"));
+    r.param(unit("roughness", "Roughness", 0.85).group("Stone"));
+    r.param(unit("bedding", "Bedding", 0.4).group("Stone").tip("The faint layers the stone was laid down in"));
+    r.param(unit("pits", "Pits", 0.5).group("Stone").tip("Small holes and shell marks in the surface"));
+    r.macros(
+        (0.45, "Edges and corners knocked off in hard chips, showing fresh pale stone (reads the baked curvature)"),
+        (0.4, "The stone greys, cracks open, dark water streaks run down, and lichen and moss take hold"),
+        (0.35, "Dark soot and dirt in the creases and lower down (reads the baked ambient occlusion)"),
+    );
+    r.param(color("lichen_color", "Lichen color", [0.55, 0.45, 0.08]).group("Weathering"));
+    r.pattern_params();
+
+    let base = mat(ts, "Stone", vec![
+        (BaseColor, proc(ProceduralKind::Clouds, 6.0, 721, v(0.44, 0.39, 0.29), v(0.56, 0.49, 0.37))),
+        (Roughness, proc(ProceduralKind::Grunge, 10.0, 722, s(0.78), s(0.93))),
+        (Metallic, uni(0.0)),
+        (Height, proc(ProceduralKind::Pores, 9.0, 723, s(0.0), s(-0.05))),
+    ], triplanar(2.0));
+    r.color(&base, "mix(color, color * 0.55 + 0.12, age * 0.6)", "0.25");
+    r.roughness(&base, "roughness", "0.15");
+    r.range(&base, Height, "0", "0 - pits * 0.1");
+    r.follow_pattern(&base);
+
+    let beds = masked(coat(ts, "Bedding", [0.4, 0.34, 0.25], 0.85, 0.0), ts, vec![fx(pattern(ProceduralKind::Brushed, 1.2, 724, 0.5, 0.3))]);
+    r.value(&beds, BaseColor, "color * 0.75");
+    r.value(&beds, Roughness, "roughness");
+    r.bind(&beds, Prop::Opacity { channel: None }, "bedding * 0.6");
+    r.follow_pattern(&beds);
+
+    let grains = masked(coat(ts, "Grains", [0.7, 0.66, 0.55], 0.8, 0.0), ts, vec![fx(pattern(ProceduralKind::Speckles, 8.0, 725, 0.55, 0.5))]);
+    r.value(&grains, BaseColor, "min(color * 1.35, 1)");
+    r.bind(&grains, Prop::Opacity { channel: None }, "0.3");
+    r.follow_pattern(&grains);
+
+    let streaks = masked(coat(ts, "Water Streaks", [0.2, 0.19, 0.18], 0.85, 0.0), ts, vec![
+        fx(pattern(ProceduralKind::Streaks, 7.0, 726, 0.68, 0.15)),
+        fx_blend(pattern(ProceduralKind::Clouds, 3.0, 727, 0.45, 0.4), BlendMode::Multiply),
+    ]);
+    r.value(&streaks, BaseColor, "color * 0.35");
+    r.bind_fx(&streaks, 0, Prop::PatternBalance { channel: None }, "remap(age, 0.95, 0.4)");
+    r.bind(&streaks, Prop::Opacity { channel: None }, "saturate(age * 3) * 0.55");
+    r.follow_pattern(&streaks);
+
+    let cracks = with_height(masked(coat(ts, "Cracks", [0.12, 0.12, 0.11], 0.95, 0.0), ts, vec![
+        fx(pattern(ProceduralKind::Cracks, 2.5, 728, 0.6, 0.85)),
+        fx_blend(pattern(ProceduralKind::Clouds, 2.0, 729, 0.5, 0.7), BlendMode::Multiply),
+    ]), ts);
+    r.value(&cracks, BaseColor, "color * 0.2");
+    r.value(&cracks, Height, "0 - 0.04");
+    r.bind_fx(&cracks, 1, Prop::PatternBalance { channel: None }, "remap(age, 0.9, 0.4)");
+    r.bind(&cracks, Prop::Opacity { channel: None }, "saturate(age * 5) * 0.9");
+    r.follow_pattern(&cracks);
+
+    // Lichen: round crusty spots in loose colonies, on the open faces.
+    let lichen = with_height(masked(coat(ts, "Lichen", [0.5, 0.47, 0.2], 0.95, 0.0), ts, vec![
+        fx(pattern(ProceduralKind::Speckles, 5.0, 730, 0.5, 0.75)),
+        fx_blend(pattern(ProceduralKind::Clouds, 2.5, 731, 0.5, 0.6), BlendMode::Multiply),
+    ]), ts);
+    r.value(&lichen, BaseColor, "lichen_color");
+    r.value(&lichen, Height, "0.008");
+    r.bind_fx(&lichen, 0, Prop::PatternBalance { channel: None }, "remap(age, 0.9, 0.42)");
+    r.bind_fx(&lichen, 1, Prop::PatternBalance { channel: None }, "remap(age, 0.85, 0.35)");
+    r.bind(&lichen, Prop::Opacity { channel: None }, "saturate(age * 3 - 0.3) * 0.85");
+    r.follow_pattern(&lichen);
+    let pale_lichen = masked(coat(ts, "Pale Lichen", [0.6, 0.62, 0.55], 0.95, 0.0), ts, vec![
+        fx(pattern(ProceduralKind::Speckles, 3.5, 732, 0.5, 0.75)),
+        fx_blend(pattern(ProceduralKind::Clouds, 2.0, 733, 0.5, 0.6), BlendMode::Multiply),
+    ]);
+    r.value(&pale_lichen, BaseColor, "rgb(0.55, 0.58, 0.5)");
+    r.bind_fx(&pale_lichen, 0, Prop::PatternBalance { channel: None }, "remap(age, 0.9, 0.55)");
+    r.bind(&pale_lichen, Prop::Opacity { channel: None }, "saturate(age * 3 - 0.3) * 0.7");
+    r.follow_pattern(&pale_lichen);
+
+    let mut surface = folder("Stone Surface", ts, vec![base, beds, grains, streaks, cracks, lichen, pale_lichen]);
+    let chips = filter(&mut surface, ts, MaterialFilter::EdgeDamages { amount: 0.4, spread: 2.0, scale: 12.0, depth: 1.0, color: [0.6, 0.54, 0.42], roughness: 0.95, metallic: 0.0, contrast: 0.85, seed: 151 });
+    r.drive(&surface, chips, S::Amount, "wear * 0.8");
+    r.drive(&surface, chips, S::Spread, "0.8 + wear * 1.8");
+    r.drive(&surface, chips, S::Color, "min(color * 1.25, 1)");
+    r.follow_filter(&surface, chips);
+
+    let moss = with_height(built_coat(&mut r, ts, "Moss", 734, MaskBuilder { grunge: 0.5, ao: 0.9, curvature: 0.4, convex_range: 0.0, concave_range: 1.0, world_normal: 0.35, ao_noisiness: 0.6, ..MaskBuilder::default() }, "saturate(age * 1.6 - 0.6)", 0.0, 0.34, 0.85), ts);
+    r.bind_fx(&moss, 0, Prop::Softness, "0.4");
+    r.value(&moss, BaseColor, "rgb(0.05, 0.075, 0.025)");
+    r.value(&moss, Roughness, "0.95");
+    r.value(&moss, Height, "0.02");
+
+    let dirt = built_coat(&mut r, ts, "Soot", 735, MaskBuilder { grunge: 0.5, ao: 0.9, curvature: 0.0, gradient: 0.25, gradient_invert: true, ao_noisiness: 0.4, ..MaskBuilder::default() }, "dirt", 0.0, 0.75, 0.85);
+    r.value(&dirt, BaseColor, "rgb(0.045, 0.04, 0.035)");
+    r.value(&dirt, Roughness, "0.92");
+    r.finish(folder(&format!("{PREFIX}Weathered Limestone"), ts, vec![surface, moss, dirt]))
+}
+
 /// The weathered family, in shelf order.
 pub(super) fn smart_materials() -> Vec<SmartMaterial> {
     let named = |name: &str, build: fn(&TextureSet) -> Layer| smart(&format!("{PREFIX}{name}"), build);
@@ -548,5 +1063,13 @@ pub(super) fn smart_materials() -> Vec<SmartMaterial> {
         named("Powder Coated Metal", powder_coated_metal),
         named("Hammered Copper", hammered_copper),
         named("Raw Steel Plate", raw_steel_plate),
+        named("Weathered Painted Wood", weathered_painted_wood),
+        named("Worn Canvas", worn_canvas),
+        named("Weathered Concrete", weathered_concrete),
+        named("Perished Rubber", perished_rubber),
+        named("Chipped Painted Plastic", chipped_painted_plastic),
+        named("Worn Denim", worn_denim),
+        named("Worn Wool", worn_wool),
+        named("Weathered Limestone", weathered_limestone),
     ]
 }
