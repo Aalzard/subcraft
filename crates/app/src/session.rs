@@ -1512,6 +1512,11 @@ impl Session {
                 Command::SetBlendOpacity { layer, channel, opacity } if self.has_udim_partners(layer) => {
                     return self.execute_across_udims(layer, cmd, move |l| Command::SetBlendOpacity { layer: l, channel, opacity });
                 }
+                // Fill, projection and effect edits of a material that is on every tile (issue
+                // #581: one material controls the whole object, not one copy per tile).
+                _ if crate::udim_mirror::mirrored_layer(&cmd).is_some_and(|l| self.has_udim_partners(l)) => {
+                    return self.execute_mirrored_across_udims(cmd);
+                }
                 _ => {}
             }
         }
@@ -3724,6 +3729,53 @@ impl Session {
             }
             // Partner tiles never take the selection.
             (self.selection, self.brush.target, self.effect) = after;
+            self.squash_since(pushes);
+            self.revision += 1;
+        }
+        self.across_udims = false;
+        (self.across_group, self.across_key) = (false, None);
+        result
+    }
+
+    /// A layer edit on the source tile, then the same edit (see [`crate::udim_mirror`]) on the
+    /// matching layer of every partner UDIM tile whose layer lines up. One undo step; slider
+    /// drags keep coalescing. Partner tiles never take the selection.
+    fn execute_mirrored_across_udims(&mut self, cmd: Command) -> Result<(), CommandError> {
+        let Some(layer) = crate::udim_mirror::mirrored_layer(&cmd) else { return self.execute_once(cmd) };
+        let Some(source_ts) = self.texture_set_of(layer).and_then(|id| self.doc.texture_set(id)).cloned() else { return self.execute_once(cmd) };
+        let Some(source) = source_ts.find(layer) else { return self.execute_once(cmd) };
+        let (sel_mask, sel_content) = (self.selected_effect_in(layer, LayerTarget::Mask), self.selected_effect_in(layer, LayerTarget::Content));
+        let partner_cmds: Vec<Command> = self
+            .doc
+            .udim_paint_partners(source_ts.id)
+            .into_iter()
+            .filter_map(|id| {
+                let ts = self.doc.texture_set(id)?;
+                let partner = ts.find(ts.corresponding_layer(&source_ts, layer)?)?;
+                crate::udim_mirror::partner_command(&cmd, source, partner, ts.resolution, sel_mask, sel_content)
+            })
+            .collect();
+        self.execute_with_partner_commands(cmd, partner_cmds)
+    }
+
+    /// `cmd`, then `partner_cmds` (the same edit on other UDIM tiles), as one undo step; partner
+    /// tiles never take the selection. Partner failures are logged, not returned.
+    pub(crate) fn execute_with_partner_commands(&mut self, cmd: Command, partner_cmds: Vec<Command>) -> Result<(), CommandError> {
+        if partner_cmds.is_empty() {
+            return self.execute_once(cmd);
+        }
+        let pushes = self.history.pushes();
+        self.across_udims = true;
+        (self.across_group, self.across_key) = (true, None);
+        let result = self.execute(cmd);
+        if result.is_ok() {
+            let after = (self.selection, self.brush.target, self.effect);
+            for c in partner_cmds {
+                if let Err(e) = self.execute(c) {
+                    log::warn!("UDIM tile: {e}");
+                }
+                (self.selection, self.brush.target, self.effect) = after;
+            }
             self.squash_since(pushes);
             self.revision += 1;
         }

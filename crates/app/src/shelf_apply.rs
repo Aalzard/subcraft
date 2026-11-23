@@ -54,8 +54,26 @@ impl Session {
         }
         let ids = self.import_preset_images(&preset.images)?;
         let built = preset.build_with(self.selected_texture_set(), &ids);
+        let label = format!("Material: {}", preset.name);
+        // Paint across UDIM tiles (issue #581): the matching fill layer of every partner tile
+        // takes the material too, so one material keeps controlling the whole object.
+        let source = self.selected_texture_set().clone();
+        let partners: Vec<Command> = self
+            .doc
+            .udim_paint_partners(source.id)
+            .into_iter()
+            .filter_map(|id| {
+                let ts = self.doc.texture_set(id)?;
+                let mut other = ts.find(ts.corresponding_layer(&source, layer)?)?.clone();
+                if !matches!(other.content, LayerContent::Fill(_)) {
+                    return None;
+                }
+                other.content = preset.build_with(ts, &ids).content;
+                Some(Command::ReplaceLayer { layer: other.id, replacement: Box::new(other), label: label.clone() })
+            })
+            .collect();
         let mut replacement = current;
         replacement.content = built.content;
-        self.execute(Command::ReplaceLayer { layer, replacement: Box::new(replacement), label: format!("Material: {}", preset.name) })
+        self.execute_with_partner_commands(Command::ReplaceLayer { layer, replacement: Box::new(replacement), label }, partners)
     }
 }
