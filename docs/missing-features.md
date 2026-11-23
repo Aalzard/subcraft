@@ -16,7 +16,6 @@ a planning list, not a promise.
 
 ### Layers and masks
 - Layer links across texture sets (one layer driving several sets).
-- 2D UDIM tile picker.
 
 ### Baking
 - GPU path for Bent normal, Height and the high-poly projection (AO, Thickness and Curvature
@@ -59,4 +58,5 @@ a planning list, not a promise.
 - Version history: each Save keeps the file it replaces; File > Version history restores one.
 - Turntable as GIF, camera bookmarks, environment rotation and blur.
 - Shelf tags and saved searches; weave, rivet, brick and fingerprint content.
+- 2D UDIM tile picker (tiles laid out as in UV space, previous / next).
 - ARM and macOS builds through the release workflow.

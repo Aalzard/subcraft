@@ -1159,4 +1159,7 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Full smoothing on slow, shaky movement; little on fast sweeps", "緩慢抖動的移動完全平滑；快速揮動時少量平滑"),
     ("Stabilizer", "防手震"),
     ("When you lift the pen, the brush finishes the line to where the cursor stopped", "抬起筆時，筆刷會把線畫完到游標停下的位置"),
+    ("Next UDIM tile", "下一個 UDIM 圖塊"),
+    ("Previous UDIM tile", "上一個 UDIM 圖塊"),
+    ("UDIM tiles of this texture set, as laid out in UV space", "此紋理集的 UDIM 圖塊，依 UV 空間排列"),
 ];

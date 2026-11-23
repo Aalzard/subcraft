@@ -1159,4 +1159,7 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Full smoothing on slow, shaky movement; little on fast sweeps", "느리고 떨리는 움직임에는 최대 보정, 빠른 획에는 약하게"),
     ("Stabilizer", "손떨림 보정"),
     ("When you lift the pen, the brush finishes the line to where the cursor stopped", "펜을 떼면 브러시가 커서가 멈춘 곳까지 선을 마무리합니다"),
+    ("Next UDIM tile", "다음 UDIM 타일"),
+    ("Previous UDIM tile", "이전 UDIM 타일"),
+    ("UDIM tiles of this texture set, as laid out in UV space", "UV 공간 배치대로 표시한 이 텍스처 세트의 UDIM 타일"),
 ];
