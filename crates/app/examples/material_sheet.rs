@@ -100,6 +100,11 @@ fn main() -> Result<(), String> {
         let t = std::time::Instant::now();
         s.update_composites();
         println!("column {col} [{spec}]: composite {:.2}s", t.elapsed().as_secs_f32());
+        // SHEET_SAVE=<prefix>: also save each column as a project (<prefix><column>.subcraft), to
+        // open the same surface in the real viewport (`material_viewport capture`).
+        if let Ok(prefix) = std::env::var("SHEET_SAVE") {
+            s.save(Some(&std::path::PathBuf::from(format!("{prefix}{col}.subcraft")))).map_err(err)?;
+        }
         let get = |kind: ChannelKind| -> Vec<TiledImage> { sets.iter().map(|&(ts, _)| s.composite(ts).unwrap().channel(kind).unwrap().clone()).collect() };
         let (albedo, rough, metal, height) = (get(ChannelKind::BaseColor), get(ChannelKind::Roughness), get(ChannelKind::Metallic), get(ChannelKind::Height));
         // Sheen (cloth): only when the material brought the channels.
