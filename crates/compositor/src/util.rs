@@ -49,5 +49,6 @@ pub(crate) fn effects_touch(layer: &subcraft_doc::Layer, kind: subcraft_core::Ch
         K::Filter { filter, .. } => e.applies_to(kind) && filter.valid(),
         K::Anchor => false,
         K::Generator(_) => kind != subcraft_core::ChannelKind::Normal,
+        K::Material(m) => m.valid() && m.writes(kind),
     })
 }

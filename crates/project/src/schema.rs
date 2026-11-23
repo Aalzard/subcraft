@@ -219,6 +219,9 @@ pub enum ContentEffectKindV5 {
     Anchor,
     /// A generator in the content stack.
     Generator { generator: subcraft_doc::Generator },
+    /// A material filter (MatFinish / MatFX / PBR Validate). Additive: projects without one are
+    /// unchanged, and older SubCraft versions refuse a file that has one instead of dropping it.
+    Material { filter: subcraft_doc::MaterialFilter },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
