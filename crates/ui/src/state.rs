@@ -363,6 +363,8 @@ pub struct UiState {
     pub auto_uv: crate::auto_uv::AutoUvUi,
     /// Texture Set Settings > UV set (models with several UV sets).
     pub uv_sets: crate::uv_sets::UvSetUi,
+    /// File > Live link (send textures to a game engine project).
+    pub live_link: crate::live_link::LiveLinkUi,
     /// Layers selected together (Ctrl / Shift click) in the Layers panel.
     pub multi: subcraft_app::multi_select::MultiSelect,
     /// Texture set the multi-selection belongs to (cleared when the selected set changes).
@@ -584,6 +586,7 @@ impl UiState {
             mesh_reload: Default::default(),
             auto_uv: Default::default(),
             uv_sets: Default::default(),
+            live_link: Default::default(),
             render_request: None,
             last_view_size: [1280, 720],
             last_view_rect: egui::Rect::NOTHING,

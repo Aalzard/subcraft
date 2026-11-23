@@ -31,6 +31,7 @@ pub mod libraries;
 pub mod auto_uv;
 pub mod uv_sets;
 pub mod plugins;
+pub mod live_link;
 pub mod mesh_reload;
 pub mod mesh_map_import;
 pub mod new_project;

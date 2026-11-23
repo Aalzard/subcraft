@@ -383,6 +383,8 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Scripting is not available in this build", "此版本無法使用指令碼"),
     ("No plugins yet: put .rhai scripts in the plugins folder", "尚無外掛程式：請將 .rhai 指令碼放入外掛程式資料夾"),
     ("Examples", "範例"),
+    ("Live link…", "即時連結…"),
+    ("Live link", "即時連結"),
     ("Run script file...", "執行指令碼檔案..."),
     ("Open plugins folder", "開啟外掛程式資料夾"),
     ("Scripting guide", "指令碼指南"),

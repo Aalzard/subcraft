@@ -383,6 +383,8 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Scripting is not available in this build", "이 빌드에서는 스크립팅을 사용할 수 없습니다"),
     ("No plugins yet: put .rhai scripts in the plugins folder", "아직 플러그인이 없습니다: 플러그인 폴더에 .rhai 스크립트를 넣으세요"),
     ("Examples", "예제"),
+    ("Live link…", "라이브 링크…"),
+    ("Live link", "라이브 링크"),
     ("Run script file...", "스크립트 파일 실행..."),
     ("Open plugins folder", "플러그인 폴더 열기"),
     ("Scripting guide", "스크립팅 가이드"),

@@ -1913,6 +1913,10 @@ impl SubcraftApp {
                     m.folder = self.state.export.folder.clone();
                     m.displacement.scale = self.state.height_scale;
                 }
+                if item(ui, icons::EXPORT, tr("Live link…"), "") {
+                    ui.close();
+                    self.state.live_link.open = true;
+                }
                 if item(ui, icons::CAMERA, tr("Render image / turntable…"), "") {
                     ui.close();
                     self.state.render_window = true;
@@ -2735,6 +2739,7 @@ impl eframe::App for SubcraftApp {
         crate::mesh_reload::window(&mut self.state, &ctx, now);
         crate::auto_uv::window(&mut self.state, &ctx, now);
         crate::uv_sets::poll(&mut self.state, &ctx, now);
+        crate::live_link::window(&mut self.state, &ctx, now);
         dialogs::poll_bake(&mut self.state, &ctx, now);
         panels::id_colors::sync_pick_view(&mut self.state);
         crate::spp_import::poll(&mut self.state, &ctx, now);
