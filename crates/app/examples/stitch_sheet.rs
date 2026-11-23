@@ -1,7 +1,7 @@
 //! Sheet of every stitch preset drawn along a pen path on a flat leather-coloured plane.
-//! cargo run --release -p subcraft-app --example stitch_sheet -- <out_prefix> [size]
+//! cargo run --release -p subcraft-app --example stitch_sheet -- <out_prefix> [size] [plain]
 //!
-//! One curved path per stitch, top to bottom in the order of `stitch::STITCHES`. Writes
+//! One curved path per stitch, in two columns, top to bottom in the order of `stitch::STITCHES`. Writes
 //! <prefix>_lit.png (Base Color lit with the normal of the composited Height) and
 //! <prefix>_height.png (Height, mid grey = 0).
 use glam::{Vec2, Vec3};
@@ -25,20 +25,38 @@ fn main() -> Result<(), String> {
     let leather = s.selection().layer.unwrap();
     s.execute(Command::SetFillChannel { layer: leather, channel: ChannelKind::BaseColor, fill: FillChannel::new(FillSource::uniform(ChannelValue::rgb(0.18, 0.09, 0.05))) }).map_err(err)?;
     let tips = subcraft_app::assets::alphas::builtin();
-    let rows = stitch::STITCHES.len();
-    for (row, st) in stitch::STITCHES.iter().enumerate() {
-        let y = (row as f32 + 0.5) / rows as f32;
+    // Two columns, in the order of `stitch::STITCHES`. Every thread stitch sits in a pressed
+    // seam groove, and those with gaps between the stitches get needle holes ("plain" as the
+    // third argument leaves both out).
+    let seam = args.get(2).map(String::as_str) != Some("plain");
+    let rows = stitch::STITCHES.len().div_ceil(2);
+    let channels = s.channels();
+    for (i, st) in stitch::STITCHES.iter().enumerate() {
+        let (col, row) = (i / rows, i % rows);
+        let (x0, y) = (col as f32 * 0.5, (row as f32 + 0.5) / rows as f32);
         let mut pen = PenEditor::default();
         pen.style = Some(stitch::style(&mut s, st, &tips));
         // A shallow S curve: click, then click and drag for a smooth second point.
-        pen.begin(&s, Vec2::new(0.08, y + 0.04), None).map_err(err)?;
+        pen.begin(&s, Vec2::new(x0 + 0.04, y + 0.03), None).map_err(err)?;
         pen.release(&s).map_err(err)?;
-        pen.begin(&s, Vec2::new(0.5, y - 0.03), None).map_err(err)?;
-        pen.drag_to(Vec2::new(0.62, y - 0.03), false);
+        pen.begin(&s, Vec2::new(x0 + 0.25, y - 0.025), None).map_err(err)?;
+        pen.drag_to(Vec2::new(x0 + 0.31, y - 0.025), false);
         pen.release(&s).map_err(err)?;
-        pen.begin(&s, Vec2::new(0.92, y + 0.04), None).map_err(err)?;
+        pen.begin(&s, Vec2::new(x0 + 0.46, y + 0.03), None).map_err(err)?;
         pen.release(&s).map_err(err)?;
         while pen.poll(&mut s, 1 << 20).map_err(err)? {}
+        let path = match s.selected_layer().map(|l| &l.content) {
+            Some(subcraft_doc::LayerContent::Paint(p)) => p.path.clone(),
+            _ => None,
+        };
+        if let (true, Some(path), false) = (seam, path, st.height < 0.0) {
+            let groove = stitch::groove_path(&path, |k| channels.contains(&k)).ok_or("no Height channel")?;
+            pen.add_path_layer(&mut s, groove, "Seam groove").map_err(err)?;
+            if stitch::takes_holes(st) {
+                let holes = stitch::style(&mut s, stitch::find("Stitch: Seam Holes").ok_or("no holes")?, &tips);
+                pen.add_path_layer(&mut s, stitch::holes_path(&path, holes, |k| channels.contains(&k)), "Stitch: Seam Holes").map_err(err)?;
+            }
+        }
         s.execute(Command::SelectLayer(Some(leather))).map_err(err)?;
     }
     s.update_composites();

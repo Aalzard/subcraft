@@ -29,7 +29,7 @@ pub struct Stitch {
 
 const THREAD: [f32; 3] = [0.82, 0.76, 0.64];
 
-pub const STITCHES: [Stitch; 7] = [
+pub const STITCHES: [Stitch; 14] = [
     Stitch { name: "Stitch: Straight", tip: "Stitch Straight", size: 2.0, spacing: 1.0, alternate: 0.0, color: THREAD, roughness: 0.75, height: 0.5,
         description: "Running stitch: dashes of raised thread along the stroke or path" },
     Stitch { name: "Stitch: Cross", tip: "Stitch Cross", size: 2.0, spacing: 1.0, alternate: 0.0, color: THREAD, roughness: 0.75, height: 0.5,
@@ -42,6 +42,20 @@ pub const STITCHES: [Stitch; 7] = [
         description: "Saddle stitch: thick slanted stitches, as on hand-sewn leather" },
     Stitch { name: "Stitch: Double", tip: "Stitch Double", size: 4.0, spacing: 1.0, alternate: 0.0, color: [0.80, 0.55, 0.18], roughness: 0.75, height: 0.5,
         description: "Double row: two parallel lines of stitches, like the topstitching on jeans" },
+    Stitch { name: "Stitch: Whip", tip: "Stitch Whip", size: 3.0, spacing: 0.45, alternate: 0.0, color: THREAD, roughness: 0.75, height: 0.6,
+        description: "Whip stitch: slanted threads close together that wrap over an edge or join two pieces" },
+    Stitch { name: "Stitch: Blanket", tip: "Stitch Blanket", size: 3.5, spacing: 1.0, alternate: 0.0, color: THREAD, roughness: 0.75, height: 0.5,
+        description: "Blanket stitch: a thread along the edge with a leg into the cloth at every stitch" },
+    Stitch { name: "Stitch: Chain", tip: "Stitch Chain", size: 2.5, spacing: 1.0, alternate: 0.0, color: THREAD, roughness: 0.75, height: 0.5,
+        description: "Chain stitch: a row of loops, each one held by the next (embroidery, jeans hems)" },
+    Stitch { name: "Stitch: Herringbone", tip: "Stitch Herringbone", size: 4.0, spacing: 1.0, alternate: 0.0, color: THREAD, roughness: 0.75, height: 0.5,
+        description: "Herringbone: long slanted threads that cross near both edges" },
+    Stitch { name: "Stitch: Baseball", tip: "Stitch Baseball", size: 4.0, spacing: 0.6, alternate: 0.0, color: [0.72, 0.08, 0.06], roughness: 0.7, height: 0.6,
+        description: "Baseball stitch: V shaped pairs of threads over a seam, as on a ball or a laced grip" },
+    Stitch { name: "Stitch: Triple", tip: "Stitch Triple", size: 5.0, spacing: 1.0, alternate: 0.0, color: [0.80, 0.55, 0.18], roughness: 0.75, height: 0.5,
+        description: "Triple row: three parallel lines of stitches, as on workwear seams" },
+    Stitch { name: "Stitch: Cord", tip: "Stitch Cord", size: 2.5, spacing: 0.98, alternate: 0.0, color: THREAD, roughness: 0.8, height: 0.8,
+        description: "Cord: one continuous twisted rope along the path (laces, piping, drawstrings)" },
     Stitch { name: "Stitch: Seam Holes", tip: "Stitch Needle Holes", size: 2.0, spacing: 1.0, alternate: 0.0, color: [0.06, 0.05, 0.04], roughness: 0.9, height: -0.4,
         description: "Needle-hole dents between stitches: paint it along the same path as Stitch: Straight for a seam" },
 ];
@@ -93,6 +107,30 @@ pub fn holes_path(path: &PenPath, holes: crate::pen::PenStyle, has_channel: impl
     }
     out.opacity = 1.0;
     out
+}
+
+/// How deep the seam groove presses the surface in (Height).
+pub const GROOVE_DEPTH: f32 = -0.3;
+
+/// The pressed seam under the stitched `path`: a path on the same points (with ids of their
+/// own) at the same width, drawn as a soft continuous line on the surface. It changes Height
+/// only, so the thread keeps its colour and sits in a shallow valley. `None` when the texture
+/// set has no Height channel.
+pub fn groove_path(path: &PenPath, has_channel: impl Fn(ChannelKind) -> bool) -> Option<PenPath> {
+    if !has_channel(ChannelKind::Height) {
+        return None;
+    }
+    let mut out = path.clone();
+    for a in &mut out.anchors {
+        a.id = subcraft_core::AnchorId::new();
+    }
+    out.kind = PathKind::Paint;
+    out.hardness = 0.0;
+    out.opacity = 1.0;
+    // Round soft stamps close together: one smooth line that crosses UV seams like the stitches.
+    out.stamp = Some(PathStamp { alpha: None, spacing: 0.05, follow: false, alternate: 0.0, surface: true });
+    out.values = [(ChannelKind::Height, ChannelValue::scalar(GROOVE_DEPTH))].into_iter().collect();
+    Some(out)
 }
 
 impl Stitch {
@@ -161,6 +199,7 @@ mod tests {
             assert!(BrushSettings::ALTERNATE_OFFSET.contains(&s.alternate) && PathStamp::SPACING.contains(&s.spacing));
         }
         assert!(find("Stitch: Seam Holes").is_some_and(|s| s.height < 0.0), "needle holes are dents");
+        assert!(STITCHES.len() >= 14);
         assert!(find("Stitch: Staggered").is_some_and(|s| s.alternate != 0.0));
         // The brush presets list carries them, with their tip and material.
         let presets = crate::brush_preset::builtin();
@@ -186,6 +225,22 @@ mod tests {
             assert_eq!(of_path(&path, Some(s.tip)), None, "only stamped paint paths");
             assert!((0.001..=0.05).contains(&s.radius()), "{}: a width that reads as a stitch", s.name);
         }
+    }
+
+    #[test]
+    fn the_seam_groove_of_a_stitched_path_is_height_only_on_the_same_points() {
+        let anchors = vec![PenAnchor::new(Vec2::new(0.1, 0.5)), PenAnchor::new(Vec2::new(0.9, 0.5))];
+        let mut path = PenPath { anchors, closed: false, radius: 0.02, hardness: 0.3, opacity: 0.5, values: Default::default(), kind: PathKind::Paint, stamp: None, ribbon: None };
+        find("Stitch: Saddle").unwrap().apply_to_path(&mut path, Some(ResourceId::new()), |_| true);
+        assert_eq!(groove_path(&path, |k| k != ChannelKind::Height), None, "no Height channel, no groove");
+        let groove = groove_path(&path, |_| true).unwrap();
+        assert_eq!(groove.values.keys().copied().collect::<Vec<_>>(), vec![ChannelKind::Height]);
+        assert_eq!(groove.values[&ChannelKind::Height], ChannelValue::scalar(GROOVE_DEPTH));
+        let stamp = groove.stamp.unwrap();
+        assert_eq!((groove.radius, groove.opacity, groove.hardness, stamp.alpha, stamp.surface), (path.radius, 1.0, 0.0, None, true));
+        assert!(groove.anchors.iter().zip(&path.anchors).all(|(a, b)| a.id != b.id && a.position == b.position));
+        assert!(groove.validate().is_ok(), "{:?}", groove.validate());
+        assert_eq!(of_path(&groove, None), None, "the groove is a plain line, not a stitch");
     }
 
     #[test]
