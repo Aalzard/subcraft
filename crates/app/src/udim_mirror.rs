@@ -42,8 +42,9 @@ pub(crate) fn mirrored_layer(cmd: &Command) -> Option<LayerId> {
         | Command::RemoveEffects { layer, .. }
         | Command::DuplicateEffects { layer, .. }
         | Command::NudgeEffects { layer, .. }
-        | Command::RenameEffect { layer, .. } => *layer,
-        Command::InvertMask(layer) => *layer,
+        | Command::RenameEffect { layer, .. }
+        | Command::SetMaterialParam { layer, .. } => *layer,
+        Command::InvertMask(layer) | Command::ResetMaterialParams(layer) => *layer,
         _ => return None,
     })
 }
@@ -203,6 +204,9 @@ pub(crate) fn partner_command(cmd: &Command, source: &Layer, partner: &Layer, re
         Command::RemoveEffects { target, effects, .. } => Command::RemoveEffects { layer: l, target: *target, effects: map_effects(source, partner, *target, effects)? },
         Command::DuplicateEffects { target, effects, .. } => Command::DuplicateEffects { layer: l, target: *target, effects: map_effects(source, partner, *target, effects)? },
         Command::NudgeEffects { target, effects, up, .. } => Command::NudgeEffects { layer: l, target: *target, effects: map_effects(source, partner, *target, effects)?, up: *up },
+        // Procedural material sliders (ADR-0047): parameters are found by name on every tile.
+        Command::SetMaterialParam { param, value, .. } if partner.material.is_some() => Command::SetMaterialParam { layer: l, param: param.clone(), value: value.clone() },
+        Command::ResetMaterialParams(_) if partner.material.is_some() => Command::ResetMaterialParams(l),
         Command::RenameEffect { target, effect, name, .. } => Command::RenameEffect { layer: l, target: *target, effect: map_effect(source, partner, *target, *effect)?, name: name.clone() },
         _ => return None,
     })

@@ -125,7 +125,8 @@ fn random_mask_effect(r: &mut Rng) -> MaskEffectKind {
 fn random_content_effect(r: &mut Rng, s: &Session) -> ContentEffectKind {
     let channels: Vec<ChannelKind> = s.selected_texture_set().channels.iter().map(|c| c.kind).collect();
     let channel = r.pick(&channels).unwrap_or(ChannelKind::BaseColor);
-    match r.below(5) {
+    match r.below(6) {
+        5 => ContentEffectKind::Material(subcraft_doc::MaterialFilter::ALL[r.below(subcraft_doc::MaterialFilter::ALL.len())].clone()),
         0 => ContentEffectKind::Levels { channel, levels: Levels::default() },
         1 | 2 => {
             let f = random_filter(r);
@@ -296,6 +297,7 @@ fn walk_on(seed: u64, steps: usize, mut s: Session, udim: bool) {
     let dir = std::env::temp_dir().join(format!("subcraft-qa-fuzz-{seed}-{udim}-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let mut r = Rng(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1);
+    let smart = subcraft_assets::Library::builtin().smart_materials;
     let mut graveyard: Vec<LayerId> = Vec::new();
     let mut log: Vec<String> = Vec::new();
     for step in 0..steps {
@@ -320,6 +322,48 @@ fn walk_on(seed: u64, steps: usize, mut s: Session, udim: bool) {
                 what = format!("seed {seed} step {step}: {cmd:?}");
                 log.push(what.clone());
                 let _ = s.execute(cmd);
+            }
+            // Procedural materials (ADR-0047): apply one, or move one of its sliders.
+            4 if r.chance(0.25) => {
+                let with_params: Vec<(LayerId, subcraft_doc::Param)> = s
+                    .document()
+                    .texture_sets
+                    .iter()
+                    .filter(|t| t.id == s.selection().texture_set)
+                    .flat_map(|t| t.layers.iter())
+                    .filter_map(|l| l.material.as_ref().map(|m| (l.id, m.params.clone())))
+                    .flat_map(|(id, ps)| ps.into_iter().map(move |p| (id, p)))
+                    .collect();
+                if r.chance(0.4) || with_params.is_empty() {
+                    let m = &smart[r.below(smart.len())];
+                    what = format!("seed {seed} step {step}: smart material {}", m.name);
+                    log.push(what.clone());
+                    let _ = s.add_smart_material(m);
+                } else {
+                    let (layer, p) = r.pick(&with_params).unwrap();
+                    let value = match p.value {
+                        subcraft_doc::ParamValue::Number(_) => subcraft_doc::ParamValue::Number(r.wild() * 2.0 - 0.5),
+                        subcraft_doc::ParamValue::Toggle(b) => subcraft_doc::ParamValue::Toggle(!b),
+                        subcraft_doc::ParamValue::Color(_) => subcraft_doc::ParamValue::Color([r.wild(), r.unit(), r.unit()]),
+                    };
+                    let cmd = if r.chance(0.1) { Command::ResetMaterialParams(layer) } else { Command::SetMaterialParam { layer, param: p.id.clone(), value } };
+                    what = format!("seed {seed} step {step}: {cmd:?}");
+                    log.push(what.clone());
+                    let entries = s.history().entries().len();
+                    let cursor = s.history().cursor();
+                    let before = s.document().clone();
+                    let result = s.execute(cmd);
+                    let after = s.document().clone();
+                    if result.is_err() {
+                        assert_eq!(after, before, "{what}: a refused command changed the document");
+                    }
+                    if s.history().cursor() == cursor + 1 && s.history().entries().len() >= entries {
+                        s.execute(Command::Undo).unwrap();
+                        assert_eq!(s.document(), &before, "{what}: undo did not restore the document");
+                        s.execute(Command::Redo).unwrap();
+                        assert_eq!(s.document(), &after, "{what}: redo did not restore the document");
+                    }
+                }
             }
             3 if udim && r.chance(0.3) => {
                 let sets: Vec<_> = s.document().texture_sets.iter().map(|t| t.id).collect();
