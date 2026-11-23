@@ -190,10 +190,24 @@ pub enum MaterialFilter {
         wet: f32,
         seed: u32,
     },
+    /// Occlusion from the Height and Normal relief below: grooves and the foot of raised detail
+    /// get darker, duller and are written to the Ambient Occlusion channel.
+    Hbao {
+        /// Reach of the occlusion, 0..1 (1 = 32 texels at 2048, scaled with the resolution).
+        radius: f32,
+        /// Strength of the occlusion, 0..1.
+        intensity: f32,
+        /// How much of it is written to the Ambient Occlusion channel, 0..1.
+        ambient_occlusion: f32,
+        /// How much it darkens the Base Color, 0..1.
+        base_color: f32,
+        /// How much it raises the Roughness, 0..1.
+        roughness: f32,
+    },
 }
 
 impl MaterialFilter {
-    pub const ALL: [Self; 12] = [
+    pub const ALL: [Self; 13] = [
         Self::Galvanized { scale: 40.0, spangle: 0.6, tint: 0.7, roughness: 0.32, roughness_variation: 0.5, relief: 0.25, seed: 1 },
         Self::Hammered { scale: 26.0, depth: 0.5, irregularity: 0.6, roughness_variation: 0.4, seed: 1 },
         Self::PowderCoated { color: [0.05, 0.05, 0.055], color_amount: 0.0, roughness: 0.48, orange_peel: 0.4, grain: 0.3, scale: 140.0, seed: 1 },
@@ -206,6 +220,7 @@ impl MaterialFilter {
         Self::Raw { scale: 5.0, intensity: 0.6, seed: 1 },
         Self::DetailEdgeWear { level: 0.5, detail: 0.7, contrast: 0.6, grunge: 0.5, grunge_scale: 24.0, color: [0.56, 0.57, 0.58], roughness: 0.3, metallic: 1.0, seed: 1 },
         Self::WaterDrops { amount: 0.5, scale: 32.0, size_variation: 0.6, direction: 0.4, top: 1.0, sides: 0.8, underside: 0.15, height: 0.6, roughness: 0.04, wet: 0.3, seed: 1 },
+        Self::Hbao { radius: 0.35, intensity: 0.8, ambient_occlusion: 1.0, base_color: 0.5, roughness: 0.25 },
     ];
 
     pub fn label(self) -> &'static str {
@@ -222,6 +237,7 @@ impl MaterialFilter {
             Self::Raw { .. } => "MatFinish Raw",
             Self::DetailEdgeWear { .. } => "MatFx Detail Edge Wear",
             Self::WaterDrops { .. } => "MatFx Water Drops",
+            Self::Hbao { .. } => "MatFx HBAO",
         }
     }
 
@@ -240,6 +256,7 @@ impl MaterialFilter {
             Self::Raw { .. } => "Mottled mill scale and pits, as on unfinished stock. Best on a metal fill.",
             Self::DetailEdgeWear { .. } => "A thin worn line on the mesh edges and on the Height and Normal detail below, exposing the material set here.",
             Self::WaterDrops { .. } => "Glossy water drops on the material below, fewer on walls and undersides.",
+            Self::Hbao { .. } => "Occlusion from the Height and Normal detail below. Add an Ambient Occlusion channel to store it. Does nothing on a flat material.",
         }
     }
 
@@ -253,6 +270,7 @@ impl MaterialFilter {
     pub fn writes(self, kind: ChannelKind) -> bool {
         match self {
             Self::Hammered { .. } | Self::Grinded { .. } | Self::Rough { .. } | Self::Raw { .. } | Self::WaterDrops { .. } => matches!(kind, ChannelKind::BaseColor | ChannelKind::Roughness | ChannelKind::Height),
+            Self::Hbao { .. } => matches!(kind, ChannelKind::BaseColor | ChannelKind::Roughness | ChannelKind::AmbientOcclusion),
             Self::PbrValidate { flat, .. } => kind == ChannelKind::BaseColor || (flat && matches!(kind, ChannelKind::Roughness | ChannelKind::Metallic)),
             _ => matches!(kind, ChannelKind::BaseColor | ChannelKind::Roughness | ChannelKind::Metallic | ChannelKind::Height),
         }
@@ -269,6 +287,9 @@ impl MaterialFilter {
         match self {
             Self::DetailEdgeWear { detail, .. } if detail > 0.0 && self.valid() => {
                 Some(crate::MicroDetails { enabled: true, amount: detail, ao_radius: 0.0, ao_depth: 0.0, ..crate::MicroDetails::default() })
+            }
+            Self::Hbao { radius, intensity, .. } if intensity > 0.0 && self.valid() => {
+                Some(crate::MicroDetails { enabled: true, amount: 1.0, ao_radius: radius, ao_depth: intensity, ..crate::MicroDetails::default() })
             }
             _ => None,
         }
@@ -297,7 +318,7 @@ impl MaterialFilter {
             | Self::Raw { seed, .. }
             | Self::DetailEdgeWear { seed, .. }
             | Self::WaterDrops { seed, .. } => Some(seed),
-            Self::PbrValidate { .. } => None,
+            Self::PbrValidate { .. } | Self::Hbao { .. } => None,
         }
     }
 
@@ -332,6 +353,7 @@ impl MaterialFilter {
             Self::WaterDrops { amount, scale: s, size_variation, direction, top, sides, underside, height, roughness, wet, seed: _ } => {
                 unit(amount) && scale(s) && unit(size_variation) && unit(direction) && unit(top) && unit(sides) && unit(underside) && unit(height) && unit(roughness) && unit(wet)
             }
+            Self::Hbao { radius, intensity, ambient_occlusion, base_color, roughness } => unit(radius) && unit(intensity) && unit(ambient_occlusion) && unit(base_color) && unit(roughness),
         }
     }
 }
@@ -366,6 +388,9 @@ mod tests {
         assert!(MaterialFilter::ALL[10].micro_details().is_some_and(|d| d.active() && d.amount == 0.7));
         assert!(MaterialFilter::DetailEdgeWear { level: 0.5, detail: 0.0, contrast: 0.6, grunge: 0.5, grunge_scale: 24.0, color: [0.5; 3], roughness: 0.3, metallic: 1.0, seed: 1 }.micro_details().is_none());
         assert!(MaterialFilter::ALL[3].micro_details().is_none());
+        assert!(MaterialFilter::ALL[12].micro_details().is_some_and(|d| d.active() && d.ao_radius == 0.35 && d.ao_depth == 0.8));
+        assert!(MaterialFilter::ALL[12].writes(ChannelKind::AmbientOcclusion) && !MaterialFilter::ALL[12].writes(ChannelKind::Height));
+        assert!(!MaterialFilter::Hbao { radius: 1.5, intensity: 0.8, ambient_occlusion: 1.0, base_color: 0.5, roughness: 0.25 }.valid());
         assert!(!MaterialFilter::DetailEdgeWear { level: 0.5, detail: 0.7, contrast: -0.1, grunge: 0.5, grunge_scale: 24.0, color: [0.5; 3], roughness: 0.3, metallic: 1.0, seed: 1 }.valid());
         assert!(!MaterialFilter::PowderCoated { color: [2.0, 0.0, 0.0], color_amount: 1.0, roughness: 0.5, orange_peel: 0.4, grain: 0.3, scale: 60.0, seed: 1 }.valid());
     }

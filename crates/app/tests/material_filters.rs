@@ -57,6 +57,10 @@ fn every_filter_rewrites_its_channels_never_normal_and_hiding_it_restores_the_co
     for filter in MaterialFilter::ALL {
         // A dark half-metal: every filter has something to change in each channel it writes.
         let (mut s, ts, layer) = session([0.01, 0.012, 0.02], 0.6, 0.5);
+        // HBAO only reacts to relief: give it some.
+        if matches!(filter, MaterialFilter::Hbao { .. }) {
+            add(&mut s, layer, MaterialFilter::Hammered { scale: 6.0, depth: 1.0, irregularity: 0.6, roughness_variation: 0.0, seed: 1 });
+        }
         let before = snapshot(&mut s, ts);
         let effect = add(&mut s, layer, filter);
         let after = snapshot(&mut s, ts);
@@ -210,6 +214,42 @@ fn detail_edge_wear_wears_the_height_detail_below_it() {
     hidden.visible = false;
     s.execute(Command::SetContentEffect { layer: coat, effect: hidden }).unwrap();
     assert_eq!(worn(&mut s, ts), 0);
+}
+
+#[test]
+fn hbao_occludes_the_relief_below_and_nothing_on_a_flat_material() {
+    let hbao = MaterialFilter::ALL[12];
+    let (mut s, ts, layer) = session([0.5, 0.5, 0.5], 0.3, 0.0);
+    s.execute(Command::AddChannel { texture_set: ts, kind: ChannelKind::AmbientOcclusion }).unwrap();
+    let flat = snapshot(&mut s, ts);
+    let effect = add(&mut s, layer, hbao);
+    assert_eq!(snapshot(&mut s, ts), flat, "flat: nothing to occlude");
+    s.execute(Command::RemoveContentEffect { layer, effect }).unwrap();
+
+    add(&mut s, layer, MaterialFilter::Hammered { scale: 6.0, depth: 1.0, irregularity: 0.6, roughness_variation: 0.0, seed: 1 });
+    let before = channel(&mut s, ts, ChannelKind::BaseColor);
+    let height = channel(&mut s, ts, ChannelKind::Height);
+    add(&mut s, layer, hbao);
+    let after = channel(&mut s, ts, ChannelKind::BaseColor);
+    let ao = channel(&mut s, ts, ChannelKind::AmbientOcclusion);
+    assert!(ao.iter().all(|a| (0.0..=1.0).contains(&a[0])));
+    let dark = ao.iter().filter(|a| a[0] < 0.9).count();
+    let open = ao.iter().filter(|a| a[0] > 0.99).count();
+    assert!(dark > 100 && open > 1000, "{dark} occluded texels, {open} open ones");
+    // The occluded texels are the low ones, and the Base Color is darker exactly there.
+    let mean = |pick: &dyn Fn(usize) -> bool| {
+        let v: Vec<f32> = (0..ao.len()).filter(|&i| pick(i)).map(|i| height[i][0]).collect();
+        v.iter().sum::<f32>() / v.len() as f32
+    };
+    assert!(mean(&|i| ao[i][0] < 0.9) < mean(&|i| ao[i][0] > 0.99), "occlusion sits in the low parts");
+    for i in 0..ao.len() {
+        if ao[i][0] < 0.9 {
+            assert!(after[i][0] < before[i][0], "darker where occluded");
+        } else if ao[i][0] == 1.0 {
+            assert_eq!(after[i], before[i]);
+        }
+    }
+    assert_eq!(channel(&mut s, ts, ChannelKind::Height), height, "HBAO never moves the Height");
 }
 
 #[test]

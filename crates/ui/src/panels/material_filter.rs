@@ -204,6 +204,17 @@ pub fn editor(ui: &mut Ui, filter: &mut MaterialFilter) -> bool {
             changed |= unit(ui, "Wet darkening", wet, d_wet);
             changed |= seed(ui, sd, d_sd);
         }
+        (
+            MaterialFilter::Hbao { radius, intensity, ambient_occlusion, base_color, roughness },
+            MaterialFilter::Hbao { radius: d_radius, intensity: d_int, ambient_occlusion: d_ao, base_color: d_base, roughness: d_roughness },
+        ) => {
+            changed |= unit(ui, "Radius", radius, d_radius);
+            changed |= unit(ui, "Intensity", intensity, d_int);
+            ui.label(egui::RichText::new("Blending").strong());
+            changed |= unit(ui, "Ambient Occlusion intensity", ambient_occlusion, d_ao);
+            changed |= unit(ui, "Base Color intensity", base_color, d_base);
+            changed |= unit(ui, "Roughness intensity", roughness, d_roughness);
+        }
         _ => {}
     }
     changed

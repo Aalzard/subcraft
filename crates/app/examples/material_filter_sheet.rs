@@ -107,6 +107,14 @@ fn main() -> Result<(), String> {
             under: Some(MaterialFilter::Hammered { scale: 14.0, depth: 1.0, irregularity: 0.6, roughness_variation: 0.0, seed: 1 }),
         },
         Case { name: "water_drops", filter: all[11], base: [0.30, 0.05, 0.04], rough: 0.4, metal: 0.0, under: None },
+        Case {
+            name: "hbao",
+            filter: all[12],
+            base: [0.55, 0.50, 0.42],
+            rough: 0.5,
+            metal: 0.0,
+            under: Some(MaterialFilter::Hammered { scale: 14.0, depth: 1.0, irregularity: 0.6, roughness_variation: 0.0, seed: 1 }),
+        },
     ]
     .into_iter()
     .filter(|c| only.as_deref().is_none_or(|o| c.name.contains(o)))

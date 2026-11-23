@@ -207,6 +207,10 @@ enum Node<'a> {
         /// (Height sums, Normal leans further) instead of covering them: a material filter
         /// reading the detail at its own place in the stack.
         own_adds: bool,
+        /// Replace the occlusion by a horizon scan of the height ([`horizon_occlusion_tile`]):
+        /// smooth over relief of any size, for the HBAO filter. The default occlusion is a
+        /// cheap 16-tap average meant for fine detail under a generator.
+        horizon: bool,
     },
     /// Height channel: adds the micro delta.
     MicroHeight {
@@ -613,7 +617,7 @@ impl<'a> Graph<'a> {
                 v.extend(*details);
                 v
             }
-            Node::MicroDetail { chain, settings: _, own_adds: _ } => chain.iter().flatten().copied().collect(),
+            Node::MicroDetail { chain, settings: _, own_adds: _, horizon: _ } => chain.iter().flatten().copied().collect(),
             Node::AnchorRead { source, from: _, to: _, strength: _ } => vec![*source],
             Node::ContentEffect { input, effect: _, kind: _, filtered } => {
                 let mut v = vec![*input];
@@ -1020,7 +1024,7 @@ impl<'a> Graph<'a> {
             let height = match pair[1] { Some(n) => n, None => self.push(Node::Constant([0.0; 4])) };
             chain.push([normal, height]);
         }
-        Some(self.push(Node::MicroDetail { chain: Arc::new(chain), settings, own_adds: false }))
+        Some(self.push(Node::MicroDetail { chain: Arc::new(chain), settings, own_adds: false, horizon: false }))
     }
     /// Micro details for the material filter at `index` of `layer`'s content effects: over the
     /// Normal and Height below the layer (as a generator's micro details) and then the layer's
@@ -1037,12 +1041,13 @@ impl<'a> Graph<'a> {
         chain.push(own);
         // A Passthrough paint or fill layer's content already is the stack below, processed.
         let own_adds = layer.is_folder() || layer.blend_for(ChannelKind::Height).mode != BlendMode::Passthrough;
-        let n = self.push(Node::MicroDetail { chain: Arc::new(chain), settings, own_adds });
+        let horizon = matches!(layer.content_effects[index].kind, ContentEffectKind::Material(subcraft_doc::MaterialFilter::Hbao { .. }));
+        let n = self.push(Node::MicroDetail { chain: Arc::new(chain), settings, own_adds, horizon });
         self.effect_details.insert((layer.id, index), n);
         Some(n)
     }
     /// Micro curvature and occlusion for one tile (see [`Node::MicroDetail`]).
-    fn micro_detail(&self, chain: &[[usize; 2]], settings: &subcraft_doc::MicroDetails, own_adds: bool, geo: &subcraft_materials::TileGeometry) -> Vec<[f32; 4]> {
+    fn micro_detail(&self, chain: &[[usize; 2]], settings: &subcraft_doc::MicroDetails, own_adds: bool, horizon: bool, geo: &subcraft_materials::TileGeometry) -> Vec<[f32; 4]> {
         let res = self.ctx.geometry.resolution;
         let scale = res as f32 / 2048.0;
         let support = settings.support();
@@ -1075,7 +1080,14 @@ impl<'a> Graph<'a> {
             }
             (n, h)
         };
-        micro_detail_tile(settings, res, ao_r, geo, sample)
+        let mut out = micro_detail_tile(settings, res, ao_r, geo, &sample);
+        if horizon {
+            let open = horizon_occlusion_tile(res, ao_r, settings.ao_depth, geo, |x, y| sample(x, y).1);
+            for (o, v) in out.iter_mut().zip(open) {
+                o[1] = v;
+            }
+        }
+        out
     }
     fn stack(&mut self, layers: &'a [Arc<Layer>], mut below: usize, kind: ChannelKind) -> usize {
         for layer in layers {
@@ -1585,7 +1597,7 @@ impl<'a> Graph<'a> {
                 }
                 out
             }
-            Node::MicroDetail { chain, settings, own_adds } => self.micro_detail(chain, settings, *own_adds, &geo),
+            Node::MicroDetail { chain, settings, own_adds, horizon } => self.micro_detail(chain, settings, *own_adds, *horizon, &geo),
             Node::MicroHeight { below, delta } => {
                 let mut out = self.get(*below, tile).as_ref().clone();
                 let delta = self.get(*delta, tile);
@@ -2408,6 +2420,72 @@ fn micro_detail_tile(settings: &subcraft_doc::MicroDetails, res: u32, ao_r: f32,
     out
 }
 
+/// Texels of rise per height unit and texel of resolution, for the horizon scan: five times the
+/// viewport's bump scale (0.02), so relief that reads clearly when lit also occludes clearly.
+const HORIZON_HEIGHT_GAIN: f32 = 0.1;
+const HORIZON_DIRECTIONS: usize = 12;
+const HORIZON_STEPS: usize = 8;
+
+/// Horizon-based occlusion of a height field for one tile: per texel 1 (open) down to 0. In
+/// [`HORIZON_DIRECTIONS`] directions it walks out to `radius` texels and keeps the steepest rise
+/// it meets, faded with distance; the occlusion is the mean sine of those horizon angles times
+/// twice `depth`. `height(x, y)` is the height at a texel (clamped to the texture).
+fn horizon_occlusion_tile(res: u32, radius: f32, depth: f32, geo: &subcraft_materials::TileGeometry, height: impl Fn(i32, i32) -> f32) -> Vec<f32> {
+    let t = TILE_SIZE as i32;
+    let radius = radius.max(1.0);
+    let pad = radius.ceil() as i32 + 1;
+    let side = t + 2 * pad;
+    let (ox, oy) = (geo.x0 as i32 - pad, geo.y0 as i32 - pad);
+    let gain = res as f32 * HORIZON_HEIGHT_GAIN;
+    let mut z = vec![0.0f32; (side * side) as usize];
+    for y in 0..side {
+        for x in 0..side {
+            let h = height(ox + x, oy + y);
+            z[(y * side + x) as usize] = if h.is_finite() { h * gain } else { 0.0 };
+        }
+    }
+    let mut out = vec![1.0f32; TILE_TEXELS];
+    let (lo, hi) = z.iter().fold((f32::MAX, f32::MIN), |(a, b), v| (a.min(*v), b.max(*v)));
+    let strength = depth.clamp(0.0, 1.0) * 2.0;
+    if hi - lo <= 1e-9 || strength <= 0.0 {
+        return out;
+    }
+    // Bilinear, so the scan has no texel-grid pattern.
+    let at = |x: f32, y: f32| -> f32 {
+        let (x0, y0) = (x.floor(), y.floor());
+        let (fx, fy) = (x - x0, y - y0);
+        let i = (y0 as i32 * side + x0 as i32) as usize;
+        let s = side as usize;
+        (z[i] * (1.0 - fx) + z[i + 1] * fx) * (1.0 - fy) + (z[i + s] * (1.0 - fx) + z[i + s + 1] * fx) * fy
+    };
+    let dirs: Vec<(f32, f32)> = (0..HORIZON_DIRECTIONS).map(|i| (i as f32 / HORIZON_DIRECTIONS as f32 * std::f32::consts::TAU).sin_cos()).collect();
+    // Steps crowd near the texel, where the horizon changes fastest.
+    let steps: Vec<f32> = (1..=HORIZON_STEPS).map(|k| (radius * (k as f32 / HORIZON_STEPS as f32).powf(1.5)).max(0.75)).collect();
+    for (i, o) in out.iter_mut().enumerate() {
+        let (tx, ty) = geo.texel_xy(i);
+        if tx >= res || ty >= res {
+            continue;
+        }
+        let (x, y) = ((tx as i32 - ox) as f32, (ty as i32 - oy) as f32);
+        let z0 = z[((ty as i32 - oy) * side + (tx as i32 - ox)) as usize];
+        let mut sum = 0.0;
+        for &(dy, dx) in &dirs {
+            let mut horizon = 0.0f32;
+            for &d in &steps {
+                let rise = at(x + dx * d, y + dy * d) - z0;
+                // Above the bilinear read's rounding, so level ground stays exactly open.
+                if rise > 1e-4 {
+                    let fade = 1.0 - (d / radius) * (d / radius) * 0.75;
+                    horizon = horizon.max(rise / (rise * rise + d * d).sqrt() * fade);
+                }
+            }
+            sum += horizon;
+        }
+        *o = 1.0 - (sum / HORIZON_DIRECTIONS as f32 * strength).clamp(0.0, 1.0);
+    }
+    out
+}
+
 /// Whether a visible layer (anywhere in the tree) has a generator with micro details on.
 pub(crate) fn has_micro_details(layers: &[Arc<Layer>]) -> bool {
     layers.iter().filter(|l| l.visible).any(|l| micro_details_support(l) > 0 || matches!(&l.content, LayerContent::Group(g) if has_micro_details(&g.children)))
@@ -2601,6 +2679,38 @@ mod tests {
     use rayon::prelude::*;
     /// Micro details from a normal map alone: a dome (normals leaning outward) is convex, a bowl
     /// (normals leaning inward) concave and occluded; a flat normal gives neutral values.
+    #[test]
+    fn horizon_occlusion_is_smooth_darkest_at_the_foot_of_a_wall_and_one_on_flat_ground() {
+        let tile = subcraft_materials::TileGeometry::empty(0, 0, 0, 64);
+        let flat = horizon_occlusion_tile(64, 8.0, 1.0, &tile, |_, _| 0.3);
+        assert!(flat.iter().all(|v| *v == 1.0));
+        // A step up at x = 32: the low side is occluded near the wall, the top stays open.
+        let step = horizon_occlusion_tile(64, 8.0, 1.0, &tile, |x, _| if x >= 32 { 1.0 } else { 0.0 });
+        let row = |x: usize| step[32 * 64 + x];
+        assert!(row(31) < 0.6 && row(31) < row(28) && row(28) < row(25), "{} {} {}", row(31), row(28), row(25));
+        assert_eq!((row(10), row(40), row(33)), (1.0, 1.0, 1.0));
+        // A wide smooth bowl is occluded all over, with no tap pattern (neighbouring texels
+        // never differ by much).
+        let bowl = |x: i32, y: i32| {
+            let (dx, dy) = ((x - 32) as f32 / 32.0, (y - 32) as f32 / 32.0);
+            (dx * dx + dy * dy).min(1.0) * 0.5
+        };
+        let ao = horizon_occlusion_tile(64, 8.0, 1.0, &tile, bowl);
+        let v = |x: usize, y: usize| ao[y * 64 + x];
+        assert!(v(32, 32) < 0.99 && v(48, 32) < 0.99, "{} {}", v(32, 32), v(48, 32));
+        let mut worst = 0.0f32;
+        for y in 8..56 {
+            for x in 8..56 {
+                worst = worst.max((v(x, y) - v(x + 1, y)).abs()).max((v(x, y) - v(x, y + 1)).abs());
+            }
+        }
+        assert!(worst < 0.03, "smooth: {worst}");
+        // Depth scales it; zero switches it off.
+        assert!(horizon_occlusion_tile(64, 8.0, 0.0, &tile, bowl).iter().all(|v| *v == 1.0));
+        let half = horizon_occlusion_tile(64, 8.0, 0.5, &tile, |x, _| if x >= 32 { 1.0 } else { 0.0 });
+        assert!(half[32 * 64 + 31] > row(31));
+    }
+
     #[test]
     fn micro_details_measure_curvature_from_the_normal_below() {
         let geo = subcraft_materials::TextureSetGeometry::new(std::sync::Arc::new(subcraft_mesh::primitives::plane(2.0, 1)), 0, 64);

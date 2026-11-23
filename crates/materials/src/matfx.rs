@@ -227,7 +227,7 @@ pub fn pattern_on(filter: &MaterialFilter, position: [f32; 3], normal: [f32; 3])
             let cell = voronoi(q + warp(q * 0.7, seed ^ 0x44) * 0.8, seed ^ 0x1f3);
             [flake, cell.f2 - cell.f1, fbm(p * scale * 7.0, 4, seed ^ 0x62), vnoise(p * scale * 30.0, seed ^ 0x29)]
         }
-        MaterialFilter::PbrValidate { .. } => [0.0; PATTERN],
+        MaterialFilter::PbrValidate { .. } | MaterialFilter::Hbao { .. } => [0.0; PATTERN],
         MaterialFilter::Grinded { scale, seed, .. } => {
             let q = p * scale;
             let q = q + warp(q * 0.5, seed) * 0.35;
@@ -306,6 +306,7 @@ fn pattern_key(filter: &MaterialFilter) -> field::FieldKey {
         MaterialFilter::RustWeathering { scale, seed, .. } => [5, scale.to_bits(), seed, 0, 0],
         MaterialFilter::PeelingPaint { scale, seed, .. } => [6, scale.to_bits(), seed, 0, 0],
         MaterialFilter::PbrValidate { .. } => [7, 0, 0, 0, 0],
+        MaterialFilter::Hbao { .. } => [13, 0, 0, 0, 0],
         MaterialFilter::Grinded { scale, seed, .. } => [8, scale.to_bits(), seed, 0, 0],
         MaterialFilter::Rough { scale, grunge_scale, warp, seed, .. } => [9, scale.to_bits(), seed, grunge_scale.to_bits(), warp.to_bits()],
         MaterialFilter::Raw { scale, seed, .. } => [10, scale.to_bits(), seed, 0, 0],
@@ -355,10 +356,12 @@ pub struct Response {
     pub metallic_alpha: f32,
     /// Added to the Height below.
     pub height: f32,
+    /// Ambient Occlusion: the value below is multiplied by `1 - occlusion`.
+    pub occlusion: f32,
 }
 
 impl Response {
-    pub const NONE: Self = Self { color: [0.0; 3], color_alpha: 0.0, color_gain: 1.0, roughness: 0.0, roughness_alpha: 0.0, roughness_add: 0.0, metallic: 0.0, metallic_alpha: 0.0, height: 0.0 };
+    pub const NONE: Self = Self { color: [0.0; 3], color_alpha: 0.0, color_gain: 1.0, roughness: 0.0, roughness_alpha: 0.0, roughness_add: 0.0, metallic: 0.0, metallic_alpha: 0.0, height: 0.0, occlusion: 0.0 };
 
     pub fn base_color(&self, below: [f32; 3]) -> [f32; 3] {
         mix3(below.map(|c| c * self.color_gain), self.color, self.color_alpha)
@@ -503,6 +506,13 @@ pub fn respond(filter: &MaterialFilter, pat: &[f32], s: Surface) -> Response {
             r.height = (-peel + lip * lip * curl * 0.9 - crack * 0.5) * thickness * PEEL_HEIGHT + peel * rusty * (fine - 0.3) * thickness * PEEL_HEIGHT * 0.4;
         }
         MaterialFilter::PbrValidate { .. } => {}
+        MaterialFilter::Hbao { ambient_occlusion, base_color, roughness, .. } => {
+            // `s.occlusion` already carries Radius and Intensity (the micro occlusion).
+            let o = s.occlusion.clamp(0.0, 1.0);
+            r.occlusion = o * ambient_occlusion;
+            r.color_gain = 1.0 - o * base_color * 0.85;
+            r.roughness_add = o * roughness * 0.6;
+        }
         MaterialFilter::Grinded { intensity, .. } => {
             let (scratch, pass, band) = (zc(pat[0]), pat[1] - 0.5, zc(pat[2]));
             // Each pass catches the light differently; inside it the scratches are fine grooves.
@@ -834,6 +844,21 @@ mod tests {
         assert!((mid / flat - 1.0).abs() < 0.25, "{flat} {mid}");
         // Unknown normal: the Z plane.
         assert_eq!(pattern(&f, [0.3, 0.2, 0.1]), pattern_on(&f, [0.3, 0.2, 0.1], [0.0, 0.0, 1.0]));
+    }
+
+    #[test]
+    fn hbao_darkens_dulls_and_occludes_by_the_occlusion_it_is_given() {
+        let f = MaterialFilter::ALL[12];
+        let open = respond(&f, &[0.0; PATTERN], Surface::default());
+        assert_eq!(open, Response::NONE, "nothing on an open surface");
+        let (half, full) = (respond(&f, &[0.0; PATTERN], Surface { edge: 0.0, occlusion: 0.5, up: 0.0 }), respond(&f, &[0.0; PATTERN], Surface { edge: 0.0, occlusion: 1.0, up: 0.0 }));
+        assert!(full.occlusion == 1.0 && half.occlusion == 0.5);
+        assert!(full.color_gain < half.color_gain && half.color_gain < 1.0 && full.color_gain > 0.4);
+        assert!(full.rough(0.3) > half.rough(0.3) && half.rough(0.3) > 0.3);
+        assert_eq!((full.color_alpha, full.metallic_alpha, full.roughness_alpha, full.height), (0.0, 0.0, 0.0, 0.0));
+        let ao_only = MaterialFilter::Hbao { radius: 0.35, intensity: 0.8, ambient_occlusion: 1.0, base_color: 0.0, roughness: 0.0 };
+        let r = respond(&ao_only, &[0.0; PATTERN], Surface { edge: 0.0, occlusion: 1.0, up: 0.0 });
+        assert_eq!((r.color_gain, r.roughness_add, r.occlusion), (1.0, 0.0, 1.0));
     }
 
     fn drops(amount: f32) -> MaterialFilter {

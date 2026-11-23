@@ -49,7 +49,11 @@ fn edge_mask(filter: &MaterialFilter, tc: &TileContext, details: Option<&[[f32; 
     Some(out.iter().map(|v| v[0]).collect())
 }
 
-fn occlusion(filter: &MaterialFilter, tc: &TileContext) -> Option<Vec<f32>> {
+fn occlusion(filter: &MaterialFilter, tc: &TileContext, details: Option<&[[f32; 4]]>) -> Option<Vec<f32>> {
+    // HBAO: the micro occlusion of the relief below (1 = open).
+    if let MaterialFilter::Hbao { .. } = *filter {
+        return details.map(|d| d.iter().map(|d| 1.0 - d[1]).collect());
+    }
     let MaterialFilter::RustWeathering { cavities, .. } = *filter else { return None };
     if cavities <= 0.0 || tc.sample.mesh_maps.get(MeshMapKind::AmbientOcclusion).is_none() {
         return None;
@@ -135,7 +139,7 @@ pub(crate) fn apply(filter: &MaterialFilter, kind: ChannelKind, blend: ChannelBl
         }
         (_, _, e) => e,
     };
-    let occluded = occlusion(filter, tc);
+    let occluded = occlusion(filter, tc, details);
     let faces = matches!(filter, MaterialFilter::WaterDrops { .. });
     for (i, px) in content.iter_mut().enumerate() {
         let surface = Surface { edge: edges.as_ref().map_or(0.0, |e| e[i]), occlusion: occluded.as_ref().map_or(0.0, |o| o[i]), up: if faces { tc.geo.normal(i)[1] } else { 0.0 } };
@@ -151,6 +155,14 @@ pub(crate) fn apply(filter: &MaterialFilter, kind: ChannelKind, blend: ChannelBl
                 over([b, b, b, src[3]], [r.roughness; 3], r.roughness_alpha)
             }
             ChannelKind::Metallic => over(src, [r.metallic; 3], r.metallic_alpha),
+            ChannelKind::AmbientOcclusion => {
+                if r.occlusion == 0.0 {
+                    continue;
+                }
+                // Uncovered Ambient Occlusion is open (1).
+                let v = (src[0] * src[3] + (1.0 - src[3])) * (1.0 - r.occlusion);
+                [v, v, v, 1.0]
+            }
             ChannelKind::Height => {
                 if r.height == 0.0 {
                     continue;
