@@ -9,6 +9,10 @@ description = "Model Context Protocol server: drive the SubCraft texturing engin
 [lints]
 workspace = true
 
+[lib]
+name = "subcraft_mcp"
+path = "src/lib.rs"
+
 [[bin]]
 name = "subcraft-mcp"
 path = "src/main.rs"
@@ -32,3 +36,4 @@ serde_json.workspace = true
 uuid.workspace = true
 image.workspace = true
 mimalloc.workspace = true
+rhai.workspace = true

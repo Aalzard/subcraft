@@ -27,6 +27,7 @@ subcraft-assets = { path = "crates/assets" }
 subcraft-render = { path = "crates/render" }
 subcraft-app = { path = "crates/app" }
 subcraft-ui = { path = "crates/ui" }
+subcraft-mcp = { path = "apps/subcraft-mcp" }
 
 # foundation
 glam = { version = "0.30", features = ["serde", "bytemuck"] }
@@ -72,6 +73,8 @@ rfd = "0.17"
 winit = { version = "0.30", default-features = false }
 dirs = "7"
 pollster = "0.4"
+# scripting (subcraft-mcp script runner, Plugins menu)
+rhai = { version = "1.27", features = ["serde", "only_i64", "no_module"] }
 
 [workspace.lints.rust]
 unsafe_code = "deny"
