@@ -292,11 +292,23 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             section(ui, "smudge", "Smudge", false, |ui| {
                 let s = &mut b.settings;
                 let d = subcraft_paint::BrushSettings::default();
+                ui.horizontal(|ui| {
+                    ui.selectable_value(&mut s.smudge_push, false, "Smear").on_hover_text("Carry a colour along and blend it into what the brush passes");
+                    ui.selectable_value(&mut s.smudge_push, true, "Push").on_hover_text("Liquify: move the paint itself along the stroke; lines bend and stay sharp");
+                });
                 slider_row_reset(ui, "Strength", &mut s.smudge_strength, d.smudge_strength, |v| egui::Slider::new(v, 0.0..=1.0));
-                slider_row_reset(ui, "Smear length", &mut s.smudge_carry, d.smudge_carry, |v| egui::Slider::new(v, 0.0..=0.99));
+                ui.add_enabled_ui(!s.smudge_push, |ui| {
+                    slider_row_reset(ui, "Smear length", &mut s.smudge_carry, d.smudge_carry, |v| egui::Slider::new(v, 0.0..=0.99));
+                });
                 slider_row_reset(ui, "Falloff", &mut s.smudge_falloff, d.smudge_falloff, |v| egui::Slider::new(v, 0.25..=8.0).logarithmic(true));
-                slider_row_reset(ui, "Material", &mut s.smudge_material, d.smudge_material, |v| egui::Slider::new(v, 0.0..=1.0));
-                hint(ui, "Used by the Smudge tool. Low smear length blends softly; high drags paint far. Material mixes the brush paint into the smear.");
+                ui.add_enabled_ui(!s.smudge_push, |ui| {
+                    slider_row_reset(ui, "Material", &mut s.smudge_material, d.smudge_material, |v| egui::Slider::new(v, 0.0..=1.0));
+                });
+                hint(ui, if s.smudge_push {
+                    "Used by the Smudge tool. Push moves the paint under the brush along with it, like a finger in wet paint: shapes bend and edges stay sharp. Strength sets how much of the brush movement the paint follows."
+                } else {
+                    "Used by the Smudge tool. Low smear length blends softly; high drags paint far. Material mixes the brush paint into the smear."
+                });
             });
 
             section(ui, "scatter", "Scatter", s_open(&b.settings), |ui| {

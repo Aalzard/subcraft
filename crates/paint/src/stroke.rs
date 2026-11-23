@@ -82,6 +82,10 @@ pub struct Stroke {
     /// carried along (premultiplied value, alpha) per stroke copy and image.
     work: Vec<TiledImage>,
     carried: Vec<Option<[f32; 4]>>,
+    /// Push smudge: the previous stamp's surface point and UV per stroke copy, and where each
+    /// texel's paint comes from so far.
+    push_prev: Vec<Option<(Vec3, Vec2)>>,
+    push_field: Option<crate::push::Field>,
     /// Average UV units per object unit of the painted texture set (2D-view strokes).
     uv_per_unit: Option<f32>,
     raster: RasterCache,
@@ -219,6 +223,8 @@ impl Stroke {
             quick_mask: None,
             work: Vec::new(),
             carried: Vec::new(),
+            push_prev: Vec::new(),
+            push_field: None,
             uv_per_unit: None,
             raster: RasterCache {
                 enabled: std::env::var_os("SUBCRAFT_NO_RASTER_CACHE").is_none(),
@@ -519,6 +525,9 @@ impl Stroke {
         if self.mode == StrokeMode::Smudge {
             // The 2D view has no projection: every copy uses the view camera.
             let cameras = vec![*ctx.camera; copies];
+            if self.settings.smudge_push {
+                return self.push_stamps(ts, ctx, &cameras, &stamps, Alignment::Uv, true);
+            }
             return self.smudge_stamps(ts, ctx, &cameras, &stamps, Alignment::Uv);
         }
         // Plain stamps don't carry anything: one camera (rasterised once per tile).
@@ -669,6 +678,9 @@ impl Stroke {
         }
         if self.mode == StrokeMode::Smudge {
             let alignment = self.settings.alignment;
+            if self.settings.smudge_push {
+                return self.push_stamps(ts, ctx, &cameras, &stamps, alignment, false);
+            }
             return self.smudge_stamps(ts, ctx, &cameras, &stamps, alignment);
         }
         if self.preview.tiles > 0 && matches!(self.mode, StrokeMode::Paint | StrokeMode::Erase) {
@@ -1065,6 +1077,107 @@ impl Stroke {
                 }
                 changed.insert(*t);
             }
+            store(ts, self.layer, &writes)?;
+        }
+        Ok(changed.into_iter().collect())
+    }
+
+    /// Push smudge (liquify): each texel under the stamp takes the paint from where the brush
+    /// motion since the previous stamp says it came from (see [`crate::push`]). `flat`: a 2D-view
+    /// stroke, whose motion is the UV move itself; 3D strokes map the surface move into each
+    /// texel's triangle, so the push follows the surface across UV seams and symmetry copies.
+    fn push_stamps(&mut self, ts: &mut TextureSet, ctx: &PaintContext, cameras: &[Camera], stamps: &[Stamp], alignment: Alignment, flat: bool) -> Result<Vec<usize>, PaintError> {
+        if stamps.is_empty() {
+            return Ok(Vec::new());
+        }
+        if self.work.is_empty() {
+            self.work = self.images.iter().map(|i| i.snapshot.clone()).collect();
+        }
+        let depth: Vec<Arc<DepthMap>> =
+            if alignment == Alignment::Uv { Vec::new() } else { ctx.depth.get_all(ctx.mesh, cameras) };
+        let backface_cos = self.settings.backface_culling.then(|| self.settings.backface_angle_deg.to_radians().cos());
+        let input = KernelInput {
+            mesh: ctx.mesh, bvh: ctx.bvh, geometry: ctx.geometry, alignment, cameras, depth: &depth, backface_cos,
+            alpha: self.alpha.as_deref(), stencil: None, stencil_uv: None,
+            stamp_blend: self.settings.stamps_blending,
+        };
+        let res = ctx.geometry.resolution as f32;
+        let strength = self.settings.smudge_strength.clamp(0.0, 1.0);
+        let falloff = self.settings.smudge_falloff.clamp(0.25, 8.0);
+        let mut gradients: HashMap<u32, Option<(Vec3, Vec3)>> = HashMap::new();
+        let mut changed = std::collections::BTreeSet::new();
+        for st in stamps {
+            if self.push_prev.len() <= st.camera {
+                self.push_prev.resize(st.camera + 1, None);
+            }
+            let prev = self.push_prev[st.camera].replace((st.center, st.uv));
+            let Some((prev_center, prev_uv)) = prev else { continue };
+            let (d3, duv) = (st.center - prev_center, st.uv - prev_uv);
+            // A jump (a new stroke segment, another island) is not a push.
+            let jumped = if flat { duv.length() > 4.0 * st.radius_uv.max(1e-6) } else { d3.length() > 4.0 * st.radius.max(1e-6) };
+            if jumped || (duv.length_squared() == 0.0 && d3.length_squared() == 0.0) {
+                continue;
+            }
+            let mut field = self.push_field.take().unwrap_or_else(|| crate::push::Field::new(ctx.geometry.resolution));
+            let mut writes = Vec::new();
+            for (t, w) in input.bin(std::slice::from_ref(st)) {
+                let samples = input.rasterize_tile(t, w.tris.iter().copied());
+                let mut fp = input.footprints(&samples, st);
+                self.restrict_coverage(ctx.geometry, t, &mut fp);
+                if !fp.iter().any(|&v| v > 0.0) {
+                    continue;
+                }
+                // This stamp's move per texel (in texels); the first triangle covering a texel decides.
+                let mut moves: Vec<Option<(Vec2, Vec2)>> = vec![None; TILE_TEXELS];
+                for s in &samples {
+                    let i = s.idx as usize;
+                    let k = fp[i].powf(falloff) * st.flow * strength * crate::push::PUSH_SPEED;
+                    if k <= 0.0 || moves[i].is_some() {
+                        continue;
+                    }
+                    let motion = if flat {
+                        duv
+                    } else {
+                        match *gradients.entry(s.tri).or_insert_with(|| crate::push::uv_gradient(ctx.mesh, s.tri as usize)) {
+                            Some(g) => crate::push::uv_motion(g, d3),
+                            None => continue,
+                        }
+                    };
+                    moves[i] = Some((s.uv * res, motion * k * res));
+                }
+                // Compose with the moves so far: the paint now at `p` came from `p - v`, whose paint
+                // came from `p - v - D(p - v)`.
+                let composed: Vec<(usize, Vec2)> = moves
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(i, m)| m.map(|(p, v)| (i, v + field.sample(p - v))))
+                    .collect();
+                field.set(t, &composed);
+                for (k, img) in self.images.iter().enumerate() {
+                    let comps = img.snapshot.comps();
+                    let n = img.value_comps;
+                    let mut buf = vec![0.0f32; TILE_TEXELS * comps];
+                    self.work[k].read_tile(t, &mut buf);
+                    for &(i, offset) in &composed {
+                        let Some((p, _)) = moves[i] else { continue };
+                        let src = p - offset;
+                        let v = crate::push::sample(&img.snapshot, src.x, src.y, n, img.has_alpha);
+                        let px = &mut buf[i * comps..(i + 1) * comps];
+                        px[..n].copy_from_slice(&v[..n]);
+                        if img.has_alpha {
+                            px[n] = v[n];
+                            if img.key.channel() == Some(subcraft_core::ChannelKind::Normal) && v[n] > 1e-6 {
+                                let unit = subcraft_core::normal::encode(subcraft_core::normal::decode([px[0], px[1], px[2]]));
+                                px[..3].copy_from_slice(&unit);
+                            }
+                        }
+                    }
+                    self.work[k].write_tile(t, &buf);
+                    writes.push((img.key, t, buf));
+                }
+                changed.insert(t);
+            }
+            self.push_field = Some(field);
             store(ts, self.layer, &writes)?;
         }
         Ok(changed.into_iter().collect())

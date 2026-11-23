@@ -10,7 +10,7 @@ fn preset(name: &str, tip: Option<&str>, settings: BrushSettings, lazy_distance_
 }
 
 /// Brushes meant for the Smudge tool (they do nothing on an empty layer).
-pub const SMUDGE_PRESETS: [&str; 3] = ["Soft Blend", "Wet Smear", "Paint Smear"];
+pub const SMUDGE_PRESETS: [&str; 4] = ["Soft Blend", "Wet Smear", "Paint Smear", "Liquify Push"];
 
 fn preset_with(name: &str, tip: Option<&str>, settings: BrushSettings, options: StrokeOptions) -> BrushPreset {
     BrushPreset {
@@ -56,6 +56,7 @@ pub fn describe(name: &str) -> Option<&'static str> {
         "Soft Blend" => "Smudge tool: gentle, short blend that softens edges between paint",
         "Wet Smear" => "Smudge tool: drags paint a long way like wet paint",
         "Paint Smear" => "Smudge tool: smears and mixes your current paint colour into what it drags",
+        "Liquify Push" => "Smudge tool: pushes the paint itself along, bending lines and shapes while they stay sharp",
         "Pencil" => "Thin, slightly soft line; light pressure gives a faint trace",
         _ => return None,
     })
@@ -99,6 +100,7 @@ pub fn builtin_brush_presets() -> Vec<BrushPreset> {
         preset("Soft Blend", None, BrushSettings { size: 10.0, hardness: 0.0, flow: 0.6, spacing: 0.08, smudge_strength: 0.6, smudge_carry: 0.3, smudge_falloff: 0.6, ..d() }, 0.0),
         preset("Wet Smear", None, BrushSettings { size: 8.0, hardness: 0.7, spacing: 0.05, smudge_carry: 0.96, ..d() }, 0.0),
         preset("Paint Smear", None, BrushSettings { size: 8.0, hardness: 0.6, spacing: 0.06, smudge_carry: 0.9, smudge_material: 0.25, ..d() }, 0.0),
+        preset("Liquify Push", None, BrushSettings { size: 10.0, hardness: 0.4, spacing: 0.05, smudge_push: true, ..d() }, 0.0),
         preset("Pencil", None, BrushSettings { size: 1.2, hardness: 0.8, flow: 0.6, spacing: 0.04, pressure_size: 0.6, pressure_flow: 0.5,
             tilt_angle: true, tilt_size: 1.5, tilt_flow: 0.4, tilt_roundness: 0.8, ..d() }, 4.0),
     ]
