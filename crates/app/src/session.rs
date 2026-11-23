@@ -1896,7 +1896,7 @@ impl Session {
                 // Text layers are re-rendered from their outlines instead of resampled.
                 crate::text::refresh_text_rasters(&mut self.doc, &self.resources, &resized);
                 // Pen paths too: their raster is a cache of the path.
-                crate::pen::refresh_path_rasters(&mut self.doc, &self.resources, &resized);
+                crate::pen::refresh_path_rasters(&mut self.doc, &self.resources, &resized, &self.scene);
                 if changed {
                     self.commit(&format!("Resolution {resolution}"), None);
                     self.fit_quick_mask();
@@ -2200,7 +2200,7 @@ impl Session {
                 for r in &clip.resources {
                     self.resources.insert_shared(r.clone());
                 }
-                let layers = redraw_pasted(clip.instantiate(ts, mesh), clip.resolution, ts.resolution, &self.resources);
+                let layers = redraw_pasted(clip.instantiate(ts, mesh), clip.resolution, ts.resolution, &self.resources, &self.scene, ts.material_slot);
                 for mut layer in layers {
                     layer.name = crate::clipboard::pasted_name(ts, &layer.name);
                     at = Some(ts.insert_above(at, layer));
@@ -2471,11 +2471,11 @@ impl Session {
                     return Err(CommandError::Invalid("Layer content cannot be pasted into a folder".into()));
                 }
                 // Fresh effect ids and rasters at this set's resolution, like a pasted layer.
-                let (pasted, resolution) = (clip.instantiate(ts, mesh), ts.resolution);
+                let (pasted, resolution, slot) = (clip.instantiate(ts, mesh), ts.resolution, ts.material_slot);
                 for r in &clip.resources {
                     self.resources.insert_shared(r.clone());
                 }
-                let pasted = redraw_pasted(pasted, clip.resolution, resolution, &self.resources).pop().ok_or(CommandError::LayerNotFound)?;
+                let pasted = redraw_pasted(pasted, clip.resolution, resolution, &self.resources, &self.scene, slot).pop().ok_or(CommandError::LayerNotFound)?;
                 self.edit_layer_set(layer, "Paste Layer Content", None, |ts| {
                     let l = Self::layer_mut(ts, layer)?;
                     l.content = pasted.content;
@@ -4467,12 +4467,12 @@ fn add_blend(layers: &mut [Arc<Layer>], channel: ChannelKind) {
 /// Layers pasted from a set of another resolution: their text and pen path rasters are drawn
 /// again at `to` (resampled, a path or text from 512 pasted at 4096 came out blurred, and was
 /// exported that way until its next edit).
-fn redraw_pasted(layers: Vec<Layer>, from: u32, to: u32, resources: &ResourceStore) -> Vec<Layer> {
+fn redraw_pasted(layers: Vec<Layer>, from: u32, to: u32, resources: &ResourceStore, scene: &Scene, slot: u32) -> Vec<Layer> {
     if from == to {
         return layers;
     }
     let mut layers: Vec<Arc<Layer>> = layers.into_iter().map(Arc::new).collect();
     crate::text::redraw_text_layers(&mut layers, to, resources);
-    crate::pen::redraw_path_layers(&mut layers, to, resources);
+    crate::pen::redraw_path_layers(&mut layers, to, resources, Some((scene, slot)));
     layers.into_iter().map(Arc::unwrap_or_clone).collect()
 }

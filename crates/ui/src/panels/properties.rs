@@ -45,6 +45,13 @@ pub fn show_docked(state: &mut UiState, ui: &mut Ui) {
 }
 
 pub fn show(state: &mut UiState, ui: &mut Ui) {
+    // The Pen tool before a path exists: what the next path is drawn with (stitches), above
+    // whatever the selected layer shows.
+    let on_path = state.session.selected_layer().is_some_and(|l| l.kind() == subcraft_doc::LayerKind::Path);
+    if state.tool == crate::state::Tool::Pen && !on_path {
+        let now = ui.input(|i| i.time);
+        panel(ui, |ui| section(ui, "pen_tool", "Pen tool", true, |ui| crate::pen::tool_section(state, ui, now)));
+    }
     if shows_brush(state) {
         super::brush::show(state, ui);
         return;
