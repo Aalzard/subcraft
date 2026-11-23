@@ -163,3 +163,30 @@ fn a_material_dropped_onto_the_fill_layer_replaces_it_on_every_tile() {
     s.execute(Command::Undo).unwrap();
     assert_eq!(top(&s, 1).content, original, "undo reverts both tiles");
 }
+
+#[test]
+fn procedural_material_sliders_drive_every_tile() {
+    let (mut s, _) = session(true);
+    let lib = subcraft_assets::Library::builtin();
+    let material = lib.smart_materials.iter().find(|m| m.name == "Procedural Painted Metal").expect("on the shelf");
+    s.add_smart_material(material).unwrap();
+    let root = s.selection().layer.unwrap();
+    let params = |s: &Session, set: usize| top(s, set).material.as_deref().expect("material on every tile").params.clone();
+    let contents = |s: &Session, set: usize| top(s, set).children().iter().map(|c| c.content.clone()).collect::<Vec<_>>();
+    let param = params(&s, 0)[0].clone();
+    let value = match param.value {
+        subcraft_doc::ParamValue::Number(v) => subcraft_doc::ParamValue::Number(if v > 0.5 { v - 0.3 } else { v + 0.3 }),
+        subcraft_doc::ParamValue::Toggle(b) => subcraft_doc::ParamValue::Toggle(!b),
+        subcraft_doc::ParamValue::Color(_) => subcraft_doc::ParamValue::Color([0.8, 0.1, 0.1]),
+    };
+    let before = s.history().entries().len();
+    let untouched = contents(&s, 1);
+    s.execute(Command::SetMaterialParam { layer: root, param: param.id.clone(), value }).unwrap();
+    assert_eq!(s.history().entries().len(), before + 1, "one undo step");
+    assert_eq!(params(&s, 1), params(&s, 0), "the other tile's material follows the slider");
+    assert_eq!(contents(&s, 1), contents(&s, 0), "and so do the layers it drives");
+    assert_ne!(contents(&s, 1), untouched, "the slider changed something");
+    s.execute(Command::ResetMaterialParams(root)).unwrap();
+    assert_eq!(params(&s, 1), params(&s, 0), "reset reaches the other tile too");
+    assert_eq!(contents(&s, 1), untouched);
+}
