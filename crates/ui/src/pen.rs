@@ -654,6 +654,38 @@ pub fn tool_section(state: &mut UiState, ui: &mut Ui, now: f64) {
         height_note(state, ui, now);
     }
     crate::widgets::hint(ui, "Choose a stitch, then click on the model to place the points of the path (drag for a curve). Enter finishes the path. Width, spacing, thread colour and height can be changed afterwards, here.");
+    auto_stitcher(state, ui, now);
+}
+
+/// Painter's Auto Stitcher: the chosen stitch placed along the UV seams, the open borders or
+/// the edge of the selected layer's mask, without drawing.
+fn auto_stitcher(state: &mut UiState, ui: &mut Ui, now: f64) {
+    use subcraft_app::auto_stitch::{AutoStitch, StitchAlong};
+    ui.add_space(6.0);
+    egui::CollapsingHeader::new("Auto Stitcher").id_salt("pen_auto_stitcher").default_open(true).show(ui, |ui| {
+        let d = AutoStitch::default();
+        prop_row_reset(ui, "Along", &mut state.auto_stitch.along, d.along, |ui, v| combo(ui, "auto_stitch_along", v, &StitchAlong::ALL, |a| a.label()))
+            .on_hover_text("UV seams: where two UV islands meet on the model. Open borders: the free edges of the mesh, like a hem. Mask edge: the outline of the selected layer's mask");
+        slider_row_reset(ui, "Distance", &mut state.auto_stitch.inset, d.inset, |v| egui::Slider::new(v, AutoStitch::INSET).suffix(" widths"))
+            .on_hover_text("How far from the edge the row runs, in stitch widths. At 0 a UV seam gets one row right on it; above 0 it gets a row on each side");
+        if ui.button("Place stitches").on_hover_text("Add the stitch chosen above along every seam, border or mask edge of this texture set. Each row is its own path layer, in one folder: edit, restyle or delete any of them afterwards. One undo step").clicked() {
+            place_auto_stitches(state, now);
+        }
+    });
+}
+
+/// Run the Auto Stitcher with the panel's settings and say what it did.
+pub fn place_auto_stitches(state: &mut UiState, now: f64) {
+    refresh_style(state);
+    match state.pen.auto_stitch(&mut state.session, state.auto_stitch) {
+        Ok(made) => {
+            state.gpu_dirty = true;
+            let rows = if made.paths == 1 { "1 row of stitches".to_string() } else { format!("{} rows of stitches", made.paths) };
+            let left = if made.skipped > 0 { format!(" The {} shortest lines were left out", made.skipped) } else { String::new() };
+            state.set_status(format!("Auto Stitcher: {rows} added, each as its own path layer.{left}"), now);
+        }
+        Err(e) => state.set_status(format!("Auto Stitcher: {e}"), now),
+    }
 }
 
 /// The few settings of a stitch, in its own words: size, spacing, thread colour and how far it
@@ -1119,6 +1151,35 @@ mod keyboard_tests {
         click(&mut state, Vec2::new(0.5, 0.3));
         frame(&mut state);
         assert_eq!(stitch_of(&state, &drawn_path(&state)).map(|s| s.name), Some("Stitch: Straight"), "drawing the panel changes nothing");
+    }
+
+    /// The Auto Stitcher panel is drawn with the Pen tool, and its button adds rows of the
+    /// chosen stitch along the sample crate's UV seams as path layers in one folder.
+    #[test]
+    fn the_auto_stitcher_places_the_chosen_stitch_along_the_seams() {
+        let mut state = UiState::new(subcraft_app::Session::sample(), None);
+        start_stitching(&mut state, 0.0);
+        let ctx = egui::Context::default();
+        crate::theme::apply(&ctx);
+        let mut out = ctx.run_ui(egui::RawInput::default(), |ui| crate::panels::properties::show(&mut state, ui));
+        out.textures_delta.clear();
+        let paths = |state: &UiState| {
+            let mut found = Vec::new();
+            state.session.selected_texture_set().walk(|l, _| if let subcraft_doc::LayerContent::Paint(p) = &l.content && let Some(path) = &p.path { found.push(path.clone()); });
+            found
+        };
+        assert!(paths(&state).is_empty());
+        place_auto_stitches(&mut state, 1.0);
+        let made = paths(&state);
+        assert!(made.len() > 1, "{:?}", state.status);
+        assert!(made.iter().all(|p| stitch_of(&state, p).map(|s| s.name) == Some("Stitch: Straight")), "every row is the chosen stitch");
+        assert_eq!(state.session.selected_layer().map(|l| l.name.as_str()), Some("Auto stitches"));
+        assert!(state.status.as_ref().is_some_and(|(s, _)| s.contains("rows of stitches added")), "{:?}", state.status);
+        // The mask edge needs a layer with a mask: the folder has none, and the status says so.
+        state.auto_stitch.along = subcraft_app::auto_stitch::StitchAlong::MaskEdge;
+        place_auto_stitches(&mut state, 2.0);
+        assert_eq!(paths(&state).len(), made.len());
+        assert!(state.status.as_ref().is_some_and(|(s, _)| s.contains("no mask")), "{:?}", state.status);
     }
 
     /// QA 2026-11: the pen keys (Enter, Escape, Delete, Backspace) had no modal check: they

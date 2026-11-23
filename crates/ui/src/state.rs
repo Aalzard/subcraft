@@ -197,6 +197,8 @@ pub struct UiState {
     pub pen: subcraft_app::pen::PenEditor,
     /// Path snapping to the model (Pen properties > Snap).
     pub pen_snap: crate::pen::PenSnap,
+    /// Where the Auto Stitcher places its stitches (Pen properties > Auto Stitcher).
+    pub auto_stitch: subcraft_app::auto_stitch::AutoStitch,
     /// How paths are drawn (Pen properties > Display).
     pub pen_display: crate::pen::PenDisplay,
     pub text: crate::text_panel::TextUi,
@@ -561,6 +563,7 @@ impl UiState {
             tool,
             pen: Default::default(),
             pen_snap: Default::default(),
+            auto_stitch: Default::default(),
             pen_display: Default::default(),
             text: Default::default(),
             pen_after: None,
