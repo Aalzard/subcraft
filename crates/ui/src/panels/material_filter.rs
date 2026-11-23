@@ -229,6 +229,29 @@ pub fn editor(ui: &mut Ui, filter: &mut MaterialFilter) -> bool {
             changed |= unit(ui, "Line opacity", line_opacity, d_line);
             changed |= slider_row_reset(ui, "Source material opacity", source_opacity, d_source, |v| egui::Slider::new(v, 0.0..=1.0)).on_hover_text("How much of the painted material itself stays visible. 0 keeps only the groove.").changed();
         }
+        (
+            MaterialFilter::BrushedLinear { scale: s, intensity, direction, seed: sd },
+            MaterialFilter::BrushedLinear { scale: d_s, intensity: d_int, direction: d_dir, seed: d_sd },
+        ) => {
+            changed |= scale(ui, "Brush line count", ACROSS, s, d_s);
+            changed |= unit(ui, "Brushing intensity", intensity, d_int);
+            let mut degrees = *direction * 180.0;
+            if slider_row_reset(ui, "Brushing direction", &mut degrees, d_dir * 180.0, |v| egui::Slider::new(v, 0.0..=180.0).suffix("\u{00b0}")).on_hover_text("0: the lines run level around the model. 90: they run up and down the walls.").changed() {
+                *direction = (degrees / 180.0).clamp(0.0, 1.0);
+                changed = true;
+            }
+            changed |= seed(ui, sd, d_sd);
+        }
+        (MaterialFilter::Grainy { scale: s, intensity, seed: sd }, MaterialFilter::Grainy { scale: d_s, intensity: d_int, seed: d_sd }) => {
+            changed |= scale(ui, "Grain count", ACROSS, s, d_s);
+            changed |= unit(ui, "Grain intensity", intensity, d_int);
+            changed |= seed(ui, sd, d_sd);
+        }
+        (MaterialFilter::PerforatedCircles { scale: s, radius, depth }, MaterialFilter::PerforatedCircles { scale: d_s, radius: d_radius, depth: d_depth }) => {
+            changed |= scale(ui, "Hole count", ACROSS, s, d_s);
+            changed |= unit(ui, "Hole size", radius, d_radius);
+            changed |= unit(ui, "Hole depth", depth, d_depth);
+        }
         _ => {}
     }
     changed
@@ -242,7 +265,8 @@ mod tests {
     fn search_finds_filters_by_any_word() {
         assert_eq!(search("").len(), MaterialFilter::ALL.len());
         assert_eq!(search("rust").len(), 1);
-        assert_eq!(search("matfinish").len(), 6);
+        assert_eq!(search("matfinish").len(), 9);
+        assert_eq!(search("perforated").len(), 1);
         assert_eq!(search("edge").len(), 2);
         assert_eq!(search("water").len(), 1);
         assert_eq!(search("MATFX peel").len(), 1);

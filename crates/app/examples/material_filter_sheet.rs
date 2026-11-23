@@ -118,6 +118,10 @@ fn main() -> Result<(), String> {
         },
         // Last: it adds a paint layer with strokes (a grid in UV space) that stays.
         Case { name: "shut_line", filter: all[13], base: [0.50, 0.04, 0.03], rough: 0.3, metal: 0.0, under: None },
+        Case { name: "brushed_linear", filter: all[14], base: steel, rough: 0.3, metal: 1.0, under: None },
+        Case { name: "brushed_linear_upright", filter: all[14].with_setting(subcraft_doc::FilterSetting::Direction, [0.5; 3]).unwrap(), base: steel, rough: 0.3, metal: 1.0, under: None },
+        Case { name: "grainy", filter: all[15], base: steel, rough: 0.3, metal: 1.0, under: None },
+        Case { name: "perforated_circles", filter: all[16], base: steel, rough: 0.3, metal: 1.0, under: None },
     ]
     .into_iter()
     .filter(|c| only.as_deref().is_none_or(|o| c.name.contains(o)))
