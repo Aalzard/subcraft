@@ -28,6 +28,7 @@ const FILM_HEIGHT: f32 = 0.04;
 const PEEL_HEIGHT: f32 = 0.03;
 const GRAIN_HEIGHT: f32 = 0.012;
 const DROP_HEIGHT: f32 = 0.10;
+const SHUT_HEIGHT: f32 = 0.08;
 
 #[inline]
 fn hash3(x: i32, y: i32, z: i32, seed: u32) -> u32 {
@@ -227,7 +228,7 @@ pub fn pattern_on(filter: &MaterialFilter, position: [f32; 3], normal: [f32; 3])
             let cell = voronoi(q + warp(q * 0.7, seed ^ 0x44) * 0.8, seed ^ 0x1f3);
             [flake, cell.f2 - cell.f1, fbm(p * scale * 7.0, 4, seed ^ 0x62), vnoise(p * scale * 30.0, seed ^ 0x29)]
         }
-        MaterialFilter::PbrValidate { .. } | MaterialFilter::Hbao { .. } => [0.0; PATTERN],
+        MaterialFilter::PbrValidate { .. } | MaterialFilter::Hbao { .. } | MaterialFilter::ShutLine { .. } => [0.0; PATTERN],
         MaterialFilter::Grinded { scale, seed, .. } => {
             let q = p * scale;
             let q = q + warp(q * 0.5, seed) * 0.35;
@@ -307,6 +308,7 @@ fn pattern_key(filter: &MaterialFilter) -> field::FieldKey {
         MaterialFilter::PeelingPaint { scale, seed, .. } => [6, scale.to_bits(), seed, 0, 0],
         MaterialFilter::PbrValidate { .. } => [7, 0, 0, 0, 0],
         MaterialFilter::Hbao { .. } => [13, 0, 0, 0, 0],
+        MaterialFilter::ShutLine { .. } => [14, 0, 0, 0, 0],
         MaterialFilter::Grinded { scale, seed, .. } => [8, scale.to_bits(), seed, 0, 0],
         MaterialFilter::Rough { scale, grunge_scale, warp, seed, .. } => [9, scale.to_bits(), seed, grunge_scale.to_bits(), warp.to_bits()],
         MaterialFilter::Raw { scale, seed, .. } => [10, scale.to_bits(), seed, 0, 0],
@@ -332,7 +334,7 @@ pub fn pattern_tile(filter: &MaterialFilter, geo: &TileGeometry) -> std::sync::A
 /// Surface inputs of a texel that do not come from the pattern.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Surface {
-    /// Edge wear mask, 0..1 (1 on a worn edge).
+    /// Edge wear mask, 0..1 (1 on a worn edge). Shut Line: the blurred coverage of the strokes.
     pub edge: f32,
     /// 0 = open, 1 = fully occluded (1 - baked ambient occlusion).
     pub occlusion: f32,
@@ -358,10 +360,12 @@ pub struct Response {
     pub height: f32,
     /// Ambient Occlusion: the value below is multiplied by `1 - occlusion`.
     pub occlusion: f32,
+    /// Every channel: the coverage of the content below is multiplied by this first.
+    pub keep: f32,
 }
 
 impl Response {
-    pub const NONE: Self = Self { color: [0.0; 3], color_alpha: 0.0, color_gain: 1.0, roughness: 0.0, roughness_alpha: 0.0, roughness_add: 0.0, metallic: 0.0, metallic_alpha: 0.0, height: 0.0, occlusion: 0.0 };
+    pub const NONE: Self = Self { color: [0.0; 3], color_alpha: 0.0, color_gain: 1.0, roughness: 0.0, roughness_alpha: 0.0, roughness_add: 0.0, metallic: 0.0, metallic_alpha: 0.0, height: 0.0, occlusion: 0.0, keep: 1.0 };
 
     pub fn base_color(&self, below: [f32; 3]) -> [f32; 3] {
         mix3(below.map(|c| c * self.color_gain), self.color, self.color_alpha)
@@ -506,6 +510,22 @@ pub fn respond(filter: &MaterialFilter, pat: &[f32], s: Surface) -> Response {
             r.height = (-peel + lip * lip * curl * 0.9 - crack * 0.5) * thickness * PEEL_HEIGHT + peel * rusty * (fine - 0.3) * thickness * PEEL_HEIGHT * 0.4;
         }
         MaterialFilter::PbrValidate { .. } => {}
+        MaterialFilter::ShutLine { slope, emboss, height, color, line_opacity, source_opacity, .. } => {
+            r.keep = source_opacity;
+            let m = s.edge.clamp(0.0, 1.0);
+            if m <= 0.0 {
+                return r;
+            }
+            // The blurred stroke is the groove's cross-section: Slope narrows the walls around
+            // its half-way line, so the groove keeps the painted width.
+            let w = 0.5 * (1.0 - 0.9 * slope);
+            let groove = smoothstep(0.5 - w, 0.5 + w, m);
+            // A lip just outside the walls, as on pressed sheet.
+            let lip = smoothstep(0.0, 0.5 - w * 0.6, m) * (1.0 - smoothstep(0.5 - w * 0.6, 0.5 + w * 0.2, m));
+            r.height = (-groove * height + lip * emboss * 0.3) * SHUT_HEIGHT;
+            r.color = color;
+            r.color_alpha = groove * line_opacity;
+        }
         MaterialFilter::Hbao { ambient_occlusion, base_color, roughness, .. } => {
             // `s.occlusion` already carries Radius and Intensity (the micro occlusion).
             let o = s.occlusion.clamp(0.0, 1.0);
@@ -859,6 +879,30 @@ mod tests {
         let ao_only = MaterialFilter::Hbao { radius: 0.35, intensity: 0.8, ambient_occlusion: 1.0, base_color: 0.0, roughness: 0.0 };
         let r = respond(&ao_only, &[0.0; PATTERN], Surface { edge: 0.0, occlusion: 1.0, up: 0.0 });
         assert_eq!((r.color_gain, r.roughness_add, r.occlusion), (1.0, 0.0, 1.0));
+    }
+
+    #[test]
+    fn shut_line_carves_where_the_stroke_is_and_hides_the_painted_material() {
+        let line = |slope: f32, emboss: f32, source_opacity: f32| MaterialFilter::ShutLine { width: 0.25, slope, emboss, height: 0.6, color: [0.02; 3], line_opacity: 0.8, source_opacity };
+        let at = |f: &MaterialFilter, m: f32| respond(f, &[0.0; PATTERN], Surface { edge: m, occlusion: 0.0, up: 0.0 });
+        let f = line(0.4, 0.3, 0.0);
+        // Away from any stroke: no groove, and the painted material is hidden.
+        let off = at(&f, 0.0);
+        assert_eq!((off.height, off.color_alpha, off.keep), (0.0, 0.0, 0.0));
+        // In the stroke: full depth, the line colour.
+        let on = at(&f, 1.0);
+        assert!((on.height + 0.6 * 0.08).abs() < 1e-6 && (on.color_alpha - 0.8).abs() < 1e-6 && on.color == [0.02; 3]);
+        // The wall goes down monotonically from the lip to the floor.
+        let profile: Vec<f32> = (0..=40).map(|i| at(&f, i as f32 / 40.0).height).collect();
+        let top = profile.iter().cloned().fold(f32::MIN, f32::max);
+        let peak = profile.iter().position(|h| *h == top).unwrap();
+        assert!(top > 0.0 && peak > 0 && peak < 20, "a raised lip outside the groove: {top} at {peak}");
+        assert!(profile[peak..].windows(2).all(|w| w[1] <= w[0] + 1e-6), "{profile:?}");
+        // No emboss: never above the surface. Steeper slope: a narrower wall.
+        assert!((0..=40).all(|i| at(&line(0.4, 0.0, 0.0), i as f32 / 40.0).height <= 0.0));
+        let wall = |f: &MaterialFilter| (0..=200).filter(|&i| (0.02..0.98).contains(&(at(f, i as f32 / 200.0).color_alpha / 0.8))).count();
+        assert!(wall(&line(1.0, 0.0, 0.0)) * 3 < wall(&line(0.0, 0.0, 0.0)));
+        assert_eq!(at(&line(0.4, 0.3, 0.7), 0.5).keep, 0.7);
     }
 
     fn drops(amount: f32) -> MaterialFilter {

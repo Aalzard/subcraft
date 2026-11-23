@@ -125,7 +125,12 @@ pub(crate) fn apply(filter: &MaterialFilter, kind: ChannelKind, blend: ChannelBl
         return;
     }
     let pattern = matfx::pattern_tile(filter, tc.geo);
-    let edges = edge_mask(filter, tc, details);
+    // Shut Line: the extra input is the blurred coverage of the layer's strokes.
+    let (strokes, details) = if filter.coverage_blur().is_some() { (details, None) } else { (None, details) };
+    let edges = match strokes {
+        Some(c) => Some(c.iter().map(|c| c[3]).collect()),
+        None => edge_mask(filter, tc, details),
+    };
     // Detail Edge Wear: ridges of the Height / Normal detail below wear like mesh edges.
     let edges = match (*filter, details, edges) {
         (MaterialFilter::DetailEdgeWear { level, detail, .. }, Some(d), Some(mut e)) if detail > 0.0 => {
@@ -145,16 +150,18 @@ pub(crate) fn apply(filter: &MaterialFilter, kind: ChannelKind, blend: ChannelBl
         let surface = Surface { edge: edges.as_ref().map_or(0.0, |e| e[i]), occlusion: occluded.as_ref().map_or(0.0, |o| o[i]), up: if faces { tc.geo.normal(i)[1] } else { 0.0 } };
         let r = matfx::respond(filter, &pattern[i * PATTERN..(i + 1) * PATTERN], surface);
         let src = *px;
+        // What the filter works on: the content below with its coverage scaled by `keep`.
+        let kept = [src[0], src[1], src[2], src[3] * r.keep.clamp(0.0, 1.0)];
         let new = match kind {
             ChannelKind::BaseColor => {
-                let gained = [src[0] * r.color_gain, src[1] * r.color_gain, src[2] * r.color_gain, src[3]];
+                let gained = [kept[0] * r.color_gain, kept[1] * r.color_gain, kept[2] * r.color_gain, kept[3]];
                 over(gained, r.color, r.color_alpha)
             }
             ChannelKind::Roughness => {
-                let b = (src[0] + r.roughness_add).clamp(0.0, 1.0);
-                over([b, b, b, src[3]], [r.roughness; 3], r.roughness_alpha)
+                let b = (kept[0] + r.roughness_add).clamp(0.0, 1.0);
+                over([b, b, b, kept[3]], [r.roughness; 3], r.roughness_alpha)
             }
-            ChannelKind::Metallic => over(src, [r.metallic; 3], r.metallic_alpha),
+            ChannelKind::Metallic => over(kept, [r.metallic; 3], r.metallic_alpha),
             ChannelKind::AmbientOcclusion => {
                 if r.occlusion == 0.0 {
                     continue;
@@ -164,12 +171,12 @@ pub(crate) fn apply(filter: &MaterialFilter, kind: ChannelKind, blend: ChannelBl
                 [v, v, v, 1.0]
             }
             ChannelKind::Height => {
-                if r.height == 0.0 {
+                if r.height == 0.0 && r.keep == 1.0 {
                     continue;
                 }
                 // Height adds: the relief sits on whatever height is below, covered or not.
-                let h = src[0] * src[3] + r.height;
-                [h, h, h, 1.0]
+                let h = kept[0] * kept[3] + r.height;
+                if r.height == 0.0 { [kept[0], kept[0], kept[0], kept[3]] } else { [h, h, h, 1.0] }
             }
             _ => continue,
         };

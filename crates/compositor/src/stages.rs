@@ -525,6 +525,8 @@ impl<'a> Graph<'a> {
                 }
                 // Detail Edge Wear: the micro curvature of the Normal and Height at the same point.
                 ContentEffectKind::Material(m) if usable && m.writes(kind) && let Some(settings) = m.micro_details() => Some(self.effect_detail_node(layer, index, settings)),
+                // Shut Line: the blurred coverage of the layer's strokes.
+                ContentEffectKind::Material(m) if usable && m.writes(kind) && let Some(radius) = m.coverage_blur() => Some(Some(self.effect_coverage_node(layer, index, radius))),
                 _ => Some(None),
             };
             if usable && let Some(filtered) = filtered {
@@ -1045,6 +1047,21 @@ impl<'a> Graph<'a> {
         let n = self.push(Node::MicroDetail { chain: Arc::new(chain), settings, own_adds, horizon });
         self.effect_details.insert((layer.id, index), n);
         Some(n)
+    }
+    /// The layer's own Base Color content before the effect at `index`, Gaussian-blurred over
+    /// `radius` texels at 2048: its alpha is the soft coverage of what is painted there. One
+    /// node per effect, shared by every channel the filter writes.
+    fn effect_coverage_node(&mut self, layer: &'a Layer, index: usize, radius: f32) -> usize {
+        if let Some(&n) = self.effect_details.get(&(layer.id, index)) {
+            return n;
+        }
+        let input = self.below_effect(layer, index, ChannelKind::BaseColor);
+        let size = radius * self.ctx.geometry.resolution as f32 / 2048.0 * self.radius_scale;
+        let weights = Arc::new(subcraft_materials::filter::gaussian_weights(size.max(0.5)));
+        let h = self.push(Node::Gaussian { input, weights: weights.clone(), horizontal: true, wrap: false });
+        let n = self.push(Node::Gaussian { input: h, weights, horizontal: false, wrap: false });
+        self.effect_details.insert((layer.id, index), n);
+        n
     }
     /// Micro curvature and occlusion for one tile (see [`Node::MicroDetail`]).
     fn micro_detail(&self, chain: &[[usize; 2]], settings: &subcraft_doc::MicroDetails, own_adds: bool, horizon: bool, geo: &subcraft_materials::TileGeometry) -> Vec<[f32; 4]> {
@@ -2495,7 +2512,7 @@ pub(crate) fn has_micro_details(layers: &[Arc<Layer>]) -> bool {
 fn micro_details_support(l: &Layer) -> u32 {
     // Material filters that read the detail below them (Detail Edge Wear).
     let content = l.content_effects.iter().filter(|e| e.visible).filter_map(|e| match e.kind {
-        ContentEffectKind::Material(m) => m.micro_details().map(|d| d.support()),
+        ContentEffectKind::Material(m) => Some(m.support()).filter(|s| *s > 0),
         _ => None,
     });
     let mask = l.mask.as_ref().filter(|m| m.enabled).into_iter().flat_map(|m| {

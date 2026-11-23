@@ -215,6 +215,19 @@ pub fn editor(ui: &mut Ui, filter: &mut MaterialFilter) -> bool {
             changed |= unit(ui, "Base Color intensity", base_color, d_base);
             changed |= unit(ui, "Roughness intensity", roughness, d_roughness);
         }
+        (
+            MaterialFilter::ShutLine { width, slope, emboss, height, color: c, line_opacity, source_opacity },
+            MaterialFilter::ShutLine { width: d_width, slope: d_slope, emboss: d_emboss, height: d_height, color: d_c, line_opacity: d_line, source_opacity: d_source },
+        ) => {
+            changed |= unit(ui, "Cavity width", width, d_width);
+            changed |= unit(ui, "Slope intensity", slope, d_slope);
+            changed |= unit(ui, "Emboss strength", emboss, d_emboss);
+            changed |= unit(ui, "Height intensity", height, d_height);
+            ui.label(egui::RichText::new("Material").strong());
+            changed |= color(ui, "Line color", c, d_c);
+            changed |= unit(ui, "Line opacity", line_opacity, d_line);
+            changed |= slider_row_reset(ui, "Source material opacity", source_opacity, d_source, |v| egui::Slider::new(v, 0.0..=1.0)).on_hover_text("How much of the painted material itself stays visible. 0 keeps only the groove.").changed();
+        }
         _ => {}
     }
     changed
