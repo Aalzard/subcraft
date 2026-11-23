@@ -41,7 +41,11 @@ const FRAGMENT_RESOLUTION: u32 = 1024;
 const MAX_REPORT_LINES: usize = 50;
 
 /// Channels an imported material may bring that the texture set might not have yet.
-const ADDED_ON_APPLY: [ChannelKind; 3] = [ChannelKind::AmbientOcclusion, ChannelKind::Emissive, ChannelKind::Opacity];
+const ADDED_ON_APPLY: [ChannelKind; 6] = [ChannelKind::AmbientOcclusion, ChannelKind::Emissive, ChannelKind::Opacity, ChannelKind::SheenColor, ChannelKind::SheenOpacity, ChannelKind::SheenRoughness];
+
+/// Channels a built-in material may use although the texture set lacks them: the material is
+/// built as if the set had them, and the ones it really fills are then added with the layer.
+pub const OFFERED_ON_APPLY: [ChannelKind; 3] = [ChannelKind::SheenColor, ChannelKind::SheenOpacity, ChannelKind::SheenRoughness];
 
 /// What an import did.
 #[derive(Default)]

@@ -22,6 +22,8 @@ pub struct PenRasterizer {
     alpha: Option<std::sync::Arc<subcraft_image::Bitmap>>,
     stamps: Vec<(Vec2, f32)>,
     segment_stamps: Vec<Vec<u32>>,
+    /// Stamps laid on the model's surface ([`PenRasterizer::with_surface`]) instead of `stamps`.
+    surface: Option<crate::pen_surface::SurfaceStamps>,
 }
 
 /// Most stamps one path may place (beyond it the spacing is too small for the length).
@@ -103,7 +105,7 @@ impl PenRasterizer {
                 *centre += Vec2::from_angle(*angle).perp() * shift;
             }
         }
-        Ok(Self { path: path.clone(), points, bins, tiles, tile: 0, pixel: 0, segment: 0, distance: f32::INFINITY, coverage: vec![0.0; TILE_TEXELS], images, resolution, alpha: None, stamps, segment_stamps })
+        Ok(Self { path: path.clone(), points, bins, tiles, tile: 0, pixel: 0, segment: 0, distance: f32::INFINITY, coverage: vec![0.0; TILE_TEXELS], images, resolution, alpha: None, stamps, segment_stamps, surface: None })
     }
 
     /// The image a path draws with ([`PenPath::image_resource`]): the stamped tip (round
@@ -113,11 +115,23 @@ impl PenRasterizer {
         self
     }
 
+    /// The model the path lies on: a stamped path with [`subcraft_doc::PathStamp::surface`]
+    /// places its stamps on the surface of material `slot` (other paths are unchanged). Where
+    /// none of the path is on that surface it stays a UV path.
+    pub fn with_surface(mut self, mesh: &std::sync::Arc<subcraft_mesh::Mesh>, bvh: &subcraft_mesh::Bvh, slot: u32) -> Result<Self, &'static str> {
+        if let Some(surface) = crate::pen_surface::SurfaceStamps::build(&self.path, mesh, bvh, slot, self.resolution)? {
+            self.tiles = surface.tiles();
+            self.tile = 0;
+            self.surface = Some(surface);
+        }
+        Ok(self)
+    }
+
     pub fn progress(&self) -> f32 { if self.tiles.is_empty() { 1.0 } else { self.tile as f32 / self.tiles.len() as f32 } }
     pub fn is_done(&self) -> bool { self.tile == self.tiles.len() }
     /// At most `budget` segment-distance evaluations, plus completed 64² tile writes.
     pub fn step(&mut self, mut budget: usize) {
-        if self.path.kind != PathKind::Paint || !self.stamps.is_empty() {
+        if self.path.kind != PathKind::Paint || !self.stamps.is_empty() || self.surface.is_some() {
             // Filled interiors need whole rows of crossings, stamps a pass over their tiles:
             // both are done in one parallel pass.
             self.run();
@@ -171,7 +185,7 @@ impl PenRasterizer {
             self.run_ribbon();
             return;
         }
-        if !self.stamps.is_empty() {
+        if !self.stamps.is_empty() || self.surface.is_some() {
             self.run_stamped();
             return;
         }
@@ -281,7 +295,13 @@ impl PenRasterizer {
         let radius = (self.path.radius * res as f32).max(1e-3);
         let follow = self.path.stamp.is_some_and(|s| s.follow);
         let (stamps, segment_stamps, bins, alpha) = (&self.stamps, &self.segment_stamps, &self.bins, self.alpha.as_deref());
+        let surface = self.surface.as_ref();
         let done: Vec<(usize, Vec<f32>)> = self.tiles[self.tile..].par_iter().map(|&tile| {
+            if let Some(surface) = surface {
+                let mut coverage = surface.coverage(tile, alpha, hardness);
+                for a in &mut coverage { *a *= opacity; }
+                return (tile, coverage);
+            }
             let mut coverage = vec![0.0f32; TILE_TEXELS];
             let near: Vec<u32> = bins[tile].iter().flat_map(|&seg| segment_stamps[seg].iter().copied()).collect();
             for (pixel, out) in coverage.iter_mut().enumerate() {
@@ -468,7 +488,7 @@ mod run_tests {
         let mut path = PenPath { anchors, closed: false, radius: 0.02, hardness: 1.0, opacity: 1.0, values, kind: subcraft_doc::PathKind::Paint, stamp: None, ribbon: None };
         let continuous = { let mut r = PenRasterizer::new(&path, 256).unwrap(); r.run(); r.finish().unwrap() };
         // Spacing 2: a stamp every two diameters (20.48 texels, radius 5.12) from x = 25.6.
-        path.stamp = Some(subcraft_doc::PathStamp { alpha: None, spacing: 2.0, follow: true, alternate: 0.0 });
+        path.stamp = Some(subcraft_doc::PathStamp { alpha: None, spacing: 2.0, follow: true, alternate: 0.0, surface: false });
         let mut r = PenRasterizer::new(&path, 256).unwrap();
         r.step(1);
         assert!(r.is_done(), "a stamped path rasterizes in one pass");
@@ -479,18 +499,18 @@ mod run_tests {
         assert!(a.get(35, 127)[3] > 0.9, "the continuous stroke covers it");
         assert_eq!(b.get(128, 100)[3], 0.0, "nothing away from the path");
         // Spacing outside its range is refused by validation.
-        path.stamp = Some(subcraft_doc::PathStamp { alpha: None, spacing: 0.0, follow: true, alternate: 0.0 });
+        path.stamp = Some(subcraft_doc::PathStamp { alpha: None, spacing: 0.0, follow: true, alternate: 0.0, surface: false });
         assert!(PenRasterizer::new(&path, 256).is_err());
         // Alternating offset 1: the second stamp (x = 46) moves one radius (5.12 texels) to the
         // path's left, which is +y in texels for a path going +x; the first stays on the line.
-        path.stamp = Some(subcraft_doc::PathStamp { alpha: None, spacing: 2.0, follow: true, alternate: 1.0 });
+        path.stamp = Some(subcraft_doc::PathStamp { alpha: None, spacing: 2.0, follow: true, alternate: 1.0, surface: false });
         let mut r = PenRasterizer::new(&path, 256).unwrap();
         r.step(1);
         let shifted = r.finish().unwrap();
         let c = &shifted[&ChannelKind::BaseColor];
         assert!(c.get(25, 127)[3] > 0.9, "first stamp on the path");
         assert!(c.get(46, 132)[3] > 0.9 && c.get(46, 122)[3] == 0.0, "second stamp moved across: {:?} {:?}", c.get(46, 132), c.get(46, 122));
-        path.stamp = Some(subcraft_doc::PathStamp { alpha: None, spacing: 2.0, follow: true, alternate: 3.0 });
+        path.stamp = Some(subcraft_doc::PathStamp { alpha: None, spacing: 2.0, follow: true, alternate: 3.0, surface: false });
         assert!(PenRasterizer::new(&path, 256).is_err(), "alternate offset outside -1..=1 is refused");
     }
 

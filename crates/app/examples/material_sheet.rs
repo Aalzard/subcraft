@@ -102,6 +102,9 @@ fn main() -> Result<(), String> {
         println!("column {col} [{spec}]: composite {:.2}s", t.elapsed().as_secs_f32());
         let get = |kind: ChannelKind| -> Vec<TiledImage> { sets.iter().map(|&(ts, _)| s.composite(ts).unwrap().channel(kind).unwrap().clone()).collect() };
         let (albedo, rough, metal, height) = (get(ChannelKind::BaseColor), get(ChannelKind::Roughness), get(ChannelKind::Metallic), get(ChannelKind::Height));
+        // Sheen (cloth): only when the material brought the channels.
+        let opt = |kind: ChannelKind| -> Vec<Option<TiledImage>> { sets.iter().map(|&(ts, _)| s.composite(ts).unwrap().channel(kind).cloned()).collect() };
+        let (sheen_c, sheen_o, sheen_r) = (opt(ChannelKind::SheenColor), opt(ChannelKind::SheenOpacity), opt(ChannelKind::SheenRoughness));
         for y in 0..ch {
             for x in 0..cw {
                 let ndc = Vec2::new((x as f32 + 0.5) / cw as f32 * 2.0 - 1.0, 1.0 - (y as f32 + 0.5) / ch as f32 * 2.0);
@@ -128,6 +131,11 @@ fn main() -> Result<(), String> {
                 let f0 = Vec3::splat(0.04).lerp(base, m);
                 let diffuse = base * (1.0 - m);
                 let a = r * r;
+                let sheen = match (&sheen_c[set], &sheen_o[set]) {
+                    (Some(col), Some(op)) => Vec3::from_slice(&bilinear(col, p.uv)[..3]).clamp(Vec3::ZERO, Vec3::ONE) * bilinear(op, p.uv)[0].clamp(0.0, 1.0),
+                    _ => Vec3::ZERO,
+                };
+                let sr = sheen_r[set].as_ref().map_or(0.5, |i| bilinear(i, p.uv)[0]).clamp(0.07, 1.0);
                 let mut c = Vec3::ZERO;
                 for (l, radiance) in lights {
                     let nl = n.dot(l).max(0.0);
@@ -139,7 +147,13 @@ fn main() -> Result<(), String> {
                     let g = (nl / (nl * (1.0 - k) + k)) * (nv / (nv * (1.0 - k) + k));
                     let f = f0 + (Vec3::ONE - f0) * (1.0 - hv.dot(view).max(0.0)).powi(5);
                     c += (diffuse / std::f32::consts::PI + f * (d * g / (4.0 * nl * nv).max(1e-4)).min(30.0)) * radiance * nl;
+                    // The viewport's sheen lobe: Charlie distribution, Neubelt visibility.
+                    let inv = 1.0 / (sr * sr);
+                    let ds = (2.0 + inv) * (1.0 - nh * nh).max(0.0).powf(inv * 0.5) / (2.0 * std::f32::consts::PI);
+                    c += sheen * ds / (4.0 * (nl + nv - nl * nv)).max(1e-4) * radiance * nl;
                 }
+                // Sheen under the sky: strongest at grazing angles.
+                c += sheen * sky(n, 1.0) * 0.55 * (0.15 + 0.85 * (1.0 - nv).powi(3));
                 // Ambient: diffuse sky plus a reflection blurred by roughness.
                 let fresnel = f0 + (Vec3::splat((1.0 - r).max(0.04)).max(f0) - f0) * (1.0 - nv).powi(5);
                 let refl = dir - 2.0 * dir.dot(n) * n;

@@ -15,6 +15,7 @@ pub mod particles;
 pub mod path;
 pub mod select;
 pub mod pen;
+pub mod pen_surface;
 pub mod settings;
 pub mod stamp;
 pub mod stencil;

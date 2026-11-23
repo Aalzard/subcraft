@@ -73,6 +73,7 @@ pub fn raw(kind: ProceduralKind, p: Vec2, scale: f32, seed: u32) -> f32 {
         ProceduralKind::Twill => twill(q, period, seed),
         ProceduralKind::Veins => veins(q, period, seed),
         ProceduralKind::Planks => planks(q, period, seed),
+        ProceduralKind::Knots => knots(q, period, seed),
     }
 }
 
@@ -185,6 +186,31 @@ fn planks(q: Vec2, period: i32, seed: u32) -> f32 {
     let bevel = 0.035;
     let rise = smooth((edge - gap) / bevel);
     rise * (0.35 + 0.65 * hash_f(col, row, seed ^ 0x51f))
+}
+
+/// Wood knots: in under half of the cells, one oval stretched along U (the grain). A solid core
+/// (1) with growth rings fading out around it; 0 away from knots. A knot never reaches its
+/// cell's border, so the pattern tiles.
+fn knots(q: Vec2, period: i32, seed: u32) -> f32 {
+    let cell = crate::noise::floor2(q);
+    let f = q - cell;
+    let p = period.max(1);
+    let (ix, iy) = ((cell.x as i32).rem_euclid(p), (cell.y as i32).rem_euclid(p));
+    if hash_f(ix, iy, seed) > 0.45 {
+        return 0.0;
+    }
+    let centre = Vec2::new(0.35 + 0.3 * hash_f(ix, iy, seed ^ 0xa1), 0.3 + 0.4 * hash_f(ix, iy, seed ^ 0xa2));
+    let size = 0.07 + 0.08 * hash_f(ix, iy, seed ^ 0xa3);
+    let d = f - centre;
+    // Not a perfect ellipse: the outline wobbles a little, differently per knot.
+    let wobble = 1.0 + 0.12 * (d.y.atan2(d.x) * 3.0 + hash_f(ix, iy, seed ^ 0xa4) * std::f32::consts::TAU).sin();
+    let r = Vec2::new(d.x / 1.8, d.y).length() / (size * wobble);
+    if r >= 1.0 {
+        return 0.0;
+    }
+    let core = 1.0 - smooth((r - 0.22) / 0.1);
+    let rings = (0.5 + 0.5 * (r * 4.0 * std::f32::consts::TAU).cos()) * (1.0 - smooth(r)) * 0.7;
+    core.max(rings)
 }
 
 fn smooth(t: f32) -> f32 {
@@ -331,7 +357,7 @@ mod tests {
 
     #[test]
     fn uv_patterns_tile_at_integer_scale() {
-        for kind in [ProceduralKind::Twill, ProceduralKind::Veins, ProceduralKind::Planks, ProceduralKind::Weave, ProceduralKind::Clouds, ProceduralKind::Cells, ProceduralKind::Brushed, ProceduralKind::Grunge, ProceduralKind::WoodRings, ProceduralKind::Scratches, ProceduralKind::Dirt, ProceduralKind::Cracks, ProceduralKind::Streaks, ProceduralKind::Speckles, ProceduralKind::Pores] {
+        for kind in [ProceduralKind::Knots, ProceduralKind::Twill, ProceduralKind::Veins, ProceduralKind::Planks, ProceduralKind::Weave, ProceduralKind::Clouds, ProceduralKind::Cells, ProceduralKind::Brushed, ProceduralKind::Grunge, ProceduralKind::WoodRings, ProceduralKind::Scratches, ProceduralKind::Dirt, ProceduralKind::Cracks, ProceduralKind::Streaks, ProceduralKind::Speckles, ProceduralKind::Pores] {
             let params = ProceduralParams::new(kind);
             for k in 0..40 {
                 let p = Vec2::new(0.013 * k as f32, 0.71);
@@ -432,6 +458,21 @@ mod tests {
         let crossings = on.windows(2).filter(|w| !w[0] && w[1]).count();
         assert!((1..40).contains(&crossings), "{crossings} veins crossed on one line");
         assert!(on.iter().filter(|v| **v).count() < 400, "lines, not areas");
+    }
+
+    /// Knots are sparse (most of the wood has none), each has a solid core, and rings around it.
+    #[test]
+    fn knots_are_sparse_cores_with_rings() {
+        let n = 256;
+        let vals: Vec<f32> = (0..n * n).map(|i| raw(ProceduralKind::Knots, Vec2::new((i % n) as f32 + 0.5, (i / n) as f32 + 0.5) / n as f32, 4.0, 5)).collect();
+        let empty = vals.iter().filter(|v| **v == 0.0).count() as f32 / vals.len() as f32;
+        assert!((0.8..0.995).contains(&empty), "empty share {empty}");
+        assert!(vals.iter().any(|v| *v > 0.99), "a knot has a solid core");
+        let rings = vals.iter().filter(|v| (0.05..0.6).contains(*v)).count();
+        assert!(rings > 200, "rings around the cores: {rings}");
+        assert!(vals.iter().all(|v| (0.0..=1.0).contains(v)));
+        let other: Vec<f32> = (0..n * n).map(|i| raw(ProceduralKind::Knots, Vec2::new((i % n) as f32 + 0.5, (i / n) as f32 + 0.5) / n as f32, 4.0, 6)).collect();
+        assert!(vals != other, "the seed moves the knots");
     }
 
     /// Planks: gaps are 0 and thin, a board has one brightness, and neighbouring boards differ.

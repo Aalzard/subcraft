@@ -1039,10 +1039,12 @@ pub enum ProceduralKind {
     Veins,
     /// Boards laid in staggered rows along U: 0 in the gaps, a different brightness per board.
     Planks,
+    /// Wood knots: sparse ovals stretched along U, a solid core with growth rings around it.
+    Knots,
 }
 
 impl ProceduralKind {
-    pub const ALL: [ProceduralKind; 19] = [
+    pub const ALL: [ProceduralKind; 20] = [
         ProceduralKind::Clouds,
         ProceduralKind::Cells,
         ProceduralKind::Grunge,
@@ -1062,6 +1064,7 @@ impl ProceduralKind {
         ProceduralKind::Twill,
         ProceduralKind::Veins,
         ProceduralKind::Planks,
+        ProceduralKind::Knots,
     ];
 
     pub fn label(self) -> &'static str {
@@ -1085,6 +1088,7 @@ impl ProceduralKind {
             ProceduralKind::Twill => "Twill",
             ProceduralKind::Veins => "Veins",
             ProceduralKind::Planks => "Planks",
+            ProceduralKind::Knots => "Knots",
         }
     }
 }

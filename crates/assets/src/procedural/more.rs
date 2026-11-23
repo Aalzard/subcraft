@@ -78,7 +78,15 @@ fn cast_iron(ts: &TextureSet) -> Layer {
     r.value(&rust, BaseColor, "rust_color");
     r.value(&rust, Roughness, "0.92");
 
-    let polish = edge_coat(&mut r, ts, "Polished Edges", "min(color * 4 + 0.1, 1)", "clamp(roughness - 0.3, 0.05, 1)", 1.0, "polish");
+    // A thin, broken line on the edges: the wide default reach reads as a painted white band.
+    let mut polish = masked(coat(ts, "Polished Edges", [0.5, 0.5, 0.5], 0.3, 1.0), ts, vec![fx(wear()), fx_blend(pattern(ProceduralKind::Clouds, 9.0, 319, 0.3, 0.3), BlendMode::Multiply)]);
+    polish.name = "Polished Edges".into();
+    r.value(&polish, BaseColor, "min(color * 3 + 0.06, 1)");
+    r.value(&polish, Roughness, "clamp(roughness - 0.25, 0.05, 1)");
+    r.bind_fx(&polish, 0, Prop::Level, "polish");
+    r.bind_fx(&polish, 0, Prop::Spread, "0.8 + polish * 2.5");
+    r.bind(&polish, Prop::Opacity { channel: None }, "saturate(polish * 20) * 0.85");
+    r.follow_pattern(&polish);
     let soot = dirt_layer(&mut r, ts, "Soot", "soot", 0.9);
     r.follow_pattern(&soot);
     r.finish(folder(&format!("{PREFIX}Cast Iron"), ts, vec![iron, pits, rust, polish, soot]))
@@ -277,6 +285,11 @@ fn cloth(ts: &TextureSet, name: &str, kind: ProceduralKind, base_seed: u32, thre
     r.param(unit("relief", "Weave relief", 0.5).group("Cloth"));
     r.param(unit("wrinkles", "Wrinkles", 0.4).group("Cloth").tip("Soft folds and creases in the cloth"));
     r.param(unit("fuzz", "Fuzz", 0.35).group("Cloth").tip("Loose pale fibres on the surface"));
+    // Sheen needs the texture set's sheen channels (applying the material from the shelf adds them).
+    let sheen = ts.has_channel(SheenColor) && ts.has_channel(SheenOpacity);
+    if sheen {
+        r.param(unit("sheen", "Sheen", 0.4).group("Cloth").tip("The soft glow of the fibres when you look along the cloth"));
+    }
     r.param(unit("fading", "Fading", fade_default).group("Wear").tip(fade_tip));
     r.param(unit("stains", "Stains", 0.25).group("Wear"));
     dirt_params(&mut r, "dirt", "Dirt", [0.06, 0.05, 0.04]);
@@ -287,7 +300,14 @@ fn cloth(ts: &TextureSet, name: &str, kind: ProceduralKind, base_seed: u32, thre
         (Roughness, proc(ProceduralKind::Clouds, 6.0, base_seed + 1, s(0.8), s(0.95))),
         (Metallic, uni(0.0)),
         (Height, proc(kind, weave_scale, base_seed, s(0.0), s(0.03))),
+        (SheenColor, FillSource::uniform(v(0.6, 0.6, 0.6))),
+        (SheenOpacity, uni(0.4)),
+        (SheenRoughness, uni(0.5)),
     ], triplanar(2.0));
+    if sheen {
+        r.value(&weave, SheenColor, "mix(color, rgb(1, 1, 1), 0.35)");
+        r.value(&weave, SheenOpacity, "sheen");
+    }
     // The gaps between threads are the dark end; the tops of the threads carry the colour,
     // paler where the cross threads show.
     r.range(&weave, BaseColor, "color * 0.45", "color * 1.1");
@@ -374,7 +394,7 @@ fn granite(ts: &TextureSet) -> Layer {
     r.roughness(&base, "roughness", "0.1");
     r.follow_pattern(&base);
 
-    let mut grain = |r: &mut Recipe, name: &str, kind: ProceduralKind, scale: f32, seed: u32, colour: &str, none: f32, full: f32| {
+    let grain = |r: &mut Recipe, name: &str, kind: ProceduralKind, scale: f32, seed: u32, colour: &str, none: f32, full: f32| {
         let l = masked(coat(ts, name, [0.5, 0.5, 0.5], 0.2, 0.0), ts, vec![fx(pattern(kind, scale, seed, 0.5, 0.75))]);
         r.value(&l, BaseColor, colour);
         r.value(&l, Roughness, "roughness");
@@ -421,7 +441,7 @@ fn marble(ts: &TextureSet) -> Layer {
     r.follow_pattern(&base);
 
     // A soft halo around every vein, then the vein itself.
-    let mut vein = |r: &mut Recipe, name: &str, contrast: f32, strength: f32, none: f32, full: f32| {
+    let vein = |r: &mut Recipe, name: &str, contrast: f32, strength: f32, none: f32, full: f32| {
         let l = masked(coat(ts, name, [0.2, 0.2, 0.2], 0.12, 0.0), ts, vec![fx(pattern(ProceduralKind::Veins, 2.0, 393, 0.5, contrast))]);
         r.value(&l, BaseColor, "vein_color");
         r.value(&l, Roughness, "roughness");
@@ -640,7 +660,7 @@ fn enamel_paint(ts: &TextureSet) -> Layer {
             fx_blend(pattern(ProceduralKind::Scratches, 5.0, 435, level_scratch, 0.7), BlendMode::Subtract),
         ]
     };
-    let mut bind_wear = |r: &mut Recipe, l: &Layer, shrink: f32| {
+    let bind_wear = |r: &mut Recipe, l: &Layer, shrink: f32| {
         r.bind_fx(l, 1, Prop::Level, &format!("wear * {}", 1.0 - shrink));
         r.bind_fx(l, 1, Prop::Opacity { channel: None }, "saturate(wear * 20)");
         r.bind_fx(l, 2, Prop::PatternBalance { channel: None }, &format!("remap(chips, 0.75, 0.5) + {}", shrink * 0.12));
@@ -711,27 +731,34 @@ fn cracked_leather(ts: &TextureSet) -> Layer {
     r.bind(&tone, Prop::Opacity { channel: Some(BaseColor) }, "0.5");
     r.follow_pattern(&tone);
 
-    // Cracks: a pale rim (the finish lifting), then the dark crack inside it.
-    let mut crack = |r: &mut Recipe, name: &str, contrast: f32, none: f32, full: f32| {
+    // Cracks: a pale rim (the finish lifting), then the dark crack inside it. Each set only
+    // shows inside its own soft patches, and a finer set lives in other patches, so the cracks
+    // gather in places instead of covering the hide as one even net.
+    let crack = |r: &mut Recipe, name: &str, contrast: f32, none: f32, full: f32, scale: f32, seed: u32| {
         let l = with_height(masked(coat(ts, name, [0.3, 0.2, 0.14], 0.8, 0.0), ts, vec![
-            fx(pattern(ProceduralKind::Cracks, 7.0, 444, 0.5, contrast)),
-            fx_blend(pattern(ProceduralKind::Clouds, 2.0, 445, 0.42, 0.5), BlendMode::Multiply),
+            fx(pattern(ProceduralKind::Cracks, scale, seed, 0.5, contrast)),
+            fx_blend(pattern(ProceduralKind::Clouds, 2.0, seed + 1, 0.42, 0.75), BlendMode::Multiply),
         ]), ts);
         r.bind_fx(&l, 0, Prop::PatternBalance { channel: None }, &format!("remap(cracks, {none}, {full})"));
-        r.bind_fx(&l, 0, Prop::PatternScale { channel: None }, "7 * scale / crack_size");
-        r.bind_fx(&l, 0, Prop::PatternSeed { channel: None }, "seed + 444");
-        r.bind_fx(&l, 1, Prop::PatternBalance { channel: None }, "remap(cracks, 0.8, 0.25)");
+        r.bind_fx(&l, 0, Prop::PatternScale { channel: None }, &format!("{scale} * scale / crack_size"));
+        r.bind_fx(&l, 0, Prop::PatternSeed { channel: None }, &format!("seed + {seed}"));
+        r.bind_fx(&l, 1, Prop::PatternBalance { channel: None }, "remap(cracks, 0.75, 0.4)");
+        r.bind_fx(&l, 1, Prop::PatternSeed { channel: None }, &format!("seed + {}", seed + 1));
         r.bind(&l, Prop::Opacity { channel: None }, "saturate(cracks * 5)");
         l
     };
-    let rim = crack(&mut r, "Crack Rims", 0.2, 0.75, 0.2);
+    let rim = crack(&mut r, "Crack Rims", 0.2, 0.75, 0.2, 7.0, 444);
     r.value(&rim, BaseColor, "mix(color, rgb(0.6, 0.48, 0.36), 0.5)");
     r.value(&rim, Roughness, "clamp(roughness + 0.25, 0, 1)");
     r.value(&rim, Height, "0.004");
-    let cracks = crack(&mut r, "Cracks", 0.7, 0.9, 0.45);
+    let cracks = crack(&mut r, "Cracks", 0.7, 0.9, 0.45, 7.0, 444);
     r.value(&cracks, BaseColor, "color * 0.3");
     r.value(&cracks, Roughness, "0.9");
     r.value(&cracks, Height, "0 - 0.03");
+    let fine = crack(&mut r, "Fine Cracks", 0.75, 0.95, 0.55, 19.0, 448);
+    r.value(&fine, BaseColor, "color * 0.4");
+    r.value(&fine, Roughness, "0.85");
+    r.value(&fine, Height, "0 - 0.012");
 
     let scuffs = pattern_coat(&mut r, ts, "Scuffs", ProceduralKind::Scratches, 5.0, 446, 0.4, 0.0, "scuffs", 0.9, 0.5, 0.6);
     r.value(&scuffs, BaseColor, "mix(color, rgb(0.5, 0.36, 0.25), 0.4)");
@@ -746,7 +773,7 @@ fn cracked_leather(ts: &TextureSet) -> Layer {
     r.bind_fx(&worn, 0, Prop::Level, "wear");
     r.bind(&worn, Prop::Opacity { channel: None }, "saturate(wear * 20) * 0.9");
     r.follow_pattern(&worn);
-    r.finish(folder(&format!("{PREFIX}Cracked Leather"), ts, vec![base, folds, tone, rim, cracks, scuffs, creases, worn]))
+    r.finish(folder(&format!("{PREFIX}Cracked Leather"), ts, vec![base, folds, tone, rim, cracks, fine, scuffs, creases, worn]))
 }
 
 fn wood_planks(ts: &TextureSet) -> Layer {
@@ -789,8 +816,8 @@ fn wood_planks(ts: &TextureSet) -> Layer {
     r.bind(&grain, Prop::Opacity { channel: None }, "grain * 0.75");
     r.follow_pattern(&grain);
 
-    let knots = pattern_coat(&mut r, ts, "Knots", ProceduralKind::Pores, 5.0, 455, 0.1, 0.0, "knots", 0.95, 0.6, 0.8);
-    r.value(&knots, BaseColor, "dark * 0.45");
+    let knots = pattern_coat(&mut r, ts, "Knots", ProceduralKind::Knots, 3.0, 455, 0.6, 0.0, "knots", 0.9, 0.3, 0.9);
+    r.value(&knots, BaseColor, "dark * 0.4");
     r.value(&knots, Roughness, "clamp(roughness - 0.1, 0, 1)");
 
     let grey = pattern_coat(&mut r, ts, "Weathered Grey", ProceduralKind::Clouds, 3.0, 456, 0.2, 0.0, "weathering", 0.85, 0.2, 0.75);
