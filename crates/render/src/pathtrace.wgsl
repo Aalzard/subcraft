@@ -72,6 +72,17 @@ fn rand() -> f32 {
 
 // ----- BVH traversal ---------------------------------------------------------------------------
 
+// No component is infinite or NaN, tested on the bits: WGSL lets the compiler assume floats are
+// never NaN, so `v != v` may be folded away.
+fn finite3(v: vec3<f32>) -> bool {
+    let e = bitcast<vec3<u32>>(v) & vec3<u32>(0x7f800000u);
+    return all(e != vec3<u32>(0x7f800000u));
+}
+
+const STACK: u32 = 64u;
+// Hard stop on node visits per ray: a valid ray visits a few hundred at most.
+const MAX_VISITS: u32 = 65536u;
+
 fn safe_inv(d: vec3<f32>) -> vec3<f32> {
     let s = select(vec3<f32>(1.0), vec3<f32>(-1.0), d < vec3<f32>(0.0));
     return 1.0 / select(d, s * 1e-20, abs(d) < vec3<f32>(1e-20));
@@ -99,11 +110,16 @@ struct Hit {
 fn trace(o: vec3<f32>, d: vec3<f32>, t_max: f32, any_hit: bool) -> Hit {
     var hit = Hit(t_max, 0u, 0.0, 0.0);
     if (arrayLength(&nodes) < 2u) { return hit; }
+    // A non-finite ray passes every box test on some drivers (NaN comparisons): the stack then
+    // overflowed and the loop never ended (lavapipe on CI hung in the subsurface test).
+    if (!finite3(o) || !finite3(d)) { return hit; }
     let inv = safe_inv(d);
-    var stack: array<u32, 64>;
+    var stack: array<u32, STACK>;
     var sp = 1u;
     stack[0] = 0u;
-    while (sp > 0u) {
+    var visits = 0u;
+    while (sp > 0u && visits < MAX_VISITS) {
+        visits = visits + 1u;
         sp = sp - 1u;
         let ni = stack[sp];
         let a = nodes[ni * 2u];
@@ -139,6 +155,10 @@ fn trace(o: vec3<f32>, d: vec3<f32>, t_max: f32, any_hit: bool) -> Hit {
             let rb = nodes[l * 2u + 3u];
             let dl = slab(bitcast<vec3<f32>>(la.xyz), bitcast<vec3<f32>>(lb.xyz), o, inv, hit.t);
             let dr = slab(bitcast<vec3<f32>>(ra.xyz), bitcast<vec3<f32>>(rb.xyz), o, inv, hit.t);
+            if (sp + 2u > STACK) {
+                // Deeper than the stack (never for a sane tree): skip rather than overflow.
+                continue;
+            }
             if (dl >= 0.0 && dr >= 0.0) {
                 if (dl <= dr) {
                     stack[sp] = l + 1u;
@@ -703,6 +723,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let key = normalize(p.light_dir.xyz);
     let key_light = p.light_color.rgb * p.light_dir.w;
     for (var depth = 0u; depth <= p.size.w; depth = depth + 1u) {
+        // A path whose weight or ray went non-finite (a degenerate sample) ends here.
+        if (!finite3(throughput) || !finite3(o) || !finite3(d)) { break; }
         let hit = trace(o, d, FAR, false);
         let tf = floor_hit(o, d, hit.t);
         if (tf > 0.0) {
@@ -858,7 +880,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         }
     }
     radiance = max(radiance, vec3<f32>(0.0));
-    if (any(radiance != radiance)) { radiance = vec3<f32>(0.0); }
+    // One non-finite sample would poison the pixel's whole accumulation (a bit test: `v != v`
+    // may be folded away).
+    if (!finite3(radiance)) { radiance = vec3<f32>(0.0); }
     let l = luminance(radiance);
     let prev = select(accum[pixel], vec4<f32>(0.0), p.size.z == 0u);
     accum[pixel] = prev + vec4<f32>(radiance, l * l);

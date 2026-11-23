@@ -35,6 +35,8 @@ jobs:
         run: cargo test --workspace --exclude subcraft-render
       # One GPU test at a time: lavapipe can crash (SIGSEGV) when several tests create devices at once.
       - name: Test rendering (one GPU test at a time)
+        # A hung GPU test otherwise holds the runner for the 6 h job limit.
+        timeout-minutes: 30
         run: cargo test -p subcraft-render -- --test-threads=1
       # The real application, started the way a user starts it, on a machine with no GPU: the
       # start-up probe, the window, the viewport and the screenshot path all have to work on
