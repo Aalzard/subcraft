@@ -27,4 +27,4 @@ Every published file on every platform, including the experimental workflow and 
 `SHA256SUMS.txt`, gets a Sigstore build provenance attestation (`gh attestation verify`). macOS
 has no free signing path (Apple Developer Program) and stays ad-hoc signed and not notarized.
 
-Owner steps: [docs/signing-setup.md](../signing-setup.md). Policy: [CODE_SIGNING.md](../../CODE_SIGNING.md).
+Owner steps: [docs/signing-setup.md](../signing-setup.md). Policy: [CODE_SIGNING.md](../CODE_SIGNING.md).

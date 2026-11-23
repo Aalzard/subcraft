@@ -326,7 +326,7 @@ jobs:
           ## Unsigned Windows build
 
           The Windows installer and zip in this release are **not code-signed** yet (free code signing
-          through SignPath Foundation is being set up, see CODE_SIGNING.md). Windows SmartScreen may say
+          through SignPath Foundation is being set up, see docs/CODE_SIGNING.md). Windows SmartScreen may say
           "Windows protected your PC": click **More info**, then **Run anyway**. You can first check the
           download against `SHA256SUMS.txt` or its build provenance (below).
           NOTICE

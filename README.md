@@ -110,7 +110,7 @@ On an RTX 4060 at 4096 x 4096, a layer toggle on a 33-layer stack takes about 0.
    **`SubCraft-<version>-setup.exe`** under **Assets**.
 2. Run it. Windows SmartScreen may say "Windows protected your PC" because the installer isn't
    code-signed yet (free signing through SignPath Foundation is being set up, see the
-   [code signing policy](CODE_SIGNING.md)): click **More info → Run anyway**. Each release's notes say
+   [code signing policy](docs/CODE_SIGNING.md)): click **More info → Run anyway**. Each release's notes say
    whether its Windows files are signed.
 3. Follow the steps (you can choose "Install for me only" if you don't have admin rights), then
    start SubCraft from the Start Menu. Uninstall it any time from **Settings → Apps**.
@@ -141,7 +141,7 @@ Every release file is built by GitHub Actions and has a build provenance attesta
 [GitHub CLI](https://cli.github.com/): `gh attestation verify <file> --repo Aalzard/subcraft`.
 Checksums are in `SHA256SUMS.txt` on the release page.
 
-**[Code signing policy](CODE_SIGNING.md):** Free code signing provided by SignPath.io, certificate by
+**[Code signing policy](docs/CODE_SIGNING.md):** Free code signing provided by SignPath.io, certificate by
 SignPath Foundation (pending approval; until then Windows releases are unsigned and say so in their
 notes).
 
@@ -201,8 +201,8 @@ Only the rendering and UI crates know about the GPU or egui. Design decisions ar
 ## Contributing
 
 Contributions are very welcome: bug reports, feature ideas, docs and code. Please read
-[`CONTRIBUTING.md`](CONTRIBUTING.md) first; it explains how to build, test and structure changes.
-Everyone taking part is expected to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
+[`CONTRIBUTING.md`](.github/CONTRIBUTING.md) first; it explains how to build, test and structure changes.
+Everyone taking part is expected to follow the [Code of Conduct](.github/CODE_OF_CONDUCT.md).
 
 ## Support SubCraft
 

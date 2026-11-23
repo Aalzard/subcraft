@@ -23,12 +23,12 @@ SignPath Foundation's [terms](https://signpath.org/terms) (checked 2026-11-11) r
 | Actively maintained and **already released** in the form to be signed | Releases on GitHub (v0.3.4 and earlier). OK. |
 | Functionality described on the download page | README and release notes. OK. |
 | No malware, PUPs, or tools that find/exploit vulnerabilities | A texturing app. OK. |
-| Respects privacy: anything sent to other systems is in a privacy policy and can be turned off | The update check is described in [CODE_SIGNING.md](../CODE_SIGNING.md#privacy-policy) and can be turned off in Preferences. The terms also ask for such behaviour to be **shown during installation**, which the installer does not do yet. Reviewers may ask for an installer note (an Inno Setup info page); add one if they do. |
+| Respects privacy: anything sent to other systems is in a privacy policy and can be turned off | The update check is described in [CODE_SIGNING.md](CODE_SIGNING.md#privacy-policy) and can be turned off in Preferences. The terms also ask for such behaviour to be **shown during installation**, which the installer does not do yet. Reviewers may ask for an installer note (an Inno Setup info page); add one if they do. |
 | Uninstaller for anything installed | The installer registers an uninstaller. OK. |
 | Binaries built from source in a verifiable way, on GitHub-hosted runners | `release.yml` builds on GitHub-hosted runners only. OK. |
 | Every signing request approved by hand | Approval policy, see step 3. |
 | **MFA** for every team member on GitHub and SignPath | Turn on GitHub 2FA if not already on: GitHub → Settings → Password and authentication. |
-| Code signing policy on the website and repository, with the line "Free code signing provided by SignPath.io, certificate by SignPath Foundation", team roles and a privacy policy | [CODE_SIGNING.md](../CODE_SIGNING.md), linked from the README download section. OK. |
+| Code signing policy on the website and repository, with the line "Free code signing provided by SignPath.io, certificate by SignPath Foundation", team roles and a privacy policy | [CODE_SIGNING.md](CODE_SIGNING.md), linked from the README download section. OK. |
 
 ## 2. Apply
 
@@ -36,7 +36,7 @@ SignPath Foundation's [terms](https://signpath.org/terms) (checked 2026-11-11) r
    - **Project / repository URL:** `https://github.com/Aalzard/subcraft`
    - **License:** MIT OR Apache-2.0 (`LICENSE-MIT`, `LICENSE-APACHE`)
    - **Download / release URL:** `https://github.com/Aalzard/subcraft/releases`
-   - **Code signing policy URL:** `https://github.com/Aalzard/subcraft/blob/main/CODE_SIGNING.md`
+   - **Code signing policy URL:** `https://github.com/Aalzard/subcraft/blob/main/docs/CODE_SIGNING.md`
    - **Description:** what SubCraft is, who uses it, and which artifacts are signed:
      the Windows x64 `SubCraft.exe` and the Inno Setup installer `SubCraft-<version>-setup.exe`,
      built by GitHub Actions.
