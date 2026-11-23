@@ -17,7 +17,11 @@ fn set_fill(s: &mut Session, layer: LayerId, base: [f32; 3], rough: f32, metal: 
 }
 
 fn session(base: [f32; 3], rough: f32, metal: f32) -> (Session, TextureSetId, LayerId) {
-    let mut s = Session::new(primitives::cube(2.0), RES);
+    session_at(RES, base, rough, metal)
+}
+
+fn session_at(res: u32, base: [f32; 3], rough: f32, metal: f32) -> (Session, TextureSetId, LayerId) {
+    let mut s = Session::new(primitives::cube(2.0), res);
     let ts = s.selected_texture_set().id;
     s.execute(Command::AddLayer(NewLayer::Fill)).unwrap();
     let layer = s.selection().layer.unwrap();
@@ -29,9 +33,10 @@ fn session(base: [f32; 3], rough: f32, metal: f32) -> (Session, TextureSetId, La
 fn channel(s: &mut Session, ts: TextureSetId, kind: ChannelKind) -> Vec<[f32; 3]> {
     s.update_composites();
     let img = s.composite(ts).unwrap().channel(kind).unwrap_or_else(|| panic!("{kind:?} is composited")).clone();
-    let mut out = Vec::with_capacity((RES * RES) as usize);
-    for y in 0..RES {
-        for x in 0..RES {
+    let (w, h) = (img.width(), img.height());
+    let mut out = Vec::with_capacity((w * h) as usize);
+    for y in 0..h {
+        for x in 0..w {
             let p = img.get(x, y);
             out.push(if kind.components() >= 3 { [p[0], p[1], p[2]] } else { [p[0]; 3] });
         }
@@ -57,6 +62,10 @@ fn every_filter_rewrites_its_channels_never_normal_and_hiding_it_restores_the_co
     for filter in MaterialFilter::ALL {
         // A dark half-metal: every filter has something to change in each channel it writes.
         let (mut s, ts, layer) = session([0.01, 0.012, 0.02], 0.6, 0.5);
+        // HBAO only reacts to relief: give it some.
+        if matches!(filter, MaterialFilter::Hbao { .. }) {
+            add(&mut s, layer, MaterialFilter::Hammered { scale: 6.0, depth: 1.0, irregularity: 0.6, roughness_variation: 0.0, seed: 1 });
+        }
         let before = snapshot(&mut s, ts);
         let effect = add(&mut s, layer, filter);
         let after = snapshot(&mut s, ts);
@@ -210,6 +219,96 @@ fn detail_edge_wear_wears_the_height_detail_below_it() {
     hidden.visible = false;
     s.execute(Command::SetContentEffect { layer: coat, effect: hidden }).unwrap();
     assert_eq!(worn(&mut s, ts), 0);
+}
+
+#[test]
+fn hbao_occludes_the_relief_below_and_nothing_on_a_flat_material() {
+    let hbao = MaterialFilter::ALL[12];
+    let (mut s, ts, layer) = session([0.5, 0.5, 0.5], 0.3, 0.0);
+    s.execute(Command::AddChannel { texture_set: ts, kind: ChannelKind::AmbientOcclusion }).unwrap();
+    let flat = snapshot(&mut s, ts);
+    let effect = add(&mut s, layer, hbao);
+    assert_eq!(snapshot(&mut s, ts), flat, "flat: nothing to occlude");
+    s.execute(Command::RemoveContentEffect { layer, effect }).unwrap();
+
+    add(&mut s, layer, MaterialFilter::Hammered { scale: 6.0, depth: 1.0, irregularity: 0.6, roughness_variation: 0.0, seed: 1 });
+    let before = channel(&mut s, ts, ChannelKind::BaseColor);
+    let height = channel(&mut s, ts, ChannelKind::Height);
+    add(&mut s, layer, hbao);
+    let after = channel(&mut s, ts, ChannelKind::BaseColor);
+    let ao = channel(&mut s, ts, ChannelKind::AmbientOcclusion);
+    assert!(ao.iter().all(|a| (0.0..=1.0).contains(&a[0])));
+    let dark = ao.iter().filter(|a| a[0] < 0.9).count();
+    let open = ao.iter().filter(|a| a[0] > 0.99).count();
+    assert!(dark > 100 && open > 1000, "{dark} occluded texels, {open} open ones");
+    // The occluded texels are the low ones, and the Base Color is darker exactly there.
+    let mean = |pick: &dyn Fn(usize) -> bool| {
+        let v: Vec<f32> = (0..ao.len()).filter(|&i| pick(i)).map(|i| height[i][0]).collect();
+        v.iter().sum::<f32>() / v.len() as f32
+    };
+    assert!(mean(&|i| ao[i][0] < 0.9) < mean(&|i| ao[i][0] > 0.99), "occlusion sits in the low parts");
+    for i in 0..ao.len() {
+        if ao[i][0] < 0.9 {
+            assert!(after[i][0] < before[i][0], "darker where occluded");
+        } else if ao[i][0] == 1.0 {
+            assert_eq!(after[i], before[i]);
+        }
+    }
+    assert_eq!(channel(&mut s, ts, ChannelKind::Height), height, "HBAO never moves the Height");
+}
+
+#[test]
+fn shut_line_turns_painted_strokes_into_a_groove_and_hides_the_paint() {
+    use subcraft_paint::StrokeMode;
+    // At 512 the widest wall is 6 texels: enough to see the slope.
+    let line = |source_opacity: f32| MaterialFilter::ShutLine { width: 1.0, slope: 0.0, emboss: 0.0, height: 0.6, color: [0.02; 3], line_opacity: 1.0, source_opacity };
+    let (mut s, ts, _base) = session_at(512, [0.5, 0.04, 0.03], 0.4, 0.0);
+    let plain = snapshot(&mut s, ts);
+    s.execute(Command::AddLayer(NewLayer::Paint)).unwrap();
+    let paint = s.selection().layer.unwrap();
+    let effect = add(&mut s, paint, line(0.0));
+    assert_eq!(snapshot(&mut s, ts), plain, "nothing painted: nothing carved");
+
+    // A bright green stroke, rougher than the base.
+    let mut material = s.brush.material.clone();
+    material.set(ChannelKind::BaseColor, ChannelValue::rgb(0.1, 0.9, 0.1));
+    material.set(ChannelKind::Roughness, ChannelValue::scalar(0.9));
+    s.execute(Command::SetBrushMaterial(material)).unwrap();
+    let settings = subcraft_paint::BrushSettings { size: 16.0, hardness: 1.0, flow: 1.0, stroke_opacity: 1.0, ..s.brush.settings };
+    s.execute(Command::SetBrushSettings(settings)).unwrap();
+    s.brush.mode = StrokeMode::Paint;
+    s.begin_uv_stroke(None).unwrap();
+    for i in 0..=60 {
+        s.stroke_to_uv(glam::Vec2::new(0.2 + 0.3 * i as f32 / 60.0, 0.3), false, 1.0).unwrap();
+    }
+    s.end_stroke();
+
+    let carved = snapshot(&mut s, ts);
+    let (color, rough, height) = (&carved[0], &carved[1], &carved[3]);
+    let floor = height.iter().filter(|h| h[0] < -0.04).count();
+    let wall = height.iter().filter(|h| h[0] < -0.002 && h[0] >= -0.04).count();
+    assert!(floor > 400 && wall > 400, "{floor} floor texels, {wall} wall texels");
+    assert!(height.iter().all(|h| h[0] <= 0.0 && h[0] >= -0.6 * 0.08 - 1e-5), "no emboss: never raised, never deeper than the depth");
+    for i in 0..height.len() {
+        // The stroke's own green and roughness never show; the groove floor is the line colour.
+        assert!(color[i][1] <= plain[0][i][1] + 1e-4, "no green at {i}: {:?}", color[i]);
+        assert!((rough[i][0] - plain[1][i][0]).abs() < 1e-4);
+        if height[i][0] < -0.047 {
+            assert!(color[i][0] < 0.05, "line colour on the floor: {:?}", color[i]);
+        }
+        if height[i][0] == 0.0 {
+            assert_eq!(color[i], plain[0][i]);
+        }
+    }
+    // Source material opacity 1: the painted green shows in and around the groove.
+    let mut shown = s.selected_texture_set().find(paint).unwrap().content_effects.iter().find(|e| e.id == effect).unwrap().as_ref().clone();
+    shown.kind = ContentEffectKind::Material(MaterialFilter::ShutLine { width: 1.0, slope: 0.0, emboss: 0.0, height: 0.6, color: [0.02; 3], line_opacity: 0.0, source_opacity: 1.0 });
+    s.execute(Command::SetContentEffect { layer: paint, effect: shown }).unwrap();
+    let green = channel(&mut s, ts, ChannelKind::BaseColor).iter().filter(|c| c[1] > 0.8).count();
+    assert!(green > 400, "{green} green texels");
+    assert!(channel(&mut s, ts, ChannelKind::Roughness).iter().filter(|r| r[0] > 0.85).count() > 400);
+    s.execute(Command::Undo).unwrap();
+    assert_eq!(snapshot(&mut s, ts), carved);
 }
 
 #[test]

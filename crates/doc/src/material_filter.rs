@@ -167,6 +167,61 @@ pub enum MaterialFilter {
         metallic: f32,
         seed: u32,
     },
+    /// Water drops sitting on the surface: glossy raised lenses, big ones with fine droplets
+    /// between them.
+    WaterDrops {
+        /// Share of the possible drops that are there, 0..1.
+        amount: f32,
+        /// Big drops across the model.
+        scale: f32,
+        /// 0 = all drops one size, 1 = very mixed sizes.
+        size_variation: f32,
+        /// How much drops sag downward on walls, 0..1.
+        direction: f32,
+        /// Share of the drops kept on faces looking up, sideways and down, 0..1 each.
+        top: f32,
+        sides: f32,
+        underside: f32,
+        /// Drop relief written to Height, 0..1.
+        height: f32,
+        /// Roughness of the water.
+        roughness: f32,
+        /// How much a drop darkens the Base Color below, 0..1.
+        wet: f32,
+        seed: u32,
+    },
+    /// Occlusion from the Height and Normal relief below: grooves and the foot of raised detail
+    /// get darker, duller and are written to the Ambient Occlusion channel.
+    Hbao {
+        /// Reach of the occlusion, 0..1 (1 = 32 texels at 2048, scaled with the resolution).
+        radius: f32,
+        /// Strength of the occlusion, 0..1.
+        intensity: f32,
+        /// How much of it is written to the Ambient Occlusion channel, 0..1.
+        ambient_occlusion: f32,
+        /// How much it darkens the Base Color, 0..1.
+        base_color: f32,
+        /// How much it raises the Roughness, 0..1.
+        roughness: f32,
+    },
+    /// Panel lines: whatever is painted on the layer becomes a carved groove with sloped walls.
+    /// Paint the lines on a paint layer that carries this filter.
+    ShutLine {
+        /// Width of the groove's walls, 0..1 (1 = 24 texels at 2048, scaled with the resolution).
+        width: f32,
+        /// 0 = walls as wide as `width` allows, 1 = almost vertical walls.
+        slope: f32,
+        /// Raised lip along both sides of the groove, 0..1.
+        emboss: f32,
+        /// Depth of the groove written to Height, 0..1.
+        height: f32,
+        /// Colour inside the groove.
+        color: [f32; 3],
+        /// How much of `color` shows in the groove, 0..1.
+        line_opacity: f32,
+        /// How much of the painted material itself stays visible, 0..1 (0 keeps only the groove).
+        source_opacity: f32,
+    },
 }
 
 /// One setting of a material filter, by name: what a material parameter can drive
@@ -205,6 +260,21 @@ pub enum FilterSetting {
     Level,
     Detail,
     Contrast,
+    SizeVariation,
+    Direction,
+    Top,
+    Sides,
+    Underside,
+    Height,
+    Wet,
+    Radius,
+    AmbientOcclusion,
+    BaseColor,
+    Width,
+    Slope,
+    Emboss,
+    LineOpacity,
+    SourceOpacity,
 }
 
 impl FilterSetting {
@@ -241,6 +311,21 @@ impl FilterSetting {
             Self::Level => "Level",
             Self::Detail => "Painted detail",
             Self::Contrast => "Contrast",
+            Self::SizeVariation => "Size variation",
+            Self::Direction => "Direction",
+            Self::Top => "Top",
+            Self::Sides => "Sides",
+            Self::Underside => "Underside",
+            Self::Height => "Height",
+            Self::Wet => "Wet darkening",
+            Self::Radius => "Radius",
+            Self::AmbientOcclusion => "Ambient Occlusion",
+            Self::BaseColor => "Base Color",
+            Self::Width => "Width",
+            Self::Slope => "Slope",
+            Self::Emboss => "Emboss",
+            Self::LineOpacity => "Line opacity",
+            Self::SourceOpacity => "Source material opacity",
         }
     }
 }
@@ -304,6 +389,27 @@ impl MaterialFilter {
             (Self::DetailEdgeWear { level, .. }, S::Level) => Slot::Unit(level),
             (Self::DetailEdgeWear { detail, .. }, S::Detail) => Slot::Unit(detail),
             (Self::DetailEdgeWear { contrast, .. }, S::Contrast) => Slot::Unit(contrast),
+            (Self::WaterDrops { amount, .. }, S::Amount) => Slot::Unit(amount),
+            (Self::WaterDrops { scale, .. }, S::Scale) => Slot::Scale(scale),
+            (Self::WaterDrops { seed, .. }, S::Seed) => Slot::Seed(seed),
+            (Self::WaterDrops { roughness, .. } | Self::Hbao { roughness, .. }, S::Roughness) => Slot::Unit(roughness),
+            (Self::WaterDrops { size_variation, .. }, S::SizeVariation) => Slot::Unit(size_variation),
+            (Self::WaterDrops { direction, .. }, S::Direction) => Slot::Unit(direction),
+            (Self::WaterDrops { top, .. }, S::Top) => Slot::Unit(top),
+            (Self::WaterDrops { sides, .. }, S::Sides) => Slot::Unit(sides),
+            (Self::WaterDrops { underside, .. }, S::Underside) => Slot::Unit(underside),
+            (Self::WaterDrops { height, .. } | Self::ShutLine { height, .. }, S::Height) => Slot::Unit(height),
+            (Self::WaterDrops { wet, .. }, S::Wet) => Slot::Unit(wet),
+            (Self::Hbao { radius, .. }, S::Radius) => Slot::Unit(radius),
+            (Self::Hbao { intensity, .. }, S::Intensity) => Slot::Unit(intensity),
+            (Self::Hbao { ambient_occlusion, .. }, S::AmbientOcclusion) => Slot::Unit(ambient_occlusion),
+            (Self::Hbao { base_color, .. }, S::BaseColor) => Slot::Unit(base_color),
+            (Self::ShutLine { width, .. }, S::Width) => Slot::Unit(width),
+            (Self::ShutLine { slope, .. }, S::Slope) => Slot::Unit(slope),
+            (Self::ShutLine { emboss, .. }, S::Emboss) => Slot::Unit(emboss),
+            (Self::ShutLine { color, .. }, S::Color) => Slot::Color(color),
+            (Self::ShutLine { line_opacity, .. }, S::LineOpacity) => Slot::Unit(line_opacity),
+            (Self::ShutLine { source_opacity, .. }, S::SourceOpacity) => Slot::Unit(source_opacity),
             _ => return None,
         })
     }
@@ -339,13 +445,13 @@ impl MaterialFilter {
     /// Every setting this filter has, in a fixed order.
     pub fn settings(self) -> Vec<(FilterSetting, FilterValue)> {
         use FilterSetting as S;
-        [S::Amount, S::Scale, S::Spread, S::Depth, S::Relief, S::Spangle, S::Tint, S::Irregularity, S::Color, S::ColorAmount, S::Roughness, S::RoughnessVariation, S::Metallic, S::OrangePeel, S::Grain, S::Edges, S::Cavities, S::Drips, S::EdgeBias, S::Thickness, S::Curl, S::Rust, S::Intensity, S::Level, S::Detail, S::Contrast, S::Brushing, S::Warp, S::Grunge, S::GrungeScale, S::Seed]
+        [S::Amount, S::Scale, S::Spread, S::Depth, S::Relief, S::Spangle, S::Tint, S::Irregularity, S::Color, S::ColorAmount, S::Roughness, S::RoughnessVariation, S::Metallic, S::OrangePeel, S::Grain, S::Edges, S::Cavities, S::Drips, S::EdgeBias, S::Thickness, S::Curl, S::Rust, S::Intensity, S::Level, S::Detail, S::Contrast, S::Brushing, S::Warp, S::Grunge, S::GrungeScale, S::SizeVariation, S::Direction, S::Top, S::Sides, S::Underside, S::Height, S::Wet, S::Radius, S::AmbientOcclusion, S::BaseColor, S::Width, S::Slope, S::Emboss, S::LineOpacity, S::SourceOpacity, S::Seed]
             .into_iter()
             .filter_map(|s| self.setting(s).map(|v| (s, v)))
             .collect()
     }
 
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 14] = [
         Self::Galvanized { scale: 40.0, spangle: 0.6, tint: 0.7, roughness: 0.32, roughness_variation: 0.5, relief: 0.25, seed: 1 },
         Self::Hammered { scale: 26.0, depth: 0.5, irregularity: 0.6, roughness_variation: 0.4, seed: 1 },
         Self::PowderCoated { color: [0.05, 0.05, 0.055], color_amount: 0.0, roughness: 0.48, orange_peel: 0.4, grain: 0.3, scale: 140.0, seed: 1 },
@@ -357,6 +463,9 @@ impl MaterialFilter {
         Self::Rough { scale: 60.0, grunge_scale: 9.0, brushing: 0.6, warp: 0.3, grunge: 0.5, seed: 1 },
         Self::Raw { scale: 5.0, intensity: 0.6, seed: 1 },
         Self::DetailEdgeWear { level: 0.5, detail: 0.7, contrast: 0.6, grunge: 0.5, grunge_scale: 24.0, color: [0.56, 0.57, 0.58], roughness: 0.3, metallic: 1.0, seed: 1 },
+        Self::WaterDrops { amount: 0.5, scale: 32.0, size_variation: 0.6, direction: 0.4, top: 1.0, sides: 0.8, underside: 0.15, height: 0.6, roughness: 0.04, wet: 0.3, seed: 1 },
+        Self::Hbao { radius: 0.35, intensity: 0.8, ambient_occlusion: 1.0, base_color: 0.5, roughness: 0.25 },
+        Self::ShutLine { width: 0.25, slope: 0.4, emboss: 0.3, height: 0.6, color: [0.02, 0.02, 0.02], line_opacity: 0.8, source_opacity: 0.0 },
     ];
 
     pub fn label(self) -> &'static str {
@@ -372,6 +481,9 @@ impl MaterialFilter {
             Self::Rough { .. } => "MatFinish Rough",
             Self::Raw { .. } => "MatFinish Raw",
             Self::DetailEdgeWear { .. } => "MatFx Detail Edge Wear",
+            Self::WaterDrops { .. } => "MatFx Water Drops",
+            Self::Hbao { .. } => "MatFx HBAO",
+            Self::ShutLine { .. } => "MatFx Shut Line",
         }
     }
 
@@ -389,6 +501,9 @@ impl MaterialFilter {
             Self::Rough { .. } => "Coarse brush lines and dull grunge patches on the material below.",
             Self::Raw { .. } => "Mottled mill scale and pits, as on unfinished stock. Best on a metal fill.",
             Self::DetailEdgeWear { .. } => "A thin worn line on the mesh edges and on the Height and Normal detail below, exposing the material set here.",
+            Self::WaterDrops { .. } => "Glossy water drops on the material below, fewer on walls and undersides.",
+            Self::Hbao { .. } => "Occlusion from the Height and Normal detail below. Add an Ambient Occlusion channel to store it. Does nothing on a flat material.",
+            Self::ShutLine { .. } => "Turns what is painted on this layer into carved panel lines. Use it on a paint layer and paint the lines.",
         }
     }
 
@@ -401,7 +516,8 @@ impl MaterialFilter {
     /// the viewport and the export turn into normals.
     pub fn writes(self, kind: ChannelKind) -> bool {
         match self {
-            Self::Hammered { .. } | Self::Grinded { .. } | Self::Rough { .. } | Self::Raw { .. } => matches!(kind, ChannelKind::BaseColor | ChannelKind::Roughness | ChannelKind::Height),
+            Self::Hammered { .. } | Self::Grinded { .. } | Self::Rough { .. } | Self::Raw { .. } | Self::WaterDrops { .. } => matches!(kind, ChannelKind::BaseColor | ChannelKind::Roughness | ChannelKind::Height),
+            Self::Hbao { .. } => matches!(kind, ChannelKind::BaseColor | ChannelKind::Roughness | ChannelKind::AmbientOcclusion),
             Self::PbrValidate { flat, .. } => kind == ChannelKind::BaseColor || (flat && matches!(kind, ChannelKind::Roughness | ChannelKind::Metallic)),
             _ => matches!(kind, ChannelKind::BaseColor | ChannelKind::Roughness | ChannelKind::Metallic | ChannelKind::Height),
         }
@@ -419,8 +535,28 @@ impl MaterialFilter {
             Self::DetailEdgeWear { detail, .. } if detail > 0.0 && self.valid() => {
                 Some(crate::MicroDetails { enabled: true, amount: detail, ao_radius: 0.0, ao_depth: 0.0, ..crate::MicroDetails::default() })
             }
+            Self::Hbao { radius, intensity, .. } if intensity > 0.0 && self.valid() => {
+                Some(crate::MicroDetails { enabled: true, amount: 1.0, ao_radius: radius, ao_depth: intensity, ..crate::MicroDetails::default() })
+            }
             _ => None,
         }
+    }
+
+    /// Texels at 2048 over which a filter reads the blurred coverage of the layer's own Base
+    /// Color content (Shut Line: the painted strokes), `None` when it reads none.
+    pub fn coverage_blur(self) -> Option<f32> {
+        match self {
+            Self::ShutLine { width, .. } if self.valid() => Some(1.0 + width * (Self::MAX_SHUT_LINE_TEXELS - 1.0)),
+            _ => None,
+        }
+    }
+    /// Widest Shut Line wall in texels at 2048.
+    pub const MAX_SHUT_LINE_TEXELS: f32 = 24.0;
+    /// Texels beyond its own that a filter may read at any resolution up to 4096 (0 for most).
+    pub fn support(self) -> u32 {
+        let details = self.micro_details().map_or(0, |d| d.support());
+        let blur = self.coverage_blur().map_or(0, |r| (r * 2.0).ceil() as u32 + 1);
+        details.max(blur)
     }
 
     /// Filters placed by the mesh's edges (and so by the baked curvature).
@@ -444,8 +580,9 @@ impl MaterialFilter {
             | Self::Grinded { seed, .. }
             | Self::Rough { seed, .. }
             | Self::Raw { seed, .. }
-            | Self::DetailEdgeWear { seed, .. } => Some(seed),
-            Self::PbrValidate { .. } => None,
+            | Self::DetailEdgeWear { seed, .. }
+            | Self::WaterDrops { seed, .. } => Some(seed),
+            Self::PbrValidate { .. } | Self::Hbao { .. } | Self::ShutLine { .. } => None,
         }
     }
 
@@ -477,6 +614,13 @@ impl MaterialFilter {
             Self::DetailEdgeWear { level, detail, contrast, grunge, grunge_scale, color: c, roughness, metallic, seed: _ } => {
                 unit(level) && unit(detail) && unit(contrast) && unit(grunge) && scale(grunge_scale) && color(c) && unit(roughness) && unit(metallic)
             }
+            Self::WaterDrops { amount, scale: s, size_variation, direction, top, sides, underside, height, roughness, wet, seed: _ } => {
+                unit(amount) && scale(s) && unit(size_variation) && unit(direction) && unit(top) && unit(sides) && unit(underside) && unit(height) && unit(roughness) && unit(wet)
+            }
+            Self::ShutLine { width, slope, emboss, height, color: c, line_opacity, source_opacity } => {
+                unit(width) && unit(slope) && unit(emboss) && unit(height) && color(c) && unit(line_opacity) && unit(source_opacity)
+            }
+            Self::Hbao { radius, intensity, ambient_occlusion, base_color, roughness } => unit(radius) && unit(intensity) && unit(ambient_occlusion) && unit(base_color) && unit(roughness),
         }
     }
 }
@@ -539,6 +683,11 @@ mod tests {
         assert!(MaterialFilter::ALL[10].micro_details().is_some_and(|d| d.active() && d.amount == 0.7));
         assert!(MaterialFilter::DetailEdgeWear { level: 0.5, detail: 0.0, contrast: 0.6, grunge: 0.5, grunge_scale: 24.0, color: [0.5; 3], roughness: 0.3, metallic: 1.0, seed: 1 }.micro_details().is_none());
         assert!(MaterialFilter::ALL[3].micro_details().is_none());
+        assert_eq!(MaterialFilter::ALL[13].coverage_blur(), Some(6.75));
+        assert_eq!((MaterialFilter::ALL[13].support(), MaterialFilter::ALL[3].support(), MaterialFilter::ALL[10].support()), (15, 0, 3));
+        assert!(MaterialFilter::ALL[12].micro_details().is_some_and(|d| d.active() && d.ao_radius == 0.35 && d.ao_depth == 0.8));
+        assert!(MaterialFilter::ALL[12].writes(ChannelKind::AmbientOcclusion) && !MaterialFilter::ALL[12].writes(ChannelKind::Height));
+        assert!(!MaterialFilter::Hbao { radius: 1.5, intensity: 0.8, ambient_occlusion: 1.0, base_color: 0.5, roughness: 0.25 }.valid());
         assert!(!MaterialFilter::DetailEdgeWear { level: 0.5, detail: 0.7, contrast: -0.1, grunge: 0.5, grunge_scale: 24.0, color: [0.5; 3], roughness: 0.3, metallic: 1.0, seed: 1 }.valid());
         assert!(!MaterialFilter::PowderCoated { color: [2.0, 0.0, 0.0], color_amount: 1.0, roughness: 0.5, orange_peel: 0.4, grain: 0.3, scale: 60.0, seed: 1 }.valid());
     }

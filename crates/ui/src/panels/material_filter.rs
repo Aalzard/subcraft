@@ -186,6 +186,48 @@ pub fn editor(ui: &mut Ui, filter: &mut MaterialFilter) -> bool {
             changed |= unit(ui, "Metallic", metallic, d_metallic);
             changed |= seed(ui, sd, d_sd);
         }
+        (
+            MaterialFilter::WaterDrops { amount, scale: s, size_variation, direction, top, sides, underside, height, roughness, wet, seed: sd },
+            MaterialFilter::WaterDrops { amount: d_amount, scale: d_s, size_variation: d_size, direction: d_dir, top: d_top, sides: d_sides, underside: d_under, height: d_height, roughness: d_roughness, wet: d_wet, seed: d_sd },
+        ) => {
+            changed |= unit(ui, "Drops amount", amount, d_amount);
+            changed |= scale(ui, "Drop count", ACROSS, s, d_s);
+            changed |= unit(ui, "Size variation", size_variation, d_size);
+            changed |= unit(ui, "Direction intensity", direction, d_dir);
+            ui.label(egui::RichText::new("Where the drops sit").strong());
+            changed |= unit(ui, "Top", top, d_top);
+            changed |= unit(ui, "Sides", sides, d_sides);
+            changed |= unit(ui, "Underside", underside, d_under);
+            ui.label(egui::RichText::new("Water").strong());
+            changed |= unit(ui, "Drops height", height, d_height);
+            changed |= unit(ui, "Drops roughness", roughness, d_roughness);
+            changed |= unit(ui, "Wet darkening", wet, d_wet);
+            changed |= seed(ui, sd, d_sd);
+        }
+        (
+            MaterialFilter::Hbao { radius, intensity, ambient_occlusion, base_color, roughness },
+            MaterialFilter::Hbao { radius: d_radius, intensity: d_int, ambient_occlusion: d_ao, base_color: d_base, roughness: d_roughness },
+        ) => {
+            changed |= unit(ui, "Radius", radius, d_radius);
+            changed |= unit(ui, "Intensity", intensity, d_int);
+            ui.label(egui::RichText::new("Blending").strong());
+            changed |= unit(ui, "Ambient Occlusion intensity", ambient_occlusion, d_ao);
+            changed |= unit(ui, "Base Color intensity", base_color, d_base);
+            changed |= unit(ui, "Roughness intensity", roughness, d_roughness);
+        }
+        (
+            MaterialFilter::ShutLine { width, slope, emboss, height, color: c, line_opacity, source_opacity },
+            MaterialFilter::ShutLine { width: d_width, slope: d_slope, emboss: d_emboss, height: d_height, color: d_c, line_opacity: d_line, source_opacity: d_source },
+        ) => {
+            changed |= unit(ui, "Cavity width", width, d_width);
+            changed |= unit(ui, "Slope intensity", slope, d_slope);
+            changed |= unit(ui, "Emboss strength", emboss, d_emboss);
+            changed |= unit(ui, "Height intensity", height, d_height);
+            ui.label(egui::RichText::new("Material").strong());
+            changed |= color(ui, "Line color", c, d_c);
+            changed |= unit(ui, "Line opacity", line_opacity, d_line);
+            changed |= slider_row_reset(ui, "Source material opacity", source_opacity, d_source, |v| egui::Slider::new(v, 0.0..=1.0)).on_hover_text("How much of the painted material itself stays visible. 0 keeps only the groove.").changed();
+        }
         _ => {}
     }
     changed
@@ -201,6 +243,7 @@ mod tests {
         assert_eq!(search("rust").len(), 1);
         assert_eq!(search("matfinish").len(), 6);
         assert_eq!(search("edge").len(), 2);
+        assert_eq!(search("water").len(), 1);
         assert_eq!(search("MATFX peel").len(), 1);
         assert!(search("nothing like this").is_empty());
     }

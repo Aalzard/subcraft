@@ -106,6 +106,17 @@ fn main() -> Result<(), String> {
             metal: 0.0,
             under: Some(MaterialFilter::Hammered { scale: 14.0, depth: 1.0, irregularity: 0.6, roughness_variation: 0.0, seed: 1 }),
         },
+        Case { name: "water_drops", filter: all[11], base: [0.30, 0.05, 0.04], rough: 0.4, metal: 0.0, under: None },
+        Case {
+            name: "hbao",
+            filter: all[12],
+            base: [0.55, 0.50, 0.42],
+            rough: 0.5,
+            metal: 0.0,
+            under: Some(MaterialFilter::Hammered { scale: 14.0, depth: 1.0, irregularity: 0.6, roughness_variation: 0.0, seed: 1 }),
+        },
+        // Last: it adds a paint layer with strokes (a grid in UV space) that stays.
+        Case { name: "shut_line", filter: all[13], base: [0.50, 0.04, 0.03], rough: 0.3, metal: 0.0, under: None },
     ]
     .into_iter()
     .filter(|c| only.as_deref().is_none_or(|o| c.name.contains(o)))
@@ -221,8 +232,28 @@ fn main() -> Result<(), String> {
         }
         s.update_composites();
         let before = render(&s);
+        let painted = matches!(case.filter, MaterialFilter::ShutLine { .. });
         for &(ts, layer) in &layers {
             s.execute(Command::SelectTextureSet(ts)).map_err(err)?;
+            if painted {
+                s.execute(Command::AddLayer(NewLayer::Paint)).map_err(err)?;
+                let paint = s.selection().layer.unwrap();
+                s.execute(Command::AddContentEffect { layer: paint, kind: ContentEffectKind::Material(case.filter) }).map_err(err)?;
+                let settings = subcraft_paint::BrushSettings { size: size as f32 / 2048.0, hardness: 1.0, flow: 1.0, stroke_opacity: 1.0, ..s.brush.settings };
+                s.execute(Command::SetBrushSettings(settings)).map_err(err)?;
+                s.brush.mode = subcraft_paint::StrokeMode::Paint;
+                for k in 1..8 {
+                    for vertical in [false, true] {
+                        s.begin_uv_stroke(None).map_err(err)?;
+                        for i in 0..=400 {
+                            let (a, b) = (i as f32 / 400.0, k as f32 / 8.0);
+                            s.stroke_to_uv(if vertical { Vec2::new(b, a) } else { Vec2::new(a, b) }, false, 1.0).map_err(err)?;
+                        }
+                        s.end_stroke();
+                    }
+                }
+                continue;
+            }
             s.execute(Command::AddContentEffect { layer, kind: ContentEffectKind::Material(case.filter) }).map_err(err)?;
             effects.push(s.selected_texture_set().find(layer).unwrap().content_effects.last().unwrap().id);
         }
