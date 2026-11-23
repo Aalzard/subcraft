@@ -45,7 +45,7 @@ as generally known. It is a planning list, not a promise. "Known" means we alrea
 - Texture-set settings parity: per-channel bit depth (16/32-bit), custom channel formats, channel packing UI beyond presets.
 - Export presets: Substance-compatible preset import, custom preset editor, bit depth/dilation per map, sbsar publish.
 - Resource shelf: online library, shelf "Share"/sync, tags beyond category, saved-search.
-- Plugins/scripting API (Painter has JS + Python); SubCraft has none.
+- Plugins/scripting API: SubCraft has Rhai scripts over the MCP tool catalog (Plugins menu, `subcraft-mcp --script`); Painter has JS + Python.
 - Collaboration: version history beyond undo, project merge, auto-save versioning.
 - Multi-mesh scenes: several meshes in one project with per-mesh sets; mesh editing such as UV edits.
 - Mesh formats: USD, Alembic, FBX animation, point clouds (OBJ/glTF/FBX static meshes only).
