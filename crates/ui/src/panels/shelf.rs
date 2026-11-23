@@ -518,6 +518,11 @@ pub(crate) fn generator_thumb_id(name: &str) -> AssetId {
     AssetId::from_name(&format!("generator-thumbnail:{name}"))
 }
 
+/// Thumbnail id of a Shelf material filter (built in, so the id comes from the name).
+pub(crate) fn material_filter_thumb_id(name: &str) -> AssetId {
+    AssetId::from_name(&format!("material-filter-thumbnail:{name}"))
+}
+
 pub struct ShelfUi {
     pub tab: ShelfTab,
     /// Types added with Ctrl+click, besides `tab`.
@@ -1739,7 +1744,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         shown += 1;
                         let fits = state.session.shelf_material_filter_command(f).is_some();
                         let tip = if fits { format!("{} Click: add to the selected layer, or swap the selected material filter to this one. Drag into the layer stack: a filter layer (Passthrough) over everything below", f.hint()) } else { format!("{} Select a layer (not its mask) first, or drag into the layer stack: a filter layer over everything below", f.hint()) };
-                        let resp = tile(ui, tile_size, None, f.label(), selected == Some(f.label()), &tip);
+                        let resp = tile(ui, tile_size, thumbs.get(&material_filter_thumb_id(f.label())), f.label(), selected == Some(f.label()), &tip);
                         resp.dnd_set_drag_payload(ShelfDrag::MaterialFilter(j));
                         if resp.clicked() && fits {
                             action = Some(Box::new(move |s: &mut UiState| {
@@ -2454,7 +2459,12 @@ pub(crate) fn generate_one_thumbnail(state: &mut UiState, ctx: &egui::Context) {
     }
     let job = thumbnail_tabs(&state.shelf).into_iter().find_map(|tab| match tab {
         // Texture thumbnails come from their own background loader.
-        ShelfTab::Textures | ShelfTab::NormalMaps | ShelfTab::Filters => None,
+        ShelfTab::Textures | ShelfTab::NormalMaps => None,
+        // A material filter on a plain steel fill, on the cube (its edges show the edge filters).
+        // The plain filters keep their text tiles.
+        ShelfTab::Filters => subcraft_doc::MaterialFilter::ALL.into_iter().find(|f| missing(&material_filter_thumb_id(f.label()))).map(|f| {
+            Job::Layer(material_filter_thumb_id(f.label()), SceneKind::GeneratorCube, Box::new(move |ts| material_filter_preview_layer(ts, f)), Vec::new())
+        }),
         // A generator alone in a black mask, on the cube.
         ShelfTab::Generators => crate::panels::layers::shelf_generators().into_iter().find(|(name, _)| missing(&generator_thumb_id(name))).map(|(name, kind)| {
             Job::Layer(generator_thumb_id(&name), SceneKind::GeneratorCube, Box::new(move |ts| generator_preview_layer(ts, kind)), Vec::new())
@@ -2588,6 +2598,19 @@ fn mask_preview_layer(ts: &subcraft_doc::TextureSet, effects: &[subcraft_doc::Ma
     let mut mask = Mask::new(ts.resolution, false);
     mask.effects = effects.iter().cloned().map(|k| Arc::new(MaskEffect::new(k))).collect();
     l.mask = Some(mask);
+    l
+}
+
+/// A material filter on a plain steel fill (for material filter thumbnails).
+fn material_filter_preview_layer(ts: &subcraft_doc::TextureSet, filter: subcraft_doc::MaterialFilter) -> Layer {
+    let mut l = Layer::new_fill("Material filter preview", ts);
+    if let LayerContent::Fill(f) = &mut l.content {
+        let set = |k| FillChannel::new(FillSource::uniform(k));
+        f.channels.insert(ChannelKind::BaseColor, set(ChannelValue::rgb(0.56, 0.57, 0.58)));
+        f.channels.insert(ChannelKind::Metallic, set(ChannelValue::scalar(1.0)));
+        f.channels.insert(ChannelKind::Roughness, set(ChannelValue::scalar(0.35)));
+    }
+    l.content_effects.push(Arc::new(subcraft_doc::ContentEffect::new(subcraft_doc::ContentEffectKind::Material(filter), ts)));
     l
 }
 
