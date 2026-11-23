@@ -89,6 +89,14 @@ pub struct PathTraceSettings {
     pub paused: bool,
     /// GPU time per frame spent on samples.
     pub frame_budget_ms: f32,
+    /// Depth of field: lens size, 0 (pinhole, everything sharp) to 1 (lens radius 12% of the
+    /// model's diagonal). The viewport passes the camera's Aperture (with Depth of field on).
+    pub depth_of_field: f32,
+    /// Distance from the camera, in scene units, that is sharp; 0 = the model's centre.
+    pub focus: f32,
+    /// Sample the HDRI by brightness (importance sampling with MIS): far less noise from small
+    /// bright lights such as the sun. Off only for comparisons.
+    pub environment_sampling: bool,
 }
 
 impl Default for PathTraceSettings {
@@ -105,6 +113,9 @@ impl Default for PathTraceSettings {
             clear_color: None,
             paused: false,
             frame_budget_ms: 20.0,
+            depth_of_field: 0.0,
+            focus: 0.0,
+            environment_sampling: true,
         }
     }
 }
@@ -160,8 +171,8 @@ pub fn check_support(device: &wgpu::Device) -> Result<(), String> {
     if crate::caps::safe_mode() { return Err("Path tracing is off in safe mode (SubCraft did not start cleanly last time). Restart normally to use it.".into()); }
     let l = device.limits();
     let mut missing = Vec::new();
-    if l.max_storage_buffers_per_shader_stage < 7 {
-        missing.push(format!("7 storage buffers per shader (this GPU: {})", l.max_storage_buffers_per_shader_stage));
+    if l.max_storage_buffers_per_shader_stage < 8 {
+        missing.push(format!("8 storage buffers per shader (this GPU: {})", l.max_storage_buffers_per_shader_stage));
     }
     if l.max_storage_textures_per_shader_stage < 3 {
         missing.push(format!("3 storage textures per shader (this GPU: {})", l.max_storage_textures_per_shader_stage));
@@ -210,6 +221,65 @@ struct TraceParams {
     ground_look: [f32; 4],
     ground_misc: [f32; 4],
     clear: [f32; 4],
+    /// Background behind the model: environment opacity, blur, last HDRI mip level, 1 = sample
+    /// the HDRI by importance.
+    view_env: [f32; 4],
+    /// Thin lens: radius, focus distance (world), 0, 0.
+    lens: [f32; 4],
+    cam_right: [f32; 4],
+    cam_up: [f32; 4],
+}
+
+/// Importance-sampling tables of an equirectangular HDRI (luminance x sin(latitude)), as one
+/// float array: `[w, h, total, 0]`, the marginal CDF over rows (h + 1), the conditional CDF of
+/// each row (h x (w + 1)), then the function itself (h x w). An all-black image samples
+/// uniformly.
+pub fn environment_cdf(width: u32, height: u32, rgba: &[f32]) -> Vec<f32> {
+    let (w, h) = (width.max(1) as usize, height.max(1) as usize);
+    let lum: Vec<f32> = (0..w * h)
+        .map(|t| {
+            let i = t * 4;
+            let l = if i + 2 < rgba.len() { 0.2126 * rgba[i] + 0.7152 * rgba[i + 1] + 0.0722 * rgba[i + 2] } else { 0.0 };
+            if l.is_finite() { l.max(0.0) } else { 0.0 }
+        })
+        .collect();
+    // Each texel takes at least a quarter of its brightest neighbour (wrapping around in x): the
+    // shader looks the map up with bilinear filtering, so a sun bleeds into the texels around it,
+    // and without this those rare hits would be fireflies (a quarter: the mean of that bleed).
+    let mut func = vec![0.0f32; w * h];
+    for y in 0..h {
+        let sin = ((y as f32 + 0.5) / h as f32 * std::f32::consts::PI).sin();
+        for x in 0..w {
+            let mut m = 0.0f32;
+            for yy in y.saturating_sub(1)..(y + 2).min(h) {
+                for dx in [w - 1, 0, 1] {
+                    m = m.max(lum[yy * w + (x + dx) % w]);
+                }
+            }
+            let m = lum[y * w + x].max(0.25 * m);
+            func[y * w + x] = (m + 1e-6) * sin.max(1e-4);
+        }
+    }
+    let mut out = Vec::with_capacity(4 + h + 1 + h * (w + 1) + w * h);
+    let rows: Vec<f64> = (0..h).map(|y| func[y * w..(y + 1) * w].iter().map(|&v| v as f64).sum()).collect();
+    let total: f64 = rows.iter().sum();
+    out.extend([w as f32, h as f32, total as f32, 0.0]);
+    let mut acc = 0.0f64;
+    out.push(0.0);
+    for r in &rows {
+        acc += r;
+        out.push((acc / total) as f32);
+    }
+    for y in 0..h {
+        let mut acc = 0.0f64;
+        out.push(0.0);
+        for x in 0..w {
+            acc += func[y * w + x] as f64;
+            out.push((acc / rows[y]) as f32);
+        }
+    }
+    out.extend_from_slice(&func);
+    out
 }
 
 #[repr(C)]
@@ -235,6 +305,8 @@ struct Signature {
     ground_settings: GroundSettings,
     firefly_filter: bool,
     clear_color: Option<[f32; 3]>,
+    lens: [f32; 3],
+    environment_sampling: bool,
     geometry: u64,
     revision: u64,
 }
@@ -249,6 +321,8 @@ struct Geometry {
     layers: u32,
     floor: [f32; 4],
     eps: f32,
+    center: glam::Vec3,
+    diag: f32,
 }
 
 struct Packed {
@@ -546,6 +620,7 @@ impl PathTracer {
                 storage_entry(5, false, c),
                 storage_entry(6, false, c),
                 uniform_entry(7, true, c),
+                storage_entry(8, true, c),
             ],
         });
         let d2a = wgpu::TextureViewDimension::D2Array;
@@ -753,6 +828,8 @@ impl PathTracer {
             layers: layers.min(max_layers),
             floor: [center.x, b.min.y - diag * 1e-4, center.z, diag * 1.5],
             eps: diag * 2e-5,
+            center,
+            diag,
         });
         Ok(())
     }
@@ -896,6 +973,7 @@ impl PathTracer {
         defaults: &std::collections::HashMap<ChannelKind, ChannelTexture>,
         environment: (&wgpu::TextureView, &wgpu::Sampler, bool),
         ext_empty: &wgpu::TextureView,
+        env_cdf: &wgpu::Buffer,
     ) -> Result<PathTraceStatus, String> {
         let size = target.size;
         if self.geometry.as_ref().is_none_or(|g| g.key != scene.key) {
@@ -926,6 +1004,8 @@ impl PathTracer {
             ground_settings: settings.ground_settings,
             firefly_filter: settings.firefly_filter,
             clear_color: settings.clear_color,
+            lens: [settings.depth_of_field, settings.focus, 0.0],
+            environment_sampling: settings.environment_sampling,
             geometry: geometry.key,
             revision: self.revision,
         };
@@ -958,6 +1038,11 @@ impl PathTracer {
         let base = geometry.floor;
         let floor = [base[0] + g.offset[0], base[1] + g.offset[1], base[2] + g.offset[2], base[3]];
         let start = self.samples;
+        // Thin lens around the camera (perspective views only).
+        let orthographic = params.proj.w_axis.w == 1.0;
+        let lens_radius = if orthographic { 0.0 } else { settings.depth_of_field.clamp(0.0, 1.0) * 0.12 * geometry.diag };
+        let focus_distance = if settings.focus.is_finite() && settings.focus > 0.0 { settings.focus } else { (params.eye - geometry.center).length() }.max(1e-4);
+        let camera = params.view.inverse();
         for k in 0..passes {
             self.seed = self.seed.wrapping_add(1);
             let p = TraceParams {
@@ -977,6 +1062,10 @@ impl PathTracer {
                 ground_look: v4(g.reflectivity.map(|c| c.clamp(0.0, 1.0)), g.glossiness.clamp(0.0, 1.0)),
                 ground_misc: [g.shadow_intensity.clamp(0.0, 1.0), g.visible_from_below as u32 as f32, settings.clear_color.is_some() as u32 as f32, base[3] / 1.5 * SSS_RADIUS],
                 clear: v4(settings.clear_color.unwrap_or([0.0; 3]), 0.0),
+                view_env: [e.background_opacity.clamp(0.0, 1.0), e.background_blur.clamp(0.0, 1.0), 0.0, (settings.environment_sampling && hdri) as u32 as f32],
+                lens: [lens_radius, focus_distance, 0.0, 0.0],
+                cam_right: camera.x_axis.truncate().normalize_or(glam::Vec3::X).extend(0.0).to_array(),
+                cam_up: camera.y_axis.truncate().normalize_or(glam::Vec3::Y).extend(0.0).to_array(),
             };
             queue.write_buffer(&self.params, k as u64 * self.param_stride, bytemuck::bytes_of(&p));
         }
@@ -999,6 +1088,7 @@ impl PathTracer {
                         size: wgpu::BufferSize::new(std::mem::size_of::<TraceParams>() as u64),
                     }),
                 },
+                wgpu::BindGroupEntry { binding: 8, resource: env_cdf.as_entire_binding() },
             ],
         });
         let packed = self.packed.as_ref().expect("packed above");

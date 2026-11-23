@@ -29,6 +29,10 @@ struct Params {
     ground_look: vec4<f32>,     // rgb reflectivity, w = glossiness
     ground_misc: vec4<f32>,     // key-light shadow intensity, 1 = visible from below, 1 = clear color, subsurface mean free path (world)
     clear: vec4<f32>,           // rgb clear color seen by camera rays that miss
+    view_env: vec4<f32>,        // environment opacity behind the model, its blur, 0, 1 = HDRI importance sampling
+    lens: vec4<f32>,            // thin lens radius (0 = pinhole), focus distance
+    cam_right: vec4<f32>,
+    cam_up: vec4<f32>,
 };
 
 @group(0) @binding(0) var<storage, read> nodes: array<vec4<u32>>;     // 2 per node
@@ -39,6 +43,8 @@ struct Params {
 @group(0) @binding(5) var<storage, read_write> guide_albedo: array<vec4<f32>>; // rgb albedo, w = depth
 @group(0) @binding(6) var<storage, read_write> guide_normal: array<vec4<f32>>;
 @group(0) @binding(7) var<uniform> p: Params;
+// HDRI importance-sampling tables (pathtrace.rs `environment_cdf`).
+@group(0) @binding(8) var<storage, read> env_cdf: array<f32>;
 @group(1) @binding(0) var samp: sampler;
 @group(1) @binding(1) var t_base_rough: texture_2d_array<f32>;
 @group(1) @binding(2) var t_normal_metal: texture_2d_array<f32>;
@@ -192,9 +198,20 @@ fn floor_hit(o: vec3<f32>, d: vec3<f32>, t_max: f32) -> f32 {
     return t;
 }
 
-// What camera rays see where they miss the model: the clear color, or the view's background.
-fn backdrop() -> vec3<f32> {
-    return select(p.background.rgb, p.clear.rgb, p.ground_misc.z != 0.0);
+// What camera rays see where they miss the model: the clear color, or the view's background
+// with the environment over it by its opacity and blur (as the raster viewport draws it).
+fn backdrop(d: vec3<f32>) -> vec3<f32> {
+    if (p.ground_misc.z != 0.0) { return p.clear.rgb; }
+    let opacity = p.view_env.x;
+    if (opacity <= 0.0) { return p.background.rgb; }
+    var env: vec3<f32>;
+    if (p.lights.w > 0.5) {
+        let lod = p.view_env.y * f32(textureNumLevels(env_tex) - 1u);
+        env = textureSampleLevel(env_tex, env_samp, equirect(rotate_env(d)), lod).rgb * p.env.y;
+    } else {
+        env = sky(d) * p.light_color.w;
+    }
+    return mix(p.background.rgb, env, opacity);
 }
 
 fn occluded(o: vec3<f32>, d: vec3<f32>) -> bool {
@@ -676,6 +693,64 @@ fn random_walk(o_in: vec3<f32>, d_in: vec3<f32>, mfp: vec3<f32>, albedo: vec3<f3
     return r;
 }
 
+// ----- HDRI importance sampling --------------------------------------------------------------------
+
+fn env_dims() -> vec2<u32> {
+    return vec2<u32>(u32(env_cdf[0]), u32(env_cdf[1]));
+}
+
+// Index of the last CDF entry <= u in `count` + 1 entries starting at `base` (0..count-1).
+fn cdf_find(base: u32, count: u32, u: f32) -> u32 {
+    var lo = 0u;
+    var hi = count;
+    while (hi - lo > 1u) {
+        let mid = (lo + hi) / 2u;
+        if (env_cdf[base + mid] <= u) { lo = mid; } else { hi = mid; }
+    }
+    return lo;
+}
+
+// World direction from equirect coordinates (inverse of `equirect` and `rotate_env`).
+fn env_dir(uv: vec2<f32>) -> vec3<f32> {
+    let phi = (uv.x - 0.5) * TAU;
+    let theta = uv.y * PI;
+    let e = vec3<f32>(sin(theta) * cos(phi), cos(theta), sin(theta) * sin(phi));
+    let c = cos(p.env.x);
+    let s = sin(p.env.x);
+    return vec3<f32>(c * e.x + s * e.z, e.y, -s * e.x + c * e.z);
+}
+
+// Solid-angle pdf of sampling world direction `d`.
+fn env_pdf(d: vec3<f32>) -> f32 {
+    let dims = env_dims();
+    let uv = equirect(rotate_env(d));
+    let x = min(u32(uv.x * f32(dims.x)), dims.x - 1u);
+    let y = min(u32(uv.y * f32(dims.y)), dims.y - 1u);
+    let func_base = 4u + dims.y + 1u + dims.y * (dims.x + 1u);
+    let f = env_cdf[func_base + y * dims.x + x];
+    let sin_t = max(sin((f32(y) + 0.5) / f32(dims.y) * PI), 1e-4);
+    return f * f32(dims.x * dims.y) / (env_cdf[2] * 2.0 * PI * PI * sin_t);
+}
+
+// A direction towards the HDRI chosen by brightness; w = its solid-angle pdf.
+fn sample_env() -> vec4<f32> {
+    let dims = env_dims();
+    let u1 = rand();
+    let u2 = rand();
+    let y = cdf_find(4u, dims.y, u1);
+    let m0 = env_cdf[4u + y];
+    let m1 = env_cdf[4u + y + 1u];
+    let dv = clamp((u1 - m0) / max(m1 - m0, 1e-12), 0.0, 1.0);
+    let row = 4u + dims.y + 1u + y * (dims.x + 1u);
+    let x = cdf_find(row, dims.x, u2);
+    let c0 = env_cdf[row + x];
+    let c1 = env_cdf[row + x + 1u];
+    let du = clamp((u2 - c0) / max(c1 - c0, 1e-12), 0.0, 1.0);
+    let uv = vec2<f32>((f32(x) + du) / f32(dims.x), (f32(y) + dv) / f32(dims.y));
+    let d = env_dir(uv);
+    return vec4<f32>(d, env_pdf(d));
+}
+
 // ----- main ---------------------------------------------------------------------------------------------
 
 fn camera_ray(px: vec2<f32>) -> array<vec3<f32>, 2> {
@@ -685,6 +760,20 @@ fn camera_ray(px: vec2<f32>) -> array<vec3<f32>, 2> {
     let a = near.xyz / near.w;
     let b = far.xyz / far.w;
     return array<vec3<f32>, 2>(a, normalize(b - a));
+}
+
+// Camera ray through a thin lens: the point at the focus distance stays put, the origin moves
+// across a disc of the lens radius (depth of field).
+fn lens_ray(px: vec2<f32>) -> array<vec3<f32>, 2> {
+    let r = camera_ray(px);
+    if (p.lens.x <= 0.0) { return r; }
+    let forward = normalize(cross(p.cam_up.xyz, p.cam_right.xyz));
+    let along = max(dot(r[1], forward), 1e-4);
+    let focal = p.eye.xyz + r[1] * (p.lens.y / along);
+    let rr = sqrt(rand()) * p.lens.x;
+    let phi = TAU * rand();
+    let o = p.eye.xyz + (p.cam_right.xyz * cos(phi) + p.cam_up.xyz * sin(phi)) * rr;
+    return array<vec3<f32>, 2>(o, normalize(focal - o));
 }
 
 @compute @workgroup_size(8, 8)
@@ -712,7 +801,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         }
     }
 
-    let ray = camera_ray(vec2<f32>(gid.xy) + vec2<f32>(rand(), rand()));
+    let ray = lens_ray(vec2<f32>(gid.xy) + vec2<f32>(rand(), rand()));
     var o = ray[0];
     var d = ray[1];
     var throughput = vec3<f32>(1.0);
@@ -720,6 +809,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     var glossy = false;
     var last_rough = 0.0;
     var skips = 0u;
+    // Mixture pdf of the last surface's sampled direction (0 = no HDRI sample to weigh against).
+    var last_pdf = 0.0;
     let key = normalize(p.light_dir.xyz);
     let key_light = p.light_color.rgb * p.light_dir.w;
     for (var depth = 0u; depth <= p.size.w; depth = depth + 1u) {
@@ -736,7 +827,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
             if (depth == 0u) {
                 let r = length((pos - p.floor.xyz).xz) / p.floor.w;
                 fade = 1.0 - smoothstep(0.55, 1.0, r);
-                radiance += backdrop() * (1.0 - fade);
+                radiance += backdrop(d) * (1.0 - fade);
             }
             // A glossy reflection tinted by the reflectivity color; the diffuse part keeps the rest.
             let reflectivity = clamp(p.ground_look.rgb, vec3<f32>(0.0), vec3<f32>(1.0)) * fade;
@@ -750,6 +841,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
             }
             if (depth == p.size.w) { break; }
             o = origin;
+            last_pdf = 0.0;
             if (spec > 0.0 && rand() < spec) {
                 // Phong lobe around the mirror direction: glossiness 1 is a mirror.
                 let gloss = clamp(p.ground_look.w, 0.0, 1.0);
@@ -774,9 +866,14 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
             }
         } else if (hit.t >= FAR) {
             if (depth == 0u) {
-                radiance += backdrop();
+                radiance += backdrop(d);
             } else {
                 var e = environment(d, glossy, last_rough) * throughput;
+                // MIS with the HDRI sample taken at the last surface (power heuristic).
+                if (last_pdf > 0.0 && p.view_env.w > 0.5) {
+                    let pe = env_pdf(d);
+                    e *= last_pdf * last_pdf / (last_pdf * last_pdf + pe * pe);
+                }
                 // Clamp rare bright indirect samples (HDRI suns seen through rough bounces).
                 let le = luminance(e);
                 if (depth > 1u && le > p.env.w) { e *= p.env.w / le; }
@@ -806,10 +903,26 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
                     radiance += throughput * b.f * key_light * visibility(src, key);
                 }
             }
-            if (depth == p.size.w) { break; }
-            // Pick an event: the reflection / translucency mixture, refraction or subsurface.
             let mix_w = w.coat + w.sheen + w.base + w.transl;
             let total = max(mix_w + w.refract + w.sss, 1e-6);
+            // HDRI light sampled by brightness, weighed against the mixture's own sampling (MIS).
+            if (p.view_env.w > 0.5 && mix_w > 0.0) {
+                let es = sample_env();
+                if (es.w > 0.0) {
+                    let b = eval_bsdf(s, v, es.xyz, w);
+                    if (any(b.f > vec3<f32>(0.0))) {
+                        let src = select(s.pos - s.ng * eps, origin, dot(s.ng, es.xyz) > 0.0);
+                        let pb = b.pdf * mix_w / total;
+                        let mis = es.w * es.w / (es.w * es.w + pb * pb);
+                        var e = throughput * b.f * environment(es.xyz, false, 0.0) * visibility(src, es.xyz) * (mis / es.w);
+                        let le = luminance(e);
+                        if (depth > 0u && le > p.env.w) { e *= p.env.w / le; }
+                        radiance += e;
+                    }
+                }
+            }
+            if (depth == p.size.w) { break; }
+            // Pick an event: the reflection / translucency mixture, refraction or subsurface.
             let u = rand() * total;
             if (u < w.refract) {
                 // Rough dielectric: reflect or refract on a sampled microfacet by exact Fresnel.
@@ -842,6 +955,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
                 let ll = transpose(m) * l;
                 let g1 = 1.0 / (1.0 + smith_lambda_aniso(vec3<f32>(ll.xy, abs(ll.z)), alpha, alpha));
                 throughput *= w.under * t * g1 * total / w.refract;
+                last_pdf = 0.0;
                 d = l;
                 glossy = true;
                 last_rough = s.rough;
@@ -860,6 +974,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
                 o = walk.o;
                 d = walk.d;
                 glossy = false;
+                last_pdf = 0.0;
             } else {
                 let sampled = sample_mixture(s, v, w);
                 let l = sampled.xyz;
@@ -867,6 +982,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
                 if (b.pdf <= 1e-8 || all(b.f <= vec3<f32>(0.0))) { break; }
                 throughput *= b.f / b.pdf * total / max(mix_w, 1e-6);
                 glossy = sampled.w > 0.5;
+                last_pdf = b.pdf * mix_w / total;
                 last_rough = s.rough;
                 o = select(s.pos - s.ng * eps, origin, dot(s.ng, l) > 0.0);
                 d = l;
