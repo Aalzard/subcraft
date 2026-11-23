@@ -332,6 +332,10 @@ pub struct PathStamp {
     /// (alternating sides). 0 = off.
     #[serde(default, skip_serializing_if = "no_alternate")]
     pub alternate: f32,
+    /// Lay the stamps on the model's surface instead of in UV space: they keep their size
+    /// where the UV scale changes and continue over UV seams (stitches).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub surface: bool,
 }
 
 fn no_alternate(v: &f32) -> bool {
@@ -345,7 +349,7 @@ impl PathStamp {
 
 impl Default for PathStamp {
     fn default() -> Self {
-        Self { alpha: None, spacing: 0.25, follow: true, alternate: 0.0 }
+        Self { alpha: None, spacing: 0.25, follow: true, alternate: 0.0, surface: false }
     }
 }
 

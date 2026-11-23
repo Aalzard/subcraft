@@ -196,13 +196,48 @@ pub fn draw_unselected(painter: &egui::Painter, path: &PenPath, display: &PenDis
     }
 }
 
+/// The on-screen line of a path whose stamps lie on the surface (stitches): a segment whose
+/// curve leaves its UV island (a hidden sample, or a jump on screen) is drawn straight between
+/// its two points, as the stamps run over the surface there, not through UV space. `None` for
+/// other paths. A `None` entry breaks the line.
+fn seam_aware_line(path: &PenPath, map: &impl Fn(Vec2) -> Option<Pos2>) -> Option<Vec<Option<Pos2>>> {
+    const STEPS: usize = 32;
+    if !path.stamp.is_some_and(|s| s.surface) || path.kind != subcraft_doc::PathKind::Paint {
+        return None;
+    }
+    let mut line = Vec::new();
+    for seg in 0..path.segment_count() {
+        let Some([p0, p1, p2, p3]) = path.segment(seg) else { continue };
+        let at = |t: f32| {
+            let u = 1.0 - t;
+            p0 * (u * u * u) + p1 * (3.0 * u * u * t) + p2 * (3.0 * u * t * t) + p3 * (t * t * t)
+        };
+        let samples: Vec<Option<Pos2>> = (0..=STEPS).map(|k| map(at(k as f32 / STEPS as f32))).collect();
+        let mut steps: Vec<f32> = samples.windows(2).filter_map(|w| Some(w[0]?.distance(w[1]?))).collect();
+        steps.sort_by(f32::total_cmp);
+        let whole = steps.len() == STEPS && steps[STEPS - 1] <= steps[STEPS / 2] * 6.0 + 8.0;
+        if whole {
+            line.extend(samples);
+        } else if let (Some(a), Some(b)) = (samples[0], samples[STEPS]) {
+            line.extend([Some(a), Some(b)]);
+        } else {
+            line.extend(samples);
+            line.push(None);
+        }
+    }
+    Some(line)
+}
+
 pub fn draw(painter: &egui::Painter, path: &PenPath, selected: &[subcraft_core::AnchorId], display: &PenDisplay, map: impl Fn(Vec2) -> Option<Pos2>) {
     if !display.show {
         return;
     }
     let color = display.color();
     if let Ok(points) = path.polyline(0.002) {
-        let screen: Vec<Option<Pos2>> = points.iter().map(|&p| map(p)).collect();
+        let screen: Vec<Option<Pos2>> = match seam_aware_line(path, &map) {
+            Some(line) => line,
+            None => points.iter().map(|&p| map(p)).collect(),
+        };
         for pair in screen.windows(2) {
             if let (Some(a), Some(b)) = (pair[0], pair[1]) { painter.line_segment([a, b], Stroke::new(display.path_width, color)); }
         }
@@ -613,6 +648,8 @@ pub fn properties(state: &mut UiState, ui: &mut Ui, path: &PenPath, now: f64) {
             stamp.spacing = (spacing / 100.0).clamp(*subcraft_doc::PathStamp::SPACING.start(), *subcraft_doc::PathStamp::SPACING.end());
             let r = ui.checkbox(&mut stamp.follow, "Follow path").on_hover_text("Turn each stamp along the curve");
             changed |= reset_on(ui, r, &mut stamp.follow, ds.follow).changed();
+            let r = ui.checkbox(&mut stamp.surface, "On the surface").on_hover_text("Lay the stamps on the model instead of in UV space: they keep their size where the UV scale changes and continue over UV seams. Between two points on different UV islands the path runs straight over the surface");
+            changed |= reset_on(ui, r, &mut stamp.surface, ds.surface).changed();
             changed |= slider_row_reset(ui, "Alternate offset", &mut stamp.alternate, ds.alternate, |v| egui::Slider::new(v, subcraft_doc::PathStamp::ALTERNATE))
                 .on_hover_text("Every second stamp moves across the path by this fraction of half the width")
                 .changed();
@@ -688,6 +725,27 @@ mod snap_tests {
 #[cfg(test)]
 mod keyboard_tests {
     use super::*;
+
+    /// A stitched path between two UV islands is drawn straight between its points in the
+    /// 3D view, not along the UV curve through the gap between the islands.
+    #[test]
+    fn a_surface_path_over_a_seam_is_drawn_straight_between_its_points() {
+        let anchors = vec![subcraft_doc::PenAnchor::new(Vec2::new(0.1, 0.5)), subcraft_doc::PenAnchor::new(Vec2::new(0.9, 0.5))];
+        let stamp = Some(subcraft_doc::PathStamp { surface: true, ..Default::default() });
+        let mut path = PenPath { anchors, closed: false, radius: 0.01, hardness: 1.0, opacity: 1.0, values: Default::default(), kind: subcraft_doc::PathKind::Paint, stamp, ribbon: None };
+        // Two islands: u < 0.4 on screen at x = 100 u, u > 0.6 far away at x = 1000 + 100 u; nothing between.
+        let islands = |uv: Vec2| if uv.x < 0.4 { Some(Pos2::new(uv.x * 100.0, 0.0)) } else if uv.x > 0.6 { Some(Pos2::new(1000.0 + uv.x * 100.0, 0.0)) } else { None };
+        assert_eq!(seam_aware_line(&path, &islands), Some(vec![Some(Pos2::new(10.0, 0.0)), Some(Pos2::new(1090.0, 0.0))]));
+        // Islands that touch in UV but are apart on the model: the jump is seen on screen.
+        let jump = |uv: Vec2| Some(if uv.x < 0.5 { Pos2::new(uv.x * 100.0, 0.0) } else { Pos2::new(1000.0 + uv.x * 100.0, 0.0) });
+        assert_eq!(seam_aware_line(&path, &jump).map(|l| l.len()), Some(2));
+        // On one island the curve itself is drawn.
+        let one = |uv: Vec2| Some(Pos2::new(uv.x * 100.0, uv.y * 100.0));
+        assert_eq!(seam_aware_line(&path, &one).map(|l| l.len()), Some(33));
+        // Other paths keep their own line.
+        path.stamp = Some(subcraft_doc::PathStamp::default());
+        assert_eq!(seam_aware_line(&path, &islands), None);
+    }
 
     fn drawn_path(state: &UiState) -> PenPath {
         let subcraft_doc::LayerContent::Paint(p) = &state.session.selected_layer().unwrap().content else { panic!("a paint layer") };

@@ -102,7 +102,7 @@ impl Stitch {
     pub fn apply_to_path(&self, path: &mut PenPath, tip: Option<ResourceId>, has_channel: impl Fn(ChannelKind) -> bool) {
         path.kind = PathKind::Paint;
         path.hardness = 1.0;
-        path.stamp = Some(PathStamp { alpha: tip, spacing: self.spacing, follow: true, alternate: self.alternate });
+        path.stamp = Some(PathStamp { alpha: tip, spacing: self.spacing, follow: true, alternate: self.alternate, surface: true });
         for (kind, value) in self.channels() {
             if has_channel(kind) {
                 path.values.insert(kind, value);
@@ -168,7 +168,7 @@ mod tests {
         let staggered = find("Stitch: Staggered").unwrap();
         staggered.apply_to_path(&mut path, Some(tip), |k| k != ChannelKind::Roughness);
         assert_eq!(path.kind, PathKind::Paint);
-        assert_eq!(path.stamp, Some(PathStamp { alpha: Some(tip), spacing: 0.8, follow: true, alternate: 0.6 }));
+        assert_eq!(path.stamp, Some(PathStamp { alpha: Some(tip), spacing: 0.8, follow: true, alternate: 0.6, surface: true }));
         assert_eq!(path.values[&ChannelKind::Height], ChannelValue::scalar(0.5));
         assert_eq!(path.values[&ChannelKind::BaseColor], ChannelValue::rgb(0.82, 0.76, 0.64));
         assert!(!path.values.contains_key(&ChannelKind::Roughness), "a channel the texture set lacks is left out");
