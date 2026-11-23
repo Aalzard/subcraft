@@ -12,9 +12,6 @@ a planning list, not a promise.
   Substance graphs.
 
 ### Painting
-- Liquify / push brush that moves existing paint.
-- Heal (clone with seam-free blending into the target).
-- Shape tools beyond polygon fill and paths (rectangle, ellipse).
 - Stroke stabilizer extras: post-smoothing, speed-adaptive smoothing, smoothing preset buttons.
 
 ### Layers and masks
@@ -22,7 +19,6 @@ a planning list, not a promise.
 - 2D UDIM tile picker.
 
 ### Baking
-- Bake setting presets (save a configuration and reuse it in other projects).
 - GPU path for Bent normal, Height and the high-poly projection (AO, Thickness and Curvature
   already run on the GPU).
 
@@ -30,7 +26,6 @@ a planning list, not a promise.
 - Scene lights (point / spot / area).
 
 ### Workflow
-- Version history beyond undo (saved versions you can browse and restore).
 - Mesh editing such as UV edits.
 - Point clouds, FBX animation.
 
@@ -58,6 +53,9 @@ a planning list, not a promise.
 - Scripting: Rhai scripts over the tool catalog (Plugins menu, `subcraft-mcp --script`).
 - Live link to Unity, Unreal and Godot.
 - Mesh formats: OBJ, glTF, FBX, USD, Alembic.
+- Liquify (Push mode of the Smudge tool), Heal (Clone tool option), rectangle / ellipse Shape fill tool.
+- Bake presets (built-in and saved to the library).
+- Version history: each Save keeps the file it replaces; File > Version history restores one.
 - Turntable as GIF, camera bookmarks, environment rotation and blur.
 - Shelf tags and saved searches; weave, rivet, brick and fingerprint content.
 - ARM and macOS builds through the release workflow.

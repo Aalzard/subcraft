@@ -96,6 +96,10 @@ pub struct Stroke {
     stamp_acc: HashMap<usize, Box<[[f32; 3]]>>,
     /// Tiled stamp mode: UV origin and the UV size of one image repeat, fixed by the first stamp.
     tile_ref: Option<(Vec2, f32)>,
+    /// Heal: coarse averages of each target image's snapshot, made on the first healed write.
+    heal_low: std::sync::OnceLock<Vec<crate::heal::LowPass>>,
+    /// Heal: coarse cells across the texture, from the brush size of the first stamps.
+    heal_cells: Option<u32>,
 }
 
 /// Live preview of expensive strokes: while the brush touches more than `tiles` tiles per stamp,
@@ -238,6 +242,8 @@ impl Stroke {
             stamp: None,
             stamp_acc: HashMap::new(),
             tile_ref: None,
+            heal_low: std::sync::OnceLock::new(),
+            heal_cells: None,
         })
     }
 
@@ -516,6 +522,9 @@ impl Stroke {
             copies = copies.max(mirrored.iter().map(|st| st.camera + 1).max().unwrap_or(1));
             stamps.extend(mirrored);
         }
+        if self.mode == StrokeMode::Clone && self.settings.clone_heal && self.heal_cells.is_none() {
+            self.heal_cells = Some(crate::heal::cells_for(radius_uv));
+        }
         if self.mode == StrokeMode::Clone {
             let clone = self.uv_clone.as_mut().ok_or(PaintError::NoCloneSource)?;
             if clone.offset.is_none() {
@@ -594,6 +603,10 @@ impl Stroke {
             }
         }
         let base_radius = self.base_radius(ctx);
+        if self.mode == StrokeMode::Clone && self.settings.clone_heal && self.heal_cells.is_none() {
+            let upu = *self.uv_per_unit.get_or_insert_with(|| uv_per_unit(ctx.mesh, ctx.geometry.material_slot));
+            self.heal_cells = Some(crate::heal::cells_for(base_radius * upu));
+        }
         let s = &self.settings;
         let [size_jitter, flow_jitter, angle_jitter, position_jitter] = s.jitters(self.pressure);
         let pen = s.pen_effect(self.pen_pose);
@@ -848,7 +861,23 @@ impl Stroke {
                 let remap = self.remap(ctx, t, cov);
                 self.images.iter().map(move |img| {
                     let source = if img.stamp.is_some() { self.stamp_source(ctx, t, cov) } else { match (&remap, self.mode) {
-                        (Remap::Clone(uvs), StrokeMode::Clone) => Some(clone_source_tile(img, uvs)),
+                        (Remap::Clone(uvs), StrokeMode::Clone) => {
+                            let mut values = clone_source_tile(img, uvs);
+                            if self.settings.clone_heal && crate::heal::heals(img) {
+                                let low = self.heal_low.get_or_init(|| {
+                                    let cells = self.heal_cells.unwrap_or(crate::heal::DEFAULT_CELLS);
+                                    self.images.par_iter().map(|i| crate::heal::LowPass::new(i, cells)).collect()
+                                });
+                                let k = self.images.iter().position(|i| i.key == img.key).unwrap_or(0);
+                                let g = ctx.geometry;
+                                let res = g.resolution as f32;
+                                let (x0, y0) = ((t as u32 % g.tiles_x) * TILE_SIZE, (t as u32 / g.tiles_x) * TILE_SIZE);
+                                crate::heal::heal_tile(img, &low[k], &mut values, uvs, |i| {
+                                    [((x0 + i as u32 % TILE_SIZE) as f32 + 0.5) / res, ((y0 + i as u32 / TILE_SIZE) as f32 + 0.5) / res]
+                                });
+                            }
+                            Some(values)
+                        }
                         _ => img.texture.filter(|_| self.mode == StrokeMode::Paint).map(|id| {
                             let mut values = vec![[0.0; 4]; TILE_TEXELS];
                             if let Some(bitmap) = self.resources.bitmap(id) {
