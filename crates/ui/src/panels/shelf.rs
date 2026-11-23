@@ -1155,15 +1155,59 @@ fn list_row(ui: &mut Ui, thumb: Option<&egui::TextureHandle>, name: &str, select
     resp.on_hover_text(tooltip).on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
+/// Whether a shelf item can be the brush stencil: an alpha or an image from Textures.
+pub fn stencil_accepts(item: ShelfDrag) -> bool {
+    matches!(item, ShelfDrag::Alpha(_) | ShelfDrag::Texture(_))
+}
+
+/// Make a shelf alpha or texture the brush stencil (Painter: an alpha dropped in the Stencil
+/// slot), placed like a newly loaded stencil. Returns the image's name.
+pub fn use_as_stencil(s: &mut UiState, item: ShelfDrag) -> Result<String, String> {
+    let (name, bitmap) = match item {
+        ShelfDrag::Alpha(i) => {
+            let a = s.library.alphas.get(i).ok_or("alpha not found")?;
+            (a.name.clone(), a.bitmap.clone().ok_or("the round tip has no image to use as a stencil")?)
+        }
+        ShelfDrag::Texture(i) => {
+            let t = s.textures.items.get(i).ok_or("texture not found")?;
+            (t.name.clone(), std::sync::Arc::new(subcraft_image::load_bitmap(&t.path).map_err(|e| format!("{}: {e}", t.name))?))
+        }
+        _ => return Err("Only alphas and textures can be a stencil".to_string()),
+    };
+    s.session.brush.stencil = Some(std::sync::Arc::new(subcraft_paint::Stencil::new(bitmap)));
+    Ok(name)
+}
+
+/// [`use_as_stencil`] with its result in the status bar.
+pub fn use_as_stencil_with_status(s: &mut UiState, item: ShelfDrag, now: f64) {
+    match use_as_stencil(s, item) {
+        Ok(name) => s.set_status(format!("Stencil: {name}. Hold S and drag in the 3D view to place it"), now),
+        Err(e) => s.set_status(e, now),
+    }
+}
+
+/// The "Use as stencil" entry of a shelf tile's right-click menu.
+fn stencil_entry(ui: &mut Ui, picked: &mut bool) {
+    if ui.button(format!("{}  Use as stencil", crate::icons::IMAGE)).on_hover_text("Paint through this image: white paints, black blocks").clicked() {
+        *picked = true;
+        ui.close();
+    }
+}
+
 /// Right-click menu of an asset stored in the user library. Returns true if it was removed.
 fn library_menu(
     resp: &egui::Response,
     lib: Option<&subcraft_app::assets::UserLibrary>,
     file: &std::path::Path,
     status: &mut Option<String>,
+    mut stencil: Option<&mut bool>,
 ) -> bool {
     let mut removed = false;
     resp.context_menu(|ui| {
+        if let Some(picked) = stencil.as_deref_mut() {
+            stencil_entry(ui, picked);
+            ui.separator();
+        }
         if ui.button(format!("{}  Show in folder", crate::icons::FOLDER_OPEN)).clicked() {
             show_in_folder(file);
             ui.close();
@@ -1555,9 +1599,13 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         };
                         let resp = tile(ui, tile_size, t.thumb.as_ref(), &t.name, selected, &tip);
                         resp.dnd_set_drag_payload(ShelfDrag::Texture(i));
-                        if library_menu(&resp, state.user_library.as_ref(), &t.path, &mut lib_status) {
+                        let mut stencil = false;
+                        if library_menu(&resp, state.user_library.as_ref(), &t.path, &mut lib_status, Some(&mut stencil)) {
                             let path = t.path.clone();
                             action = Some(Box::new(move |s: &mut UiState| s.textures.remove(&path)));
+                        }
+                        if stencil {
+                            action = Some(Box::new(move |s: &mut UiState| use_as_stencil_with_status(s, ShelfDrag::Texture(i), now)));
                         }
                         if resp.clicked() && alt {
                             action = Some(Box::new(move |s: &mut UiState| apply_shelf_item_with(s, ShelfDrag::Texture(i), true, now)));
@@ -1617,7 +1665,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         let resp = tile(ui, tile_size, thumbs.get(&m.id), &m.name, false, &tip);
                         resp.dnd_set_drag_payload(ShelfDrag::SmartMaterial(i));
                         if let Some(file) = &m.user_file
-                            && library_menu(&resp, state.user_library.as_ref(), file, &mut lib_status)
+                            && library_menu(&resp, state.user_library.as_ref(), file, &mut lib_status, None)
                         {
                             action = Some(Box::new(move |s: &mut UiState| {
                                 s.library.smart_materials.remove(i);
@@ -1642,7 +1690,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         let resp = tile(ui, tile_size, thumbs.get(&m.id), &m.name, false, &tip);
                         resp.dnd_set_drag_payload(ShelfDrag::SmartMask(i));
                         if let Some(file) = &m.user_file
-                            && library_menu(&resp, state.user_library.as_ref(), file, &mut lib_status)
+                            && library_menu(&resp, state.user_library.as_ref(), file, &mut lib_status, None)
                         {
                             action = Some(Box::new(move |s: &mut UiState| {
                                 s.library.smart_masks.remove(i);
@@ -1699,12 +1747,18 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         let tip = if a.user_file.is_some() { "Brush tip (your library: right-click for options). Drag onto a layer's mask, or Alt+click, to use it as the mask shape" } else { "Brush tip. Drag onto a layer's mask, or Alt+click, to use it as the mask shape" };
                         let resp = tile(ui, tile_size, thumbs.get(&a.id), &a.name, state.is_selected_shelf_brush(&a.name), tip);
                         if a.bitmap.is_some() { resp.dnd_set_drag_payload(ShelfDrag::Alpha(i)); }
-                        if let Some(file) = &a.user_file
-                            && library_menu(&resp, state.user_library.as_ref(), file, &mut lib_status)
-                        {
-                            action = Some(Box::new(move |s: &mut UiState| {
-                                s.library.alphas.remove(i);
-                            }));
+                        let mut stencil = false;
+                        if let Some(file) = &a.user_file {
+                            if library_menu(&resp, state.user_library.as_ref(), file, &mut lib_status, Some(&mut stencil)) {
+                                action = Some(Box::new(move |s: &mut UiState| {
+                                    s.library.alphas.remove(i);
+                                }));
+                            }
+                        } else if a.bitmap.is_some() {
+                            resp.context_menu(|ui| stencil_entry(ui, &mut stencil));
+                        }
+                        if stencil {
+                            action = Some(Box::new(move |s: &mut UiState| use_as_stencil_with_status(s, ShelfDrag::Alpha(i), now)));
                         }
                         if alt && resp.clicked() {
                             action = Some(Box::new(move |s: &mut UiState| apply_shelf_item_with(s, ShelfDrag::Alpha(i), true, now)));
@@ -1779,7 +1833,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         let tip = if e.user_file.is_some() { "Viewport lighting (your library: right-click for options)" } else { "Viewport lighting" };
                         let resp = tile(ui, tile_size, thumbs.get(&e.id), &e.name, i == state.env.index, tip);
                         if let Some(file) = &e.user_file
-                            && library_menu(&resp, state.user_library.as_ref(), file, &mut lib_status)
+                            && library_menu(&resp, state.user_library.as_ref(), file, &mut lib_status, None)
                         {
                             action = Some(Box::new(move |s: &mut UiState| {
                                 s.library.environments.remove(i);
