@@ -2699,8 +2699,9 @@ mod tests {
         let v = |x: usize, y: usize| ao[y * 64 + x];
         assert!(v(32, 32) < 0.99 && v(48, 32) < 0.99, "{} {}", v(32, 32), v(48, 32));
         let mut worst = 0.0f32;
-        for y in 8..56 {
-            for x in 8..56 {
+        // Well inside the bowl: its rim is a real crease, where the occlusion may step.
+        for y in 18..46 {
+            for x in 18..46 {
                 worst = worst.max((v(x, y) - v(x + 1, y)).abs()).max((v(x, y) - v(x, y + 1)).abs());
             }
         }
