@@ -109,6 +109,17 @@ impl Recipe {
     }
 }
 
+/// Give a coat a Height it writes (coats come with colour, roughness and metal only), so a
+/// bound height value raises or sinks what the coat covers.
+fn with_height(mut layer: Layer, ts: &TextureSet) -> Layer {
+    if let LayerContent::Fill(f) = &mut layer.content
+        && ts.has_channel(Height)
+    {
+        f.channels.insert(Height, subcraft_doc::FillChannel::new(uni(0.0)));
+    }
+    layer
+}
+
 /// The owner-tuned edge wear generator (Painter-style model with natural spread).
 fn wear() -> MaskEffectKind {
     MaskEffectKind::Generator(Generator::new(GeneratorKind::Edges))
@@ -534,7 +545,7 @@ fn concrete(ts: &TextureSet) -> Layer {
     r.bind(&dust, Prop::Opacity { channel: None }, "saturate(dust * 3) * 0.8");
     r.follow_pattern(&dust);
 
-    let chips = masked(coat(ts, "Chipped Edges", [0.6, 0.59, 0.56], 0.9, 0.0), ts, vec![fx(wear())]);
+    let chips = with_height(masked(coat(ts, "Chipped Edges", [0.6, 0.59, 0.56], 0.9, 0.0), ts, vec![fx(wear())]), ts);
     r.value(&chips, BaseColor, "min(color * 1.6, 1)");
     r.value(&chips, Height, "0 - 0.02");
     r.bind_fx(&chips, 0, Prop::Level, "chips");
@@ -677,7 +688,7 @@ mod tests {
     #[test]
     fn every_procedural_material_is_well_formed() {
         let all = built();
-        assert_eq!(all.len(), 25);
+        assert_eq!(all.len(), 28);
         for (name, layer) in &all {
             assert!(name.starts_with(PREFIX), "{name}");
             let m = layer.material.as_ref().unwrap_or_else(|| panic!("{name} has parameters"));

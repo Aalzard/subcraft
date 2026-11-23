@@ -130,7 +130,7 @@ fn with(mut base: Value, extra: Value) -> Value {
 pub fn definitions() -> Vec<Value> {
     let fill_spec = "Per channel (base_color, roughness, metallic, height (0 = neutral, positive raises, negative carves), normal, emissive, ambient_occlusion (1 = unoccluded), opacity, specular): a value \
 (number, '#rrggbb', or [r,g,b] in sRGB for color channels), false to switch the channel off, or an object \
-{value, enabled, strength, linear, procedural: {kind: clouds|cells|grunge|scratches|wood_rings|brushed|checker|gradient_u|gradient_v|dirt|cracks|streaks|speckles|pores|scratch|weave, scale, seed, balance, contrast, invert, ...}, low, high, image: '<file path>', mesh_map: curvature|ambient_occlusion|...}. A procedural/mesh map blends from `low` (0) to `high` (1).";
+{value, enabled, strength, linear, procedural: {kind: clouds|cells|grunge|scratches|wood_rings|brushed|checker|gradient_u|gradient_v|dirt|cracks|streaks|speckles|pores|scratch|weave|twill|veins|planks, scale, seed, balance, contrast, invert, ...}, low, high, image: '<file path>', mesh_map: curvature|ambient_occlusion|...}. A procedural/mesh map blends from `low` (0) to `high` (1).";
     vec![
         // ----- project
         tool("status", "Server status", "Server version, whether a project is open, the rendering adapter and the shelf library location. Call first if unsure.", json!({}), &[], true),
