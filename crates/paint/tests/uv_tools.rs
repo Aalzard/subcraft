@@ -99,6 +99,28 @@ fn smudge_in_uv_drags_the_paint_along_instead_of_painting_the_brush_colour() {
 }
 
 #[test]
+fn push_smudge_in_uv_moves_the_dab_and_keeps_its_colour() {
+    let mut sc = Scene::new();
+    let center = sc.face_uv(Vec3::Z);
+    let r = small_radius_uv(&sc);
+    sc.stroke(StrokeMode::Paint, &color([1.0, 0.0, 0.0]), small(), StrokeOptions::default(), &[center], |s| s).unwrap();
+    let before = sc.image();
+    let push = BrushSettings { size: 8.0, hardness: 0.5, smudge_push: true, ..small() };
+    let end = center + Vec2::new(3.0 * r, 0.0);
+    let path: Vec<Vec2> = (0..=24).map(|i| (center - Vec2::new(r, 0.0)).lerp(end, i as f32 / 24.0)).collect();
+    sc.stroke(StrokeMode::Smudge, &color([0.0, 1.0, 0.0]), push, StrokeOptions::default(), &path, |s| s).unwrap();
+    let img = sc.image();
+    let edge = |img: &TiledImage| (0..RES).rev().map(|x| x as f32 / RES as f32).find(|&u| texel(img, Vec2::new(u, center.y))[3] > 0.5).unwrap();
+    assert!(edge(&img) > edge(&before) + 0.5 * r, "the dab moved right: {} -> {}", edge(&before), edge(&img));
+    for x in 0..RES {
+        let px = texel(&img, Vec2::new((x as f32 + 0.5) / RES as f32, center.y));
+        if px[3] > 0.5 {
+            assert!(px[0] > 0.99 && px[1] < 0.01, "no brush green, no darkening: {px:?}");
+        }
+    }
+}
+
+#[test]
 fn clone_in_uv_copies_from_the_source_texture_position() {
     let mut sc = Scene::new();
     let source = sc.face_uv(Vec3::Z);

@@ -225,6 +225,8 @@ pub struct BrushSettings {
     pub smudge_falloff: f32,
     /// Smudge: how much of the brush material mixes into the carried paint (0 = pure smudge).
     pub smudge_material: f32,
+    /// Smudge: push the paint itself along the stroke (liquify) instead of smearing a carried colour.
+    pub smudge_push: bool,
     pub alignment: Alignment,
     pub backface_culling: bool,
     /// Surfaces turned further than this from the projection direction are not painted.
@@ -279,6 +281,7 @@ impl Default for BrushSettings {
             smudge_carry: 0.85,
             smudge_falloff: 1.0,
             smudge_material: 0.0,
+            smudge_push: false,
             alignment: Alignment::TangentWrap,
             backface_culling: true,
             backface_angle_deg: 90.0,
