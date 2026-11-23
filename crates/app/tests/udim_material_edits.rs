@@ -149,3 +149,17 @@ fn content_effects_and_projection_follow_too() {
     let LayerContent::Fill(f1) = &top(&s, 1).content else { panic!() };
     assert_eq!(f1.projection, projection);
 }
+
+#[test]
+fn a_material_dropped_onto_the_fill_layer_replaces_it_on_every_tile() {
+    let (mut s, layer) = session(true);
+    let preset = subcraft_assets::presets::materials().remove(0);
+    let original = top(&s, 1).content.clone();
+    let before = s.history().entries().len();
+    s.apply_material_to_layer(layer, &preset).unwrap();
+    assert_eq!(s.history().entries().len(), before + 1, "one undo step");
+    assert_eq!(top(&s, 1).content, top(&s, 0).content, "the other tile's fill takes the same material");
+    assert_eq!(top(&s, 1).name, top(&s, 0).name, "names stay paired");
+    s.execute(Command::Undo).unwrap();
+    assert_eq!(top(&s, 1).content, original, "undo reverts both tiles");
+}

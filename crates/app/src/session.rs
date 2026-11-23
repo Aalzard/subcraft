@@ -3705,6 +3705,12 @@ impl Session {
                 crate::udim_mirror::partner_command(&cmd, source, partner, ts.resolution, sel_mask, sel_content)
             })
             .collect();
+        self.execute_with_partner_commands(cmd, partner_cmds)
+    }
+
+    /// `cmd`, then `partner_cmds` (the same edit on other UDIM tiles), as one undo step; partner
+    /// tiles never take the selection. Partner failures are logged, not returned.
+    pub(crate) fn execute_with_partner_commands(&mut self, cmd: Command, partner_cmds: Vec<Command>) -> Result<(), CommandError> {
         if partner_cmds.is_empty() {
             return self.execute_once(cmd);
         }

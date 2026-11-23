@@ -6043,6 +6043,10 @@ matching layer of each partner tile (`app::udim_mirror`). Effects pair by stack 
 (each tile's copy has its own effect ids); an added effect goes to the same position. Painted
 rasters never cross tiles: a Paint effect's settings follow, its texels stay per tile. One undo
 step per edit, slider drags still coalesce into one entry. Off (default) nothing changes.
-Not mirrored: dropping a material onto an existing fill layer (`ReplaceLayer`) and drag-moving
-effects between layers. Tests: `crates/app/tests/udim_material_edits.rs` (5), existing
-`udim_paint_across.rs` (15) still pass.
+A material dropped onto the fill layer itself (Alt, in place) replaces every tile's copy too.
+Not mirrored: drag-moving effects between layers. Tests: `crates/app/tests/udim_material_edits.rs`
+(6), existing `udim_paint_across.rs` (15) still pass; `qa_fuzz` gained a UDIM walk (selects
+tiles, toggles the option, checks every tile's composite and save/open): 30 seeds x 300 steps
+and 41 x 400 plain walks found nothing.
+Real app (Xvfb, lavapipe): a fill with a Directional mask made on Metal.1001 shows on both metal
+crates (tiles 1001 and 1002), the Wood set untouched; 20 eye toggles + 15 undo / 15 redo, no errors.
