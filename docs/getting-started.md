@@ -215,11 +215,15 @@ by name, for example `seam_color.png`, `seam_height.png` and `seam_normal.png`. 
 - The normal map is tangent space with Y up (OpenGL). It is turned along the path. It is used when
   the tile has no height map or the texture set has no Height channel, so the relief is not
   counted twice.
-- A tile path lies in UV space: unlike the brush-tip stitches it does not cross UV islands.
+- A tile path lies on the model like the brush-tip stitches: every copy keeps its size and the
+  strip goes on over UV islands. Any ribbon path can do this with **Lay on the model's surface**
+  in its properties.
 
 ![The three sample stitch tiles along pen paths](images/stitch-tiles.png)
 
-Stitches lie on the model, not in UV space, so a seam can cross UV islands: put one point on each
+![The sample tiles drawn over the edges of a cube, across three UV islands](images/stitch-tiles-edges.png)
+
+Stitches and stitch tiles lie on the model, not in UV space, so a seam can cross UV islands: put one point on each
 side and the stitches run over the surface between them.
 
 ![A stitched path over three faces of a cube, each its own UV island](images/stitches-over-seams.png)

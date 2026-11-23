@@ -36,13 +36,13 @@ pub(crate) fn redraw_path_layers(layers: &mut [std::sync::Arc<Layer>], resolutio
             match &mut Arc::make_mut(layer).content {
                 LayerContent::Paint(p) => {
                     let Some(path) = p.path.clone() else { continue };
-                    let raster = PenRasterizer::new(&path, resolution).and_then(|r| match surface {
+                    // The images first: a surface ribbon's copies are as long as its image.
+                    let raster = PenRasterizer::new(&path, resolution).map(|r| r.with_path_images(|id| resources.bitmap(id).cloned())).and_then(|r| match surface {
                         Some((scene, slot)) => r.with_surface(&scene.mesh, &scene.bvh, slot),
                         None => Ok(r),
                     });
                     match raster {
-                        Ok(raster) => {
-                            let mut raster = raster.with_path_images(|id| resources.bitmap(id).cloned());
+                        Ok(mut raster) => {
                             raster.run();
                             if let Some(images) = raster.finish() { p.channels = images; }
                         }

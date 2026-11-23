@@ -140,7 +140,9 @@ impl PenRasterizer {
     /// places its stamps on the surface of material `slot` (other paths are unchanged). Where
     /// none of the path is on that surface it stays a UV path.
     pub fn with_surface(mut self, mesh: &std::sync::Arc<subcraft_mesh::Mesh>, bvh: &subcraft_mesh::Bvh, slot: u32) -> Result<Self, &'static str> {
-        if let Some(surface) = crate::pen_surface::SurfaceStamps::build(&self.path, mesh, bvh, slot, self.resolution)? {
+        // A surface ribbon's copies are as long as its image (set the images first).
+        let aspect = [&self.alpha, &self.height_map, &self.normal_map].into_iter().flatten().next().map_or(1.0, |b| b.width as f32 / b.height.max(1) as f32);
+        if let Some(surface) = crate::pen_surface::SurfaceStamps::build_tiled(&self.path, mesh, bvh, slot, self.resolution, aspect)? {
             self.tiles = surface.tiles();
             self.tile = 0;
             self.surface = Some(surface);
@@ -203,7 +205,7 @@ impl PenRasterizer {
             return;
         }
         if self.path.kind == PathKind::Ribbon {
-            self.run_ribbon();
+            if self.surface.is_some() { self.run_ribbon_surface(); } else { self.run_ribbon(); }
             return;
         }
         if !self.stamps.is_empty() || self.surface.is_some() {
@@ -363,7 +365,8 @@ impl PenRasterizer {
         let settings = self.path.ribbon.unwrap_or_default();
         let (res, across, opacity) = (self.resolution, self.resolution.div_ceil(TILE_SIZE), self.path.opacity);
         let radius = (self.path.radius * res as f32).max(1e-3);
-        let (points, bins, image) = (&self.points, &self.bins, self.alpha.as_deref());
+        let (alpha, height_map, normal_map) = (self.alpha.clone(), self.height_map.clone(), self.normal_map.clone());
+        let (points, bins, image) = (&self.points, &self.bins, alpha.as_deref());
         let open = !self.path.is_closed();
         let mut arc = Vec::with_capacity(points.len());
         let mut total = 0.0f32;
@@ -380,21 +383,9 @@ impl PenRasterizer {
         let end_dir = points.windows(2).rev().map(|w| w[1] - w[0]).find(|&d| direction(d)).unwrap_or(Vec2::X);
         let (first, final_point) = (points.first().copied().unwrap_or_default(), points.last().copied().unwrap_or_default());
         let aspect = image.map_or(1.0, |b| b.width as f32 / b.height.max(1) as f32);
-        let colored = settings.color_from_image && image.is_some();
-        let (height_map, normal_map) = (self.height_map.as_deref(), self.normal_map.as_deref());
-        // The surface level of the height map: the mean of its two long edges, where the tile
-        // meets the surface. Above it is raised, below it pressed in.
-        let level = height_map.map_or(0.0, |b| {
-            let n = b.width.max(1);
-            (0..n).map(|x| b.texel(x, 0, false)[0] + b.texel(x, b.height.saturating_sub(1), false)[0]).sum::<f32>() / (2 * n) as f32
-        });
-        let mapped = height_map.is_some() || normal_map.is_some();
-        let done: Vec<(usize, Vec<f32>, Vec<[f32; 3]>, Vec<[f32; 5]>)> = self.tiles[self.tile..].par_iter().map(|&tile| {
-            let mut coverage = vec![0.0f32; TILE_TEXELS];
-            let mut color = vec![[0.0f32; 3]; if colored { TILE_TEXELS } else { 0 }];
-            // Per texel: height above the level, its coverage, and the turned normal's x, y
-            // with its coverage.
-            let mut maps = vec![[0.0f32; 5]; if mapped { TILE_TEXELS } else { 0 }];
+        let sampler = RibbonSampler::new(image, height_map.as_deref(), normal_map.as_deref(), settings.color_from_image, opacity);
+        let done: Vec<RibbonTile> = self.tiles[self.tile..].par_iter().map(|&tile| {
+            let mut out = RibbonTile::new(tile, &sampler);
             for pixel in 0..TILE_TEXELS {
                 let x = (tile as u32 % across) * TILE_SIZE + pixel as u32 % TILE_SIZE;
                 let y = (tile as u32 / across) * TILE_SIZE + pixel as u32 / TILE_SIZE;
@@ -416,68 +407,54 @@ impl PenRasterizer {
                 // Square ends: nothing before the first point or after the last one. Skipping only
                 // the first and last segments left a round cap around the second point whenever
                 // the first segment was shorter than the width (every curved end).
-                if open {
-                    let s = arc[i] + (arc[i + 1] - arc[i]) * t;
-                    if (s <= 1e-4 && (p - first).dot(start_dir) < 0.0) || (s >= length - 1e-4 && (p - final_point).dot(end_dir) > 0.0) { continue; }
-                }
+                let s = arc[i] + (arc[i + 1] - arc[i]) * t;
+                if open && ((s <= 1e-4 && (p - first).dot(start_dir) < 0.0) || (s >= length - 1e-4 && (p - final_point).dot(end_dir) > 0.0)) { continue; }
                 let edge = (radius + 0.5 - dist).clamp(0.0, 1.0);
                 if edge <= 0.0 { continue; }
-                let Some(u) = settings.image_u(arc[i] + (arc[i + 1] - arc[i]) * t, total, 2.0 * radius, aspect) else { continue };
+                let Some(u) = settings.image_u(s, total, 2.0 * radius, aspect) else { continue };
                 let mut v = (0.5 + side / (2.0 * radius)).clamp(0.0, 1.0);
-                if settings.flip { v = 1.0 - v; }
-                let a = match image {
-                    None => 1.0,
-                    Some(b) if colored => {
-                        let c = b.sample(u, v, subcraft_image::Wrap::Clamp, true);
-                        color[pixel] = [c[0], c[1], c[2]];
-                        c[3]
-                    }
-                    // The path's value through the image alpha: a ribbon image is RGBA, not a
-                    // grayscale tip (QA 2026-11: red x alpha left its green and blue parts unpainted).
-                    Some(b) => b.sample(u, v, subcraft_image::Wrap::Clamp, false)[3],
-                };
-                let a = a.clamp(0.0, 1.0);
-                // Without an image the height map is the shape: where it leaves the level.
-                let shape = |relief: f32| if image.is_some() { a } else { relief };
-                coverage[pixel] = if image.is_none() && mapped { 0.0 } else { a * edge * opacity };
-                if mapped {
-                    let m = &mut maps[pixel];
-                    if let Some(b) = height_map {
-                        let h = b.sample(u, v, subcraft_image::Wrap::Clamp, false)[0] - level;
-                        let relief = (h.abs() * 16.0).min(1.0);
-                        m[0] = h;
-                        m[1] = shape(relief).max(relief) * edge * opacity;
-                        if image.is_none() { coverage[pixel] = relief * edge * opacity; }
-                    }
-                    if let Some(b) = normal_map {
-                        let n = b.sample(u, v, subcraft_image::Wrap::Clamp, false);
-                        let (mut nx, mut ny) = (n[0] * 2.0 - 1.0, n[1] * 2.0 - 1.0);
-                        // The image's u runs along the path and its up across it: turn the
-                        // slope into the texture's frame (x along texel x, y against texel y).
-                        let d = (points[i + 1] - points[i]).normalize_or(Vec2::X);
-                        // A mirrored copy runs backwards along the path.
-                        let s = arc[i] + (arc[i + 1] - arc[i]) * t;
-                        let ahead = settings.image_u(s + 0.25, total, 2.0 * radius, aspect).unwrap_or(u);
-                        if settings.mirror && ahead < u && u - ahead < 0.5 { nx = -nx; }
-                        if settings.flip { ny = -ny; }
-                        let tilt = (nx * nx + ny * ny).sqrt();
-                        let bump = (tilt * 8.0).min(1.0);
-                        m[2] = nx * d.x + ny * d.y;
-                        m[3] = -nx * d.y + ny * d.x;
-                        m[4] = shape(bump).max(bump) * edge * opacity;
-                        if image.is_none() && height_map.is_none() { coverage[pixel] = bump * edge * opacity; }
-                    }
-                }
+                // The image's u runs along the path and its v across it; a flipped image has
+                // its v the other way, a mirrored copy its u.
+                let d = (points[i + 1] - points[i]).normalize_or(Vec2::X);
+                let (mut along, mut down) = (d, d.perp());
+                if settings.flip { v = 1.0 - v; down = -down; }
+                let ahead = settings.image_u(s + 0.25, total, 2.0 * radius, aspect).unwrap_or(u);
+                if settings.mirror && ahead < u && u - ahead < 0.5 { along = -along; }
+                out.set(pixel, &sampler, u, v, along, down, edge);
             }
-            (tile, coverage, color, maps)
+            out
         }).collect();
-        for (tile, coverage, color, maps) in done {
+        self.write_ribbon_tiles(done, &sampler);
+        self.tile = self.tiles.len(); self.pixel = 0; self.segment = 0; self.distance = f32::INFINITY; self.coverage.fill(0.0);
+    }
+
+    /// A ribbon on the model's surface: one copy of the image per surface stamp.
+    fn run_ribbon_surface(&mut self) {
+        use rayon::prelude::*;
+        let Some(surface) = self.surface.as_ref() else { return };
+        let settings = self.path.ribbon.unwrap_or_default();
+        let (alpha, height_map, normal_map) = (self.alpha.clone(), self.height_map.clone(), self.normal_map.clone());
+        let sampler = RibbonSampler::new(alpha.as_deref(), height_map.as_deref(), normal_map.as_deref(), settings.color_from_image, self.path.opacity);
+        let done: Vec<RibbonTile> = self.tiles[self.tile..].par_iter().map(|&tile| {
+            let mut out = RibbonTile::new(tile, &sampler);
+            for t in surface.ribbon_texels(tile) {
+                let (v, down) = if settings.flip { (1.0 - t.v, -t.down) } else { (t.v, t.down) };
+                out.set(t.pixel, &sampler, t.u, v.clamp(0.0, 1.0), t.along, down, 1.0);
+            }
+            out
+        }).collect();
+        self.write_ribbon_tiles(done, &sampler);
+        self.tile = self.tiles.len(); self.pixel = 0; self.segment = 0; self.distance = f32::INFINITY; self.coverage.fill(0.0);
+    }
+
+    fn write_ribbon_tiles(&mut self, done: Vec<RibbonTile>, sampler: &RibbonSampler) {
+        for RibbonTile { tile, coverage, color, maps } in done {
             if !coverage.iter().any(|&a| a > 0.0) && !maps.iter().any(|m| m[1] > 0.0 || m[4] > 0.0) { continue; }
             for (&kind, img) in &mut self.images {
                 let n = kind.components(); let comps = n + 1; let value = self.path.values[&kind].0;
-                let from_image = colored && kind == ChannelKind::BaseColor;
-                let height = height_map.is_some() && kind == ChannelKind::Height;
-                let normal = normal_map.is_some() && kind == ChannelKind::Normal;
+                let from_image = sampler.colored && kind == ChannelKind::BaseColor;
+                let height = sampler.height.is_some() && kind == ChannelKind::Height;
+                let normal = sampler.normal.is_some() && kind == ChannelKind::Normal;
                 let mut data = vec![0.0; TILE_TEXELS * comps];
                 for (pixel, (out, &alpha)) in data.chunks_exact_mut(comps).zip(&coverage).enumerate() {
                     out[n] = alpha;
@@ -500,10 +477,97 @@ impl PenRasterizer {
                 img.write_tile(tile, &data);
             }
         }
-        self.tile = self.tiles.len(); self.pixel = 0; self.segment = 0; self.distance = f32::INFINITY; self.coverage.fill(0.0);
     }
 
     pub fn finish(self) -> Option<BTreeMap<ChannelKind, TiledImage>> { self.is_done().then_some(self.images) }
+}
+
+/// The images of a ribbon and how one texel reads them.
+struct RibbonSampler<'a> {
+    image: Option<&'a subcraft_image::Bitmap>,
+    height: Option<&'a subcraft_image::Bitmap>,
+    normal: Option<&'a subcraft_image::Bitmap>,
+    /// Base Color takes the image's colour.
+    colored: bool,
+    /// The surface level of the height map: the mean of its two long edges, where the tile
+    /// meets the surface. Above it is raised, below it pressed in.
+    level: f32,
+    opacity: f32,
+}
+
+impl<'a> RibbonSampler<'a> {
+    fn new(image: Option<&'a subcraft_image::Bitmap>, height: Option<&'a subcraft_image::Bitmap>, normal: Option<&'a subcraft_image::Bitmap>, color_from_image: bool, opacity: f32) -> Self {
+        let level = height.map_or(0.0, |b| {
+            let n = b.width.max(1);
+            (0..n).map(|x| b.texel(x, 0, false)[0] + b.texel(x, b.height.saturating_sub(1), false)[0]).sum::<f32>() / (2 * n) as f32
+        });
+        Self { image, height, normal, colored: color_from_image && image.is_some(), level, opacity }
+    }
+
+    fn mapped(&self) -> bool {
+        self.height.is_some() || self.normal.is_some()
+    }
+}
+
+/// What a ribbon paints into one 64 px tile.
+struct RibbonTile {
+    tile: usize,
+    coverage: Vec<f32>,
+    color: Vec<[f32; 3]>,
+    /// Per texel: height above the level, its coverage, and the turned normal's x, y with its
+    /// coverage.
+    maps: Vec<[f32; 5]>,
+}
+
+impl RibbonTile {
+    fn new(tile: usize, sampler: &RibbonSampler) -> Self {
+        Self { tile, coverage: vec![0.0; TILE_TEXELS], color: vec![[0.0; 3]; if sampler.colored { TILE_TEXELS } else { 0 }], maps: vec![[0.0; 5]; if sampler.mapped() { TILE_TEXELS } else { 0 }] }
+    }
+
+    /// Texel `pixel` shows the images at `(u, v)`. `along` and `down` are the image's +u and +v
+    /// directions in the texture (x right, y down).
+    #[allow(clippy::too_many_arguments)]
+    fn set(&mut self, pixel: usize, s: &RibbonSampler, u: f32, v: f32, along: Vec2, down: Vec2, edge: f32) {
+        use subcraft_image::Wrap;
+        let a = match s.image {
+            None => 1.0,
+            Some(b) if s.colored => {
+                let c = b.sample(u, v, Wrap::Clamp, true);
+                self.color[pixel] = [c[0], c[1], c[2]];
+                c[3]
+            }
+            // The path's value through the image alpha: a ribbon image is RGBA, not a
+            // grayscale tip (QA 2026-11: red x alpha left its green and blue parts unpainted).
+            Some(b) => b.sample(u, v, Wrap::Clamp, false)[3],
+        }.clamp(0.0, 1.0);
+        let scale = edge * s.opacity;
+        // Without an image the height map (or the normal map) is the shape: where it leaves
+        // the level.
+        self.coverage[pixel] = if s.image.is_none() && s.mapped() { 0.0 } else { a * scale };
+        if !s.mapped() {
+            return;
+        }
+        let m = &mut self.maps[pixel];
+        if let Some(b) = s.height {
+            let h = b.sample(u, v, Wrap::Clamp, false)[0] - s.level;
+            let relief = (h.abs() * 16.0).min(1.0);
+            m[0] = h;
+            m[1] = if s.image.is_some() { a.max(relief) } else { relief } * scale;
+            if s.image.is_none() { self.coverage[pixel] = relief * scale; }
+        }
+        if let Some(b) = s.normal {
+            let n = b.sample(u, v, Wrap::Clamp, false);
+            let (nx, ny) = (n[0] * 2.0 - 1.0, n[1] * 2.0 - 1.0);
+            // The slope in the texture: the image's x along the path, its up against `down`.
+            // The texture's normal frame has y up, against its rows.
+            let slope = along * nx - down * ny;
+            let bump = ((nx * nx + ny * ny).sqrt() * 8.0).min(1.0);
+            m[2] = slope.x;
+            m[3] = -slope.y;
+            m[4] = if s.image.is_some() { a.max(bump) } else { bump } * scale;
+            if s.image.is_none() && s.height.is_none() { self.coverage[pixel] = bump * scale; }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -660,6 +724,75 @@ mod run_tests {
         let img = render(&path((0.1, 0.5), (0.9, 0.5)), None);
         let c = &img[&ChannelKind::BaseColor];
         assert!(c.get(128, 124)[3] > 0.99 && c.get(128, 131)[3] > 0.99 && c.get(128, 117)[3] < 0.01, "painted where the relief is");
+    }
+
+    /// A surface ribbon ([`subcraft_doc::PathRibbon::surface`]) on one island looks like the UV
+    /// ribbon at the image's own length, and it goes on over a UV seam.
+    #[test]
+    fn a_surface_ribbon_matches_the_uv_ribbon_and_crosses_uv_islands() {
+        use glam::Vec3;
+        use std::sync::Arc;
+        use subcraft_doc::{PathKind, PathRibbon, RibbonMode};
+        use subcraft_image::Bitmap;
+        use subcraft_mesh::Bvh;
+        let values: BTreeMap<_, _> = [(ChannelKind::BaseColor, ChannelValue::rgb(0.0, 1.0, 0.0)), (ChannelKind::Height, ChannelValue::scalar(0.5))].into_iter().collect();
+        let path = |points: &[Vec2], ribbon: PathRibbon| PenPath { anchors: points.iter().map(|&p| PenAnchor::new(p)).collect(), closed: false, radius: 0.05, hardness: 1.0, opacity: 1.0, values: values.clone(), kind: PathKind::Ribbon, stamp: None, ribbon: Some(ribbon) };
+        // Twice as long as high: red grows along the image, green down it.
+        let image = Arc::new(Bitmap::new_f32(4, 2, 4, (0..8).flat_map(|i| [(i % 4) as f32 / 3.0, (i / 4) as f32, 0.0, 1.0]).collect()));
+        let plane = Arc::new(subcraft_mesh::primitives::plane(2.0, 4));
+        let bvh = Bvh::build(&plane);
+        let line = [Vec2::new(0.2, 0.5), Vec2::new(0.8, 0.5)];
+        for flip in [false, true] {
+            let uv = path(&line, PathRibbon { mode: RibbonMode::KeepAspect, color_from_image: true, flip, ..Default::default() });
+            let on_surface = path(&line, PathRibbon { surface: true, color_from_image: true, flip, ..Default::default() });
+            let mut flat = PenRasterizer::new(&uv, 256).unwrap().with_alpha(Some(image.clone()));
+            flat.run();
+            let flat = flat.finish().unwrap().remove(&ChannelKind::BaseColor).unwrap();
+            let mut laid = PenRasterizer::new(&on_surface, 256).unwrap().with_alpha(Some(image.clone())).with_surface(&plane, &bvh, 0).unwrap();
+            laid.run();
+            let laid = laid.finish().unwrap().remove(&ChannelKind::BaseColor).unwrap();
+            // 0.6 long at a width of 0.1 and an aspect of 2: three whole copies, 51.2 texels each.
+            let mut compared = 0;
+            for y in (117..140).step_by(3) {
+                for x in (53..204).step_by(5) {
+                    let (a, b) = (flat.get(x, y), laid.get(x, y));
+                    assert!((0..4).all(|c| (a[c] - b[c]).abs() < 0.08), "flip {flip} at {x}, {y}: UV ribbon {a:?}, surface ribbon {b:?}");
+                    compared += 1;
+                }
+            }
+            assert!(compared > 200);
+            assert_eq!(laid.get(40, 128)[3], 0.0, "nothing before the first point");
+            assert_eq!(laid.get(215, 128)[3], 0.0, "nothing after the last point");
+            assert_eq!(laid.get(128, 150)[3], 0.0, "nothing beyond the width");
+        }
+        // Over the edge of a cube, from the front face to the top face: two UV islands.
+        let cube = Arc::new(subcraft_mesh::primitives::cube(2.0));
+        let bvh = Bvh::build(&cube);
+        let uv_at = |from: Vec3, to: Vec3| {
+            let hit = bvh.intersect(from, (to - from).normalize(), 0.0, 100.0).unwrap();
+            cube.interpolate(hit.tri as usize, hit.u, hit.v).uv
+        };
+        let front = uv_at(Vec3::new(0.0, -0.4, 5.0), Vec3::new(0.0, -0.4, 0.0));
+        let top = uv_at(Vec3::new(0.0, 5.0, -0.4), Vec3::new(0.0, 0.0, -0.4));
+        let mut over = path(&[front, top], PathRibbon { surface: true, color_from_image: true, ..Default::default() });
+        over.radius = 0.02;
+        let height = Arc::new(Bitmap::new_f32(1, 4, 1, vec![0.5, 1.0, 1.0, 0.5]));
+        let mut r = PenRasterizer::new(&over, 256).unwrap().with_alpha(Some(image.clone())).with_ribbon_maps(Some(height), None).with_surface(&cube, &bvh, 0).unwrap();
+        r.run();
+        let img = r.finish().unwrap();
+        let texel = |at: Vec3, n: Vec3| {
+            let uv = uv_at(at + n * 3.0, at);
+            ((uv.x * 256.0) as u32, (uv.y * 256.0) as u32)
+        };
+        // On the middle line of the strip, on both faces and right at the edge between them.
+        for (at, n) in [(Vec3::new(0.0, 0.0, 1.0), Vec3::Z), (Vec3::new(0.0, 0.9, 1.0), Vec3::Z), (Vec3::new(0.0, 1.0, 0.9), Vec3::Y), (Vec3::new(0.0, 1.0, 0.0), Vec3::Y)] {
+            let (x, y) = texel(at, n);
+            let (c, h) = (img[&ChannelKind::BaseColor].get(x, y), img[&ChannelKind::Height].get(x, y));
+            assert!(c[3] > 0.99, "the strip is painted at {at:?}: {c:?}");
+            assert!(h[0] > 0.3 && h[1] > 0.99, "and raised there: {h:?}");
+        }
+        let (x, y) = texel(Vec3::new(0.6, 0.0, 1.0), Vec3::Z);
+        assert_eq!(img[&ChannelKind::BaseColor].get(x, y)[3], 0.0, "nothing away from the path");
     }
 
     #[test]

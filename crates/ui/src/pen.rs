@@ -355,6 +355,10 @@ fn ribbon_rows(state: &mut UiState, ui: &mut Ui, path: &mut PenPath) -> bool {
             changed = true;
         }
     });
+    let r = ui.checkbox(&mut ribbon.surface, "Lay on the model's surface")
+        .on_hover_text("The copies lie on the 3D surface, one after the other at the image's own length: they keep their size and go on over UV seams. The mode, tiling and mirror settings do not apply");
+    changed |= reset_on(ui, r, &mut ribbon.surface, d.surface).changed();
+    if !ribbon.surface {
     changed |= prop_row_reset(ui, "Mode", &mut ribbon.mode, d.mode, |ui, v| {
         combo(ui, "ribbon_mode", v, &RibbonMode::ALL, |m| m.label())
     }).changed();
@@ -383,6 +387,7 @@ fn ribbon_rows(state: &mut UiState, ui: &mut Ui, path: &mut PenPath) -> bool {
         let r = ui.add_enabled(ribbon.ratio == RibbonRatio::FitWidth, egui::Checkbox::new(&mut ribbon.remove_clipped, "Remove clipped tiles"))
             .on_hover_text("Draw only whole copies of the image, not the cut ones at the ends");
         changed |= reset_on(ui, r, &mut ribbon.remove_clipped, d.remove_clipped).changed();
+    }
     }
     ui.horizontal(|ui| {
         let r = ui.checkbox(&mut ribbon.mirror, "Mirror every 2nd copy");

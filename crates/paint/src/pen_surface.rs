@@ -21,6 +21,8 @@ use crate::kernel::KERNEL_EXPAND;
 const MAX_STAMPS: usize = 200_000;
 /// Curve samples per path segment.
 const STEPS: usize = 64;
+/// A copy of a surface ribbon reaches this far past its half length (its end column repeated).
+const RIBBON_OVERLAP: f32 = 1.3;
 /// A stamp paints surfaces facing within 60 degrees of its own.
 const FACING: f32 = 0.5;
 
@@ -32,6 +34,21 @@ struct SurfaceStamp {
     tangent: Vec3,
     /// To the right of the path, seen from outside the surface (the tip image's down).
     side: Vec3,
+    /// Half the stamp's length along the path, in object units (the radius for a square tip).
+    half_along: f32,
+}
+
+/// One texel of a surface ribbon: where it is in the tile image, and the image's axes there.
+#[derive(Clone, Copy, Debug)]
+pub struct RibbonTexel {
+    /// Index of the texel in its 64 px tile.
+    pub pixel: usize,
+    /// Position in the image: `u` along the path, `v` across it.
+    pub u: f32,
+    pub v: f32,
+    /// The image's +u and +v directions in the texture (x right, y down), unit length.
+    pub along: Vec2,
+    pub down: Vec2,
 }
 
 /// A point of the path on the surface.
@@ -139,7 +156,21 @@ impl SurfaceStamps {
     /// The surface stamps of `path` on the triangles of material `slot`; `None` when the path
     /// is not a stamped surface path or none of it lies on the texture set.
     pub fn build(path: &PenPath, mesh: &Arc<Mesh>, bvh: &Bvh, slot: u32, resolution: u32) -> Result<Option<Self>, &'static str> {
-        let Some(stamp) = path.stamp.filter(|s| s.surface && path.kind == subcraft_doc::PathKind::Paint) else { return Ok(None) };
+        Self::build_tiled(path, mesh, bvh, slot, resolution, 1.0)
+    }
+
+    /// [`SurfaceStamps::build`] that also takes a surface ribbon
+    /// ([`subcraft_doc::PathRibbon::surface`]): one stamp per copy of its image, `aspect` times
+    /// as long as the path is wide, end to end between the path's points.
+    pub fn build_tiled(path: &PenPath, mesh: &Arc<Mesh>, bvh: &Bvh, slot: u32, resolution: u32, aspect: f32) -> Result<Option<Self>, &'static str> {
+        use subcraft_doc::{PathKind, PathStamp};
+        let tiled = path.kind == PathKind::Ribbon && path.ribbon.is_some_and(|r| r.surface);
+        let stamp = if tiled {
+            Some(PathStamp { alpha: None, spacing: aspect.clamp(0.05, 64.0), follow: true, alternate: 0.0, surface: true })
+        } else {
+            path.stamp.filter(|s| s.surface && path.kind == PathKind::Paint)
+        };
+        let Some(stamp) = stamp else { return Ok(None) };
         let locator = UvLocator::new(mesh, slot);
         // The object-space radius, from the UV scale under the first point on the surface.
         let first = path.anchors.iter().find_map(|a| locator.locate(a.position));
@@ -226,7 +257,7 @@ impl SurfaceStamps {
         let closed = path.is_closed() && runs.len() == 1;
         let mut stamps: Vec<SurfaceStamp> = Vec::new();
         for run in runs.iter().filter(|r| !r.is_empty()) {
-            let place = |at: Vec3, normal: Vec3, dir: Vec3, stamps: &mut Vec<SurfaceStamp>| {
+            let place = |at: Vec3, normal: Vec3, dir: Vec3, half_along: f32, stamps: &mut Vec<SurfaceStamp>| {
                 let mut tangent = dir - normal * dir.dot(normal);
                 if tangent.length_squared() < 1e-12 {
                     tangent = normal.any_orthonormal_vector();
@@ -237,11 +268,11 @@ impl SurfaceStamps {
                     let t = normal.any_orthonormal_vector();
                     (t, t.cross(normal))
                 };
-                stamps.push(SurfaceStamp { center: at, normal, tangent, side });
+                stamps.push(SurfaceStamp { center: at, normal, tangent, side, half_along });
             };
             let length: f32 = run.windows(2).map(|w| w[0].position.distance(w[1].position)).sum();
             if run.len() == 1 || length <= 1e-12 {
-                place(run[0].position, run[0].normal, Vec3::X, &mut stamps);
+                place(run[0].position, run[0].normal, Vec3::X, radius, &mut stamps);
                 continue;
             }
             let steps = ((length / step).round() as usize).max(1);
@@ -249,8 +280,10 @@ impl SurfaceStamps {
                 return Err("too many stamps on this path: raise the spacing or the width");
             }
             let fitted = length / steps as f32;
-            // A closed run's last point is its first: no stamp there twice.
-            let count = if closed { steps } else { steps + 1 };
+            // A closed run's last point is its first: no stamp there twice. The copies of a
+            // ribbon lie between the points, each as long as its step.
+            let count = if closed || tiled { steps } else { steps + 1 };
+            let (lead, half_along) = if tiled { (0.5, fitted * 0.5) } else { (0.0, radius) };
             let (mut k, mut walked) = (0usize, 0.0f32);
             for w in run.windows(2) {
                 let d = w[1].position - w[0].position;
@@ -258,8 +291,8 @@ impl SurfaceStamps {
                 if len <= 1e-12 {
                     continue;
                 }
-                while k < count && k as f32 * fitted <= walked + len + length * 1e-5 {
-                    let t = ((k as f32 * fitted - walked) / len).clamp(0.0, 1.0);
+                while k < count && (k as f32 + lead) * fitted <= walked + len + length * 1e-5 {
+                    let t = (((k as f32 + lead) * fitted - walked) / len).clamp(0.0, 1.0);
                     // Onto the surface: between two route points around an edge the straight
                     // step cuts the corner.
                     let (mut at, mut normal) = (w[0].position + d * t, w[0].normal.lerp(w[1].normal, t).normalize_or(w[0].normal));
@@ -267,7 +300,7 @@ impl SurfaceStamps {
                         let sp = mesh.interpolate(hit.tri as usize, hit.u, hit.v);
                         (at, normal) = (sp.position, surface_normal(&sp));
                     }
-                    place(at, normal, d / len, &mut stamps);
+                    place(at, normal, d / len, half_along, &mut stamps);
                     k += 1;
                 }
                 walked += len;
@@ -284,7 +317,8 @@ impl SurfaceStamps {
         }
         // Bin: the triangles of the texture set near each stamp, and the tiles its footprint
         // can reach on each of them.
-        let reach = radius * std::f32::consts::SQRT_2;
+        let longest = stamps.iter().fold(radius, |m, s| m.max(s.half_along * RIBBON_OVERLAP));
+        let reach = longest.max(radius) * std::f32::consts::SQRT_2;
         let res = resolution as f32;
         let across = resolution.div_ceil(TILE_SIZE) as i32;
         let mut bins: BTreeMap<usize, (BTreeSet<u32>, BTreeSet<u32>)> = BTreeMap::new();
@@ -334,6 +368,61 @@ impl SurfaceStamps {
         self.stamps.len()
     }
 
+    /// The texels of one tile that a surface ribbon paints: each takes the copy whose middle is
+    /// nearest along the path.
+    pub fn ribbon_texels(&self, tile: usize) -> Vec<RibbonTexel> {
+        let Some((tris, stamps)) = self.bins.get(&tile) else { return Vec::new() };
+        let res = self.resolution;
+        let across = res.div_ceil(TILE_SIZE) as usize;
+        let (x0, y0) = ((tile % across) as i32 * TILE_SIZE as i32, (tile / across) as i32 * TILE_SIZE as i32);
+        let clip = IRect::new(x0, y0, x0 + TILE_SIZE as i32, y0 + TILE_SIZE as i32);
+        let near: Vec<&SurfaceStamp> = stamps.iter().map(|&i| &self.stamps[i as usize]).collect();
+        let r = self.radius;
+        let mut best: Vec<Option<(f32, RibbonTexel)>> = vec![None; TILE_TEXELS];
+        for &t in tris {
+            let pos = self.mesh.tri_positions(t as usize);
+            let ng = self.mesh.geometric_normal(t as usize);
+            // The surface directions one step in texture x and y moves along.
+            let (uv, _) = wrap_to_tile(self.mesh.tri_uvs(t as usize));
+            let (e1, e2, d1, d2) = (pos[1] - pos[0], pos[2] - pos[0], uv[1] - uv[0], uv[2] - uv[0]);
+            let det = d1.perp_dot(d2);
+            if det.abs() < 1e-14 {
+                continue;
+            }
+            let (pu, pv) = ((e1 * d2.y - e2 * d1.y) / det, (e2 * d1.x - e1 * d2.x) / det);
+            let n = pu.cross(pv);
+            let (cu, cv) = (pv.cross(n), n.cross(pu));
+            let (ku, kv) = (pu.dot(cu), pv.dot(cv));
+            if ku.abs() < 1e-20 || kv.abs() < 1e-20 {
+                continue;
+            }
+            let in_texture = |d: Vec3| Vec2::new(d.dot(cu) / ku, d.dot(cv) / kv).normalize_or(Vec2::X);
+            raster_triangle(self.mesh.tri_uvs(t as usize), res, res, clip, KERNEL_EXPAND, |h| {
+                let p = bary_point(&pos, h.bary);
+                let pixel = ((h.y - y0) as u32 * TILE_SIZE + (h.x - x0) as u32) as usize;
+                for s in &near {
+                    if ng.dot(s.normal) < FACING {
+                        continue;
+                    }
+                    let d = p - s.center;
+                    if d.dot(s.normal).abs() > r {
+                        continue;
+                    }
+                    let local = Vec2::new(d.dot(s.tangent) / s.half_along, d.dot(s.side) / r);
+                    // A little past its ends, so the copies still meet on the outside of a bend.
+                    if local.x.abs() > RIBBON_OVERLAP || local.y.abs() > 1.0 {
+                        continue;
+                    }
+                    if best[pixel].is_none_or(|b| local.x.abs() < b.0) {
+                        let texel = RibbonTexel { pixel, u: (local.x * 0.5 + 0.5).clamp(0.0, 1.0), v: local.y * 0.5 + 0.5, along: in_texture(s.tangent), down: in_texture(s.side) };
+                        best[pixel] = Some((local.x.abs(), texel));
+                    }
+                }
+            });
+        }
+        best.into_iter().flatten().map(|b| b.1).collect()
+    }
+
     /// Coverage of one tile (`TILE_TEXELS` values): each texel takes the strongest stamp over it.
     pub fn coverage(&self, tile: usize, alpha: Option<&Bitmap>, hardness: f32) -> Vec<f32> {
         let mut coverage = vec![0.0f32; TILE_TEXELS];
@@ -358,7 +447,7 @@ impl SurfaceStamps {
                     if d.dot(s.normal).abs() > r {
                         continue;
                     }
-                    let local = Vec2::new(d.dot(s.tangent), d.dot(s.side)) / r;
+                    let local = Vec2::new(d.dot(s.tangent) / s.half_along, d.dot(s.side) / r);
                     if local.length_squared() > 2.0 {
                         continue;
                     }
