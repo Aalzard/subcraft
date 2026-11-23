@@ -6236,6 +6236,43 @@ re-measured on a GPU. Not taken from his patch: the `SUBCRAFT_REPAINT_LOG` diagn
 * Limit: the panel only makes one-to-one bindings (one slider, one property). Formulas that drive several
   properties from one slider exist in the format but have no editor.
 
+## Material filters in the Shelf, Fiber Glass Edge Wear, Mask Builder (2026-11-23, branch `claude/project-thread-mnp3ay`)
+
+* **Shelf:** `ShelfDrag::MaterialFilter(i)` (index into `MaterialFilter::ALL`), listed in the Filters tab after the
+  plain filters (their item index starts at `Filter::ALL.len()`; tags `material`, `matfx` for the search). Click:
+  `Session::shelf_material_filter_command` (swap the selected material filter, else add to the layer's content;
+  `None` while a mask is edited). Drag into the stack: `Session::add_material_filter_layer` (empty paint layer,
+  Passthrough everywhere, one effect). Between effect rows: `InsertContentEffect`. Masks and the ghost mask slot
+  refuse them with a status message. No thumbnails yet (plain tiles, like the other filters).
+* **Fiber Glass Edge Wear** (`GeneratorKind::FiberGlass`, `Generator::fiber: Option<FiberSettings>`): evaluates the
+  same generator as `Edges` (`Generator::fiber_base`, so Spread, Level, grunge, AO masking, anchors and micro
+  details all apply), then adds a fringe: along the surface distance from the edge, out to `FiberSettings::FRINGE`
+  (2.2) times the wear's own reach, a texel is worn where `1 - distance / reach` passes a threshold set by the
+  weave (`materials/src/weave.rs`, tri-planar or UV): gaps never, strand tops almost to the end. A soft noise
+  varies the reach. Without natural edge wear (no distance to follow) the weave frays the curvature falloff instead.
+* **Mask Builder** (`GeneratorKind::MaskBuilder`, `Generator::builder: Option<MaskBuilder>`): seven contributions,
+  each `slider * shaped map`, **added**, then the global Level (a balance) / Contrast / Invert. Adobe does not
+  document how the legacy generator mixes them, so the sum is this project's reading; Scratches only add when
+  Grunge, AO or Curvature is above 0 (that part is in the manual). Range / Contrast per group: `MaskBuilder::ranged`.
+  World Space Normal reads the baked map when there is one, else the mesh normal. Scatter is 3D dots
+  (`weave::dots`), so it has no UV seams.
+* Both are additive in the project file (new `kind` values and optional `fiber` / `builder` keys, no schema
+  bump); out-of-range settings are refused on load. Properties: `fiber_controls`, `mask_builder_controls`
+  (zh-Hant and Korean strings added). Both are in the Generator dropdown and the Shelf's Generators tab.
+* Tests: app 1 (`filter_shelf`), ui 1 (Shelf drops), materials 3 (`weave`), doc 2, project 1, compositor 3
+  (`tests/mask_builder.rs`: each contribution against the baked maps, the sum, Range / Contrast / Invert,
+  scratches gating, scatter, invalid settings; fibre wear equals Edge wear at Fibre Amount 0, only adds wear,
+  leaves gaps, Invert). Suites run locally: doc, materials, compositor, project, ui.
+* Render: `cargo run --release -p subcraft-app --example generator_sheet -- <prefix> crate 1024 new`. Inspected
+  `docs/screenshots/generators/fiber_glass_mask_builder_sheet.png` (top row: plain wear, fibre default, heavy
+  coarse, light fine; bottom row: builder default, grunge + scratches, gradient + top normal, scatter + concave).
+* Not done / honest limits: no Painter side-by-side (no Painter here, and its doc pages give no defaults), so
+  the weave look and the Mask Builder mixing rule are unverified against the original; not run in the real app
+  window; Mask Builder has no custom grunge slots, no curvature Smoothness and no tri-planar toggle (its
+  patterns are always object-space); the fibre fringe is thin on models with a small Spread, raise Spread or
+  lower Fibre Scale to see it; no Shelf thumbnails for material filters.
+
+
 ## Procedural materials: one parameter, several settings (2026-11-23, branch `claude/project-thread-l9014a`)
 
 * Engine (`crates/doc/src/material/author.rs`): `bindings_of`, `can_link` (same kind of value only), `link`

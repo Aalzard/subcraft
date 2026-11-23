@@ -522,7 +522,7 @@ fn filter_resource(id: subcraft_core::ResourceId) -> Option<subcraft_core::Resou
 /// Painter's Use Custom Grunge for the generators with a breakup: an image slot replacing the
 /// noise. Returns whether the image button was clicked.
 fn custom_grunge_row(ui: &mut Ui, state: &mut UiState, g: &mut subcraft_doc::Generator, changed: &mut bool) -> bool {
-    if !matches!(g.kind, GeneratorKind::Edges | GeneratorKind::Cavity | GeneratorKind::Concave) {
+    if !matches!(g.kind, GeneratorKind::Edges | GeneratorKind::FiberGlass | GeneratorKind::Cavity | GeneratorKind::Concave) {
         return false;
     }
     let mut pick = false;
@@ -581,8 +581,12 @@ pub(crate) fn content_generator_controls(ui: &mut Ui, state: &mut UiState, g: &m
         // Conversion is picked on a mask generator; here it shows the one it has).
         return changed | shape_generator_controls(ui, state, g).0;
     }
+    if g.kind == GeneratorKind::MaskBuilder {
+        return changed | mask_builder_controls(ui, g);
+    }
     changed |= level_controls(ui, g);
     changed |= painter_controls(ui, g);
+    changed |= fiber_controls(ui, g);
     let d = subcraft_doc::Generator::new(g.kind);
     changed |= prop_row_reset(ui, tr("Seed"), &mut g.noise.seed, d.noise.seed, |ui, seed| {
         let mut r = ui.add(egui::DragValue::new(seed).speed(1.));
@@ -598,7 +602,7 @@ pub(crate) fn content_generator_controls(ui: &mut Ui, state: &mut UiState, g: &m
 
 /// Every generator a mask can hold, in the order the Generator dropdown and the Shelf list them.
 pub fn all_generator_kinds() -> Vec<GeneratorKind> {
-    [GeneratorKind::Edges, GeneratorKind::Cavity, GeneratorKind::AmbientOcclusion, GeneratorKind::Concave, GeneratorKind::Directional, GeneratorKind::PositionGradient, GeneratorKind::MaskEditor,
+    [GeneratorKind::Edges, GeneratorKind::FiberGlass, GeneratorKind::Cavity, GeneratorKind::AmbientOcclusion, GeneratorKind::Concave, GeneratorKind::Directional, GeneratorKind::PositionGradient, GeneratorKind::MaskEditor, GeneratorKind::MaskBuilder,
         GeneratorKind::Distance3D, GeneratorKind::LinearGradient3D, GeneratorKind::UvRandomColor, GeneratorKind::GrayscaleConversion,
         GeneratorKind::UvBorderDistance, GeneratorKind::UvChecker, GeneratorKind::UvTexelDensity]
         .into_iter().chain(MeshMapKind::ALL.into_iter().map(GeneratorKind::MeshMap)).collect()
@@ -726,6 +730,114 @@ fn shape_generator_controls(ui: &mut Ui, state: &mut UiState, g: &mut subcraft_d
     (changed, pick)
 }
 
+/// The weave of a Fiber Glass Edge Wear (nothing for other kinds).
+fn fiber_controls(ui: &mut Ui, g: &mut subcraft_doc::Generator) -> bool {
+    if g.kind != GeneratorKind::FiberGlass {
+        return false;
+    }
+    use subcraft_doc::FiberSettings;
+    let mut f = g.fiber_settings();
+    let before = f;
+    let d = FiberSettings::default();
+    slider_row_reset(ui, tr("Fibre Amount"), &mut f.amount, d.amount, |v| egui::Slider::new(v, 0.0..=1.0))
+        .on_hover_text(tr("How strongly the woven glass mat frays the wear. 0 = plain edge wear."));
+    slider_row_reset(ui, tr("Fibre Scale"), &mut f.scale, d.scale, |v| egui::Slider::new(v, FiberSettings::SCALE_RANGE).logarithmic(true))
+        .on_hover_text(tr("Strands across the model's longest side (across the UV square without tri-planar)."));
+    slider_row_reset(ui, tr("Fibre Irregularity"), &mut f.irregularity, d.irregularity, |v| egui::Slider::new(v, 0.0..=1.0))
+        .on_hover_text(tr("Uneven strand widths and loose strands. 0 = a perfect cloth."));
+    check_row_reset(ui, "", tr("Use Triplanar"), &mut f.triplanar, d.triplanar)
+        .on_hover_text(tr("The weave follows the model without seams. Off: it follows the UVs."));
+    if f == before {
+        return false;
+    }
+    g.fiber = Some(f);
+    true
+}
+
+/// Painter's Mask Builder: Seed, Level, Contrast, Invert, one slider per contribution, then one
+/// group per contribution in the same order.
+fn mask_builder_controls(ui: &mut Ui, g: &mut subcraft_doc::Generator) -> bool {
+    use subcraft_doc::MaskBuilder;
+    let dg = subcraft_doc::Generator::new(GeneratorKind::MaskBuilder);
+    let mut changed = prop_row_reset(ui, tr("Seed"), &mut g.noise.seed, dg.noise.seed, |ui, seed| {
+        let mut r = ui.add(egui::DragValue::new(seed).speed(1.));
+        if ui.small_button(tr("Random")).on_hover_text(tr("Pick a new random seed")).clicked() {
+            *seed = random_seed();
+            r.mark_changed();
+        }
+        r
+    }).changed();
+    changed |= slider_row_reset(ui, tr("Level"), &mut g.level, dg.level, |v| egui::Slider::new(v, 0.0..=1.0)).on_hover_text(tr("Shifts the whole mask towards white (more) or black (less).")).changed();
+    let mut contrast = (1.0 - g.softness).clamp(0.0, 1.0);
+    if slider_row_reset(ui, tr("Contrast"), &mut contrast, 0.0, |v| egui::Slider::new(v, 0.0..=1.0)).changed() {
+        g.softness = 1.0 - contrast;
+        changed = true;
+    }
+    changed |= check_row_reset(ui, "", tr("Invert"), &mut g.invert, dg.invert).changed();
+    let mut b = g.builder_settings();
+    let before = b;
+    let d = MaskBuilder::default();
+    let unit = |ui: &mut Ui, label: &'static str, v: &mut f32, d: f32| { slider_row_reset(ui, tr(label), v, d, |v| egui::Slider::new(v, 0.0..=1.0)); };
+    let scale = |ui: &mut Ui, v: &mut f32, d: f32| { slider_row_reset(ui, tr("Scale"), v, d, |v| egui::Slider::new(v, MaskBuilder::SCALE_RANGE).logarithmic(true)); };
+    let invert = |ui: &mut Ui, label: &'static str, v: &mut bool, d: bool| { check_row_reset(ui, "", tr(label), v, d); };
+    unit(ui, "Grunge", &mut b.grunge, d.grunge);
+    unit(ui, "AO", &mut b.ao, d.ao);
+    unit(ui, "Curvature", &mut b.curvature, d.curvature);
+    unit(ui, "Top/Down Gradient", &mut b.gradient, d.gradient);
+    unit(ui, "World Space Normal", &mut b.world_normal, d.world_normal);
+    ui.add_enabled_ui(b.grunge > 0.0 || b.ao > 0.0 || b.curvature > 0.0, |ui| {
+        slider_row_reset(ui, tr("Scratches"), &mut b.scratches, d.scratches, |v| egui::Slider::new(v, 0.0..=1.0)).on_hover_text(tr("Needs Grunge, AO or Curvature above 0."));
+    });
+    unit(ui, "Scatter", &mut b.scatter, d.scatter);
+    editor_group(ui, "Grunge", |ui| {
+        scale(ui, &mut b.grunge_scale, d.grunge_scale);
+        invert(ui, "Invert", &mut b.grunge_invert, d.grunge_invert);
+    });
+    editor_group(ui, "Ambient Occlusion", |ui| {
+        unit(ui, "Range", &mut b.ao_range, d.ao_range);
+        unit(ui, "Contrast", &mut b.ao_contrast, d.ao_contrast);
+        unit(ui, "Noisiness", &mut b.ao_noisiness, d.ao_noisiness);
+        invert(ui, "Invert", &mut b.ao_invert, d.ao_invert);
+    });
+    editor_group(ui, "Curvature", |ui| {
+        unit(ui, "Convex Range", &mut b.convex_range, d.convex_range);
+        unit(ui, "Convex Contrast", &mut b.convex_contrast, d.convex_contrast);
+        invert(ui, "Convex Invert", &mut b.convex_invert, d.convex_invert);
+        unit(ui, "Concave Range", &mut b.concave_range, d.concave_range);
+        unit(ui, "Concave Contrast", &mut b.concave_contrast, d.concave_contrast);
+        invert(ui, "Concave Invert", &mut b.concave_invert, d.concave_invert);
+        unit(ui, "Level Boost", &mut b.curvature_boost, d.curvature_boost);
+        unit(ui, "Noisiness", &mut b.curvature_noisiness, d.curvature_noisiness);
+    });
+    editor_group(ui, "Gradient", |ui| {
+        unit(ui, "Range", &mut b.gradient_range, d.gradient_range);
+        unit(ui, "Contrast", &mut b.gradient_contrast, d.gradient_contrast);
+        invert(ui, "Invert", &mut b.gradient_invert, d.gradient_invert);
+    });
+    editor_group(ui, "World Space Normal", |ui| {
+        for (i, label) in ["Top Intensity", "Bottom Intensity", "Front Intensity", "Back Intensity", "Right Intensity", "Left Intensity"].into_iter().enumerate() {
+            unit(ui, label, &mut b.normal[i], d.normal[i]);
+        }
+        hint(ui, tr("Top is +Y, Front is +X, Right is +Z."));
+    });
+    editor_group(ui, "Scratches", |ui| {
+        unit(ui, "Amount", &mut b.scratches_amount, d.scratches_amount);
+        scale(ui, &mut b.scratches_scale, d.scratches_scale);
+    });
+    editor_group(ui, "Scatter", |ui| {
+        scale(ui, &mut b.scatter_scale, d.scatter_scale);
+        unit(ui, "Density", &mut b.scatter_density, d.scatter_density);
+        unit(ui, "Size", &mut b.scatter_size, d.scatter_size);
+        unit(ui, "Size Variation", &mut b.scatter_size_variation, d.scatter_size_variation);
+        unit(ui, "Opacity Variation", &mut b.scatter_opacity_variation, d.scatter_opacity_variation);
+    });
+    if b != before {
+        g.builder = Some(b);
+        changed = true;
+    }
+    changed
+}
+
 /// A blending-mode dropdown row of a Mask Editor group.
 fn editor_blend_row(ui: &mut Ui, id: &str, mode: &mut subcraft_doc::BlendMode, default: subcraft_doc::BlendMode) -> bool {
     let before = *mode;
@@ -844,15 +956,15 @@ fn mask_editor_controls(ui: &mut Ui, state: &mut UiState, g: &mut subcraft_doc::
 /// stored values stay the threshold and softness, so older projects read the same.
 fn level_controls(ui: &mut Ui, g: &mut subcraft_doc::Generator) -> bool {
     let mut changed = false;
-    let natural_edges = g.kind == GeneratorKind::Edges && g.edge_spread.is_some();
+    let natural_edges = g.kind.is_edge_wear() && g.edge_spread.is_some();
     // Defaults: the values a new generator of this kind starts with.
     let d = subcraft_doc::Generator::new(g.kind);
     if g.kind.uses_painter_names() {
         // Edges' level already grows the wear; the occlusion/map thresholds grow the mask downwards.
-        let inverted = g.kind != GeneratorKind::Edges;
+        let inverted = !g.kind.is_edge_wear();
         let (level_label, level_tip, contrast_label, contrast_tip) = match g.kind {
             GeneratorKind::Cavity => (tr("Dirt Level"), "Amount of dirt: how far it creeps out of the occluded areas (Painter's Dirt Level).", tr("Dirt Contrast"), "Sharpness of the dirt's falloff: 0 = a soft gradient, 1 = a hard edge."),
-            GeneratorKind::Edges => (tr("Wear Level"), if natural_edges { "Amount of wear: how much of the Spread reach is worn (0 = none, 1 = all of it), and which baked convex detail shows (Painter's Wear Level)." } else { "Amount of wear on the baked convex edges (Painter's Wear Level)." }, tr("Wear Contrast"), "Sharpness of the wear boundary: 0 = soft, 1 = crisp."),
+            GeneratorKind::Edges | GeneratorKind::FiberGlass => (tr("Wear Level"), if natural_edges { "Amount of wear: how much of the Spread reach is worn (0 = none, 1 = all of it), and which baked convex detail shows (Painter's Wear Level)." } else { "Amount of wear on the baked convex edges (Painter's Wear Level)." }, tr("Wear Contrast"), "Sharpness of the wear boundary: 0 = soft, 1 = crisp."),
             _ => (tr("Balance"), "Shifts the map towards white (more mask) or black (less).", tr("Contrast"), "0 = the map itself, smooth; 1 = a hard threshold at the balance."),
         };
         let mut level = if inverted { 1.0 - g.level } else { g.level };
@@ -871,7 +983,7 @@ fn level_controls(ui: &mut Ui, g: &mut subcraft_doc::Generator) -> bool {
         changed |= slider_row_reset(ui, tr("Level"), &mut g.level, d.level, |v| egui::Slider::new(v, 0.0..=1.0).max_decimals(3)).on_hover_text("Threshold for the generator's source values.").changed();
         changed |= slider_row_reset(ui, tr("Softness"), &mut g.softness, d.softness, |v| egui::Slider::new(v, 0.0..=1.0)).changed();
     }
-    let breakup = if matches!(g.kind, GeneratorKind::Cavity | GeneratorKind::Edges) { tr("Grunge Amount") } else { tr("Breakup") };
+    let breakup = if matches!(g.kind, GeneratorKind::Cavity | GeneratorKind::Edges | GeneratorKind::FiberGlass) { tr("Grunge Amount") } else { tr("Breakup") };
     changed |= slider_row_reset(ui, breakup, &mut g.noise_amount, d.noise_amount, |v| egui::Slider::new(v, 0.0..=1.0)).on_hover_text("How much the grunge breaks the mask up (0 = smooth).").changed();
     changed
 }
@@ -881,7 +993,7 @@ fn level_controls(ui: &mut Ui, g: &mut subcraft_doc::Generator) -> bool {
 /// Edges smoothness, and Grain speckles every kind except the plain curvature threshold. Untouched
 /// generators keep `painter: None` (their exact older look); the first change stores the controls.
 fn painter_controls(ui: &mut Ui, g: &mut subcraft_doc::Generator) -> bool {
-    let natural_edges = g.kind == GeneratorKind::Edges && g.edge_spread.is_some();
+    let natural_edges = g.kind.is_edge_wear() && g.edge_spread.is_some();
     let mut pc = g.painter.unwrap_or_default();
     let before = pc;
     let dpc = subcraft_doc::Generator::new(g.kind).painter.unwrap_or_default();
@@ -899,7 +1011,7 @@ fn painter_controls(ui: &mut Ui, g: &mut subcraft_doc::Generator) -> bool {
         slider_row_reset(ui, tr("Edges Smoothness"), &mut pc.smoothness, dpc.smoothness, |v| egui::Slider::new(v, 0.0..=1.0))
             .on_hover_text("Extra softening of the wear boundary (Painter: Edges Smoothness).");
     }
-    if g.kind != GeneratorKind::Edges || natural_edges {
+    if !g.kind.is_edge_wear() || natural_edges {
         if g.kind != GeneratorKind::AmbientOcclusion && !matches!(g.kind, GeneratorKind::MeshMap(_)) {
             check_row_reset(ui, "", tr("Grunge map"), &mut pc.grunge_map, dpc.grunge_map)
                 .on_hover_text(tr("Break the mask up with the bundled photo-like dirt texture, as Painter's generators do. Off: a smooth procedural noise."));
@@ -1019,6 +1131,10 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
                         crate::files::pick(ui.ctx(), crate::files::Purpose::GeneratorTexture { layer, effect: e.id, slot }, crate::files::IMAGES, false, None);
                     }
                 }
+                MaskEffectKind::Generator(g) if g.kind == GeneratorKind::MaskBuilder => {
+                    changed |= generator_kind_row(ui, g);
+                    changed |= mask_builder_controls(ui, g);
+                }
                 MaskEffectKind::Generator(g) if g.kind.uses_shape() => {
                     changed |= generator_kind_row(ui, g);
                     let (edited, pick) = shape_generator_controls(ui, state, g);
@@ -1050,7 +1166,7 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
                             r
                         }).changed();
                     }
-                    if g.kind == GeneratorKind::Edges {
+                    if g.kind.is_edge_wear() {
                         let mut natural = g.edge_spread.is_some();
                         let r = ui.checkbox(&mut natural, tr("Natural edge wear")).on_hover_text(tr("Surface-constrained spread with an irregular boundary. Older projects retain their original wear until enabled."));
                         if crate::widgets::reset_on(ui, r, &mut natural, dg.edge_spread.is_some()).changed() {
@@ -1088,6 +1204,7 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
                         g.set_pattern_size(size); changed = true;
                     }
                     changed |= painter_controls(ui, g);
+                    changed |= fiber_controls(ui, g);
                     if custom_grunge_row(ui, state, g, &mut changed) {
                         crate::files::pick(ui.ctx(), crate::files::Purpose::GeneratorGrunge { layer, effect: e.id }, crate::files::IMAGES, false, None);
                     }
@@ -1110,7 +1227,7 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
                             g.offset[axis] = percent / 100.0; changed = true;
                         }
                     }
-                    if g.kind != GeneratorKind::Edges || g.edge_spread.is_none() {
+                    if !g.kind.is_edge_wear() || g.edge_spread.is_none() {
                         let r = ui.checkbox(&mut g.organic_breakup, tr("Reduce repetition"));
                         changed |= crate::widgets::reset_on(ui, r, &mut g.organic_breakup, dg.organic_breakup).changed();
                     }
