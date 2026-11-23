@@ -24,7 +24,7 @@ a planning list, not a promise.
 
 ### Platform and distribution
 - Code-signed installers (needs an enrolled signing identity).
-- AppImage / Flatpak packaging.
+- Flatpak packaging.
 
 ## Done since the first list
 - Read Painter `.spp` projects and `.spsm` smart materials.
@@ -57,3 +57,4 @@ a planning list, not a promise.
 - Shelf tags and saved searches; weave, rivet, brick and fingerprint content.
 - 2D UDIM tile picker (tiles laid out as in UV space, previous / next).
 - ARM and macOS builds through the release workflow.
+- Linux AppImage (x86_64), built and checked by the release workflow.

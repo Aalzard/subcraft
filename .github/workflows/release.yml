@@ -1,5 +1,5 @@
 name: Release
-# Windows x64 and Linux x86_64 packages. Windows binaries are code-signed for free through
+# Windows x64 and Linux x86_64 packages (tar.gz and AppImage). Windows binaries are code-signed for free through
 # SignPath Foundation when its configuration is present (docs/signing-setup.md); without it the
 # release still completes and is published unsigned, with a notice in the release notes.
 # Every published file gets a Sigstore build provenance attestation.
@@ -246,10 +246,14 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       - name: Build and package
         run: ./scripts/build-linux.sh
+      - name: Build AppImage
+        run: ./scripts/build-appimage.sh
       - name: Check Linux package
         run: |
           tar -xzf dist/*.tar.gz -C "$RUNNER_TEMP"
           "$RUNNER_TEMP"/SubCraft-*/subcraft --help
+          # No FUSE on the runner: the AppImage unpacks itself and runs.
+          APPIMAGE_EXTRACT_AND_RUN=1 dist/SubCraft-*.AppImage --version
       - name: Checksums
         shell: pwsh
         run: ./scripts/write-release-checksums.ps1 -Directory dist
@@ -259,12 +263,14 @@ jobs:
         with:
           subject-path: |
             dist/*.tar.gz
+            dist/*.AppImage
             dist/SHA256SUMS.txt
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: SubCraft-linux-x86_64
           path: |
             dist/*.tar.gz
+            dist/*.AppImage
             dist/SHA256SUMS.txt
           if-no-files-found: error
   publish:
@@ -304,7 +310,7 @@ jobs:
           TAG: ${{ github.event.release.tag_name || inputs.tag }}
         run: |
           shopt -s nullglob
-          files=(dist/*-setup.exe dist/*.zip dist/*.tar.gz dist/SHA256SUMS.txt dist/release-security-windows.json dist/*.defender.txt)
+          files=(dist/*-setup.exe dist/*.zip dist/*.tar.gz dist/*.AppImage dist/SHA256SUMS.txt dist/release-security-windows.json dist/*.defender.txt)
           gh release upload "$TAG" "${files[@]}" --repo "${{ github.repository }}"
       - name: Note signing status and verification in the release notes
         env:

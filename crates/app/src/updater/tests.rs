@@ -120,3 +120,9 @@ fn arm64_archives_use_their_own_folder_and_header_checks() {
     // Only the x64 folder is in the archive, so an arm64 update must refuse it.
     assert!(extract_binary(&release,&path,&root.join("new-app")).is_err()); std::fs::remove_dir_all(root).unwrap();
 }
+#[test]
+fn an_appimage_does_not_update_itself() {
+    assert!(appimage_update_error(Some(std::ffi::OsStr::new("/home/me/SubCraft-0.6.0-linux-x86_64.AppImage"))).is_some_and(|e| e.contains("AppImage")));
+    assert_eq!(appimage_update_error(None), None);
+    assert_eq!(appimage_update_error(Some(std::ffi::OsStr::new(""))), None);
+}
