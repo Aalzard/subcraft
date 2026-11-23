@@ -40,6 +40,10 @@ guide walks you through the basics.
 **Coming next (not in 0.5.0):** the viewport will shade clear coat, sheen, anisotropy, subsurface,
 translucency and transmission, plus a displacement preview. It is waiting for testing on real GPUs.
 
+![Edge wear from low to full Wear and Spread on the generator test model: a thin unbroken line grows into chipped wear that covers most of the model](docs/images/readme/edge-wear-levels.png)
+
+*New Edge wear, from Wear 0.05 (left) to Wear 1 with full Spread (right).*
+
 ## Features
 
 ### Painting
@@ -49,12 +53,16 @@ translucency and transmission, plus a displacement preview. It is waiting for te
 - Paint in the 3D view or straight into the 2D UV view, across UDIM tiles as one surface.
 - Normal / height stamps from the shelf, and per-channel brush blending.
 
+![The 2D UV view with a layer stack: moss fill, generator and paint strokes](docs/images/readme/uv-2d-view.png)
+
 ### Layers, masks and generators
 - Paint layers, fill layers (uniform, procedural, image, mesh-map), folders, 32 blend modes, anchors.
 - Masks with stacked effects. **Generators**: Edge wear, Dirt, Cavity, Curvature, Ambient Occlusion,
   Directional, Position gradient, Cracks, Streaks, Scratches, 3D gradients and more.
 - **Filters** such as Blur, Sharpen, Highpass, Bevel, Levels, HSL, Gradient Map, Warp, Kuwahara and Quantize.
 - Fill or mask by part, UV island, object or ID colour; **I** isolates, **H** hides.
+
+![An Edge wear fill layer with Micro Details on: chipped edges on the 3D model, the mask in the 2D view and the generator settings in Properties](docs/images/readme/edge-wear-generator.png)
 
 ### Materials and shelf
 - Smart materials and smart masks, the downloadable **SubCraft Materials** pack, and `.scsmart` import / export.
@@ -65,6 +73,8 @@ translucency and transmission, plus a displacement preview. It is waiting for te
 - Normal (from a high poly, with cage), world normal, Ambient Occlusion, Curvature, Thickness, Position,
   ID, Height and Bent Normal, in the background with live results.
 - A Bake window that aligns the high poly to the low poly (offset, scale, rotate, auto-fit).
+
+![Baked Ambient Occlusion shown on the model, with the mesh maps listed in Texture Set Settings](docs/images/readme/bake-mesh-maps.png)
 
 ### GPU
 - **GPU layer compositing** for 2048 and larger texture sets, with automatic processor fallback.
@@ -78,12 +88,20 @@ translucency and transmission, plus a displacement preview. It is waiting for te
 - **Rendering mode** (F10): a path-traced preview in the 3D view.
 - **Render image** (up to 4096 px) and **Turntable** (PNG frames plus a looping GIF).
 
+![Display settings next to the 3D view: camera, colour LUT, bloom and glare. The dot before Focal length marks a setting changed from its default](docs/images/readme/display-settings.png)
+
+*Display settings. The dot before Focal length marks a changed setting; Ctrl+click it to reset.*
+
 ### Interface
 - **Three themes**: Dark, Light and a neutral grey **Substance Painter-style** theme (Settings > General,
   or `--theme dark|light|painter`).
 - Painter-style layout, a pen workspace layout, and Painter or Blender 3D navigation.
 - **Substance Painter shortcuts** preset; Help > Keyboard shortcuts lists the Painter equivalent of each.
 - English, Korean (한국어) and Traditional Chinese (繁體中文).
+
+| Dark | Light | Substance Painter-style |
+|---|---|---|
+| ![Dark theme](docs/images/readme/theme-dark.png) | ![Light theme](docs/images/readme/theme-light.png) | ![Substance Painter-style theme](docs/images/readme/theme-painter.png) |
 
 ### Import, export and automation
 - Import OBJ, glTF / GLB, FBX, USD, Alembic, PLY and STL. **Open Substance Painter `.spp` projects**
@@ -93,7 +111,7 @@ translucency and transmission, plus a displacement preview. It is waiting for te
 - `subcraft-mcp`: a headless [MCP](https://modelcontextprotocol.io) server so AI agents can texture
   models with the same engine ([details](apps/subcraft-mcp/README.md)).
 
-![The 2D UV view with a layer stack: moss fill, generator and paint strokes](docs/images/readme/uv-2d-view.png)
+![Export Textures window with the PBR Metallic Roughness template and the list of files to write](docs/images/readme/export-window.png)
 
 ## Performance
 
