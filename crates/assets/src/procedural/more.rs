@@ -10,6 +10,10 @@ fn edge_coat(r: &mut Recipe, ts: &TextureSet, name: &str, color: &str, roughness
     r.value(&l, BaseColor, color);
     r.value(&l, Roughness, roughness);
     r.bind_fx(&l, 0, Prop::Level, amount);
+    // A tighter, crisper line than the generator's default reach: at low amounts the default
+    // reads as a soft pale band around every rounded edge.
+    r.bind_fx(&l, 0, Prop::Spread, &format!("0.9 + {amount} * 1.6"));
+    r.bind_fx(&l, 0, Prop::Softness, "0.5");
     r.bind(&l, Prop::Opacity { channel: None }, &format!("saturate({amount} * 20)"));
     r.follow_pattern(&l);
     l
