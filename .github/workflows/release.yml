@@ -247,7 +247,11 @@ jobs:
       - name: Build and package
         run: ./scripts/build-linux.sh
       - name: Build AppImage
-        run: ./scripts/build-appimage.sh
+        run: |
+          # appimagetool checks the launcher with desktop-file-validate.
+          sudo apt-get update -q
+          sudo apt-get install -y -q desktop-file-utils
+          ./scripts/build-appimage.sh
       - name: Check Linux package
         run: |
           tar -xzf dist/*.tar.gz -C "$RUNNER_TEMP"

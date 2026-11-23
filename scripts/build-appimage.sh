@@ -1,7 +1,8 @@
 #!/bin/sh
 # Package SubCraft as dist/SubCraft-<version>-linux-<arch>.AppImage: one file that runs on most
 # Linux desktops without installing (chmod +x, then double-click or run it).
-# Needs target/dist/subcraft (cargo build --profile dist -p subcraft, or ./scripts/build-linux.sh).
+# Needs target/dist/subcraft (cargo build --profile dist -p subcraft, or ./scripts/build-linux.sh)
+# and desktop-file-validate (package desktop-file-utils).
 # Usage: ./scripts/build-appimage.sh
 # APPIMAGETOOL=/path/to/appimagetool uses that tool; otherwise a pinned release is downloaded
 # into target/appimage-tools and checked against its SHA-256 (x86_64 only).
@@ -10,6 +11,7 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$root"
 version="$(sed -n 's/^version *= *"\([^"]*\)".*/\1/p' Cargo.toml | head -n 1)"
 [ -n "$version" ] || { echo "could not read the version from Cargo.toml" >&2; exit 1; }
+command -v desktop-file-validate >/dev/null || { echo "appimagetool needs desktop-file-validate: install desktop-file-utils" >&2; exit 1; }
 [ -x target/dist/subcraft ] || { echo "target/dist/subcraft is missing: build it first (cargo build --locked --profile dist -p subcraft)" >&2; exit 1; }
 
 case "$(uname -m)" in
