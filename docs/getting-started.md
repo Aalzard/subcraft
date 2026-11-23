@@ -207,7 +207,10 @@ surface, upright the way you see it on screen, with the image's own proportions 
   decal slides along the surface and turns to face it.
 - **Turn or scale it:** switch the manipulator to Rotate or Scale, or type values in
   Properties under **3D projection**.
-- **More channels:** the decal fills Base Color only. Switch on Roughness, Height or others in
+- **Normal map decals:** an image whose name says what it is (`bolt_normal.png`,
+  `vent_height.png`) fills that channel instead of Base Color. A normal map decal is turned
+  with the decal, so its bumps stay lit from the right side at any angle.
+- **More channels:** the decal fills one channel. Switch on Roughness, Height or others in
   Properties like on any fill layer.
 - A decal does not show on surfaces that face away, and it stops at the depth of its box, so it
   never prints through to the far side of the model.

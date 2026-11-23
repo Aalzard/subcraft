@@ -8,6 +8,7 @@
 use std::path::Path;
 
 use glam::Vec3;
+use subcraft_assets::texture_maps::{Classified, MapConversion};
 use subcraft_core::ChannelKind;
 use subcraft_doc::{BackfaceCulling, FillChannel, FillSource, Layer, LayerContent, Projection, ProjectionMode, ProjectionTransform, ShapeCrop, UvWrap};
 
@@ -70,16 +71,23 @@ pub fn decal_projection(spot: DecalSpot, aspect: f32, size: f32, bounds_min: Vec
 
 impl Session {
     /// Add the image at `path` as a decal at `spot`: a new fill layer on the selected texture
-    /// set with only Base Color on, showing the image once where the user pointed, keeping the
-    /// image's proportions and transparency. One undo step; returns the layer name.
+    /// set showing the image once where the user pointed, keeping the image's proportions and
+    /// transparency. The image fills the channel its file name names (a normal map goes to
+    /// Normal, with the usual conversions), otherwise Base Color; every other channel is off.
+    /// One undo step; returns the layer name.
     pub fn add_decal_layer(&mut self, path: &Path, spot: DecalSpot) -> Result<String, String> {
-        if !self.selected_texture_set().has_channel(ChannelKind::BaseColor) {
-            return Err("this texture set has no Base Color channel".into());
-        }
         if !(spot.position.is_finite() && spot.normal.is_finite() && spot.up.is_finite()) {
             return Err("the decal position is not on the model".into());
         }
-        let resource = self.import_image(path)?;
+        let file = path.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+        let (channel, conversion) = match subcraft_assets::texture_maps::classify(file) {
+            Classified::Map(m) if self.selected_texture_set().has_channel(m.channel) => (m.channel, m.conversion),
+            _ => (ChannelKind::BaseColor, MapConversion::None),
+        };
+        if !self.selected_texture_set().has_channel(channel) {
+            return Err(format!("this texture set has no {} channel", channel.display_name()));
+        }
+        let resource = self.import_converted(path, conversion)?;
         let aspect = self.resources().iter().find(|r| r.id == resource).map_or(1.0, |r| r.bitmap.width as f32 / r.bitmap.height.max(1) as f32);
         let bounds = self.scene().mesh.bounds;
         let projection = decal_projection(spot, aspect, DECAL_SIZE, bounds.min, (bounds.max - bounds.min).max_element());
@@ -90,7 +98,7 @@ impl Session {
         for c in fill.channels.values_mut() {
             c.enabled = false;
         }
-        fill.channels.insert(ChannelKind::BaseColor, FillChannel::new(FillSource::Bitmap { resource }));
+        fill.channels.insert(channel, FillChannel::new(FillSource::Bitmap { resource }));
         fill.projection = projection;
         self.execute(Command::InsertLayer { layer: Box::new(layer), label: format!("Decal: {name}") }).map_err(|e| e.to_string())?;
         Ok(name)
