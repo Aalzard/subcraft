@@ -1,0 +1,184 @@
+//! Controls of a material filter (MatFinish / MatFX / PBR Validate). The caller dispatches the
+//! one existing `SetContentEffect` command.
+use egui::Ui;
+use subcraft_core::color::{linear3_to_srgb, srgb3_to_linear};
+use subcraft_doc::{MAX_MATERIAL_FILTER_SCALE, MaterialFilter};
+
+use crate::widgets::{check_row_reset, prop_row, prop_row_reset, slider_row_reset};
+
+/// Filters whose name contains every word of `query` (case-insensitive), in list order.
+pub fn search(query: &str) -> Vec<MaterialFilter> {
+    let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
+    MaterialFilter::ALL.into_iter().filter(|f| words.iter().all(|w| f.label().to_lowercase().contains(w))).collect()
+}
+
+fn unit(ui: &mut Ui, label: &str, value: &mut f32, default: f32) -> bool {
+    slider_row_reset(ui, label, value, default, |v| egui::Slider::new(v, 0.0..=1.0)).changed()
+}
+
+fn scale(ui: &mut Ui, label: &str, hover: &str, value: &mut f32, default: f32) -> bool {
+    slider_row_reset(ui, label, value, default, |v| egui::Slider::new(v, 1.0..=MAX_MATERIAL_FILTER_SCALE).logarithmic(true)).on_hover_text(hover).changed()
+}
+
+fn seed(ui: &mut Ui, value: &mut u32, default: u32) -> bool {
+    prop_row_reset(ui, "Seed", value, default, |ui, seed| {
+        let mut r = ui.add(egui::DragValue::new(seed).speed(1.0));
+        if ui.small_button("Random").on_hover_text("Pick a new random seed").clicked() {
+            *seed = super::properties::random_seed();
+            r.mark_changed();
+        }
+        r
+    })
+    .changed()
+}
+
+fn color(ui: &mut Ui, label: &str, value: &mut [f32; 3], default: [f32; 3]) -> bool {
+    let mut changed = false;
+    prop_row_reset(ui, label, value, default, |ui, c| {
+        let mut srgb = linear3_to_srgb(*c);
+        let r = crate::color_picker::swatch_srgb(ui, &mut srgb);
+        if r.changed() {
+            *c = srgb3_to_linear(srgb);
+            changed = true;
+        }
+        r
+    })
+    .changed()
+        || changed
+}
+
+/// The filter's rows; true when a parameter changed.
+pub fn editor(ui: &mut Ui, filter: &mut MaterialFilter) -> bool {
+    let mut changed = false;
+    prop_row(ui, "Filter", |ui| {
+        egui::ComboBox::from_id_salt("material_filter_kind").selected_text(filter.label()).show_ui(ui, |ui| {
+            for choice in MaterialFilter::ALL {
+                if ui.selectable_label(choice.label() == filter.label(), choice.label()).clicked() && choice.label() != filter.label() {
+                    *filter = choice;
+                    changed = true;
+                }
+            }
+        });
+    });
+    ui.weak(filter.hint());
+    let def = filter.default_like();
+    const ACROSS: &str = "How many of them fit across the model's longest side";
+    match (&mut *filter, def) {
+        (
+            MaterialFilter::Galvanized { scale: s, spangle, tint, roughness, roughness_variation, relief, seed: sd },
+            MaterialFilter::Galvanized { scale: d_s, spangle: d_spangle, tint: d_tint, roughness: d_roughness, roughness_variation: d_rv, relief: d_relief, seed: d_sd },
+        ) => {
+            changed |= scale(ui, "Spangle count", ACROSS, s, d_s);
+            changed |= unit(ui, "Spangle contrast", spangle, d_spangle);
+            changed |= unit(ui, "Zinc tint", tint, d_tint);
+            changed |= unit(ui, "Roughness", roughness, d_roughness);
+            changed |= unit(ui, "Roughness variation", roughness_variation, d_rv);
+            changed |= unit(ui, "Relief", relief, d_relief);
+            changed |= seed(ui, sd, d_sd);
+        }
+        (
+            MaterialFilter::Hammered { scale: s, depth, irregularity, roughness_variation, seed: sd },
+            MaterialFilter::Hammered { scale: d_s, depth: d_depth, irregularity: d_irr, roughness_variation: d_rv, seed: d_sd },
+        ) => {
+            changed |= scale(ui, "Dimple count", ACROSS, s, d_s);
+            changed |= unit(ui, "Depth", depth, d_depth);
+            changed |= unit(ui, "Irregularity", irregularity, d_irr);
+            changed |= unit(ui, "Roughness variation", roughness_variation, d_rv);
+            changed |= seed(ui, sd, d_sd);
+        }
+        (
+            MaterialFilter::PowderCoated { color: c, color_amount, roughness, orange_peel, grain, scale: s, seed: sd },
+            MaterialFilter::PowderCoated { color: d_c, color_amount: d_ca, roughness: d_roughness, orange_peel: d_peel, grain: d_grain, scale: d_s, seed: d_sd },
+        ) => {
+            changed |= color(ui, "Coat color", c, d_c);
+            changed |= unit(ui, "Color amount", color_amount, d_ca);
+            changed |= unit(ui, "Roughness", roughness, d_roughness);
+            changed |= unit(ui, "Orange peel", orange_peel, d_peel);
+            changed |= unit(ui, "Grain", grain, d_grain);
+            changed |= scale(ui, "Peel count", ACROSS, s, d_s);
+            changed |= seed(ui, sd, d_sd);
+        }
+        (
+            MaterialFilter::EdgeDamages { amount, spread, scale: s, depth, color: c, roughness, metallic, seed: sd },
+            MaterialFilter::EdgeDamages { amount: d_amount, spread: d_spread, scale: d_s, depth: d_depth, color: d_c, roughness: d_roughness, metallic: d_metallic, seed: d_sd },
+        ) => {
+            changed |= unit(ui, "Amount", amount, d_amount);
+            changed |= slider_row_reset(ui, "Spread", spread, d_spread, |v| egui::Slider::new(v, 0.0..=12.5).suffix("%")).on_hover_text("Reach from the edges, percent of the model's longest side").changed();
+            changed |= scale(ui, "Chip count", ACROSS, s, d_s);
+            changed |= unit(ui, "Depth", depth, d_depth);
+            ui.label(egui::RichText::new("Exposed material").strong());
+            changed |= color(ui, "Color", c, d_c);
+            changed |= unit(ui, "Roughness", roughness, d_roughness);
+            changed |= unit(ui, "Metallic", metallic, d_metallic);
+            changed |= seed(ui, sd, d_sd);
+        }
+        (
+            MaterialFilter::RustWeathering { amount, edges, cavities, drips, scale: s, relief, roughness, seed: sd },
+            MaterialFilter::RustWeathering { amount: d_amount, edges: d_edges, cavities: d_cav, drips: d_drips, scale: d_s, relief: d_relief, roughness: d_roughness, seed: d_sd },
+        ) => {
+            changed |= unit(ui, "Amount", amount, d_amount);
+            changed |= unit(ui, "Edges", edges, d_edges);
+            changed |= unit(ui, "Cavities", cavities, d_cav);
+            changed |= unit(ui, "Runs", drips, d_drips);
+            changed |= scale(ui, "Patch count", ACROSS, s, d_s);
+            changed |= unit(ui, "Relief", relief, d_relief);
+            changed |= unit(ui, "Roughness", roughness, d_roughness);
+            changed |= seed(ui, sd, d_sd);
+        }
+        (
+            MaterialFilter::PeelingPaint { amount, scale: s, edge_bias, thickness, curl, color: c, roughness, metallic, rust, seed: sd },
+            MaterialFilter::PeelingPaint { amount: d_amount, scale: d_s, edge_bias: d_edge, thickness: d_thick, curl: d_curl, color: d_c, roughness: d_roughness, metallic: d_metallic, rust: d_rust, seed: d_sd },
+        ) => {
+            changed |= unit(ui, "Amount", amount, d_amount);
+            changed |= scale(ui, "Flake count", ACROSS, s, d_s);
+            changed |= unit(ui, "Edge bias", edge_bias, d_edge);
+            changed |= unit(ui, "Paint thickness", thickness, d_thick);
+            changed |= unit(ui, "Curl", curl, d_curl);
+            ui.label(egui::RichText::new("Exposed material").strong());
+            changed |= color(ui, "Color", c, d_c);
+            changed |= unit(ui, "Roughness", roughness, d_roughness);
+            changed |= unit(ui, "Metallic", metallic, d_metallic);
+            changed |= unit(ui, "Rust", rust, d_rust);
+            changed |= seed(ui, sd, d_sd);
+        }
+        (
+            MaterialFilter::PbrValidate { strict, flag_partial_metal, flat },
+            MaterialFilter::PbrValidate { strict: d_strict, flag_partial_metal: d_partial, flat: d_flat },
+        ) => {
+            changed |= check_row_reset(ui, "", "Strict dark limit (50 sRGB)", strict, d_strict).changed();
+            changed |= check_row_reset(ui, "", "Flag partial Metallic", flag_partial_metal, d_partial).changed();
+            changed |= check_row_reset(ui, "", "Flat shading", flat, d_flat).on_hover_text("Sets Metallic 0 and Roughness 1 so reflections do not tint the result").changed();
+            ui.weak("Dielectrics: 30 to 240 sRGB. Metals: 180 sRGB or more. Put it on a Passthrough layer above everything, and hide it before exporting.");
+        }
+        _ => {}
+    }
+    changed
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn search_finds_filters_by_any_word() {
+        assert_eq!(search("").len(), MaterialFilter::ALL.len());
+        assert_eq!(search("rust").len(), 1);
+        assert_eq!(search("matfinish").len(), 3);
+        assert_eq!(search("MATFX peel").len(), 1);
+        assert!(search("nothing like this").is_empty());
+    }
+
+    /// Every filter's rows draw, and drawing alone never reports a change.
+    #[test]
+    fn every_editor_draws_without_changing_the_filter() {
+        for f in MaterialFilter::ALL {
+            let mut edited = f;
+            let mut changed = false;
+            let ctx = egui::Context::default();
+            let mut out = ctx.run_ui(egui::RawInput::default(), |ui| changed = editor(ui, &mut edited));
+            out.textures_delta.clear();
+            assert!(!changed, "{}", f.label());
+            assert_eq!(edited, f);
+        }
+    }
+}

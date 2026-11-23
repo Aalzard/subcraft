@@ -33,7 +33,7 @@ fn content_icon(kind: &ContentEffectKind) -> &'static str {
     match kind {
         ContentEffectKind::Paint { .. } => icons::PAINT_BRUSH,
         ContentEffectKind::Fill(_) => icons::PAINT_BUCKET,
-        ContentEffectKind::Levels { .. } | ContentEffectKind::Filter { .. } => icons::SLIDERS,
+        ContentEffectKind::Levels { .. } | ContentEffectKind::Filter { .. } | ContentEffectKind::Material(_) => icons::SLIDERS,
         ContentEffectKind::Anchor => icons::CROSSHAIR,
         ContentEffectKind::Generator(_) => icons::MAGIC_WAND,
     }
@@ -88,6 +88,14 @@ fn add_content_menu(ui: &mut Ui, layer: &Layer, channels: &[ChannelKind], active
                 else { channels.iter().copied().find(|k| filter.supports_channel(*k)) };
             if ui.add_enabled(channel.is_some(), egui::Button::new(filter.label())).clicked() {
                 cmds.push(Command::AddContentEffect { layer: layer.id, kind: ContentEffectKind::Filter { channel: channel.unwrap(), filter } });
+                ui.close();
+            }
+        }
+    });
+    ui.menu_button(format!("{}  Add material filter", icons::SLIDERS), |ui| {
+        for filter in subcraft_doc::MaterialFilter::ALL {
+            if ui.button(filter.label()).on_hover_text(filter.hint()).clicked() {
+                cmds.push(Command::AddContentEffect { layer: layer.id, kind: ContentEffectKind::Material(filter) });
                 ui.close();
             }
         }
@@ -167,7 +175,7 @@ pub(crate) fn add_effect_menu(ui: &mut Ui, layer: &Layer, mask_domain: bool, cha
 fn content_row_blend(e: &ContentEffect, active: ChannelKind) -> Option<(BlendMode, f32)> {
     let shown = match &e.kind {
         ContentEffectKind::Anchor => false,
-        ContentEffectKind::Levels { .. } | ContentEffectKind::Filter { .. } => e.applies_to(active),
+        ContentEffectKind::Levels { .. } | ContentEffectKind::Filter { .. } | ContentEffectKind::Material(_) => e.applies_to(active),
         ContentEffectKind::Fill(fill) => fill.channels.get(&active).is_some_and(|c| c.enabled),
         ContentEffectKind::Paint { .. } => true,
         ContentEffectKind::Generator(_) => active != ChannelKind::Normal,
@@ -790,6 +798,14 @@ fn content_editor(ui: &mut Ui, state: &mut UiState, layer: &Layer, e: &ContentEf
                 let index = subcraft_doc::AnchorIndex::build(&state.session.selected_texture_set().layers);
                 super::anchor::anchor_info(ui, &index, eff.id, false);
             }
+            ContentEffectKind::Material(filter) => {
+                let before = filter.label();
+                changed |= super::material_filter::editor(ui, filter);
+                // The effect is named after its filter until the user renames it.
+                if filter.label() != before && eff.name == before {
+                    eff.name = filter.label().into();
+                }
+            }
             ContentEffectKind::Filter { channel, filter } => {
                 hint(ui, "Adjusts the preceding effect stage. Blur filters soften coverage; others preserve it.");
                 changed |= super::filter::editor(ui, filter, Some(*channel));
@@ -817,7 +833,7 @@ fn content_editor(ui: &mut Ui, state: &mut UiState, layer: &Layer, e: &ContentEf
     if !matches!(eff.kind, ContentEffectKind::Anchor) { section(ui, "effect_blend", "Blending per channel", true, |ui| {
         hint(ui, "How this effect combines with the content below it, per channel.");
         for kind in &channels {
-            if matches!(eff.kind, ContentEffectKind::Filter { .. } | ContentEffectKind::Levels { .. }) && !eff.applies_to(*kind) { continue; }
+            if matches!(eff.kind, ContentEffectKind::Filter { .. } | ContentEffectKind::Levels { .. } | ContentEffectKind::Material(_)) && !eff.applies_to(*kind) { continue; }
             if let ContentEffectKind::Fill(fill) = &eff.kind && !fill.channels.get(kind).is_some_and(|c| c.enabled) { continue; }
             let Some(blend) = eff.blend.get_mut(kind) else { continue };
             ui.push_id(("effect_blend", *kind), |ui| {

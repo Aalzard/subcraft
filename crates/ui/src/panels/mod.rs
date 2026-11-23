@@ -10,6 +10,7 @@ pub mod log;
 pub mod id_colors;
 pub mod layers;
 pub mod mask;
+pub mod material_filter;
 pub mod parts;
 pub mod pen;
 pub mod properties;

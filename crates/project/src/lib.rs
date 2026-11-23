@@ -140,6 +140,7 @@ impl Writer {
                 ContentEffectKind::Filter { channel, filter } => ContentEffectKindV5::Filter { channel: *channel, filter: *filter },
                 ContentEffectKind::Anchor => ContentEffectKindV5::Anchor,
                 ContentEffectKind::Generator(g) => ContentEffectKindV5::Generator { generator: *g },
+                ContentEffectKind::Material(m) => ContentEffectKindV5::Material { filter: *m },
             },
             extra_channels: e.extra_channels.iter().copied().collect(),
         }
@@ -623,6 +624,10 @@ impl<R: Read + Seek> Loader<'_, R> {
                 Self::check_generator(generator, self.trusted)?;
                 ContentEffectKind::Generator(*generator)
             }
+            ContentEffectKindV5::Material { filter } => {
+                if !self.trusted && !filter.valid() { return Err(ProjectError::Invalid("invalid material filter".into())); }
+                ContentEffectKind::Material(*filter)
+            }
         };
         let blend = e.blend.iter().map(|b| (b.channel, ChannelBlend { mode: b.mode, opacity: b.opacity })).collect();
         let extra_channels = if matches!(kind, ContentEffectKind::Filter { .. }) { e.extra_channels.iter().copied().collect() } else { Default::default() };
@@ -684,7 +689,7 @@ impl<R: Read + Seek> Loader<'_, R> {
             }),
         };
         if matches!(content, LayerContent::Group(_)) && l.content_effects.iter().any(|e|
-            !matches!(e.kind, ContentEffectKindV5::Filter { .. } | ContentEffectKindV5::Levels { .. } | ContentEffectKindV5::Anchor)) {
+            !matches!(e.kind, ContentEffectKindV5::Filter { .. } | ContentEffectKindV5::Levels { .. } | ContentEffectKindV5::Anchor | ContentEffectKindV5::Material { .. })) {
             return Err(ProjectError::Invalid("source effects on a folder".into()));
         }
         let content_effects = l.content_effects.iter().map(|e| self.content_effect(e, res).map(Arc::new)).collect::<Result<_, _>>()?;

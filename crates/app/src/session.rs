@@ -2840,6 +2840,9 @@ impl Session {
         if let ContentEffectKind::Levels { levels, .. } = kind && !levels.valid() {
             return Err(CommandError::Invalid("Levels parameters are invalid".into()));
         }
+        if let ContentEffectKind::Material(m) = kind && !m.valid() {
+            return Err(CommandError::Invalid("Material filter parameters are invalid".into()));
+        }
         // The project file refuses these: accepted here, the project saved and never opened again.
         if let ContentEffectKind::Fill(f) = kind && !f.projection.valid() {
             return Err(CommandError::Invalid("Fill projection parameters are invalid".into()));

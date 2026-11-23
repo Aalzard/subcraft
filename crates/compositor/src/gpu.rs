@@ -299,7 +299,7 @@ fn translate_effect(e: &ContentEffect, kind: ChannelKind) -> Result<Option<GpuEf
     }
     let mode = crate::tile::effective_mode(blend.mode);
     let (k, p) = match &e.kind {
-        ContentEffectKind::Paint { .. } | ContentEffectKind::Fill(_) | ContentEffectKind::Generator(_) => return Err(()),
+        ContentEffectKind::Paint { .. } | ContentEffectKind::Fill(_) | ContentEffectKind::Generator(_) | ContentEffectKind::Material(_) => return Err(()),
         ContentEffectKind::Anchor => return Ok(None),
         ContentEffectKind::Levels { channel, levels } => {
             if *channel != kind || kind == ChannelKind::Normal {
@@ -427,7 +427,7 @@ impl Planner<'_> {
 }
 
 fn plan(ts: &TextureSet) -> Result<Plan, Unsupported> {
-    if crate::stages::has_spatial(&ts.layers) || crate::stages::has_compare(&ts.layers) {
+    if crate::stages::has_spatial(&ts.layers) || crate::stages::has_compare(&ts.layers) || crate::material::reads_across(&ts.layers) {
         return Err(Unsupported::Spatial);
     }
     let mut layers = Vec::new();

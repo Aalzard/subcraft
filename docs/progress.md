@@ -6032,3 +6032,33 @@ re-measured on a GPU. Not taken from his patch: the `SUBCRAFT_REPAINT_LOG` diagn
   the moved files themselves and the release-notes text in `release.yml`. The signing policy URL for the
   SignPath application is now `https://github.com/Aalzard/subcraft/blob/main/docs/CODE_SIGNING.md`.
 * Checked: every relative link in the touched Markdown files resolves (script over `](path)` targets).
+
+## Material filters: MatFinish / MatFX / PBR Validate (2026-11-23, branch `claude/project-thread-mnp3ay`)
+
+* New content effect `ContentEffectKind::Material(MaterialFilter)` (`doc/src/material_filter.rs`): Galvanized,
+  Hammered, Powder Coated, Edge Damages, Rust Weathering, Peeling Paint, PBR Validate. One effect rewrites Base
+  Color, Roughness, Metallic and Height of the content below; Normal is never written (relief goes to Height).
+  It is an adjustment, so it is allowed on folders and processes the stack below on a Passthrough layer.
+* Kernels in `materials/src/matfx.rs`: `pattern` (object-space gradient noise / 3D Voronoi, four values per
+  texel, cached per tile under `FieldKey::matfx`, keyed only by scale / seed so colour and amount drags reuse
+  it) and `respond` (cheap arithmetic to a `Response`). Rust and peeling thresholds are in z-scores of the
+  noise, so Amount is a known coverage. Edge Damages / the edge terms call the Edge wear generator
+  (`compositor/src/material.rs`); Rust reads baked AO.
+* PBR Validate reads Metallic for the Base Color: the stage graph gives the effect the Metallic content at the
+  same point of the stack (`metallic_below_effect`); sets with one use the graph path, build Metallic first,
+  skip the GPU plan and are excluded from channel-confined updates.
+* Project file: `material` content effect kind, additive, no schema bump (older versions refuse such a file
+  with an unknown-variant error rather than dropping the effect). MCP `describe` reports `material_filter`.
+* UI: effect menu > Add material filter; editor with reset-to-default on every row (`ui/panels/material_filter.rs`).
+  Not in the Shelf yet, and not on masks.
+* Tests: doc 3, materials 10 (`matfx`), app 7 (`tests/material_filters.rs`: channels written, hide = exact
+  restore, undo, amount 0 = no change, validate follows a Metallic-only edit, passthrough, project round trip),
+  ui 2.
+* Renders: `cargo run --release -p subcraft-app --example material_filter_sheet -- <prefix>` (CPU ray cast, GGX,
+  Height as bump with the viewport's 0.02 slope scale). Inspected `docs/screenshots/material-filters/*.png`
+  (before left / top, after right / bottom). Full composite at 2048² on 4 cores: 0.1 s (validate) to 2.1 s
+  (peeling paint).
+* Not done / honest limits: not run in the real app window (no display here), so the editor is only covered by
+  the egui draw test; no Painter side-by-side was possible (no Painter here), the looks were judged against
+  reference knowledge of the real materials; relief depends on UV texel density because the viewport bump is
+  per texel; Grinded / Rough / Raw finishes, Detail Edge Wear, Water Drops, Shut Line and HBAO are still missing.
