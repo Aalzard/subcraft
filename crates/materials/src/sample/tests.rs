@@ -68,7 +68,7 @@ fn triplanar_on_cube_face_equals_planar_sample() {
         low: ChannelValue::scalar(0.0),
         high: ChannelValue::scalar(1.0),
     };
-    let tri = Projection { mode: ProjectionMode::Triplanar, scale: [3.0, 3.0], ..Projection::default() };
+    let tri = Projection { mode: ProjectionMode::Triplanar, scale: [3.0, 3.0], triplanar_unique: false, ..Projection::default() };
     for (axis, n) in [(0u8, [1.0, 0.0, 0.0]), (1, [0.0, 1.0, 0.0]), (2, [0.0, 0.0, 1.0])] {
         let planar = Projection { mode: ProjectionMode::Planar, planar_axis: axis, ..tri };
         let g = tile_facing(&geo, n);
@@ -799,4 +799,39 @@ fn tile_texels_are_built_only_when_read_and_match() {
     }
     // Another tile is still not built.
     assert!(covered.iter().filter(|&&c| c != t).all(|&c| !geo.tile(c).texels_built()));
+}
+
+/// `triplanar_unique`: the six sides read different parts of the pattern. Without it the -X
+/// side shows the +X side mirrored and the X/Z blend is mirrored across the diagonal (the
+/// "butterfly" on a sphere). +Z stays where it was, and old projections are untouched.
+#[test]
+fn triplanar_unique_sides_are_not_mirror_images() {
+    let pattern = |q: [f32; 2]| {
+        let v = crate::noise::gradient(glam::Vec2::new(q[0], q[1]) * 5.0, 5, 7);
+        [v, v, v, 1.0]
+    };
+    let unique = Projection { mode: ProjectionMode::Triplanar, ..Projection::default() };
+    assert!(unique.triplanar_unique, "new projections get it");
+    let legacy = Projection { triplanar_unique: false, ..unique };
+    let at = |p: &Projection, pos: [f32; 3], n: [f32; 3]| sample_projected(p, [0.0; 2], pos, n, pattern)[0];
+    let (mut mirror_legacy, mut mirror_unique, mut diagonal_legacy, mut diagonal_unique, mut front) = (0.0f32, 0.0f32, 0.0f32, 0.0f32, 0.0f32);
+    let n = 400;
+    for i in 0..n {
+        let (y, z) = ((i % 20) as f32 / 20.0 + 0.013, (i / 20) as f32 / 20.0 + 0.027);
+        // The same height and depth on the +X and the -X side.
+        let (r, l) = ([0.9, y, z], [0.1, y, z]);
+        mirror_legacy += (at(&legacy, r, [1.0, 0.0, 0.0]) - at(&legacy, l, [-1.0, 0.0, 0.0])).abs();
+        mirror_unique += (at(&unique, r, [1.0, 0.0, 0.0]) - at(&unique, l, [-1.0, 0.0, 0.0])).abs();
+        // Two points mirrored across the x = z diagonal, each on its own side.
+        let (a, b) = ([0.9, y, z], [z, y, 0.9]);
+        diagonal_legacy += (at(&legacy, a, [1.0, 0.0, 0.0]) - at(&legacy, b, [0.0, 0.0, 1.0])).abs();
+        diagonal_unique += (at(&unique, a, [1.0, 0.0, 0.0]) - at(&unique, b, [0.0, 0.0, 1.0])).abs();
+        front += (at(&legacy, b, [0.0, 0.0, 1.0]) - at(&unique, b, [0.0, 0.0, 1.0])).abs();
+    }
+    assert_eq!((mirror_legacy, diagonal_legacy), (0.0, 0.0), "the old projection repeats the side mirrored");
+    assert!(mirror_unique / n as f32 > 0.1, "opposite sides differ: {}", mirror_unique / n as f32);
+    assert!(diagonal_unique / n as f32 > 0.1, "neighbouring sides differ: {}", diagonal_unique / n as f32);
+    assert_eq!(front, 0.0, "+Z is unchanged");
+    // The two sides of an axis meet where that axis has no weight, so the jump cannot show.
+    assert_eq!(triplanar_weights([0.0, 0.6, 0.8], unique.triplanar_sharpness)[0], 0.0);
 }
