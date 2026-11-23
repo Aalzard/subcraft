@@ -45,6 +45,20 @@ pub fn triplanar_weights(normal: [f32; 3], sharpness: f32) -> [f32; 3] {
     if sum <= 1e-12 { [1.0 / 3.0; 3] } else { w.map(|c| c / sum) }
 }
 
+/// Tri-planar coordinates of one of the six sides, moved so no two sides read the same part of
+/// the pattern (`Projection::triplanar_unique`). Without it the -X side shows the +X side's
+/// shapes mirrored, and the blend between two axes is mirrored across their diagonal: the
+/// "butterfly" on round shapes. A side's weight is 0 where its normal component changes sign,
+/// so the jump between the two sides of an axis is never visible. +Z is left where it was.
+#[inline]
+pub fn unique_side(q: [f32; 2], axis: u8, negative: bool) -> [f32; 2] {
+    const SHIFT: [[f32; 2]; 6] = [[0.37, 0.71], [0.83, 0.19], [0.59, 0.43], [0.11, 0.89], [0.0, 0.0], [0.47, 0.29]];
+    let s = SHIFT[(axis.min(2) as usize) * 2 + negative as usize];
+    // The far side also runs the other way, so an image reads the right way round from outside.
+    let u = if negative { 1.0 - q[0] } else { q[0] };
+    [u + s[0], q[1] + s[1]]
+}
+
 /// Sample `f` at a texel through `proj`, combining triplanar samples by weight.
 #[inline]
 pub fn sample_projected(
@@ -84,7 +98,11 @@ pub fn sample_projected_sc(
                 if wa <= 0.0 {
                     continue;
                 }
-                let s = f(proj.transform_2d_sc(sc, planar_coords(pos, axis)));
+                let mut q = planar_coords(pos, axis);
+                if proj.triplanar_unique {
+                    q = unique_side(q, axis, normal[axis as usize] < 0.0);
+                }
+                let s = f(proj.transform_2d_sc(sc, q));
                 for c in 0..4 {
                     out[c] += s[c] * wa;
                 }

@@ -406,8 +406,11 @@ fn embedded_value_types_have_stable_json() {
     let p = subcraft_doc::Projection::default();
     assert_eq!(
         serde_json::to_string(&p).unwrap(),
-        r#"{"mode":"uv","scale":[1.0,1.0],"rotation_deg":0.0,"offset":[0.0,0.0],"triplanar_sharpness":8.0,"planar_axis":2}"#
+        r#"{"mode":"uv","scale":[1.0,1.0],"rotation_deg":0.0,"offset":[0.0,0.0],"triplanar_sharpness":8.0,"planar_axis":2,"triplanar_unique":true}"#
     );
+    // The form written before `triplanar_unique` still reads, with the mirrored sides it had.
+    let old: subcraft_doc::Projection = serde_json::from_str(r#"{"mode":"uv","scale":[1.0,1.0],"rotation_deg":0.0,"offset":[0.0,0.0],"triplanar_sharpness":8.0,"planar_axis":2}"#).unwrap();
+    assert_eq!(old, subcraft_doc::Projection { triplanar_unique: false, ..p });
 }
 
 /// Rebuild a container, transforming `manifest.json` with `f`.
