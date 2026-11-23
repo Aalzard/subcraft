@@ -1124,4 +1124,9 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Screen-space reflections", "스크린 스페이스 반사"),
     ("Glossy surfaces reflect what the view shows of the model. Rough surfaces barely change; what is off screen is not reflected.", "광택 있는 표면이 뷰에 보이는 모델을 반사합니다. 거친 표면은 거의 변하지 않으며, 화면 밖의 것은 반사되지 않습니다."),
     ("How far reflection rays travel, in percent of the model size", "반사 광선이 이동하는 거리(모델 크기에 대한 백분율)"),
+    ("Subsurface scattering", "서브서피스 스캐터링"),
+    ("Light spreads under the surface of texture sets with a Scattering channel, softening shadows and tinting them with the scattering colour", "스캐터링 채널이 있는 텍스처 세트의 표면 아래로 빛이 퍼져 그림자를 부드럽게 하고 스캐터링 색으로 물들입니다"),
+    ("How far light scatters at full Scattering, in percent of the model size", "스캐터링이 최대일 때 빛이 퍼지는 거리(모델 크기에 대한 백분율)"),
+    ("Sample count", "샘플 수"),
+    ("Samples per pixel: more is smoother and slower", "픽셀당 샘플 수: 많을수록 부드럽지만 느립니다"),
 ];

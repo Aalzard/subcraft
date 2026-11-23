@@ -1124,4 +1124,9 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Screen-space reflections", "螢幕空間反射"),
     ("Glossy surfaces reflect what the view shows of the model. Rough surfaces barely change; what is off screen is not reflected.", "光滑表面會反射視圖中可見的模型。粗糙表面幾乎不變；畫面外的東西不會被反射。"),
     ("How far reflection rays travel, in percent of the model size", "反射光線行進的距離（模型大小的百分比）"),
+    ("Subsurface scattering", "次表面散射"),
+    ("Light spreads under the surface of texture sets with a Scattering channel, softening shadows and tinting them with the scattering colour", "光線會在具有散射通道的紋理集表面下擴散，柔化陰影並染上散射色"),
+    ("How far light scatters at full Scattering, in percent of the model size", "散射為最大時光線擴散的距離（模型大小的百分比）"),
+    ("Sample count", "取樣數"),
+    ("Samples per pixel: more is smoother and slower", "每像素取樣數：越多越平滑但越慢"),
 ];

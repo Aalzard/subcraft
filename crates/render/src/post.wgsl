@@ -27,6 +27,8 @@ struct Post {
 // texture, so the OpenGL backend would fail to build this pipeline (issue #91).
 @group(0) @binding(4) var depth_tex: texture_2d<f32>;
 @group(0) @binding(5) var ao_tex: texture_2d<f32>;
+// A fifth input for the passes that need one (subsurface scattering: the diffuse albedo).
+@group(0) @binding(6) var extra_tex: texture_2d<f32>;
 
 @vertex
 fn vs_full(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> {
@@ -481,4 +483,62 @@ fn fs_screen(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
         }
     }
     return vec4<f32>(color, 1.0);
+}
+
+// Screen-space subsurface scattering (Painter's project-wide SSS): the diffuse light arriving at
+// scattering pixels is spread over the surface around them, each colour channel as far as the
+// scattering colour lets it travel; the albedo applies after the spreading, so texture detail and
+// the specular part stay sharp. From the surface pass: `aux` rgb the diffuse light arriving and a
+// the scattering amount; `extra_tex` rgb the albedo over all the pixel's light (so a change of
+// arriving light becomes a change of the shown, tone-mapped colour in proportion); `ao_tex` gba the
+// scattering colour. params: x radius (scene units), y sample count, w 1 = orthographic;
+// misc.w proj[1][1].
+@fragment
+fn fs_sss(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
+    let px = vec2<i32>(frag.xy);
+    let dims = vec2<i32>(textureDimensions(src));
+    let color = textureLoad(src, px, 0).rgb;
+    let me = textureLoad(aux, px, 0);
+    let d = load_depth(px);
+    if (d >= 1.0 || me.a <= 0.0) {
+        return vec4<f32>(color, 1.0);
+    }
+    let pos = view_pos(px, d);
+    // World radius of this pixel's scattering, and in pixels.
+    let radius = p.params.x * me.a;
+    let per_px = select(-pos.z, 1.0, p.params.w > 0.5) * 2.0 / (p.size.y * p.misc.w);
+    let r_px = min(radius / max(per_px, 1e-8), 0.25 * p.size.y);
+    if (r_px < 0.75) {
+        return vec4<f32>(color, 1.0);
+    }
+    // Reach of each channel: the scattering colour (red travels furthest in skin).
+    let reach = max(textureLoad(ao_tex, px, 0).gba, vec3<f32>(0.02));
+    let sigma = reach * r_px * 0.5;
+    let inv2s2 = vec3<f32>(1.0) / (2.0 * sigma * sigma);
+    var sum = me.rgb;
+    var wsum = vec3<f32>(1.0);
+    let n = max(i32(p.params.y), 1);
+    let rot = gradient_noise(frag.xy) * 6.2831853;
+    for (var i = 0; i < n; i = i + 1) {
+        // Golden-angle spiral over the disc.
+        let k = (f32(i) + 0.5) / f32(n);
+        let ang = f32(i) * 2.39996323 + rot;
+        let off = vec2<f32>(cos(ang), sin(ang)) * sqrt(k) * r_px;
+        let q = clamp(px + vec2<i32>(round(off)), vec2<i32>(0), dims - vec2<i32>(1));
+        let other = textureLoad(aux, q, 0);
+        let dq = load_depth(q);
+        if (other.a <= 0.0 || dq >= 1.0) {
+            continue;
+        }
+        // Light does not scatter across a depth gap (another part in front or behind).
+        let gap = (view_pos(q, dq).z - pos.z) / max(radius, 1e-6);
+        let w = exp(-dot(off, off) * inv2s2) * exp(-gap * gap);
+        sum += other.rgb * w;
+        wsum += w;
+    }
+    let spread = sum / wsum;
+    // What the shown colour gains or loses per unit of arriving light, from its share of the
+    // pixel's light: proportional where the tone curve is, gentle where it compresses.
+    let gain = textureLoad(extra_tex, px, 0).rgb * max(color, vec3<f32>(0.002));
+    return vec4<f32>(max(color + gain * (spread - me.rgb) * me.a, vec3<f32>(0.0)), 1.0);
 }
