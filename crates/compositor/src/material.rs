@@ -136,8 +136,9 @@ pub(crate) fn apply(filter: &MaterialFilter, kind: ChannelKind, blend: ChannelBl
         (_, _, e) => e,
     };
     let occluded = occlusion(filter, tc);
+    let faces = matches!(filter, MaterialFilter::WaterDrops { .. });
     for (i, px) in content.iter_mut().enumerate() {
-        let surface = Surface { edge: edges.as_ref().map_or(0.0, |e| e[i]), occlusion: occluded.as_ref().map_or(0.0, |o| o[i]) };
+        let surface = Surface { edge: edges.as_ref().map_or(0.0, |e| e[i]), occlusion: occluded.as_ref().map_or(0.0, |o| o[i]), up: if faces { tc.geo.normal(i)[1] } else { 0.0 } };
         let r = matfx::respond(filter, &pattern[i * PATTERN..(i + 1) * PATTERN], surface);
         let src = *px;
         let new = match kind {

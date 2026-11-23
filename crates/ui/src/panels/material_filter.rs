@@ -186,6 +186,24 @@ pub fn editor(ui: &mut Ui, filter: &mut MaterialFilter) -> bool {
             changed |= unit(ui, "Metallic", metallic, d_metallic);
             changed |= seed(ui, sd, d_sd);
         }
+        (
+            MaterialFilter::WaterDrops { amount, scale: s, size_variation, direction, top, sides, underside, height, roughness, wet, seed: sd },
+            MaterialFilter::WaterDrops { amount: d_amount, scale: d_s, size_variation: d_size, direction: d_dir, top: d_top, sides: d_sides, underside: d_under, height: d_height, roughness: d_roughness, wet: d_wet, seed: d_sd },
+        ) => {
+            changed |= unit(ui, "Drops amount", amount, d_amount);
+            changed |= scale(ui, "Drop count", ACROSS, s, d_s);
+            changed |= unit(ui, "Size variation", size_variation, d_size);
+            changed |= unit(ui, "Direction intensity", direction, d_dir);
+            ui.label(egui::RichText::new("Where the drops sit").strong());
+            changed |= unit(ui, "Top", top, d_top);
+            changed |= unit(ui, "Sides", sides, d_sides);
+            changed |= unit(ui, "Underside", underside, d_under);
+            ui.label(egui::RichText::new("Water").strong());
+            changed |= unit(ui, "Drops height", height, d_height);
+            changed |= unit(ui, "Drops roughness", roughness, d_roughness);
+            changed |= unit(ui, "Wet darkening", wet, d_wet);
+            changed |= seed(ui, sd, d_sd);
+        }
         _ => {}
     }
     changed
@@ -201,6 +219,7 @@ mod tests {
         assert_eq!(search("rust").len(), 1);
         assert_eq!(search("matfinish").len(), 6);
         assert_eq!(search("edge").len(), 2);
+        assert_eq!(search("water").len(), 1);
         assert_eq!(search("MATFX peel").len(), 1);
         assert!(search("nothing like this").is_empty());
     }

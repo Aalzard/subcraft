@@ -27,6 +27,7 @@ const DIMPLE_HEIGHT: f32 = 0.30;
 const FILM_HEIGHT: f32 = 0.04;
 const PEEL_HEIGHT: f32 = 0.03;
 const GRAIN_HEIGHT: f32 = 0.012;
+const DROP_HEIGHT: f32 = 0.10;
 
 #[inline]
 fn hash3(x: i32, y: i32, z: i32, seed: u32) -> u32 {
@@ -270,6 +271,24 @@ pub fn pattern_on(filter: &MaterialFilter, position: [f32; 3], normal: [f32; 3])
             let pit = if unit(cell.id) > 0.7 { 1.0 - smoothstep(0.0, 0.16 + 0.14 * unit(cell.id.rotate_left(9)), cell.f1) } else { 0.0 };
             [big, mid, pit, vnoise(q * 40.0, seed ^ 0x99)]
         }
+        MaterialFilter::WaterDrops { scale, size_variation, direction, seed, .. } => {
+            // On a wall a drop sags: stretch it along Y by how vertical the surface is.
+            let wall = 1.0 - normal[1].abs().min(1.0);
+            let q = Vec3::new(p.x, p.y / (1.0 + 1.6 * direction * wall), p.z) * scale;
+            // A drop is the cut of a ball around a feature point with the surface: a disc. The
+            // slot is the distance in drop radii (1 = the rim), pushed to the rim where two
+            // cells meet so neighbours never share a straight cut.
+            let drop = |q: Vec3, seed: u32| {
+                let cell = voronoi(q, seed);
+                let size = unit(cell.id.rotate_left(13) ^ 0x243f_6a88);
+                let radius = 0.46 * (1.0 - 0.75 * size_variation * size);
+                let t = (cell.f1 / radius).max(1.0 - (cell.f2 - cell.f1) / 0.12);
+                (t.clamp(0.0, 1.5), unit(cell.id.wrapping_mul(0x2545_f491) ^ 0x9e37_79b9))
+            };
+            let (big, big_id) = drop(q + warp(q * 0.8, seed) * 0.25, seed);
+            let (small, small_id) = drop(q * 3.3, seed ^ 0x7d1);
+            [big, big_id, small, small_id]
+        }
         MaterialFilter::DetailEdgeWear { grunge_scale, seed, .. } => {
             let q = p * grunge_scale;
             [fbm(q + warp(q * 0.6, seed) * 0.7, 4, seed ^ 0x4e), fbm(q * 5.0, 3, seed ^ 0xb3), vnoise(q * 18.0, seed ^ 0x61), 0.0]
@@ -291,6 +310,7 @@ fn pattern_key(filter: &MaterialFilter) -> field::FieldKey {
         MaterialFilter::Rough { scale, grunge_scale, warp, seed, .. } => [9, scale.to_bits(), seed, grunge_scale.to_bits(), warp.to_bits()],
         MaterialFilter::Raw { scale, seed, .. } => [10, scale.to_bits(), seed, 0, 0],
         MaterialFilter::DetailEdgeWear { grunge_scale, seed, .. } => [11, grunge_scale.to_bits(), seed, 0, 0],
+        MaterialFilter::WaterDrops { scale, size_variation, direction, seed, .. } => [12, scale.to_bits(), seed, size_variation.to_bits(), direction.to_bits()],
     };
     field::FieldKey::matfx(bits)
 }
@@ -298,7 +318,7 @@ fn pattern_key(filter: &MaterialFilter) -> field::FieldKey {
 /// [`pattern`] of every texel of a tile ([`PATTERN`] values per texel), cached on the tile.
 pub fn pattern_tile(filter: &MaterialFilter, geo: &TileGeometry) -> std::sync::Arc<field::Field> {
     geo.fields.get_or_compute(pattern_key(filter), || {
-        let directional = matches!(filter, MaterialFilter::Rough { .. });
+        let directional = matches!(filter, MaterialFilter::Rough { .. } | MaterialFilter::WaterDrops { .. });
         let mut out = Vec::with_capacity(TILE_TEXELS * PATTERN);
         for i in 0..TILE_TEXELS {
             let normal = if directional { geo.normal(i) } else { [0.0; 3] };
@@ -315,6 +335,8 @@ pub struct Surface {
     pub edge: f32,
     /// 0 = open, 1 = fully occluded (1 - baked ambient occlusion).
     pub occlusion: f32,
+    /// How much the surface faces up: the Y of its object-space normal, -1..1 (0 when unknown).
+    pub up: f32,
 }
 
 /// What a filter does to one texel of the material below it.
@@ -504,6 +526,23 @@ pub fn respond(filter: &MaterialFilter, pat: &[f32], s: Surface) -> Response {
             r.roughness_add = (0.10 + skin * 0.28 + mid * 0.04 + fine * 0.08 + pit * 0.15) * intensity;
             r.height = (skin * 0.6 + mid * 0.12 + fine * 0.2 - pit * 1.2) * intensity * GRAIN_HEIGHT;
         }
+        MaterialFilter::WaterDrops { amount, top, sides, underside, height, roughness, wet, .. } => {
+            let up = s.up.clamp(-1.0, 1.0);
+            let facing = top * up.max(0.0) + underside * (-up).max(0.0) + sides * (1.0 - up.abs());
+            let share = amount * facing;
+            if share <= 0.0 {
+                return r;
+            }
+            // A lens: full height in the middle, a steep rim.
+            let lens = |t: f32, id: f32, share: f32| if id < share { (1.0 - t * t).max(0.0).sqrt() } else { 0.0 };
+            let (big, small) = (lens(pat[0], pat[1], share), lens(pat[2], pat[3], share * 0.7));
+            let dome = big.max(small * 0.3);
+            let m = smoothstep(0.0, 0.35, big.max(small));
+            r.height = dome * height * DROP_HEIGHT;
+            r.roughness = roughness;
+            r.roughness_alpha = m;
+            r.color_gain = 1.0 - wet * 0.3 * m;
+        }
         MaterialFilter::DetailEdgeWear { contrast, grunge, color, roughness, metallic, .. } => {
             let (big, fine, grain) = (z(pat[0]), zc(pat[1]), pat[2] - 0.5);
             let broken = s.edge.clamp(0.0, 1.0) * (1.0 - grunge * smoothstep(-0.8, 0.9, big + fine * 0.5));
@@ -682,10 +721,10 @@ mod tests {
         let f = MaterialFilter::ALL[3];
         for p in points().take(500) {
             let pat = pattern(&f, p);
-            let off = respond(&f, &pat, Surface { edge: 0.0, occlusion: 0.0 });
+            let off = respond(&f, &pat, Surface { edge: 0.0, occlusion: 0.0, up: 0.0 });
             assert_eq!((off.color_alpha, off.roughness_alpha, off.metallic_alpha, off.height), (0.0, 0.0, 0.0, 0.0));
             assert_eq!(off.base_color([0.2, 0.3, 0.4]), [0.2, 0.3, 0.4]);
-            let on = respond(&f, &pat, Surface { edge: 1.0, occlusion: 0.0 });
+            let on = respond(&f, &pat, Surface { edge: 1.0, occlusion: 0.0, up: 0.0 });
             assert_eq!((on.color_alpha, on.metallic_alpha, on.metal(0.0)), (1.0, 1.0, 1.0));
             assert!(on.height < 0.0, "chips are carved");
         }
@@ -796,6 +835,52 @@ mod tests {
         assert_eq!(pattern(&f, [0.3, 0.2, 0.1]), pattern_on(&f, [0.3, 0.2, 0.1], [0.0, 0.0, 1.0]));
     }
 
+    fn drops(amount: f32) -> MaterialFilter {
+        MaterialFilter::WaterDrops { amount, scale: 48.0, size_variation: 0.6, direction: 0.4, top: 1.0, sides: 0.8, underside: 0.15, height: 0.6, roughness: 0.04, wet: 0.3, seed: 1 }
+    }
+
+    #[test]
+    fn water_drops_are_raised_glossy_lenses_and_amount_sets_how_many() {
+        let top = Surface { edge: 0.0, occlusion: 0.0, up: 1.0 };
+        let wet = |f: &MaterialFilter, s: Surface| points().map(|p| respond(f, &pattern_on(f, p, [0.0, s.up, 0.0]), s).roughness_alpha).sum::<f32>() / 4000.0;
+        assert_eq!(wet(&drops(0.0), top), 0.0);
+        let (a, b, c) = (wet(&drops(0.2), top), wet(&drops(0.5), top), wet(&drops(1.0), top));
+        assert!(a > 0.01 && a < b && b < c && c < 0.8, "{a} {b} {c}: drops never cover everything");
+        // Fewer on walls, fewest under an overhang, by the three facing sliders.
+        let (side, under) = (wet(&drops(0.5), Surface { up: 0.0, ..top }), wet(&drops(0.5), Surface { up: -1.0, ..top }));
+        assert!(side < b && under < side * 0.6, "{b} {side} {under}");
+        let f = drops(0.6);
+        for p in points() {
+            let r = respond(&f, &pattern_on(&f, p, [0.0, 1.0, 0.0]), top);
+            // Water sits on the surface: never carved, never a colour or a metal of its own.
+            assert!(r.height >= 0.0 && r.height <= 0.06 + 1e-6);
+            assert_eq!((r.color_alpha, r.metallic_alpha), (0.0, 0.0));
+            if r.roughness_alpha > 0.99 {
+                assert!(r.rough(0.7) < 0.05 && r.height > 0.0 && r.color_gain < 1.0);
+            }
+            if r.roughness_alpha == 0.0 {
+                assert_eq!((r.height, r.color_gain, r.rough(0.7)), (0.0, 1.0, 0.7));
+            }
+        }
+    }
+
+    #[test]
+    fn water_drops_sag_on_walls() {
+        // Direction stretches the drops along Y on a vertical face and not on a floor: the drop
+        // slot changes more slowly along Y than along X there.
+        let f = MaterialFilter::WaterDrops { amount: 1.0, scale: 48.0, size_variation: 0.0, direction: 1.0, top: 1.0, sides: 1.0, underside: 1.0, height: 0.6, roughness: 0.04, wet: 0.3, seed: 1 };
+        let step = |normal: [f32; 3], d: [f32; 3]| points().map(|p| (pattern_on(&f, p, normal)[0] - pattern_on(&f, [p[0] + d[0], p[1] + d[1], p[2] + d[2]], normal)[0]).abs()).sum::<f32>() / 4000.0;
+        let e = 1e-3;
+        let wall = [0.0, 0.0, 1.0];
+        assert!(step(wall, [0.0, e, 0.0]) * 1.6 < step(wall, [e, 0.0, 0.0]), "{} {}", step(wall, [0.0, e, 0.0]), step(wall, [e, 0.0, 0.0]));
+        let floor = [0.0, 1.0, 0.0];
+        let (x, z) = (step(floor, [e, 0.0, 0.0]), step(floor, [0.0, 0.0, e]));
+        assert!((x / z - 1.0).abs() < 0.25, "{x} {z}");
+        let still = MaterialFilter::WaterDrops { amount: 1.0, scale: 48.0, size_variation: 0.0, direction: 0.0, top: 1.0, sides: 1.0, underside: 1.0, height: 0.6, roughness: 0.04, wet: 0.3, seed: 1 };
+        assert_ne!(pattern_key(&f), pattern_key(&still));
+        assert_eq!(pattern_key(&still), pattern_key(&MaterialFilter::WaterDrops { amount: 0.3, scale: 48.0, size_variation: 0.0, direction: 0.0, top: 0.5, sides: 1.0, underside: 1.0, height: 0.1, roughness: 0.2, wet: 0.0, seed: 1 }));
+    }
+
     #[test]
     fn rough_warp_and_grunge_scale_change_the_pattern_but_strengths_do_not() {
         let rough = |grunge_scale: f32, warp: f32, brushing: f32| MaterialFilter::Rough { scale: 60.0, grunge_scale, brushing, warp, grunge: 0.5, seed: 1 };
@@ -810,7 +895,7 @@ mod tests {
     #[test]
     fn detail_edge_wear_stays_on_the_edges_and_grunge_breaks_it_up() {
         let wear = |contrast: f32, grunge: f32| MaterialFilter::DetailEdgeWear { level: 0.5, detail: 0.7, contrast, grunge, grunge_scale: 24.0, color: [0.56, 0.57, 0.58], roughness: 0.3, metallic: 1.0, seed: 1 };
-        let on = Surface { edge: 1.0, occlusion: 0.0 };
+        let on = Surface { edge: 1.0, occlusion: 0.0, up: 0.0 };
         for p in points().take(500) {
             let f = wear(0.6, 0.5);
             let off = respond(&f, &pattern(&f, p), Surface::default());
@@ -824,7 +909,7 @@ mod tests {
         let (plain, broken) = (coverage(&wear(0.6, 0.0), on), coverage(&wear(0.6, 1.0), on));
         assert!(plain == 1.0 && broken > 0.15 && broken < 0.85, "{plain} {broken}");
         // Contrast hardens the border: fewer half-worn texels.
-        let half = |f: MaterialFilter| points().filter(|&p| (0.1..0.9).contains(&respond(&f, &pattern(&f, p), Surface { edge: 0.6, occlusion: 0.0 }).color_alpha)).count();
+        let half = |f: MaterialFilter| points().filter(|&p| (0.1..0.9).contains(&respond(&f, &pattern(&f, p), Surface { edge: 0.6, occlusion: 0.0, up: 0.0 }).color_alpha)).count();
         assert!(half(wear(1.0, 0.6)) * 2 < half(wear(0.0, 0.6)), "{} {}", half(wear(1.0, 0.6)), half(wear(0.0, 0.6)));
         // The wear is almost flat: far shallower than an Edge Damages chip.
         let f = wear(0.6, 0.0);
@@ -843,12 +928,12 @@ mod tests {
         let (a, b, c) = (coverage(&rust(0.2), open), coverage(&rust(0.5), open), coverage(&rust(1.0), open));
         assert!(a < b && b < c, "{a} {b} {c}");
         assert!(a < 0.2 && c > 0.8, "{a} {c}");
-        assert!(coverage(&rust(0.4), Surface { edge: 0.0, occlusion: 1.0 }) > coverage(&rust(0.4), open) + 0.2);
-        assert!(coverage(&rust(0.4), Surface { edge: 1.0, occlusion: 0.0 }) > coverage(&rust(0.4), open) + 0.1);
+        assert!(coverage(&rust(0.4), Surface { edge: 0.0, occlusion: 1.0, up: 0.0 }) > coverage(&rust(0.4), open) + 0.2);
+        assert!(coverage(&rust(0.4), Surface { edge: 1.0, occlusion: 0.0, up: 0.0 }) > coverage(&rust(0.4), open) + 0.1);
         // Rust is a rough dielectric with a brown-orange colour.
         let f = rust(1.0);
         for p in points().take(300) {
-            let r = respond(&f, &pattern(&f, p), Surface { edge: 1.0, occlusion: 1.0 });
+            let r = respond(&f, &pattern(&f, p), Surface { edge: 1.0, occlusion: 1.0, up: 0.0 });
             assert_eq!(r.metallic, 0.0);
             assert!(r.roughness > 0.7);
             assert!(r.color[0] > r.color[1] && r.color[1] > r.color[2], "{:?}", r.color);
@@ -862,7 +947,7 @@ mod tests {
         assert_eq!(coverage(&peel(0.0), open), 0.0);
         let (a, b, c) = (coverage(&peel(0.2), open), coverage(&peel(0.5), open), coverage(&peel(1.0), open));
         assert!(a < b && b < c && c > 0.9, "{a} {b} {c}");
-        assert!(coverage(&peel(0.3), Surface { edge: 1.0, occlusion: 0.0 }) > coverage(&peel(0.3), open) + 0.1);
+        assert!(coverage(&peel(0.3), Surface { edge: 1.0, occlusion: 0.0, up: 0.0 }) > coverage(&peel(0.3), open) + 0.1);
         let f = peel(0.5);
         let (mut peeled, mut lips) = (0, 0);
         for p in points() {

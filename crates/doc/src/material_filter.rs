@@ -167,10 +167,33 @@ pub enum MaterialFilter {
         metallic: f32,
         seed: u32,
     },
+    /// Water drops sitting on the surface: glossy raised lenses, big ones with fine droplets
+    /// between them.
+    WaterDrops {
+        /// Share of the possible drops that are there, 0..1.
+        amount: f32,
+        /// Big drops across the model.
+        scale: f32,
+        /// 0 = all drops one size, 1 = very mixed sizes.
+        size_variation: f32,
+        /// How much drops sag downward on walls, 0..1.
+        direction: f32,
+        /// Share of the drops kept on faces looking up, sideways and down, 0..1 each.
+        top: f32,
+        sides: f32,
+        underside: f32,
+        /// Drop relief written to Height, 0..1.
+        height: f32,
+        /// Roughness of the water.
+        roughness: f32,
+        /// How much a drop darkens the Base Color below, 0..1.
+        wet: f32,
+        seed: u32,
+    },
 }
 
 impl MaterialFilter {
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 12] = [
         Self::Galvanized { scale: 40.0, spangle: 0.6, tint: 0.7, roughness: 0.32, roughness_variation: 0.5, relief: 0.25, seed: 1 },
         Self::Hammered { scale: 26.0, depth: 0.5, irregularity: 0.6, roughness_variation: 0.4, seed: 1 },
         Self::PowderCoated { color: [0.05, 0.05, 0.055], color_amount: 0.0, roughness: 0.48, orange_peel: 0.4, grain: 0.3, scale: 140.0, seed: 1 },
@@ -182,6 +205,7 @@ impl MaterialFilter {
         Self::Rough { scale: 60.0, grunge_scale: 9.0, brushing: 0.6, warp: 0.3, grunge: 0.5, seed: 1 },
         Self::Raw { scale: 5.0, intensity: 0.6, seed: 1 },
         Self::DetailEdgeWear { level: 0.5, detail: 0.7, contrast: 0.6, grunge: 0.5, grunge_scale: 24.0, color: [0.56, 0.57, 0.58], roughness: 0.3, metallic: 1.0, seed: 1 },
+        Self::WaterDrops { amount: 0.5, scale: 48.0, size_variation: 0.6, direction: 0.4, top: 1.0, sides: 0.8, underside: 0.15, height: 0.6, roughness: 0.04, wet: 0.3, seed: 1 },
     ];
 
     pub fn label(self) -> &'static str {
@@ -197,6 +221,7 @@ impl MaterialFilter {
             Self::Rough { .. } => "MatFinish Rough",
             Self::Raw { .. } => "MatFinish Raw",
             Self::DetailEdgeWear { .. } => "MatFx Detail Edge Wear",
+            Self::WaterDrops { .. } => "MatFx Water Drops",
         }
     }
 
@@ -214,6 +239,7 @@ impl MaterialFilter {
             Self::Rough { .. } => "Coarse brush lines and dull grunge patches on the material below.",
             Self::Raw { .. } => "Mottled mill scale and pits, as on unfinished stock. Best on a metal fill.",
             Self::DetailEdgeWear { .. } => "A thin worn line on the mesh edges and on the Height and Normal detail below, exposing the material set here.",
+            Self::WaterDrops { .. } => "Glossy water drops on the material below, fewer on walls and undersides.",
         }
     }
 
@@ -226,7 +252,7 @@ impl MaterialFilter {
     /// the viewport and the export turn into normals.
     pub fn writes(self, kind: ChannelKind) -> bool {
         match self {
-            Self::Hammered { .. } | Self::Grinded { .. } | Self::Rough { .. } | Self::Raw { .. } => matches!(kind, ChannelKind::BaseColor | ChannelKind::Roughness | ChannelKind::Height),
+            Self::Hammered { .. } | Self::Grinded { .. } | Self::Rough { .. } | Self::Raw { .. } | Self::WaterDrops { .. } => matches!(kind, ChannelKind::BaseColor | ChannelKind::Roughness | ChannelKind::Height),
             Self::PbrValidate { flat, .. } => kind == ChannelKind::BaseColor || (flat && matches!(kind, ChannelKind::Roughness | ChannelKind::Metallic)),
             _ => matches!(kind, ChannelKind::BaseColor | ChannelKind::Roughness | ChannelKind::Metallic | ChannelKind::Height),
         }
@@ -269,7 +295,8 @@ impl MaterialFilter {
             | Self::Grinded { seed, .. }
             | Self::Rough { seed, .. }
             | Self::Raw { seed, .. }
-            | Self::DetailEdgeWear { seed, .. } => Some(seed),
+            | Self::DetailEdgeWear { seed, .. }
+            | Self::WaterDrops { seed, .. } => Some(seed),
             Self::PbrValidate { .. } => None,
         }
     }
@@ -301,6 +328,9 @@ impl MaterialFilter {
             Self::Rough { scale: s, grunge_scale, brushing, warp, grunge, seed: _ } => scale(s) && scale(grunge_scale) && unit(brushing) && unit(warp) && unit(grunge),
             Self::DetailEdgeWear { level, detail, contrast, grunge, grunge_scale, color: c, roughness, metallic, seed: _ } => {
                 unit(level) && unit(detail) && unit(contrast) && unit(grunge) && scale(grunge_scale) && color(c) && unit(roughness) && unit(metallic)
+            }
+            Self::WaterDrops { amount, scale: s, size_variation, direction, top, sides, underside, height, roughness, wet, seed: _ } => {
+                unit(amount) && scale(s) && unit(size_variation) && unit(direction) && unit(top) && unit(sides) && unit(underside) && unit(height) && unit(roughness) && unit(wet)
             }
         }
     }
