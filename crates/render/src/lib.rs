@@ -392,6 +392,8 @@ pub struct ViewportRenderer {
     opaque_params: wgpu::Buffer,
     /// Emission-only pass feeding the glow and glare effects.
     pipeline_emissive: wgpu::RenderPipeline,
+    /// Surface pass (normal, roughness, reflectance) for contact shadows and reflections.
+    pipeline_surface: wgpu::RenderPipeline,
     /// Environment drawn behind the model (4x MSAA and single-sample).
     pipeline_background: [wgpu::RenderPipeline; 2],
     grid: grid::GridPass,
@@ -640,6 +642,31 @@ impl ViewportRenderer {
             multiview_mask: None,
             cache: None,
         });
+        let pipeline_surface = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("surface pipeline"),
+            layout: Some(&layout),
+            vertex: wgpu::VertexState { module: &shader, entry_point: Some("vs_main"), compilation_options: Default::default(), buffers: &[Some(gpu_mesh::Vertex::layout())] },
+            primitive: wgpu::PrimitiveState { cull_mode: None, ..Default::default() },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: target::DEPTH_FORMAT,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(wgpu::CompareFunction::Less),
+                stencil: Default::default(),
+                bias: Default::default(),
+            }),
+            multisample: Default::default(),
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_surface"),
+                compilation_options: Default::default(),
+                targets: &[
+                    Some(wgpu::ColorTargetState { format: post::SURFACE_FORMAT, blend: None, write_mask: wgpu::ColorWrites::ALL }),
+                    Some(wgpu::ColorTargetState { format: post::KEY_SHARE_FORMAT, blend: None, write_mask: wgpu::ColorWrites::ALL }),
+                ],
+            }),
+            multiview_mask: None,
+            cache: None,
+        });
         // The environment behind the model: one triangle over the whole view, drawn before the
         // mesh without touching depth. It needs the globals only.
         let background_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -728,6 +755,7 @@ impl ViewportRenderer {
             pipeline_blend,
             opaque_params,
             pipeline_emissive,
+            pipeline_surface,
             pipeline_background,
             pipeline,
             pipeline_no_aa,
@@ -1443,7 +1471,8 @@ impl ViewportRenderer {
         let emission_on = has_emission && params.post.wants_emission() && params.bake_map.is_none();
         if (params.post.active() || emission_on) && !params.bake_overlay {
             let draw = shown_mesh.filter(|_| emission_on).map(|mesh| post::EmissionDraw { pipeline: &self.pipeline_emissive, mesh, materials: &self.materials, hidden: &self.hidden_slots });
-            self.post.run(device, queue, &mut encoder, target, &self.globals_bg, shown_mesh, draw.as_ref(), params.proj, &params.post);
+            let surface = shown_mesh.filter(|_| params.post.screen_space()).map(|mesh| post::EmissionDraw { pipeline: &self.pipeline_surface, mesh, materials: &self.materials, hidden: &self.hidden_slots });
+            self.post.run(device, queue, &mut encoder, target, &self.globals_bg, shown_mesh, draw.as_ref(), surface.as_ref(), params.view, params.light_dir, params.proj, &params.post);
         }
         if params.taa_frame > 0 {
             self.taa.encode(device, queue, &mut encoder, target, params.taa_frame);

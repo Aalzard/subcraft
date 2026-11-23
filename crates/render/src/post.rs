@@ -96,6 +96,16 @@ pub struct PostParams {
     pub dof_focus: f32,
     /// Depth of the sharp band around the focus distance, in scene units.
     pub dof_range: f32,
+    /// Contact shadows (0 = off, 1 = full): fine shadows of the key light where surfaces nearly
+    /// touch, traced in screen space; the shadow map is too coarse for them.
+    pub contact_shadows: f32,
+    /// How far contact shadows reach from the surface, in scene units.
+    pub contact_length: f32,
+    /// Screen-space reflections (0 = off, 1 = full): the model reflected in its own smooth and
+    /// metallic parts, where the environment map alone shows only the sky.
+    pub ssr: f32,
+    /// How far reflection rays travel, in scene units.
+    pub ssr_distance: f32,
 }
 
 impl Default for PostParams {
@@ -123,6 +133,10 @@ impl Default for PostParams {
             dof: 0.0,
             dof_focus: 1.0,
             dof_range: 0.2,
+            contact_shadows: 0.0,
+            contact_length: 0.05,
+            ssr: 0.0,
+            ssr_distance: 1.0,
         }
     }
 }
@@ -130,7 +144,12 @@ impl Default for PostParams {
 impl PostParams {
     /// Whether any effect needs extra passes over the scene.
     pub fn active(&self) -> bool {
-        self.bloom > 0.0 || self.ssao > 0.0 || self.dof > 0.0 || self.flare > 0.0 || self.grade.active()
+        self.bloom > 0.0 || self.ssao > 0.0 || self.dof > 0.0 || self.flare > 0.0 || self.grade.active() || self.screen_space()
+    }
+
+    /// Whether contact shadows or reflections need the surface pass.
+    pub fn screen_space(&self) -> bool {
+        self.contact_shadows > 0.0 || self.ssr > 0.0
     }
 
     /// Whether the emission glow / glare passes would add anything for a model with emission.
@@ -150,11 +169,17 @@ struct PostUniform {
     grade: [[f32; 4]; 4],
     /// Lens distortion: power, zoom, edge roundness, edge smoothness.
     lens: [f32; 4],
+    /// Projection (the screen-space effects project view positions back to pixels).
+    proj: [[f32; 4]; 4],
 }
 
 const AO_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R8Unorm;
 /// Emission and the effects buffer keep values above 1 until the final composite.
 pub(crate) const HDR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
+/// The surface pass (viewport.wgsl `fs_surface`): octahedral normal, roughness, reflectance.
+pub(crate) const SURFACE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
+/// The key light's share of each pixel's light (second output of the surface pass).
+pub(crate) const KEY_SHARE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R8Unorm;
 const UNIFORMS: usize = 56;
 const U_AO: usize = 0;
 const U_AO_H: usize = 1;
@@ -181,6 +206,7 @@ const U_FLARE_BRIGHT: usize = 45;
 const U_FLARE_H: usize = 46;
 const U_FLARE_V: usize = 47;
 const U_FLARE: usize = 48;
+const U_SCREEN: usize = 49;
 /// Streak stages: `U_STREAK + direction * STAGES + stage` (four directions, six stages).
 const U_STREAK: usize = 16;
 const STAGES: usize = 6;
@@ -199,6 +225,10 @@ struct Targets {
     glare: wgpu::Texture,
     streak: [wgpu::Texture; 2],
     fx: wgpu::Texture,
+    surface: wgpu::Texture,
+    key_share: wgpu::Texture,
+    /// The scene with contact shadows and reflections.
+    screen: wgpu::Texture,
 }
 
 /// What the emission pass draws.
@@ -228,6 +258,7 @@ pub(crate) struct PostPass {
     glare_src_pipeline: wgpu::RenderPipeline,
     ghost_add_pipeline: wgpu::RenderPipeline,
     grade_pipeline: wgpu::RenderPipeline,
+    screen_pipeline: wgpu::RenderPipeline,
     uniforms: Vec<wgpu::Buffer>,
     targets: Option<Targets>,
 }
@@ -373,6 +404,7 @@ impl PostPass {
             glare_src_pipeline: fullscreen("fs_glare_src", HDR_FORMAT),
             ghost_add_pipeline: fullscreen_blend("fs_ghost", HDR_FORMAT, additive),
             grade_pipeline: fullscreen("fs_grade", target::OUTPUT_FORMAT),
+            screen_pipeline: fullscreen("fs_screen", target::OUTPUT_FORMAT),
             layout,
             sampler,
             dummy_color,
@@ -402,6 +434,9 @@ impl PostPass {
             glare: texture(device, "post glare", half, HDR_FORMAT, rt),
             streak: [0, 1].map(|_| texture(device, "post streak", half, HDR_FORMAT, rt)),
             fx: texture(device, "post effects", half, HDR_FORMAT, rt),
+            surface: texture(device, "post surface", size, SURFACE_FORMAT, rt),
+            key_share: texture(device, "post key light share", size, KEY_SHARE_FORMAT, rt),
+            screen: texture(device, "post screen-space effects", size, target::OUTPUT_FORMAT, rt),
         });
     }
 
@@ -464,6 +499,9 @@ impl PostPass {
         globals_bg: &wgpu::BindGroup,
         mesh: Option<&gpu_mesh::GpuMesh>,
         emission: Option<&EmissionDraw>,
+        surface: Option<&EmissionDraw>,
+        view_matrix: Mat4,
+        light_dir: glam::Vec3,
         proj: Mat4,
         params: &crate::post::PostParams,
     ) {
@@ -480,6 +518,7 @@ impl PostPass {
                 misc,
                 grade: [[0.0; 4]; 4],
                 lens: [0.0; 4],
+                proj: proj.to_cols_array_2d(),
             };
             queue.write_buffer(&self.uniforms[index], 0, bytemuck::bytes_of(&u));
         };
@@ -489,8 +528,49 @@ impl PostPass {
         let (ao_a, ao_b, depth) = (view(&t.ao[0]), view(&t.ao[1]), view(&t.depth));
         let ssao = params.ssao > 0.0 && mesh.is_some();
         let dof = params.dof > 0.0 && mesh.is_some();
+        let screen = params.screen_space().then_some(surface).flatten();
+        let (surface_view, share_view) = (view(&t.surface), view(&t.key_share));
+        if let Some(draw) = screen {
+            // Surface prepass for contact shadows and reflections; its depth also serves AO and
+            // depth of field.
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("post surface prepass"),
+                color_attachments: &[
+                    Some(wgpu::RenderPassColorAttachment {
+                        view: &surface_view,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT), store: wgpu::StoreOp::Store },
+                    }),
+                    Some(wgpu::RenderPassColorAttachment {
+                        view: &share_view,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT), store: wgpu::StoreOp::Store },
+                    }),
+                ],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &depth,
+                    depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(1.0), store: wgpu::StoreOp::Store }),
+                    stencil_ops: None,
+                }),
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(draw.pipeline);
+            pass.set_bind_group(0, globals_bg, &[]);
+            pass.set_vertex_buffer(0, draw.mesh.vertices.slice(..));
+            pass.set_index_buffer(draw.mesh.indices.slice(..), wgpu::IndexFormat::Uint32);
+            for r in &draw.mesh.ranges {
+                if draw.hidden.contains(&r.material_slot) { continue; }
+                let Some(bg) = draw.materials.get(&r.material_slot).and_then(|m| m.bind_group.as_ref()) else { continue };
+                pass.set_bind_group(1, bg, &[]);
+                pass.draw_indexed(r.first_index..r.first_index + r.index_count, 0, 0..1);
+            }
+        }
         if let (true, Some(mesh)) = (ssao || dof, mesh) {
-            {
+            if screen.is_none() {
                 let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("post depth prepass"),
                     color_attachments: &[],
@@ -525,7 +605,24 @@ impl PostPass {
             t.scene.as_image_copy(),
             wgpu::Extent3d { width: size[0], height: size[1], depth_or_array_layers: 1 },
         );
-        let scene_sharp = view(&t.scene);
+        let mut scene_sharp = view(&t.scene);
+        if screen.is_some() {
+            // Key light direction in view space (towards the light).
+            let l = view_matrix.transform_vector3(light_dir).normalize_or(glam::Vec3::Z);
+            let u = PostUniform {
+                inv_proj: proj.inverse().to_cols_array_2d(),
+                params: [params.contact_shadows.clamp(0.0, 1.0), params.contact_length.max(1e-5), params.ssr.clamp(0.0, 1.0), ortho],
+                size: [size[0] as f32, size[1] as f32, 1.0 / size[0].max(1) as f32, 1.0 / size[1].max(1) as f32],
+                misc: [params.ssr_distance.max(1e-4), 0.0, 0.0, focal],
+                grade: view_matrix.to_cols_array_2d(),
+                lens: [l.x, l.y, l.z, 0.0],
+                proj: proj.to_cols_array_2d(),
+            };
+            queue.write_buffer(&self.uniforms[U_SCREEN], 0, bytemuck::bytes_of(&u));
+            let out = view(&t.screen);
+            Self::fullscreen(encoder, &self.screen_pipeline, &self.bind(device, U_SCREEN, Some(&scene_sharp), Some(&surface_view), Some(&depth), Some(&share_view)), &out);
+            scene_sharp = out;
+        }
         let dof_view = view(&t.dof);
         if dof {
             let radius = params.dof.clamp(0.0, 1.0) * 0.05 * size[1] as f32;
@@ -726,6 +823,7 @@ impl PostPass {
                     [flag(g.grain_colored), 1.0 / g.gamma.clamp(0.1, 10.0), g.sepia.clamp(0.0, 1.0), flag(g.color_correction)],
                 ],
                 lens: [g.lens_power, g.lens_zoom(), g.lens_roundness.clamp(0.0, 1.0), g.lens_smoothness.clamp(0.0, 1.0)],
+                proj: proj.to_cols_array_2d(),
             };
             queue.write_buffer(&self.uniforms[U_GRADE], 0, bytemuck::bytes_of(&u));
             Self::fullscreen(encoder, &self.grade_pipeline, &self.bind(device, U_GRADE, Some(&view(&t.graded)), None, None, None), &output.output_view);

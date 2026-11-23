@@ -730,6 +730,61 @@ fn fs_background(in: BgOut) -> @location(0) vec4<f32> {
     return vec4<f32>(mix(plain, env, g.background.a), 1.0);
 }
 
+// Octahedral encoding of a unit vector into [-1, 1]^2.
+fn oct_encode(n: vec3<f32>) -> vec2<f32> {
+    let p = n.xy / (abs(n.x) + abs(n.y) + abs(n.z));
+    if (n.z >= 0.0) {
+        return p;
+    }
+    return (vec2<f32>(1.0) - abs(p.yx)) * select(vec2<f32>(-1.0), vec2<f32>(1.0), p >= vec2<f32>(0.0));
+}
+
+struct SurfaceOut {
+    // Octahedral world normal, roughness, reflectance at normal incidence.
+    @location(0) surface: vec4<f32>,
+    // Share of the pixel's light that comes straight from the key light (what contact shadows
+    // may take away).
+    @location(1) key_share: vec4<f32>,
+};
+
+// Surface pass for the screen-space effects (contact shadows, reflections; post.rs): the shading
+// normal (normal map and height bump included), roughness, reflectance and the key light's
+// share of the lighting (simplified shading, shadow map included). Cut-out texels are left out.
+@fragment
+fn fs_surface(in: VsOut, @builtin(front_facing) front: bool) -> SurfaceOut {
+    if (surface_alpha(in.uv, in.clip.xy) < 0.5) {
+        discard;
+    }
+    let base = material_sample(t_base, albedo_samp, in.uv).rgb;
+    let rough = clamp(material_sample(t_rough, samp, in.uv).r, 0.04, 1.0);
+    let metal = clamp(material_sample(t_metal, samp, in.uv).r, 0.0, 1.0);
+    let ntex = material_sample(t_normal, samp, in.uv).rgb * 2.0 - 1.0;
+    let nts = combined_normal(ntex, height_bump(in.uv));
+    var n0 = normalize(in.normal);
+    if (!front) {
+        n0 = -n0;
+    }
+    let t = normalize(in.tangent.xyz - n0 * dot(n0, in.tangent.xyz));
+    let b = cross(n0, t) * in.tangent.w;
+    let n = normalize(t * nts.x + b * nts.y + n0 * nts.z);
+    let spec_level = clamp(material_sample(t_specular, samp, in.uv).r, 0.0, 1.0);
+    let f0 = mix(vec3<f32>(0.08 * spec_level), base, metal);
+    let diffuse = base * (1.0 - metal);
+    let v = normalize(g.eye.xyz - in.world);
+    let l = normalize(g.light_dir.xyz);
+    let nol = max(dot(n, l), 0.0);
+    let nov = max(dot(n, v), 1e-4);
+    let ao = mix(1.0, clamp(material_sample(t_ao, samp, in.uv).r, 0.0, 1.0), clamp(mat.shader.x, 0.0, 1.0));
+    let direct = (diffuse + f0) / PI * g.light_color.rgb * g.params.z * nol * shadow_visibility(in.world, n0, in.clip.xy);
+    let ambient = (diffuse * irradiance(n) * ao + env_brdf(f0, rough, nov) * environment(reflect(-v, n), l, rough)) * g.params.y;
+    let lum = vec3<f32>(0.2126, 0.7152, 0.0722);
+    let share = dot(direct, lum) / max(dot(direct + ambient, lum), 1e-5);
+    var out: SurfaceOut;
+    out.surface = vec4<f32>(oct_encode(n), rough, max(f0.r, max(f0.g, f0.b)));
+    out.key_share = vec4<f32>(clamp(share, 0.0, 1.0));
+    return out;
+}
+
 // Emission only, in linear HDR: feeds the glow and glare passes of the viewport.
 @fragment
 fn fs_emissive(in: VsOut) -> @location(0) vec4<f32> {
