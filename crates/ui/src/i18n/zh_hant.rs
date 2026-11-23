@@ -1149,4 +1149,8 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Open this version in place of the project; Save writes it back", "以此版本取代專案開啟；儲存時會寫回"),
     ("Versions are kept in", "版本保存於"),
     ("Each Save keeps the file it replaces in a folder next to the project (File > Version history).", "每次儲存都會將被取代的檔案保留在專案旁的資料夾中（檔案 > 版本記錄）。"),
+    ("Rectangle", "矩形"),
+    ("Ellipse", "橢圓"),
+    ("Rounded corners: 100 % rounds the shorter sides fully", "圓角：100 % 會讓較短的邊完全變圓"),
+    ("Soft edge inside the shape, as a share of half its shorter side", "形狀內側的柔和邊緣（佔較短邊一半的比例）"),
 ];

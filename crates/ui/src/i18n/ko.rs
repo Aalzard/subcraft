@@ -1149,4 +1149,8 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Open this version in place of the project; Save writes it back", "프로젝트 대신 이 버전을 엽니다. 저장하면 다시 기록됩니다"),
     ("Versions are kept in", "버전 보관 위치:"),
     ("Each Save keeps the file it replaces in a folder next to the project (File > Version history).", "저장할 때마다 대체되는 파일을 프로젝트 옆 폴더에 보관합니다(파일 > 버전 기록)."),
+    ("Rectangle", "사각형"),
+    ("Ellipse", "타원"),
+    ("Rounded corners: 100 % rounds the shorter sides fully", "둥근 모서리: 100 %는 짧은 변을 완전히 둥글게 만듭니다"),
+    ("Soft edge inside the shape, as a share of half its shorter side", "도형 안쪽의 부드러운 가장자리(짧은 변 절반에 대한 비율)"),
 ];
