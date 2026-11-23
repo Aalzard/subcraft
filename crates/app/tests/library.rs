@@ -141,3 +141,43 @@ fn broken_library_files_are_skipped() {
     assert_eq!(errors.len(), 1);
     std::fs::remove_dir_all(&dir).ok();
 }
+
+#[test]
+fn a_saved_smart_mask_keeps_the_blend_mode_and_opacity_of_its_effects() {
+    let dir = temp_dir("mask-blend");
+    let lib = UserLibrary::new(dir.join("Library"));
+    let (mut a, folder) = session_with_folder(&dir, 128);
+    let fill = a.selected_texture_set().find(folder).unwrap().children()[0].id;
+    // The Edges generator on top multiplies what is below it at 60%.
+    let mut top = (*a.selected_texture_set().find(fill).unwrap().mask.as_ref().unwrap().effects[1]).clone();
+    (top.blend, top.opacity) = (subcraft_doc::BlendMode::Multiply, 0.6);
+    a.execute(Command::SetMaskEffect { layer: fill, effect: top }).unwrap();
+    a.save_smart_mask(fill, &lib).unwrap();
+
+    let (loaded, errors) = load_smart_masks(&lib);
+    assert!(errors.is_empty(), "{errors:?}");
+    assert!(loaded[0].is_stacked());
+    for replace in [false, true] {
+        let mut b = Session::new(primitives::cube(1.0), 128);
+        b.execute(Command::AddLayer(NewLayer::Fill)).unwrap();
+        b.apply_smart_mask_with(&loaded[0], replace).unwrap();
+        let effects = &b.selected_layer().unwrap().mask.as_ref().unwrap().effects;
+        assert_eq!(effects.len(), 2);
+        assert_eq!((effects[0].blend, effects[0].opacity), (subcraft_doc::BlendMode::Normal, 1.0));
+        assert_eq!((effects[1].blend, effects[1].opacity), (subcraft_doc::BlendMode::Multiply, 0.6), "replace {replace}");
+        b.execute(Command::Undo).unwrap();
+        assert!(b.selected_layer().unwrap().mask.as_ref().is_none_or(|m| m.effects.is_empty()), "one undo step takes the smart mask off");
+    }
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn built_in_stacked_smart_masks_apply_with_their_blend_modes() {
+    let lib = subcraft_assets::Library::builtin();
+    let old = lib.smart_masks.iter().find(|m| m.name == "Paint Old").unwrap();
+    let mut s = Session::new(primitives::cube(1.0), 128);
+    s.execute(Command::AddLayer(NewLayer::Fill)).unwrap();
+    s.apply_smart_mask(old).unwrap();
+    let blends: Vec<_> = s.selected_layer().unwrap().mask.as_ref().unwrap().effects.iter().map(|e| e.blend).collect();
+    assert_eq!(blends, [subcraft_doc::BlendMode::Normal, subcraft_doc::BlendMode::Subtract, subcraft_doc::BlendMode::Subtract]);
+}

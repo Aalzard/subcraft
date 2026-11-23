@@ -33,6 +33,7 @@ pub(crate) fn mirrored_layer(cmd: &Command) -> Option<LayerId> {
         | Command::ApplyMaskEffects { layer, .. }
         | Command::InsertMaskEffects { layer, .. }
         | Command::ReplaceMaskEffects { layer, .. }
+        | Command::ApplyMaskStack { layer, .. }
         | Command::AddContentEffect { layer, .. }
         | Command::InsertContentEffect { layer, .. }
         | Command::RemoveContentEffect { layer, .. }
@@ -163,6 +164,12 @@ pub(crate) fn partner_command(cmd: &Command, source: &Layer, partner: &Layer, re
         Command::ReplaceMaskEffects { effects, label, .. } => {
             Command::ReplaceMaskEffects { layer: l, effects: effects.iter().map(|k| retarget_mask_kind(k, resolution)).collect(), label: label.clone() }
         }
+        Command::ApplyMaskStack { effects, replace, label, .. } => Command::ApplyMaskStack {
+            layer: l,
+            effects: effects.iter().map(|e| subcraft_doc::MaskEffect { kind: retarget_mask_kind(&e.kind, resolution), ..e.clone() }).collect(),
+            replace: *replace,
+            label: label.clone(),
+        },
         Command::RemoveMaskEffect { effect, .. } => Command::RemoveMaskEffect { layer: l, effect: m(*effect)? },
         Command::SetMaskEffect { effect, .. } => {
             let id = m(effect.id)?;

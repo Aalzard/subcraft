@@ -272,7 +272,7 @@ fn the_built_in_grunge_is_a_texture_under_grunges_and_goes_into_masks() {
 
 /// Share of the preview's texels a generator reveals (its layer shows through the mask).
 fn generator_coverage(scene: &PreviewScene, kind: subcraft_doc::GeneratorKind) -> f32 {
-    let hidden = scene.composite(mask_preview_layer(scene.texture_set(), &[]));
+    let hidden = scene.composite(mask_preview_layer(scene.texture_set(), Vec::new()));
     let shown = scene.composite(generator_preview_layer(scene.texture_set(), kind));
     let (a, b) = (hidden.channel(ChannelKind::BaseColor).unwrap(), shown.channel(ChannelKind::BaseColor).unwrap());
     let n = a.width();

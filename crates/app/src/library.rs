@@ -93,6 +93,7 @@ fn smart_mask_from(f: Fragment, path: PathBuf) -> Result<SmartMask, String> {
         id: AssetId::from_name(&format!("smart_mask/user/{}", path.display())),
         name: display_name(&path, &f.name),
         resources: resources_of(&f),
+        blends: f.mask_effects.iter().map(|e| (e.blend, e.opacity)).collect(),
         effects: f.mask_effects.into_iter().map(|e| e.kind).collect(),
         user_file: Some(path),
     })

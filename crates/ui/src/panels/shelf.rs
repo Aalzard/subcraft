@@ -2538,7 +2538,7 @@ pub(crate) fn generate_one_thumbnail(state: &mut UiState, ctx: &egui::Context) {
         }),
         ShelfTab::SmartMasks => lib.smart_masks.iter().find(|m| missing(&m.id)).map(|m| {
             let m = m.clone();
-            Job::Layer(m.id, SceneKind::BakedSphere, Box::new(move |ts| mask_preview_layer(ts, &m.effects)), Vec::new())
+            Job::Layer(m.id, SceneKind::BakedSphere, Box::new(move |ts| mask_preview_layer(ts, m.stack())), Vec::new())
         }),
         ShelfTab::Environments => lib.environments.iter().position(|e| missing(&e.id)).map(Job::Environment),
     });
@@ -2641,7 +2641,7 @@ fn preview_layer(mut layer: Layer) -> Layer {
 }
 
 /// White paint shown through a smart mask (for mask thumbnails).
-fn mask_preview_layer(ts: &subcraft_doc::TextureSet, effects: &[subcraft_doc::MaskEffectKind]) -> Layer {
+fn mask_preview_layer(ts: &subcraft_doc::TextureSet, effects: Vec<MaskEffect>) -> Layer {
     let mut l = Layer::new_fill("Mask preview", ts);
     if let LayerContent::Fill(f) = &mut l.content {
         for c in f.channels.values_mut() {
@@ -2650,7 +2650,7 @@ fn mask_preview_layer(ts: &subcraft_doc::TextureSet, effects: &[subcraft_doc::Ma
         f.channels.insert(ChannelKind::BaseColor, FillChannel::new(FillSource::uniform(ChannelValue::rgb(0.95, 0.55, 0.2))));
     }
     let mut mask = Mask::new(ts.resolution, false);
-    mask.effects = effects.iter().cloned().map(|k| Arc::new(MaskEffect::new(k))).collect();
+    mask.effects = effects.into_iter().map(Arc::new).collect();
     l.mask = Some(mask);
     l
 }
@@ -2675,7 +2675,7 @@ fn material_filter_preview_layer(ts: &subcraft_doc::TextureSet, filter: subcraft
 
 /// A generator alone in a black mask over a plain colour (for generator thumbnails).
 fn generator_preview_layer(ts: &subcraft_doc::TextureSet, kind: subcraft_doc::GeneratorKind) -> Layer {
-    mask_preview_layer(ts, &[subcraft_doc::MaskEffectKind::Generator(subcraft_doc::Generator::new(kind))])
+    mask_preview_layer(ts, vec![MaskEffect::new(subcraft_doc::MaskEffectKind::Generator(subcraft_doc::Generator::new(kind)))])
 }
 
 /// "Open library folder" (creates it on first use so the user can drop files in).
