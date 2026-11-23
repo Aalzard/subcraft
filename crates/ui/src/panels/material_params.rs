@@ -48,6 +48,8 @@ pub(crate) fn section(ui: &mut Ui, layer: &Layer, cmds: &mut Vec<Command>) {
             if m.params.is_empty() {
                 hint(ui, tr("Turn settings of this layer, or of the layers inside it, into sliders shown here. A folder with sliders works like a smart material you can keep adjusting."));
             }
+            // Names of what the bindings drive, for the edit mode only.
+            let targets = if editing { exposable(layer) } else { Vec::new() };
             let mut group = "";
             for p in &m.params {
                 if p.group != group {
@@ -57,7 +59,7 @@ pub(crate) fn section(ui: &mut Ui, layer: &Layer, cmds: &mut Vec<Command>) {
                     }
                 }
                 if editing {
-                    if let Some(change) = edit_row(ui, id, m, p) {
+                    if let Some(change) = edit_row(ui, id, m, p, &targets) {
                         next = Some(Some(change));
                     }
                 } else if let Some(v) = row(ui, &p.label, &p.tip, p.kind, p.value) {
@@ -145,7 +147,7 @@ fn add_menu(ui: &mut Ui, layer: &Layer, m: &MaterialControls) -> Option<Material
 /// A parameter's row while editing: its name, the slider's range, and remove. The definition
 /// after a change. Name and range are committed when the field is left or the drag ends, so
 /// one edit is one undo step.
-fn edit_row(ui: &mut Ui, layer: LayerId, m: &MaterialControls, p: &Param) -> Option<MaterialControls> {
+fn edit_row(ui: &mut Ui, layer: LayerId, m: &MaterialControls, p: &Param, targets: &[Exposable]) -> Option<MaterialControls> {
     let mut out = None;
     let name_id = egui::Id::new(("material-param-name", layer, &p.id));
     let range_id = egui::Id::new(("material-param-range", layer, &p.id));
@@ -183,6 +185,101 @@ fn edit_row(ui: &mut Ui, layer: LayerId, m: &MaterialControls, p: &Param) -> Opt
             }
         }
     });
+    // What the parameter drives: one line per setting, with the formula that turns the
+    // parameter (named by its id) into the setting's value.
+    let name_of = |layer: LayerId, effect: Option<subcraft_core::EffectId>, prop: subcraft_doc::Prop| {
+        targets.iter().find(|e| e.layer == layer && e.effect == effect && e.prop == prop).map(|e| match &e.effect_name {
+            Some(fx) => format!("{}  \u{203a}  {}  \u{203a}  {}", e.layer_name, fx, e.label),
+            None => format!("{}  \u{203a}  {}", e.layer_name, e.label),
+        })
+    };
+    for index in m.bindings_of(&p.id) {
+        let b = &m.bindings[index];
+        let formula_id = egui::Id::new(("material-binding-formula", layer, index));
+        let error_id = formula_id.with("error");
+        ui.horizontal(|ui| {
+            ui.add_space(12.0);
+            let name = name_of(b.layer, b.effect, b.prop).unwrap_or_else(|| tr("(setting no longer exists)").to_string());
+            ui.add(egui::Label::new(egui::RichText::new(name).small()).truncate());
+        });
+        ui.horizontal(|ui| {
+            ui.add_space(12.0);
+            let mut text = ui.data(|d| d.get_temp::<String>(formula_id)).unwrap_or_else(|| b.formula.clone());
+            let r = ui
+                .add(egui::TextEdit::singleline(&mut text).desired_width((ui.available_width() - 40.0).max(60.0)).font(egui::TextStyle::Monospace))
+                .on_hover_text(format!("{} {}", tr("Formula for this setting. Use the parameter by its id:"), p.id));
+            if r.lost_focus() {
+                let mut c = m.clone();
+                match c.set_formula(index, &text) {
+                    Ok(true) => {
+                        out = Some(c);
+                        ui.data_mut(|d| {
+                            d.remove::<String>(formula_id);
+                            d.remove::<String>(error_id);
+                        });
+                    }
+                    Ok(false) => ui.data_mut(|d| {
+                        d.remove::<String>(formula_id);
+                        d.remove::<String>(error_id);
+                    }),
+                    // Kept as typed, with the reason below, until it is fixed.
+                    Err(why) => ui.data_mut(|d| {
+                        d.insert_temp(formula_id, text);
+                        d.insert_temp(error_id, why);
+                    }),
+                }
+            } else if r.has_focus() {
+                ui.data_mut(|d| d.insert_temp(formula_id, text));
+            }
+            if icon_button(ui, icons::X, tr("Stop driving this setting")).clicked() {
+                let mut c = m.clone();
+                if c.remove_binding(index) {
+                    out = Some(c);
+                }
+            }
+        });
+        if let Some(why) = ui.data(|d| d.get_temp::<String>(error_id)) {
+            ui.horizontal(|ui| {
+                ui.add_space(12.0);
+                ui.add(egui::Label::new(egui::RichText::new(why).small().color(ui.visuals().error_fg_color)).wrap());
+            });
+        }
+    }
+    let free: Vec<&Exposable> = targets.iter().filter(|e| m.can_link(&p.id, e)).collect();
+    if !free.is_empty() {
+        ui.horizontal(|ui| {
+            ui.add_space(12.0);
+            ui.menu_button(tr("Also drive..."), |ui| {
+                egui::ScrollArea::vertical().max_height(420.0).show(ui, |ui| {
+                    let mut i = 0;
+                    while i < free.len() {
+                        let (first, mut end) = (free[i], i + 1);
+                        while end < free.len() && free[end].layer == first.layer && free[end].effect == first.effect {
+                            end += 1;
+                        }
+                        let title = match &first.effect_name {
+                            Some(fx) => format!("{}  \u{203a}  {}", first.layer_name, fx),
+                            None => first.layer_name.clone(),
+                        };
+                        ui.menu_button(title, |ui| {
+                            for e in &free[i..end] {
+                                if ui.button(&e.label).clicked() {
+                                    let mut c = m.clone();
+                                    if c.link(&p.id, e) {
+                                        out = Some(c);
+                                    }
+                                    ui.close();
+                                }
+                            }
+                        });
+                        i = end;
+                    }
+                });
+            })
+            .response
+            .on_hover_text(tr("Make this parameter drive one more setting. It keeps the value it has now until the parameter moves"));
+        });
+    }
     out
 }
 

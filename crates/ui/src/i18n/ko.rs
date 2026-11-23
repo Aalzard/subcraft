@@ -1092,4 +1092,9 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Lowest value of the slider", "슬라이더의 최솟값"),
     ("Highest value of the slider", "슬라이더의 최댓값"),
     ("Remove this parameter. The layers keep the look they have now", "이 매개변수를 제거합니다. 레이어는 현재 모습을 유지합니다"),
+    ("(setting no longer exists)", "(설정이 더 이상 없습니다)"),
+    ("Formula for this setting. Use the parameter by its id:", "이 설정의 수식입니다. 매개변수는 다음 id로 사용하세요:"),
+    ("Stop driving this setting", "이 설정을 더 이상 구동하지 않음"),
+    ("Also drive...", "다른 설정도 구동..."),
+    ("Make this parameter drive one more setting. It keeps the value it has now until the parameter moves", "이 매개변수가 설정을 하나 더 구동하게 합니다. 매개변수를 움직이기 전까지 현재 값을 유지합니다"),
 ];

@@ -6146,3 +6146,18 @@ re-measured on a GPU. Not taken from his patch: the `SUBCRAFT_REPAINT_LOG` diagn
 * Not seen in a real window: the tests place and click the widgets but nobody has looked at the result.
 * Limit: the panel only makes one-to-one bindings (one slider, one property). Formulas that drive several
   properties from one slider exist in the format but have no editor.
+
+## Procedural materials: one parameter, several settings (2026-11-23, branch `claude/project-thread-l9014a`)
+
+* Engine (`crates/doc/src/material/author.rs`): `bindings_of`, `can_link` (same kind of value only), `link`
+  (formula is a ratio for sliders and colours, an offset for seeds, so the property keeps its value while the
+  parameter is at its default), `set_formula` (refused with the parser's reason when it does not evaluate),
+  `remove_binding`.
+* UI: in the gear mode each parameter lists what it drives (layer, effect, setting), with the formula in a text
+  field (applied when the field is left; an error stays under the field) and an X to stop driving it, plus an
+  "Also drive..." menu of compatible, not yet driven settings.
+* Ran: `cargo test -p subcraft-assets` (new `a_parameter_can_drive_several_properties`: on all 11 built-ins and
+  each kind of control, link every compatible property, nothing moves, wrong kinds and bad formulas are
+  refused); `crates/ui/tests/material_params.rs` click-through extended (Also drive > layer > Metallic gives
+  one parameter with two bindings and both formulas drawn); `cargo test -p subcraft-ui --lib`.
+* Not seen in a real window.

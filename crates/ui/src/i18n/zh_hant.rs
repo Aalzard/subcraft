@@ -1092,4 +1092,9 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Lowest value of the slider", "滑桿的最小值"),
     ("Highest value of the slider", "滑桿的最大值"),
     ("Remove this parameter. The layers keep the look they have now", "移除此參數。圖層會保留目前的外觀"),
+    ("(setting no longer exists)", "（設定已不存在）"),
+    ("Formula for this setting. Use the parameter by its id:", "此設定的公式。請用參數的 id 來引用："),
+    ("Stop driving this setting", "停止驅動此設定"),
+    ("Also drive...", "同時驅動..."),
+    ("Make this parameter drive one more setting. It keeps the value it has now until the parameter moves", "讓此參數再驅動一個設定。在參數移動之前，它會保留目前的值"),
 ];

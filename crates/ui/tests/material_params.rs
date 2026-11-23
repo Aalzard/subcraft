@@ -112,6 +112,17 @@ fn a_setting_of_a_fill_layer_is_exposed_from_the_panel_and_removed_again() {
     let gear = find(&out, subcraft_ui::icons::GEAR).expect("a layer with parameters has the edit toggle");
     let out = click(&ctx, &mut state, width, gear.center());
     assert!(find(&out, "Use as defaults").is_some() && find(&out, "Remove all").is_some(), "edit mode shows its tools");
+    // One slider, a second setting: Also drive... > the layer > Metallic.
+    let also = find(&out, "Also drive").expect("edit mode offers to drive more settings");
+    let out = click(&ctx, &mut state, width, also.center());
+    let submenu = texts(&out).into_iter().filter(|(t, r)| *t == layer.name && r.top() > also.top()).map(|(_, r)| r).last().expect("the layer is listed");
+    let out = click(&ctx, &mut state, width, submenu.center());
+    let entry = texts(&out).into_iter().filter(|(t, _)| t == "Metallic").map(|(_, r)| r).last().expect("its Metallic can be driven too");
+    let out = click(&ctx, &mut state, width, entry.center());
+    let linked = state.session.selected_layer().unwrap().clone();
+    let lm = linked.material.as_ref().unwrap();
+    assert_eq!((lm.params.len(), lm.bindings.len()), (1, 2), "one parameter drives two settings");
+    assert!(texts(&out).iter().filter(|(t, _)| t.contains(&lm.params[0].id)).count() >= 2, "both formulas are shown");
     let bin = find(&out, subcraft_ui::icons::TRASH).expect("each parameter can be removed");
     click(&ctx, &mut state, width, bin.center());
     assert!(state.session.selected_layer().unwrap().material.is_none());
