@@ -8,6 +8,12 @@ pub const MAX_SEGMENT_SAMPLES: usize = 1 << 18;
 /// Largest smoothing weight (1 would freeze the brush).
 pub const MAX_SMOOTHING: f32 = 0.95;
 
+/// Speed-adaptive smoothing: cursor steps of this many view pixels or more get the least
+/// smoothing ([`FAST_SMOOTHING_SHARE`] of the set amount).
+pub const FAST_STEP_PX: f32 = 24.0;
+/// Share of the smoothing left on the fastest strokes.
+pub const FAST_SMOOTHING_SHARE: f32 = 0.2;
+
 /// One resampled stamp position.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PathSample {
@@ -29,11 +35,13 @@ pub struct ScreenPath {
     /// Latest raw cursor, the target of the catch-up end.
     cursor: Option<Vec2>,
     dir: Vec2,
+    /// Speed-adaptive smoothing: the cursor step (in path units) that counts as fast.
+    fast_step: Option<f32>,
 }
 
 impl Default for ScreenPath {
     fn default() -> Self {
-        Self { last: None, residual: 0.0, lazy: None, smooth: None, cursor: None, dir: Vec2::X }
+        Self { last: None, residual: 0.0, lazy: None, smooth: None, cursor: None, dir: Vec2::X, fast_step: None }
     }
 }
 
@@ -46,8 +54,14 @@ impl ScreenPath {
     /// cursor samples (0 = off). With `lazy_px > 0` the brush hangs on a rope of that length: it
     /// trails the (smoothed) cursor and only moves once the rope is taut.
     pub fn push(&mut self, cursor: Vec2, spacing_px: f32, lazy_px: f32, smoothing: f32, out: &mut Vec<PathSample>) {
+        let step = self.cursor.map_or(0.0, |c| c.distance(cursor));
         self.cursor = Some(cursor);
-        let w = smoothing.clamp(0.0, MAX_SMOOTHING);
+        let mut w = smoothing.clamp(0.0, MAX_SMOOTHING);
+        if let Some(fast) = self.fast_step.filter(|f| *f > 0.0) {
+            // Slow, shaky movement keeps the full smoothing; a fast sweep is meant as drawn.
+            let t = (step / fast).clamp(0.0, 1.0);
+            w *= 1.0 - t * (1.0 - FAST_SMOOTHING_SHARE);
+        }
         let cursor = if w > 0.0 {
             let avg = *self.smooth.get_or_insert(cursor);
             let avg = avg + (cursor - avg) * (1.0 - w);
@@ -68,6 +82,12 @@ impl ScreenPath {
             cursor
         };
         self.walk(target, spacing_px, out);
+    }
+
+    /// Speed-adaptive smoothing: `fast_step` is the cursor step (in the units of the pushed
+    /// positions) at which smoothing drops to its least; `None` keeps it constant.
+    pub fn set_adaptive(&mut self, fast_step: Option<f32>) {
+        self.fast_step = fast_step;
     }
 
     /// Catch-up end: the brush glides the rest of the way to the last cursor position, so a
@@ -207,6 +227,34 @@ mod tests {
         let end = out2.last().unwrap().pos;
         assert!((end - Vec2::new(60.0, 4.0)).length() < 1.0, "catch-up ends at the cursor, got {end}");
         assert_eq!(run(true).0, out2, "deterministic");
+    }
+
+    #[test]
+    fn adaptive_smoothing_follows_fast_sweeps_and_steadies_slow_jitter() {
+        // How far behind the cursor the brush is after a run of equal steps.
+        let lag = |step: f32, adaptive: bool| {
+            let mut p = ScreenPath::new();
+            p.set_adaptive(adaptive.then_some(FAST_STEP_PX));
+            let mut out = Vec::new();
+            for i in 0..=10 {
+                p.push(Vec2::new(i as f32 * step, 0.0), 0.5, 0.0, 0.8, &mut out);
+            }
+            10.0 * step - out.last().unwrap().pos.x
+        };
+        // Fast: much less lag than with constant smoothing.
+        assert!(lag(40.0, true) < 0.35 * lag(40.0, false), "{} vs {}", lag(40.0, true), lag(40.0, false));
+        // Slow (sub-pixel jitter scale): about the same smoothing as constant.
+        assert!((lag(1.0, true) - lag(1.0, false)).abs() < 0.2 * lag(1.0, false));
+        // Slow zig-zag stays damped.
+        let mut p = ScreenPath::new();
+        p.set_adaptive(Some(FAST_STEP_PX));
+        let mut out = Vec::new();
+        for x in 0..=40 {
+            let y = if x % 2 == 0 { 1.5 } else { -1.5 };
+            p.push(Vec2::new(x as f32 * 0.5, y), 0.25, 0.0, 0.8, &mut out);
+        }
+        let max_y = out.iter().filter(|s| s.pos.x > 8.0).map(|s| s.pos.y.abs()).fold(0.0, f32::max);
+        assert!(max_y < 0.5, "slow jitter is damped: {max_y}");
     }
 
     #[test]

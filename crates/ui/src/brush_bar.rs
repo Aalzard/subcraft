@@ -273,11 +273,7 @@ fn stroke_options(ui: &mut Ui, options: &mut StrokeOptions, view: &mut crate::vi
             radial_options(ui, options);
             symmetry_display(ui, view);
             ui.separator();
-            ui.label(RichText::new("Lazy Mouse").color(TEXT_DIM()));
-            ui.spacing_mut().slider_width = 155.0;
-            let r = ui.add(widgets::typed_slider(egui::Slider::new(&mut options.lazy_distance_px, 0.0..=100.0).suffix(" px")));
-            widgets::ctrl_reset(ui, r, &mut options.lazy_distance_px, 0.0);
-            ui.label(RichText::new("Distance the brush trails the cursor · 0 px = off").small().color(TEXT_DIM()));
+            stabilizer(ui, options);
             ui.separator();
             display_options(ui, view);
         });
@@ -695,5 +691,66 @@ mod fill_symmetry_tests {
         assert_eq!(super::toggled_fill_symmetry(off, saved), (radial, None));
         // Nothing remembered: a mirror across X through the middle.
         assert_eq!(super::toggled_fill_symmetry(FillSymmetry::None, None).0, FillSymmetry::mirror());
+    }
+}
+
+/// Stabilizer presets: smoothing, lazy mouse distance (px), catch-up, speed-adaptive.
+pub(crate) const STABILIZER_PRESETS: [(&str, f32, f32, bool, bool, &str); 5] = [
+    ("Off", 0.0, 0.0, false, false, "The brush follows the cursor exactly"),
+    ("Light", 0.4, 0.0, true, true, "Takes the edge off hand jitter"),
+    ("Medium", 0.7, 0.0, true, true, "Smooth lines; fast sweeps still follow the hand"),
+    ("Strong", 0.88, 0.0, true, true, "Very smooth, slow lines for clean curves and lettering"),
+    ("Rope", 0.3, 30.0, true, false, "The brush hangs on a 30 px rope and only moves once it is taut"),
+];
+
+/// The preset the options match, if any.
+pub(crate) fn stabilizer_preset(options: &StrokeOptions) -> Option<&'static str> {
+    STABILIZER_PRESETS.iter().find(|p| (options.smoothing - p.1).abs() < 1e-3 && (options.lazy_distance_px - p.2).abs() < 1e-3
+        && options.catch_up == p.3 && options.adaptive_smoothing == p.4).map(|p| p.0)
+}
+
+/// Stabilizer settings in the stroke options menu: presets, smoothing, lazy mouse, catch-up.
+fn stabilizer(ui: &mut Ui, options: &mut StrokeOptions) {
+    ui.label(RichText::new(crate::i18n::tr("Stabilizer")).color(TEXT_DIM()));
+    let current = stabilizer_preset(options);
+    ui.horizontal_wrapped(|ui| {
+        for &(name, smoothing, lazy, catch_up, adaptive, tip) in &STABILIZER_PRESETS {
+            if ui.selectable_label(current == Some(name), name).on_hover_text(tip).clicked() {
+                options.smoothing = smoothing;
+                options.lazy_distance_px = lazy;
+                options.catch_up = catch_up;
+                options.adaptive_smoothing = adaptive;
+            }
+        }
+    });
+    ui.spacing_mut().slider_width = 155.0;
+    let mut smoothing = options.smoothing * 100.0;
+    let r = ui.add(widgets::typed_slider(egui::Slider::new(&mut smoothing, 0.0..=subcraft_paint::MAX_SMOOTHING * 100.0).max_decimals(0).suffix(" % smoothing")))
+        .on_hover_text(crate::i18n::tr("Averages the cursor path: higher is smoother and trails further behind"));
+    if r.changed() {
+        options.smoothing = smoothing / 100.0;
+    }
+    widgets::ctrl_reset(ui, r, &mut options.smoothing, 0.0);
+    let r = ui.add(widgets::typed_slider(egui::Slider::new(&mut options.lazy_distance_px, 0.0..=100.0).suffix(" px lazy mouse")));
+    widgets::ctrl_reset(ui, r, &mut options.lazy_distance_px, 0.0);
+    ui.label(RichText::new("Distance the brush trails the cursor · 0 px = off").small().color(TEXT_DIM()));
+    ui.checkbox(&mut options.adaptive_smoothing, crate::i18n::tr("Follow speed"))
+        .on_hover_text(crate::i18n::tr("Full smoothing on slow, shaky movement; little on fast sweeps"));
+    ui.checkbox(&mut options.catch_up, crate::i18n::tr("Catch up at the end"))
+        .on_hover_text(crate::i18n::tr("When you lift the pen, the brush finishes the line to where the cursor stopped"));
+}
+
+#[cfg(test)]
+mod stabilizer_tests {
+    use super::*;
+
+    #[test]
+    fn presets_are_recognised_and_distinct() {
+        for p in STABILIZER_PRESETS {
+            let o = StrokeOptions { smoothing: p.1, lazy_distance_px: p.2, catch_up: p.3, adaptive_smoothing: p.4, ..Default::default() };
+            assert_eq!(stabilizer_preset(&o), Some(p.0));
+        }
+        assert_eq!(stabilizer_preset(&StrokeOptions::default()), Some("Off"), "the default is Off");
+        assert_eq!(stabilizer_preset(&StrokeOptions { smoothing: 0.5, ..Default::default() }), None);
     }
 }

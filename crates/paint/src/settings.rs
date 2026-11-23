@@ -662,6 +662,8 @@ pub struct StrokeOptions {
     pub smoothing: f32,
     /// When the stroke ends, glide the brush the rest of the way to the last cursor position.
     pub catch_up: bool,
+    /// Smoothing follows the speed: full on slow, shaky movement, little on fast sweeps.
+    pub adaptive_smoothing: bool,
     /// Mirror planes (X, Y, Z) through the mesh bounds center.
     pub symmetry: [bool; 3],
     /// Mirror plane positions: offset of each plane from the mesh bounds center along its own

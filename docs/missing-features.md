@@ -12,7 +12,7 @@ a planning list, not a promise.
   Substance graphs.
 
 ### Painting
-- Stroke stabilizer extras: post-smoothing, speed-adaptive smoothing, smoothing preset buttons.
+- Stroke stabilizer post-smoothing (redrawing the finished stroke along a smoothed path).
 
 ### Layers and masks
 - Layer links across texture sets (one layer driving several sets).
@@ -55,6 +55,7 @@ a planning list, not a promise.
 - Mesh formats: OBJ, glTF, FBX, USD, Alembic.
 - Liquify (Push mode of the Smudge tool), Heal (Clone tool option), rectangle / ellipse Shape fill tool.
 - Bake presets (built-in and saved to the library).
+- Stabilizer presets (Off / Light / Medium / Strong / Rope), speed-adaptive smoothing, catch-up toggle.
 - Version history: each Save keeps the file it replaces; File > Version history restores one.
 - Turntable as GIF, camera bookmarks, environment rotation and blur.
 - Shelf tags and saved searches; weave, rivet, brick and fingerprint content.

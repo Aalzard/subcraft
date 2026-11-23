@@ -1153,4 +1153,10 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Ellipse", "橢圓"),
     ("Rounded corners: 100 % rounds the shorter sides fully", "圓角：100 % 會讓較短的邊完全變圓"),
     ("Soft edge inside the shape, as a share of half its shorter side", "形狀內側的柔和邊緣（佔較短邊一半的比例）"),
+    ("Averages the cursor path: higher is smoother and trails further behind", "平均游標路徑：數值越高越平滑，落後也越多"),
+    ("Catch up at the end", "結束時追上"),
+    ("Follow speed", "依速度調整"),
+    ("Full smoothing on slow, shaky movement; little on fast sweeps", "緩慢抖動的移動完全平滑；快速揮動時少量平滑"),
+    ("Stabilizer", "防手震"),
+    ("When you lift the pen, the brush finishes the line to where the cursor stopped", "抬起筆時，筆刷會把線畫完到游標停下的位置"),
 ];

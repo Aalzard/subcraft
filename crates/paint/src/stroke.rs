@@ -388,6 +388,7 @@ impl Stroke {
     pub fn add_point(&mut self, ts: &mut TextureSet, ctx: &PaintContext, cursor: Vec2) -> Result<Vec<usize>, PaintError> {
         let mut samples = Vec::new();
         let spacing = self.spacing_px(ctx);
+        self.path.set_adaptive(self.options.adaptive_smoothing.then_some(crate::path::FAST_STEP_PX));
         self.path.push(cursor, spacing, self.options.lazy_distance_px, self.options.smoothing, &mut samples);
         self.paint_samples(ts, ctx, &samples)
     }
@@ -399,6 +400,7 @@ impl Stroke {
     pub fn add_points(&mut self, ts: &mut TextureSet, ctx: &PaintContext, cursors: &[Vec2]) -> Result<Vec<usize>, PaintError> {
         let mut samples = Vec::new();
         let spacing = self.spacing_px(ctx);
+        self.path.set_adaptive(self.options.adaptive_smoothing.then_some(crate::path::FAST_STEP_PX));
         for &cursor in cursors {
             self.path.push(cursor, spacing, self.options.lazy_distance_px, self.options.smoothing, &mut samples);
         }
@@ -439,6 +441,7 @@ impl Stroke {
         if line {
             self.path.line_to(uv * res, spacing, &mut samples);
         } else {
+            self.path.set_adaptive(self.options.adaptive_smoothing.then_some(crate::path::FAST_STEP_PX * texels_per_px.max(1e-3)));
             self.path.push(uv * res, spacing, self.options.lazy_distance_px * texels_per_px.max(0.0), self.options.smoothing, &mut samples);
         }
         self.paint_uv_samples(ts, ctx, &samples, radius_uv)
