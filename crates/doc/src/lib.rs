@@ -37,7 +37,7 @@ pub use warp::{DEFAULT_WARP_CELLS, MAX_WARP_SIDE, WarpGrid};
 pub use fill::{BackfaceCulling, ProjectionTransform, FillSymmetry, FillFiltering, FillSource, ShapeCrop, TRIPLANAR_HARD, UvWrap, ProceduralKind, ProceduralParams, ScratchParams, ScratchPreset, Projection, ProjectionMode, SurfaceScale};
 pub use filter::{BevelCorner, BevelDirection, BevelParts, GrayParts, CurvePreset, OutlineParts, FULL_SUPPORT, Filter, FlipMode, HslMode, MirrorCorner, MirrorMode, RepeatMode, ThresholdMode, Gradient, GradientStop, MAX_GRADIENT_STOPS, MAX_MEDIAN_RADIUS, MAX_KUWAHARA_RADIUS, MAX_KUWAHARA_SHARPNESS, MAX_KUWAHARA_TENSOR, MAX_KUWAHARA_ANISOTROPY, DitherPattern, MAX_QUANTIZE_COLORS, MAX_QUANTIZE_SMOOTHING, MAX_MOSAIC_SIZE, MAX_POSTERIZE_LEVELS, MAX_WARP_SCALE, MAX_SLOPE_SAMPLES, GRADIENT_PRESETS, OutlinePosition};
 pub use history::{History, HistoryEntry};
-pub use material_filter::{MAX_MATERIAL_FILTER_SCALE, MaterialFilter};
+pub use material_filter::{FilterSetting, FilterValue, MAX_EDGE_DAMAGE_SPREAD, MAX_MATERIAL_FILTER_SCALE, MaterialFilter};
 pub use instance::{InstanceCache, InstanceState};
 pub use layer::{ChannelBlend, FillChannel, FillContent, GroupContent, ImageAdjust, Layer, LayerColor, LayerContent, LayerKind, PaintContent, PartMask, changed_paint_tiles, duplicate_layers_with_new_ids, empty_paint_image, same_paint_layout};
 pub use material::{Exposable, Binding, BindingProblem, MaterialControls, Param, ParamKind, ParamValue, Prop};

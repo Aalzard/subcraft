@@ -261,3 +261,32 @@ fn cloth_brings_the_sheen_channels_with_it() {
     s.execute(Command::Undo).unwrap();
     assert!(sheen.iter().all(|k| !s.selected_texture_set().has_channel(*k)), "undo removes the channels with the layer");
 }
+
+/// A slider can drive a material filter: expose MatFx Rust Weathering's Amount on a fill layer,
+/// and the composite gets rustier as the slider goes up.
+#[test]
+fn a_slider_drives_a_material_filter() {
+    use subcraft_doc::{ContentEffectKind, FilterSetting, MaterialFilter, Prop};
+    let mut s = baked_crate();
+    s.execute(Command::AddLayer(subcraft_app::NewLayer::Fill)).unwrap();
+    let fill = s.selection().layer.unwrap();
+    s.execute(Command::AddContentEffect { layer: fill, kind: ContentEffectKind::Material(MaterialFilter::ALL[4]) }).unwrap();
+    let offered = subcraft_doc::material::exposable(layer(&s, fill));
+    let amount = offered.iter().find(|e| e.prop == Prop::Filter { setting: FilterSetting::Amount }).expect("the filter's Amount is offered");
+    let mut controls = MaterialControls::default();
+    let id = controls.expose(amount).unwrap();
+    s.execute(Command::SetMaterialControls { layer: fill, controls: Some(Box::new(controls)) }).unwrap();
+
+    let start = mean(&mut s, ChannelKind::Roughness)[0];
+    set(&mut s, fill, &id, ParamValue::Number(0.0));
+    let clean = mean(&mut s, ChannelKind::Roughness)[0];
+    set(&mut s, fill, &id, ParamValue::Number(1.0));
+    let rusty = mean(&mut s, ChannelKind::Roughness)[0];
+    assert!(rusty > clean + 0.1, "more rust is rougher: {clean} -> {rusty}");
+    let ContentEffectKind::Material(MaterialFilter::RustWeathering { amount, .. }) = layer(&s, fill).content_effects[0].kind else { panic!("the filter is still there") };
+    assert_eq!(amount, 1.0);
+    s.execute(Command::Undo).unwrap();
+    // The two moves of one slider are one undo step, back to the filter's own Amount.
+    let back = mean(&mut s, ChannelKind::Roughness)[0];
+    assert!((back - start).abs() < 1e-4 && rusty > start + 0.01, "undo puts the filter back: {back} vs {start}, rusty {rusty}");
+}

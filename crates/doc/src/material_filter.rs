@@ -119,7 +119,158 @@ pub enum MaterialFilter {
     },
 }
 
+/// One setting of a material filter, by name: what a material parameter can drive
+/// ([`crate::Prop::Filter`]). A filter only has some of them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FilterSetting {
+    Scale,
+    Amount,
+    Depth,
+    Roughness,
+    RoughnessVariation,
+    Relief,
+    Spangle,
+    Tint,
+    Irregularity,
+    Color,
+    ColorAmount,
+    OrangePeel,
+    Grain,
+    Spread,
+    Metallic,
+    Edges,
+    Cavities,
+    Drips,
+    EdgeBias,
+    Thickness,
+    Curl,
+    Rust,
+    Seed,
+}
+
+impl FilterSetting {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Scale => "Scale",
+            Self::Amount => "Amount",
+            Self::Depth => "Depth",
+            Self::Roughness => "Roughness",
+            Self::RoughnessVariation => "Roughness variation",
+            Self::Relief => "Relief",
+            Self::Spangle => "Spangle",
+            Self::Tint => "Tint",
+            Self::Irregularity => "Irregularity",
+            Self::Color => "Color",
+            Self::ColorAmount => "Color amount",
+            Self::OrangePeel => "Orange peel",
+            Self::Grain => "Grain",
+            Self::Spread => "Spread",
+            Self::Metallic => "Metallic",
+            Self::Edges => "Edges",
+            Self::Cavities => "Cavities",
+            Self::Drips => "Drips",
+            Self::EdgeBias => "Edge bias",
+            Self::Thickness => "Thickness",
+            Self::Curl => "Curl",
+            Self::Rust => "Rust",
+            Self::Seed => "Seed",
+        }
+    }
+}
+
+/// A filter setting's value with its kind (and so its range).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum FilterValue {
+    /// 0..1.
+    Unit(f32),
+    /// 0.1..[`MAX_MATERIAL_FILTER_SCALE`].
+    Scale(f32),
+    /// 0..[`MAX_EDGE_DAMAGE_SPREAD`].
+    Spread(f32),
+    Color([f32; 3]),
+    Seed(u32),
+}
+
+/// Largest Edge Damages reach, percent of the model's longest side.
+pub const MAX_EDGE_DAMAGE_SPREAD: f32 = 12.5;
+
+enum Slot<'a> {
+    Unit(&'a mut f32),
+    Scale(&'a mut f32),
+    Spread(&'a mut f32),
+    Color(&'a mut [f32; 3]),
+    Seed(&'a mut u32),
+}
+
 impl MaterialFilter {
+    fn slot(&mut self, setting: FilterSetting) -> Option<Slot<'_>> {
+        use FilterSetting as S;
+        Some(match (self, setting) {
+            (Self::Galvanized { scale, .. } | Self::Hammered { scale, .. } | Self::PowderCoated { scale, .. } | Self::EdgeDamages { scale, .. } | Self::RustWeathering { scale, .. } | Self::PeelingPaint { scale, .. }, S::Scale) => Slot::Scale(scale),
+            (Self::Galvanized { seed, .. } | Self::Hammered { seed, .. } | Self::PowderCoated { seed, .. } | Self::EdgeDamages { seed, .. } | Self::RustWeathering { seed, .. } | Self::PeelingPaint { seed, .. }, S::Seed) => Slot::Seed(seed),
+            (Self::Galvanized { roughness, .. } | Self::PowderCoated { roughness, .. } | Self::EdgeDamages { roughness, .. } | Self::RustWeathering { roughness, .. } | Self::PeelingPaint { roughness, .. }, S::Roughness) => Slot::Unit(roughness),
+            (Self::Galvanized { roughness_variation, .. } | Self::Hammered { roughness_variation, .. }, S::RoughnessVariation) => Slot::Unit(roughness_variation),
+            (Self::Galvanized { relief, .. } | Self::RustWeathering { relief, .. }, S::Relief) => Slot::Unit(relief),
+            (Self::Galvanized { spangle, .. }, S::Spangle) => Slot::Unit(spangle),
+            (Self::Galvanized { tint, .. }, S::Tint) => Slot::Unit(tint),
+            (Self::Hammered { depth, .. } | Self::EdgeDamages { depth, .. }, S::Depth) => Slot::Unit(depth),
+            (Self::Hammered { irregularity, .. }, S::Irregularity) => Slot::Unit(irregularity),
+            (Self::PowderCoated { color, .. } | Self::EdgeDamages { color, .. } | Self::PeelingPaint { color, .. }, S::Color) => Slot::Color(color),
+            (Self::PowderCoated { color_amount, .. }, S::ColorAmount) => Slot::Unit(color_amount),
+            (Self::PowderCoated { orange_peel, .. }, S::OrangePeel) => Slot::Unit(orange_peel),
+            (Self::PowderCoated { grain, .. }, S::Grain) => Slot::Unit(grain),
+            (Self::EdgeDamages { amount, .. } | Self::RustWeathering { amount, .. } | Self::PeelingPaint { amount, .. }, S::Amount) => Slot::Unit(amount),
+            (Self::EdgeDamages { spread, .. }, S::Spread) => Slot::Spread(spread),
+            (Self::EdgeDamages { metallic, .. } | Self::PeelingPaint { metallic, .. }, S::Metallic) => Slot::Unit(metallic),
+            (Self::RustWeathering { edges, .. }, S::Edges) => Slot::Unit(edges),
+            (Self::RustWeathering { cavities, .. }, S::Cavities) => Slot::Unit(cavities),
+            (Self::RustWeathering { drips, .. }, S::Drips) => Slot::Unit(drips),
+            (Self::PeelingPaint { edge_bias, .. }, S::EdgeBias) => Slot::Unit(edge_bias),
+            (Self::PeelingPaint { thickness, .. }, S::Thickness) => Slot::Unit(thickness),
+            (Self::PeelingPaint { curl, .. }, S::Curl) => Slot::Unit(curl),
+            (Self::PeelingPaint { rust, .. }, S::Rust) => Slot::Unit(rust),
+            _ => return None,
+        })
+    }
+
+    /// The value of one setting, or `None` when this filter has no such setting.
+    pub fn setting(mut self, setting: FilterSetting) -> Option<FilterValue> {
+        Some(match self.slot(setting)? {
+            Slot::Unit(v) => FilterValue::Unit(*v),
+            Slot::Scale(v) => FilterValue::Scale(*v),
+            Slot::Spread(v) => FilterValue::Spread(*v),
+            Slot::Color(c) => FilterValue::Color(*c),
+            Slot::Seed(s) => FilterValue::Seed(*s),
+        })
+    }
+
+    /// This filter with one setting changed; `v` is clamped into the setting's range (a scalar
+    /// reads `v[0]`), so the result stays [`MaterialFilter::valid`]. `None` when the filter has
+    /// no such setting or `v` is not finite.
+    pub fn with_setting(mut self, setting: FilterSetting, v: [f32; 3]) -> Option<Self> {
+        if !v.iter().all(|c| c.is_finite()) {
+            return None;
+        }
+        match self.slot(setting)? {
+            Slot::Unit(s) => *s = v[0].clamp(0.0, 1.0),
+            Slot::Scale(s) => *s = v[0].clamp(0.1, MAX_MATERIAL_FILTER_SCALE),
+            Slot::Spread(s) => *s = v[0].clamp(0.0, MAX_EDGE_DAMAGE_SPREAD),
+            Slot::Color(c) => *c = v.map(|x| x.clamp(0.0, 1.0)),
+            Slot::Seed(s) => *s = v[0].round().clamp(0.0, u32::MAX as f32) as u32,
+        }
+        Some(self)
+    }
+
+    /// Every setting this filter has, in a fixed order.
+    pub fn settings(self) -> Vec<(FilterSetting, FilterValue)> {
+        use FilterSetting as S;
+        [S::Amount, S::Scale, S::Spread, S::Depth, S::Relief, S::Spangle, S::Tint, S::Irregularity, S::Color, S::ColorAmount, S::Roughness, S::RoughnessVariation, S::Metallic, S::OrangePeel, S::Grain, S::Edges, S::Cavities, S::Drips, S::EdgeBias, S::Thickness, S::Curl, S::Rust, S::Seed]
+            .into_iter()
+            .filter_map(|s| self.setting(s).map(|v| (s, v)))
+            .collect()
+    }
+
     pub const ALL: [Self; 7] = [
         Self::Galvanized { scale: 40.0, spangle: 0.6, tint: 0.7, roughness: 0.32, roughness_variation: 0.5, relief: 0.25, seed: 1 },
         Self::Hammered { scale: 26.0, depth: 0.5, irregularity: 0.6, roughness_variation: 0.4, seed: 1 },
@@ -211,7 +362,7 @@ impl MaterialFilter {
                 color(c) && unit(color_amount) && unit(roughness) && unit(orange_peel) && unit(grain) && scale(s)
             }
             Self::EdgeDamages { amount, spread, scale: s, depth, color: c, roughness, metallic, seed: _ } => {
-                unit(amount) && spread.is_finite() && (0.0..=12.5).contains(&spread) && scale(s) && unit(depth) && color(c) && unit(roughness) && unit(metallic)
+                unit(amount) && spread.is_finite() && (0.0..=MAX_EDGE_DAMAGE_SPREAD).contains(&spread) && scale(s) && unit(depth) && color(c) && unit(roughness) && unit(metallic)
             }
             Self::RustWeathering { amount, edges, cavities, drips, scale: s, relief, roughness, seed: _ } => {
                 unit(amount) && unit(edges) && unit(cavities) && unit(drips) && scale(s) && unit(relief) && unit(roughness)
@@ -242,6 +393,34 @@ mod tests {
             assert!(f.writes(ChannelKind::BaseColor));
         }
         assert_eq!(serde_json::to_string(&MaterialFilter::ALL[1]).unwrap(), r#"{"kind":"hammered","scale":26.0,"depth":0.5,"irregularity":0.6,"roughness_variation":0.4,"seed":1}"#);
+    }
+
+    /// Every field of every filter is reachable as a setting, and a written setting is clamped
+    /// so the filter stays valid.
+    #[test]
+    fn settings_cover_every_field_and_stay_valid() {
+        for f in MaterialFilter::ALL {
+            let settings = f.settings();
+            let fields = serde_json::to_value(f).unwrap().as_object().unwrap().len() - 1;
+            if matches!(f, MaterialFilter::PbrValidate { .. }) {
+                assert!(settings.is_empty(), "toggles are not driven by formulas");
+                continue;
+            }
+            assert_eq!(settings.len(), fields, "{}", f.label());
+            for (s, _) in settings {
+                for v in [[-5.0; 3], [0.37; 3], [1e9; 3]] {
+                    let g = f.with_setting(s, v).unwrap();
+                    assert!(g.valid(), "{} {s:?} {v:?}", f.label());
+                }
+                assert_ne!(f.with_setting(s, [0.37, 0.2, 0.9]).unwrap(), f, "{} {s:?} changes the filter", f.label());
+                assert_eq!(f.with_setting(s, [f32::NAN; 3]), None);
+            }
+        }
+        let h = MaterialFilter::ALL[1];
+        assert_eq!(h.setting(FilterSetting::Depth), Some(FilterValue::Unit(0.5)));
+        assert_eq!(h.setting(FilterSetting::Rust), None);
+        assert_eq!(h.with_setting(FilterSetting::Rust, [0.5; 3]), None);
+        assert_eq!(serde_json::to_string(&FilterSetting::RoughnessVariation).unwrap(), "\"roughness_variation\"");
     }
 
     #[test]
