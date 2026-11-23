@@ -169,8 +169,8 @@ pub fn check_support(device: &wgpu::Device) -> Result<(), String> {
     if l.max_compute_invocations_per_workgroup < 64 || l.max_compute_workgroup_size_x < 8 || l.max_compute_workgroup_size_y < 8 {
         missing.push("8x8 compute workgroups".to_string());
     }
-    if l.max_bind_groups < 2 || l.max_sampled_textures_per_shader_stage < 6 {
-        missing.push("2 bind groups with 6 textures".to_string());
+    if l.max_bind_groups < 2 || l.max_sampled_textures_per_shader_stage < 7 {
+        missing.push("2 bind groups with 7 textures".to_string());
     }
     if missing.is_empty() {
         Ok(())
@@ -256,7 +256,29 @@ struct Packed {
     layers: u32,
     textures: [wgpu::Texture; 3],
     views: [wgpu::TextureView; 3],
+    /// Extended channels (coat, sheen, anisotropy, scattering, transmission, opacity, specular
+    /// level): three rgba32uint arrays of half-float pairs, 1 x 1 when no set uses any.
+    ext_size: u32,
+    ext_textures: [wgpu::Texture; 3],
+    ext_views: [wgpu::TextureView; 3],
 }
+
+/// Channels that make a slot need the full-size extended arrays.
+fn uses_extended(m: &GpuMaterial) -> bool {
+    m.extended.layer_of.iter().any(|&l| l >= 0) || m.channels.contains_key(&ChannelKind::Opacity) || m.channels.contains_key(&ChannelKind::Specular)
+}
+
+/// Rays must look through the surface for shadows (transmission, translucency, cut-out opacity).
+fn see_through(m: &GpuMaterial) -> bool {
+    [ChannelKind::Transmissive, ChannelKind::Translucency, ChannelKind::Opacity].iter().any(|k| m.channels.contains_key(k))
+}
+
+/// Largest extended-channel array side.
+const MAX_EXT_TEXTURE: u32 = 1024;
+const EXT_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba32Uint;
+/// Mean free path of subsurface scattering for a Scattering Color of 1, as a fraction of the
+/// model's bounding-box diagonal (skin-like translucency on a head-sized model).
+pub const SSS_RADIUS: f32 = 0.02;
 
 /// Per-resolution buffers.
 struct Frame {
@@ -304,6 +326,15 @@ fn texture_entry(binding: u32, dimension: wgpu::TextureViewDimension) -> wgpu::B
         binding,
         visibility: wgpu::ShaderStages::COMPUTE,
         ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Float { filterable: true }, view_dimension: dimension, multisampled: false },
+        count: None,
+    }
+}
+
+fn uint_texture_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
+    wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility: wgpu::ShaderStages::COMPUTE,
+        ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Uint, view_dimension: wgpu::TextureViewDimension::D2Array, multisampled: false },
         count: None,
     }
 }
@@ -468,6 +499,8 @@ pub(crate) struct PathTracer {
     texture_layout: wgpu::BindGroupLayout,
     pack: wgpu::ComputePipeline,
     pack_layout: wgpu::BindGroupLayout,
+    pack_ext: wgpu::ComputePipeline,
+    pack_ext_layout: wgpu::BindGroupLayout,
     display: wgpu::RenderPipeline,
     display_layout: wgpu::BindGroupLayout,
     denoiser: Denoiser,
@@ -525,6 +558,9 @@ impl PathTracer {
                 texture_entry(3, d2a),
                 texture_entry(4, wgpu::TextureViewDimension::D2),
                 sampler_entry(5),
+                uint_texture_entry(6),
+                uint_texture_entry(7),
+                uint_texture_entry(8),
             ],
         });
         let trace = compute_pipeline(device, "path trace", &trace_module, "main", &[&trace_layout, &texture_layout]);
@@ -543,6 +579,19 @@ impl PathTracer {
         }));
         let pack_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { label: Some("pt pack"), entries: &pack_entries });
         let pack = compute_pipeline(device, "pt pack", &pack_module, "main", &[&pack_layout]);
+        let pack_ext_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("pt pack extended"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("pathtrace_pack_ext.wgsl").into()),
+        });
+        let mut ext_entries = vec![sampler_entry(0), texture_entry(1, wgpu::TextureViewDimension::D2Array), texture_entry(2, wgpu::TextureViewDimension::D2), texture_entry(3, wgpu::TextureViewDimension::D2), uniform_entry(4, false, c)];
+        ext_entries.extend((5..=7).map(|b| wgpu::BindGroupLayoutEntry {
+            binding: b,
+            visibility: c,
+            ty: wgpu::BindingType::StorageTexture { access: wgpu::StorageTextureAccess::WriteOnly, format: EXT_FORMAT, view_dimension: wgpu::TextureViewDimension::D2 },
+            count: None,
+        }));
+        let pack_ext_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { label: Some("pt pack extended"), entries: &ext_entries });
+        let pack_ext = compute_pipeline(device, "pt pack extended", &pack_ext_module, "main", &[&pack_ext_layout]);
 
         let display_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("pt display"),
@@ -604,6 +653,8 @@ impl PathTracer {
             texture_layout,
             pack,
             pack_layout,
+            pack_ext,
+            pack_ext_layout,
             display,
             display_layout,
             denoiser: Denoiser::new(device),
@@ -706,20 +757,24 @@ impl PathTracer {
         Ok(())
     }
 
-    /// Packed texture size: the largest material channel (capped), shrunk to the memory budget.
-    fn texture_size(device: &wgpu::Device, materials: &std::collections::HashMap<u32, GpuMaterial>, layers: u32) -> u32 {
+    /// Packed texture sizes (base arrays, extended arrays): the largest material channel
+    /// (capped), shrunk to the memory budget. The extended arrays are 1 x 1 when no set has any
+    /// extended channel.
+    fn texture_size(device: &wgpu::Device, materials: &std::collections::HashMap<u32, GpuMaterial>, layers: u32) -> (u32, u32) {
         let largest = materials.values().flat_map(|m| PACKED.iter().filter_map(|k| m.channels.get(k).map(|t| t.size))).max().unwrap_or(16);
         let mut size = largest.clamp(16, MAX_TEXTURE.min(device.limits().max_texture_dimension_2d)).next_power_of_two().min(MAX_TEXTURE);
-        while size > 256 && 3 * 8 * (size as u64).pow(2) * layers as u64 > TEXTURE_BUDGET {
+        let extended = materials.values().any(uses_extended);
+        let ext = |size: u32| if extended { size.min(MAX_EXT_TEXTURE) } else { 1 };
+        while size > 256 && (3 * 8 * (size as u64).pow(2) + 3 * 16 * (ext(size) as u64).pow(2)) * layers as u64 > TEXTURE_BUDGET {
             size /= 2;
         }
-        size
+        (size, ext(size))
     }
 
-    fn pack(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, materials: &std::collections::HashMap<u32, GpuMaterial>, defaults: &std::collections::HashMap<ChannelKind, ChannelTexture>) -> bool {
+    fn pack(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, materials: &std::collections::HashMap<u32, GpuMaterial>, defaults: &std::collections::HashMap<ChannelKind, ChannelTexture>, ext_empty: &wgpu::TextureView) -> bool {
         let layers = self.geometry.as_ref().map_or(1, |g| g.layers);
-        let size = Self::texture_size(device, materials, layers);
-        if self.packed.as_ref().is_none_or(|p| p.size != size || p.layers != layers) {
+        let (size, ext_size) = Self::texture_size(device, materials, layers);
+        if self.packed.as_ref().is_none_or(|p| p.size != size || p.layers != layers || p.ext_size != ext_size) {
             let make = |label| device.create_texture(&wgpu::TextureDescriptor {
                 label: Some(label),
                 size: wgpu::Extent3d { width: size, height: size, depth_or_array_layers: layers },
@@ -732,7 +787,19 @@ impl PathTracer {
             });
             let textures = [make("pt base+rough"), make("pt normal+metal"), make("pt emissive+height")];
             let views = [0, 1, 2].map(|i| textures[i].create_view(&wgpu::TextureViewDescriptor { dimension: Some(wgpu::TextureViewDimension::D2Array), ..Default::default() }));
-            self.packed = Some(Packed { size, layers, textures, views });
+            let make_ext = |label| device.create_texture(&wgpu::TextureDescriptor {
+                label: Some(label),
+                size: wgpu::Extent3d { width: ext_size, height: ext_size, depth_or_array_layers: layers },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: EXT_FORMAT,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::STORAGE_BINDING,
+                view_formats: &[],
+            });
+            let ext_textures = [make_ext("pt extended 0"), make_ext("pt extended 1"), make_ext("pt extended 2")];
+            let ext_views = [0, 1, 2].map(|i| ext_textures[i].create_view(&wgpu::TextureViewDescriptor { dimension: Some(wgpu::TextureViewDimension::D2Array), ..Default::default() }));
+            self.packed = Some(Packed { size, layers, textures, views, ext_size, ext_textures, ext_views });
             self.all_dirty = true;
         }
         let slots: Vec<u32> = if self.all_dirty { (0..layers).collect() } else { self.dirty.iter().copied().filter(|&s| s < layers).collect() };
@@ -769,6 +836,46 @@ impl PathTracer {
                 let group = device.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("pt pack"), layout: &self.pack_layout, entries: &entries });
                 pass.set_bind_group(0, &group, &[]);
                 pass.dispatch_workgroups(packed.size.div_ceil(8), packed.size.div_ceil(8), 1);
+
+                // Extended channels from the viewport's packed array (packed before this call).
+                use wgpu::util::DeviceExt;
+                let layer_of = material.map_or([-1; 7], |m| m.extended.layer_of);
+                let ext_view = material.and_then(|m| m.extended.texture.as_ref()).map_or(ext_empty, |t| &t.1);
+                let layer_of = if material.and_then(|m| m.extended.texture.as_ref()).is_some() { layer_of } else { [-1; 7] };
+                let uniform = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("pt pack extended"),
+                    contents: bytemuck::cast_slice(&[layer_of[0], layer_of[1], layer_of[2], layer_of[3], layer_of[4], layer_of[5], layer_of[6], -1]),
+                    usage: wgpu::BufferUsages::UNIFORM,
+                });
+                let channel = |k: ChannelKind| material.and_then(|m| m.channels.get(&k)).map_or(&defaults[&k].view, |t| &t.view);
+                let ext_layers: Vec<wgpu::TextureView> = packed
+                    .ext_textures
+                    .iter()
+                    .map(|t| t.create_view(&wgpu::TextureViewDescriptor {
+                        dimension: Some(wgpu::TextureViewDimension::D2),
+                        base_array_layer: slot,
+                        array_layer_count: Some(1),
+                        ..Default::default()
+                    }))
+                    .collect();
+                let ext_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("pt pack extended"),
+                    layout: &self.pack_ext_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::Sampler(&self.pack_sampler) },
+                        wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(ext_view) },
+                        wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::TextureView(channel(ChannelKind::Opacity)) },
+                        wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::TextureView(channel(ChannelKind::Specular)) },
+                        wgpu::BindGroupEntry { binding: 4, resource: uniform.as_entire_binding() },
+                        wgpu::BindGroupEntry { binding: 5, resource: wgpu::BindingResource::TextureView(&ext_layers[0]) },
+                        wgpu::BindGroupEntry { binding: 6, resource: wgpu::BindingResource::TextureView(&ext_layers[1]) },
+                        wgpu::BindGroupEntry { binding: 7, resource: wgpu::BindingResource::TextureView(&ext_layers[2]) },
+                    ],
+                });
+                pass.set_pipeline(&self.pack_ext);
+                pass.set_bind_group(0, &ext_group, &[]);
+                pass.dispatch_workgroups(packed.ext_size.div_ceil(8), packed.ext_size.div_ceil(8), 1);
+                pass.set_pipeline(&self.pack);
             }
         }
         queue.submit([encoder.finish()]);
@@ -788,6 +895,7 @@ impl PathTracer {
         materials: &std::collections::HashMap<u32, GpuMaterial>,
         defaults: &std::collections::HashMap<ChannelKind, ChannelTexture>,
         environment: (&wgpu::TextureView, &wgpu::Sampler, bool),
+        ext_empty: &wgpu::TextureView,
     ) -> Result<PathTraceStatus, String> {
         let size = target.size;
         if self.geometry.as_ref().is_none_or(|g| g.key != scene.key) {
@@ -795,7 +903,7 @@ impl PathTracer {
             self.upload_geometry(device, scene)?;
             self.all_dirty = true;
         }
-        if self.pack(device, queue, materials, defaults) {
+        if self.pack(device, queue, materials, defaults, ext_empty) {
             self.revision += 1;
         }
         if self.frame.as_ref().is_none_or(|f| f.size != size) {
@@ -865,9 +973,9 @@ impl PathTracer {
                 env: [e.rotation, e.hdri_intensity, geometry.eps, if settings.firefly_filter { FIREFLY_CLAMP } else { f32::MAX }],
                 floor: if settings.ground { floor } else { [0.0; 4] },
                 size: [size[0], size[1], start + k, settings.max_bounces.min(16)],
-                misc: [self.seed, (start + k == 0) as u32, 0, 0],
+                misc: [self.seed, (start + k == 0) as u32, materials.values().any(see_through) as u32, 0],
                 ground_look: v4(g.reflectivity.map(|c| c.clamp(0.0, 1.0)), g.glossiness.clamp(0.0, 1.0)),
-                ground_misc: [g.shadow_intensity.clamp(0.0, 1.0), g.visible_from_below as u32 as f32, settings.clear_color.is_some() as u32 as f32, 0.0],
+                ground_misc: [g.shadow_intensity.clamp(0.0, 1.0), g.visible_from_below as u32 as f32, settings.clear_color.is_some() as u32 as f32, base[3] / 1.5 * SSS_RADIUS],
                 clear: v4(settings.clear_color.unwrap_or([0.0; 3]), 0.0),
             };
             queue.write_buffer(&self.params, k as u64 * self.param_stride, bytemuck::bytes_of(&p));
@@ -904,6 +1012,9 @@ impl PathTracer {
                 wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::TextureView(&packed.views[2]) },
                 wgpu::BindGroupEntry { binding: 4, resource: wgpu::BindingResource::TextureView(env_view) },
                 wgpu::BindGroupEntry { binding: 5, resource: wgpu::BindingResource::Sampler(env_sampler) },
+                wgpu::BindGroupEntry { binding: 6, resource: wgpu::BindingResource::TextureView(&packed.ext_views[0]) },
+                wgpu::BindGroupEntry { binding: 7, resource: wgpu::BindingResource::TextureView(&packed.ext_views[1]) },
+                wgpu::BindGroupEntry { binding: 8, resource: wgpu::BindingResource::TextureView(&packed.ext_views[2]) },
             ],
         });
         let started = Instant::now();

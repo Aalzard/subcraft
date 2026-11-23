@@ -6208,3 +6208,35 @@ re-measured on a GPU. Not taken from his patch: the `SUBCRAFT_REPAINT_LOG` diagn
 * Not seen in a real window: the tests place and click the widgets but nobody has looked at the result.
 * Limit: the panel only makes one-to-one bindings (one slider, one property). Formulas that drive several
   properties from one slider exist in the format but have no editor.
+
+### Session 136 - Path tracer shades the extended channels: coat, sheen, anisotropy, subsurface, translucency, glass, cut-out opacity, specular level (2026-11-23, branch `claude/project-thread-8mawyv`)
+
+* **Asked:** make the Rendering mode's path tracer (Session 113) support coat, sheen, SSS and transmission
+  as the first step of an Iray-style portfolio render. It ignored every channel added in Session 134.
+* **Packing (`pathtrace_pack_ext.wgsl`, `pathtrace.rs`):** a second compute pass per material slot reads the
+  viewport's packed extended array (`extended.rs`; `render_path_traced` now runs `ensure_bind_groups` first),
+  the Opacity and the Specular level channels, and writes three `rgba32uint` array layers of half-float pairs
+  (24 values per texel, read with `textureLoad`). The arrays are 1 x 1 when no set has any of these channels,
+  else at most 1024 px, and count against the 768 MB texture budget.
+* **Shading (`pathtrace.wgsl`):** one event is picked per bounce from the lobe weights: the reflection /
+  translucency mixture (coat GGX, Charlie sheen, base GGX, anisotropic with VNDF sampling in the painted
+  direction, Lambert, diffuse transmission), rough dielectric transmission (VNDF microfacet, exact Fresnel
+  reflect-or-refract, IOR channel 0..1 = 1..2, tinted by Transmissive on entry) or subsurface scattering (a
+  chromatic random walk inside the mesh: isotropic, mean free path = Scattering Color x 2% of the model
+  diagonal (`SSS_RADIUS`), single-scattering albedo from the base colour by the van de Hulst inversion, spectral
+  MIS by the average pdf, cosine exit lit by the key light). Cut-out opacity passes the ray on without counting a
+  bounce. With see-through channels in the scene, key-light shadow rays pass transmissive, translucent and
+  cut-out surfaces (attenuated, not refracted). The specular level sets the dielectric F0 (0.5 = 4% as before).
+  A set without the new channels takes exactly the old path (old tests unchanged: furnace 0.97).
+* **Tests (`render/tests/pathtrace_extended.rs`, lavapipe):** furnace (uniform radiance 1): white SSS sphere
+  0.92, skin-tinted SSS (0.84, 0.49, 0.38) for base (0.8, 0.45, 0.35), clear glass 1.000, green glass passes
+  green, opacity 0 invisible, opacity 0.5 = 0.71 (front + inside of the back); black base 0.037 -> coat 0.096,
+  sheen 0.167; a back-lit sheet is black opaque and (0.26, 0.67, 0.16) green with translucency; anisotropy changes
+  the highlight. All `subcraft-render` tests pass.
+* **Render:** `cargo run -p subcraft-render --example pathtrace_showcase -- out.png 256 "Library Hall"`;
+  `docs/screenshots/pathtrace-extended-materials.png` (top traced at 128 samples with the denoiser, bottom the
+  raster viewport). On lavapipe: 6-16 s per 240 px sphere.
+* **Limits / next:** the traced background is the plain background colour, not the HDRI (raster shows it at
+  "environment opacity"); no environment importance sampling (HDRI suns are noisy); no depth of field; SSS radius
+  is a fixed fraction of the model size, not a setting; coat normal is ignored; glass casts tinted shadows without
+  caustics; the denoiser's albedo guide does not know about transmission. Not checked on a real GPU.
