@@ -215,10 +215,13 @@ fn controls_can_be_attached_to_and_removed_from_any_layer() {
     twice.params.push(Param::color("tint", "Again", [0.0; 3]));
     s.execute(Command::SetMaterialControls { layer: fill, controls: Some(Box::new(twice)) }).unwrap();
     assert_eq!(layer(&s, fill).material.as_ref().unwrap().params.len(), 1);
+    // A new definition is applied at once: the layer follows the values it carries.
+    let c = mean(&mut s, ChannelKind::BaseColor);
+    assert!((c[0] - 0.2).abs() < 2e-3 && (c[2] - 0.6).abs() < 2e-3, "{c:?}");
     s.execute(Command::SetMaterialControls { layer: fill, controls: None }).unwrap();
     assert!(layer(&s, fill).material.is_none());
     let c = mean(&mut s, ChannelKind::BaseColor);
-    assert!((c[0] - 0.9).abs() < 2e-3, "removing the parameters leaves the layer as it is: {c:?}");
+    assert!((c[0] - 0.2).abs() < 2e-3, "removing the parameters leaves the layer as it is: {c:?}");
 }
 
 /// Every procedural material composites to sane PBR values on a baked model.

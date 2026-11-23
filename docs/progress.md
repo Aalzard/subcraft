@@ -6124,3 +6124,25 @@ re-measured on a GPU. Not taken from his patch: the `SUBCRAFT_REPAINT_LOG` diagn
   with the flag off.
 * Looked at: `material_sheet` renders of all 11 materials; the left/right mirror on the sphere is gone.
   Not run in the real app window.
+
+## Procedural materials: make your own parameters (2026-11-23, branch `claude/project-thread-l9014a`)
+
+* Engine (`crates/doc/src/material/author.rs`): `exposable(root)` lists the properties of a layer tree that can
+  become parameters, each with the control it would get (range, colour, seed) at the property's current value.
+  `MaterialControls::expose / remove_param / rename_param / set_range / values_as_defaults / is_bound`.
+  Layer Opacity is offered once when the channels agree and per channel when they differ (one control for all
+  would flatten them; the new test caught this on the built-in Ambient Occlusion layers).
+* `SetMaterialControls` now re-applies the bindings (a narrowed range can move a value).
+* UI (`crates/ui/src/panels/material_params.rs`): the section is shown closed below the content of any fill or
+  folder without parameters, with a hint and an "Add parameter" menu (one submenu per layer / mask effect,
+  already-bound properties left out). With parameters it stays above the content as before, with a gear for the
+  edit mode: name field, min / max, bin per row, "Use as defaults", "Remove all".
+* Ran: `cargo test -p subcraft-assets` (new `every_exposable_property_can_be_exposed_and_then_drives_its_layer`:
+  over 300 properties across the 11 built-ins, exposing changes nothing, the control then drives the layer);
+  `cargo test -p subcraft-ui --lib` (421 pass); new `crates/ui/tests/material_params.rs` (2 pass): the built-in
+  material's rows fit the panel at 260 to 600 px, and a click-through with real pointer events opens the section
+  on a fill layer, opens Add parameter, picks Roughness, checks one undo step and an unchanged layer, then gear
+  and bin remove it again.
+* Not seen in a real window: the tests place and click the widgets but nobody has looked at the result.
+* Limit: the panel only makes one-to-one bindings (one slider, one property). Formulas that drive several
+  properties from one slider exist in the format but have no editor.

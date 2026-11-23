@@ -575,5 +575,8 @@ impl Layer {
     }
 }
 
+mod author;
+pub use author::{Exposable, exposable};
+
 #[cfg(test)]
 mod tests;

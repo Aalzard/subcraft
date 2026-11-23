@@ -2562,7 +2562,10 @@ impl Session {
                 }
                 let label = if controls.is_some() { "Material Parameters" } else { "Remove Material Parameters" };
                 self.edit_layer_set_if_changed(layer, label, |ts| {
-                    Self::layer_mut(ts, layer)?.material = controls.map(Arc::new);
+                    let l = Self::layer_mut(ts, layer)?;
+                    l.material = controls.map(Arc::new);
+                    // A narrowed range can move a value: the layers follow at once.
+                    l.apply_material();
                     Ok(())
                 })?;
             }
