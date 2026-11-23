@@ -6032,3 +6032,15 @@ re-measured on a GPU. Not taken from his patch: the `SUBCRAFT_REPAINT_LOG` diagn
   the moved files themselves and the release-notes text in `release.yml`. The signing policy URL for the
   SignPath application is now `https://github.com/Aalzard/subcraft/blob/main/docs/CODE_SIGNING.md`.
 * Checked: every relative link in the touched Markdown files resolves (script over `](path)` targets).
+
+## Bake preview crash with a dense high poly, #634 (2026-11-23, branch `claude/project-thread-3g7woi`)
+
+* Cause (found by MrHallM): the bake preview puts low + high poly vertices in one buffer (52 bytes each), and the
+  app device kept wgpu's default `max_buffer_size` of 256 MiB, so around 5 million vertices `create_buffer_init`
+  panicked on the invalid "bake surfaces" buffer.
+* `ui::graphics` now requests the adapter's own `max_buffer_size` for the main device.
+* `BakePreview::set_meshes` checks the vertex and index buffer sizes against `device.limits().max_buffer_size`
+  (`preview_fit`): if both fit it draws as before, otherwise it shows the low poly only, or nothing, with a log
+  warning. The cage upload has the same check. Baking itself is unchanged (it already checks the limits).
+* Tested: `cargo test -p subcraft-render --lib bake_preview` (2 passed, incl. the new `preview_fit` test with the
+  #634 numbers); `cargo check -p subcraft-ui` clean. Not reproduced on a real GPU with a 5M-vertex sculpt.
