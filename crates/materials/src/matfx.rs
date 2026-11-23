@@ -246,12 +246,18 @@ pub fn pattern_on(filter: &MaterialFilter, position: [f32; 3], normal: [f32; 3])
         MaterialFilter::Rough { scale, grunge_scale, warp: wander, seed, .. } => {
             let q = p * scale;
             let q = q + warp(q * 0.12, seed) * wander * 2.5;
-            // Brush lines run along the model's X axis: noise stretched 50 times that way. A face
-            // looking down X would cut the lines into dots, so there they run along Y instead.
-            let turn = smoothstep(0.6, 0.85, normal[0].abs());
-            let along_x = if turn < 1.0 { fbm(Vec3::new(q.x * 0.02, q.y, q.z), 3, seed ^ 0x5b) } else { 0.5 };
-            let along_y = if turn > 0.0 { fbm(Vec3::new(q.x, q.y * 0.02, q.z), 3, seed ^ 0x5b) } else { 0.5 };
-            let brush = along_x + (along_y - along_x) * turn;
+            // Brush lines are drawn flat on the three axis planes and the surface takes the plane
+            // it faces (stretching 3D noise instead loses the lines as soon as the surface tilts
+            // toward the stretch axis). Lines run along X on the faces looking along Y and Z and
+            // along Y on faces looking down X; the planes cross-fade over a narrow band.
+            const STRETCH: f32 = 0.02;
+            let n = Vec3::from_array(normal).abs();
+            let w = if n.length_squared() < 1e-6 { Vec3::Z } else { Vec3::new(n.x.powi(8), n.y.powi(8), n.z.powi(8)) };
+            let w = w / (w.x + w.y + w.z);
+            let plane = |w: f32, c: Vec3, salt: u32| if w > 0.002 { (fbm(c, 3, seed ^ salt) - 0.5) * w } else { 0.0 };
+            let sum = plane(w.z, Vec3::new(q.x * STRETCH, q.y, 3.7), 0x5b) + plane(w.y, Vec3::new(q.x * STRETCH, q.z, 11.3), 0x5b) + plane(w.x, Vec3::new(q.y * STRETCH, q.z, 23.9), 0x5b);
+            // A blend of independent noises is flatter than either: restore the contrast.
+            let brush = (0.5 + sum / w.length()).clamp(0.0, 1.0);
             let g = p * grunge_scale;
             let grunge = fbm(g + warp(g * 0.5, seed ^ 0xa7) * 0.9, 4, seed ^ 0xa7);
             [brush, grunge, vnoise(q * 3.0, seed ^ 0x17), 0.0]
@@ -748,15 +754,45 @@ mod tests {
     }
 
     #[test]
-    fn rough_brush_lines_lie_in_the_surface_whichever_way_it_faces() {
-        // The pattern barely changes along the brush direction and changes fast across it: along
-        // X on a face looking up, along Y on a face looking down X.
+    fn rough_brush_lines_stay_lines_whichever_way_the_surface_faces() {
+        // Walk along the surface: the pattern barely changes along the brush direction and
+        // changes fast across it. Checked on the axis faces and on tilted ones, where stretched
+        // 3D noise used to fall apart into lumps.
         let f = MaterialFilter::Rough { scale: 60.0, grunge_scale: 9.0, brushing: 0.6, warp: 0.0, grunge: 0.5, seed: 1 };
-        let step = |normal: [f32; 3], d: [f32; 3]| points().take(800).map(|p| (pattern_on(&f, p, normal)[0] - pattern_on(&f, [p[0] + d[0], p[1] + d[1], p[2] + d[2]], normal)[0]).abs()).sum::<f32>() / 800.0;
-        let e = 4e-3;
-        assert!(step([0.0, 1.0, 0.0], [e, 0.0, 0.0]) * 8.0 < step([0.0, 1.0, 0.0], [0.0, 0.0, e]));
-        assert!(step([1.0, 0.0, 0.0], [0.0, e, 0.0]) * 8.0 < step([1.0, 0.0, 0.0], [0.0, 0.0, e]));
-        // Unknown normal: the X lines.
+        let step = |normal: Vec3, d: Vec3| {
+            let d = d * 4e-3;
+            points().take(800).map(|p| (pattern_on(&f, p, normal.to_array())[0] - pattern_on(&f, [p[0] + d.x, p[1] + d.y, p[2] + d.z], normal.to_array())[0]).abs()).sum::<f32>() / 800.0
+        };
+        // (normal, the axis the facing plane holds constant along a line, least anisotropy).
+        // A line is where the surface cuts a plane of constant Y (faces looking along Z or X)
+        // or constant Z (faces looking along Y).
+        let cases = [
+            (Vec3::Y, Vec3::Z, 6.0),
+            (Vec3::Z, Vec3::Y, 6.0),
+            (Vec3::X, Vec3::Z, 6.0),
+            (Vec3::new(0.0, 0.5, 0.87), Vec3::Y, 6.0),
+            (Vec3::new(0.45, 0.0, 0.89), Vec3::Y, 6.0),
+            (Vec3::new(0.9, 0.3, 0.3), Vec3::Z, 6.0),
+            // Near a three-way corner the neighbours' lines show through a little.
+            (Vec3::new(0.5, 0.5, 0.707), Vec3::Y, 2.0),
+        ];
+        for (normal, constant, least) in cases {
+            let normal = normal.normalize();
+            let along = normal.cross(constant).normalize();
+            let across = normal.cross(along);
+            let (a, c) = (step(normal, along), step(normal, across));
+            assert!(a * least < c, "normal {normal}: {a} along, {c} across");
+        }
+        // The blend keeps its contrast: the spread of the value is alike on an axis face and
+        // half way between two.
+        let sd = |normal: Vec3| {
+            let v: Vec<f32> = points().map(|p| pattern_on(&f, p, normal.normalize().to_array())[0]).collect();
+            let m = v.iter().sum::<f32>() / v.len() as f32;
+            (v.iter().map(|x| (x - m) * (x - m)).sum::<f32>() / v.len() as f32).sqrt()
+        };
+        let (flat, mid) = (sd(Vec3::Z), sd(Vec3::new(0.0, 1.0, 1.0)));
+        assert!((mid / flat - 1.0).abs() < 0.25, "{flat} {mid}");
+        // Unknown normal: the Z plane.
         assert_eq!(pattern(&f, [0.3, 0.2, 0.1]), pattern_on(&f, [0.3, 0.2, 0.1], [0.0, 0.0, 1.0]));
     }
 
