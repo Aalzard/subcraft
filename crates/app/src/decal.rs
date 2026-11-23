@@ -18,6 +18,9 @@ use crate::session::Session;
 /// Longest side of a new decal, as a part of the model's longest bounds extent.
 pub const DECAL_SIZE: f32 = 0.25;
 
+/// A decal shows on surfaces turned up to this many degrees away from where it faces.
+pub const DECAL_MAX_ANGLE_DEG: f32 = 120.0;
+
 /// Where a decal goes: a surface point, its normal, and the direction the top of the image
 /// points to (the view's up direction, so the decal lands the way the image looks on screen).
 /// All in object space.
@@ -56,13 +59,16 @@ pub fn decal_projection(spot: DecalSpot, aspect: f32, size: f32, bounds_min: Vec
         planar_axis: 2,
         uv_wrap: UvWrap::None,
         shape_crop: ShapeCrop::Crop,
-        backface: Some(BackfaceCulling::default()),
+        // Folded over edges and curves like a sticker, up to a surface turned two thirds of the
+        // way round; past that (the far side of a thin part) nothing shows.
+        wrap_edges: true,
+        backface: Some(BackfaceCulling { angle_deg: DECAL_MAX_ANGLE_DEG, hardness: 1.0 }),
         transform3: ProjectionTransform {
             offset: centre.to_array().map(|c| if c.is_finite() { (c - 0.5).clamp(-limit, limit) } else { 0.0 }),
             rotation_deg: ProjectionTransform::euler_of(rows),
-            // As deep as it is wide, so the decal follows a curved surface but does not show
+            // Deep enough to fold its whole width over an edge, but not so deep that it shows
             // through on the far side of the model.
-            scale: [w, h, size],
+            scale: [w, h, side(size * 2.0)],
             mirror: [false; 3],
         },
         ..Projection::default()
@@ -114,9 +120,9 @@ mod tests {
         let spot = DecalSpot { position: Vec3::new(1.0, 0.5, 0.0), normal: Vec3::X, up: Vec3::Y };
         let p = decal_projection(spot, 2.0, 0.2, Vec3::splat(-1.0), 2.0);
         assert_eq!((p.mode, p.uv_wrap, p.shape_crop), (ProjectionMode::Planar, UvWrap::None, ShapeCrop::Crop));
-        assert!(p.backface.is_some() && p.valid());
+        assert!(p.backface.is_some() && p.wrap_edges && p.valid());
         let t = p.transform3;
-        assert_eq!(t.scale, [0.2, 0.1, 0.2], "longest side is the size, the other follows the aspect");
+        assert_eq!(t.scale, [0.2, 0.1, 0.4], "longest side is the size, the other follows the aspect");
         for (a, b) in t.offset.iter().zip([0.5, 0.25, 0.0]) {
             assert!((a - b).abs() < 1e-6, "{:?}", t.offset);
         }
@@ -135,6 +141,6 @@ mod tests {
             assert!(p.valid(), "{normal:?} {up:?} {aspect} {size}: {:?}", p.transform3);
         }
         let tall = decal_projection(DecalSpot { position: Vec3::ZERO, normal: Vec3::Z, up: Vec3::Y }, 0.5, 0.2, Vec3::ZERO, 1.0);
-        assert_eq!(tall.transform3.scale, [0.1, 0.2, 0.2]);
+        assert_eq!(tall.transform3.scale, [0.1, 0.2, 0.4]);
     }
 }

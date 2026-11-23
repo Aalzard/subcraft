@@ -52,7 +52,7 @@ fn main() -> Result<(), String> {
     let dir = std::env::temp_dir().join(format!("subcraft-decal-demo-{}", std::process::id()));
     std::fs::create_dir_all(&dir).map_err(err)?;
     // Three drops: screen offsets from the view centre, each with its own "up" on screen.
-    let drops = [(Vec2::new(0.0, 0.05), up, [0.75, 0.1, 0.08]), (Vec2::new(-0.2, -0.2), up + right, [0.08, 0.3, 0.7]), (Vec2::new(0.24, 0.17), up - right * 0.4, [0.1, 0.5, 0.2])];
+    let drops = [(Vec2::new(0.085, 0.05), up, [0.75, 0.1, 0.08]), (Vec2::new(-0.2, -0.2), up + right, [0.08, 0.3, 0.7]), (Vec2::new(0.24, 0.17), up - right * 0.4, [0.1, 0.5, 0.2])];
     for (i, (at, image_up, color)) in drops.into_iter().enumerate() {
         let file = dir.join(format!("badge{i}.png"));
         write_badge(&file, color)?;
