@@ -2441,10 +2441,10 @@ impl egui_dock::TabViewer for Viewer<'_> {
     }
 
     fn on_tab_button(&mut self, tab: &mut Tab, response: &egui::Response) {
-        if self.was_active.contains(tab) {
-            let r = response.rect;
-            let painter = response.ctx.layer_painter(response.layer_id);
-            painter.rect_filled(egui::Rect::from_min_size(r.min, egui::vec2(r.width(), 2.0)), 0.0, theme::ACCENT());
+        if self.was_active.contains(tab)
+            && let Some(marker) = active_tab_marker(response.rect, response.interact_rect)
+        {
+            response.ctx.layer_painter(response.layer_id).rect_filled(marker, 0.0, theme::ACCENT());
         }
     }
 
@@ -3249,5 +3249,35 @@ mod seal_tests {
         assert_eq!(session.history().entries().len(), entries + 2);
         session.execute(Command::Undo).unwrap();
         assert_eq!(session.selected_layer().unwrap().blend[&ChannelKind::BaseColor].opacity, 0.7, "Undo returns to where the first drag ended");
+    }
+}
+
+/// The accent strip on top of the active tab, cut to the part of the tab the scrolled tab row
+/// shows (`visible`: the tab's rect inside the row's clip). Issue #637: drawn unclipped, it slid
+/// out of the panel when the tab row was scrolled. `None` when the tab is scrolled out of view.
+fn active_tab_marker(tab: egui::Rect, visible: egui::Rect) -> Option<egui::Rect> {
+    let strip = egui::Rect::from_min_size(tab.min, egui::vec2(tab.width(), 2.0)).intersect(visible);
+    (strip.is_positive()).then_some(strip)
+}
+
+#[cfg(test)]
+mod active_tab_marker_tests {
+    use super::active_tab_marker;
+    use egui::{Rect, pos2};
+
+    #[test]
+    fn marker_stays_inside_the_scrolled_tab_row() {
+        let row = Rect::from_min_max(pos2(100.0, 0.0), pos2(300.0, 32.0));
+        // Fully visible tab: the whole width.
+        let tab = Rect::from_min_max(pos2(120.0, 0.0), pos2(204.0, 32.0));
+        assert_eq!(active_tab_marker(tab, tab.intersect(row)), Some(Rect::from_min_max(pos2(120.0, 0.0), pos2(204.0, 2.0))));
+        // Scrolled half out on the left: only the visible part.
+        let tab = Rect::from_min_max(pos2(60.0, 0.0), pos2(144.0, 32.0));
+        assert_eq!(active_tab_marker(tab, tab.intersect(row)), Some(Rect::from_min_max(pos2(100.0, 0.0), pos2(144.0, 2.0))));
+        // Scrolled fully out of the row (the #637 drift): nothing is drawn.
+        let tab = Rect::from_min_max(pos2(-40.0, 0.0), pos2(44.0, 32.0));
+        assert_eq!(active_tab_marker(tab, tab.intersect(row)), None);
+        let tab = Rect::from_min_max(pos2(320.0, 0.0), pos2(404.0, 32.0));
+        assert_eq!(active_tab_marker(tab, tab.intersect(row)), None);
     }
 }
