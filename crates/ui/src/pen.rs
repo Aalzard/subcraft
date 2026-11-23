@@ -553,6 +553,116 @@ pub fn tool_section(state: &mut UiState, ui: &mut Ui, now: f64) {
     crate::widgets::hint(ui, "Choose a stitch, then click on the model to place the points of the path (drag for a curve). Enter finishes the path. Width, spacing, thread colour and height can be changed afterwards, here.");
 }
 
+/// The few settings of a stitch, in its own words: size, spacing, thread colour and how far it
+/// is raised. They edit the path's width, stamp spacing and channel values.
+fn stitch_rows(state: &mut UiState, ui: &mut Ui, path: &mut PenPath, stitch: &'static subcraft_app::stitch::Stitch, now: f64) -> bool {
+    use subcraft_core::ChannelKind;
+    let mut changed = false;
+    let mut size = path.radius * 200.0;
+    changed |= slider_row_reset(ui, "Stitch size", &mut size, stitch.radius() * 200.0, |v| egui::Slider::new(v, 0.05..=20.0).logarithmic(true).suffix("%"))
+        .on_hover_text("Width of the stitch line, in percent of the texture")
+        .changed();
+    path.radius = (size / 200.0).clamp(0.00001, 0.5);
+    if let Some(stamp) = path.stamp.as_mut() {
+        let mut spacing = stamp.spacing * 100.0;
+        changed |= slider_row_reset(ui, "Spacing", &mut spacing, stitch.spacing * 100.0, |v| egui::Slider::new(v, 20.0..=400.0).logarithmic(true).suffix("%"))
+            .on_hover_text("Distance from one stitch to the next, in percent of the stitch size: 100% joins them end to end")
+            .changed();
+        stamp.spacing = (spacing / 100.0).clamp(*subcraft_doc::PathStamp::SPACING.start(), *subcraft_doc::PathStamp::SPACING.end());
+    }
+    if let Some(value) = path.values.get_mut(&ChannelKind::BaseColor) {
+        crate::widgets::prop_row(ui, "Thread colour", |ui| { changed |= crate::widgets::channel_value(ui, ChannelKind::BaseColor, value).changed; });
+    }
+    if let Some(value) = path.values.get_mut(&ChannelKind::Height) {
+        changed |= slider_row_reset(ui, "Raised", &mut value.0[0], stitch.height, |v| egui::Slider::new(v, -1.0..=1.0))
+            .on_hover_text("Height of the thread: above 0 it stands out of the surface, below 0 it is pressed in")
+            .changed();
+    }
+    // Needle holes between the stitches, as a second path on the same points.
+    if subcraft_app::stitch::takes_holes(stitch) && path.anchors.len() > 1
+        && ui.button("Add needle holes").on_hover_text("Add a second path on the same points that presses a needle hole in between every two stitches. It is its own layer: move or delete it on its own").clicked()
+    {
+        let holes = subcraft_app::stitch::find("Stitch: Seam Holes").map(|h| subcraft_app::stitch::style(&mut state.session, h, &state.library.alphas));
+        let channels = state.session.channels();
+        let result = match holes {
+            Some(style) => state.pen.add_path_layer(&mut state.session, subcraft_app::stitch::holes_path(path, style, |k| channels.contains(&k)), "Stitch: Seam Holes"),
+            None => Err(subcraft_app::CommandError::Invalid("the needle hole stitch is missing".into())),
+        };
+        match result {
+            Ok(()) => state.set_status("Needle holes added as their own path layer, under this one in the list", now),
+            Err(e) => state.set_status(format!("Needle holes: {e}"), now),
+        }
+    }
+    changed
+}
+
+/// Every setting of a path: type, width, stamping, opacity and the channels it paints.
+fn path_rows(state: &mut UiState, ui: &mut Ui, path: &mut PenPath) -> bool {
+    let mut changed = false;
+    // Painter's path types: a stroke along the curve, or its filled interior.
+    changed |= prop_row_reset(ui, "Path type", &mut path.kind, subcraft_doc::PathKind::default(), |ui, v| {
+        combo(ui, "pen_path_kind", v, &subcraft_doc::PathKind::ALL, |k| k.label())
+    }).changed();
+    let filled = path.kind == subcraft_doc::PathKind::Filled;
+    if path.kind == subcraft_doc::PathKind::Ribbon {
+        changed |= ui.add_enabled(path.anchors.len() > 1, egui::Checkbox::new(&mut path.closed, "Closed path")).changed();
+        let mut width = path.radius * 200.0;
+        changed |= crate::widgets::slider_row(ui, "Width (% UV)", egui::Slider::new(&mut width, 0.01..=100.0).logarithmic(true)).changed();
+        path.radius = width / 200.0;
+        changed |= ribbon_rows(state, ui, path);
+    } else if filled {
+        ui.label(egui::RichText::new("The interior is filled; the path closes on its first point").small().color(crate::theme::TEXT_DIM()));
+    } else {
+        changed |= ui.add_enabled(path.anchors.len() > 1, egui::Checkbox::new(&mut path.closed, "Closed path")).changed();
+        let mut width = path.radius * 200.0;
+        changed |= crate::widgets::slider_row(ui, "Width (% UV)", egui::Slider::new(&mut width, 0.01..=100.0).logarithmic(true)).changed();
+        path.radius = width / 200.0;
+        changed |= crate::widgets::slider_row(ui, "Hardness", egui::Slider::new(&mut path.hardness, 0.0..=1.0)).changed();
+        // Brush tip stamped along the path, with spacing (Painter's brush on a path).
+        let mut stamped = path.stamp.is_some();
+        if ui.checkbox(&mut stamped, "Stamp the brush tip").on_hover_text("Place the current brush tip along the path instead of one continuous stroke").changed() {
+            changed = true;
+            path.stamp = stamped.then(|| subcraft_doc::PathStamp { alpha: state.session.brush_tip_resource(), ..Default::default() });
+        }
+        if let Some(stamp) = path.stamp.as_mut() {
+            let ds = subcraft_doc::PathStamp::default();
+            let mut spacing = stamp.spacing * 100.0;
+            changed |= slider_row_reset(ui, "Spacing (%)", &mut spacing, ds.spacing * 100.0, |v| egui::Slider::new(v, 2.0..=400.0).logarithmic(true)).changed();
+            stamp.spacing = (spacing / 100.0).clamp(*subcraft_doc::PathStamp::SPACING.start(), *subcraft_doc::PathStamp::SPACING.end());
+            let r = ui.checkbox(&mut stamp.follow, "Follow path").on_hover_text("Turn each stamp along the curve");
+            changed |= reset_on(ui, r, &mut stamp.follow, ds.follow).changed();
+            let r = ui.checkbox(&mut stamp.surface, "On the surface").on_hover_text("Lay the stamps on the model instead of in UV space: they keep their size where the UV scale changes and continue over UV seams. Between two points on different UV islands the path runs straight over the surface");
+            changed |= reset_on(ui, r, &mut stamp.surface, ds.surface).changed();
+            changed |= slider_row_reset(ui, "Alternate offset", &mut stamp.alternate, ds.alternate, |v| egui::Slider::new(v, subcraft_doc::PathStamp::ALTERNATE))
+                .on_hover_text("Every second stamp moves across the path by this fraction of half the width")
+                .changed();
+            let tip = stamp.alpha.and_then(|id| state.session.resources().get(id)).map_or("Round".to_string(), |r| r.name.clone());
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new(format!("Tip: {tip}")).color(crate::theme::TEXT_DIM()));
+                if ui.small_button("Use current brush tip").on_hover_text("Stamp the tip chosen in the Brush settings / Shelf").clicked() {
+                    stamp.alpha = state.session.brush_tip_resource();
+                    changed = true;
+                }
+            });
+        }
+    }
+    changed |= crate::widgets::slider_row(ui, "Opacity", egui::Slider::new(&mut path.opacity, 0.0..=1.0)).changed();
+    for kind in state.session.channels() {
+        let mut enabled = path.values.contains_key(&kind);
+        let editable = !enabled || path.values.len() > 1;
+        let r = ui.add_enabled(editable, egui::Checkbox::new(&mut enabled, kind.display_name())).on_hover_text("Choose the channels this path paints. Hide the layer to hide all channels.");
+        if r.changed() {
+            changed = true;
+            if enabled { path.values.insert(kind, kind.default_paint_value()); }
+            else { path.values.remove(&kind); }
+        }
+        if let Some(value) = path.values.get_mut(&kind) {
+            crate::widgets::prop_row(ui, "Value", |ui| { changed |= crate::widgets::channel_value(ui, kind, value).changed; });
+        }
+    }
+    changed
+}
+
 pub fn properties(state: &mut UiState, ui: &mut Ui, path: &PenPath, now: f64) {
     // What the path is drawn with: a plain line or a stitch.
     let current = stitch_of(state, path);
@@ -563,6 +673,10 @@ pub fn properties(state: &mut UiState, ui: &mut Ui, path: &PenPath, now: f64) {
     ui.label(egui::RichText::new(current.map_or(if path.stamp.is_some() { "Stamped tip" } else { "Plain line" }, |s| s.name)).strong());
     if current.is_some() && !path.values.contains_key(&subcraft_core::ChannelKind::Height) {
         height_note(state, ui, now);
+    }
+    let mut path = path.clone(); let mut changed = false;
+    if let Some(stitch) = current {
+        changed |= stitch_rows(state, ui, &mut path, stitch, now);
     }
     ui.horizontal_wrapped(|ui| {
         if ui.button("New path").clicked() { state.pen.new_path(&state.session); state.tool = Tool::Pen; }
@@ -615,67 +729,13 @@ pub fn properties(state: &mut UiState, ui: &mut Ui, path: &PenPath, now: f64) {
     });
     slider_row_reset(ui, "Snap angle", &mut state.pen_snap.angle_deg, PenSnap::default().angle_deg, |v| egui::Slider::new(v, PenSnap::ANGLE).suffix("\u{00b0}"))
         .on_hover_text("Ctrl while adding a point: the direction from the previous point snaps to steps of this angle");
-    let mut path = path.clone(); let mut changed = false;
-    // Painter's path types: a stroke along the curve, or its filled interior.
-    changed |= prop_row_reset(ui, "Path type", &mut path.kind, subcraft_doc::PathKind::default(), |ui, v| {
-        combo(ui, "pen_path_kind", v, &subcraft_doc::PathKind::ALL, |k| k.label())
-    }).changed();
-    let filled = path.kind == subcraft_doc::PathKind::Filled;
-    if path.kind == subcraft_doc::PathKind::Ribbon {
-        changed |= ui.add_enabled(path.anchors.len() > 1, egui::Checkbox::new(&mut path.closed, "Closed path")).changed();
-        let mut width = path.radius * 200.0;
-        changed |= crate::widgets::slider_row(ui, "Width (% UV)", egui::Slider::new(&mut width, 0.01..=100.0).logarithmic(true)).changed();
-        path.radius = width / 200.0;
-        changed |= ribbon_rows(state, ui, &mut path);
-    } else if filled {
-        ui.label(egui::RichText::new("The interior is filled; the path closes on its first point").small().color(crate::theme::TEXT_DIM()));
+    if current.is_some() {
+        // A stitch shows its few settings above; everything else is one click away.
+        egui::CollapsingHeader::new("All path settings").id_salt("pen_all_settings").default_open(false).show(ui, |ui| {
+            changed |= path_rows(state, ui, &mut path);
+        });
     } else {
-        changed |= ui.add_enabled(path.anchors.len() > 1, egui::Checkbox::new(&mut path.closed, "Closed path")).changed();
-        let mut width = path.radius * 200.0;
-        changed |= crate::widgets::slider_row(ui, "Width (% UV)", egui::Slider::new(&mut width, 0.01..=100.0).logarithmic(true)).changed();
-        path.radius = width / 200.0;
-        changed |= crate::widgets::slider_row(ui, "Hardness", egui::Slider::new(&mut path.hardness, 0.0..=1.0)).changed();
-        // Brush tip stamped along the path, with spacing (Painter's brush on a path).
-        let mut stamped = path.stamp.is_some();
-        if ui.checkbox(&mut stamped, "Stamp the brush tip").on_hover_text("Place the current brush tip along the path instead of one continuous stroke").changed() {
-            changed = true;
-            path.stamp = stamped.then(|| subcraft_doc::PathStamp { alpha: state.session.brush_tip_resource(), ..Default::default() });
-        }
-        if let Some(stamp) = path.stamp.as_mut() {
-            let ds = subcraft_doc::PathStamp::default();
-            let mut spacing = stamp.spacing * 100.0;
-            changed |= slider_row_reset(ui, "Spacing (%)", &mut spacing, ds.spacing * 100.0, |v| egui::Slider::new(v, 2.0..=400.0).logarithmic(true)).changed();
-            stamp.spacing = (spacing / 100.0).clamp(*subcraft_doc::PathStamp::SPACING.start(), *subcraft_doc::PathStamp::SPACING.end());
-            let r = ui.checkbox(&mut stamp.follow, "Follow path").on_hover_text("Turn each stamp along the curve");
-            changed |= reset_on(ui, r, &mut stamp.follow, ds.follow).changed();
-            let r = ui.checkbox(&mut stamp.surface, "On the surface").on_hover_text("Lay the stamps on the model instead of in UV space: they keep their size where the UV scale changes and continue over UV seams. Between two points on different UV islands the path runs straight over the surface");
-            changed |= reset_on(ui, r, &mut stamp.surface, ds.surface).changed();
-            changed |= slider_row_reset(ui, "Alternate offset", &mut stamp.alternate, ds.alternate, |v| egui::Slider::new(v, subcraft_doc::PathStamp::ALTERNATE))
-                .on_hover_text("Every second stamp moves across the path by this fraction of half the width")
-                .changed();
-            let tip = stamp.alpha.and_then(|id| state.session.resources().get(id)).map_or("Round".to_string(), |r| r.name.clone());
-            ui.horizontal(|ui| {
-                ui.label(egui::RichText::new(format!("Tip: {tip}")).color(crate::theme::TEXT_DIM()));
-                if ui.small_button("Use current brush tip").on_hover_text("Stamp the tip chosen in the Brush settings / Shelf").clicked() {
-                    stamp.alpha = state.session.brush_tip_resource();
-                    changed = true;
-                }
-            });
-        }
-    }
-    changed |= crate::widgets::slider_row(ui, "Opacity", egui::Slider::new(&mut path.opacity, 0.0..=1.0)).changed();
-    for kind in state.session.channels() {
-        let mut enabled = path.values.contains_key(&kind);
-        let editable = !enabled || path.values.len() > 1;
-        let r = ui.add_enabled(editable, egui::Checkbox::new(&mut enabled, kind.display_name())).on_hover_text("Choose the channels this path paints. Hide the layer to hide all channels.");
-        if r.changed() {
-            changed = true;
-            if enabled { path.values.insert(kind, kind.default_paint_value()); }
-            else { path.values.remove(&kind); }
-        }
-        if let Some(value) = path.values.get_mut(&kind) {
-            crate::widgets::prop_row(ui, "Value", |ui| { changed |= crate::widgets::channel_value(ui, kind, value).changed; });
-        }
+        changed |= path_rows(state, ui, &mut path);
     }
     if changed {
         if let Err(e) = state.pen.set_path(&state.session, path) { state.set_status(e.to_string(), now); }
