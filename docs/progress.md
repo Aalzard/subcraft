@@ -6032,3 +6032,17 @@ re-measured on a GPU. Not taken from his patch: the `SUBCRAFT_REPAINT_LOG` diagn
   the moved files themselves and the release-notes text in `release.yml`. The signing policy URL for the
   SignPath application is now `https://github.com/Aalzard/subcraft/blob/main/docs/CODE_SIGNING.md`.
 * Checked: every relative link in the touched Markdown files resolves (script over `](path)` targets).
+
+### UDIM: one material controls every tile (2026-11-23, issue #581 follow-up, branch `claude/project-thread-182kqs`)
+
+With "Paint across UDIM tiles" on, a dropped material already landed on every tile, but each tile's
+copy then had to be adjusted on its own (Lwanmtr, #581). Fill channel, projection, blend "apply to
+all channels", mask enable / invert, and every mask and content effect edit (add, insert, set,
+remove, move, duplicate, rename, nudge, smart-mask apply / replace, ID colors) now repeat on the
+matching layer of each partner tile (`app::udim_mirror`). Effects pair by stack position and kind
+(each tile's copy has its own effect ids); an added effect goes to the same position. Painted
+rasters never cross tiles: a Paint effect's settings follow, its texels stay per tile. One undo
+step per edit, slider drags still coalesce into one entry. Off (default) nothing changes.
+Not mirrored: dropping a material onto an existing fill layer (`ReplaceLayer`) and drag-moving
+effects between layers. Tests: `crates/app/tests/udim_material_edits.rs` (5), existing
+`udim_paint_across.rs` (15) still pass.
