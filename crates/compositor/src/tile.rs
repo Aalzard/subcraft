@@ -280,8 +280,11 @@ pub(crate) fn eval_fill(fill: &subcraft_doc::FillContent, kind: ChannelKind, tc:
     let projection = fill.projection.resolve_physical(tc.set_geometry.surface_scale());
     eval_fill_tile_filtered(&ch.source, kind.is_color(), &projection, tc.geo, &tc.sample, filter, out);
     // A projected normal map is turned from the image's frame to each texel's tangent frame.
-    if matches!(kind, ChannelKind::Normal | ChannelKind::CoatNormal) && matches!(ch.source, subcraft_doc::FillSource::Bitmap { .. }) {
-        subcraft_materials::sample::reorient_normal_tile(&projection, tc.geo, out);
+    if matches!(kind, ChannelKind::Normal | ChannelKind::CoatNormal)
+        && let subcraft_doc::FillSource::Bitmap { resource } = &ch.source
+        && let Some(bmp) = tc.sample.resources.bitmap(*resource)
+    {
+        subcraft_materials::sample::normal_map_tile(bmp, &projection, filter == subcraft_image::TextureFilter::Nearest, tc.geo, out);
     }
     // Balance / Contrast / Invert of an image source; alpha (coverage) is left alone.
     if ch.adjust.applies(kind, &ch.source) {
