@@ -83,7 +83,9 @@ struct Job<'a> {
     units: Units,
     mode: u32,
     distance: f32,
-    finish: &'a (dyn Fn([f32; 2]) -> f32 + Sync),
+    /// Values per texel in the output (the first ones `finish` returns).
+    components: usize,
+    finish: &'a (dyn Fn([f32; 4]) -> [f32; 3] + Sync),
 }
 
 impl GpuRayBaker {
@@ -177,8 +179,8 @@ impl GpuRayBaker {
         let storage = wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST;
         let chunk = CHUNK.min(job.count);
         let texel_buf = self.buffer("bake texels", (chunk * 48) as u64, storage);
-        let accum_buf = self.buffer("bake accum", (chunk * 8) as u64, storage | wgpu::BufferUsages::COPY_SRC);
-        let read_buf = self.buffer("bake readback", (chunk * 8) as u64, wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ);
+        let accum_buf = self.buffer("bake accum", (chunk * 16) as u64, storage | wgpu::BufferUsages::COPY_SRC);
+        let read_buf = self.buffer("bake readback", (chunk * 16) as u64, wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ);
         let param_buf = self.buffer("bake params", std::mem::size_of::<Params>() as u64, wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST);
         let mut entries = vec![
             wgpu::BindGroupEntry { binding: 0, resource: job.nodes.as_entire_binding() },
@@ -192,7 +194,7 @@ impl GpuRayBaker {
 
         let run_started = Instant::now();
         let (mut prep_time, mut gpu_time, mut passes) = (Duration::ZERO, Duration::ZERO, 0u32);
-        let mut out = Vec::with_capacity(job.count);
+        let mut out = Vec::with_capacity(job.count * job.components);
         // Work units per dispatch, adapted from measured speed (starts tiny so a slow adapter is safe).
         let mut per_pass = 1u32;
         let mut records: Vec<[f32; 12]> = Vec::with_capacity(chunk);
@@ -262,17 +264,19 @@ impl GpuRayBaker {
             }
 
             let mut enc = self.device.create_command_encoder(&Default::default());
-            enc.copy_buffer_to_buffer(&accum_buf, 0, &read_buf, 0, (part_len * 8) as u64);
+            enc.copy_buffer_to_buffer(&accum_buf, 0, &read_buf, 0, (part_len * 16) as u64);
             self.queue.submit([enc.finish()]);
-            let slice = read_buf.slice(..(part_len * 8) as u64);
+            let slice = read_buf.slice(..(part_len * 16) as u64);
             // A failed map (device lost, driver reset) must not panic: `get_mapped_range` below then
             // errors and the bake falls back to the CPU (issue #119).
             slice.map_async(wgpu::MapMode::Read, |r| if let Err(e) = r { log::warn!("GPU bake readback failed: {e}") });
             self.wait()?;
             {
                 let data = slice.get_mapped_range().map_err(|e| RayBatchError::Unsupported(format!("GPU readback failed: {e}")))?;
-                let acc: &[[f32; 2]] = bytemuck::cast_slice(&data);
-                out.extend(acc.iter().map(|a| (job.finish)(*a)));
+                let acc: &[[f32; 4]] = bytemuck::cast_slice(&data);
+                for a in acc {
+                    out.extend_from_slice(&(job.finish)(*a)[..job.components]);
+                }
             }
             read_buf.unmap();
         }
@@ -328,12 +332,15 @@ impl RayBatchBackend for GpuRayBaker {
         let (mode_id, distance) = match mode {
             RayMode::Occlusion { distance } => (0u32, distance),
             RayMode::MeanDistance { max } => (1u32, max),
+            RayMode::BentNormal { distance } => (2u32, distance),
         };
         if bvh.is_empty() || count == 0 {
             // Nothing to hit: occlusion is 1, and every thickness ray travels the full distance.
             let value = match mode {
                 RayMode::Occlusion { .. } => 1.0,
                 RayMode::MeanDistance { .. } => 0.0,
+                // Every open direction counts: the CPU sums the same fan quickly.
+                RayMode::BentNormal { .. } => return Err(RayBatchError::Unsupported("nothing to trace".into())),
             };
             return Ok(vec![value; count]);
         }
@@ -343,14 +350,14 @@ impl RayBatchBackend for GpuRayBaker {
             let t = texel(i);
             [t.origin[0], t.origin[1], t.origin[2], t.rotation, t.axis[0], t.axis[1], t.axis[2], 0.0, t.offset[0], t.offset[1], t.offset[2], 0.0]
         };
-        let finish = |acc: [f32; 2]| match mode {
-            RayMode::Occlusion { .. } => {
-                if acc[1] <= 0.0 { 1.0 } else { 1.0 - acc[0] / acc[1] }
-            }
-            RayMode::MeanDistance { max } => 1.0 - acc[0] / rays as f32 / max,
+        let finish = |acc: [f32; 4]| match mode {
+            RayMode::Occlusion { .. } => [if acc[1] <= 0.0 { 1.0 } else { 1.0 - acc[0] / acc[1] }; 3],
+            RayMode::MeanDistance { max } => [1.0 - acc[0] / rays as f32 / max; 3],
+            RayMode::BentNormal { .. } => [acc[0], acc[1], acc[2]],
         };
+        let components = mode.components();
         self.drive(
-            &Job { pass: &self.rays, nodes: &nodes, tris: &tris, extra: vec![], count, record: &record, units: Units::Rays(rays), mode: mode_id, distance, finish: &finish },
+            &Job { pass: &self.rays, nodes: &nodes, tris: &tris, extra: vec![], count, record: &record, units: Units::Rays(rays), mode: mode_id, distance, components, finish: &finish },
             control,
         )
     }
@@ -374,7 +381,7 @@ impl RayBatchBackend for GpuRayBaker {
             let t = texel(i);
             [t.position[0], t.position[1], t.position[2], if t.group == NO_GROUP { -1.0 } else { t.group as f32 }, t.normal[0], t.normal[1], t.normal[2], 0.0, 0.0, 0.0, 0.0, 0.0]
         };
-        let finish = |acc: [f32; 2]| acc[0];
+        let finish = |acc: [f32; 4]| [acc[0]; 3];
         self.drive(
             &Job {
                 pass: &self.curvature,
@@ -386,6 +393,7 @@ impl RayBatchBackend for GpuRayBaker {
                 units: Units::Texels,
                 mode: 0,
                 distance: radius,
+                components: 1,
                 finish: &finish,
             },
             control,

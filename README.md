@@ -132,6 +132,10 @@ says they are still being prepared.
 2. Run `./install.sh` inside the folder to add SubCraft to your application menu (installs to
    `~/.local`, no root needed; `./install.sh --uninstall` removes it), or just start `./subcraft`.
 
+Or download **`SubCraft-<version>-linux-x86_64.AppImage`**: one file that runs without installing
+(`chmod +x SubCraft-*.AppImage`, then double-click or run it). It cannot update itself in the app:
+download the new AppImage to update.
+
 Needs a Vulkan driver (Mesa or your GPU vendor's) and X11 or Wayland. Built on Ubuntu 22.04, so it
 runs on that and newer distributions.
 
@@ -151,6 +155,7 @@ notes).
 |---|---|---|
 | Windows x64 | `SubCraft-<version>-setup.exe`, `...-windows-x64.zip` | Supported, in-app updates; code signing via SignPath Foundation pending |
 | Linux x86_64 | `SubCraft-<version>-linux-x86_64.tar.gz` | Supported, in-app updates |
+| Linux x86_64 AppImage | `SubCraft-<version>-linux-x86_64.AppImage` | Supported, no in-app updates |
 | macOS, Apple Silicon and Intel | `SubCraft-<version>-macos-universal-experimental.dmg` (or `.zip`) | Experimental, not notarized, no in-app updates |
 | Linux aarch64 (Arm64) | `SubCraft-<version>-linux-aarch64.tar.gz` | Experimental, in-app updates |
 | Windows on Arm | `SubCraft-<version>-windows-arm64.zip` | Experimental, in-app updates |

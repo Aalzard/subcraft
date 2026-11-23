@@ -227,6 +227,8 @@ pub struct BrushSettings {
     pub smudge_material: f32,
     /// Smudge: push the paint itself along the stroke (liquify) instead of smearing a carried colour.
     pub smudge_push: bool,
+    /// Clone: heal (keep the target's tone, copy only the source's detail).
+    pub clone_heal: bool,
     pub alignment: Alignment,
     pub backface_culling: bool,
     /// Surfaces turned further than this from the projection direction are not painted.
@@ -282,6 +284,7 @@ impl Default for BrushSettings {
             smudge_falloff: 1.0,
             smudge_material: 0.0,
             smudge_push: false,
+            clone_heal: false,
             alignment: Alignment::TangentWrap,
             backface_culling: true,
             backface_angle_deg: 90.0,
@@ -659,6 +662,11 @@ pub struct StrokeOptions {
     pub smoothing: f32,
     /// When the stroke ends, glide the brush the rest of the way to the last cursor position.
     pub catch_up: bool,
+    /// Smoothing follows the speed: full on slow, shaky movement, little on fast sweeps.
+    pub adaptive_smoothing: bool,
+    /// Post-smoothing (0 = off, 1 = strongest): when the stroke ends it is painted again along
+    /// a smoothed copy of its path ([`crate::path::post_smooth`]). 3D view strokes only.
+    pub post_smoothing: f32,
     /// Mirror planes (X, Y, Z) through the mesh bounds center.
     pub symmetry: [bool; 3],
     /// Mirror plane positions: offset of each plane from the mesh bounds center along its own

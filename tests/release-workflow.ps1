@@ -41,6 +41,7 @@ Assert ($workflow.Contains('environment: release-publish')) 'Publishing needs a 
 $platforms = Get-Content -LiteralPath (Join-Path $repo '.github/workflows/release-platforms.yml') -Raw
 foreach ($action in [regex]::Matches($platforms, '(?m)^\s*(?:- )?uses: ([^\s#]+)')) { Assert ($action.Groups[1].Value -match '@[0-9a-f]{40}$') 'Platform release actions must use immutable SHAs.' }
 Assert (([regex]::Matches($platforms, 'uses: actions/attest-build-provenance@')).Count -ge 3) 'Every experimental platform must be attested.'
+Assert ($workflow.Contains('./scripts/build-appimage.sh') -and $workflow.Contains('dist/*.AppImage')) 'The Linux job must build, check and upload the AppImage.'
 foreach ($script in 'build-windows.ps1','build-linux.sh') { Assert ((Get-Content -LiteralPath (Join-Path $repo "scripts/$script") -Raw).Contains('cargo build --locked')) "Unlocked build: $script" }
 $errors = @()
 foreach ($script in @('scripts/sign-windows.ps1','scripts/test-release-windows.ps1','scripts/write-release-checksums.ps1','scripts/new-sandbox-check.ps1','scripts/sandbox-guest-check.ps1','scripts/build-windows.ps1','scripts/build-installer.ps1','tests/release-security.ps1','tests/release-workflow.ps1')) {

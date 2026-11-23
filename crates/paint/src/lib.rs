@@ -9,6 +9,7 @@
 
 pub mod camera;
 pub mod depth;
+pub mod heal;
 pub mod image_stamp;
 pub mod kernel;
 pub mod particles;

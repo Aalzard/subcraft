@@ -184,6 +184,35 @@ struct ActiveStroke {
     /// The same stroke on the matching layer of the other UDIM tiles of the set (issue #581,
     /// "paint across UDIM tiles"); empty otherwise.
     partners: Vec<(TextureSetId, Stroke)>,
+    /// Post-smoothing: the cursor positions the stroke was drawn through, with the pen pressure
+    /// and pose at each, so [`Session::end_stroke`] can paint it again along a smoothed path.
+    /// `None` once the stroke cannot be replayed (a straight line, a 2D-view or quick mask
+    /// stroke, a continued stroke).
+    recorded: Option<Vec<RecordedPoint>>,
+    /// Pressure and pose set for the next points (what [`RecordedPoint`] stores).
+    pen: (f32, Option<subcraft_paint::PenPose>),
+}
+
+impl ActiveStroke {
+    /// Keep `screens` for post-smoothing; a straight segment makes the stroke one that is not
+    /// replayed (a line is already straight, and smoothing would round its corners).
+    fn record(&mut self, screens: &[Vec2], line: bool) {
+        if line {
+            self.recorded = None;
+        }
+        if let Some(rec) = self.recorded.as_mut() {
+            let (pressure, pose) = self.pen;
+            rec.extend(screens.iter().map(|&screen| RecordedPoint { screen, pressure, pose }));
+        }
+    }
+}
+
+/// One cursor position of a stroke, kept for post-smoothing.
+#[derive(Clone, Copy, Debug)]
+struct RecordedPoint {
+    screen: Vec2,
+    pressure: f32,
+    pose: Option<subcraft_paint::PenPose>,
 }
 
 /// What must stay the same for a stroke to continue the previous one.
@@ -263,8 +292,12 @@ pub(crate) fn checked_stroke_options(mut options: StrokeOptions) -> Result<Strok
     if !options.smoothing.is_finite() {
         return Err(CommandError::Invalid("smoothing must be finite".into()));
     }
+    if !options.post_smoothing.is_finite() {
+        return Err(CommandError::Invalid("post-smoothing must be finite".into()));
+    }
     options.lazy_distance_px = options.lazy_distance_px.clamp(0.0, 100.0);
     options.smoothing = options.smoothing.clamp(0.0, subcraft_paint::MAX_SMOOTHING);
+    options.post_smoothing = options.post_smoothing.clamp(0.0, 1.0);
     options.radial.axis = options.radial.axis.min(2);
     options.radial.count = options.radial.count.clamp(2, subcraft_paint::MAX_SYMMETRY_COPIES);
     Ok(options)
@@ -3126,6 +3159,7 @@ impl Session {
                 partner.lift_pen();
             }
             active.camera = None;
+            active.recorded = None;
             self.stroke = Some(active);
             return Ok(());
         }
@@ -3197,7 +3231,8 @@ impl Session {
         let key = self.continue_key(uv.is_some());
         let ts_id = self.selected_texture_set().id;
         let partners = if uv.is_none() && stamp.is_none() { self.partner_strokes(layer, &material) } else { Vec::new() };
-        self.stroke = Some(ActiveStroke { stroke, texture_set: ts_id, label, camera: None, quick: false, key, partners });
+        let recorded = (uv.is_none() && self.brush.options.post_smoothing > 0.0).then(Vec::new);
+        self.stroke = Some(ActiveStroke { stroke, texture_set: ts_id, label, camera: None, quick: false, key, partners, recorded, pen: (1.0, None) });
         Ok(())
     }
 
@@ -3221,7 +3256,7 @@ impl Session {
             .with_stencil(if b.stencil_bypass { None } else { b.stencil.clone() })
             .with_uv_view(view);
         self.quick_scratch = Some(scratch);
-        self.stroke = Some(ActiveStroke { stroke, texture_set: self.selection.texture_set, label: "Quick Mask Stroke", camera: None, quick: true, key: None, partners: Vec::new() });
+        self.stroke = Some(ActiveStroke { stroke, texture_set: self.selection.texture_set, label: "Quick Mask Stroke", camera: None, quick: true, key: None, partners: Vec::new(), recorded: None, pen: (1.0, None) });
         Ok(())
     }
 
@@ -3331,6 +3366,7 @@ impl Session {
     pub fn set_stroke_pressure(&mut self, pressure: f32) {
         if let Some(active) = self.stroke.as_mut() {
             active.stroke.set_pressure(pressure);
+            active.pen.0 = pressure;
         }
     }
 
@@ -3339,6 +3375,7 @@ impl Session {
     pub fn set_stroke_pen_pose(&mut self, pose: Option<subcraft_paint::PenPose>) {
         if let Some(active) = self.stroke.as_mut() {
             active.stroke.set_pen_pose(pose);
+            active.pen.1 = pose;
         }
     }
 
@@ -3346,6 +3383,7 @@ impl Session {
     pub fn stroke_to(&mut self, camera: &Camera, screen: Vec2, line: bool) -> Result<Vec<usize>, PaintError> {
         let Some(mut active) = self.stroke.take() else { return Ok(Vec::new()) };
         active.camera = Some(*camera);
+        active.record(&[screen], line);
         let paint = move |stroke: &mut Stroke, ts: &mut TextureSet, ctx: &PaintContext| {
             if line { stroke.line_to(ts, ctx, screen) } else { stroke.add_point(ts, ctx, screen) }
         };
@@ -3372,6 +3410,7 @@ impl Session {
             return Ok(Vec::new());
         }
         active.camera = Some(*camera);
+        active.record(screens, false);
         let paint = |stroke: &mut Stroke, ts: &mut TextureSet, ctx: &PaintContext| stroke.add_points(ts, ctx, screens);
         let result = self.with_stroke_context(active.texture_set, camera, paint, active);
         if self.paint_partners(camera, paint) {
@@ -3845,6 +3884,7 @@ impl Session {
     /// Finish the stroke: the post-stroke document becomes one history entry (none if nothing
     /// was painted).
     pub fn end_stroke(&mut self) {
+        self.replay_post_smoothed();
         if let Some(active) = self.stroke.take() {
             // Catch-up end: let the brush reach the last cursor position first; then apply the
             // stamps the live preview thinned out (one batched pass).
@@ -3884,6 +3924,41 @@ impl Session {
         }
         // Kept so the next stroke can continue it (A); dropped when it cannot be.
         self.last_stroke = active.key.is_some().then(|| LastStroke { cursor: self.history.cursor(), entries: self.history.entries().len(), active });
+    }
+
+    /// Post-smoothing: throw the stroke away and paint it again from the start along a smoothed
+    /// copy of its cursor path (same pressure and pose at each point). The replayed stroke is
+    /// left active for [`Session::end_stroke`] to finish as usual, so it is still one undo step.
+    fn replay_post_smoothed(&mut self) {
+        let strength = self.brush.options.post_smoothing;
+        let Some(active) = self.stroke.as_mut() else { return };
+        let (Some(camera), Some(points)) = (active.camera, active.recorded.take()) else { return };
+        if strength <= 0.0 || points.len() < 3 || active.quick {
+            return;
+        }
+        let raw: Vec<Vec2> = points.iter().map(|p| p.screen).collect();
+        let smooth = subcraft_paint::path::post_smooth(&raw, strength * subcraft_paint::path::POST_SMOOTHING_PX);
+        let (clone_offset, clone_offset_uv) = (self.clone_offset, self.clone_offset_uv);
+        self.cancel_stroke();
+        // A relative clone source keeps the offset the first dab fixed (the first point does not
+        // move); an absolute one is reset by the new stroke anyway.
+        (self.clone_offset, self.clone_offset_uv) = (clone_offset, clone_offset_uv);
+        if self.begin_stroke().is_err() {
+            return;
+        }
+        // Runs of points with about the same pressure go in one batch.
+        let mut i = 0;
+        while i < smooth.len() {
+            let first = points[i];
+            let mut j = i + 1;
+            while j < smooth.len() && (points[j].pressure - first.pressure).abs() < 0.02 {
+                j += 1;
+            }
+            self.set_stroke_pressure(first.pressure);
+            self.set_stroke_pen_pose(first.pose);
+            let _ = self.stroke_to_many(&camera, &smooth[i..j]);
+            i = j;
+        }
     }
 
     /// Abandon the stroke and restore the pre-stroke document.

@@ -271,6 +271,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         CloneSourceMode::Relative => "Relative: the source follows the brush, so each stroke continues the copy. Set the source with V + click.",
                         CloneSourceMode::Absolute => "Absolute: every stroke starts copying from the source point again. Set the source with V + click.",
                     });
+                    check_row_reset(ui, "", "Heal", &mut state.session.brush.settings.clone_heal, false)
+                        .on_hover_text("Copy only the detail of the source and keep the colour of where you paint, so the patch blends in (removes seams, scratches and spots)");
                 });
             }
 

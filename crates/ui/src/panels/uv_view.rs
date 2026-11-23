@@ -295,6 +295,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 state.uv.offset = egui::Vec2::ZERO;
             }
         });
+        crate::udim_picker::header(state, ui);
         ui.horizontal_wrapped(|ui| brush_controls(state, ui));
         if state.picking_parts {
             ui.horizontal_wrapped(|ui| crate::panels::parts::mask_bar(ui, state));

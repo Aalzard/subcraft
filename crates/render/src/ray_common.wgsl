@@ -3,7 +3,7 @@
 // crates/bake/src/surface.rs (`cosine_directions`) and crates/mesh/src/bvh.rs.
 
 struct Params {
-    mode: u32,        // 0 = occlusion, 1 = mean distance
+    mode: u32,        // 0 = occlusion, 1 = mean distance, 2 = bent normal (sum of open directions)
     ray_start: u32,
     ray_end: u32,
     ray_total: u32,
@@ -16,7 +16,7 @@ struct Params {
 @group(0) @binding(0) var<storage, read> nodes: array<vec4<u32>>;   // 2 per node
 @group(0) @binding(1) var<storage, read> tris: array<vec4<f32>>;    // 3 per triangle: v0, e1, e2
 @group(0) @binding(2) var<storage, read> texels: array<vec4<f32>>;  // 3 per texel: origin+rotation, axis, offset
-@group(0) @binding(3) var<storage, read_write> accum: array<vec2<f32>>;
+@group(0) @binding(3) var<storage, read_write> accum: array<vec4<f32>>;
 @group(0) @binding(4) var<uniform> params: Params;
 
 const TAU: f32 = 6.283185307179586;

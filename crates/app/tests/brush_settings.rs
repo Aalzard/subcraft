@@ -63,6 +63,8 @@ fn stroke_options_command_validates_shared_preset_state_without_history_or_mid_s
         lazy_distance_px: 25.0,
         smoothing: 0.5,
         catch_up: true,
+        adaptive_smoothing: true,
+        post_smoothing: 0.5,
         radial: subcraft_paint::RadialSymmetry { enabled: true, axis: 2, count: 12, center_offset: [0.1, 0.0, -0.2], flip: true },
     };
     session.execute(Command::SetStrokeOptions(options)).unwrap();
