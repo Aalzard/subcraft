@@ -785,7 +785,7 @@ mod tests {
     #[test]
     fn every_procedural_material_is_well_formed() {
         let all = built();
-        assert_eq!(all.len(), 33);
+        assert_eq!(all.len(), 37);
         for (name, layer) in &all {
             assert!(name.starts_with(PREFIX), "{name}");
             let m = layer.material.as_ref().unwrap_or_else(|| panic!("{name} has parameters"));
