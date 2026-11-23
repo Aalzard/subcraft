@@ -190,6 +190,14 @@ fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]], input: 
         eval_shape_generator(g, tc, out);
         return;
     }
+    if g.kind == GeneratorKind::FiberGlass {
+        eval_fiber_glass(g, tc, out, input, details);
+        return;
+    }
+    if g.kind == GeneratorKind::MaskBuilder {
+        eval_mask_builder(g, tc, out, details);
+        return;
+    }
     let input = input.filter(|_| g.accepts_input());
     if g.kind == GeneratorKind::Edges && let Some(spread) = g.edge_spread {
         eval_edge_spread(g, spread, tc, out, input, details);
@@ -201,7 +209,7 @@ fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]], input: 
         GeneratorKind::Edges | GeneratorKind::Concave => Some(MeshMapKind::Curvature),
         GeneratorKind::Cavity | GeneratorKind::AmbientOcclusion => Some(MeshMapKind::AmbientOcclusion),
         GeneratorKind::MeshMap(k) => Some(k),
-        GeneratorKind::Directional | GeneratorKind::PositionGradient | GeneratorKind::MaskEditor => None,
+        GeneratorKind::Directional | GeneratorKind::PositionGradient | GeneratorKind::MaskEditor | GeneratorKind::FiberGlass | GeneratorKind::MaskBuilder => None,
         GeneratorKind::Distance3D | GeneratorKind::LinearGradient3D | GeneratorKind::UvRandomColor | GeneratorKind::GrayscaleConversion | GeneratorKind::UvBorderDistance | GeneratorKind::UvChecker | GeneratorKind::UvTexelDensity => None,
     };
     match (input, map_kind) {
@@ -278,7 +286,7 @@ fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]], input: 
             GeneratorKind::Concave => 1.0 - map[i][0],
             GeneratorKind::PositionGradient => (geo.position(i)[axis] * set.max_extent / ext_axis).clamp(0.0, 1.0),
             // Handled above.
-            GeneratorKind::MaskEditor | GeneratorKind::Distance3D | GeneratorKind::LinearGradient3D | GeneratorKind::UvRandomColor | GeneratorKind::GrayscaleConversion | GeneratorKind::UvBorderDistance | GeneratorKind::UvChecker | GeneratorKind::UvTexelDensity => 0.0,
+            GeneratorKind::MaskEditor | GeneratorKind::FiberGlass | GeneratorKind::MaskBuilder | GeneratorKind::Distance3D | GeneratorKind::LinearGradient3D | GeneratorKind::UvRandomColor | GeneratorKind::GrayscaleConversion | GeneratorKind::UvBorderDistance | GeneratorKind::UvChecker | GeneratorKind::UvTexelDensity => 0.0,
         };
         let level = if let Some(noise) = &noise {
             g.level + (noise[i] - 0.5) * g.noise_amount
@@ -305,6 +313,180 @@ fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]], input: 
             let tail = if grunge_map { smoothstep(0.3, 1.0, noise[i]) } else { ((noise[i] - 0.5) * 3.0 + 0.5).clamp(0.0, 1.0) };
             v += (1.0 - v) * floor * tail;
         }
+        *o = [if g.invert { 1.0 - v } else { v }, 1.0, 0.0, 0.0];
+    }
+}
+
+/// Fiber Glass Edge Wear: the edge wear of `Edges` (same model, same controls), frayed by a
+/// woven mat of strands where it thins out, then the Invert.
+fn eval_fiber_glass(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]], input: Option<&[f32]>, details: Option<&[[f32; 4]]>) {
+    eval_generator(&g.fiber_base(), tc, out, input, details);
+    let fiber = g.fiber_settings();
+    let geo = tc.geo;
+    let scale = if fiber.scale.is_finite() { fiber.scale.clamp(*subcraft_doc::FiberSettings::SCALE_RANGE.start(), *subcraft_doc::FiberSettings::SCALE_RANGE.end()) } else { 160.0 };
+    let irregularity = if fiber.irregularity.is_finite() { fiber.irregularity.clamp(0.0, 1.0) } else { 0.0 };
+    let offset = noise_offset(g);
+    let seed = g.noise.seed;
+    let amount = if fiber.amount.is_finite() { fiber.amount.clamp(0.0, 1.0) } else { 0.0 };
+    let strand_at = |i: usize| {
+        if fiber.triplanar {
+            let p = geo.position(i);
+            subcraft_materials::weave::weave_triplanar([p[0] + offset[0], p[1] + offset[1], p[2] + offset[2]], geo.normal(i), scale, irregularity, seed)
+        } else {
+            let uv = geo.uv(i);
+            subcraft_materials::weave::weave(uv[0] * scale, uv[1] * scale, irregularity, seed)
+        }
+    };
+    // Natural edge wear: loose fibres run out past the solid wear, along the surface distance
+    // from the edge. The fringe is a multiple of the wear's own reach, so Level and Spread
+    // move it too; a soft noise makes it longer in places.
+    let fringe = g.edge_spread.filter(|_| amount > 0.0).and_then(|spread| {
+        let reach = spread.distance.clamp(0.0, 12.5) * 0.01 * if spread.level_reach { subcraft_doc::EdgeSpread::level_extent(g.level) } else { 1.0 } * subcraft_doc::FiberSettings::FRINGE;
+        if reach <= 1e-6 {
+            return None;
+        }
+        let distances = tc.set_geometry.edge_distance_tile(geo);
+        let rounded = tc.set_geometry.rounded_edge_distance_tile(geo);
+        if !distances.iter().zip(rounded.iter()).any(|(&d, &r)| d.min(r) < reach * 1.5) {
+            return None;
+        }
+        let uneven = subcraft_materials::sample::organic_tile_at(&scaled_noise(g), offset, geo);
+        Some((reach, distances, rounded, uneven))
+    });
+    let ao_masking = g.painter.map_or(0.0, |p| p.ao_masking.clamp(0.0, 1.0));
+    let ao_map = (fringe.is_some() && ao_masking > 0.0).then(|| {
+        let mut map = vec![[0.0f32; 3]; TILE_TEXELS];
+        tc.sample.mesh_maps.read_tile(MeshMapKind::AmbientOcclusion, geo, &mut map);
+        map
+    });
+    for (i, o) in out.iter_mut().enumerate() {
+        let mut v = o[0];
+        match &fringe {
+            Some((reach, distances, rounded, uneven)) => {
+                if v < 1.0 {
+                    let local = reach * (0.55 + 0.9 * uneven[i].clamp(0.0, 1.0));
+                    // 1 on the edge, 0 where the longest fibre ends.
+                    let t = 1.0 - distances[i].min(rounded[i]) / local;
+                    if t > 0.0 {
+                        let threshold = 1.0 - fiber.fringe_reach(strand_at(i));
+                        let mut f = smoothstep(threshold - 0.04, threshold + 0.04, t);
+                        if let Some(map) = &ao_map {
+                            f *= 1.0 - ao_masking * (1.0 - map[i][0]);
+                        }
+                        v = v.max(f);
+                    }
+                }
+            }
+            // The plain curvature threshold has no distance to follow: fray its own falloff.
+            None if amount > 0.0 && v > 0.0 && v < 1.0 => v = fiber.fray(v, strand_at(i)),
+            None => {}
+        }
+        *o = [if g.invert { 1.0 - v } else { v }, 1.0, 0.0, 0.0];
+    }
+}
+
+/// Mask Builder (Painter's legacy Mask Editor): each contribution shaped by its group, times
+/// its slider, added together; then the global Level / Contrast / Invert.
+///
+/// Adobe does not document how the contributions combine. This adds them (each slider is how
+/// much of that map goes into the mask); scratches only show where grunge, occlusion or
+/// curvature contribute, as the manual says they need one of those above 0.
+fn eval_mask_builder(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]], details: Option<&[[f32; 4]]>) {
+    use subcraft_doc::MaskBuilder;
+    let b = g.builder_settings();
+    if !b.valid() {
+        // A damaged file: nothing rather than NaN.
+        for o in out.iter_mut() {
+            *o = [if g.invert { 1.0 } else { 0.0 }, 1.0, 0.0, 0.0];
+        }
+        return;
+    }
+    let geo = tc.geo;
+    let set = tc.set_geometry;
+    let offset = noise_offset(g);
+    let details = details.zip(g.micro_details_active());
+    let read = |kind: MeshMapKind| {
+        let mut map = vec![[0.0f32; 3]; TILE_TEXELS];
+        tc.sample.mesh_maps.read_tile(kind, geo, &mut map);
+        map
+    };
+    let params = |kind: subcraft_doc::ProceduralKind, scale: f32, salt: u32| {
+        let mut p = subcraft_doc::ProceduralParams::new(kind);
+        p.scale = scale.clamp(0.01, 256.0);
+        p.seed = g.noise.seed.wrapping_add(salt);
+        p
+    };
+    let mut sum = vec![0.0f32; TILE_TEXELS];
+    if b.grunge > 0.0 {
+        let field = subcraft_materials::sample::grunge_tile_at(&params(subcraft_doc::ProceduralKind::Grunge, 6.0 * b.grunge_scale, 0), offset, geo);
+        for (s, &v) in sum.iter_mut().zip(field.iter()) {
+            *s += b.grunge * if b.grunge_invert { 1.0 - v } else { v };
+        }
+    }
+    // One soft noise shared by the two Noisiness sliders.
+    let noisy = (b.ao > 0.0 && b.ao_noisiness > 0.0) || (b.curvature > 0.0 && b.curvature_noisiness > 0.0);
+    let noise = noisy.then(|| subcraft_materials::sample::organic_tile_at(&params(subcraft_doc::ProceduralKind::Clouds, 10.0, 0x71), offset, geo));
+    let wobble = |i: usize, amount: f32| noise.as_ref().map_or(0.0, |n| (n[i] - 0.5) * amount);
+    if b.ao > 0.0 {
+        let mut map = read(MeshMapKind::AmbientOcclusion);
+        if let Some((d, settings)) = details {
+            add_micro_occlusion(&mut map, d, settings.amount);
+        }
+        for (i, s) in sum.iter_mut().enumerate() {
+            let occluded = (1.0 - map[i][0] + wobble(i, b.ao_noisiness)).clamp(0.0, 1.0);
+            *s += b.ao * MaskBuilder::ranged(occluded, b.ao_range, b.ao_contrast, b.ao_invert);
+        }
+    }
+    if b.curvature > 0.0 {
+        let mut map = read(MeshMapKind::Curvature);
+        if let Some((d, settings)) = details {
+            add_micro_curvature(&mut map, d, settings.amount);
+        }
+        let gain = 2.0 * (1.0 + b.curvature_boost * 4.0);
+        for (i, s) in sum.iter_mut().enumerate() {
+            let c = (map[i][0] - 0.5) * gain + wobble(i, b.curvature_noisiness);
+            let convex = MaskBuilder::ranged(c.clamp(0.0, 1.0), b.convex_range, b.convex_contrast, b.convex_invert);
+            let concave = MaskBuilder::ranged((-c).clamp(0.0, 1.0), b.concave_range, b.concave_contrast, b.concave_invert);
+            *s += b.curvature * convex.max(concave);
+        }
+    }
+    // Scratches ride on the weathering only.
+    if b.scratches > 0.0 && b.scratches_amount > 0.0 && (b.grunge > 0.0 || b.ao > 0.0 || b.curvature > 0.0) {
+        let projection = Projection { mode: ProjectionMode::Triplanar, triplanar_sharpness: 4.0, ..Projection::default() };
+        let field = subcraft_materials::sample::procedural_tile_at(&params(subcraft_doc::ProceduralKind::Scratches, 4.0 * b.scratches_scale, 0x5c), &projection, offset, geo);
+        let threshold = 1.0 - b.scratches_amount;
+        for (s, &v) in sum.iter_mut().zip(field.iter()) {
+            *s += b.scratches * ((v - threshold * 0.9) / 0.1).clamp(0.0, 1.0);
+        }
+    }
+    if b.gradient > 0.0 {
+        let extent = set.bounds.extent().y.max(1e-12);
+        for (i, s) in sum.iter_mut().enumerate() {
+            let height = (geo.position(i)[1] * set.max_extent / extent).clamp(0.0, 1.0);
+            *s += b.gradient * MaskBuilder::ranged(height, b.gradient_range, b.gradient_contrast, b.gradient_invert);
+        }
+    }
+    if b.world_normal > 0.0 {
+        let baked = tc.sample.mesh_maps.get(MeshMapKind::WorldSpaceNormal).is_some().then(|| read(MeshMapKind::WorldSpaceNormal));
+        for (i, s) in sum.iter_mut().enumerate() {
+            let n = match &baked {
+                Some(map) => map[i].map(|c| c * 2.0 - 1.0),
+                None => geo.normal(i),
+            };
+            *s += b.world_normal * b.facing(n);
+        }
+    }
+    if b.scatter > 0.0 && b.scatter_density > 0.0 && b.scatter_size > 0.0 {
+        let cells = 24.0 * b.scatter_scale;
+        let seed = g.noise.seed.wrapping_add(0x5ca7);
+        for (i, s) in sum.iter_mut().enumerate() {
+            let p = geo.position(i);
+            let p = [(p[0] + offset[0]) * cells, (p[1] + offset[1]) * cells, (p[2] + offset[2]) * cells];
+            *s += b.scatter * subcraft_materials::weave::dots(p, b.scatter_density, b.scatter_size, b.scatter_size_variation, b.scatter_opacity_variation, seed);
+        }
+    }
+    for (o, v) in out.iter_mut().zip(sum) {
+        let v = MaskBuilder::finish(v, g.level, g.softness);
         *o = [if g.invert { 1.0 - v } else { v }, 1.0, 0.0, 0.0];
     }
 }

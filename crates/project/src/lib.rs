@@ -530,6 +530,12 @@ impl<R: Read + Seek> Loader<'_, R> {
         if generator.editor.as_ref().is_some_and(|e| !e.valid()) {
             return Err(ProjectError::Invalid("invalid Mask Editor settings".into()));
         }
+        if generator.fiber.as_ref().is_some_and(|f| !f.valid()) {
+            return Err(ProjectError::Invalid("invalid Fiber Glass Edge Wear settings".into()));
+        }
+        if generator.builder.as_ref().is_some_and(|b| !b.valid()) {
+            return Err(ProjectError::Invalid("invalid Mask Builder settings".into()));
+        }
         if generator.shape.as_ref().is_some_and(|s| !s.valid()) {
             return Err(ProjectError::Invalid("invalid generator shape settings".into()));
         }

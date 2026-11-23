@@ -405,6 +405,158 @@ pub struct Generator {
     /// UV Random Color, Grayscale Conversion) and the Light's attenuation. Absent: their defaults.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shape: Option<ShapeSettings>,
+    /// Settings of [`GeneratorKind::FiberGlass`]. Absent for every other kind.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fiber: Option<FiberSettings>,
+    /// Settings of [`GeneratorKind::MaskBuilder`]. Absent for every other kind.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub builder: Option<MaskBuilder>,
+}
+
+/// The woven glass mat of [`GeneratorKind::FiberGlass`].
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct FiberSettings {
+    /// How strongly the weave frays the wear (0 = plain edge wear, 1 = only strands survive
+    /// where the wear thins out).
+    pub amount: f32,
+    /// Strands across the model's longest side (or across the UV square without tri-planar).
+    pub scale: f32,
+    /// Random loose strands and uneven strand width (0 = a perfect weave).
+    pub irregularity: f32,
+    /// Painter's Use Triplanar: the weave follows the model, without seams. Off: UV space.
+    pub triplanar: bool,
+}
+
+impl Default for FiberSettings {
+    fn default() -> Self { Self { amount: 0.8, scale: 160.0, irregularity: 0.5, triplanar: true } }
+}
+
+impl FiberSettings {
+    pub const SCALE_RANGE: std::ops::RangeInclusive<f32> = 8.0..=1024.0;
+
+    pub fn valid(&self) -> bool {
+        let unit = |v: f32| v.is_finite() && (0.0..=1.0).contains(&v);
+        unit(self.amount) && unit(self.irregularity) && self.scale.is_finite() && Self::SCALE_RANGE.contains(&self.scale)
+    }
+
+    /// The wear value from the plain edge wear `wear` and the weave `strand` (1 on a strand,
+    /// 0 in the gaps): full wear stays full, no wear stays none, and in between the gaps of
+    /// the weave drop out first, so the boundary frays into fibres.
+    pub fn fray(&self, wear: f32, strand: f32) -> f32 {
+        let wear = wear.clamp(0.0, 1.0);
+        let amount = self.amount.clamp(0.0, 1.0);
+        // The gaps need this much more wear than the strands to show.
+        let need = (1.0 - strand.clamp(0.0, 1.0)) * amount * 0.85;
+        ((wear - need) / (1.0 - need).max(1e-4)).clamp(0.0, 1.0)
+    }
+
+    /// How far a point of the weave reaches past the solid wear, as a share of the fringe (0 =
+    /// not at all, close to 1 = to its end): the gaps stay put, the tops of the strands run out
+    /// the furthest, so the wear ends in loose fibres.
+    pub fn fringe_reach(&self, strand: f32) -> f32 {
+        let strand = strand.clamp(0.0, 1.0);
+        self.amount.clamp(0.0, 1.0) * strand * strand.sqrt() * 0.95
+    }
+
+    /// The fringe is this many times as wide as the solid wear's own reach.
+    pub const FRINGE: f32 = 2.2;
+}
+
+/// Settings of [`GeneratorKind::MaskBuilder`]. The seven sliders are how much of each
+/// contribution is added to the mask; the groups shape each contribution. The global Level /
+/// Contrast / Invert and the Seed are the generator's own.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MaskBuilder {
+    pub grunge: f32,
+    pub ao: f32,
+    pub curvature: f32,
+    pub gradient: f32,
+    pub world_normal: f32,
+    pub scratches: f32,
+    pub scatter: f32,
+    /// Grunge: pattern repeats relative to the default size.
+    pub grunge_scale: f32,
+    pub grunge_invert: bool,
+    /// Ambient Occlusion: how much of the occlusion is selected, how hard, how noisy.
+    pub ao_range: f32,
+    pub ao_contrast: f32,
+    pub ao_noisiness: f32,
+    pub ao_invert: bool,
+    pub convex_range: f32,
+    pub convex_contrast: f32,
+    pub convex_invert: bool,
+    pub concave_range: f32,
+    pub concave_contrast: f32,
+    pub concave_invert: bool,
+    /// Curvature: gain on the baked curvature before the ranges (0 = as baked).
+    pub curvature_boost: f32,
+    pub curvature_noisiness: f32,
+    /// Top/Down gradient: how far down from the top it reaches.
+    pub gradient_range: f32,
+    pub gradient_contrast: f32,
+    pub gradient_invert: bool,
+    /// World space normal: Top (+Y), Bottom, Front (+X), Back, Right (+Z), Left.
+    pub normal: [f32; 6],
+    pub scratches_amount: f32,
+    pub scratches_scale: f32,
+    pub scatter_scale: f32,
+    pub scatter_density: f32,
+    pub scatter_size: f32,
+    pub scatter_size_variation: f32,
+    pub scatter_opacity_variation: f32,
+}
+
+impl Default for MaskBuilder {
+    fn default() -> Self {
+        Self {
+            grunge: 0.0, ao: 0.5, curvature: 0.5, gradient: 0.0, world_normal: 0.0, scratches: 0.0, scatter: 0.0,
+            grunge_scale: 1.0, grunge_invert: false,
+            ao_range: 1.0, ao_contrast: 0.0, ao_noisiness: 0.0, ao_invert: false,
+            convex_range: 1.0, convex_contrast: 0.0, convex_invert: false,
+            concave_range: 0.0, concave_contrast: 0.0, concave_invert: false,
+            curvature_boost: 0.0, curvature_noisiness: 0.0,
+            gradient_range: 1.0, gradient_contrast: 0.0, gradient_invert: false,
+            normal: [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            scratches_amount: 0.5, scratches_scale: 1.0,
+            scatter_scale: 1.0, scatter_density: 0.5, scatter_size: 0.5, scatter_size_variation: 0.5, scatter_opacity_variation: 0.0,
+        }
+    }
+}
+
+impl MaskBuilder {
+    pub const SCALE_RANGE: std::ops::RangeInclusive<f32> = 0.1..=16.0;
+
+    pub fn valid(&self) -> bool {
+        let unit = |v: f32| v.is_finite() && (0.0..=1.0).contains(&v);
+        let scale = |v: f32| v.is_finite() && Self::SCALE_RANGE.contains(&v);
+        [self.grunge, self.ao, self.curvature, self.gradient, self.world_normal, self.scratches, self.scatter, self.ao_range, self.ao_contrast, self.ao_noisiness,
+            self.convex_range, self.convex_contrast, self.concave_range, self.concave_contrast, self.curvature_boost, self.curvature_noisiness,
+            self.gradient_range, self.gradient_contrast, self.scratches_amount, self.scatter_density, self.scatter_size, self.scatter_size_variation, self.scatter_opacity_variation]
+            .into_iter().chain(self.normal).all(unit)
+            && scale(self.grunge_scale) && scale(self.scratches_scale) && scale(self.scatter_scale)
+    }
+
+    /// Range / Contrast of one contribution: the top `range` share of `v` is selected (1 = all of
+    /// it, unchanged; 0 = nothing), `contrast` 1 turning the ramp into a hard edge.
+    pub fn ranged(v: f32, range: f32, contrast: f32, invert: bool) -> f32 {
+        let range = range.clamp(0.0, 1.0);
+        let width = ((1.0 - contrast.clamp(0.0, 1.0)) * range).max(1e-4);
+        let out = if range <= 0.0 { 0.0 } else { ((v - (1.0 - range)) / width).clamp(0.0, 1.0) };
+        if invert { 1.0 - out } else { out }
+    }
+
+    /// The world-normal contribution for a unit normal: each side's intensity where it faces.
+    pub fn facing(&self, n: [f32; 3]) -> f32 {
+        let sides = [n[1], -n[1], n[0], -n[0], n[2], -n[2]];
+        sides.iter().zip(self.normal).map(|(s, k)| s.max(0.0) * k).sum::<f32>().clamp(0.0, 1.0)
+    }
+
+    /// The mask from the summed contributions: the global Level (as a balance) and Contrast.
+    pub fn finish(sum: f32, level: f32, softness: f32) -> f32 {
+        balance_contrast(sum.clamp(0.0, 1.0), level.clamp(0.0, 1.0), (1.0 - softness).clamp(0.0, 1.0))
+    }
 }
 
 /// Parameters of the position, UV and conversion generators. Positions are in the model's
@@ -1208,6 +1360,13 @@ pub enum GeneratorKind {
     UvChecker,
     /// Painter's UV Texel Density: a colour from low to high texel density.
     UvTexelDensity,
+    /// Painter's Fiber Glass Edge Wear: the edge wear of `Edges`, frayed into a woven mat of
+    /// glass fibres where the coat thins out ([`Generator::fiber`]).
+    FiberGlass,
+    /// Painter's Mask Builder (the legacy Mask Editor): grunge, occlusion, curvature, a top/down
+    /// gradient, the world normal, scratches and scattered dots added together, then one global
+    /// Level / Contrast ([`Generator::builder`]).
+    MaskBuilder,
 }
 
 impl GeneratorKind {
@@ -1228,7 +1387,14 @@ impl GeneratorKind {
             GeneratorKind::UvBorderDistance => "UV Border Distance".into(),
             GeneratorKind::UvChecker => "UV Checker".into(),
             GeneratorKind::UvTexelDensity => "UV Texel Density".into(),
+            GeneratorKind::FiberGlass => "Fiber Glass Edge Wear".into(),
+            GeneratorKind::MaskBuilder => "Mask Builder".into(),
         }
+    }
+
+    /// Edge wear kinds: they share the wear model, its controls and its defaults.
+    pub fn is_edge_wear(self) -> bool {
+        matches!(self, GeneratorKind::Edges | GeneratorKind::FiberGlass)
     }
 
     /// Kinds that produce a colour when used on a layer's content (gray in a mask).
@@ -1245,7 +1411,7 @@ impl GeneratorKind {
     /// Painter-style kinds whose Level / Softness the editor shows as Painter's own controls
     /// (Dirt Level / Dirt Contrast, Wear Level / Wear Contrast, Balance / Contrast).
     pub fn uses_painter_names(self) -> bool {
-        matches!(self, GeneratorKind::Edges | GeneratorKind::Cavity | GeneratorKind::AmbientOcclusion | GeneratorKind::MeshMap(_))
+        matches!(self, GeneratorKind::Edges | GeneratorKind::FiberGlass | GeneratorKind::Cavity | GeneratorKind::AmbientOcclusion | GeneratorKind::MeshMap(_))
     }
 }
 
@@ -1260,12 +1426,14 @@ impl Generator {
         let mut noise = ProceduralParams::new(crate::fill::ProceduralKind::Clouds);
         // Pattern size 12.5%; Dirt 16%.
         // Edge wear: Pattern size 3% (owner's defaults, 2026-11-22).
-        noise.scale = match kind { GeneratorKind::Cavity => 100.0 / 16.0, GeneratorKind::Edges => 100.0 / 3.0, _ => 8.0 };
+        noise.scale = match kind { GeneratorKind::Cavity => 100.0 / 16.0, GeneratorKind::Edges | GeneratorKind::FiberGlass => 100.0 / 3.0, _ => 8.0 };
         let (level, softness, noise_amount) = match kind {
             // Dirt Level 0.75 = threshold 0.25 on the occlusion; Dirt Contrast 0.39; Grunge Amount 0.52.
             GeneratorKind::Cavity => (0.25, 0.61, 0.52),
             // Owner's defaults (2026-11-22): Wear Level 0.5, Wear Contrast 0, Grunge Amount 0.5.
-            GeneratorKind::Edges => (0.5, 1.0, 0.5),
+            GeneratorKind::Edges | GeneratorKind::FiberGlass => (0.5, 1.0, 0.5),
+            // Level 0.5, Contrast 0: the summed contributions as they are.
+            GeneratorKind::MaskBuilder => (0.5, 1.0, 0.0),
             GeneratorKind::Concave => (0.5, 0.15, 0.3),
             // Balance 0.53 (threshold 0.47), Contrast 0: smoothstep over the whole range, smooth.
             GeneratorKind::AmbientOcclusion => (0.47, 1.0, 0.0),
@@ -1283,13 +1451,13 @@ impl Generator {
             invert: false,
             noise_amount,
             noise,
-            organic_breakup: matches!(kind, GeneratorKind::Edges | GeneratorKind::Cavity | GeneratorKind::Concave),
-            edge_spread: (kind == GeneratorKind::Edges).then(EdgeSpread::default),
+            organic_breakup: matches!(kind, GeneratorKind::Edges | GeneratorKind::FiberGlass | GeneratorKind::Cavity | GeneratorKind::Concave),
+            edge_spread: kind.is_edge_wear().then(EdgeSpread::default),
             direction: [0.0, 1.0, 0.0],
             axis: GradientAxis::Y,
             offset: [0.0; 3],
             // Dirt and Edge wear break up with the grunge map; its own detail replaces the fine grain.
-            painter: matches!(kind, GeneratorKind::Edges | GeneratorKind::Cavity).then(|| PainterControls {
+            painter: matches!(kind, GeneratorKind::Edges | GeneratorKind::FiberGlass | GeneratorKind::Cavity).then(|| PainterControls {
                 edges_masking: 0.0,
                 grunge_floor: if kind == GeneratorKind::Cavity { 0.73 } else { 0.0 },
                 grunge_map: true,
@@ -1301,7 +1469,21 @@ impl Generator {
             curvature: None,
             editor: (kind == GeneratorKind::MaskEditor).then(MaskEditor::default),
             shape: kind.uses_shape().then(ShapeSettings::default),
+            fiber: (kind == GeneratorKind::FiberGlass).then(FiberSettings::default),
+            builder: (kind == GeneratorKind::MaskBuilder).then(MaskBuilder::default),
         }
+    }
+
+    /// The fibre settings in effect (the defaults when absent).
+    pub fn fiber_settings(&self) -> FiberSettings { self.fiber.unwrap_or_default() }
+
+    /// The Mask Builder settings in effect (the defaults when absent).
+    pub fn builder_settings(&self) -> MaskBuilder { self.builder.unwrap_or_default() }
+
+    /// The plain edge wear a Fiber Glass Edge Wear frays: the same generator as `Edges`, not
+    /// inverted (the fibres go on first, the Invert last).
+    pub fn fiber_base(&self) -> Generator {
+        Generator { kind: GeneratorKind::Edges, invert: false, fiber: None, ..*self }
     }
 
     /// The position / UV / conversion settings in effect (defaults when absent).
@@ -1337,6 +1519,8 @@ impl Generator {
         self.kind = kind;
         if kind == GeneratorKind::MaskEditor && self.editor.is_none() { self.editor = Some(MaskEditor::default()); }
         if kind.uses_shape() && self.shape.is_none() { self.shape = Some(ShapeSettings::default()); }
+        if kind == GeneratorKind::FiberGlass && self.fiber.is_none() { self.fiber = Some(FiberSettings::default()); }
+        if kind == GeneratorKind::MaskBuilder && self.builder.is_none() { self.builder = Some(MaskBuilder::default()); }
     }
 
     /// Image resources the generator reads (the Mask Editor's textures).
@@ -1352,7 +1536,7 @@ impl Generator {
 
     /// Whether this kind reads a baked map that an anchor input can replace.
     pub fn accepts_input(&self) -> bool {
-        !matches!(self.kind, GeneratorKind::Directional | GeneratorKind::PositionGradient | GeneratorKind::MaskEditor) && !self.kind.uses_shape()
+        !matches!(self.kind, GeneratorKind::Directional | GeneratorKind::PositionGradient | GeneratorKind::MaskEditor | GeneratorKind::MaskBuilder) && !self.kind.uses_shape()
     }
 
     /// Whether the micro effect is on and strong enough to change anything.
@@ -1362,7 +1546,7 @@ impl Generator {
 
     /// Whether this kind reads curvature or occlusion, so micro details can add to it.
     pub fn accepts_micro_details(&self) -> bool {
-        matches!(self.kind, GeneratorKind::Edges | GeneratorKind::Cavity | GeneratorKind::AmbientOcclusion | GeneratorKind::Concave | GeneratorKind::MeshMap(MeshMapKind::Curvature | MeshMapKind::AmbientOcclusion))
+        matches!(self.kind, GeneratorKind::Edges | GeneratorKind::FiberGlass | GeneratorKind::MaskBuilder | GeneratorKind::Cavity | GeneratorKind::AmbientOcclusion | GeneratorKind::Concave | GeneratorKind::MeshMap(MeshMapKind::Curvature | MeshMapKind::AmbientOcclusion))
     }
 
     /// The micro details in effect: on, non-zero and read by this kind.
@@ -2091,5 +2275,60 @@ mod tests {
         let back: Generator = serde_json::from_str(&serde_json::to_string(&g).unwrap()).unwrap();
         assert_eq!(back, g);
         assert!(CurvatureDetail::default().is_identity() && !back.curvature.unwrap().is_identity());
+    }
+
+    #[test]
+    fn fiber_glass_and_mask_builder_generators_have_their_settings_and_round_trip() {
+        let fiber = Generator::new(GeneratorKind::FiberGlass);
+        let edges = Generator::new(GeneratorKind::Edges);
+        // The same wear model and defaults as Edge wear, plus the weave.
+        assert_eq!(fiber.fiber_base(), edges);
+        assert!(fiber.kind.is_edge_wear() && fiber.fiber == Some(FiberSettings::default()) && fiber.fiber_settings().valid());
+        assert!(fiber.accepts_input() && fiber.accepts_micro_details());
+        let builder = Generator::new(GeneratorKind::MaskBuilder);
+        assert!(builder.builder == Some(MaskBuilder::default()) && builder.builder_settings().valid() && !builder.accepts_input());
+        for g in [fiber, builder] {
+            let json = serde_json::to_string(&g).unwrap();
+            assert_eq!(serde_json::from_str::<Generator>(&json).unwrap(), g);
+        }
+        // Other kinds do not write the new keys, and switching kinds creates the settings.
+        let json = serde_json::to_string(&edges).unwrap();
+        assert!(!json.contains("fiber") && !json.contains("builder"));
+        let mut g = edges;
+        g.set_kind(GeneratorKind::MaskBuilder);
+        assert!(g.builder.is_some() && (g.level, g.softness, g.noise_amount) == (0.5, 1.0, 0.0));
+        g.set_kind(GeneratorKind::FiberGlass);
+        assert!(g.fiber.is_some() && g.edge_spread.is_some());
+        assert_eq!(serde_json::to_value(GeneratorKind::FiberGlass).unwrap(), "fiber_glass");
+        assert_eq!(serde_json::to_value(GeneratorKind::MaskBuilder).unwrap(), "mask_builder");
+    }
+
+    #[test]
+    fn mask_builder_shaping_and_fibre_reach() {
+        // Range 1, Contrast 0 is the map itself; Range keeps the top share; Range 0 nothing.
+        assert_eq!(MaskBuilder::ranged(0.37, 1.0, 0.0, false), 0.37);
+        assert_eq!(MaskBuilder::ranged(0.4, 0.5, 0.0, false), 0.0);
+        assert!((MaskBuilder::ranged(0.75, 0.5, 0.0, false) - 0.5).abs() < 1e-6);
+        assert_eq!(MaskBuilder::ranged(1.0, 0.0, 0.0, false), 0.0);
+        assert_eq!((MaskBuilder::ranged(0.49, 0.5, 1.0, false), MaskBuilder::ranged(0.51, 0.5, 1.0, false)), (0.0, 1.0));
+        assert_eq!(MaskBuilder::ranged(0.37, 1.0, 0.0, true), 0.63);
+        // Top is +Y, Front +X, Right +Z.
+        let side = |i: usize| MaskBuilder { normal: std::array::from_fn(|k| if k == i { 1.0 } else { 0.0 }), ..MaskBuilder::default() };
+        for (i, n) in [[0.0, 1.0, 0.0], [0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [-1.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, -1.0]].into_iter().enumerate() {
+            assert_eq!(side(i).facing(n), 1.0);
+            assert_eq!(side(i).facing(n.map(|c: f32| -c)), 0.0);
+        }
+        // Level 0.5, Contrast 0 leaves the sum alone; more Level gives more mask.
+        assert_eq!(MaskBuilder::finish(0.3, 0.5, 1.0), 0.3);
+        assert!(MaskBuilder::finish(0.3, 0.8, 1.0) > 0.3 && MaskBuilder::finish(1.7, 0.5, 1.0) == 1.0);
+        assert!(!MaskBuilder { ao_range: f32::NAN, ..MaskBuilder::default() }.valid() && !MaskBuilder { grunge_scale: 0.0, ..MaskBuilder::default() }.valid());
+        // Fibres: gaps never run out, strand tops the furthest, nothing at amount 0.
+        let f = FiberSettings::default();
+        assert_eq!(f.fringe_reach(0.0), 0.0);
+        assert!(f.fringe_reach(1.0) > f.fringe_reach(0.5) && f.fringe_reach(1.0) < 1.0);
+        assert_eq!(FiberSettings { amount: 0.0, ..f }.fringe_reach(1.0), 0.0);
+        assert_eq!((f.fray(1.0, 0.0), f.fray(0.0, 1.0)), (1.0, 0.0));
+        assert!(f.fray(0.5, 1.0) > f.fray(0.5, 0.0));
+        assert!(!FiberSettings { scale: 1.0, ..f }.valid() && !FiberSettings { amount: f32::NAN, ..f }.valid());
     }
 }
