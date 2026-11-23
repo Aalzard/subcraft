@@ -226,6 +226,33 @@ pub enum MaterialFilter {
         /// How much of the painted material itself stays visible, 0..1 (0 keeps only the groove).
         source_opacity: f32,
     },
+    /// Linear brushed finish: fine, straight, parallel brush lines.
+    BrushedLinear {
+        /// Brush lines across the model.
+        scale: f32,
+        /// Strength of the lines in Roughness, Height and tone, 0..1.
+        intensity: f32,
+        /// Direction of the lines in the surface, 0..1 = 0..180 degrees (0 = level around the model).
+        direction: f32,
+        seed: u32,
+    },
+    /// Fine even grain, as on sandblasted or cast metal.
+    Grainy {
+        /// Grains across the model.
+        scale: f32,
+        /// Strength of the grain in Roughness, Height and tone, 0..1.
+        intensity: f32,
+        seed: u32,
+    },
+    /// Perforated sheet: staggered rows of round holes.
+    PerforatedCircles {
+        /// Holes across the model.
+        scale: f32,
+        /// Size of a hole, 0..1 (1 = the holes almost touch).
+        radius: f32,
+        /// Depth of the holes written to Height, 0..1.
+        depth: f32,
+    },
 }
 
 /// One setting of a material filter, by name: what a material parameter can drive
@@ -362,14 +389,14 @@ impl MaterialFilter {
     fn slot(&mut self, setting: FilterSetting) -> Option<Slot<'_>> {
         use FilterSetting as S;
         Some(match (self, setting) {
-            (Self::Galvanized { scale, .. } | Self::Hammered { scale, .. } | Self::PowderCoated { scale, .. } | Self::EdgeDamages { scale, .. } | Self::RustWeathering { scale, .. } | Self::PeelingPaint { scale, .. } | Self::Grinded { scale, .. } | Self::Rough { scale, .. } | Self::Raw { scale, .. }, S::Scale) => Slot::Scale(scale),
-            (Self::Galvanized { seed, .. } | Self::Hammered { seed, .. } | Self::PowderCoated { seed, .. } | Self::EdgeDamages { seed, .. } | Self::RustWeathering { seed, .. } | Self::PeelingPaint { seed, .. } | Self::Grinded { seed, .. } | Self::Rough { seed, .. } | Self::Raw { seed, .. } | Self::DetailEdgeWear { seed, .. }, S::Seed) => Slot::Seed(seed),
+            (Self::Galvanized { scale, .. } | Self::Hammered { scale, .. } | Self::PowderCoated { scale, .. } | Self::EdgeDamages { scale, .. } | Self::RustWeathering { scale, .. } | Self::PeelingPaint { scale, .. } | Self::Grinded { scale, .. } | Self::Rough { scale, .. } | Self::Raw { scale, .. } | Self::BrushedLinear { scale, .. } | Self::Grainy { scale, .. } | Self::PerforatedCircles { scale, .. }, S::Scale) => Slot::Scale(scale),
+            (Self::Galvanized { seed, .. } | Self::Hammered { seed, .. } | Self::PowderCoated { seed, .. } | Self::EdgeDamages { seed, .. } | Self::RustWeathering { seed, .. } | Self::PeelingPaint { seed, .. } | Self::Grinded { seed, .. } | Self::Rough { seed, .. } | Self::Raw { seed, .. } | Self::DetailEdgeWear { seed, .. } | Self::BrushedLinear { seed, .. } | Self::Grainy { seed, .. }, S::Seed) => Slot::Seed(seed),
             (Self::Galvanized { roughness, .. } | Self::PowderCoated { roughness, .. } | Self::EdgeDamages { roughness, .. } | Self::RustWeathering { roughness, .. } | Self::PeelingPaint { roughness, .. } | Self::DetailEdgeWear { roughness, .. }, S::Roughness) => Slot::Unit(roughness),
             (Self::Galvanized { roughness_variation, .. } | Self::Hammered { roughness_variation, .. }, S::RoughnessVariation) => Slot::Unit(roughness_variation),
             (Self::Galvanized { relief, .. } | Self::RustWeathering { relief, .. }, S::Relief) => Slot::Unit(relief),
             (Self::Galvanized { spangle, .. }, S::Spangle) => Slot::Unit(spangle),
             (Self::Galvanized { tint, .. }, S::Tint) => Slot::Unit(tint),
-            (Self::Hammered { depth, .. } | Self::EdgeDamages { depth, .. }, S::Depth) => Slot::Unit(depth),
+            (Self::Hammered { depth, .. } | Self::EdgeDamages { depth, .. } | Self::PerforatedCircles { depth, .. }, S::Depth) => Slot::Unit(depth),
             (Self::Hammered { irregularity, .. }, S::Irregularity) => Slot::Unit(irregularity),
             (Self::PowderCoated { color, .. } | Self::EdgeDamages { color, .. } | Self::PeelingPaint { color, .. } | Self::DetailEdgeWear { color, .. }, S::Color) => Slot::Color(color),
             (Self::PowderCoated { color_amount, .. }, S::ColorAmount) => Slot::Unit(color_amount),
@@ -385,7 +412,7 @@ impl MaterialFilter {
             (Self::PeelingPaint { thickness, .. }, S::Thickness) => Slot::Unit(thickness),
             (Self::PeelingPaint { curl, .. }, S::Curl) => Slot::Unit(curl),
             (Self::PeelingPaint { rust, .. }, S::Rust) => Slot::Unit(rust),
-            (Self::Grinded { intensity, .. } | Self::Raw { intensity, .. }, S::Intensity) => Slot::Unit(intensity),
+            (Self::Grinded { intensity, .. } | Self::Raw { intensity, .. } | Self::BrushedLinear { intensity, .. } | Self::Grainy { intensity, .. }, S::Intensity) => Slot::Unit(intensity),
             (Self::Rough { grunge_scale, .. } | Self::DetailEdgeWear { grunge_scale, .. }, S::GrungeScale) => Slot::Scale(grunge_scale),
             (Self::Rough { brushing, .. }, S::Brushing) => Slot::Unit(brushing),
             (Self::Rough { warp, .. }, S::Warp) => Slot::Unit(warp),
@@ -398,13 +425,13 @@ impl MaterialFilter {
             (Self::WaterDrops { seed, .. }, S::Seed) => Slot::Seed(seed),
             (Self::WaterDrops { roughness, .. } | Self::Hbao { roughness, .. }, S::Roughness) => Slot::Unit(roughness),
             (Self::WaterDrops { size_variation, .. }, S::SizeVariation) => Slot::Unit(size_variation),
-            (Self::WaterDrops { direction, .. }, S::Direction) => Slot::Unit(direction),
+            (Self::WaterDrops { direction, .. } | Self::BrushedLinear { direction, .. }, S::Direction) => Slot::Unit(direction),
             (Self::WaterDrops { top, .. }, S::Top) => Slot::Unit(top),
             (Self::WaterDrops { sides, .. }, S::Sides) => Slot::Unit(sides),
             (Self::WaterDrops { underside, .. }, S::Underside) => Slot::Unit(underside),
             (Self::WaterDrops { height, .. } | Self::ShutLine { height, .. }, S::Height) => Slot::Unit(height),
             (Self::WaterDrops { wet, .. }, S::Wet) => Slot::Unit(wet),
-            (Self::Hbao { radius, .. }, S::Radius) => Slot::Unit(radius),
+            (Self::Hbao { radius, .. } | Self::PerforatedCircles { radius, .. }, S::Radius) => Slot::Unit(radius),
             (Self::Hbao { intensity, .. }, S::Intensity) => Slot::Unit(intensity),
             (Self::Hbao { ambient_occlusion, .. }, S::AmbientOcclusion) => Slot::Unit(ambient_occlusion),
             (Self::Hbao { base_color, .. }, S::BaseColor) => Slot::Unit(base_color),
@@ -455,7 +482,7 @@ impl MaterialFilter {
             .collect()
     }
 
-    pub const ALL: [Self; 14] = [
+    pub const ALL: [Self; 17] = [
         Self::Galvanized { scale: 40.0, spangle: 0.6, tint: 0.7, roughness: 0.32, roughness_variation: 0.5, relief: 0.25, seed: 1 },
         Self::Hammered { scale: 26.0, depth: 0.5, irregularity: 0.6, roughness_variation: 0.4, seed: 1 },
         Self::PowderCoated { color: [0.05, 0.05, 0.055], color_amount: 0.0, roughness: 0.48, orange_peel: 0.4, grain: 0.3, scale: 140.0, seed: 1 },
@@ -470,6 +497,9 @@ impl MaterialFilter {
         Self::WaterDrops { amount: 0.5, scale: 32.0, size_variation: 0.6, direction: 0.4, top: 1.0, sides: 0.8, underside: 0.15, height: 0.6, roughness: 0.04, wet: 0.3, seed: 1 },
         Self::Hbao { radius: 0.35, intensity: 0.8, ambient_occlusion: 1.0, base_color: 0.5, roughness: 0.25 },
         Self::ShutLine { width: 0.25, slope: 0.4, emboss: 0.3, height: 0.6, color: [0.02, 0.02, 0.02], line_opacity: 0.8, source_opacity: 0.0 },
+        Self::BrushedLinear { scale: 120.0, intensity: 0.6, direction: 0.0, seed: 1 },
+        Self::Grainy { scale: 160.0, intensity: 0.6, seed: 1 },
+        Self::PerforatedCircles { scale: 24.0, radius: 0.55, depth: 0.7 },
     ];
 
     pub fn label(self) -> &'static str {
@@ -488,6 +518,9 @@ impl MaterialFilter {
             Self::WaterDrops { .. } => "MatFx Water Drops",
             Self::Hbao { .. } => "MatFx HBAO",
             Self::ShutLine { .. } => "MatFx Shut Line",
+            Self::BrushedLinear { .. } => "MatFinish Brushed Linear",
+            Self::Grainy { .. } => "MatFinish Grainy",
+            Self::PerforatedCircles { .. } => "MatFinish Perforated Circles",
         }
     }
 
@@ -508,6 +541,9 @@ impl MaterialFilter {
             Self::WaterDrops { .. } => "Glossy water drops on the material below, fewer on walls and undersides.",
             Self::Hbao { .. } => "Occlusion from the Height and Normal detail below. Add an Ambient Occlusion channel to store it. Does nothing on a flat material.",
             Self::ShutLine { .. } => "Turns what is painted on this layer into carved panel lines. Use it on a paint layer and paint the lines.",
+            Self::BrushedLinear { .. } => "Fine straight brush lines in the Roughness and Height of the material below. Best on a metal fill.",
+            Self::Grainy { .. } => "Fine even grain, as on sandblasted or cast metal.",
+            Self::PerforatedCircles { .. } => "Staggered rows of round holes pressed into the material below.",
         }
     }
 
@@ -520,7 +556,7 @@ impl MaterialFilter {
     /// the viewport and the export turn into normals.
     pub fn writes(self, kind: ChannelKind) -> bool {
         match self {
-            Self::Hammered { .. } | Self::Grinded { .. } | Self::Rough { .. } | Self::Raw { .. } | Self::WaterDrops { .. } => matches!(kind, ChannelKind::BaseColor | ChannelKind::Roughness | ChannelKind::Height),
+            Self::Hammered { .. } | Self::Grinded { .. } | Self::Rough { .. } | Self::Raw { .. } | Self::WaterDrops { .. } | Self::BrushedLinear { .. } | Self::Grainy { .. } => matches!(kind, ChannelKind::BaseColor | ChannelKind::Roughness | ChannelKind::Height),
             Self::Hbao { .. } => matches!(kind, ChannelKind::BaseColor | ChannelKind::Roughness | ChannelKind::AmbientOcclusion),
             Self::PbrValidate { flat, .. } => kind == ChannelKind::BaseColor || (flat && matches!(kind, ChannelKind::Roughness | ChannelKind::Metallic)),
             _ => matches!(kind, ChannelKind::BaseColor | ChannelKind::Roughness | ChannelKind::Metallic | ChannelKind::Height),
@@ -585,8 +621,10 @@ impl MaterialFilter {
             | Self::Rough { seed, .. }
             | Self::Raw { seed, .. }
             | Self::DetailEdgeWear { seed, .. }
-            | Self::WaterDrops { seed, .. } => Some(seed),
-            Self::PbrValidate { .. } | Self::Hbao { .. } | Self::ShutLine { .. } => None,
+            | Self::WaterDrops { seed, .. }
+            | Self::BrushedLinear { seed, .. }
+            | Self::Grainy { seed, .. } => Some(seed),
+            Self::PbrValidate { .. } | Self::Hbao { .. } | Self::ShutLine { .. } | Self::PerforatedCircles { .. } => None,
         }
     }
 
@@ -613,7 +651,9 @@ impl MaterialFilter {
                 unit(amount) && scale(s) && unit(edge_bias) && unit(thickness) && unit(curl) && color(c) && unit(roughness) && unit(metallic) && unit(rust)
             }
             Self::PbrValidate { .. } => true,
-            Self::Grinded { scale: s, intensity, seed: _ } | Self::Raw { scale: s, intensity, seed: _ } => scale(s) && unit(intensity),
+            Self::Grinded { scale: s, intensity, seed: _ } | Self::Raw { scale: s, intensity, seed: _ } | Self::Grainy { scale: s, intensity, seed: _ } => scale(s) && unit(intensity),
+            Self::BrushedLinear { scale: s, intensity, direction, seed: _ } => scale(s) && unit(intensity) && unit(direction),
+            Self::PerforatedCircles { scale: s, radius, depth } => scale(s) && unit(radius) && unit(depth),
             Self::Rough { scale: s, grunge_scale, brushing, warp, grunge, seed: _ } => scale(s) && scale(grunge_scale) && unit(brushing) && unit(warp) && unit(grunge),
             Self::DetailEdgeWear { level, detail, contrast, grunge, grunge_scale, color: c, roughness, metallic, seed: _ } => {
                 unit(level) && unit(detail) && unit(contrast) && unit(grunge) && scale(grunge_scale) && color(c) && unit(roughness) && unit(metallic)
@@ -686,6 +726,11 @@ mod tests {
         assert!(!MaterialFilter::Hammered { scale: 8.0, depth: f32::NAN, irregularity: 0.5, roughness_variation: 0.5, seed: 1 }.valid());
         assert!(!MaterialFilter::EdgeDamages { amount: 0.5, spread: 40.0, scale: 30.0, depth: 0.5, color: [0.5; 3], roughness: 0.4, metallic: 1.0, contrast: 0.0, seed: 1 }.valid());
         assert!(!MaterialFilter::Grinded { scale: 9.0, intensity: 1.5, seed: 1 }.valid());
+        assert!(!MaterialFilter::BrushedLinear { scale: 120.0, intensity: 0.6, direction: 1.2, seed: 1 }.valid());
+        assert!(!MaterialFilter::Grainy { scale: 900.0, intensity: 0.6, seed: 1 }.valid());
+        assert!(!MaterialFilter::PerforatedCircles { scale: 24.0, radius: f32::NAN, depth: 0.7 }.valid());
+        assert_eq!(serde_json::to_string(&MaterialFilter::ALL[16]).unwrap(), r#"{"kind":"perforated_circles","scale":24.0,"radius":0.55,"depth":0.7}"#);
+        assert!(MaterialFilter::ALL[16].writes(ChannelKind::Metallic) && !MaterialFilter::ALL[14].writes(ChannelKind::Metallic) && MaterialFilter::ALL[16].seed().is_none());
         assert!(!MaterialFilter::Rough { scale: 60.0, grunge_scale: 0.0, brushing: 0.6, warp: 0.3, grunge: 0.5, seed: 1 }.valid());
         assert!(MaterialFilter::ALL[10].micro_details().is_some_and(|d| d.active() && d.amount == 0.7));
         assert!(MaterialFilter::DetailEdgeWear { level: 0.5, detail: 0.0, contrast: 0.6, grunge: 0.5, grunge_scale: 24.0, color: [0.5; 3], roughness: 0.3, metallic: 1.0, seed: 1 }.micro_details().is_none());

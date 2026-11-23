@@ -29,6 +29,7 @@ const PEEL_HEIGHT: f32 = 0.03;
 const GRAIN_HEIGHT: f32 = 0.012;
 const DROP_HEIGHT: f32 = 0.10;
 const SHUT_HEIGHT: f32 = 0.08;
+const PERFORATION_HEIGHT: f32 = 0.12;
 
 #[inline]
 fn hash3(x: i32, y: i32, z: i32, seed: u32) -> u32 {
@@ -294,6 +295,49 @@ pub fn pattern_on(filter: &MaterialFilter, position: [f32; 3], normal: [f32; 3])
             let q = p * grunge_scale;
             [fbm(q + warp(q * 0.6, seed) * 0.7, 4, seed ^ 0x4e), fbm(q * 5.0, 3, seed ^ 0xb3), vnoise(q * 18.0, seed ^ 0x61), 0.0]
         }
+        MaterialFilter::BrushedLinear { scale, direction, seed, .. } => {
+            let q = p * scale;
+            // Straight lines drawn flat on the three axis planes (see Rough), turned by the
+            // direction inside each plane. At 0 they run level around the model: along X on the
+            // faces looking along Z and Y, along Z on the faces looking along X.
+            const STRETCH: f32 = 0.003;
+            let (sin, cos) = (direction * std::f32::consts::PI).sin_cos();
+            let n = Vec3::from_array(normal).abs();
+            let w = if n.length_squared() < 1e-6 { Vec3::Z } else { Vec3::new(n.x.powi(8), n.y.powi(8), n.z.powi(8)) };
+            let w = w / (w.x + w.y + w.z);
+            let lines = |along: f32, across: f32, layer: f32, salt: u32, coarse: f32| {
+                let (a, c) = (along * cos + across * sin, across * cos - along * sin);
+                fbm(Vec3::new(a * STRETCH * coarse, c * coarse, layer), 3, seed ^ salt) - 0.5
+            };
+            let plane = |w: f32, along: f32, across: f32, layer: f32| if w > 0.002 { [lines(along, across, layer, 0x1b3, 3.0) * w, lines(along, across, layer + 5.0, 0x2c7, 0.3) * w] } else { [0.0; 2] };
+            let (a, b, c) = (plane(w.z, q.x, q.y, 3.7), plane(w.y, q.x, q.z, 11.3), plane(w.x, q.z, q.y, 23.9));
+            let len = w.length();
+            let fine = (0.5 + (a[0] + b[0] + c[0]) / len).clamp(0.0, 1.0);
+            let band = (0.5 + (a[1] + b[1] + c[1]) / len).clamp(0.0, 1.0);
+            [fine, band, vnoise(q * 2.0, seed ^ 0x47), 0.0]
+        }
+        MaterialFilter::Grainy { scale, seed, .. } => {
+            let q = p * scale;
+            let cell = voronoi(q * 2.5, seed ^ 0x3a5);
+            let pit = if unit(cell.id) > 0.6 { 1.0 - smoothstep(0.0, 0.3 + 0.15 * unit(cell.id.rotate_left(9)), cell.f1) } else { 0.0 };
+            [fbm(q * 2.0, 3, seed), vnoise(q * 5.0, seed ^ 0x5d), pit, fbm(q * 0.08, 2, seed ^ 0x91)]
+        }
+        MaterialFilter::PerforatedCircles { scale, .. } => {
+            // Holes are laid out flat on the axis plane the surface faces: a staggered grid, one
+            // hole spacing apart. The slot is the distance to the nearest hole centre, in spacings.
+            let q = p * scale;
+            let n = Vec3::from_array(normal).abs();
+            let (u, v) = if n.x > n.y && n.x > n.z { (q.z, q.y) } else if n.y > n.z { (q.x, q.z) } else { (q.x, q.y) };
+            const ROW: f32 = 0.866_025_4;
+            let row = (v / ROW).floor();
+            let mut nearest = f32::MAX;
+            for r in [row, row + 1.0] {
+                let shift = if (r as i64).rem_euclid(2) == 1 { 0.5 } else { 0.0 };
+                let cu = (u - shift).round() + shift;
+                nearest = nearest.min(((u - cu).powi(2) + (v - r * ROW).powi(2)).sqrt());
+            }
+            [nearest, 0.0, 0.0, 0.0]
+        }
     }
 }
 
@@ -314,6 +358,9 @@ fn pattern_key(filter: &MaterialFilter) -> field::FieldKey {
         MaterialFilter::Raw { scale, seed, .. } => [10, scale.to_bits(), seed, 0, 0],
         MaterialFilter::DetailEdgeWear { grunge_scale, seed, .. } => [11, grunge_scale.to_bits(), seed, 0, 0],
         MaterialFilter::WaterDrops { scale, size_variation, direction, seed, .. } => [12, scale.to_bits(), seed, size_variation.to_bits(), direction.to_bits()],
+        MaterialFilter::BrushedLinear { scale, direction, seed, .. } => [15, scale.to_bits(), seed, direction.to_bits(), 0],
+        MaterialFilter::Grainy { scale, seed, .. } => [16, scale.to_bits(), seed, 0, 0],
+        MaterialFilter::PerforatedCircles { scale, .. } => [17, scale.to_bits(), 0, 0, 0],
     };
     field::FieldKey::matfx(bits)
 }
@@ -321,7 +368,7 @@ fn pattern_key(filter: &MaterialFilter) -> field::FieldKey {
 /// [`pattern`] of every texel of a tile ([`PATTERN`] values per texel), cached on the tile.
 pub fn pattern_tile(filter: &MaterialFilter, geo: &TileGeometry) -> std::sync::Arc<field::Field> {
     geo.fields.get_or_compute(pattern_key(filter), || {
-        let directional = matches!(filter, MaterialFilter::Rough { .. } | MaterialFilter::WaterDrops { .. });
+        let directional = matches!(filter, MaterialFilter::Rough { .. } | MaterialFilter::WaterDrops { .. } | MaterialFilter::BrushedLinear { .. } | MaterialFilter::PerforatedCircles { .. });
         let mut out = Vec::with_capacity(TILE_TEXELS * PATTERN);
         for i in 0..TILE_TEXELS {
             let normal = if directional { geo.normal(i) } else { [0.0; 3] };
@@ -593,6 +640,32 @@ pub fn respond(filter: &MaterialFilter, pat: &[f32], s: Surface) -> Response {
             r.metallic_alpha = m;
             r.height = -m * FILM_HEIGHT * 0.2;
         }
+        MaterialFilter::BrushedLinear { intensity, .. } => {
+            let (fine, band, speck) = (zc(pat[0]), zc(pat[1]), pat[2] - 0.5);
+            // Fine grooves, and broader bands where the brush pressed harder.
+            r.height = (fine * 0.16 + band * 0.04) * intensity * GRAIN_HEIGHT;
+            r.roughness_add = (0.04 + fine * 0.06 + band * 0.04 + speck * 0.02) * intensity;
+            r.color_gain = 1.0 + (fine * 0.035 + band * 0.03) * intensity;
+        }
+        MaterialFilter::Grainy { intensity, .. } => {
+            let (grain, fine, pit, cloud) = (zc(pat[0]), pat[1] - 0.5, pat[2], zc(pat[3]));
+            r.height = (grain * 0.12 + fine * 0.35 - pit * 0.35) * intensity * GRAIN_HEIGHT;
+            r.roughness_add = (0.14 + grain * 0.04 + fine * 0.10 + pit * 0.06 + cloud * 0.03) * intensity;
+            r.color_gain = (1.0 + (grain * 0.03 + fine * 0.08 - pit * 0.10 + cloud * 0.02) * intensity).max(0.0);
+        }
+        MaterialFilter::PerforatedCircles { radius, depth, .. } => {
+            // Radius 1: 0.47 of the spacing, so the holes never merge.
+            let hole = 0.08 + radius * 0.39;
+            let m = 1.0 - smoothstep(hole - 0.03, hole + 0.03, pat[0]);
+            // The hole's wall: a short slope down, then a flat dark bottom.
+            r.height = -smoothstep(hole + 0.03, hole - 0.06, pat[0]) * depth * PERFORATION_HEIGHT;
+            r.color = [0.012; 3];
+            r.color_alpha = m;
+            r.roughness = 0.9;
+            r.roughness_alpha = m;
+            r.metallic = 0.0;
+            r.metallic_alpha = m;
+        }
     }
     r
 }
@@ -833,6 +906,77 @@ mod tests {
         for f in [MaterialFilter::ALL[7], MaterialFilter::ALL[8]] {
             assert!(points().all(|p| respond(&f, &pattern(&f, p), Surface::default()).color_alpha == 0.0));
         }
+    }
+
+    #[test]
+    fn brushed_linear_grainy_and_perforated_finishes() {
+        let (brushed, grainy, holes) = (MaterialFilter::ALL[14], MaterialFilter::ALL[15], MaterialFilter::ALL[16]);
+        // Brushed Linear and Grainy leave the metal a metal and vary its Roughness and Height.
+        for f in [brushed, grainy] {
+            let (mut rough, mut height) = ((f32::MAX, f32::MIN), (f32::MAX, f32::MIN));
+            for p in points() {
+                let r = respond(&f, &pattern(&f, p), Surface::default());
+                assert_eq!((r.metallic_alpha, r.roughness_alpha, r.color_alpha), (0.0, 0.0, 0.0), "{}", f.label());
+                assert!(r.color_gain > 0.7 && r.color_gain < 1.3 && r.height.abs() < 0.05, "{}", f.label());
+                let v = r.rough(0.3);
+                rough = (rough.0.min(v), rough.1.max(v));
+                height = (height.0.min(r.height), height.1.max(r.height));
+            }
+            assert!(rough.1 - rough.0 > 0.05, "{} roughness {rough:?}", f.label());
+            assert!(height.1 - height.0 > 0.002, "{} height {height:?}", f.label());
+            let off = f.with_setting(subcraft_doc::FilterSetting::Intensity, [0.0; 3]).unwrap();
+            for p in points().take(300) {
+                let r = respond(&off, &pattern(&off, p), Surface::default());
+                assert_eq!((r.base_color([0.5; 3]), r.rough(0.3), r.height), ([0.5; 3], 0.3, 0.0), "{}", f.label());
+            }
+        }
+        // Brushed lines are straight: on a wall facing Z they change far faster across (Y) than
+        // along (X); Direction 0.5 turns them upright; on a wall facing X they run along Z.
+        let change = |f: &MaterialFilter, normal: [f32; 3], step: [f32; 3]| {
+            points().take(600).map(|p| (pattern_on(f, p, normal)[0] - pattern_on(f, [p[0] + step[0], p[1] + step[1], p[2] + step[2]], normal)[0]).abs()).sum::<f32>()
+        };
+        const D: f32 = 2e-3;
+        let (along, across) = (change(&brushed, [0.0, 0.0, 1.0], [D, 0.0, 0.0]), change(&brushed, [0.0, 0.0, 1.0], [0.0, D, 0.0]));
+        assert!(across > 8.0 * along, "{across} vs {along}");
+        let upright = brushed.with_setting(subcraft_doc::FilterSetting::Direction, [0.5; 3]).unwrap();
+        let (along, across) = (change(&upright, [0.0, 0.0, 1.0], [0.0, D, 0.0]), change(&upright, [0.0, 0.0, 1.0], [D, 0.0, 0.0]));
+        assert!(across > 8.0 * along, "{across} vs {along}");
+        let (along, across) = (change(&brushed, [1.0, 0.0, 0.0], [0.0, 0.0, D]), change(&brushed, [1.0, 0.0, 0.0], [0.0, D, 0.0]));
+        assert!(across > 8.0 * along, "{across} vs {along}");
+        // Grain has no direction.
+        let (x, y) = (change(&grainy, [0.0, 0.0, 1.0], [D, 0.0, 0.0]), change(&grainy, [0.0, 0.0, 1.0], [0.0, D, 0.0]));
+        assert!(x / y > 0.7 && x / y < 1.4, "{x} vs {y}");
+
+        // Perforated Circles at 24 holes across: a hole at the origin, the next one spacing along
+        // X, the next row staggered by half a spacing; solid metal between them.
+        let s = 1.0 / 24.0;
+        let at = |u: f32, v: f32| respond(&holes, &pattern_on(&holes, [u * s, v * s, 0.3], [0.0, 0.0, 1.0]), Surface::default());
+        for (u, v) in [(0.0, 0.0), (1.0, 0.0), (-3.0, 0.0), (0.5, 0.866_025_4), (1.5, -0.866_025_4), (0.1, 0.05)] {
+            let r = at(u, v);
+            assert_eq!((r.color_alpha, r.metallic_alpha, r.metallic, r.roughness_alpha), (1.0, 1.0, 0.0, 1.0), "{u},{v}");
+            assert!((r.height + 0.7 * PERFORATION_HEIGHT).abs() < 1e-6 && r.base_color([0.6; 3])[0] < 0.05, "{u},{v}: {r:?}");
+        }
+        for (u, v) in [(0.5, 0.0), (0.0, 0.5), (1.0, 0.577)] {
+            let r = at(u, v);
+            assert_eq!((r.color_alpha, r.metallic_alpha, r.roughness_alpha, r.height, r.color_gain), (0.0, 0.0, 0.0, 0.0, 1.0), "{u},{v}");
+        }
+        // The same sheet on the walls facing X and Y; without a normal, the Z plane.
+        assert_eq!(pattern_on(&holes, [0.3, 0.0, 0.0], [1.0, 0.0, 0.0])[0], 0.0);
+        assert_eq!(pattern_on(&holes, [0.0, 0.3, 0.0], [0.0, -1.0, 0.0])[0], 0.0);
+        assert_eq!(pattern(&holes, [0.5 * s, 0.0, 9.0])[0], 0.5);
+        // Holes cover the share of the sheet their radius gives (pi r^2 per staggered cell).
+        let share = |radius: f32| {
+            let f = holes.with_setting(subcraft_doc::FilterSetting::Radius, [radius; 3]).unwrap();
+            points().filter(|p| respond(&f, &pattern(&f, *p), Surface::default()).color_alpha > 0.5).count() as f32 / points().count() as f32
+        };
+        for radius in [0.0, 0.55, 1.0] {
+            let r = 0.08 + radius * 0.39;
+            let want = std::f32::consts::PI * r * r / 0.866_025_4;
+            assert!((share(radius) - want).abs() < 0.04, "radius {radius}: {} vs {want}", share(radius));
+        }
+        // Depth 0: flat dark discs.
+        let flat = holes.with_setting(subcraft_doc::FilterSetting::Depth, [0.0; 3]).unwrap();
+        assert_eq!(respond(&flat, &pattern(&flat, [0.0; 3]), Surface::default()).height, 0.0);
     }
 
     #[test]

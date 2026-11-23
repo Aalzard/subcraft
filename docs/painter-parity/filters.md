@@ -410,7 +410,7 @@ Layout notes: Finishes group. Used on a fill layer (material content).
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| MatFinish Brushed Linear (filter) | Properties > Filter | works on: fill layer content | missing | - | - |
+| MatFinish Brushed Linear (filter) | Properties > Filter | works on: fill layer content | partial: `MaterialFilter::BrushedLinear`: fine straight brush lines (count, intensity, direction, seed); Painter's own parameters and look not checked against Painter | crates/doc/src/material_filter.rs, crates/materials/src/matfx.rs | 2026-11-23 |
 | Seed | Properties > Filter | not documented | missing | - | - |
 | Scale | Properties > Filter | not documented | missing | - | - |
 | Brushing Intensity | Properties > Filter | not documented | missing | - | - |
@@ -439,7 +439,7 @@ Layout notes: Finishes group. Used on a fill layer.
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| MatFinish Grainy (filter) | Properties > Filter | works on: fill layer content | missing | - | - |
+| MatFinish Grainy (filter) | Properties > Filter | works on: fill layer content | partial: `MaterialFilter::Grainy`: fine even grain (count, intensity, seed); Painter's own parameters and look not checked against Painter | crates/doc/src/material_filter.rs, crates/materials/src/matfx.rs | 2026-11-23 |
 | Position | Properties > Filter > Image inputs | colour; baked Position map | missing | - | - |
 | World Space Normals | Properties > Filter > Image inputs | colour; baked map | missing | - | - |
 | Seed | Properties > Filter | not documented | missing | - | - |
@@ -482,7 +482,7 @@ Layout notes: Finishes group. Used on a fill layer.
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| MatFinish Perforated Circles (filter) | Properties > Filter | works on: fill layer content | missing | - | - |
+| MatFinish Perforated Circles (filter) | Properties > Filter | works on: fill layer content | partial: `MaterialFilter::PerforatedCircles`: staggered round holes (count, size, depth); laid out on the three axis planes, so rows break where a curved surface turns from one plane to the next; Painter's own parameters and look not checked against Painter | crates/doc/src/material_filter.rs, crates/materials/src/matfx.rs | 2026-11-23 |
 | Scale | Properties > Filter | not documented | missing | - | - |
 | Holes Size | Properties > Filter | not documented | missing | - | - |
 | Details Intensity | Properties > Filter | not documented | missing | - | - |

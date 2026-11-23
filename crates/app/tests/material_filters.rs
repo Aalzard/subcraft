@@ -153,13 +153,29 @@ fn detail_edge_wear_is_a_thinner_line_than_edge_damages_and_the_new_finishes_kee
     assert!(wear > 20 && wear * 5 < damages * 4, "{wear} worn texels against {damages} chipped");
     assert!(wear_depth < 0.0 && wear_depth > chip_depth * 0.6, "wear {wear_depth} is shallower than chips {chip_depth}");
 
-    for filter in [MaterialFilter::ALL[7], MaterialFilter::ALL[8], MaterialFilter::ALL[9]] {
+    for filter in [MaterialFilter::ALL[7], MaterialFilter::ALL[8], MaterialFilter::ALL[9], MaterialFilter::ALL[14], MaterialFilter::ALL[15]] {
         let (mut s, ts, layer) = session([0.56, 0.57, 0.58], 0.3, 1.0);
         add(&mut s, layer, filter);
         assert!(channel(&mut s, ts, ChannelKind::Metallic).iter().all(|m| m[0] == 1.0), "{} keeps the metal", filter.label());
         let rough = channel(&mut s, ts, ChannelKind::Roughness);
         let (lo, hi) = rough.iter().fold((1.0f32, 0.0f32), |(a, b), r| (a.min(r[0]), b.max(r[0])));
         assert!(hi - lo > 0.05 && lo > 0.1 && hi < 0.9, "{} varies the roughness around 0.3: {lo}..{hi}", filter.label());
+    }
+
+    // Perforated Circles: holes (no metal, dark, sunk) in a sheet that stays as it was.
+    let (mut s, ts, layer) = session([0.56, 0.57, 0.58], 0.3, 1.0);
+    add(&mut s, layer, MaterialFilter::ALL[16]);
+    let (metal, base, height) = (channel(&mut s, ts, ChannelKind::Metallic), channel(&mut s, ts, ChannelKind::BaseColor), channel(&mut s, ts, ChannelKind::Height));
+    let holes = metal.iter().filter(|m| m[0] < 0.01).count();
+    let sheet = metal.iter().filter(|m| m[0] > 0.99).count();
+    let share = holes as f32 / (holes + sheet) as f32;
+    assert!((0.15..0.45).contains(&share), "holes cover {share} of the sheet");
+    for i in 0..metal.len() {
+        if metal[i][0] < 0.01 {
+            assert!(base[i][0] < 0.05 && height[i][0] < -0.05, "a hole is dark and sunk: {:?} {:?}", base[i], height[i]);
+        } else if metal[i][0] > 0.99 {
+            assert!((base[i][0] - 0.56).abs() < 0.01, "the sheet keeps its colour: {:?}", base[i]);
+        }
     }
 }
 
