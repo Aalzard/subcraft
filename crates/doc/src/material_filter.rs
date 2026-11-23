@@ -117,10 +117,57 @@ pub enum MaterialFilter {
         /// Show the result unlit-like (Metallic 0, Roughness 1) so reflections do not tint it.
         flat: bool,
     },
+    /// Angle-grinder finish: overlapping fans of fine arc scratches.
+    Grinded {
+        /// Grinder passes across the model.
+        scale: f32,
+        /// Strength of the scratches in Roughness, Height and tone, 0..1.
+        intensity: f32,
+        seed: u32,
+    },
+    /// Coarse brushed finish: long warped brush lines, dulled in patches by grunge.
+    Rough {
+        /// Brush lines across the model.
+        scale: f32,
+        /// Grunge patches across the model.
+        grunge_scale: f32,
+        /// Strength of the brush lines, 0..1.
+        brushing: f32,
+        /// How much the brush lines wander, 0..1.
+        warp: f32,
+        /// Strength of the dull grunge patches, 0..1.
+        grunge: f32,
+        seed: u32,
+    },
+    /// Raw, unfinished stock: mottled dark mill scale with small pits.
+    Raw {
+        /// Scale patches across the model.
+        scale: f32,
+        /// Strength of the mottling, 0..1.
+        intensity: f32,
+        seed: u32,
+    },
+    /// A thin, sharp line of wear on the edges, broken up by grunge (finer than Edge Damages,
+    /// and almost flat).
+    DetailEdgeWear {
+        /// Amount of wear, 0..1 (the edge wear Level).
+        level: f32,
+        /// 0 = soft fade, 1 = hard border.
+        contrast: f32,
+        /// How much the grunge breaks the wear up, 0..1.
+        grunge: f32,
+        /// Grunge patches across the model.
+        grunge_scale: f32,
+        /// The exposed material.
+        color: [f32; 3],
+        roughness: f32,
+        metallic: f32,
+        seed: u32,
+    },
 }
 
 impl MaterialFilter {
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 11] = [
         Self::Galvanized { scale: 40.0, spangle: 0.6, tint: 0.7, roughness: 0.32, roughness_variation: 0.5, relief: 0.25, seed: 1 },
         Self::Hammered { scale: 26.0, depth: 0.5, irregularity: 0.6, roughness_variation: 0.4, seed: 1 },
         Self::PowderCoated { color: [0.05, 0.05, 0.055], color_amount: 0.0, roughness: 0.48, orange_peel: 0.4, grain: 0.3, scale: 140.0, seed: 1 },
@@ -128,6 +175,10 @@ impl MaterialFilter {
         Self::RustWeathering { amount: 0.45, edges: 0.5, cavities: 0.6, drips: 0.4, scale: 6.0, relief: 0.4, roughness: 0.88, seed: 1 },
         Self::PeelingPaint { amount: 0.25, scale: 6.0, edge_bias: 0.5, thickness: 0.5, curl: 0.5, color: [0.52, 0.53, 0.54], roughness: 0.45, metallic: 1.0, rust: 0.4, seed: 1 },
         Self::PbrValidate { strict: false, flag_partial_metal: true, flat: true },
+        Self::Grinded { scale: 9.0, intensity: 0.6, seed: 1 },
+        Self::Rough { scale: 60.0, grunge_scale: 9.0, brushing: 0.6, warp: 0.3, grunge: 0.5, seed: 1 },
+        Self::Raw { scale: 5.0, intensity: 0.6, seed: 1 },
+        Self::DetailEdgeWear { level: 0.5, contrast: 0.6, grunge: 0.5, grunge_scale: 24.0, color: [0.56, 0.57, 0.58], roughness: 0.3, metallic: 1.0, seed: 1 },
     ];
 
     pub fn label(self) -> &'static str {
@@ -139,6 +190,10 @@ impl MaterialFilter {
             Self::RustWeathering { .. } => "MatFx Rust Weathering",
             Self::PeelingPaint { .. } => "MatFx Peeling Paint",
             Self::PbrValidate { .. } => "PBR Validate",
+            Self::Grinded { .. } => "MatFinish Grinded",
+            Self::Rough { .. } => "MatFinish Rough",
+            Self::Raw { .. } => "MatFinish Raw",
+            Self::DetailEdgeWear { .. } => "MatFx Detail Edge Wear",
         }
     }
 
@@ -152,6 +207,10 @@ impl MaterialFilter {
             Self::RustWeathering { .. } => "Rust from cavities, edges and patches. Bake Ambient Occlusion and Curvature for best placement.",
             Self::PeelingPaint { .. } => "Flakes the material below off the surface set here.",
             Self::PbrValidate { .. } => "Green: plausible. Red: too dark. Blue: too bright. Yellow: Metallic between 0 and 1.",
+            Self::Grinded { .. } => "Angle-grinder arcs in the Roughness and Height of the material below. Best on a metal fill.",
+            Self::Rough { .. } => "Coarse brush lines and dull grunge patches on the material below.",
+            Self::Raw { .. } => "Mottled mill scale and pits, as on unfinished stock. Best on a metal fill.",
+            Self::DetailEdgeWear { .. } => "A thin worn line on the edges, exposing the material set here. Bake Curvature for finer detail.",
         }
     }
 
@@ -164,7 +223,7 @@ impl MaterialFilter {
     /// the viewport and the export turn into normals.
     pub fn writes(self, kind: ChannelKind) -> bool {
         match self {
-            Self::Hammered { .. } => matches!(kind, ChannelKind::BaseColor | ChannelKind::Roughness | ChannelKind::Height),
+            Self::Hammered { .. } | Self::Grinded { .. } | Self::Rough { .. } | Self::Raw { .. } => matches!(kind, ChannelKind::BaseColor | ChannelKind::Roughness | ChannelKind::Height),
             Self::PbrValidate { flat, .. } => kind == ChannelKind::BaseColor || (flat && matches!(kind, ChannelKind::Roughness | ChannelKind::Metallic)),
             _ => matches!(kind, ChannelKind::BaseColor | ChannelKind::Roughness | ChannelKind::Metallic | ChannelKind::Height),
         }
@@ -178,7 +237,7 @@ impl MaterialFilter {
     /// Filters placed by the mesh's edges (and so by the baked curvature).
     pub fn uses_edges(self) -> bool {
         match self {
-            Self::EdgeDamages { .. } => true,
+            Self::EdgeDamages { .. } | Self::DetailEdgeWear { .. } => true,
             Self::RustWeathering { edges, .. } => edges > 0.0,
             Self::PeelingPaint { edge_bias, .. } => edge_bias > 0.0,
             _ => false,
@@ -192,7 +251,11 @@ impl MaterialFilter {
             | Self::PowderCoated { seed, .. }
             | Self::EdgeDamages { seed, .. }
             | Self::RustWeathering { seed, .. }
-            | Self::PeelingPaint { seed, .. } => Some(seed),
+            | Self::PeelingPaint { seed, .. }
+            | Self::Grinded { seed, .. }
+            | Self::Rough { seed, .. }
+            | Self::Raw { seed, .. }
+            | Self::DetailEdgeWear { seed, .. } => Some(seed),
             Self::PbrValidate { .. } => None,
         }
     }
@@ -220,6 +283,11 @@ impl MaterialFilter {
                 unit(amount) && scale(s) && unit(edge_bias) && unit(thickness) && unit(curl) && color(c) && unit(roughness) && unit(metallic) && unit(rust)
             }
             Self::PbrValidate { .. } => true,
+            Self::Grinded { scale: s, intensity, seed: _ } | Self::Raw { scale: s, intensity, seed: _ } => scale(s) && unit(intensity),
+            Self::Rough { scale: s, grunge_scale, brushing, warp, grunge, seed: _ } => scale(s) && scale(grunge_scale) && unit(brushing) && unit(warp) && unit(grunge),
+            Self::DetailEdgeWear { level, contrast, grunge, grunge_scale, color: c, roughness, metallic, seed: _ } => {
+                unit(level) && unit(contrast) && unit(grunge) && scale(grunge_scale) && color(c) && unit(roughness) && unit(metallic)
+            }
         }
     }
 }
@@ -249,6 +317,9 @@ mod tests {
         assert!(!MaterialFilter::Hammered { scale: 0.0, depth: 0.5, irregularity: 0.5, roughness_variation: 0.5, seed: 1 }.valid());
         assert!(!MaterialFilter::Hammered { scale: 8.0, depth: f32::NAN, irregularity: 0.5, roughness_variation: 0.5, seed: 1 }.valid());
         assert!(!MaterialFilter::EdgeDamages { amount: 0.5, spread: 40.0, scale: 30.0, depth: 0.5, color: [0.5; 3], roughness: 0.4, metallic: 1.0, seed: 1 }.valid());
+        assert!(!MaterialFilter::Grinded { scale: 9.0, intensity: 1.5, seed: 1 }.valid());
+        assert!(!MaterialFilter::Rough { scale: 60.0, grunge_scale: 0.0, brushing: 0.6, warp: 0.3, grunge: 0.5, seed: 1 }.valid());
+        assert!(!MaterialFilter::DetailEdgeWear { level: 0.5, contrast: -0.1, grunge: 0.5, grunge_scale: 24.0, color: [0.5; 3], roughness: 0.3, metallic: 1.0, seed: 1 }.valid());
         assert!(!MaterialFilter::PowderCoated { color: [2.0, 0.0, 0.0], color_amount: 1.0, roughness: 0.5, orange_peel: 0.4, grain: 0.3, scale: 60.0, seed: 1 }.valid());
     }
 

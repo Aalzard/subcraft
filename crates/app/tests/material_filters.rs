@@ -131,6 +131,30 @@ fn weathering_exposes_another_material_in_patches_and_carves_or_raises_the_heigh
 }
 
 #[test]
+fn detail_edge_wear_is_a_thinner_line_than_edge_damages_and_the_new_finishes_keep_the_metal() {
+    let exposed = |filter: MaterialFilter| {
+        let (mut s, ts, layer) = session([0.1, 0.17, 0.26], 0.45, 0.0);
+        add(&mut s, layer, filter);
+        let metal = channel(&mut s, ts, ChannelKind::Metallic);
+        let height = channel(&mut s, ts, ChannelKind::Height);
+        (metal.iter().filter(|m| m[0] > 0.9).count(), height.iter().fold(0.0f32, |a, h| a.min(h[0])))
+    };
+    let (damages, chip_depth) = exposed(MaterialFilter::ALL[3]);
+    let (wear, wear_depth) = exposed(MaterialFilter::ALL[10]);
+    assert!(wear > 20 && wear * 5 < damages * 4, "{wear} worn texels against {damages} chipped");
+    assert!(wear_depth < 0.0 && wear_depth > chip_depth * 0.6, "wear {wear_depth} is shallower than chips {chip_depth}");
+
+    for filter in [MaterialFilter::ALL[7], MaterialFilter::ALL[8], MaterialFilter::ALL[9]] {
+        let (mut s, ts, layer) = session([0.56, 0.57, 0.58], 0.3, 1.0);
+        add(&mut s, layer, filter);
+        assert!(channel(&mut s, ts, ChannelKind::Metallic).iter().all(|m| m[0] == 1.0), "{} keeps the metal", filter.label());
+        let rough = channel(&mut s, ts, ChannelKind::Roughness);
+        let (lo, hi) = rough.iter().fold((1.0f32, 0.0f32), |(a, b), r| (a.min(r[0]), b.max(r[0])));
+        assert!(hi - lo > 0.05 && lo > 0.1 && hi < 0.9, "{} varies the roughness around 0.3: {lo}..{hi}", filter.label());
+    }
+}
+
+#[test]
 fn amount_zero_changes_nothing() {
     let quiet = [
         MaterialFilter::EdgeDamages { amount: 0.0, spread: 2.5, scale: 30.0, depth: 0.5, color: [0.56, 0.57, 0.58], roughness: 0.38, metallic: 1.0, seed: 1 },

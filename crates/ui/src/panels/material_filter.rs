@@ -150,6 +150,41 @@ pub fn editor(ui: &mut Ui, filter: &mut MaterialFilter) -> bool {
             changed |= check_row_reset(ui, "", "Flat shading", flat, d_flat).on_hover_text("Sets Metallic 0 and Roughness 1 so reflections do not tint the result").changed();
             ui.weak("Dielectrics: 30 to 240 sRGB. Metals: 180 sRGB or more. Put it on a Passthrough layer above everything, and hide it before exporting.");
         }
+        (MaterialFilter::Grinded { scale: s, intensity, seed: sd }, MaterialFilter::Grinded { scale: d_s, intensity: d_int, seed: d_sd }) => {
+            changed |= scale(ui, "Pass count", ACROSS, s, d_s);
+            changed |= unit(ui, "Grinding intensity", intensity, d_int);
+            changed |= seed(ui, sd, d_sd);
+        }
+        (
+            MaterialFilter::Rough { scale: s, grunge_scale, brushing, warp, grunge, seed: sd },
+            MaterialFilter::Rough { scale: d_s, grunge_scale: d_gs, brushing: d_brushing, warp: d_warp, grunge: d_grunge, seed: d_sd },
+        ) => {
+            changed |= scale(ui, "Brush line count", ACROSS, s, d_s);
+            changed |= unit(ui, "Brushing intensity", brushing, d_brushing);
+            changed |= unit(ui, "Brushing warp", warp, d_warp);
+            changed |= unit(ui, "Grunge amount", grunge, d_grunge);
+            changed |= scale(ui, "Grunge count", ACROSS, grunge_scale, d_gs);
+            changed |= seed(ui, sd, d_sd);
+        }
+        (MaterialFilter::Raw { scale: s, intensity, seed: sd }, MaterialFilter::Raw { scale: d_s, intensity: d_int, seed: d_sd }) => {
+            changed |= scale(ui, "Patch count", ACROSS, s, d_s);
+            changed |= unit(ui, "Details intensity", intensity, d_int);
+            changed |= seed(ui, sd, d_sd);
+        }
+        (
+            MaterialFilter::DetailEdgeWear { level, contrast, grunge, grunge_scale, color: c, roughness, metallic, seed: sd },
+            MaterialFilter::DetailEdgeWear { level: d_level, contrast: d_contrast, grunge: d_grunge, grunge_scale: d_gs, color: d_c, roughness: d_roughness, metallic: d_metallic, seed: d_sd },
+        ) => {
+            changed |= unit(ui, "Wear level", level, d_level);
+            changed |= unit(ui, "Wear contrast", contrast, d_contrast);
+            changed |= unit(ui, "Grunge amount", grunge, d_grunge);
+            changed |= scale(ui, "Grunge count", ACROSS, grunge_scale, d_gs);
+            ui.label(egui::RichText::new("Exposed material").strong());
+            changed |= color(ui, "Color", c, d_c);
+            changed |= unit(ui, "Roughness", roughness, d_roughness);
+            changed |= unit(ui, "Metallic", metallic, d_metallic);
+            changed |= seed(ui, sd, d_sd);
+        }
         _ => {}
     }
     changed
@@ -163,7 +198,8 @@ mod tests {
     fn search_finds_filters_by_any_word() {
         assert_eq!(search("").len(), MaterialFilter::ALL.len());
         assert_eq!(search("rust").len(), 1);
-        assert_eq!(search("matfinish").len(), 3);
+        assert_eq!(search("matfinish").len(), 6);
+        assert_eq!(search("edge").len(), 2);
         assert_eq!(search("MATFX peel").len(), 1);
         assert!(search("nothing like this").is_empty());
     }

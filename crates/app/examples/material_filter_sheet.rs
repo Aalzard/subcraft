@@ -92,6 +92,10 @@ fn main() -> Result<(), String> {
         Case { name: "rust_weathering", filter: all[4], base: steel, rough: 0.35, metal: 1.0 },
         Case { name: "peeling_paint", filter: all[5], base: [0.42, 0.44, 0.30], rough: 0.5, metal: 0.0 },
         Case { name: "pbr_validate", filter: all[6], base: [0.004, 0.004, 0.005], rough: 0.5, metal: 0.0 },
+        Case { name: "grinded", filter: all[7], base: steel, rough: 0.3, metal: 1.0 },
+        Case { name: "rough", filter: all[8], base: steel, rough: 0.3, metal: 1.0 },
+        Case { name: "raw", filter: all[9], base: steel, rough: 0.3, metal: 1.0 },
+        Case { name: "detail_edge_wear", filter: all[10], base: [0.10, 0.17, 0.26], rough: 0.45, metal: 0.0 },
     ]
     .into_iter()
     .filter(|c| only.as_deref().is_none_or(|o| c.name.contains(o)))

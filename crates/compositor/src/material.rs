@@ -17,6 +17,8 @@ fn edge_generator(filter: &MaterialFilter) -> Option<Generator> {
     let mut g = Generator::new(GeneratorKind::Edges);
     let (level, distance, scale, seed) = match *filter {
         MaterialFilter::EdgeDamages { amount, spread, scale, seed, .. } => (amount, spread, scale, seed),
+        // A thin line: a third of the default Edge Damages reach.
+        MaterialFilter::DetailEdgeWear { level, grunge_scale, seed, .. } => (level, 0.8, grunge_scale * 2.0, seed),
         // Rust and peeling only lean on the edges: a fixed, generous band.
         MaterialFilter::RustWeathering { edges, scale, seed, .. } if edges > 0.0 => (0.6, 3.5, scale * 5.0, seed),
         MaterialFilter::PeelingPaint { edge_bias, scale, seed, .. } if edge_bias > 0.0 => (0.65, 4.0, scale * 4.0, seed),
