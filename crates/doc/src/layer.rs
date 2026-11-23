@@ -479,7 +479,7 @@ impl Layer {
         }
         for e in &self.content_effects {
             if let ContentEffectKind::Filter { filter, .. } = e.kind {
-                filter.resource().into_iter().for_each(&mut add);
+                filter.resources().into_iter().for_each(&mut add);
             }
             if let ContentEffectKind::Generator(g) = &e.kind {
                 g.resources().into_iter().for_each(&mut add);
@@ -500,7 +500,7 @@ impl Layer {
                 g.resources().into_iter().for_each(&mut add);
             }
             if let crate::mask::MaskEffectKind::Filter(f) = e.kind {
-                f.resource().into_iter().for_each(&mut add);
+                f.resources().into_iter().for_each(&mut add);
             }
         }
         for c in self.children() {

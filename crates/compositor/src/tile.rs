@@ -346,6 +346,26 @@ fn apply_content_effects(effects: &[Arc<ContentEffect>], acc: &Acc, content: &mu
                 crate::material::apply(filter, kind, blend, content, tc, None, None);
                 continue;
             }
+            // Color Match reading images (the Average mode is staged by the graph instead).
+            ContentEffectKind::Filter { filter: f @ subcraft_doc::Filter::ColorMatch { source_mode, source, target, hue, chroma, luma, source_image, target_image }, .. }
+                if f.match_reads_images() && *source_mode != subcraft_doc::MatchSource::Average =>
+            {
+                if !effect.applies_to(kind) || !kind.is_color() { continue; }
+                let res = tc.set_geometry.resolution;
+                let bitmap = |id: &Option<subcraft_core::ResourceId>| id.and_then(|id| tc.sample.resources.bitmap(id));
+                let source_image = if *source_mode == subcraft_doc::MatchSource::Image { bitmap(source_image) } else { None };
+                let target_image = bitmap(target_image);
+                for (i, px) in content.iter_mut().enumerate() {
+                    let (x, y) = tc.geo.texel_xy(i);
+                    let from = source_image.map_or(*source, |b| crate::util::image_color(b, x, y, res));
+                    let to = target_image.map_or(*target, |b| crate::util::image_color(b, x, y, res));
+                    let mut dst = [px[0], px[1], px[2], 1.0];
+                    let value = subcraft_materials::filter::color_match([px[0], px[1], px[2]], from, to, *hue, *chroma, *luma);
+                    composite(&mut dst, value, blend.opacity, mode, acc.target);
+                    px[..3].copy_from_slice(&dst[..3]);
+                }
+                continue;
+            }
             ContentEffectKind::Filter { filter: subcraft_doc::Filter::GradientDynamic { source, vertical, position }, .. } => {
                 if !effect.applies_to(kind) { continue; }
                 let Some(bmp) = tc.sample.resources.bitmap(*source) else { continue };

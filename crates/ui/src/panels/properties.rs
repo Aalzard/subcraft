@@ -498,24 +498,33 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     }
 }
 
-/// The image slot of a filter that reads one (Gradient Dynamic's Gradient Source). Returns
-/// whether the image button was clicked; clearing it marks `changed`.
-pub(crate) fn filter_image_row(ui: &mut Ui, state: &mut UiState, filter: &mut subcraft_doc::Filter, changed: &mut bool) -> bool {
-    let subcraft_doc::Filter::GradientDynamic { source, .. } = filter else { return false };
-    let mut pick = false;
-    match filter_resource(*source) {
-        Some(id) => {
-            if image_row(ui, state, id) {
-                pick = true;
+/// The image slots of a filter that reads images (Gradient Dynamic's Gradient Source, Blur
+/// Slope's custom noise, Non-uniform Blur's blur map, Color Match's source and target). Returns
+/// the slot whose image button was clicked; clearing one marks `changed`.
+pub(crate) fn filter_image_row(ui: &mut Ui, state: &mut UiState, filter: &mut subcraft_doc::Filter, changed: &mut bool) -> Option<usize> {
+    let mut pick = None;
+    for (slot, label, image) in filter.image_slots() {
+        match image {
+            Some(id) => {
+                if image_row(ui, state, id) {
+                    pick = Some(slot);
+                }
+                if ui.small_button(tr("Remove image")).clicked() && filter.set_image(slot, None) {
+                    *changed = true;
+                }
             }
-            if ui.small_button(tr("Remove image")).clicked() {
-                *source = subcraft_core::ResourceId::nil();
-                *changed = true;
-            }
-        }
-        None => {
-            if secondary_button(ui, tr("Choose gradient image…")).clicked() {
-                pick = true;
+            None => {
+                // Literals, so the translation check sees each text.
+                let text = match label {
+                    "Choose noise image…" => tr("Choose noise image…"),
+                    "Choose blur map image…" => tr("Choose blur map image…"),
+                    "Choose source color image…" => tr("Choose source color image…"),
+                    "Choose target color image…" => tr("Choose target color image…"),
+                    _ => tr("Choose gradient image…"),
+                };
+                if secondary_button(ui, text).clicked() {
+                    pick = Some(slot);
+                }
             }
         }
     }
@@ -1339,8 +1348,8 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
                 }
                 MaskEffectKind::Filter(filter) => {
                     changed |= super::filter::editor(ui, filter, None);
-                    if filter_image_row(ui, state, filter, &mut changed) {
-                        crate::files::pick(ui.ctx(), crate::files::Purpose::FilterImage { layer, effect: e.id, mask: true }, crate::files::IMAGES, false, None);
+                    if let Some(slot) = filter_image_row(ui, state, filter, &mut changed) {
+                        crate::files::pick(ui.ctx(), crate::files::Purpose::FilterImage { layer, effect: e.id, mask: true, slot }, crate::files::IMAGES, false, None);
                     }
                     hint(ui, tr("Filters the mask below this effect; opacity mixes the result with that input."));
                 }

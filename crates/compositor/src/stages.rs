@@ -1820,14 +1820,20 @@ impl<'a> Graph<'a> {
                     }
                     return out;
                 }
-                if let Filter::ColorMatch { source, target, hue, chroma, luma, .. } = *filter {
-                    // Average mode (Parameter mode is a point filter): the mean of the input.
-                    let cell = self.averages.lock().unwrap().entry(node).or_default().clone();
-                    let source = cell.get_or_init(|| average_color(&grid, res)).unwrap_or(source);
+                if let Filter::ColorMatch { source_mode, source, target, hue, chroma, luma, target_image, .. } = *filter {
+                    // Average mode (the other modes are point filters): the mean of the input.
+                    let source = if source_mode == subcraft_doc::MatchSource::Average {
+                        let cell = self.averages.lock().unwrap().entry(node).or_default().clone();
+                        cell.get_or_init(|| average_color(&grid, res)).unwrap_or(source)
+                    } else {
+                        source
+                    };
+                    let target_image = target_image.and_then(|id| self.ctx.resources.bitmap(id));
                     for (i, dst) in out.iter_mut().enumerate() {
                         let (x, y) = geo.texel_xy(i);
                         if x < res && y < res {
                             let p = grid.pixel(x, y);
+                            let target = target_image.map_or(target, |b| crate::util::image_color(b, x, y, res));
                             let c = subcraft_materials::filter::color_match([p[0], p[1], p[2]], source, target, hue, chroma, luma);
                             *dst = [c[0], c[1], c[2], p[3]];
                         }
@@ -1841,23 +1847,35 @@ impl<'a> Graph<'a> {
                     }
                     let here = grid.pixel(x, y);
                     *dst = match *filter {
-                        Filter::BlurSlopeMode { intensity, scale, seed, samples, mode, .. } => {
+                        Filter::BlurSlopeMode { intensity, scale, seed, samples, mode, source, image } => {
                             let sample = |dx: f32, dy: f32| grid.premultiplied(x as f32 + dx, y as f32 + dy);
-                            match &slope {
+                            let texel = |dx: i32, dy: i32| grid.pixel((x as i32 + dx).clamp(0, res as i32 - 1) as u32, (y as i32 + dy).clamp(0, res as i32 - 1) as u32);
+                            match (source, &slope) {
                                 // Previous input: across the nearest edge, both ways.
-                                Some(smooth) => {
+                                (subcraft_doc::SlopeSource::Input, Some(smooth)) => {
                                     let v = |dx: i32, dy: i32| {
                                         let p = smooth.pixel((x as i32 + dx).clamp(0, res as i32 - 1) as u32, (y as i32 + dy).clamp(0, res as i32 - 1) as u32);
                                         pw::scalar(p, *kind) * p[3].min(1.0)
                                     };
                                     let g = [(v(1, 0) - v(-1, 0)) * 0.5, (v(0, 1) - v(0, -1)) * 0.5];
-                                    pw::slope_blur(sample, pw::slope_offset(g, intensity), true, samples, mode, *kind)
+                                    pw::slope_blur(sample, texel, pw::slope_offset(g, intensity), true, samples, mode, *kind)
                                 }
-                                None => pw::slope_blur(sample, subcraft_materials::filter::warp::offset(x, y, res, intensity, scale, seed), false, samples, mode, *kind),
+                                (subcraft_doc::SlopeSource::Input, None) => here,
+                                // Custom noise: uphill on the picked image, tiled like the noise.
+                                (subcraft_doc::SlopeSource::Custom, _) => match image.and_then(|id| self.ctx.resources.bitmap(id)) {
+                                    Some(bmp) => {
+                                        let v = |dx: f32, dy: f32| crate::util::image_gray(bmp, x as f32 + dx, y as f32 + dy, res, scale);
+                                        let g = [(v(1.0, 0.0) - v(-1.0, 0.0)) * 0.5, (v(0.0, 1.0) - v(0.0, -1.0)) * 0.5];
+                                        pw::slope_blur(sample, texel, pw::slope_offset(g, intensity), false, samples, mode, *kind)
+                                    }
+                                    None => here,
+                                },
+                                (subcraft_doc::SlopeSource::Noise, _) => pw::slope_blur(sample, texel, subcraft_materials::filter::warp::offset(x, y, res, intensity, scale, seed), false, samples, mode, *kind),
                             }
                         }
-                        Filter::NonUniformBlur { radius, map, scale, seed, samples } => {
-                            let m = pw::blur_map(map, pw::scalar(here, *kind), x, y, res, scale, seed);
+                        Filter::NonUniformBlur { radius, map, scale, seed, samples, image } => {
+                            let image = image.and_then(|id| self.ctx.resources.bitmap(id)).map(|b| crate::util::image_gray(b, x as f32, y as f32, res, 1));
+                            let m = pw::blur_map(map, pw::scalar(here, *kind), image, x, y, res, scale, seed);
                             pw::disc_blur(|dx, dy| grid.premultiplied(x as f32 + dx, y as f32 + dy), radius * m, samples)
                         }
                         Filter::EdgeDetect { radius, strength } => {

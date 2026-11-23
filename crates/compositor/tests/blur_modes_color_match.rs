@@ -3,7 +3,7 @@
 use std::sync::Arc;
 use subcraft_compositor::{EvalContext, composite_full};
 use std::collections::BTreeMap;
-use subcraft_core::{ChannelKind as C, ChannelValue};
+use subcraft_core::{ChannelKind as C, ChannelValue, ResourceId};
 use subcraft_doc::{BlurMap, ContentEffect, ContentEffectKind, FillChannel, FillContent, FillSource, Filter, Layer, Projection, LayerContent, MatchSource, ResourceStore, SlopeMode, SlopeSource, TextureSet};
 use subcraft_materials::{MeshMaps, TextureSetGeometry, filter::{linear_to_oklab, warp}};
 
@@ -17,6 +17,11 @@ struct Fixture {
 impl Fixture {
     fn new() -> Self {
         Self { geo: TextureSetGeometry::new(Arc::new(subcraft_mesh::primitives::plane(2.0, 2)), 0, N), res: ResourceStore::default(), maps: MeshMaps::new() }
+    }
+    fn image(&mut self, w: u32, h: u32, comps: u8, data: Vec<u8>) -> ResourceId {
+        let id = ResourceId::new();
+        self.res.insert(subcraft_doc::Resource { id, name: "i.png".into(), kind: subcraft_doc::ResourceKind::Texture, bitmap: Arc::new(subcraft_image::Bitmap::new_u8(w, h, comps, data)), source_path: None, encoded: None });
+        id
     }
     fn ctx(&self) -> EvalContext<'_> {
         EvalContext { geometry: &self.geo, resources: &self.res, mesh_maps: &self.maps }
@@ -75,15 +80,22 @@ fn blur_slope_modes_on_the_noise_source_match_a_dense_reference() {
     let reads = |data: &[f32], x: u32, y: u32, dense: bool| -> Vec<f32> {
         let [dx, dy] = warp::offset(x, y, N, intensity, scale, seed);
         let len = (dx * dx + dy * dy).sqrt();
-        // Min and Max read at least once per pixel of the way, on a band 0.75 px to each side.
+        // Min and Max take whole texels: at each stop (one per pixel of the way at least) the
+        // texels a bilinear read there would mix.
         let samples = if dense { samples.max(len.ceil() as u32 + 1) } else { samples };
+        let n = N as i32;
         let mut out = Vec::new();
         for k in 0..samples {
             let t = k as f32 / (samples - 1) as f32;
-            out.push(bilinear(data, x as f32 + dx * t, y as f32 + dy * t));
-            if dense && len > 1e-6 && (dx * t != 0.0 || dy * t != 0.0) {
-                for w in [0.75f32, -0.75] {
-                    out.push(bilinear(data, x as f32 + dx * t - dy / len * w, y as f32 + dy * t + dx / len * w));
+            let (ox, oy) = (dx * t, dy * t);
+            if !dense {
+                out.push(bilinear(data, x as f32 + ox, y as f32 + oy));
+                continue;
+            }
+            let (x0, y0) = (ox.floor(), oy.floor());
+            for ty in [Some(y0 as i32), (oy > y0).then_some(y0 as i32 + 1)].into_iter().flatten() {
+                for tx in [Some(x0 as i32), (ox > x0).then_some(x0 as i32 + 1)].into_iter().flatten() {
+                    out.push(data[((y as i32 + ty).clamp(0, n - 1) * n + (x as i32 + tx).clamp(0, n - 1)) as usize]);
                 }
             }
         }
@@ -91,7 +103,7 @@ fn blur_slope_modes_on_the_noise_source_match_a_dense_reference() {
     };
     for mode in SlopeMode::ALL {
         // Blur on the noise source is the plain filter; the option variant must agree with it.
-        let filter = Filter::BlurSlopeMode { intensity, scale, seed, samples, source: SlopeSource::Noise, mode };
+        let filter = Filter::BlurSlopeMode { intensity, scale, seed, samples, source: SlopeSource::Noise, mode, image: None };
         let (ts, data) = roughness(field, filter);
         let out = result(&ts, &fx);
         let mut moved = 0;
@@ -110,7 +122,7 @@ fn blur_slope_modes_on_the_noise_source_match_a_dense_reference() {
         }
         assert!(moved > 2000, "{mode:?} changed real texels: {moved}");
     }
-    assert_eq!(Filter::blur_slope(Filter::BlurSlopeMode { intensity, scale, seed, samples, source: SlopeSource::Noise, mode: SlopeMode::Blur }.slope_parts().unwrap()), Filter::BlurSlope { intensity, scale, seed, samples });
+    assert_eq!(Filter::blur_slope(Filter::BlurSlopeMode { intensity, scale, seed, samples, source: SlopeSource::Noise, mode: SlopeMode::Blur, image: None }.slope_parts().unwrap()), Filter::BlurSlope { intensity, scale, seed, samples });
 }
 
 #[test]
@@ -119,7 +131,7 @@ fn blur_slope_on_the_previous_input_works_across_edges_and_leaves_flat_areas() {
     // A bright disc on a dark ground: a closed edge in every direction, crossing the tile seams.
     let disc = |x: u32, y: u32| if ((x as f32 - 64.0).powi(2) + (y as f32 - 60.0).powi(2)).sqrt() < 30.0 { 0.9 } else { 0.1 };
     let run = |mode, intensity| {
-        let (ts, data) = roughness(disc, Filter::BlurSlopeMode { intensity, scale: 4, seed: 1, samples: 12, source: SlopeSource::Input, mode });
+        let (ts, data) = roughness(disc, Filter::BlurSlopeMode { intensity, scale: 4, seed: 1, samples: 12, source: SlopeSource::Input, mode, image: None });
         (result(&ts, &fx), data)
     };
     let bright = |v: &[f32]| v.iter().filter(|v| **v > 0.5).count();
@@ -159,7 +171,7 @@ fn non_uniform_blur_follows_its_map() {
         sum
     };
     let run = |map, radius| {
-        let (ts, data) = roughness(field, Filter::NonUniformBlur { radius, map, scale: 4, seed: 1, samples: 32 });
+        let (ts, data) = roughness(field, Filter::NonUniformBlur { radius, map, scale: 4, seed: 1, samples: 32, image: None });
         (result(&ts, &fx), data)
     };
     let (out, data) = run(BlurMap::Value, 8.0);
@@ -177,7 +189,7 @@ fn non_uniform_blur_follows_its_map() {
     let (noise, _) = run(BlurMap::Noise, 8.0);
     let kept = noise.iter().zip(&data).filter(|(a, b)| (**a - **b).abs() < 1e-3).count();
     assert!(kept > 300 && kept < (N * N) as usize - 3000, "{kept}");
-    let (ts, _) = roughness(field, Filter::NonUniformBlur { radius: 8.0, map: BlurMap::Noise, scale: 4, seed: 2, samples: 32 });
+    let (ts, _) = roughness(field, Filter::NonUniformBlur { radius: 8.0, map: BlurMap::Noise, scale: 4, seed: 2, samples: 32, image: None });
     assert!(result(&ts, &fx).iter().zip(&noise).filter(|(a, b)| (**a - **b).abs() > 1e-3).count() > 500);
     // Deterministic, and no radius is the identity.
     assert_eq!(run(BlurMap::Value, 8.0).0, out);
@@ -213,8 +225,8 @@ fn color_match_moves_the_average_to_the_target_and_keeps_the_variation() {
         for (_, p) in px.iter().enumerate().filter(|(i, _)| paint(*i as u32 % N, *i as u32 / N).is_some()) { let l = linear_to_oklab([p[0], p[1], p[2]]); for c in 0..3 { sum[c] += l[c]; } n += 1.0; }
         sum.map(|v| v / n)
     };
-    let out = run(Filter::ColorMatch { source_mode: MatchSource::Average, source: [0.5; 3], target, hue: 1.0, chroma: 1.0, luma: 1.0 });
-    let plain = run(Filter::ColorMatch { source_mode: MatchSource::Parameter, source: [0.2; 3], target: [0.2; 3], hue: 1.0, chroma: 1.0, luma: 1.0 });
+    let out = run(Filter::ColorMatch { source_mode: MatchSource::Average, source: [0.5; 3], target, hue: 1.0, chroma: 1.0, luma: 1.0, source_image: None, target_image: None });
+    let plain = run(Filter::ColorMatch { source_mode: MatchSource::Parameter, source: [0.2; 3], target: [0.2; 3], hue: 1.0, chroma: 1.0, luma: 1.0, source_image: None, target_image: None });
     // The identity leaves the paint and its coverage alone.
     for (x, p) in plain.iter().enumerate() {
         let (px, py) = (x as u32 % N, x as u32 / N);
@@ -241,11 +253,146 @@ fn color_match_moves_the_average_to_the_target_and_keeps_the_variation() {
     let mut ts = TextureSet::new("T", 0, N);
     let mut fill = Layer::new_fill("F", &ts);
     fill.content = LayerContent::Fill(FillContent { projection: Projection::default(), channels: BTreeMap::from([(C::BaseColor, FillChannel::new(FillSource::uniform(ChannelValue::rgb(a[0], a[1], a[2]))))]) });
-    fill.content_effects.push(Arc::new(ContentEffect::new(ContentEffectKind::Filter { channel: C::BaseColor, filter: Filter::ColorMatch { source_mode: MatchSource::Average, source: [0.5; 3], target, hue: 1.0, chroma: 1.0, luma: 1.0 } }, &ts)));
+    fill.content_effects.push(Arc::new(ContentEffect::new(ContentEffectKind::Filter { channel: C::BaseColor, filter: Filter::ColorMatch { source_mode: MatchSource::Average, source: [0.5; 3], target, hue: 1.0, chroma: 1.0, luma: 1.0, source_image: None, target_image: None } }, &ts)));
     ts.insert_above(None, fill);
     let c = composite_full(&ts, &fx.ctx());
     for (x, y) in [(0, 0), (63, 64), (127, 127)] {
         let p = c.channel(C::BaseColor).unwrap().get(x, y);
         assert!((0..3).all(|i| (p[i] - target[i]).abs() < 2e-3), "{p:?}");
     }
+}
+
+/// Sum of the differences between horizontal neighbours over a block: how rough it is.
+fn rough(v: &[f32], xs: std::ops::Range<u32>) -> f32 {
+    let mut sum = 0.0;
+    for y in 8..N - 8 { for x in xs.clone() { sum += (v[(y * N + x + 1) as usize] - v[(y * N + x) as usize]).abs(); } }
+    sum
+}
+
+#[test]
+fn non_uniform_blur_reads_its_map_from_an_image() {
+    let mut fx = Fixture::new();
+    // Black over texels 16..48, white over 80..112 (texel centres of a 4 px image, clear of
+    // the bilinear ramps between them).
+    let map = fx.image(4, 1, 1, vec![0, 0, 255, 255]);
+    let field = |x: u32, y: u32| 0.3 + speckle(x, y) * 0.4;
+    let run = |fx: &Fixture, image| {
+        let (ts, data) = roughness(field, Filter::NonUniformBlur { radius: 8.0, map: BlurMap::Image, scale: 4, seed: 1, samples: 32, image });
+        (result(&ts, fx), data)
+    };
+    let (out, data) = run(&fx, Some(map));
+    for y in 0..N { for x in 16..48 { let i = (y * N + x) as usize; assert!((out[i] - data[i]).abs() < 1e-3, "black keeps {x},{y}"); } }
+    assert!(rough(&out, 84..108) < rough(&data, 84..108) * 0.25, "white blurs");
+    // No image picked, or one that is gone: nothing is blurred.
+    for image in [None, Some(ResourceId::new())] {
+        let (none, _) = run(&fx, image);
+        for (a, b) in none.iter().zip(&data) { assert!((a - b).abs() < 1e-3); }
+    }
+    // The image is ignored (but kept) in the other map modes.
+    let value = |image| result(&roughness(field, Filter::NonUniformBlur { radius: 8.0, map: BlurMap::Value, scale: 4, seed: 1, samples: 32, image }).0, &fx);
+    assert_eq!(value(Some(map)), value(None));
+}
+
+#[test]
+fn blur_slope_follows_the_slopes_of_a_custom_noise_image() {
+    let mut fx = Fixture::new();
+    // Ramps along x and along y: their slopes point along one axis only.
+    let ramp: Vec<u8> = (0..8).map(|i| i * 36).collect();
+    let (across, down) = (fx.image(8, 1, 1, ramp.clone()), fx.image(1, 8, 1, ramp));
+    let columns = |x: u32, _: u32| if (x / 6) % 2 == 0 { 0.2 } else { 0.8 };
+    let rows = |_: u32, y: u32| if (y / 6) % 2 == 0 { 0.2 } else { 0.8 };
+    let run = |fx: &Fixture, field: fn(u32, u32) -> f32, image, mode| {
+        let (ts, data) = roughness(field, Filter::BlurSlopeMode { intensity: 8.0, scale: 4, seed: 1, samples: 12, source: SlopeSource::Custom, mode, image });
+        let out = result(&ts, fx);
+        let moved = out.iter().zip(&data).filter(|(a, b)| (**a - **b).abs() > 0.02).count();
+        (out, data, moved)
+    };
+    for mode in SlopeMode::ALL {
+        // Reading along x: columns smear, rows (constant along x) are left exactly as they are.
+        assert!(run(&fx, columns, Some(across), mode).2 > 2500, "{mode:?}");
+        assert_eq!(run(&fx, rows, Some(across), mode).2, 0, "{mode:?}");
+        // Reading along y: the other way round.
+        assert!(run(&fx, rows, Some(down), mode).2 > 2500, "{mode:?}");
+        assert_eq!(run(&fx, columns, Some(down), mode).2, 0, "{mode:?}");
+        // No image picked: nothing to follow.
+        assert_eq!(run(&fx, columns, None, mode).2, 0, "{mode:?}");
+    }
+    let (min, data, _) = run(&fx, columns, Some(across), SlopeMode::Min);
+    let (max, _, _) = run(&fx, columns, Some(across), SlopeMode::Max);
+    let (blur, _, _) = run(&fx, columns, Some(across), SlopeMode::Blur);
+    for i in 0..data.len() {
+        assert!(min[i] <= data[i] + 1e-3 && max[i] >= data[i] - 1e-3 && min[i] <= blur[i] + 1e-3 && blur[i] <= max[i] + 1e-3);
+        // Min and Max pick whole texels: only the two input values exist.
+        for v in [min[i], max[i]] { assert!((v - 0.2).abs() < 1e-3 || (v - 0.8).abs() < 1e-3, "{v}"); }
+    }
+}
+
+#[test]
+fn blur_slope_min_leaves_no_ribs_on_a_thin_diagonal_line() {
+    let fx = Fixture::new();
+    // A one pixel bright diagonal on black, widened by Max; a dark one on white, by Min. With
+    // whole-texel reads the widened line holds only the two input values, never a mix.
+    for (mode, line, ground) in [(SlopeMode::Max, 0.9, 0.1), (SlopeMode::Min, 0.1, 0.9)] {
+        let field = move |x: u32, y: u32| if x == y { line } else { ground };
+        let (ts, data) = roughness(field, Filter::BlurSlopeMode { intensity: 6.0, scale: 3, seed: 5, samples: 6, source: SlopeSource::Noise, mode, image: None });
+        let out = result(&ts, &fx);
+        let grown = out.iter().filter(|v| (**v - line).abs() < 1e-3).count();
+        assert!(grown > data.iter().filter(|v| **v == line).count() * 2, "{mode:?} widens the line: {grown}");
+        for v in &out { assert!((v - line).abs() < 1e-3 || (v - ground).abs() < 1e-3, "{mode:?}: a mixed value {v}"); }
+    }
+}
+
+fn srgb(v: u8) -> f32 {
+    let c = v as f32 / 255.0;
+    if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
+}
+
+#[test]
+fn color_match_reads_its_source_and_target_from_images() {
+    let mut fx = Fixture::new();
+    // Two texels: the left one covers x < 32 unmixed, the right one x >= 96.
+    let (left, right) = ([200u8, 60, 40], [40u8, 90, 180]);
+    let two = fx.image(2, 1, 3, [left, right].concat());
+    let (lin_l, lin_r) = (left.map(srgb), right.map(srgb));
+    let a = [0.30, 0.12, 0.08];
+    let target = [0.10, 0.25, 0.40];
+    let run = |fx: &Fixture, paint: &dyn Fn(u32, u32) -> Option<[f32; 3]>, filter| {
+        let mut ts = TextureSet::new("T", 0, N);
+        let l = color_layer(&ts, paint, filter);
+        ts.insert_above(None, l);
+        let c = composite_full(&ts, &fx.ctx());
+        let img = c.channel(C::BaseColor).unwrap();
+        (0..N).flat_map(|y| (0..N).map(move |x| (x, y))).map(|(x, y)| img.get(x, y)).collect::<Vec<_>>()
+    };
+    let near = |p: [f32; 4], want: [f32; 3]| (0..3).all(|i| (p[i] - want[i]).abs() < 3e-3);
+    let flat = |_: u32, _: u32| Some(a);
+    let cm = |source_mode, source, source_image, target_image| Filter::ColorMatch { source_mode, source, target, hue: 1.0, chroma: 1.0, luma: 1.0, source_image, target_image };
+    // Target image: the picked source colour (Parameter) and the mean colour (Average, the
+    // staged path) both land on the image's colour at each texel.
+    for mode in [MatchSource::Parameter, MatchSource::Average] {
+        let out = run(&fx, &flat, cm(mode, a, None, Some(two)));
+        for y in [0, 63, 64, 127] {
+            assert!(near(out[(y * N + 10) as usize], lin_l), "{mode:?} {:?} vs {lin_l:?}", out[(y * N + 10) as usize]);
+            assert!(near(out[(y * N + 120) as usize], lin_r), "{mode:?} {:?} vs {lin_r:?}", out[(y * N + 120) as usize]);
+        }
+    }
+    // Source image: paint that equals the image at each texel becomes the target everywhere,
+    // which no single source colour does.
+    let halves = |x: u32, _: u32| Some(if x < N / 2 { lin_l } else { lin_r });
+    let out = run(&fx, &halves, cm(MatchSource::Image, a, Some(two), None));
+    let single = run(&fx, &halves, cm(MatchSource::Parameter, lin_l, None, None));
+    for y in [0, 64, 127] {
+        for x in [5, 30, 97, 125] { assert!(near(out[(y * N + x) as usize], target), "{:?}", out[(y * N + x) as usize]); }
+        assert!(near(single[(y * N + 5) as usize], target) && !near(single[(y * N + 120) as usize], target));
+    }
+    // Both images at once: the image maps onto itself, so the paint is unchanged.
+    let out = run(&fx, &halves, cm(MatchSource::Image, a, Some(two), Some(two)));
+    for x in [5u32, 30, 97, 125] { assert!(near(out[(64 * N + x) as usize], halves(x, 0).unwrap())); }
+    // A missing source image falls back to the source colour; a missing target image to the
+    // target colour. The source image is kept but unused outside the Input mode.
+    let gone = Some(ResourceId::new());
+    let plain = run(&fx, &halves, cm(MatchSource::Parameter, a, None, None));
+    assert_eq!(run(&fx, &halves, cm(MatchSource::Image, a, None, None)), plain);
+    assert_eq!(run(&fx, &halves, cm(MatchSource::Image, a, gone, gone)), plain);
+    assert_eq!(run(&fx, &halves, cm(MatchSource::Parameter, a, Some(two), None)), plain);
 }

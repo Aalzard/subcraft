@@ -23,6 +23,8 @@ pub fn apply(filter: Filter, input: [f32; 3], channel: ChannelKind) -> [f32; 3] 
         Filter::BlurSlopeMode { .. } | Filter::NonUniformBlur { .. } => input, // Staged by the compositor.
         // The average of the whole input is found by the compositor, which stages this mode.
         Filter::ColorMatch { source_mode: subcraft_doc::MatchSource::Average, .. } => input,
+        // Images are read by the compositor too.
+        f @ Filter::ColorMatch { .. } if f.match_reads_images() => input,
         Filter::ColorMatch { source, target, hue, chroma, luma, .. } => color_match(input, source, target, hue, chroma, luma),
         Filter::GradientCurve { preset, invert, balance, contrast } => input.map(|v| gradient_curve(v, preset, invert, balance, contrast)),
         Filter::Smoothstep { min, max } => input.map(|v| smoothstep(v, min, max)),
@@ -729,7 +731,7 @@ mod color_match_tests {
         assert_eq!(last, 0.0);
         // The filter entry point: Parameter mode is the point kernel, Average waits for the
         // compositor, other channels are untouched.
-        let f = |source_mode| Filter::ColorMatch { source_mode, source: red, target: blue, hue: 1.0, chroma: 1.0, luma: 1.0 };
+        let f = |source_mode| Filter::ColorMatch { source_mode, source: red, target: blue, hue: 1.0, chroma: 1.0, luma: 1.0, source_image: None, target_image: None };
         close(apply(f(MatchSource::Parameter), red, ChannelKind::BaseColor), blue, 2e-4);
         assert_eq!(apply(f(MatchSource::Average), red, ChannelKind::BaseColor), red);
         assert_eq!(apply(f(MatchSource::Parameter), [0.4; 3], ChannelKind::Roughness), [0.4; 3]);

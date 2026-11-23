@@ -37,6 +37,22 @@ pub(crate) fn gradient_dynamic(bmp: &subcraft_image::Bitmap, t: f32, vertical: b
     [s[0], s[1], s[2]]
 }
 
+/// Gray value (Rec.709 luminance of the stored values, not linearised: it is data) of an image
+/// laid `repeat` times over a `res` texture, at the centre of texel (x, y). Fractional texels
+/// are allowed, so a caller can measure the slope around a texel.
+pub(crate) fn image_gray(bmp: &subcraft_image::Bitmap, x: f32, y: f32, res: u32, repeat: u32) -> f32 {
+    let k = repeat.max(1) as f32 / res.max(1) as f32;
+    let s = bmp.sample((x + 0.5) * k, (y + 0.5) * k, subcraft_image::Wrap::Repeat, false);
+    0.2126 * s[0] + 0.7152 * s[1] + 0.0722 * s[2]
+}
+
+/// Linear colour of an image stretched once over a `res` texture, at the centre of texel (x, y).
+pub(crate) fn image_color(bmp: &subcraft_image::Bitmap, x: u32, y: u32, res: u32) -> [f32; 3] {
+    let r = res.max(1) as f32;
+    let s = bmp.sample((x as f32 + 0.5) / r, (y as f32 + 0.5) / r, subcraft_image::Wrap::Clamp, true);
+    [s[0], s[1], s[2]]
+}
+
 /// Whether any content effect of `layer` can change channel `kind`. A layer without content for
 /// a channel only takes part in it (even in Replace mode) if such an effect exists; an effect on
 /// another channel must not make it wipe this one.

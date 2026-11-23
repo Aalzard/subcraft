@@ -52,7 +52,7 @@ pub enum Purpose {
     /// Replace the image of an existing image mask effect.
     MaskImage { layer: LayerId, effect: EffectId },
     /// Image a filter reads (Gradient Dynamic's source), in a mask (`mask`) or content stack.
-    FilterImage { layer: LayerId, effect: EffectId, mask: bool },
+    FilterImage { layer: LayerId, effect: EffectId, mask: bool, slot: usize },
     /// Custom grunge image of a generator mask effect.
     GeneratorGrunge { layer: LayerId, effect: EffectId },
     /// Image of a Mask Editor generator's texture group (`slot` 0 = Texture, 1 = Texture 2).
@@ -381,17 +381,10 @@ pub(crate) fn handle(state: &mut UiState, purpose: Purpose, paths: &[PathBuf], n
             }
             Err(e) => state.set_status(format!("Import image: {e}"), now),
         },
-        Purpose::FilterImage { layer, effect, mask } => match state.session.import_image(first) {
+        Purpose::FilterImage { layer, effect, mask, slot } => match state.session.import_image(first) {
             Ok(r) => {
                 state.remember_textures(std::slice::from_ref(first));
-                let set_source = |f: &mut subcraft_doc::Filter| {
-                    if let subcraft_doc::Filter::GradientDynamic { source, .. } = f {
-                        *source = r;
-                        true
-                    } else {
-                        false
-                    }
-                };
+                let set_source = |f: &mut subcraft_doc::Filter| f.set_image(slot, Some(r));
                 let l = state.session.selected_texture_set().find(layer).cloned();
                 let cmd = l.and_then(|l| {
                     if mask {

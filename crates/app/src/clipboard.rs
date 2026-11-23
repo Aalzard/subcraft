@@ -189,8 +189,10 @@ impl EffectClip {
                     if !wanted.contains(&resource) { wanted.push(resource); }
                 }
             }
-            if let MaskEffectKind::Filter(f) = e.kind && let Some(resource) = f.resource() && !wanted.contains(&resource) {
-                wanted.push(resource);
+            if let MaskEffectKind::Filter(f) = e.kind {
+                for resource in f.resources() {
+                    if !wanted.contains(&resource) { wanted.push(resource); }
+                }
             }
         }
         let resources = wanted.into_iter().filter_map(|id| store.get(id).cloned()).collect();
