@@ -232,6 +232,95 @@ impl MirrorCorner {
     }
 }
 
+/// Where a Blur Slope filter takes its slope from.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SlopeSource {
+    /// The built-in noise field.
+    #[default]
+    Noise,
+    /// The image being filtered: samples walk along its own gradient.
+    Input,
+}
+impl SlopeSource {
+    pub const ALL: [Self; 2] = [Self::Noise, Self::Input];
+    pub fn label(self) -> &'static str {
+        match self { Self::Noise => "Default noise", Self::Input => "Previous input" }
+    }
+}
+
+/// How a Blur Slope filter combines the reads along its slope.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SlopeMode {
+    #[default]
+    Blur,
+    /// The darkest read: dark areas eat into bright ones (chipped edges).
+    Min,
+    /// The brightest read: bright areas grow into dark ones.
+    Max,
+}
+impl SlopeMode {
+    pub const ALL: [Self; 3] = [Self::Blur, Self::Min, Self::Max];
+    pub fn label(self) -> &'static str {
+        match self { Self::Blur => "Blur", Self::Min => "Min", Self::Max => "Max" }
+    }
+}
+
+/// Every Blur Slope parameter, whichever variant holds it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SlopeParts {
+    pub intensity: f32,
+    pub scale: u32,
+    pub seed: u32,
+    pub samples: u32,
+    pub source: SlopeSource,
+    pub mode: SlopeMode,
+}
+
+/// What sets the radius of a Non-uniform Blur at each texel.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BlurMap {
+    /// The texel's own value (luminance on colour): bright areas blur more.
+    #[default]
+    Value,
+    /// One minus the value: dark areas blur more.
+    InvertedValue,
+    /// A smooth noise: patches of sharp and blurred.
+    Noise,
+}
+impl BlurMap {
+    pub const ALL: [Self; 3] = [Self::Value, Self::InvertedValue, Self::Noise];
+    pub fn label(self) -> &'static str {
+        match self { Self::Value => "Bright areas", Self::InvertedValue => "Dark areas", Self::Noise => "Noise" }
+    }
+}
+
+/// Where a Color Match filter takes the colour it moves from.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MatchSource {
+    /// The average colour of the whole input.
+    #[default]
+    Average,
+    /// The Source Color parameter.
+    Parameter,
+}
+impl MatchSource {
+    pub const ALL: [Self; 2] = [Self::Average, Self::Parameter];
+    pub fn label(self) -> &'static str {
+        match self { Self::Average => "Average", Self::Parameter => "Parameter" }
+    }
+}
+
+/// Blur radius, in multiples of the intensity, of the smoothed copy of the image a Blur Slope
+/// on Previous input measures its slope on.
+pub const SLOPE_SMOOTHING: f32 = 1.5;
+
+/// Most reads per texel of a Non-uniform Blur.
+pub const MAX_BLUR_SAMPLES: u32 = 64;
+
 /// Support of filters that read the whole texture (Transform, Mirror, wrapped Blur): larger than
 /// any texture set, so every tile depends on every other.
 pub const FULL_SUPPORT: u32 = 1 << 16;
@@ -381,6 +470,20 @@ pub enum Filter {
     /// Warp noise field (`scale` cells across the texture, `seed`) gives it, up to `intensity`
     /// pixels per axis: a blur whose direction and length follow the noise.
     BlurSlope { intensity: f32, scale: u32, seed: u32, samples: u32 },
+    /// [`Filter::BlurSlope`] with Painter's Source Type and Blending Mode (same panel).
+    /// `source` Input puts the reads on the line across the nearest edge of the image itself, half
+    /// of them uphill and half downhill, up to `intensity` pixels each way (`scale` and `seed` are then
+    /// unused). `mode` keeps the average, the darkest or the brightest read.
+    BlurSlopeMode { intensity: f32, scale: u32, seed: u32, samples: u32, source: SlopeSource, mode: SlopeMode },
+    /// Blur whose radius changes per texel: `radius` pixels where the map is 1, none where it
+    /// is 0. The map is the texel's own value, its inverse, or a noise with `scale` cells across
+    /// the texture (`seed`). `samples` reads per texel on a spiral, Gaussian weighted.
+    NonUniformBlur { radius: f32, map: BlurMap, scale: u32, seed: u32, samples: u32 },
+    /// Painter's Color Match: moves the colours near `source` (the Source Color, or the average
+    /// of the whole input) so that the source colour becomes `target`, keeping the variation
+    /// around it. Works in OKLab. `hue`, `chroma` and `luma` (0..=1) are how far from the source
+    /// a colour may be and still move; 1 is no limit. Color channels only.
+    ColorMatch { source_mode: MatchSource, source: [f32; 3], target: [f32; 3], hue: f32, chroma: f32, luma: f32 },
     /// [`Filter::Grayscale`] with Painter's Grayscale Conversion options (same panel): how the
     /// colour becomes gray (`mode`), then Invert, Balance (0.5 neutral) and Contrast (0 neutral)
     /// as in [`Filter::GradientCurve`].
@@ -529,7 +632,7 @@ pub struct OutlineParts {
 }
 
 impl Filter {
-    pub const ALL: [Self; 41] = [Self::Contrast { gain: 1.0, pivot: 0.5 },
+    pub const ALL: [Self; 43] = [Self::Contrast { gain: 1.0, pivot: 0.5 },
         Self::Hsl { hue: 0.0, saturation: 1.0, lightness: 0.0 },
         Self::Threshold { cutoff: 0.5 }, Self::Clamp { low: 0.0, high: 1.0 }, Self::Blur { radius: 4.0 }, Self::Sharpen { radius: 2.0, amount: 1.0 }, Self::DirectionalBlur { radius: 8.0, angle_deg: 0.0 }, Self::Highpass { radius: 4.0, amount: 1.0 },
         Self::Bevel {radius:8.0,amount:1.0,threshold:0.5}, Self::MaskOutline {radius:4.0,threshold:0.5,position:OutlinePosition::Both},
@@ -557,7 +660,22 @@ impl Filter {
         // Painter documents no defaults (only Radius' maximum, 32).
         Self::AnisotropicKuwahara { radius: 6.0, smoothness: 0.5, sharpness: 8.0, tensor_smoothness: 2.0, anisotropy: 1.0, angle: 0.0, extract_direction: true },
         // Painter documents no defaults.
-        Self::Quantize { colors: 8, contour_smoothing: 0.0, dithering: 0.0, pattern: DitherPattern::Bayer4, lab: true, apply_to_alpha: false, alpha_threshold: 0.5 }];
+        Self::Quantize { colors: 8, contour_smoothing: 0.0, dithering: 0.0, pattern: DitherPattern::Bayer4, lab: true, apply_to_alpha: false, alpha_threshold: 0.5 },
+        Self::NonUniformBlur { radius: 12.0, map: BlurMap::Value, scale: 4, seed: 1, samples: 32 },
+        Self::ColorMatch { source_mode: MatchSource::Average, source: [0.5; 3], target: [0.5; 3], hue: 1.0, chroma: 1.0, luma: 1.0 }];
+    /// A Blur Slope filter: the plain variant when the options are the defaults.
+    pub fn blur_slope(p: SlopeParts) -> Self {
+        let SlopeParts { intensity, scale, seed, samples, source, mode } = p;
+        if source == SlopeSource::Noise && mode == SlopeMode::Blur { Self::BlurSlope { intensity, scale, seed, samples } } else { Self::BlurSlopeMode { intensity, scale, seed, samples, source, mode } }
+    }
+    /// Parameters of either Blur Slope variant.
+    pub fn slope_parts(self) -> Option<SlopeParts> {
+        match self {
+            Self::BlurSlope { intensity, scale, seed, samples } => Some(SlopeParts { intensity, scale, seed, samples, source: SlopeSource::Noise, mode: SlopeMode::Blur }),
+            Self::BlurSlopeMode { intensity, scale, seed, samples, source, mode } => Some(SlopeParts { intensity, scale, seed, samples, source, mode }),
+            _ => None,
+        }
+    }
 
     /// A Grayscale filter (the plain variant when the conversion options are at their defaults).
     pub fn grayscale(p: GrayParts) -> Self {
@@ -676,7 +794,7 @@ impl Filter {
             Self::BevelShape {..} => "Bevel", Self::MaskOutlineShape {..} => "Mask Outline", Self::HeightAdjust {..} => "Height Adjust",
             Self::Fxaa {..} => "FXAA (Anti-Aliasing)", Self::DropShadow {..} => "Drop Shadow", Self::OuterGlow {..} => "Glow", Self::GradientDynamic {..} => "Gradient Dynamic",
             Self::GradientCurve {..} => "Gradient Curve", Self::BevelSmooth {..} => "Bevel Smooth", Self::DirectionalDistance {..} => "Directional Distance",
-            Self::BlurSlope {..} => "Blur Slope", Self::GrayscaleConvert {..} => "Grayscale",
+            Self::BlurSlope {..} | Self::BlurSlopeMode {..} => "Blur Slope", Self::NonUniformBlur {..} => "Non-uniform Blur", Self::ColorMatch {..} => "Color Match", Self::GrayscaleConvert {..} => "Grayscale",
             Self::AnisotropicKuwahara {..} => "Anisotropic Kuwahara", Self::Quantize {..} => "Quantize" }
     }
 
@@ -687,7 +805,7 @@ impl Filter {
 
     /// Filters that only make sense on RGB colour data.
     fn color_only(self) -> bool {
-        matches!(self, Self::Hsl { .. } | Self::HslPerceptive { .. } | Self::Grayscale | Self::GrayscaleConvert { .. } | Self::ColorBalance { .. } | Self::ReplaceColor { .. } | Self::ColorCorrect { .. } | Self::DropShadow { .. })
+        matches!(self, Self::Hsl { .. } | Self::HslPerceptive { .. } | Self::Grayscale | Self::GrayscaleConvert { .. } | Self::ColorBalance { .. } | Self::ReplaceColor { .. } | Self::ColorCorrect { .. } | Self::DropShadow { .. } | Self::ColorMatch { .. })
     }
 
     /// Quantize works on content only, as in Painter.
@@ -701,6 +819,8 @@ impl Filter {
             Self::DirectionalWarp { intensity, angle_deg } => Self::DirectionalWarp { intensity: intensity * factor, angle_deg },
             Self::Mosaic { size } => Self::Mosaic { size: ((size as f32 * factor).round() as u32).clamp(1, MAX_MOSAIC_SIZE) },
             Self::DirectionalDistance { distance, angle_deg, contrast } => Self::DirectionalDistance { distance: distance * factor, angle_deg, contrast },
+            Self::BlurSlopeMode { intensity, scale, seed, samples, source, mode } => Self::BlurSlopeMode { intensity: intensity * factor, scale, seed, samples, source, mode },
+            Self::NonUniformBlur { radius, map, scale, seed, samples } => Self::NonUniformBlur { radius: radius * factor, map, scale, seed, samples },
             Self::Quantize { colors, contour_smoothing, dithering, pattern, lab, apply_to_alpha, alpha_threshold } => {
                 Self::Quantize { colors, contour_smoothing: (contour_smoothing * factor).min(MAX_QUANTIZE_SMOOTHING), dithering, pattern, lab, apply_to_alpha, alpha_threshold }
             }
@@ -719,22 +839,23 @@ impl Filter {
     /// Neighbourhood filters evaluated per texel by the compositor with direct pixel reads
     /// (no Gaussian staging). The node output is the final value.
     pub fn is_pixelwise(self) -> bool {
-        matches!(self, Self::EdgeDetect { .. } | Self::DirectionalWarp { .. } | Self::Mosaic { .. } | Self::Transform { .. } | Self::Mirror { .. } | Self::Fxaa { .. } | Self::DirectionalDistance { .. } | Self::AnisotropicKuwahara { .. } | Self::Quantize { .. })
+        matches!(self, Self::EdgeDetect { .. } | Self::DirectionalWarp { .. } | Self::Mosaic { .. } | Self::Transform { .. } | Self::Mirror { .. } | Self::Fxaa { .. } | Self::DirectionalDistance { .. } | Self::AnisotropicKuwahara { .. } | Self::Quantize { .. } | Self::BlurSlopeMode { .. } | Self::NonUniformBlur { .. } | Self::ColorMatch { source_mode: MatchSource::Average, .. })
     }
 
     /// Filters whose every texel may read any other texel of the texture.
     pub fn reads_whole_texture(self) -> bool {
         // Quantize picks its palette from the whole texture.
-        matches!(self, Self::Transform { .. } | Self::Mirror { .. } | Self::Quantize { .. }) || matches!(self, Self::BlurWrap { radius } if radius > 0.0)
+        matches!(self, Self::Transform { .. } | Self::Mirror { .. } | Self::Quantize { .. } | Self::ColorMatch { source_mode: MatchSource::Average, .. }) || matches!(self, Self::BlurWrap { radius } if radius > 0.0)
     }
 
     pub fn radius(self) -> Option<f32> {
-        match self { Self::Transform { .. } | Self::Mirror { .. } | Self::Quantize { .. } => Some(FULL_SUPPORT as f32),
+        match self { Self::Transform { .. } | Self::Mirror { .. } | Self::Quantize { .. } | Self::ColorMatch { source_mode: MatchSource::Average, .. } => Some(FULL_SUPPORT as f32),
             Self::Blur { radius } | Self::BlurWrap { radius } | Self::Sharpen { radius, .. } | Self::DirectionalBlur { radius, .. } | Self::Highpass { radius, .. } | Self::Median { radius } | Self::Warp { intensity: radius, .. } | Self::Bevel {radius,..} | Self::MaskOutline {radius,..} | Self::EdgeDetect { radius, .. } | Self::Glow { radius, .. } | Self::DirectionalWarp { intensity: radius, .. } => Some(radius),
             Self::Mosaic { size } => Some(size as f32),
             Self::BevelShape { radius, .. } | Self::BevelSmooth { radius, .. } => Some(radius),
             Self::DirectionalDistance { distance, .. } => Some(distance),
-            Self::BlurSlope { intensity, .. } => Some(intensity),
+            Self::BlurSlope { intensity, .. } | Self::BlurSlopeMode { intensity, .. } => Some(intensity),
+            Self::NonUniformBlur { radius, .. } => Some(radius),
             Self::MaskOutlineShape { radius, blur, .. } => Some(radius + blur),
             Self::Fxaa { .. } => Some(1.0),
             Self::DropShadow { distance, size, .. } => Some(distance + size),
@@ -755,12 +876,18 @@ impl Filter {
         if self.reads_whole_texture() { return FULL_SUPPORT; }
         // Edge Detect also reads one sample beyond its offset; Directional Warp interpolates.
         (self.radius().unwrap_or(0.0) + if self.is_contour() {0.5} else {0.0}
-            + if matches!(self, Self::DirectionalWarp { .. } | Self::EdgeDetect { .. } | Self::Fxaa { .. } | Self::DropShadow { .. } | Self::DirectionalDistance { .. }) {1.0} else {0.0}).ceil() as u32
+            + if matches!(self, Self::DirectionalWarp { .. } | Self::EdgeDetect { .. } | Self::Fxaa { .. } | Self::DropShadow { .. } | Self::DirectionalDistance { .. } | Self::NonUniformBlur { .. }) {1.0} else {0.0}
+            + match self {
+                // Previous input also reads the smoothed copy the slope is measured on.
+                Self::BlurSlopeMode { intensity, source: SlopeSource::Input, .. } => intensity * SLOPE_SMOOTHING + 2.0,
+                Self::BlurSlopeMode { .. } => 1.0,
+                _ => 0.0,
+            }).ceil() as u32
     }
 
     pub fn softens_coverage(self) -> bool {
         matches!(self, Self::Blur { .. } | Self::BlurWrap { .. } | Self::Transform { .. } | Self::Mirror { .. } | Self::DirectionalBlur { .. } | Self::Warp { .. } | Self::DirectionalWarp { .. } | Self::Mosaic { .. }
-            | Self::Fxaa { alpha: true } | Self::DropShadow { .. } | Self::OuterGlow { .. } | Self::BlurSlope { .. })
+            | Self::Fxaa { alpha: true } | Self::DropShadow { .. } | Self::OuterGlow { .. } | Self::BlurSlope { .. } | Self::BlurSlopeMode { .. } | Self::NonUniformBlur { .. })
     }
 
     /// Highpass is deliberately excluded: radius/amount zero gives its neutral value.
@@ -769,7 +896,7 @@ impl Filter {
             | Self::Sharpen {radius:0.0,..} | Self::Sharpen {amount:0.0,..} | Self::Warp {intensity:0.0,..}
             | Self::DirectionalWarp {intensity:0.0,..} | Self::Mosaic {size:1} | Self::Glow {radius:0.0,..} | Self::Glow {amount:0.0,..}
             | Self::DropShadow {opacity:0.0,..} | Self::OuterGlow {opacity:0.0,..} | Self::OuterGlow {width:0.0,..}
-            | Self::DirectionalDistance {distance:0.0,..} | Self::BlurSlope {intensity:0.0,..})
+            | Self::DirectionalDistance {distance:0.0,..} | Self::BlurSlope {intensity:0.0,..} | Self::BlurSlopeMode {intensity:0.0,..} | Self::NonUniformBlur {radius:0.0,..})
             || matches!(self, Self::Median { radius } if radius < 0.5)
             || matches!(self, Self::AnisotropicKuwahara { radius, .. } if radius < 0.5)
     }
@@ -851,6 +978,13 @@ impl Filter {
             Self::BlurSlope { intensity, scale, samples, .. } => {
                 Self::Blur { radius: intensity }.valid() && (1..=MAX_WARP_SCALE).contains(&scale) && (2..=MAX_SLOPE_SAMPLES).contains(&samples)
             }
+            Self::BlurSlopeMode { intensity, scale, seed, samples, .. } => Self::BlurSlope { intensity, scale, seed, samples }.valid(),
+            Self::NonUniformBlur { radius, scale, samples, .. } => {
+                Self::Blur { radius }.valid() && (1..=MAX_WARP_SCALE).contains(&scale) && (4..=MAX_BLUR_SAMPLES).contains(&samples)
+            }
+            Self::ColorMatch { source, target, hue, chroma, luma, .. } => {
+                source.iter().chain(&target).all(|v| v.is_finite() && *v >= 0.0) && [hue, chroma, luma].iter().all(|v| v.is_finite() && (0.0..=1.0).contains(v))
+            }
             Self::HeightAdjust { offset, multiply, .. } => offset.is_finite() && (-1.0..=1.0).contains(&offset) && multiply.is_finite() && (0.0..=4.0).contains(&multiply),
             Self::Fxaa { .. } => true,
             Self::DropShadow { angle_deg, distance, size, spread, opacity, color } => {
@@ -873,6 +1007,55 @@ impl Filter {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn slope_modes_non_uniform_blur_and_color_match_rules() {
+        // Blur Slope options: defaults give back the plain variant, others the option variant,
+        // which shares the panel and so the name.
+        let plain = Filter::BlurSlope { intensity: 8.0, scale: 4, seed: 1, samples: 8 };
+        let parts = plain.slope_parts().unwrap();
+        assert_eq!(Filter::blur_slope(parts), plain);
+        let eat = Filter::blur_slope(SlopeParts { source: SlopeSource::Input, mode: SlopeMode::Min, ..parts });
+        assert_eq!(eat, Filter::BlurSlopeMode { intensity: 8.0, scale: 4, seed: 1, samples: 8, source: SlopeSource::Input, mode: SlopeMode::Min });
+        assert_eq!(Filter::blur_slope(eat.slope_parts().unwrap()), eat);
+        assert!(eat.valid() && eat.label() == "Blur Slope" && eat.is_pixelwise() && eat.softens_coverage() && eat.supports_mask());
+        assert_eq!((eat.radius(), eat.support()), (Some(8.0), 22), "the walk, the smoothed slope and its taps");
+        assert_eq!(Filter::BlurSlopeMode { intensity: 8.0, scale: 4, seed: 1, samples: 8, source: SlopeSource::Noise, mode: SlopeMode::Min }.support(), 9);
+        assert_eq!(eat.scaled(0.5).radius(), Some(4.0));
+        assert!(Filter::BlurSlopeMode { intensity: 0.0, scale: 4, seed: 1, samples: 8, source: SlopeSource::Input, mode: SlopeMode::Max }.spatial_identity());
+        assert!(!Filter::BlurSlopeMode { intensity: 8.0, scale: 4, seed: 1, samples: 1, source: SlopeSource::Input, mode: SlopeMode::Max }.valid());
+        assert_eq!(serde_json::to_string(&eat).unwrap(), r#"{"kind":"blur_slope_mode","intensity":8.0,"scale":4,"seed":1,"samples":8,"source":"input","mode":"min"}"#);
+
+        let nub = Filter::NonUniformBlur { radius: 12.0, map: BlurMap::Value, scale: 4, seed: 1, samples: 32 };
+        assert!(Filter::ALL.contains(&nub) && nub.valid() && nub.label() == "Non-uniform Blur" && nub.is_pixelwise() && nub.softens_coverage());
+        assert!(nub.supports_mask() && nub.supports_channel(ChannelKind::Height) && !nub.supports_channel(ChannelKind::Normal) && !nub.reads_whole_texture());
+        assert_eq!((nub.radius(), nub.support(), nub.scaled(0.5).radius()), (Some(12.0), 13, Some(6.0)));
+        assert!(Filter::NonUniformBlur { radius: 0.0, map: BlurMap::Noise, scale: 4, seed: 1, samples: 32 }.spatial_identity());
+        for bad in [
+            Filter::NonUniformBlur { radius: 33.0, map: BlurMap::Value, scale: 4, seed: 1, samples: 32 },
+            Filter::NonUniformBlur { radius: 8.0, map: BlurMap::Value, scale: 0, seed: 1, samples: 32 },
+            Filter::NonUniformBlur { radius: 8.0, map: BlurMap::Value, scale: 4, seed: 1, samples: 3 },
+            Filter::NonUniformBlur { radius: 8.0, map: BlurMap::Value, scale: 4, seed: 1, samples: MAX_BLUR_SAMPLES + 1 },
+        ] {
+            assert!(!bad.valid(), "{bad:?}");
+        }
+        assert_eq!(serde_json::to_string(&nub).unwrap(), r#"{"kind":"non_uniform_blur","radius":12.0,"map":"value","scale":4,"seed":1,"samples":32}"#);
+
+        // Color Match: colour content only. Average reads the whole texture and is staged;
+        // Parameter is a point filter.
+        let average = Filter::ColorMatch { source_mode: MatchSource::Average, source: [0.5; 3], target: [0.5; 3], hue: 1.0, chroma: 1.0, luma: 1.0 };
+        let picked = Filter::ColorMatch { source_mode: MatchSource::Parameter, source: [0.5; 3], target: [0.1; 3], hue: 0.2, chroma: 1.0, luma: 1.0 };
+        assert!(Filter::ALL.contains(&average) && average.valid() && picked.valid() && average.label() == "Color Match");
+        assert!(average.supports_channel(ChannelKind::BaseColor) && !average.supports_channel(ChannelKind::Roughness) && !average.supports_mask());
+        assert!(average.is_pixelwise() && average.reads_whole_texture() && average.support() == FULL_SUPPORT && !average.softens_coverage());
+        assert!(!picked.is_pixelwise() && !picked.reads_whole_texture() && picked.radius().is_none());
+        assert!(!Filter::ColorMatch { source_mode: MatchSource::Average, source: [0.5; 3], target: [0.5; 3], hue: 1.2, chroma: 1.0, luma: 1.0 }.valid());
+        assert!(!Filter::ColorMatch { source_mode: MatchSource::Average, source: [0.5; 3], target: [-0.1, 0.5, 0.5], hue: 1.0, chroma: 1.0, luma: 1.0 }.valid());
+        assert_eq!(serde_json::to_string(&picked).unwrap(), r#"{"kind":"color_match","source_mode":"parameter","source":[0.5,0.5,0.5],"target":[0.1,0.1,0.1],"hue":0.2,"chroma":1.0,"luma":1.0}"#);
+        for f in [eat, nub, average, picked] {
+            assert_eq!(serde_json::from_str::<Filter>(&serde_json::to_string(&f).unwrap()).unwrap(), f);
+        }
+    }
 
     #[test]
     fn mask_shape_filters_have_parts_supports_and_checked_domains() {

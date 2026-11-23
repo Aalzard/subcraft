@@ -59,14 +59,14 @@ Layout notes: Standard group. Works on content and masks. Main controls, then a 
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Blur Slope (filter) | Properties > Filter | works on: content and masks | partial: each texel is blurred along the offset a built-in noise gives it; the noise is the only slope source | crates/doc/src/filter.rs:343 | Blur Slope |
+| Blur Slope (filter) | Properties > Filter | works on: content and masks | partial: each texel is blurred along the offset a built-in noise gives it, or across the nearest edge of the image itself (Previous input); no custom noise | crates/doc/src/filter.rs:343 | Blur Slope |
 | Custom Noise | Properties > Filter > Image inputs | grayscale; texture or anchor | missing | - | - |
 | Seed | Properties > Filter | not documented | done | crates/ui/src/panels/filter.rs:287 | Blur Slope |
 | Intensity | Properties > Filter | not documented | done: pixels, up to 32 | crates/ui/src/panels/filter.rs:287 | Blur Slope |
 | Intensity Divider | Properties > Filter | not documented (dropdown) | missing | - | - |
-| Blending Mode | Properties > Filter | not documented (dropdown) | missing | - | - |
+| Blending Mode | Properties > Filter | not documented (dropdown) | done: Blur, Min, Max (SubCraft reading; Painter's list is not documented) | crates/ui/src/panels/filter.rs | Blur Slope options |
 | Quality | Properties > Filter | not documented | done: 2..32 reads per texel | crates/ui/src/panels/filter.rs:287 | Blur Slope |
-| Source Type | Properties > Filter > Source Parameters | not documented; default noise / previous input / custom noise | partial: the built-in noise only (no previous input, no custom noise) | crates/ui/src/panels/filter.rs:287 | Blur Slope |
+| Source Type | Properties > Filter > Source Parameters | not documented; default noise / previous input / custom noise | partial: Default noise and Previous input (the slope is measured on a smoothed copy of the image); no custom noise | crates/ui/src/panels/filter.rs:287 | Blur Slope |
 | Blur | Properties > Filter > Source Parameters | not documented | missing | - | - |
 | Position | Properties > Filter > Source Parameters | not documented | missing | - | - |
 | Contrast | Properties > Filter > Source Parameters | not documented | missing | - | - |
@@ -901,17 +901,17 @@ Layout notes: Advanced group. Colour content (fill layer); Average source mode n
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Color Match (filter) | Properties > Filter | works on: colour content | partial: named Replace Color (From, To, Tolerance, Softness); no image inputs, average mode or hue / chroma / luma controls | crates/doc/src/filter.rs:159 | - |
+| Color Match (filter) | Properties > Filter | works on: colour content | partial: Source Color Mode (Average / Parameter), Source and Target colours, Hue / Chroma / Luma ranges; no image inputs. Replace Color stays as its own filter | crates/doc/src/filter.rs | Color Match |
 | Source Color | Properties > Filter > Image inputs | colour map or anchor | missing | - | - |
 | Target Color | Properties > Filter > Image inputs | colour map or anchor | missing | - | - |
-| Source Color Mode | Properties > Filter | not documented; options Average / Parameter / Input | missing: parameter colour only | - | - |
+| Source Color Mode | Properties > Filter | not documented; options Average / Parameter / Input | partial: Average (the mean colour of the layer content below the filter) and Parameter; no Input | crates/ui/src/panels/filter.rs | Color Match |
 | Source Color | Properties > Filter | not documented | done | crates/ui/src/panels/filter.rs:51 | - |
 | Target Color Mode | Properties > Filter | not documented; options Parameter / Input | missing: parameter colour only | - | - |
 | Target Color | Properties > Filter | not documented | done | crates/ui/src/panels/filter.rs:51 | - |
-| Custom Color Variation | Properties > Filter | not documented (toggle) | missing | - | - |
-| Hue | Properties > Filter | not documented | missing | - | - |
-| Chroma | Properties > Filter | not documented | missing | - | - |
-| Luma | Properties > Filter | not documented | missing | - | - |
+| Custom Color Variation | Properties > Filter | not documented (toggle) | partial: no toggle; the three ranges at 1 are the same as off | crates/ui/src/panels/filter.rs | Color Match |
+| Hue | Properties > Filter | not documented | done: 0..1, how far in hue from the source a colour may be and still move (SubCraft reading) | crates/ui/src/panels/filter.rs | Color Match |
+| Chroma | Properties > Filter | not documented | done: 0..1, how far in saturation from the source a colour may be and still move (SubCraft reading) | crates/ui/src/panels/filter.rs | Color Match |
+| Luma | Properties > Filter | not documented | done: 0..1, how far in lightness from the source a colour may be and still move (SubCraft reading) | crates/ui/src/panels/filter.rs | Color Match |
 
 ## Directional Distance
 
