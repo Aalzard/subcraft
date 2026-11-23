@@ -97,7 +97,8 @@ when its own parameters are at theirs.
   parameter whose default is the property's value now, bound with the formula `<id>`. The gear
   toggles an edit mode to rename, change a slider's range, remove, or make the current values the
   defaults. Each step sends the whole definition as one `SetMaterialControls`.
-* Not built yet: editing formulas in the UI (one slider driving several properties is possible in
-  the format and used by the built-ins, but the panel only makes one-to-one bindings), choice
+  "Also drive..." links one more property to a parameter and every binding's formula is editable
+  there.
+* Not built yet: choice
   parameters (dropdowns), bindings on content-effect settings (filters), translated labels for
   built-in parameters, parameters on brush materials.

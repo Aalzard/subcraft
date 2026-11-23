@@ -1030,10 +1030,12 @@ pub enum ProceduralKind {
     /// Scratch generator: long hairlines and gouges with direction, length, width, depth,
     /// curvature, density, clustering and curvature-driven wear (`ProceduralParams::scratch`).
     Scratch,
+    /// Woven threads (plain weave): the height of the cloth, bright where a thread is on top.
+    Weave,
 }
 
 impl ProceduralKind {
-    pub const ALL: [ProceduralKind; 15] = [
+    pub const ALL: [ProceduralKind; 16] = [
         ProceduralKind::Clouds,
         ProceduralKind::Cells,
         ProceduralKind::Grunge,
@@ -1049,6 +1051,7 @@ impl ProceduralKind {
         ProceduralKind::Speckles,
         ProceduralKind::Pores,
         ProceduralKind::Scratch,
+        ProceduralKind::Weave,
     ];
 
     pub fn label(self) -> &'static str {
@@ -1068,6 +1071,7 @@ impl ProceduralKind {
             ProceduralKind::Speckles => "Speckles",
             ProceduralKind::Pores => "Pores",
             ProceduralKind::Scratch => "Scratch Generator",
+            ProceduralKind::Weave => "Weave",
         }
     }
 }

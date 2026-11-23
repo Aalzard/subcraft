@@ -223,4 +223,89 @@ impl MaterialControls {
         }
         changed
     }
+
+    /// Bindings whose formula reads parameter `id`, by index.
+    pub fn bindings_of(&self, id: &str) -> Vec<usize> {
+        (0..self.bindings.len()).filter(|&i| material_expr::params_used(&self.bindings[i].formula).is_ok_and(|used| used.iter().any(|p| p == id))).collect()
+    }
+
+    /// Whether parameter `id` can also drive `e`: the same kind of value (a slider drives
+    /// numbers, a colour drives colours, a seed drives seeds) and not driven yet.
+    pub fn can_link(&self, id: &str, e: &Exposable) -> bool {
+        let Some(p) = self.param(id) else { return false };
+        let same = matches!(
+            (p.kind, e.kind),
+            (ParamKind::Float { .. }, ParamKind::Float { .. }) | (ParamKind::Color { .. }, ParamKind::Color { .. }) | (ParamKind::Seed { .. }, ParamKind::Seed { .. })
+        );
+        same && !self.is_bound(e.layer, e.effect, e.prop) && self.bindings.len() < MAX_BINDINGS
+    }
+
+    /// Make parameter `id` also drive `e`. The formula keeps the property at the value it has
+    /// now while the parameter is at its default (a ratio for sliders and colours, an offset for
+    /// seeds), so linking changes nothing by itself. The user can rewrite it afterwards.
+    pub fn link(&mut self, id: &str, e: &Exposable) -> bool {
+        if !self.can_link(id, e) {
+            return false;
+        }
+        let Some(p) = self.param(id) else { return false };
+        let number = |v: f32| {
+            let t = format!("{v:.4}");
+            t.trim_end_matches('0').trim_end_matches('.').to_string()
+        };
+        let formula = match (p.kind, e.kind) {
+            (ParamKind::Float { default, .. }, ParamKind::Float { default: now, .. }) => {
+                if default == now {
+                    id.to_string()
+                } else if default.abs() > 1e-4 && now.abs() > 1e-4 {
+                    format!("{id} * {}", number(now / default))
+                } else if now >= default {
+                    format!("{id} + {}", number(now - default))
+                } else {
+                    format!("{id} - {}", number(default - now))
+                }
+            }
+            (ParamKind::Color { default }, ParamKind::Color { default: now }) => {
+                if default == now {
+                    id.to_string()
+                } else if default.iter().all(|c| *c > 1e-4) {
+                    format!("{id} * rgb({}, {}, {})", number(now[0] / default[0]), number(now[1] / default[1]), number(now[2] / default[2]))
+                } else {
+                    id.to_string()
+                }
+            }
+            (ParamKind::Seed { default }, ParamKind::Seed { default: now }) => {
+                if now >= default { format!("{id} + {}", now - default) } else { format!("{id} - {}", default - now) }
+            }
+            _ => return false,
+        };
+        self.bindings.push(Binding { layer: e.layer, effect: e.effect, prop: e.prop, formula });
+        true
+    }
+
+    /// Replace a binding's formula. `Err` with a short reason when the text is not a formula
+    /// or names a parameter the material does not have; `Ok(false)` when it is unchanged.
+    pub fn set_formula(&mut self, binding: usize, text: &str) -> Result<bool, String> {
+        let text = text.trim();
+        let Some(b) = self.bindings.get(binding) else { return Err("no such binding".into()) };
+        if b.formula == text {
+            return Ok(false);
+        }
+        let lookup = |id: &str| self.param(id).map(|p| p.value.as_value());
+        match material_expr::eval(text, &lookup) {
+            Ok(v) if v.iter().all(|c| c.is_finite()) => {}
+            Ok(_) => return Err("the result is not a number".into()),
+            Err(e) => return Err(e.to_string()),
+        }
+        self.bindings[binding].formula = text.into();
+        Ok(true)
+    }
+
+    /// Stop driving a property. The parameter stays, even with nothing left to drive.
+    pub fn remove_binding(&mut self, binding: usize) -> bool {
+        if binding >= self.bindings.len() {
+            return false;
+        }
+        self.bindings.remove(binding);
+        true
+    }
 }
