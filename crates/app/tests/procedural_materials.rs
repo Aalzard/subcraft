@@ -290,3 +290,36 @@ fn a_slider_drives_a_material_filter() {
     let back = mean(&mut s, ChannelKind::Roughness)[0];
     assert!((back - start).abs() < 1e-4 && rusty > start + 0.01, "undo puts the filter back: {back} vs {start}, rusty {rusty}");
 }
+
+/// The weathered materials are built on material filters, and each of the three macros moves
+/// the composite on its own: at 0 the surface is new, at 1 it is clearly changed.
+#[test]
+fn weathered_materials_follow_their_wear_age_and_dirt_macros() {
+    use subcraft_doc::ContentEffectKind;
+    fn filters(l: &Layer) -> usize {
+        l.content_effects.iter().filter(|e| matches!(e.kind, ContentEffectKind::Material(_))).count() + l.children().iter().map(|c| filters(c)).sum::<usize>()
+    }
+    for name in ["Rusty Painted Steel", "Chipped Enamel", "Scuffed Gun Metal", "Worn Leather Strap", "Dusty Plastic"] {
+        let mut s = baked_crate();
+        let id = apply(&mut s, &format!("Procedural {name}"));
+        assert!(filters(layer(&s, id)) >= 1, "{name} uses a material filter");
+        assert!(controls(&s, id).check(layer(&s, id)).is_empty(), "{name}: every binding has a target");
+        let sample = |s: &mut Session| {
+            let (c, r) = (mean(s, ChannelKind::BaseColor), mean(s, ChannelKind::Roughness)[0]);
+            [c[0], c[1], c[2], r]
+        };
+        let distance = |a: [f32; 4], b: [f32; 4]| a.iter().zip(b).map(|(x, y)| (x - y).abs()).fold(0.0f32, f32::max);
+        for m in ["wear", "age", "dirt"] {
+            set(&mut s, id, m, ParamValue::Number(0.0));
+        }
+        let clean = sample(&mut s);
+        for m in ["wear", "age", "dirt"] {
+            set(&mut s, id, m, ParamValue::Number(1.0));
+            let on = sample(&mut s);
+            assert!(distance(on, clean) > 0.01, "{name}: {m} changes the surface: {clean:?} -> {on:?}");
+            set(&mut s, id, m, ParamValue::Number(0.0));
+            let off = sample(&mut s);
+            assert!(distance(off, clean) < 1e-4, "{name}: {m} back at 0 is the new surface again");
+        }
+    }
+}

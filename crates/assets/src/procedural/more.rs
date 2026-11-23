@@ -21,7 +21,7 @@ fn edge_coat(r: &mut Recipe, ts: &TextureSet, name: &str, color: &str, roughness
 
 /// A coat spread by a pattern: its balance follows `amount` from `none` (nothing) to `full`.
 #[allow(clippy::too_many_arguments)]
-fn pattern_coat(r: &mut Recipe, ts: &TextureSet, name: &str, kind: ProceduralKind, scale: f32, seed: u32, contrast: f32, metal: f32, amount: &str, none: f32, full: f32, strength: f32) -> Layer {
+pub(super) fn pattern_coat(r: &mut Recipe, ts: &TextureSet, name: &str, kind: ProceduralKind, scale: f32, seed: u32, contrast: f32, metal: f32, amount: &str, none: f32, full: f32, strength: f32) -> Layer {
     let l = masked(coat(ts, name, [0.5, 0.5, 0.5], 0.5, metal), ts, vec![fx(pattern(kind, scale, seed, 0.5, contrast))]);
     r.bind_fx(&l, 0, Prop::PatternBalance { channel: None }, &format!("remap({amount}, {none}, {full})"));
     r.bind(&l, Prop::Opacity { channel: None }, &format!("saturate({amount} * 4) * {strength}"));
