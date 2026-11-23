@@ -633,6 +633,20 @@ pub fn post_effects(state: &mut UiState, ui: &mut Ui) {
         crate::reset_row::reset(ui, &l, &r, &mut d.ssao_radius, &def.ssao_radius);
         ui.end_row();
     });
+    effect(ui, "display_contact_shadows", tr("Contact shadows"), &mut d.contact_shadows_on, def.contact_shadows_on, all, false, |ui| {
+        slider(ui, tr("Amount"), &mut d.contact_shadows, def.contact_shadows, 0.0..=1.0, tr("Fine shadows of the key light where parts touch or nearly touch, from the view's depth. Only the key light is taken away."));
+        let l = label(ui, tr("Length"));
+        let r = ui.add(egui::Slider::new(&mut d.contact_length, 0.5..=20.0).suffix("%")).on_hover_text(tr("How far a contact shadow reaches, in percent of the model size"));
+        crate::reset_row::reset(ui, &l, &r, &mut d.contact_length, &def.contact_length);
+        ui.end_row();
+    });
+    effect(ui, "display_ssr", tr("Screen-space reflections"), &mut d.ssr_on, def.ssr_on, all, false, |ui| {
+        slider(ui, tr("Amount"), &mut d.ssr, def.ssr, 0.0..=1.0, tr("Glossy surfaces reflect what the view shows of the model. Rough surfaces barely change; what is off screen is not reflected."));
+        let l = label(ui, tr("Distance"));
+        let r = ui.add(egui::Slider::new(&mut d.ssr_distance, 5.0..=200.0).suffix("%")).on_hover_text(tr("How far reflection rays travel, in percent of the model size"));
+        crate::reset_row::reset(ui, &l, &r, &mut d.ssr_distance, &def.ssr_distance);
+        ui.end_row();
+    });
     effect(ui, "display_glow", tr("Emission glow"), &mut d.glow_on, def.glow_on, all, true, |ui| {
         slider(ui, tr("Amount"), &mut d.emission_glow, def.emission_glow, 0.0..=3.0, tr("Soft glow around emissive areas only. 0 is off; the default is subtle."));
         let l = label(ui, tr("Radius"));
@@ -1051,10 +1065,12 @@ mod tests {
         let d = &mut p.display;
         (d.bloom, d.ssao, d.glare, d.exposure, d.tone_map, d.gamma, d.mapping_factor) = (1.0, 0.5, 2.0, 2.0, ToneMap::Log, 2.2, 3.0);
         (d.vignette_on, d.sharpen_on, d.grain_on, d.aberration_on, d.color_correction_on, d.flare_on, d.dof) = (true, true, true, true, true, true, true);
+        (d.contact_shadows_on, d.ssr_on) = (true, true);
         d.cc_saturation = 0.5;
         let on = p.post_params(2.0);
         assert_eq!((on.bloom, on.ssao, on.glare, on.tone_map, on.mapping_factor, on.grade.gamma), (1.0, 0.5, 2.0, ToneMap::Log, 3.0, 2.2));
         assert!(on.grade.vignette > 0.0 && on.grade.sharpen > 0.0 && on.grade.grain > 0.0 && on.grade.aberration > 0.0 && on.grade.color_correction && on.flare > 0.0 && on.dof > 0.0);
+        assert!(on.contact_shadows > 0.0 && on.ssr > 0.0 && on.contact_length > 0.0 && on.ssr_distance > 0.0);
         assert_eq!(on.grade.saturation, 0.5);
         assert_eq!(p.exposure_value(), 2.0);
         // One effect's switch removes just that effect.
@@ -1071,7 +1087,7 @@ mod tests {
         let off = p.post_params(2.0);
         let plain = PostParams::default();
         assert_eq!(PostParams { ssao_radius: plain.ssao_radius, dof_range: plain.dof_range, dof_focus: plain.dof_focus, bloom_threshold: plain.bloom_threshold, ..off },
-            PostParams { emission_glow: 0.0, glare_mode: off.glare_mode, glare_threshold: off.glare_threshold, glare_remap: off.glare_remap, glare_length: off.glare_length, glow_radius: off.glow_radius, bloom_falloff: off.bloom_falloff, ..plain });
+            PostParams { emission_glow: 0.0, glare_mode: off.glare_mode, glare_threshold: off.glare_threshold, glare_remap: off.glare_remap, glare_length: off.glare_length, glow_radius: off.glow_radius, bloom_falloff: off.bloom_falloff, contact_length: off.contact_length, ssr_distance: off.ssr_distance, ..plain });
         assert!(!off.active() && !off.wants_emission());
     }
 

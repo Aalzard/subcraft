@@ -530,6 +530,16 @@ pub struct DisplaySettings {
     pub emission_glow: f32,
     pub glow_radius: f32,
     pub ssao_on: bool,
+    /// Screen-space contact shadows of the key light (off by default): strength 0..1 and how far
+    /// the shadow reaches, in percent of the model size.
+    pub contact_shadows_on: bool,
+    pub contact_shadows: f32,
+    pub contact_length: f32,
+    /// Screen-space reflections on glossy surfaces (off by default): strength 0..1 and how far
+    /// the reflection rays march, in percent of the model size.
+    pub ssr_on: bool,
+    pub ssr: f32,
+    pub ssr_distance: f32,
     pub glow_on: bool,
     /// Glare from bright emission: luminance (0 = off), shape and streak length 0..1.
     pub glare_on: bool,
@@ -669,6 +679,12 @@ impl Default for DisplaySettings {
             emission_glow: 0.35,
             glow_radius: 1.0,
             ssao_on: true,
+            contact_shadows_on: false,
+            contact_shadows: 0.7,
+            contact_length: 3.0,
+            ssr_on: false,
+            ssr: 1.0,
+            ssr_distance: 50.0,
             glow_on: true,
             glare_on: true,
             glare: 0.0,

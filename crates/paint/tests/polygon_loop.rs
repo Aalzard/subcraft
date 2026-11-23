@@ -24,7 +24,7 @@ impl Scene {
         Self { bvh: Bvh::build(&mesh), geo: TextureSetGeometry::new(mesh.clone(), 0, res), depth: DepthCache::new(), mesh }
     }
     fn ctx<'a>(&'a self, camera: &'a Camera) -> PaintContext<'a> {
-        PaintContext { mesh: &self.mesh, bvh: &self.bvh, geometry: &self.geo, camera, depth: &self.depth }
+        PaintContext { displaced: None, mesh: &self.mesh, bvh: &self.bvh, geometry: &self.geo, camera, depth: &self.depth }
     }
 }
 

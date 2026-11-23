@@ -49,7 +49,7 @@ impl Scene {
             .with_stamp(Some(stamp.clone()), Some(Arc::new(image.clone())));
         let mut ts = self.ts.clone();
         let screen: Vec<Vec2> = points.iter().map(|p| self.camera.project(Vec3::new(p.x, 0.0, p.y)).unwrap().truncate()).collect();
-        let ctx = PaintContext { mesh: &self.mesh, bvh: &self.bvh, geometry: &self.geo, camera: &self.camera, depth: &self.depth };
+        let ctx = PaintContext { displaced: None, mesh: &self.mesh, bvh: &self.bvh, geometry: &self.geo, camera: &self.camera, depth: &self.depth };
         for w in screen.windows(2) {
             for k in 0..=20 {
                 s.add_point(&mut ts, &ctx, w[0].lerp(w[1], k as f32 / 20.0)).unwrap();

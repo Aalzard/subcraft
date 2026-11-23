@@ -74,7 +74,7 @@ pub fn shades(kind: ChannelKind) -> bool {
     VIEWPORT_CHANNELS.contains(&kind)
 }
 pub use shadow::{ShadowParams, ShadowQuality};
-pub use pathtrace::{Denoiser, FIREFLY_CLAMP, GroundSettings, PathTraceScene, PathTraceSettings, PathTraceStatus, render_done};
+pub use pathtrace::{Denoiser, FIREFLY_CLAMP, GroundSettings, PathTraceScene, PathTraceSettings, PathTraceStatus, environment_cdf, render_done};
 pub use grade::Grade;
 pub use post::{GlareMode, PostParams, ToneMap};
 pub use preview::{PreviewPass, PreviewTarget};
@@ -392,6 +392,8 @@ pub struct ViewportRenderer {
     opaque_params: wgpu::Buffer,
     /// Emission-only pass feeding the glow and glare effects.
     pipeline_emissive: wgpu::RenderPipeline,
+    /// Surface pass (normal, roughness, reflectance) for contact shadows and reflections.
+    pipeline_surface: wgpu::RenderPipeline,
     /// Environment drawn behind the model (4x MSAA and single-sample).
     pipeline_background: [wgpu::RenderPipeline; 2],
     grid: grid::GridPass,
@@ -404,6 +406,8 @@ pub struct ViewportRenderer {
     env_sampler: wgpu::Sampler,
     env_texture: wgpu::TextureView,
     env_levels: u32,
+    /// Importance-sampling tables of the HDRI for the path tracer (see [`pathtrace::environment_cdf`]).
+    env_cdf: wgpu::Buffer,
     env_sh: [[f32; 3]; 9],
     material_layout: wgpu::BindGroupLayout,
     /// The empty part overlay bound where a texture set has none.
@@ -638,6 +642,31 @@ impl ViewportRenderer {
             multiview_mask: None,
             cache: None,
         });
+        let pipeline_surface = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("surface pipeline"),
+            layout: Some(&layout),
+            vertex: wgpu::VertexState { module: &shader, entry_point: Some("vs_main"), compilation_options: Default::default(), buffers: &[Some(gpu_mesh::Vertex::layout())] },
+            primitive: wgpu::PrimitiveState { cull_mode: None, ..Default::default() },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: target::DEPTH_FORMAT,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(wgpu::CompareFunction::Less),
+                stencil: Default::default(),
+                bias: Default::default(),
+            }),
+            multisample: Default::default(),
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_surface"),
+                compilation_options: Default::default(),
+                targets: &[
+                    Some(wgpu::ColorTargetState { format: post::SURFACE_FORMAT, blend: None, write_mask: wgpu::ColorWrites::ALL }),
+                    Some(wgpu::ColorTargetState { format: post::KEY_SHARE_FORMAT, blend: None, write_mask: wgpu::ColorWrites::ALL }),
+                ],
+            }),
+            multiview_mask: None,
+            cache: None,
+        });
         // The environment behind the model: one triangle over the whole view, drawn before the
         // mesh without touching depth. It needs the globals only.
         let background_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -726,6 +755,7 @@ impl ViewportRenderer {
             pipeline_blend,
             opaque_params,
             pipeline_emissive,
+            pipeline_surface,
             pipeline_background,
             pipeline,
             pipeline_no_aa,
@@ -739,6 +769,7 @@ impl ViewportRenderer {
             env_sampler,
             env_texture,
             env_levels: 1,
+            env_cdf: Self::env_cdf_buffer(device, &pathtrace::environment_cdf(1, 1, &[1.0, 1.0, 1.0, 1.0])),
             env_sh: [[0.0; 3]; 9],
             material_layout, no_overlay, anisotropy: 1, sampler, nearest_sampler, mipmaps: mipmap::MipGenerator::new(device), defaults, mesh: None, materials: HashMap::new(), target: None, preview: PreviewPass::new(device), preview_target: None, preview_key: None, preview_runs: 0, texture_generation: 0, scene_generation: 0,
             path_tracer: None, hidden_slots: Default::default(), path_target: None, path_support: None, shadow }
@@ -774,6 +805,7 @@ impl ViewportRenderer {
                 self.env_texture = ChannelTexture::constant(device, queue, [0.5, 0.5, 0.5, 1.0], 4, "environment placeholder").view;
                 self.env_levels = 1;
                 self.env_sh = [[0.0; 3]; 9];
+                self.env_cdf = Self::env_cdf_buffer(device, &pathtrace::environment_cdf(1, 1, &[1.0, 1.0, 1.0, 1.0]));
             }
             Some(h) => {
                 let (w, hgt, _) = h.levels[0];
@@ -799,10 +831,18 @@ impl ViewportRenderer {
                 self.env_texture = tex.create_view(&wgpu::TextureViewDescriptor::default());
                 self.env_levels = h.levels.len() as u32;
                 self.env_sh = h.sh;
+                // Sampling tables from the first level at most 512 wide (sharp enough for a sun).
+                let (cw, ch, data) = h.levels.iter().copied().find(|l| l.0 <= 512).unwrap_or(h.levels[h.levels.len() - 1]);
+                self.env_cdf = Self::env_cdf_buffer(device, &pathtrace::environment_cdf(cw, ch, data));
             }
         }
         self.globals_bg = Self::globals_bind_group(device, &self.globals_layout, &self.globals, &self.env_texture, &self.env_sampler, &self.shadow);
         if let Some(pt) = &mut self.path_tracer { pt.environment_changed(); }
+    }
+
+    fn env_cdf_buffer(device: &wgpu::Device, table: &[f32]) -> wgpu::Buffer {
+        use wgpu::util::DeviceExt;
+        device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("hdri sampling"), contents: bytemuck::cast_slice(table), usage: wgpu::BufferUsages::STORAGE })
     }
 
     /// Replace the mesh (drops all material textures).
@@ -1431,7 +1471,8 @@ impl ViewportRenderer {
         let emission_on = has_emission && params.post.wants_emission() && params.bake_map.is_none();
         if (params.post.active() || emission_on) && !params.bake_overlay {
             let draw = shown_mesh.filter(|_| emission_on).map(|mesh| post::EmissionDraw { pipeline: &self.pipeline_emissive, mesh, materials: &self.materials, hidden: &self.hidden_slots });
-            self.post.run(device, queue, &mut encoder, target, &self.globals_bg, shown_mesh, draw.as_ref(), params.proj, &params.post);
+            let surface = shown_mesh.filter(|_| params.post.screen_space()).map(|mesh| post::EmissionDraw { pipeline: &self.pipeline_surface, mesh, materials: &self.materials, hidden: &self.hidden_slots });
+            self.post.run(device, queue, &mut encoder, target, &self.globals_bg, shown_mesh, draw.as_ref(), surface.as_ref(), params.view, params.light_dir, params.proj, &params.post);
         }
         if params.taa_frame > 0 {
             self.taa.encode(device, queue, &mut encoder, target, params.taa_frame);
@@ -1499,7 +1540,7 @@ impl ViewportRenderer {
         // with a message instead of the default fatal error handler.
         let memory = device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
         let validation = device.push_error_scope(wgpu::ErrorFilter::Validation);
-        let result = pt.render(device, queue, target, params, scene, settings, &self.materials, &self.defaults, (&self.env_texture, &self.env_sampler, hdri), &self.pack.empty);
+        let result = pt.render(device, queue, target, params, scene, settings, &self.materials, &self.defaults, (&self.env_texture, &self.env_sampler, hdri), &self.pack.empty, &self.env_cdf);
         let errors = [pollster::block_on(validation.pop()), pollster::block_on(memory.pop())];
         if let Some(error) = errors.into_iter().flatten().next() {
             self.path_tracer = None;

@@ -344,6 +344,8 @@ pub struct Session {
     invalidated: BTreeSet<TextureSetId>,
     /// Changes whenever newly evaluated composites are installed, including synchronous callers.
     composite_generation: u64,
+    /// CPU copy of the displacement preview for picking (see [`Session::set_displacement_preview`]).
+    pub(crate) displaced: Option<crate::displaced_pick::DisplacedPick>,
     /// Bumped on every document change (UI caches key off it).
     pub(crate) revision: u64,
     layer_counter: u32,
@@ -465,6 +467,7 @@ impl Session {
             submitted: None,
             invalidated: BTreeSet::new(),
             composite_generation: 0,
+            displaced: None,
             revision: 0,
             layer_counter,
             project_path: None,
@@ -1214,18 +1217,24 @@ impl Session {
         self.doc.texture_sets.iter().find(|t| t.find(layer).is_some()).map(|t| t.id)
     }
 
-    /// Surface point under a screen position.
+    /// Surface point under a screen position. With the displacement preview on, the ray hits
+    /// the displaced surface and the point is the modelled surface's under it (`depth` is the
+    /// displaced surface's, what the view shows).
     pub fn pick(&self, camera: &Camera, screen: Vec2) -> Option<Pick> {
         let (o, d) = camera.ray(screen);
-        let hit = self.viewport_scene().bvh.intersect(o, d, 0.0, f32::INFINITY)?;
+        let hit = match self.displaced_surface() {
+            Some(s) => s.intersect(o, d, 0.0, f32::INFINITY),
+            None => self.viewport_scene().bvh.intersect(o, d, 0.0, f32::INFINITY),
+        }?;
         let sp = self.scene.mesh.interpolate(hit.tri as usize, hit.u, hit.v);
+        let seen = if self.displaced.is_some() { o + d * hit.t } else { sp.position };
         Some(Pick {
             uv: sp.uv,
             position: sp.position,
             normal: sp.normal,
             triangle: hit.tri,
             material_slot: self.scene.mesh.tri_material[hit.tri as usize],
-            depth: camera.view_depth(sp.position),
+            depth: camera.view_depth(seen),
         })
     }
 
@@ -3557,7 +3566,7 @@ impl Session {
         };
         let geo = self.scene.geometry.get(ts.material_slot, ts.resolution);
         let view = self.viewport_scene();
-        let ctx = PaintContext { mesh: &view.mesh, bvh: &view.bvh, geometry: &geo, camera, depth: &view.depth };
+        let ctx = PaintContext { mesh: &view.mesh, bvh: &view.bvh, geometry: &geo, camera, depth: &view.depth, displaced: self.displaced_surface() };
         let result = f(&mut active.stroke, &mut ts, &ctx);
         if active.quick {
             self.quick_scratch = Some(ts);
@@ -3613,7 +3622,7 @@ impl Session {
             for (id, stroke) in &mut partners {
                 let Some(mut ts) = self.doc.texture_set(*id).cloned() else { continue };
                 let geo = self.scene.geometry.get(ts.material_slot, ts.resolution);
-                let ctx = PaintContext { mesh: &view.mesh, bvh: &view.bvh, geometry: &geo, camera, depth: &view.depth };
+                let ctx = PaintContext { mesh: &view.mesh, bvh: &view.bvh, geometry: &geo, camera, depth: &view.depth, displaced: self.displaced_surface() };
                 if f(stroke, &mut ts, &ctx).is_ok_and(|t| !t.is_empty()) {
                     painted = true;
                 }

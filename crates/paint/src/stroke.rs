@@ -13,7 +13,7 @@ use subcraft_core::LayerId;
 use subcraft_doc::{Projection, ProjectionMode, ResourceStore, TextureSet};
 use subcraft_image::{TILE_TEXELS, TILE_SIZE, TiledImage, Wrap};
 use subcraft_materials::TextureSetGeometry;
-use subcraft_mesh::{Bvh, Mesh};
+use subcraft_mesh::{Bvh, DisplacedSurface, Mesh, RayHit};
 
 use crate::camera::Camera;
 use crate::depth::{DepthCache, DepthMap};
@@ -32,6 +32,19 @@ pub struct PaintContext<'a> {
     pub geometry: &'a TextureSetGeometry,
     pub camera: &'a Camera,
     pub depth: &'a DepthCache,
+    /// The displacement preview's surface: rays hit it instead of the modelled mesh (reported on
+    /// the modelled mesh), so the brush lands where the displaced surface is drawn.
+    pub displaced: Option<&'a DisplacedSurface>,
+}
+
+impl PaintContext<'_> {
+    /// The surface under a ray: the displaced one while the preview is on, else the mesh.
+    pub fn cast(&self, origin: Vec3, dir: Vec3, accept: impl Fn(u32) -> bool) -> Option<RayHit> {
+        match self.displaced {
+            Some(d) => d.intersect_filtered(origin, dir, 0.0, f32::INFINITY, accept),
+            None => self.bvh.intersect_filtered(origin, dir, 0.0, f32::INFINITY, accept),
+        }
+    }
 }
 
 pub struct Stroke {
@@ -618,7 +631,7 @@ impl Stroke {
                     ctx.geometry.triangle_region(t as usize, p.kind).is_some_and(|id| p.parts.contains(&id)));
                 let emitter = Dab { screen, radius, flow, angle, roundness: s.roundness, hardness: s.hardness };
                 dabs.clear();
-                if let Some(hit) = resolve_overlap(&emitter, 0, &cameras[0], ctx.mesh, ctx.bvh, s.alignment, false, accept) {
+                if let Some(hit) = resolve_overlap(&emitter, 0, &cameras[0], ctx.mesh, ctx.bvh, ctx.displaced, s.alignment, false, accept) {
                     for i in 0..s.particle_count.min(crate::particles::MAX_PARTICLES) {
                         for point in crate::particles::trail(ctx.mesh, ctx.bvh, s, hit.center, radius, k, i, accept) {
                             let Some(at) = cameras[0].project(point.pos) else { continue };
@@ -640,7 +653,7 @@ impl Stroke {
                     let parts = self.parts.as_ref().filter(|p| p.enabled);
                     let accept = |t: u32| ctx.mesh.tri_material[t as usize] == ctx.geometry.material_slot && parts.is_none_or(|p|
                         ctx.geometry.triangle_region(t as usize, p.kind).is_some_and(|id| p.parts.contains(&id)));
-                    if let Some(st) = resolve_overlap(dab, ci, cam, ctx.mesh, ctx.bvh, s.alignment, self.alpha.is_some(), accept) {
+                    if let Some(st) = resolve_overlap(dab, ci, cam, ctx.mesh, ctx.bvh, ctx.displaced, s.alignment, self.alpha.is_some(), accept) {
                         // A trail point behind other geometry resolves onto the occluder: skip it.
                         if ci == 0 && let Some(Some(p)) = trail_points.get(di) && st.center.distance(*p) > dab.radius * 2.0 {
                             continue;
@@ -923,7 +936,7 @@ impl Stroke {
                 if cov[i] <= 0.0 { return None; }
                 let at = cam.project(self.texel_position(ctx, &geo, i))?;
                 let (o, d) = cam.ray(at.truncate() + offset);
-                let hit = ctx.bvh.intersect_filtered(o, d, 0.0, f32::INFINITY, |t| ctx.mesh.tri_material[t as usize] == slot)?;
+                let hit = ctx.cast(o, d, |t| ctx.mesh.tri_material[t as usize] == slot)?;
                 let uv = ctx.mesh.interpolate(hit.tri as usize, hit.u, hit.v).uv;
                 Some([uv.x, uv.y])
             }).collect();
@@ -1062,7 +1075,7 @@ impl Stroke {
     pub fn polygon_fill(&mut self, ts: &mut TextureSet, ctx: &PaintContext, screen: Vec2, mode: PolygonFillMode) -> Result<Vec<usize>, PaintError> {
         self.check(ts, ctx)?;
         let (o, d) = ctx.camera.ray(screen);
-        let Some(hit) = ctx.bvh.intersect(o, d, 0.0, f32::INFINITY) else { return Ok(Vec::new()) };
+        let Some(hit) = ctx.cast(o, d, |_| true) else { return Ok(Vec::new()) };
         self.fill_from(ts, ctx, hit.tri, mode)
     }
 

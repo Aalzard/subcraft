@@ -1118,4 +1118,10 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Stop driving this setting", "이 설정을 더 이상 구동하지 않음"),
     ("Also drive...", "다른 설정도 구동..."),
     ("Make this parameter drive one more setting. It keeps the value it has now until the parameter moves", "이 매개변수가 설정을 하나 더 구동하게 합니다. 매개변수를 움직이기 전까지 현재 값을 유지합니다"),
+    ("Contact shadows", "접촉 그림자"),
+    ("Fine shadows of the key light where parts touch or nearly touch, from the view's depth. Only the key light is taken away.", "부품이 닿거나 거의 닿는 곳에 생기는 키 라이트의 섬세한 그림자로, 뷰의 깊이로 계산합니다. 키 라이트만 가려집니다."),
+    ("How far a contact shadow reaches, in percent of the model size", "접촉 그림자가 닿는 거리(모델 크기에 대한 백분율)"),
+    ("Screen-space reflections", "스크린 스페이스 반사"),
+    ("Glossy surfaces reflect what the view shows of the model. Rough surfaces barely change; what is off screen is not reflected.", "광택 있는 표면이 뷰에 보이는 모델을 반사합니다. 거친 표면은 거의 변하지 않으며, 화면 밖의 것은 반사되지 않습니다."),
+    ("How far reflection rays travel, in percent of the model size", "반사 광선이 이동하는 거리(모델 크기에 대한 백분율)"),
 ];

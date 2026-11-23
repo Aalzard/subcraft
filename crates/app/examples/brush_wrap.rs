@@ -29,7 +29,7 @@ fn main() -> Result<(), String> {
     let material = BrushMaterial::with(&[(ChannelKind::BaseColor, ChannelValue::rgb(0.9, 0.55, 0.1))]);
     let mut stroke = Stroke::begin(&ts, layer, PaintTarget::Content, StrokeMode::Paint, settings, StrokeOptions::default(), &material)
         .map_err(|e| format!("{e:?}"))?.with_alpha(Some(Arc::new(Bitmap::new_f32(256, 256, 1, tip))));
-    let ctx = PaintContext { mesh: &mesh, bvh: &bvh, geometry: &geometry, camera: &paint_cam, depth: &depth };
+    let ctx = PaintContext { displaced: None, mesh: &mesh, bvh: &bvh, geometry: &geometry, camera: &paint_cam, depth: &depth };
     let mut edited = ts.clone();
     stroke.add_point(&mut edited, &ctx, paint_cam.project(Vec3::new(0.0, 1.0, 0.8)).unwrap().truncate()).map_err(|e| format!("{e:?}"))?;
     let LayerContent::Paint(p) = &edited.find(layer).unwrap().content else { unreachable!() };

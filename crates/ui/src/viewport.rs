@@ -753,6 +753,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 renderer.set_bake_cage_normals(&rs.device, low, normals.as_deref());
             }
             params.bake_overlay = state.bake.overlay_active();
+            // Picking and the brush follow the displacement preview as it is drawn.
+            let displaced = params.displacement.filter(|_| subcraft_render::caps::get().compute && !params.bake_overlay);
+            state.session.set_displacement_preview(displaced.map(|level| (level, params.height_scale)));
             if state.bake.preview_mesh.is_some() && !state.bake.miss_uploaded && let Some(r) = &state.bake.cage_result {
                 let maps: Vec<(u32, &subcraft_image::TiledImage)> = r.maps.iter().map(|(_, slot, img)| (*slot, img)).collect();
                 renderer.set_bake_miss_maps(&rs.device, &rs.queue, &maps);
@@ -798,7 +801,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 params.light_dir = lit_direction(params.light_dir, state.light_yaw, state.light_pitch);
             }
             // Rendering mode: path trace instead of rasterizing; any failure falls back to raster.
-            let pt_settings = view.path_trace_settings(state.pt_paused);
+            let mut pt_settings = view.path_trace_settings(state.pt_paused);
+            // The camera's depth of field (Aperture and Focus distance) as a real lens.
+            pt_settings.depth_of_field = params.post.dof;
+            pt_settings.focus = params.post.dof_focus;
             if !tracing && state.pt_active {
                 renderer.release_path_tracer();
                 state.pt_active = false;

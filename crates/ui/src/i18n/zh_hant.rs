@@ -1118,4 +1118,10 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Stop driving this setting", "停止驅動此設定"),
     ("Also drive...", "同時驅動..."),
     ("Make this parameter drive one more setting. It keeps the value it has now until the parameter moves", "讓此參數再驅動一個設定。在參數移動之前，它會保留目前的值"),
+    ("Contact shadows", "接觸陰影"),
+    ("Fine shadows of the key light where parts touch or nearly touch, from the view's depth. Only the key light is taken away.", "部件相接或幾乎相接處的主光源細緻陰影，依視圖深度計算。只會遮去主光源。"),
+    ("How far a contact shadow reaches, in percent of the model size", "接觸陰影延伸的距離（模型大小的百分比）"),
+    ("Screen-space reflections", "螢幕空間反射"),
+    ("Glossy surfaces reflect what the view shows of the model. Rough surfaces barely change; what is off screen is not reflected.", "光滑表面會反射視圖中可見的模型。粗糙表面幾乎不變；畫面外的東西不會被反射。"),
+    ("How far reflection rays travel, in percent of the model size", "反射光線行進的距離（模型大小的百分比）"),
 ];

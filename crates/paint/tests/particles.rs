@@ -21,7 +21,7 @@ fn click(mesh: Mesh, settings: BrushSettings, eye: Vec3, at: Vec3) -> Vec<Vec3> 
     let layer: LayerId = ts.insert_above(None, Layer::new_paint("Paint", &tc));
     let (bvh, geo, depth) = (Bvh::build(&mesh), TextureSetGeometry::new(mesh.clone(), 0, RES), DepthCache::new());
     let cam = Camera::perspective(eye, Vec3::ZERO, Vec3::Y, 40.0, 0.1, 100.0, [512, 512]);
-    let ctx = PaintContext { mesh: &mesh, bvh: &bvh, geometry: &geo, camera: &cam, depth: &depth };
+    let ctx = PaintContext { mesh: &mesh, bvh: &bvh, geometry: &geo, camera: &cam, depth: &depth, displaced: None };
     let red = BrushMaterial::with(&[(ChannelKind::BaseColor, ChannelValue::rgb(1.0, 0.0, 0.0))]);
     let mut s = Stroke::begin(&ts, layer, PaintTarget::Content, StrokeMode::Paint, settings, StrokeOptions::default(), &red).unwrap();
     let mut out = ts.clone();

@@ -16,6 +16,7 @@ struct Post {
     grade: mat4x4<f32>,
     // Lens distortion: power (0 = off), zoom, edge roundness, edge smoothness
     lens: vec4<f32>,
+    proj: mat4x4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> p: Post;
@@ -341,4 +342,143 @@ fn fs_dof(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
         wsum = wsum + w;
     }
     return vec4<f32>(acc / wsum, 1.0);
+}
+
+// ----- Screen-space contact shadows and reflections ------------------------------------------------
+// Uniform: params = (contact strength, contact length, reflection strength, 1 = orthographic),
+// misc.x = reflection distance, grade = view matrix, lens.xyz = key light direction (view space),
+// proj = projection. `aux` is the surface pass (octahedral world normal, roughness, reflectance),
+// `ao_tex` the key light's share of each pixel's light.
+
+fn oct_decode(e: vec2<f32>) -> vec3<f32> {
+    var n = vec3<f32>(e, 1.0 - abs(e.x) - abs(e.y));
+    if (n.z < 0.0) {
+        let s = select(vec2<f32>(-1.0), vec2<f32>(1.0), n.xy >= vec2<f32>(0.0));
+        n = vec3<f32>((vec2<f32>(1.0) - abs(n.yx)) * s, n.z);
+    }
+    return normalize(n);
+}
+
+// Pixel coordinates and depth (0..1) of a view-space point; z < 0 is in front of the camera.
+fn project(v: vec3<f32>) -> vec3<f32> {
+    let c = p.proj * vec4<f32>(v, 1.0);
+    let ndc = c.xyz / c.w;
+    return vec3<f32>((ndc.x * 0.5 + 0.5) * p.size.x, (0.5 - ndc.y * 0.5) * p.size.y, ndc.z);
+}
+
+// View-space depth (negative z) of the surface stored at pixel `px`, or a huge value for none.
+fn scene_z(px: vec2<f32>) -> f32 {
+    let ip = vec2<i32>(px);
+    let d = load_depth(ip);
+    if (d >= 1.0) {
+        return -1e30;
+    }
+    return view_pos(ip, d).z;
+}
+
+@fragment
+fn fs_screen(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
+    let px = vec2<i32>(frag.xy);
+    let uv = frag.xy * p.size.zw;
+    var color = textureSample(src, samp, uv).rgb;
+    let d = load_depth(px);
+    let surf = textureLoad(aux, px, 0);
+    if (d >= 1.0 || (dot(surf.xy, surf.xy) == 0.0 && surf.z == 0.0)) {
+        return vec4<f32>(color, 1.0);
+    }
+    let pos = view_pos(px, d);
+    let view_m = mat3x3<f32>(p.grade[0].xyz, p.grade[1].xyz, p.grade[2].xyz);
+    let n = normalize(view_m * oct_decode(surf.xy));
+    let rough = surf.z;
+    let f0 = surf.w;
+    let jitter = gradient_noise(frag.xy);
+    // Tolerance behind a depth sample that still counts as blocking: surfaces are not infinitely
+    // thin, but a ray far behind one passes it.
+    let px_size = select(-pos.z, 1.0, p.params.w > 0.5) * 2.0 / (p.size.y * p.misc.w);
+
+    // Contact shadows: march towards the key light; anything in front of the ray blocks it.
+    let l = normalize(p.lens.xyz);
+    let nol = dot(n, l);
+    if (p.params.x > 0.0 && nol > 0.0) {
+        let len = p.params.y;
+        let steps = 16;
+        let thickness = max(len * 0.5, px_size * 2.0);
+        let start = pos + n * px_size * 1.5;
+        var occluded = 0.0;
+        for (var i = 0; i < steps; i = i + 1) {
+            let t = (f32(i) + jitter) / f32(steps);
+            let q = start + l * (len * t);
+            let s = project(q);
+            if (s.x < 0.0 || s.y < 0.0 || s.x >= p.size.x || s.y >= p.size.y || s.z <= 0.0) {
+                break;
+            }
+            let z = scene_z(s.xy);
+            let gap = z - q.z;
+            if (gap > px_size * 0.5 && gap < thickness) {
+                // Fade out towards the far end so the shadow has no hard edge where it stops.
+                occluded = 1.0 - t * t;
+                break;
+            }
+        }
+        // Only the key light's share of the pixel goes (`ao_tex` holds it here): ambient light
+        // stays, and what the shadow map already shadows is not darkened twice.
+        let share = textureLoad(ao_tex, px, 0).r;
+        color *= 1.0 - p.params.x * occluded * share;
+    }
+
+    // Reflections: march the reflected view ray; the colour where it meets the depth buffer
+    // replaces the environment's share of the reflection.
+    if (p.params.z > 0.0 && rough < 0.6) {
+        var v = normalize(pos);
+        if (p.params.w > 0.5) {
+            v = vec3<f32>(0.0, 0.0, -1.0);
+        }
+        let r = reflect(v, n);
+        let nov = clamp(-dot(v, n), 0.0, 1.0);
+        let fres = f0 + (1.0 - f0) * pow(1.0 - nov, 5.0);
+        let gloss = 1.0 - rough / 0.6;
+        let weight = p.params.z * fres * gloss * gloss;
+        if (weight > 0.002) {
+            let dist = p.misc.x;
+            let steps = 48;
+            let thickness = max(dist * 0.03, px_size * 3.0);
+            let start = pos + n * px_size * 1.5;
+            var prev_t = 0.0;
+            var hit_t = -1.0;
+            for (var i = 1; i <= steps; i = i + 1) {
+                // Denser steps near the surface, where contact matters most.
+                let f = (f32(i) - 1.0 + jitter) / f32(steps);
+                let t = dist * f * f;
+                let q = start + r * t;
+                let s = project(q);
+                if (s.x < 0.0 || s.y < 0.0 || s.x >= p.size.x || s.y >= p.size.y || s.z <= 0.0 || s.z >= 1.0) {
+                    break;
+                }
+                let gap = scene_z(s.xy) - q.z;
+                if (gap > 0.0 && gap < thickness) {
+                    // Refine between the last step in front and this one.
+                    var a = prev_t;
+                    var b = t;
+                    for (var k = 0; k < 5; k = k + 1) {
+                        let m = 0.5 * (a + b);
+                        let qm = start + r * m;
+                        if (scene_z(project(qm).xy) - qm.z > 0.0) { b = m; } else { a = m; }
+                    }
+                    hit_t = b;
+                    break;
+                }
+                prev_t = t;
+            }
+            if (hit_t > 0.0) {
+                let s = project(start + r * hit_t);
+                let huv = s.xy * p.size.zw;
+                // Fade near the screen border and with distance: the depth buffer ends there.
+                let edge = min(min(huv.x, 1.0 - huv.x), min(huv.y, 1.0 - huv.y));
+                let fade = smoothstep(0.0, 0.08, edge) * (1.0 - smoothstep(0.6, 1.0, hit_t / dist));
+                let hit_color = textureSampleLevel(src, samp, huv, 0.0).rgb;
+                color = mix(color, hit_color, clamp(weight * fade, 0.0, 1.0));
+            }
+        }
+    }
+    return vec4<f32>(color, 1.0);
 }
