@@ -146,7 +146,7 @@ fn active(state: &UiState) -> Option<(LayerId, Projection)> {
     }
     let layer = state.session.selected_layer()?;
     match &layer.content {
-        LayerContent::Fill(f) if f.projection.mode == ProjectionMode::Uv => Some((layer.id, f.projection)),
+        LayerContent::Fill(f) if f.projection.mode == ProjectionMode::Uv && f.projection.physical_size.is_none() => Some((layer.id, f.projection)),
         _ => None,
     }
 }

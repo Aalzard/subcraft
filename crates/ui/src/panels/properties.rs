@@ -207,8 +207,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         cmds.extend(part_cmds);
 
         // Procedural material (ADR-0047): the layer's exposed parameters, above its own content.
-        if let Some(m) = &layer.material {
-            super::material_params::section(ui, id, m, &mut cmds);
+        if layer.material.is_some() {
+            super::material_params::section(ui, &layer, &mut cmds);
         }
 
         match &layer.content {
@@ -383,6 +383,11 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             }
         }
 
+        // A fill or folder without parameters can get some: offered (closed) below its content,
+        // so the layer's own settings stay where they were.
+        if layer.material.is_none() && matches!(layer.content, LayerContent::Fill(_) | LayerContent::Group(_)) {
+            super::material_params::section(ui, &layer, &mut cmds);
+        }
 
         let mut head_cmds = Vec::new();
         section_with(
@@ -1949,9 +1954,47 @@ fn hardness_row(ui: &mut Ui, proj: &mut Projection) -> bool {
     changed || unique
 }
 
+/// Scale "Physical size": the width and height of one repeat on the model in centimeters, with
+/// a lock that keeps them equal (like Tiling's).
+fn physical_size_rows(ui: &mut Ui, proj: &mut Projection) -> bool {
+    let Some(mut size) = proj.physical_size else { return false };
+    let mut changed = false;
+    let (lo, hi) = Projection::PHYSICAL_SIZE_RANGE;
+    let lock_id = ui.id().with("physical_lock");
+    let mut locked = ui.data(|d| d.get_temp::<bool>(lock_id)).unwrap_or(size[0] == size[1]);
+    let label = ui.add(egui::Label::new(crate::widgets::row_label(tr("Size (cm)"))).sense(egui::Sense::click()))
+        .on_hover_text(tr("Width and height of one repeat on the model, in centimeters. The tiling follows the model's real size, so the pattern keeps its scale across texture sets."));
+    let row = ui.horizontal(|ui| {
+        ui.spacing_mut().interact_size.x = VALUE_W; ui.spacing_mut().button_padding.x = 4.0;
+        let sp = ui.spacing().item_spacing.x;
+        ui.spacing_mut().slider_width = ((ui.available_width() - 26.0 - 2.0 * sp) / 2.0 - sp - VALUE_W).max(30.0);
+        fn slider(v: &mut f32) -> egui::Slider<'_> { egui::Slider::new(v, 1.0..=500.0).logarithmic(true).clamping(egui::SliderClamping::Never).max_decimals(2) }
+        if ui.add(slider(&mut size[0])).changed() {
+            if locked { size[1] = size[0]; }
+            changed = true;
+        }
+        let lock = ui.add(egui::Button::new(RichText::new(if locked { icons::CHECK } else { icons::X }).font(theme::font(12.0))).selected(locked).min_size(egui::vec2(26.0, 24.0)))
+            .on_hover_text(tr("Same size for X and Y; click to set them separately"));
+        if lock.clicked() {
+            locked = !locked;
+            if locked && size[1] != size[0] { size[1] = size[0]; changed = true; }
+        }
+        changed |= ui.add_enabled(!locked, slider(&mut size[1])).changed();
+    }).response;
+    let d = Projection::DEFAULT_PHYSICAL_SIZE;
+    if crate::reset_row::wants_reset(ui, &label, &row, size != d) {
+        size = d;
+        changed = true;
+    }
+    ui.data_mut(|data| data.insert_temp(lock_id, locked));
+    if changed {
+        proj.physical_size = Some(size.map(|v| v.clamp(lo, hi)));
+    }
+    changed
+}
+
 /// The FILL block of Painter's Properties: Projection / Filtering / UV Wrap / Shape crop /
-/// Hardness rows and the collapsible UV transformations group. The Scale mode (Physical Size)
-/// does not exist in the engine yet and is shown disabled.
+/// Hardness rows and the collapsible UV transformations group (Scale Tiling or Physical size).
 pub(crate) fn fill_properties(ui: &mut Ui, proj: &mut Projection) -> bool {
     let mut changed = false;
     let d = Projection::default();
@@ -1969,8 +2012,15 @@ pub(crate) fn fill_properties(ui: &mut Ui, proj: &mut Projection) -> bool {
     changed |= symmetry_group(ui, proj);
     ui.add_space(4.0);
     egui::CollapsingHeader::new(RichText::new(tr("UV transformations")).font(theme::font_strong(12.0)).color(theme::TEXT())).default_open(true).show(ui, |ui| {
-        let mut scale_mode = 0u8;
-        dropdown_row(ui, "scale", tr("Scale"), &mut scale_mode, 0u8, &[(0u8, "Tiling")], false, "Only tiling is supported");
+        let mut physical = u8::from(proj.effective_physical_size().is_some());
+        let why = tr("Spherical and cylindrical projections repeat by angle, so they only use Tiling");
+        if dropdown_row(ui, "scale", tr("Scale"), &mut physical, 0u8, &[(0u8, "Tiling"), (1u8, "Physical size")], proj.supports_physical_size(), why) {
+            proj.physical_size = (physical == 1).then_some(Projection::DEFAULT_PHYSICAL_SIZE);
+            changed = true;
+        }
+        if proj.effective_physical_size().is_some() {
+            changed |= physical_size_rows(ui, proj);
+        } else {
         let lock_id = ui.id().with("tiling_lock");
         let mut locked = ui.data(|d| d.get_temp::<bool>(lock_id)).unwrap_or(proj.scale[0] == proj.scale[1]);
         let tiling_label = ui.add(egui::Label::new(crate::widgets::row_label(tr("Tiling"))).sense(egui::Sense::click()));
@@ -2002,6 +2052,7 @@ pub(crate) fn fill_properties(ui: &mut Ui, proj: &mut Projection) -> bool {
             changed = true;
         }
         ui.data_mut(|d| d.insert_temp(lock_id, locked));
+        }
         changed |= slider_row_reset(ui, tr("Rotation"), &mut proj.rotation_deg, d.rotation_deg, |v| egui::Slider::new(v, -180.0..=180.0).suffix("°")).changed();
         // Painter has no UV Offset for tri-planar (the projection moves in 3D instead).
         if proj.mode != ProjectionMode::Triplanar {

@@ -33,6 +33,9 @@ pub enum ContentEffectKind {
     /// result, with its coverage, written into every channel but Normal through the effect's
     /// per-channel blending.
     Generator(crate::Generator),
+    /// A material filter (MatFinish / MatFX / PBR Validate): rewrites Base Color, Roughness,
+    /// Metallic and Height of the content below it together. Never writes Normal.
+    Material(crate::MaterialFilter),
 }
 
 impl ContentEffectKind {
@@ -44,12 +47,13 @@ impl ContentEffectKind {
             ContentEffectKind::Filter { channel, filter } => format!("{} ({})", filter.label(), channel.display_name()),
             ContentEffectKind::Anchor => "Anchor Point".into(),
             ContentEffectKind::Generator(g) => format!("Generator ({})", g.kind.label()),
+            ContentEffectKind::Material(m) => m.label().into(),
         }
     }
 
     /// Adjustments transform the content below instead of adding new content on top of it.
     pub fn is_adjustment(&self) -> bool {
-        matches!(self, ContentEffectKind::Levels { .. } | ContentEffectKind::Filter { .. })
+        matches!(self, ContentEffectKind::Levels { .. } | ContentEffectKind::Filter { .. } | ContentEffectKind::Material(_))
     }
 
     /// Paint image for a channel, creating an empty (transparent) one on first use.
@@ -106,6 +110,7 @@ impl ContentEffect {
             }
             ContentEffectKind::Levels { channel, .. } => *channel == kind,
             ContentEffectKind::Generator(_) => kind != ChannelKind::Normal,
+            ContentEffectKind::Material(m) => m.writes(kind),
             _ => true,
         }
     }

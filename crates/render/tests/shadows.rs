@@ -111,3 +111,34 @@ fn specular_level_sets_the_reflectance_of_non_metals() {
     assert_eq!(half, default, "0.5 is the 4% reflectance the shader always used");
     assert!(mean(&one) > mean(&half) + 1.0 && mean(&half) > mean(&zero) + 1.0, "specular 0 {} < 0.5 {} < 1 {}", mean(&zero), mean(&half), mean(&one));
 }
+
+#[test]
+fn the_shadow_edge_is_a_smooth_ramp_without_steps() {
+    let _gpu = gpu_test();
+    let Some((_, device, queue)) = headless::device() else { eprintln!("no adapter: skipping"); return };
+    const N: u32 = 256;
+    let mut r = ViewportRenderer::new(&device, &queue);
+    r.set_mesh(&device, &floor_and_occluder());
+    r.upload_channel(&device, &queue, 0, ChannelKind::BaseColor, &solid(4, [0.5, 0.5, 0.5, 1.0]), None);
+    r.upload_channel(&device, &queue, 0, ChannelKind::Roughness, &solid(1, [1.0; 4]), None);
+    // Close up on the edge of the square's shadow (x = 0.5), seen from beside the square.
+    let mut p = ViewParams::new(Mat4::look_at_rh(Vec3::new(2.0, 3.0, 0.0), Vec3::new(0.5, 0.0, 0.0), Vec3::Z), Mat4::orthographic_rh(-0.15, 0.15, -0.15, 0.15, 0.1, 10.0));
+    p.antialias = false;
+    p.light_dir = Vec3::Y;
+    p.light_intensity = 3.0;
+    p.environment_intensity = 0.3;
+    for quality in [ShadowQuality::Lightweight, ShadowQuality::Average, ShadowQuality::Intensive] {
+        p.shadows = ShadowParams { enabled: true, opacity: 1.0, quality };
+        let img = r.render(&device, &queue, [N, N], &p).read_rgba8(&device, &queue);
+        // Mean of each column (averages out the per-pixel rotation of the filter disk).
+        let col: Vec<f32> = (0..N).map(|x| (0..N).map(|y| img[((y * N + x) * 4) as usize] as f32).sum::<f32>() / N as f32).collect();
+        let (lo, hi) = (col.iter().cloned().fold(f32::MAX, f32::min), col.iter().cloned().fold(0.0, f32::max));
+        assert!(hi - lo > 40.0, "{quality:?}: the view crosses the shadow edge ({lo} .. {hi})");
+        let ramp = col.iter().filter(|&&v| v > lo + 0.1 * (hi - lo) && v < hi - 0.1 * (hi - lo)).count();
+        let step = col.windows(2).map(|w| (w[1] - w[0]).abs()).fold(0.0, f32::max);
+        eprintln!("{quality:?}: {lo:.0} .. {hi:.0}, penumbra {ramp} px, largest step {step:.1}");
+        // A box filter shows plateaus and jumps; the disk filter ramps evenly.
+        assert!(ramp >= 4, "{quality:?}: penumbra only {ramp} px wide");
+        assert!(step < 0.3 * (hi - lo), "{quality:?}: step of {step} in a ramp of {}", hi - lo);
+    }
+}

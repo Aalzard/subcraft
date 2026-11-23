@@ -473,8 +473,30 @@ impl<'a> Graph<'a> {
     }
     /// The layer's content effects for `kind` on `input`. `steps` (anchors only) receives the
     /// node after every effect, including those that change nothing for `kind`.
-    fn content_effects(&mut self, layer: &'a Layer, kind: ChannelKind, mut input: usize, mut steps: Option<&mut Vec<usize>>) -> usize {
-        for effect in layer.content_effects.iter() {
+    fn content_effects(&mut self, layer: &'a Layer, kind: ChannelKind, input: usize, steps: Option<&mut Vec<usize>>) -> usize {
+        self.content_effects_until(layer, kind, input, steps, usize::MAX)
+    }
+    /// The Metallic content of `layer` right below its effect number `index`: what a material
+    /// filter there that reads Metallic sees (PBR Validate).
+    fn metallic_below_effect(&mut self, layer: &'a Layer, index: usize) -> usize {
+        let kind = ChannelKind::Metallic;
+        let blend = layer.blend_for(kind);
+        let passthrough = blend.mode == BlendMode::Passthrough;
+        let base = if passthrough && !layer.is_folder() {
+            self.layer_below(layer, kind)
+        } else {
+            let folder_base = match &layer.content {
+                LayerContent::Group(_) if passthrough => self.layer_below(layer, kind),
+                LayerContent::Group(_) => self.push(Node::Constant([0.0; 4])),
+                _ => usize::MAX,
+            };
+            self.content_base(layer, kind, folder_base)
+        };
+        self.content_effects_until(layer, kind, base, None, index)
+    }
+    /// [`Graph::content_effects`] for the first `limit` effects only.
+    fn content_effects_until(&mut self, layer: &'a Layer, kind: ChannelKind, mut input: usize, mut steps: Option<&mut Vec<usize>>, limit: usize) -> usize {
+        for (index, effect) in layer.content_effects.iter().enumerate().take(limit) {
             let usable = effect.visible
                 && effect.blend_for(kind).is_active()
                 && !matches!(effect.kind, ContentEffectKind::Anchor)
@@ -486,6 +508,10 @@ impl<'a> Graph<'a> {
                     } else {
                         Some(self.neighborhood(input, filter, kind))
                     }
+                }
+                // PBR Validate: the Base Color verdict needs the Metallic at the same point.
+                ContentEffectKind::Material(m) if usable && m.valid() && m.reads_metallic() && kind == ChannelKind::BaseColor => {
+                    Some(Some(self.metallic_below_effect(layer, index)))
                 }
                 _ => Some(None),
             };
@@ -686,6 +712,8 @@ impl<'a> Graph<'a> {
                     && match &effect.kind {
                         ContentEffectKind::Fill(f) => uniform_fill(f, *kind),
                         ContentEffectKind::Generator(_) => false,
+                        // Only PBR Validate is a function of the texel's values alone.
+                        ContentEffectKind::Material(m) => m.reads_metallic(),
                         ContentEffectKind::Paint { channels } => {
                             channels.get(kind).is_none_or(|i| i.allocated_tiles() == 0)
                         }
@@ -1347,6 +1375,11 @@ impl<'a> Graph<'a> {
             } => {
                 let source = self.get(*input, tile);
                 let mut out = source.as_ref().clone();
+                if let ContentEffectKind::Material(m) = &effect.kind {
+                    let metallic = filtered.map(|n| self.get(n, tile));
+                    crate::material::apply(m, *kind, effect.blend_for(*kind), &mut out, &tc, metallic.as_deref().map(|p| p.as_slice()));
+                    return out;
+                }
                 if let Some(filtered) = filtered {
                     let blurred = self.get(*filtered, tile);
                     let ContentEffectKind::Filter { filter, .. } = effect.kind else {
@@ -2164,7 +2197,7 @@ fn anchor_as_channel(px: &mut [[f32; 4]], from: Option<ChannelKind>, to: Channel
 /// Whether evaluation needs the stage graph: neighborhood filters, micro effects or anchor
 /// references (ADR-0045).
 pub(crate) fn needs_graph(layers: &[Arc<Layer>]) -> bool {
-    has_spatial(layers) || subcraft_doc::anchor::has_references(layers) || has_compare(layers)
+    has_spatial(layers) || subcraft_doc::anchor::has_references(layers) || has_compare(layers) || crate::material::reads_across(layers)
 }
 
 /// The Compare Mask effects of visible layers that read other layers (anywhere in the tree).
@@ -2200,6 +2233,10 @@ fn compared_channels(layers: &[Arc<Layer>]) -> Vec<ChannelKind> {
     // Micro details read the Normal and Height below their layers in every other channel.
     if has_micro_details(layers) {
         kinds.extend([ChannelKind::Normal, ChannelKind::Height]);
+    }
+    // PBR Validate reads the Metallic below its layer for the Base Color.
+    if crate::material::reads_across(layers) {
+        kinds.push(ChannelKind::Metallic);
     }
     kinds.sort();
     kinds.dedup();

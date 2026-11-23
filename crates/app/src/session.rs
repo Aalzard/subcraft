@@ -2562,7 +2562,10 @@ impl Session {
                 }
                 let label = if controls.is_some() { "Material Parameters" } else { "Remove Material Parameters" };
                 self.edit_layer_set_if_changed(layer, label, |ts| {
-                    Self::layer_mut(ts, layer)?.material = controls.map(Arc::new);
+                    let l = Self::layer_mut(ts, layer)?;
+                    l.material = controls.map(Arc::new);
+                    // A narrowed range can move a value: the layers follow at once.
+                    l.apply_material();
                     Ok(())
                 })?;
             }
@@ -2875,6 +2878,9 @@ impl Session {
         }
         if let ContentEffectKind::Levels { levels, .. } = kind && !levels.valid() {
             return Err(CommandError::Invalid("Levels parameters are invalid".into()));
+        }
+        if let ContentEffectKind::Material(m) = kind && !m.valid() {
+            return Err(CommandError::Invalid("Material filter parameters are invalid".into()));
         }
         // The project file refuses these: accepted here, the project saved and never opened again.
         if let ContentEffectKind::Fill(f) = kind && !f.projection.valid() {

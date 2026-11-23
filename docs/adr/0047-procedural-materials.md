@@ -92,6 +92,12 @@ when its own parameters are at theirs.
 * A property the user edits by hand is overwritten the next time a parameter that drives it moves.
   This is the same rule as Painter's (the instance parameters own what they drive) and is shown
   nowhere yet: a marker on bound rows is future work.
-* Not built yet: authoring in the UI ("Expose as parameter" on a property row, editing formulas),
-  choice parameters (dropdowns), bindings on content-effect settings (filters), translated labels
-  for built-in parameters, parameters on brush materials.
+* Authoring (added after the first version): "Add parameter" in the Material parameters section
+  lists every property of the layer tree that can be exposed (`material::exposable`) and adds a
+  parameter whose default is the property's value now, bound with the formula `<id>`. The gear
+  toggles an edit mode to rename, change a slider's range, remove, or make the current values the
+  defaults. Each step sends the whole definition as one `SetMaterialControls`.
+* Not built yet: editing formulas in the UI (one slider driving several properties is possible in
+  the format and used by the built-ins, but the panel only makes one-to-one bindings), choice
+  parameters (dropdowns), bindings on content-effect settings (filters), translated labels for
+  built-in parameters, parameters on brush materials.
