@@ -357,6 +357,49 @@ pub fn editor(ui: &mut Ui, filter: &mut Filter, channel: Option<ChannelKind>) ->
             changed |= slider_row_reset(ui, "Quality", samples, *d_samples, |v| egui::Slider::new(v, 2..=subcraft_doc::MAX_SLOPE_SAMPLES)).on_hover_text("Reads per texel along the slope").changed();
             ui.weak("Blurs each texel along the direction a noise gives it");
         }
+        (Filter::BlurSlopeMode { intensity, scale, seed, samples, source, .. }, Filter::BlurSlopeMode { intensity: d_intensity, scale: d_scale, seed: d_seed, samples: d_samples, .. }) => {
+            changed |= slider_row_reset(ui, "Intensity", intensity, *d_intensity, |v| egui::Slider::new(v, 0.0..=32.0).suffix(" px")).changed();
+            if *source == subcraft_doc::SlopeSource::Noise {
+                changed |= slider_row_reset(ui, "Source Tiling", scale, *d_scale, |v| egui::Slider::new(v, 1..=subcraft_doc::MAX_WARP_SCALE)).on_hover_text("Noise cells across the texture").changed();
+                changed |= seed_row(ui, seed, *d_seed);
+            }
+            changed |= slider_row_reset(ui, "Quality", samples, *d_samples, |v| egui::Slider::new(v, 2..=subcraft_doc::MAX_SLOPE_SAMPLES)).on_hover_text("Reads per texel along the slope").changed();
+            ui.weak(if *source == subcraft_doc::SlopeSource::Noise { "Blurs each texel along the direction a noise gives it" } else { "Blurs each texel across the edges of the image itself; flat areas stay as they are" });
+        }
+        (Filter::NonUniformBlur { radius, map, scale, seed, samples }, Filter::NonUniformBlur { radius: d_radius, map: d_map, scale: d_scale, seed: d_seed, samples: d_samples }) => {
+            changed |= slider_row_reset(ui, "Radius", radius, *d_radius, |v| egui::Slider::new(v, 0.0..=32.0).suffix(" px")).on_hover_text("Blur radius where the map is at its highest").changed();
+            changed |= prop_row_reset(ui, "Blur", map, *d_map, |ui, map| {
+                egui::ComboBox::from_id_salt("non_uniform_blur_map").selected_text(map.label()).show_ui(ui, |ui| {
+                    for m in subcraft_doc::BlurMap::ALL { ui.selectable_value(map, m, m.label()); }
+                }).response.on_hover_text("Which areas get blurred")
+            }).changed();
+            if *map == subcraft_doc::BlurMap::Noise {
+                changed |= slider_row_reset(ui, "Noise Tiling", scale, *d_scale, |v| egui::Slider::new(v, 1..=subcraft_doc::MAX_WARP_SCALE)).on_hover_text("Noise cells across the texture").changed();
+                changed |= seed_row(ui, seed, *d_seed);
+            }
+            changed |= slider_row_reset(ui, "Quality", samples, *d_samples, |v| egui::Slider::new(v, 4..=subcraft_doc::MAX_BLUR_SAMPLES)).on_hover_text("Reads per texel; raise it if a large radius looks grainy").changed();
+            ui.weak("A blur whose strength changes across the image");
+        }
+        (Filter::ColorMatch { source_mode, source, target, hue, chroma, luma }, Filter::ColorMatch { source_mode: d_mode, source: d_source, target: d_target, hue: d_hue, chroma: d_chroma, luma: d_luma }) => {
+            changed |= prop_row_reset(ui, "Source Color Mode", source_mode, *d_mode, |ui, mode| {
+                egui::ComboBox::from_id_salt("color_match_source").selected_text(mode.label()).show_ui(ui, |ui| {
+                    for m in subcraft_doc::MatchSource::ALL { ui.selectable_value(mode, m, m.label()); }
+                }).response.on_hover_text("Average: the mean colour of what is below the filter. Parameter: the colour picked here")
+            }).changed();
+            if *source_mode == subcraft_doc::MatchSource::Parameter {
+                changed |= color_row(ui, "Source Color", source, *d_source);
+            }
+            changed |= color_row(ui, "Target Color", target, *d_target);
+            ui.label(egui::RichText::new("Color variation").strong());
+            for (name, v, d, tip) in [
+                ("Hue", hue, d_hue, "How far in hue from the source a colour may be and still move (1: any)"),
+                ("Chroma", chroma, d_chroma, "How far in saturation from the source a colour may be and still move (1: any)"),
+                ("Luma", luma, d_luma, "How far in lightness from the source a colour may be and still move (1: any)"),
+            ] {
+                changed |= slider_row_reset(ui, name, v, *d, |v| egui::Slider::new(v, 0.0..=1.0)).on_hover_text(tip).changed();
+            }
+            ui.weak("Moves the source colour to the target and keeps the variation around it");
+        }
         (Filter::Warp { intensity, scale, seed }, Filter::Warp { intensity: d_intensity, scale: d_scale, seed: d_seed }) => {
             changed |= slider_row_reset(ui, "Intensity", intensity, *d_intensity, |v| egui::Slider::new(v, 0.0..=32.0).suffix(" px")).changed();
             changed |= slider_row_reset(ui, "Scale", scale, *d_scale, |v| egui::Slider::new(v, 1..=subcraft_doc::MAX_WARP_SCALE)).changed();
@@ -393,6 +436,20 @@ pub fn editor(ui: &mut Ui, filter: &mut Filter, channel: Option<ChannelKind>) ->
             }).response
         });
         if mode != before { *filter = Filter::threshold(cutoff, mode); changed = true; }
+    }
+    if let Some(mut parts) = filter.slope_parts() {
+        let before = parts;
+        prop_row_reset(ui, "Source Type", &mut parts.source, subcraft_doc::SlopeSource::Noise, |ui, source| {
+            egui::ComboBox::from_id_salt("blur_slope_source").selected_text(source.label()).show_ui(ui, |ui| {
+                for m in subcraft_doc::SlopeSource::ALL { ui.selectable_value(source, m, m.label()); }
+            }).response.on_hover_text("Where the slope comes from: a noise, or the image being filtered")
+        });
+        prop_row_reset(ui, "Blending Mode", &mut parts.mode, subcraft_doc::SlopeMode::Blur, |ui, mode| {
+            egui::ComboBox::from_id_salt("blur_slope_mode").selected_text(mode.label()).show_ui(ui, |ui| {
+                for m in subcraft_doc::SlopeMode::ALL { ui.selectable_value(mode, m, m.label()); }
+            }).response.on_hover_text("Blur averages along the slope. Min lets dark areas eat into bright ones, Max the opposite")
+        });
+        if parts != before { *filter = Filter::blur_slope(parts); changed = true; }
     }
     if let Some((mut mode, [hue, saturation, lightness])) = filter.hsl_parts() {
         let before = mode;
@@ -516,6 +573,10 @@ pub fn default_like(f: &Filter) -> Filter {
         },
         Filter::HslPerceptive { .. } => match plain(Filter::Hsl { hue: 0.0, saturation: 1.0, lightness: 0.0 }) {
             Filter::Hsl { hue, saturation, lightness } => Filter::HslPerceptive { hue, saturation, lightness },
+            _ => *f,
+        },
+        Filter::BlurSlopeMode { source, mode, .. } => match plain(Filter::BlurSlope { intensity: 0.0, scale: 1, seed: 0, samples: 2 }) {
+            Filter::BlurSlope { intensity, scale, seed, samples } => Filter::BlurSlopeMode { intensity, scale, seed, samples, source: *source, mode: *mode },
             _ => *f,
         },
         Filter::BevelShape { corner, smoothing, .. } => match plain(Filter::Bevel { radius: 0.0, amount: 0.0, threshold: 0.0 }) {

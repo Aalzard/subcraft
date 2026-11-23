@@ -20,6 +20,10 @@ pub fn apply(filter: Filter, input: [f32; 3], channel: ChannelKind) -> [f32; 3] 
         Filter::BevelShape { .. } | Filter::MaskOutlineShape { .. } | Filter::Fxaa { .. } | Filter::DropShadow { .. } | Filter::OuterGlow { .. } => input,
         Filter::HeightAdjust { invert, offset, multiply } => input.map(|v| height_adjust(v, invert, offset, multiply, channel)),
         Filter::BevelSmooth { .. } | Filter::DirectionalDistance { .. } | Filter::BlurSlope { .. } | Filter::AnisotropicKuwahara { .. } | Filter::Quantize { .. } => input, // Staged by the compositor.
+        Filter::BlurSlopeMode { .. } | Filter::NonUniformBlur { .. } => input, // Staged by the compositor.
+        // The average of the whole input is found by the compositor, which stages this mode.
+        Filter::ColorMatch { source_mode: subcraft_doc::MatchSource::Average, .. } => input,
+        Filter::ColorMatch { source, target, hue, chroma, luma, .. } => color_match(input, source, target, hue, chroma, luma),
         Filter::GradientCurve { preset, invert, balance, contrast } => input.map(|v| gradient_curve(v, preset, invert, balance, contrast)),
         Filter::Smoothstep { min, max } => input.map(|v| smoothstep(v, min, max)),
         Filter::ThresholdCompare { cutoff, mode } => {
@@ -208,6 +212,45 @@ pub fn replace_color(c: [f32; 3], from: [f32; 3], to: [f32; 3], tolerance: f32, 
     let d = ((c[0] - from[0]).powi(2) + (c[1] - from[1]).powi(2) + (c[2] - from[2]).powi(2)).sqrt();
     let w = if d <= tolerance { 1.0 } else if softness <= 0.0 { 0.0 } else { (1.0 - (d - tolerance) / softness).clamp(0.0, 1.0) };
     std::array::from_fn(|i| (c[i] + w * (to[i] - from[i])).max(0.0))
+}
+
+/// Color Match: `c` moved by the OKLab offset that takes `source` to `target`, scaled by how
+/// close `c` is to `source` in hue, chroma and lightness. Each range is 0..=1 and 1 means no
+/// limit; below that the weight is 1 inside the range and fades out over the next half range
+/// (at least 0.05). Hue counts only where both colours are saturated enough to have one.
+/// `source == target` is exactly the identity.
+pub fn color_match(c: [f32; 3], source: [f32; 3], target: [f32; 3], hue: f32, chroma: f32, luma: f32) -> [f32; 3] {
+    if source == target {
+        return c;
+    }
+    let (s, t, p) = (linear_to_oklab(source), linear_to_oklab(target), linear_to_oklab(c.map(|v| v.max(0.0))));
+    let w = match_weight(p, s, hue, chroma, luma);
+    if w <= 0.0 {
+        return c;
+    }
+    let out = oklab_to_linear(std::array::from_fn(|i| p[i] + w * (t[i] - s[i])));
+    out.map(|v| v.max(0.0))
+}
+
+/// Weight of [`color_match`] for the OKLab colour `p` against the source `s`.
+pub fn match_weight(p: [f32; 3], s: [f32; 3], hue: f32, chroma: f32, luma: f32) -> f32 {
+    // 1 inside `range`, 0 beyond `range + soft`; a range of 1 never limits.
+    let within = |d: f32, range: f32| {
+        if range >= 1.0 {
+            return 1.0;
+        }
+        let soft = (range * 0.5).max(0.05);
+        1.0 - smoothstep(d, range, range + soft)
+    };
+    let (cp, cs) = ((p[1] * p[1] + p[2] * p[2]).sqrt(), (s[1] * s[1] + s[2] * s[2]).sqrt());
+    // Distances normalised to 0..1: half a turn of hue, 0.4 of OKLab chroma, the full lightness.
+    let dh = {
+        let d = (p[2].atan2(p[1]) - s[2].atan2(s[1])).abs();
+        d.min(std::f32::consts::TAU - d) / std::f32::consts::PI
+    };
+    let has_hue = smoothstep(cp.min(cs), 0.01, 0.04);
+    let wh = 1.0 + has_hue * (within(dh, hue) - 1.0);
+    wh * within((cp - cs).abs() / 0.4, chroma) * within((p[0] - s[0]).abs(), luma)
 }
 
 fn luminance(c: [f32; 3]) -> f32 { c[0] * 0.2126 + c[1] * 0.7152 + c[2] * 0.0722 }
@@ -642,6 +685,58 @@ mod parity_tests {
         close(replace_color([0.8, 0.0, 0.0], from, to, 0.1, 0.2), [0.3, 0.0, 0.5]);
         close(replace_color([0.0, 1.0, 0.0], from, to, 0.1, 0.2), [0.0, 1.0, 0.0]);
         close(replace_color([0.8, 0.0, 0.0], from, to, 0.1, 0.0), [0.8, 0.0, 0.0]);
+    }
+}
+
+#[cfg(test)]
+mod color_match_tests {
+    use super::*;
+    use subcraft_doc::MatchSource;
+
+    fn close(a: [f32; 3], b: [f32; 3], tol: f32) {
+        assert!((0..3).all(|i| (a[i] - b[i]).abs() < tol), "{a:?} vs {b:?}");
+    }
+
+    #[test]
+    fn color_match_moves_the_source_onto_the_target_within_its_ranges() {
+        let (red, blue, green, gray) = ([0.6, 0.05, 0.04], [0.05, 0.1, 0.6], [0.05, 0.5, 0.06], [0.2; 3]);
+        // No limits: the source lands exactly on the target, everything else moves with it.
+        close(color_match(red, red, blue, 1.0, 1.0, 1.0), blue, 2e-4);
+        assert_ne!(color_match(green, red, blue, 1.0, 1.0, 1.0), green);
+        // Same source and target: exactly the identity, for any colour (HDR included).
+        for c in [red, green, gray, [2.5, 0.1, 0.0]] {
+            assert_eq!(color_match(c, red, red, 0.3, 0.3, 0.3), c);
+        }
+        // A narrow hue range moves reds and leaves greens and blues alone.
+        close(color_match(red, red, blue, 0.1, 1.0, 1.0), blue, 2e-4);
+        assert_eq!(color_match(green, red, blue, 0.1, 1.0, 1.0), green);
+        let near_red = [0.55, 0.08, 0.04];
+        assert_ne!(color_match(near_red, red, blue, 0.1, 1.0, 1.0), near_red);
+        // Gray has no hue: the hue range does not exclude it, the chroma range does.
+        assert_ne!(color_match(gray, red, blue, 0.1, 1.0, 1.0), gray);
+        assert_eq!(color_match(gray, red, blue, 1.0, 0.1, 1.0), gray);
+        // The luma range excludes much darker colours of the same hue.
+        let dark_red = [0.03, 0.0025, 0.002];
+        assert_eq!(color_match(dark_red, red, blue, 1.0, 1.0, 0.1), dark_red);
+        assert_ne!(color_match(dark_red, red, blue, 1.0, 1.0, 1.0), dark_red);
+        // The weight falls off smoothly and never leaves 0..1.
+        let (s, mut last) = (linear_to_oklab(red), 1.0f32);
+        for i in 0..=40 {
+            let w = match_weight([s[0] + i as f32 * 0.01, s[1], s[2]], s, 1.0, 1.0, 0.2);
+            assert!((0.0..=1.0).contains(&w) && w <= last + 1e-6, "{w}");
+            last = w;
+        }
+        assert_eq!(last, 0.0);
+        // The filter entry point: Parameter mode is the point kernel, Average waits for the
+        // compositor, other channels are untouched.
+        let f = |source_mode| Filter::ColorMatch { source_mode, source: red, target: blue, hue: 1.0, chroma: 1.0, luma: 1.0 };
+        close(apply(f(MatchSource::Parameter), red, ChannelKind::BaseColor), blue, 2e-4);
+        assert_eq!(apply(f(MatchSource::Average), red, ChannelKind::BaseColor), red);
+        assert_eq!(apply(f(MatchSource::Parameter), [0.4; 3], ChannelKind::Roughness), [0.4; 3]);
+        // Results stay finite and non-negative.
+        for c in [red, blue, green, gray, [0.0; 3], [1.0; 3]] {
+            assert!(color_match(c, green, [1.0, 1.0, 0.0], 1.0, 1.0, 1.0).iter().all(|v| v.is_finite() && *v >= 0.0));
+        }
     }
 }
 

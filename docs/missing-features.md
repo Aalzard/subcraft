@@ -48,7 +48,8 @@ a planning list, not a promise.
 - Color / ID selection masks with tolerance and softness.
 - Fill projections: UV, tri-planar, planar, spherical, cylindrical.
 - Filters: Gradient Map (with editor), Histogram Scan, Median, Warp, MatFinish / MatFX, PBR Validate.
-  Slope blur, Non-uniform blur and Color match are being added by the material-filters work.
+  Blur Slope (noise or previous input; Blur / Min / Max), Non-uniform Blur and Color Match.
+  Their image inputs (blur map, custom noise, source / target images) are still missing.
 - Per-channel format (8-bit, 16-bit, 16F, 32F).
 - Export presets: SubCraft presets library and import of Painter export presets.
 - Baking: several high polys, match by name (`_low` / `_high`), Thickness, Bent normal,
