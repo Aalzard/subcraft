@@ -49,10 +49,7 @@ pub fn vertices(mesh: &Mesh) -> Vec<Vertex> {
         .map(|i| Vertex {
             position: mesh.positions[i].to_array(),
             normal: mesh.normals[i].to_array(),
-            tangent: mesh
-                .tangents
-                .get(i)
-                .map_or([1.0, 0.0, 0.0, 1.0], |t| t.to_array()),
+            tangent: mesh.tangents.get(i).map_or([1.0, 0.0, 0.0, 1.0], |t| t.to_array()),
             uv: mesh.uvs[i].to_array(),
         })
         .collect()
@@ -65,12 +62,7 @@ impl GpuMesh {
 
     /// `verts` (the vertices of `mesh`) with `extra` usages on the vertex buffer (the
     /// displacement preview writes positions from a compute pass).
-    pub fn with_usage(
-        device: &wgpu::Device,
-        mesh: &Mesh,
-        verts: &[Vertex],
-        extra: wgpu::BufferUsages,
-    ) -> Self {
+    pub fn with_usage(device: &wgpu::Device, mesh: &Mesh, verts: &[Vertex], extra: wgpu::BufferUsages) -> Self {
         let vertices = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("mesh vertices"),
             contents: bytemuck::cast_slice(verts),
@@ -84,17 +76,8 @@ impl GpuMesh {
         let ranges = mesh
             .submeshes
             .iter()
-            .map(|s| DrawRange {
-                material_slot: s.material,
-                first_index: s.first_triangle * 3,
-                index_count: s.triangle_count * 3,
-            })
+            .map(|s| DrawRange { material_slot: s.material, first_index: s.first_triangle * 3, index_count: s.triangle_count * 3 })
             .collect();
-        Self {
-            vertices,
-            indices,
-            ranges,
-            bounds: (mesh.bounds.min, mesh.bounds.max),
-        }
+        Self { vertices, indices, ranges, bounds: (mesh.bounds.min, mesh.bounds.max) }
     }
 }

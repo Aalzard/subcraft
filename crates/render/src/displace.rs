@@ -24,9 +24,7 @@ pub const MAX_LEVEL: u32 = 4;
 /// leaves it on automatic: the finest that stays within [`AUTO_TRIANGLE_BUDGET`].
 pub fn auto_level(triangles: usize) -> u32 {
     let mut level = 0;
-    while level < MAX_LEVEL
-        && triangles.saturating_mul(4usize.pow(level + 1)) <= AUTO_TRIANGLE_BUDGET
-    {
+    while level < MAX_LEVEL && triangles.saturating_mul(4usize.pow(level + 1)) <= AUTO_TRIANGLE_BUDGET {
         level += 1;
     }
     level
@@ -54,24 +52,15 @@ impl DisplacePass {
         let storage = |binding: u32, read_only: bool| wgpu::BindGroupLayoutEntry {
             binding,
             visibility: wgpu::ShaderStages::COMPUTE,
-            ty: wgpu::BindingType::Buffer {
-                ty: wgpu::BufferBindingType::Storage { read_only },
-                has_dynamic_offset: false,
-                min_binding_size: None,
-            },
+            ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Storage { read_only }, has_dynamic_offset: false, min_binding_size: None },
             count: None,
         };
-        let texture =
-            |binding: u32, view_dimension: wgpu::TextureViewDimension| wgpu::BindGroupLayoutEntry {
-                binding,
-                visibility: wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::Texture {
-                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                    view_dimension,
-                    multisampled: false,
-                },
-                count: None,
-            };
+        let texture = |binding: u32, view_dimension: wgpu::TextureViewDimension| wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility: wgpu::ShaderStages::COMPUTE,
+            ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Float { filterable: true }, view_dimension, multisampled: false },
+            count: None,
+        };
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("displacement"),
             entries: &[
@@ -81,32 +70,16 @@ impl DisplacePass {
                 wgpu::BindGroupLayoutEntry {
                     binding: 3,
                     visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
+                    ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: None },
                     count: None,
                 },
                 texture(4, wgpu::TextureViewDimension::D2),
                 texture(5, wgpu::TextureViewDimension::D2Array),
-                wgpu::BindGroupLayoutEntry {
-                    binding: 6,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
+                wgpu::BindGroupLayoutEntry { binding: 6, visibility: wgpu::ShaderStages::COMPUTE, ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering), count: None },
             ],
         });
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("displacement"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("displace.wgsl").into()),
-        });
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("displacement"),
-            bind_group_layouts: &[Some(&layout)],
-            immediate_size: 0,
-        });
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("displacement"), source: wgpu::ShaderSource::Wgsl(include_str!("displace.wgsl").into()) });
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some("displacement"), bind_group_layouts: &[Some(&layout)], immediate_size: 0 });
         let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("displacement"),
             layout: Some(&pipeline_layout),
@@ -121,11 +94,7 @@ impl DisplacePass {
             min_filter: wgpu::FilterMode::Linear,
             ..Default::default()
         });
-        Self {
-            pipeline,
-            layout,
-            sampler,
-        }
+        Self { pipeline, layout, sampler }
     }
 
     /// `mesh` subdivided `level` times, ready to displace.
@@ -154,36 +123,17 @@ impl DisplacePass {
         let slots = by_slot
             .into_iter()
             .map(|(slot, ids)| {
-                let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("displaced vertex ids"),
-                    contents: bytemuck::cast_slice(&ids),
-                    usage: wgpu::BufferUsages::STORAGE,
-                });
+                let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("displaced vertex ids"), contents: bytemuck::cast_slice(&ids), usage: wgpu::BufferUsages::STORAGE });
                 (slot, (buffer, ids.len() as u32))
             })
             .collect();
-        Displaced {
-            level,
-            mesh: gpu,
-            src,
-            slots,
-        }
+        Displaced { level, mesh: gpu, src, slots }
     }
 
     /// Record the displacement of every slot: `inputs` gives each material slot's Height view, its
     /// extended-channel array and the Displacement layer in it (-1 = none).
-    pub fn encode(
-        &self,
-        device: &wgpu::Device,
-        encoder: &mut wgpu::CommandEncoder,
-        d: &Displaced,
-        scale: f32,
-        inputs: &dyn Fn(u32) -> (wgpu::TextureView, wgpu::TextureView, i32),
-    ) {
-        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-            label: Some("displacement"),
-            timestamp_writes: None,
-        });
+    pub fn encode(&self, device: &wgpu::Device, encoder: &mut wgpu::CommandEncoder, d: &Displaced, scale: f32, inputs: &dyn Fn(u32) -> (wgpu::TextureView, wgpu::TextureView, i32)) {
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("displacement"), timestamp_writes: None });
         pass.set_pipeline(&self.pipeline);
         for (slot, (ids, count)) in &d.slots {
             let (height, ext, layer) = inputs(*slot);
@@ -196,34 +146,13 @@ impl DisplacePass {
                 label: Some("displacement"),
                 layout: &self.layout,
                 entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: d.src.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: d.mesh.vertices.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: ids.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: params.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 4,
-                        resource: wgpu::BindingResource::TextureView(&height),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 5,
-                        resource: wgpu::BindingResource::TextureView(&ext),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 6,
-                        resource: wgpu::BindingResource::Sampler(&self.sampler),
-                    },
+                    wgpu::BindGroupEntry { binding: 0, resource: d.src.as_entire_binding() },
+                    wgpu::BindGroupEntry { binding: 1, resource: d.mesh.vertices.as_entire_binding() },
+                    wgpu::BindGroupEntry { binding: 2, resource: ids.as_entire_binding() },
+                    wgpu::BindGroupEntry { binding: 3, resource: params.as_entire_binding() },
+                    wgpu::BindGroupEntry { binding: 4, resource: wgpu::BindingResource::TextureView(&height) },
+                    wgpu::BindGroupEntry { binding: 5, resource: wgpu::BindingResource::TextureView(&ext) },
+                    wgpu::BindGroupEntry { binding: 6, resource: wgpu::BindingResource::Sampler(&self.sampler) },
                 ],
             });
             pass.set_bind_group(0, &bind, &[]);

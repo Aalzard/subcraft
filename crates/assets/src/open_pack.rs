@@ -24,15 +24,7 @@ macro_rules! map {
             channel: $channel,
             name: concat!($id, "_", $map, ".jpg"),
             strength: $strength,
-            bytes: include_bytes!(concat!(
-                "../../../assets/open-pack/materials/",
-                $id,
-                "/",
-                $id,
-                "_",
-                $map,
-                ".jpg"
-            )),
+            bytes: include_bytes!(concat!("../../../assets/open-pack/materials/", $id, "/", $id, "_", $map, ".jpg")),
         }
     };
 }
@@ -58,21 +50,9 @@ macro_rules! maps {
 #[cfg(not(target_arch = "wasm32"))]
 /// `tiling` repeats per UV unit (x, y); non-square images repeat more along their short side so
 /// texels stay square.
-fn material(
-    name: &str,
-    category: &'static str,
-    images: Vec<PresetImage>,
-    tiling: [f32; 2],
-) -> MaterialPreset {
+fn material(name: &str, category: &'static str, images: Vec<PresetImage>, tiling: [f32; 2]) -> MaterialPreset {
     let has_metal = images.iter().any(|i| i.channel == ChannelKind::Metallic);
-    let channels = if has_metal {
-        Vec::new()
-    } else {
-        vec![(
-            ChannelKind::Metallic,
-            FillSource::uniform(ChannelValue::scalar(0.0)),
-        )]
-    };
+    let channels = if has_metal { Vec::new() } else { vec![(ChannelKind::Metallic, FillSource::uniform(ChannelValue::scalar(0.0)))] };
     MaterialPreset {
         id: AssetId::from_name(&format!("material/open-pack/{name}")),
         name: name.into(),
@@ -81,11 +61,7 @@ fn material(
         images,
         // UV: tangent-space normal maps need the mesh's tangent frame (triplanar would not
         // reorient them).
-        projection: Projection {
-            mode: ProjectionMode::Uv,
-            scale: tiling,
-            ..Projection::default()
-        },
+        projection: Projection { mode: ProjectionMode::Uv, scale: tiling, ..Projection::default() },
     }
 }
 
@@ -93,30 +69,10 @@ fn material(
 #[cfg(not(target_arch = "wasm32"))]
 pub fn materials() -> Vec<MaterialPreset> {
     vec![
-        material(
-            "Scratched Red Paint",
-            "Paint",
-            maps!("PaintedMetal004", metalness),
-            [2.0, 2.0],
-        ),
-        material(
-            "Stained Steel",
-            "Metal",
-            maps!("Metal063", metalness),
-            [2.0, 2.0],
-        ),
-        material(
-            "Metal Plates",
-            "Metal",
-            maps!("MetalPlates006", metalness),
-            [2.0, 2.0],
-        ),
-        material(
-            "Textured Plastic",
-            "Plastic",
-            maps!("Plastic010"),
-            [2.0, 2.0],
-        ),
+        material("Scratched Red Paint", "Paint", maps!("PaintedMetal004", metalness), [2.0, 2.0]),
+        material("Stained Steel", "Metal", maps!("Metal063", metalness), [2.0, 2.0]),
+        material("Metal Plates", "Metal", maps!("MetalPlates006", metalness), [2.0, 2.0]),
+        material("Textured Plastic", "Plastic", maps!("Plastic010"), [2.0, 2.0]),
         material("Brown Leather", "Fabric", maps!("Leather037"), [3.0, 3.0]),
         material("Woven Fabric", "Fabric", maps!("Fabric085"), [4.0, 4.0]),
         material("Natural Wood", "Wood", maps!("Wood096"), [2.0, 2.0]),
@@ -136,9 +92,7 @@ fn hdri(name: &str, file: &'static str, bytes: &'static [u8]) -> Environment {
     Environment {
         id: AssetId::from_name(&format!("environment/open-pack/{file}")),
         name: name.into(),
-        source: crate::environment::EnvironmentSource::Embedded(std::sync::Arc::new(
-            crate::environment::EmbeddedHdri::new(file, bytes),
-        )),
+        source: crate::environment::EnvironmentSource::Embedded(std::sync::Arc::new(crate::environment::EmbeddedHdri::new(file, bytes))),
         user_file: None,
     }
 }
@@ -148,20 +102,13 @@ fn hdri(name: &str, file: &'static str, bytes: &'static [u8]) -> Environment {
 pub fn environments() -> Vec<Environment> {
     macro_rules! env {
         ($name:literal, $file:literal) => {
-            hdri(
-                $name,
-                $file,
-                include_bytes!(concat!("../../../assets/open-pack/environments/", $file)),
-            )
+            hdri($name, $file, include_bytes!(concat!("../../../assets/open-pack/environments/", $file)))
         };
     }
     vec![
         env!("Small Studio (HDRI)", "studio_small_09_1k.exr"),
         env!("Photo Studio (HDRI)", "brown_photostudio_02_1k.exr"),
-        env!(
-            "Partly Cloudy Sky (HDRI)",
-            "kloofendal_48d_partly_cloudy_puresky_1k.hdr"
-        ),
+        env!("Partly Cloudy Sky (HDRI)", "kloofendal_48d_partly_cloudy_puresky_1k.hdr"),
         env!("Sunrise Field (HDRI)", "spruit_sunrise_1k.exr"),
     ]
 }

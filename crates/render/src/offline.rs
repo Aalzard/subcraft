@@ -6,9 +6,7 @@ use std::f32::consts::TAU;
 /// Camera yaw (radians) of each frame of a full turn that starts at `start` and never repeats
 /// the first view: frame `i` of `frames` is `start + i / frames` of a turn.
 pub fn turntable_yaws(start: f32, frames: u32) -> Vec<f32> {
-    (0..frames)
-        .map(|i| start + TAU * i as f32 / frames.max(1) as f32)
-        .collect()
+    (0..frames).map(|i| start + TAU * i as f32 / frames.max(1) as f32).collect()
 }
 
 /// `turntable_0007.png` style names, zero padded so the sequence sorts and imports in order.
@@ -18,20 +16,12 @@ pub fn turntable_file_name(index: u32) -> String {
 
 fn to_linear(v: u8) -> f32 {
     let c = v as f32 / 255.0;
-    if c <= 0.04045 {
-        c / 12.92
-    } else {
-        ((c + 0.055) / 1.055).powf(2.4)
-    }
+    if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
 }
 
 fn to_srgb(l: f32) -> u8 {
     let l = l.clamp(0.0, 1.0);
-    let c = if l <= 0.003_130_8 {
-        l * 12.92
-    } else {
-        1.055 * l.powf(1.0 / 2.4) - 0.055
-    };
+    let c = if l <= 0.003_130_8 { l * 12.92 } else { 1.055 * l.powf(1.0 / 2.4) - 0.055 };
     (c * 255.0).round() as u8
 }
 
@@ -76,12 +66,7 @@ pub fn downsample_rgba8(src: &[u8], size: [u32; 2], factor: u32) -> (Vec<u8>, [u
 /// If the two renders never differ (a sky or HDRI hides the background) alpha stays 1.
 pub fn matte_from_black_white(black: &[u8], white: &[u8]) -> Vec<u8> {
     let n = black.len().min(white.len()) / 4;
-    let diff = |i: usize| -> f32 {
-        (0..3)
-            .map(|c| white[i * 4 + c] as f32 - black[i * 4 + c] as f32)
-            .sum::<f32>()
-            / 3.0
-    };
+    let diff = |i: usize| -> f32 { (0..3).map(|c| white[i * 4 + c] as f32 - black[i * 4 + c] as f32).sum::<f32>() / 3.0 };
     let max = (0..n).map(diff).fold(0.0f32, f32::max);
     let mut out = black[..n * 4].to_vec();
     if max < 8.0 {
@@ -91,11 +76,7 @@ pub fn matte_from_black_white(black: &[u8], white: &[u8]) -> Vec<u8> {
         let a = (1.0 - diff(i) / max).clamp(0.0, 1.0);
         for c in 0..3 {
             let v = black[i * 4 + c] as f32;
-            out[i * 4 + c] = if a > 1e-3 {
-                (v / a).min(255.0).round() as u8
-            } else {
-                0
-            };
+            out[i * 4 + c] = if a > 1e-3 { (v / a).min(255.0).round() as u8 } else { 0 };
         }
         out[i * 4 + 3] = (a * 255.0).round() as u8;
     }
@@ -113,10 +94,7 @@ mod tests {
         assert_eq!(yaws[0], 0.5);
         let step = TAU / 36.0;
         assert!(yaws.windows(2).all(|w| ((w[1] - w[0]) - step).abs() < 1e-5));
-        assert!(
-            (yaws[35] + step - (0.5 + TAU)).abs() < 1e-4,
-            "the next frame would be the first again"
-        );
+        assert!((yaws[35] + step - (0.5 + TAU)).abs() < 1e-4, "the next frame would be the first again");
         assert!(turntable_yaws(0.0, 0).is_empty());
     }
 
@@ -136,28 +114,12 @@ mod tests {
         let flat: Vec<u8> = (0..16).flat_map(|_| [200u8, 100, 50, 255]).collect();
         let (out, size) = downsample_rgba8(&flat, [4, 4], 2);
         assert_eq!(size, [2, 2]);
-        assert!(
-            out.as_chunks::<4>()
-                .0
-                .iter()
-                .all(|p| *p == [200, 100, 50, 255])
-        );
+        assert!(out.as_chunks::<4>().0.iter().all(|p| *p == [200, 100, 50, 255]));
         // Black and white average to linear 0.5, which is sRGB 188, not 128.
-        let checker: Vec<u8> = (0..4)
-            .flat_map(|i| {
-                if i % 2 == 0 {
-                    [0u8, 0, 0, 255]
-                } else {
-                    [255, 255, 255, 255]
-                }
-            })
-            .collect();
+        let checker: Vec<u8> = (0..4).flat_map(|i| if i % 2 == 0 { [0u8, 0, 0, 255] } else { [255, 255, 255, 255] }).collect();
         let (out, size) = downsample_rgba8(&checker, [2, 2], 2);
         assert_eq!(size, [1, 1]);
-        assert!(
-            out[..3].iter().all(|&v| (v as i32 - 188).abs() <= 1),
-            "{out:?}"
-        );
+        assert!(out[..3].iter().all(|&v| (v as i32 - 188).abs() <= 1), "{out:?}");
         // Factor 1 is the identity; odd sizes drop the last row/column.
         assert_eq!(downsample_rgba8(&flat, [4, 4], 1).0, flat);
         assert_eq!(downsample_rgba8(&[255u8; 5 * 5 * 4], [5, 5], 2).1, [2, 2]);
@@ -172,29 +134,12 @@ mod matte_tests {
     fn matte_recovers_alpha_and_color() {
         // 3 pixels: background, opaque red, 50% white over the background.
         let black = [0, 0, 0, 255, 200, 0, 0, 255, 100, 100, 100, 255];
-        let white = [
-            255,
-            255,
-            255,
-            255,
-            200,
-            0,
-            0,
-            255,
-            100 + 127,
-            100 + 127,
-            100 + 127,
-            255,
-        ];
+        let white = [255, 255, 255, 255, 200, 0, 0, 255, 100 + 127, 100 + 127, 100 + 127, 255];
         let out = matte_from_black_white(&black, &white);
         assert_eq!(out[3], 0, "background is clear");
         assert_eq!(&out[4..8], &[200, 0, 0, 255], "opaque pixel unchanged");
         assert!((out[11] as i32 - 128).abs() <= 1, "half alpha: {}", out[11]);
-        assert!(
-            (out[8] as i32 - 200).abs() <= 2,
-            "un-premultiplied color: {}",
-            out[8]
-        );
+        assert!((out[8] as i32 - 200).abs() <= 2, "un-premultiplied color: {}", out[8]);
     }
 
     #[test]

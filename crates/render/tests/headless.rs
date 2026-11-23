@@ -19,280 +19,120 @@ fn gpu_test() -> std::sync::MutexGuard<'static, ()> {
 #[test]
 fn symmetry_surface_lines_are_red_and_hiding_them_restores_the_exact_material() {
     let _gpu = gpu_test();
-    let Some((_, device, queue)) = headless::device() else {
-        eprintln!("no adapter: skipping");
-        return;
-    };
+    let Some((_, device, queue)) = headless::device() else { eprintln!("no adapter: skipping"); return };
     let mut r = ViewportRenderer::new(&device, &queue);
     r.set_mesh(&device, &primitives::cube(2.));
-    r.upload_channel(
-        &device,
-        &queue,
-        0,
-        ChannelKind::BaseColor,
-        &solid(4, [0.2, 0.2, 0.2, 1.]),
-        None,
-    );
-    let mut p = params();
-    let baseline = r
-        .render(&device, &queue, [SIZE, SIZE], &p)
-        .read_rgba8(&device, &queue);
+    r.upload_channel(&device, &queue, 0, ChannelKind::BaseColor, &solid(4, [0.2, 0.2, 0.2, 1.]), None);
+    let mut p = params(); let baseline = r.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
     r.set_symmetry_guides(&device, &[[Vec3::new(0., -1., 1.), Vec3::new(0., 1., 1.)]]);
     p.symmetry_guides = true;
-    let guides = r
-        .render(&device, &queue, [SIZE, SIZE], &p)
-        .read_rgba8(&device, &queue);
-    let red = guides
-        .as_chunks::<4>()
-        .0
-        .iter()
-        .zip(baseline.as_chunks::<4>().0)
-        .filter(|(a, b)| a[0] > a[1].saturating_add(50) && a != b)
-        .count();
+    let guides = r.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+    let red = guides.as_chunks::<4>().0.iter().zip(baseline.as_chunks::<4>().0).filter(|(a, b)| a[0] > a[1].saturating_add(50) && a != b).count();
     assert!(red > 40, "visible red surface guide: {red}");
     p.symmetry_guides = false;
-    assert_eq!(
-        r.render(&device, &queue, [SIZE, SIZE], &p)
-            .read_rgba8(&device, &queue),
-        baseline
-    );
-    p.symmetry_guides = true;
-    r.set_symmetry_guides(&device, &[]);
-    assert_eq!(
-        r.render(&device, &queue, [SIZE, SIZE], &p)
-            .read_rgba8(&device, &queue),
-        baseline
-    );
+    assert_eq!(r.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue), baseline);
+    p.symmetry_guides = true; r.set_symmetry_guides(&device, &[]);
+    assert_eq!(r.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue), baseline);
 }
 
 #[test]
 fn bake_overlay_compares_depth_and_raw_maps_preserve_materials() {
     let _gpu = gpu_test();
     use subcraft_core::MeshMapKind;
-    let Some((_, device, queue)) = headless::device() else {
-        eprintln!("no adapter: skipping");
-        return;
-    };
+    let Some((_, device, queue)) = headless::device() else { eprintln!("no adapter: skipping"); return };
     let low = primitives::cube(2.);
     let mut renderer = ViewportRenderer::new(&device, &queue);
     renderer.set_mesh(&device, &low);
-    renderer.upload_channel(
-        &device,
-        &queue,
-        0,
-        ChannelKind::BaseColor,
-        &solid(4, [0.1, 0.6, 0.1, 1.]),
-        None,
-    );
-    let mut p = params();
-    p.antialias = false;
-    let material = renderer
-        .render(&device, &queue, [SIZE, SIZE], &p)
-        .read_rgba8(&device, &queue);
-    p.bake_overlay = true;
-    p.bake_cage = false;
+    renderer.upload_channel(&device, &queue, 0, ChannelKind::BaseColor, &solid(4, [0.1, 0.6, 0.1, 1.]), None);
+    let mut p = params(); p.antialias = false;
+    let material = renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+    p.bake_overlay = true; p.bake_cage = false;
     for (size, blue) in [(2.2, true), (1.8, false), (2.2, true)] {
         renderer.set_bake_preview(&device, Some((&low, &primitives::cube(size))));
-        let img = renderer
-            .render(&device, &queue, [SIZE, SIZE], &p)
-            .read_rgba8(&device, &queue);
+        let img = renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
         let c = px(&img, SIZE / 2, SIZE / 2);
-        assert!(
-            if blue {
-                c[2] > c[0] * 2
-            } else {
-                c[0] > c[2] * 2
-            },
-            "depth comparison {size}: {c:?}"
-        );
+        assert!(if blue { c[2] > c[0] * 2 } else { c[0] > c[2] * 2 }, "depth comparison {size}: {c:?}");
     }
-    p.bake_cage = true;
-    p.bake_distances = [0.08, 0.02];
-    let cage = renderer
-        .render(&device, &queue, [SIZE, SIZE], &p)
-        .read_rgba8(&device, &queue);
+    p.bake_cage = true; p.bake_distances = [0.08, 0.02];
+    let cage = renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
     p.bake_cage = false;
-    let no_cage = renderer
-        .render(&device, &queue, [SIZE, SIZE], &p)
-        .read_rgba8(&device, &queue);
-    assert!(
-        diff(&cage, &no_cage) > 100,
-        "front cage is visible above high poly"
-    );
+    let no_cage = renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+    assert!(diff(&cage, &no_cage) > 100, "front cage is visible above high poly");
     p.bake_overlay = false;
-    assert_eq!(
-        renderer
-            .render(&device, &queue, [SIZE, SIZE], &p)
-            .read_rgba8(&device, &queue),
-        material
-    );
+    assert_eq!(renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue), material);
     for (kind, comps, value, expected) in [
-        (
-            MeshMapKind::Normal,
-            3,
-            [0.5, 0.25, 1., 0.],
-            [128u8, 64, 255],
-        ),
+        (MeshMapKind::Normal, 3, [0.5, 0.25, 1., 0.], [128u8, 64, 255]),
         (MeshMapKind::AmbientOcclusion, 1, [0.25; 4], [64u8; 3]),
     ] {
         renderer.upload_mesh_map(&device, &queue, 0, kind, &solid(comps, value));
         p.bake_map = Some(kind);
-        let img = renderer
-            .render(&device, &queue, [SIZE, SIZE], &p)
-            .read_rgba8(&device, &queue);
+        let img = renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
         let c = px(&img, SIZE / 2, SIZE / 2);
-        for k in 0..3 {
-            assert!(c[k].abs_diff(expected[k]) <= 1, "{kind:?}: {c:?}");
-        }
+        for k in 0..3 { assert!(c[k].abs_diff(expected[k]) <= 1, "{kind:?}: {c:?}"); }
     }
     p.bake_map = None;
-    assert_eq!(
-        renderer
-            .render(&device, &queue, [SIZE, SIZE], &p)
-            .read_rgba8(&device, &queue),
-        material
-    );
+    assert_eq!(renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue), material);
     renderer.set_bake_preview(&device, None);
-    p.antialias = true;
-    p.bake_overlay = true;
-    let blank = renderer
-        .render(&device, &queue, [SIZE, SIZE], &p)
-        .read_rgba8(&device, &queue);
+    p.antialias = true; p.bake_overlay = true;
+    let blank = renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
     assert_eq!(px(&blank, SIZE / 2, SIZE / 2), px(&blank, 2, 2));
 }
 
 #[test]
 fn bake_overlay_follows_the_visualization_settings() {
     let _gpu = gpu_test();
-    let Some((_, device, queue)) = headless::device() else {
-        eprintln!("no adapter: skipping");
-        return;
-    };
+    let Some((_, device, queue)) = headless::device() else { eprintln!("no adapter: skipping"); return };
     let low = primitives::cube(2.);
     let mut renderer = ViewportRenderer::new(&device, &queue);
     renderer.set_mesh(&device, &low);
-    let mut p = params();
-    p.antialias = false;
-    p.bake_overlay = true;
-    p.bake_cage = false;
+    let mut p = params(); p.antialias = false; p.bake_overlay = true; p.bake_cage = false;
     renderer.set_bake_preview(&device, Some((&low, &primitives::cube(2.2))));
-    let at = |renderer: &mut ViewportRenderer, p: &ViewParams| {
-        let img = renderer
-            .render(&device, &queue, [SIZE, SIZE], p)
-            .read_rgba8(&device, &queue);
-        px(&img, SIZE / 2, SIZE / 2)
-    };
+    let at = |renderer: &mut ViewportRenderer, p: &ViewParams| { let img = renderer.render(&device, &queue, [SIZE, SIZE], p).read_rgba8(&device, &queue); px(&img, SIZE / 2, SIZE / 2) };
     let default = at(&mut renderer, &p);
-    assert!(
-        default[2] > default[0] * 2,
-        "the default high poly is blue: {default:?}"
-    );
+    assert!(default[2] > default[0] * 2, "the default high poly is blue: {default:?}");
     // The high-poly colour.
     p.bake_vis.high_color = [0.05, 0.6, 0.05];
     let green = at(&mut renderer, &p);
-    assert!(
-        green[1] > green[0] * 2 && green[1] > green[2] * 2,
-        "green high poly: {green:?}"
-    );
+    assert!(green[1] > green[0] * 2 && green[1] > green[2] * 2, "green high poly: {green:?}");
     // Hiding the high poly shows the low poly behind it, in its own colour.
     p.bake_vis.show_high = false;
     let red = at(&mut renderer, &p);
     assert!(red[0] > red[2] * 2, "the default low poly is red: {red:?}");
     p.bake_vis.low_color = [0.6, 0.6, 0.05];
     let yellow = at(&mut renderer, &p);
-    assert!(
-        yellow[0] > yellow[2] * 2 && yellow[1] > yellow[2] * 2,
-        "yellow low poly: {yellow:?}"
-    );
+    assert!(yellow[0] > yellow[2] * 2 && yellow[1] > yellow[2] * 2, "yellow low poly: {yellow:?}");
     // Hiding both leaves the background.
     p.bake_vis.show_low = false;
-    let img = renderer
-        .render(&device, &queue, [SIZE, SIZE], &p)
-        .read_rgba8(&device, &queue);
-    assert_eq!(
-        px(&img, SIZE / 2, SIZE / 2),
-        px(&img, 2, 2),
-        "nothing is drawn"
-    );
+    let img = renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+    assert_eq!(px(&img, SIZE / 2, SIZE / 2), px(&img, 2, 2), "nothing is drawn");
     // The cage wireframe: its opacity and colour change the picture; opacity 0 hides it.
     p.bake_vis = Default::default();
     p.bake_distances = [0.08, 0.02];
-    let no_cage = renderer
-        .render(&device, &queue, [SIZE, SIZE], &p)
-        .read_rgba8(&device, &queue);
+    let no_cage = renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
     p.bake_cage = true;
-    let cage = renderer
-        .render(&device, &queue, [SIZE, SIZE], &p)
-        .read_rgba8(&device, &queue);
+    let cage = renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
     p.bake_vis.cage_color = [1.0, 0.9, 0.1];
     p.bake_vis.cage_opacity = 1.0;
-    let bright = renderer
-        .render(&device, &queue, [SIZE, SIZE], &p)
-        .read_rgba8(&device, &queue);
-    assert!(
-        diff(&cage, &no_cage) > 100 && diff(&bright, &cage) > 100,
-        "the cage colour and opacity are used"
-    );
+    let bright = renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+    assert!(diff(&cage, &no_cage) > 100 && diff(&bright, &cage) > 100, "the cage colour and opacity are used");
     p.bake_vis.cage_opacity = 0.0;
-    let hidden = renderer
-        .render(&device, &queue, [SIZE, SIZE], &p)
-        .read_rgba8(&device, &queue);
-    assert_eq!(
-        diff(&hidden, &no_cage),
-        0,
-        "a fully transparent cage is not seen"
-    );
+    let hidden = renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+    assert_eq!(diff(&hidden, &no_cage), 0, "a fully transparent cage is not seen");
     // Seam-check lines: drawn only when asked, in their colour, and removed by an empty list.
     p.bake_cage = false;
     p.bake_vis = Default::default();
     p.bake_vis.show_high = false;
-    let plain = renderer
-        .render(&device, &queue, [SIZE, SIZE], &p)
-        .read_rgba8(&device, &queue);
+    let plain = renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
     // The cube's top edge towards the camera, as if it lacked a seam.
-    renderer.set_bake_seam_lines(
-        &device,
-        &[[
-            Vec3::new(-1., 1., 1.),
-            Vec3::new(1., 1., 1.),
-            Vec3::new(0., 1., 1.).normalize(),
-        ]],
-    );
-    assert_eq!(
-        diff(
-            &renderer
-                .render(&device, &queue, [SIZE, SIZE], &p)
-                .read_rgba8(&device, &queue),
-            &plain
-        ),
-        0,
-        "seam lines are off by default"
-    );
+    renderer.set_bake_seam_lines(&device, &[[Vec3::new(-1., 1., 1.), Vec3::new(1., 1., 1.), Vec3::new(0., 1., 1.).normalize()]]);
+    assert_eq!(diff(&renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue), &plain), 0, "seam lines are off by default");
     p.bake_vis.show_seams = true;
-    let seams = renderer
-        .render(&device, &queue, [SIZE, SIZE], &p)
-        .read_rgba8(&device, &queue);
-    assert!(
-        diff(&seams, &plain) > 20,
-        "the seam line is drawn: {}",
-        diff(&seams, &plain)
-    );
-    let yellow = seams
-        .chunks_exact(4)
-        .zip(plain.chunks_exact(4))
-        .filter(|(a, b)| a != b && a[0] > 180 && a[1] > 150 && a[2] * 2 < a[1])
-        .count();
+    let seams = renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+    assert!(diff(&seams, &plain) > 20, "the seam line is drawn: {}", diff(&seams, &plain));
+    let yellow = seams.chunks_exact(4).zip(plain.chunks_exact(4)).filter(|(a, b)| a != b && a[0] > 180 && a[1] > 150 && a[2] * 2 < a[1]).count();
     assert!(yellow > 10, "in the seam colour: {yellow}");
     renderer.set_bake_seam_lines(&device, &[]);
-    assert_eq!(
-        diff(
-            &renderer
-                .render(&device, &queue, [SIZE, SIZE], &p)
-                .read_rgba8(&device, &queue),
-            &plain
-        ),
-        0
-    );
+    assert_eq!(diff(&renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue), &plain), 0);
     // The cage surface: a see-through skin at the front cage distance, over the low poly.
     p.bake_vis = Default::default();
     p.bake_vis.show_high = false;
@@ -300,99 +140,42 @@ fn bake_overlay_follows_the_visualization_settings() {
     p.bake_vis.show_cage_surface = true;
     p.bake_vis.cage_surface_color = [0.1, 0.9, 0.1];
     p.bake_vis.cage_surface_opacity = 0.5;
-    let skinned = renderer
-        .render(&device, &queue, [SIZE, SIZE], &p)
-        .read_rgba8(&device, &queue);
-    let (bare, skin) = (
-        px(&plain, SIZE / 2, SIZE / 2),
-        px(&skinned, SIZE / 2, SIZE / 2),
-    );
-    assert!(
-        skin[1] > bare[1] + 40 && skin[0] > 20,
-        "green over the red low poly, which still shows: {bare:?} -> {skin:?}"
-    );
-    assert!(
-        diff(&skinned, &plain) > 500,
-        "the skin covers the model and a rim around it"
-    );
+    let skinned = renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+    let (bare, skin) = (px(&plain, SIZE / 2, SIZE / 2), px(&skinned, SIZE / 2, SIZE / 2));
+    assert!(skin[1] > bare[1] + 40 && skin[0] > 20, "green over the red low poly, which still shows: {bare:?} -> {skin:?}");
+    assert!(diff(&skinned, &plain) > 500, "the skin covers the model and a rim around it");
     p.bake_vis.cage_surface_opacity = 0.0;
-    assert_eq!(
-        diff(
-            &renderer
-                .render(&device, &queue, [SIZE, SIZE], &p)
-                .read_rgba8(&device, &queue),
-            &plain
-        ),
-        0,
-        "a fully transparent cage surface is not seen"
-    );
+    assert_eq!(diff(&renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue), &plain), 0, "a fully transparent cage surface is not seen");
     // Only one material slot: the cube's own slot shows it, another slot shows nothing of the low poly.
     p.bake_vis.show_cage_surface = false;
     p.bake_cage = true;
-    let all = renderer
-        .render(&device, &queue, [SIZE, SIZE], &p)
-        .read_rgba8(&device, &queue);
+    let all = renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
     p.bake_vis.only_slot = Some(low.submeshes[0].material);
     if low.submeshes.len() == 1 {
-        assert_eq!(
-            diff(
-                &renderer
-                    .render(&device, &queue, [SIZE, SIZE], &p)
-                    .read_rgba8(&device, &queue),
-                &all
-            ),
-            0,
-            "the cube's one slot is everything"
-        );
+        assert_eq!(diff(&renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue), &all), 0, "the cube's one slot is everything");
     }
     p.bake_vis.only_slot = Some(77);
-    let none = renderer
-        .render(&device, &queue, [SIZE, SIZE], &p)
-        .read_rgba8(&device, &queue);
-    assert_eq!(
-        px(&none, SIZE / 2, SIZE / 2),
-        px(&none, 2, 2),
-        "no low poly and no cage for another slot"
-    );
+    let none = renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+    assert_eq!(px(&none, SIZE / 2, SIZE / 2), px(&none, 2, 2), "no low poly and no cage for another slot");
 }
 
 #[test]
 fn neutral_material_replaces_the_painted_channels_and_reads_the_baked_ao() {
     let _gpu = gpu_test();
     use subcraft_core::MeshMapKind;
-    let Some((_, device, queue)) = headless::device() else {
-        eprintln!("no adapter: skipping");
-        return;
-    };
+    let Some((_, device, queue)) = headless::device() else { eprintln!("no adapter: skipping"); return };
     let low = primitives::cube(2.);
     let mut renderer = ViewportRenderer::new(&device, &queue);
     renderer.set_mesh(&device, &low);
-    renderer.upload_channel(
-        &device,
-        &queue,
-        0,
-        ChannelKind::BaseColor,
-        &solid(4, [0.8, 0.05, 0.05, 1.]),
-        None,
-    );
-    let mut p = params();
-    p.antialias = false;
-    let at = |renderer: &mut ViewportRenderer, p: &ViewParams| {
-        let img = renderer
-            .render(&device, &queue, [SIZE, SIZE], p)
-            .read_rgba8(&device, &queue);
-        px(&img, SIZE / 2, SIZE / 2)
-    };
+    renderer.upload_channel(&device, &queue, 0, ChannelKind::BaseColor, &solid(4, [0.8, 0.05, 0.05, 1.]), None);
+    let mut p = params(); p.antialias = false;
+    let at = |renderer: &mut ViewportRenderer, p: &ViewParams| { let img = renderer.render(&device, &queue, [SIZE, SIZE], p).read_rgba8(&device, &queue); px(&img, SIZE / 2, SIZE / 2) };
     let painted = at(&mut renderer, &p);
     assert!(painted[0] > painted[1] * 2, "the painted red: {painted:?}");
     p.bake_vis.neutral_material = true;
     let neutral = at(&mut renderer, &p);
-    let spread =
-        neutral[0].max(neutral[1]).max(neutral[2]) - neutral[0].min(neutral[1]).min(neutral[2]);
-    assert!(
-        spread < 24,
-        "neutral gray, not the painted red: {neutral:?}"
-    );
+    let spread = neutral[0].max(neutral[1]).max(neutral[2]) - neutral[0].min(neutral[1]).min(neutral[2]);
+    assert!(spread < 24, "neutral gray, not the painted red: {neutral:?}");
     // The colour is a setting.
     p.bake_vis.neutral_color = [0.1, 0.1, 0.8];
     let blue = at(&mut renderer, &p);
@@ -400,168 +183,82 @@ fn neutral_material_replaces_the_painted_channels_and_reads_the_baked_ao() {
     // A baked ambient occlusion map darkens it; the overlay and raw map views are unaffected.
     p.bake_vis.neutral_color = [0.5, 0.5, 0.5];
     let open = at(&mut renderer, &p);
-    renderer.upload_mesh_map(
-        &device,
-        &queue,
-        0,
-        MeshMapKind::AmbientOcclusion,
-        &solid(1, [0.0; 4]),
-    );
+    renderer.upload_mesh_map(&device, &queue, 0, MeshMapKind::AmbientOcclusion, &solid(1, [0.0; 4]));
     let occluded = at(&mut renderer, &p);
     let sum = |c: [u8; 4]| c[0] as u32 + c[1] as u32 + c[2] as u32;
-    assert!(
-        sum(occluded) < sum(open),
-        "baked AO darkens: {open:?} -> {occluded:?}"
-    );
+    assert!(sum(occluded) < sum(open), "baked AO darkens: {open:?} -> {occluded:?}");
     p.bake_vis.neutral_material = false;
-    assert_eq!(
-        at(&mut renderer, &p),
-        painted,
-        "off: the painted material again"
-    );
+    assert_eq!(at(&mut renderer, &p), painted, "off: the painted material again");
 }
 
 #[test]
 fn bake_overlay_high_poly_follows_the_placement_transform_and_opacity() {
     let _gpu = gpu_test();
-    let Some((_, device, queue)) = headless::device() else {
-        eprintln!("no adapter: skipping");
-        return;
-    };
+    let Some((_, device, queue)) = headless::device() else { eprintln!("no adapter: skipping"); return };
     let low = primitives::cube(2.);
     let mut renderer = ViewportRenderer::new(&device, &queue);
     renderer.set_mesh(&device, &low);
-    let mut p = params();
-    p.antialias = false;
-    p.bake_overlay = true;
-    p.bake_cage = false;
+    let mut p = params(); p.antialias = false; p.bake_overlay = true; p.bake_cage = false;
     renderer.set_bake_preview(&device, Some((&low, &primitives::cube(2.2))));
-    let at = |renderer: &mut ViewportRenderer, p: &ViewParams| {
-        let img = renderer
-            .render(&device, &queue, [SIZE, SIZE], p)
-            .read_rgba8(&device, &queue);
-        px(&img, SIZE / 2, SIZE / 2)
-    };
+    let at = |renderer: &mut ViewportRenderer, p: &ViewParams| { let img = renderer.render(&device, &queue, [SIZE, SIZE], p).read_rgba8(&device, &queue); px(&img, SIZE / 2, SIZE / 2) };
     let solid_blue = at(&mut renderer, &p);
-    assert!(
-        solid_blue[2] > solid_blue[0] * 2,
-        "high poly wraps the low poly: {solid_blue:?}"
-    );
+    assert!(solid_blue[2] > solid_blue[0] * 2, "high poly wraps the low poly: {solid_blue:?}");
     // Only a uniform changes: moving the high poly far away exposes the red low poly.
     p.bake_high_transform = Mat4::from_translation(Vec3::new(30., 0., 0.));
     let moved = at(&mut renderer, &p);
-    assert!(
-        moved[0] > moved[2] * 2,
-        "moved high poly no longer covers the low poly: {moved:?}"
-    );
+    assert!(moved[0] > moved[2] * 2, "moved high poly no longer covers the low poly: {moved:?}");
     // Scaling it down inside the low poly hides it behind the low surface.
     p.bake_high_transform = Mat4::from_scale(Vec3::splat(0.5));
     let inside = at(&mut renderer, &p);
-    assert!(
-        inside[0] > inside[2] * 2,
-        "scaled-down high poly sits inside: {inside:?}"
-    );
+    assert!(inside[0] > inside[2] * 2, "scaled-down high poly sits inside: {inside:?}");
     // Opacity blends the blue surface with what is behind it.
     p.bake_high_transform = Mat4::IDENTITY;
     p.bake_high_opacity = 0.4;
     let faint = at(&mut renderer, &p);
-    assert!(
-        faint != solid_blue,
-        "opacity changes the overlay: {faint:?} vs {solid_blue:?}"
-    );
+    assert!(faint != solid_blue, "opacity changes the overlay: {faint:?} vs {solid_blue:?}");
 }
 
 #[test]
 fn albedo_filter_preserves_nearest_palette_and_bilinear_values_without_affecting_data() {
     let _gpu = gpu_test();
     use subcraft_image::TextureFilter;
-    let Some((_, device, queue)) = headless::device() else {
-        eprintln!("no adapter: skipping");
-        return;
-    };
+    let Some((_, device, queue)) = headless::device() else { eprintln!("no adapter: skipping"); return };
     let mut r = ViewportRenderer::new(&device, &queue);
     r.set_mesh(&device, &primitives::plane(2., 1));
     let mut base = TiledImage::new(2, 2, 4, [0., 0., 0., 1.]);
     base.set(1, 0, [1.; 4]);
     base.set(1, 1, [1.; 4]);
     r.upload_channel(&device, &queue, 0, ChannelKind::BaseColor, &base, None);
-    let mut p = ViewParams::new(
-        Mat4::look_at_rh(Vec3::new(0., 3., 0.), Vec3::ZERO, Vec3::NEG_Z),
-        Mat4::orthographic_rh(-1., 1., -1., 1., 0.1, 10.),
-    );
-    p.antialias = false;
-    p.view_mode = ViewMode::BaseColor;
-    let bilinear = r
-        .render(&device, &queue, [SIZE, SIZE], &p)
-        .read_rgba8(&device, &queue);
+    let mut p = ViewParams::new(Mat4::look_at_rh(Vec3::new(0., 3., 0.), Vec3::ZERO, Vec3::NEG_Z), Mat4::orthographic_rh(-1., 1., -1., 1., 0.1, 10.));
+    p.antialias = false; p.view_mode = ViewMode::BaseColor;
+    let bilinear = r.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
     r.set_albedo_filter(0, TextureFilter::Nearest);
-    let nearest = r
-        .render(&device, &queue, [SIZE, SIZE], &p)
-        .read_rgba8(&device, &queue);
-    for y in 8..SIZE - 8 {
-        for x in 8..SIZE - 8 {
-            let value = px(&nearest, x, y)[0];
-            assert!(
-                value <= 1 || value >= 254,
-                "nearest invented a gray value at {x},{y}: {value}"
-            );
-        }
-    }
+    let nearest = r.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+    for y in 8..SIZE - 8 { for x in 8..SIZE - 8 {
+        let value = px(&nearest, x, y)[0];
+        assert!(value <= 1 || value >= 254, "nearest invented a gray value at {x},{y}: {value}");
+    }}
     assert_eq!(px(&nearest, 80, 96)[0], 0);
     assert_eq!(px(&nearest, 112, 96)[0], 255);
-    let expected = (subcraft_core::color::linear_to_srgb((80.5 / SIZE as f32) * 2. - 0.5) * 255.)
-        .round() as u8;
-    assert!(
-        px(&bilinear, 80, 96)[0].abs_diff(expected) <= 2,
-        "bilinear must interpolate in linear color"
-    );
+    let expected = (subcraft_core::color::linear_to_srgb((80.5 / SIZE as f32) * 2. - 0.5) * 255.).round() as u8;
+    assert!(px(&bilinear, 80, 96)[0].abs_diff(expected) <= 2, "bilinear must interpolate in linear color");
     assert!(diff(&bilinear, &nearest) > 4000);
     p.view_mode = ViewMode::Material;
-    let shaded_nearest = r
-        .render(&device, &queue, [SIZE, SIZE], &p)
-        .read_rgba8(&device, &queue);
+    let shaded_nearest = r.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
     r.set_albedo_filter(0, TextureFilter::Bilinear);
-    let shaded_linear = r
-        .render(&device, &queue, [SIZE, SIZE], &p)
-        .read_rgba8(&device, &queue);
-    assert!(
-        diff(&shaded_linear, &shaded_nearest) > 4000,
-        "material view honors the same filter"
-    );
+    let shaded_linear = r.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+    assert!(diff(&shaded_linear, &shaded_nearest) > 4000, "material view honors the same filter");
     p.view_mode = ViewMode::BaseColor;
-    assert_eq!(
-        r.render(&device, &queue, [SIZE, SIZE], &p)
-            .read_rgba8(&device, &queue),
-        bilinear
-    );
-    for mode in [
-        ViewMode::Normal,
-        ViewMode::Roughness,
-        ViewMode::Metallic,
-        ViewMode::Height,
-        ViewMode::AmbientOcclusion,
-    ] {
+    assert_eq!(r.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue), bilinear);
+    for mode in [ViewMode::Normal, ViewMode::Roughness, ViewMode::Metallic, ViewMode::Height, ViewMode::AmbientOcclusion] {
         p.view_mode = mode;
-        let linear = r
-            .render(&device, &queue, [SIZE, SIZE], &p)
-            .read_rgba8(&device, &queue);
+        let linear = r.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
         r.set_albedo_filter(0, TextureFilter::Nearest);
-        assert_eq!(
-            r.render(&device, &queue, [SIZE, SIZE], &p)
-                .read_rgba8(&device, &queue),
-            linear,
-            "{mode:?} changed"
-        );
+        assert_eq!(r.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue), linear, "{mode:?} changed");
         r.set_albedo_filter(0, TextureFilter::Bilinear);
     }
-    r.set_albedo_filter(1, TextureFilter::Nearest);
-    p.view_mode = ViewMode::BaseColor;
-    assert_eq!(
-        r.render(&device, &queue, [SIZE, SIZE], &p)
-            .read_rgba8(&device, &queue),
-        bilinear,
-        "sets have independent filters"
-    );
+    r.set_albedo_filter(1, TextureFilter::Nearest); p.view_mode = ViewMode::BaseColor;
+    assert_eq!(r.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue), bilinear, "sets have independent filters");
 }
 
 fn params() -> ViewParams {
@@ -573,69 +270,30 @@ fn params() -> ViewParams {
 #[test]
 fn minified_detail_averages_without_aliasing_and_nearest_keeps_original_pixels() {
     let _gpu = gpu_test();
-    let Some((_, device, queue)) = headless::device() else {
-        eprintln!("no adapter: skipping");
-        return;
-    };
+    let Some((_, device, queue)) = headless::device() else { eprintln!("no adapter: skipping"); return; };
     let mut r = ViewportRenderer::new(&device, &queue);
     r.set_mesh(&device, &primitives::plane(2., 1));
     let mut checker = TiledImage::new(1024, 1024, 4, [0., 0., 0., 1.]);
-    for y in 0..1024 {
-        for x in 0..1024 {
-            if (x + y) % 2 == 0 {
-                checker.set(x, y, [1.; 4]);
-            }
-        }
-    }
+    for y in 0..1024 { for x in 0..1024 { if (x + y) % 2 == 0 { checker.set(x, y, [1.; 4]); } } }
     let before = checker.clone();
     r.upload_channel(&device, &queue, 0, ChannelKind::BaseColor, &checker, None);
-    let mut p = ViewParams::new(
-        Mat4::look_at_rh(Vec3::new(0., 3., 0.), Vec3::ZERO, Vec3::NEG_Z),
-        Mat4::orthographic_rh(-1., 1., -1., 1., 0.1, 10.),
-    );
-    p.antialias = false;
-    p.view_mode = ViewMode::BaseColor;
+    let mut p = ViewParams::new(Mat4::look_at_rh(Vec3::new(0., 3., 0.), Vec3::ZERO, Vec3::NEG_Z), Mat4::orthographic_rh(-1., 1., -1., 1., 0.1, 10.));
+    p.antialias = false; p.view_mode = ViewMode::BaseColor;
     let expected = (subcraft_core::color::linear_to_srgb(0.5) * 255.).round() as u8;
     for offset in [0., 0.0003, 0.0008] {
-        p.view = Mat4::look_at_rh(
-            Vec3::new(offset, 3., 0.),
-            Vec3::new(offset, 0., 0.),
-            Vec3::NEG_Z,
-        );
-        let image = r
-            .render(&device, &queue, [SIZE, SIZE], &p)
-            .read_rgba8(&device, &queue);
-        for y in 8..SIZE - 8 {
-            for x in 8..SIZE - 8 {
-                assert!(
-                    px(&image, x, y)[0].abs_diff(expected) <= 1,
-                    "minified checker aliases at {x},{y}"
-                );
-            }
-        }
+        p.view = Mat4::look_at_rh(Vec3::new(offset, 3., 0.), Vec3::new(offset, 0., 0.), Vec3::NEG_Z);
+        let image = r.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+        for y in 8..SIZE-8 { for x in 8..SIZE-8 { assert!(px(&image, x, y)[0].abs_diff(expected) <= 1, "minified checker aliases at {x},{y}"); } }
     }
     r.set_albedo_filter(0, subcraft_image::TextureFilter::Nearest);
-    let image = r
-        .render(&device, &queue, [SIZE, SIZE], &p)
-        .read_rgba8(&device, &queue);
-    let mut black = 0;
-    let mut white = 0;
-    for y in 8..SIZE - 8 {
-        for x in 8..SIZE - 8 {
-            let v = px(&image, x, y)[0];
-            assert!(v <= 1 || v >= 254, "nearest was mip-filtered: {v}");
-            if v <= 1 {
-                black += 1;
-            } else {
-                white += 1;
-            }
-        }
-    }
+    let image = r.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+    let mut black = 0; let mut white = 0;
+    for y in 8..SIZE-8 { for x in 8..SIZE-8 {
+        let v = px(&image, x, y)[0]; assert!(v <= 1 || v >= 254, "nearest was mip-filtered: {v}");
+        if v <= 1 { black += 1; } else { white += 1; }
+    } }
     assert!(black > 1000 && white > 1000);
-    assert_eq!(
-        checker, before,
-        "viewport filtering changed authoritative texels"
-    );
+    assert_eq!(checker, before, "viewport filtering changed authoritative texels");
 }
 
 fn solid(comps: usize, v: [f32; 4]) -> TiledImage {
@@ -667,30 +325,15 @@ fn renders_textured_cube_and_partial_uploads_match_full() {
     r.set_mesh(&device, &mesh);
     let mut base = solid(4, [0.8, 0.05, 0.05, 1.0]);
     r.upload_channel(&device, &queue, 0, ChannelKind::BaseColor, &base, None);
-    r.upload_channel(
-        &device,
-        &queue,
-        0,
-        ChannelKind::Roughness,
-        &solid(1, [0.5; 4]),
-        None,
-    );
-    let img = r
-        .render(&device, &queue, [SIZE, SIZE], &params())
-        .read_rgba8(&device, &queue);
+    r.upload_channel(&device, &queue, 0, ChannelKind::Roughness, &solid(1, [0.5; 4]), None);
+    let img = r.render(&device, &queue, [SIZE, SIZE], &params()).read_rgba8(&device, &queue);
     save("cube_red.png", &img);
 
     let c = px(&img, SIZE / 2, SIZE / 2);
-    assert!(
-        c[0] > 80 && c[0] > 2 * c[1] && c[0] > 2 * c[2],
-        "center should be lit red: {c:?}"
-    );
+    assert!(c[0] > 80 && c[0] > 2 * c[1] && c[0] > 2 * c[2], "center should be lit red: {c:?}");
     let corner = px(&img, 2, 2);
     let bg = (subcraft_core::color::linear_to_srgb(params().background[0]) * 255.0).round() as i32;
-    assert!(
-        (corner[0] as i32 - bg).abs() <= 1,
-        "corner is background ({bg}): {corner:?}"
-    );
+    assert!((corner[0] as i32 - bg).abs() <= 1, "corner is background ({bg}): {corner:?}");
     // Three visible faces are shaded differently.
     let top = px(&img, SIZE / 2, SIZE / 4);
     assert_ne!(top, c, "faces receive different lighting");
@@ -701,31 +344,13 @@ fn renders_textured_cube_and_partial_uploads_match_full() {
             base.set(x, y, [0.05, 0.7, 0.1, 1.0]);
         }
     }
-    r.upload_channel(
-        &device,
-        &queue,
-        0,
-        ChannelKind::BaseColor,
-        &base,
-        Some(&[0, 1]),
-    );
-    let partial = r
-        .render(&device, &queue, [SIZE, SIZE], &params())
-        .read_rgba8(&device, &queue);
+    r.upload_channel(&device, &queue, 0, ChannelKind::BaseColor, &base, Some(&[0, 1]));
+    let partial = r.render(&device, &queue, [SIZE, SIZE], &params()).read_rgba8(&device, &queue);
     let mut fresh = ViewportRenderer::new(&device, &queue);
     fresh.set_mesh(&device, &mesh);
     fresh.upload_channel(&device, &queue, 0, ChannelKind::BaseColor, &base, None);
-    fresh.upload_channel(
-        &device,
-        &queue,
-        0,
-        ChannelKind::Roughness,
-        &solid(1, [0.5; 4]),
-        None,
-    );
-    let full = fresh
-        .render(&device, &queue, [SIZE, SIZE], &params())
-        .read_rgba8(&device, &queue);
+    fresh.upload_channel(&device, &queue, 0, ChannelKind::Roughness, &solid(1, [0.5; 4]), None);
+    let full = fresh.render(&device, &queue, [SIZE, SIZE], &params()).read_rgba8(&device, &queue);
     save("cube_partial.png", &partial);
     assert_eq!(partial, full, "tile uploads must equal a full upload");
     assert_ne!(partial, img, "the green tiles are visible");
@@ -746,8 +371,7 @@ fn sparse_full_upload_matches_a_dense_one() {
         r.set_mesh(&device, &mesh);
         r.upload_channel(&device, &queue, 0, ChannelKind::BaseColor, base, None);
         r.upload_channel(&device, &queue, 0, ChannelKind::Roughness, rough, None);
-        r.render(&device, &queue, [SIZE, SIZE], &params())
-            .read_rgba8(&device, &queue)
+        r.render(&device, &queue, [SIZE, SIZE], &params()).read_rgba8(&device, &queue)
     };
     let mut base = solid(4, [0.8, 0.05, 0.3, 1.0]);
     let mut rough = solid(1, [0.35; 4]);
@@ -769,16 +393,8 @@ fn sparse_full_upload_matches_a_dense_one() {
         d
     };
     let sparse = render(&base, &rough);
-    assert_eq!(
-        sparse,
-        render(&dense(&base), &dense(&rough)),
-        "cleared fill tiles equal uploaded fill tiles"
-    );
-    assert_ne!(
-        sparse,
-        render(&solid(4, [0.8, 0.05, 0.3, 1.0]), &solid(1, [0.35; 4])),
-        "the allocated tiles are visible"
-    );
+    assert_eq!(sparse, render(&dense(&base), &dense(&rough)), "cleared fill tiles equal uploaded fill tiles");
+    assert_ne!(sparse, render(&solid(4, [0.8, 0.05, 0.3, 1.0]), &solid(1, [0.35; 4])), "the allocated tiles are visible");
 }
 
 #[test]
@@ -789,17 +405,10 @@ fn empty_scene_is_background_and_resizes() {
         return;
     };
     let mut r = ViewportRenderer::new(&device, &queue);
-    let a = r
-        .render(&device, &queue, [64, 32], &params())
-        .read_rgba8(&device, &queue);
+    let a = r.render(&device, &queue, [64, 32], &params()).read_rgba8(&device, &queue);
     assert_eq!(a.len(), 64 * 32 * 4);
-    assert!(
-        a.chunks_exact(4).all(|p| p == &a[..4]),
-        "uniform background"
-    );
-    let b = r
-        .render(&device, &queue, [100, 70], &params())
-        .read_rgba8(&device, &queue);
+    assert!(a.chunks_exact(4).all(|p| p == &a[..4]), "uniform background");
+    let b = r.render(&device, &queue, [100, 70], &params()).read_rgba8(&device, &queue);
     assert_eq!(b.len(), 100 * 70 * 4);
 }
 
@@ -816,71 +425,31 @@ fn background_is_a_vertical_gradient_between_the_two_colours() {
     p.background = [0.0, 0.0, 1.0];
     p.background_top = Some([1.0, 0.0, 0.0]);
     // `px` indexes rows of `SIZE` pixels, so render at that size.
-    let img = r
-        .render(&device, &queue, [SIZE, SIZE], &p)
-        .read_rgba8(&device, &queue);
-    let (top, mid, bottom) = (
-        px(&img, SIZE / 2, 0),
-        px(&img, SIZE / 2, SIZE / 2),
-        px(&img, SIZE / 2, SIZE - 1),
-    );
-    assert!(
-        top[0] > 245 && top[2] < 40,
-        "top row is the top colour: {top:?}"
-    );
-    assert!(
-        bottom[2] > 245 && bottom[0] < 40,
-        "bottom row is the bottom colour: {bottom:?}"
-    );
-    assert!(
-        mid[0] > 100 && mid[2] > 100,
-        "the middle mixes them: {mid:?}"
-    );
+    let img = r.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+    let (top, mid, bottom) = (px(&img, SIZE / 2, 0), px(&img, SIZE / 2, SIZE / 2), px(&img, SIZE / 2, SIZE - 1));
+    assert!(top[0] > 245 && top[2] < 40, "top row is the top colour: {top:?}");
+    assert!(bottom[2] > 245 && bottom[0] < 40, "bottom row is the bottom colour: {bottom:?}");
+    assert!(mid[0] > 100 && mid[2] > 100, "the middle mixes them: {mid:?}");
     let row = |y: u32| (0..SIZE).map(|x| px(&img, x, y)).collect::<Vec<_>>();
-    assert!(
-        row(10).windows(2).all(|w| w[0] == w[1]),
-        "each row is one colour"
-    );
+    assert!(row(10).windows(2).all(|w| w[0] == w[1]), "each row is one colour");
     // Without a top colour the background stays plain (every caller that only sets `background`).
     p.background_top = None;
-    let flat = r
-        .render(&device, &queue, [SIZE, SIZE], &p)
-        .read_rgba8(&device, &queue);
-    assert_eq!(
-        px(&flat, SIZE / 2, 0),
-        px(&flat, SIZE / 2, SIZE - 1),
-        "no gradient without a top colour"
-    );
+    let flat = r.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+    assert_eq!(px(&flat, SIZE / 2, 0), px(&flat, SIZE / 2, SIZE - 1), "no gradient without a top colour");
 }
 
-fn render_with(
-    device: &subcraft_render::wgpu_api::Device,
-    queue: &subcraft_render::wgpu_api::Queue,
-    channels: &[(ChannelKind, TiledImage)],
-    p: &ViewParams,
-) -> Vec<u8> {
+fn render_with(device: &subcraft_render::wgpu_api::Device, queue: &subcraft_render::wgpu_api::Queue, channels: &[(ChannelKind, TiledImage)], p: &ViewParams) -> Vec<u8> {
     let mut r = ViewportRenderer::new(device, queue);
     r.set_mesh(device, &primitives::cube(2.0));
-    r.upload_channel(
-        device,
-        queue,
-        0,
-        ChannelKind::BaseColor,
-        &solid(4, [0.6, 0.6, 0.6, 1.0]),
-        None,
-    );
+    r.upload_channel(device, queue, 0, ChannelKind::BaseColor, &solid(4, [0.6, 0.6, 0.6, 1.0]), None);
     for (k, img) in channels {
         r.upload_channel(device, queue, 0, *k, img, None);
     }
-    r.render(device, queue, [SIZE, SIZE], p)
-        .read_rgba8(device, queue)
+    r.render(device, queue, [SIZE, SIZE], p).read_rgba8(device, queue)
 }
 
 fn diff(a: &[u8], b: &[u8]) -> usize {
-    a.chunks_exact(4)
-        .zip(b.chunks_exact(4))
-        .filter(|(x, y)| x.iter().zip(y.iter()).any(|(p, q)| p.abs_diff(*q) > 6))
-        .count()
+    a.chunks_exact(4).zip(b.chunks_exact(4)).filter(|(x, y)| x.iter().zip(y.iter()).any(|(p, q)| p.abs_diff(*q) > 6)).count()
 }
 
 #[test]
@@ -890,70 +459,27 @@ fn view_modes_show_one_channel_unlit_and_antialiasing_can_be_off() {
         eprintln!("no wgpu adapter available: skipping");
         return;
     };
-    let channels = [
-        (ChannelKind::Roughness, solid(1, [0.25; 4])),
-        (ChannelKind::Metallic, solid(1, [1.0; 4])),
-    ];
+    let channels = [(ChannelKind::Roughness, solid(1, [0.25; 4])), (ChannelKind::Metallic, solid(1, [1.0; 4]))];
     let shaded = render_with(&device, &queue, &channels, &params());
-    let with = |mode| {
-        render_with(
-            &device,
-            &queue,
-            &channels,
-            &ViewParams {
-                view_mode: mode,
-                ..params()
-            },
-        )
-    };
+    let with = |mode| render_with(&device, &queue, &channels, &ViewParams { view_mode: mode, ..params() });
 
     // Unlit channel views: every face of the cube shows the stored value, whatever the lighting.
     let rough = with(ViewMode::Roughness);
-    let (center, top) = (
-        px(&rough, SIZE / 2, SIZE / 2),
-        px(&rough, SIZE / 2, SIZE / 4),
-    );
+    let (center, top) = (px(&rough, SIZE / 2, SIZE / 2), px(&rough, SIZE / 2, SIZE / 4));
     assert_eq!(center, top, "unlit: all faces equal");
-    assert!(
-        center[0].abs_diff(64) <= 2 && center[0] == center[1],
-        "roughness 0.25 shows as gray 64: {center:?}"
-    );
-    assert!(
-        px(&with(ViewMode::Metallic), SIZE / 2, SIZE / 2)[0] >= 253,
-        "metallic 1 is white"
-    );
+    assert!(center[0].abs_diff(64) <= 2 && center[0] == center[1], "roughness 0.25 shows as gray 64: {center:?}");
+    assert!(px(&with(ViewMode::Metallic), SIZE / 2, SIZE / 2)[0] >= 253, "metallic 1 is white");
     let base = px(&with(ViewMode::BaseColor), SIZE / 2, SIZE / 2);
     let expect = (subcraft_core::color::linear_to_srgb(0.6) * 255.0).round() as u8;
-    assert!(
-        base[0].abs_diff(expect) <= 2,
-        "base color as authored ({expect}): {base:?}"
-    );
+    assert!(base[0].abs_diff(expect) <= 2, "base color as authored ({expect}): {base:?}");
     let normal = px(&with(ViewMode::Normal), SIZE / 2, SIZE / 2);
-    assert!(
-        normal[0].abs_diff(128) <= 2 && normal[2] >= 253,
-        "flat normal map color: {normal:?}"
-    );
-    assert_eq!(
-        with(ViewMode::Material),
-        shaded,
-        "Material is the normal shaded view"
-    );
+    assert!(normal[0].abs_diff(128) <= 2 && normal[2] >= 253, "flat normal map color: {normal:?}");
+    assert_eq!(with(ViewMode::Material), shaded, "Material is the normal shaded view");
 
     // Without MSAA the image still renders; only edge pixels may differ.
-    let no_aa = render_with(
-        &device,
-        &queue,
-        &channels,
-        &ViewParams {
-            antialias: false,
-            ..params()
-        },
-    );
+    let no_aa = render_with(&device, &queue, &channels, &ViewParams { antialias: false, ..params() });
     let changed = diff(&shaded, &no_aa);
-    assert!(
-        changed > 0 && changed < (SIZE * SIZE / 20) as usize,
-        "{changed} pixels differ (edges only)"
-    );
+    assert!(changed > 0 && changed < (SIZE * SIZE / 20) as usize, "{changed} pixels differ (edges only)");
 }
 
 #[test]
@@ -974,44 +500,22 @@ fn height_bumps_and_metallic_change_shading() {
             }
         }
     }
-    let bumped = render_with(
-        &device,
-        &queue,
-        &[(ChannelKind::Height, height.clone())],
-        &params(),
-    );
+    let bumped = render_with(&device, &queue, &[(ChannelKind::Height, height.clone())], &params());
     save("cube_height.png", &bumped);
     let changed = diff(&flat, &bumped);
-    assert!(
-        changed > 200,
-        "height bumps should change shading ({changed} px)"
-    );
-    let off = render_with(
-        &device,
-        &queue,
-        &[(ChannelKind::Height, height)],
-        &ViewParams {
-            height_scale: 0.0,
-            ..params()
-        },
-    );
+    assert!(changed > 200, "height bumps should change shading ({changed} px)");
+    let off = render_with(&device, &queue, &[(ChannelKind::Height, height)], &ViewParams { height_scale: 0.0, ..params() });
     assert_eq!(diff(&flat, &off), 0, "height scale 0 disables bumps");
 
     let metal = render_with(
         &device,
         &queue,
-        &[
-            (ChannelKind::Metallic, solid(1, [1.0; 4])),
-            (ChannelKind::Roughness, solid(1, [0.15; 4])),
-        ],
+        &[(ChannelKind::Metallic, solid(1, [1.0; 4])), (ChannelKind::Roughness, solid(1, [0.15; 4]))],
         &params(),
     );
     save("cube_metal.png", &metal);
     let changed = diff(&flat, &metal);
-    assert!(
-        changed > 5000,
-        "metallic + low roughness should look clearly different ({changed} px)"
-    );
+    assert!(changed > 5000, "metallic + low roughness should look clearly different ({changed} px)");
 }
 
 /// Visual check: a sphere whose roughness rises left→right (top half dielectric, bottom metal).
@@ -1032,25 +536,13 @@ fn roughness_gradient_sphere_shows_sharp_to_blurry_reflections() {
         }
     }
     let view = Mat4::look_at_rh(Vec3::new(0.0, 0.4, 3.2), Vec3::ZERO, Vec3::Y);
-    let p = ViewParams::new(
-        view,
-        Mat4::perspective_rh(45f32.to_radians(), 1.0, 0.1, 100.0),
-    );
+    let p = ViewParams::new(view, Mat4::perspective_rh(45f32.to_radians(), 1.0, 0.1, 100.0));
     let mut r = ViewportRenderer::new(&device, &queue);
     r.set_mesh(&device, &mesh);
-    r.upload_channel(
-        &device,
-        &queue,
-        0,
-        ChannelKind::BaseColor,
-        &solid(4, [0.5, 0.5, 0.5, 1.0]),
-        None,
-    );
+    r.upload_channel(&device, &queue, 0, ChannelKind::BaseColor, &solid(4, [0.5, 0.5, 0.5, 1.0]), None);
     r.upload_channel(&device, &queue, 0, ChannelKind::Roughness, &rough, None);
     r.upload_channel(&device, &queue, 0, ChannelKind::Metallic, &metal, None);
-    let img = r
-        .render(&device, &queue, [SIZE, SIZE], &p)
-        .read_rgba8(&device, &queue);
+    let img = r.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
     save("sphere_roughness.png", &img);
     // Smooth vs rough strips must differ in local contrast.
     let contrast = |x0: u32| {
@@ -1080,17 +572,8 @@ fn every_mesh_map_layout_uploads_and_previews() {
         assert!(preview.is_some(), "{kind:?}");
     }
     // A 3-component image in a shading slot (baked AO is 1-comp, but any RGB map must work too).
-    r.upload_channel(
-        &device,
-        &queue,
-        0,
-        ChannelKind::BaseColor,
-        &TiledImage::new(64, 64, 3, [0.2, 0.4, 0.6, 0.0]),
-        None,
-    );
-    let _ = r
-        .render(&device, &queue, [32, 32], &params())
-        .read_rgba8(&device, &queue);
+    r.upload_channel(&device, &queue, 0, ChannelKind::BaseColor, &TiledImage::new(64, 64, 3, [0.2, 0.4, 0.6, 0.0]), None);
+    let _ = r.render(&device, &queue, [32, 32], &params()).read_rgba8(&device, &queue);
 }
 
 #[test]
@@ -1105,83 +588,21 @@ fn the_channel_preview_shows_one_component_alone() {
     r.set_mesh(&device, &primitives::cube(2.0));
     // A data channel (stored values shown as they are) with distinct components.
     let rgba = [0.2, 0.5, 0.8, 0.4];
-    r.upload_channel(
-        &device,
-        &queue,
-        0,
-        ChannelKind::Normal,
-        &TiledImage::new(64, 64, 4, rgba),
-        None,
-    );
-    let mut shot = |component| {
-        r.preview_component(
-            &device,
-            &queue,
-            0,
-            PreviewSource::Channel(ChannelKind::Normal),
-            component,
-        )
-        .unwrap()
-        .read_rgba8(&device, &queue)
-    };
+    r.upload_channel(&device, &queue, 0, ChannelKind::Normal, &TiledImage::new(64, 64, 4, rgba), None);
+    let mut shot = |component| r.preview_component(&device, &queue, 0, PreviewSource::Channel(ChannelKind::Normal), component).unwrap().read_rgba8(&device, &queue);
     let all = shot(ChannelComponent::All);
     let near = |a: u8, v: f32| (a as f32 - v * 255.0).abs() <= 2.0;
-    assert!(
-        near(all[0], 0.2) && near(all[1], 0.5) && near(all[2], 0.8),
-        "all components: {:?}",
-        &all[..4]
-    );
-    for (component, v) in [
-        (ChannelComponent::R, 0.2),
-        (ChannelComponent::G, 0.5),
-        (ChannelComponent::B, 0.8),
-        (ChannelComponent::Alpha, 0.4),
-    ] {
+    assert!(near(all[0], 0.2) && near(all[1], 0.5) && near(all[2], 0.8), "all components: {:?}", &all[..4]);
+    for (component, v) in [(ChannelComponent::R, 0.2), (ChannelComponent::G, 0.5), (ChannelComponent::B, 0.8), (ChannelComponent::Alpha, 0.4)] {
         let img = shot(component);
-        assert!(
-            img[..4 * 64]
-                .chunks_exact(4)
-                .all(|p| near(p[0], v) && p[0] == p[1] && p[1] == p[2]),
-            "{component:?} shown as gray {v}: {:?}",
-            &img[..4]
-        );
+        assert!(img[..4 * 64].chunks_exact(4).all(|p| near(p[0], v) && p[0] == p[1] && p[1] == p[2]), "{component:?} shown as gray {v}: {:?}", &img[..4]);
     }
     // The plain preview is the "all" one.
-    assert_eq!(
-        r.preview(
-            &device,
-            &queue,
-            0,
-            PreviewSource::Channel(ChannelKind::Normal)
-        )
-        .unwrap()
-        .read_rgba8(&device, &queue),
-        all
-    );
+    assert_eq!(r.preview(&device, &queue, 0, PreviewSource::Channel(ChannelKind::Normal)).unwrap().read_rgba8(&device, &queue), all);
     // QA 2026-11: the alpha of a color channel went through the sRGB curve (0.4 showed as ~170).
-    r.upload_channel(
-        &device,
-        &queue,
-        0,
-        ChannelKind::BaseColor,
-        &TiledImage::new(64, 64, 4, rgba),
-        None,
-    );
-    let img = r
-        .preview_component(
-            &device,
-            &queue,
-            0,
-            PreviewSource::Channel(ChannelKind::BaseColor),
-            ChannelComponent::Alpha,
-        )
-        .unwrap()
-        .read_rgba8(&device, &queue);
-    assert!(
-        img[..4 * 64].chunks_exact(4).all(|p| near(p[0], 0.4)),
-        "base color alpha shown as stored: {:?}",
-        &img[..4]
-    );
+    r.upload_channel(&device, &queue, 0, ChannelKind::BaseColor, &TiledImage::new(64, 64, 4, rgba), None);
+    let img = r.preview_component(&device, &queue, 0, PreviewSource::Channel(ChannelKind::BaseColor), ChannelComponent::Alpha).unwrap().read_rgba8(&device, &queue);
+    assert!(img[..4 * 64].chunks_exact(4).all(|p| near(p[0], 0.4)), "base color alpha shown as stored: {:?}", &img[..4]);
 }
 
 #[test]
@@ -1194,88 +615,32 @@ fn hdri_environment_shows_in_reflections() {
     use subcraft_render::{EnvironmentParams, HdriUpload};
     // Red sky (v < 0.5), blue ground, 3 mip levels.
     let make = |w: u32, h: u32| -> Vec<f32> {
-        (0..w * h)
-            .flat_map(|i| {
-                if (i / w) < h / 2 {
-                    [2.0, 0.1, 0.1, 1.0]
-                } else {
-                    [0.1, 0.1, 2.0, 1.0]
-                }
-            })
-            .collect()
+        (0..w * h).flat_map(|i| if (i / w) < h / 2 { [2.0, 0.1, 0.1, 1.0] } else { [0.1, 0.1, 2.0, 1.0] }).collect()
     };
     let (l0, l1, l2) = (make(64, 32), make(32, 16), make(16, 8));
-    let levels = [
-        (64u32, 32u32, l0.as_slice()),
-        (32, 16, l1.as_slice()),
-        (16, 8, l2.as_slice()),
-    ];
+    let levels = [(64u32, 32u32, l0.as_slice()), (32, 16, l1.as_slice()), (16, 8, l2.as_slice())];
     let mut sh = [[0.0f32; 3]; 9];
     sh[0] = [1.0 / 0.282_095, 0.3 / 0.282_095, 1.0 / 0.282_095];
     let mut r = ViewportRenderer::new(&device, &queue);
     r.set_mesh(&device, &primitives::uv_sphere(1.0, 48, 24));
-    r.upload_channel(
-        &device,
-        &queue,
-        0,
-        ChannelKind::BaseColor,
-        &solid(4, [0.9, 0.9, 0.9, 1.0]),
-        None,
-    );
-    r.upload_channel(
-        &device,
-        &queue,
-        0,
-        ChannelKind::Metallic,
-        &solid(1, [1.0; 4]),
-        None,
-    );
-    r.upload_channel(
-        &device,
-        &queue,
-        0,
-        ChannelKind::Roughness,
-        &solid(1, [0.05; 4]),
-        None,
-    );
-    r.set_hdri(
-        &device,
-        &queue,
-        Some(HdriUpload {
-            levels: &levels,
-            sh,
-        }),
-    );
+    r.upload_channel(&device, &queue, 0, ChannelKind::BaseColor, &solid(4, [0.9, 0.9, 0.9, 1.0]), None);
+    r.upload_channel(&device, &queue, 0, ChannelKind::Metallic, &solid(1, [1.0; 4]), None);
+    r.upload_channel(&device, &queue, 0, ChannelKind::Roughness, &solid(1, [0.05; 4]), None);
+    r.set_hdri(&device, &queue, Some(HdriUpload { levels: &levels, sh }));
     let view = Mat4::look_at_rh(Vec3::new(0.0, 0.0, 3.2), Vec3::ZERO, Vec3::Y);
-    let mut p = ViewParams::new(
-        view,
-        Mat4::perspective_rh(45f32.to_radians(), 1.0, 0.1, 100.0),
-    );
+    let mut p = ViewParams::new(view, Mat4::perspective_rh(45f32.to_radians(), 1.0, 0.1, 100.0));
     p.light_intensity = 0.0;
-    p.environment = EnvironmentParams {
-        use_hdri: true,
-        ..EnvironmentParams::default()
-    };
-    let img = r
-        .render(&device, &queue, [SIZE, SIZE], &p)
-        .read_rgba8(&device, &queue);
+    p.environment = EnvironmentParams { use_hdri: true, ..EnvironmentParams::default() };
+    let img = r.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
     save("sphere_hdri.png", &img);
     let top = px(&img, SIZE / 2, SIZE / 2 - 50);
     let bottom = px(&img, SIZE / 2, SIZE / 2 + 50);
     let (top, bottom) = (top.map(i32::from), bottom.map(i32::from));
-    assert!(
-        top[0] > top[2] + 40,
-        "upper sphere reflects the red sky: {top:?}"
-    );
-    assert!(
-        bottom[2] > bottom[0] + 40,
-        "lower sphere reflects the blue ground: {bottom:?}"
-    );
+    assert!(top[0] > top[2] + 40, "upper sphere reflects the red sky: {top:?}");
+    assert!(bottom[2] > bottom[0] + 40, "lower sphere reflects the blue ground: {bottom:?}");
     // Procedural mode ignores the HDRI.
     p.environment.use_hdri = false;
-    let proc_img = r
-        .render(&device, &queue, [SIZE, SIZE], &p)
-        .read_rgba8(&device, &queue);
+    let proc_img = r.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
     let t2 = px(&proc_img, SIZE / 2, SIZE / 2 - 50).map(i32::from);
     assert!(t2[0] < t2[2] + 40, "studio sky is not red: {t2:?}");
 }
@@ -1283,10 +648,7 @@ fn hdri_environment_shows_in_reflections() {
 #[test]
 fn oversized_viewport_is_clamped_to_the_device_limit_instead_of_panicking() {
     let _gpu = gpu_test();
-    let Some((_, device, queue)) = headless::device() else {
-        eprintln!("no adapter: skipping");
-        return;
-    };
+    let Some((_, device, queue)) = headless::device() else { eprintln!("no adapter: skipping"); return };
     let limit = device.limits().max_texture_dimension_2d;
     let mut r = ViewportRenderer::new(&device, &queue);
     r.set_mesh(&device, &primitives::cube(2.));
@@ -1311,84 +673,21 @@ fn the_channel_preview_scales_hdr_values_and_colors_their_sign() {
     r.set_mesh(&device, &primitives::cube(2.0));
     let near = |a: u8, v: f32| (a as f32 - v * 255.0).abs() <= 3.0;
     // A height of 2: clipped to white as it is, mid gray with a scale of 4.
-    r.upload_channel(
-        &device,
-        &queue,
-        0,
-        ChannelKind::Height,
-        &TiledImage::new(64, 64, 1, [2.0; 4]),
-        None,
-    );
-    let plain = r
-        .preview_display(
-            &device,
-            &queue,
-            0,
-            PreviewSource::Channel(ChannelKind::Height),
-            &ChannelDisplay::default(),
-        )
-        .unwrap()
-        .read_rgba8(&device, &queue);
+    r.upload_channel(&device, &queue, 0, ChannelKind::Height, &TiledImage::new(64, 64, 1, [2.0; 4]), None);
+    let plain = r.preview_display(&device, &queue, 0, PreviewSource::Channel(ChannelKind::Height), &ChannelDisplay::default()).unwrap().read_rgba8(&device, &queue);
     assert!(near(plain[0], 1.0), "{:?}", &plain[..4]);
-    let scaled = r
-        .preview_display(
-            &device,
-            &queue,
-            0,
-            PreviewSource::Channel(ChannelKind::Height),
-            &ChannelDisplay {
-                hdr_scale: 4.0,
-                ..Default::default()
-            },
-        )
-        .unwrap()
-        .read_rgba8(&device, &queue);
-    assert!(
-        near(scaled[0], 0.5) && scaled[0] == scaled[1] && scaled[1] == scaled[2],
-        "{:?}",
-        &scaled[..4]
-    );
+    let scaled = r.preview_display(&device, &queue, 0, PreviewSource::Channel(ChannelKind::Height), &ChannelDisplay { hdr_scale: 4.0, ..Default::default() }).unwrap().read_rgba8(&device, &queue);
+    assert!(near(scaled[0], 0.5) && scaled[0] == scaled[1] && scaled[1] == scaled[2], "{:?}", &scaled[..4]);
     // A height of -0.5 in the negative color at half strength, and black without sign colors.
-    r.upload_channel(
-        &device,
-        &queue,
-        0,
-        ChannelKind::Height,
-        &TiledImage::new(64, 64, 1, [-0.5; 4]),
-        None,
-    );
-    let unsigned = r
-        .preview_display(
-            &device,
-            &queue,
-            0,
-            PreviewSource::Channel(ChannelKind::Height),
-            &ChannelDisplay::default(),
-        )
-        .unwrap()
-        .read_rgba8(&device, &queue);
+    r.upload_channel(&device, &queue, 0, ChannelKind::Height, &TiledImage::new(64, 64, 1, [-0.5; 4]), None);
+    let unsigned = r.preview_display(&device, &queue, 0, PreviewSource::Channel(ChannelKind::Height), &ChannelDisplay::default()).unwrap().read_rgba8(&device, &queue);
     assert!(near(unsigned[0], 0.0), "{:?}", &unsigned[..4]);
-    let d = ChannelDisplay {
-        signed_colors: true,
-        ..Default::default()
-    };
-    let signed = r
-        .preview_display(
-            &device,
-            &queue,
-            0,
-            PreviewSource::Channel(ChannelKind::Height),
-            &d,
-        )
-        .unwrap()
-        .read_rgba8(&device, &queue);
+    let d = ChannelDisplay { signed_colors: true, ..Default::default() };
+    let signed = r.preview_display(&device, &queue, 0, PreviewSource::Channel(ChannelKind::Height), &d).unwrap().read_rgba8(&device, &queue);
     let want = d.negative.map(|c| c * 0.5);
-    assert!(
-        near(signed[0], want[0]) && near(signed[1], want[1]) && near(signed[2], want[2]),
-        "{:?} vs {want:?}",
-        &signed[..4]
-    );
+    assert!(near(signed[0], want[0]) && near(signed[1], want[1]) && near(signed[2], want[2]), "{:?} vs {want:?}", &signed[..4]);
 }
+
 
 /// Issue #628: the 2D view asks for its preview on every UI frame. Converting a 4K texture each
 /// time kept the GPU near 100% while idle, so a request with nothing changed must reuse the
@@ -1404,79 +703,29 @@ fn the_2d_preview_converts_again_only_when_something_changed() {
     let mut r = ViewportRenderer::new(&device, &queue);
     r.set_mesh(&device, &primitives::cube(2.0));
     let normal = PreviewSource::Channel(ChannelKind::Normal);
-    r.upload_channel(
-        &device,
-        &queue,
-        0,
-        ChannelKind::Normal,
-        &TiledImage::new(64, 64, 4, [0.2, 0.5, 0.8, 1.0]),
-        None,
-    );
-    r.upload_channel(
-        &device,
-        &queue,
-        0,
-        ChannelKind::Roughness,
-        &TiledImage::new(64, 64, 1, [0.3; 4]),
-        None,
-    );
+    r.upload_channel(&device, &queue, 0, ChannelKind::Normal, &TiledImage::new(64, 64, 4, [0.2, 0.5, 0.8, 1.0]), None);
+    r.upload_channel(&device, &queue, 0, ChannelKind::Roughness, &TiledImage::new(64, 64, 1, [0.3; 4]), None);
     let display = ChannelDisplay::default();
-    let first = r
-        .preview_display(&device, &queue, 0, normal, &display)
-        .unwrap()
-        .read_rgba8(&device, &queue);
+    let first = r.preview_display(&device, &queue, 0, normal, &display).unwrap().read_rgba8(&device, &queue);
     assert_eq!(r.preview_runs(), 1);
     for _ in 0..10 {
-        r.preview_display(&device, &queue, 0, normal, &display)
-            .unwrap();
+        r.preview_display(&device, &queue, 0, normal, &display).unwrap();
     }
     assert_eq!(r.preview_runs(), 1, "idle frames reuse the preview");
-    assert_eq!(
-        r.preview_display(&device, &queue, 0, normal, &display)
-            .unwrap()
-            .read_rgba8(&device, &queue),
-        first
-    );
+    assert_eq!(r.preview_display(&device, &queue, 0, normal, &display).unwrap().read_rgba8(&device, &queue), first);
     // New texture contents: converted again, and the new values show.
-    r.upload_channel(
-        &device,
-        &queue,
-        0,
-        ChannelKind::Normal,
-        &TiledImage::new(64, 64, 4, [0.9, 0.1, 0.1, 1.0]),
-        Some(&[0]),
-    );
-    let changed = r
-        .preview_display(&device, &queue, 0, normal, &display)
-        .unwrap()
-        .read_rgba8(&device, &queue);
+    r.upload_channel(&device, &queue, 0, ChannelKind::Normal, &TiledImage::new(64, 64, 4, [0.9, 0.1, 0.1, 1.0]), Some(&[0]));
+    let changed = r.preview_display(&device, &queue, 0, normal, &display).unwrap().read_rgba8(&device, &queue);
     assert_eq!(r.preview_runs(), 2);
     assert!((changed[0] as i32 - 230).abs() <= 2, "{:?}", &changed[..4]);
     // Another display setting, another channel, another texture set: each converts once.
-    let red = ChannelDisplay {
-        component: ChannelComponent::R,
-        ..display
-    };
+    let red = ChannelDisplay { component: ChannelComponent::R, ..display };
     r.preview_display(&device, &queue, 0, normal, &red).unwrap();
     r.preview_display(&device, &queue, 0, normal, &red).unwrap();
     assert_eq!(r.preview_runs(), 3);
-    r.preview_display(
-        &device,
-        &queue,
-        0,
-        PreviewSource::Channel(ChannelKind::Roughness),
-        &red,
-    )
-    .unwrap();
+    r.preview_display(&device, &queue, 0, PreviewSource::Channel(ChannelKind::Roughness), &red).unwrap();
     assert_eq!(r.preview_runs(), 4);
-    r.upload_channel(
-        &device,
-        &queue,
-        1,
-        ChannelKind::Normal,
-        &TiledImage::new(64, 64, 4, [0.5; 4]),
-        None,
-    );
+    r.upload_channel(&device, &queue, 1, ChannelKind::Normal, &TiledImage::new(64, 64, 4, [0.5; 4]), None);
     r.preview_display(&device, &queue, 1, normal, &red).unwrap();
     r.preview_display(&device, &queue, 1, normal, &red).unwrap();
     assert_eq!(r.preview_runs(), 5);

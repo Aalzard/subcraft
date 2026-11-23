@@ -57,76 +57,35 @@ pub(crate) struct Oit {
 
 impl Oit {
     /// `layout` and `shader` are the viewport's (the draw pipelines run its `fs_oit`).
-    pub(crate) fn new(
-        device: &wgpu::Device,
-        layout: &wgpu::PipelineLayout,
-        shader: &wgpu::ShaderModule,
-        vertex: wgpu::VertexBufferLayout<'static>,
-        msaa_samples: u32,
-    ) -> Self {
-        let add = wgpu::BlendComponent {
-            src_factor: wgpu::BlendFactor::One,
-            dst_factor: wgpu::BlendFactor::One,
-            operation: wgpu::BlendOperation::Add,
-        };
-        let keep_share = wgpu::BlendComponent {
-            src_factor: wgpu::BlendFactor::Zero,
-            dst_factor: wgpu::BlendFactor::OneMinusSrc,
-            operation: wgpu::BlendOperation::Add,
-        };
-        let draw = |samples: u32| {
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some("oit draw"),
-                layout: Some(layout),
-                vertex: wgpu::VertexState {
-                    module: shader,
-                    entry_point: Some("vs_main"),
-                    compilation_options: Default::default(),
-                    buffers: &[Some(vertex.clone())],
-                },
-                primitive: wgpu::PrimitiveState {
-                    cull_mode: None,
-                    ..Default::default()
-                },
-                // Hidden behind opaque surfaces, never hiding each other.
-                depth_stencil: Some(wgpu::DepthStencilState {
-                    format: crate::target::DEPTH_FORMAT,
-                    depth_write_enabled: Some(false),
-                    depth_compare: Some(wgpu::CompareFunction::Less),
-                    stencil: Default::default(),
-                    bias: Default::default(),
-                }),
-                multisample: wgpu::MultisampleState {
-                    count: samples,
-                    ..Default::default()
-                },
-                fragment: Some(wgpu::FragmentState {
-                    module: shader,
-                    entry_point: Some("fs_oit"),
-                    compilation_options: Default::default(),
-                    targets: &[
-                        Some(wgpu::ColorTargetState {
-                            format: ACCUM_FORMAT,
-                            blend: Some(wgpu::BlendState {
-                                color: add,
-                                alpha: add,
-                            }),
-                            write_mask: wgpu::ColorWrites::ALL,
-                        }),
-                        Some(wgpu::ColorTargetState {
-                            format: REVEAL_FORMAT,
-                            blend: Some(wgpu::BlendState {
-                                color: keep_share,
-                                alpha: keep_share,
-                            }),
-                            write_mask: wgpu::ColorWrites::RED,
-                        }),
-                    ],
-                }),
-                multiview_mask: None,
-                cache: None,
-            })
-        };
+    pub(crate) fn new(device: &wgpu::Device, layout: &wgpu::PipelineLayout, shader: &wgpu::ShaderModule, vertex: wgpu::VertexBufferLayout<'static>, msaa_samples: u32) -> Self {
+        let add = wgpu::BlendComponent { src_factor: wgpu::BlendFactor::One, dst_factor: wgpu::BlendFactor::One, operation: wgpu::BlendOperation::Add };
+        let keep_share = wgpu::BlendComponent { src_factor: wgpu::BlendFactor::Zero, dst_factor: wgpu::BlendFactor::OneMinusSrc, operation: wgpu::BlendOperation::Add };
+        let draw = |samples: u32| device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("oit draw"),
+            layout: Some(layout),
+            vertex: wgpu::VertexState { module: shader, entry_point: Some("vs_main"), compilation_options: Default::default(), buffers: &[Some(vertex.clone())] },
+            primitive: wgpu::PrimitiveState { cull_mode: None, ..Default::default() },
+            // Hidden behind opaque surfaces, never hiding each other.
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: crate::target::DEPTH_FORMAT,
+                depth_write_enabled: Some(false),
+                depth_compare: Some(wgpu::CompareFunction::Less),
+                stencil: Default::default(),
+                bias: Default::default(),
+            }),
+            multisample: wgpu::MultisampleState { count: samples, ..Default::default() },
+            fragment: Some(wgpu::FragmentState {
+                module: shader,
+                entry_point: Some("fs_oit"),
+                compilation_options: Default::default(),
+                targets: &[
+                    Some(wgpu::ColorTargetState { format: ACCUM_FORMAT, blend: Some(wgpu::BlendState { color: add, alpha: add }), write_mask: wgpu::ColorWrites::ALL }),
+                    Some(wgpu::ColorTargetState { format: REVEAL_FORMAT, blend: Some(wgpu::BlendState { color: keep_share, alpha: keep_share }), write_mask: wgpu::ColorWrites::RED }),
+                ],
+            }),
+            multiview_mask: None,
+            cache: None,
+        });
         let composite_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("oit composite shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("oit.wgsl").into()),
@@ -141,10 +100,7 @@ impl Oit {
             },
             count: None,
         };
-        let bind_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("oit composite"),
-            entries: &[tex(0), tex(1)],
-        });
+        let bind_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { label: Some("oit composite"), entries: &[tex(0), tex(1)] });
         let composite_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("oit composite layout"),
             bind_group_layouts: &[Some(&bind_layout)],
@@ -153,12 +109,7 @@ impl Oit {
         let composite = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("oit composite"),
             layout: Some(&composite_layout),
-            vertex: wgpu::VertexState {
-                module: &composite_shader,
-                entry_point: Some("vs_full"),
-                compilation_options: Default::default(),
-                buffers: &[],
-            },
+            vertex: wgpu::VertexState { module: &composite_shader, entry_point: Some("vs_full"), compilation_options: Default::default(), buffers: &[] },
             primitive: Default::default(),
             depth_stencil: None,
             multisample: Default::default(),
@@ -170,16 +121,8 @@ impl Oit {
                 targets: &[Some(wgpu::ColorTargetState {
                     format: crate::target::OUTPUT_FORMAT,
                     blend: Some(wgpu::BlendState {
-                        color: wgpu::BlendComponent {
-                            src_factor: wgpu::BlendFactor::SrcAlpha,
-                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-                            operation: wgpu::BlendOperation::Add,
-                        },
-                        alpha: wgpu::BlendComponent {
-                            src_factor: wgpu::BlendFactor::Zero,
-                            dst_factor: wgpu::BlendFactor::One,
-                            operation: wgpu::BlendOperation::Add,
-                        },
+                        color: wgpu::BlendComponent { src_factor: wgpu::BlendFactor::SrcAlpha, dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha, operation: wgpu::BlendOperation::Add },
+                        alpha: wgpu::BlendComponent { src_factor: wgpu::BlendFactor::Zero, dst_factor: wgpu::BlendFactor::One, operation: wgpu::BlendOperation::Add },
                     }),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
@@ -187,60 +130,29 @@ impl Oit {
             multiview_mask: None,
             cache: None,
         });
-        Self {
-            draw: [draw(msaa_samples), draw(1)],
-            draw_samples: msaa_samples,
-            composite,
-            layout: bind_layout,
-            targets: None,
-        }
+        Self { draw: [draw(msaa_samples), draw(1)], draw_samples: msaa_samples, composite, layout: bind_layout, targets: None }
     }
 
     /// Targets for a `size` image drawn with `samples` per pixel.
     pub(crate) fn ensure(&mut self, device: &wgpu::Device, size: [u32; 2], samples: u32) {
-        if self
-            .targets
-            .as_ref()
-            .is_some_and(|t| t.size == size && t.samples == samples)
-        {
+        if self.targets.as_ref().is_some_and(|t| t.size == size && t.samples == samples) {
             return;
         }
-        let make = |label, format, samples, usage| {
-            device
-                .create_texture(&wgpu::TextureDescriptor {
-                    label: Some(label),
-                    size: wgpu::Extent3d {
-                        width: size[0],
-                        height: size[1],
-                        depth_or_array_layers: 1,
-                    },
-                    mip_level_count: 1,
-                    sample_count: samples,
-                    dimension: wgpu::TextureDimension::D2,
-                    format,
-                    usage,
-                    view_formats: &[],
-                })
-                .create_view(&wgpu::TextureViewDescriptor::default())
-        };
+        let make = |label, format, samples, usage| device.create_texture(&wgpu::TextureDescriptor {
+            label: Some(label),
+            size: wgpu::Extent3d { width: size[0], height: size[1], depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: samples,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage,
+            view_formats: &[],
+        }).create_view(&wgpu::TextureViewDescriptor::default());
         let plain = wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING;
         let accum = make("oit accum", ACCUM_FORMAT, 1, plain);
         let reveal = make("oit reveal", REVEAL_FORMAT, 1, plain);
         let (accum_ms, reveal_ms) = if samples > 1 {
-            (
-                Some(make(
-                    "oit accum msaa",
-                    ACCUM_FORMAT,
-                    samples,
-                    wgpu::TextureUsages::RENDER_ATTACHMENT,
-                )),
-                Some(make(
-                    "oit reveal msaa",
-                    REVEAL_FORMAT,
-                    samples,
-                    wgpu::TextureUsages::RENDER_ATTACHMENT,
-                )),
-            )
+            (Some(make("oit accum msaa", ACCUM_FORMAT, samples, wgpu::TextureUsages::RENDER_ATTACHMENT)), Some(make("oit reveal msaa", REVEAL_FORMAT, samples, wgpu::TextureUsages::RENDER_ATTACHMENT)))
         } else {
             (None, None)
         };
@@ -248,84 +160,41 @@ impl Oit {
             label: Some("oit composite"),
             layout: &self.layout,
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&accum),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&reveal),
-                },
+                wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&accum) },
+                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&reveal) },
             ],
         });
-        self.targets = Some(Targets {
-            size,
-            samples,
-            accum_ms,
-            reveal_ms,
-            accum,
-            reveal,
-            bind,
-        });
+        self.targets = Some(Targets { size, samples, accum_ms, reveal_ms, accum, reveal, bind });
     }
 
     /// The pass the blended texture sets are drawn in (over `depth`, the main pass's depth),
     /// with the draw pipeline set. Call [`Self::ensure`] first.
-    pub(crate) fn begin<'e>(
-        &self,
-        encoder: &'e mut wgpu::CommandEncoder,
-        depth: &wgpu::TextureView,
-    ) -> wgpu::RenderPass<'e> {
+    pub(crate) fn begin<'e>(&self, encoder: &'e mut wgpu::CommandEncoder, depth: &wgpu::TextureView) -> wgpu::RenderPass<'e> {
         let t = self.targets.as_ref().expect("ensure first");
-        fn attach<'a>(
-            ms: &'a Option<wgpu::TextureView>,
-            plain: &'a wgpu::TextureView,
-            clear: f64,
-        ) -> Option<wgpu::RenderPassColorAttachment<'a>> {
+        fn attach<'a>(ms: &'a Option<wgpu::TextureView>, plain: &'a wgpu::TextureView, clear: f64) -> Option<wgpu::RenderPassColorAttachment<'a>> {
             Some(wgpu::RenderPassColorAttachment {
                 view: ms.as_ref().unwrap_or(plain),
                 depth_slice: None,
                 resolve_target: ms.as_ref().map(|_| plain),
                 ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color {
-                        r: clear,
-                        g: clear,
-                        b: clear,
-                        a: clear,
-                    }),
-                    store: if ms.is_some() {
-                        wgpu::StoreOp::Discard
-                    } else {
-                        wgpu::StoreOp::Store
-                    },
+                    load: wgpu::LoadOp::Clear(wgpu::Color { r: clear, g: clear, b: clear, a: clear }),
+                    store: if ms.is_some() { wgpu::StoreOp::Discard } else { wgpu::StoreOp::Store },
                 },
             })
         }
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("oit pass"),
-            color_attachments: &[
-                attach(&t.accum_ms, &t.accum, 0.0),
-                attach(&t.reveal_ms, &t.reveal, 1.0),
-            ],
+            color_attachments: &[attach(&t.accum_ms, &t.accum, 0.0), attach(&t.reveal_ms, &t.reveal, 1.0)],
             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                 view: depth,
-                depth_ops: Some(wgpu::Operations {
-                    load: wgpu::LoadOp::Load,
-                    store: wgpu::StoreOp::Discard,
-                }),
+                depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Discard }),
                 stencil_ops: None,
             }),
             timestamp_writes: None,
             occlusion_query_set: None,
             multiview_mask: None,
         });
-        pass.set_pipeline(
-            &self.draw[if t.samples > 1 && t.samples == self.draw_samples {
-                0
-            } else {
-                1
-            }],
-        );
+        pass.set_pipeline(&self.draw[if t.samples > 1 && t.samples == self.draw_samples { 0 } else { 1 }]);
         pass
     }
 
@@ -338,10 +207,7 @@ impl Oit {
                 view: output,
                 depth_slice: None,
                 resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Load,
-                    store: wgpu::StoreOp::Store,
-                },
+                ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store },
             })],
             depth_stencil_attachment: None,
             timestamp_writes: None,
@@ -370,12 +236,7 @@ mod tests {
         assert!(a[0] > a[2] && a[0] + a[2] > 0.999, "{a:?}");
         // One layer alone shows its own colour and coverage.
         let (one, cov) = composite_reference(&[([0.2, 0.4, 0.6], 0.3, 0.5)]);
-        assert!(
-            one.iter()
-                .zip([0.2, 0.4, 0.6])
-                .all(|(x, y)| (x - y).abs() < 1e-5)
-                && (cov - 0.3).abs() < 1e-6
-        );
+        assert!(one.iter().zip([0.2, 0.4, 0.6]).all(|(x, y)| (x - y).abs() < 1e-5) && (cov - 0.3).abs() < 1e-6);
     }
 
     #[test]

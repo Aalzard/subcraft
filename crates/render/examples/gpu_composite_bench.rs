@@ -16,8 +16,7 @@ use subcraft_compositor::gpu::{self, take_gpu_stats};
 use subcraft_compositor::{CompositeCache, EvalContext};
 use subcraft_core::{ChannelKind, ChannelValue, LayerId};
 use subcraft_doc::{
-    BlendMode, ContentEffectKind, FillChannel, FillSource, Layer, LayerContent, MaskEffectKind,
-    ResourceStore, TextureSet,
+    BlendMode, ContentEffectKind, FillChannel, FillSource, Layer, LayerContent, MaskEffectKind, ResourceStore, TextureSet,
 };
 use subcraft_materials::{MeshMaps, TextureSetGeometry};
 
@@ -48,9 +47,7 @@ fn strip_spatial(ts: &mut TextureSet) {
             let layer = Arc::make_mut(l);
             layer.content_effects.retain(|e| !matches!(&e.kind, ContentEffectKind::Filter { filter, .. } if filter.radius().is_some()));
             if let Some(m) = &mut layer.mask {
-                m.effects.retain(
-                    |e| !matches!(&e.kind, MaskEffectKind::Filter(f) if f.radius().is_some()),
-                );
+                m.effects.retain(|e| !matches!(&e.kind, MaskEffectKind::Filter(f) if f.radius().is_some()));
             }
             if let LayerContent::Group(g) = &mut layer.content {
                 walk(&mut g.children);
@@ -70,14 +67,8 @@ fn paint_stack(res: u32, layers: usize) -> Scene {
         let f = i as f32 / layers as f32;
         let mut layer = if i % 4 == 0 {
             let mut l = Layer::new_paint("P", &base);
-            let LayerContent::Paint(p) = &mut l.content else {
-                unreachable!()
-            };
-            let kind = if i % 8 == 0 {
-                ChannelKind::BaseColor
-            } else {
-                ChannelKind::Roughness
-            };
+            let LayerContent::Paint(p) = &mut l.content else { unreachable!() };
+            let kind = if i % 8 == 0 { ChannelKind::BaseColor } else { ChannelKind::Roughness };
             let img = p.channel_mut(kind, res);
             let comps = img.comps();
             let mut buf = vec![0.0f32; 4096 * comps];
@@ -89,12 +80,7 @@ fn paint_stack(res: u32, layers: usize) -> Scene {
                 for (n, px) in buf.chunks_exact_mut(comps).enumerate() {
                     let a = 0.4 + 0.6 * (((n % 64) as f32 + (n / 64) as f32) / 128.0);
                     if comps == 4 {
-                        px.copy_from_slice(&[
-                            0.2 + 0.7 * f,
-                            0.6 - 0.4 * f,
-                            0.3 + (tx as f32 / tiles as f32) * 0.5,
-                            a,
-                        ]);
+                        px.copy_from_slice(&[0.2 + 0.7 * f, 0.6 - 0.4 * f, 0.3 + (tx as f32 / tiles as f32) * 0.5, a]);
                     } else {
                         px.copy_from_slice(&[0.2 + 0.7 * f, a]);
                     }
@@ -104,31 +90,18 @@ fn paint_stack(res: u32, layers: usize) -> Scene {
             l
         } else {
             let mut l = Layer::new_fill("F", &base);
-            let LayerContent::Fill(c) = &mut l.content else {
-                unreachable!()
-            };
+            let LayerContent::Fill(c) = &mut l.content else { unreachable!() };
             for (k, ch) in c.channels.iter_mut() {
                 ch.enabled = false;
                 if *k == ChannelKind::BaseColor {
-                    *ch = FillChannel::new(FillSource::uniform(ChannelValue::rgb(
-                        0.3 + 0.5 * f,
-                        0.4,
-                        0.8 - 0.5 * f,
-                    )));
+                    *ch = FillChannel::new(FillSource::uniform(ChannelValue::rgb(0.3 + 0.5 * f, 0.4, 0.8 - 0.5 * f)));
                 } else if *k == ChannelKind::Roughness {
-                    *ch =
-                        FillChannel::new(FillSource::uniform(ChannelValue::scalar(0.2 + 0.7 * f)));
+                    *ch = FillChannel::new(FillSource::uniform(ChannelValue::scalar(0.2 + 0.7 * f)));
                 }
             }
             l
         };
-        let mode = [
-            BlendMode::Normal,
-            BlendMode::Multiply,
-            BlendMode::Overlay,
-            BlendMode::Screen,
-            BlendMode::SoftLight,
-        ][i % 5];
+        let mode = [BlendMode::Normal, BlendMode::Multiply, BlendMode::Overlay, BlendMode::Screen, BlendMode::SoftLight][i % 5];
         for b in layer.blend.values_mut() {
             b.mode = mode;
             b.opacity = 0.5 + 0.5 * ((i * 3 % 7) as f32 / 7.0);
@@ -155,24 +128,11 @@ fn paint_stack(res: u32, layers: usize) -> Scene {
         b.opacity = 0.8;
     }
     let top = *ids.last().unwrap();
-    Scene {
-        name: "paint + uniform fills + folder",
-        ts,
-        top,
-        mid: ids[ids.len() / 2],
-    }
+    Scene { name: "paint + uniform fills + folder", ts, top, mid: ids[ids.len() / 2] }
 }
 
-fn eval_context<'a>(
-    geo: &'a TextureSetGeometry,
-    res: &'a ResourceStore,
-    maps: &'a MeshMaps,
-) -> EvalContext<'a> {
-    EvalContext {
-        geometry: geo,
-        resources: res,
-        mesh_maps: maps,
-    }
+fn eval_context<'a>(geo: &'a TextureSetGeometry, res: &'a ResourceStore, maps: &'a MeshMaps) -> EvalContext<'a> {
+    EvalContext { geometry: geo, resources: res, mesh_maps: maps }
 }
 
 struct Run {
@@ -186,11 +146,7 @@ fn update(cache: &mut CompositeCache, ts: &TextureSet, ctx: &EvalContext, use_gp
     let _ = take_gpu_stats();
     let t = Instant::now();
     let tiles = cache.update(ts, ctx).len();
-    Run {
-        total: ms(t),
-        tiles,
-        stats: take_gpu_stats(),
-    }
+    Run { total: ms(t), tiles, stats: take_gpu_stats() }
 }
 
 fn describe(r: &Run) -> String {
@@ -200,27 +156,13 @@ fn describe(r: &Run) -> String {
     }
     format!(
         "{:>8.0} ms, {} tiles ({} on GPU): prep {:.0} + upload {:.0} + gpu {:.0} (kernels {:.0}) + readback {:.0} + store {:.0}; uploaded {} MB, cache {}/{} hit",
-        r.total,
-        r.tiles,
-        s.tiles,
-        s.prep_ms,
-        s.timing.upload_ms,
-        s.timing.gpu_ms,
-        s.timing.kernel_ms,
-        s.timing.readback_ms,
-        s.apply_ms,
-        s.timing.uploaded_bytes >> 20,
-        s.timing.cache_hits,
-        s.timing.cache_hits + s.timing.cache_misses
+        r.total, r.tiles, s.tiles, s.prep_ms, s.timing.upload_ms, s.timing.gpu_ms, s.timing.kernel_ms, s.timing.readback_ms, s.apply_ms,
+        s.timing.uploaded_bytes >> 20, s.timing.cache_hits, s.timing.cache_hits + s.timing.cache_misses
     )
 }
 
 fn bench_scene(scene: &Scene, res: u32, reps: usize) {
-    println!(
-        "\n== {} ({res}², {} top-level layers)",
-        scene.name,
-        scene.ts.layers.len()
-    );
+    println!("\n== {} ({res}², {} top-level layers)", scene.name, scene.ts.layers.len());
     let mesh = subcraft_mesh::primitives::uv_sphere(1.0, 64, 64);
     let geo = TextureSetGeometry::new(Arc::new(mesh), 0, res);
     let (resources, maps) = (ResourceStore::default(), MeshMaps::new());
@@ -243,11 +185,7 @@ fn bench_scene(scene: &Scene, res: u32, reps: usize) {
             }
             last = Some(r);
         }
-        println!(
-            "{label} toggle mid layer    : median {:>6.0} ms | last {}",
-            median(times),
-            describe(&last.unwrap())
-        );
+        println!("{label} toggle mid layer    : median {:>6.0} ms | last {}", median(times), describe(&last.unwrap()));
         let mut times = Vec::new();
         let mut last = None;
         for i in 0..reps {
@@ -258,11 +196,7 @@ fn bench_scene(scene: &Scene, res: u32, reps: usize) {
             times.push(r.total);
             last = Some(r);
         }
-        println!(
-            "{label} opacity, top layer  : median {:>6.0} ms | last {}",
-            median(times),
-            describe(&last.unwrap())
-        );
+        println!("{label} opacity, top layer  : median {:>6.0} ms | last {}", median(times), describe(&last.unwrap()));
         let mut times = Vec::new();
         let mut last = None;
         for i in 0..reps {
@@ -273,23 +207,14 @@ fn bench_scene(scene: &Scene, res: u32, reps: usize) {
             times.push(r.total);
             last = Some(r);
         }
-        println!(
-            "{label} opacity, mid layer  : median {:>6.0} ms | last {}",
-            median(times),
-            describe(&last.unwrap())
-        );
+        println!("{label} opacity, mid layer  : median {:>6.0} ms | last {}", median(times), describe(&last.unwrap()));
         // One channel only (what an opacity slider or a fill color changes): only that channel
         // is blended again. Checked against a cold composite of the same state.
         let mut times = Vec::new();
         let mut last = None;
         for i in 0..reps {
             let l = ts.find_mut(scene.mid).unwrap();
-            let Some(kind) = [ChannelKind::BaseColor, ChannelKind::Roughness]
-                .into_iter()
-                .find(|k| l.blend_for(*k).is_active())
-            else {
-                break;
-            };
+            let Some(kind) = [ChannelKind::BaseColor, ChannelKind::Roughness].into_iter().find(|k| l.blend_for(*k).is_active()) else { break };
             if let Some(b) = l.blend.get_mut(&kind) {
                 b.opacity = 0.8 - 0.04 * i as f32;
             }
@@ -301,12 +226,7 @@ fn bench_scene(scene: &Scene, res: u32, reps: usize) {
             let mut cold = CompositeCache::new();
             update(&mut cold, &ts, &ctx, use_gpu);
             let same = cache.composite() == cold.composite();
-            println!(
-                "{label} opacity, mid, 1 chan: median {:>6.0} ms | last {} | limited to {:?}, identical to a cold composite: {same}",
-                median(times),
-                describe(&last),
-                cache.limited_to()
-            );
+            println!("{label} opacity, mid, 1 chan: median {:>6.0} ms | last {} | limited to {:?}, identical to a cold composite: {same}", median(times), describe(&last), cache.limited_to());
         }
     }
     gpu::set_gpu_compositing_enabled(true);
@@ -317,14 +237,10 @@ fn main() {
     let res: u32 = args.next().and_then(|a| a.parse().ok()).unwrap_or(4096);
     let layers: usize = args.next().and_then(|a| a.parse().ok()).unwrap_or(40);
     let reps: usize = args.next().and_then(|a| a.parse().ok()).unwrap_or(3);
-    subcraft_compositor::gpu::register_gpu_compositor(
-        subcraft_render::gpu_composite::create_backend,
-    );
+    subcraft_compositor::gpu::register_gpu_compositor(subcraft_render::gpu_composite::create_backend);
     match gpu::gpu_backend_name() {
         Some(n) => println!("GPU backend: {n}"),
-        None => println!(
-            "no usable GPU backend (software adapters are refused): GPU rows will show CPU"
-        ),
+        None => println!("no usable GPU backend (software adapters are refused): GPU rows will show CPU"),
     }
     println!("threads: {}", rayon::current_num_threads());
     // big_project_bench stack, built through the real session commands.
@@ -338,25 +254,11 @@ fn main() {
         bench_scene(&paint_stack(res, layers), res, reps);
         return;
     }
-    let scene = Scene {
-        name: "big_project_bench stack as shipped",
-        top: *ids.last().unwrap(),
-        mid: ids[ids.len() / 2],
-        ts: ts.clone(),
-    };
+    let scene = Scene { name: "big_project_bench stack as shipped", top: *ids.last().unwrap(), mid: ids[ids.len() / 2], ts: ts.clone() };
     bench_scene(&scene, res, reps);
     let mut stripped = ts;
     strip_spatial(&mut stripped);
-    bench_scene(
-        &Scene {
-            name: "big_project_bench stack, neighborhood filters removed",
-            ts: stripped,
-            top: scene.top,
-            mid: scene.mid,
-        },
-        res,
-        reps,
-    );
+    bench_scene(&Scene { name: "big_project_bench stack, neighborhood filters removed", ts: stripped, top: scene.top, mid: scene.mid }, res, reps);
     drop(s);
     bench_scene(&paint_stack(res, layers), res, reps);
 }

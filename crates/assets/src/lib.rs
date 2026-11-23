@@ -4,23 +4,21 @@
 
 pub mod alphas;
 pub mod default_model;
-pub mod environment;
-pub mod materials_pack;
 pub mod open_pack;
 pub mod pbr_pack;
-pub mod presets;
 pub mod preview;
-pub mod smart;
-mod smart_extra;
-mod smart_more;
 pub mod starter;
+pub mod environment;
+pub mod presets;
+pub mod smart;
+mod smart_more;
+mod smart_extra;
 pub mod texture_maps;
+pub mod materials_pack;
 pub mod user_library;
 
 pub use alphas::BrushAlpha;
-pub use environment::{
-    EmbeddedHdri, Environment, EnvironmentSource, HdriLevel, PrefilteredHdri, ProceduralEnv,
-};
+pub use environment::{EmbeddedHdri, Environment, EnvironmentSource, HdriLevel, PrefilteredHdri, ProceduralEnv};
 pub use presets::{ImageIds, MaterialPreset, PresetImage, SmartMask};
 pub use smart::SmartMaterial;
 pub use smart_extra::{AssetInfo, smart_mask_info, smart_material_info};

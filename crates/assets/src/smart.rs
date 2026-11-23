@@ -4,14 +4,9 @@
 use std::sync::Arc;
 
 use subcraft_core::{AssetId, ChannelKind};
-use subcraft_doc::{
-    BlendMode, GeneratorKind, Layer, LayerContent, Mask, MaskEffect, MaskEffectKind,
-    ProceduralKind, ProceduralParams, TextureSet,
-};
+use subcraft_doc::{BlendMode, GeneratorKind, Layer, LayerContent, Mask, MaskEffect, MaskEffectKind, ProceduralKind, ProceduralParams, TextureSet};
 
-use crate::presets::{
-    ImageIds, MaterialPreset, PresetImage, ambient_occlusion, dirt_generator, generator, materials,
-};
+use crate::presets::{ambient_occlusion, dirt_generator, ImageIds, MaterialPreset, PresetImage, generator, materials};
 
 #[derive(Clone)]
 pub struct SmartMaterial {
@@ -28,18 +23,12 @@ pub struct SmartMaterial {
 enum SmartSource {
     Builtin(Arc<dyn Fn(&TextureSet, &ImageIds) -> Layer + Send + Sync>),
     /// A layer saved by the user, with the images it uses and the resolution its rasters have.
-    Saved {
-        layer: Arc<Layer>,
-        resolution: u32,
-        resources: Vec<Arc<subcraft_doc::Resource>>,
-    },
+    Saved { layer: Arc<Layer>, resolution: u32, resources: Vec<Arc<subcraft_doc::Resource>> },
 }
 
 impl std::fmt::Debug for SmartMaterial {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("SmartMaterial")
-            .field("name", &self.name)
-            .finish()
+        f.debug_struct("SmartMaterial").field("name", &self.name).finish()
     }
 }
 
@@ -52,18 +41,11 @@ impl SmartMaterial {
         resources: Vec<Arc<subcraft_doc::Resource>>,
         user_file: Option<std::path::PathBuf>,
     ) -> Self {
-        let key = user_file
-            .as_ref()
-            .map(|p| p.display().to_string())
-            .unwrap_or_else(|| name.clone());
+        let key = user_file.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| name.clone());
         Self {
             id: AssetId::from_name(&format!("smart/user/{key}")),
             name,
-            source: SmartSource::Saved {
-                layer: Arc::new(layer),
-                resolution,
-                resources,
-            },
+            source: SmartSource::Saved { layer: Arc::new(layer), resolution, resources },
             images: Vec::new(),
             user_file,
         }
@@ -79,9 +61,7 @@ impl SmartMaterial {
     pub fn build_with(&self, ts: &TextureSet, ids: &ImageIds) -> Layer {
         match &self.source {
             SmartSource::Builtin(f) => f(ts, ids),
-            SmartSource::Saved {
-                layer, resolution, ..
-            } => {
+            SmartSource::Saved { layer, resolution, .. } => {
                 let mut l = layer.duplicate_with_new_ids();
                 if *resolution != ts.resolution {
                     let r = ts.resolution;
@@ -107,10 +87,7 @@ impl SmartMaterial {
 }
 
 pub(crate) fn base(name: &str) -> MaterialPreset {
-    materials()
-        .into_iter()
-        .find(|m| m.name == name)
-        .expect("built-in material exists")
+    materials().into_iter().find(|m| m.name == name).expect("built-in material exists")
 }
 
 /// A uniform-color dielectric layer.
@@ -121,20 +98,9 @@ pub(crate) fn coat(ts: &TextureSet, name: &str, color: [f32; 3], rough: f32, met
         category: "",
         images: Vec::new(),
         channels: vec![
-            (
-                ChannelKind::BaseColor,
-                subcraft_doc::FillSource::uniform(subcraft_core::ChannelValue::rgb(
-                    color[0], color[1], color[2],
-                )),
-            ),
-            (
-                ChannelKind::Roughness,
-                subcraft_doc::FillSource::uniform(subcraft_core::ChannelValue::scalar(rough)),
-            ),
-            (
-                ChannelKind::Metallic,
-                subcraft_doc::FillSource::uniform(subcraft_core::ChannelValue::scalar(metal)),
-            ),
+            (ChannelKind::BaseColor, subcraft_doc::FillSource::uniform(subcraft_core::ChannelValue::rgb(color[0], color[1], color[2]))),
+            (ChannelKind::Roughness, subcraft_doc::FillSource::uniform(subcraft_core::ChannelValue::scalar(rough))),
+            (ChannelKind::Metallic, subcraft_doc::FillSource::uniform(subcraft_core::ChannelValue::scalar(metal))),
         ],
         projection: Default::default(),
     };
@@ -155,26 +121,14 @@ pub(crate) fn occlusion(ts: &TextureSet) -> Layer {
         category: "",
         images: Vec::new(),
         channels: vec![
-            (
-                ChannelKind::BaseColor,
-                subcraft_doc::FillSource::uniform(subcraft_core::ChannelValue::rgb(
-                    0.02, 0.018, 0.016,
-                )),
-            ),
-            (
-                ChannelKind::Roughness,
-                subcraft_doc::FillSource::uniform(subcraft_core::ChannelValue::scalar(0.8)),
-            ),
+            (ChannelKind::BaseColor, subcraft_doc::FillSource::uniform(subcraft_core::ChannelValue::rgb(0.02, 0.018, 0.016))),
+            (ChannelKind::Roughness, subcraft_doc::FillSource::uniform(subcraft_core::ChannelValue::scalar(0.8))),
         ],
         projection: Default::default(),
     };
     let mut layer = masked(m.build(ts), ts, vec![fx(ambient_occlusion())]);
     for ch in [ChannelKind::BaseColor, ChannelKind::Roughness] {
-        layer
-            .blend
-            .entry(ch)
-            .or_insert_with(|| subcraft_doc::ChannelBlend::new(BlendMode::Normal))
-            .opacity = OCCLUSION_OPACITY;
+        layer.blend.entry(ch).or_insert_with(|| subcraft_doc::ChannelBlend::new(BlendMode::Normal)).opacity = OCCLUSION_OPACITY;
     }
     layer
 }
@@ -191,26 +145,14 @@ pub(crate) fn fx(kind: MaskEffectKind) -> MaskEffect {
 }
 
 pub(crate) fn fx_blend(kind: MaskEffectKind, blend: BlendMode) -> MaskEffect {
-    MaskEffect {
-        blend,
-        ..MaskEffect::new(kind)
-    }
+    MaskEffect { blend, ..MaskEffect::new(kind) }
 }
 
 pub(crate) fn grunge(scale: f32, seed: u32) -> MaskEffectKind {
     MaskEffectKind::Fill {
         value: 1.0,
-        procedural: Some(ProceduralParams {
-            scale,
-            seed,
-            contrast: 0.3,
-            ..ProceduralParams::new(ProceduralKind::Grunge)
-        }),
-        projection: subcraft_doc::Projection {
-            mode: subcraft_doc::ProjectionMode::Triplanar,
-            scale: [2.0, 2.0],
-            ..Default::default()
-        },
+        procedural: Some(ProceduralParams { scale, seed, contrast: 0.3, ..ProceduralParams::new(ProceduralKind::Grunge) }),
+        projection: subcraft_doc::Projection { mode: subcraft_doc::ProjectionMode::Triplanar, scale: [2.0, 2.0], ..Default::default() },
     }
 }
 
@@ -224,60 +166,27 @@ pub(crate) fn folder(name: &str, ts: &TextureSet, children: Vec<Layer>) -> Layer
 }
 
 fn worn_painted_metal(ts: &TextureSet) -> Layer {
-    let paint = masked(
-        coat(ts, "Paint", [0.12, 0.2, 0.32], 0.5, 0.0),
-        ts,
-        vec![fx(generator(GeneratorKind::Edges, 0.6, 0.08, 0.4, true))],
-    );
-    let dirt = masked(
-        coat(ts, "Dirt", [0.06, 0.045, 0.03], 0.9, 0.0),
-        ts,
-        vec![fx(dirt_generator())],
-    );
-    folder(
-        "Worn Painted Metal",
-        ts,
-        vec![base("Steel").build(ts), paint, occlusion(ts), dirt],
-    )
+    let paint = masked(coat(ts, "Paint", [0.12, 0.2, 0.32], 0.5, 0.0), ts, vec![fx(generator(GeneratorKind::Edges, 0.6, 0.08, 0.4, true))]);
+    let dirt = masked(coat(ts, "Dirt", [0.06, 0.045, 0.03], 0.9, 0.0), ts, vec![fx(dirt_generator())]);
+    folder("Worn Painted Metal", ts, vec![base("Steel").build(ts), paint, occlusion(ts), dirt])
 }
 
 fn rusty_iron(ts: &TextureSet) -> Layer {
     let rust = masked(
         base("Rust").build(ts),
         ts,
-        vec![
-            fx(dirt_generator()),
-            fx_blend(grunge(5.0, 7), BlendMode::Multiply),
-        ],
+        vec![fx(dirt_generator()), fx_blend(grunge(5.0, 7), BlendMode::Multiply)],
     );
     folder("Rusty Iron", ts, vec![base("Iron Rough").build(ts), rust])
 }
 
 fn dusty_plastic(ts: &TextureSet) -> Layer {
-    let dust = masked(
-        coat(ts, "Dust", [0.5, 0.48, 0.44], 0.95, 0.0),
-        ts,
-        vec![fx(generator(
-            GeneratorKind::Directional,
-            0.72,
-            0.25,
-            0.45,
-            false,
-        ))],
-    );
-    folder(
-        "Dusty Plastic",
-        ts,
-        vec![base("Plastic Glossy Red").build(ts), dust],
-    )
+    let dust = masked(coat(ts, "Dust", [0.5, 0.48, 0.44], 0.95, 0.0), ts, vec![fx(generator(GeneratorKind::Directional, 0.72, 0.25, 0.45, false))]);
+    folder("Dusty Plastic", ts, vec![base("Plastic Glossy Red").build(ts), dust])
 }
 
 fn tarnished_gold(ts: &TextureSet) -> Layer {
-    let tarnish = masked(
-        coat(ts, "Tarnish", [0.12, 0.09, 0.05], 0.7, 0.3),
-        ts,
-        vec![fx(dirt_generator())],
-    );
+    let tarnish = masked(coat(ts, "Tarnish", [0.12, 0.09, 0.05], 0.7, 0.3), ts, vec![fx(dirt_generator())]);
     folder("Tarnished Gold", ts, vec![base("Gold").build(ts), tarnish])
 }
 
@@ -292,103 +201,48 @@ pub(crate) fn smart(name: &str, build: fn(&TextureSet) -> Layer) -> SmartMateria
 }
 
 /// A smart material built on an open-pack image material (`base`).
-fn textured(
-    name: &str,
-    base: &str,
-    build: fn(&TextureSet, Layer) -> Vec<Layer>,
-) -> Option<SmartMaterial> {
-    let material = crate::open_pack::materials()
-        .into_iter()
-        .find(|m| m.name == base)?;
+fn textured(name: &str, base: &str, build: fn(&TextureSet, Layer) -> Vec<Layer>) -> Option<SmartMaterial> {
+    let material = crate::open_pack::materials().into_iter().find(|m| m.name == base)?;
     let images = material.images.clone();
     let folder_name = name.to_string();
     Some(SmartMaterial {
         id: AssetId::from_name(&format!("smart_material/{name}")),
         name: name.into(),
-        source: SmartSource::Builtin(Arc::new(move |ts, ids| {
-            folder(&folder_name, ts, build(ts, material.build_with(ts, ids)))
-        })),
+        source: SmartSource::Builtin(Arc::new(move |ts, ids| folder(&folder_name, ts, build(ts, material.build_with(ts, ids))))),
         images,
         user_file: None,
     })
 }
 
 fn painted_plates(ts: &TextureSet, base: Layer) -> Vec<Layer> {
-    let paint = masked(
-        coat(ts, "Paint", [0.25, 0.3, 0.12], 0.55, 0.0),
-        ts,
-        vec![fx(generator(GeneratorKind::Edges, 0.55, 0.1, 0.5, true))],
-    );
-    let dirt = masked(
-        coat(ts, "Dirt", [0.05, 0.04, 0.03], 0.92, 0.0),
-        ts,
-        vec![fx(dirt_generator())],
-    );
+    let paint = masked(coat(ts, "Paint", [0.25, 0.3, 0.12], 0.55, 0.0), ts, vec![fx(generator(GeneratorKind::Edges, 0.55, 0.1, 0.5, true))]);
+    let dirt = masked(coat(ts, "Dirt", [0.05, 0.04, 0.03], 0.92, 0.0), ts, vec![fx(dirt_generator())]);
     vec![base, paint, occlusion(ts), dirt]
 }
 
 fn rusted_steel(ts: &TextureSet, base: Layer) -> Vec<Layer> {
     let rust = masked(
-        crate::presets::materials()
-            .into_iter()
-            .find(|m| m.name == "Rust")
-            .expect("built-in Rust")
-            .build(ts),
+        crate::presets::materials().into_iter().find(|m| m.name == "Rust").expect("built-in Rust").build(ts),
         ts,
-        vec![
-            fx(dirt_generator()),
-            fx_blend(grunge(4.0, 13), BlendMode::Multiply),
-        ],
+        vec![fx(dirt_generator()), fx_blend(grunge(4.0, 13), BlendMode::Multiply)],
     );
     vec![base, rust]
 }
 
 fn worn_leather(ts: &TextureSet, base: Layer) -> Vec<Layer> {
-    let worn = masked(
-        coat(ts, "Worn Edges", [0.32, 0.17, 0.09], 0.4, 0.0),
-        ts,
-        vec![fx(generator(GeneratorKind::Edges, 0.6, 0.12, 0.45, false))],
-    );
-    let grime = masked(
-        coat(ts, "Grime", [0.04, 0.025, 0.015], 0.85, 0.0),
-        ts,
-        vec![fx(dirt_generator())],
-    );
+    let worn = masked(coat(ts, "Worn Edges", [0.32, 0.17, 0.09], 0.4, 0.0), ts, vec![fx(generator(GeneratorKind::Edges, 0.6, 0.12, 0.45, false))]);
+    let grime = masked(coat(ts, "Grime", [0.04, 0.025, 0.015], 0.85, 0.0), ts, vec![fx(dirt_generator())]);
     vec![base, worn, occlusion(ts), grime]
 }
 
 fn bricks(ts: &TextureSet, base: Layer) -> Vec<Layer> {
-    let grime = masked(
-        coat(ts, "Grime", [0.05, 0.045, 0.035], 0.95, 0.0),
-        ts,
-        vec![fx(dirt_generator())],
-    );
+    let grime = masked(coat(ts, "Grime", [0.05, 0.045, 0.035], 0.95, 0.0), ts, vec![fx(dirt_generator())]);
     vec![base, occlusion(ts), grime]
 }
 
 fn dusty_concrete(ts: &TextureSet, base: Layer) -> Vec<Layer> {
-    let dust = masked(
-        coat(ts, "Dust", [0.55, 0.52, 0.47], 0.97, 0.0),
-        ts,
-        vec![fx(generator(
-            GeneratorKind::Directional,
-            0.7,
-            0.3,
-            0.5,
-            false,
-        ))],
-    );
-    let stains = masked(
-        coat(ts, "Stains", [0.12, 0.11, 0.1], 0.9, 0.0),
-        ts,
-        vec![fx(generator(
-            GeneratorKind::PositionGradient,
-            0.25,
-            0.3,
-            0.6,
-            true,
-        ))],
-    );
+    let dust = masked(coat(ts, "Dust", [0.55, 0.52, 0.47], 0.97, 0.0), ts, vec![fx(generator(GeneratorKind::Directional, 0.7, 0.3, 0.5, false))]);
+    let stains = masked(coat(ts, "Stains", [0.12, 0.11, 0.1], 0.9, 0.0), ts, vec![fx(generator(GeneratorKind::PositionGradient, 0.25, 0.3, 0.6, true))]);
     vec![base, stains, dust]
 }
 
@@ -418,34 +272,18 @@ pub fn smart_materials() -> Vec<SmartMaterial> {
 /// layers masked by generators (Edges / Cavity / Directional read baked maps, so bake first).
 /// Names that a built-in smart material already uses get a " PBR" suffix.
 fn pbr_pack_smart_materials() -> Vec<SmartMaterial> {
-    let taken = [
-        "Mossy Stone",
-        "Oxidized Copper",
-        "Dry Mud",
-        "Worn Leather",
-        "Galvanized Steel",
-    ];
+    let taken = ["Mossy Stone", "Oxidized Copper", "Dry Mud", "Worn Leather", "Galvanized Steel"];
     crate::pbr_pack::materials()
         .into_iter()
         .map(|material| {
-            let name = if taken.contains(&material.name.as_str()) {
-                format!("{} PBR", material.name)
-            } else {
-                material.name.clone()
-            };
+            let name = if taken.contains(&material.name.as_str()) { format!("{} PBR", material.name) } else { material.name.clone() };
             let images = material.images.clone();
             let folder_name = name.clone();
             let category = material.category;
             SmartMaterial {
                 id: AssetId::from_name(&format!("smart_material/pbr-pack/{name}")),
                 name,
-                source: SmartSource::Builtin(Arc::new(move |ts, ids| {
-                    folder(
-                        &folder_name,
-                        ts,
-                        pbr_pack_layers(ts, material.build_with(ts, ids), category),
-                    )
-                })),
+                source: SmartSource::Builtin(Arc::new(move |ts, ids| folder(&folder_name, ts, pbr_pack_layers(ts, material.build_with(ts, ids), category)))),
                 images,
                 user_file: None,
             }
@@ -455,42 +293,18 @@ fn pbr_pack_smart_materials() -> Vec<SmartMaterial> {
 
 /// The base material plus two masked layers that suit its kind of surface.
 fn pbr_pack_layers(ts: &TextureSet, base: Layer, category: &str) -> Vec<Layer> {
-    let dirt = || {
-        masked(
-            coat(ts, "Dirt", [0.05, 0.04, 0.03], 0.92, 0.0),
-            ts,
-            vec![fx(dirt_generator())],
-        )
-    };
+    let dirt = || masked(coat(ts, "Dirt", [0.05, 0.04, 0.03], 0.92, 0.0), ts, vec![fx(dirt_generator())]);
     match category {
         "Metal" => {
-            let edges = masked(
-                coat(ts, "Polished Edges", [0.78, 0.77, 0.75], 0.25, 1.0),
-                ts,
-                vec![fx(generator(GeneratorKind::Edges, 0.6, 0.1, 0.5, false))],
-            );
+            let edges = masked(coat(ts, "Polished Edges", [0.78, 0.77, 0.75], 0.25, 1.0), ts, vec![fx(generator(GeneratorKind::Edges, 0.6, 0.1, 0.5, false))]);
             vec![base, edges, occlusion(ts), dirt()]
         }
         "Stone" | "Nature" => {
-            let dust = masked(
-                coat(ts, "Dust", [0.55, 0.52, 0.47], 0.97, 0.0),
-                ts,
-                vec![fx(generator(
-                    GeneratorKind::Directional,
-                    0.7,
-                    0.3,
-                    0.5,
-                    false,
-                ))],
-            );
+            let dust = masked(coat(ts, "Dust", [0.55, 0.52, 0.47], 0.97, 0.0), ts, vec![fx(generator(GeneratorKind::Directional, 0.7, 0.3, 0.5, false))]);
             vec![base, occlusion(ts), dirt(), dust]
         }
         _ => {
-            let worn = masked(
-                coat(ts, "Worn Edges", [0.42, 0.36, 0.3], 0.6, 0.0),
-                ts,
-                vec![fx(generator(GeneratorKind::Edges, 0.62, 0.12, 0.45, false))],
-            );
+            let worn = masked(coat(ts, "Worn Edges", [0.42, 0.36, 0.3], 0.6, 0.0), ts, vec![fx(generator(GeneratorKind::Edges, 0.62, 0.12, 0.45, false))]);
             vec![base, worn, occlusion(ts), dirt()]
         }
     }

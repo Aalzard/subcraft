@@ -20,11 +20,7 @@ fn solid(comps: usize, v: [f32; 4]) -> TiledImage {
 
 /// A horizontal square at height `y`, `half` wide each way, facing up.
 fn square(b: &mut MeshBuilder, m: u32, y: f32, half: f32) {
-    let c = |x: f32, z: f32| Corner {
-        position: Vec3::new(x, y, z),
-        normal: Some(Vec3::Y),
-        uv: Some(Vec2::new((x / half + 1.0) * 0.5, (z / half + 1.0) * 0.5)),
-    };
+    let c = |x: f32, z: f32| Corner { position: Vec3::new(x, y, z), normal: Some(Vec3::Y), uv: Some(Vec2::new((x / half + 1.0) * 0.5, (z / half + 1.0) * 0.5)) };
     b.push_triangle(m, [c(-half, -half), c(-half, half), c(half, half)]);
     b.push_triangle(m, [c(-half, -half), c(half, half), c(half, -half)]);
 }
@@ -52,41 +48,18 @@ fn lum(img: &[u8], x: u32, y: u32) -> f32 {
 
 fn pixel(p: &ViewParams, w: Vec3) -> (u32, u32) {
     let c = (p.proj * p.view).project_point3(w);
-    (
-        ((c.x * 0.5 + 0.5) * SIZE as f32) as u32,
-        ((0.5 - c.y * 0.5) * SIZE as f32) as u32,
-    )
+    (((c.x * 0.5 + 0.5) * SIZE as f32) as u32, ((0.5 - c.y * 0.5) * SIZE as f32) as u32)
 }
 
 #[test]
 fn the_key_light_casts_a_shadow_only_when_asked_and_opacity_sets_its_depth() {
     let _gpu = gpu_test();
-    let Some((_, device, queue)) = headless::device() else {
-        eprintln!("no adapter: skipping");
-        return;
-    };
+    let Some((_, device, queue)) = headless::device() else { eprintln!("no adapter: skipping"); return };
     let mut r = ViewportRenderer::new(&device, &queue);
     r.set_mesh(&device, &floor_and_occluder());
-    r.upload_channel(
-        &device,
-        &queue,
-        0,
-        ChannelKind::BaseColor,
-        &solid(4, [0.18, 0.18, 0.18, 1.0]),
-        None,
-    );
-    r.upload_channel(
-        &device,
-        &queue,
-        0,
-        ChannelKind::Roughness,
-        &solid(1, [1.0; 4]),
-        None,
-    );
-    let mut p = ViewParams::new(
-        Mat4::look_at_rh(Vec3::new(0.0, 4.0, 6.0), Vec3::ZERO, Vec3::Y),
-        Mat4::perspective_rh(45f32.to_radians(), 1.0, 0.1, 100.0),
-    );
+    r.upload_channel(&device, &queue, 0, ChannelKind::BaseColor, &solid(4, [0.18, 0.18, 0.18, 1.0]), None);
+    r.upload_channel(&device, &queue, 0, ChannelKind::Roughness, &solid(1, [1.0; 4]), None);
+    let mut p = ViewParams::new(Mat4::look_at_rh(Vec3::new(0.0, 4.0, 6.0), Vec3::ZERO, Vec3::Y), Mat4::perspective_rh(45f32.to_radians(), 1.0, 0.1, 100.0));
     p.antialias = false;
     p.light_dir = Vec3::Y;
     p.light_intensity = 3.0;
@@ -95,207 +68,77 @@ fn the_key_light_casts_a_shadow_only_when_asked_and_opacity_sets_its_depth() {
     let (lx, ly) = pixel(&p, Vec3::new(2.0, 0.0, 0.0));
     let mut shot = |shadows: ShadowParams| {
         p.shadows = shadows;
-        r.render(&device, &queue, [SIZE, SIZE], &p)
-            .read_rgba8(&device, &queue)
+        r.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue)
     };
     let off = shot(ShadowParams::default());
-    let none = shot(ShadowParams {
-        enabled: true,
-        opacity: 0.0,
-        quality: ShadowQuality::Average,
-    });
+    let none = shot(ShadowParams { enabled: true, opacity: 0.0, quality: ShadowQuality::Average });
     assert_eq!(off, none, "opacity 0 draws exactly what shadows off draw");
-    let full = shot(ShadowParams {
-        enabled: true,
-        opacity: 1.0,
-        quality: ShadowQuality::Average,
-    });
-    let half = shot(ShadowParams {
-        enabled: true,
-        opacity: 0.5,
-        quality: ShadowQuality::Average,
-    });
+    let full = shot(ShadowParams { enabled: true, opacity: 1.0, quality: ShadowQuality::Average });
+    let half = shot(ShadowParams { enabled: true, opacity: 0.5, quality: ShadowQuality::Average });
     // Under the square the floor loses the key light; away from it nothing changes.
     let (lit_off, lit_on) = (lum(&off, lx, ly), lum(&full, lx, ly));
-    assert!(
-        (lit_off - lit_on).abs() <= 1.0,
-        "open floor is unchanged: {lit_off} vs {lit_on}"
-    );
-    let (under_off, under_half, under_full) =
-        (lum(&off, sx, sy), lum(&half, sx, sy), lum(&full, sx, sy));
-    assert!(
-        under_full < under_off - 10.0,
-        "the square shadows the floor: {under_full} vs {under_off} without shadows"
-    );
-    assert!(
-        under_half < under_off && under_half > under_full,
-        "half opacity is in between: {under_off} > {under_half} > {under_full}"
-    );
+    assert!((lit_off - lit_on).abs() <= 1.0, "open floor is unchanged: {lit_off} vs {lit_on}");
+    let (under_off, under_half, under_full) = (lum(&off, sx, sy), lum(&half, sx, sy), lum(&full, sx, sy));
+    assert!(under_full < under_off - 10.0, "the square shadows the floor: {under_full} vs {under_off} without shadows");
+    assert!(under_half < under_off && under_half > under_full, "half opacity is in between: {under_off} > {under_half} > {under_full}");
     // The environment light still reaches the shadow: it never turns black.
-    assert!(
-        under_full > 1.0,
-        "ambient light remains in the shadow: {under_full}"
-    );
+    assert!(under_full > 1.0, "ambient light remains in the shadow: {under_full}");
     // Every computation mode shadows the same spot.
     for quality in [ShadowQuality::Lightweight, ShadowQuality::Intensive] {
-        let img = shot(ShadowParams {
-            enabled: true,
-            opacity: 1.0,
-            quality,
-        });
-        assert!(
-            lum(&img, sx, sy) < under_off - 10.0,
-            "{quality:?} shadows the floor"
-        );
+        let img = shot(ShadowParams { enabled: true, opacity: 1.0, quality });
+        assert!(lum(&img, sx, sy) < under_off - 10.0, "{quality:?} shadows the floor");
     }
 }
 
 #[test]
 fn specular_level_sets_the_reflectance_of_non_metals() {
     let _gpu = gpu_test();
-    let Some((_, device, queue)) = headless::device() else {
-        eprintln!("no adapter: skipping");
-        return;
-    };
+    let Some((_, device, queue)) = headless::device() else { eprintln!("no adapter: skipping"); return };
     let mut r = ViewportRenderer::new(&device, &queue);
     r.set_mesh(&device, &primitives::plane(2.0, 1));
     // A black, glossy dielectric: everything it shows is reflection.
-    r.upload_channel(
-        &device,
-        &queue,
-        0,
-        ChannelKind::BaseColor,
-        &solid(4, [0.0, 0.0, 0.0, 1.0]),
-        None,
-    );
-    r.upload_channel(
-        &device,
-        &queue,
-        0,
-        ChannelKind::Roughness,
-        &solid(1, [0.3; 4]),
-        None,
-    );
-    let mut p = ViewParams::new(
-        Mat4::look_at_rh(Vec3::new(0.0, 3.0, 2.0), Vec3::ZERO, Vec3::Y),
-        Mat4::perspective_rh(40f32.to_radians(), 1.0, 0.1, 100.0),
-    );
+    r.upload_channel(&device, &queue, 0, ChannelKind::BaseColor, &solid(4, [0.0, 0.0, 0.0, 1.0]), None);
+    r.upload_channel(&device, &queue, 0, ChannelKind::Roughness, &solid(1, [0.3; 4]), None);
+    let mut p = ViewParams::new(Mat4::look_at_rh(Vec3::new(0.0, 3.0, 2.0), Vec3::ZERO, Vec3::Y), Mat4::perspective_rh(40f32.to_radians(), 1.0, 0.1, 100.0));
     p.antialias = false;
-    let mean = |img: &[u8]| {
-        img.chunks_exact(4)
-            .map(|c| c[0] as f32 + c[1] as f32 + c[2] as f32)
-            .sum::<f32>()
-            / img.len() as f32
-    };
-    let default = r
-        .render(&device, &queue, [SIZE, SIZE], &p)
-        .read_rgba8(&device, &queue);
+    let mean = |img: &[u8]| img.chunks_exact(4).map(|c| c[0] as f32 + c[1] as f32 + c[2] as f32).sum::<f32>() / img.len() as f32;
+    let default = r.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
     let mut shot = |level: f32| {
-        r.upload_channel(
-            &device,
-            &queue,
-            0,
-            ChannelKind::Specular,
-            &solid(1, [level; 4]),
-            None,
-        );
-        r.render(&device, &queue, [SIZE, SIZE], &p)
-            .read_rgba8(&device, &queue)
+        r.upload_channel(&device, &queue, 0, ChannelKind::Specular, &solid(1, [level; 4]), None);
+        r.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue)
     };
     let (zero, half, one) = (shot(0.0), shot(0.5), shot(1.0));
-    assert_eq!(
-        half, default,
-        "0.5 is the 4% reflectance the shader always used"
-    );
-    assert!(
-        mean(&one) > mean(&half) + 1.0 && mean(&half) > mean(&zero) + 1.0,
-        "specular 0 {} < 0.5 {} < 1 {}",
-        mean(&zero),
-        mean(&half),
-        mean(&one)
-    );
+    assert_eq!(half, default, "0.5 is the 4% reflectance the shader always used");
+    assert!(mean(&one) > mean(&half) + 1.0 && mean(&half) > mean(&zero) + 1.0, "specular 0 {} < 0.5 {} < 1 {}", mean(&zero), mean(&half), mean(&one));
 }
 
 #[test]
 fn the_shadow_edge_is_a_smooth_ramp_without_steps() {
     let _gpu = gpu_test();
-    let Some((_, device, queue)) = headless::device() else {
-        eprintln!("no adapter: skipping");
-        return;
-    };
+    let Some((_, device, queue)) = headless::device() else { eprintln!("no adapter: skipping"); return };
     const N: u32 = 256;
     let mut r = ViewportRenderer::new(&device, &queue);
     r.set_mesh(&device, &floor_and_occluder());
-    r.upload_channel(
-        &device,
-        &queue,
-        0,
-        ChannelKind::BaseColor,
-        &solid(4, [0.5, 0.5, 0.5, 1.0]),
-        None,
-    );
-    r.upload_channel(
-        &device,
-        &queue,
-        0,
-        ChannelKind::Roughness,
-        &solid(1, [1.0; 4]),
-        None,
-    );
+    r.upload_channel(&device, &queue, 0, ChannelKind::BaseColor, &solid(4, [0.5, 0.5, 0.5, 1.0]), None);
+    r.upload_channel(&device, &queue, 0, ChannelKind::Roughness, &solid(1, [1.0; 4]), None);
     // Close up on the edge of the square's shadow (x = 0.5), seen from beside the square.
-    let mut p = ViewParams::new(
-        Mat4::look_at_rh(Vec3::new(2.0, 3.0, 0.0), Vec3::new(0.5, 0.0, 0.0), Vec3::Z),
-        Mat4::orthographic_rh(-0.15, 0.15, -0.15, 0.15, 0.1, 10.0),
-    );
+    let mut p = ViewParams::new(Mat4::look_at_rh(Vec3::new(2.0, 3.0, 0.0), Vec3::new(0.5, 0.0, 0.0), Vec3::Z), Mat4::orthographic_rh(-0.15, 0.15, -0.15, 0.15, 0.1, 10.0));
     p.antialias = false;
     p.light_dir = Vec3::Y;
     p.light_intensity = 3.0;
     p.environment_intensity = 0.3;
-    for quality in [
-        ShadowQuality::Lightweight,
-        ShadowQuality::Average,
-        ShadowQuality::Intensive,
-    ] {
-        p.shadows = ShadowParams {
-            enabled: true,
-            opacity: 1.0,
-            quality,
-        };
-        let img = r
-            .render(&device, &queue, [N, N], &p)
-            .read_rgba8(&device, &queue);
+    for quality in [ShadowQuality::Lightweight, ShadowQuality::Average, ShadowQuality::Intensive] {
+        p.shadows = ShadowParams { enabled: true, opacity: 1.0, quality };
+        let img = r.render(&device, &queue, [N, N], &p).read_rgba8(&device, &queue);
         // Mean of each column (averages out the per-pixel rotation of the filter disk).
-        let col: Vec<f32> = (0..N)
-            .map(|x| {
-                (0..N)
-                    .map(|y| img[((y * N + x) * 4) as usize] as f32)
-                    .sum::<f32>()
-                    / N as f32
-            })
-            .collect();
-        let (lo, hi) = (
-            col.iter().cloned().fold(f32::MAX, f32::min),
-            col.iter().cloned().fold(0.0, f32::max),
-        );
-        assert!(
-            hi - lo > 40.0,
-            "{quality:?}: the view crosses the shadow edge ({lo} .. {hi})"
-        );
-        let ramp = col
-            .iter()
-            .filter(|&&v| v > lo + 0.1 * (hi - lo) && v < hi - 0.1 * (hi - lo))
-            .count();
-        let step = col
-            .windows(2)
-            .map(|w| (w[1] - w[0]).abs())
-            .fold(0.0, f32::max);
+        let col: Vec<f32> = (0..N).map(|x| (0..N).map(|y| img[((y * N + x) * 4) as usize] as f32).sum::<f32>() / N as f32).collect();
+        let (lo, hi) = (col.iter().cloned().fold(f32::MAX, f32::min), col.iter().cloned().fold(0.0, f32::max));
+        assert!(hi - lo > 40.0, "{quality:?}: the view crosses the shadow edge ({lo} .. {hi})");
+        let ramp = col.iter().filter(|&&v| v > lo + 0.1 * (hi - lo) && v < hi - 0.1 * (hi - lo)).count();
+        let step = col.windows(2).map(|w| (w[1] - w[0]).abs()).fold(0.0, f32::max);
         eprintln!("{quality:?}: {lo:.0} .. {hi:.0}, penumbra {ramp} px, largest step {step:.1}");
         // A box filter shows plateaus and jumps; the disk filter ramps evenly.
         assert!(ramp >= 4, "{quality:?}: penumbra only {ramp} px wide");
-        assert!(
-            step < 0.3 * (hi - lo),
-            "{quality:?}: step of {step} in a ramp of {}",
-            hi - lo
-        );
+        assert!(step < 0.3 * (hi - lo), "{quality:?}: step of {step} in a ramp of {}", hi - lo);
     }
 }

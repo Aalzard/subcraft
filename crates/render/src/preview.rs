@@ -24,8 +24,7 @@ pub struct PreviewTarget {
 impl PreviewTarget {
     /// The preview as sRGB-encoded RGBA8 rows (tests and screenshots).
     pub fn read_rgba8(&self, device: &wgpu::Device, queue: &wgpu::Queue) -> Vec<u8> {
-        crate::target::read_texture_rgba8(device, queue, &self.texture, [self.size, self.size])
-            .expect("GPU readback")
+        crate::target::read_texture_rgba8(device, queue, &self.texture, [self.size, self.size]).expect("GPU readback")
     }
 }
 
@@ -57,11 +56,7 @@ impl PreviewPass {
                 wgpu::BindGroupLayoutEntry {
                     binding: 2,
                     visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
+                    ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: None },
                     count: None,
                 },
             ],
@@ -74,12 +69,7 @@ impl PreviewPass {
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("preview pipeline"),
             layout: Some(&pl),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                compilation_options: Default::default(),
-                buffers: &[],
-            },
+            vertex: wgpu::VertexState { module: &shader, entry_point: Some("vs_main"), compilation_options: Default::default(), buffers: &[] },
             primitive: wgpu::PrimitiveState::default(),
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
@@ -87,11 +77,7 @@ impl PreviewPass {
                 module: &shader,
                 entry_point: Some("fs_main"),
                 compilation_options: Default::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: OUTPUT_FORMAT,
-                    blend: None,
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
+                targets: &[Some(wgpu::ColorTargetState { format: OUTPUT_FORMAT, blend: None, write_mask: wgpu::ColorWrites::ALL })],
             }),
             multiview_mask: None,
             cache: None,
@@ -107,78 +93,41 @@ impl PreviewPass {
             contents: bytemuck::cast_slice(&[0.0f32; 16]),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
-        Self {
-            pipeline,
-            layout,
-            sampler,
-            flags,
-        }
+        Self { pipeline, layout, sampler, flags }
     }
 
     pub fn target(device: &wgpu::Device, size: u32) -> PreviewTarget {
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("channel preview"),
-            size: wgpu::Extent3d {
-                width: size,
-                height: size,
-                depth_or_array_layers: 1,
-            },
+            size: wgpu::Extent3d { width: size, height: size, depth_or_array_layers: 1 },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: OUTPUT_FORMAT,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                | wgpu::TextureUsages::TEXTURE_BINDING
-                | wgpu::TextureUsages::COPY_SRC,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_SRC,
             view_formats: crate::display::view_formats(device),
         });
         let render_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         let (display_view, display_copy) = crate::display::view(device, &texture, [size, size]);
-        PreviewTarget {
-            size,
-            texture,
-            render_view,
-            display_view,
-            display_copy,
-        }
+        PreviewTarget { size, texture, render_view, display_view, display_copy }
     }
 
     /// Convert `src` into `dst`. `gray` replicates the first component (scalar channels / maps);
     /// `display` is Display Settings > Channel display: one component alone as gray, the HDR
     /// scale, and grayscale values in two colors by sign (`unlit` does not apply here).
-    pub fn run(
-        &self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        src: &wgpu::TextureView,
-        is_color: bool,
-        gray: bool,
-        display: &crate::ChannelDisplay,
-        dst: &PreviewTarget,
-    ) {
+    pub fn run(&self, device: &wgpu::Device, queue: &wgpu::Queue, src: &wgpu::TextureView, is_color: bool, gray: bool, display: &crate::ChannelDisplay, dst: &PreviewTarget) {
         let params = preview_params(is_color, gray, display);
         queue.write_buffer(&self.flags, 0, bytemuck::cast_slice(&params));
         let bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("preview"),
             layout: &self.layout,
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::Sampler(&self.sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(src),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: self.flags.as_entire_binding(),
-                },
+                wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::Sampler(&self.sampler) },
+                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(src) },
+                wgpu::BindGroupEntry { binding: 2, resource: self.flags.as_entire_binding() },
             ],
         });
-        let mut enc = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("preview"),
-        });
+        let mut enc = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("preview") });
         {
             let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("preview pass"),
@@ -186,10 +135,7 @@ impl PreviewPass {
                     view: &dst.render_view,
                     depth_slice: None,
                     resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                        store: wgpu::StoreOp::Store,
-                    },
+                    ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::BLACK), store: wgpu::StoreOp::Store },
                 })],
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
@@ -200,42 +146,20 @@ impl PreviewPass {
             pass.set_bind_group(0, &bg, &[]);
             pass.draw(0..3, 0..1);
         }
-        if let Some(copy) = &dst.display_copy {
-            copy.encode(&mut enc);
-        }
+        if let Some(copy) = &dst.display_copy { copy.encode(&mut enc); }
         queue.submit([enc.finish()]);
     }
 }
 
 /// The preview shader's `Params`, four rows of four floats.
-pub(crate) fn preview_params(
-    is_color: bool,
-    gray: bool,
-    display: &crate::ChannelDisplay,
-) -> [f32; 16] {
-    let scale = if display.hdr_scale.is_finite() && display.hdr_scale > 0.0 {
-        display.hdr_scale
-    } else {
-        1.0
-    };
+pub(crate) fn preview_params(is_color: bool, gray: bool, display: &crate::ChannelDisplay) -> [f32; 16] {
+    let scale = if display.hdr_scale.is_finite() && display.hdr_scale > 0.0 { display.hdr_scale } else { 1.0 };
     let (pos, neg) = (display.positive, display.negative);
     [
-        if is_color { 1.0 } else { 0.0 },
-        if gray { 1.0 } else { 0.0 },
-        display.component as u32 as f32,
-        1.0 / scale,
-        if display.signed_colors { 1.0 } else { 0.0 },
-        0.0,
-        0.0,
-        0.0,
-        pos[0],
-        pos[1],
-        pos[2],
-        0.0,
-        neg[0],
-        neg[1],
-        neg[2],
-        0.0,
+        if is_color { 1.0 } else { 0.0 }, if gray { 1.0 } else { 0.0 }, display.component as u32 as f32, 1.0 / scale,
+        if display.signed_colors { 1.0 } else { 0.0 }, 0.0, 0.0, 0.0,
+        pos[0], pos[1], pos[2], 0.0,
+        neg[0], neg[1], neg[2], 0.0,
     ]
 }
 
@@ -251,25 +175,12 @@ mod tests {
 
     #[test]
     fn the_scale_divides_and_a_broken_scale_is_ignored() {
-        let d = crate::ChannelDisplay {
-            hdr_scale: 4.0,
-            signed_colors: true,
-            ..Default::default()
-        };
+        let d = crate::ChannelDisplay { hdr_scale: 4.0, signed_colors: true, ..Default::default() };
         let p = preview_params(false, true, &d);
         assert_eq!((p[1], p[3], p[4]), (1.0, 0.25, 1.0));
         for bad in [0.0, -2.0, f32::NAN] {
-            assert_eq!(
-                preview_params(
-                    false,
-                    true,
-                    &crate::ChannelDisplay {
-                        hdr_scale: bad,
-                        ..Default::default()
-                    }
-                )[3],
-                1.0
-            );
+            assert_eq!(preview_params(false, true, &crate::ChannelDisplay { hdr_scale: bad, ..Default::default() })[3], 1.0);
         }
     }
 }
+

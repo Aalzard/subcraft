@@ -79,22 +79,13 @@ impl EmbeddedHdri {
     /// `name` is a file stem (decoded as Radiance) or a file name whose extension picks the
     /// decoder (`.hdr`, `.exr`).
     pub fn new(name: &'static str, bytes: &'static [u8]) -> Self {
-        Self {
-            name,
-            bytes,
-            cell: std::sync::OnceLock::new(),
-        }
+        Self { name, bytes, cell: std::sync::OnceLock::new() }
     }
 
     pub fn get(&self) -> &Arc<PrefilteredHdri> {
         self.cell.get_or_init(|| {
-            let hint = if self.name.contains('.') {
-                self.name
-            } else {
-                "x.hdr"
-            };
-            let bmp = subcraft_image::io::decode_bitmap(self.bytes, Some(hint))
-                .unwrap_or_else(|e| panic!("bundled HDRI {} is corrupt: {e}", self.name));
+            let hint = if self.name.contains('.') { self.name } else { "x.hdr" };
+            let bmp = subcraft_image::io::decode_bitmap(self.bytes, Some(hint)).unwrap_or_else(|e| panic!("bundled HDRI {} is corrupt: {e}", self.name));
             Arc::new(prefilter(&bmp))
         })
     }
@@ -102,10 +93,7 @@ impl EmbeddedHdri {
 
 impl std::fmt::Debug for EmbeddedHdri {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("EmbeddedHdri")
-            .field("name", &self.name)
-            .field("bytes", &self.bytes.len())
-            .finish()
+        f.debug_struct("EmbeddedHdri").field("name", &self.name).field("bytes", &self.bytes.len()).finish()
     }
 }
 
@@ -138,12 +126,7 @@ pub struct Environment {
 }
 
 fn env(name: &str, p: ProceduralEnv) -> Environment {
-    Environment {
-        id: AssetId::from_name(&format!("environment/{name}")),
-        name: name.into(),
-        source: EnvironmentSource::Procedural(p),
-        user_file: None,
-    }
+    Environment { id: AssetId::from_name(&format!("environment/{name}")), name: name.into(), source: EnvironmentSource::Procedural(p), user_file: None }
 }
 
 /// Bundled CC0 HDRIs (1024x512 downscales of the 2048x1024 extra-environments pack): display name, file stem, radiance data.
@@ -172,11 +155,7 @@ pub fn builtin() -> Vec<Environment> {
         all.push(Environment {
             id: AssetId::from_name(&format!("environment/{name}")),
             name: (*name).into(),
-            source: EnvironmentSource::Embedded(Arc::new(EmbeddedHdri {
-                name: file,
-                bytes,
-                cell: std::sync::OnceLock::new(),
-            })),
+            source: EnvironmentSource::Embedded(Arc::new(EmbeddedHdri { name: file, bytes, cell: std::sync::OnceLock::new() })),
             user_file: None,
         });
     }
@@ -187,17 +166,7 @@ fn builtin_procedural() -> Vec<Environment> {
     let studio = ProceduralEnv::studio();
     vec![
         env("Studio", studio),
-        env(
-            "Soft Studio",
-            ProceduralEnv {
-                panels: 6.0,
-                top: 14.0,
-                key_softbox: 10.0,
-                light_intensity: 1.0,
-                irradiance_up: [0.4, 0.42, 0.45],
-                ..studio
-            },
-        ),
+        env("Soft Studio", ProceduralEnv { panels: 6.0, top: 14.0, key_softbox: 10.0, light_intensity: 1.0, irradiance_up: [0.4, 0.42, 0.45], ..studio }),
         env(
             "Sunset",
             ProceduralEnv {
@@ -253,18 +222,11 @@ fn builtin_procedural() -> Vec<Environment> {
 pub fn dir_from_uv(u: f32, v: f32) -> Vec3 {
     let phi = (u - 0.5) * std::f32::consts::TAU;
     let theta = v * std::f32::consts::PI;
-    Vec3::new(
-        theta.sin() * phi.cos(),
-        theta.cos(),
-        theta.sin() * phi.sin(),
-    )
+    Vec3::new(theta.sin() * phi.cos(), theta.cos(), theta.sin() * phi.sin())
 }
 
 pub fn uv_from_dir(d: Vec3) -> (f32, f32) {
-    (
-        d.z.atan2(d.x) / std::f32::consts::TAU + 0.5,
-        d.y.clamp(-1.0, 1.0).acos() / std::f32::consts::PI,
-    )
+    (d.z.atan2(d.x) / std::f32::consts::TAU + 0.5, d.y.clamp(-1.0, 1.0).acos() / std::f32::consts::PI)
 }
 
 /// Real SH basis, bands 0..2.
@@ -283,8 +245,8 @@ pub fn sh_basis(d: Vec3) -> [f32; 9] {
     ]
 }
 
-/// Width range of the sharp level: the source width rounded down to a power of two (bundled HDRIs are
-/// 1024 wide; a 4K file keeps 2048 for crisp mirror reflections).
+/// Width range of the sharp level: the source width rounded down to a power of two (bundled
+/// HDRIs are 1024 wide; a 4K file keeps 2048 for crisp mirror reflections).
 const MIN_BASE_W: u32 = 512;
 const MAX_BASE_W: u32 = 2048;
 /// Width of the most blurred level (a 2:1 panorama of 16 x 8 texels).
@@ -297,11 +259,7 @@ pub const TOP_BLUR: f32 = 1.0;
 
 /// Blur (lobe standard deviation in radians) of level `k` of `levels`; level 0 is unfiltered.
 pub fn level_blur(k: usize, levels: usize) -> f32 {
-    if k == 0 {
-        0.0
-    } else {
-        TOP_BLUR * 0.5f32.powi((levels - 1 - k) as i32)
-    }
+    if k == 0 { 0.0 } else { TOP_BLUR * 0.5f32.powi((levels - 1 - k) as i32) }
 }
 
 fn downsample(l: &HdriLevel) -> HdriLevel {
@@ -312,21 +270,14 @@ fn downsample(l: &HdriLevel) -> HdriLevel {
             for c in 0..4 {
                 let mut s = 0.0;
                 for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
-                    let (sx, sy) = (
-                        (2 * x + dx).min(l.width - 1),
-                        (2 * y + dy).min(l.height - 1),
-                    );
+                    let (sx, sy) = ((2 * x + dx).min(l.width - 1), (2 * y + dy).min(l.height - 1));
                     s += l.rgba[((sy * l.width + sx) * 4 + c) as usize];
                 }
                 rgba[((y * w + x) * 4 + c) as usize] = s * 0.25;
             }
         }
     }
-    HdriLevel {
-        width: w,
-        height: h,
-        rgba,
-    }
+    HdriLevel { width: w, height: h, rgba }
 }
 
 /// Blur with a Gaussian of `sigma` texels, widened horizontally by 1/cos(latitude) so the blur
@@ -335,53 +286,43 @@ fn blur(l: &HdriLevel, sigma: f32) -> HdriLevel {
     let (w, h) = (l.width as i32, l.height as i32);
     let gauss = |s: f32| -> Vec<f32> {
         let r = (s * 2.5).ceil().max(1.0) as i32;
-        let k: Vec<f32> = (-r..=r)
-            .map(|i| (-(i * i) as f32 / (2.0 * s * s)).exp())
-            .collect();
+        let k: Vec<f32> = (-r..=r).map(|i| (-(i * i) as f32 / (2.0 * s * s)).exp()).collect();
         let sum: f32 = k.iter().sum();
         k.into_iter().map(|v| v / sum).collect()
     };
     let mut tmp = vec![0.0f32; l.rgba.len()];
-    tmp.par_chunks_mut((w * 4) as usize)
-        .enumerate()
-        .for_each(|(y, row)| {
-            let lat = ((y as f32 + 0.5) / h as f32 - 0.5) * std::f32::consts::PI;
-            let sx = (sigma / lat.cos().max(0.08)).min(w as f32 / 4.0);
-            let k = gauss(sx);
-            let r = (k.len() / 2) as i32;
-            for x in 0..w {
-                let mut acc = [0.0f32; 4];
-                for (i, wgt) in k.iter().enumerate() {
-                    let sxp = (x + i as i32 - r).rem_euclid(w);
-                    for c in 0..4 {
-                        acc[c] += l.rgba[((y as i32 * w + sxp) * 4) as usize + c] * wgt;
-                    }
+    tmp.par_chunks_mut((w * 4) as usize).enumerate().for_each(|(y, row)| {
+        let lat = ((y as f32 + 0.5) / h as f32 - 0.5) * std::f32::consts::PI;
+        let sx = (sigma / lat.cos().max(0.08)).min(w as f32 / 4.0);
+        let k = gauss(sx);
+        let r = (k.len() / 2) as i32;
+        for x in 0..w {
+            let mut acc = [0.0f32; 4];
+            for (i, wgt) in k.iter().enumerate() {
+                let sxp = (x + i as i32 - r).rem_euclid(w);
+                for c in 0..4 {
+                    acc[c] += l.rgba[((y as i32 * w + sxp) * 4) as usize + c] * wgt;
                 }
-                row[(x * 4) as usize..(x * 4 + 4) as usize].copy_from_slice(&acc);
             }
-        });
+            row[(x * 4) as usize..(x * 4 + 4) as usize].copy_from_slice(&acc);
+        }
+    });
     let k = gauss(sigma);
     let r = (k.len() / 2) as i32;
     let mut out = vec![0.0f32; l.rgba.len()];
-    out.par_chunks_mut((w * 4) as usize)
-        .enumerate()
-        .for_each(|(y, row)| {
-            for x in 0..w {
-                let mut acc = [0.0f32; 4];
-                for (i, wgt) in k.iter().enumerate() {
-                    let sy = (y as i32 + i as i32 - r).clamp(0, h - 1);
-                    for c in 0..4 {
-                        acc[c] += tmp[((sy * w + x) * 4) as usize + c] * wgt;
-                    }
+    out.par_chunks_mut((w * 4) as usize).enumerate().for_each(|(y, row)| {
+        for x in 0..w {
+            let mut acc = [0.0f32; 4];
+            for (i, wgt) in k.iter().enumerate() {
+                let sy = (y as i32 + i as i32 - r).clamp(0, h - 1);
+                for c in 0..4 {
+                    acc[c] += tmp[((sy * w + x) * 4) as usize + c] * wgt;
                 }
-                row[(x * 4) as usize..(x * 4 + 4) as usize].copy_from_slice(&acc);
             }
-        });
-    HdriLevel {
-        width: l.width,
-        height: l.height,
-        rgba: out,
-    }
+            row[(x * 4) as usize..(x * 4 + 4) as usize].copy_from_slice(&acc);
+        }
+    });
+    HdriLevel { width: l.width, height: l.height, rgba: out }
 }
 
 /// Prefilter an equirectangular image (LDR images are linearized from sRGB).
@@ -391,29 +332,13 @@ pub fn prefilter(src: &Bitmap) -> PrefilteredHdri {
     let h = w / 2;
     let count = (w / TOP_W).ilog2() as usize + 1;
     let mut rgba = vec![0.0f32; (w * h * 4) as usize];
-    rgba.par_chunks_mut((w * 4) as usize)
-        .enumerate()
-        .for_each(|(y, row)| {
-            for x in 0..w {
-                let t = src.sample(
-                    (x as f32 + 0.5) / w as f32,
-                    (y as f32 + 0.5) / h as f32,
-                    Wrap::Repeat,
-                    linearize,
-                );
-                row[(x * 4) as usize..(x * 4 + 4) as usize].copy_from_slice(&[
-                    t[0].max(0.0),
-                    t[1].max(0.0),
-                    t[2].max(0.0),
-                    1.0,
-                ]);
-            }
-        });
-    let mut levels = vec![HdriLevel {
-        width: w,
-        height: h,
-        rgba,
-    }];
+    rgba.par_chunks_mut((w * 4) as usize).enumerate().for_each(|(y, row)| {
+        for x in 0..w {
+            let t = src.sample((x as f32 + 0.5) / w as f32, (y as f32 + 0.5) / h as f32, Wrap::Repeat, linearize);
+            row[(x * 4) as usize..(x * 4 + 4) as usize].copy_from_slice(&[t[0].max(0.0), t[1].max(0.0), t[2].max(0.0), 1.0]);
+        }
+    });
+    let mut levels = vec![HdriLevel { width: w, height: h, rgba }];
     for k in 1..count {
         let down = downsample(&levels[k - 1]);
         // Add the blur this level needs on top of what the previous one carries, in this level's
@@ -442,17 +367,7 @@ pub fn prefilter(src: &Bitmap) -> PrefilteredHdri {
         }
     }
     // Cosine-lobe convolution (Ramamoorthi & Hanrahan) divided by π.
-    let a = [
-        1.0,
-        2.0 / 3.0,
-        2.0 / 3.0,
-        2.0 / 3.0,
-        0.25,
-        0.25,
-        0.25,
-        0.25,
-        0.25,
-    ];
+    let a = [1.0, 2.0 / 3.0, 2.0 / 3.0, 2.0 / 3.0, 0.25, 0.25, 0.25, 0.25, 0.25];
     for i in 0..9 {
         for c in 0..3 {
             sh[i][c] *= a[i];
@@ -469,18 +384,10 @@ pub fn prefilter(src: &Bitmap) -> PrefilteredHdri {
         }
     }
     let (sx, sy) = (best as u32 % l.width, best as u32 / l.width);
-    let sun = dir_from_uv(
-        (sx as f32 + 0.5) / l.width as f32,
-        (sy as f32 + 0.5) / l.height as f32,
-    );
+    let sun = dir_from_uv((sx as f32 + 0.5) / l.width as f32, (sy as f32 + 0.5) / l.height as f32);
     let c = [l.rgba[best * 4], l.rgba[best * 4 + 1], l.rgba[best * 4 + 2]];
     let m = c[0].max(c[1]).max(c[2]).max(1e-6);
-    PrefilteredHdri {
-        levels,
-        sh,
-        sun_direction: sun.to_array(),
-        sun_color: [c[0] / m, c[1] / m, c[2] / m],
-    }
+    PrefilteredHdri { levels, sh, sun_direction: sun.to_array(), sun_color: [c[0] / m, c[1] / m, c[2] / m] }
 }
 
 /// Evaluate the prefiltered irradiance for a normal (CPU mirror of the shader).
@@ -500,11 +407,7 @@ pub fn import_hdri(path: &Path) -> Result<Environment, String> {
     if bmp.width < bmp.height {
         return Err("expected an equirectangular (2:1) panorama".into());
     }
-    let name = path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("HDRI")
-        .to_string();
+    let name = path.file_stem().and_then(|s| s.to_str()).unwrap_or("HDRI").to_string();
     Ok(Environment {
         id: AssetId::from_name(&format!("environment/import/{}", path.display())),
         name,

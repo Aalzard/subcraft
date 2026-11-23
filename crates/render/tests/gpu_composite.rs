@@ -12,9 +12,8 @@ use subcraft_compositor::gpu::{self, take_gpu_stats};
 use subcraft_compositor::{Composite, EvalContext, composite_full};
 use subcraft_core::{ChannelKind, ChannelValue, IRect};
 use subcraft_doc::{
-    BlendMode, ContentEffect, ContentEffectKind, FillChannel, FillSource, Filter, Layer,
-    LayerContent, Levels, Mask, MaskEffect, MaskEffectKind, ProceduralKind, ProceduralParams,
-    ResourceStore, TextureSet,
+    BlendMode, ContentEffect, ContentEffectKind, FillChannel, FillSource, Filter, Layer, LayerContent, Levels, Mask, MaskEffect,
+    MaskEffectKind, ProceduralKind, ProceduralParams, ResourceStore, TextureSet,
 };
 use subcraft_materials::{MeshMaps, TextureSetGeometry};
 use subcraft_mesh::primitives;
@@ -25,8 +24,7 @@ const RES: u32 = 256;
 static TURN: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// The backend the compositor uses (to set its pacing budget and count submissions).
-static BACKEND: std::sync::OnceLock<Arc<subcraft_render::gpu_composite::GpuCompositor>> =
-    std::sync::OnceLock::new();
+static BACKEND: std::sync::OnceLock<Arc<subcraft_render::gpu_composite::GpuCompositor>> = std::sync::OnceLock::new();
 
 fn adapter_ok() -> bool {
     if subcraft_render::gpu_composite::create_any_backend().is_none() {
@@ -45,9 +43,7 @@ fn adapter_ok() -> bool {
 
 fn fill(ts: &TextureSet, values: &[(ChannelKind, ChannelValue)]) -> Layer {
     let mut l = Layer::new_fill("Fill", ts);
-    let LayerContent::Fill(f) = &mut l.content else {
-        unreachable!()
-    };
+    let LayerContent::Fill(f) = &mut l.content else { unreachable!() };
     for (k, ch) in f.channels.iter_mut() {
         ch.enabled = false;
         if let Some((_, v)) = values.iter().find(|(kk, _)| kk == k) {
@@ -59,18 +55,12 @@ fn fill(ts: &TextureSet, values: &[(ChannelKind, ChannelValue)]) -> Layer {
 
 fn paint(ts: &TextureSet, kind: ChannelKind, rect: IRect, value: [f32; 3], alpha: f32) -> Layer {
     let mut l = Layer::new_paint("Paint", ts);
-    let LayerContent::Paint(p) = &mut l.content else {
-        unreachable!()
-    };
+    let LayerContent::Paint(p) = &mut l.content else { unreachable!() };
     let img = p.channel_mut(kind, RES);
     for y in rect.y0..rect.y1 {
         for x in rect.x0..rect.x1 {
             let a = alpha * (0.5 + 0.5 * ((x + y) as f32 * 0.05).sin());
-            let v = if kind.components() == 1 {
-                [value[0], a, 0.0, 0.0]
-            } else {
-                [value[0], value[1], value[2], a]
-            };
+            let v = if kind.components() == 1 { [value[0], a, 0.0, 0.0] } else { [value[0], value[1], value[2], a] };
             img.set(x as u32, y as u32, v);
         }
     }
@@ -88,8 +78,7 @@ fn mask_with_rect(white: bool, rect: IRect) -> Mask {
     let mut m = Mask::new(RES, white);
     for y in rect.y0..rect.y1 {
         for x in rect.x0..rect.x1 {
-            m.base
-                .set(x as u32, y as u32, [if white { 0.2 } else { 0.9 }; 4]);
+            m.base.set(x as u32, y as u32, [if white { 0.2 } else { 0.9 }; 4]);
         }
     }
     m
@@ -100,40 +89,14 @@ fn rich_set() -> TextureSet {
     let mut ts = TextureSet::new("T", 0, RES);
     let base = ts.clone();
     let color = |r, g, b| (ChannelKind::BaseColor, ChannelValue::rgb(r, g, b));
-    ts.insert_above(
-        None,
-        fill(
-            &base,
-            &[
-                color(0.2, 0.5, 0.3),
-                (ChannelKind::Roughness, ChannelValue::scalar(0.6)),
-                (ChannelKind::Metallic, ChannelValue::scalar(0.1)),
-            ],
-        ),
-    );
+    ts.insert_above(None, fill(&base, &[color(0.2, 0.5, 0.3), (ChannelKind::Roughness, ChannelValue::scalar(0.6)), (ChannelKind::Metallic, ChannelValue::scalar(0.1))]));
     // One layer per blend mode, alternating sources, masks and opacities.
-    for (i, mode) in BlendMode::ALL
-        .into_iter()
-        .filter(|m| !matches!(m, BlendMode::Disable | BlendMode::Passthrough))
-        .enumerate()
-    {
+    for (i, mode) in BlendMode::ALL.into_iter().filter(|m| !matches!(m, BlendMode::Disable | BlendMode::Passthrough)).enumerate() {
         let f = i as f32 / 32.0;
         let mut l = if i % 3 == 0 {
-            paint(
-                &base,
-                ChannelKind::BaseColor,
-                IRect::new(10 + i as i32 * 3, 20, 180 + i as i32, 230),
-                [0.9 - f * 0.5, 0.2 + f, 0.4],
-                0.9,
-            )
+            paint(&base, ChannelKind::BaseColor, IRect::new(10 + i as i32 * 3, 20, 180 + i as i32, 230), [0.9 - f * 0.5, 0.2 + f, 0.4], 0.9)
         } else {
-            fill(
-                &base,
-                &[
-                    color(0.8 - f * 0.4, 0.3 + f * 0.5, 0.6),
-                    (ChannelKind::Roughness, ChannelValue::scalar(0.2 + f)),
-                ],
-            )
+            fill(&base, &[color(0.8 - f * 0.4, 0.3 + f * 0.5, 0.6), (ChannelKind::Roughness, ChannelValue::scalar(0.2 + f))])
         };
         set_blend(&mut l, mode, 0.35 + 0.65 * ((i * 7 % 10) as f32 / 10.0));
         if i % 4 == 1 {
@@ -142,32 +105,11 @@ fn rich_set() -> TextureSet {
         ts.insert_above(None, l);
     }
     // Paint on scalar and normal channels, height, with a normal-map mode.
-    ts.insert_above(
-        None,
-        paint(
-            &base,
-            ChannelKind::Roughness,
-            IRect::new(0, 0, 200, 120),
-            [0.9; 3],
-            1.0,
-        ),
-    );
-    let mut n = paint(
-        &base,
-        ChannelKind::Normal,
-        IRect::new(30, 30, 220, 220),
-        [0.7, 0.4, 0.8],
-        0.8,
-    );
+    ts.insert_above(None, paint(&base, ChannelKind::Roughness, IRect::new(0, 0, 200, 120), [0.9; 3], 1.0));
+    let mut n = paint(&base, ChannelKind::Normal, IRect::new(30, 30, 220, 220), [0.7, 0.4, 0.8], 0.8);
     set_blend(&mut n, BlendMode::NormalMapCombine, 0.7);
     ts.insert_above(None, n);
-    let mut n2 = paint(
-        &base,
-        ChannelKind::Normal,
-        IRect::new(60, 10, 250, 190),
-        [0.3, 0.6, 0.85],
-        1.0,
-    );
+    let mut n2 = paint(&base, ChannelKind::Normal, IRect::new(60, 10, 250, 190), [0.3, 0.6, 0.85], 1.0);
     set_blend(&mut n2, BlendMode::NormalMapDetail, 1.0);
     ts.insert_above(None, n2);
     let mut h = fill(&base, &[(ChannelKind::Height, ChannelValue::scalar(0.4))]);
@@ -175,109 +117,40 @@ fn rich_set() -> TextureSet {
     ts.insert_above(None, h);
     // Procedural fill (CPU evaluated, uploaded as a block) with a generator-free Levels mask.
     let mut proc = Layer::new_fill("Proc", &base);
-    let LayerContent::Fill(f) = &mut proc.content else {
-        unreachable!()
-    };
+    let LayerContent::Fill(f) = &mut proc.content else { unreachable!() };
     f.channels.insert(
         ChannelKind::BaseColor,
         FillChannel::new(FillSource::Procedural {
-            params: ProceduralParams {
-                scale: 6.0,
-                ..ProceduralParams::new(ProceduralKind::Clouds)
-            },
+            params: ProceduralParams { scale: 6.0, ..ProceduralParams::new(ProceduralKind::Clouds) },
             low: ChannelValue::rgb(0.1, 0.1, 0.1),
             high: ChannelValue::rgb(0.9, 0.7, 0.5),
         }),
     );
     let mut m = mask_with_rect(false, IRect::new(0, 0, 256, 256));
-    m.effects
-        .push(Arc::new(MaskEffect::new(MaskEffectKind::Levels(Levels {
-            gamma: 2.0,
-            out_low: 0.1,
-            ..Levels::default()
-        }))));
+    m.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Levels(Levels { gamma: 2.0, out_low: 0.1, ..Levels::default() }))));
     proc.mask = Some(m);
     set_blend(&mut proc, BlendMode::Overlay, 0.9);
     ts.insert_above(None, proc);
     // Content effects: GPU-side (Levels, Contrast, Threshold, HistogramScan) and CPU-side (HSL).
     for (i, kind) in [
-        ContentEffectKind::Levels {
-            channel: ChannelKind::BaseColor,
-            levels: Levels {
-                in_low: 0.1,
-                in_high: 0.8,
-                gamma: 1.4,
-                out_low: 0.05,
-                out_high: 0.95,
-                ..Levels::default()
-            },
-        },
-        ContentEffectKind::Filter {
-            channel: ChannelKind::BaseColor,
-            filter: Filter::Contrast {
-                gain: 1.6,
-                pivot: 0.5,
-            },
-        },
-        ContentEffectKind::Filter {
-            channel: ChannelKind::Roughness,
-            filter: Filter::Threshold { cutoff: 0.5 },
-        },
-        ContentEffectKind::Filter {
-            channel: ChannelKind::Roughness,
-            filter: Filter::HistogramScan {
-                position: 0.5,
-                contrast: 0.3,
-                invert: true,
-            },
-        },
-        ContentEffectKind::Filter {
-            channel: ChannelKind::BaseColor,
-            filter: Filter::Hsl {
-                hue: 40.0,
-                saturation: 1.2,
-                lightness: 0.05,
-            },
-        },
+        ContentEffectKind::Levels { channel: ChannelKind::BaseColor, levels: Levels { in_low: 0.1, in_high: 0.8, gamma: 1.4, out_low: 0.05, out_high: 0.95, ..Levels::default() } },
+        ContentEffectKind::Filter { channel: ChannelKind::BaseColor, filter: Filter::Contrast { gain: 1.6, pivot: 0.5 } },
+        ContentEffectKind::Filter { channel: ChannelKind::Roughness, filter: Filter::Threshold { cutoff: 0.5 } },
+        ContentEffectKind::Filter { channel: ChannelKind::Roughness, filter: Filter::HistogramScan { position: 0.5, contrast: 0.3, invert: true } },
+        ContentEffectKind::Filter { channel: ChannelKind::BaseColor, filter: Filter::Hsl { hue: 40.0, saturation: 1.2, lightness: 0.05 } },
     ]
     .into_iter()
     .enumerate()
     {
-        let mut l = if i % 2 == 0 {
-            paint(
-                &base,
-                ChannelKind::BaseColor,
-                IRect::new(5, 5, 240, 240),
-                [0.6, 0.3, 0.2],
-                1.0,
-            )
-        } else {
-            fill(
-                &base,
-                &[
-                    color(0.4, 0.7, 0.5),
-                    (ChannelKind::Roughness, ChannelValue::scalar(0.7)),
-                ],
-            )
-        };
-        l.content_effects
-            .push(Arc::new(ContentEffect::new(kind, &base)));
+        let mut l = if i % 2 == 0 { paint(&base, ChannelKind::BaseColor, IRect::new(5, 5, 240, 240), [0.6, 0.3, 0.2], 1.0) } else { fill(&base, &[color(0.4, 0.7, 0.5), (ChannelKind::Roughness, ChannelValue::scalar(0.7))]) };
+        l.content_effects.push(Arc::new(ContentEffect::new(kind, &base)));
         set_blend(&mut l, BlendMode::Normal, 0.8);
         ts.insert_above(None, l);
     }
     // Folders: isolated Multiply folder with children, passthrough folder with a mask, nested.
     let iso = ts.insert_above(None, Layer::new_folder("Iso", &base));
-    for (j, mode) in [BlendMode::Normal, BlendMode::Screen, BlendMode::SoftLight]
-        .into_iter()
-        .enumerate()
-    {
-        let mut c = paint(
-            &base,
-            ChannelKind::BaseColor,
-            IRect::new(20 * j as i32, 40, 150 + 20 * j as i32, 200),
-            [0.3 + 0.2 * j as f32, 0.6, 0.9],
-            0.8,
-        );
+    for (j, mode) in [BlendMode::Normal, BlendMode::Screen, BlendMode::SoftLight].into_iter().enumerate() {
+        let mut c = paint(&base, ChannelKind::BaseColor, IRect::new(20 * j as i32, 40, 150 + 20 * j as i32, 200), [0.3 + 0.2 * j as f32, 0.6, 0.9], 0.8);
         set_blend(&mut c, mode, 0.9);
         ts.insert(Some(iso), 0, c).unwrap();
     }
@@ -288,58 +161,19 @@ fn rich_set() -> TextureSet {
         b.mode = BlendMode::Passthrough;
         b.opacity = 0.6;
     }
-    let inner = ts
-        .insert(Some(pass), 0, Layer::new_folder("Inner", &base))
-        .unwrap();
+    let inner = ts.insert(Some(pass), 0, Layer::new_folder("Inner", &base)).unwrap();
     set_blend(ts.find_mut(inner).unwrap(), BlendMode::Difference, 0.9);
-    ts.insert(
-        Some(inner),
-        0,
-        fill(
-            &base,
-            &[
-                color(0.9, 0.2, 0.1),
-                (ChannelKind::Roughness, ChannelValue::scalar(0.95)),
-            ],
-        ),
-    )
-    .unwrap();
-    let mut pc = paint(
-        &base,
-        ChannelKind::BaseColor,
-        IRect::new(50, 50, 180, 180),
-        [0.1, 0.8, 0.4],
-        1.0,
-    );
+    ts.insert(Some(inner), 0, fill(&base, &[color(0.9, 0.2, 0.1), (ChannelKind::Roughness, ChannelValue::scalar(0.95))])).unwrap();
+    let mut pc = paint(&base, ChannelKind::BaseColor, IRect::new(50, 50, 180, 180), [0.1, 0.8, 0.4], 1.0);
     set_blend(&mut pc, BlendMode::Multiply, 1.0);
     ts.insert(Some(pass), 0, pc).unwrap();
     // A group with a Levels effect on its result.
     let eff = ts.insert_above(None, Layer::new_folder("Eff", &base));
-    ts.insert(
-        Some(eff),
-        0,
-        paint(
-            &base,
-            ChannelKind::Roughness,
-            IRect::new(100, 100, 250, 250),
-            [0.8; 3],
-            1.0,
-        ),
-    )
-    .unwrap();
-    ts.find_mut(eff)
-        .unwrap()
-        .content_effects
-        .push(Arc::new(ContentEffect::new(
-            ContentEffectKind::Levels {
-                channel: ChannelKind::Roughness,
-                levels: Levels {
-                    gamma: 0.7,
-                    ..Levels::default()
-                },
-            },
-            &base,
-        )));
+    ts.insert(Some(eff), 0, paint(&base, ChannelKind::Roughness, IRect::new(100, 100, 250, 250), [0.8; 3], 1.0)).unwrap();
+    ts.find_mut(eff).unwrap().content_effects.push(Arc::new(ContentEffect::new(
+        ContentEffectKind::Levels { channel: ChannelKind::Roughness, levels: Levels { gamma: 0.7, ..Levels::default() } },
+        &base,
+    )));
     ts
 }
 
@@ -351,11 +185,7 @@ struct Fixture {
 
 fn run(ts: &TextureSet, fx: &Fixture, gpu_on: bool) -> Composite {
     gpu::set_gpu_compositing_enabled(gpu_on);
-    let ctx = EvalContext {
-        geometry: &fx.geo,
-        resources: &fx.res,
-        mesh_maps: &fx.maps,
-    };
+    let ctx = EvalContext { geometry: &fx.geo, resources: &fx.res, mesh_maps: &fx.maps };
     let c = composite_full(ts, &ctx);
     gpu::set_gpu_compositing_enabled(true);
     c
@@ -389,11 +219,7 @@ fn gpu_matches_cpu_on_a_rich_stack() {
     if !adapter_ok() {
         return;
     }
-    let fx = Fixture {
-        geo: TextureSetGeometry::new(Arc::new(primitives::plane(2.0, 2)), 0, RES),
-        res: ResourceStore::default(),
-        maps: MeshMaps::new(),
-    };
+    let fx = Fixture { geo: TextureSetGeometry::new(Arc::new(primitives::plane(2.0, 2)), 0, RES), res: ResourceStore::default(), maps: MeshMaps::new() };
     let ts = rich_set();
     let cpu = run(&ts, &fx, false);
     let _ = take_gpu_stats();
@@ -402,14 +228,9 @@ fn gpu_matches_cpu_on_a_rich_stack() {
     assert!(stats.tiles > 0, "the GPU path did not run: {stats:?}");
     assert_eq!(stats.errors, 0);
     let (worst, over, total) = compare(&cpu, &on_gpu);
-    println!(
-        "rich stack: worst error {worst:.2} tolerance units, {over} of {total} values beyond 1 unit; {stats:?}"
-    );
+    println!("rich stack: worst error {worst:.2} tolerance units, {over} of {total} values beyond 1 unit; {stats:?}");
     assert!(worst <= 8.0, "worst error {worst} tolerance units");
-    assert!(
-        over * 1000 <= total,
-        "{over} of {total} values beyond tolerance"
-    );
+    assert!(over * 1000 <= total, "{over} of {total} values beyond tolerance");
 }
 
 /// Issue #119: a slow adapter gets its work in many short submissions instead of one long one.
@@ -422,11 +243,7 @@ fn many_small_submissions_give_the_same_texels_as_one() {
     if !adapter_ok() {
         return;
     }
-    let fx = Fixture {
-        geo: TextureSetGeometry::new(Arc::new(primitives::plane(2.0, 2)), 0, RES),
-        res: ResourceStore::default(),
-        maps: MeshMaps::new(),
-    };
+    let fx = Fixture { geo: TextureSetGeometry::new(Arc::new(primitives::plane(2.0, 2)), 0, RES), res: ResourceStore::default(), maps: MeshMaps::new() };
     let ts = rich_set();
     let cpu = run(&ts, &fx, false);
     let whole = run(&ts, &fx, true); // also creates the backend
@@ -435,23 +252,13 @@ fn many_small_submissions_give_the_same_texels_as_one() {
 
     // Everything in one submission (a budget no batch can exceed).
     let hour = Duration::from_secs(3600);
-    backend.set_budget(GpuBudget {
-        first_units: u64::MAX / 4,
-        target: hour,
-        max: hour,
-        growth: 1,
-    });
+    backend.set_budget(GpuBudget { first_units: u64::MAX / 4, target: hour, max: hour, growth: 1 });
     let before = backend.submissions();
     let one = run(&ts, &fx, true);
     let single = backend.submissions() - before;
 
     // One work unit per submission and no growth: every pass covers a single tile.
-    backend.set_budget(GpuBudget {
-        first_units: 1,
-        target: hour,
-        max: hour,
-        growth: 1,
-    });
+    backend.set_budget(GpuBudget { first_units: 1, target: hour, max: hour, growth: 1 });
     let _ = take_gpu_stats();
     let before = backend.submissions();
     let split = run(&ts, &fx, true);
@@ -461,27 +268,17 @@ fn many_small_submissions_give_the_same_texels_as_one() {
 
     assert_eq!(stats.errors, 0);
     assert!(stats.tiles >= tiles, "{stats:?}");
-    assert!(
-        single >= 1 && many >= single + tiles,
-        "single-submission run: {single}, split run: {many} submissions for {tiles} tiles"
-    );
+    assert!(single >= 1 && many >= single + tiles, "single-submission run: {single}, split run: {many} submissions for {tiles} tiles");
     for (kind, a) in &one.channels {
         let b = split.channel(*kind).unwrap();
         for y in 0..RES {
             for x in 0..RES {
-                assert_eq!(
-                    a.get(x, y),
-                    b.get(x, y),
-                    "{kind:?} ({x},{y}) differs between one and many submissions"
-                );
+                assert_eq!(a.get(x, y), b.get(x, y), "{kind:?} ({x},{y}) differs between one and many submissions");
             }
         }
     }
     let (worst, over, total) = compare(&cpu, &split);
-    assert!(
-        worst <= 8.0 && over * 1000 <= total,
-        "split run against the CPU: worst {worst}, {over} of {total} beyond tolerance"
-    );
+    assert!(worst <= 8.0 && over * 1000 <= total, "split run against the CPU: worst {worst}, {over} of {total} beyond tolerance");
     let _ = whole;
 }
 
@@ -491,16 +288,9 @@ fn each_blend_mode_matches_on_every_channel_kind() {
     if !adapter_ok() {
         return;
     }
-    let fx = Fixture {
-        geo: TextureSetGeometry::new(Arc::new(primitives::plane(2.0, 2)), 0, RES),
-        res: ResourceStore::default(),
-        maps: MeshMaps::new(),
-    };
+    let fx = Fixture { geo: TextureSetGeometry::new(Arc::new(primitives::plane(2.0, 2)), 0, RES), res: ResourceStore::default(), maps: MeshMaps::new() };
     let mut worst_all = 0.0f32;
-    for mode in BlendMode::ALL
-        .into_iter()
-        .filter(|m| !matches!(m, BlendMode::Disable | BlendMode::Passthrough))
-    {
+    for mode in BlendMode::ALL.into_iter().filter(|m| !matches!(m, BlendMode::Disable | BlendMode::Passthrough)) {
         let mut ts = TextureSet::new("T", 0, RES);
         let base = ts.clone();
         let channels = [
@@ -509,27 +299,9 @@ fn each_blend_mode_matches_on_every_channel_kind() {
             (ChannelKind::Roughness, [0.8, 0.0, 0.0]),
             (ChannelKind::Height, [0.3, 0.0, 0.0]),
         ];
-        ts.insert_above(
-            None,
-            paint(
-                &base,
-                ChannelKind::BaseColor,
-                IRect::new(0, 0, 256, 256),
-                [0.25, 0.6, 0.35],
-                1.0,
-            ),
-        );
+        ts.insert_above(None, paint(&base, ChannelKind::BaseColor, IRect::new(0, 0, 256, 256), [0.25, 0.6, 0.35], 1.0));
         for (kind, v) in channels {
-            ts.insert_above(
-                None,
-                paint(
-                    &base,
-                    kind,
-                    IRect::new(0, 0, 256, 256),
-                    [v[0] * 0.5, v[1] * 0.7, v[2] * 0.9],
-                    0.9,
-                ),
-            );
+            ts.insert_above(None, paint(&base, kind, IRect::new(0, 0, 256, 256), [v[0] * 0.5, v[1] * 0.7, v[2] * 0.9], 0.9));
         }
         for (kind, v) in channels {
             let mut l = paint(&base, kind, IRect::new(20, 20, 230, 230), v, 0.85);
@@ -541,14 +313,8 @@ fn each_blend_mode_matches_on_every_channel_kind() {
         let (worst, over, total) = compare(&cpu, &gpu_c);
         println!("{mode:?}: worst {worst:.2} units, {over}/{total} beyond");
         worst_all = worst_all.max(worst);
-        assert!(
-            worst <= 8.0,
-            "{mode:?}: worst error {worst} tolerance units"
-        );
-        assert!(
-            over * 1000 <= total,
-            "{mode:?}: {over} of {total} beyond tolerance"
-        );
+        assert!(worst <= 8.0, "{mode:?}: worst error {worst} tolerance units");
+        assert!(over * 1000 <= total, "{mode:?}: {over} of {total} beyond tolerance");
     }
     println!("all modes: worst {worst_all:.2} tolerance units");
 }
@@ -559,33 +325,16 @@ fn unsupported_sets_use_the_cpu_and_stay_identical() {
     if !adapter_ok() {
         return;
     }
-    let fx = Fixture {
-        geo: TextureSetGeometry::new(Arc::new(primitives::plane(2.0, 2)), 0, RES),
-        res: ResourceStore::default(),
-        maps: MeshMaps::new(),
-    };
+    let fx = Fixture { geo: TextureSetGeometry::new(Arc::new(primitives::plane(2.0, 2)), 0, RES), res: ResourceStore::default(), maps: MeshMaps::new() };
     let mut ts = rich_set();
     let base = ts.clone();
-    let mut blur = fill(
-        &base,
-        &[(ChannelKind::BaseColor, ChannelValue::rgb(0.9, 0.9, 0.2))],
-    );
-    blur.content_effects.push(Arc::new(ContentEffect::new(
-        ContentEffectKind::Filter {
-            channel: ChannelKind::BaseColor,
-            filter: Filter::Blur { radius: 3.0 },
-        },
-        &base,
-    )));
+    let mut blur = fill(&base, &[(ChannelKind::BaseColor, ChannelValue::rgb(0.9, 0.9, 0.2))]);
+    blur.content_effects.push(Arc::new(ContentEffect::new(ContentEffectKind::Filter { channel: ChannelKind::BaseColor, filter: Filter::Blur { radius: 3.0 } }, &base)));
     ts.insert_above(None, blur);
     let cpu = run(&ts, &fx, false);
     let _ = take_gpu_stats();
     let gpu_c = run(&ts, &fx, true);
-    assert_eq!(
-        take_gpu_stats().tiles,
-        0,
-        "a set with neighborhood filters must not use the GPU"
-    );
+    assert_eq!(take_gpu_stats().tiles, 0, "a set with neighborhood filters must not use the GPU");
     assert_eq!(cpu, gpu_c);
 }
 
@@ -598,11 +347,7 @@ fn small_sets_stay_on_the_cpu_by_default() {
     }
     gpu::set_gpu_min_tiles(gpu::DEFAULT_MIN_TILES);
     gpu::set_gpu_min_resolution(gpu::DEFAULT_MIN_RESOLUTION);
-    let fx = Fixture {
-        geo: TextureSetGeometry::new(Arc::new(primitives::plane(2.0, 2)), 0, RES),
-        res: ResourceStore::default(),
-        maps: MeshMaps::new(),
-    };
+    let fx = Fixture { geo: TextureSetGeometry::new(Arc::new(primitives::plane(2.0, 2)), 0, RES), res: ResourceStore::default(), maps: MeshMaps::new() };
     let ts = rich_set();
     let cpu = run(&ts, &fx, false);
     let _ = take_gpu_stats();
@@ -610,10 +355,7 @@ fn small_sets_stay_on_the_cpu_by_default() {
     let stats = take_gpu_stats();
     gpu::set_gpu_min_tiles(1);
     gpu::set_gpu_min_resolution(0);
-    assert_eq!(
-        stats.tiles, 0,
-        "a {RES}² set must stay on the CPU by default"
-    );
+    assert_eq!(stats.tiles, 0, "a {RES}² set must stay on the CPU by default");
     assert_eq!(cpu, gpu_c);
 }
 
@@ -623,11 +365,7 @@ fn gpu_results_are_repeatable_and_cache_hits_on_a_second_run() {
     if !adapter_ok() {
         return;
     }
-    let fx = Fixture {
-        geo: TextureSetGeometry::new(Arc::new(primitives::plane(2.0, 2)), 0, RES),
-        res: ResourceStore::default(),
-        maps: MeshMaps::new(),
-    };
+    let fx = Fixture { geo: TextureSetGeometry::new(Arc::new(primitives::plane(2.0, 2)), 0, RES), res: ResourceStore::default(), maps: MeshMaps::new() };
     let ts = rich_set();
     let _ = take_gpu_stats();
     let first = run(&ts, &fx, true);
@@ -635,10 +373,7 @@ fn gpu_results_are_repeatable_and_cache_hits_on_a_second_run() {
     let second = run(&ts, &fx, true);
     let s2 = take_gpu_stats();
     assert_eq!(first, second, "same device, same input: identical output");
-    assert!(
-        s2.timing.cache_hits > 0 && s2.timing.cache_misses == 0,
-        "second run should hit the tile cache: {s1:?} {s2:?}"
-    );
+    assert!(s2.timing.cache_hits > 0 && s2.timing.cache_misses == 0, "second run should hit the tile cache: {s1:?} {s2:?}");
 }
 
 /// Anchor points (ADR-0045): masks, fill channels and generators reading anchors are prepared
@@ -650,58 +385,29 @@ fn anchored_sets_run_on_the_gpu_and_match_the_cpu() {
     if !adapter_ok() {
         return;
     }
-    let fx = Fixture {
-        geo: TextureSetGeometry::new(Arc::new(primitives::plane(2.0, 2)), 0, RES),
-        res: ResourceStore::default(),
-        maps: MeshMaps::new(),
-    };
+    let fx = Fixture { geo: TextureSetGeometry::new(Arc::new(primitives::plane(2.0, 2)), 0, RES), res: ResourceStore::default(), maps: MeshMaps::new() };
     let mut ts = rich_set();
     let base = ts.clone();
     // Anchored height (hidden layer: it only feeds its anchor) and an anchored color.
-    let mut bumps = paint(
-        &base,
-        ChannelKind::Height,
-        IRect::new(0, 0, 140, 256),
-        [0.8; 3],
-        1.0,
-    );
+    let mut bumps = paint(&base, ChannelKind::Height, IRect::new(0, 0, 140, 256), [0.8; 3], 1.0);
     let anchor = ContentEffect::new(ContentEffectKind::Anchor, &base);
     let height_anchor = anchor.id;
     bumps.content_effects.push(Arc::new(anchor));
     bumps.visible = false;
     ts.insert_above(None, bumps);
-    let mut colored = paint(
-        &base,
-        ChannelKind::BaseColor,
-        IRect::new(40, 30, 220, 200),
-        [0.2, 0.7, 0.9],
-        0.9,
-    );
+    let mut colored = paint(&base, ChannelKind::BaseColor, IRect::new(40, 30, 220, 200), [0.2, 0.7, 0.9], 0.9);
     let anchor = ContentEffect::new(ContentEffectKind::Anchor, &base);
     let color_anchor = anchor.id;
     colored.content_effects.push(Arc::new(anchor));
     ts.insert_above(None, colored);
     // Mask: Anchor Reference with Levels, then a generator whose input is the color anchor.
-    let mut dirt = fill(
-        &base,
-        &[
-            (ChannelKind::BaseColor, ChannelValue::rgb(0.5, 0.25, 0.1)),
-            (ChannelKind::Roughness, ChannelValue::scalar(0.95)),
-        ],
-    );
+    let mut dirt = fill(&base, &[(ChannelKind::BaseColor, ChannelValue::rgb(0.5, 0.25, 0.1)), (ChannelKind::Roughness, ChannelValue::scalar(0.95))]);
     let mut m = Mask::new(RES, false);
-    m.effects
-        .push(Arc::new(MaskEffect::new(MaskEffectKind::AnchorRef {
-            input: AnchorInput::new(height_anchor, ChannelKind::Height),
-            levels: Some(Levels {
-                gamma: 1.6,
-                out_high: 0.9,
-                ..Levels::default()
-            }),
-        })));
-    let mut g = Generator::new(GeneratorKind::MeshMap(
-        subcraft_core::MeshMapKind::Curvature,
-    ));
+    m.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::AnchorRef {
+        input: AnchorInput::new(height_anchor, ChannelKind::Height),
+        levels: Some(Levels { gamma: 1.6, out_high: 0.9, ..Levels::default() }),
+    })));
+    let mut g = Generator::new(GeneratorKind::MeshMap(subcraft_core::MeshMapKind::Curvature));
     g.input = Some(AnchorInput::new(color_anchor, ChannelKind::BaseColor));
     let mut ge = MaskEffect::new(MaskEffectKind::Generator(g));
     ge.blend = BlendMode::Multiply;
@@ -711,36 +417,21 @@ fn anchored_sets_run_on_the_gpu_and_match_the_cpu() {
     ts.insert_above(None, dirt);
     // Fill channel reading the anchored height as roughness.
     let mut reader = Layer::new_fill("Reader", &base);
-    let LayerContent::Fill(f) = &mut reader.content else {
-        unreachable!()
-    };
+    let LayerContent::Fill(f) = &mut reader.content else { unreachable!() };
     f.channels.clear();
-    f.channels.insert(
-        ChannelKind::Roughness,
-        FillChannel::new(FillSource::Anchor {
-            input: AnchorInput::new(height_anchor, ChannelKind::Height),
-        }),
-    );
+    f.channels.insert(ChannelKind::Roughness, FillChannel::new(FillSource::Anchor { input: AnchorInput::new(height_anchor, ChannelKind::Height) }));
     ts.insert_above(None, reader);
 
     let cpu = run(&ts, &fx, false);
     let _ = take_gpu_stats();
     let on_gpu = run(&ts, &fx, true);
     let stats = take_gpu_stats();
-    assert!(
-        stats.tiles > 0,
-        "the GPU path did not run on an anchored set: {stats:?}"
-    );
+    assert!(stats.tiles > 0, "the GPU path did not run on an anchored set: {stats:?}");
     assert_eq!((stats.errors, stats.fallback_tiles), (0, 0), "{stats:?}");
     let (worst, over, total) = compare(&cpu, &on_gpu);
-    println!(
-        "anchored stack: worst error {worst:.2} tolerance units, {over} of {total} values beyond 1 unit; {stats:?}"
-    );
+    println!("anchored stack: worst error {worst:.2} tolerance units, {over} of {total} values beyond 1 unit; {stats:?}");
     assert!(worst <= 8.0, "worst error {worst} tolerance units");
-    assert!(
-        over * 1000 <= total,
-        "{over} of {total} values beyond tolerance"
-    );
+    assert!(over * 1000 <= total, "{over} of {total} values beyond tolerance");
     // The anchors really drive the result: without the references the composite differs.
     let mut plain = ts.clone();
     let top = plain.layers.len() - 1;
@@ -757,16 +448,8 @@ fn a_single_channel_edit_only_blends_that_channel_on_the_gpu() {
     if !adapter_ok() {
         return;
     }
-    let fx = Fixture {
-        geo: TextureSetGeometry::new(Arc::new(primitives::plane(2.0, 2)), 0, RES),
-        res: ResourceStore::default(),
-        maps: MeshMaps::new(),
-    };
-    let ctx = EvalContext {
-        geometry: &fx.geo,
-        resources: &fx.res,
-        mesh_maps: &fx.maps,
-    };
+    let fx = Fixture { geo: TextureSetGeometry::new(Arc::new(primitives::plane(2.0, 2)), 0, RES), res: ResourceStore::default(), maps: MeshMaps::new() };
+    let ctx = EvalContext { geometry: &fx.geo, resources: &fx.res, mesh_maps: &fx.maps };
     let mut ts = rich_set();
     gpu::set_gpu_compositing_enabled(true);
     let mut cache = subcraft_compositor::CompositeCache::new();
@@ -775,31 +458,15 @@ fn a_single_channel_edit_only_blends_that_channel_on_the_gpu() {
 
     // The bottom layer: nothing cached below it, so every tile goes to the GPU.
     let bottom = ts.layers[0].id;
-    ts.find_mut(bottom)
-        .unwrap()
-        .blend
-        .get_mut(&ChannelKind::BaseColor)
-        .unwrap()
-        .opacity = 0.5;
+    ts.find_mut(bottom).unwrap().blend.get_mut(&ChannelKind::BaseColor).unwrap().opacity = 0.5;
     cache.update(&ts, &ctx);
     let limited = take_gpu_stats();
     assert_eq!(cache.limited_to(), Some(vec![ChannelKind::BaseColor]));
-    assert!(
-        limited.tiles > 0,
-        "the edit was blended on the GPU: {limited:?}"
-    );
+    assert!(limited.tiles > 0, "the edit was blended on the GPU: {limited:?}");
 
     let mut cold = subcraft_compositor::CompositeCache::new();
     cold.update(&ts, &ctx);
     let full = take_gpu_stats();
-    assert_eq!(
-        cache.composite(),
-        cold.composite(),
-        "limited to one channel, same texels as a cold composite"
-    );
-    assert!(
-        limited.timing.cache_hits + limited.timing.cache_misses
-            < full.timing.cache_hits + full.timing.cache_misses,
-        "fewer sources than every channel: {limited:?} vs {full:?}"
-    );
+    assert_eq!(cache.composite(), cold.composite(), "limited to one channel, same texels as a cold composite");
+    assert!(limited.timing.cache_hits + limited.timing.cache_misses < full.timing.cache_hits + full.timing.cache_misses, "fewer sources than every channel: {limited:?} vs {full:?}");
 }

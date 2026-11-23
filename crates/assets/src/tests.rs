@@ -8,32 +8,15 @@ use super::*;
 #[test]
 fn library_contents_are_well_formed() {
     let lib = Library::builtin();
-    assert!(
-        lib.alphas.len() >= 6
-            && lib.materials.len() >= 12
-            && lib.smart_materials.len() >= 4
-            && lib.smart_masks.len() >= 4
-    );
+    assert!(lib.alphas.len() >= 6 && lib.materials.len() >= 12 && lib.smart_materials.len() >= 4 && lib.smart_masks.len() >= 4);
     assert!(lib.environments.len() >= 4);
-    assert_eq!(
-        (lib.smart_materials.len(), lib.smart_masks.len()),
-        (39, 44),
-        "5 + 8 + 8 + 5 open-pack + 18 PBR-pack smart materials, minus Old Wood, Worn Leather, Sandstone, Dirty Rubber and Muddy Leather, 5 + 16 + 15 + 4 open-pack smart masks + 4 generator masks (concave, thin, X and Z gradients)"
-    );
-    let mut ids: Vec<_> = lib
-        .materials
-        .iter()
-        .map(|m| m.id)
-        .chain(lib.alphas.iter().map(|a| a.id))
-        .collect();
+    assert_eq!((lib.smart_materials.len(), lib.smart_masks.len()), (39, 44), "5 + 8 + 8 + 5 open-pack + 18 PBR-pack smart materials, minus Old Wood, Worn Leather, Sandstone, Dirty Rubber and Muddy Leather, 5 + 16 + 15 + 4 open-pack smart masks + 4 generator masks (concave, thin, X and Z gradients)");
+    let mut ids: Vec<_> = lib.materials.iter().map(|m| m.id).chain(lib.alphas.iter().map(|a| a.id)).collect();
     let n = ids.len();
     ids.sort();
     ids.dedup();
     assert_eq!(ids.len(), n, "asset ids are unique");
-    assert!(
-        lib.alphas[0].bitmap.is_none(),
-        "first tip is the procedural round brush"
-    );
+    assert!(lib.alphas[0].bitmap.is_none(), "first tip is the procedural round brush");
     for a in lib.alphas.iter().skip(1) {
         let b = a.bitmap.as_ref().unwrap();
         let mut lit = 0;
@@ -57,37 +40,17 @@ fn presets_build_for_a_texture_set() {
     for m in &lib.materials {
         let (ids, _) = presets::decode_images(&m.images);
         let layer = m.build_with(&ts, &ids);
-        let LayerContent::Fill(f) = &layer.content else {
-            panic!("{} is a fill", m.name)
-        };
-        let enabled: Vec<_> = f
-            .channels
-            .iter()
-            .filter(|(_, c)| c.enabled)
-            .map(|(k, _)| *k)
-            .collect();
+        let LayerContent::Fill(f) = &layer.content else { panic!("{} is a fill", m.name) };
+        let enabled: Vec<_> = f.channels.iter().filter(|(_, c)| c.enabled).map(|(k, _)| *k).collect();
         assert!(!enabled.is_empty(), "{}", m.name);
-        let in_preset = |k: &ChannelKind| {
-            m.channels.iter().any(|(pk, _)| pk == k) || m.images.iter().any(|i| i.channel == *k)
-        };
-        assert!(
-            enabled.iter().all(in_preset),
-            "{}: only preset channels enabled",
-            m.name
-        );
+        let in_preset = |k: &ChannelKind| m.channels.iter().any(|(pk, _)| pk == k) || m.images.iter().any(|i| i.channel == *k);
+        assert!(enabled.iter().all(in_preset), "{}: only preset channels enabled", m.name);
     }
     for s in &lib.smart_materials {
         let layer = s.build(&ts);
         assert!(layer.is_folder(), "{}", s.name);
         assert!(layer.children().len() >= 2, "{}", s.name);
-        assert!(
-            layer
-                .children()
-                .iter()
-                .any(|c| c.mask.as_ref().is_some_and(|m| !m.effects.is_empty())),
-            "{} has masked layers",
-            s.name
-        );
+        assert!(layer.children().iter().any(|c| c.mask.as_ref().is_some_and(|m| !m.effects.is_empty())), "{} has masked layers", s.name);
     }
     assert!(lib.smart_masks.iter().all(|m| !m.effects.is_empty()));
 }
@@ -99,29 +62,18 @@ fn constant_environment_prefilters_to_constant_irradiance() {
     assert_eq!(p.levels.len(), 6);
     assert_eq!((p.levels[0].width, p.levels[0].height), (512, 256));
     for l in &p.levels {
-        assert!(
-            l.rgba.chunks_exact(4).all(|px| (px[0] - 0.5).abs() < 1e-3),
-            "levels stay constant"
-        );
+        assert!(l.rgba.chunks_exact(4).all(|px| (px[0] - 0.5).abs() < 1e-3), "levels stay constant");
     }
-    for n in [
-        Vec3::Y,
-        -Vec3::Y,
-        Vec3::X,
-        Vec3::new(0.3, -0.5, 0.8).normalize(),
-    ] {
+    for n in [Vec3::Y, -Vec3::Y, Vec3::X, Vec3::new(0.3, -0.5, 0.8).normalize()] {
         let e = environment::irradiance(&p, n);
-        assert!(
-            (e[0] - 0.5).abs() < 0.02,
-            "irradiance of a uniform sky is the sky value: {e:?} at {n}"
-        );
+        assert!((e[0] - 0.5).abs() < 0.02, "irradiance of a uniform sky is the sky value: {e:?} at {n}");
     }
 }
 
 #[test]
 fn prefiltered_levels_blur_like_ggx_lobes_doubling_per_level() {
-    // A thin bright vertical line through the equator of a 2048-wide panorama: the horizontal
-    // spread of each level at the equator is that level's blur angle.
+    // A thin bright vertical line through a 2048-wide panorama: the horizontal spread of each
+    // level at the equator is that level's blur angle.
     let (w, h) = (2048u32, 1024u32);
     let mut data = vec![0.0f32; (w * h * 3) as usize];
     for y in 0..h {
@@ -143,17 +95,9 @@ fn prefiltered_levels_blur_like_ggx_lobes_doubling_per_level() {
         }
         let sigma = (m2 / sum).sqrt() as f32;
         let want = environment::level_blur(k, n);
-        assert!(
-            (sigma / want - 1.0).abs() < 0.25,
-            "level {k}: {:.2} deg, want {:.2} deg",
-            sigma.to_degrees(),
-            want.to_degrees()
-        );
+        assert!((sigma / want - 1.0).abs() < 0.25, "level {k}: {:.2} deg, want {:.2} deg", sigma.to_degrees(), want.to_degrees());
     }
-    assert!(
-        (environment::level_blur(n - 1, n) - environment::TOP_BLUR).abs() < 1e-6,
-        "the last level is roughness 1"
-    );
+    assert!((environment::level_blur(n - 1, n) - environment::TOP_BLUR).abs() < 1e-6, "the last level is roughness 1");
 }
 
 #[test]
@@ -178,11 +122,7 @@ fn bright_sky_lights_upward_normals_and_finds_the_sun() {
     let sun = Vec3::from_array(p.sun_direction);
     let expect = environment::dir_from_uv(0.25, 0.2);
     assert!(sun.dot(expect) > 0.97, "sun {sun} vs {expect}");
-    assert!(
-        p.sun_color[2] < p.sun_color[0],
-        "warm sun color {:?}",
-        p.sun_color
-    );
+    assert!(p.sun_color[2] < p.sun_color[0], "warm sun color {:?}", p.sun_color);
     let (u, v) = environment::uv_from_dir(expect);
     assert!((u - 0.25).abs() < 1e-4 && (v - 0.2).abs() < 1e-4);
 }
@@ -192,9 +132,7 @@ fn import_alpha_from_png() {
     let dir = std::env::temp_dir().join(format!("subcraft-assets-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("tip.png");
-    let data: Vec<f32> = (0..32 * 32)
-        .map(|i| if (i % 32) < 16 { 1.0 } else { 0.0 })
-        .collect();
+    let data: Vec<f32> = (0..32 * 32).map(|i| if (i % 32) < 16 { 1.0 } else { 0.0 }).collect();
     subcraft_image::save_image(&path, 32, 32, 1, &data, subcraft_image::FileFormat::Png8).unwrap();
     let a = alphas::import(&path).unwrap();
     assert_eq!(a.name, "tip");
@@ -207,54 +145,27 @@ fn import_alpha_from_png() {
 #[test]
 fn bundled_hdris_are_2_to_1_float_panoramas_with_real_dynamic_range() {
     let lib = Library::builtin();
-    assert_eq!(
-        lib.environments.len(),
-        5 + environment::BUNDLED_HDRIS.len() + open_pack::environments().len()
-    );
+    assert_eq!(lib.environments.len(), 5 + environment::BUNDLED_HDRIS.len() + open_pack::environments().len());
     let mut names: Vec<_> = lib.environments.iter().map(|e| e.name.clone()).collect();
     names.sort();
     names.dedup();
-    assert_eq!(
-        names.len(),
-        lib.environments.len(),
-        "environment names are unique"
-    );
+    assert_eq!(names.len(), lib.environments.len(), "environment names are unique");
     for (name, _, bytes) in environment::BUNDLED_HDRIS {
-        let bmp = subcraft_image::io::decode_bitmap(bytes, Some("x.hdr"))
-            .unwrap_or_else(|e| panic!("{name}: {e}"));
+        let bmp = subcraft_image::io::decode_bitmap(bytes, Some("x.hdr")).unwrap_or_else(|e| panic!("{name}: {e}"));
         assert!(bmp.is_hdr(), "{name} keeps float data");
-        assert_eq!(
-            (bmp.width, bmp.height),
-            (1024, 512),
-            "{name} is a 2:1 1024x512 panorama"
-        );
-        assert!(
-            bytes.len() < 2_500_000,
-            "{name} stays small ({} bytes)",
-            bytes.len()
-        );
+        assert_eq!((bmp.width, bmp.height), (1024, 512), "{name} is a 2:1 1024x512 panorama");
+        assert!(bytes.len() < 2_500_000, "{name} stays small ({} bytes)", bytes.len());
         let mut peak = 0.0f32;
         let mut sum = 0.0f64;
         for y in (0..bmp.height).step_by(4) {
             for x in (0..bmp.width).step_by(4) {
-                let p = bmp.sample(
-                    (x as f32 + 0.5) / bmp.width as f32,
-                    (y as f32 + 0.5) / bmp.height as f32,
-                    subcraft_image::Wrap::Repeat,
-                    false,
-                );
-                assert!(
-                    p[0].is_finite() && p[1].is_finite() && p[2].is_finite() && p[0] >= 0.0,
-                    "{name} has finite radiance"
-                );
+                let p = bmp.sample((x as f32 + 0.5) / bmp.width as f32, (y as f32 + 0.5) / bmp.height as f32, subcraft_image::Wrap::Repeat, false);
+                assert!(p[0].is_finite() && p[1].is_finite() && p[2].is_finite() && p[0] >= 0.0, "{name} has finite radiance");
                 peak = peak.max(p[0].max(p[1]).max(p[2]));
                 sum += p[1] as f64;
             }
         }
-        assert!(
-            peak > 10.0,
-            "{name} keeps bright light sources (peak {peak})"
-        );
+        assert!(peak > 10.0, "{name} keeps bright light sources (peak {peak})");
         assert!(sum > 0.0);
     }
 }
@@ -262,41 +173,25 @@ fn bundled_hdris_are_2_to_1_float_panoramas_with_real_dynamic_range() {
 #[test]
 fn bundled_hdri_prefilters_on_first_use_with_a_sun_direction() {
     let lib = Library::builtin();
-    let sky = lib
-        .environments
-        .iter()
-        .find(|e| e.name == "Salt Flats Twilight")
-        .expect("bundled sky");
+    let sky = lib.environments.iter().find(|e| e.name == "Salt Flats Twilight").expect("bundled sky");
     let h = sky.source.hdri().expect("hdri");
     // 1024 wide: levels 1024, 512, ... 16.
     assert_eq!(h.levels.len(), 7);
     assert_eq!(h.levels[0].width, 1024);
     assert!(h.sun_direction.iter().all(|v| v.is_finite()));
-    assert!(
-        lib.environments[0].source.hdri().is_none(),
-        "procedural presets have no panorama"
-    );
+    assert!(lib.environments[0].source.hdri().is_none(), "procedural presets have no panorama");
 }
 
 #[test]
 fn every_smart_asset_has_a_category_and_description() {
     let lib = Library::builtin();
     for m in &lib.smart_materials {
-        let i =
-            smart_material_info(&m.name).unwrap_or_else(|| panic!("{} has no shelf info", m.name));
-        assert!(
-            !i.category.is_empty() && i.description.len() > 15,
-            "{}",
-            m.name
-        );
+        let i = smart_material_info(&m.name).unwrap_or_else(|| panic!("{} has no shelf info", m.name));
+        assert!(!i.category.is_empty() && i.description.len() > 15, "{}", m.name);
     }
     for m in &lib.smart_masks {
         let i = smart_mask_info(&m.name).unwrap_or_else(|| panic!("{} has no shelf info", m.name));
-        assert!(
-            !i.category.is_empty() && i.description.len() > 15,
-            "{}",
-            m.name
-        );
+        assert!(!i.category.is_empty() && i.description.len() > 15, "{}", m.name);
     }
 }
 
@@ -304,41 +199,19 @@ fn every_smart_asset_has_a_category_and_description() {
 fn new_smart_materials_are_folders_of_fill_layers_with_masks_and_measured_pbr_values() {
     use subcraft_doc::FillSource;
     let ts = TextureSet::new("T", 0, 128);
-    for name in [
-        "Rusted Painted Metal",
-        "Oily Metal",
-        "Painted Steel Edge Wear",
-        "Sandblasted Aluminium",
-        "Galvanized Steel",
-        "Pitted Cast Iron",
-    ] {
+    for name in ["Rusted Painted Metal", "Oily Metal", "Painted Steel Edge Wear", "Sandblasted Aluminium", "Galvanized Steel", "Pitted Cast Iron"] {
         let lib = Library::builtin();
-        let m = lib
-            .smart_materials
-            .iter()
-            .find(|m| m.name == name)
-            .unwrap_or_else(|| panic!("missing {name}"));
+        let m = lib.smart_materials.iter().find(|m| m.name == name).unwrap_or_else(|| panic!("missing {name}"));
         let layer = m.build(&ts);
         assert!(layer.is_folder() && layer.children().len() >= 2, "{name}");
-        assert!(
-            layer.children().iter().filter(|c| c.mask.is_some()).count() >= 1,
-            "{name} has masked layers"
-        );
+        assert!(layer.children().iter().filter(|c| c.mask.is_some()).count() >= 1, "{name} has masked layers");
         for c in layer.children() {
-            let LayerContent::Fill(f) = &c.content else {
-                panic!("{name}/{} is a fill", c.name)
-            };
+            let LayerContent::Fill(f) = &c.content else { panic!("{name}/{} is a fill", c.name) };
             for (kind, ch) in f.channels.iter().filter(|(_, c)| c.enabled) {
                 // Uniform base colours stay in a physically plausible albedo range (0.012..0.92 linear).
-                if let (subcraft_core::ChannelKind::BaseColor, FillSource::Uniform { value }) =
-                    (kind, &ch.source)
-                {
+                if let (subcraft_core::ChannelKind::BaseColor, FillSource::Uniform { value }) = (kind, &ch.source) {
                     let v = value.0;
-                    assert!(
-                        v.iter().all(|x| (0.01..=0.92).contains(x)),
-                        "{name}/{}: albedo {v:?}",
-                        c.name
-                    );
+                    assert!(v.iter().all(|x| (0.01..=0.92).contains(x)), "{name}/{}: albedo {v:?}", c.name);
                 }
             }
         }
@@ -355,41 +228,17 @@ fn smart_material_dirt_and_ambient_occlusion_use_the_painter_settings() {
     use subcraft_doc::{BlendMode, Generator, GeneratorKind, Layer, MaskEffectKind};
     fn walk<'a>(l: &'a Layer, out: &mut Vec<&'a Layer>) {
         out.push(l);
-        for c in l.children() {
-            walk(c, out);
-        }
+        for c in l.children() { walk(c, out); }
     }
     let ts = TextureSet::new("T", 0, 64);
     let fresh_dirt = Generator::new(GeneratorKind::Cavity);
     let fresh_ao = Generator::new(GeneratorKind::AmbientOcclusion);
     // The exact screenshot values, in UI terms.
-    assert_eq!(
-        (
-            1.0 - fresh_dirt.level,
-            1.0 - fresh_dirt.softness,
-            fresh_dirt.noise_amount
-        ),
-        (0.75, 0.39, 0.52)
-    );
+    assert_eq!((1.0 - fresh_dirt.level, 1.0 - fresh_dirt.softness, fresh_dirt.noise_amount), (0.75, 0.39, 0.52));
     let pc = fresh_dirt.painter.unwrap();
-    assert!(
-        (fresh_dirt.pattern_size() - 16.0).abs() < 1e-4
-            && pc.edges_masking == 0.0
-            && pc.grunge_floor == 0.73
-            && pc.grunge_map
-            && pc.grain == 0.0
-            && fresh_dirt.noise.seed == 1
-    );
-    assert!(
-        ((1.0 - fresh_ao.level) - 0.53).abs() < 1e-6
-            && fresh_ao.softness == 1.0
-            && fresh_ao.noise_amount == 0.0
-    );
-    assert!(
-        (fresh_ao.pattern_size() - 12.5).abs() < 1e-4
-            && fresh_ao.noise.seed == 1
-            && fresh_ao.offset == [0.0; 3]
-    );
+    assert!((fresh_dirt.pattern_size() - 16.0).abs() < 1e-4 && pc.edges_masking == 0.0 && pc.grunge_floor == 0.73 && pc.grunge_map && pc.grain == 0.0 && fresh_dirt.noise.seed == 1);
+    assert!(((1.0 - fresh_ao.level) - 0.53).abs() < 1e-6 && fresh_ao.softness == 1.0 && fresh_ao.noise_amount == 0.0);
+    assert!((fresh_ao.pattern_size() - 12.5).abs() < 1e-4 && fresh_ao.noise.seed == 1 && fresh_ao.offset == [0.0; 3]);
     let lib = Library::builtin();
     let (mut dirt_count, mut ao_count) = (0, 0);
     for m in &lib.smart_materials {
@@ -399,38 +248,20 @@ fn smart_material_dirt_and_ambient_occlusion_use_the_painter_settings() {
         for l in &layers {
             let Some(mask) = &l.mask else { continue };
             for e in &mask.effects {
-                let MaskEffectKind::Generator(g) = &e.kind else {
-                    continue;
-                };
+                let MaskEffectKind::Generator(g) = &e.kind else { continue };
                 match g.kind {
                     GeneratorKind::Cavity => {
                         dirt_count += 1;
-                        assert_eq!(
-                            g, &fresh_dirt,
-                            "{}/{}: Dirt generator settings",
-                            m.name, l.name
-                        );
+                        assert_eq!(g, &fresh_dirt, "{}/{}: Dirt generator settings", m.name, l.name);
                         // A Dirt generator stacked over another effect keeps its additive blend.
                         if std::ptr::eq(e.as_ref(), mask.effects[0].as_ref()) {
-                            assert_eq!(
-                                (e.blend, e.opacity),
-                                (BlendMode::Normal, 1.0),
-                                "{}/{}",
-                                m.name,
-                                l.name
-                            );
+                            assert_eq!((e.blend, e.opacity), (BlendMode::Normal, 1.0), "{}/{}", m.name, l.name);
                         }
                     }
                     GeneratorKind::AmbientOcclusion => {
                         ao_count += 1;
                         assert_eq!(g, &fresh_ao, "{}/{}: AO generator settings", m.name, l.name);
-                        assert_eq!(
-                            (e.blend, e.opacity, mask.effects.len()),
-                            (BlendMode::Normal, 1.0, 1),
-                            "{}/{}",
-                            m.name,
-                            l.name
-                        );
+                        assert_eq!((e.blend, e.opacity, mask.effects.len()), (BlendMode::Normal, 1.0, 1), "{}/{}", m.name, l.name);
                         assert_eq!(l.name, "Ambient Occlusion");
                     }
                     _ => {}
@@ -441,24 +272,13 @@ fn smart_material_dirt_and_ambient_occlusion_use_the_painter_settings() {
         for siblings in layers.iter().map(|l| l.children()) {
             for (i, c) in siblings.iter().enumerate() {
                 if c.name == "Dirt" || c.name == "Grime" {
-                    assert!(
-                        i > 0 && siblings[i - 1].name == "Ambient Occlusion",
-                        "{}: {} sits on the Ambient Occlusion layer",
-                        m.name,
-                        c.name
-                    );
+                    assert!(i > 0 && siblings[i - 1].name == "Ambient Occlusion", "{}: {} sits on the Ambient Occlusion layer", m.name, c.name);
                 }
             }
         }
     }
-    assert!(
-        dirt_count >= 20,
-        "Dirt generators on the shelf: {dirt_count}"
-    );
-    assert!(
-        ao_count >= 10,
-        "Ambient Occlusion layers on the shelf: {ao_count}"
-    );
+    assert!(dirt_count >= 20, "Dirt generators on the shelf: {dirt_count}");
+    assert!(ao_count >= 10, "Ambient Occlusion layers on the shelf: {ao_count}");
 }
 
 #[test]
@@ -466,10 +286,6 @@ fn smart_material_names_are_unique() {
     let lib = Library::builtin();
     let mut seen = std::collections::HashSet::new();
     for m in &lib.smart_materials {
-        assert!(
-            seen.insert(m.name.clone()),
-            "two smart materials are called {}",
-            m.name
-        );
+        assert!(seen.insert(m.name.clone()), "two smart materials are called {}", m.name);
     }
 }

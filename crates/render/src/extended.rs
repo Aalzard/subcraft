@@ -40,18 +40,9 @@ pub const EXTENDED_CHANNELS: [ChannelKind; 16] = [
 /// 5 transmissive + IOR, 6 displacement.
 pub const GROUPS: [&[ChannelKind]; 7] = [
     &[ChannelKind::CoatColor, ChannelKind::CoatOpacity],
-    &[
-        ChannelKind::CoatRoughness,
-        ChannelKind::CoatSpecularLevel,
-        ChannelKind::CoatNormal,
-    ],
+    &[ChannelKind::CoatRoughness, ChannelKind::CoatSpecularLevel, ChannelKind::CoatNormal],
     &[ChannelKind::SheenColor, ChannelKind::SheenOpacity],
-    &[
-        ChannelKind::SheenRoughness,
-        ChannelKind::AnisotropyLevel,
-        ChannelKind::AnisotropyAngle,
-        ChannelKind::Translucency,
-    ],
+    &[ChannelKind::SheenRoughness, ChannelKind::AnisotropyLevel, ChannelKind::AnisotropyAngle, ChannelKind::Translucency],
     &[ChannelKind::ScatteringColor, ChannelKind::Scattering],
     &[ChannelKind::Transmissive, ChannelKind::Ior],
     &[ChannelKind::Displacement],
@@ -81,24 +72,14 @@ pub struct Extended {
 
 impl Extended {
     pub fn new() -> Self {
-        Self {
-            texture: None,
-            layer_of: [-1; 7],
-            dirty: [None; 7],
-            sources: None,
-        }
+        Self { texture: None, layer_of: [-1; 7], dirty: [None; 7], sources: None }
     }
 
     /// Mark `rect` (0..1 coordinates) of `kind`'s group for repacking.
     pub(crate) fn touch(&mut self, kind: ChannelKind, rect: [f32; 4]) {
         let Some(g) = group_of(kind) else { return };
         self.dirty[g] = Some(match self.dirty[g] {
-            Some(d) => [
-                d[0].min(rect[0]),
-                d[1].min(rect[1]),
-                d[2].max(rect[2]),
-                d[3].max(rect[3]),
-            ],
+            Some(d) => [d[0].min(rect[0]), d[1].min(rect[1]), d[2].max(rect[2]), d[3].max(rect[3])],
             None => rect,
         });
     }
@@ -107,30 +88,9 @@ impl Extended {
     /// (x anisotropy, y subsurface scattering, z translucency).
     pub(crate) fn params(&self, mat: &GpuMaterial) -> [[f32; 4]; 3] {
         let l = self.layer_of.map(|v| v as f32);
-        let has = |k: ChannelKind| {
-            if mat.channels.contains_key(&k) {
-                1.0
-            } else {
-                0.0
-            }
-        };
-        let sss = if mat.channels.contains_key(&ChannelKind::Scattering)
-            || mat.channels.contains_key(&ChannelKind::ScatteringColor)
-        {
-            1.0
-        } else {
-            0.0
-        };
-        [
-            [l[0], l[1], l[2], l[3]],
-            [l[4], l[5], l[6], 0.0],
-            [
-                has(ChannelKind::AnisotropyLevel),
-                sss,
-                has(ChannelKind::Translucency),
-                0.0,
-            ],
-        ]
+        let has = |k: ChannelKind| if mat.channels.contains_key(&k) { 1.0 } else { 0.0 };
+        let sss = if mat.channels.contains_key(&ChannelKind::Scattering) || mat.channels.contains_key(&ChannelKind::ScatteringColor) { 1.0 } else { 0.0 };
+        [[l[0], l[1], l[2], l[3]], [l[4], l[5], l[6], 0.0], [has(ChannelKind::AnisotropyLevel), sss, has(ChannelKind::Translucency), 0.0]]
     }
 }
 
@@ -152,60 +112,28 @@ impl PackPass {
         let tex = |binding: u32| wgpu::BindGroupLayoutEntry {
             binding,
             visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Texture {
-                sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                view_dimension: wgpu::TextureViewDimension::D2,
-                multisampled: false,
-            },
+            ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Float { filterable: true }, view_dimension: wgpu::TextureViewDimension::D2, multisampled: false },
             count: None,
         };
-        let mut entries = vec![wgpu::BindGroupLayoutEntry {
-            binding: 0,
-            visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-            count: None,
-        }];
+        let mut entries = vec![wgpu::BindGroupLayoutEntry { binding: 0, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering), count: None }];
         entries.extend((1..=16).map(tex));
         entries.push(wgpu::BindGroupLayoutEntry {
             binding: 17,
             visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Buffer {
-                ty: wgpu::BufferBindingType::Uniform,
-                has_dynamic_offset: true,
-                min_binding_size: wgpu::BufferSize::new(16),
-            },
+            ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: true, min_binding_size: wgpu::BufferSize::new(16) },
             count: None,
         });
-        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("extended channels pack"),
-            entries: &entries,
-        });
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("extended channels pack"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("extended.wgsl").into()),
-        });
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("extended channels pack"),
-            bind_group_layouts: &[Some(&layout)],
-            immediate_size: 0,
-        });
+        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { label: Some("extended channels pack"), entries: &entries });
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("extended channels pack"), source: wgpu::ShaderSource::Wgsl(include_str!("extended.wgsl").into()) });
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some("extended channels pack"), bind_group_layouts: &[Some(&layout)], immediate_size: 0 });
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("extended channels pack"),
             layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                buffers: &[],
-                compilation_options: Default::default(),
-            },
+            vertex: wgpu::VertexState { module: &shader, entry_point: Some("vs_main"), buffers: &[], compilation_options: Default::default() },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
                 entry_point: Some("fs_main"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: FORMAT,
-                    blend: None,
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
+                targets: &[Some(wgpu::ColorTargetState { format: FORMAT, blend: None, write_mask: wgpu::ColorWrites::ALL })],
                 compilation_options: Default::default(),
             }),
             primitive: Default::default(),
@@ -231,13 +159,7 @@ impl PackPass {
             .iter()
             .map(|&k| {
                 let d = k.default_value().0;
-                ChannelTexture::constant(
-                    device,
-                    queue,
-                    [d[0], d[1], d[2], 1.0],
-                    composite_comps(k),
-                    k.key(),
-                )
+                ChannelTexture::constant(device, queue, [d[0], d[1], d[2], 1.0], composite_comps(k), k.key())
             })
             .collect();
         let empty = device
@@ -245,11 +167,7 @@ impl PackPass {
                 label: Some("no extended channels"),
                 // Two layers: OpenGL makes a one-layer texture a plain 2D texture, which cannot be
                 // viewed as an array.
-                size: wgpu::Extent3d {
-                    width: 1,
-                    height: 1,
-                    depth_or_array_layers: 2,
-                },
+                size: wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 2 },
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
@@ -257,39 +175,16 @@ impl PackPass {
                 usage: wgpu::TextureUsages::TEXTURE_BINDING,
                 view_formats: &[],
             })
-            .create_view(&wgpu::TextureViewDescriptor {
-                dimension: Some(wgpu::TextureViewDimension::D2Array),
-                ..Default::default()
-            });
-        Self {
-            pipeline,
-            layout,
-            sampler,
-            uniforms,
-            defaults,
-            empty,
-        }
+            .create_view(&wgpu::TextureViewDescriptor { dimension: Some(wgpu::TextureViewDimension::D2Array), ..Default::default() });
+        Self { pipeline, layout, sampler, uniforms, defaults, empty }
     }
 
     /// Bring `mat`'s packed texture up to date with its channel textures: (re)allocate it when
     /// the groups in use or the size changed, then repack the dirty regions. Returns true when
     /// the material's bind group and parameters must be rebuilt.
-    pub fn update(
-        &self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        mat: &mut GpuMaterial,
-    ) -> bool {
-        let used: Vec<bool> = GROUPS
-            .iter()
-            .map(|g| g.iter().any(|k| mat.channels.contains_key(k)))
-            .collect();
-        let size = EXTENDED_CHANNELS
-            .iter()
-            .filter_map(|k| mat.channels.get(k))
-            .map(|t| t.size)
-            .max()
-            .unwrap_or(0);
+    pub fn update(&self, device: &wgpu::Device, queue: &wgpu::Queue, mat: &mut GpuMaterial) -> bool {
+        let used: Vec<bool> = GROUPS.iter().map(|g| g.iter().any(|k| mat.channels.contains_key(k))).collect();
+        let size = EXTENDED_CHANNELS.iter().filter_map(|k| mat.channels.get(k)).map(|t| t.size).max().unwrap_or(0);
         let layers = used.iter().filter(|u| **u).count() as u32;
         let mut wanted = [-1; 7];
         let mut next = 0;
@@ -309,95 +204,53 @@ impl PackPass {
             return rebuild;
         }
         // OpenGL cannot view a one-layer texture as an array (see `empty`).
-        let layers = if crate::caps::get().backend == "Gl" {
-            layers.max(2)
-        } else {
-            layers
-        };
+        let layers = if crate::caps::get().backend == "Gl" { layers.max(2) } else { layers };
         if current != Some((size, layers)) || mat.extended.layer_of != wanted {
             let levels = size.ilog2() + 1;
             let texture = device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("extended channels"),
-                size: wgpu::Extent3d {
-                    width: size,
-                    height: size,
-                    depth_or_array_layers: layers,
-                },
+                size: wgpu::Extent3d { width: size, height: size, depth_or_array_layers: layers },
                 mip_level_count: levels,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
                 format: FORMAT,
-                usage: wgpu::TextureUsages::TEXTURE_BINDING
-                    | wgpu::TextureUsages::RENDER_ATTACHMENT,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT,
                 view_formats: &[],
             });
-            let view = texture.create_view(&wgpu::TextureViewDescriptor {
-                dimension: Some(wgpu::TextureViewDimension::D2Array),
-                ..Default::default()
-            });
+            let view = texture.create_view(&wgpu::TextureViewDescriptor { dimension: Some(wgpu::TextureViewDimension::D2Array), ..Default::default() });
             mat.extended.texture = Some((texture, view, size, layers));
             mat.extended.layer_of = wanted;
-            mat.extended.dirty = used
-                .iter()
-                .map(|u| u.then_some([0.0, 0.0, 1.0, 1.0]))
-                .collect::<Vec<_>>()
-                .try_into()
-                .expect("seven groups");
+            mat.extended.dirty = used.iter().map(|u| u.then_some([0.0, 0.0, 1.0, 1.0])).collect::<Vec<_>>().try_into().expect("seven groups");
             rebuild = true;
         }
         if mat.extended.dirty.iter().all(Option::is_none) {
             return rebuild;
         }
         if mat.extended.sources.is_none() {
-            let mut entries = vec![wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::Sampler(&self.sampler),
-            }];
+            let mut entries = vec![wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::Sampler(&self.sampler) }];
             for (i, k) in EXTENDED_CHANNELS.iter().enumerate() {
-                let view = mat
-                    .channels
-                    .get(k)
-                    .map_or(&self.defaults[i].view, |t| &t.view);
-                entries.push(wgpu::BindGroupEntry {
-                    binding: i as u32 + 1,
-                    resource: wgpu::BindingResource::TextureView(view),
-                });
+                let view = mat.channels.get(k).map_or(&self.defaults[i].view, |t| &t.view);
+                entries.push(wgpu::BindGroupEntry { binding: i as u32 + 1, resource: wgpu::BindingResource::TextureView(view) });
             }
             entries.push(wgpu::BindGroupEntry {
                 binding: 17,
-                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                    buffer: &self.uniforms,
-                    offset: 0,
-                    size: wgpu::BufferSize::new(16),
-                }),
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding { buffer: &self.uniforms, offset: 0, size: wgpu::BufferSize::new(16) }),
             });
-            mat.extended.sources = Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("extended pack sources"),
-                layout: &self.layout,
-                entries: &entries,
-            }));
+            mat.extended.sources = Some(device.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("extended pack sources"), layout: &self.layout, entries: &entries }));
         }
         let (texture, _, size, _) = mat.extended.texture.as_ref().expect("allocated above");
         let levels = (size.ilog2() + 1).min(MAX_LEVELS as u32);
         let sources = mat.extended.sources.as_ref().expect("created above");
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("extended channels pack"),
-        });
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("extended channels pack") });
         for g in 0..GROUPS.len() {
-            let (Some(rect), layer) = (mat.extended.dirty[g], mat.extended.layer_of[g]) else {
-                continue;
-            };
+            let (Some(rect), layer) = (mat.extended.dirty[g], mat.extended.layer_of[g]) else { continue };
             if layer < 0 {
                 continue;
             }
             for level in 0..levels {
                 let w = (size >> level).max(1);
                 let slot = (g * MAX_LEVELS + level as usize) as u64 * SLOT;
-                queue.write_buffer(
-                    &self.uniforms,
-                    slot,
-                    bytemuck::cast_slice(&[g as f32, w as f32, 0.0, 0.0]),
-                );
+                queue.write_buffer(&self.uniforms, slot, bytemuck::cast_slice(&[g as f32, w as f32, 0.0, 0.0]));
                 let x0 = ((rect[0] * w as f32).floor() as u32).min(w - 1);
                 let y0 = ((rect[1] * w as f32).floor() as u32).min(w - 1);
                 let x1 = ((rect[2] * w as f32).ceil() as u32).clamp(x0 + 1, w);
@@ -416,10 +269,7 @@ impl PackPass {
                         view: &view,
                         depth_slice: None,
                         resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: wgpu::StoreOp::Store,
-                        },
+                        ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store },
                     })],
                     depth_stencil_attachment: None,
                     timestamp_writes: None,
@@ -447,10 +297,7 @@ mod tests {
         for k in EXTENDED_CHANNELS {
             assert_eq!(GROUPS.iter().filter(|g| g.contains(&k)).count(), 1, "{k:?}");
         }
-        assert_eq!(
-            GROUPS.iter().map(|g| g.len()).sum::<usize>(),
-            EXTENDED_CHANNELS.len()
-        );
+        assert_eq!(GROUPS.iter().map(|g| g.len()).sum::<usize>(), EXTENDED_CHANNELS.len());
         assert_eq!(group_of(ChannelKind::Displacement), Some(6));
         assert_eq!(group_of(ChannelKind::BaseColor), None);
     }
@@ -461,11 +308,6 @@ mod tests {
         e.touch(ChannelKind::CoatRoughness, [0.1, 0.2, 0.3, 0.4]);
         e.touch(ChannelKind::CoatNormal, [0.0, 0.5, 0.2, 0.9]);
         assert_eq!(e.dirty[1], Some([0.0, 0.2, 0.3, 0.9]));
-        assert!(
-            e.dirty
-                .iter()
-                .enumerate()
-                .all(|(g, d)| g == 1 || d.is_none())
-        );
+        assert!(e.dirty.iter().enumerate().all(|(g, d)| g == 1 || d.is_none()));
     }
 }
