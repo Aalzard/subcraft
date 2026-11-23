@@ -1,6 +1,6 @@
 //! A stitched pen path that crosses UV seams: drawn over three faces of a cube (each face is
 //! its own UV island), ray-cast from a corner.
-//! cargo run -p subcraft-app --example stitch_seam -- <out.png> [size] [stitch name]
+//! cargo run -p subcraft-app --example stitch_seam -- <out.png> [size] [stitch or tile name]
 use glam::{Vec2, Vec3};
 use subcraft_app::{Command, NewLayer, Session, pen::PenEditor, stitch};
 use subcraft_core::{ChannelKind, ChannelValue};
@@ -21,7 +21,6 @@ fn main() -> Result<(), String> {
     let out = args.first().ok_or("expected output file")?.clone();
     let size: u32 = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(1024);
     let name = args.get(2).cloned().unwrap_or_else(|| "Stitch: Saddle".into());
-    let st = stitch::find(&name).ok_or("unknown stitch")?;
     let mesh = subcraft_mesh::primitives::cube(2.0);
     let bvh = Bvh::build(&mesh);
     let mut s = Session::new(mesh.clone(), size);
@@ -32,9 +31,14 @@ fn main() -> Result<(), String> {
     s.execute(Command::AddLayer(NewLayer::Fill)).map_err(err)?;
     let leather = s.selection().layer.unwrap();
     s.execute(Command::SetFillChannel { layer: leather, channel: ChannelKind::BaseColor, fill: FillChannel::new(FillSource::uniform(ChannelValue::rgb(0.18, 0.09, 0.05))) }).map_err(err)?;
-    let tips = subcraft_app::assets::alphas::builtin();
     let mut pen = PenEditor::default();
-    pen.style = Some(stitch::style(&mut s, st, &tips));
+    // A stitch tile ("Tile: ...") or a brush-tip stitch ("Stitch: ...").
+    if let Some(tile) = subcraft_app::assets::stitch_tiles::builtin().iter().find(|t| t.name == name) {
+        pen.tile = Some(stitch::sample_tile(&mut s, tile));
+    } else {
+        let tips = subcraft_app::assets::alphas::builtin();
+        pen.style = Some(stitch::style(&mut s, stitch::find(&name).ok_or("unknown stitch")?, &tips));
+    }
     // From the front face over the top face to the right face.
     let far = 10.0;
     let clicks = [

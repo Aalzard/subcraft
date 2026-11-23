@@ -185,6 +185,11 @@ pub struct PathRibbon {
     /// ends.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub remove_clipped: bool,
+    /// Lay the copies on the model's surface instead of in UV space, one after the other at
+    /// their own length: they keep their size where the UV scale changes and continue over UV
+    /// seams (stitch tiles). The stretching and tiling settings do not apply.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub surface: bool,
 }
 
 fn is_zero(v: &f32) -> bool {
@@ -324,6 +329,7 @@ impl Default for PathRibbon {
             ratio: RibbonRatio::FitWidth,
             alignment: RibbonAlign::Start,
             remove_clipped: false,
+            surface: false,
         }
     }
 }

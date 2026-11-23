@@ -169,7 +169,7 @@ impl TileStyle {
         path.hardness = 1.0;
         let height = self.height.filter(|_| has_channel(ChannelKind::Height));
         let normal = self.normal.filter(|_| height.is_none() && has_channel(ChannelKind::Normal));
-        path.ribbon = Some(PathRibbon { image: self.image, height, normal, mode: RibbonMode::Stretch, tiling: RibbonTiling::Auto, color_from_image: true, ..PathRibbon::default() });
+        path.ribbon = Some(PathRibbon { image: self.image, height, normal, mode: RibbonMode::Stretch, tiling: RibbonTiling::Auto, color_from_image: true, surface: true, ..PathRibbon::default() });
         let mut values = std::collections::BTreeMap::new();
         if self.image.is_some() {
             for (kind, value) in [(ChannelKind::BaseColor, ChannelValue::rgb(0.8, 0.8, 0.8)), (ChannelKind::Roughness, ChannelValue::scalar(self.roughness))] {
@@ -412,6 +412,7 @@ mod tests {
         tile.apply_to_path(&mut path, |_| true);
         let r = path.ribbon.unwrap();
         assert_eq!((path.kind, path.stamp, r.image, r.height, r.normal), (PathKind::Ribbon, None, Some(image), Some(height), None), "with a height map the normal map is left out");
+        assert!(r.surface, "a stitch tile lies on the surface, so it goes on over UV seams");
         assert_eq!(path.values[&ChannelKind::Height], ChannelValue::scalar(tile.relief));
         assert!(path.values.contains_key(&ChannelKind::BaseColor) && !path.values.contains_key(&ChannelKind::Normal));
         assert!(path.validate().is_ok(), "{:?}", path.validate());
@@ -423,6 +424,61 @@ mod tests {
         let r = path.ribbon.unwrap();
         assert_eq!((r.height, r.normal), (None, Some(normal)));
         assert_eq!(path.values[&ChannelKind::Normal], ChannelKind::Normal.default_value());
+    }
+
+    /// Drawn with the pen over the edge of a cube (two UV islands), a sample tile is one strip
+    /// on both faces: colour and raised thread on each side of the UV seam.
+    #[test]
+    fn a_stitch_tile_drawn_over_a_cube_edge_goes_on_across_the_uv_seam() {
+        use glam::Vec3;
+        let mesh = subcraft_mesh::primitives::cube(2.0);
+        let bvh = subcraft_mesh::Bvh::build(&mesh);
+        let uv_at = |eye: Vec3, target: Vec3| {
+            let hit = bvh.intersect(eye, (target - eye).normalize(), 0.0, 100.0).unwrap();
+            mesh.interpolate(hit.tri as usize, hit.u, hit.v).uv
+        };
+        let mut s = crate::Session::new(mesh.clone(), 512);
+        let ts = s.selected_texture_set().id;
+        if !s.channels().contains(&ChannelKind::Height) {
+            s.execute(crate::Command::AddChannel { texture_set: ts, kind: ChannelKind::Height }).unwrap();
+        }
+        let tiles = subcraft_assets::stitch_tiles::builtin();
+        let mut pen = crate::pen::PenEditor::default();
+        pen.tile = Some(sample_tile(&mut s, &tiles[0]));
+        for (eye, target) in [(Vec3::new(0.0, -0.5, 5.0), Vec3::new(0.0, -0.5, 0.0)), (Vec3::new(0.0, 5.0, -0.5), Vec3::new(0.0, 0.0, -0.5))] {
+            pen.begin(&s, uv_at(eye, target), None).unwrap();
+            pen.release(&s).unwrap();
+        }
+        while pen.poll(&mut s, 1 << 20).unwrap() {}
+        s.update_composites();
+        let composite = s.composite(ts).unwrap();
+        let (color, height) = (composite.channel(ChannelKind::BaseColor).unwrap(), composite.channel(ChannelKind::Height).unwrap());
+        let bare = {
+            let uv = uv_at(Vec3::new(0.7, -0.7, 5.0), Vec3::new(0.7, -0.7, 0.0));
+            color.get((uv.x * 512.0) as u32, (uv.y * 512.0) as u32)
+        };
+        // In a small square of the face around a point of the strip's middle line: the share of
+        // texels that are not the bare surface colour, and the highest relief.
+        let around = |at: Vec3, n: Vec3, a: Vec3, b: Vec3| {
+            let (mut painted, mut top, mut count) = (0, 0.0f32, 0);
+            for i in -6..=6 {
+                for j in -6..=6 {
+                    let p = at + a * (i as f32 * 0.01) + b * (j as f32 * 0.01);
+                    let uv = uv_at(p + n * 3.0, p);
+                    let (x, y) = ((uv.x * 512.0) as u32, (uv.y * 512.0) as u32);
+                    painted += usize::from((0..3).any(|c| (color.get(x, y)[c] - bare[c]).abs() > 0.02));
+                    top = top.max(height.get(x, y)[0]);
+                    count += 1;
+                }
+            }
+            (painted as f32 / count as f32, top)
+        };
+        for (at, n, a, b) in [(Vec3::new(0.0, 0.2, 1.0), Vec3::Z, Vec3::X, Vec3::Y), (Vec3::new(0.0, 1.0, 0.2), Vec3::Y, Vec3::X, Vec3::Z)] {
+            let (share, top) = around(at, n, a, b);
+            assert!(share > 0.05 && top > 0.01, "the strip at {at:?}: {share} painted, relief up to {top}");
+        }
+        let (share, top) = around(Vec3::new(0.7, 0.2, 1.0), Vec3::Z, Vec3::X, Vec3::Y);
+        assert!(share == 0.0 && top.abs() < 1e-6, "nothing away from the path: {share}, {top}");
     }
 
     #[test]
