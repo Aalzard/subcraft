@@ -3287,6 +3287,14 @@ impl Session {
         }
     }
 
+    /// Pen tilt / rotation for the following stroke points (`None` for a mouse or a pen that
+    /// reports neither).
+    pub fn set_stroke_pen_pose(&mut self, pose: Option<subcraft_paint::PenPose>) {
+        if let Some(active) = self.stroke.as_mut() {
+            active.stroke.set_pen_pose(pose);
+        }
+    }
+
     /// Continue the stroke to a screen position (`line`: straight segment, no lazy mouse).
     pub fn stroke_to(&mut self, camera: &Camera, screen: Vec2, line: bool) -> Result<Vec<usize>, PaintError> {
         let Some(mut active) = self.stroke.take() else { return Ok(Vec::new()) };

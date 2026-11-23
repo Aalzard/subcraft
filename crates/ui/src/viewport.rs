@@ -562,6 +562,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         Ok(()) => {
                             state.painting = true;
                             state.session.set_stroke_pressure(stroke_pressure);
+                            state.session.set_stroke_pen_pose(crate::tablet::pen_pose());
                             let line_from = if mods.shift { state.line_start(&camera) } else { None };
                             // Ctrl+Shift+click: the line snaps to 5 degree steps, as in Painter, and
                             // the next line starts where this one ended (not at the raw click).
@@ -586,6 +587,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         {
             let sp = to_screen(p);
             state.session.set_stroke_pressure(stroke_pressure);
+            state.session.set_stroke_pen_pose(crate::tablet::pen_pose());
             // Every pointer position of this frame, not just the last: a pen reports several
             // hundred per second, and stamping along all of them follows a fast curve instead
             // of cutting it into one chord per frame (at no extra stamping cost).
