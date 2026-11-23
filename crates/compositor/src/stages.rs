@@ -171,6 +171,8 @@ enum Node<'a> {
         support: u32,
         /// A smoothed copy of `input` (Blur Slope on Previous input measures its slope there).
         slope: Option<usize>,
+        /// The anchors in the filter's image slots, already converted to `kind` (ADR-0045).
+        images: [Option<usize>; 2],
     },
     Contour {
         input: usize,
@@ -511,7 +513,10 @@ impl<'a> Graph<'a> {
     }
     /// [`Graph::content_effects`] for the first `limit` effects only.
     fn content_effects_until(&mut self, layer: &'a Layer, kind: ChannelKind, mut input: usize, mut steps: Option<&mut Vec<usize>>, limit: usize) -> usize {
+        // The node below every effect so far: what an anchor at that place holds.
+        let mut below = Vec::new();
         for (index, effect) in layer.content_effects.iter().enumerate().take(limit) {
+            below.push(input);
             let usable = effect.visible
                 && effect.blend_for(kind).is_active()
                 && !matches!(effect.kind, ContentEffectKind::Anchor)
@@ -521,7 +526,8 @@ impl<'a> Graph<'a> {
                     if !filter.valid() || !filter.supports_channel(kind) {
                         None
                     } else {
-                        Some(self.neighborhood(input, filter, kind))
+                        let images = self.filter_images(layer, effect.id, filter, kind, &below);
+                        Some(self.neighborhood(input, filter, kind, images))
                     }
                 }
                 // PBR Validate: the Base Color verdict needs the Metallic at the same point.
@@ -547,6 +553,41 @@ impl<'a> Graph<'a> {
             }
         }
         input
+    }
+    /// The anchors in the image slots of a content filter of `layer`, each converted to `kind`.
+    /// `below[i]` is the node under the layer's effect `i` in the chain being built.
+    fn filter_images(&mut self, layer: &'a Layer, effect: subcraft_core::EffectId, filter: Filter, kind: ChannelKind, below: &[usize]) -> [Option<usize>; 2] {
+        let mut images = [None; 2];
+        if self.anchors.is_none() {
+            return images;
+        }
+        for (slot, _) in filter.anchor_inputs() {
+            let site = subcraft_doc::RefSite::Content { layer: layer.id, effect, slot };
+            let own = self.anchors.as_ref().and_then(|a| {
+                let input = a.index.reference(site).filter(|r| r.status.is_ok())?.input;
+                let info = a.index.anchor(input.anchor)?;
+                (info.layer == layer.id && info.domain == subcraft_doc::AnchorDomain::Content).then_some((info.index, input.channel))
+            });
+            let read = match own {
+                // An anchor lower in this same chain: the node is already built.
+                Some((at, channel)) if channel == kind => below.get(at).map(|&node| (node, Some(channel))),
+                // The same anchor in another channel: only the effects below the anchor, so that
+                // two channels reading each other's anchors cannot build each other endlessly.
+                Some((at, channel)) => {
+                    let base = match &layer.content {
+                        LayerContent::Group(_) => self.push(Node::Constant([0.0; 4])),
+                        _ => usize::MAX,
+                    };
+                    let base = self.content_base(layer, channel, base);
+                    Some((self.content_effects_until(layer, channel, base, None, at), Some(channel)))
+                }
+                None => self.anchor_node(site),
+            };
+            if let (Some((source, from)), Some(image)) = (read, images.get_mut(slot)) {
+                *image = Some(self.push(Node::AnchorRead { source, from, to: kind, strength: 1.0 }));
+            }
+        }
+        images
     }
     /// The content node `layer` blends for `kind` (after its content effects), when the set has
     /// anchor references.
@@ -636,9 +677,10 @@ impl<'a> Graph<'a> {
                 v.extend(*mask);
                 v
             }
-            Node::Pixelwise { input, filter: _, kind: _, support: _, slope } => {
+            Node::Pixelwise { input, filter: _, kind: _, support: _, slope, images } => {
                 let mut v = vec![*input];
                 v.extend(*slope);
+                v.extend(images.iter().flatten());
                 v
             }
             Node::Directional { input, taps: _, support: _ }
@@ -717,8 +759,11 @@ impl<'a> Graph<'a> {
             | Node::Warp { input, .. }
             | Node::Contour { input, .. } => self.uniform[*input],
             // Edge Detect and a Transform that leaves gaps turn a flat input into an image.
-            Node::Pixelwise { input, filter, .. } => {
+            Node::Pixelwise { input, filter, images, .. } => {
                 self.uniform[*input]
+                    // A Color Match recolours a flat input per texel from its images.
+                    && !filter.match_reads_images()
+                    && images.iter().flatten().all(|n| self.uniform[*n])
                     && !matches!(filter, Filter::EdgeDetect { .. })
                     && !matches!(filter, Filter::Transform { repeat, .. } if *repeat != subcraft_doc::RepeatMode::Both)
             }
@@ -779,7 +824,7 @@ impl<'a> Graph<'a> {
         self.nodes.push(node);
         id
     }
-    fn neighborhood(&mut self, input: usize, filter: Filter, kind: ChannelKind) -> Option<usize> {
+    fn neighborhood(&mut self, input: usize, filter: Filter, kind: ChannelKind, images: [Option<usize>; 2]) -> Option<usize> {
         let radius = filter.radius()?;
         if !filter.valid() {
             return None;
@@ -810,7 +855,7 @@ impl<'a> Graph<'a> {
                     tile_safe: false,
                 };
                 let support = dx.abs().max(dy.abs()).ceil() as u32 + 1;
-                node = self.push(Node::Pixelwise { input: node, filter: shift, kind, support, slope: None });
+                node = self.push(Node::Pixelwise { input: node, filter: shift, kind, support, slope: None, images: [None; 2] });
             }
             if size > 0.0 {
                 let weights = Arc::new(subcraft_materials::filter::gaussian_weights(size));
@@ -855,7 +900,7 @@ impl<'a> Graph<'a> {
                 Filter::BlurSlopeMode { intensity, .. } => intensity.ceil() as u32 + 1,
                 _ => filter.support(),
             };
-            return Some(self.push(Node::Pixelwise { input, filter, kind, support, slope }));
+            return Some(self.push(Node::Pixelwise { input, filter, kind, support, slope, images }));
         }
         if let Filter::Warp { scale, seed, .. } = filter {
             let intensity = radius * self.radius_scale;
@@ -987,11 +1032,18 @@ impl<'a> Graph<'a> {
                 // An unresolved Anchor Reference contributes nothing: no node at all.
                 if !(anchor.is_none() && matches!(effect.kind, MaskEffectKind::AnchorRef { .. })) {
                     let filtered = match &effect.kind {
-                        MaskEffectKind::Filter(f) => self.neighborhood(input, *f, ChannelKind::Roughness),
+                        MaskEffectKind::Filter(f) => {
+                            // The anchor in the filter's image slot, as a gray image.
+                            let image = anchor.map(|(source, from)| self.push(Node::AnchorRead { source, from, to: ChannelKind::Roughness, strength: 1.0 }));
+                            let slot = f.anchor_inputs().first().map_or(0, |(slot, _)| *slot);
+                            let mut images = [None; 2];
+                            images[slot.min(1)] = image;
+                            self.neighborhood(input, *f, ChannelKind::Roughness, images)
+                        }
                         // Mask Editor with a global blur: blur its contributions, finish after.
                         MaskEffectKind::Generator(g) if g.editor_blur() > 0.0 => {
                             let raw = self.push(Node::EditorRaw { generator: g });
-                            self.neighborhood(raw, Filter::Blur { radius: g.editor_blur() }, ChannelKind::Roughness)
+                            self.neighborhood(raw, Filter::Blur { radius: g.editor_blur() }, ChannelKind::Roughness, [None; 2])
                         }
                         _ => None,
                     };
@@ -1003,6 +1055,8 @@ impl<'a> Graph<'a> {
                         (MaskEffectKind::Generator(g), Some(layer)) => g.micro_details_active().and_then(|d| self.micro_detail_node(layer, d)),
                         _ => None,
                     };
+                    // A filter reads its anchor through `filtered`.
+                    let anchor = anchor.filter(|_| !matches!(effect.kind, MaskEffectKind::Filter(_)));
                     input = self.push(Node::MaskEffect {
                         input,
                         effect,
@@ -1267,8 +1321,8 @@ impl<'a> Graph<'a> {
                             read(*m);
                         }
                     }
-                    Node::Pixelwise { input, slope, .. } => {
-                        for n in [Some(*input), *slope].into_iter().flatten() {
+                    Node::Pixelwise { input, slope, images, .. } => {
+                        for n in [Some(*input), *slope, images[0], images[1]].into_iter().flatten() {
                             shared[n] = true;
                             uses[n] += 2;
                         }
@@ -1800,10 +1854,14 @@ impl<'a> Graph<'a> {
                 kind,
                 support,
                 slope,
+                images,
             } => {
                 use subcraft_materials::filter::pixelwise as pw;
                 let grid = Neighborhood::new(self, *input, &geo, *support);
                 let slope = slope.map(|n| Neighborhood::new(self, n, &geo, 1));
+                // Anchors in the image slots: gray is the value times the anchor's coverage.
+                let anchors = images.map(|n| n.map(|n| Neighborhood::new(self, n, &geo, 1)));
+                let bitmap = |s: Option<subcraft_doc::ImageSource>| s.and_then(subcraft_doc::ImageSource::resource).and_then(|id| self.ctx.resources.bitmap(id));
                 let res = self.ctx.geometry.resolution;
                 let mut out = vec![[0.0; 4]; TILE_TEXELS];
                 if let Filter::Quantize { colors, dithering, pattern, lab, apply_to_alpha, alpha_threshold, .. } = *filter {
@@ -1820,21 +1878,32 @@ impl<'a> Graph<'a> {
                     }
                     return out;
                 }
-                if let Filter::ColorMatch { source_mode, source, target, hue, chroma, luma, target_image, .. } = *filter {
-                    // Average mode (the other modes are point filters): the mean of the input.
+                if let Filter::ColorMatch { source_mode, source, target, hue, chroma, luma, source_image, target_image } = *filter {
+                    // Average mode: the mean of the input.
                     let source = if source_mode == subcraft_doc::MatchSource::Average {
                         let cell = self.averages.lock().unwrap().entry(node).or_default().clone();
                         cell.get_or_init(|| average_color(&grid, res)).unwrap_or(source)
                     } else {
                         source
                     };
-                    let target_image = target_image.and_then(|id| self.ctx.resources.bitmap(id));
+                    let per_texel = source_mode == subcraft_doc::MatchSource::Image;
+                    let (source_image, target_image) = (bitmap(source_image).filter(|_| per_texel), bitmap(target_image));
+                    // A slot's colour at a texel: the anchor (where it has coverage), the image,
+                    // or the picked colour.
+                    let colour = |slot: usize, image: Option<&Arc<subcraft_image::Bitmap>>, fallback: [f32; 3], x: u32, y: u32| {
+                        if let Some(a) = &anchors[slot] {
+                            let p = a.pixel(x, y);
+                            return if p[3] > 0.0 { [p[0], p[1], p[2]] } else { fallback };
+                        }
+                        image.map_or(fallback, |b| crate::util::image_color(b, x, y, res))
+                    };
                     for (i, dst) in out.iter_mut().enumerate() {
                         let (x, y) = geo.texel_xy(i);
                         if x < res && y < res {
                             let p = grid.pixel(x, y);
-                            let target = target_image.map_or(target, |b| crate::util::image_color(b, x, y, res));
-                            let c = subcraft_materials::filter::color_match([p[0], p[1], p[2]], source, target, hue, chroma, luma);
+                            let from = if per_texel { colour(0, source_image, source, x, y) } else { source };
+                            let to = colour(1, target_image, target, x, y);
+                            let c = subcraft_materials::filter::color_match([p[0], p[1], p[2]], from, to, hue, chroma, luma);
                             *dst = [c[0], c[1], c[2], p[3]];
                         }
                     }
@@ -1862,7 +1931,16 @@ impl<'a> Graph<'a> {
                                 }
                                 (subcraft_doc::SlopeSource::Input, None) => here,
                                 // Custom noise: uphill on the picked image, tiled like the noise.
-                                (subcraft_doc::SlopeSource::Custom, _) => match image.and_then(|id| self.ctx.resources.bitmap(id)) {
+                                (subcraft_doc::SlopeSource::Custom, _) if anchors[0].is_some() => {
+                                    // An anchor: uphill on its gray value, one texel to one texel.
+                                    let v = |dx: i32, dy: i32| {
+                                        let p = anchors[0].as_ref().unwrap().pixel((x as i32 + dx).clamp(0, res as i32 - 1) as u32, (y as i32 + dy).clamp(0, res as i32 - 1) as u32);
+                                        pw::scalar(p, *kind) * p[3].min(1.0)
+                                    };
+                                    let g = [(v(1, 0) - v(-1, 0)) * 0.5, (v(0, 1) - v(0, -1)) * 0.5];
+                                    pw::slope_blur(sample, texel, pw::slope_offset(g, intensity), false, samples, mode, *kind)
+                                }
+                                (subcraft_doc::SlopeSource::Custom, _) => match bitmap(image) {
                                     Some(bmp) => {
                                         let v = |dx: f32, dy: f32| crate::util::image_gray(bmp, x as f32 + dx, y as f32 + dy, res, scale);
                                         let g = [(v(1.0, 0.0) - v(-1.0, 0.0)) * 0.5, (v(0.0, 1.0) - v(0.0, -1.0)) * 0.5];
@@ -1874,7 +1952,13 @@ impl<'a> Graph<'a> {
                             }
                         }
                         Filter::NonUniformBlur { radius, map, scale, seed, samples, image } => {
-                            let image = image.and_then(|id| self.ctx.resources.bitmap(id)).map(|b| crate::util::image_gray(b, x as f32, y as f32, res, 1));
+                            let image = match &anchors[0] {
+                                Some(a) => {
+                                    let p = a.pixel(x, y);
+                                    Some(pw::scalar(p, *kind) * p[3].min(1.0))
+                                }
+                                None => bitmap(image).map(|b| crate::util::image_gray(b, x as f32, y as f32, res, 1)),
+                            };
                             let m = pw::blur_map(map, pw::scalar(here, *kind), image, x, y, res, scale, seed);
                             pw::disc_blur(|dx, dy| grid.premultiplied(x as f32 + dx, y as f32 + dy), radius * m, samples)
                         }

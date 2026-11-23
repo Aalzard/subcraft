@@ -49,7 +49,7 @@ a planning list, not a promise.
 - Fill projections: UV, tri-planar, planar, spherical, cylindrical.
 - Filters: Gradient Map (with editor), Histogram Scan, Median, Warp, MatFinish / MatFX, PBR Validate.
   Blur Slope (noise or previous input; Blur / Min / Max), Non-uniform Blur and Color Match.
-  They read imported images (blur map, custom noise, source / target colours); anchors as inputs are still missing.
+  They read imported images or anchor points (blur map, custom noise, source / target colours).
 - Per-channel format (8-bit, 16-bit, 16F, 32F).
 - Export presets: SubCraft presets library and import of Painter export presets.
 - Baking: several high polys, match by name (`_low` / `_high`), Thickness, Bent normal,

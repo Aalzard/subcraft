@@ -499,12 +499,29 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
 }
 
 /// The image slots of a filter that reads images (Gradient Dynamic's Gradient Source, Blur
-/// Slope's custom noise, Non-uniform Blur's blur map, Color Match's source and target). Returns
-/// the slot whose image button was clicked; clearing one marks `changed`.
-pub(crate) fn filter_image_row(ui: &mut Ui, state: &mut UiState, filter: &mut subcraft_doc::Filter, changed: &mut bool) -> Option<usize> {
+/// Slope's custom noise, Non-uniform Blur's blur map, Color Match's source and target). A slot
+/// holds an imported image or, except for Gradient Dynamic, an anchor point of the stack below
+/// (`site`: where the slot's reference sits; `channel`: the channel a new reference reads).
+/// Returns the slot whose image button was clicked; any other edit marks `changed`.
+pub(crate) fn filter_image_row(
+    ui: &mut Ui,
+    state: &mut UiState,
+    filter: &mut subcraft_doc::Filter,
+    site: impl Fn(usize) -> subcraft_doc::RefSite,
+    channel: ChannelKind,
+    changed: &mut bool,
+) -> Option<usize> {
     let mut pick = None;
-    for (slot, label, image) in filter.image_slots() {
-        match image {
+    let slots = filter.image_slots();
+    let anchored = slots.iter().any(|s| filter.slot_accepts_anchor(s.0));
+    let index = if anchored { subcraft_doc::AnchorIndex::build(&state.session.selected_texture_set().layers) } else { Default::default() };
+    let channels: Vec<ChannelKind> = if anchored { state.session.selected_texture_set().channel_kinds().collect() } else { Vec::new() };
+    let several = slots.len() > 1;
+    for (slot, label, source) in slots {
+        if several {
+            ui.label(RichText::new(if slot == 0 { "Source color input" } else { "Target color input" }).small().color(TEXT_DIM()));
+        }
+        match source.and_then(subcraft_doc::ImageSource::resource) {
             Some(id) => {
                 if image_row(ui, state, id) {
                     pick = Some(slot);
@@ -527,12 +544,20 @@ pub(crate) fn filter_image_row(ui: &mut Ui, state: &mut UiState, filter: &mut su
                 }
             }
         }
+        if filter.slot_accepts_anchor(slot) {
+            // Painter's image inputs also take an anchor point.
+            let before = source.and_then(subcraft_doc::ImageSource::anchor);
+            let mut input = before;
+            let none = if before.is_some() { "No anchor" } else { "Or read an anchor point" };
+            if super::anchor::picker(ui, &index, site(slot), &mut input, Some(none), &channels, channel) && input != before {
+                *changed |= match input {
+                    Some(i) => filter.set_anchor(slot, i),
+                    None => filter.set_image(slot, None),
+                };
+            }
+        }
     }
     pick
-}
-
-fn filter_resource(id: subcraft_core::ResourceId) -> Option<subcraft_core::ResourceId> {
-    (id != subcraft_core::ResourceId::nil()).then_some(id)
 }
 
 /// Painter's Use Custom Grunge for the generators with a breakup: an image slot replacing the
@@ -1348,7 +1373,7 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
                 }
                 MaskEffectKind::Filter(filter) => {
                     changed |= super::filter::editor(ui, filter, None);
-                    if let Some(slot) = filter_image_row(ui, state, filter, &mut changed) {
+                    if let Some(slot) = filter_image_row(ui, state, filter, |_| subcraft_doc::RefSite::Mask { layer, effect: e.id }, ChannelKind::Height, &mut changed) {
                         crate::files::pick(ui.ctx(), crate::files::Purpose::FilterImage { layer, effect: e.id, mask: true, slot }, crate::files::IMAGES, false, None);
                     }
                     hint(ui, tr("Filters the mask below this effect; opacity mixes the result with that input."));

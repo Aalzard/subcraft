@@ -149,7 +149,7 @@ pub fn anchor_info(ui: &mut Ui, index: &AnchorIndex, anchor: subcraft_core::Effe
         if mask {
             "Captures the mask as it is at this point of the stack. Anchor Reference effects and generator inputs in layers above (or later in this mask) can read it."
         } else {
-            "Captures this layer's content (every channel) as it is at this point of the stack, before its mask and blending. Fill channels, Anchor Reference mask effects and generator inputs in layers above can read it."
+            "Captures this layer's content (every channel) as it is at this point of the stack, before its mask and blending. Fill channels, Anchor Reference mask effects, generator inputs and filter image inputs in layers above can read it."
         },
     );
     let readers = index.dependents(anchor);
@@ -162,6 +162,7 @@ pub fn anchor_info(ui: &mut Ui, index: &AnchorIndex, anchor: subcraft_core::Effe
         let place = match r.site {
             RefSite::Fill { channel, .. } => format!("fill channel {}", channel.display_name()),
             RefSite::Mask { .. } => "mask effect".to_string(),
+            RefSite::Content { .. } => "content filter".to_string(),
         };
         let who = index.layer_name(r.site.layer()).unwrap_or("a layer");
         let text = RichText::new(format!("• {who}: {place}")).small();

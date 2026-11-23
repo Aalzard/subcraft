@@ -66,7 +66,7 @@ Layout notes: Standard group. Works on content and masks. Main controls, then a 
 | Intensity Divider | Properties > Filter | not documented (dropdown) | missing | - | - |
 | Blending Mode | Properties > Filter | not documented (dropdown) | done: Blur, Min, Max (SubCraft reading; Painter's list is not documented) | crates/ui/src/panels/filter.rs | Blur Slope options |
 | Quality | Properties > Filter | not documented | done: 2..32 reads per texel | crates/ui/src/panels/filter.rs:287 | Blur Slope |
-| Source Type | Properties > Filter > Source Parameters | not documented; default noise / previous input / custom noise | partial: Default noise and Previous input (the slope is measured on a smoothed copy of the image) and Custom noise (a picked image, tiled by Source Tiling; anchors cannot be picked) | crates/ui/src/panels/filter.rs:287 | Blur Slope |
+| Source Type | Properties > Filter > Source Parameters | not documented; default noise / previous input / custom noise | partial: Default noise and Previous input (the slope is measured on a smoothed copy of the image) and Custom noise (a picked image, tiled by Source Tiling, or an anchor point, read one to one) | crates/ui/src/panels/filter.rs:287 | Blur Slope |
 | Blur | Properties > Filter > Source Parameters | not documented | missing | - | - |
 | Position | Properties > Filter > Source Parameters | not documented | missing | - | - |
 | Contrast | Properties > Filter > Source Parameters | not documented | missing | - | - |
@@ -901,9 +901,9 @@ Layout notes: Advanced group. Colour content (fill layer); Average source mode n
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Color Match (filter) | Properties > Filter | works on: colour content | partial: Source Color Mode (Average / Parameter), Source and Target colours, Hue / Chroma / Luma ranges, source and target images (imported images only, no anchors). Replace Color stays as its own filter | crates/doc/src/filter.rs | Color Match |
-| Source Color | Properties > Filter > Image inputs | colour map or anchor | partial: an imported image, read per texel in the Input mode; no anchor | crates/ui/src/panels/properties.rs | Filter image inputs |
-| Target Color | Properties > Filter > Image inputs | colour map or anchor | partial: an imported image, read per texel; no anchor | crates/ui/src/panels/properties.rs | Filter image inputs |
+| Color Match (filter) | Properties > Filter | works on: colour content | partial: Source Color Mode (Average / Parameter), Source and Target colours, Hue / Chroma / Luma ranges, source and target images or anchor points. Replace Color stays as its own filter | crates/doc/src/filter.rs | Color Match |
+| Source Color | Properties > Filter > Image inputs | colour map or anchor | done: an imported image or an anchor point, read per texel in the Input mode | crates/ui/src/panels/properties.rs | Filter image inputs |
+| Target Color | Properties > Filter > Image inputs | colour map or anchor | done: an imported image or an anchor point, read per texel | crates/ui/src/panels/properties.rs | Filter image inputs |
 | Source Color Mode | Properties > Filter | not documented; options Average / Parameter / Input | partial: Average (the mean colour of the layer content below the filter) Parameter and Input (the source image) | crates/ui/src/panels/filter.rs | Color Match |
 | Source Color | Properties > Filter | not documented | done | crates/ui/src/panels/filter.rs:51 | - |
 | Target Color Mode | Properties > Filter | not documented; options Parameter / Input | partial: no dropdown; a picked target image replaces the colour | crates/ui/src/panels/properties.rs | Filter image inputs |

@@ -348,11 +348,11 @@ fn apply_content_effects(effects: &[Arc<ContentEffect>], acc: &Acc, content: &mu
             }
             // Color Match reading images (the Average mode is staged by the graph instead).
             ContentEffectKind::Filter { filter: f @ subcraft_doc::Filter::ColorMatch { source_mode, source, target, hue, chroma, luma, source_image, target_image }, .. }
-                if f.match_reads_images() && *source_mode != subcraft_doc::MatchSource::Average =>
+                if f.match_reads_images() && !f.match_is_staged() =>
             {
                 if !effect.applies_to(kind) || !kind.is_color() { continue; }
                 let res = tc.set_geometry.resolution;
-                let bitmap = |id: &Option<subcraft_core::ResourceId>| id.and_then(|id| tc.sample.resources.bitmap(id));
+                let bitmap = |s: &Option<subcraft_doc::ImageSource>| s.and_then(subcraft_doc::ImageSource::resource).and_then(|id| tc.sample.resources.bitmap(id));
                 let source_image = if *source_mode == subcraft_doc::MatchSource::Image { bitmap(source_image) } else { None };
                 let target_image = bitmap(target_image);
                 for (i, px) in content.iter_mut().enumerate() {

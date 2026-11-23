@@ -4,7 +4,7 @@ use std::sync::Arc;
 use subcraft_compositor::{EvalContext, composite_full};
 use std::collections::BTreeMap;
 use subcraft_core::{ChannelKind as C, ChannelValue, ResourceId};
-use subcraft_doc::{BlurMap, ContentEffect, ContentEffectKind, FillChannel, FillContent, FillSource, Filter, Layer, Projection, LayerContent, MatchSource, ResourceStore, SlopeMode, SlopeSource, TextureSet};
+use subcraft_doc::{BlurMap, ContentEffect, ContentEffectKind, FillChannel, FillContent, FillSource, Filter, ImageSource, Layer, Projection, LayerContent, MatchSource, ResourceStore, SlopeMode, SlopeSource, TextureSet};
 use subcraft_materials::{MeshMaps, TextureSetGeometry, filter::{linear_to_oklab, warp}};
 
 const N: u32 = 128;
@@ -276,8 +276,8 @@ fn non_uniform_blur_reads_its_map_from_an_image() {
     // the bilinear ramps between them).
     let map = fx.image(4, 1, 1, vec![0, 0, 255, 255]);
     let field = |x: u32, y: u32| 0.3 + speckle(x, y) * 0.4;
-    let run = |fx: &Fixture, image| {
-        let (ts, data) = roughness(field, Filter::NonUniformBlur { radius: 8.0, map: BlurMap::Image, scale: 4, seed: 1, samples: 32, image });
+    let run = |fx: &Fixture, image: Option<ResourceId>| {
+        let (ts, data) = roughness(field, Filter::NonUniformBlur { radius: 8.0, map: BlurMap::Image, scale: 4, seed: 1, samples: 32, image: image.map(ImageSource::Image) });
         (result(&ts, fx), data)
     };
     let (out, data) = run(&fx, Some(map));
@@ -289,7 +289,7 @@ fn non_uniform_blur_reads_its_map_from_an_image() {
         for (a, b) in none.iter().zip(&data) { assert!((a - b).abs() < 1e-3); }
     }
     // The image is ignored (but kept) in the other map modes.
-    let value = |image| result(&roughness(field, Filter::NonUniformBlur { radius: 8.0, map: BlurMap::Value, scale: 4, seed: 1, samples: 32, image }).0, &fx);
+    let value = |image: Option<ResourceId>| result(&roughness(field, Filter::NonUniformBlur { radius: 8.0, map: BlurMap::Value, scale: 4, seed: 1, samples: 32, image: image.map(ImageSource::Image) }).0, &fx);
     assert_eq!(value(Some(map)), value(None));
 }
 
@@ -301,8 +301,8 @@ fn blur_slope_follows_the_slopes_of_a_custom_noise_image() {
     let (across, down) = (fx.image(8, 1, 1, ramp.clone()), fx.image(1, 8, 1, ramp));
     let columns = |x: u32, _: u32| if (x / 6) % 2 == 0 { 0.2 } else { 0.8 };
     let rows = |_: u32, y: u32| if (y / 6) % 2 == 0 { 0.2 } else { 0.8 };
-    let run = |fx: &Fixture, field: fn(u32, u32) -> f32, image, mode| {
-        let (ts, data) = roughness(field, Filter::BlurSlopeMode { intensity: 8.0, scale: 4, seed: 1, samples: 12, source: SlopeSource::Custom, mode, image });
+    let run = |fx: &Fixture, field: fn(u32, u32) -> f32, image: Option<ResourceId>, mode| {
+        let (ts, data) = roughness(field, Filter::BlurSlopeMode { intensity: 8.0, scale: 4, seed: 1, samples: 12, source: SlopeSource::Custom, mode, image: image.map(ImageSource::Image) });
         let out = result(&ts, fx);
         let moved = out.iter().zip(&data).filter(|(a, b)| (**a - **b).abs() > 0.02).count();
         (out, data, moved)
@@ -366,7 +366,7 @@ fn color_match_reads_its_source_and_target_from_images() {
     };
     let near = |p: [f32; 4], want: [f32; 3]| (0..3).all(|i| (p[i] - want[i]).abs() < 3e-3);
     let flat = |_: u32, _: u32| Some(a);
-    let cm = |source_mode, source, source_image, target_image| Filter::ColorMatch { source_mode, source, target, hue: 1.0, chroma: 1.0, luma: 1.0, source_image, target_image };
+    let cm = |source_mode, source, source_image: Option<ResourceId>, target_image: Option<ResourceId>| Filter::ColorMatch { source_mode, source, target, hue: 1.0, chroma: 1.0, luma: 1.0, source_image: source_image.map(ImageSource::Image), target_image: target_image.map(ImageSource::Image) };
     // Target image: the picked source colour (Parameter) and the mean colour (Average, the
     // staged path) both land on the image's colour at each texel.
     for mode in [MatchSource::Parameter, MatchSource::Average] {
@@ -395,4 +395,247 @@ fn color_match_reads_its_source_and_target_from_images() {
     assert_eq!(run(&fx, &halves, cm(MatchSource::Image, a, None, None)), plain);
     assert_eq!(run(&fx, &halves, cm(MatchSource::Image, a, gone, gone)), plain);
     assert_eq!(run(&fx, &halves, cm(MatchSource::Parameter, a, Some(two), None)), plain);
+}
+
+// ---- Anchor points in the image slots (ADR-0045) ----
+
+use subcraft_doc::{AnchorIndex, AnchorInput, Mask, MaskEffect, MaskEffectKind, RefSite, RefStatus};
+
+/// A paint layer holding `rough(x, y)` in Roughness, `height(x, y)` in Height and `color(x, y)`
+/// in Base Color, every texel covered.
+fn painted(ts: &TextureSet, name: &str, rough: impl Fn(u32, u32) -> f32, height: impl Fn(u32, u32) -> f32, color: impl Fn(u32, u32) -> [f32; 3]) -> Layer {
+    let mut l = Layer::new_paint(name, ts);
+    let LayerContent::Paint(p) = &mut l.content else { unreachable!() };
+    for y in 0..N {
+        for x in 0..N {
+            p.channel_mut(C::Roughness, N).set(x, y, [rough(x, y), 1.0, 0.0, 0.0]);
+            p.channel_mut(C::Height, N).set(x, y, [height(x, y), 1.0, 0.0, 0.0]);
+            let c = color(x, y);
+            p.channel_mut(C::BaseColor, N).set(x, y, [c[0], c[1], c[2], 1.0]);
+        }
+    }
+    l
+}
+
+fn anchor(l: &mut Layer, ts: &TextureSet) -> subcraft_core::EffectId {
+    let e = ContentEffect::new(ContentEffectKind::Anchor, ts);
+    let id = e.id;
+    l.content_effects.push(Arc::new(e));
+    id
+}
+
+fn filter_on(l: &mut Layer, ts: &TextureSet, channel: C, filter: Filter) -> subcraft_core::EffectId {
+    let e = ContentEffect::new(ContentEffectKind::Filter { channel, filter }, ts);
+    let id = e.id;
+    l.content_effects.push(Arc::new(e));
+    id
+}
+
+fn channel(ts: &TextureSet, fx: &Fixture, kind: C) -> Vec<[f32; 4]> {
+    let c = composite_full(ts, &fx.ctx());
+    let img = c.channel(kind).unwrap();
+    (0..N).flat_map(|y| (0..N).map(move |x| (x, y))).map(|(x, y)| img.get(x, y)).collect()
+}
+
+fn gray(v: Vec<[f32; 4]>) -> Vec<f32> {
+    v.into_iter().map(|p| p[0]).collect()
+}
+
+fn halves(x: u32, _: u32) -> f32 {
+    if x < N / 2 { 0.0 } else { 1.0 }
+}
+
+fn noisy(x: u32, y: u32) -> f32 {
+    0.3 + speckle(x, y) * 0.4
+}
+
+fn nub(image: Option<ImageSource>) -> Filter {
+    Filter::NonUniformBlur { radius: 8.0, map: BlurMap::Image, scale: 4, seed: 1, samples: 32, image }
+}
+
+#[test]
+fn non_uniform_blur_reads_its_map_from_an_anchor_of_a_lower_layer() {
+    let fx = Fixture::new();
+    let build = |source: &dyn Fn(subcraft_core::EffectId) -> Option<ImageSource>, anchor_on_top: bool| {
+        let mut ts = TextureSet::new("T", 0, N);
+        // The map: Roughness and Base Color black on the left, white on the right; Height the other way.
+        let mut low = painted(&ts, "map", halves, |x, y| 1.0 - halves(x, y), |x, y| [halves(x, y); 3]);
+        let id = anchor(&mut low, &ts);
+        let mut top = painted(&ts, "top", noisy, |_, _| 0.5, |_, _| [0.5; 3]);
+        let effect = filter_on(&mut top, &ts, C::Roughness, nub(source(id)));
+        let top_id = top.id;
+        if anchor_on_top {
+            ts.insert_above(None, top);
+            ts.insert_above(None, low);
+        } else {
+            ts.insert_above(None, low);
+            ts.insert_above(None, top);
+        }
+        (ts, RefSite::Content { layer: top_id, effect, slot: 0 })
+    };
+    let data: Vec<f32> = (0..N).flat_map(|y| (0..N).map(move |x| noisy(x, y))).collect();
+    let same = |out: &[f32], xs: std::ops::Range<u32>| (0..N).all(|y| xs.clone().all(|x| (out[(y * N + x) as usize] - data[(y * N + x) as usize]).abs() < 1e-3));
+    // The anchor's Roughness: the left keeps, the right blurs (clear of the seam's reach).
+    let (ts, site) = build(&|id| Some(ImageSource::Anchor(AnchorInput::new(id, C::Roughness))), false);
+    assert_eq!(AnchorIndex::build(&ts.layers).reference(site).map(|r| r.status), Some(RefStatus::Ok));
+    let out = gray(channel(&ts, &fx, C::Roughness));
+    assert!(same(&out, 0..N / 2), "black keeps");
+    assert!(rough(&out, 76..118) < rough(&data, 76..118) * 0.25, "white blurs");
+    // Its Height is the other way round, and its Base Color is read as gray.
+    let (ts, _) = build(&|id| Some(ImageSource::Anchor(AnchorInput::new(id, C::Height))), false);
+    let out = gray(channel(&ts, &fx, C::Roughness));
+    assert!(same(&out, N / 2..N) && rough(&out, 10..52) < rough(&data, 10..52) * 0.25, "the Height channel of the same anchor");
+    let (ts, _) = build(&|id| Some(ImageSource::Anchor(AnchorInput::new(id, C::BaseColor))), false);
+    let out = gray(channel(&ts, &fx, C::Roughness));
+    assert!(same(&out, 0..N / 2) && rough(&out, 76..118) < rough(&data, 76..118) * 0.25, "a colour anchor reads as gray");
+    // An anchor that is not below, or that is gone: reported, and nothing is blurred.
+    let (ts, site) = build(&|id| Some(ImageSource::Anchor(AnchorInput::new(id, C::Roughness))), true);
+    assert_eq!(AnchorIndex::build(&ts.layers).reference(site).map(|r| r.status), Some(RefStatus::NotBelow));
+    // (The map layer is on top here: read the filtered layer alone.)
+    let mut alone = ts.clone();
+    alone.layers.retain(|l| l.name == "top");
+    assert!(same(&gray(channel(&alone, &fx, C::Roughness)), 0..N));
+    let (ts, site) = build(&|_| Some(ImageSource::Anchor(AnchorInput::new(subcraft_core::EffectId::new(), C::Roughness))), false);
+    assert_eq!(AnchorIndex::build(&ts.layers).reference(site).map(|r| r.status), Some(RefStatus::Missing));
+    assert!(same(&gray(channel(&ts, &fx, C::Roughness)), 0..N));
+}
+
+#[test]
+fn a_filter_reads_an_anchor_lower_in_its_own_stack() {
+    let fx = Fixture::new();
+    // Dark and speckled on the left, bright and speckled on the right.
+    let field = |x: u32, y: u32| if x < N / 2 { speckle(x, y) * 0.04 } else { 0.95 + speckle(x, y) * 0.05 };
+    let run = |effects: &dyn Fn(&mut Layer, &TextureSet)| {
+        let mut ts = TextureSet::new("T", 0, N);
+        let mut l = painted(&ts, "P", field, |x, y| 1.0 - halves(x, y), |_, _| [0.5; 3]);
+        effects(&mut l, &ts);
+        ts.insert_above(None, l);
+        (gray(channel(&ts, &fx, C::Roughness)), gray(channel(&ts, &fx, C::Height)))
+    };
+    // The layer's own Roughness as the map is the Value map.
+    let value = run(&|l, ts| { filter_on(l, ts, C::Roughness, Filter::NonUniformBlur { radius: 8.0, map: BlurMap::Value, scale: 4, seed: 1, samples: 32, image: None }); }).0;
+    let own = run(&|l, ts| {
+        let id = anchor(l, ts);
+        filter_on(l, ts, C::Roughness, nub(Some(ImageSource::Anchor(AnchorInput::new(id, C::Roughness)))));
+    }).0;
+    for (i, (a, b)) in own.iter().zip(&value).enumerate() { assert!((a - b).abs() < 1e-4, "texel {i}: {a} vs {b}"); }
+    // Another channel of the same anchor (Height: white on the left), read by the Roughness filter.
+    let data: Vec<f32> = (0..N).flat_map(|y| (0..N).map(move |x| field(x, y))).collect();
+    let cross = run(&|l, ts| {
+        let id = anchor(l, ts);
+        filter_on(l, ts, C::Roughness, nub(Some(ImageSource::Anchor(AnchorInput::new(id, C::Height)))));
+    }).0;
+    assert!(rough(&cross, 10..52) < rough(&data, 10..52) * 0.25, "the left blurs");
+    for y in 0..N { for x in N / 2 + 9..N { let i = (y * N + x) as usize; assert!((cross[i] - data[i]).abs() < 2e-3, "the right keeps"); } }
+    // Two channels reading each other's anchor: both resolve (and the build ends).
+    let (r, h) = run(&|l, ts| {
+        let id = anchor(l, ts);
+        filter_on(l, ts, C::Roughness, nub(Some(ImageSource::Anchor(AnchorInput::new(id, C::Height)))));
+        filter_on(l, ts, C::Height, nub(Some(ImageSource::Anchor(AnchorInput::new(id, C::Roughness)))));
+    });
+    for (a, b) in r.iter().zip(&cross) { assert!((a - b).abs() < 1e-4); }
+    // The Height is two flat halves: a blur only softens the seam, on the side the map is white.
+    assert!(h.iter().all(|v| (-1e-3..=1.001).contains(v)) && (h[(64 * N + 10) as usize] - 1.0).abs() < 1e-3 && h[(64 * N + 120) as usize].abs() < 1e-3);
+    // An anchor above the filter in the same stack is not below it: ignored.
+    let above = run(&|l, ts| {
+        let slot = filter_on(l, ts, C::Roughness, nub(None));
+        let id = anchor(l, ts);
+        let e = Arc::make_mut(l.content_effects.iter_mut().find(|e| e.id == slot).unwrap());
+        let ContentEffectKind::Filter { filter, .. } = &mut e.kind else { unreachable!() };
+        assert!(filter.set_anchor(0, AnchorInput::new(id, C::Roughness)));
+    }).0;
+    for (a, b) in above.iter().zip(&data) { assert!((a - b).abs() < 1e-3); }
+}
+
+#[test]
+fn blur_slope_follows_an_anchor_as_its_custom_noise() {
+    let fx = Fixture::new();
+    let columns = |x: u32, _: u32| if (x / 6) % 2 == 0 { 0.2 } else { 0.8 };
+    let rows = |_: u32, y: u32| if (y / 6) % 2 == 0 { 0.2 } else { 0.8 };
+    let run = |field: fn(u32, u32) -> f32, along_x: bool, mode| {
+        let mut ts = TextureSet::new("T", 0, N);
+        // Saw teeth 32 texels long: a slope of 1/32 per texel along one axis only.
+        let teeth = move |x: u32, y: u32| ((if along_x { x } else { y }) % 32) as f32 / 32.0;
+        let mut low = painted(&ts, "noise", teeth, |_, _| 0.0, |_, _| [0.5; 3]);
+        let id = anchor(&mut low, &ts);
+        let mut top = painted(&ts, "top", field, |_, _| 0.5, |_, _| [0.5; 3]);
+        filter_on(&mut top, &ts, C::Roughness, Filter::BlurSlopeMode { intensity: 8.0, scale: 4, seed: 1, samples: 12, source: SlopeSource::Custom, mode, image: Some(ImageSource::Anchor(AnchorInput::new(id, C::Roughness))) });
+        ts.insert_above(None, low);
+        ts.insert_above(None, top);
+        let out = gray(channel(&ts, &fx, C::Roughness));
+        (0..N * N).filter(|i| (out[*i as usize] - field(i % N, i / N)).abs() > 0.02).count()
+    };
+    for mode in SlopeMode::ALL {
+        assert!(run(columns, true, mode) > 2500, "{mode:?}");
+        assert_eq!(run(rows, true, mode), 0, "{mode:?}");
+        assert!(run(rows, false, mode) > 2500, "{mode:?}");
+        assert_eq!(run(columns, false, mode), 0, "{mode:?}");
+    }
+}
+
+#[test]
+fn color_match_reads_its_source_and_target_from_anchors() {
+    let fx = Fixture::new();
+    let (left, right) = ([0.55, 0.05, 0.02], [0.02, 0.10, 0.45]);
+    let two = move |x: u32, _: u32| if x < N / 2 { left } else { right };
+    let a = [0.30, 0.12, 0.08];
+    let target = [0.10, 0.25, 0.40];
+    let near = |p: [f32; 4], want: [f32; 3]| (0..3).all(|i| (p[i] - want[i]).abs() < 3e-3);
+    let run = |paint: &dyn Fn(u32, u32) -> [f32; 3], filter: &dyn Fn(subcraft_core::EffectId) -> Filter| {
+        let mut ts = TextureSet::new("T", 0, N);
+        let mut low = painted(&ts, "colours", |_, _| 0.5, |_, _| 0.0, two);
+        let id = anchor(&mut low, &ts);
+        let mut top = painted(&ts, "top", |_, _| 0.5, |_, _| 0.0, paint);
+        filter_on(&mut top, &ts, C::BaseColor, filter(id));
+        ts.insert_above(None, low);
+        ts.insert_above(None, top);
+        channel(&ts, &fx, C::BaseColor)
+    };
+    let cm = |source_mode, source, source_image, target_image| Filter::ColorMatch { source_mode, source, target, hue: 1.0, chroma: 1.0, luma: 1.0, source_image, target_image };
+    let from = |id| Some(ImageSource::Anchor(AnchorInput::new(id, C::BaseColor)));
+    // Target anchor: flat paint lands on the anchor's colour at each texel, with a picked source
+    // colour and with the average.
+    for mode in [MatchSource::Parameter, MatchSource::Average] {
+        let out = run(&|_, _| a, &|id| cm(mode, a, None, from(id)));
+        for y in [0, 63, 64, 127] {
+            for (x, want) in [(0, left), (63, left), (64, right), (127, right)] { assert!(near(out[(y * N + x) as usize], want), "{mode:?} {x},{y}: {:?}", out[(y * N + x) as usize]); }
+        }
+    }
+    // Source anchor: paint equal to the anchor becomes the target everywhere.
+    let out = run(&two, &|id| cm(MatchSource::Image, a, from(id), None));
+    for i in [0usize, 63, 64, 127, (N * N - 1) as usize] { assert!(near(out[i], target), "{:?}", out[i]); }
+    // Source and target on the same anchor: unchanged.
+    let out = run(&two, &|id| cm(MatchSource::Image, a, from(id), from(id)));
+    for x in [0u32, 63, 64, 127] { assert!(near(out[(70 * N + x) as usize], two(x, 0))); }
+    // A source anchor outside the Input mode is kept but not read.
+    let plain = run(&two, &|_| cm(MatchSource::Parameter, a, None, None));
+    assert_eq!(run(&two, &|id| cm(MatchSource::Parameter, a, from(id), None)), plain);
+}
+
+#[test]
+fn a_mask_filter_reads_an_anchor_in_its_image_slot() {
+    let fx = Fixture::new();
+    let build = |filter: Option<&dyn Fn(subcraft_core::EffectId) -> Filter>| {
+        let mut ts = TextureSet::new("T", 0, N);
+        // The map is the lower layer's Height; its Roughness is 0 everywhere.
+        let mut low = painted(&ts, "map", |_, _| 0.0, halves, |_, _| [0.5; 3]);
+        let id = anchor(&mut low, &ts);
+        // Roughness 1 over the map layer, through a speckled mask.
+        let mut top = painted(&ts, "top", |_, _| 1.0, |_, _| 0.0, |_, _| [0.5; 3]);
+        let mut m = Mask::new(N, false);
+        for y in 0..N { for x in 0..N { m.base.set(x, y, [noisy(x, y), 0.0, 0.0, 0.0]); } }
+        if let Some(f) = filter { m.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Filter(f(id))))); }
+        top.mask = Some(m);
+        ts.insert_above(None, low);
+        ts.insert_above(None, top);
+        gray(channel(&ts, &fx, C::Roughness))
+    };
+    let plain = build(None);
+    let out = build(Some(&|id| nub(Some(ImageSource::Anchor(AnchorInput::new(id, C::Height))))));
+    // Left: the map is black, the mask is untouched. Right: the mask is blurred.
+    for y in 0..N { for x in 0..N / 2 { let i = (y * N + x) as usize; assert!((out[i] - plain[i]).abs() < 1e-3, "at {x},{y}"); } }
+    assert!(rough(&out, 76..118) < rough(&plain, 76..118) * 0.25);
+    // A missing anchor: the filter changes nothing.
+    let gone = build(Some(&|_| nub(Some(ImageSource::Anchor(AnchorInput::new(subcraft_core::EffectId::new(), C::Roughness))))));
+    for (a, b) in gone.iter().zip(&plain) { assert!((a - b).abs() < 1e-3); }
 }

@@ -171,6 +171,9 @@ impl StackEffect for subcraft_doc::ContentEffect {
     fn id(&self) -> EffectId { self.id }
     fn set_id(&mut self, id: EffectId) { self.id = id }
     fn name_mut(&mut self) -> &mut String { &mut self.name }
+    fn remap_inputs(effects: &mut [std::sync::Arc<Self>], map: &std::collections::HashMap<EffectId, EffectId>) {
+        subcraft_doc::anchor::remap_content_inputs(effects, map);
+    }
 }
 
 impl StackEffect for subcraft_doc::MaskEffect {

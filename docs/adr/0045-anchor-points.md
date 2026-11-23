@@ -73,6 +73,17 @@ the Painter label, or "<layer> anchor"); references in masks become Anchor Refer
 Levels, references in fill channels become anchor fill sources. Links are live. A reference whose
 anchor was not rebuilt stays in place, flagged as missing (counted in the import report).
 
+### Addendum (2026-11-23): filter image slots
+
+The image slots of Blur Slope (custom noise), Non-uniform Blur (blur map) and Color Match (source
+and target colours) hold an imported image or an anchor (`ImageSource`). A content filter's slot is
+the reference site `RefSite::Content { layer, effect, slot }`; a mask filter uses `RefSite::Mask`.
+A content filter may read an anchor lower in its own layer's stack: the compositor then takes the
+node already built under that anchor (same channel) or builds only the effects below the anchor
+(another channel), so two channels reading each other's anchors cannot recurse. The anchor is
+converted to the filter's channel and read one texel to one texel; gray is value times coverage,
+and a Color Match texel without anchor coverage falls back to the picked colour.
+
 ## Consequences
 
 * Isolated thumbnails (`preview_content`, mask previews) are evaluated without the texture set,

@@ -269,6 +269,24 @@ impl SlopeMode {
     }
 }
 
+/// What sits in an image slot of a filter: an imported image, or an anchor point of the stack
+/// below (ADR-0045). In files an image is its id alone, an anchor is `{anchor, channel}`.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ImageSource {
+    Image(subcraft_core::ResourceId),
+    Anchor(crate::anchor::AnchorInput),
+}
+
+impl ImageSource {
+    pub fn resource(self) -> Option<subcraft_core::ResourceId> {
+        match self { Self::Image(id) => Some(id), Self::Anchor(_) => None }
+    }
+    pub fn anchor(self) -> Option<crate::anchor::AnchorInput> {
+        match self { Self::Anchor(a) => Some(a), Self::Image(_) => None }
+    }
+}
+
 /// Every Blur Slope parameter, whichever variant holds it.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SlopeParts {
@@ -279,7 +297,7 @@ pub struct SlopeParts {
     pub source: SlopeSource,
     pub mode: SlopeMode,
     /// The Custom noise image.
-    pub image: Option<subcraft_core::ResourceId>,
+    pub image: Option<ImageSource>,
 }
 
 /// What sets the radius of a Non-uniform Blur at each texel.
@@ -493,7 +511,7 @@ pub enum Filter {
         source: SlopeSource,
         mode: SlopeMode,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        image: Option<subcraft_core::ResourceId>,
+        image: Option<ImageSource>,
     },
     /// Blur whose radius changes per texel: `radius` pixels where the map is 1, none where it
     /// is 0. The map is the texel's own value, its inverse, or a noise with `scale` cells across
@@ -507,7 +525,7 @@ pub enum Filter {
         seed: u32,
         samples: u32,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        image: Option<subcraft_core::ResourceId>,
+        image: Option<ImageSource>,
     },
     /// Painter's Color Match: moves the colours near `source` (the Source Color, or the average
     /// of the whole input) so that the source colour becomes `target`, keeping the variation
@@ -524,9 +542,9 @@ pub enum Filter {
         chroma: f32,
         luma: f32,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        source_image: Option<subcraft_core::ResourceId>,
+        source_image: Option<ImageSource>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        target_image: Option<subcraft_core::ResourceId>,
+        target_image: Option<ImageSource>,
     },
     /// [`Filter::Grayscale`] with Painter's Grayscale Conversion options (same panel): how the
     /// colour becomes gray (`mode`), then Invert, Balance (0.5 neutral) and Contrast (0 neutral)
@@ -813,10 +831,10 @@ impl Filter {
     }
 
     /// The image slots of a filter that is shown in its current mode: slot index (stable per
-    /// variant), the button text when the slot is empty, and the image in it.
-    pub fn image_slots(self) -> Vec<(usize, &'static str, Option<subcraft_core::ResourceId>)> {
+    /// variant), the button text when the slot is empty, and what is in it.
+    pub fn image_slots(self) -> Vec<(usize, &'static str, Option<ImageSource>)> {
         match self {
-            Self::GradientDynamic { source, .. } => vec![(0, "Choose gradient image…", (source != subcraft_core::ResourceId::nil()).then_some(source))],
+            Self::GradientDynamic { source, .. } => vec![(0, "Choose gradient image…", (source != subcraft_core::ResourceId::nil()).then_some(ImageSource::Image(source)))],
             Self::BlurSlopeMode { source: SlopeSource::Custom, image, .. } => vec![(0, "Choose noise image…", image)],
             Self::NonUniformBlur { map: BlurMap::Image, image, .. } => vec![(0, "Choose blur map image…", image)],
             Self::ColorMatch { source_mode, source_image, target_image, .. } => {
@@ -831,26 +849,74 @@ impl Filter {
         }
     }
 
+    /// Whether a slot of [`Filter::image_slots`] can read an anchor point as well as an image.
+    pub fn slot_accepts_anchor(self, slot: usize) -> bool {
+        !matches!(self, Self::GradientDynamic { .. }) && self.image_slots().iter().any(|s| s.0 == slot)
+    }
+
     /// Put `image` in a slot of [`Filter::image_slots`] (`None` empties it). False when the
     /// filter has no such slot.
     pub fn set_image(&mut self, slot: usize, image: Option<subcraft_core::ResourceId>) -> bool {
+        if let (Self::GradientDynamic { source, .. }, 0) = (&mut *self, slot) {
+            *source = image.unwrap_or(subcraft_core::ResourceId::nil());
+            return true;
+        }
+        self.set_slot(slot, image.map(ImageSource::Image))
+    }
+
+    /// Make a slot read an anchor point. False when the slot does not exist or reads images only.
+    pub fn set_anchor(&mut self, slot: usize, input: crate::anchor::AnchorInput) -> bool {
+        self.set_slot(slot, Some(ImageSource::Anchor(input)))
+    }
+
+    fn set_slot(&mut self, slot: usize, to: Option<ImageSource>) -> bool {
         match (self, slot) {
-            (Self::GradientDynamic { source, .. }, 0) => *source = image.unwrap_or(subcraft_core::ResourceId::nil()),
-            (Self::BlurSlopeMode { image: i, .. }, 0) | (Self::NonUniformBlur { image: i, .. }, 0) => *i = image,
-            (Self::ColorMatch { source_image, .. }, 0) => *source_image = image,
-            (Self::ColorMatch { target_image, .. }, 1) => *target_image = image,
+            (Self::BlurSlopeMode { image: i, .. }, 0) | (Self::NonUniformBlur { image: i, .. }, 0) => *i = to,
+            (Self::ColorMatch { source_image, .. }, 0) => *source_image = to,
+            (Self::ColorMatch { target_image, .. }, 1) => *target_image = to,
             _ => return false,
         }
         true
+    }
+
+    /// Every slot, used in the current mode or not.
+    fn all_slots(self) -> [Option<ImageSource>; 2] {
+        match self {
+            Self::BlurSlopeMode { image, .. } | Self::NonUniformBlur { image, .. } => [image, None],
+            Self::ColorMatch { source_image, target_image, .. } => [source_image, target_image],
+            _ => [None; 2],
+        }
     }
 
     /// Every image the filter holds, used in its current mode or not (they are saved with it).
     pub fn resources(self) -> Vec<subcraft_core::ResourceId> {
         match self {
             Self::GradientDynamic { source, .. } if source != subcraft_core::ResourceId::nil() => vec![source],
-            Self::BlurSlopeMode { image, .. } | Self::NonUniformBlur { image, .. } => image.into_iter().collect(),
-            Self::ColorMatch { source_image, target_image, .. } => source_image.into_iter().chain(target_image).collect(),
-            _ => Vec::new(),
+            _ => self.all_slots().into_iter().flatten().filter_map(ImageSource::resource).collect(),
+        }
+    }
+
+    /// The anchor points the filter reads in its current mode, by slot. An anchor kept in a slot
+    /// the mode does not show is not read, so it is no reference.
+    pub fn anchor_inputs(self) -> Vec<(usize, crate::anchor::AnchorInput)> {
+        if matches!(self, Self::GradientDynamic { .. }) {
+            return Vec::new();
+        }
+        self.image_slots().into_iter().filter_map(|(slot, _, s)| Some((slot, s?.anchor()?))).collect()
+    }
+
+    /// Whether the filter holds (shown or not) an anchor that is a key of `map`.
+    pub fn reads_any_anchor(self, map: &std::collections::HashMap<subcraft_core::EffectId, subcraft_core::EffectId>) -> bool {
+        self.all_slots().into_iter().flatten().filter_map(ImageSource::anchor).any(|i| map.contains_key(&i.anchor))
+    }
+
+    /// Point every anchor the filter holds (shown or not) that is a key of `map` at the mapped one.
+    pub fn remap_anchors(&mut self, map: &std::collections::HashMap<subcraft_core::EffectId, subcraft_core::EffectId>) {
+        let slots = self.all_slots();
+        for (slot, s) in slots.into_iter().enumerate() {
+            if let Some(ImageSource::Anchor(input)) = s && let Some(new) = map.get(&input.anchor) {
+                self.set_slot(slot, Some(ImageSource::Anchor(crate::anchor::AnchorInput { anchor: *new, ..input })));
+            }
         }
     }
 
@@ -862,6 +928,12 @@ impl Filter {
     /// Whether a Color Match reads images, which only the compositor can do.
     pub fn match_reads_images(self) -> bool {
         matches!(self, Self::ColorMatch { source_mode: MatchSource::Image, source_image: Some(_), .. } | Self::ColorMatch { target_image: Some(_), .. })
+    }
+
+    /// A Color Match that must be evaluated by the stage graph: the Average mode, or an anchor
+    /// point in a slot it reads.
+    pub fn match_is_staged(self) -> bool {
+        matches!(self, Self::ColorMatch { source_mode, .. } if source_mode == MatchSource::Average || !self.anchor_inputs().is_empty())
     }
 
     /// A Gradient Dynamic filter whose source image is still to be picked.
@@ -928,7 +1000,7 @@ impl Filter {
     /// Neighbourhood filters evaluated per texel by the compositor with direct pixel reads
     /// (no Gaussian staging). The node output is the final value.
     pub fn is_pixelwise(self) -> bool {
-        matches!(self, Self::EdgeDetect { .. } | Self::DirectionalWarp { .. } | Self::Mosaic { .. } | Self::Transform { .. } | Self::Mirror { .. } | Self::Fxaa { .. } | Self::DirectionalDistance { .. } | Self::AnisotropicKuwahara { .. } | Self::Quantize { .. } | Self::BlurSlopeMode { .. } | Self::NonUniformBlur { .. } | Self::ColorMatch { source_mode: MatchSource::Average, .. })
+        matches!(self, Self::EdgeDetect { .. } | Self::DirectionalWarp { .. } | Self::Mosaic { .. } | Self::Transform { .. } | Self::Mirror { .. } | Self::Fxaa { .. } | Self::DirectionalDistance { .. } | Self::AnisotropicKuwahara { .. } | Self::Quantize { .. } | Self::BlurSlopeMode { .. } | Self::NonUniformBlur { .. }) || self.match_is_staged()
     }
 
     /// Filters whose every texel may read any other texel of the texture.
@@ -945,6 +1017,8 @@ impl Filter {
             Self::DirectionalDistance { distance, .. } => Some(distance),
             Self::BlurSlope { intensity, .. } | Self::BlurSlopeMode { intensity, .. } => Some(intensity),
             Self::NonUniformBlur { radius, .. } => Some(radius),
+            // Reads an anchor at the texel itself: staged, with the smallest neighbourhood.
+            Self::ColorMatch { .. } if self.match_is_staged() => Some(1.0),
             Self::MaskOutlineShape { radius, blur, .. } => Some(radius + blur),
             Self::Fxaa { .. } => Some(1.0),
             Self::DropShadow { distance, size, .. } => Some(distance + size),
@@ -1153,17 +1227,17 @@ mod tests {
         let mut f = Filter::BlurSlopeMode { intensity: 8.0, scale: 4, seed: 1, samples: 8, source: SlopeSource::Custom, mode: SlopeMode::Blur, image: None };
         assert_eq!(f.image_slots(), vec![(0, "Choose noise image…", None)]);
         assert!(f.set_image(0, Some(a)) && !f.set_image(1, Some(b)));
-        assert_eq!((f.image_slots()[0].2, f.resources(), f.resource()), (Some(a), vec![a], Some(a)));
+        assert_eq!((f.image_slots()[0].2, f.resources(), f.resource()), (Some(ImageSource::Image(a)), vec![a], Some(a)));
         let mut parts = f.slope_parts().unwrap();
         parts.source = SlopeSource::Noise;
         let noise = Filter::blur_slope(parts);
-        assert!(matches!(noise, Filter::BlurSlopeMode { image: Some(i), .. } if i == a), "the image is kept: {noise:?}");
+        assert!(matches!(noise, Filter::BlurSlopeMode { image: Some(ImageSource::Image(i)), .. } if i == a), "the image is kept: {noise:?}");
         assert!(noise.image_slots().is_empty() && noise.resources() == vec![a]);
         assert!(Filter::BlurSlope { intensity: 8.0, scale: 4, seed: 1, samples: 8 }.image_slots().is_empty());
         // Non-uniform Blur: a slot only on the Image map.
         let mut f = Filter::NonUniformBlur { radius: 8.0, map: BlurMap::Image, scale: 4, seed: 1, samples: 32, image: None };
-        assert!(f.set_image(0, Some(a)) && f.image_slots() == vec![(0, "Choose blur map image…", Some(a))]);
-        assert!(Filter::NonUniformBlur { radius: 8.0, map: BlurMap::Value, scale: 4, seed: 1, samples: 32, image: Some(a) }.image_slots().is_empty());
+        assert!(f.set_image(0, Some(a)) && f.image_slots() == vec![(0, "Choose blur map image…", Some(ImageSource::Image(a)))]);
+        assert!(Filter::NonUniformBlur { radius: 8.0, map: BlurMap::Value, scale: 4, seed: 1, samples: 32, image: Some(ImageSource::Image(a)) }.image_slots().is_empty());
         // Color Match: the target slot always, the source slot in the Input mode.
         let mut f = Filter::ColorMatch { source_mode: MatchSource::Parameter, source: [0.5; 3], target: [0.1; 3], hue: 1.0, chroma: 1.0, luma: 1.0, source_image: None, target_image: None };
         assert_eq!(f.image_slots().iter().map(|s| s.0).collect::<Vec<_>>(), vec![1]);
