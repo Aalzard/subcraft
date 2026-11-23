@@ -424,6 +424,11 @@ pub struct Projection {
     /// Backface culling (planar and cylindrical). Not written when off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub backface: Option<BackfaceCulling>,
+    /// Painter's Scale "Physical size": the width and height of one repeat on the model, in
+    /// centimeters. `None` is Scale "Tiling" (the `scale` field). While set, `scale` is kept but
+    /// not used, so switching back restores the old tiling. Not written when off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub physical_size: Option<[f32; 2]>,
 }
 
 fn full_turn() -> f32 {
@@ -453,11 +458,53 @@ impl Default for Projection {
             warp: None,
             transform3: ProjectionTransform::default(),
             backface: None,
+            physical_size: None,
         }
     }
 }
 
+/// The real-world size of the surface a texture set covers, for [`Projection::resolve_physical`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SurfaceScale {
+    /// Meters of model surface per UV unit (square root of 3D area over UV area).
+    pub uv_meters: f32,
+    /// Meters of the model's longest bounds extent (3D projections read positions divided by it).
+    pub extent_meters: f32,
+}
+
 impl Projection {
+    /// Smallest and largest repeat size in centimeters (0.1 mm to 1 km).
+    pub const PHYSICAL_SIZE_RANGE: (f32, f32) = (0.01, 100_000.0);
+    /// Repeat size a projection starts with when Physical size is switched on.
+    pub const DEFAULT_PHYSICAL_SIZE: [f32; 2] = [100.0, 100.0];
+
+    /// Whether the mode can be scaled by Physical size: UV, planar, tri-planar and warp read
+    /// lengths on the surface. Spherical and cylindrical repeat by angle, so they keep Tiling.
+    #[inline]
+    pub fn supports_physical_size(&self) -> bool {
+        matches!(self.mode, ProjectionMode::Uv | ProjectionMode::Planar | ProjectionMode::Triplanar | ProjectionMode::Warp)
+    }
+
+    /// The Physical size in effect: `None` when off or the mode does not support it.
+    #[inline]
+    pub fn effective_physical_size(&self) -> Option<[f32; 2]> {
+        self.physical_size.filter(|_| self.supports_physical_size())
+    }
+
+    /// The tiling that gives one repeat of `physical_size` centimeters on a surface of `surface`
+    /// scale: UV coordinates are scaled by meters per UV unit, 3D positions (normalized by the
+    /// longest extent) by that extent. Returns the projection unchanged when Physical size is
+    /// off, otherwise a copy in Tiling mode with that scale, so every evaluator, cache key and
+    /// thumbnail treats it like a hand-set tiling.
+    pub fn resolve_physical(&self, surface: SurfaceScale) -> Projection {
+        let Some(size) = self.effective_physical_size() else { return *self };
+        let meters = if self.mode == ProjectionMode::Uv { surface.uv_meters } else { surface.extent_meters };
+        let meters = if meters.is_finite() && meters > 0.0 { meters } else { 1.0 };
+        let (lo, hi) = Self::PHYSICAL_SIZE_RANGE;
+        let tiling = |cm: f32| meters * 100.0 / cm.clamp(lo, hi);
+        Projection { scale: [tiling(size[0]), tiling(size[1])], physical_size: None, ..*self }
+    }
+
     /// Tri-planar Hardness 0..=1 as Painter shows it: 0 blends the three planes over the widest
     /// band, 1 is a hard cut. It is the stored exponent `s` seen as `1 - 1 / s`.
     pub fn hardness(&self) -> f32 {
@@ -483,7 +530,9 @@ impl Projection {
     /// count multiplied the work per texel.
     pub fn valid(&self) -> bool {
         let floats = [self.scale[0], self.scale[1], self.rotation_deg, self.offset[0], self.offset[1], self.triplanar_sharpness, self.cylinder_angle];
-        floats.iter().all(|v| v.is_finite()) && self.symmetry.valid() && self.transform3.valid() && self.backface.is_none_or(|b| b.valid())
+        let (lo, hi) = Self::PHYSICAL_SIZE_RANGE;
+        let size_ok = self.physical_size.is_none_or(|s| s.iter().all(|v| v.is_finite() && (lo..=hi).contains(v)));
+        size_ok && floats.iter().all(|v| v.is_finite()) && self.symmetry.valid() && self.transform3.valid() && self.backface.is_none_or(|b| b.valid())
     }
 
     /// The backface culling in effect: planar and cylindrical projections only.
@@ -637,6 +686,41 @@ mod tests {
         assert!(!Projection { symmetry: FillSymmetry::Mirror { axis: 0, position: f32::INFINITY }, ..p }.valid());
         assert!(!Projection { symmetry: FillSymmetry::Radial { axis: 1, count: FillSymmetry::MAX_COPIES + 1, flip: false, center: [0.5; 3] }, ..p }.valid());
         assert!(Projection { symmetry: FillSymmetry::radial(), cylinder_angle: 90.0, ..p }.valid());
+    }
+
+    #[test]
+    fn physical_size_resolves_to_tiling_from_the_surface_scale() {
+        let surface = SurfaceScale { uv_meters: 2.0, extent_meters: 0.5 };
+        // UV: 2 m of surface per UV unit, 50 cm repeat -> 4 repeats per UV unit.
+        let uv = Projection { physical_size: Some([50.0, 25.0]), scale: [3.0, 3.0], ..Projection::default() };
+        let r = uv.resolve_physical(surface);
+        assert_eq!(r.scale, [4.0, 8.0]);
+        assert_eq!(r.physical_size, None);
+        // 3D: positions are normalized by the 0.5 m extent; a 10 cm repeat is 5 per extent.
+        let tri = Projection { mode: ProjectionMode::Triplanar, physical_size: Some([10.0, 10.0]), ..Projection::default() };
+        assert_eq!(tri.resolve_physical(surface).scale, [5.0, 5.0]);
+        // Off, or a mode that repeats by angle: unchanged.
+        let off = Projection { scale: [3.0, 3.0], ..Projection::default() };
+        assert_eq!(off.resolve_physical(surface), off);
+        let sphere = Projection { mode: ProjectionMode::Spherical, physical_size: Some([10.0, 10.0]), ..Projection::default() };
+        assert_eq!(sphere.resolve_physical(surface), sphere);
+        // A degenerate surface (no UV area) falls back to 1 m per unit instead of NaN.
+        let flat = SurfaceScale { uv_meters: 0.0, extent_meters: f32::NAN };
+        assert_eq!(uv.resolve_physical(flat).scale, [2.0, 4.0]);
+        // Out of range sizes make the projection invalid (a damaged file).
+        assert!(uv.valid());
+        assert!(!Projection { physical_size: Some([0.0, 1.0]), ..uv }.valid());
+        assert!(!Projection { physical_size: Some([f32::NAN, 1.0]), ..uv }.valid());
+    }
+
+    #[test]
+    fn physical_size_is_not_written_when_off_and_round_trips() {
+        let off = serde_json::to_string(&Projection::default()).unwrap();
+        assert!(!off.contains("physical_size"));
+        let on = Projection { physical_size: Some([12.5, 30.0]), ..Projection::default() };
+        let json = serde_json::to_string(&on).unwrap();
+        assert!(json.contains("\"physical_size\":[12.5,30.0]"));
+        assert_eq!(serde_json::from_str::<Projection>(&json).unwrap(), on);
     }
 
     #[test]

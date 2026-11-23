@@ -96,6 +96,10 @@ pub struct Mesh {
     /// The file's colour of each material slot (diffuse / base colour), parallel to `materials`;
     /// empty when no slot has one. Read by the baker (ID map from material colours).
     pub material_colors: Vec<Option<[f32; 3]>>,
+    /// Meters per mesh unit as the file states it (FBX scene unit: 0.01 for centimeters); 0 when
+    /// the file does not say (OBJ, PLY, STL, Alembic), which reads as meters. Positions are not
+    /// rescaled; fills with a Physical size use it to turn lengths into real-world sizes.
+    pub unit_meters: f32,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -121,6 +125,11 @@ pub struct SurfacePoint {
 }
 
 impl Mesh {
+    /// Meters per mesh unit ([`Mesh::unit_meters`]), 1 when the file did not say.
+    pub fn meters_per_unit(&self) -> f32 {
+        if self.unit_meters.is_finite() && self.unit_meters > 0.0 { self.unit_meters } else { 1.0 }
+    }
+
     /// The file's vertex colour at barycentrics `(u, v)` (weights of vertices 1 and 2) of a
     /// triangle; `None` when the mesh has no vertex colours.
     pub fn corner_color(&self, tri: usize, u: f32, v: f32) -> Option<[f32; 4]> {
@@ -164,7 +173,7 @@ impl Mesh {
     /// Several meshes as one (baking against several high-poly files): vertices, triangles,
     /// materials and objects are appended in order. Nothing is welded or renamed.
     pub fn merged(parts: &[&Mesh]) -> Mesh {
-        let mut out = Mesh { name: parts.first().map(|m| m.name.clone()).unwrap_or_default(), ..Default::default() };
+        let mut out = Mesh { name: parts.first().map(|m| m.name.clone()).unwrap_or_default(), unit_meters: parts.first().map_or(0.0, |m| m.unit_meters), ..Default::default() };
         let any_objects = parts.iter().any(|m| !m.tri_object.is_empty());
         let any_colors = parts.iter().any(|m| !m.corner_colors.is_empty());
         let extra_sets = parts.iter().map(|m| m.extra_color_sets.len()).max().unwrap_or(0);
@@ -370,6 +379,8 @@ pub struct MeshBuilder {
     any_corner_color: bool,
     /// Vertex colour sets after the first, each padded lazily to `corners` (white where a triangle had none).
     extra_colors: Vec<Vec<[f32; 4]>>,
+    /// Meters per unit stated by the file (0 = not stated), copied to [`Mesh::unit_meters`].
+    unit_meters: f32,
     /// File colour per material slot, parallel to `materials`.
     material_colors: Vec<Option<[f32; 3]>>,
     pub stats: BuildStats,
@@ -398,6 +409,11 @@ pub struct BuildStats {
 impl MeshBuilder {
     pub fn new(name: impl Into<String>) -> Self {
         Self { name: name.into(), ..Default::default() }
+    }
+
+    /// Record the file's unit (meters per unit; 0 = not stated).
+    pub fn set_unit_meters(&mut self, meters: f32) {
+        self.unit_meters = if meters.is_finite() && meters > 0.0 { meters } else { 0.0 };
     }
 
     /// Get or create a material slot by name.
@@ -553,7 +569,7 @@ impl MeshBuilder {
         let tangents = crate::tangent::compute_corner_tangents(&positions, &normals, &uvs);
 
         // Deduplicate identical corners into shared vertices.
-        let mut mesh = Mesh { name: self.name, materials: self.materials, objects: self.objects, ..Default::default() };
+        let mut mesh = Mesh { name: self.name, materials: self.materials, objects: self.objects, unit_meters: self.unit_meters, ..Default::default() };
         let mut lookup: HashMap<[u32; 12], u32> = HashMap::with_capacity(corners.len());
         mesh.indices.reserve(corners.len());
         for i in 0..corners.len() {

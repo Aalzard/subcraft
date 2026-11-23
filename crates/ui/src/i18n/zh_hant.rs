@@ -1072,4 +1072,8 @@ pub static TABLE: &[(&str, &str)] = &[
     ("AO Depth", "AO 深度"),
     ("How much the fine relief below adds to the baked curvature and occlusion", "下方細微起伏加到烘焙曲率與遮蔽上的程度"),
     ("Also reads the normal and height maps of the layers below, so wear catches their small raised details and dirt settles into their small grooves, as Painter's Use Micro Details does. Needs a layer below with a Normal or Height map.", "同時讀取下方圖層的法線與高度貼圖，讓磨損出現在細小的凸起處、髒污積在細小的凹槽中（如 Painter 的 Use Micro Details）。需要下方有含法線或高度貼圖的圖層。"),
+    ("Spherical and cylindrical projections repeat by angle, so they only use Tiling", "球形與圓柱投影依角度重複，因此只使用拼貼"),
+    ("Size (cm)", "大小 (公分)"),
+    ("Width and height of one repeat on the model, in centimeters. The tiling follows the model's real size, so the pattern keeps its scale across texture sets.", "模型上單次重複的寬度與高度（公分）。拼貼會依模型的實際大小計算，讓圖樣在各紋理集之間保持相同比例。"),
+    ("Same size for X and Y; click to set them separately", "X 與 Y 使用相同大小；按一下可分別設定"),
 ];

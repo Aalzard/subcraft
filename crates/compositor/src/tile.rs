@@ -276,7 +276,9 @@ pub(crate) fn eval_fill(fill: &subcraft_doc::FillContent, kind: ChannelKind, tc:
         return false;
     }
     let filter = if kind == ChannelKind::BaseColor { tc.albedo_filter } else { subcraft_image::TextureFilter::Bilinear };
-    eval_fill_tile_filtered(&ch.source, kind.is_color(), &fill.projection, tc.geo, &tc.sample, filter, out);
+    // Physical size becomes the tiling that gives its repeat size on this set's surface.
+    let projection = fill.projection.resolve_physical(tc.set_geometry.surface_scale());
+    eval_fill_tile_filtered(&ch.source, kind.is_color(), &projection, tc.geo, &tc.sample, filter, out);
     // Balance / Contrast / Invert of an image source; alpha (coverage) is left alone.
     if ch.adjust.applies(kind, &ch.source) {
         let n = kind.components().min(3);

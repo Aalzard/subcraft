@@ -1072,4 +1072,8 @@ pub static TABLE: &[(&str, &str)] = &[
     ("AO Depth", "AO 깊이"),
     ("How much the fine relief below adds to the baked curvature and occlusion", "아래의 미세한 요철이 베이크된 곡률과 오클루전에 더해지는 정도"),
     ("Also reads the normal and height maps of the layers below, so wear catches their small raised details and dirt settles into their small grooves, as Painter's Use Micro Details does. Needs a layer below with a Normal or Height map.", "아래 레이어의 노멀 맵과 높이 맵도 읽어, 마모가 작은 돌출 디테일에 생기고 먼지가 작은 홈에 쌓이도록 합니다 (Painter의 Use Micro Details와 같음). 아래에 노멀 또는 높이 맵이 있는 레이어가 필요합니다."),
+    ("Spherical and cylindrical projections repeat by angle, so they only use Tiling", "구형 및 원통형 투영은 각도로 반복되므로 타일링만 사용합니다"),
+    ("Size (cm)", "크기 (cm)"),
+    ("Width and height of one repeat on the model, in centimeters. The tiling follows the model's real size, so the pattern keeps its scale across texture sets.", "모델에서 한 번 반복되는 너비와 높이(센티미터)입니다. 타일링이 모델의 실제 크기를 따르므로 패턴이 텍스처 세트 간에 같은 크기를 유지합니다."),
+    ("Same size for X and Y; click to set them separately", "X와 Y에 같은 크기를 사용합니다. 클릭하면 따로 설정합니다"),
 ];
