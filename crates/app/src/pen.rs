@@ -36,14 +36,13 @@ pub(crate) fn redraw_path_layers(layers: &mut [std::sync::Arc<Layer>], resolutio
             match &mut Arc::make_mut(layer).content {
                 LayerContent::Paint(p) => {
                     let Some(path) = p.path.clone() else { continue };
-                    let tip = path.image_resource().and_then(|id| resources.bitmap(id).cloned());
                     let raster = PenRasterizer::new(&path, resolution).and_then(|r| match surface {
                         Some((scene, slot)) => r.with_surface(&scene.mesh, &scene.bvh, slot),
                         None => Ok(r),
                     });
                     match raster {
                         Ok(raster) => {
-                            let mut raster = raster.with_alpha(tip);
+                            let mut raster = raster.with_path_images(|id| resources.bitmap(id).cloned());
                             raster.run();
                             if let Some(images) = raster.finish() { p.channels = images; }
                         }
@@ -98,6 +97,9 @@ pub struct PenEditor {
     /// New paths are drawn with this style (the Pen tool's Stitch choice); `None` is a plain
     /// stroke of the brush.
     pub style: Option<PenStyle>,
+    /// New paths are ribbons of this stitch tile (colour, height and normal images). It wins
+    /// over `style`.
+    pub tile: Option<crate::stitch::TileStyle>,
 }
 
 fn error(s: impl Into<String>) -> CommandError { CommandError::Invalid(s.into()) }
@@ -206,7 +208,7 @@ impl PenEditor {
         let values = brush.material.channels.iter().filter(|(k, v)| v.enabled && ts.has_channel(**k)).map(|(&k, v)| (k, v.value)).collect();
         let mut path = PenPath { anchors: Vec::new(), closed: false, radius: (brush.settings.size * 0.005).clamp(0.00001, 0.5), hardness: brush.settings.hardness.clamp(0.0, 1.0), opacity: brush.settings.stroke_opacity.clamp(0.0, 1.0), values, kind: Default::default(), stamp: None, ribbon: None };
         // A stitch style: its own width, tip, spacing and thread values, whatever the brush is.
-        if let Some(style) = self.style {
+        if let Some(style) = self.style.filter(|_| self.tile.is_none()) {
             path.radius = style.stitch.radius();
             path.opacity = 1.0;
             // Only the thread's channels, unless the texture set has none of them.
@@ -214,8 +216,13 @@ impl PenEditor {
             style.stitch.apply_to_path(&mut path, style.tip, |k| ts.has_channel(k));
             if path.values.is_empty() { path.values = brush_values; }
         }
+        if let Some(tile) = self.tile {
+            path.radius = tile.radius();
+            path.opacity = 1.0;
+            tile.apply_to_path(&mut path, |k| ts.has_channel(k));
+        }
         path.validate().map_err(error)?;
-        let mut layer = Layer::new_paint(self.style.map_or("Pen path", |s| s.stitch.name), ts);
+        let mut layer = Layer::new_paint(if self.tile.is_some() { "Stitch tile" } else { self.style.map_or("Pen path", |s| s.stitch.name) }, ts);
         layer.parts = session.selected_layer().and_then(|l| l.parts.clone());
         Ok(Edit { layer, path, new: true, resolution: ts.resolution, scene: session.scene().mesh.clone(), selection: session.selection(), handle: None, label: "New pen path" })
     }
@@ -329,9 +336,8 @@ impl PenEditor {
         let expected = match &edit.layer.content { LayerContent::Paint(p) => p.path.as_ref(), _ => None };
         if !edit.new && expected == Some(&edit.path) { return Ok(()); }
         if self.pending.is_empty() && !edit.valid(session) { return Err(error("path changed; pen edit canceled")); }
-        let tip = edit.path.image_resource().and_then(|id| session.resources().bitmap(id).cloned());
         let scene = session.scene();
-        let raster = PenRasterizer::new(&edit.path, edit.resolution).map_err(error)?.with_alpha(tip)
+        let raster = PenRasterizer::new(&edit.path, edit.resolution).map_err(error)?.with_path_images(|id| session.resources().bitmap(id).cloned())
             .with_surface(&scene.mesh, &scene.bvh, session.selected_texture_set().material_slot).map_err(error)?;
         self.pending.push_back(Pending { edit, raster }); Ok(())
     }
@@ -345,9 +351,8 @@ impl PenEditor {
             let ts = session.selected_texture_set();
             let mut layer = Layer::new_paint(name, ts);
             layer.parts = session.selected_layer().and_then(|l| l.parts.clone());
-            let tip = path.image_resource().and_then(|id| session.resources().bitmap(id).cloned());
             let scene = session.scene();
-            let mut raster = PenRasterizer::new(&path, ts.resolution).map_err(error)?.with_alpha(tip)
+            let mut raster = PenRasterizer::new(&path, ts.resolution).map_err(error)?.with_path_images(|id| session.resources().bitmap(id).cloned())
                 .with_surface(&scene.mesh, &scene.bvh, ts.material_slot).map_err(error)?;
             raster.run();
             let LayerContent::Paint(p) = &mut layer.content else { return Err(error("pen layer must be paint content")); };
