@@ -3,7 +3,7 @@
 //! scattered spots, each with its own slider) and short stacks of effects with blend modes.
 //! Every slider of the generator stays editable after the mask is applied.
 
-use subcraft_doc::{BlendMode, Generator, GeneratorKind, MaskBuilder, MaskEffectKind, ProceduralKind};
+use subcraft_doc::{BlendMode, DripSettings, Generator, GeneratorKind, MaskBuilder, MaskEffectKind, ProceduralKind};
 
 use crate::presets::{SmartMask, mask, stacked};
 use crate::smart_more::{all_white, cavity, pattern};
@@ -16,6 +16,17 @@ fn builder(seed: u32, level: f32, softness: f32, b: MaskBuilder) -> MaskEffectKi
     g.level = level;
     g.softness = softness;
     g.builder = Some(b);
+    MaskEffectKind::Generator(g)
+}
+
+/// A Dripping Rust generator: rust on the edges and in the creases (`spreading` is how far it
+/// goes) and the streaks that run down from it, which follow gravity.
+fn drips(seed: u32, spreading: f32, softness: f32, d: DripSettings) -> MaskEffectKind {
+    let mut g = Generator::new(GeneratorKind::DrippingRust);
+    g.noise.seed = seed;
+    g.level = spreading;
+    g.softness = softness;
+    g.drip = Some(d);
     MaskEffectKind::Generator(g)
 }
 
@@ -36,6 +47,15 @@ pub fn smart_masks() -> Vec<SmartMask> {
         mask("Stains and Scratches", vec![builder(708, 0.38, 0.4, MaskBuilder { grunge: 0.7, scratches: 0.6, ao: 0.2, scratches_amount: 0.4, ..off() })]),
         mask("Oxidation", vec![builder(709, 0.35, 0.5, MaskBuilder { grunge: 0.6, ao: 0.6, curvature: 0.4, ao_noisiness: 0.5, curvature_noisiness: 0.5, ..off() })]),
         mask("Spots", vec![builder(710, 0.5, 0.5, MaskBuilder { scatter: 1.0, grunge: 0.2, scatter_density: 0.75, ..off() })]),
+        // Gravity drips: these three are the Dripping Rust generator, so the streaks really hang
+        // below the edges and creases they start from.
+        mask("Edge Drips", vec![drips(719, 0.5, 0.3, DripSettings { contrast: 0.5, intensity: 0.8, smoothness: 0.25, length: 0.3 })]),
+        // The streaks alone: the same generator without drips takes the rusted edges back out.
+        stacked("Long Leaks", vec![
+            (drips(720, 0.5, 0.3, DripSettings { contrast: 0.3, intensity: 1.0, smoothness: 0.12, length: 0.7 }), Normal),
+            (drips(720, 0.5, 0.3, DripSettings { contrast: 0.3, intensity: 0.0, smoothness: 0.12, length: 0.7 }), Subtract),
+        ]),
+        mask("Soft Run-off Stains", vec![drips(721, 0.55, 0.5, DripSettings { contrast: 0.2, intensity: 1.0, smoothness: 0.85, length: 0.45 })]),
         // Streaks, kept only below the creases they would run out of.
         stacked("Leaks", vec![
             (pattern(ProceduralKind::Streaks, 7.0, 711, 0.55, 0.4), Normal),
