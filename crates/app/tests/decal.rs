@@ -113,3 +113,73 @@ fn a_decal_needs_a_readable_image_and_a_real_spot() {
     assert!(s.add_decal_layer(&path, DecalSpot { position: Vec3::splat(f32::NAN), ..spot }).is_err());
     assert_eq!(s.document().texture_sets, before.texture_sets, "a failed decal adds no layer");
 }
+
+/// Object-space direction a composited tangent-space normal points to at `p` on the +Z face,
+/// through the UV tangent frame of the triangle there (T toward +U, B toward V up).
+fn world_normal_at(s: &Session, p: Vec3) -> Vec3 {
+    let mesh = &s.scene().mesh;
+    let hit = s.scene().bvh.intersect(Vec3::new(p.x, p.y, 3.0), Vec3::NEG_Z, 0.0, f32::INFINITY).expect("point over the face");
+    let tri = hit.tri as usize;
+    let sp = mesh.interpolate(tri, hit.u, hit.v);
+    let pos = mesh.tri_positions(tri);
+    let uv = mesh.tri_uvs(tri).map(|u| Vec2::new(u.x, 1.0 - u.y));
+    let (e1, e2, d1, d2) = (pos[1] - pos[0], pos[2] - pos[0], uv[1] - uv[0], uv[2] - uv[0]);
+    let det = d1.x * d2.y - d2.x * d1.y;
+    let t = ((e1 * d2.y - e2 * d1.y) / det).normalize();
+    let b = ((e2 * d1.x - e1 * d2.x) / det).normalize();
+    let img = s.composite(s.selected_texture_set().id).unwrap().channel(ChannelKind::Normal).unwrap();
+    let c = img.get((sp.uv.x * img.width() as f32) as u32, (sp.uv.y * img.height() as f32) as u32);
+    let n = Vec3::new(c[0] * 2.0 - 1.0, c[1] * 2.0 - 1.0, c[2] * 2.0 - 1.0);
+    (t * n.x + b * n.y + sp.normal * n.z).normalize()
+}
+
+/// A decal whose image is a normal map tilted towards the image's right and a little up.
+fn normal_decal(s: &mut Session, dir: &std::path::Path, up: Vec3) {
+    let path = dir.join("tilt.png");
+    let n = Vec3::new(0.5, 0.2, 0.84).normalize();
+    let px = [n.x * 0.5 + 0.5, n.y * 0.5 + 0.5, n.z * 0.5 + 0.5];
+    let data: Vec<f32> = (0..32 * 32).flat_map(|_| px).collect();
+    save_image(&path, 32, 32, 3, &data, FileFormat::Png16).unwrap();
+    s.add_decal_layer(&path, DecalSpot { position: Vec3::Z, normal: Vec3::Z, up }).unwrap();
+    let layer = s.selected_layer().unwrap().id;
+    let LayerContent::Fill(fill) = &s.selected_layer().unwrap().content else { panic!() };
+    let source = fill.channels[&ChannelKind::BaseColor].source.clone();
+    s.execute(Command::SetFillChannel { layer, channel: ChannelKind::Normal, fill: FillChannel::new(source) }).unwrap();
+    s.update_composites();
+}
+
+#[test]
+fn a_normal_map_decal_tilts_towards_the_images_right_however_it_is_turned() {
+    let dir = temp("normal");
+    let n = Vec3::new(0.5, 0.2, 0.84).normalize();
+    // Decal upright, on its side, upside down and at an odd angle: image right / up on the face.
+    for up in [Vec3::Y, Vec3::X, Vec3::NEG_Y, Vec3::new(0.6, 0.8, 0.0)] {
+        let mut s = session();
+        normal_decal(&mut s, &dir, up);
+        let right = up.cross(Vec3::Z);
+        let want = (right * n.x + up * n.y + Vec3::Z * n.z).normalize();
+        for p in [Vec3::ZERO, Vec3::new(0.05, -0.04, 0.0), Vec3::new(-0.06, 0.05, 0.0)] {
+            let got = world_normal_at(&s, p);
+            assert!((got - want).length() < 0.03, "up {up:?} at {p:?}: {got:?}, want {want:?}");
+        }
+        // Outside the decal the surface stays flat.
+        let flat = world_normal_at(&s, Vec3::new(0.6, 0.6, 0.0));
+        assert!((flat - Vec3::Z).length() < 0.02, "{flat:?}");
+    }
+}
+
+#[test]
+fn a_decal_fills_the_channel_its_file_name_names() {
+    let dir = temp("channel");
+    let path = dir.join("bolt_normal.png");
+    save_image(&path, 8, 8, 3, &[0.5, 0.5, 1.0].repeat(64), FileFormat::Png8).unwrap();
+    let mut s = session();
+    s.add_decal_layer(&path, DecalSpot { position: Vec3::Z, normal: Vec3::Z, up: Vec3::Y }).unwrap();
+    let LayerContent::Fill(fill) = &s.selected_layer().unwrap().content else { panic!("a fill layer") };
+    assert!(fill.channels.iter().all(|(k, c)| c.enabled == (*k == ChannelKind::Normal)), "a normal map decal fills Normal only");
+    assert!(matches!(fill.channels[&ChannelKind::Normal].source, FillSource::Bitmap { .. }));
+    assert_eq!(fill.projection.mode, ProjectionMode::Planar);
+    // The flat normal map leaves the colour below alone.
+    s.update_composites();
+    assert!(close(color_at(&s, Vec3::ZERO), [0.0, 0.0, 1.0]));
+}

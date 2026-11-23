@@ -317,3 +317,90 @@ pub fn bitmap_tile(bmp: &Arc<Bitmap>, linearize: bool, projection: &Projection, 
         o[3] *= cover;
     }
 }
+
+/// Whether a normal map read through `projection` has to be turned to the surface
+/// ([`reorient_normal_tile`]): everything but an unrotated, unmirrored UV mapping, where the
+/// image's axes already are the tangent frame's. Tri-planar blends three images and is left as it is.
+pub fn projection_turns_normals(projection: &Projection) -> bool {
+    match projection.mode {
+        ProjectionMode::Triplanar => false,
+        ProjectionMode::Uv => projection.rotation_deg != 0.0 || projection.scale[0] < 0.0 || projection.scale[1] < 0.0,
+        _ => true,
+    }
+}
+
+/// Turn the tangent-space normals of a projected normal map (`out`: encoded `[x, y, z, alpha]`
+/// as [`bitmap_tile`] wrote them) from the image's frame into each texel's UV tangent frame.
+///
+/// A normal map's x points to the image's right and its y to the image's top. Projected onto the
+/// model, the image's right is some direction on the surface that has nothing to do with the
+/// texel's +U: without this turn a decal's bumps are lit from the wrong side wherever the
+/// projection and the UV layout disagree (a rotated decal, a UV island laid out sideways).
+/// The directions come from finite differences inside the tile: how the image coordinate and
+/// the surface position change from texel to texel.
+pub fn reorient_normal_tile(projection: &Projection, geo: &TileGeometry, out: &mut [[f32; 4]]) {
+    if !projection_turns_normals(projection) {
+        return;
+    }
+    let n = TILE_SIZE as usize;
+    let sc = projection.rotation_sin_cos();
+    let image_at = |i: usize| -> [f32; 2] {
+        let mut q = [0.0f32; 2];
+        sample_projected_sc(projection, sc, geo.uv(i), geo.position(i), geo.normal(i), |p| {
+            q = p;
+            [0.0; 4]
+        });
+        q
+    };
+    // Change of surface position and image coordinate per texel step along one tile axis, from
+    // the covered neighbours (both sides when there are two).
+    let step = |i: usize, back: Option<usize>, fwd: Option<usize>| -> Option<([f32; 3], [f32; 2])> {
+        let a = back.filter(|&j| geo.coverage(j) > 0.0).unwrap_or(i);
+        let b = fwd.filter(|&j| geo.coverage(j) > 0.0).unwrap_or(i);
+        if a == b {
+            return None;
+        }
+        let (pa, pb, qa, qb) = (geo.position(a), geo.position(b), image_at(a), image_at(b));
+        Some(([pb[0] - pa[0], pb[1] - pa[1], pb[2] - pa[2]], [qb[0] - qa[0], qb[1] - qa[1]]))
+    };
+    let dot = |a: [f32; 3], b: [f32; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    let unit = |v: [f32; 3]| -> Option<[f32; 3]> {
+        let l = dot(v, v).sqrt();
+        (l > 1e-20 && l.is_finite()).then(|| v.map(|c| c / l))
+    };
+    for i in 0..TILE_TEXELS {
+        if out[i][3] <= 0.0 || geo.coverage(i) <= 0.0 {
+            continue;
+        }
+        let (x, y) = (i % n, i / n);
+        let Some((px, qx)) = step(i, (x > 0).then(|| i - 1), (x + 1 < n).then(|| i + 1)) else { continue };
+        let Some((py, qy)) = step(i, (y > 0).then(|| i - n), (y + 1 < n).then(|| i + n)) else { continue };
+        // The texel's tangent frame: T toward +U (texel x), B toward V up (against texel y).
+        let Some(t) = unit(px) else { continue };
+        let b_raw = [-py[0], -py[1], -py[2]];
+        let k = dot(b_raw, t);
+        let Some(b) = unit([b_raw[0] - t[0] * k, b_raw[1] - t[1] * k, b_raw[2] - t[2] * k]) else { continue };
+        // Texel steps that move one unit along an image direction `d`: the inverse of the image
+        // coordinate's Jacobian. Then the same steps taken on the surface.
+        let det = qx[0] * qy[1] - qy[0] * qx[1];
+        if det.abs() < 1e-20 || !det.is_finite() {
+            continue;
+        }
+        let on_surface = |d: [f32; 2]| -> Option<[f32; 2]> {
+            let (sx, sy) = ((d[0] * qy[1] - d[1] * qy[0]) / det, (qx[0] * d[1] - qx[1] * d[0]) / det);
+            let w = unit([px[0] * sx + py[0] * sy, px[1] * sx + py[1] * sy, px[2] * sx + py[2] * sy])?;
+            Some([dot(w, t), dot(w, b)])
+        };
+        // Image right is +u; image up is against v.
+        let (Some(right), Some(up)) = (on_surface([1.0, 0.0]), on_surface([0.0, -1.0])) else { continue };
+        let o = &mut out[i];
+        let (nx, ny, nz) = (o[0] * 2.0 - 1.0, o[1] * 2.0 - 1.0, o[2] * 2.0 - 1.0);
+        let (tx, ty) = (right[0] * nx + up[0] * ny, right[1] * nx + up[1] * ny);
+        // Keep the tilt: the turn must not make the bump steeper or flatter.
+        let (before, after) = ((nx * nx + ny * ny).sqrt(), (tx * tx + ty * ty).sqrt());
+        let s = if after > 1e-12 { before / after } else { 0.0 };
+        o[0] = tx * s * 0.5 + 0.5;
+        o[1] = ty * s * 0.5 + 0.5;
+        o[2] = nz * 0.5 + 0.5;
+    }
+}
