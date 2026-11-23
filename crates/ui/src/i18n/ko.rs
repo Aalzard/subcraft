@@ -84,6 +84,8 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Grid & axes", "그리드 및 축"),
     ("Ground shadow", "바닥 그림자"),
     ("Height bump", "높이 범프"),
+    ("Displacement preview", "변위 미리보기"),
+    ("Subdivision", "세분화"),
     ("Help", "도움말"),
     ("High", "하이"),
     ("High-poly part names end with this (case-insensitive; _hi also works)", "하이 폴리 파트 이름이 이 접미사로 끝납니다(대소문자 구분 없음, _hi도 가능)"),
