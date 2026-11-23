@@ -176,6 +176,9 @@ pub struct GpuMaterial {
     pub mask_view: Option<ChannelTexture>,
     /// The part overlay laid over this set (binding 12); `None` draws the set as it is.
     pub overlay: Option<OverlayTexture>,
+    /// Coat, sheen, anisotropy, subsurface, transmission and displacement packed for the
+    /// shader (binding 13).
+    pub(crate) extended: crate::extended::Extended,
 }
 
 /// A small UV-space mask the viewport shader lays over a texture set. R greys the surface out
@@ -227,6 +230,7 @@ impl GpuMaterial {
             params: None,
             mask_view: None,
             overlay: None,
+            extended: crate::extended::Extended::new(),
         }
     }
 
@@ -244,6 +248,11 @@ pub struct MaterialParams {
     pub alpha: [f32; 4],
     /// Shader Settings: x AO intensity, y emissive intensity, z horizon fading; w: 1 = highlighted.
     pub shader: [f32; 4],
+    /// Layers of the extended channel groups 0..4 and 4..7 in binding 13 (-1 = absent), and
+    /// x anisotropy, y subsurface scattering, z translucency on (see `extended.rs`).
+    pub ext_layers_a: [f32; 4],
+    pub ext_layers_b: [f32; 4],
+    pub ext_flags: [f32; 4],
 }
 
 impl MaterialParams {
@@ -256,16 +265,27 @@ impl MaterialParams {
         };
         let dither = if alpha.mode != AlphaMode::Opaque && alpha.dithering { 1.0 } else { 0.0 };
         let s = shader.clamped();
-        Self { alpha: [mode, alpha.threshold.clamp(0.0, 1.0), dither, 0.0], shader: [s.ao_intensity, s.emissive_intensity, s.horizon_fading, if highlight { 1.0 } else { 0.0 }] }
+        Self {
+            alpha: [mode, alpha.threshold.clamp(0.0, 1.0), dither, 0.0],
+            shader: [s.ao_intensity, s.emissive_intensity, s.horizon_fading, if highlight { 1.0 } else { 0.0 }],
+            ext_layers_a: [-1.0; 4],
+            ext_layers_b: [-1.0, -1.0, -1.0, 0.0],
+            ext_flags: [0.0; 4],
+        }
+    }
+
+    /// With the extended channel layers and flags of [`crate::extended::Extended::params`].
+    pub fn with_extended(self, ext: [[f32; 4]; 3]) -> Self {
+        Self { ext_layers_a: ext[0], ext_layers_b: ext[1], ext_flags: ext[2], ..self }
     }
 }
 
-/// A `MaterialParams` uniform buffer for `alpha` and `shader`.
-pub(crate) fn params_buffer(device: &wgpu::Device, alpha: &subcraft_doc::AlphaSettings, shader: &subcraft_doc::ShaderParams, highlight: bool) -> wgpu::Buffer {
+/// A `MaterialParams` uniform buffer.
+pub(crate) fn params_buffer(device: &wgpu::Device, params: &MaterialParams) -> wgpu::Buffer {
     use wgpu::util::DeviceExt;
     device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("material params"),
-        contents: bytemuck::bytes_of(&MaterialParams::new(alpha, shader, highlight)),
+        contents: bytemuck::bytes_of(params),
         usage: wgpu::BufferUsages::UNIFORM,
     })
 }

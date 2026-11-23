@@ -84,6 +84,8 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Grid & axes", "格線與座標軸"),
     ("Ground shadow", "地面陰影"),
     ("Height bump", "高度凹凸"),
+    ("Displacement preview", "置換預覽"),
+    ("Subdivision", "細分"),
     ("Help", "說明"),
     ("High", "高"),
     ("High-poly part names end with this (case-insensitive; _hi also works)", "高模部件名稱以此結尾（不分大小寫，_hi 亦可）"),
