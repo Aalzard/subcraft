@@ -85,6 +85,74 @@ pub struct ProjectSettings {
     /// defaults, so no schema bump is needed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bake: Option<BakeConfig>,
+    /// The game engine project this project sends its textures to (File > Live link). Optional
+    /// in the file: absent = none, so no schema bump is needed. A hint like `mesh_source`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub live_link: Option<LiveLinkTarget>,
+}
+
+/// A game engine SubCraft's live link can send to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GameEngine {
+    Unity,
+    Unreal,
+    Godot,
+}
+
+impl GameEngine {
+    pub const ALL: [GameEngine; 3] = [GameEngine::Unity, GameEngine::Unreal, GameEngine::Godot];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            GameEngine::Unity => "Unity",
+            GameEngine::Unreal => "Unreal Engine",
+            GameEngine::Godot => "Godot 4",
+        }
+    }
+
+    /// The engine project containing `dir` (or `dir` itself): the engine and the project root.
+    pub fn detect(dir: &std::path::Path) -> Option<(GameEngine, std::path::PathBuf)> {
+        for root in dir.ancestors() {
+            if root.join("project.godot").is_file() {
+                return Some((GameEngine::Godot, root.to_path_buf()));
+            }
+            if root.join("Assets").is_dir() && root.join("ProjectSettings").is_dir() {
+                return Some((GameEngine::Unity, root.to_path_buf()));
+            }
+            let uproject = std::fs::read_dir(root).into_iter().flatten().flatten().any(|e| e.path().extension().is_some_and(|x| x.eq_ignore_ascii_case("uproject")));
+            if uproject {
+                return Some((GameEngine::Unreal, root.to_path_buf()));
+            }
+        }
+        None
+    }
+
+    /// Folder inside the engine project at `root` that receives the files of a project whose
+    /// (file-name safe) name is `name`. All three engines watch these folders and import changes.
+    pub fn asset_dir(self, root: &std::path::Path, name: &str) -> std::path::PathBuf {
+        match self {
+            GameEngine::Unity => root.join("Assets").join("SubCraft").join(name),
+            GameEngine::Unreal => root.join("Content").join("SubCraft").join(name),
+            GameEngine::Godot => root.join("subcraft").join(name),
+        }
+    }
+}
+
+/// Where a project's live link sends to.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LiveLinkTarget {
+    pub engine: GameEngine,
+    /// The engine project's root folder (a hint: the project never depends on it existing).
+    pub project: String,
+}
+
+impl LiveLinkTarget {
+    /// A target for the engine project containing `dir`; `None` when `dir` is in none.
+    pub fn for_folder(dir: &std::path::Path) -> Option<Self> {
+        let (engine, root) = GameEngine::detect(dir)?;
+        Some(Self { engine, project: root.to_string_lossy().into_owned() })
+    }
 }
 
 /// The Bake window's settings saved with the project: the files, the maps to bake and every
