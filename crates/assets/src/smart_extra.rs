@@ -153,6 +153,18 @@ const fn info(category: &'static str, description: &'static str) -> Option<Asset
 
 pub fn smart_material_info(name: &str) -> Option<AssetInfo> {
     match name {
+        // Procedural materials: parameters stay editable in Properties after applying.
+        "Procedural Painted Metal" => info("Procedural", "Painted metal with sliders for paint colour, edge wear, chips and dirt"),
+        "Procedural Rusted Steel" => info("Procedural", "Steel with sliders for rust amount, colour, edge sharpness and pitting"),
+        "Procedural Brushed Metal" => info("Procedural", "Brushed metal with sliders for colour, brushing, direction, scratches and smudges"),
+        "Procedural Polished Metal" => info("Procedural", "Polished metal (gold by default) with sliders for colour, handling marks, scratches and tarnish"),
+        "Procedural Hammered Metal" => info("Procedural", "Hammered metal (brass by default) with sliders for dent size and depth, tarnish and polished edges"),
+        "Procedural Aged Copper" => info("Procedural", "Copper with sliders for patina amount, colour and relief, and polished edges"),
+        "Procedural Worn Plastic" => info("Procedural", "Plastic with sliders for colour, molded grain, scuffs, edge wear and dust"),
+        "Procedural Rubber" => info("Procedural", "Rubber with sliders for colour, surface texture, edge wear and dust"),
+        "Procedural Concrete" => info("Procedural", "Concrete with sliders for colour, pores, stains, chipped edges and dust"),
+        "Procedural Leather" => info("Procedural", "Leather with sliders for colour, grain size and depth, edge wear and dark creases"),
+        "Procedural Wood" => info("Procedural", "Wood with sliders for colours, ring size and grain, an optional worn coat of paint, and dirt"),
         // PBR pack (textured, with wear and dirt layers)
         "Black Basalt" => info("Stone", "Dark volcanic basalt with dirt in the pores and dust on top"),
         "Travertine" => info("Stone", "Pale pitted travertine with dirt in the holes and settled dust"),
