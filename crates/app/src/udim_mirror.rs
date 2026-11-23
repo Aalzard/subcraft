@@ -81,6 +81,7 @@ fn content_tag(k: &ContentEffectKind) -> u8 {
         ContentEffectKind::Filter { .. } => 3,
         ContentEffectKind::Anchor => 4,
         ContentEffectKind::Generator(_) => 5,
+        ContentEffectKind::Material(_) => 6,
     }
 }
 
