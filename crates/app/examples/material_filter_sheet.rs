@@ -91,6 +91,7 @@ fn main() -> Result<(), String> {
         Case { name: "hammered", filter: all[1], base: [0.93, 0.62, 0.52], rough: 0.28, metal: 1.0, under: None },
         Case { name: "powder_coated", filter: all[2], base: [0.50, 0.04, 0.03], rough: 0.25, metal: 0.0, under: None },
         Case { name: "edge_damages", filter: all[3], base: [0.10, 0.17, 0.26], rough: 0.45, metal: 0.0, under: None },
+        Case { name: "edge_damages_hard", filter: all[3].with_setting(subcraft_doc::FilterSetting::Contrast, [1.0; 3]).unwrap(), base: [0.10, 0.17, 0.26], rough: 0.45, metal: 0.0, under: None },
         Case { name: "rust_weathering", filter: all[4], base: steel, rough: 0.35, metal: 1.0, under: None },
         Case { name: "peeling_paint", filter: all[5], base: [0.42, 0.44, 0.30], rough: 0.5, metal: 0.0, under: None },
         Case { name: "pbr_validate", filter: all[6], base: [0.004, 0.004, 0.005], rough: 0.5, metal: 0.0, under: None },
