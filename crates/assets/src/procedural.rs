@@ -685,6 +685,34 @@ mod tests {
         smart_materials().into_iter().map(|m| (m.name.clone(), m.build(&ts))).collect()
     }
 
+    /// Cloth uses the sheen channels when the texture set has them, and stays well formed
+    /// (no Sheen slider, no idle binding) when it does not.
+    #[test]
+    fn cloth_has_a_sheen_slider_only_with_sheen_channels() {
+        let plain = TextureSet::new("set", 0, 64);
+        let mut sheen = plain.clone();
+        for k in [SheenColor, SheenOpacity, SheenRoughness] {
+            sheen.channels.push(subcraft_doc::ChannelDef::default_for(k));
+        }
+        for name in ["Canvas", "Denim"] {
+            let m = smart_materials().into_iter().find(|m| m.name == format!("{PREFIX}{name}")).unwrap();
+            let without = m.build(&plain);
+            assert!(without.material.as_ref().unwrap().param("sheen").is_none());
+            let with = m.build(&sheen);
+            let controls = with.material.as_ref().unwrap();
+            assert!(controls.param("sheen").is_some());
+            assert_eq!(controls.check(&with), vec![], "{name}");
+            let mut root = with.clone();
+            let mut c = (**controls).clone();
+            assert!(c.set("sheen", ParamValue::Number(0.9)));
+            assert!(c.apply(&mut root));
+            let weave = root.children().iter().find(|l| l.name == "Weave").unwrap();
+            let LayerContent::Fill(f) = &weave.content else { panic!() };
+            assert_eq!(f.channels[&SheenOpacity].source, FillSource::uniform(s(0.9)));
+            assert!(f.channels[&SheenColor].enabled && f.channels[&SheenRoughness].enabled);
+        }
+    }
+
     #[test]
     fn every_procedural_material_is_well_formed() {
         let all = built();

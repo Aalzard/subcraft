@@ -6289,3 +6289,23 @@ re-measured on a GPU. Not taken from his patch: the `SUBCRAFT_REPAINT_LOG` diagn
 * Honest state: marble and varnished wood read well. Leather cracks are a regular net at high settings. Plank
   knots are plain dark dots, not real knots with rings. Twill shows chevrons where tri-planar sides meet on round
   shapes. Cloth still has no sheen.
+
+## Procedural materials: knots, leather cracks, cloth sheen (2026-11-23)
+
+* `ProceduralKind::Knots` (20 kinds): in under half of the cells one oval along U with a solid core and fading
+  growth rings; never touches the cell border, so it tiles. Wood Planks uses it instead of Pores dots.
+* Cracked Leather: each crack set is multiplied by its own harder cloud patches, and a "Fine Cracks" layer at a
+  smaller scale lives in other patches.
+* Cloth sheen: the Weave layer of Canvas and Denim fills Sheen Color / Opacity / Roughness and gets a "Sheen"
+  slider when the texture set has those channels. `Session::add_smart_material` now builds a material as if the
+  set had the sheen channels (`smart_import::OFFERED_ON_APPLY`) and adds the ones it fills with the layer
+  (`InsertLayerWithChannels`, one undo step). Materials that do not fill sheen add nothing.
+* `material_sheet` example draws the viewport's sheen lobe (Charlie distribution, Neubelt visibility) so sheen
+  can be judged without a display. Its ambient sheen term is a rough stand-in, not the viewport's fit.
+* Ran: `cargo test -p subcraft-assets -p subcraft-materials -p subcraft-doc`, `cargo test -p subcraft-app` (all
+  pass; new: `knots_are_sparse_cores_with_rings`, `cloth_has_a_sheen_slider_only_with_sheen_channels`,
+  `cloth_brings_the_sheen_channels_with_it`), `cargo test -p subcraft-ui --lib` (423 pass),
+  `cargo check --workspace --all-targets`.
+* Looked at: sheets of planks (knots 1), leather, canvas and denim with sheen on and off.
+* Honest state: not checked in the real GPU viewport, only in the example renderer. Knots do not bend the grain
+  around them and may sit across a gap. Dirt and stain layers do not reduce the sheen under them.
