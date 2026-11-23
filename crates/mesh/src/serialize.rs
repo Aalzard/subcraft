@@ -101,8 +101,17 @@ pub fn encode(mesh: &Mesh) -> Vec<u8> {
         w.str(&object.name);
     }
     w.u32s(&mesh.tri_object.iter().map(|o| o.unwrap_or(u32::MAX)).collect::<Vec<_>>());
+    // Optional trailing extension (readers before it stop at the end of the version 2 data and
+    // ignore it): the file's unit, when it stated one.
+    if mesh.unit_meters > 0.0 {
+        w.0.extend_from_slice(UNIT_TAG);
+        w.0.extend_from_slice(&mesh.unit_meters.to_le_bytes());
+    }
     w.0
 }
+
+/// Tag of the trailing mesh-unit extension (see [`encode`]).
+const UNIT_TAG: &[u8; 4] = b"UNIT";
 
 pub fn decode(bytes: &[u8]) -> Result<Mesh, MeshDecodeError> {
     let mut r = R(bytes);
@@ -142,7 +151,14 @@ pub fn decode(bytes: &[u8]) -> Result<Mesh, MeshDecodeError> {
         }
         tri_object = r.u32s()?.into_iter().map(|o| (o != u32::MAX).then_some(o)).collect();
     }
-    let mesh = Mesh { name, positions, normals, uvs, tangents, indices, tri_material, tri_object, objects, materials, submeshes, bounds, ..Default::default() };
+    let mut unit_meters = 0.0;
+    if version >= 2 && r.0.len() >= 8 && &r.0[..4] == UNIT_TAG {
+        let v = f32::from_le_bytes(r.0[4..8].try_into().expect("4 bytes"));
+        if v.is_finite() && v > 0.0 {
+            unit_meters = v;
+        }
+    }
+    let mesh = Mesh { name, positions, normals, uvs, tangents, indices, tri_material, tri_object, objects, materials, submeshes, bounds, unit_meters, ..Default::default() };
     let problems = mesh.validate();
     if !problems.is_empty() {
         return Err(MeshDecodeError::Invalid(problems.join("; ")));
@@ -167,6 +183,22 @@ mod tests {
         assert_eq!(back.submeshes, m.submeshes);
         assert_eq!(back.objects, m.objects);
         assert_eq!(back.tri_object, m.tri_object);
+    }
+
+    #[test]
+    fn the_file_unit_round_trips_as_an_extension_older_readers_skip() {
+        let plain = primitives::cube(1.0);
+        let bytes = encode(&plain);
+        assert_eq!(decode(&bytes).unwrap().unit_meters, 0.0, "not stated: nothing written");
+        let mut cm = plain.clone();
+        cm.unit_meters = 0.01;
+        let with_unit = encode(&cm);
+        assert_eq!(with_unit.len(), bytes.len() + 8);
+        assert_eq!(&with_unit[..bytes.len()], &bytes[..], "the version 2 data is unchanged");
+        let back = decode(&with_unit).unwrap();
+        assert_eq!(back.unit_meters, 0.01);
+        assert_eq!(back.meters_per_unit(), 0.01);
+        assert_eq!(plain.meters_per_unit(), 1.0);
     }
 
     #[test]

@@ -91,6 +91,14 @@ impl FieldKey {
         key.0[6] = u32::MAX - 3; // the chipped-paint field, distinct from the other volume fields
         key
     }
+    /// A material filter's pattern field ([`crate::matfx`]): `bits` are every parameter bit that
+    /// changes the pattern. Distinct from every other field kind.
+    pub fn matfx(bits: [u32; 5]) -> Self {
+        let mut key = Self([0; 16]);
+        key.0[..5].copy_from_slice(&bits);
+        key.0[6] = u32::MAX - 5;
+        key
+    }
     pub fn new(params: &ProceduralParams, projection: &Projection) -> Self {
         let p = projection;
         Self([
@@ -130,10 +138,14 @@ fn projection_extra_bits(p: &Projection) -> u32 {
     use subcraft_doc::FillSymmetry;
     let t = p.effective_transform3();
     let warp = p.mode == subcraft_doc::ProjectionMode::Warp;
-    if p.cylinder_angle == 360.0 && p.symmetry.is_none() && t.is_identity() && !warp {
+    let unique = p.triplanar_unique && p.mode == subcraft_doc::ProjectionMode::Triplanar;
+    if p.cylinder_angle == 360.0 && p.symmetry.is_none() && t.is_identity() && !warp && !unique {
         return 0;
     }
     let mut values = vec![p.cylinder_angle.to_bits()];
+    if unique {
+        values.push(5);
+    }
     if !t.is_identity() {
         values.push(3);
         values.extend(t.offset.iter().chain(&t.rotation_deg).chain(&t.scale).map(|v| v.to_bits()));
@@ -181,7 +193,8 @@ fn scratch_bits(s: &subcraft_doc::ScratchParams) -> u32 {
         | 1
 }
 
-/// One tile's evaluated field (`TILE_TEXELS` values). Its bytes count against the budget.
+/// One tile's evaluated field (`TILE_TEXELS` values, or a multiple for a multi-value pattern). Its
+/// bytes count against the budget.
 #[derive(Debug)]
 pub struct Field(Box<[f32]>);
 
@@ -238,7 +251,8 @@ impl FieldCache {
             }
         }
         let values = compute();
-        debug_assert_eq!(values.len(), TILE_TEXELS);
+        // One value per texel, or a whole number of them (a material filter's pattern has four).
+        debug_assert!(!values.is_empty() && values.len() % TILE_TEXELS == 0);
         let field = Arc::new(Field::new(values.into_boxed_slice()));
         let mut e = self.entries.lock();
         if let Some(x) = e.list.iter().find(|x| x.key == key) {

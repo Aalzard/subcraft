@@ -245,8 +245,22 @@ pub fn sh_basis(d: Vec3) -> [f32; 9] {
     ]
 }
 
-const BASE_W: u32 = 512;
-const LEVELS: usize = 6;
+/// Width range of the sharp level: the source width rounded down to a power of two (bundled
+/// HDRIs are 1024 wide; a 4K file keeps 2048 for crisp mirror reflections).
+const MIN_BASE_W: u32 = 512;
+const MAX_BASE_W: u32 = 2048;
+/// Width of the most blurred level (a 2:1 panorama of 16 x 8 texels).
+const TOP_W: u32 = 16;
+/// Blur of the most blurred level, as the standard deviation of the reflection lobe in radians.
+/// The core of a GGX reflection lobe is about alpha radians wide (half width at half maximum
+/// ~1.3 alpha), so this is roughness 1. Each level below halves it, which the viewport shader
+/// inverts to pick the level for a roughness.
+pub const TOP_BLUR: f32 = 1.0;
+
+/// Blur (lobe standard deviation in radians) of level `k` of `levels`; level 0 is unfiltered.
+pub fn level_blur(k: usize, levels: usize) -> f32 {
+    if k == 0 { 0.0 } else { TOP_BLUR * 0.5f32.powi((levels - 1 - k) as i32) }
+}
 
 fn downsample(l: &HdriLevel) -> HdriLevel {
     let (w, h) = ((l.width / 2).max(1), (l.height / 2).max(1));
@@ -314,7 +328,9 @@ fn blur(l: &HdriLevel, sigma: f32) -> HdriLevel {
 /// Prefilter an equirectangular image (LDR images are linearized from sRGB).
 pub fn prefilter(src: &Bitmap) -> PrefilteredHdri {
     let linearize = !src.is_hdr();
-    let (w, h) = (BASE_W, BASE_W / 2);
+    let w = (1u32 << src.width.max(1).ilog2()).clamp(MIN_BASE_W, MAX_BASE_W);
+    let h = w / 2;
+    let count = (w / TOP_W).ilog2() as usize + 1;
     let mut rgba = vec![0.0f32; (w * h * 4) as usize];
     rgba.par_chunks_mut((w * 4) as usize).enumerate().for_each(|(y, row)| {
         for x in 0..w {
@@ -323,12 +339,17 @@ pub fn prefilter(src: &Bitmap) -> PrefilteredHdri {
         }
     });
     let mut levels = vec![HdriLevel { width: w, height: h, rgba }];
-    for k in 1..LEVELS {
+    for k in 1..count {
         let down = downsample(&levels[k - 1]);
-        levels.push(blur(&down, 1.0 + 0.25 * k as f32));
+        // Add the blur this level needs on top of what the previous one carries, in this level's
+        // texels (the 2x2 box of the downsample is part of it).
+        let texel = std::f32::consts::TAU / down.width as f32;
+        let (want, have) = (level_blur(k, count), level_blur(k - 1, count));
+        let sigma = ((want * want - have * have).max(0.0).sqrt() / texel).max(0.5);
+        levels.push(blur(&down, sigma));
     }
-    // SH from a mid level, weighted by solid angle.
-    let l = &levels[3];
+    // SH from the 128-wide level (about 10 degrees of blur), weighted by solid angle.
+    let l = &levels[count - 4];
     let mut sh = [[0.0f32; 3]; 9];
     let (lw, lh) = (l.width as f32, l.height as f32);
     for y in 0..l.height {
@@ -352,8 +373,9 @@ pub fn prefilter(src: &Bitmap) -> PrefilteredHdri {
             sh[i][c] *= a[i];
         }
     }
-    // Sun: brightest texel of a blurred level.
-    let l = &levels[4];
+    // Sun: brightest texel of the 32-wide level (about 29 degrees of blur, as before the levels
+    // were matched to GGX: the startup rotation of the bundled HDRIs depends on it).
+    let l = &levels[count - 2];
     let (mut best, mut best_lum) = (0usize, -1.0f32);
     for i in 0..(l.width * l.height) as usize {
         let lum = 0.2126 * l.rgba[i * 4] + 0.7152 * l.rgba[i * 4 + 1] + 0.0722 * l.rgba[i * 4 + 2];

@@ -6033,54 +6033,296 @@ re-measured on a GPU. Not taken from his patch: the `SUBCRAFT_REPAINT_LOG` diagn
   SignPath application is now `https://github.com/Aalzard/subcraft/blob/main/docs/CODE_SIGNING.md`.
 * Checked: every relative link in the touched Markdown files resolves (script over `](path)` targets).
 
-## Stitches with the Pen made easy (2026-11-23, branch `claude/project-thread-xwml9x`)
+## Physical Size for fills (2026-11-23, branch `claude/project-thread-kj58iu`)
 
-* What existed (#561): five stitch brush presets and a "Stitch preset: Choose…" dropdown in the Properties of an
-  existing path. A new path was always a plain line; a Stitch brush clicked in the Shelf switched the Pen to the
-  Brush tool; with the Pen active and no path, Properties showed the brush settings and nothing about stitches.
-* Now: `PenEditor::style` (`pen::PenStyle`: stitch + tip resource) makes new paths stitched from the first point
-  (stitch width, hardness 1, opacity 1, only the thread's channels, layer named after the stitch).
-  `stitch::style` resolves the tip resource, `stitch::of_path` recognises the stitch of a path (tip name + alternate).
-* UI (`ui/src/pen.rs`): `stitch_row` of drawn tiles (Plain line + every stitch) at the top of the path Properties
-  and in a new "Pen tool" section shown while the Pen is active and the selected layer is not a path.
-  `choose_stitch` sets the style and restyles the path the next click would add to. `refresh_style` re-resolves the
-  tip in the project that is open at the click. `UiState::select_shelf_brush`: a Stitch preset keeps the Pen.
-  `height_note` offers to add the Height channel. The status strip names the chosen stitch.
-* New tips and stitches: Stitch Saddle, Stitch Double (`assets/src/alphas.rs`, `app/src/stitch.rs`); `STITCHES` has 7.
-* Tests: `stitch::every_stitch_is_recognised_on_the_path_it_made`, `tests/pen.rs::a_pen_style_draws_new_paths_as_stitches`
-  (stamp, values, layer name, gaps in the Height raster, plain again without a style), ui
-  `a_stitch_is_chosen_before_drawing_and_from_the_shelf`, `the_chosen_stitch_follows_a_new_project`,
-  `the_stitch_row_is_drawn_with_and_without_a_path`.
-* Image: `cargo run -p subcraft-app --example stitch_sheet -- <prefix> [size]` draws every stitch on a pen path and
-  writes a lit sheet; result in `docs/images/stitches.png` (2048², cropped).
-* Not run in the real app window (no display in the cloud container): the tile row's look and clicks are covered by
-  tests of the functions behind them, not by a click on a tile.
-* Not done: stitches still follow the path in UV space (a path over a UV seam breaks there), spacing is not fitted
-  to the path length (the last gap can be shorter), and a seam (thread plus needle holes) is still two paths.
+* **Engine:** `Projection::physical_size: Option<[f32; 2]>` (centimeters per repeat; not written when off, so
+  older projects and readers are unaffected). `Projection::resolve_physical(SurfaceScale)` turns it into the
+  Tiling that gives that repeat on the surface: UV mode scales by meters of surface per UV unit (square root of
+  3D area over UV area of the set's triangles, `TextureSetGeometry::surface_scale`), planar / tri-planar / warp
+  by the model's longest extent in meters. Spherical and cylindrical repeat by angle and keep Tiling. Resolved
+  in the compositor's one fill entry (`tile::eval_fill`) and for mask Fill / Image effects, so caches,
+  thumbnails and exports see a plain tiling.
+* **Mesh unit:** FBX positions stay in the file's unit, so the default model (centimeters) measured 100x too
+  big. `Mesh::unit_meters` now records the FBX scene unit (0 = not stated, read as meters; glTF and USD are
+  already meters). Saved as an optional `UNIT` extension after the version 2 mesh blob: older SubCraft
+  versions stop reading before it and ignore it; files without it read as before.
+* **Properties:** UV transformations > Scale is now Tiling / Physical size (was a disabled dropdown). Physical
+  size shows Size (cm) X / Y with a lock (log slider 1 to 500 cm, typed values 0.01 cm to 1 km). The 2D view's
+  UV frame manipulator hides while Physical size is on (it edits Tiling).
+* **Tests:** doc (resolve math, degenerate surfaces, validity, JSON round trip), mesh (unit extension round
+  trip, old data unchanged), compositor `tests/physical_size.rs` (surface scale of 0.5 / 2 / 3 m planes,
+  a 200-unit centimeter plane reads as 2 m, Physical size equals the matching Tiling bit for bit in UV and
+  tri-planar, the same 25 cm repeat gives twice the cells on a plane twice as large). Full workspace:
+  2366 passed before the unit fix; mesh / materials / compositor / doc / project re-run after it, all pass.
+* **Real app (release, Xvfb + lavapipe):** `cargo run -p subcraft-app --example physical_size_project -- out
+  10|tiling` writes the default model with a checker fill. Screenshots `docs/screenshots/fill-physical-size-physical.png`
+  (10 cm) and `fill-physical-size-tiling.png` (Tiling 8): with Physical size the checker cells are the same size on
+  the sphere and the base; with Tiling they follow each part's UV density.
+* Not done: Physical size for brush materials (paint strokes keep Tiling), a per-project unit override for OBJ /
+  PLY / STL files saved in centimeters (they read as meters), a material resource's own physical size.
+## Procedural materials with sliders (2026-11-23, branch `claude/project-thread-l9014a`, ADR-0047)
 
-## Stitches over UV seams: stamps on the surface (2026-11-23, branch `claude/project-thread-xwml9x`)
+* Format: a procedural material is an ordinary layer (a fill or a folder of masked fills) that carries
+  `MaterialControls` (`crates/doc/src/material.rs`): a list of parameters (float, colour, toggle, seed) and a
+  list of bindings. A binding is `layer [+ effect] + property + formula`. Setting a parameter evaluates the
+  formulas (`crates/doc/src/material_expr.rs`: numbers, parameter names, `+ - * /`, 13 functions) and writes the
+  results into normal layer properties. There is no second evaluator and no node graph; the compositor is unchanged.
+* Saved in projects as an optional `material` block on the layer (`LayerV1.material`, no schema bump, entries
+  read one by one so one bad entry does not lose the rest). Bindings follow the layer through duplicate and the
+  user smart-material library (ids are remapped); instances drop the controls.
+* Commands: `SetMaterialParam` (drags merge into one undo step), `ResetMaterialParams`, `SetMaterialControls`.
+* UI: "Material parameters" section in Properties (`crates/ui/src/panels/material_params.rs`), with per-row reset.
+  Parameter labels are not translated yet.
+* Content: 11 built-in materials in `crates/assets/src/procedural.rs`, first in the Smart Materials shelf under
+  the "Procedural" category.
+* Ran: `cargo check --workspace --all-targets`; `cargo test -p subcraft-doc -p subcraft-project -p subcraft-assets`
+  (all pass, 15 new doc tests, 4 new assets tests); `cargo test -p subcraft-app` (all pass, 5 new in
+  `tests/procedural_materials.rs`: sliders change the composite, one undo step per drag and bad input refused,
+  save/load + duplicate + user library keep parameters, attach/remove controls, every material composites to
+  finite in-range values); `cargo test -p subcraft-ui --lib` (420 pass). The ui integration tests and the render
+  crate were left to CI.
+* Looked at: contact sheets of all 11 at defaults and at several slider settings, rendered with the new
+  `cargo run -p subcraft-app --example material_sheet` on the baked default model. Not run in the real app
+  window (no display in the cloud container), so the panel layout itself is unseen.
+* Known limits: triplanar mask patterns look mirrored on a sphere and wood rings show a seam (both existing
+  pattern behaviour); no UI yet for authoring your own parameters (the command exists); no choice (dropdown)
+  parameters; filter and content-effect settings cannot be bound yet.
+### Session 134 - Viewport shades coat, sheen, anisotropy, subsurface, translucency, transmission; displacement preview (2026-11-22, branch `claude/project-thread-8mawyv`)
 
-* `PathStamp::surface` (serde default false, not written when false; on for the stitch presets, "On the surface"
-  checkbox for any stamped path). `paint/src/pen_surface.rs`: `SurfaceStamps::build(path, mesh, bvh, slot, res)`.
-  The curve of each segment is sampled in UV and taken to 3D through a UV grid of the texture set's triangles. A
-  segment is "continuous" when every sample is on the set and no 3D step is more than 6x its UV step; otherwise it
-  is routed over the surface: 24 chord samples pulled onto the surface (`Bvh::closest_point`), tightened 48 times
-  (each point to the surface under the middle of its neighbours), then gaps closed by `bridge` (midpoint
-  projection, down to half a radius). Stamps are placed by distance in 3D; radius in object units comes from the UV
-  scale under the first point on the surface. Each stamp paints texels within its square on triangles of the set
-  facing within 60 degrees of its normal and within one radius of its plane; the strongest stamp wins.
-* `PenRasterizer::with_surface`; the app passes the scene at pen release, resolution change and paste.
-* UI: `seam_aware_line` draws a surface path's segment straight between its points when its UV curve leaves the
-  island (hidden sample or a jump on screen).
-* Tests: `pen_surface::tests` (cube: one unbroken line of stamps over the front/top edge, spacing, both faces
-  covered; plane: same size and count as the UV path, coverage area within 10%), app
-  `a_stitched_path_continues_over_a_uv_seam`, doc `a_stamp_without_surface_is_a_uv_stamp`, ui
-  `a_surface_path_over_a_seam_is_drawn_straight_between_its_points`. Ran `cargo test -p subcraft-paint --lib pen`,
-  `-p subcraft-app --test pen`, `-p subcraft-doc --test pen`, `-p subcraft-ui --lib` (424 passed).
-* Images: `stitch_seam` example (cube, path over three faces) -> `docs/images/stitches-over-seams.png`;
-  `stitch_sheet` looks the same as with UV stamps on the plane.
-* Limits: the route over a seam is not an exact geodesic (around a cube edge it climbs straight to the edge, then
-  turns), tangent handles are ignored on a segment that crosses a seam, a stitch that straddles a sharp edge is cut
-  at the edge on each face, UDIM sets were not tested, and the timing on a dense mesh was not measured.
-* Not run in the real app window.
+* **Asked:** the gap report's top item: the 3D view shaded only metal/roughness; coat, sheen, anisotropy,
+  scattering and transmission could be painted but were not shown, and there was no displacement preview.
+* **Packing (`render/src/extended.rs`, `extended.wgsl`):** devices guarantee 16 sampled textures per stage and
+  the viewport shader already used 12, so the 16 extra channels are packed on the GPU into one RGBA16F array
+  texture (binding 13), one layer per group a texture set actually has (coat colour+opacity; coat roughness,
+  specular level, normal XY; sheen colour+opacity; sheen roughness, anisotropy vector, translucency; scattering
+  colour+amount; transmissive+IOR; displacement). Each channel keeps its own mipmapped texture; only the groups
+  whose channels changed are repacked, only inside the changed tiles' rectangle, at every mip level from the
+  matching source mip. Anisotropy is stored as level x (cos 2θ, sin 2θ) so it filters without wrapping.
+  `VIEWPORT_CHANNELS` lists everything hosts upload; the UI, shelf thumbnails and the MCP renderer use it.
+* **Shading (`viewport.wgsl`):** a set with none of these channels keeps the old shading exactly (the new
+  code only runs when one exists; test: all 16 at their defaults differ by at most 2/255).
+  Anisotropy: anisotropic GGX + correlated Smith for the key light, Filament's bent reflection normal for the
+  environment; angle 0..1 = one turn. Sheen: Charlie distribution + Neubelt visibility, environment term from
+  the three.js albedo fit, base energy scaled down. Coat: second GGX lobe with its own normal (Coat Normal),
+  roughness and F0 (0.08 x Coat Specular Level), Fresnel-dimming and tinting (Coat Color) the layer under it.
+  Subsurface: per-channel normal smoothing + wrap lighting + softened shadow edge weighted by Scattering x
+  Scattering Color. Translucency: back light through the surface plus forward scatter at thin silhouettes.
+  Transmission: environment refracted in and out of a solid body (Filament's sphere model), IOR channel 0..1 =
+  IOR 1..2 (0.5 = 1.5), tinted by Base Color, blurred by roughness. Without an HDRI the procedural sky is seen
+  through it (not the studio panels, which exist to be reflected).
+* **Displacement preview (`render/src/displace.rs`, `displace.wgsl`):** View menu > "Displacement preview"
+  with a subdivision level (Auto = finest within 1M triangles, or 0..4). The mesh is midpoint-subdivided
+  (`subcraft_mesh::subdivide::midpoint`, moved from the mesh exporter, which now calls it) and a compute pass
+  moves every vertex along its normal by (Height + Displacement) x height scale each frame, so painted height
+  reshapes the silhouette at once. Shading, shadows, the AO depth prepass, emission and OIT all draw the
+  displaced mesh. Same math as File > Export mesh with displacement. Needs compute shaders (off without).
+* **Not done / limits:** the path tracer still ignores the extended channels. Picking and painting use the
+  undisplaced mesh (the brush lands on the modelled surface). Hard edges crack open under displacement (split
+  normals), as in the mesh export. Translucency and subsurface are viewport approximations, not a diffusion
+  profile. Transmission shows the environment, not the model behind itself (no screen-space refraction).
+* **Tests (lavapipe, software Vulkan in the cloud container):** new `render/tests/extended_channels.rs` (8:
+  defaults change nothing, coat highlight + opacity 0 = none + coat tint, sheen gain at the rim > centre,
+  anisotropy angle changes streaks with a half-turn period, red bleed at the terminator, back-lit translucency,
+  glass differs from plastic and IOR bends it, one-tile incremental repack == full pack bit-exact),
+  `render/tests/displacement.rs` (2: silhouette area x1.5625 at +0.25 on a unit sphere, x0.5625 at -0.25,
+  Displacement cancels Height, off restores the exact outline; half-UV height bulges one pole only), unit tests
+  for groups, dirty-rect union, auto level, subdivision, prefs defaults. Render: `docs/screenshots/viewport-extended-channels.png`
+  (`cargo run -p subcraft-render --example extended_showcase -- out.png`).
+* **Not checked:** the View menu rows were built but not clicked in a running app; nothing ran on a real GPU
+  (needs a check on Windows/DX12: look, speed of repacking at 4K while painting coat, displacement at level 4).
+## Material filters: MatFinish / MatFX / PBR Validate (2026-11-23, branch `claude/project-thread-mnp3ay`)
 
+* New content effect `ContentEffectKind::Material(MaterialFilter)` (`doc/src/material_filter.rs`): Galvanized,
+  Hammered, Powder Coated, Edge Damages, Rust Weathering, Peeling Paint, PBR Validate. One effect rewrites Base
+  Color, Roughness, Metallic and Height of the content below; Normal is never written (relief goes to Height).
+  It is an adjustment, so it is allowed on folders and processes the stack below on a Passthrough layer.
+* Kernels in `materials/src/matfx.rs`: `pattern` (object-space gradient noise / 3D Voronoi, four values per
+  texel, cached per tile under `FieldKey::matfx`, keyed only by scale / seed so colour and amount drags reuse
+  it) and `respond` (cheap arithmetic to a `Response`). Rust and peeling thresholds are in z-scores of the
+  noise, so Amount is a known coverage. Edge Damages / the edge terms call the Edge wear generator
+  (`compositor/src/material.rs`); Rust reads baked AO.
+* PBR Validate reads Metallic for the Base Color: the stage graph gives the effect the Metallic content at the
+  same point of the stack (`metallic_below_effect`); sets with one use the graph path, build Metallic first,
+  skip the GPU plan and are excluded from channel-confined updates.
+* Project file: `material` content effect kind, additive, no schema bump (older versions refuse such a file
+  with an unknown-variant error rather than dropping the effect). MCP `describe` reports `material_filter`.
+* UI: effect menu > Add material filter; editor with reset-to-default on every row (`ui/panels/material_filter.rs`).
+  Not in the Shelf yet, and not on masks.
+* Tests: doc 3, materials 10 (`matfx`), app 7 (`tests/material_filters.rs`: channels written, hide = exact
+  restore, undo, amount 0 = no change, validate follows a Metallic-only edit, passthrough, project round trip),
+  ui 2.
+* Renders: `cargo run --release -p subcraft-app --example material_filter_sheet -- <prefix>` (CPU ray cast, GGX,
+  Height as bump with the viewport's 0.02 slope scale). Inspected `docs/screenshots/material-filters/*.png`
+  (before left / top, after right / bottom). Full composite at 2048² on 4 cores: 0.1 s (validate) to 2.1 s
+  (peeling paint).
+* Not done / honest limits: not run in the real app window (no display here), so the editor is only covered by
+  the egui draw test; no Painter side-by-side was possible (no Painter here), the looks were judged against
+  reference knowledge of the real materials; relief depends on UV texel density because the viewport bump is
+  per texel; Grinded / Rough / Raw finishes, Detail Edge Wear, Water Drops, Shut Line and HBAO are still missing.
+
+
+### Session 135 - Viewport IBL and shadow quality: energy-conserving rough reflections, specular occlusion, GGX-matched HDRI blur, soft disk PCF (2026-11-23, branch `claude/project-thread-8mawyv`)
+
+* **Asked:** after Session 134, raise HDRI lighting and shadows to Painter's level. Audit found: rough metals
+  rendered too dark (single-scatter GGX loses ~half the light at roughness 1), AO multiplied reflections like
+  diffuse light, the HDRI's sharpest level was 512 px (0.7 deg per texel) and its blur levels were picked
+  linearly by roughness (roughness 1 saw only ~28 deg of blur, far narrower than a GGX lobe), and shadows used a
+  3x3 / 5x5 box filter with blocky edges.
+* **Energy (`viewport.wgsl`):** `dfg()` returns Karis' split-sum terms; `spec_energy()` scales direct and
+  environment specular by 1 + f0 (1/(A+B) - 1) (multiple-scattering compensation as in Filament), so a white
+  metal reflects its surroundings fully at any roughness. Applied to the plain path and the extended path.
+* **Specular occlusion:** Lagarde & de Rousiers from AO; AO still scales diffuse light. Identical where AO = 1.
+* **HDRI (`assets/src/environment.rs`):** the sharp level is the source width rounded down to a power of two,
+  512..2048 (bundled 1024-px HDRIs keep 1024; 4K files get 2048). Levels go down to 16 px wide; level k is
+  blurred to a lobe of `level_blur(k) = TOP_BLUR / 2^(last - k)` radians with TOP_BLUR = 1 (the core of a GGX
+  lobe is ~alpha wide), adding only the missing blur at each level. The shader picks
+  `last + 2 log2(roughness)` (`env_lod`), which stays right when the GPU budget skips sharp levels. SH now
+  comes from the 128-px level, the sun from the 64-px level. Prefilter of a bundled HDRI: ~57 ms (was ~20).
+* **Shadows (`shadow.rs`, `viewport.wgsl`):** `ShadowQuality::filter()` gives (radius in texels, comparisons):
+  Lightweight 1.5 / 12, Average 2 / 16, Intensive 2.5 / 24, on a Vogel disk of bilinear comparisons rotated per
+  pixel (interleaved gradient noise) and per TAA frame, so TAA averages the penumbra smooth. Normal offset is
+  now slope-scaled by the light angle and filter radius.
+* **Tests:** `render/tests/ibl.rs` (white furnace within 12% at roughness 0.05/0.5/1; AO 0.5 keeps x0.83 of
+  glossy reflections vs x0.63 of diffuse; roughness 0 / 0.5 / 1 sample levels 0 / ~4 / 6),
+  `shadows.rs::the_shadow_edge_is_a_smooth_ramp_without_steps` (penumbra 13 / 8 / 6 px, largest column step
+  9-22% of the ramp), `assets` `prefiltered_levels_blur_like_ggx_lobes_doubling_per_level` (measured spread of
+  each level within 25% of `level_blur`). All `subcraft-render` and `subcraft-assets` tests pass on lavapipe
+  (checked they did not skip).
+* **Render:** `cargo run -p subcraft-render --example ibl_showcase -- out.png "Library Hall"`;
+  before/after in `docs/screenshots/viewport-ibl-before-after.png` (left main, right this change).
+* **Not done / limits:** not checked on a real GPU; the Gaussian prefilter approximates GGX's long tail;
+  no screen-space reflections or contact shadows; the path tracer is unchanged.
+
+## Procedural materials look pass: tri-planar sides, rust (2026-11-23, branch `claude/project-thread-l9014a`)
+
+* Mirrored patterns on round shapes: tri-planar sampled the same 2D pattern for all three axes and both signs, so
+  -X showed +X mirrored and the X/Z blend was mirrored across the diagonal. New `Projection::triplanar_unique`
+  (`crates/doc/src/fill.rs`): each of the six sides is shifted (and the far side runs the other way) in
+  `sample::projection::unique_side`. +Z is unchanged. A side has zero weight where its normal changes sign, so the
+  jump cannot show.
+* Compatibility: on in `Projection::default()`, written as `"triplanar_unique":true`; a file without the key reads
+  `false`, so saved projects render exactly as before. The generators' own breakup noise and the Mask Editor
+  textures (`crates/compositor/src/mask.rs`) stay on the old sampling on purpose: they have no stored flag, so
+  changing them would move the wear in saved projects. The pattern field cache key carries the flag.
+* UI: "Sides: Different on every side" checkbox under the tri-planar Hardness row (ko, zh-Hant translated).
+* Rusted Steel: rust colour default (0.17, 0.052, 0.018) linear instead of (0.27, 0.1, 0.035), fine colour
+  variation, darker stain, and a new "Deep Rust" layer in the middle of the patches.
+* Ran: `cargo check --workspace --all-targets`; `cargo test` for doc, materials, compositor, paint, assets,
+  project, export, bake, app (1423 pass, 0 fail); `cargo test -p subcraft-ui --lib` (421 pass). New test
+  `triplanar_unique_sides_are_not_mirror_images`; two pinned-JSON tests now also pin that the old form reads
+  with the flag off.
+* Looked at: `material_sheet` renders of all 11 materials; the left/right mirror on the sphere is gone.
+  Not run in the real app window.
+
+## Procedural materials: make your own parameters (2026-11-23, branch `claude/project-thread-l9014a`)
+
+* Engine (`crates/doc/src/material/author.rs`): `exposable(root)` lists the properties of a layer tree that can
+  become parameters, each with the control it would get (range, colour, seed) at the property's current value.
+  `MaterialControls::expose / remove_param / rename_param / set_range / values_as_defaults / is_bound`.
+  Layer Opacity is offered once when the channels agree and per channel when they differ (one control for all
+  would flatten them; the new test caught this on the built-in Ambient Occlusion layers).
+* `SetMaterialControls` now re-applies the bindings (a narrowed range can move a value).
+* UI (`crates/ui/src/panels/material_params.rs`): the section is shown closed below the content of any fill or
+  folder without parameters, with a hint and an "Add parameter" menu (one submenu per layer / mask effect,
+  already-bound properties left out). With parameters it stays above the content as before, with a gear for the
+  edit mode: name field, min / max, bin per row, "Use as defaults", "Remove all".
+* Ran: `cargo test -p subcraft-assets` (new `every_exposable_property_can_be_exposed_and_then_drives_its_layer`:
+  over 300 properties across the 11 built-ins, exposing changes nothing, the control then drives the layer);
+  `cargo test -p subcraft-ui --lib` (421 pass); new `crates/ui/tests/material_params.rs` (2 pass): the built-in
+  material's rows fit the panel at 260 to 600 px, and a click-through with real pointer events opens the section
+  on a fill layer, opens Add parameter, picks Roughness, checks one undo step and an unchanged layer, then gear
+  and bin remove it again.
+* Not seen in a real window: the tests place and click the widgets but nobody has looked at the result.
+* Limit: the panel only makes one-to-one bindings (one slider, one property). Formulas that drive several
+  properties from one slider exist in the format but have no editor.
+
+## Material filters in the Shelf, Fiber Glass Edge Wear, Mask Builder (2026-11-23, branch `claude/project-thread-mnp3ay`)
+
+* **Shelf:** `ShelfDrag::MaterialFilter(i)` (index into `MaterialFilter::ALL`), listed in the Filters tab after the
+  plain filters (their item index starts at `Filter::ALL.len()`; tags `material`, `matfx` for the search). Click:
+  `Session::shelf_material_filter_command` (swap the selected material filter, else add to the layer's content;
+  `None` while a mask is edited). Drag into the stack: `Session::add_material_filter_layer` (empty paint layer,
+  Passthrough everywhere, one effect). Between effect rows: `InsertContentEffect`. Masks and the ghost mask slot
+  refuse them with a status message. No thumbnails yet (plain tiles, like the other filters).
+* **Fiber Glass Edge Wear** (`GeneratorKind::FiberGlass`, `Generator::fiber: Option<FiberSettings>`): evaluates the
+  same generator as `Edges` (`Generator::fiber_base`, so Spread, Level, grunge, AO masking, anchors and micro
+  details all apply), then adds a fringe: along the surface distance from the edge, out to `FiberSettings::FRINGE`
+  (2.2) times the wear's own reach, a texel is worn where `1 - distance / reach` passes a threshold set by the
+  weave (`materials/src/weave.rs`, tri-planar or UV): gaps never, strand tops almost to the end. A soft noise
+  varies the reach. Without natural edge wear (no distance to follow) the weave frays the curvature falloff instead.
+* **Mask Builder** (`GeneratorKind::MaskBuilder`, `Generator::builder: Option<MaskBuilder>`): seven contributions,
+  each `slider * shaped map`, **added**, then the global Level (a balance) / Contrast / Invert. Adobe does not
+  document how the legacy generator mixes them, so the sum is this project's reading; Scratches only add when
+  Grunge, AO or Curvature is above 0 (that part is in the manual). Range / Contrast per group: `MaskBuilder::ranged`.
+  World Space Normal reads the baked map when there is one, else the mesh normal. Scatter is 3D dots
+  (`weave::dots`), so it has no UV seams.
+* Both are additive in the project file (new `kind` values and optional `fiber` / `builder` keys, no schema
+  bump); out-of-range settings are refused on load. Properties: `fiber_controls`, `mask_builder_controls`
+  (zh-Hant and Korean strings added). Both are in the Generator dropdown and the Shelf's Generators tab.
+* Tests: app 1 (`filter_shelf`), ui 1 (Shelf drops), materials 3 (`weave`), doc 2, project 1, compositor 3
+  (`tests/mask_builder.rs`: each contribution against the baked maps, the sum, Range / Contrast / Invert,
+  scratches gating, scatter, invalid settings; fibre wear equals Edge wear at Fibre Amount 0, only adds wear,
+  leaves gaps, Invert). Suites run locally: doc, materials, compositor, project, ui.
+* Render: `cargo run --release -p subcraft-app --example generator_sheet -- <prefix> crate 1024 new`. Inspected
+  `docs/screenshots/generators/fiber_glass_mask_builder_sheet.png` (top row: plain wear, fibre default, heavy
+  coarse, light fine; bottom row: builder default, grunge + scratches, gradient + top normal, scatter + concave).
+* Not done / honest limits: no Painter side-by-side (no Painter here, and its doc pages give no defaults), so
+  the weave look and the Mask Builder mixing rule are unverified against the original; not run in the real app
+  window; Mask Builder has no custom grunge slots, no curvature Smoothness and no tri-planar toggle (its
+  patterns are always object-space); the fibre fringe is thin on models with a small Spread, raise Spread or
+  lower Fibre Scale to see it; no Shelf thumbnails for material filters.
+
+
+## Procedural materials: one parameter, several settings (2026-11-23, branch `claude/project-thread-l9014a`)
+
+* Engine (`crates/doc/src/material/author.rs`): `bindings_of`, `can_link` (same kind of value only), `link`
+  (formula is a ratio for sliders and colours, an offset for seeds, so the property keeps its value while the
+  parameter is at its default), `set_formula` (refused with the parser's reason when it does not evaluate),
+  `remove_binding`.
+* UI: in the gear mode each parameter lists what it drives (layer, effect, setting), with the formula in a text
+  field (applied when the field is left; an error stays under the field) and an X to stop driving it, plus an
+  "Also drive..." menu of compatible, not yet driven settings.
+* Ran: `cargo test -p subcraft-assets` (new `a_parameter_can_drive_several_properties`: on all 11 built-ins and
+  each kind of control, link every compatible property, nothing moves, wrong kinds and bad formulas are
+  refused); `crates/ui/tests/material_params.rs` click-through extended (Also drive > layer > Metallic gives
+  one parameter with two bindings and both formulas drawn); `cargo test -p subcraft-ui --lib`.
+* Not seen in a real window.
+
+## Procedural library: 14 more materials and a Weave pattern (2026-11-23, branch `claude/project-thread-l9014a`)
+
+* `ProceduralKind::Weave` (`crates/materials/src/pattern.rs`): plain weave, 8 threads per pattern unit, round
+  thread profile, over/under height, slight per-thread thickness and fibres. Tiles at integer scale. Tests:
+  it is in the tiling test, and `weave_alternates_over_and_under` checks raised threads, low gaps and that
+  neighbouring crossings run in different directions.
+* `crates/assets/src/procedural/more.rs`: Enamel Paint, Cast Iron, Anodized Aluminium, Blued Steel, Aged Bronze,
+  Glossy Plastic, Carbon Fibre, Canvas, Denim, Granite, Marble, Sandstone, Rough Rock, Painted Plaster. Shared
+  helpers `edge_coat`, `pattern_coat`, `dust_layer`. Built-in smart materials are now 64 (25 procedural).
+* The well-formed test now also refuses two bindings on one property (they fight and the layer never settles;
+  it caught this in the first draft of the cloth materials).
+* Ran: `cargo test -p subcraft-assets` (all pass), `cargo test -p subcraft-materials pattern` (8 pass),
+  `cargo test -p subcraft-app --test procedural_materials` (every material composites to finite in-range values).
+* Looked at: `material_sheet` renders of all 14 at 4 settings each, one tuning pass (finer and fewer scratches on
+  anodized and blued metal, dust and weave sizes, granite grains, marble veins broken up, plaster colours).
+* Honest state: metals, enamel paint, bronze, rock and sandstone read well. Fabrics are the weakest: the weave is
+  correct but small at this render size, and cloth has no sheen model. Marble veins come from a cell-crack
+  pattern and still look a little like a net.
+
+## Procedural materials: fabric, marble, leather and wood quality pass (2026-11-23)
+
+* New patterns in `crates/materials/src/pattern.rs` (`ProceduralKind::{Twill, Veins, Planks}`, 19 kinds now):
+  Twill is a 2/1 diagonal weave, Veins are thin warped ridge lines, Planks are staggered boards
+  (`PLANK_ROWS` per tile) with a gap, a bevel and one tone per board. All three tile and have numeric tests.
+* `with_height(layer, ts)` in `crates/assets/src/procedural.rs`: a coat only writes colour, roughness and metal,
+  so chips, pits, holes and cracks were flat. They now write Height too.
+* Marble: two layers on the Veins pattern ("Vein Halo" soft, "Veins" sharp) replace the cell-crack net.
+* Cloth: Denim uses Twill; both fabrics gained a "Cross Threads" coat on the inverted weave (the pale weft of
+  denim) and a "Wrinkles" height layer, each with a slider.
+* New materials: Cracked Leather, Wood Planks, Varnished Wood. Built-in smart materials are now 67 (28 procedural).
+* Ran: `cargo test -p subcraft-assets -p subcraft-materials -p subcraft-doc` (all pass), `cargo test -p subcraft-app`
+  (all pass, including `smart_content` and `procedural_materials`), `cargo test -p subcraft-ui --lib` (421 pass),
+  `cargo check --workspace --all-targets`.
+* Looked at: `material_sheet` renders of marble, canvas, denim and the three new materials at 4 settings each,
+  two tuning passes (leather colour and edge wear, board size and gap width, knot size, denim thread size).
+* Honest state: marble and varnished wood read well. Leather cracks are a regular net at high settings. Plank
+  knots are plain dark dots, not real knots with rings. Twill shows chevrons where tri-planar sides meet on round
+  shapes. Cloth still has no sheen.

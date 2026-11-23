@@ -13,6 +13,7 @@ pub mod gpu;
 pub mod prefix;
 pub mod strength;
 pub mod mask;
+mod material;
 pub mod tile;
 mod util;
 mod stages;

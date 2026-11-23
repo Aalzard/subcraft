@@ -277,7 +277,7 @@ fn confined_kinds(old: &[Arc<Layer>], new: &[Arc<Layer>]) -> Option<BTreeSet<sub
     if old.len() != new.len() {
         return None;
     }
-    let reads_across = |layers: &[Arc<Layer>]| subcraft_doc::anchor::has_references(layers) || crate::stages::has_compare(layers);
+    let reads_across = |layers: &[Arc<Layer>]| subcraft_doc::anchor::has_references(layers) || crate::stages::has_compare(layers) || crate::material::reads_across(layers);
     if reads_across(old) || reads_across(new) {
         return None;
     }

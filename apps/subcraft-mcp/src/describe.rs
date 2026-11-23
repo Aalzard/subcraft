@@ -274,6 +274,7 @@ pub fn content_effect_type(k: &ContentEffectKind) -> &'static str {
         ContentEffectKind::Filter { .. } => "filter",
         ContentEffectKind::Anchor => "anchor",
         ContentEffectKind::Generator(_) => "generator",
+        ContentEffectKind::Material(_) => "material_filter",
     }
 }
 
@@ -288,5 +289,6 @@ fn content_effect_params(res: &ResourceStore, k: &ContentEffectKind) -> Value {
         ContentEffectKind::Filter { channel, filter } => json!({ "channel": name_of(channel), "filter": filter }),
         ContentEffectKind::Anchor => json!({}),
         ContentEffectKind::Generator(g) => serde_json::to_value(g).unwrap_or(Value::Null),
+        ContentEffectKind::Material(m) => json!({ "filter": m }),
     }
 }

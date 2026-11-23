@@ -687,6 +687,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             params.mip_bias = -(view.mip_bias.min(3) as f32);
             params.shadows = view.shadow_params();
             params.highlight_slot = state.highlight_slot.take();
+            params.displacement = view.displacement_params(state.session.scene().mesh.triangle_count());
             renderer.set_texture_filtering(&rs.device, view.anisotropy.samples());
             // Uploads that change neither the view nor the document (symmetry guides, wireframe,
             // bake preview, environment): TAA restarts on them too (QA 2026-11: a finished average

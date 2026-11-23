@@ -10,6 +10,7 @@ pub mod preview;
 pub mod starter;
 pub mod environment;
 pub mod presets;
+pub mod procedural;
 pub mod smart;
 mod smart_more;
 mod smart_extra;

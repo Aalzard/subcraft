@@ -15,6 +15,8 @@ mod bake_preview;
 mod display;
 pub mod headless;
 pub mod material;
+pub mod extended;
+pub mod displace;
 mod mipmap;
 pub mod offline;
 pub mod pace;
@@ -45,6 +47,32 @@ pub use gpu_mesh::GpuMesh;
 pub use grid::{GridParams, grid_step};
 pub use subcraft_doc::display::ChannelComponent;
 pub use material::{ChannelTexture, GpuMaterial, OverlayTexture, SHADED_CHANNELS};
+pub use extended::EXTENDED_CHANNELS;
+
+/// Every channel the 3D view reads: the shaded ones, Opacity (alpha modes), Specular level and
+/// the extended channels (coat, sheen, anisotropy, subsurface, transmission, displacement). Hosts
+/// upload these to the renderer.
+pub const VIEWPORT_CHANNELS: [ChannelKind; 25] = {
+    let mut out = [ChannelKind::BaseColor; 25];
+    let mut i = 0;
+    while i < SHADED_CHANNELS.len() {
+        out[i] = SHADED_CHANNELS[i];
+        i += 1;
+    }
+    out[7] = ChannelKind::Opacity;
+    out[8] = ChannelKind::Specular;
+    let mut j = 0;
+    while j < EXTENDED_CHANNELS.len() {
+        out[9 + j] = EXTENDED_CHANNELS[j];
+        j += 1;
+    }
+    out
+};
+
+/// Whether the 3D view's material shading uses `kind` (Opacity drives the alpha modes).
+pub fn shades(kind: ChannelKind) -> bool {
+    VIEWPORT_CHANNELS.contains(&kind)
+}
 pub use shadow::{ShadowParams, ShadowQuality};
 pub use pathtrace::{Denoiser, FIREFLY_CLAMP, GroundSettings, PathTraceScene, PathTraceSettings, PathTraceStatus, render_done};
 pub use grade::Grade;
@@ -210,6 +238,11 @@ pub struct ViewParams {
     /// Material slot drawn with a highlight tint (the texture set under the cursor or hovered in
     /// the Texture Set List).
     pub highlight_slot: Option<u32>,
+    /// Displacement preview: the mesh subdivided this many times (see [`displace::auto_level`])
+    /// and moved along its normals by Height + Displacement x `height_scale` world units, as
+    /// File > Export mesh with displacement writes it. `None` (the default) draws the mesh as
+    /// modelled. Needs compute shaders; ignored without them.
+    pub displacement: Option<u32>,
 }
 
 /// What the 3D view shows on the model.
@@ -306,6 +339,7 @@ impl ViewParams {
             mip_bias: 0.0,
             shadows: ShadowParams::default(),
             highlight_slot: None,
+            displacement: None,
         }
     }
 }
@@ -341,7 +375,7 @@ struct Globals {
     shadow_mat: [[f32; 4]; 4],
     /// x: 1 = shadows on, y: opacity, z: one texel in map UV, w: one texel in world units.
     shadow: [f32; 4],
-    /// x: filter radius in texels.
+    /// x: filter radius in texels, y: comparisons, z: TAA frame (rotates the filter disk).
     shadow_filter: [f32; 4],
 }
 
@@ -380,7 +414,14 @@ pub struct ViewportRenderer {
     nearest_sampler: wgpu::Sampler,
     mipmaps: mipmap::MipGenerator,
     defaults: HashMap<ChannelKind, ChannelTexture>,
+    /// Packs the extended channels of each material (see `extended.rs`).
+    pack: extended::PackPass,
     mesh: Option<GpuMesh>,
+    /// The mesh as given to `set_mesh` (the displacement preview subdivides it).
+    source_mesh: Option<Mesh>,
+    /// Displacement preview pass (created on first use) and its subdivided mesh.
+    displace: Option<displace::DisplacePass>,
+    displaced: Option<displace::Displaced>,
     materials: HashMap<u32, GpuMaterial>,
     target: Option<RenderTarget>,
     preview: PreviewPass,
@@ -511,6 +552,18 @@ impl ViewportRenderer {
             ty: wgpu::BindingType::Texture {
                 sample_type: wgpu::TextureSampleType::Float { filterable: true },
                 view_dimension: wgpu::TextureViewDimension::D2,
+                multisampled: false,
+            },
+            count: None,
+        });
+        // The extended channels (13): coat, sheen, anisotropy, subsurface, transmission and
+        // displacement, packed into the layers of one array texture (see `extended.rs`).
+        entries.push(wgpu::BindGroupLayoutEntry {
+            binding: 13,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                view_dimension: wgpu::TextureViewDimension::D2Array,
                 multisampled: false,
             },
             count: None,
@@ -659,8 +712,13 @@ impl ViewportRenderer {
             min_filter: wgpu::FilterMode::Nearest, lod_max_clamp: 0.0, ..Default::default()
         });
         let post = post::PostPass::new(device, &globals_layout, &shader);
-        let opaque_params = material::params_buffer(device, &subcraft_doc::AlphaSettings::default(), &subcraft_doc::ShaderParams::default(), false);
+        let opaque_params = material::params_buffer(device, &material::MaterialParams::new(&subcraft_doc::AlphaSettings::default(), &subcraft_doc::ShaderParams::default(), false));
+        let pack = extended::PackPass::new(device, queue);
         Self {
+            pack,
+            source_mesh: None,
+            displace: None,
+            displaced: None,
             post,
             taa: taa::Taa::new(device),
             color_profile: color_profile::ColorProfile::new(device),
@@ -751,6 +809,8 @@ impl ViewportRenderer {
     pub fn set_mesh(&mut self, device: &wgpu::Device, mesh: &Mesh) {
         self.scene_generation += 1;
         self.mesh = Some(GpuMesh::new(device, mesh));
+        self.source_mesh = Some(mesh.clone());
+        self.displaced = None;
         self.materials.clear();
         self.texture_generation += 1;
         if let Some(pt) = &mut self.path_tracer { pt.mark_all(); }
@@ -827,6 +887,23 @@ impl ViewportRenderer {
         if recreate {
             mat.channels.insert(kind, ChannelTexture::new_mipmapped(device, image.width(), image.comps(), kind.key(), &self.mipmaps.layout));
             mat.bind_group = None;
+            // The pack pass reads the old texture through its sources bind group.
+            mat.extended.sources = None;
+        }
+        if extended::group_of(kind).is_some() {
+            let full = [0.0, 0.0, 1.0, 1.0];
+            let rect = match tiles {
+                Some(t) if !recreate => t.iter().fold(None, |acc: Option<[f32; 4]>, &i| {
+                    let r = image.tile_rect(i);
+                    let (w, h) = (image.width() as f32, image.height() as f32);
+                    let r = [r.x0 as f32 / w, r.y0 as f32 / h, r.x1 as f32 / w, r.y1 as f32 / h];
+                    Some(acc.map_or(r, |a| [a[0].min(r[0]), a[1].min(r[1]), a[2].max(r[2]), a[3].max(r[3])]))
+                }),
+                _ => Some(full),
+            };
+            if let Some(rect) = rect {
+                mat.extended.touch(kind, rect);
+            }
         }
         self.texture_generation += 1;
         self.scene_generation += 1;
@@ -998,12 +1075,17 @@ impl ViewportRenderer {
         }
     }
 
-    fn ensure_bind_groups(&mut self, device: &wgpu::Device) {
+    fn ensure_bind_groups(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
         for mat in self.materials.values_mut() {
+            if self.pack.update(device, queue, mat) {
+                mat.params = None;
+                mat.bind_group = None;
+            }
             if mat.bind_group.is_some() {
                 continue;
             }
-            let params = mat.params.get_or_insert_with(|| material::params_buffer(device, &mat.alpha, &mat.shader, mat.highlight));
+            let ext = mat.extended.params(mat);
+            let params = mat.params.get_or_insert_with(|| material::params_buffer(device, &material::MaterialParams::new(&mat.alpha, &mat.shader, mat.highlight).with_extended(ext)));
             let mut entries = vec![wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::Sampler(&self.sampler) }];
             let albedo_sampler = if mat.albedo_filter == subcraft_image::TextureFilter::Nearest { &self.nearest_sampler } else { &self.sampler };
             entries.push(wgpu::BindGroupEntry { binding: 8, resource: wgpu::BindingResource::Sampler(albedo_sampler) });
@@ -1014,7 +1096,8 @@ impl ViewportRenderer {
             let opacity = mat.channels.get(&ChannelKind::Opacity).map_or(&self.defaults[&ChannelKind::Opacity].view, |t| &t.view);
             let specular = mat.channels.get(&ChannelKind::Specular).map_or(&self.defaults[&ChannelKind::Specular].view, |t| &t.view);
             let overlay = mat.overlay.as_ref().map_or(&self.no_overlay.view, |t| &t.view);
-            entries.extend(alpha_entries(opacity, params, specular, overlay));
+            let ext_view = mat.extended.texture.as_ref().map_or(&self.pack.empty, |t| &t.1);
+            entries.extend(alpha_entries(opacity, params, specular, overlay, ext_view));
             mat.bind_group = Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("material"),
                 layout: &self.material_layout,
@@ -1049,7 +1132,7 @@ impl ViewportRenderer {
                 mat.bind_group = None;
             }
         }
-        self.ensure_bind_groups(device);
+        self.ensure_bind_groups(device, queue);
         // "Baked Normal Map" is the bake-map preview of the Normal map.
         let bake_map = params.bake_map.or((params.view_mode == ViewMode::BakedNormalMap).then_some(MeshMapKind::Normal));
         // "Baked Normal (shaded)": the material's own bind group with the Normal slot swapped.
@@ -1078,7 +1161,7 @@ impl ViewportRenderer {
                     };
                     entries.push(wgpu::BindGroupEntry { binding: i as u32 + 1, resource: wgpu::BindingResource::TextureView(view) });
                 }
-                entries.extend(alpha_entries(&self.defaults[&ChannelKind::Opacity].view, &self.opaque_params, &self.defaults[&ChannelKind::Specular].view, &self.no_overlay.view));
+                entries.extend(alpha_entries(&self.defaults[&ChannelKind::Opacity].view, &self.opaque_params, &self.defaults[&ChannelKind::Specular].view, &self.no_overlay.view, &self.pack.empty));
                 baked_normal_groups.insert(*slot, device.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("neutral material"), layout: &self.material_layout, entries: &entries }));
             }
         } else if params.view_mode == ViewMode::BakedNormal && bake_map.is_none() {
@@ -1099,7 +1182,8 @@ impl ViewportRenderer {
                 let opacity = mat.channels.get(&ChannelKind::Opacity).map_or(&self.defaults[&ChannelKind::Opacity].view, |t| &t.view);
                 let specular = mat.channels.get(&ChannelKind::Specular).map_or(&self.defaults[&ChannelKind::Specular].view, |t| &t.view);
                 let overlay = mat.overlay.as_ref().map_or(&self.no_overlay.view, |t| &t.view);
-                entries.extend(alpha_entries(opacity, mat.params.as_ref().unwrap_or(&self.opaque_params), specular, overlay));
+                let ext_view = mat.extended.texture.as_ref().map_or(&self.pack.empty, |t| &t.1);
+                entries.extend(alpha_entries(opacity, mat.params.as_ref().unwrap_or(&self.opaque_params), specular, overlay, ext_view));
                 baked_normal_groups.insert(*slot, device.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("baked normal material"), layout: &self.material_layout, entries: &entries }));
             }
         }
@@ -1124,7 +1208,7 @@ impl ViewportRenderer {
                     entries.push(wgpu::BindGroupEntry { binding: i as u32 + 1, resource: wgpu::BindingResource::TextureView(view) });
                 }
                 let overlay = mat.overlay.as_ref().map_or(&self.no_overlay.view, |t| &t.view);
-                entries.extend(alpha_entries(&self.defaults[&ChannelKind::Opacity].view, &self.opaque_params, &self.defaults[&ChannelKind::Specular].view, overlay));
+                entries.extend(alpha_entries(&self.defaults[&ChannelKind::Opacity].view, &self.opaque_params, &self.defaults[&ChannelKind::Specular].view, overlay, &self.pack.empty));
                 solo_groups.insert(*slot, device.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("solo channel"), layout: &self.material_layout, entries: &entries }));
             }
         }
@@ -1145,7 +1229,7 @@ impl ViewportRenderer {
                     let view = if i == 0 { &tex.view } else { &self.defaults[k].view };
                     entries.push(wgpu::BindGroupEntry { binding: i as u32 + 1, resource: wgpu::BindingResource::TextureView(view) });
                 }
-                entries.extend(alpha_entries(&self.defaults[&ChannelKind::Opacity].view, &self.opaque_params, &self.defaults[&ChannelKind::Specular].view, &self.no_overlay.view));
+                entries.extend(alpha_entries(&self.defaults[&ChannelKind::Opacity].view, &self.opaque_params, &self.defaults[&ChannelKind::Specular].view, &self.no_overlay.view, &self.pack.empty));
                 mat.bake_bind_groups.insert(kind, device.create_bind_group(&wgpu::BindGroupDescriptor {
                     label: Some("bake map preview"), layout: &self.material_layout, entries: &entries,
                 }));
@@ -1154,7 +1238,23 @@ impl ViewportRenderer {
         // Shadows: only for the shaded material view of the model, with a key light.
         let shadowed = params.shadows.active() && params.light_intensity > 0.0 && bake_map.is_none() && solo.is_none() && !params.bake_overlay && params.view_mode.shader_mode() == 0;
         let shadow_size = params.shadows.quality.map_size().min(device.limits().max_texture_dimension_2d);
-        let shadow_fit = self.mesh.as_ref().filter(|_| shadowed).map(|m| (shadow::light_view_proj(params.light_dir, m.bounds), shadow::texel_world_size(m.bounds, shadow_size)));
+        // Displacement preview: the subdivided mesh at the wanted level, displaced below.
+        let displace_level = params.displacement.filter(|_| caps::get().compute && !params.bake_overlay && self.source_mesh.is_some()).map(|l| l.min(displace::MAX_LEVEL));
+        if let Some(level) = displace_level {
+            let pass = self.displace.get_or_insert_with(|| displace::DisplacePass::new(device));
+            if self.displaced.as_ref().is_none_or(|d| d.level != level) {
+                self.displaced = Some(pass.build(device, self.source_mesh.as_ref().expect("checked above"), level));
+            }
+        } else {
+            self.displaced = None;
+        }
+        let shown_mesh: Option<&GpuMesh> = self.displaced.as_ref().map(|d| &d.mesh).or(self.mesh.as_ref());
+        // Displaced geometry can leave the modelled bounds (by the height scale per unit of height).
+        let shown_bounds = shown_mesh.map(|m| match displace_level {
+            Some(_) => (m.bounds.0 - Vec3::splat(params.height_scale.abs()), m.bounds.1 + Vec3::splat(params.height_scale.abs())),
+            None => m.bounds,
+        });
+        let shadow_fit = shown_bounds.filter(|_| shadowed).map(|b| (shadow::light_view_proj(params.light_dir, b), shadow::texel_world_size(b, shadow_size)));
         if shadow_fit.is_some() && self.shadow.ensure(device, shadow_size) {
             self.globals_bg = Self::globals_bind_group(device, &self.globals_layout, &self.globals, &self.env_texture, &self.env_sampler, &self.shadow);
         }
@@ -1199,7 +1299,10 @@ impl ViewportRenderer {
                 Some((_, texel)) => [1.0, params.shadows.opacity.clamp(0.0, 1.0), 1.0 / shadow_size as f32, texel],
                 None => [0.0; 4],
             },
-            shadow_filter: [params.shadows.quality.filter_radius() as f32, 0.0, 0.0, 0.0],
+            shadow_filter: {
+                let (radius, taps) = params.shadows.quality.filter();
+                [radius, taps as f32, params.taa_frame as f32, 0.0]
+            },
         };
         queue.write_buffer(&self.globals, 0, bytemuck::bytes_of(&globals));
         if params.symmetry_guides && let Some(guides) = &self.symmetry { guides.prepare_lines(queue, params.proj * params.view); }
@@ -1213,14 +1316,25 @@ impl ViewportRenderer {
         // Order-independent transparency: only for the material view with a blended set shown.
         // (QA 2026-11: the channel views shade opaque, so OIT replaced every pixel with the average
         // of all blended layers, front and back faces included.)
-        let oit_on = params.oit && params.view_mode.shader_mode() == 0 && !params.bake_overlay && bake_map.is_none() && solo.is_none() && self.mesh.is_some()
+        let oit_on = params.oit && params.view_mode.shader_mode() == 0 && !params.bake_overlay && bake_map.is_none() && solo.is_none() && shown_mesh.is_some()
             && self.materials.iter().any(|(slot, m)| m.blends() && !self.hidden_slots.contains(slot));
         if oit_on {
             self.oit.ensure(device, size, samples);
         }
         let target = self.target.as_ref().expect("created above");
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("viewport") });
-        if let (Some((view_proj, _)), Some(mesh)) = (shadow_fit, &self.mesh) {
+        if let (Some(d), Some(pass)) = (self.displaced.as_ref(), self.displace.as_ref()) {
+            let (materials, defaults, empty) = (&self.materials, &self.defaults, &self.pack.empty);
+            let inputs = |slot: u32| {
+                let m = materials.get(&slot);
+                let height = m.and_then(|m| m.channels.get(&ChannelKind::Height)).map_or(&defaults[&ChannelKind::Height].view, |t| &t.view).clone();
+                let ext = m.and_then(|m| m.extended.texture.as_ref()).map_or(empty, |t| &t.1).clone();
+                let layer = m.map_or(-1, |m| m.extended.layer_of[6]);
+                (height, ext, layer)
+            };
+            pass.encode(device, &mut encoder, d, params.height_scale, &inputs);
+        }
+        if let (Some((view_proj, _)), Some(mesh)) = (shadow_fit, shown_mesh) {
             self.shadow.encode(queue, &mut encoder, mesh, &self.hidden_slots, view_proj);
         }
         {
@@ -1258,7 +1372,7 @@ impl ViewportRenderer {
             }
             if params.bake_overlay {
                 self.bake_preview.draw(&mut pass, samples > 1, params.bake_cage, &params.bake_vis);
-            } else if let Some(mesh) = &self.mesh {
+            } else if let Some(mesh) = shown_mesh {
                 pass.set_bind_group(0, &self.globals_bg, &[]);
                 pass.set_vertex_buffer(0, mesh.vertices.slice(..));
                 pass.set_index_buffer(mesh.indices.slice(..), wgpu::IndexFormat::Uint32);
@@ -1295,7 +1409,7 @@ impl ViewportRenderer {
             if params.symmetry_guides && let Some(guides) = &self.symmetry { guides.draw(&mut pass, samples > 1); }
             if params.wireframe && let Some(wire) = &self.wireframe { wire.draw(&mut pass, samples > 1); }
         }
-        if oit_on && let Some(mesh) = &self.mesh {
+        if oit_on && let Some(mesh) = shown_mesh {
             {
                 let mut pass = self.oit.begin(&mut encoder, &target.depth_view);
                 pass.set_bind_group(0, &self.globals_bg, &[]);
@@ -1316,8 +1430,8 @@ impl ViewportRenderer {
         let has_emission = self.materials.values().any(|m| m.channels.contains_key(&ChannelKind::Emissive));
         let emission_on = has_emission && params.post.wants_emission() && params.bake_map.is_none();
         if (params.post.active() || emission_on) && !params.bake_overlay {
-            let draw = self.mesh.as_ref().filter(|_| emission_on).map(|mesh| post::EmissionDraw { pipeline: &self.pipeline_emissive, mesh, materials: &self.materials, hidden: &self.hidden_slots });
-            self.post.run(device, queue, &mut encoder, target, &self.globals_bg, self.mesh.as_ref(), draw.as_ref(), params.proj, &params.post);
+            let draw = shown_mesh.filter(|_| emission_on).map(|mesh| post::EmissionDraw { pipeline: &self.pipeline_emissive, mesh, materials: &self.materials, hidden: &self.hidden_slots });
+            self.post.run(device, queue, &mut encoder, target, &self.globals_bg, shown_mesh, draw.as_ref(), params.proj, &params.post);
         }
         if params.taa_frame > 0 {
             self.taa.encode(device, queue, &mut encoder, target, params.taa_frame);
@@ -1415,10 +1529,11 @@ impl ViewportRenderer {
 }
 
 /// Stored components of a composite channel image (mirrors `subcraft_compositor`).
-/// Bindings 9 (Opacity texture), 10 (`MaterialParams`), 11 (Specular level) and 12 (the part
-/// overlay) of a material bind group.
-fn alpha_entries<'a>(opacity: &'a wgpu::TextureView, params: &'a wgpu::Buffer, specular: &'a wgpu::TextureView, overlay: &'a wgpu::TextureView) -> [wgpu::BindGroupEntry<'a>; 4] {
+/// Bindings 9 (Opacity texture), 10 (`MaterialParams`), 11 (Specular level), 12 (the part
+/// overlay) and 13 (the extended channels) of a material bind group.
+fn alpha_entries<'a>(opacity: &'a wgpu::TextureView, params: &'a wgpu::Buffer, specular: &'a wgpu::TextureView, overlay: &'a wgpu::TextureView, extended: &'a wgpu::TextureView) -> [wgpu::BindGroupEntry<'a>; 5] {
     [
+        wgpu::BindGroupEntry { binding: 13, resource: wgpu::BindingResource::TextureView(extended) },
         wgpu::BindGroupEntry { binding: 12, resource: wgpu::BindingResource::TextureView(overlay) },
         wgpu::BindGroupEntry { binding: 9, resource: wgpu::BindingResource::TextureView(opacity) },
         wgpu::BindGroupEntry { binding: 10, resource: params.as_entire_binding() },

@@ -7,7 +7,7 @@ use subcraft_app::assets::Library;
 use subcraft_core::{AssetId, ChannelKind, MeshMapKind};
 use subcraft_image::TiledImage;
 use subcraft_render::wgpu_api as wgpu;
-use subcraft_render::{SHADED_CHANNELS, ViewMode, ViewportRenderer};
+use subcraft_render::{VIEWPORT_CHANNELS, ViewMode, ViewportRenderer};
 use subcraft_ui::orbit::{CameraView, OrbitCamera};
 
 pub struct Gpu {
@@ -78,7 +78,7 @@ pub fn shaded(gpu: &mut Gpu, session: &mut Session, library: &Library, shot: &Sh
     renderer.set_hidden_slots(session.document().texture_sets.iter().filter(|ts| session.is_set_hidden(ts.id)).map(|ts| ts.material_slot));
     for ts in &session.document().texture_sets {
         if let Some(c) = session.composite(ts.id) {
-            for k in SHADED_CHANNELS {
+            for k in VIEWPORT_CHANNELS {
                 if let Some(img) = c.channel(k) {
                     renderer.upload_channel(device, queue, ts.material_slot, k, img, None);
                 }

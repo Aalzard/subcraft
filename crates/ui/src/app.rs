@@ -2139,6 +2139,7 @@ impl SubcraftApp {
                     ui.label(tr("Height bump"));
                     ui.add(egui::Slider::new(&mut self.state.height_scale, 0.0..=0.1));
                 });
+                crate::viewport_bar::displacement_menu(ui, &mut self.state.recovery.prefs.viewport, self.state.session.scene().mesh.triangle_count());
             });
             // Painter lists its JavaScript and Python plugins here.
             ui.menu_button(tr("Plugins"), |ui| {
