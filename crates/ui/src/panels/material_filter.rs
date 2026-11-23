@@ -99,10 +99,11 @@ pub fn editor(ui: &mut Ui, filter: &mut MaterialFilter) -> bool {
             changed |= seed(ui, sd, d_sd);
         }
         (
-            MaterialFilter::EdgeDamages { amount, spread, scale: s, depth, color: c, roughness, metallic, seed: sd },
-            MaterialFilter::EdgeDamages { amount: d_amount, spread: d_spread, scale: d_s, depth: d_depth, color: d_c, roughness: d_roughness, metallic: d_metallic, seed: d_sd },
+            MaterialFilter::EdgeDamages { amount, spread, scale: s, depth, color: c, roughness, metallic, contrast, seed: sd },
+            MaterialFilter::EdgeDamages { amount: d_amount, spread: d_spread, scale: d_s, depth: d_depth, color: d_c, roughness: d_roughness, metallic: d_metallic, contrast: d_contrast, seed: d_sd },
         ) => {
             changed |= unit(ui, "Amount", amount, d_amount);
+            changed |= unit(ui, "Contrast", contrast, d_contrast);
             changed |= slider_row_reset(ui, "Spread", spread, d_spread, |v| egui::Slider::new(v, 0.0..=12.5).suffix("%")).on_hover_text("Reach from the edges, percent of the model's longest side").changed();
             changed |= scale(ui, "Chip count", ACROSS, s, d_s);
             changed |= unit(ui, "Depth", depth, d_depth);

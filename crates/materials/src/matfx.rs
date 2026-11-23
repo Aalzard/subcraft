@@ -444,9 +444,15 @@ pub fn respond(filter: &MaterialFilter, pat: &[f32], s: Surface) -> Response {
             r.metallic_alpha = 1.0;
             r.height = (peel - 0.5) * orange_peel * FILM_HEIGHT * 0.45 + (g - 0.5) * grain * GRAIN_HEIGHT * 0.15;
         }
-        MaterialFilter::EdgeDamages { depth, color, roughness, metallic, .. } => {
+        MaterialFilter::EdgeDamages { depth, color, roughness, metallic, contrast, .. } => {
             let (var, fine) = (pat[0], pat[1]);
-            let m = s.edge.clamp(0.0, 1.0);
+            let mut m = s.edge.clamp(0.0, 1.0);
+            // Contrast narrows the soft band around its middle into a hard chip border. Skipped
+            // at 0, so the default output is exactly what it was before the setting existed.
+            if contrast > 0.0 {
+                let w = 0.5 - 0.47 * contrast.min(1.0);
+                m = smoothstep(0.5 - w, 0.5 + w, m);
+            }
             r.color = color.map(|c| (c * (1.0 + z(var) * 0.07)).clamp(0.0, 1.0));
             r.color_alpha = m;
             r.roughness = (roughness + (fine - 0.5) * 0.25 + z(var) * 0.03).clamp(0.03, 1.0);
@@ -759,6 +765,37 @@ mod tests {
             assert_eq!((on.color_alpha, on.metallic_alpha, on.metal(0.0)), (1.0, 1.0, 1.0));
             assert!(on.height < 0.0, "chips are carved");
         }
+    }
+
+    #[test]
+    fn edge_damages_contrast_hardens_the_band_and_defaults_to_the_old_output() {
+        let with = |c: f32| match MaterialFilter::ALL[3] {
+            MaterialFilter::EdgeDamages { amount, spread, scale, depth, color, roughness, metallic, seed, .. } => {
+                MaterialFilter::EdgeDamages { amount, spread, scale, depth, color, roughness, metallic, contrast: c, seed }
+            }
+            _ => unreachable!(),
+        };
+        assert_eq!(with(0.0), MaterialFilter::ALL[3], "the default has no contrast");
+        let p = points().next().unwrap();
+        let alpha = |c: f32, edge: f32| respond(&with(c), &pattern(&with(c), p), Surface { edge, occlusion: 0.0, up: 0.0 }).color_alpha;
+        let mut last = [0.0f32; 3];
+        for i in 0..=100 {
+            let edge = i as f32 / 100.0;
+            // Contrast 0 is the mask itself, bit for bit.
+            assert_eq!(alpha(0.0, edge), edge);
+            for (k, c) in [0.3, 0.7, 1.0].into_iter().enumerate() {
+                let a = alpha(c, edge);
+                assert!((0.0..=1.0).contains(&a) && a >= last[k], "monotonic in the mask");
+                last[k] = a;
+            }
+        }
+        // Ends and the middle stay put, so the chips keep their place and only the border hardens.
+        for c in [0.3, 0.7, 1.0] {
+            assert_eq!((alpha(c, 0.0), alpha(c, 1.0)), (0.0, 1.0));
+            assert!((alpha(c, 0.5) - 0.5).abs() < 1e-5);
+        }
+        assert!(alpha(1.0, 0.45) < 0.01 && alpha(1.0, 0.55) > 0.99, "full contrast is a hard chip border");
+        assert!(alpha(0.5, 0.3) < 0.3 && alpha(0.5, 0.7) > 0.7);
     }
 
     #[test]

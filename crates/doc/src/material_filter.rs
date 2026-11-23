@@ -68,6 +68,10 @@ pub enum MaterialFilter {
         color: [f32; 3],
         roughness: f32,
         metallic: f32,
+        /// Hardness of the chip borders, 0..1: 0 is the soft worn band, 1 is hard-edged chips.
+        /// Defaults to 0 so projects saved before this setting look the same.
+        #[serde(default)]
+        contrast: f32,
         seed: u32,
     },
     /// Rust growing from cavities, edges and random patches, with stains and runs.
@@ -388,7 +392,7 @@ impl MaterialFilter {
             (Self::Rough { grunge, .. } | Self::DetailEdgeWear { grunge, .. }, S::Grunge) => Slot::Unit(grunge),
             (Self::DetailEdgeWear { level, .. }, S::Level) => Slot::Unit(level),
             (Self::DetailEdgeWear { detail, .. }, S::Detail) => Slot::Unit(detail),
-            (Self::DetailEdgeWear { contrast, .. }, S::Contrast) => Slot::Unit(contrast),
+            (Self::EdgeDamages { contrast, .. } | Self::DetailEdgeWear { contrast, .. }, S::Contrast) => Slot::Unit(contrast),
             (Self::WaterDrops { amount, .. }, S::Amount) => Slot::Unit(amount),
             (Self::WaterDrops { scale, .. }, S::Scale) => Slot::Scale(scale),
             (Self::WaterDrops { seed, .. }, S::Seed) => Slot::Seed(seed),
@@ -455,7 +459,7 @@ impl MaterialFilter {
         Self::Galvanized { scale: 40.0, spangle: 0.6, tint: 0.7, roughness: 0.32, roughness_variation: 0.5, relief: 0.25, seed: 1 },
         Self::Hammered { scale: 26.0, depth: 0.5, irregularity: 0.6, roughness_variation: 0.4, seed: 1 },
         Self::PowderCoated { color: [0.05, 0.05, 0.055], color_amount: 0.0, roughness: 0.48, orange_peel: 0.4, grain: 0.3, scale: 140.0, seed: 1 },
-        Self::EdgeDamages { amount: 0.45, spread: 2.5, scale: 30.0, depth: 0.5, color: [0.56, 0.57, 0.58], roughness: 0.38, metallic: 1.0, seed: 1 },
+        Self::EdgeDamages { amount: 0.45, spread: 2.5, scale: 30.0, depth: 0.5, color: [0.56, 0.57, 0.58], roughness: 0.38, metallic: 1.0, contrast: 0.0, seed: 1 },
         Self::RustWeathering { amount: 0.45, edges: 0.5, cavities: 0.6, drips: 0.4, scale: 6.0, relief: 0.4, roughness: 0.88, seed: 1 },
         Self::PeelingPaint { amount: 0.25, scale: 6.0, edge_bias: 0.5, thickness: 0.5, curl: 0.5, color: [0.52, 0.53, 0.54], roughness: 0.45, metallic: 1.0, rust: 0.4, seed: 1 },
         Self::PbrValidate { strict: false, flag_partial_metal: true, flat: true },
@@ -599,8 +603,8 @@ impl MaterialFilter {
             Self::PowderCoated { color: c, color_amount, roughness, orange_peel, grain, scale: s, seed: _ } => {
                 color(c) && unit(color_amount) && unit(roughness) && unit(orange_peel) && unit(grain) && scale(s)
             }
-            Self::EdgeDamages { amount, spread, scale: s, depth, color: c, roughness, metallic, seed: _ } => {
-                unit(amount) && spread.is_finite() && (0.0..=MAX_EDGE_DAMAGE_SPREAD).contains(&spread) && scale(s) && unit(depth) && color(c) && unit(roughness) && unit(metallic)
+            Self::EdgeDamages { amount, spread, scale: s, depth, color: c, roughness, metallic, contrast, seed: _ } => {
+                unit(amount) && spread.is_finite() && (0.0..=MAX_EDGE_DAMAGE_SPREAD).contains(&spread) && scale(s) && unit(depth) && color(c) && unit(roughness) && unit(metallic) && unit(contrast)
             }
             Self::RustWeathering { amount, edges, cavities, drips, scale: s, relief, roughness, seed: _ } => {
                 unit(amount) && unit(edges) && unit(cavities) && unit(drips) && scale(s) && unit(relief) && unit(roughness)
@@ -643,6 +647,9 @@ mod tests {
             assert!(f.writes(ChannelKind::BaseColor));
         }
         assert_eq!(serde_json::to_string(&MaterialFilter::ALL[1]).unwrap(), r#"{"kind":"hammered","scale":26.0,"depth":0.5,"irregularity":0.6,"roughness_variation":0.4,"seed":1}"#);
+        // Edge Damages saved before Contrast existed still loads, as the same soft band.
+        let old = r#"{"kind":"edge_damages","amount":0.45,"spread":2.5,"scale":30.0,"depth":0.5,"color":[0.56,0.57,0.58],"roughness":0.38,"metallic":1.0,"seed":1}"#;
+        assert_eq!(serde_json::from_str::<MaterialFilter>(old).unwrap(), MaterialFilter::ALL[3]);
     }
 
     /// Every field of every filter is reachable as a setting, and a written setting is clamped
@@ -677,7 +684,7 @@ mod tests {
     fn out_of_range_parameters_are_rejected() {
         assert!(!MaterialFilter::Hammered { scale: 0.0, depth: 0.5, irregularity: 0.5, roughness_variation: 0.5, seed: 1 }.valid());
         assert!(!MaterialFilter::Hammered { scale: 8.0, depth: f32::NAN, irregularity: 0.5, roughness_variation: 0.5, seed: 1 }.valid());
-        assert!(!MaterialFilter::EdgeDamages { amount: 0.5, spread: 40.0, scale: 30.0, depth: 0.5, color: [0.5; 3], roughness: 0.4, metallic: 1.0, seed: 1 }.valid());
+        assert!(!MaterialFilter::EdgeDamages { amount: 0.5, spread: 40.0, scale: 30.0, depth: 0.5, color: [0.5; 3], roughness: 0.4, metallic: 1.0, contrast: 0.0, seed: 1 }.valid());
         assert!(!MaterialFilter::Grinded { scale: 9.0, intensity: 1.5, seed: 1 }.valid());
         assert!(!MaterialFilter::Rough { scale: 60.0, grunge_scale: 0.0, brushing: 0.6, warp: 0.3, grunge: 0.5, seed: 1 }.valid());
         assert!(MaterialFilter::ALL[10].micro_details().is_some_and(|d| d.active() && d.amount == 0.7));

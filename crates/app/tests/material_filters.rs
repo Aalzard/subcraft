@@ -314,7 +314,7 @@ fn shut_line_turns_painted_strokes_into_a_groove_and_hides_the_paint() {
 #[test]
 fn amount_zero_changes_nothing() {
     let quiet = [
-        MaterialFilter::EdgeDamages { amount: 0.0, spread: 2.5, scale: 30.0, depth: 0.5, color: [0.56, 0.57, 0.58], roughness: 0.38, metallic: 1.0, seed: 1 },
+        MaterialFilter::EdgeDamages { amount: 0.0, spread: 2.5, scale: 30.0, depth: 0.5, color: [0.56, 0.57, 0.58], roughness: 0.38, metallic: 1.0, contrast: 0.0, seed: 1 },
         MaterialFilter::RustWeathering { amount: 0.0, edges: 0.5, cavities: 0.6, drips: 0.4, scale: 6.0, relief: 0.4, roughness: 0.88, seed: 1 },
         MaterialFilter::PeelingPaint { amount: 0.0, scale: 6.0, edge_bias: 0.5, thickness: 0.5, curl: 0.5, color: [0.52, 0.53, 0.54], roughness: 0.45, metallic: 1.0, rust: 0.4, seed: 1 },
     ];
