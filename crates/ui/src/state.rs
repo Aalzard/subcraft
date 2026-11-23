@@ -335,7 +335,8 @@ pub struct UiState {
     pub pen_second_color: [f32; 3],
     /// Painter's quick setup: a texture dropped on the model waits for its channel, picked from a
     /// menu at this screen point.
-    pub drop_channel_menu: Option<(egui::Pos2, std::path::PathBuf)>,
+    /// The last part is where on the surface it was dropped, for placing it there as a decal.
+    pub drop_channel_menu: Option<(egui::Pos2, std::path::PathBuf, Option<subcraft_app::decal::DecalSpot>)>,
     /// The full brush preview's footprint texture and what it was drawn from.
     pub brush_footprint: Option<(crate::brush_cursor::FootprintKey, egui::TextureHandle)>,
     pub rename: Option<(subcraft_core::LayerId, String)>,

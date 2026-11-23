@@ -262,7 +262,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             _ => None,
         };
         if let (Some(path), Some(p)) = (texture, pointer) {
-            state.drop_channel_menu = Some((p, path));
+            // Where it landed, with the view's up direction, to place it there as a decal.
+            let spot = state.session.pick(&camera, to_screen(p)).map(|pick| subcraft_app::decal::DecalSpot { position: pick.position, normal: pick.normal, up: camera.right().cross(camera.forward()) });
+            state.drop_channel_menu = Some((p, path, spot));
         } else {
         // Alt: apply in place to the selected layer (alphas: brush tip unless Alt).
         crate::panels::shelf::apply_shelf_item_with(state, *item, mods.alt, now);
@@ -1652,14 +1654,22 @@ pub const TAA_ACCUMULATIONS: [u32; 5] = [4, 8, 16, 32, 64];
 /// The quick setup menu of a texture dropped on the model: one entry per channel of the texture
 /// set; the pick adds a fill layer with the image in that channel. Esc or a click elsewhere
 /// closes it.
-fn drop_channel_menu(state: &mut UiState, ui: &Ui, now: f64) {
-    let Some((at, path)) = state.drop_channel_menu.clone() else { return };
+pub fn drop_channel_menu(state: &mut UiState, ui: &Ui, now: f64) {
+    let Some((at, path, spot)) = state.drop_channel_menu.clone() else { return };
+    let mut decal = false;
     let channels: Vec<subcraft_core::ChannelKind> = state.session.selected_texture_set().channel_kinds().collect();
     let mut picked = None;
     let mut close = ui.input(|i| i.key_pressed(egui::Key::Escape));
     let area = egui::Area::new(ui.id().with("drop_channel_menu")).order(egui::Order::Foreground).fixed_pos(at).show(ui.ctx(), |ui| {
         egui::Frame::popup(ui.style()).show(ui, |ui| {
             let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("image");
+            // Dropped on the model: the image once, where it was dropped (a planar fill layer).
+            if spot.is_some() {
+                if ui.button("Place as a decal here").on_hover_text("Shows the image once where you dropped it, facing the surface. Drag it on the model to move it; the manipulator turns and scales it.").clicked() {
+                    decal = true;
+                }
+                ui.separator();
+            }
             ui.label(egui::RichText::new(format!("Fill a channel with {name}")).color(theme::TEXT_DIM()));
             for k in &channels {
                 if ui.button(k.display_name()).clicked() {
@@ -1671,10 +1681,22 @@ fn drop_channel_menu(state: &mut UiState, ui: &Ui, now: f64) {
             }
         });
     });
-    if ui.input(|i| i.pointer.any_pressed()) && !area.response.contains_pointer() && picked.is_none() {
+    if ui.input(|i| i.pointer.any_pressed()) && !area.response.contains_pointer() && picked.is_none() && !decal {
         close = true;
     }
-    if let Some(channel) = picked {
+    if let (true, Some(spot)) = (decal, spot) {
+        match state.session.add_decal_layer(&path, spot) {
+            Ok(name) => {
+                state.gpu_dirty = true;
+                // The manipulator comes up in Surface mode: dragging its centre slides the decal over the model.
+                state.gizmo.visible = true;
+                state.gizmo.mode = crate::projection_gizmo::GizmoMode::Surface;
+                state.set_status(format!("Placed \"{name}\" as a decal. Drag its centre to move it over the model"), now);
+            }
+            Err(e) => state.set_status(e, now),
+        }
+        state.drop_channel_menu = None;
+    } else if let Some(channel) = picked {
         match state.session.add_texture_layer_in(&path, channel) {
             Ok(name) => {
                 state.gpu_dirty = true;

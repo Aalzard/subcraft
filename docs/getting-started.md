@@ -197,6 +197,23 @@ side and the stitches run over the surface between them.
 
 ![A stitched path over three faces of a cube, each its own UV island](images/stitches-over-seams.png)
 
+### Decals: an image placed once on the model
+
+Drag an image from the **Textures** shelf onto the model and pick **Place as a decal here** in
+the small menu. SubCraft adds a fill layer that shows the image once at that spot, facing the
+surface, upright the way you see it on screen, with the image's own proportions and transparency.
+
+- **Move it:** the manipulator comes up in Surface mode. Drag its centre over the model and the
+  decal slides along the surface and turns to face it.
+- **Turn or scale it:** switch the manipulator to Rotate or Scale, or type values in
+  Properties under **3D projection**.
+- **More channels:** the decal fills Base Color only. Switch on Roughness, Height or others in
+  Properties like on any fill layer.
+- A decal does not show on surfaces that face away, and it stops at the depth of its box, so it
+  never prints through to the far side of the model.
+
+![Three image decals dropped on a sphere, each facing the surface](images/decals.png)
+
 ### Stamp a normal map: the Normal Map Brush
 
 Open **Assets > Normal Maps** and **click** a normal map (a Starter pack map, or one you
