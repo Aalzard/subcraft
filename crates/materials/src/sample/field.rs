@@ -130,10 +130,14 @@ fn projection_extra_bits(p: &Projection) -> u32 {
     use subcraft_doc::FillSymmetry;
     let t = p.effective_transform3();
     let warp = p.mode == subcraft_doc::ProjectionMode::Warp;
-    if p.cylinder_angle == 360.0 && p.symmetry.is_none() && t.is_identity() && !warp {
+    let unique = p.triplanar_unique && p.mode == subcraft_doc::ProjectionMode::Triplanar;
+    if p.cylinder_angle == 360.0 && p.symmetry.is_none() && t.is_identity() && !warp && !unique {
         return 0;
     }
     let mut values = vec![p.cylinder_angle.to_bits()];
+    if unique {
+        values.push(5);
+    }
     if !t.is_identity() {
         values.push(3);
         values.extend(t.offset.iter().chain(&t.rotation_deg).chain(&t.scale).map(|v| v.to_bits()));

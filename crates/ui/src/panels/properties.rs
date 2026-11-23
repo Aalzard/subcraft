@@ -206,6 +206,11 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         cmds.extend(part_head);
         cmds.extend(part_cmds);
 
+        // Procedural material (ADR-0047): the layer's exposed parameters, above its own content.
+        if let Some(m) = &layer.material {
+            super::material_params::section(ui, id, m, &mut cmds);
+        }
+
         match &layer.content {
             LayerContent::Paint(p) if p.path.is_some() => {
                 let path = state.pen.preview(&state.session).cloned().unwrap_or_else(|| p.path.as_ref().unwrap().clone());
@@ -1937,7 +1942,11 @@ fn hardness_row(ui: &mut Ui, proj: &mut Projection) -> bool {
     if changed {
         proj.set_hardness(hardness);
     }
-    changed
+    // Projects made before this option keep it off, so their patterns stay where they were.
+    let unique = check_row_reset(ui, tr("Sides"), tr("Different on every side"), &mut proj.triplanar_unique, true)
+        .on_hover_text(tr("Each of the six sides shows its own part of the pattern. Off, opposite sides show the same shapes mirrored, which looks like a butterfly on round objects"))
+        .changed();
+    changed || unique
 }
 
 /// The FILL block of Painter's Properties: Projection / Filtering / UV Wrap / Shape crop /

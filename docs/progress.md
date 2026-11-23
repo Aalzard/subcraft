@@ -6033,6 +6033,33 @@ re-measured on a GPU. Not taken from his patch: the `SUBCRAFT_REPAINT_LOG` diagn
   SignPath application is now `https://github.com/Aalzard/subcraft/blob/main/docs/CODE_SIGNING.md`.
 * Checked: every relative link in the touched Markdown files resolves (script over `](path)` targets).
 
+## Procedural materials with sliders (2026-11-23, branch `claude/project-thread-l9014a`, ADR-0047)
+
+* Format: a procedural material is an ordinary layer (a fill or a folder of masked fills) that carries
+  `MaterialControls` (`crates/doc/src/material.rs`): a list of parameters (float, colour, toggle, seed) and a
+  list of bindings. A binding is `layer [+ effect] + property + formula`. Setting a parameter evaluates the
+  formulas (`crates/doc/src/material_expr.rs`: numbers, parameter names, `+ - * /`, 13 functions) and writes the
+  results into normal layer properties. There is no second evaluator and no node graph; the compositor is unchanged.
+* Saved in projects as an optional `material` block on the layer (`LayerV1.material`, no schema bump, entries
+  read one by one so one bad entry does not lose the rest). Bindings follow the layer through duplicate and the
+  user smart-material library (ids are remapped); instances drop the controls.
+* Commands: `SetMaterialParam` (drags merge into one undo step), `ResetMaterialParams`, `SetMaterialControls`.
+* UI: "Material parameters" section in Properties (`crates/ui/src/panels/material_params.rs`), with per-row reset.
+  Parameter labels are not translated yet.
+* Content: 11 built-in materials in `crates/assets/src/procedural.rs`, first in the Smart Materials shelf under
+  the "Procedural" category.
+* Ran: `cargo check --workspace --all-targets`; `cargo test -p subcraft-doc -p subcraft-project -p subcraft-assets`
+  (all pass, 15 new doc tests, 4 new assets tests); `cargo test -p subcraft-app` (all pass, 5 new in
+  `tests/procedural_materials.rs`: sliders change the composite, one undo step per drag and bad input refused,
+  save/load + duplicate + user library keep parameters, attach/remove controls, every material composites to
+  finite in-range values); `cargo test -p subcraft-ui --lib` (420 pass). The ui integration tests and the render
+  crate were left to CI.
+* Looked at: contact sheets of all 11 at defaults and at several slider settings, rendered with the new
+  `cargo run -p subcraft-app --example material_sheet` on the baked default model. Not run in the real app
+  window (no display in the cloud container), so the panel layout itself is unseen.
+* Known limits: triplanar mask patterns look mirrored on a sphere and wood rings show a seam (both existing
+  pattern behaviour); no UI yet for authoring your own parameters (the command exists); no choice (dropdown)
+  parameters; filter and content-effect settings cannot be bound yet.
 ### Session 134 - Viewport shades coat, sheen, anisotropy, subsurface, translucency, transmission; displacement preview (2026-11-22, branch `claude/project-thread-8mawyv`)
 
 * **Asked:** the gap report's top item: the 3D view shaded only metal/roughness; coat, sheen, anisotropy,
@@ -6108,3 +6135,24 @@ re-measured on a GPU. Not taken from his patch: the `SUBCRAFT_REPAINT_LOG` diagn
   before/after in `docs/screenshots/viewport-ibl-before-after.png` (left main, right this change).
 * **Not done / limits:** not checked on a real GPU; the Gaussian prefilter approximates GGX's long tail;
   no screen-space reflections or contact shadows; the path tracer is unchanged.
+
+## Procedural materials look pass: tri-planar sides, rust (2026-11-23, branch `claude/project-thread-l9014a`)
+
+* Mirrored patterns on round shapes: tri-planar sampled the same 2D pattern for all three axes and both signs, so
+  -X showed +X mirrored and the X/Z blend was mirrored across the diagonal. New `Projection::triplanar_unique`
+  (`crates/doc/src/fill.rs`): each of the six sides is shifted (and the far side runs the other way) in
+  `sample::projection::unique_side`. +Z is unchanged. A side has zero weight where its normal changes sign, so the
+  jump cannot show.
+* Compatibility: on in `Projection::default()`, written as `"triplanar_unique":true`; a file without the key reads
+  `false`, so saved projects render exactly as before. The generators' own breakup noise and the Mask Editor
+  textures (`crates/compositor/src/mask.rs`) stay on the old sampling on purpose: they have no stored flag, so
+  changing them would move the wear in saved projects. The pattern field cache key carries the flag.
+* UI: "Sides: Different on every side" checkbox under the tri-planar Hardness row (ko, zh-Hant translated).
+* Rusted Steel: rust colour default (0.17, 0.052, 0.018) linear instead of (0.27, 0.1, 0.035), fine colour
+  variation, darker stain, and a new "Deep Rust" layer in the middle of the patches.
+* Ran: `cargo check --workspace --all-targets`; `cargo test` for doc, materials, compositor, paint, assets,
+  project, export, bake, app (1423 pass, 0 fail); `cargo test -p subcraft-ui --lib` (421 pass). New test
+  `triplanar_unique_sides_are_not_mirror_images`; two pinned-JSON tests now also pin that the old form reads
+  with the flag off.
+* Looked at: `material_sheet` renders of all 11 materials; the left/right mirror on the sphere is gone.
+  Not run in the real app window.

@@ -172,6 +172,9 @@ pub struct Layer {
     pub content: LayerContent,
     /// Non-destructive effects on the content, bottom to top (separate from the mask's stack).
     pub content_effects: Vec<Arc<ContentEffect>>,
+    /// Procedural material (ADR-0047): parameters this layer exposes and the properties of
+    /// itself and of the layers inside it that they drive. `None` for an ordinary layer.
+    pub material: Option<Arc<crate::material::MaterialControls>>,
 }
 
 /// Colour tags a layer or folder can carry. A folder's tag also marks the rows inside it.
@@ -267,6 +270,7 @@ impl Layer {
             color: None,
             instance_of: None,
             content_effects: Vec::new(),
+            material: None,
             content: LayerContent::Paint(PaintContent::default()),
         }
     }
@@ -288,6 +292,7 @@ impl Layer {
             color: None,
             instance_of: None,
             content_effects: Vec::new(),
+            material: None,
             content: LayerContent::Fill(FillContent { projection: Projection::default(), channels }),
         }
     }
@@ -303,6 +308,7 @@ impl Layer {
             color: None,
             instance_of: None,
             content_effects: Vec::new(),
+            material: None,
             content: LayerContent::Group(GroupContent { children: Vec::new(), expanded: true }),
         }
     }
@@ -348,7 +354,26 @@ impl Layer {
         // References inside the copy read the copied anchors (ADR-0045).
         crate::anchor::remap_inputs(&mut l, &map);
         l.follow_copied_sources(&ids);
+        l.remap_materials(&ids, &map);
         l
+    }
+
+    /// Material bindings inside a copy drive the copied layers and effects (ADR-0047).
+    fn remap_materials(&mut self, ids: &std::collections::HashMap<LayerId, LayerId>, effects: &std::collections::HashMap<subcraft_core::EffectId, subcraft_core::EffectId>) {
+        if let Some(m) = &mut self.material {
+            Arc::make_mut(m).remap(ids, effects);
+        }
+        if let LayerContent::Group(g) = &mut self.content {
+            for c in g.children.iter_mut() {
+                if c.has_material_inside() {
+                    Arc::make_mut(c).remap_materials(ids, effects);
+                }
+            }
+        }
+    }
+
+    fn has_material_inside(&self) -> bool {
+        self.material.is_some() || self.children().iter().any(|c| c.has_material_inside())
     }
 
     /// An instance copied together with its source follows the copy of the source. It used to
@@ -529,6 +554,7 @@ pub fn duplicate_layers_with_new_ids<'a>(layers: impl IntoIterator<Item = &'a La
     for l in &mut out {
         crate::anchor::remap_inputs(l, &map);
         l.follow_copied_sources(&ids);
+        l.remap_materials(&ids, &map);
     }
     out
 }
