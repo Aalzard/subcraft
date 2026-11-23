@@ -28,7 +28,8 @@ fn frame(
             events,
             screen_rect: Some(egui::Rect::from_min_size(
                 Pos2::ZERO,
-                egui::vec2(width, 400.0),
+                // Tall enough for the whole symmetry and stabilizer menu.
+                egui::vec2(width, 900.0),
             )),
             ..Default::default()
         },
@@ -260,13 +261,15 @@ fn symmetry_popup_owns_all_axes_and_lazy_mouse_while_sidebar_has_no_duplicates()
     }
     assert_eq!(state.session.brush.options.symmetry, [true; 3]);
     let (out, _) = frame(&mut state, &ctx, 1125.0, vec![]);
-    let header = position(&out, "Lazy Mouse").expect("one popover contains smoothing");
+    assert!(position(&out, "Stabilizer").is_some(), "one popover contains the stabilizer");
+    // The lazy mouse slider: its value text and the rail on the same row.
+    let value = position(&out, " px lazy mouse").expect("lazy mouse slider value");
     let rail = out
         .shapes
         .iter()
         .filter_map(|s| match &s.shape {
             egui::Shape::Rect(r)
-                if r.rect.top() > header.y && r.rect.width() > 70.0 && r.rect.height() < 12.0 =>
+                if (r.rect.center().y - value.y).abs() < 8.0 && r.rect.right() < value.x && r.rect.width() > 70.0 && r.rect.height() < 12.0 =>
             {
                 Some(r.rect)
             }
