@@ -319,6 +319,12 @@ fn confined_kinds(old: &[Arc<Layer>], new: &[Arc<Layer>]) -> Option<BTreeSet<sub
         }
         kinds.extend(changed);
     }
+    // Micro-detail readers (HBAO, Detail Edge Wear, generators with micro details) turn the
+    // Height / Normal below them into other channels (QA fuzz seed 424: a Height blend mode
+    // change under an HBAO filter left the Base Color stale).
+    if (kinds.contains(&ChannelKind::Height) || kinds.contains(&ChannelKind::Normal)) && (crate::stages::has_micro_details(old) || crate::stages::has_micro_details(new)) {
+        return None;
+    }
     (!kinds.is_empty()).then_some(kinds)
 }
 
