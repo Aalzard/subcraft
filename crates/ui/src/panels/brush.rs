@@ -180,6 +180,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             });
 
             section(ui, "stencil", "Stencil", false, |ui| {
+                // Painter: an alpha or texture dragged from the shelf into the Stencil slot.
+                let slot = ui.scope(|ui| {
                 ui.horizontal(|ui| {
                     if ui.button(format!("{}  Choose image…", crate::icons::IMAGE)).clicked() {
                         crate::files::pick(ui.ctx(), crate::files::Purpose::Stencil, crate::files::IMAGES, false, None);
@@ -232,6 +234,16 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     }
                 }
                 hint(ui, "White paints, black blocks. In the 3D view hold S and drag: left = rotate (Shift snaps to 90°), middle = move, right = scale. Hold N to paint without it.");
+                hint(ui, "You can also drag an alpha or a texture here from the shelf, or right-click one and choose Use as stencil.");
+                }).response;
+                use crate::panels::shelf::{ShelfDrag, stencil_accepts, use_as_stencil_with_status};
+                if slot.dnd_hover_payload::<ShelfDrag>().is_some_and(|d| stencil_accepts(*d)) {
+                    ui.painter().rect_stroke(slot.rect.expand(2.0), 4.0, egui::Stroke::new(1.5, crate::theme::ACCENT()), egui::StrokeKind::Outside);
+                }
+                if let Some(item) = slot.dnd_release_payload::<ShelfDrag>().filter(|d| stencil_accepts(**d)) {
+                    let now = ui.input(|i| i.time);
+                    use_as_stencil_with_status(state, *item, now);
+                }
             });
 
             section(ui, "material", "Material", true, |ui| {
