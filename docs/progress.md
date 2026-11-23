@@ -6269,3 +6269,23 @@ re-measured on a GPU. Not taken from his patch: the `SUBCRAFT_REPAINT_LOG` diagn
 * Honest state: metals, enamel paint, bronze, rock and sandstone read well. Fabrics are the weakest: the weave is
   correct but small at this render size, and cloth has no sheen model. Marble veins come from a cell-crack
   pattern and still look a little like a net.
+
+## Procedural materials: fabric, marble, leather and wood quality pass (2026-11-23)
+
+* New patterns in `crates/materials/src/pattern.rs` (`ProceduralKind::{Twill, Veins, Planks}`, 19 kinds now):
+  Twill is a 2/1 diagonal weave, Veins are thin warped ridge lines, Planks are staggered boards
+  (`PLANK_ROWS` per tile) with a gap, a bevel and one tone per board. All three tile and have numeric tests.
+* `with_height(layer, ts)` in `crates/assets/src/procedural.rs`: a coat only writes colour, roughness and metal,
+  so chips, pits, holes and cracks were flat. They now write Height too.
+* Marble: two layers on the Veins pattern ("Vein Halo" soft, "Veins" sharp) replace the cell-crack net.
+* Cloth: Denim uses Twill; both fabrics gained a "Cross Threads" coat on the inverted weave (the pale weft of
+  denim) and a "Wrinkles" height layer, each with a slider.
+* New materials: Cracked Leather, Wood Planks, Varnished Wood. Built-in smart materials are now 67 (28 procedural).
+* Ran: `cargo test -p subcraft-assets -p subcraft-materials -p subcraft-doc` (all pass), `cargo test -p subcraft-app`
+  (all pass, including `smart_content` and `procedural_materials`), `cargo test -p subcraft-ui --lib` (421 pass),
+  `cargo check --workspace --all-targets`.
+* Looked at: `material_sheet` renders of marble, canvas, denim and the three new materials at 4 settings each,
+  two tuning passes (leather colour and edge wear, board size and gap width, knot size, denim thread size).
+* Honest state: marble and varnished wood read well. Leather cracks are a regular net at high settings. Plank
+  knots are plain dark dots, not real knots with rings. Twill shows chevrons where tri-planar sides meet on round
+  shapes. Cloth still has no sheen.
