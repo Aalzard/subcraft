@@ -482,6 +482,36 @@ fn stitch_icon(painter: &egui::Painter, rect: egui::Rect, stitch: Option<&subcra
                     painter.line_segment([Pos2::new(a + 2.0, y + off), Pos2::new(b - 2.0, y + off)], stroke);
                 }
             }
+            "Stitch Whip" => {
+                for k in 0..2 {
+                    let x = a + cell * (0.25 + 0.5 * k as f32);
+                    painter.line_segment([Pos2::new(x - 2.0, y + 6.0), Pos2::new(x + 2.0, y - 6.0)], stroke);
+                }
+            }
+            "Stitch Blanket" => {
+                painter.line_segment([Pos2::new(a, y + 5.0), Pos2::new(b, y + 5.0)], stroke);
+                painter.line_segment([Pos2::new(mid, y + 5.0), Pos2::new(mid, y - 6.0)], stroke);
+            }
+            "Stitch Chain" => {
+                painter.add(egui::Shape::ellipse_stroke(Pos2::new(mid, y), egui::vec2(cell * 0.5, 3.5), Stroke::new(1.5, color)));
+            }
+            "Stitch Herringbone" => {
+                painter.line_segment([Pos2::new(a - 1.0, y + 6.0), Pos2::new(mid + 1.5, y - 6.0)], Stroke::new(1.5, color));
+                painter.line_segment([Pos2::new(mid - 1.5, y - 6.0), Pos2::new(b + 1.0, y + 6.0)], Stroke::new(1.5, color));
+            }
+            "Stitch Baseball" => {
+                painter.line_segment([Pos2::new(a + 1.0, y - 7.0), Pos2::new(b - 2.0, y - 1.0)], stroke);
+                painter.line_segment([Pos2::new(a + 1.0, y + 7.0), Pos2::new(b - 2.0, y + 1.0)], stroke);
+            }
+            "Stitch Triple" => {
+                for off in [-6.0, 0.0, 6.0] {
+                    painter.line_segment([Pos2::new(a + 2.0, y + off), Pos2::new(b - 2.0, y + off)], Stroke::new(1.5, color));
+                }
+            }
+            "Stitch Cord" => {
+                painter.line_segment([Pos2::new(a, y), Pos2::new(b, y)], Stroke::new(5.0, color.gamma_multiply(0.45)));
+                painter.line_segment([Pos2::new(mid - 2.0, y + 2.5), Pos2::new(mid + 2.0, y - 2.5)], Stroke::new(1.5, color));
+            }
             "Stitch Needle Holes" => {
                 painter.circle_filled(Pos2::new(mid, y), 2.2, color);
             }
@@ -593,7 +623,42 @@ fn stitch_rows(state: &mut UiState, ui: &mut Ui, path: &mut PenPath, stitch: &'s
             Err(e) => state.set_status(format!("Needle holes: {e}"), now),
         }
     }
+    // A pressed seam under the stitches: a soft line of negative Height on the same points.
+    if stitch.height > 0.0 && path.anchors.len() > 1
+        && ui.button("Add seam groove").on_hover_text("Add a second path on the same points that presses a soft line into the surface, so the stitches sit in a seam. Height only. It is its own layer: move or delete it on its own").clicked()
+    {
+        let channels = state.session.channels();
+        let result = match subcraft_app::stitch::groove_path(path, |k| channels.contains(&k)) {
+            Some(groove) => state.pen.add_path_layer(&mut state.session, groove, "Seam groove"),
+            None => Err(subcraft_app::CommandError::Invalid("this texture set has no Height channel".into())),
+        };
+        match result {
+            Ok(()) => state.set_status("Seam groove added as its own path layer", now),
+            Err(e) => state.set_status(format!("Seam groove: {e}"), now),
+        }
+    }
     changed
+}
+
+/// The Stitches button of the tool rail: the Pen tool with a stitch chosen (Straight unless one
+/// was chosen before), ready for the first click on the model.
+pub fn start_stitching(state: &mut UiState, now: f64) {
+    state.tool = crate::state::Tool::Pen;
+    state.picking_parts = false;
+    let stitch = state.pen.style.map(|s| s.stitch).or_else(|| subcraft_app::stitch::find("Stitch: Straight"));
+    choose_stitch(state, stitch, false, now);
+}
+
+/// The tool rail's Stitches button: three stitches drawn on a tool button.
+pub fn stitch_tool_button(ui: &mut Ui, selected: bool, tooltip: &str) -> egui::Response {
+    let resp = crate::widgets::tool_button(ui, "", selected, tooltip);
+    let color = if selected { theme::ACCENT() } else if resp.hovered() { theme::TEXT() } else { theme::TEXT_DIM() };
+    let c = resp.rect.center();
+    for i in -1..=1 {
+        let at = c + egui::vec2(i as f32 * 7.0, -(i as f32) * 5.0);
+        ui.painter().line_segment([at + egui::vec2(-2.5, 2.5), at + egui::vec2(2.5, -2.5)], Stroke::new(2.5, color));
+    }
+    resp
 }
 
 /// Every setting of a path: type, width, stamping, opacity and the channels it paints.
@@ -863,6 +928,39 @@ mod keyboard_tests {
         let other = state.brush_presets.iter().find(|p| !p.name.starts_with("Stitch")).cloned().unwrap();
         state.select_shelf_brush(subcraft_app::brush_preset::ShelfBrush::Preset(&other), 0.0);
         assert_ne!(state.tool, Tool::Pen, "{}", other.name);
+    }
+
+    /// The tool rail's Stitches button: one click from any tool to a pen that draws stitches,
+    /// keeping a stitch that was chosen before. And the seam groove of a stitched path.
+    #[test]
+    fn the_stitches_button_starts_the_pen_with_a_stitch() {
+        let mut state = UiState::new(subcraft_app::Session::sample(), None);
+        state.tool = Tool::Brush;
+        start_stitching(&mut state, 0.0);
+        assert_eq!(state.tool, Tool::Pen);
+        assert_eq!(state.pen.style.map(|s| s.stitch.name), Some("Stitch: Straight"));
+        choose_stitch(&mut state, subcraft_app::stitch::find("Stitch: Whip"), false, 0.0);
+        state.tool = Tool::Eraser;
+        start_stitching(&mut state, 0.0);
+        assert_eq!((state.tool, state.pen.style.map(|s| s.stitch.name)), (Tool::Pen, Some("Stitch: Whip")), "the last stitch is kept");
+        // Every stitch has a tile, and the button draws.
+        let ctx = egui::Context::default();
+        crate::theme::apply(&ctx);
+        let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+            stitch_row(ui, None);
+            stitch_tool_button(ui, true, "Stitches");
+        });
+        out.textures_delta.clear();
+        // A stitched path gets its seam groove as a second path layer, Height only.
+        click(&mut state, Vec2::new(0.3, 0.3));
+        click(&mut state, Vec2::new(0.6, 0.35));
+        let path = drawn_path(&state);
+        let layers = state.session.selected_texture_set().layers.len();
+        let channels = state.session.channels();
+        if let Some(groove) = subcraft_app::stitch::groove_path(&path, |k| channels.contains(&k)) {
+            state.pen.add_path_layer(&mut state.session, groove, "Seam groove").unwrap();
+            assert_eq!(state.session.selected_texture_set().layers.len(), layers + 1);
+        }
     }
 
     /// The stitch choice outlives the project it was made in: its tip becomes a resource of

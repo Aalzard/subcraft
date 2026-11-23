@@ -1773,6 +1773,13 @@ impl SubcraftApp {
                     if t == Tool::Pen { self.state.picking_parts = false; }
                 }
             }
+            // Stitches: the Pen with a stitch chosen, one click from any tool.
+            let stitching = self.state.tool == Tool::Pen && self.state.pen.style.is_some();
+            if crate::pen::stitch_tool_button(ui, stitching, "Stitches: click points on the model to sew a line of stitches along them (drag for a curve, Enter finishes). Pick the stitch in Properties").clicked() {
+                let now = ui.input(|i| i.time);
+                crate::pen::start_stitching(&mut self.state, now);
+            }
+            let tool = &mut self.state.tool;
             ui.add_space(6.0);
             rail_divider(ui);
             ui.add_space(6.0);
