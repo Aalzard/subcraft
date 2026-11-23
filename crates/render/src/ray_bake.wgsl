@@ -1,4 +1,4 @@
-// Entry point of the AO / thickness pass; helpers are in ray_common.wgsl.
+// Entry point of the AO / thickness / bent normal pass; helpers are in ray_common.wgsl.
 
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) nwg: vec3<u32>) {
@@ -31,6 +31,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
             if (dot(dir, offset) <= 0.0) { continue; }
             acc.y = acc.y + 1.0;
             if (trace(origin, dir, params.distance, true) < params.distance) { acc.x = acc.x + 1.0; }
+        } else if (params.mode == 2u) {
+            if (dot(dir, offset) <= 0.0) { continue; }
+            if (trace(origin, dir, params.distance, true) >= params.distance) { acc = acc + vec4<f32>(dir, 0.0); }
         } else {
             acc.x = acc.x + trace(origin, dir, params.distance, false);
         }

@@ -12,7 +12,7 @@ a planning list, not a promise.
   Substance graphs.
 
 ### Baking
-- GPU path for Bent normal, Height and the high-poly projection (AO, Thickness and Curvature
+- GPU path for Height and the high-poly projection (AO, Thickness, Curvature and Bent normal
   already run on the GPU).
 
 ### Viewport and rendering (owned by the viewport thread)
@@ -58,3 +58,4 @@ a planning list, not a promise.
 - 2D UDIM tile picker (tiles laid out as in UV space, previous / next).
 - ARM and macOS builds through the release workflow.
 - Linux AppImage (x86_64), built and checked by the release workflow.
+- GPU Bent normal bake (same rays as AO, checked against the CPU bake).

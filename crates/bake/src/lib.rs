@@ -979,9 +979,6 @@ fn bake_core(
                     [h; 3]
                 }
                 MeshMapKind::BentNormal => {
-                    let n = t.normal.normalize_or(t.geometric_normal);
-                    let tan = (t.tangent.truncate() - n * n.dot(t.tangent.truncate())).normalize_or(n.any_orthonormal_vector());
-                    let bit = n.cross(tan) * if t.tangent.w < 0.0 { -1.0 } else { 1.0 };
                     let mut dirs = Vec::with_capacity(settings.ao_samples as usize);
                     let origin = d.position + d.offset * bias;
                     let dist = settings.ao_distance * diag;
@@ -1002,10 +999,7 @@ fn bake_core(
                             }
                         }
                     }
-                    // Fully occluded texels keep the surface normal.
-                    let bent = sum.try_normalize().unwrap_or(d.normal);
-                    let ts = Vec3::new(bent.dot(tan), bent.dot(bit), bent.dot(n)).normalize_or(Vec3::Z);
-                    [ts.x * 0.5 + 0.5, ts.y * 0.5 + 0.5, ts.z * 0.5 + 0.5]
+                    bent_normal_texel(sum, t, d)
                 }
                 MeshMapKind::Thickness => {
                     let o = &settings.thickness;
@@ -1035,7 +1029,7 @@ fn bake_core(
         // The GPU ray kernels cannot filter hits by part, so name matching bakes AO and thickness on the CPU.
         // Nor do they know the occlusion or thickness options (cone, distances, attenuation, ground plane).
         let plain = match kind {
-            MeshMapKind::AmbientOcclusion => settings.ao.is_plain(),
+            MeshMapKind::AmbientOcclusion | MeshMapKind::BentNormal => settings.ao.is_plain(),
             MeshMapKind::Thickness => settings.thickness.is_plain(),
             _ => true,
         };
@@ -1046,13 +1040,13 @@ fn bake_core(
         let gpu = match backend_gpu {
             Some(gpu) if kind == MeshMapKind::Curvature => {
                 let radius = settings.curvature_radius * diag;
-                gpu_curvature_map(gpu, detail_geo, elements.as_deref(), gpu_details(), radius, progress, &mut backend)?
+                gpu_curvature_map(gpu, detail_geo, elements.as_deref(), gpu_details(), radius, progress, &mut backend)?.map(|v| v.into_iter().map(|a| [a; 3]).collect())
             }
             Some(gpu) => gpu_ray_map(gpu, kind, settings, detail_geo.bvh, &samples, gpu_details(), bias, diag, progress, &mut backend)?,
             None => None,
         };
         let values: Vec<[f32; 3]> = match gpu {
-            Some(v) => v.into_iter().map(|a| [a; 3]).collect(),
+            Some(v) => v,
             None => {
                 let mut values: Vec<[f32; 3]> = Vec::with_capacity(samples.len());
                 for start in (0..samples.len()).step_by(CHUNK) {
@@ -1236,15 +1230,17 @@ fn gpu_curvature_map(
     }
 }
 
-/// AO and thickness values per sample from the registered ray backend, or `None` to use the CPU
-/// (not a ray map, no backend, or the backend refused: `backend` then says why).
+/// AO, thickness and bent normal values per sample from the registered ray backend, or `None` to
+/// use the CPU (not a ray map, no backend, or the backend refused: `backend` then says why).
 #[allow(clippy::too_many_arguments)]
 fn gpu_ray_map(
     gpu: &dyn RayBatchBackend, kind: MeshMapKind, settings: &BakeSettings, bvh: &Bvh, samples: &[Texel], details: &[Detail], bias: f32, diag: f32,
     progress: &Progress, backend: &mut String,
-) -> Result<Option<Vec<f32>>, BakeError> {
+) -> Result<Option<Vec<[f32; 3]>>, BakeError> {
     let (rays, mode, salt, sign) = match kind {
         MeshMapKind::AmbientOcclusion => (settings.ao_samples.max(1), RayMode::Occlusion { distance: settings.ao_distance * diag }, 1, 1.0),
+        // The same fan as AO with its own seed, as the CPU `eval` casts it.
+        MeshMapKind::BentNormal => (settings.ao_samples.max(1), RayMode::BentNormal { distance: settings.ao_distance * diag }, 3, 1.0),
         MeshMapKind::Thickness => (settings.thickness_samples.max(1), RayMode::MeanDistance { max: (settings.thickness_distance * diag).max(1e-9) }, 2, -1.0),
         _ => return Ok(None),
     };
@@ -1260,7 +1256,14 @@ fn gpu_ray_map(
         Ok(values) => {
             progress.done.store(control.base + samples.len(), Ordering::Relaxed);
             *backend = gpu.description();
-            Ok(Some(values))
+            Ok(Some(match mode {
+                RayMode::BentNormal { .. } => values
+                    .chunks_exact(3)
+                    .zip(samples.iter().zip(details))
+                    .map(|(sum, (t, d))| bent_normal_texel(Vec3::new(sum[0], sum[1], sum[2]), t, d))
+                    .collect(),
+                _ => values.into_iter().map(|a| [a; 3]).collect(),
+            }))
         }
         Err(RayBatchError::Cancelled) => Err(BakeError::Cancelled),
         Err(RayBatchError::Unsupported(why)) => {
@@ -1270,6 +1273,17 @@ fn gpu_ray_map(
             Ok(None)
         }
     }
+}
+
+/// A bent normal texel from the sum of its open ray directions, in the texel's tangent space
+/// (encoded 0..1). Fully occluded texels keep the surface normal.
+fn bent_normal_texel(sum: Vec3, t: &Texel, d: &Detail) -> [f32; 3] {
+    let n = t.normal.normalize_or(t.geometric_normal);
+    let tan = (t.tangent.truncate() - n * n.dot(t.tangent.truncate())).normalize_or(n.any_orthonormal_vector());
+    let bit = n.cross(tan) * if t.tangent.w < 0.0 { -1.0 } else { 1.0 };
+    let bent = sum.try_normalize().unwrap_or(d.normal);
+    let ts = Vec3::new(bent.dot(tan), bent.dot(bit), bent.dot(n)).normalize_or(Vec3::Z);
+    [ts.x * 0.5 + 0.5, ts.y * 0.5 + 0.5, ts.z * 0.5 + 0.5]
 }
 
 #[cfg(test)]
