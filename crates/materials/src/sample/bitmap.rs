@@ -38,7 +38,7 @@ impl MipChain {
         while w > 1 || h > 1 {
             let (nw, nh) = ((w / 2).max(1), (h / 2).max(1));
             let mut next = vec![[0.0f32; 4]; (nw * nh) as usize];
-            next.par_chunks_mut(nw as usize).enumerate().for_each(|(y, row)| {
+            let row_of = |(y, row): (usize, &mut [[f32; 4]])| {
                 let (y0, y1) = ((y as u32 * 2).min(h - 1), (y as u32 * 2 + 1).min(h - 1));
                 for (x, o) in row.iter_mut().enumerate() {
                     let (x0, x1) = ((x as u32 * 2).min(w - 1), (x as u32 * 2 + 1).min(w - 1));
@@ -49,7 +49,16 @@ impl MipChain {
                     let (a, b, c, d) = (at(x0, y0), at(x1, y0), at(x0, y1), at(x1, y1));
                     *o = std::array::from_fn(|k| (a[k] + b[k] + c[k] + d[k]) * 0.25);
                 }
-            });
+            };
+            // The chain is built lazily by the first tile that samples the bitmap, inside a
+            // compositor stage cell's one-time init. A rayon join there lets this thread steal
+            // another tile's job that waits on the same cell: a deadlock (QA fuzz UDIM seed 457).
+            // Inside the pool the tiles already keep every core busy, so build it serially.
+            if rayon::current_thread_index().is_some() {
+                next.chunks_mut(nw as usize).enumerate().for_each(row_of);
+            } else {
+                next.par_chunks_mut(nw as usize).enumerate().for_each(row_of);
+            }
             levels.push(encode_level(bmp, linearize, nw, nh, &next));
             prev = Some(next);
             (w, h) = (nw, nh);
