@@ -144,6 +144,15 @@ pub struct PathRibbon {
     /// The image (a project resource); `None` is a solid strip.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub image: Option<subcraft_core::ResourceId>,
+    /// Height map laid along the path with the image (a stitch or trim tile): the Height
+    /// channel takes it, measured from the level of the tile's long edges and scaled by the
+    /// path's Height value.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub height: Option<subcraft_core::ResourceId>,
+    /// Tangent space normal map (Y up) laid along the path with the image and turned with it:
+    /// the Normal channel takes it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub normal: Option<subcraft_core::ResourceId>,
     pub mode: RibbonMode,
     /// Stretch: copies over the length. Keep aspect ratio: aspect-ratio factor of each copy.
     pub tiles: f32,
@@ -301,6 +310,8 @@ impl Default for PathRibbon {
     fn default() -> Self {
         Self {
             image: None,
+            height: None,
+            normal: None,
             mode: RibbonMode::Stretch,
             tiles: 1.0,
             mirror: false,
