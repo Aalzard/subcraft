@@ -101,6 +101,24 @@ fn of_mask_effect(kind: &MaskEffectKind, opacity: f32) -> Vec<(Prop, String, Par
     out
 }
 
+fn of_content_effect(e: &crate::ContentEffect) -> Vec<(Prop, String, ParamKind)> {
+    let crate::ContentEffectKind::Material(filter) = &e.kind else { return Vec::new() };
+    filter
+        .settings()
+        .into_iter()
+        .map(|(setting, value)| {
+            let kind = match value {
+                crate::FilterValue::Unit(v) => float(v, 0.0, 1.0),
+                crate::FilterValue::Scale(v) => float(v, 0.1, crate::MAX_MATERIAL_FILTER_SCALE),
+                crate::FilterValue::Spread(v) => float(v, 0.0, crate::MAX_EDGE_DAMAGE_SPREAD),
+                crate::FilterValue::Color(c) => ParamKind::Color { default: c },
+                crate::FilterValue::Seed(s) => seed_kind(s),
+            };
+            (Prop::Filter { setting }, setting.label().to_string(), kind)
+        })
+        .collect()
+}
+
 /// Every property of `root` and the layers inside it that can be exposed, top layer first.
 pub fn exposable(root: &Layer) -> Vec<Exposable> {
     let mut out = Vec::new();
@@ -114,6 +132,11 @@ fn collect(l: &Layer, out: &mut Vec<Exposable>) {
     }
     for e in l.mask.iter().flat_map(|m| m.effects.iter().rev()) {
         for (prop, label, kind) in of_mask_effect(&e.kind, e.opacity) {
+            out.push(Exposable { layer: l.id, effect: Some(e.id), prop, layer_name: l.name.clone(), effect_name: Some(e.name.clone()), label, kind });
+        }
+    }
+    for e in l.content_effects.iter().rev() {
+        for (prop, label, kind) in of_content_effect(e) {
             out.push(Exposable { layer: l.id, effect: Some(e.id), prop, layer_name: l.name.clone(), effect_name: Some(e.name.clone()), label, kind });
         }
     }
