@@ -142,6 +142,21 @@ fn random_mask_effect(r: &mut Rng) -> MaskEffectKind {
     }
 }
 
+/// Half of the time, point the image slots of `f` at anchors of the set (anywhere in it, so
+/// some are not below) or at an anchor that does not exist.
+fn anchored(mut f: Filter, r: &mut Rng, s: &Session) -> Filter {
+    let set = s.selected_texture_set();
+    let anchors = subcraft_doc::AnchorIndex::build(&set.layers).anchors;
+    let channels: Vec<ChannelKind> = set.channels.iter().map(|c| c.kind).collect();
+    for slot in 0..2 {
+        if r.below(2) == 0 {
+            let id = if anchors.is_empty() || r.below(8) == 0 { subcraft_core::EffectId::new() } else { anchors[r.below(anchors.len())].id };
+            f.set_anchor(slot, subcraft_doc::AnchorInput::new(id, r.pick(&channels).unwrap_or(ChannelKind::Height)));
+        }
+    }
+    f
+}
+
 fn random_content_effect(r: &mut Rng, s: &Session) -> ContentEffectKind {
     let channels: Vec<ChannelKind> = s.selected_texture_set().channels.iter().map(|c| c.kind).collect();
     let channel = r.pick(&channels).unwrap_or(ChannelKind::BaseColor);
@@ -149,7 +164,7 @@ fn random_content_effect(r: &mut Rng, s: &Session) -> ContentEffectKind {
         5 => ContentEffectKind::Material(subcraft_doc::MaterialFilter::ALL[r.below(subcraft_doc::MaterialFilter::ALL.len())].clone()),
         0 => ContentEffectKind::Levels { channel, levels: Levels::default() },
         1 | 2 => {
-            let f = random_filter(r);
+            let f = anchored(random_filter(r), r, s);
             if f.supports_channel(channel) { ContentEffectKind::Filter { channel, filter: f } } else { ContentEffectKind::Anchor }
         }
         3 => ContentEffectKind::Paint { channels: Default::default() },
@@ -181,7 +196,13 @@ fn random_command(r: &mut Rng, s: &Session, graveyard: &[LayerId]) -> Command {
         18 => Command::RemoveMask(layer),
         19 => Command::InvertMask(layer),
         20 => Command::SetMaskEnabled { layer, enabled: r.chance(0.7) },
-        21..=24 => Command::AddMaskEffect { layer, kind: random_mask_effect(r) },
+        21..=24 => Command::AddMaskEffect {
+            layer,
+            kind: match random_mask_effect(r) {
+                MaskEffectKind::Filter(f) => MaskEffectKind::Filter(anchored(f, r, s)),
+                kind => kind,
+            },
+        },
         25 => Command::RemoveMaskEffect { layer, effect: r.pick(&mask_effects(s, layer)).unwrap_or_else(EffectId::new) },
         26 => Command::MoveMaskEffect { layer, effect: r.pick(&mask_effects(s, layer)).unwrap_or_else(EffectId::new), index: r.below(5) },
         27 => Command::DuplicateMaskEffect { layer, effect: r.pick(&mask_effects(s, layer)).unwrap_or_else(EffectId::new) },

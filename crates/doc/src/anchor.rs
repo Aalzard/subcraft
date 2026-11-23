@@ -9,8 +9,9 @@
 //!   `(value, alpha)`, before the layer's mask, blend and opacity. A mask anchor holds the mask
 //!   value evaluated up to it.
 //! * References sit in a fill layer's channel ([`crate::FillSource::Anchor`]), in a mask
-//!   ([`crate::MaskEffectKind::AnchorRef`]) and as a generator's input image
-//!   ([`crate::Generator::input`]).
+//!   ([`crate::MaskEffectKind::AnchorRef`]), as a generator's input image
+//!   ([`crate::Generator::input`]) and in the image slots of a filter, on content or on a mask
+//!   ([`crate::ImageSource::Anchor`]).
 //! * Evaluation order is a single walk: for each layer bottom to top, its folder children first,
 //!   then its content base (where fill-channel references sit), its content effects, then its mask
 //!   effects. A reference resolves only to an anchor strictly earlier in that walk, so the
@@ -70,14 +71,17 @@ pub struct AnchorInfo {
 pub enum RefSite {
     /// A fill layer's channel whose source is an anchor.
     Fill { layer: LayerId, channel: ChannelKind },
-    /// A mask effect: an Anchor Reference, or a generator with an anchor input.
+    /// A mask effect: an Anchor Reference, a generator with an anchor input, or a filter with an
+    /// anchor in its image slot (mask filters have one slot at most).
     Mask { layer: LayerId, effect: EffectId },
+    /// An image slot of a content filter.
+    Content { layer: LayerId, effect: EffectId, slot: usize },
 }
 
 impl RefSite {
     pub fn layer(&self) -> LayerId {
         match *self {
-            RefSite::Fill { layer, .. } | RefSite::Mask { layer, .. } => layer,
+            RefSite::Fill { layer, .. } | RefSite::Mask { layer, .. } | RefSite::Content { layer, .. } => layer,
         }
     }
 }
@@ -140,6 +144,7 @@ pub fn mask_effect_input(kind: &MaskEffectKind) -> Option<AnchorInput> {
     match kind {
         MaskEffectKind::AnchorRef { input, .. } => Some(*input),
         MaskEffectKind::Generator(g) => g.input.filter(|_| g.accepts_input()),
+        MaskEffectKind::Filter(f) => f.anchor_inputs().first().map(|(_, input)| *input),
         _ => None,
     }
 }
@@ -159,7 +164,20 @@ pub fn has_references(layers: &[Arc<Layer>]) -> bool {
 
 /// Whether this layer itself (not its children) reads an anchor.
 pub fn layer_has_references(l: &Layer) -> bool {
-    mask_has_references(l) || fill_has_references(l)
+    mask_has_references(l) || fill_has_references(l) || content_has_references(l)
+}
+
+/// The anchor inputs a content effect reads, by image slot.
+pub fn content_effect_inputs(kind: &ContentEffectKind) -> Vec<(usize, AnchorInput)> {
+    match kind {
+        ContentEffectKind::Filter { filter, .. } => filter.anchor_inputs(),
+        _ => Vec::new(),
+    }
+}
+
+/// Whether one of this layer's content filters reads an anchor.
+pub fn content_has_references(l: &Layer) -> bool {
+    l.content_effects.iter().any(|e| !content_effect_inputs(&e.kind).is_empty())
 }
 
 /// Whether this layer's mask reads an anchor.
@@ -218,6 +236,16 @@ impl AnchorIndex {
         }
         for (i, e) in layer.content_effects.iter().enumerate() {
             let o = next();
+            if let ContentEffectKind::Filter { filter, .. } = &e.kind {
+                for slot in 0..2 {
+                    if filter.slot_accepts_anchor(slot) {
+                        self.sites.insert(RefSite::Content { layer: layer.id, effect: e.id, slot }, o);
+                    }
+                }
+            }
+            for (slot, input) in content_effect_inputs(&e.kind) {
+                self.refs.push(AnchorRef { site: RefSite::Content { layer: layer.id, effect: e.id, slot }, input, status: RefStatus::Ok, ordinal: o });
+            }
             if matches!(e.kind, ContentEffectKind::Anchor) {
                 self.anchors.push(AnchorInfo {
                     id: e.id,
@@ -294,6 +322,7 @@ impl AnchorIndex {
         match a.domain {
             AnchorDomain::Content => {
                 matches!(r.site, RefSite::Fill { layer, .. } if layer == a.layer)
+                    || (matches!(r.site, RefSite::Content { layer, .. } if layer == a.layer) && r.ordinal < a.ordinal)
                     || self.descendants.get(&a.layer).is_some_and(|d| d.contains(&r.site.layer()))
             }
             AnchorDomain::Mask => matches!(r.site, RefSite::Mask { layer, .. } if layer == a.layer) && r.ordinal < a.ordinal,
@@ -362,6 +391,7 @@ pub fn remap_inputs(layer: &mut Layer, map: &HashMap<EffectId, EffectId>) {
             }
         }
     }
+    remap_content_inputs(&mut layer.content_effects, map);
     if let Some(mask) = &mut layer.mask {
         remap_mask_inputs(&mut mask.effects, map);
     }
@@ -388,6 +418,17 @@ pub fn copied_effect_ids(original: &Layer, copy: &Layer, map: &mut HashMap<Effec
     }
 }
 
+/// [`remap_inputs`] for one content effect stack (the anchors in its filters' image slots).
+pub fn remap_content_inputs(effects: &mut [Arc<crate::effect::ContentEffect>], map: &HashMap<EffectId, EffectId>) {
+    for e in effects.iter_mut() {
+        if matches!(&e.kind, ContentEffectKind::Filter { filter, .. } if filter.reads_any_anchor(map))
+            && let ContentEffectKind::Filter { filter, .. } = &mut Arc::make_mut(e).kind
+        {
+            filter.remap_anchors(map);
+        }
+    }
+}
+
 /// [`remap_inputs`] for one mask effect stack.
 pub fn remap_mask_inputs(effects: &mut [Arc<MaskEffect>], map: &HashMap<EffectId, EffectId>) {
     for e in effects.iter_mut() {
@@ -397,6 +438,7 @@ pub fn remap_mask_inputs(effects: &mut [Arc<MaskEffect>], map: &HashMap<EffectId
         match &mut Arc::make_mut(e).kind {
             MaskEffectKind::AnchorRef { input: i, .. } => *i = input,
             MaskEffectKind::Generator(g) => g.input = Some(input),
+            MaskEffectKind::Filter(f) => f.remap_anchors(map),
             _ => {}
         }
     }
@@ -427,6 +469,79 @@ mod tests {
         m.effects.push(Arc::new(e));
         l.mask = Some(m);
         (l, id)
+    }
+
+    #[test]
+    fn filter_image_slots_are_references() {
+        use crate::filter::{BlurMap, Filter, ImageSource, MatchSource};
+        let ts = TextureSet::new("T", 0, 64);
+        let (low, low_anchor) = anchor_layer(&ts, "Low");
+        // A layer with [filter, anchor, filter] on its content and a filter on its mask.
+        let (mut top, own_anchor) = anchor_layer(&ts, "Top");
+        let nub = |anchor| Filter::NonUniformBlur { radius: 4.0, map: BlurMap::Image, scale: 4, seed: 1, samples: 8, image: Some(ImageSource::Anchor(AnchorInput::new(anchor, ChannelKind::Height))) };
+        let early = ContentEffect::new(ContentEffectKind::Filter { channel: ChannelKind::Roughness, filter: nub(own_anchor) }, &ts);
+        let late = ContentEffect::new(
+            ContentEffectKind::Filter {
+                channel: ChannelKind::BaseColor,
+                filter: Filter::ColorMatch {
+                    source_mode: MatchSource::Parameter,
+                    source: [0.5; 3],
+                    target: [0.5; 3],
+                    hue: 1.0,
+                    chroma: 1.0,
+                    luma: 1.0,
+                    // Kept, but not read outside the Input mode: no reference.
+                    source_image: Some(ImageSource::Anchor(AnchorInput::new(EffectId::new(), ChannelKind::BaseColor))),
+                    target_image: Some(ImageSource::Anchor(AnchorInput::new(low_anchor, ChannelKind::BaseColor))),
+                },
+            },
+            &ts,
+        );
+        let (early_id, late_id) = (early.id, late.id);
+        top.content_effects.insert(0, Arc::new(early));
+        top.content_effects.push(Arc::new(late));
+        let mut m = Mask::new(64, false);
+        let on_mask = MaskEffect::new(MaskEffectKind::Filter(nub(own_anchor)));
+        let mask_id = on_mask.id;
+        m.effects.push(Arc::new(on_mask));
+        top.mask = Some(m);
+        let top_id = top.id;
+        let layers = vec![Arc::new(low), Arc::new(top)];
+        assert!(has_references(&layers) && content_has_references(&layers[1]) && !content_has_references(&layers[0]));
+        let index = AnchorIndex::build(&layers);
+        let status = |site| index.reference(site).map(|r| r.status);
+        // The filter under its own layer's anchor cannot read it (the anchor captures that very
+        // filter: a cycle); the mask filter can.
+        assert_eq!(status(RefSite::Content { layer: top_id, effect: early_id, slot: 0 }), Some(RefStatus::Cycle));
+        assert_eq!(status(RefSite::Content { layer: top_id, effect: late_id, slot: 1 }), Some(RefStatus::Ok));
+        assert_eq!(status(RefSite::Content { layer: top_id, effect: late_id, slot: 0 }), None);
+        assert_eq!(status(RefSite::Mask { layer: top_id, effect: mask_id }), Some(RefStatus::Ok));
+        assert_eq!(index.dependents(low_anchor).len(), 1);
+        assert_eq!(index.dependents(own_anchor).len(), 2);
+        // The picker of each slot offers the anchors below that effect.
+        let names = |site| index.candidates(site).iter().map(|a| a.id).collect::<Vec<_>>();
+        assert_eq!(names(RefSite::Content { layer: top_id, effect: early_id, slot: 0 }), vec![low_anchor]);
+        assert_eq!(names(RefSite::Content { layer: top_id, effect: late_id, slot: 1 }), vec![low_anchor, own_anchor]);
+        // A copy of the tree reads its own copied anchors, in shown and in kept slots alike.
+        let mut copy = (*layers[1]).clone();
+        let new_anchor = EffectId::new();
+        remap_inputs(&mut copy, &HashMap::from([(own_anchor, new_anchor)]));
+        let ContentEffectKind::Filter { filter, .. } = &copy.content_effects[0].kind else { unreachable!() };
+        assert_eq!(filter.anchor_inputs(), vec![(0, AnchorInput::new(new_anchor, ChannelKind::Height))]);
+        assert_eq!(mask_effect_input(&copy.mask.as_ref().unwrap().effects[0].kind), Some(AnchorInput::new(new_anchor, ChannelKind::Height)));
+        let ContentEffectKind::Filter { filter, .. } = &copy.content_effects[2].kind else { unreachable!() };
+        assert_eq!(filter.anchor_inputs(), vec![(1, AnchorInput::new(low_anchor, ChannelKind::BaseColor))]);
+        // Files: an anchor slot round-trips, next to an image slot.
+        let f = nub(own_anchor);
+        let json = serde_json::to_string(&f).unwrap();
+        assert!(json.contains(r#""image":{"anchor":"#), "{json}");
+        assert_eq!(serde_json::from_str::<Filter>(&json).unwrap(), f);
+        let mut g = f;
+        let image = subcraft_core::ResourceId::new();
+        assert!(g.set_image(0, Some(image)) && g.anchor_inputs().is_empty() && g.resources() == vec![image]);
+        assert_eq!(serde_json::from_str::<Filter>(&serde_json::to_string(&g).unwrap()).unwrap(), g);
+        assert!(g.set_anchor(0, AnchorInput::new(own_anchor, ChannelKind::Height)) && g.resources().is_empty() && g == f);
+        assert!(!Filter::gradient_dynamic().set_anchor(0, AnchorInput::new(own_anchor, ChannelKind::Height)));
     }
 
     /// QA 2026-11: an input kept by a generator switched to a kind that reads none still

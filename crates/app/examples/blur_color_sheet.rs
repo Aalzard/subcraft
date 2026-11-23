@@ -3,7 +3,7 @@
 //! composite time. `cargo run --release -p subcraft-app --example blur_color_sheet -- <prefix> [size]`
 use subcraft_app::{Command, NewLayer, Session};
 use subcraft_core::{ChannelKind as C, ChannelValue, color::linear3_to_srgb};
-use subcraft_doc::{BlurMap, ContentEffectKind, FillChannel, FillSource, Filter, MatchSource, ProceduralKind, ProceduralParams, SlopeMode, SlopeSource};
+use subcraft_doc::{AnchorInput, BlurMap, ContentEffectKind, FillChannel, FillSource, Filter, MatchSource, ProceduralKind, ProceduralParams, SlopeMode, SlopeSource};
 use subcraft_image::{FileFormat, save_image};
 
 fn err(e: impl std::fmt::Debug) -> String {
@@ -36,26 +36,32 @@ fn main() -> Result<(), String> {
     ];
     let scratches = (ProceduralKind::Scratches, 6.0, [0.85, 0.8, 0.7], [0.02, 0.02, 0.025]);
     let scratches_dark = (ProceduralKind::Scratches, 6.0, [0.02, 0.02, 0.025], [0.85, 0.8, 0.7]);
+    let gradient = (ProceduralKind::GradientU, 1.0, [0.0; 3], [1.0; 3]);
+    let moss = (ProceduralKind::Cells, 3.0, [0.02, 0.2, 0.05], [0.5, 0.45, 0.1]);
     let cases = [
-        ("slope_noise_min", shapes, slope(SlopeSource::Noise, SlopeMode::Min), &[][..]),
-        ("slope_noise_max", shapes, slope(SlopeSource::Noise, SlopeMode::Max), &[][..]),
-        ("slope_input_blur", cells, slope(SlopeSource::Input, SlopeMode::Blur), &[][..]),
-        ("slope_input_min", cells, slope(SlopeSource::Input, SlopeMode::Min), &[][..]),
-        ("slope_input_max", cells, slope(SlopeSource::Input, SlopeMode::Max), &[][..]),
-        ("non_uniform_bright", cells, Filter::NonUniformBlur { radius: 24.0 * px, map: BlurMap::Value, scale: 4, seed: 1, samples: 48, image: None }, &[][..]),
-        ("non_uniform_dark", cells, Filter::NonUniformBlur { radius: 24.0 * px, map: BlurMap::InvertedValue, scale: 4, seed: 1, samples: 48, image: None }, &[][..]),
-        ("non_uniform_noise", shapes, Filter::NonUniformBlur { radius: 24.0 * px, map: BlurMap::Noise, scale: 3, seed: 1, samples: 48, image: None }, &[][..]),
-        ("color_match_average", rust, Filter::ColorMatch { source_mode: MatchSource::Average, source: [0.5; 3], target: [0.05, 0.22, 0.3], hue: 1.0, chroma: 1.0, luma: 1.0, source_image: None, target_image: None }, &[][..]),
-        ("color_match_picked_hue", clouds, Filter::ColorMatch { source_mode: MatchSource::Parameter, source: [0.9, 0.3, 0.03], target: [0.1, 0.5, 0.9], hue: 1.0, chroma: 1.0, luma: 0.25, source_image: None, target_image: None }, &[][..]),
-        ("slope_noise_min_scratches", scratches, slope(SlopeSource::Noise, SlopeMode::Min), &[][..]),
-        ("slope_noise_max_scratches", scratches_dark, slope(SlopeSource::Noise, SlopeMode::Max), &[][..]),
-        ("slope_custom_blur", shapes, slope(SlopeSource::Custom, SlopeMode::Blur), &[(0, "swirl")][..]),
-        ("slope_custom_max", shapes, slope(SlopeSource::Custom, SlopeMode::Max), &[(0, "swirl")][..]),
-        ("non_uniform_image", cells, Filter::NonUniformBlur { radius: 24.0 * px, map: BlurMap::Image, scale: 4, seed: 1, samples: 48, image: None }, &[(0, "spot")][..]),
-        ("color_match_target_image", rust, Filter::ColorMatch { source_mode: MatchSource::Average, source: [0.5; 3], target: [0.05, 0.22, 0.3], hue: 1.0, chroma: 1.0, luma: 1.0, source_image: None, target_image: None }, &[(1, "sunset")][..]),
-        ("color_match_source_image", rust, Filter::ColorMatch { source_mode: MatchSource::Image, source: [0.5; 3], target: [0.05, 0.22, 0.3], hue: 1.0, chroma: 1.0, luma: 1.0, source_image: None, target_image: None }, &[(0, "sunset")][..]),
+        ("slope_noise_min", shapes, slope(SlopeSource::Noise, SlopeMode::Min), &[][..], None),
+        ("slope_noise_max", shapes, slope(SlopeSource::Noise, SlopeMode::Max), &[][..], None),
+        ("slope_input_blur", cells, slope(SlopeSource::Input, SlopeMode::Blur), &[][..], None),
+        ("slope_input_min", cells, slope(SlopeSource::Input, SlopeMode::Min), &[][..], None),
+        ("slope_input_max", cells, slope(SlopeSource::Input, SlopeMode::Max), &[][..], None),
+        ("non_uniform_bright", cells, Filter::NonUniformBlur { radius: 24.0 * px, map: BlurMap::Value, scale: 4, seed: 1, samples: 48, image: None }, &[][..], None),
+        ("non_uniform_dark", cells, Filter::NonUniformBlur { radius: 24.0 * px, map: BlurMap::InvertedValue, scale: 4, seed: 1, samples: 48, image: None }, &[][..], None),
+        ("non_uniform_noise", shapes, Filter::NonUniformBlur { radius: 24.0 * px, map: BlurMap::Noise, scale: 3, seed: 1, samples: 48, image: None }, &[][..], None),
+        ("color_match_average", rust, Filter::ColorMatch { source_mode: MatchSource::Average, source: [0.5; 3], target: [0.05, 0.22, 0.3], hue: 1.0, chroma: 1.0, luma: 1.0, source_image: None, target_image: None }, &[][..], None),
+        ("color_match_picked_hue", clouds, Filter::ColorMatch { source_mode: MatchSource::Parameter, source: [0.9, 0.3, 0.03], target: [0.1, 0.5, 0.9], hue: 1.0, chroma: 1.0, luma: 0.25, source_image: None, target_image: None }, &[][..], None),
+        ("slope_noise_min_scratches", scratches, slope(SlopeSource::Noise, SlopeMode::Min), &[][..], None),
+        ("slope_noise_max_scratches", scratches_dark, slope(SlopeSource::Noise, SlopeMode::Max), &[][..], None),
+        ("slope_custom_blur", shapes, slope(SlopeSource::Custom, SlopeMode::Blur), &[(0, "swirl")][..], None),
+        ("slope_custom_max", shapes, slope(SlopeSource::Custom, SlopeMode::Max), &[(0, "swirl")][..], None),
+        ("non_uniform_image", cells, Filter::NonUniformBlur { radius: 24.0 * px, map: BlurMap::Image, scale: 4, seed: 1, samples: 48, image: None }, &[(0, "spot")][..], None),
+        ("color_match_target_image", rust, Filter::ColorMatch { source_mode: MatchSource::Average, source: [0.5; 3], target: [0.05, 0.22, 0.3], hue: 1.0, chroma: 1.0, luma: 1.0, source_image: None, target_image: None }, &[(1, "sunset")][..], None),
+        ("color_match_source_image", rust, Filter::ColorMatch { source_mode: MatchSource::Image, source: [0.5; 3], target: [0.05, 0.22, 0.3], hue: 1.0, chroma: 1.0, luma: 1.0, source_image: None, target_image: None }, &[(0, "sunset")][..], None),
+        // Anchor inputs: the lower layer (its Base Color, captured by an anchor point) is the map.
+        ("non_uniform_anchor", cells, Filter::NonUniformBlur { radius: 24.0 * px, map: BlurMap::Image, scale: 4, seed: 1, samples: 48, image: None }, &[][..], Some((0, gradient))),
+        ("slope_custom_anchor", shapes, slope(SlopeSource::Custom, SlopeMode::Blur), &[][..], Some((0, clouds))),
+        ("color_match_target_anchor", rust, Filter::ColorMatch { source_mode: MatchSource::Average, source: [0.5; 3], target: [0.05, 0.22, 0.3], hue: 1.0, chroma: 1.0, luma: 1.0, source_image: None, target_image: None }, &[][..], Some((1, moss))),
     ];
-    for (name, (kind, scale, low, high), mut filter, inputs) in cases {
+    for (name, (kind, scale, low, high), mut filter, inputs, anchor) in cases {
         if !filter.valid() {
             return Err(format!("{name}: invalid at this size"));
         }
@@ -67,6 +73,19 @@ fn main() -> Result<(), String> {
             let id = s.import_image(std::path::Path::new(path))?;
             if !filter.set_image(*slot, Some(id)) {
                 return Err(format!("{name}: no image slot {slot}"));
+            }
+        }
+        let procedural = |(kind, scale, low, high): (ProceduralKind, f32, [f32; 3], [f32; 3])| {
+            FillChannel::new(FillSource::Procedural { params: ProceduralParams { scale, ..ProceduralParams::new(kind) }, low: ChannelValue::rgb(low[0], low[1], low[2]), high: ChannelValue::rgb(high[0], high[1], high[2]) })
+        };
+        if let Some((slot, map)) = anchor {
+            s.execute(Command::AddLayer(NewLayer::Fill)).map_err(err)?;
+            let low_layer = s.selection().layer.unwrap();
+            s.execute(Command::SetFillChannel { layer: low_layer, channel: C::BaseColor, fill: procedural(map) }).map_err(err)?;
+            s.execute(Command::AddContentEffect { layer: low_layer, kind: ContentEffectKind::Anchor }).map_err(err)?;
+            let id = s.document().texture_sets[0].find(low_layer).ok_or("no layer")?.content_effects[0].id;
+            if !filter.set_anchor(slot, AnchorInput::new(id, C::BaseColor)) {
+                return Err(format!("{name}: no anchor slot {slot}"));
             }
         }
         s.execute(Command::AddLayer(NewLayer::Fill)).map_err(err)?;
