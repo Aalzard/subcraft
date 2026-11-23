@@ -835,3 +835,80 @@ fn triplanar_unique_sides_are_not_mirror_images() {
     // The two sides of an axis meet where that axis has no weight, so the jump cannot show.
     assert_eq!(triplanar_weights([0.0, 0.6, 0.8], unique.triplanar_sharpness)[0], 0.0);
 }
+
+/// QA fuzz UDIM seed 457: the compositor builds a bitmap's mip chain lazily inside a stage
+/// cell's one-time init, from a rayon worker. A rayon join in the build let that worker, while
+/// waiting for a stolen half, steal a tile that waits on the same cell: the composite hung.
+/// Here one worker holds the init while another queues a job reading the same cell.
+#[test]
+fn mip_chain_built_inside_a_shared_once_init_never_deadlocks() {
+    use std::sync::OnceLock;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::{Duration, Instant};
+
+    use crate::sample::MipChain;
+    let size = 2048;
+    let bmp = Arc::new(Bitmap::new_u8(size, size, 1, (0..size * size).map(|i| (i * 7 % 251) as u8).collect()));
+    let outside = MipChain::build(&bmp, false);
+    let expected: Vec<[f32; 4]> = (1..=outside.len()).map(|n| outside.level(n).texel(0, 0, false)).collect();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let b = bmp.clone();
+    std::thread::spawn(move || {
+        let pool = rayon::ThreadPoolBuilder::new().num_threads(3).build().unwrap();
+        let chain = |b: &Bitmap| -> Vec<[f32; 4]> {
+            let c = MipChain::build(b, false);
+            (1..=c.len()).map(|n| c.level(n).texel(0, 0, false)).collect()
+        };
+        let mut got = Vec::new();
+        for _ in 0..60 {
+            let cell: OnceLock<Vec<[f32; 4]>> = OnceLock::new();
+            let started = AtomicBool::new(false);
+            // A worker holds the init (A). B queues a reader of the cell on its worker and stays
+            // busy; C keeps the third worker busy until then, so it later steals a half of the
+            // build and the holder waits, free to steal B's reader.
+            let (a, ((_, c), _)) = pool.install(|| {
+                rayon::join(
+                    || {
+                        cell.get_or_init(|| {
+                            started.store(true, Ordering::SeqCst);
+                            chain(&b)
+                        })
+                        .clone()
+                    },
+                    || {
+                        rayon::join(
+                            || {
+                                while !started.load(Ordering::SeqCst) {
+                                    std::hint::spin_loop();
+                                }
+                                rayon::join(
+                                    || {
+                                        let t = Instant::now();
+                                        while cell.get().is_none() && t.elapsed() < Duration::from_millis(50) {
+                                            std::hint::spin_loop();
+                                        }
+                                    },
+                                    || cell.get_or_init(|| chain(&b)).clone(),
+                                )
+                            },
+                            || {
+                                while !started.load(Ordering::SeqCst) {
+                                    std::hint::spin_loop();
+                                }
+                                let t = Instant::now();
+                                while t.elapsed() < Duration::from_millis(1) {
+                                    std::hint::spin_loop();
+                                }
+                            },
+                        )
+                    },
+                )
+            });
+            got.push(a);
+            got.push(c);
+        }
+        let _ = tx.send(got);
+    });
+    let got = rx.recv_timeout(Duration::from_secs(120)).expect("building mip chains inside a shared one-time init deadlocked");
+    assert!(got.iter().all(|c| *c == expected), "a chain built inside the pool matches one built outside");
+}

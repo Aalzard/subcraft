@@ -1429,6 +1429,8 @@ impl<'a> Graph<'a> {
         for &id in chain.iter().rev() {
             let key = self.key(id, tile);
             let result = match self.modes()[id] {
+                // `compute` must not wait on rayon jobs (par_iter, join): while it waits, this
+                // thread can steal a tile that blocks on this same cell, which never completes.
                 Mode::Shared => self.cache.cell(key).get_or_init(|| Arc::new(self.compute(id, tile))).clone(),
                 Mode::Tile => {
                     let p = Arc::new(self.compute(id, tile));
