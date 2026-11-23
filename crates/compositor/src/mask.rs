@@ -1072,6 +1072,7 @@ pub(crate) fn evaluate_effect(kind: &MaskEffectKind, tc: &TileContext, m: &[f32]
                 read_tile_rgba(image, tc.geo, e);
             }
             MaskEffectKind::Fill { value, procedural, projection } => {
+                let projection = &projection.resolve_physical(tc.set_geometry.surface_scale());
                 let field = procedural.as_ref().map(|p| procedural_tile(p, projection, tc.geo));
                 // A uniform value has no texture to wrap or crop; a procedural does.
                 let cover = field.as_ref().and_then(|_| subcraft_materials::sample::coverage_tile(projection, tc.geo));
@@ -1116,7 +1117,7 @@ pub(crate) fn evaluate_effect(kind: &MaskEffectKind, tc: &TileContext, m: &[f32]
                     *o = [1.0 - v, 1.0, 0.0, 0.0];
                 }
             }
-            MaskEffectKind::Image { resource, projection, invert, balance, contrast } => eval_image(*resource, projection, *invert, (*balance, *contrast), tc, e),
+            MaskEffectKind::Image { resource, projection, invert, balance, contrast } => eval_image(*resource, &projection.resolve_physical(tc.set_geometry.surface_scale()), *invert, (*balance, *contrast), tc, e),
             MaskEffectKind::IdColor(id) => eval_id_color(id, tc, e),
             // Without the layer stack (local previews), the layers read as 0.
             MaskEffectKind::Compare(c) => eval_compare(c, m, None, None, e),

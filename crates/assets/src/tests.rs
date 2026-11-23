@@ -10,7 +10,7 @@ fn library_contents_are_well_formed() {
     let lib = Library::builtin();
     assert!(lib.alphas.len() >= 6 && lib.materials.len() >= 12 && lib.smart_materials.len() >= 4 && lib.smart_masks.len() >= 4);
     assert!(lib.environments.len() >= 4);
-    assert_eq!((lib.smart_materials.len(), lib.smart_masks.len()), (50, 44), "11 procedural + 5 + 8 + 8 + 5 open-pack + 18 PBR-pack smart materials, minus Old Wood, Worn Leather, Sandstone, Dirty Rubber and Muddy Leather, 5 + 16 + 15 + 4 open-pack smart masks + 4 generator masks (concave, thin, X and Z gradients)");
+    assert_eq!((lib.smart_materials.len(), lib.smart_masks.len()), (64, 44), "25 procedural + 5 + 8 + 8 + 5 open-pack + 18 PBR-pack smart materials, minus Old Wood, Worn Leather, Sandstone, Dirty Rubber and Muddy Leather, 5 + 16 + 15 + 4 open-pack smart masks + 4 generator masks (concave, thin, X and Z gradients)");
     let mut ids: Vec<_> = lib.materials.iter().map(|m| m.id).chain(lib.alphas.iter().map(|a| a.id)).collect();
     let n = ids.len();
     ids.sort();
@@ -68,6 +68,36 @@ fn constant_environment_prefilters_to_constant_irradiance() {
         let e = environment::irradiance(&p, n);
         assert!((e[0] - 0.5).abs() < 0.02, "irradiance of a uniform sky is the sky value: {e:?} at {n}");
     }
+}
+
+#[test]
+fn prefiltered_levels_blur_like_ggx_lobes_doubling_per_level() {
+    // A thin bright vertical line through a 2048-wide panorama: the horizontal spread of each
+    // level at the equator is that level's blur angle.
+    let (w, h) = (2048u32, 1024u32);
+    let mut data = vec![0.0f32; (w * h * 3) as usize];
+    for y in 0..h {
+        let i = ((y * w + w / 2) * 3) as usize;
+        data[i..i + 3].copy_from_slice(&[1.0, 1.0, 1.0]);
+    }
+    let p = environment::prefilter(&Bitmap::new_f32(w, h, 3, data));
+    assert_eq!(p.levels.len(), 8, "2048 .. 16");
+    assert_eq!(p.levels[0].width, 2048);
+    let n = p.levels.len();
+    for (k, l) in p.levels.iter().enumerate().skip(1).take(n - 3) {
+        let y = l.height / 2;
+        let (mut sum, mut m2) = (0.0f64, 0.0f64);
+        for x in 0..l.width {
+            let v = l.rgba[((y * l.width + x) * 4) as usize] as f64;
+            let ang = ((x as f64 + 0.5) / l.width as f64 - 0.5) * std::f64::consts::TAU;
+            sum += v;
+            m2 += v * ang * ang;
+        }
+        let sigma = (m2 / sum).sqrt() as f32;
+        let want = environment::level_blur(k, n);
+        assert!((sigma / want - 1.0).abs() < 0.25, "level {k}: {:.2} deg, want {:.2} deg", sigma.to_degrees(), want.to_degrees());
+    }
+    assert!((environment::level_blur(n - 1, n) - environment::TOP_BLUR).abs() < 1e-6, "the last level is roughness 1");
 }
 
 #[test]
@@ -145,7 +175,9 @@ fn bundled_hdri_prefilters_on_first_use_with_a_sun_direction() {
     let lib = Library::builtin();
     let sky = lib.environments.iter().find(|e| e.name == "Salt Flats Twilight").expect("bundled sky");
     let h = sky.source.hdri().expect("hdri");
-    assert_eq!(h.levels.len(), 6);
+    // 1024 wide: levels 1024, 512, ... 16.
+    assert_eq!(h.levels.len(), 7);
+    assert_eq!(h.levels[0].width, 1024);
     assert!(h.sun_direction.iter().all(|v| v.is_finite()));
     assert!(lib.environments[0].source.hdri().is_none(), "procedural presets have no panorama");
 }

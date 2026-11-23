@@ -27,12 +27,13 @@ impl ShadowQuality {
         }
     }
 
-    /// Filter radius in texels: (2r + 1)^2 comparisons per pixel.
-    pub fn filter_radius(self) -> u32 {
+    /// Soft filter: radius in shadow-map texels and number of comparisons per pixel, spread
+    /// over a disk (each comparison is itself bilinear, so 2x2 texels).
+    pub fn filter(self) -> (f32, u32) {
         match self {
-            ShadowQuality::Lightweight => 1,
-            ShadowQuality::Average => 1,
-            ShadowQuality::Intensive => 2,
+            ShadowQuality::Lightweight => (1.5, 12),
+            ShadowQuality::Average => (2.0, 16),
+            ShadowQuality::Intensive => (2.5, 24),
         }
     }
 }
@@ -244,7 +245,7 @@ mod tests {
     fn quality_sets_map_size_and_filter_and_the_default_is_off() {
         assert_eq!(ShadowQuality::default(), ShadowQuality::Lightweight);
         assert!(ShadowQuality::Lightweight.map_size() < ShadowQuality::Average.map_size() && ShadowQuality::Average.map_size() < ShadowQuality::Intensive.map_size());
-        assert!(ShadowQuality::Intensive.filter_radius() >= ShadowQuality::Lightweight.filter_radius());
+        assert!(ShadowQuality::Intensive.filter().1 >= ShadowQuality::Lightweight.filter().1);
         assert!(!ShadowParams::default().active());
         assert!(!ShadowParams { enabled: true, opacity: 0.0, ..Default::default() }.active());
         assert!(ShadowParams { enabled: true, opacity: 0.5, ..Default::default() }.active());

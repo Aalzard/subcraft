@@ -6033,6 +6033,33 @@ re-measured on a GPU. Not taken from his patch: the `SUBCRAFT_REPAINT_LOG` diagn
   SignPath application is now `https://github.com/Aalzard/subcraft/blob/main/docs/CODE_SIGNING.md`.
 * Checked: every relative link in the touched Markdown files resolves (script over `](path)` targets).
 
+## Physical Size for fills (2026-11-23, branch `claude/project-thread-kj58iu`)
+
+* **Engine:** `Projection::physical_size: Option<[f32; 2]>` (centimeters per repeat; not written when off, so
+  older projects and readers are unaffected). `Projection::resolve_physical(SurfaceScale)` turns it into the
+  Tiling that gives that repeat on the surface: UV mode scales by meters of surface per UV unit (square root of
+  3D area over UV area of the set's triangles, `TextureSetGeometry::surface_scale`), planar / tri-planar / warp
+  by the model's longest extent in meters. Spherical and cylindrical repeat by angle and keep Tiling. Resolved
+  in the compositor's one fill entry (`tile::eval_fill`) and for mask Fill / Image effects, so caches,
+  thumbnails and exports see a plain tiling.
+* **Mesh unit:** FBX positions stay in the file's unit, so the default model (centimeters) measured 100x too
+  big. `Mesh::unit_meters` now records the FBX scene unit (0 = not stated, read as meters; glTF and USD are
+  already meters). Saved as an optional `UNIT` extension after the version 2 mesh blob: older SubCraft
+  versions stop reading before it and ignore it; files without it read as before.
+* **Properties:** UV transformations > Scale is now Tiling / Physical size (was a disabled dropdown). Physical
+  size shows Size (cm) X / Y with a lock (log slider 1 to 500 cm, typed values 0.01 cm to 1 km). The 2D view's
+  UV frame manipulator hides while Physical size is on (it edits Tiling).
+* **Tests:** doc (resolve math, degenerate surfaces, validity, JSON round trip), mesh (unit extension round
+  trip, old data unchanged), compositor `tests/physical_size.rs` (surface scale of 0.5 / 2 / 3 m planes,
+  a 200-unit centimeter plane reads as 2 m, Physical size equals the matching Tiling bit for bit in UV and
+  tri-planar, the same 25 cm repeat gives twice the cells on a plane twice as large). Full workspace:
+  2366 passed before the unit fix; mesh / materials / compositor / doc / project re-run after it, all pass.
+* **Real app (release, Xvfb + lavapipe):** `cargo run -p subcraft-app --example physical_size_project -- out
+  10|tiling` writes the default model with a checker fill. Screenshots `docs/screenshots/fill-physical-size-physical.png`
+  (10 cm) and `fill-physical-size-tiling.png` (Tiling 8): with Physical size the checker cells are the same size on
+  the sphere and the base; with Tiling they follow each part's UV density.
+* Not done: Physical size for brush materials (paint strokes keep Tiling), a per-project unit override for OBJ /
+  PLY / STL files saved in centimeters (they read as meters), a material resource's own physical size.
 ## Procedural materials with sliders (2026-11-23, branch `claude/project-thread-l9014a`, ADR-0047)
 
 * Format: a procedural material is an ordinary layer (a fill or a folder of masked fills) that carries
@@ -6134,6 +6161,38 @@ re-measured on a GPU. Not taken from his patch: the `SUBCRAFT_REPAINT_LOG` diagn
   per texel; Grinded / Rough / Raw finishes, Detail Edge Wear, Water Drops, Shut Line and HBAO are still missing.
 
 
+### Session 135 - Viewport IBL and shadow quality: energy-conserving rough reflections, specular occlusion, GGX-matched HDRI blur, soft disk PCF (2026-11-23, branch `claude/project-thread-8mawyv`)
+
+* **Asked:** after Session 134, raise HDRI lighting and shadows to Painter's level. Audit found: rough metals
+  rendered too dark (single-scatter GGX loses ~half the light at roughness 1), AO multiplied reflections like
+  diffuse light, the HDRI's sharpest level was 512 px (0.7 deg per texel) and its blur levels were picked
+  linearly by roughness (roughness 1 saw only ~28 deg of blur, far narrower than a GGX lobe), and shadows used a
+  3x3 / 5x5 box filter with blocky edges.
+* **Energy (`viewport.wgsl`):** `dfg()` returns Karis' split-sum terms; `spec_energy()` scales direct and
+  environment specular by 1 + f0 (1/(A+B) - 1) (multiple-scattering compensation as in Filament), so a white
+  metal reflects its surroundings fully at any roughness. Applied to the plain path and the extended path.
+* **Specular occlusion:** Lagarde & de Rousiers from AO; AO still scales diffuse light. Identical where AO = 1.
+* **HDRI (`assets/src/environment.rs`):** the sharp level is the source width rounded down to a power of two,
+  512..2048 (bundled 1024-px HDRIs keep 1024; 4K files get 2048). Levels go down to 16 px wide; level k is
+  blurred to a lobe of `level_blur(k) = TOP_BLUR / 2^(last - k)` radians with TOP_BLUR = 1 (the core of a GGX
+  lobe is ~alpha wide), adding only the missing blur at each level. The shader picks
+  `last + 2 log2(roughness)` (`env_lod`), which stays right when the GPU budget skips sharp levels. SH now
+  comes from the 128-px level, the sun from the 64-px level. Prefilter of a bundled HDRI: ~57 ms (was ~20).
+* **Shadows (`shadow.rs`, `viewport.wgsl`):** `ShadowQuality::filter()` gives (radius in texels, comparisons):
+  Lightweight 1.5 / 12, Average 2 / 16, Intensive 2.5 / 24, on a Vogel disk of bilinear comparisons rotated per
+  pixel (interleaved gradient noise) and per TAA frame, so TAA averages the penumbra smooth. Normal offset is
+  now slope-scaled by the light angle and filter radius.
+* **Tests:** `render/tests/ibl.rs` (white furnace within 12% at roughness 0.05/0.5/1; AO 0.5 keeps x0.83 of
+  glossy reflections vs x0.63 of diffuse; roughness 0 / 0.5 / 1 sample levels 0 / ~4 / 6),
+  `shadows.rs::the_shadow_edge_is_a_smooth_ramp_without_steps` (penumbra 13 / 8 / 6 px, largest column step
+  9-22% of the ramp), `assets` `prefiltered_levels_blur_like_ggx_lobes_doubling_per_level` (measured spread of
+  each level within 25% of `level_blur`). All `subcraft-render` and `subcraft-assets` tests pass on lavapipe
+  (checked they did not skip).
+* **Render:** `cargo run -p subcraft-render --example ibl_showcase -- out.png "Library Hall"`;
+  before/after in `docs/screenshots/viewport-ibl-before-after.png` (left main, right this change).
+* **Not done / limits:** not checked on a real GPU; the Gaussian prefilter approximates GGX's long tail;
+  no screen-space reflections or contact shadows; the path tracer is unchanged.
+
 ## Procedural materials look pass: tri-planar sides, rust (2026-11-23, branch `claude/project-thread-l9014a`)
 
 * Mirrored patterns on round shapes: tri-planar sampled the same 2D pattern for all three axes and both signs, so
@@ -6213,3 +6272,37 @@ re-measured on a GPU. Not taken from his patch: the `SUBCRAFT_REPAINT_LOG` diagn
   patterns are always object-space); the fibre fringe is thin on models with a small Spread, raise Spread or
   lower Fibre Scale to see it; no Shelf thumbnails for material filters.
 
+
+## Procedural materials: one parameter, several settings (2026-11-23, branch `claude/project-thread-l9014a`)
+
+* Engine (`crates/doc/src/material/author.rs`): `bindings_of`, `can_link` (same kind of value only), `link`
+  (formula is a ratio for sliders and colours, an offset for seeds, so the property keeps its value while the
+  parameter is at its default), `set_formula` (refused with the parser's reason when it does not evaluate),
+  `remove_binding`.
+* UI: in the gear mode each parameter lists what it drives (layer, effect, setting), with the formula in a text
+  field (applied when the field is left; an error stays under the field) and an X to stop driving it, plus an
+  "Also drive..." menu of compatible, not yet driven settings.
+* Ran: `cargo test -p subcraft-assets` (new `a_parameter_can_drive_several_properties`: on all 11 built-ins and
+  each kind of control, link every compatible property, nothing moves, wrong kinds and bad formulas are
+  refused); `crates/ui/tests/material_params.rs` click-through extended (Also drive > layer > Metallic gives
+  one parameter with two bindings and both formulas drawn); `cargo test -p subcraft-ui --lib`.
+* Not seen in a real window.
+
+## Procedural library: 14 more materials and a Weave pattern (2026-11-23, branch `claude/project-thread-l9014a`)
+
+* `ProceduralKind::Weave` (`crates/materials/src/pattern.rs`): plain weave, 8 threads per pattern unit, round
+  thread profile, over/under height, slight per-thread thickness and fibres. Tiles at integer scale. Tests:
+  it is in the tiling test, and `weave_alternates_over_and_under` checks raised threads, low gaps and that
+  neighbouring crossings run in different directions.
+* `crates/assets/src/procedural/more.rs`: Enamel Paint, Cast Iron, Anodized Aluminium, Blued Steel, Aged Bronze,
+  Glossy Plastic, Carbon Fibre, Canvas, Denim, Granite, Marble, Sandstone, Rough Rock, Painted Plaster. Shared
+  helpers `edge_coat`, `pattern_coat`, `dust_layer`. Built-in smart materials are now 64 (25 procedural).
+* The well-formed test now also refuses two bindings on one property (they fight and the layer never settles;
+  it caught this in the first draft of the cloth materials).
+* Ran: `cargo test -p subcraft-assets` (all pass), `cargo test -p subcraft-materials pattern` (8 pass),
+  `cargo test -p subcraft-app --test procedural_materials` (every material composites to finite in-range values).
+* Looked at: `material_sheet` renders of all 14 at 4 settings each, one tuning pass (finer and fewer scratches on
+  anodized and blued metal, dust and weave sizes, granite grains, marble veins broken up, plaster colours).
+* Honest state: metals, enamel paint, bronze, rock and sandstone read well. Fabrics are the weakest: the weave is
+  correct but small at this render size, and cloth has no sheen model. Marble veins come from a cell-crack
+  pattern and still look a little like a net.
