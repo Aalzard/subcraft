@@ -78,7 +78,15 @@ fn cast_iron(ts: &TextureSet) -> Layer {
     r.value(&rust, BaseColor, "rust_color");
     r.value(&rust, Roughness, "0.92");
 
-    let polish = edge_coat(&mut r, ts, "Polished Edges", "min(color * 4 + 0.1, 1)", "clamp(roughness - 0.3, 0.05, 1)", 1.0, "polish");
+    // A thin, broken line on the edges: the wide default reach reads as a painted white band.
+    let mut polish = masked(coat(ts, "Polished Edges", [0.5, 0.5, 0.5], 0.3, 1.0), ts, vec![fx(wear()), fx_blend(pattern(ProceduralKind::Clouds, 9.0, 319, 0.3, 0.3), BlendMode::Multiply)]);
+    polish.name = "Polished Edges".into();
+    r.value(&polish, BaseColor, "min(color * 3 + 0.06, 1)");
+    r.value(&polish, Roughness, "clamp(roughness - 0.25, 0.05, 1)");
+    r.bind_fx(&polish, 0, Prop::Level, "polish");
+    r.bind_fx(&polish, 0, Prop::Spread, "0.8 + polish * 2.5");
+    r.bind(&polish, Prop::Opacity { channel: None }, "saturate(polish * 20) * 0.85");
+    r.follow_pattern(&polish);
     let soot = dirt_layer(&mut r, ts, "Soot", "soot", 0.9);
     r.follow_pattern(&soot);
     r.finish(folder(&format!("{PREFIX}Cast Iron"), ts, vec![iron, pits, rust, polish, soot]))
