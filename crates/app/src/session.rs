@@ -4216,7 +4216,15 @@ impl Session {
             self.resources.insert_shared(r.clone());
         }
         let ids = self.import_preset_images(smart.images())?;
-        let layer = smart.build_with(self.selected_texture_set(), &ids);
+        // Cloth brings sheen: build as if the set had the sheen channels; the ones the material
+        // fills are added below, with the layer, as one undo step.
+        let mut wide = self.selected_texture_set().clone();
+        for k in crate::smart_import::OFFERED_ON_APPLY {
+            if !wide.has_channel(k) {
+                wide.channels.push(subcraft_doc::ChannelDef::default_for(k));
+            }
+        }
+        let layer = smart.build_with(&wide, &ids);
         let label = format!("Smart Material: {}", smart.name);
         // Imported texture materials may bring AO / emissive / opacity maps the set lacks.
         let missing: Vec<_> = crate::smart_import::channels_to_add(&layer).into_iter().filter(|&k| !self.selected_texture_set().has_channel(k)).collect();

@@ -239,3 +239,25 @@ fn every_procedural_material_composites_to_valid_values() {
         assert!((0.0..=1.0).contains(&metal), "{}: metallic {metal}", material.name);
     }
 }
+
+/// Applying a cloth adds the sheen channels it fills to the texture set, in the same undo step;
+/// other materials leave the set's channels alone.
+#[test]
+fn cloth_brings_the_sheen_channels_with_it() {
+    let sheen = [ChannelKind::SheenColor, ChannelKind::SheenOpacity, ChannelKind::SheenRoughness];
+    let mut s = baked_crate();
+    let before = s.selected_texture_set().channels.len();
+    apply(&mut s, "Procedural Rubber");
+    assert_eq!(s.selected_texture_set().channels.len(), before, "no sheen for rubber");
+    let canvas = apply(&mut s, "Procedural Canvas");
+    assert!(sheen.iter().all(|k| s.selected_texture_set().has_channel(*k)));
+    assert!(controls(&s, canvas).param("sheen").is_some());
+    let v = mean(&mut s, ChannelKind::SheenOpacity)[0];
+    assert!((v - 0.4).abs() < 0.02, "sheen opacity at the default: {v}");
+    set(&mut s, canvas, "sheen", ParamValue::Number(0.8));
+    let v = mean(&mut s, ChannelKind::SheenOpacity)[0];
+    assert!((v - 0.8).abs() < 0.02, "the slider drives it: {v}");
+    s.execute(Command::Undo).unwrap();
+    s.execute(Command::Undo).unwrap();
+    assert!(sheen.iter().all(|k| !s.selected_texture_set().has_channel(*k)), "undo removes the channels with the layer");
+}
