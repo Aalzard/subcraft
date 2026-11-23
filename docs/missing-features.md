@@ -11,32 +11,20 @@ a planning list, not a promise.
 - Editable `.sbsar` graphs: SubCraft reads what `.spp` / `.spsm` containers hold, but does not run
   Substance graphs.
 
-### Painting
-- Liquify / push brush that moves existing paint.
-- Heal (clone with seam-free blending into the target).
-- Shape tools beyond polygon fill and paths (rectangle, ellipse).
-- Stroke stabilizer extras: post-smoothing, speed-adaptive smoothing, smoothing preset buttons.
-
-### Layers and masks
-- Layer links across texture sets (one layer driving several sets).
-- 2D UDIM tile picker.
-
 ### Baking
-- Bake setting presets (save a configuration and reuse it in other projects).
-- GPU path for Bent normal, Height and the high-poly projection (AO, Thickness and Curvature
+- GPU path for Height and the high-poly projection (AO, Thickness, Curvature and Bent normal
   already run on the GPU).
 
 ### Viewport and rendering (owned by the viewport thread)
 - Scene lights (point / spot / area).
 
 ### Workflow
-- Version history beyond undo (saved versions you can browse and restore).
 - Mesh editing such as UV edits.
 - Point clouds, FBX animation.
 
 ### Platform and distribution
 - Code-signed installers (needs an enrolled signing identity).
-- AppImage / Flatpak packaging.
+- Flatpak packaging.
 
 ## Done since the first list
 - Read Painter `.spp` projects and `.spsm` smart materials.
@@ -58,6 +46,16 @@ a planning list, not a promise.
 - Scripting: Rhai scripts over the tool catalog (Plugins menu, `subcraft-mcp --script`).
 - Live link to Unity, Unreal and Godot.
 - Mesh formats: OBJ, glTF, FBX, USD, Alembic.
+- Liquify (Push mode of the Smudge tool), Heal (Clone tool option), rectangle / ellipse Shape fill tool.
+- Bake presets (built-in and saved to the library).
+- Stabilizer presets (Off / Light / Medium / Strong / Rope), speed-adaptive smoothing, catch-up toggle,
+  post-smoothing (the finished stroke is painted again along a smoothed path).
+- Layer links across texture sets: "Instantiate across texture sets" and the instance list (this was
+  listed as missing by mistake).
+- Version history: each Save keeps the file it replaces; File > Version history restores one.
 - Turntable as GIF, camera bookmarks, environment rotation and blur.
 - Shelf tags and saved searches; weave, rivet, brick and fingerprint content.
+- 2D UDIM tile picker (tiles laid out as in UV space, previous / next).
 - ARM and macOS builds through the release workflow.
+- Linux AppImage (x86_64), built and checked by the release workflow.
+- GPU Bent normal bake (same rays as AO, checked against the CPU bake).

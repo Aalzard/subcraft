@@ -10,7 +10,7 @@ fn library_contents_are_well_formed() {
     let lib = Library::builtin();
     assert!(lib.alphas.len() >= 6 && lib.materials.len() >= 12 && lib.smart_materials.len() >= 4 && lib.smart_masks.len() >= 4);
     assert!(lib.environments.len() >= 4);
-    assert_eq!((lib.smart_materials.len(), lib.smart_masks.len()), (84, 57), "45 procedural + 5 + 8 + 8 + 5 open-pack + 18 PBR-pack smart materials, minus Old Wood, Worn Leather, Sandstone, Dirty Rubber and Muddy Leather, 5 + 16 + 15 + 4 open-pack smart masks + 4 generator masks (concave, thin, X and Z gradients) + 13 Mask Builder and stacked masks");
+    assert_eq!((lib.smart_materials.len(), lib.smart_masks.len()), (84, 60), "45 procedural + 5 + 8 + 8 + 5 open-pack + 18 PBR-pack smart materials, minus Old Wood, Worn Leather, Sandstone, Dirty Rubber and Muddy Leather, 5 + 16 + 15 + 4 open-pack smart masks + 4 generator masks (concave, thin, X and Z gradients) + 13 Mask Builder and stacked masks + 3 Dripping Rust drip masks");
     let mut ids: Vec<_> = lib.materials.iter().map(|m| m.id).chain(lib.alphas.iter().map(|a| a.id)).collect();
     let n = ids.len();
     ids.sort();

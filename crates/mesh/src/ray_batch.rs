@@ -27,6 +27,19 @@ pub enum RayMode {
     /// Result per texel: mean closest-hit distance over all rays divided by `max` (misses count
     /// as `max`).
     MeanDistance { max: f32 },
+    /// Result per texel: three values, the sum of the directions that face out and reach
+    /// `distance` unoccluded (zero when none do). The caller normalizes it into the bent normal.
+    BentNormal { distance: f32 },
+}
+
+impl RayMode {
+    /// Values per texel in the result of [`RayBatchBackend::run`].
+    pub fn components(self) -> usize {
+        match self {
+            RayMode::BentNormal { .. } => 3,
+            _ => 1,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -77,7 +90,7 @@ pub struct CurvatureTexel {
 pub trait RayBatchBackend: Send + Sync {
     /// Short human description, e.g. the adapter name.
     fn description(&self) -> String;
-    /// One result per texel `0..count`, in order; `texel(i)` describes texel `i` (called in
+    /// [`RayMode::components`] results per texel `0..count`, in order; `texel(i)` describes texel `i` (called in
     /// order, in chunks, so no array of all records has to exist). Must return quickly between internal steps when
     /// `control.is_cancelled()`.
     /// Curvature of each texel `0..count` (see [`CurvatureSurface`]). The default refuses, so the

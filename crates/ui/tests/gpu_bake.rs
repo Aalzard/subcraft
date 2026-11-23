@@ -37,7 +37,7 @@ fn backend() -> Option<Arc<dyn RayBatchBackend>> {
     b
 }
 
-const MAPS: [MeshMapKind; 3] = [MeshMapKind::AmbientOcclusion, MeshMapKind::Thickness, MeshMapKind::Curvature];
+const MAPS: [MeshMapKind; 4] = [MeshMapKind::AmbientOcclusion, MeshMapKind::Thickness, MeshMapKind::Curvature, MeshMapKind::BentNormal];
 
 fn bake(mesh: &Mesh, gpu: Option<&dyn RayBatchBackend>, progress: &Progress) -> BTreeMap<MeshMapKind, TiledImage> {
     let bvh = Bvh::build(mesh);
@@ -57,9 +57,15 @@ fn compare(mesh: &Mesh, a: &TiledImage, b: &TiledImage) -> Stats {
     let mut errors = Vec::with_capacity(covered.len());
     for t in &covered {
         let (x, y) = (t.index % SIZE, t.index / SIZE);
-        let (va, vb) = (a.get(x, y)[0], b.get(x, y)[0]);
-        assert!(va.is_finite() && vb.is_finite(), "NaN/inf at ({x},{y}): {va} vs {vb}");
-        errors.push((va - vb).abs());
+        // Every colour channel (bent normals have three; grey maps repeat one).
+        let (pa, pb) = (a.get(x, y), b.get(x, y));
+        let mut worst = 0.0f32;
+        for c in 0..a.comps().min(3) {
+            let (va, vb) = (pa[c], pb[c]);
+            assert!(va.is_finite() && vb.is_finite(), "NaN/inf at ({x},{y}): {va} vs {vb}");
+            worst = worst.max((va - vb).abs());
+        }
+        errors.push(worst);
     }
     errors.sort_by(f32::total_cmp);
     Stats { mean: errors.iter().sum::<f32>() / errors.len() as f32, p99: errors[errors.len() * 99 / 100] }

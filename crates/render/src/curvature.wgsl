@@ -121,5 +121,5 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
     } else if (all_w > 0.0) {
         result = 0.5 + 0.5 * clamp(all_sum / all_w, -1.0, 1.0) * all_near;
     }
-    accum[i] = vec2<f32>(result, 0.0);
+    accum[i] = vec4<f32>(result, 0.0, 0.0, 0.0);
 }

@@ -34,6 +34,7 @@ pub mod plugins;
 pub mod live_link;
 pub mod versions;
 pub mod shape_tool;
+pub mod udim_picker;
 pub mod mesh_reload;
 pub mod mesh_map_import;
 pub mod new_project;
