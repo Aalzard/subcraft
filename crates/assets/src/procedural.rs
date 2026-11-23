@@ -453,10 +453,10 @@ fn worn_plastic(ts: &TextureSet) -> Layer {
     r.follow_pattern(&plastic);
 
     let scuffs = masked(coat(ts, "Scuffs", [0.8, 0.5, 0.5], 0.65, 0.0), ts, vec![
-        fx(pattern(ProceduralKind::Scratches, 4.0, 214, 0.5, 0.5)),
-        fx_blend(pattern(ProceduralKind::Clouds, 3.0, 215, 0.5, 0.35), BlendMode::Multiply),
+        fx(pattern(ProceduralKind::Scratches, 5.0, 214, 0.5, 0.7)),
+        fx_blend(pattern(ProceduralKind::Clouds, 3.0, 215, 0.5, 0.6), BlendMode::Multiply),
     ]);
-    r.value(&scuffs, BaseColor, "mix(color, rgb(0.8, 0.8, 0.8), 0.45)");
+    r.value(&scuffs, BaseColor, "mix(color, rgb(0.8, 0.8, 0.8), 0.3)");
     r.value(&scuffs, Roughness, "clamp(roughness + 0.3, 0, 1)");
     r.bind(&scuffs, Prop::Opacity { channel: None }, "saturate(scuffs * 2.5)");
     r.bind_fx(&scuffs, 0, Prop::PatternBalance { channel: None }, "remap(scuffs, 0.8, 0.3)");
@@ -466,7 +466,9 @@ fn worn_plastic(ts: &TextureSet) -> Layer {
     r.value(&edges, BaseColor, "mix(color, rgb(0.85, 0.85, 0.85), 0.35)");
     r.value(&edges, Roughness, "clamp(roughness + 0.2, 0, 1)");
     r.bind_fx(&edges, 0, Prop::Level, "edge_wear");
-    r.bind(&edges, Prop::Opacity { channel: None }, "saturate(edge_wear * 20) * 0.8");
+    r.bind_fx(&edges, 0, Prop::Spread, "0.9 + edge_wear * 1.6");
+    r.bind_fx(&edges, 0, Prop::Softness, "0.6");
+    r.bind(&edges, Prop::Opacity { channel: None }, "saturate(edge_wear * 20) * 0.65");
     r.follow_pattern(&edges);
 
     let dust = masked(coat(ts, "Dust", [0.5, 0.48, 0.44], 0.95, 0.0), ts, vec![fx(top(0.72, 0.45, 0.45)), fx_blend(pattern(ProceduralKind::Clouds, 3.0, 216, 0.4, 0.0), BlendMode::Multiply)]);
@@ -483,7 +485,9 @@ fn rubber(ts: &TextureSet) -> Layer {
     r.param(unit("roughness", "Roughness", 0.8).group("Rubber"));
     r.param(unit("texture", "Surface texture", 0.4).group("Rubber").tip("Fine pitted relief; 0 is smooth"));
     r.param(unit("wear", "Edge wear", 0.4).group("Wear").tip("Edges rubbed smooth and slightly shiny (reads the baked curvature)"));
-    dirt_params(&mut r, "dust", "Dust", [0.3, 0.27, 0.23]);
+    r.param(unit("scuffs", "Scuffs", 0.35).group("Wear").tip("Grey rub marks and scratches"));
+    r.param(unit("bloom", "Bloom", 0.25).group("Wear").tip("The pale, chalky haze old rubber gets in patches"));
+    dirt_params(&mut r, "dust", "Dust", [0.2, 0.18, 0.15]);
     r.pattern_params();
 
     let base = mat(ts, "Rubber", vec![
@@ -504,10 +508,31 @@ fn rubber(ts: &TextureSet) -> Layer {
     r.bind(&worn, Prop::Opacity { channel: None }, "saturate(wear * 20)");
     r.follow_pattern(&worn);
 
-    let dust = dirt_layer(&mut r, ts, "Dust", "dust", 0.35);
+    r.bind_fx(&worn, 0, Prop::Spread, "0.9 + wear * 1.6");
+
+    let bloom = masked(coat(ts, "Bloom", [0.2, 0.2, 0.19], 0.95, 0.0), ts, vec![
+        fx(pattern(ProceduralKind::Clouds, 3.0, 224, 0.5, 0.05)),
+        fx_blend(pattern(ProceduralKind::Dirt, 7.0, 225, 0.45, 0.2), BlendMode::Multiply),
+    ]);
+    r.value(&bloom, BaseColor, "mix(color, rgb(0.42, 0.41, 0.38), 0.5)");
+    r.bind_fx(&bloom, 0, Prop::PatternBalance { channel: None }, "remap(bloom, 0.85, 0.35)");
+    r.bind(&bloom, Prop::Opacity { channel: None }, "saturate(bloom * 4) * 0.45");
+    r.follow_pattern(&bloom);
+
+    let scuffs = masked(coat(ts, "Scuffs", [0.15, 0.15, 0.15], 0.6, 0.0), ts, vec![
+        fx(pattern(ProceduralKind::Scratches, 5.0, 226, 0.5, 0.6)),
+        fx_blend(pattern(ProceduralKind::Clouds, 3.0, 227, 0.5, 0.5), BlendMode::Multiply),
+    ]);
+    r.value(&scuffs, BaseColor, "mix(color, rgb(0.4, 0.4, 0.4), 0.4)");
+    r.value(&scuffs, Roughness, "clamp(roughness - 0.2, 0.1, 1)");
+    r.bind_fx(&scuffs, 0, Prop::PatternBalance { channel: None }, "remap(scuffs, 0.85, 0.3)");
+    r.bind(&scuffs, Prop::Opacity { channel: None }, "saturate(scuffs * 3) * 0.8");
+    r.follow_pattern(&scuffs);
+
+    let dust = dirt_layer(&mut r, ts, "Dust", "dust", 0.12);
     r.value(&dust, Roughness, "0.95");
     r.follow_pattern(&dust);
-    r.finish(folder(&format!("{PREFIX}Rubber"), ts, vec![base, worn, dust]))
+    r.finish(folder(&format!("{PREFIX}Rubber"), ts, vec![base, worn, bloom, scuffs, dust]))
 }
 
 fn concrete(ts: &TextureSet) -> Layer {
