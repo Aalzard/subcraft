@@ -9,7 +9,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use glam::Vec2;
 
-use crate::mesh::{Aabb, MaterialSlot, Mesh, Submesh};
+use crate::mesh::{Aabb, MaterialSlot, Mesh, Submesh, UvSet};
 
 /// A UDIM tile in stored UV space: `col = floor(u)`, `row = floor(v)`. Stored UVs have their origin
 /// at the top-left (v grows downward), so file-style UDIM rows run the other way; see [`udim_number`].
@@ -93,6 +93,9 @@ impl Mesh {
         };
         let mut lookup: HashMap<(u32, u32), u32> = HashMap::new();
         let has_objects = !self.tri_object.is_empty();
+        let has_uv_sets = !self.uv_sets.is_empty() && self.uv_sets.iter().all(|s| s.corners.len() == self.indices.len());
+        let mut uv_sets: Vec<UvSet> = self.uv_sets.iter().map(|s| UvSet { name: s.name.clone(), corners: Vec::with_capacity(s.corners.len()) }).collect();
+        let mut tri_uv_set: Vec<u32> = Vec::new();
         for &t in &order {
             let new_slot = new_slot_of[&slot_of_tri[t]];
             let shift = uv_shift.get(slot_of_tri[t] as usize).copied().unwrap_or(Vec2::ZERO);
@@ -111,6 +114,19 @@ impl Mesh {
             if has_objects {
                 mesh.tri_object.push(self.tri_object[t]);
             }
+            if has_uv_sets {
+                let active = self.tri_uv_set(t);
+                for (k, (out, set)) in uv_sets.iter_mut().zip(&self.uv_sets).enumerate() {
+                    // The shift moves the layout being painted; the other sets stay as the file had them.
+                    let sh = if k == active { shift } else { Vec2::ZERO };
+                    out.corners.extend(set.corners[3 * t..3 * t + 3].iter().map(|&uv| uv - sh));
+                }
+                tri_uv_set.push(active as u32);
+            }
+        }
+        if has_uv_sets {
+            mesh.uv_sets = uv_sets;
+            mesh.tri_uv_set = if tri_uv_set.iter().all(|&s| s == 0) { Vec::new() } else { tri_uv_set };
         }
         let mut start = 0usize;
         let total = mesh.tri_material.len();

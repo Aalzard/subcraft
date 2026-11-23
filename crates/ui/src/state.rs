@@ -360,6 +360,8 @@ pub struct UiState {
     pub new_project: crate::new_project::NewProjectUi,
     pub mesh_reload: crate::mesh_reload::MeshReloadUi,
     pub auto_uv: crate::auto_uv::AutoUvUi,
+    /// Texture Set Settings > UV set (models with several UV sets).
+    pub uv_sets: crate::uv_sets::UvSetUi,
     /// Layers selected together (Ctrl / Shift click) in the Layers panel.
     pub multi: subcraft_app::multi_select::MultiSelect,
     /// Texture set the multi-selection belongs to (cleared when the selected set changes).
@@ -580,6 +582,7 @@ impl UiState {
             new_project: Default::default(),
             mesh_reload: Default::default(),
             auto_uv: Default::default(),
+            uv_sets: Default::default(),
             render_request: None,
             last_view_size: [1280, 720],
             last_view_rect: egui::Rect::NOTHING,
