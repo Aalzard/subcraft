@@ -6103,3 +6103,24 @@ re-measured on a GPU. Not taken from his patch: the `SUBCRAFT_REPAINT_LOG` diagn
   (`cargo run -p subcraft-render --example extended_showcase -- out.png`).
 * **Not checked:** the View menu rows were built but not clicked in a running app; nothing ran on a real GPU
   (needs a check on Windows/DX12: look, speed of repacking at 4K while painting coat, displacement at level 4).
+
+## Procedural materials look pass: tri-planar sides, rust (2026-11-23, branch `claude/project-thread-l9014a`)
+
+* Mirrored patterns on round shapes: tri-planar sampled the same 2D pattern for all three axes and both signs, so
+  -X showed +X mirrored and the X/Z blend was mirrored across the diagonal. New `Projection::triplanar_unique`
+  (`crates/doc/src/fill.rs`): each of the six sides is shifted (and the far side runs the other way) in
+  `sample::projection::unique_side`. +Z is unchanged. A side has zero weight where its normal changes sign, so the
+  jump cannot show.
+* Compatibility: on in `Projection::default()`, written as `"triplanar_unique":true`; a file without the key reads
+  `false`, so saved projects render exactly as before. The generators' own breakup noise and the Mask Editor
+  textures (`crates/compositor/src/mask.rs`) stay on the old sampling on purpose: they have no stored flag, so
+  changing them would move the wear in saved projects. The pattern field cache key carries the flag.
+* UI: "Sides: Different on every side" checkbox under the tri-planar Hardness row (ko, zh-Hant translated).
+* Rusted Steel: rust colour default (0.17, 0.052, 0.018) linear instead of (0.27, 0.1, 0.035), fine colour
+  variation, darker stain, and a new "Deep Rust" layer in the middle of the patches.
+* Ran: `cargo check --workspace --all-targets`; `cargo test` for doc, materials, compositor, paint, assets,
+  project, export, bake, app (1423 pass, 0 fail); `cargo test -p subcraft-ui --lib` (421 pass). New test
+  `triplanar_unique_sides_are_not_mirror_images`; two pinned-JSON tests now also pin that the old form reads
+  with the flag off.
+* Looked at: `material_sheet` renders of all 11 materials; the left/right mirror on the sphere is gone.
+  Not run in the real app window.

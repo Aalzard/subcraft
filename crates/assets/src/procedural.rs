@@ -193,7 +193,7 @@ fn rusted_steel(ts: &TextureSet) -> Layer {
     r.param(color("steel_color", "Color", [0.5, 0.51, 0.53]).group("Steel"));
     r.param(unit("steel_roughness", "Roughness", 0.42).group("Steel"));
     r.param(unit("rust", "Amount", 0.5).group("Rust").tip("How far the rust spreads out of the creases and over open surfaces"));
-    r.param(color("rust_color", "Color", [0.27, 0.1, 0.035]).group("Rust"));
+    r.param(color("rust_color", "Color", [0.17, 0.052, 0.018]).group("Rust"));
     r.param(unit("rust_contrast", "Edge sharpness", 0.6).group("Rust").tip("Soft blooms of rust, or hard-edged patches"));
     r.param(unit("pitting", "Pitting", 0.5).group("Rust").tip("How much the rust is raised and rough"));
     r.pattern_params();
@@ -213,7 +213,7 @@ fn rusted_steel(ts: &TextureSet) -> Layer {
         fx_blend(pattern(ProceduralKind::Grunge, 5.0, 83, 0.55, 0.45), BlendMode::LinearDodge),
         fx_blend(pattern(ProceduralKind::Clouds, 3.0, 84, 0.5, 0.5), BlendMode::Multiply),
     ]);
-    r.value(&stain, BaseColor, "rust_color * 0.5");
+    r.value(&stain, BaseColor, "rust_color * 0.3");
     r.bind_fx(&stain, 0, Prop::Level, "remap(rust, 0.5, 0)");
     r.bind_fx(&stain, 1, Prop::PatternBalance { channel: None }, "remap(rust, 1.05, 0.3)");
     r.bind(&stain, Prop::Opacity { channel: None }, "saturate(rust * 3) * 0.7");
@@ -221,7 +221,7 @@ fn rusted_steel(ts: &TextureSet) -> Layer {
 
     let rust = masked(
         mat(ts, "Rust", vec![
-            (BaseColor, proc(ProceduralKind::Grunge, 6.0, 85, v(0.2, 0.07, 0.02), v(0.5, 0.2, 0.06))),
+            (BaseColor, proc(ProceduralKind::Clouds, 14.0, 85, v(0.2, 0.07, 0.02), v(0.5, 0.2, 0.06))),
             (Roughness, proc(ProceduralKind::Clouds, 8.0, 86, s(0.75), s(0.95))),
             (Metallic, uni(0.0)),
             (Height, proc(ProceduralKind::Clouds, 16.0, 87, s(0.0), s(0.03))),
@@ -229,7 +229,7 @@ fn rusted_steel(ts: &TextureSet) -> Layer {
         ts,
         vec![fx(dirt_generator()), fx_blend(pattern(ProceduralKind::Grunge, 5.0, 83, 0.62, 0.632), BlendMode::LinearDodge)],
     );
-    r.range(&rust, BaseColor, "rust_color * 0.4", "rust_color * 1.3");
+    r.range(&rust, BaseColor, "rust_color * 0.4", "rust_color * rgb(1.15, 1.05, 0.95)");
     r.range(&rust, Height, "0", "pitting * 0.06");
     r.range(&rust, Roughness, "0.9 - pitting * 0.25", "0.97");
     r.bind_fx(&rust, 0, Prop::Level, "remap(rust, 0.5, 0)");
@@ -237,7 +237,26 @@ fn rusted_steel(ts: &TextureSet) -> Layer {
     r.bind_fx(&rust, 1, Prop::PatternContrast { channel: None }, "remap(rust_contrast, 0.2, 0.92)");
     r.bind(&rust, Prop::Opacity { channel: None }, "saturate(rust * 6)");
     r.follow_pattern(&rust);
-    r.finish(folder(&format!("{PREFIX}Rusted Steel"), ts, vec![steel, stain, rust]))
+
+    // The old, deep rust in the middle of each patch: darker, redder and broken up finely.
+    let core = masked(
+        mat(ts, "Deep Rust", vec![
+            (BaseColor, proc(ProceduralKind::Clouds, 22.0, 88, v(0.05, 0.015, 0.008), v(0.1, 0.03, 0.012))),
+            (Roughness, uni(0.95)),
+            (Height, proc(ProceduralKind::Clouds, 24.0, 89, s(0.0), s(0.02))),
+        ], triplanar(2.0)),
+        ts,
+        vec![
+            fx(pattern(ProceduralKind::Grunge, 5.0, 83, 0.68, 0.6)),
+            fx_blend(pattern(ProceduralKind::Clouds, 16.0, 90, 0.4, 0.6), BlendMode::Multiply),
+        ],
+    );
+    r.range(&core, BaseColor, "rust_color * rgb(0.28, 0.24, 0.3)", "rust_color * rgb(0.6, 0.5, 0.55)");
+    r.range(&core, Height, "0", "pitting * 0.04");
+    r.bind_fx(&core, 0, Prop::PatternBalance { channel: None }, "remap(rust, 1.2, 0.44)");
+    r.bind(&core, Prop::Opacity { channel: None }, "saturate(rust * 4) * 0.85");
+    r.follow_pattern(&core);
+    r.finish(folder(&format!("{PREFIX}Rusted Steel"), ts, vec![steel, stain, rust, core]))
 }
 
 fn brushed_metal(ts: &TextureSet) -> Layer {

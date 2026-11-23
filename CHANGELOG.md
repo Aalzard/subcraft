@@ -7,6 +7,10 @@ What changed in SubCraft, newest first. Download the latest build from the
 
 ### Added
 - Procedural materials: 11 new materials in the Smart Materials shelf (category Procedural) that come with their own sliders. Painted Metal, Rusted Steel, Brushed Metal, Polished Metal, Hammered Metal, Aged Copper, Worn Plastic, Rubber, Concrete, Leather and Wood. Apply one, select its folder, and the Properties panel shows a Material parameters section: colours, edge wear, chips, rust amount, dirt, pattern scale, roughness, bump and a seed. Change them at any time; they are saved in the project, kept when you duplicate the folder or save it to your library, and each drag is one undo step. The layers inside stay normal layers, so you can still edit them by hand.
+- Tri-planar projection: "Different on every side". Each of the six sides now shows its own part of a pattern or texture, so round objects no longer show the same shapes mirrored left and right (the butterfly look). On for new fills, masks and materials; projects you already saved keep their look, and the checkbox under Hardness turns it on for them.
+
+### Changed
+- Procedural Rusted Steel: rust is darker and redder instead of orange, with a deep rust core in the middle of each patch.
 
 ## 0.5.0 - 2026-11-22
 
