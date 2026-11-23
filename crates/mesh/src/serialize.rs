@@ -5,7 +5,7 @@
 
 use glam::{Vec2, Vec3, Vec4};
 
-use crate::mesh::{Aabb, MaterialSlot, Mesh, MeshObject, Submesh};
+use crate::mesh::{Aabb, MaterialSlot, Mesh, MeshObject, Submesh, UvSet};
 
 const MAGIC: &[u8; 6] = b"SCMESH";
 const VERSION: u16 = 2;
@@ -107,11 +107,23 @@ pub fn encode(mesh: &Mesh) -> Vec<u8> {
         w.0.extend_from_slice(UNIT_TAG);
         w.0.extend_from_slice(&mesh.unit_meters.to_le_bytes());
     }
+    // Second extension: every UV set of the file and which one each triangle is painted with.
+    if !mesh.uv_sets.is_empty() {
+        w.0.extend_from_slice(UV_SETS_TAG);
+        w.u32(mesh.uv_sets.len() as u32);
+        for set in &mesh.uv_sets {
+            w.str(&set.name);
+            w.f32s(bytemuck::cast_slice(&set.corners.iter().map(|p| p.to_array()).collect::<Vec<_>>()));
+        }
+        w.u32s(&mesh.tri_uv_set);
+    }
     w.0
 }
 
 /// Tag of the trailing mesh-unit extension (see [`encode`]).
 const UNIT_TAG: &[u8; 4] = b"UNIT";
+/// Tag of the trailing UV-sets extension (see [`encode`]).
+const UV_SETS_TAG: &[u8; 4] = b"UVST";
 
 pub fn decode(bytes: &[u8]) -> Result<Mesh, MeshDecodeError> {
     let mut r = R(bytes);
@@ -157,8 +169,20 @@ pub fn decode(bytes: &[u8]) -> Result<Mesh, MeshDecodeError> {
         if v.is_finite() && v > 0.0 {
             unit_meters = v;
         }
+        r.take(8)?;
     }
-    let mesh = Mesh { name, positions, normals, uvs, tangents, indices, tri_material, tri_object, objects, materials, submeshes, bounds, unit_meters, ..Default::default() };
+    let (mut uv_sets, mut tri_uv_set) = (Vec::new(), Vec::new());
+    if version >= 2 && r.0.len() >= 4 && &r.0[..4] == UV_SETS_TAG {
+        r.take(4)?;
+        let count = r.u32()? as usize;
+        for _ in 0..count.min(256) {
+            let name = r.str()?;
+            let corners = r.f32s()?.chunks_exact(2).map(|c| Vec2::new(c[0], c[1])).collect();
+            uv_sets.push(UvSet { name, corners });
+        }
+        tri_uv_set = r.u32s()?;
+    }
+    let mesh = Mesh { name, positions, normals, uvs, tangents, indices, tri_material, tri_object, objects, materials, submeshes, bounds, unit_meters, uv_sets, tri_uv_set, ..Default::default() };
     let problems = mesh.validate();
     if !problems.is_empty() {
         return Err(MeshDecodeError::Invalid(problems.join("; ")));

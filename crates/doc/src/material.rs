@@ -210,6 +210,8 @@ pub enum Prop {
     Spread,
     /// Mask fill: its grey value.
     FillValue,
+    /// Material filter (a content effect such as MatFx Rust Weathering): one of its settings.
+    Filter { setting: crate::FilterSetting },
 }
 
 /// "This property of that layer is this formula of the parameters."
@@ -511,6 +513,11 @@ fn write_effect(l: &mut Layer, effect: EffectId, prop: Prop, v: Value) -> Result
                     b.opacity = o;
                 }
                 Ok(true)
+            }
+            Prop::Filter { setting } => {
+                let crate::ContentEffectKind::Material(filter) = &e.kind else { return na };
+                let Some(next) = filter.with_setting(setting, v) else { return na };
+                Ok(next != *filter && put(&mut std::sync::Arc::make_mut(e).kind, crate::ContentEffectKind::Material(next)))
             }
             _ => na,
         };

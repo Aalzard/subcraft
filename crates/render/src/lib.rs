@@ -1491,13 +1491,15 @@ impl ViewportRenderer {
             self.path_tracer = Some(pt);
         }
         let hdri = params.environment.use_hdri && self.env_levels > 1;
+        // The tracer reads the extended channels from the viewport's packed arrays.
+        self.ensure_bind_groups(device, queue);
         let target = self.path_target.as_ref().expect("created above");
         let pt = self.path_tracer.as_mut().expect("created above");
         // Any GPU error (a buffer the adapter cannot allocate, a lost resource) ends the mode
         // with a message instead of the default fatal error handler.
         let memory = device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
         let validation = device.push_error_scope(wgpu::ErrorFilter::Validation);
-        let result = pt.render(device, queue, target, params, scene, settings, &self.materials, &self.defaults, (&self.env_texture, &self.env_sampler, hdri));
+        let result = pt.render(device, queue, target, params, scene, settings, &self.materials, &self.defaults, (&self.env_texture, &self.env_sampler, hdri), &self.pack.empty);
         let errors = [pollster::block_on(validation.pop()), pollster::block_on(memory.pop())];
         if let Some(error) = errors.into_iter().flatten().next() {
             self.path_tracer = None;

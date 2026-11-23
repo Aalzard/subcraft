@@ -378,3 +378,46 @@ fn a_definition_from_a_file_is_made_safe() {
     assert_eq!(many.sanitized().params.len(), MAX_PARAMS);
     assert!(valid_param_id("_wear2") && !valid_param_id("") && !valid_param_id(&"a".repeat(49)));
 }
+
+/// A material filter's settings can be exposed and driven like any other property: the value
+/// is clamped into the setting's range, and a setting the filter lacks is reported.
+#[test]
+fn filter_settings_are_exposed_and_driven() {
+    use crate::{ContentEffect, ContentEffectKind, FilterSetting, MaterialFilter};
+    let ts = TextureSet::new("set", 0, 64);
+    let mut layer = Layer::new_fill("Steel", &ts);
+    let rust = ContentEffect::new(ContentEffectKind::Material(MaterialFilter::ALL[4]), &ts);
+    let hammered = ContentEffect::new(ContentEffectKind::Material(MaterialFilter::ALL[1]), &ts);
+    let (rust_id, hammered_id) = (rust.id, hammered.id);
+    layer.content_effects = vec![Arc::new(hammered), Arc::new(rust)];
+
+    let all = exposable(&layer);
+    let amount = all.iter().find(|e| e.effect == Some(rust_id) && e.prop == Prop::Filter { setting: FilterSetting::Amount }).expect("Rust amount is offered");
+    assert_eq!(amount.label, "Amount");
+    assert_eq!(amount.effect_name.as_deref(), Some("MatFx Rust Weathering"));
+    assert_eq!(amount.kind, ParamKind::Float { min: 0.0, max: 1.0, default: 0.45 });
+    assert_eq!(all.iter().filter(|e| e.effect == Some(rust_id)).count(), 8, "every Rust Weathering setting");
+    assert!(all.iter().any(|e| e.effect == Some(hammered_id) && e.prop == Prop::Filter { setting: FilterSetting::Depth }));
+
+    let mut controls = MaterialControls::default();
+    let id = controls.expose(amount).unwrap();
+    controls.bindings.push(Binding::effect(layer.id, hammered_id, Prop::Filter { setting: FilterSetting::Depth }, &format!("{id} * 4")));
+    assert_eq!(controls.check(&layer), vec![]);
+    assert!(controls.set(&id, ParamValue::Number(0.9)));
+    assert!(controls.apply(&mut layer));
+    let kind = |l: &Layer, id| l.content_effects.iter().find(|e| e.id == id).unwrap().kind.clone();
+    let ContentEffectKind::Material(MaterialFilter::RustWeathering { amount, edges, .. }) = kind(&layer, rust_id) else { panic!() };
+    assert_eq!((amount, edges), (0.9, 0.5), "only the bound setting moved");
+    let ContentEffectKind::Material(m @ MaterialFilter::Hammered { depth, .. }) = kind(&layer, hammered_id) else { panic!() };
+    assert_eq!(depth, 1.0, "0.9 * 4 is clamped");
+    assert!(m.valid());
+    assert!(!controls.apply(&mut layer), "applying again changes nothing");
+
+    // A setting this filter does not have.
+    controls.bindings.push(Binding::effect(layer.id, hammered_id, Prop::Filter { setting: FilterSetting::Rust }, &id));
+    assert_eq!(controls.check(&layer), vec![(2, BindingProblem::NotApplicable)]);
+
+    let json = serde_json::to_string(&controls.bindings[1]).unwrap();
+    assert!(json.contains(r#""prop":"filter","setting":"depth""#), "{json}");
+    assert_eq!(serde_json::from_str::<Binding>(&json).unwrap(), controls.bindings[1]);
+}

@@ -289,6 +289,12 @@ fn load_gltf(path: &Path, b: &mut MeshBuilder, warnings: &mut Vec<String>) -> Re
                 let nrm: Option<Vec<Vec3>> =
                     reader.read_normals().map(|it| it.map(|n| (normal_m * Vec3::from(n)).normalize_or_zero()).collect());
                 let uv: Option<Vec<Vec2>> = reader.read_tex_coords(0).map(|t| t.into_f32().map(Vec2::from).collect());
+                // Further UV sets (TEXCOORD_1...), painted with when the user picks one.
+                let mut more_uvs: Vec<Vec<Vec2>> = Vec::new();
+                while let Some(set) = reader.read_tex_coords(more_uvs.len() as u32 + 1).map(|t| t.into_f32().map(Vec2::from).collect::<Vec<_>>()) {
+                    more_uvs.push(set);
+                    if more_uvs.len() == 7 { break; }
+                }
                 // Every vertex colour set (COLOR_0, COLOR_1...) that covers every vertex, in order
                 // (issue #366: the baker can take its ID map from any of them).
                 let mut color_sets: Vec<Vec<[f32; 4]>> = Vec::new();
@@ -320,7 +326,15 @@ fn load_gltf(path: &Path, b: &mut MeshBuilder, warnings: &mut Vec<String>) -> Re
                         let k = [col[tri[0] as usize], col[tri[1] as usize], col[tri[2] as usize]];
                         if flip { [k[0], k[2], k[1]] } else { k }
                     }).collect();
-                    b.push_triangle_color_sets(mat, c, &sets);
+                    if more_uvs.is_empty() {
+                        b.push_triangle_color_sets(mat, c, &sets);
+                    } else {
+                        let uv_sets: Vec<[Option<Vec2>; 3]> = more_uvs.iter().map(|set| {
+                            let k = [0, 1, 2].map(|j| set.get(tri[j] as usize).copied());
+                            if flip { [k[0], k[2], k[1]] } else { k }
+                        }).collect();
+                        b.push_triangle_uv_sets(mat, c, &sets, &uv_sets);
+                    }
                 }
             }
         }
@@ -388,6 +402,11 @@ fn fbx_scene(scene: &ufbx::Scene, b: &mut MeshBuilder, warnings: &mut Vec<String
         let has_uv = mesh.vertex_uv.exists;
         let has_n = mesh.vertex_normal.exists;
         let has_color = mesh.vertex_color.exists;
+        // Further UV layers of the file (the first one is `vertex_uv`).
+        let more_uvs: Vec<&ufbx::VertexVec2> = mesh.uv_sets.iter().skip(1).take(7).map(|s| &s.vertex_uv).filter(|v| v.exists).collect();
+        for (i, set) in mesh.uv_sets.iter().take(8).enumerate() {
+            b.set_uv_set_name(i, &set.name);
+        }
         if !has_uv {
             warnings.push(format!("FBX mesh '{}' has no UVs", node.element.name));
         }
@@ -431,7 +450,23 @@ fn fbx_scene(scene: &ufbx::Scene, b: &mut MeshBuilder, warnings: &mut Vec<String
                 let ix = [tri_indices[3 * t], tri_indices[3 * t + 1], tri_indices[3 * t + 2]];
                 let c = [corner(ix[0]), corner(ix[1]), corner(ix[2])];
                 let c = if flip { [c[0], c[2], c[1]] } else { c };
-                if has_color {
+                if !more_uvs.is_empty() {
+                    let colors: Vec<[[f32; 4]; 3]> = if has_color {
+                        let color = |ix: u32| {
+                            let v = mesh.vertex_color[ix as usize];
+                            [v.x as f32, v.y as f32, v.z as f32, v.w as f32]
+                        };
+                        let k = [color(ix[0]), color(ix[1]), color(ix[2])];
+                        vec![if flip { [k[0], k[2], k[1]] } else { k }]
+                    } else {
+                        Vec::new()
+                    };
+                    let uv_sets: Vec<[Option<Vec2>; 3]> = more_uvs.iter().map(|set| {
+                        let k = ix.map(|i| { let uv = set[i as usize]; Some(Vec2::new(uv.x as f32, 1.0 - uv.y as f32)) });
+                        if flip { [k[0], k[2], k[1]] } else { k }
+                    }).collect();
+                    b.push_triangle_uv_sets(mat, c, &colors, &uv_sets);
+                } else if has_color {
                     let color = |ix: u32| {
                         let v = mesh.vertex_color[ix as usize];
                         [v.x as f32, v.y as f32, v.z as f32, v.w as f32]
@@ -689,6 +724,41 @@ mod tests {
         primaries.sort_by(|a, b| a.partial_cmp(b).unwrap());
         assert_eq!(primaries, [[0.0, 0.0, 1.0, 1.0], [0.0, 1.0, 0.0, 1.0], [1.0, 0.0, 0.0, 1.0]]);
         assert_eq!(mesh.corner_color_in(2, 0, 0.3, 0.3), None, "no third set");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn gltf_with_two_uv_sets_imports_both() {
+        // One triangle with TEXCOORD_0 and a different TEXCOORD_1.
+        let positions: [f32; 9] = [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0];
+        let uv0: [f32; 6] = [0.0, 1.0, 1.0, 1.0, 0.0, 0.0];
+        let uv1: [f32; 6] = [0.5, 0.5, 0.75, 0.5, 0.5, 0.25];
+        let mut bytes: Vec<u8> = Vec::new();
+        for v in positions.iter().chain(uv0.iter()).chain(uv1.iter()) {
+            bytes.extend_from_slice(&v.to_le_bytes());
+        }
+        let b64 = base64_encode(&bytes);
+        let json = format!(
+            r#"{{"asset":{{"version":"2.0"}},"scene":0,"scenes":[{{"nodes":[0]}}],"nodes":[{{"mesh":0}}],
+            "meshes":[{{"primitives":[{{"attributes":{{"POSITION":0,"TEXCOORD_0":1,"TEXCOORD_1":2}}}}]}}],
+            "buffers":[{{"byteLength":{len},"uri":"data:application/octet-stream;base64,{b64}"}}],
+            "bufferViews":[{{"buffer":0,"byteOffset":0,"byteLength":36}},{{"buffer":0,"byteOffset":36,"byteLength":24}},
+                           {{"buffer":0,"byteOffset":60,"byteLength":24}}],
+            "accessors":[{{"bufferView":0,"componentType":5126,"count":3,"type":"VEC3","min":[0,0,0],"max":[1,1,0]}},
+                         {{"bufferView":1,"componentType":5126,"count":3,"type":"VEC2"}},
+                         {{"bufferView":2,"componentType":5126,"count":3,"type":"VEC2"}}]}}"#,
+            len = bytes.len()
+        );
+        let dir = tmp("gltf-uvsets");
+        let path = dir.join("uvsets.gltf");
+        std::fs::write(&path, json).unwrap();
+        let mesh = import_mesh(&path).unwrap().mesh;
+        assert_eq!(mesh.uv_set_count(), 2);
+        let mut set1 = mesh.uv_sets[1].corners.clone();
+        set1.sort_by(|a, b| a.x.partial_cmp(&b.x).unwrap().then(a.y.partial_cmp(&b.y).unwrap()));
+        assert_eq!(set1, [Vec2::new(0.5, 0.25), Vec2::new(0.5, 0.5), Vec2::new(0.75, 0.5)]);
+        let corners: Vec<Vec2> = mesh.indices.iter().map(|&i| mesh.uvs[i as usize]).collect();
+        assert_eq!(mesh.uv_sets[0].corners, corners, "set 0 is what is painted by default");
         std::fs::remove_dir_all(&dir).ok();
     }
 

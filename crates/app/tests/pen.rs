@@ -312,3 +312,130 @@ fn ctrl_scales_both_tangents_and_a_shift_click_point_stays_straight() {
     assert!((pen(&s).anchors[0].outgoing - Vec2::new(0.0, 0.1)).length() < 1e-6);
 }
 
+
+/// The Pen tool's stitch choice: a new path is drawn as that stitch from its first point (it
+/// used to be a plain line that had to be turned into a stitch afterwards in Properties).
+#[test]
+fn a_pen_style_draws_new_paths_as_stitches() {
+    let mut s = session();
+    let ts = s.selected_texture_set().id;
+    if !s.channels().contains(&ChannelKind::Height) {
+        s.execute(Command::AddChannel { texture_set: ts, kind: ChannelKind::Height }).unwrap();
+    }
+    let tips = subcraft_app::assets::alphas::builtin();
+    let cross = subcraft_app::stitch::find("Stitch: Cross").unwrap();
+    let mut editor = PenEditor::default();
+    editor.style = Some(subcraft_app::stitch::style(&mut s, cross, &tips));
+    let tip = editor.style.unwrap().tip.expect("the tip is a resource of the project");
+    assert_eq!(s.resources().get(tip).unwrap().name, "Stitch Cross");
+    assert_eq!(subcraft_app::stitch::style(&mut s, cross, &tips).tip, Some(tip), "choosing it again adds no second copy");
+    point(&mut editor, &mut s, Vec2::new(0.2, 0.5));
+    point(&mut editor, &mut s, Vec2::new(0.8, 0.5));
+    let path = pen(&s).clone();
+    assert_eq!(path.stamp, Some(subcraft_doc::PathStamp { alpha: Some(tip), spacing: cross.spacing, follow: true, alternate: 0.0, surface: true }));
+    assert_eq!((path.radius, path.hardness, path.opacity), (cross.radius(), 1.0, 1.0), "the stitch's width, not the brush's");
+    assert_eq!(path.values[&ChannelKind::Height], ChannelValue::scalar(cross.height));
+    assert_eq!(path.values[&ChannelKind::BaseColor], ChannelValue::rgb(cross.color[0], cross.color[1], cross.color[2]), "thread colour, not the red brush");
+    assert_eq!(s.selected_layer().unwrap().name, "Stitch: Cross");
+    assert_eq!(subcraft_app::stitch::of_path(&path, Some("Stitch Cross")).map(|f| f.name), Some("Stitch: Cross"));
+    // The raster is separate stitches with gaps, raised in Height: along the path some texels
+    // are covered and some are not.
+    let LayerContent::Paint(p) = &s.selected_layer().unwrap().content else { panic!() };
+    let height = &p.channels[&ChannelKind::Height];
+    let row: Vec<f32> = (26..102).map(|x| height.get(x, 64)[1]).collect();
+    assert!(row.iter().any(|&a| a > 0.5) && row.iter().any(|&a| a == 0.0), "stitches with gaps: {row:?}");
+    // Without a style the next path is the brush's plain stroke again.
+    editor.style = None;
+    editor.new_path(&s);
+    point(&mut editor, &mut s, Vec2::new(0.2, 0.8));
+    assert_eq!(pen(&s).stamp, None);
+    assert_eq!(pen(&s).values[&ChannelKind::BaseColor], ChannelValue::rgb(1.0, 0.0, 0.0));
+    assert_eq!(s.selected_layer().unwrap().name, "Pen path");
+}
+
+/// A stitch drawn from one face of the cube to another (two UV islands) is painted on both
+/// faces up to the edge between them: its stamps lie on the surface, not in UV space.
+#[test]
+fn a_stitched_path_continues_over_a_uv_seam() {
+    let mesh = subcraft_mesh::primitives::cube(2.0);
+    let bvh = subcraft_mesh::Bvh::build(&mesh);
+    let uv_at = |from: Vec3, to: Vec3| {
+        let hit = bvh.intersect(from, (to - from).normalize(), 0.0, 100.0).unwrap();
+        mesh.interpolate(hit.tri as usize, hit.u, hit.v).uv
+    };
+    let mut s = Session::new(mesh.clone(), 256);
+    let tips = subcraft_app::assets::alphas::builtin();
+    let saddle = subcraft_app::stitch::find("Stitch: Saddle").unwrap();
+    let mut editor = PenEditor::default();
+    editor.style = Some(subcraft_app::stitch::style(&mut s, saddle, &tips));
+    point(&mut editor, &mut s, uv_at(Vec3::new(0.0, -0.4, 5.0), Vec3::new(0.0, -0.4, 0.0)));
+    point(&mut editor, &mut s, uv_at(Vec3::new(0.0, 5.0, -0.4), Vec3::new(0.0, 0.0, -0.4)));
+    assert!(pen(&s).stamp.unwrap().surface, "stitches lie on the surface");
+    let LayerContent::Paint(p) = &s.selected_layer().unwrap().content else { panic!() };
+    let color = &p.channels[&ChannelKind::BaseColor];
+    // Coverage along the route on each face: up the front face at x = 0, back on the top face.
+    let covered = |points: &mut dyn Iterator<Item = (Vec3, Vec3)>| {
+        points.filter(|&(at, n)| {
+            let uv = uv_at(at + n * 3.0, at);
+            color.get(((uv.x * 256.0) as u32).min(255), ((uv.y * 256.0) as u32).min(255))[3] > 0.5
+        }).count()
+    };
+    let front = covered(&mut (0..100).map(|k| (Vec3::new(0.0, -0.4 + 1.38 * k as f32 / 100.0, 1.0), Vec3::Z)));
+    let top = covered(&mut (0..100).map(|k| (Vec3::new(0.0, 1.0, 0.98 - 1.38 * k as f32 / 100.0), Vec3::Y)));
+    assert!(front > 40 && top > 40, "stitches on both faces: {front} and {top} of 100 samples");
+    // Right up to the edge on both sides (the last 0.25 before it holds at least one stitch).
+    let near_front = covered(&mut (0..40).map(|k| (Vec3::new(0.0, 0.73 + 0.25 * k as f32 / 40.0, 1.0), Vec3::Z)));
+    let near_top = covered(&mut (0..40).map(|k| (Vec3::new(0.0, 1.0, 0.98 - 0.25 * k as f32 / 40.0), Vec3::Y)));
+    assert!(near_front > 5 && near_top > 5, "near the edge: {near_front} and {near_top}");
+    // The same path in UV space (as before) leaves the top face's part by the edge unpainted or
+    // paints across other islands; here it only checks that turning the surface off changes the raster.
+    let mut flat = pen(&s).clone();
+    flat.stamp.as_mut().unwrap().surface = false;
+    let before = color.clone();
+    editor.set_path(&s, flat).unwrap(); editor.release(&s).unwrap(); finish(&mut editor, &mut s);
+    let LayerContent::Paint(p) = &s.selected_layer().unwrap().content else { panic!() };
+    assert!(p.channels[&ChannelKind::BaseColor] != before);
+}
+
+/// Needle holes for a stitched path: a second path layer on the same points, at the stitch's
+/// width and spacing, pressed in where the thread path has its gaps. The thread path stays
+/// selected and unchanged, and the holes are one undo step.
+#[test]
+fn needle_holes_are_a_companion_path_in_the_gaps_of_the_stitches() {
+    let mut s = Session::new(subcraft_mesh::primitives::plane(2.0, 2), 512);
+    let ts = s.selected_texture_set().id;
+    if !s.channels().contains(&ChannelKind::Height) {
+        s.execute(Command::AddChannel { texture_set: ts, kind: ChannelKind::Height }).unwrap();
+    }
+    let tips = subcraft_app::assets::alphas::builtin();
+    let straight = subcraft_app::stitch::find("Stitch: Straight").unwrap();
+    assert!(subcraft_app::stitch::takes_holes(straight) && !subcraft_app::stitch::takes_holes(subcraft_app::stitch::find("Stitch: Cross").unwrap()));
+    let mut editor = PenEditor::default();
+    editor.style = Some(subcraft_app::stitch::style(&mut s, straight, &tips));
+    point(&mut editor, &mut s, Vec2::new(0.2, 0.5));
+    point(&mut editor, &mut s, Vec2::new(0.8, 0.5));
+    let (thread_layer, thread) = (s.selection().layer.unwrap(), pen(&s).clone());
+    let holes_style = subcraft_app::stitch::style(&mut s, subcraft_app::stitch::find("Stitch: Seam Holes").unwrap(), &tips);
+    let channels = s.channels();
+    let holes = subcraft_app::stitch::holes_path(&thread, holes_style, |k| channels.contains(&k));
+    assert_eq!((holes.radius, holes.stamp.unwrap().spacing, holes.stamp.unwrap().surface), (thread.radius, thread.stamp.unwrap().spacing, true));
+    assert!(holes.values[&ChannelKind::Height].0[0] < 0.0, "holes are pressed in");
+    assert!(holes.anchors.iter().zip(&thread.anchors).all(|(a, b)| a.id != b.id && a.position == b.position));
+    let steps = s.history().entries().len();
+    editor.add_path_layer(&mut s, holes, "Stitch: Seam Holes").unwrap();
+    assert_eq!(s.history().entries().len(), steps + 1);
+    assert_eq!(s.selection().layer, Some(thread_layer), "the thread path stays selected");
+    assert_eq!(pen(&s), &thread);
+    let set = s.selected_texture_set();
+    let hole_layer = set.layers.iter().find(|l| l.name == "Stitch: Seam Holes").expect("the holes layer");
+    let (LayerContent::Paint(h), LayerContent::Paint(t)) = (&hole_layer.content, &set.find(thread_layer).unwrap().content) else { panic!() };
+    // Along the line both exist, and the holes sit in the gaps: a hole only meets the thread
+    // at its rim, where the thread's end goes into it.
+    let (hole, thread_a) = (&h.channels[&ChannelKind::Height], &t.channels[&ChannelKind::Height]);
+    let row: Vec<(bool, bool)> = (110..400).map(|x| (thread_a.get(x, 256)[1] > 0.5, hole.get(x, 256)[1] > 0.5)).collect();
+    assert!(row.iter().any(|r| r.0) && row.iter().any(|r| r.1), "thread and holes are drawn");
+    let (holes_n, both, open) = (row.iter().filter(|r| r.1).count(), row.iter().filter(|r| r.0 && r.1).count(), row.iter().filter(|r| r.1 && !r.0).count());
+    assert!(both * 2 < holes_n && open * 3 > holes_n, "holes in the gaps: {holes_n} hole texels, {both} under thread, {open} open");
+    s.execute(Command::Undo).unwrap();
+    assert!(s.selected_texture_set().layers.iter().all(|l| l.name != "Stitch: Seam Holes"));
+}

@@ -2236,7 +2236,7 @@ impl SubcraftApp {
             let small = |t: String, c| RichText::new(t).font(theme::font(11.5)).color(c);
             ui.label(small(format!("{icon}  {tool}"), theme::ACCENT()));
             let size = if self.state.tool == Tool::Pen {
-                self.state.pen.preview(&self.state.session).map_or_else(|| "Click to start a path".into(), |p| format!("Width {:.2}% UV", p.radius * 200.0))
+                self.state.pen.preview(&self.state.session).map_or_else(|| self.state.pen.style.map_or("Click to start a path".into(), |s| format!("{}: click to start a path", s.stitch.name)), |p| format!("Width {:.2}% UV", p.radius * 200.0))
             } else { format!("Size {:.1}%", self.state.session.brush.settings.size) };
             ui.label(small(size, theme::TEXT_DIM()));
             if let Some(l) = self.state.session.selected_layer() {
@@ -2441,10 +2441,10 @@ impl egui_dock::TabViewer for Viewer<'_> {
     }
 
     fn on_tab_button(&mut self, tab: &mut Tab, response: &egui::Response) {
-        if self.was_active.contains(tab) {
-            let r = response.rect;
-            let painter = response.ctx.layer_painter(response.layer_id);
-            painter.rect_filled(egui::Rect::from_min_size(r.min, egui::vec2(r.width(), 2.0)), 0.0, theme::ACCENT());
+        if self.was_active.contains(tab)
+            && let Some(marker) = active_tab_marker(response.rect, response.interact_rect)
+        {
+            response.ctx.layer_painter(response.layer_id).rect_filled(marker, 0.0, theme::ACCENT());
         }
     }
 
@@ -2733,6 +2733,7 @@ impl eframe::App for SubcraftApp {
         crate::export_mesh::export_mesh_window(&mut self.state, &ctx, now);
         crate::mesh_reload::window(&mut self.state, &ctx, now);
         crate::auto_uv::window(&mut self.state, &ctx, now);
+        crate::uv_sets::poll(&mut self.state, &ctx, now);
         dialogs::poll_bake(&mut self.state, &ctx, now);
         panels::id_colors::sync_pick_view(&mut self.state);
         crate::spp_import::poll(&mut self.state, &ctx, now);
@@ -2846,6 +2847,19 @@ fn scripted_tool_capture(state: &mut UiState, which: &str, now: f64) {
                 s.brush.settings.size = 7.0;
                 set(s, c);
                 stroke(s, StrokeMode::Paint, &line(300.0, 250.0 + 70.0 * i as f32, 600.0, 250.0 + 70.0 * i as f32));
+            }
+        }
+        "particles" => {
+            // Particle presets: rain streaks, leaking drips and burn marks, each dabbed along a short
+            // line across the upper part of the model.
+            let presets = subcraft_app::brush_builtin::builtin_brush_presets();
+            let tips = subcraft_app::assets::alphas::builtin();
+            for (i, (name, c)) in [("Rain Streaks", [0.15, 0.3, 0.8]), ("Leaking Drips", [0.45, 0.2, 0.05]), ("Burn Marks", [0.05, 0.05, 0.05])].into_iter().enumerate() {
+                if let Some(p) = presets.iter().find(|p| p.name == name) { s.apply_brush_preset(p, &tips); }
+                set(s, c);
+                let y = if name == "Burn Marks" { 390.0 } else { 260.0 };
+                let x0 = 320.0 + 110.0 * i as f32;
+                stroke(s, StrokeMode::Paint, &line(x0, y, x0 + 70.0, y));
             }
         }
         "stabilizer" => {
@@ -3236,5 +3250,35 @@ mod seal_tests {
         assert_eq!(session.history().entries().len(), entries + 2);
         session.execute(Command::Undo).unwrap();
         assert_eq!(session.selected_layer().unwrap().blend[&ChannelKind::BaseColor].opacity, 0.7, "Undo returns to where the first drag ended");
+    }
+}
+
+/// The accent strip on top of the active tab, cut to the part of the tab the scrolled tab row
+/// shows (`visible`: the tab's rect inside the row's clip). Issue #637: drawn unclipped, it slid
+/// out of the panel when the tab row was scrolled. `None` when the tab is scrolled out of view.
+fn active_tab_marker(tab: egui::Rect, visible: egui::Rect) -> Option<egui::Rect> {
+    let strip = egui::Rect::from_min_size(tab.min, egui::vec2(tab.width(), 2.0)).intersect(visible);
+    (strip.is_positive()).then_some(strip)
+}
+
+#[cfg(test)]
+mod active_tab_marker_tests {
+    use super::active_tab_marker;
+    use egui::{Rect, pos2};
+
+    #[test]
+    fn marker_stays_inside_the_scrolled_tab_row() {
+        let row = Rect::from_min_max(pos2(100.0, 0.0), pos2(300.0, 32.0));
+        // Fully visible tab: the whole width.
+        let tab = Rect::from_min_max(pos2(120.0, 0.0), pos2(204.0, 32.0));
+        assert_eq!(active_tab_marker(tab, tab.intersect(row)), Some(Rect::from_min_max(pos2(120.0, 0.0), pos2(204.0, 2.0))));
+        // Scrolled half out on the left: only the visible part.
+        let tab = Rect::from_min_max(pos2(60.0, 0.0), pos2(144.0, 32.0));
+        assert_eq!(active_tab_marker(tab, tab.intersect(row)), Some(Rect::from_min_max(pos2(100.0, 0.0), pos2(144.0, 2.0))));
+        // Scrolled fully out of the row (the #637 drift): nothing is drawn.
+        let tab = Rect::from_min_max(pos2(-40.0, 0.0), pos2(44.0, 32.0));
+        assert_eq!(active_tab_marker(tab, tab.intersect(row)), None);
+        let tab = Rect::from_min_max(pos2(320.0, 0.0), pos2(404.0, 32.0));
+        assert_eq!(active_tab_marker(tab, tab.intersect(row)), None);
     }
 }

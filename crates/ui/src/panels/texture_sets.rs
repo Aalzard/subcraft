@@ -360,6 +360,7 @@ fn general(state: &mut UiState, ui: &mut Ui, cmds: &mut Vec<Command>) {
     });
     crate::panels::shader_settings::apply(state, shader_ops);
     ui.horizontal(|ui| { crate::viewport_bar::albedo_filter(ui, state); });
+    crate::uv_sets::row(state, ui, |ui| field_label(ui, "UV set"));
     transparency(state, ui, cmds);
     udim_tiles(state, ui, cmds);
 }

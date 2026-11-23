@@ -608,12 +608,43 @@ impl Stroke {
                     });
                 }
             }
-            for dab in &dabs {
+            // Particle brush: the stamp releases particles that run over the surface; their
+            // trails are painted instead of the stamp. Each trail point carries its surface
+            // position, so a point hidden from the view is not painted onto what hides it.
+            let mut trail_points: Vec<Option<Vec3>> = Vec::new();
+            if s.particle_count > 0 {
+                let parts = self.parts.as_ref().filter(|p| p.enabled);
+                let accept = |t: u32| ctx.mesh.tri_material[t as usize] == ctx.geometry.material_slot && parts.is_none_or(|p|
+                    ctx.geometry.triangle_region(t as usize, p.kind).is_some_and(|id| p.parts.contains(&id)));
+                let emitter = Dab { screen, radius, flow, angle, roundness: s.roundness, hardness: s.hardness };
+                dabs.clear();
+                if let Some(hit) = resolve_overlap(&emitter, 0, &cameras[0], ctx.mesh, ctx.bvh, s.alignment, false, accept) {
+                    for i in 0..s.particle_count.min(crate::particles::MAX_PARTICLES) {
+                        for point in crate::particles::trail(ctx.mesh, ctx.bvh, s, hit.center, radius, k, i, accept) {
+                            let Some(at) = cameras[0].project(point.pos) else { continue };
+                            dabs.push(Dab {
+                                screen: at.truncate(),
+                                radius: radius * s.particle_size.clamp(0.01, 1.0) * point.size.max(0.01),
+                                flow,
+                                angle,
+                                roundness: s.roundness,
+                                hardness: s.hardness,
+                            });
+                            trail_points.push(Some(point.pos));
+                        }
+                    }
+                }
+            }
+            for (di, dab) in dabs.iter().enumerate() {
                 for (ci, cam) in cameras.iter().enumerate() {
                     let parts = self.parts.as_ref().filter(|p| p.enabled);
                     let accept = |t: u32| ctx.mesh.tri_material[t as usize] == ctx.geometry.material_slot && parts.is_none_or(|p|
                         ctx.geometry.triangle_region(t as usize, p.kind).is_some_and(|id| p.parts.contains(&id)));
                     if let Some(st) = resolve_overlap(dab, ci, cam, ctx.mesh, ctx.bvh, s.alignment, self.alpha.is_some(), accept) {
+                        // A trail point behind other geometry resolves onto the occluder: skip it.
+                        if ci == 0 && let Some(Some(p)) = trail_points.get(di) && st.center.distance(*p) > dab.radius * 2.0 {
+                            continue;
+                        }
                         if ci == 0 {
                             self.last_depth = Some(cam.view_depth(st.center).max(1e-3));
                         }
