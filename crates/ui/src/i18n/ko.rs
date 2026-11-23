@@ -1074,4 +1074,6 @@ pub static TABLE: &[(&str, &str)] = &[
     ("AO Depth", "AO 깊이"),
     ("How much the fine relief below adds to the baked curvature and occlusion", "아래의 미세한 요철이 베이크된 곡률과 오클루전에 더해지는 정도"),
     ("Also reads the normal and height maps of the layers below, so wear catches their small raised details and dirt settles into their small grooves, as Painter's Use Micro Details does. Needs a layer below with a Normal or Height map.", "아래 레이어의 노멀 맵과 높이 맵도 읽어, 마모가 작은 돌출 디테일에 생기고 먼지가 작은 홈에 쌓이도록 합니다 (Painter의 Use Micro Details와 같음). 아래에 노멀 또는 높이 맵이 있는 레이어가 필요합니다."),
+    ("Material parameters", "머티리얼 매개변수"),
+    ("Put every parameter back to its default", "모든 매개변수를 기본값으로 되돌립니다"),
 ];

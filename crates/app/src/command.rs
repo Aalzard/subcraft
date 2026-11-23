@@ -192,6 +192,14 @@ pub enum Command {
     PasteBlending { layers: Vec<LayerId>, blend: std::collections::BTreeMap<ChannelKind, subcraft_doc::ChannelBlend> },
     /// Colour tag of these layers (`None` clears it). One undo step.
     SetLayerColor { layers: Vec<LayerId>, color: Option<subcraft_doc::LayerColor> },
+    /// Procedural material (ADR-0047): set one exposed parameter of `layer` and write every
+    /// property bound to it. Coalesces like opacity while a slider is dragged.
+    SetMaterialParam { layer: LayerId, param: String, value: subcraft_doc::ParamValue },
+    /// Every parameter of `layer`'s material back to its default (one undo step).
+    ResetMaterialParams(LayerId),
+    /// Attach, replace or (`None`) remove the parameters and bindings of `layer`. The layers
+    /// themselves stay as they are until a parameter is set.
+    SetMaterialControls { layer: LayerId, controls: Option<Box<subcraft_doc::MaterialControls>> },
     /// Coalesces like opacity.
     SetFillChannel { layer: LayerId, channel: ChannelKind, fill: FillChannel },
     /// Atomic independent toggle or solo (Alt-click), preserving every source and strength.
