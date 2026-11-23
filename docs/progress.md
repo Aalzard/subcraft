@@ -6161,3 +6161,22 @@ re-measured on a GPU. Not taken from his patch: the `SUBCRAFT_REPAINT_LOG` diagn
   refused); `crates/ui/tests/material_params.rs` click-through extended (Also drive > layer > Metallic gives
   one parameter with two bindings and both formulas drawn); `cargo test -p subcraft-ui --lib`.
 * Not seen in a real window.
+
+## Procedural library: 14 more materials and a Weave pattern (2026-11-23, branch `claude/project-thread-l9014a`)
+
+* `ProceduralKind::Weave` (`crates/materials/src/pattern.rs`): plain weave, 8 threads per pattern unit, round
+  thread profile, over/under height, slight per-thread thickness and fibres. Tiles at integer scale. Tests:
+  it is in the tiling test, and `weave_alternates_over_and_under` checks raised threads, low gaps and that
+  neighbouring crossings run in different directions.
+* `crates/assets/src/procedural/more.rs`: Enamel Paint, Cast Iron, Anodized Aluminium, Blued Steel, Aged Bronze,
+  Glossy Plastic, Carbon Fibre, Canvas, Denim, Granite, Marble, Sandstone, Rough Rock, Painted Plaster. Shared
+  helpers `edge_coat`, `pattern_coat`, `dust_layer`. Built-in smart materials are now 64 (25 procedural).
+* The well-formed test now also refuses two bindings on one property (they fight and the layer never settles;
+  it caught this in the first draft of the cloth materials).
+* Ran: `cargo test -p subcraft-assets` (all pass), `cargo test -p subcraft-materials pattern` (8 pass),
+  `cargo test -p subcraft-app --test procedural_materials` (every material composites to finite in-range values).
+* Looked at: `material_sheet` renders of all 14 at 4 settings each, one tuning pass (finer and fewer scratches on
+  anodized and blued metal, dust and weave sizes, granite grains, marble veins broken up, plaster colours).
+* Honest state: metals, enamel paint, bronze, rock and sandstone read well. Fabrics are the weakest: the weave is
+  correct but small at this render size, and cloth has no sheen model. Marble veins come from a cell-crack
+  pattern and still look a little like a net.

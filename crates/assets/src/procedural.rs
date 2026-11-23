@@ -657,7 +657,12 @@ pub fn smart_materials() -> Vec<SmartMaterial> {
         named("Leather", leather),
         named("Wood", wood),
     ]
+    .into_iter()
+    .chain(more::smart_materials())
+    .collect()
 }
+
+mod more;
 
 #[cfg(test)]
 mod tests {
@@ -672,7 +677,7 @@ mod tests {
     #[test]
     fn every_procedural_material_is_well_formed() {
         let all = built();
-        assert_eq!(all.len(), 11);
+        assert_eq!(all.len(), 25);
         for (name, layer) in &all {
             assert!(name.starts_with(PREFIX), "{name}");
             let m = layer.material.as_ref().unwrap_or_else(|| panic!("{name} has parameters"));
@@ -681,6 +686,10 @@ mod tests {
             assert!(m.params.len() >= 6, "{name} exposes a useful set of parameters");
             assert!(m.param("scale").is_some() && m.param("seed").is_some(), "{name} has Scale and Seed");
             assert!(m.is_default(), "{name} is built at its defaults");
+            // One binding per property: two would fight, and the layer would never settle.
+            for (i, b) in m.bindings.iter().enumerate() {
+                assert!(!m.bindings[..i].iter().any(|o| o.layer == b.layer && o.effect == b.effect && o.prop == b.prop), "{name}: {:?} is bound twice", b.prop);
+            }
             // Every parameter is read by at least one binding (no dead sliders).
             for p in &m.params {
                 let used = m.bindings.iter().any(|b| subcraft_doc::material_expr::params_used(&b.formula).unwrap().contains(&p.id));
@@ -804,11 +813,11 @@ mod tests {
                     assert!(!controls.can_link(&id, other) && !controls.link(&id, other));
                 }
                 // Formulas: rewritten, refused with a reason, removed.
-                assert_eq!(controls.set_formula(1, &format!("{id} * 0.5")), Ok(true));
-                assert_eq!(controls.set_formula(1, &format!("{id} * 0.5")), Ok(false));
+                assert_eq!(controls.set_formula(1, &format!("{id} * 0.5 + 0.125")), Ok(true));
+                assert_eq!(controls.set_formula(1, &format!("{id} * 0.5 + 0.125")), Ok(false));
                 assert!(controls.set_formula(1, "nobody + 1").unwrap_err().contains("nobody"));
                 assert!(controls.set_formula(1, "1 +").is_err());
-                assert_eq!(controls.bindings[1].formula, format!("{id} * 0.5"), "a refused formula changes nothing");
+                assert_eq!(controls.bindings[1].formula, format!("{id} * 0.5 + 0.125"), "a refused formula changes nothing");
                 assert!(controls.remove_binding(1) && controls.bindings_of(&id).len() == linked);
             }
         }
