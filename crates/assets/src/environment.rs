@@ -373,8 +373,9 @@ pub fn prefilter(src: &Bitmap) -> PrefilteredHdri {
             sh[i][c] *= a[i];
         }
     }
-    // Sun: brightest texel of the 64-wide level.
-    let l = &levels[count - 3];
+    // Sun: brightest texel of the 32-wide level (about 29 degrees of blur, as before the levels
+    // were matched to GGX: the startup rotation of the bundled HDRIs depends on it).
+    let l = &levels[count - 2];
     let (mut best, mut best_lum) = (0usize, -1.0f32);
     for i in 0..(l.width * l.height) as usize {
         let lum = 0.2126 * l.rgba[i * 4] + 0.7152 * l.rgba[i * 4 + 1] + 0.0722 * l.rgba[i * 4 + 2];
