@@ -24,6 +24,8 @@ pub enum Tool {
     Smudge,
     /// Painter's Projection tool: paints the brush material cast from the view, tiled over it.
     Projection,
+    /// Shape fill: drag a rectangle or ellipse, filled once with the brush material.
+    Shape,
 }
 
 impl Tool {
@@ -36,7 +38,7 @@ impl Tool {
             Tool::Smudge => Some(P::Smudge),
             Tool::Clone => Some(P::Clone),
             Tool::PolygonFill => Some(P::PolygonFill),
-            Tool::Eyedropper | Tool::Pen => None,
+            Tool::Eyedropper | Tool::Pen | Tool::Shape => None,
         }
     }
 
@@ -63,6 +65,7 @@ fn tool_name(tool: Tool) -> &'static str {
         Tool::Projection => "Projection tool",
         Tool::Eyedropper => "Eyedropper",
         Tool::Pen => "Pen",
+        Tool::Shape => "Shape fill",
     }
 }
 
@@ -115,6 +118,8 @@ pub struct UvView {
     pub fill_box: Option<egui::Pos2>,
     /// Geometry mask box started in the 2D view while picking parts (screen point).
     pub parts_box: Option<egui::Pos2>,
+    /// Shape fill drag started in the 2D view (screen point), as [`UiState::shape_box`].
+    pub shape_box: Option<egui::Pos2>,
     /// Frame this UV rectangle (centre, size) next time the 2D view is drawn (F on a path).
     pub frame: Option<(Vec2, Vec2)>,
     /// Show the lit material (Painter's "Material" display) instead of `source`.
@@ -207,6 +212,10 @@ pub struct UiState {
     /// Polygon fill drag in progress: where the primary button went down (screen points). A
     /// release close by is a click fill there, a longer drag a box fill.
     pub fill_box: Option<egui::Pos2>,
+    /// Shape fill options (rectangle / ellipse, corners, feather).
+    pub shape: subcraft_paint::shape::Shape,
+    /// Shape fill drag in progress in the 3D view: where the primary button went down.
+    pub shape_box: Option<egui::Pos2>,
     /// The floating Properties popup a right-click in a view opened.
     pub view_props: Option<crate::view_props::ViewProps>,
     /// This frame's primary press closed that popup: the views don't paint or fill with it.
@@ -560,6 +569,8 @@ impl UiState {
             fill_selection: FILL_DEFAULTS.selection,
             fill_hit_test: FILL_DEFAULTS.hit_test,
             fill_box: None,
+            shape: Default::default(),
+            shape_box: None,
             view_props: None,
             view_props_swallow: false,
             active_channel: ChannelKind::BaseColor,
@@ -594,7 +605,7 @@ impl UiState {
             last_view_size: [1280, 720],
             last_view_rect: egui::Rect::NOTHING,
             panel_scroll: Default::default(),
-            uv: UvView { zoom: 1.0, offset: egui::Vec2::ZERO, rotation: 0.0, rotation_raw: 0.0, source: PreviewSource::Channel(ChannelKind::BaseColor), texture: None, painting: false, last_point: None, fill_box: None, parts_box: None, frame: None, material: false, material_image: None },
+            uv: UvView { zoom: 1.0, offset: egui::Vec2::ZERO, rotation: 0.0, rotation_raw: 0.0, source: PreviewSource::Channel(ChannelKind::BaseColor), texture: None, painting: false, last_point: None, fill_box: None, parts_box: None, shape_box: None, frame: None, material: false, material_image: None },
             painting: false,
             computing_since: None,
             paint_isolated: false,

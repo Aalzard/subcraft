@@ -1598,6 +1598,7 @@ impl SubcraftApp {
             Action::PolygonFillTool => self.state.tool = Tool::PolygonFill,
             Action::SmudgeTool => self.state.tool = Tool::Smudge,
             Action::ProjectionTool => self.state.tool = Tool::Projection,
+            Action::ShapeTool => self.state.tool = Tool::Shape,
             // Painter: 6 is the clone with a relative source, Ctrl+6 the absolute one.
             Action::CloneTool => {
                 self.state.tool = Tool::Clone;
@@ -1767,6 +1768,7 @@ impl SubcraftApp {
                 (Tool::Projection, icons::IMAGE, tip(km, "Projection: paint the brush material cast from the view and tiled over it", Action::ProjectionTool)),
                 (Tool::Eyedropper, icons::CURSOR, tip(km, "Eyedropper: picks the channels the brush paints (Shift+click picks the whole material). Chosen from a painting tool, it goes back to it after one pick", Action::EyedropperTool)),
                 (Tool::Pen, icons::CURVE, tip(km, "Pen paths: click points, drag for curves; edit anchors and handles in 2D View", Action::PenTool)),
+                (Tool::Shape, icons::SQUARES, tip(km, "Shape fill: drag a rectangle or ellipse to fill it with the brush material (Shift: square / circle, Ctrl: from the centre)", Action::ShapeTool)),
             ] {
                 if tool_button(ui, icon, *tool == t, &tip).clicked() {
                     *tool = t;
@@ -2249,6 +2251,7 @@ impl SubcraftApp {
                 Tool::Projection => (icons::IMAGE, "Projection"),
                 Tool::Eyedropper => (icons::CURSOR, "Eyedropper"),
                 Tool::Pen => (icons::CURVE, "Pen paths"),
+                Tool::Shape => (icons::SQUARES, "Shape fill"),
             };
             let small = |t: String, c| RichText::new(t).font(theme::font(11.5)).color(c);
             ui.label(small(format!("{icon}  {tool}"), theme::ACCENT()));

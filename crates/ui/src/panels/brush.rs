@@ -123,6 +123,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         subcraft_paint::PolygonSelectMode::PartialLoop => hint(ui, "Drag from one quad to another to fill the loop between them; hold Alt when releasing to add as many on the other side. 3D view."),
                     }
                 }
+                if state.tool == Tool::Shape {
+                    crate::shape_tool::options(state, ui);
+                }
                 let b = &mut state.session.brush;
                 prop_row(ui, "Paint on", |ui| {
                     segmented(ui, &mut b.target, &[(PaintTarget::Content, "Layer"), (PaintTarget::MaskBase, "Mask")]);

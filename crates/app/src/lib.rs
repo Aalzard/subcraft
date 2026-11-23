@@ -10,6 +10,7 @@ pub mod asset_apply;
 pub mod auto_uv;
 pub mod uv_sets;
 pub mod versions;
+pub mod shape_fill;
 pub mod live_link;
 pub mod bake_job;
 pub mod bake_config;

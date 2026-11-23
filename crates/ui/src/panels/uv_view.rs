@@ -326,7 +326,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     let paints = painting_tool && !alt && !stencil_edit;
     // Tools that use a click in the view: a drag with them must not pan.
     let picking = state.picking_parts && state.session.selected_layer().is_some();
-    let clicks = paints || picking || matches!(state.tool, Tool::Pen | Tool::Eyedropper);
+    let clicks = paints || picking || matches!(state.tool, Tool::Pen | Tool::Eyedropper | Tool::Shape);
     // Right-click (no drag): the Properties popup at the cursor.
     if response.secondary_clicked() && !stencil_edit && crate::view_props::opens(state, mods) && let Some(p) = response.interact_pointer_pos() {
         crate::view_props::open(state, p, crate::view_props::View::View2d);
@@ -436,6 +436,14 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         crate::pen::draw(&painter, path, &state.pen.selected_anchors(), &state.pen_display, |uv| Some(frame.to_px(uv)));
     }
     crate::uv_gizmo::overlay(state, &painter, frame);
+    if let (Some(a), Some(b)) = (state.uv.shape_box, response.hover_pos().or(ui.input(|i| i.pointer.latest_pos()))) {
+        let mods = ui.input(|i| i.modifiers);
+        let (min, max) = uv_shape_box(a, b, &frame, mods.shift, mods.command || mods.ctrl);
+        let to_px = |uv: egui::Vec2| frame.to_px(Vec2::new(uv.x, uv.y));
+        let points = crate::shape_tool::outline(&state.shape, egui::vec2(min.x, min.y), egui::vec2(max.x, max.y), to_px);
+        let bounds = Rect::from_points(&points);
+        crate::shape_tool::draw_preview(&painter, points, bounds);
+    }
     for start in [state.uv.fill_box, state.uv.parts_box] {
         if let (Some(a), Some(b)) = (start, response.hover_pos().or(ui.input(|i| i.pointer.latest_pos())))
             && crate::view_props::is_box_drag(a, b)
@@ -694,6 +702,7 @@ pub fn hint(tool: Tool, paints: bool) -> &'static str {
     if !paints {
         return match tool {
             Tool::Eyedropper => "LMB pick color · Shift+LMB pick material · MMB pan · Wheel zoom",
+            Tool::Shape => "LMB drag fill a shape · Shift square / circle · Ctrl from the centre · MMB pan · Wheel zoom",
             _ => "LMB / MMB pan · Alt+LMB rotate · RMB properties · Wheel zoom",
         };
     }
@@ -805,6 +814,28 @@ fn paint_input(state: &mut UiState, ui: &Ui, response: &egui::Response, image: F
         }
         return;
     }
+    // Shape fill: the box is kept square to the texture (like the fill box in a turned view).
+    if let Some(start) = state.uv.shape_box {
+        if state.tool != Tool::Shape || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+            state.uv.shape_box = None;
+        } else if !down {
+            state.uv.shape_box = None;
+            let (a, b) = uv_shape_box(start, pointer.unwrap_or(start), &image, shift, ctrl);
+            let size = (b - a) * view.side;
+            if size.x < 2.0 || size.y < 2.0 {
+                state.set_status("Shape fill: drag a box to draw the shape", now);
+            } else {
+                if let Some(name) = state.session.ensure_paint_layer() {
+                    state.set_status(format!("Painting on a new paint layer, \"{name}\" (the selected layer was not a paint layer)"), now);
+                }
+                match state.session.fill_shape_uv(view, (a + b) * 0.5, size, &state.shape) {
+                    Ok(()) => state.gpu_dirty = true,
+                    Err(e) => state.set_status(format!("Shape fill: {e}"), now),
+                }
+            }
+        }
+        return;
+    }
     if state.uv.painting {
         if !down {
             state.session.end_stroke();
@@ -832,6 +863,10 @@ fn paint_input(state: &mut UiState, ui: &Ui, response: &egui::Response, image: F
         }
         Tool::PolygonFill => {
             state.uv.fill_box = Some(p);
+            return;
+        }
+        Tool::Shape => {
+            state.uv.shape_box = Some(p);
             return;
         }
         Tool::Clone if (ctrl && !shift) || v_down => {
@@ -1103,4 +1138,12 @@ mod material_texture_tests {
         material_texture(&mut state, &ctx, ts, 0.9);
         assert_eq!(built(&state), Some(0.3));
     }
+}
+
+/// A shape drag in the 2D view as a texture-space box (min, max UV): squared and centred in UV,
+/// so it stays aligned to the texture in a turned view.
+fn uv_shape_box(start: Pos2, end: Pos2, frame: &Frame, square: bool, centred: bool) -> (Vec2, Vec2) {
+    let (a, b) = (frame.to_uv(start), frame.to_uv(end));
+    let (min, max) = crate::shape_tool::drag_box(egui::vec2(a.x, a.y), egui::vec2(b.x, b.y), square, centred);
+    (Vec2::new(min.x, min.y), Vec2::new(max.x, max.y))
 }
