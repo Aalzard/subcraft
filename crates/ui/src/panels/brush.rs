@@ -314,6 +314,23 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 hint(ui, "For pens that report tilt (Wacom, Huion, XP-Pen, Surface). Leaning the pen widens the brush, lowers its flow and flattens it like the side of a pencil; Angle follows tilt turns it toward the lean. A mouse is never affected. Rotation needs a pen with barrel rotation (Art Pen).");
             });
 
+            section(ui, "particles", "Particles", b.settings.particle_count > 0, |ui| {
+                let s = &mut b.settings;
+                let d = subcraft_paint::BrushSettings::default();
+                let mut count = s.particle_count;
+                slider_row_reset(ui, "Count", &mut count, d.particle_count, |v| egui::Slider::new(v, 0..=subcraft_paint::particles::MAX_PARTICLES));
+                s.particle_count = count;
+                ui.add_enabled_ui(count > 0, |ui| {
+                    slider_row_reset(ui, "Gravity", &mut s.particle_gravity, d.particle_gravity, |v| egui::Slider::new(v, -1.0..=1.0));
+                    slider_row_reset(ui, "Trail length", &mut s.particle_length, d.particle_length, |v| egui::Slider::new(v, 0.0..=24.0));
+                    slider_row_reset(ui, "Particle size", &mut s.particle_size, d.particle_size, |v| egui::Slider::new(v, 0.02..=1.0));
+                    slider_row_reset(ui, "End size", &mut s.particle_size_end, d.particle_size_end, |v| egui::Slider::new(v, 0.0..=1.0));
+                    slider_row_reset(ui, "Wander", &mut s.particle_wander, d.particle_wander, |v| egui::Slider::new(v, 0.0..=1.0));
+                    slider_row_reset(ui, "Spread", &mut s.particle_spread, d.particle_spread, |v| egui::Slider::new(v, 0.0..=1.0));
+                });
+                hint(ui, "0 = normal brush. Each stamp releases particles that run over the model and paint a trail: Gravity 1 runs straight down (rain, drips, leaks), negative rises (burn, soot). Trails follow curves, wrap over edges and drop off undersides. Lengths are in brush diameters.");
+            });
+
 
         });
     });

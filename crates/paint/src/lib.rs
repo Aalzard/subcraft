@@ -11,6 +11,7 @@ pub mod camera;
 pub mod depth;
 pub mod image_stamp;
 pub mod kernel;
+pub mod particles;
 pub mod path;
 pub mod select;
 pub mod pen;
