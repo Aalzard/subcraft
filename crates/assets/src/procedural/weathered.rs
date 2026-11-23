@@ -63,7 +63,7 @@ fn built_coat(r: &mut Recipe, ts: &TextureSet, name: &str, seed: u32, b: MaskBui
 fn steel_under(color: [f32; 3]) -> (MaterialFilter, MaterialFilter) {
     (
         MaterialFilter::PeelingPaint { amount: 0.2, scale: 5.0, edge_bias: 0.6, thickness: 0.6, curl: 0.5, color, roughness: 0.42, metallic: 1.0, rust: 0.5, seed: 11 },
-        MaterialFilter::EdgeDamages { amount: 0.4, spread: 2.2, scale: 30.0, depth: 0.6, color, roughness: 0.4, metallic: 1.0, contrast: 0.0, seed: 12 },
+        MaterialFilter::EdgeDamages { amount: 0.4, spread: 2.2, scale: 30.0, depth: 0.6, color, roughness: 0.4, metallic: 1.0, contrast: 0.85, seed: 12 },
     )
 }
 
@@ -155,12 +155,12 @@ fn chipped_enamel(ts: &TextureSet) -> Layer {
     let mut surface = folder("Enamel Surface", ts, vec![enamel, crazing]);
     // The same edge damage twice: the ground coat reaches further than the bare steel, so every
     // chip has a dark rim.
-    let rim = filter(&mut surface, ts, MaterialFilter::EdgeDamages { amount: 0.4, spread: 2.4, scale: 22.0, depth: 0.5, color: [0.025, 0.028, 0.04], roughness: 0.6, metallic: 0.0, contrast: 0.0, seed: 21 });
+    let rim = filter(&mut surface, ts, MaterialFilter::EdgeDamages { amount: 0.4, spread: 2.4, scale: 22.0, depth: 0.5, color: [0.025, 0.028, 0.04], roughness: 0.6, metallic: 0.0, contrast: 0.95, seed: 21 });
     r.drive(&surface, rim, S::Amount, "wear * 0.85");
     r.drive(&surface, rim, S::Spread, "0.8 + wear * 1.5");
     r.drive(&surface, rim, S::Color, "ground_color");
     r.follow_filter(&surface, rim);
-    let steel = filter(&mut surface, ts, MaterialFilter::EdgeDamages { amount: 0.3, spread: 2.4, scale: 22.0, depth: 0.9, color: [0.42, 0.42, 0.44], roughness: 0.45, metallic: 1.0, contrast: 0.0, seed: 21 });
+    let steel = filter(&mut surface, ts, MaterialFilter::EdgeDamages { amount: 0.3, spread: 2.4, scale: 22.0, depth: 0.9, color: [0.42, 0.42, 0.44], roughness: 0.45, metallic: 1.0, contrast: 0.95, seed: 21 });
     r.drive(&surface, steel, S::Amount, "wear * 0.55");
     r.drive(&surface, steel, S::Spread, "0.8 + wear * 1.5");
     r.follow_filter(&surface, steel);
@@ -217,7 +217,7 @@ fn scuffed_gun_metal(ts: &TextureSet) -> Layer {
     }
 
     let mut surface = folder("Metal Surface", ts, vec![metal, thin, scuffs]);
-    let bright = filter(&mut surface, ts, MaterialFilter::EdgeDamages { amount: 0.4, spread: 1.8, scale: 40.0, depth: 0.15, color: [0.6, 0.61, 0.63], roughness: 0.3, metallic: 1.0, contrast: 0.0, seed: 31 });
+    let bright = filter(&mut surface, ts, MaterialFilter::EdgeDamages { amount: 0.4, spread: 1.8, scale: 40.0, depth: 0.15, color: [0.6, 0.61, 0.63], roughness: 0.3, metallic: 1.0, contrast: 0.45, seed: 31 });
     r.drive(&surface, bright, S::Amount, "wear * 0.8");
     r.drive(&surface, bright, S::Spread, "0.6 + wear * 1.0");
     r.drive(&surface, bright, S::Color, "steel_color");
@@ -291,7 +291,7 @@ fn worn_leather_strap(ts: &TextureSet) -> Layer {
     r.value(&cracks, Height, "0 - 0.03");
 
     let mut surface = folder("Leather Surface", ts, vec![base, tone, burnish, rims, cracks]);
-    let hide = filter(&mut surface, ts, MaterialFilter::EdgeDamages { amount: 0.4, spread: 2.0, scale: 26.0, depth: 0.35, color: [0.5, 0.36, 0.24], roughness: 0.85, metallic: 0.0, contrast: 0.0, seed: 41 });
+    let hide = filter(&mut surface, ts, MaterialFilter::EdgeDamages { amount: 0.4, spread: 2.0, scale: 26.0, depth: 0.35, color: [0.5, 0.36, 0.24], roughness: 0.85, metallic: 0.0, contrast: 0.35, seed: 41 });
     r.drive(&surface, hide, S::Amount, "wear * 0.8");
     r.drive(&surface, hide, S::Spread, "0.7 + wear * 1.2");
     r.drive(&surface, hide, S::Color, "mix(color, rgb(0.6, 0.46, 0.33), 0.6)");
@@ -338,7 +338,7 @@ fn dusty_plastic(ts: &TextureSet) -> Layer {
     r.value(&scuffs, Roughness, "clamp(roughness + 0.3, 0, 1)");
 
     let mut surface = folder("Plastic Surface", ts, vec![plastic, yellow, scuffs]);
-    let rubbed = filter(&mut surface, ts, MaterialFilter::EdgeDamages { amount: 0.3, spread: 1.6, scale: 34.0, depth: 0.1, color: [0.3, 0.3, 0.3], roughness: 0.3, metallic: 0.0, contrast: 0.0, seed: 51 });
+    let rubbed = filter(&mut surface, ts, MaterialFilter::EdgeDamages { amount: 0.3, spread: 1.6, scale: 34.0, depth: 0.1, color: [0.3, 0.3, 0.3], roughness: 0.3, metallic: 0.0, contrast: 0.4, seed: 51 });
     r.drive(&surface, rubbed, S::Amount, "wear * 0.7");
     r.drive(&surface, rubbed, S::Spread, "0.6 + wear * 1.6");
     r.drive(&surface, rubbed, S::Color, "mix(color, rgb(0.9, 0.9, 0.9), 0.22)");
