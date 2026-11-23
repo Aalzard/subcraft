@@ -68,6 +68,14 @@ struct Edit {
 
 struct Pending { edit: Edit, raster: PenRasterizer }
 
+/// What a new path is drawn with instead of a plain stroke of the brush: a stitch preset and
+/// the project resource of its tip ([`crate::stitch::style`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PenStyle {
+    pub stitch: &'static crate::stitch::Stitch,
+    pub tip: Option<subcraft_core::ResourceId>,
+}
+
 #[derive(Default)]
 pub struct PenEditor {
     selected: Option<AnchorId>,
@@ -80,6 +88,9 @@ pub struct PenEditor {
     new_on_click: bool,
     /// The current gesture added its point (rather than grabbing an existing one).
     new_point: bool,
+    /// New paths are drawn with this style (the Pen tool's Stitch choice); `None` is a plain
+    /// stroke of the brush.
+    pub style: Option<PenStyle>,
 }
 
 fn error(s: impl Into<String>) -> CommandError { CommandError::Invalid(s.into()) }
@@ -160,6 +171,9 @@ impl PenEditor {
         }
         self.finish_path();
     }
+    /// The next click on the model adds a point to the selected path (it was not finished
+    /// with Enter / New path).
+    pub fn adds_to_selected(&self) -> bool { !self.new_on_click }
     /// Finish adding points without discarding a raster job already in progress.
     pub fn finish_path(&mut self) { self.set_selected(None); self.new_on_click = true; }
 
@@ -183,9 +197,18 @@ impl PenEditor {
         }
         let ts = session.selected_texture_set(); let brush = &session.brush;
         let values = brush.material.channels.iter().filter(|(k, v)| v.enabled && ts.has_channel(**k)).map(|(&k, v)| (k, v.value)).collect();
-        let path = PenPath { anchors: Vec::new(), closed: false, radius: (brush.settings.size * 0.005).clamp(0.00001, 0.5), hardness: brush.settings.hardness.clamp(0.0, 1.0), opacity: brush.settings.stroke_opacity.clamp(0.0, 1.0), values, kind: Default::default(), stamp: None, ribbon: None };
+        let mut path = PenPath { anchors: Vec::new(), closed: false, radius: (brush.settings.size * 0.005).clamp(0.00001, 0.5), hardness: brush.settings.hardness.clamp(0.0, 1.0), opacity: brush.settings.stroke_opacity.clamp(0.0, 1.0), values, kind: Default::default(), stamp: None, ribbon: None };
+        // A stitch style: its own width, tip, spacing and thread values, whatever the brush is.
+        if let Some(style) = self.style {
+            path.radius = style.stitch.radius();
+            path.opacity = 1.0;
+            // Only the thread's channels, unless the texture set has none of them.
+            let brush_values = std::mem::take(&mut path.values);
+            style.stitch.apply_to_path(&mut path, style.tip, |k| ts.has_channel(k));
+            if path.values.is_empty() { path.values = brush_values; }
+        }
         path.validate().map_err(error)?;
-        let mut layer = Layer::new_paint("Pen path", ts);
+        let mut layer = Layer::new_paint(self.style.map_or("Pen path", |s| s.stitch.name), ts);
         layer.parts = session.selected_layer().and_then(|l| l.parts.clone());
         Ok(Edit { layer, path, new: true, resolution: ts.resolution, scene: session.scene().mesh.clone(), selection: session.selection(), handle: None, label: "New pen path" })
     }

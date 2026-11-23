@@ -2235,7 +2235,7 @@ impl SubcraftApp {
             let small = |t: String, c| RichText::new(t).font(theme::font(11.5)).color(c);
             ui.label(small(format!("{icon}  {tool}"), theme::ACCENT()));
             let size = if self.state.tool == Tool::Pen {
-                self.state.pen.preview(&self.state.session).map_or_else(|| "Click to start a path".into(), |p| format!("Width {:.2}% UV", p.radius * 200.0))
+                self.state.pen.preview(&self.state.session).map_or_else(|| self.state.pen.style.map_or("Click to start a path".into(), |s| format!("{}: click to start a path", s.stitch.name)), |p| format!("Width {:.2}% UV", p.radius * 200.0))
             } else { format!("Size {:.1}%", self.state.session.brush.settings.size) };
             ui.label(small(size, theme::TEXT_DIM()));
             if let Some(l) = self.state.session.selected_layer() {

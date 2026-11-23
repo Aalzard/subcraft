@@ -29,7 +29,7 @@ pub struct Stitch {
 
 const THREAD: [f32; 3] = [0.82, 0.76, 0.64];
 
-pub const STITCHES: [Stitch; 5] = [
+pub const STITCHES: [Stitch; 7] = [
     Stitch { name: "Stitch: Straight", tip: "Stitch Straight", size: 2.0, spacing: 1.0, alternate: 0.0, color: THREAD, roughness: 0.75, height: 0.5,
         description: "Running stitch: dashes of raised thread along the stroke or path" },
     Stitch { name: "Stitch: Cross", tip: "Stitch Cross", size: 2.0, spacing: 1.0, alternate: 0.0, color: THREAD, roughness: 0.75, height: 0.5,
@@ -38,6 +38,10 @@ pub const STITCHES: [Stitch; 5] = [
         description: "Zigzag stitch: one continuous raised thread going from side to side" },
     Stitch { name: "Stitch: Staggered", tip: "Stitch Straight", size: 2.0, spacing: 0.8, alternate: 0.6, color: THREAD, roughness: 0.75, height: 0.5,
         description: "Straight stitches on alternating sides of the line" },
+    Stitch { name: "Stitch: Saddle", tip: "Stitch Saddle", size: 2.5, spacing: 1.0, alternate: 0.0, color: THREAD, roughness: 0.75, height: 0.6,
+        description: "Saddle stitch: thick slanted stitches, as on hand-sewn leather" },
+    Stitch { name: "Stitch: Double", tip: "Stitch Double", size: 4.0, spacing: 1.0, alternate: 0.0, color: [0.80, 0.55, 0.18], roughness: 0.75, height: 0.5,
+        description: "Double row: two parallel lines of stitches, like the topstitching on jeans" },
     Stitch { name: "Stitch: Seam Holes", tip: "Stitch Needle Holes", size: 2.0, spacing: 1.0, alternate: 0.0, color: [0.06, 0.05, 0.04], roughness: 0.9, height: -0.4,
         description: "Needle-hole dents between stitches: paint it along the same path as Stitch: Straight for a seam" },
 ];
@@ -47,7 +51,27 @@ pub fn find(name: &str) -> Option<&'static Stitch> {
     STITCHES.iter().find(|s| s.name == name)
 }
 
+/// The pen style of `stitch` for new paths: its tip (from the built-in `tips`) as a resource of
+/// the project, added when the project has no copy of it yet.
+pub fn style(session: &mut crate::Session, stitch: &'static Stitch, tips: &[subcraft_assets::alphas::BrushAlpha]) -> crate::pen::PenStyle {
+    let bitmap = tips.iter().find(|a| a.name == stitch.tip).and_then(|a| a.bitmap.clone());
+    crate::pen::PenStyle { stitch, tip: bitmap.map(|b| session.tip_resource(b, stitch.tip)) }
+}
+
+/// The stitch `path` is drawn with: a stamped path of a stitch tip (`tip_name` is the name of
+/// its tip resource). Straight and Staggered share a tip and differ by the alternate offset.
+pub fn of_path(path: &PenPath, tip_name: Option<&str>) -> Option<&'static Stitch> {
+    let stamp = path.stamp.filter(|_| path.kind == PathKind::Paint)?;
+    let tip = tip_name?;
+    STITCHES.iter().find(|s| s.tip == tip && (s.alternate != 0.0) == (stamp.alternate != 0.0))
+}
+
 impl Stitch {
+    /// Half the width of a new path of this stitch, in UV units (as [`PenPath::radius`]).
+    pub fn radius(&self) -> f32 {
+        (self.size * 0.005).clamp(0.00001, 0.5)
+    }
+
     /// Brush settings of the preset: hard tip, one stamp per `spacing`, turned along the stroke.
     pub fn brush_settings(&self) -> BrushSettings {
         BrushSettings {
@@ -116,6 +140,22 @@ mod tests {
             assert_eq!(p.tip.as_deref(), Some(s.tip));
             assert_eq!(p.settings, s.brush_settings());
             assert!(p.material.channels.contains_key(&ChannelKind::Height));
+        }
+    }
+
+    #[test]
+    fn every_stitch_is_recognised_on_the_path_it_made() {
+        let anchors = vec![PenAnchor::new(Vec2::new(0.1, 0.5)), PenAnchor::new(Vec2::new(0.9, 0.5))];
+        let plain = PenPath { anchors, closed: false, radius: 0.02, hardness: 0.3, opacity: 1.0, values: Default::default(), kind: PathKind::Paint, stamp: None, ribbon: None };
+        assert_eq!(of_path(&plain, None), None, "a plain line is no stitch");
+        for s in &STITCHES {
+            let mut path = plain.clone();
+            s.apply_to_path(&mut path, Some(ResourceId::new()), |_| true);
+            assert_eq!(of_path(&path, Some(s.tip)).map(|f| f.name), Some(s.name));
+            assert_eq!(of_path(&path, Some("Grunge")), None, "{}: another tip is not a stitch", s.name);
+            path.kind = PathKind::Ribbon;
+            assert_eq!(of_path(&path, Some(s.tip)), None, "only stamped paint paths");
+            assert!((0.001..=0.05).contains(&s.radius()), "{}: a width that reads as a stitch", s.name);
         }
     }
 

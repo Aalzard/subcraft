@@ -312,3 +312,43 @@ fn ctrl_scales_both_tangents_and_a_shift_click_point_stays_straight() {
     assert!((pen(&s).anchors[0].outgoing - Vec2::new(0.0, 0.1)).length() < 1e-6);
 }
 
+
+/// The Pen tool's stitch choice: a new path is drawn as that stitch from its first point (it
+/// used to be a plain line that had to be turned into a stitch afterwards in Properties).
+#[test]
+fn a_pen_style_draws_new_paths_as_stitches() {
+    let mut s = session();
+    let ts = s.selected_texture_set().id;
+    if !s.channels().contains(&ChannelKind::Height) {
+        s.execute(Command::AddChannel { texture_set: ts, kind: ChannelKind::Height }).unwrap();
+    }
+    let tips = subcraft_app::assets::alphas::builtin();
+    let cross = subcraft_app::stitch::find("Stitch: Cross").unwrap();
+    let mut editor = PenEditor::default();
+    editor.style = Some(subcraft_app::stitch::style(&mut s, cross, &tips));
+    let tip = editor.style.unwrap().tip.expect("the tip is a resource of the project");
+    assert_eq!(s.resources().get(tip).unwrap().name, "Stitch Cross");
+    assert_eq!(subcraft_app::stitch::style(&mut s, cross, &tips).tip, Some(tip), "choosing it again adds no second copy");
+    point(&mut editor, &mut s, Vec2::new(0.2, 0.5));
+    point(&mut editor, &mut s, Vec2::new(0.8, 0.5));
+    let path = pen(&s).clone();
+    assert_eq!(path.stamp, Some(subcraft_doc::PathStamp { alpha: Some(tip), spacing: cross.spacing, follow: true, alternate: 0.0 }));
+    assert_eq!((path.radius, path.hardness, path.opacity), (cross.radius(), 1.0, 1.0), "the stitch's width, not the brush's");
+    assert_eq!(path.values[&ChannelKind::Height], ChannelValue::scalar(cross.height));
+    assert_eq!(path.values[&ChannelKind::BaseColor], ChannelValue::rgb(cross.color[0], cross.color[1], cross.color[2]), "thread colour, not the red brush");
+    assert_eq!(s.selected_layer().unwrap().name, "Stitch: Cross");
+    assert_eq!(subcraft_app::stitch::of_path(&path, Some("Stitch Cross")).map(|f| f.name), Some("Stitch: Cross"));
+    // The raster is separate stitches with gaps, raised in Height: along the path some texels
+    // are covered and some are not.
+    let LayerContent::Paint(p) = &s.selected_layer().unwrap().content else { panic!() };
+    let height = &p.channels[&ChannelKind::Height];
+    let row: Vec<f32> = (26..102).map(|x| height.get(x, 64)[1]).collect();
+    assert!(row.iter().any(|&a| a > 0.5) && row.iter().any(|&a| a == 0.0), "stitches with gaps: {row:?}");
+    // Without a style the next path is the brush's plain stroke again.
+    editor.style = None;
+    editor.new_path(&s);
+    point(&mut editor, &mut s, Vec2::new(0.2, 0.8));
+    assert_eq!(pen(&s).stamp, None);
+    assert_eq!(pen(&s).values[&ChannelKind::BaseColor], ChannelValue::rgb(1.0, 0.0, 0.0));
+    assert_eq!(s.selected_layer().unwrap().name, "Pen path");
+}

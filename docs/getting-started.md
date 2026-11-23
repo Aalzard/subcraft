@@ -181,6 +181,17 @@ set the painting tool's material; fill-layer material controls live in Propertie
 
 ![Selecting a fill reveals that layer's Properties](screenshots/inspector-fill-selected.jpg)
 
+### Stitches along a seam
+
+Choose the **Pen** tool. **Properties** opens with a row of stitch tiles: Plain line, Straight,
+Cross, Zigzag, Staggered, Saddle, Double and Seam Holes. Click one, then click along the seam on
+the model (drag while clicking for a curve) and press **Enter** to finish. The stitches follow the
+path, turn with it, and are raised in Height. Afterwards the same panel changes the path: another
+stitch, **Width**, **Spacing**, the thread colour and the Height value. Clicking a **Stitch** brush
+in the Shelf while the Pen is active does the same as its tile.
+
+![Every stitch drawn along a pen path](images/stitches.png)
+
 ### Stamp a normal map: the Normal Map Brush
 
 Open **Assets > Normal Maps** and **click** a normal map (a Starter pack map, or one you

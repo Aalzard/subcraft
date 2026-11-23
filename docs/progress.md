@@ -6032,3 +6032,29 @@ re-measured on a GPU. Not taken from his patch: the `SUBCRAFT_REPAINT_LOG` diagn
   the moved files themselves and the release-notes text in `release.yml`. The signing policy URL for the
   SignPath application is now `https://github.com/Aalzard/subcraft/blob/main/docs/CODE_SIGNING.md`.
 * Checked: every relative link in the touched Markdown files resolves (script over `](path)` targets).
+
+## Stitches with the Pen made easy (2026-11-23, branch `claude/project-thread-xwml9x`)
+
+* What existed (#561): five stitch brush presets and a "Stitch preset: Choose…" dropdown in the Properties of an
+  existing path. A new path was always a plain line; a Stitch brush clicked in the Shelf switched the Pen to the
+  Brush tool; with the Pen active and no path, Properties showed the brush settings and nothing about stitches.
+* Now: `PenEditor::style` (`pen::PenStyle`: stitch + tip resource) makes new paths stitched from the first point
+  (stitch width, hardness 1, opacity 1, only the thread's channels, layer named after the stitch).
+  `stitch::style` resolves the tip resource, `stitch::of_path` recognises the stitch of a path (tip name + alternate).
+* UI (`ui/src/pen.rs`): `stitch_row` of drawn tiles (Plain line + every stitch) at the top of the path Properties
+  and in a new "Pen tool" section shown while the Pen is active and the selected layer is not a path.
+  `choose_stitch` sets the style and restyles the path the next click would add to. `refresh_style` re-resolves the
+  tip in the project that is open at the click. `UiState::select_shelf_brush`: a Stitch preset keeps the Pen.
+  `height_note` offers to add the Height channel. The status strip names the chosen stitch.
+* New tips and stitches: Stitch Saddle, Stitch Double (`assets/src/alphas.rs`, `app/src/stitch.rs`); `STITCHES` has 7.
+* Tests: `stitch::every_stitch_is_recognised_on_the_path_it_made`, `tests/pen.rs::a_pen_style_draws_new_paths_as_stitches`
+  (stamp, values, layer name, gaps in the Height raster, plain again without a style), ui
+  `a_stitch_is_chosen_before_drawing_and_from_the_shelf`, `the_chosen_stitch_follows_a_new_project`,
+  `the_stitch_row_is_drawn_with_and_without_a_path`.
+* Image: `cargo run -p subcraft-app --example stitch_sheet -- <prefix> [size]` draws every stitch on a pen path and
+  writes a lit sheet; result in `docs/images/stitches.png` (2048², cropped).
+* Not run in the real app window (no display in the cloud container): the tile row's look and clicks are covered by
+  tests of the functions behind them, not by a click on a tile.
+* Not done: stitches still follow the path in UV space (a path over a UV seam breaks there), spacing is not fitted
+  to the path length (the last gap can be shorter), and a seam (thread plus needle holes) is still two paths.
+

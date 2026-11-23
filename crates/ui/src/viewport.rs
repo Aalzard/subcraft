@@ -478,6 +478,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         if hit.is_none() && ctrl && let Some(prev) = pen_last_point(state, &camera, rect) {
                             at = snap_angle(prev, p, state.pen_snap.angle());
                         }
+                        crate::pen::refresh_style(state);
                         let r = state.pen.begin_surface(&mut state.session, &camera, to_screen(at), hit);
                         if r.is_ok() && hit.is_none() && mods.shift {
                             state.pen.keep_new_point_straight();

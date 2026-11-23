@@ -871,6 +871,14 @@ impl UiState {
         match self.session.select_shelf_brush(brush, &self.library.alphas) {
             Ok(selected) => {
                 use subcraft_app::brush_preset::PresetKind;
+                // A stitch brush chosen while the Pen tool is in use: the pen draws that stitch
+                // (it used to switch to the Brush, and the path stayed a plain line).
+                if self.tool == Tool::Pen && let Some(stitch) = subcraft_app::stitch::find(&selected.name) {
+                    let restyle = self.pen.adds_to_selected();
+                    crate::pen::choose_stitch(self, Some(stitch), restyle, now);
+                    self.picking_parts = false;
+                    return;
+                }
                 match (selected.tool, selected.kind) {
                     // A tool preset brings its tool.
                     (Some(tool), _) => self.tool = Tool::from_preset(tool),

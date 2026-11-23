@@ -81,6 +81,14 @@ pub fn builtin() -> Vec<BrushAlpha> {
             let b = segment_distance(u, v, (0.5, 0.68), (1.0, 0.32));
             thread(a.min(b), THREAD * 0.9)
         })),
+        // Saddle stitch: a thick thread slanted across the line, as on hand-sewn leather.
+        alpha("Stitch Saddle", gray(|u, v| thread(segment_distance(u, v, (0.16, 0.6), (0.84, 0.4)), THREAD * 1.6))),
+        // Double row: two parallel lines of straight stitches (topstitching on denim). Two
+        // stitches per row and half the thread width, as the tip is used at twice the size.
+        alpha("Stitch Double", gray(|u, v| {
+            let d = [0.3, 0.7].into_iter().flat_map(|y| [(0.06, 0.44), (0.56, 0.94)].map(|(a, b)| segment_distance(u, v, (a, y), (b, y)))).fold(f32::INFINITY, f32::min);
+            thread(d, THREAD * 0.5)
+        })),
         // Needle holes: half a hole on each side edge, so stamps one diameter apart complete
         // each hole in the gap between two straight stitches.
         alpha("Stitch Needle Holes", gray(|u, v| {
