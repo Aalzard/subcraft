@@ -2848,6 +2848,19 @@ fn scripted_tool_capture(state: &mut UiState, which: &str, now: f64) {
                 stroke(s, StrokeMode::Paint, &line(300.0, 250.0 + 70.0 * i as f32, 600.0, 250.0 + 70.0 * i as f32));
             }
         }
+        "particles" => {
+            // Particle presets: rain streaks, leaking drips and burn marks, each dabbed along a short
+            // line across the upper part of the model.
+            let presets = subcraft_app::brush_builtin::builtin_brush_presets();
+            let tips = subcraft_app::assets::alphas::builtin();
+            for (i, (name, c)) in [("Rain Streaks", [0.15, 0.3, 0.8]), ("Leaking Drips", [0.45, 0.2, 0.05]), ("Burn Marks", [0.05, 0.05, 0.05])].into_iter().enumerate() {
+                if let Some(p) = presets.iter().find(|p| p.name == name) { s.apply_brush_preset(p, &tips); }
+                set(s, c);
+                let y = if name == "Burn Marks" { 390.0 } else { 260.0 };
+                let x0 = 320.0 + 110.0 * i as f32;
+                stroke(s, StrokeMode::Paint, &line(x0, y, x0 + 70.0, y));
+            }
+        }
         "stabilizer" => {
             // The same shaky cursor path three times: raw, smoothed, and smoothed with a rope.
             let shaky = |y: f32| (0..=60).map(|i| (300.0 + 5.0 * i as f32, y + if i % 2 == 0 { 9.0 } else { -9.0 })).collect::<Vec<_>>();

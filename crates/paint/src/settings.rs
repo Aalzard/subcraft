@@ -202,6 +202,21 @@ pub struct BrushSettings {
     pub scatter_opacity_random: f32,
     /// Particles fall down the screen by up to this many brush diameters (0 = no fall).
     pub scatter_fall: f32,
+    /// Particle brush: particles each stamp releases onto the surface (0 = off). They run over
+    /// the model and paint a trail instead of the stamp ([`crate::particles`]).
+    pub particle_count: u32,
+    /// Trail length in brush diameters.
+    pub particle_length: f32,
+    /// Particle size as a fraction of the brush radius.
+    pub particle_size: f32,
+    /// Size at the end of the trail as a fraction of the starting size (drips thin out).
+    pub particle_size_end: f32,
+    /// Pull toward -Y (1 = runs straight down, 0 = wanders freely, negative = rises like smoke).
+    pub particle_gravity: f32,
+    /// How much a trail turns at random each step (0 = straight).
+    pub particle_wander: f32,
+    /// How far from the brush centre particles are released, as a fraction of the radius.
+    pub particle_spread: f32,
     /// Smudge: how much of the carried paint each stamp deposits (0..1).
     pub smudge_strength: f32,
     /// Smudge: how much of the carried paint survives each stamp (0 = blend only, near 1 = long smear).
@@ -253,6 +268,13 @@ impl Default for BrushSettings {
             scatter_rotation_deg: 180.0,
             scatter_opacity_random: 0.3,
             scatter_fall: 0.0,
+            particle_count: 0,
+            particle_length: 4.0,
+            particle_size: 0.3,
+            particle_size_end: 0.3,
+            particle_gravity: 1.0,
+            particle_wander: 0.2,
+            particle_spread: 1.0,
             smudge_strength: 1.0,
             smudge_carry: 0.85,
             smudge_falloff: 1.0,
