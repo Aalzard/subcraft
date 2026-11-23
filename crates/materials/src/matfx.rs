@@ -809,7 +809,7 @@ mod tests {
 
     #[test]
     fn detail_edge_wear_stays_on_the_edges_and_grunge_breaks_it_up() {
-        let wear = |contrast: f32, grunge: f32| MaterialFilter::DetailEdgeWear { level: 0.5, contrast, grunge, grunge_scale: 24.0, color: [0.56, 0.57, 0.58], roughness: 0.3, metallic: 1.0, seed: 1 };
+        let wear = |contrast: f32, grunge: f32| MaterialFilter::DetailEdgeWear { level: 0.5, detail: 0.7, contrast, grunge, grunge_scale: 24.0, color: [0.56, 0.57, 0.58], roughness: 0.3, metallic: 1.0, seed: 1 };
         let on = Surface { edge: 1.0, occlusion: 0.0 };
         for p in points().take(500) {
             let f = wear(0.6, 0.5);

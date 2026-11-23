@@ -152,6 +152,9 @@ pub enum MaterialFilter {
     DetailEdgeWear {
         /// Amount of wear, 0..1 (the edge wear Level).
         level: f32,
+        /// How much the Height and Normal detail below (painted panel lines, stamps, a normal
+        /// map) is worn like a mesh edge, 0..1. 0 follows the mesh edges only.
+        detail: f32,
         /// 0 = soft fade, 1 = hard border.
         contrast: f32,
         /// How much the grunge breaks the wear up, 0..1.
@@ -178,7 +181,7 @@ impl MaterialFilter {
         Self::Grinded { scale: 9.0, intensity: 0.6, seed: 1 },
         Self::Rough { scale: 60.0, grunge_scale: 9.0, brushing: 0.6, warp: 0.3, grunge: 0.5, seed: 1 },
         Self::Raw { scale: 5.0, intensity: 0.6, seed: 1 },
-        Self::DetailEdgeWear { level: 0.5, contrast: 0.6, grunge: 0.5, grunge_scale: 24.0, color: [0.56, 0.57, 0.58], roughness: 0.3, metallic: 1.0, seed: 1 },
+        Self::DetailEdgeWear { level: 0.5, detail: 0.7, contrast: 0.6, grunge: 0.5, grunge_scale: 24.0, color: [0.56, 0.57, 0.58], roughness: 0.3, metallic: 1.0, seed: 1 },
     ];
 
     pub fn label(self) -> &'static str {
@@ -210,7 +213,7 @@ impl MaterialFilter {
             Self::Grinded { .. } => "Angle-grinder arcs in the Roughness and Height of the material below. Best on a metal fill.",
             Self::Rough { .. } => "Coarse brush lines and dull grunge patches on the material below.",
             Self::Raw { .. } => "Mottled mill scale and pits, as on unfinished stock. Best on a metal fill.",
-            Self::DetailEdgeWear { .. } => "A thin worn line on the edges, exposing the material set here. Bake Curvature for finer detail.",
+            Self::DetailEdgeWear { .. } => "A thin worn line on the mesh edges and on the Height and Normal detail below, exposing the material set here.",
         }
     }
 
@@ -232,6 +235,17 @@ impl MaterialFilter {
     /// Filters whose Base Color result depends on the Metallic below.
     pub fn reads_metallic(self) -> bool {
         matches!(self, Self::PbrValidate { .. })
+    }
+
+    /// Micro details a filter reads from the Height and Normal below it (the ridges of painted
+    /// detail count as edges), `None` when it reads none. Only the curvature is used.
+    pub fn micro_details(self) -> Option<crate::MicroDetails> {
+        match self {
+            Self::DetailEdgeWear { detail, .. } if detail > 0.0 && self.valid() => {
+                Some(crate::MicroDetails { enabled: true, amount: detail, ao_radius: 0.0, ao_depth: 0.0, ..crate::MicroDetails::default() })
+            }
+            _ => None,
+        }
     }
 
     /// Filters placed by the mesh's edges (and so by the baked curvature).
@@ -285,8 +299,8 @@ impl MaterialFilter {
             Self::PbrValidate { .. } => true,
             Self::Grinded { scale: s, intensity, seed: _ } | Self::Raw { scale: s, intensity, seed: _ } => scale(s) && unit(intensity),
             Self::Rough { scale: s, grunge_scale, brushing, warp, grunge, seed: _ } => scale(s) && scale(grunge_scale) && unit(brushing) && unit(warp) && unit(grunge),
-            Self::DetailEdgeWear { level, contrast, grunge, grunge_scale, color: c, roughness, metallic, seed: _ } => {
-                unit(level) && unit(contrast) && unit(grunge) && scale(grunge_scale) && color(c) && unit(roughness) && unit(metallic)
+            Self::DetailEdgeWear { level, detail, contrast, grunge, grunge_scale, color: c, roughness, metallic, seed: _ } => {
+                unit(level) && unit(detail) && unit(contrast) && unit(grunge) && scale(grunge_scale) && color(c) && unit(roughness) && unit(metallic)
             }
         }
     }
@@ -319,7 +333,10 @@ mod tests {
         assert!(!MaterialFilter::EdgeDamages { amount: 0.5, spread: 40.0, scale: 30.0, depth: 0.5, color: [0.5; 3], roughness: 0.4, metallic: 1.0, seed: 1 }.valid());
         assert!(!MaterialFilter::Grinded { scale: 9.0, intensity: 1.5, seed: 1 }.valid());
         assert!(!MaterialFilter::Rough { scale: 60.0, grunge_scale: 0.0, brushing: 0.6, warp: 0.3, grunge: 0.5, seed: 1 }.valid());
-        assert!(!MaterialFilter::DetailEdgeWear { level: 0.5, contrast: -0.1, grunge: 0.5, grunge_scale: 24.0, color: [0.5; 3], roughness: 0.3, metallic: 1.0, seed: 1 }.valid());
+        assert!(MaterialFilter::ALL[10].micro_details().is_some_and(|d| d.active() && d.amount == 0.7));
+        assert!(MaterialFilter::DetailEdgeWear { level: 0.5, detail: 0.0, contrast: 0.6, grunge: 0.5, grunge_scale: 24.0, color: [0.5; 3], roughness: 0.3, metallic: 1.0, seed: 1 }.micro_details().is_none());
+        assert!(MaterialFilter::ALL[3].micro_details().is_none());
+        assert!(!MaterialFilter::DetailEdgeWear { level: 0.5, detail: 0.7, contrast: -0.1, grunge: 0.5, grunge_scale: 24.0, color: [0.5; 3], roughness: 0.3, metallic: 1.0, seed: 1 }.valid());
         assert!(!MaterialFilter::PowderCoated { color: [2.0, 0.0, 0.0], color_amount: 1.0, roughness: 0.5, orange_peel: 0.4, grain: 0.3, scale: 60.0, seed: 1 }.valid());
     }
 

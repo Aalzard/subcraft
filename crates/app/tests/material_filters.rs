@@ -154,6 +154,64 @@ fn detail_edge_wear_is_a_thinner_line_than_edge_damages_and_the_new_finishes_kee
     }
 }
 
+fn wear(detail: f32) -> MaterialFilter {
+    MaterialFilter::DetailEdgeWear { level: 0.5, detail, contrast: 0.6, grunge: 0.0, grunge_scale: 24.0, color: [0.56, 0.57, 0.58], roughness: 0.3, metallic: 1.0, seed: 1 }
+}
+
+fn worn(s: &mut Session, ts: TextureSetId) -> usize {
+    channel(s, ts, ChannelKind::Metallic).iter().filter(|m| m[0] > 0.5).count()
+}
+
+#[test]
+fn detail_edge_wear_wears_the_height_detail_below_it() {
+    let dimples = MaterialFilter::Hammered { scale: 6.0, depth: 1.0, irregularity: 0.6, roughness_variation: 0.4, seed: 1 };
+    // On a flat material the painted-detail slider changes nothing: only the mesh edges wear.
+    let flat = |detail: f32| {
+        let (mut s, ts, layer) = session([0.1, 0.17, 0.26], 0.45, 0.0);
+        add(&mut s, layer, wear(detail));
+        worn(&mut s, ts)
+    };
+    let edges_only = flat(0.0);
+    assert_eq!(flat(1.0), edges_only);
+
+    // Same layer: hammered relief first, then the wear. The ridges between the dimples wear too.
+    let same_layer = |detail: f32| {
+        let (mut s, ts, layer) = session([0.1, 0.17, 0.26], 0.45, 0.0);
+        add(&mut s, layer, dimples);
+        add(&mut s, layer, wear(detail));
+        worn(&mut s, ts)
+    };
+    assert_eq!(same_layer(0.0), edges_only, "detail 0 ignores the relief");
+    let (half, full) = (same_layer(0.5), same_layer(1.0));
+    assert!(half > edges_only && full > half + 500, "{edges_only} on edges, {half} at half detail, {full} at full");
+
+    // Relief on a layer below, the wear on a paint coat above it.
+    let (mut s, ts, layer) = session([0.56, 0.57, 0.58], 0.3, 1.0);
+    add(&mut s, layer, dimples);
+    s.execute(Command::AddLayer(NewLayer::Fill)).unwrap();
+    let coat = s.selection().layer.unwrap();
+    set_fill(&mut s, coat, [0.1, 0.17, 0.26], 0.45, 0.0);
+    let effect = add(&mut s, coat, wear(1.0));
+    let stacked = worn(&mut s, ts);
+    assert!(stacked > edges_only + 50, "{stacked} worn through the coat against {edges_only} on edges");
+
+    // Editing the relief below moves the wear: the result matches a session built that way.
+    let before = channel(&mut s, ts, ChannelKind::BaseColor);
+    let below = s.selected_texture_set().find(layer).unwrap().content_effects[0].as_ref().clone();
+    let mut edited = below.clone();
+    edited.kind = ContentEffectKind::Material(MaterialFilter::Hammered { scale: 9.0, depth: 1.0, irregularity: 0.6, roughness_variation: 0.4, seed: 3 });
+    s.execute(Command::SetContentEffect { layer, effect: edited }).unwrap();
+    let after = channel(&mut s, ts, ChannelKind::BaseColor);
+    assert!(changed(&before, &after) > 50, "the wear follows the new relief");
+    s.execute(Command::Undo).unwrap();
+    assert_eq!(channel(&mut s, ts, ChannelKind::BaseColor), before);
+    // Hidden: exactly the coat.
+    let mut hidden = s.selected_texture_set().find(coat).unwrap().content_effects.iter().find(|e| e.id == effect).unwrap().as_ref().clone();
+    hidden.visible = false;
+    s.execute(Command::SetContentEffect { layer: coat, effect: hidden }).unwrap();
+    assert_eq!(worn(&mut s, ts), 0);
+}
+
 #[test]
 fn amount_zero_changes_nothing() {
     let quiet = [

@@ -172,10 +172,11 @@ pub fn editor(ui: &mut Ui, filter: &mut MaterialFilter) -> bool {
             changed |= seed(ui, sd, d_sd);
         }
         (
-            MaterialFilter::DetailEdgeWear { level, contrast, grunge, grunge_scale, color: c, roughness, metallic, seed: sd },
-            MaterialFilter::DetailEdgeWear { level: d_level, contrast: d_contrast, grunge: d_grunge, grunge_scale: d_gs, color: d_c, roughness: d_roughness, metallic: d_metallic, seed: d_sd },
+            MaterialFilter::DetailEdgeWear { level, detail, contrast, grunge, grunge_scale, color: c, roughness, metallic, seed: sd },
+            MaterialFilter::DetailEdgeWear { level: d_level, detail: d_detail, contrast: d_contrast, grunge: d_grunge, grunge_scale: d_gs, color: d_c, roughness: d_roughness, metallic: d_metallic, seed: d_sd },
         ) => {
             changed |= unit(ui, "Wear level", level, d_level);
+            changed |= slider_row_reset(ui, "Painted detail", detail, d_detail, |v| egui::Slider::new(v, 0.0..=1.0)).on_hover_text("How much the Height and Normal detail below is worn like an edge").changed();
             changed |= unit(ui, "Wear contrast", contrast, d_contrast);
             changed |= unit(ui, "Grunge amount", grunge, d_grunge);
             changed |= scale(ui, "Grunge count", ACROSS, grunge_scale, d_gs);

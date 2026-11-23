@@ -74,6 +74,8 @@ struct Case {
     base: [f32; 3],
     rough: f32,
     metal: f32,
+    /// A filter already on the layer in both rows (relief for the tested filter to react to).
+    under: Option<MaterialFilter>,
 }
 
 fn main() -> Result<(), String> {
@@ -85,17 +87,25 @@ fn main() -> Result<(), String> {
     let all = MaterialFilter::ALL;
     let steel = [0.56, 0.57, 0.58];
     let cases: Vec<Case> = [
-        Case { name: "galvanized", filter: all[0], base: steel, rough: 0.35, metal: 1.0 },
-        Case { name: "hammered", filter: all[1], base: [0.93, 0.62, 0.52], rough: 0.28, metal: 1.0 },
-        Case { name: "powder_coated", filter: all[2], base: [0.50, 0.04, 0.03], rough: 0.25, metal: 0.0 },
-        Case { name: "edge_damages", filter: all[3], base: [0.10, 0.17, 0.26], rough: 0.45, metal: 0.0 },
-        Case { name: "rust_weathering", filter: all[4], base: steel, rough: 0.35, metal: 1.0 },
-        Case { name: "peeling_paint", filter: all[5], base: [0.42, 0.44, 0.30], rough: 0.5, metal: 0.0 },
-        Case { name: "pbr_validate", filter: all[6], base: [0.004, 0.004, 0.005], rough: 0.5, metal: 0.0 },
-        Case { name: "grinded", filter: all[7], base: steel, rough: 0.3, metal: 1.0 },
-        Case { name: "rough", filter: all[8], base: steel, rough: 0.3, metal: 1.0 },
-        Case { name: "raw", filter: all[9], base: steel, rough: 0.3, metal: 1.0 },
-        Case { name: "detail_edge_wear", filter: all[10], base: [0.10, 0.17, 0.26], rough: 0.45, metal: 0.0 },
+        Case { name: "galvanized", filter: all[0], base: steel, rough: 0.35, metal: 1.0, under: None },
+        Case { name: "hammered", filter: all[1], base: [0.93, 0.62, 0.52], rough: 0.28, metal: 1.0, under: None },
+        Case { name: "powder_coated", filter: all[2], base: [0.50, 0.04, 0.03], rough: 0.25, metal: 0.0, under: None },
+        Case { name: "edge_damages", filter: all[3], base: [0.10, 0.17, 0.26], rough: 0.45, metal: 0.0, under: None },
+        Case { name: "rust_weathering", filter: all[4], base: steel, rough: 0.35, metal: 1.0, under: None },
+        Case { name: "peeling_paint", filter: all[5], base: [0.42, 0.44, 0.30], rough: 0.5, metal: 0.0, under: None },
+        Case { name: "pbr_validate", filter: all[6], base: [0.004, 0.004, 0.005], rough: 0.5, metal: 0.0, under: None },
+        Case { name: "grinded", filter: all[7], base: steel, rough: 0.3, metal: 1.0, under: None },
+        Case { name: "rough", filter: all[8], base: steel, rough: 0.3, metal: 1.0, under: None },
+        Case { name: "raw", filter: all[9], base: steel, rough: 0.3, metal: 1.0, under: None },
+        Case { name: "detail_edge_wear", filter: all[10], base: [0.10, 0.17, 0.26], rough: 0.45, metal: 0.0, under: None },
+        Case {
+            name: "detail_edge_wear_on_relief",
+            filter: all[10],
+            base: [0.10, 0.17, 0.26],
+            rough: 0.45,
+            metal: 0.0,
+            under: Some(MaterialFilter::Hammered { scale: 14.0, depth: 1.0, irregularity: 0.6, roughness_variation: 0.0, seed: 1 }),
+        },
     ]
     .into_iter()
     .filter(|c| only.as_deref().is_none_or(|o| c.name.contains(o)))
@@ -202,6 +212,13 @@ fn main() -> Result<(), String> {
             s.execute(Command::SetFillChannel { layer, channel: ChannelKind::Roughness, fill: fill(ChannelValue::scalar(case.rough)) }).map_err(err)?;
             s.execute(Command::SetFillChannel { layer, channel: ChannelKind::Metallic, fill: fill(ChannelValue::scalar(case.metal)) }).map_err(err)?;
         }
+        if let Some(under) = case.under {
+            for &(ts, layer) in &layers {
+                s.execute(Command::SelectTextureSet(ts)).map_err(err)?;
+                s.execute(Command::AddContentEffect { layer, kind: ContentEffectKind::Material(under) }).map_err(err)?;
+                effects.push(s.selected_texture_set().find(layer).unwrap().content_effects.last().unwrap().id);
+            }
+        }
         s.update_composites();
         let before = render(&s);
         for &(ts, layer) in &layers {
@@ -228,7 +245,8 @@ fn main() -> Result<(), String> {
             }
         }
         save_image(std::path::Path::new(&format!("{prefix}_{}.png", case.name)), cw * 2, ch, 3, &single, FileFormat::Png8).map_err(|e| e.to_string())?;
-        for (&(ts, layer), effect) in layers.iter().zip(effects) {
+        for (i, effect) in effects.into_iter().enumerate() {
+            let (ts, layer) = layers[i % layers.len()];
             s.execute(Command::SelectTextureSet(ts)).map_err(err)?;
             s.execute(Command::RemoveContentEffect { layer, effect }).map_err(err)?;
         }

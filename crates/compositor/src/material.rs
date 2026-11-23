@@ -12,6 +12,13 @@ use subcraft_materials::matfx::{self, PATTERN, Surface};
 use crate::TileContext;
 use crate::blend::{BlendTarget, composite};
 
+/// Detail Edge Wear: micro convexity (0..1, see `stages::micro_detail_tile`) times this is the
+/// wear a ridge asks for at Painted detail 1. A soft hammered ridge measures about 0.25, a crisp
+/// painted line saturates.
+const DETAIL_WEAR_GAIN: f32 = 4.0;
+/// Half width of the fade around the wear threshold (1 - Wear level).
+const DETAIL_WEAR_BAND: f32 = 0.15;
+
 /// The Edge wear generator a filter places its damage with.
 fn edge_generator(filter: &MaterialFilter) -> Option<Generator> {
     let mut g = Generator::new(GeneratorKind::Edges);
@@ -30,14 +37,15 @@ fn edge_generator(filter: &MaterialFilter) -> Option<Generator> {
     if let Some(s) = g.edge_spread.as_mut() {
         s.distance = distance.clamp(0.0, 12.5);
     }
+    g.micro_details = filter.micro_details();
     Some(g)
 }
 
-fn edge_mask(filter: &MaterialFilter, tc: &TileContext) -> Option<Vec<f32>> {
+fn edge_mask(filter: &MaterialFilter, tc: &TileContext, details: Option<&[[f32; 4]]>) -> Option<Vec<f32>> {
     let g = edge_generator(filter)?;
     let zeros = vec![0.0f32; TILE_TEXELS];
     let mut out = vec![[0.0f32; 4]; TILE_TEXELS];
-    crate::mask::evaluate_effect(&MaskEffectKind::Generator(g), tc, &zeros, &mut out, None, None);
+    crate::mask::evaluate_effect(&MaskEffectKind::Generator(g), tc, &zeros, &mut out, None, details);
     Some(out.iter().map(|v| v[0]).collect())
 }
 
@@ -69,8 +77,9 @@ fn over(src: [f32; 4], value: [f32; 3], a: f32) -> [f32; 4] {
 
 /// Apply `filter` to `content` (the channel `kind` of the content below the effect) for one
 /// tile. `metallic` is the Metallic content at the same point of the stack, for filters that
-/// read it (`None`: treated as 0, a dielectric).
-pub(crate) fn apply(filter: &MaterialFilter, kind: ChannelKind, blend: ChannelBlend, content: &mut [[f32; 4]], tc: &TileContext, metallic: Option<&[[f32; 4]]>) {
+/// read it (`None`: treated as 0, a dielectric). `details` are the micro details of the Height
+/// and Normal at that point (`[curvature, occlusion, ..]`), for [`MaterialFilter::micro_details`].
+pub(crate) fn apply(filter: &MaterialFilter, kind: ChannelKind, blend: ChannelBlend, content: &mut [[f32; 4]], tc: &TileContext, metallic: Option<&[[f32; 4]]>, details: Option<&[[f32; 4]]>) {
     if !filter.valid() || !filter.writes(kind) || !blend.is_active() {
         return;
     }
@@ -112,7 +121,20 @@ pub(crate) fn apply(filter: &MaterialFilter, kind: ChannelKind, blend: ChannelBl
         return;
     }
     let pattern = matfx::pattern_tile(filter, tc.geo);
-    let edges = edge_mask(filter, tc);
+    let edges = edge_mask(filter, tc, details);
+    // Detail Edge Wear: ridges of the Height / Normal detail below wear like mesh edges.
+    let edges = match (*filter, details, edges) {
+        (MaterialFilter::DetailEdgeWear { level, detail, .. }, Some(d), Some(mut e)) if detail > 0.0 => {
+            let lo = (1.0 - level - DETAIL_WEAR_BAND).max(0.02);
+            for (e, d) in e.iter_mut().zip(d) {
+                let ridge = ((d[0] - 0.5) * 2.0 * DETAIL_WEAR_GAIN * detail).clamp(0.0, 1.0);
+                let t = ((ridge - lo) / (2.0 * DETAIL_WEAR_BAND)).clamp(0.0, 1.0);
+                *e = e.max(t * t * (3.0 - 2.0 * t));
+            }
+            Some(e)
+        }
+        (_, _, e) => e,
+    };
     let occluded = occlusion(filter, tc);
     for (i, px) in content.iter_mut().enumerate() {
         let surface = Surface { edge: edges.as_ref().map_or(0.0, |e| e[i]), occlusion: occluded.as_ref().map_or(0.0, |o| o[i]) };

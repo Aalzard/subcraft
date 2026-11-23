@@ -203,6 +203,10 @@ enum Node<'a> {
     MicroDetail {
         chain: Arc<Vec<[usize; 2]>>,
         settings: subcraft_doc::MicroDetails,
+        /// The last level is a layer's own content and adds its relief to the levels before it
+        /// (Height sums, Normal leans further) instead of covering them: a material filter
+        /// reading the detail at its own place in the stack.
+        own_adds: bool,
     },
     /// Height channel: adds the micro delta.
     MicroHeight {
@@ -290,6 +294,8 @@ pub(crate) struct Graph<'a> {
     /// Compare Mask operands: per (layer, channel), the accumulation below the layer and the
     /// layer's own content, recorded while the channel's stack is built.
     compare_below: HashMap<(LayerId, ChannelKind), usize>,
+    /// (layer, content effect index) -> the micro details node of that material filter.
+    effect_details: HashMap<(LayerId, usize), usize>,
     compare_content: HashMap<(LayerId, ChannelKind), usize>,
     /// The top-level layers, to rebuild a stack below a layer on demand.
     top: &'a [Arc<Layer>],
@@ -372,6 +378,7 @@ impl<'a> Graph<'a> {
             content: None,
             anchors: None,
             compare_below: HashMap::new(),
+            effect_details: HashMap::new(),
             compare_content: HashMap::new(),
             top: &[],
             palettes: Mutex::new(HashMap::new()),
@@ -478,8 +485,7 @@ impl<'a> Graph<'a> {
     }
     /// The Metallic content of `layer` right below its effect number `index`: what a material
     /// filter there that reads Metallic sees (PBR Validate).
-    fn metallic_below_effect(&mut self, layer: &'a Layer, index: usize) -> usize {
-        let kind = ChannelKind::Metallic;
+    fn below_effect(&mut self, layer: &'a Layer, index: usize, kind: ChannelKind) -> usize {
         let blend = layer.blend_for(kind);
         let passthrough = blend.mode == BlendMode::Passthrough;
         let base = if passthrough && !layer.is_folder() {
@@ -511,8 +517,10 @@ impl<'a> Graph<'a> {
                 }
                 // PBR Validate: the Base Color verdict needs the Metallic at the same point.
                 ContentEffectKind::Material(m) if usable && m.valid() && m.reads_metallic() && kind == ChannelKind::BaseColor => {
-                    Some(Some(self.metallic_below_effect(layer, index)))
+                    Some(Some(self.below_effect(layer, index, ChannelKind::Metallic)))
                 }
+                // Detail Edge Wear: the micro curvature of the Normal and Height at the same point.
+                ContentEffectKind::Material(m) if usable && m.writes(kind) && let Some(settings) = m.micro_details() => Some(self.effect_detail_node(layer, index, settings)),
                 _ => Some(None),
             };
             if usable && let Some(filtered) = filtered {
@@ -605,7 +613,7 @@ impl<'a> Graph<'a> {
                 v.extend(*details);
                 v
             }
-            Node::MicroDetail { chain, settings: _ } => chain.iter().flatten().copied().collect(),
+            Node::MicroDetail { chain, settings: _, own_adds: _ } => chain.iter().flatten().copied().collect(),
             Node::AnchorRead { source, from: _, to: _, strength: _ } => vec![*source],
             Node::ContentEffect { input, effect: _, kind: _, filtered } => {
                 let mut v = vec![*input];
@@ -1012,10 +1020,29 @@ impl<'a> Graph<'a> {
             let height = match pair[1] { Some(n) => n, None => self.push(Node::Constant([0.0; 4])) };
             chain.push([normal, height]);
         }
-        Some(self.push(Node::MicroDetail { chain: Arc::new(chain), settings }))
+        Some(self.push(Node::MicroDetail { chain: Arc::new(chain), settings, own_adds: false }))
+    }
+    /// Micro details for the material filter at `index` of `layer`'s content effects: over the
+    /// Normal and Height below the layer (as a generator's micro details) and then the layer's
+    /// own content up to that effect, laid over them by its coverage. One node per effect,
+    /// shared by every channel the filter writes.
+    fn effect_detail_node(&mut self, layer: &'a Layer, index: usize, settings: subcraft_doc::MicroDetails) -> Option<usize> {
+        if let Some(&n) = self.effect_details.get(&(layer.id, index)) {
+            return Some(n);
+        }
+        let below = self.micro_detail_node(layer, settings)?;
+        let Node::MicroDetail { chain, .. } = &self.nodes[below] else { unreachable!() };
+        let mut chain = chain.as_ref().clone();
+        let own = [ChannelKind::Normal, ChannelKind::Height].map(|kind| self.below_effect(layer, index, kind));
+        chain.push(own);
+        // A Passthrough paint or fill layer's content already is the stack below, processed.
+        let own_adds = layer.is_folder() || layer.blend_for(ChannelKind::Height).mode != BlendMode::Passthrough;
+        let n = self.push(Node::MicroDetail { chain: Arc::new(chain), settings, own_adds });
+        self.effect_details.insert((layer.id, index), n);
+        Some(n)
     }
     /// Micro curvature and occlusion for one tile (see [`Node::MicroDetail`]).
-    fn micro_detail(&self, chain: &[[usize; 2]], settings: &subcraft_doc::MicroDetails, geo: &subcraft_materials::TileGeometry) -> Vec<[f32; 4]> {
+    fn micro_detail(&self, chain: &[[usize; 2]], settings: &subcraft_doc::MicroDetails, own_adds: bool, geo: &subcraft_materials::TileGeometry) -> Vec<[f32; 4]> {
         let res = self.ctx.geometry.resolution;
         let scale = res as f32 / 2048.0;
         let support = settings.support();
@@ -1034,6 +1061,13 @@ impl<'a> Graph<'a> {
                 let a = gn.pixel(px, py);
                 let b = gh.pixel(px, py);
                 let (wa, wb) = if depth == 0 { (1.0, 1.0) } else { (a[3].clamp(0.0, 1.0), b[3].clamp(0.0, 1.0)) };
+                if own_adds && depth + 1 == grids.len() {
+                    // Height's default blend adds; a normal leans the one below by its own tilt.
+                    n[0] += (a[0] - 0.5) * wa;
+                    n[1] += (a[1] - 0.5) * wa;
+                    h += b[0] * wb;
+                    continue;
+                }
                 for c in 0..3 {
                     n[c] += (a[c] - n[c]) * wa;
                 }
@@ -1376,8 +1410,11 @@ impl<'a> Graph<'a> {
                 let source = self.get(*input, tile);
                 let mut out = source.as_ref().clone();
                 if let ContentEffectKind::Material(m) = &effect.kind {
-                    let metallic = filtered.map(|n| self.get(n, tile));
-                    crate::material::apply(m, *kind, effect.blend_for(*kind), &mut out, &tc, metallic.as_deref().map(|p| p.as_slice()));
+                    // The one extra input is the Metallic below (PBR Validate) or the micro details.
+                    let extra = filtered.map(|n| self.get(n, tile));
+                    let extra = extra.as_deref().map(|p| p.as_slice());
+                    let (metallic, details) = if m.reads_metallic() { (extra, None) } else { (None, extra) };
+                    crate::material::apply(m, *kind, effect.blend_for(*kind), &mut out, &tc, metallic, details);
                     return out;
                 }
                 if let Some(filtered) = filtered {
@@ -1548,7 +1585,7 @@ impl<'a> Graph<'a> {
                 }
                 out
             }
-            Node::MicroDetail { chain, settings } => self.micro_detail(chain, settings, &geo),
+            Node::MicroDetail { chain, settings, own_adds } => self.micro_detail(chain, settings, *own_adds, &geo),
             Node::MicroHeight { below, delta } => {
                 let mut out = self.get(*below, tile).as_ref().clone();
                 let delta = self.get(*delta, tile);
@@ -2378,16 +2415,18 @@ pub(crate) fn has_micro_details(layers: &[Arc<Layer>]) -> bool {
 
 /// Texels the micro details of a layer's own mask read beyond its own (0 without any).
 fn micro_details_support(l: &Layer) -> u32 {
-    let Some(m) = l.mask.as_ref().filter(|m| m.enabled) else { return 0 };
-    m.effects
-        .iter()
-        .filter(|e| e.visible && e.opacity > 0.0)
-        .filter_map(|e| match &e.kind {
+    // Material filters that read the detail below them (Detail Edge Wear).
+    let content = l.content_effects.iter().filter(|e| e.visible).filter_map(|e| match e.kind {
+        ContentEffectKind::Material(m) => m.micro_details().map(|d| d.support()),
+        _ => None,
+    });
+    let mask = l.mask.as_ref().filter(|m| m.enabled).into_iter().flat_map(|m| {
+        m.effects.iter().filter(|e| e.visible && e.opacity > 0.0).filter_map(|e| match &e.kind {
             MaskEffectKind::Generator(g) => g.micro_details_active().map(|d| d.support()),
             _ => None,
         })
-        .max()
-        .unwrap_or(0)
+    });
+    content.chain(mask).max().unwrap_or(0)
 }
 
 /// Slope per UV unit per (height unit per texel x resolution): how strongly a micro height change
