@@ -30,6 +30,9 @@ const GRAIN_HEIGHT: f32 = 0.012;
 const DROP_HEIGHT: f32 = 0.10;
 const SHUT_HEIGHT: f32 = 0.08;
 const PERFORATION_HEIGHT: f32 = 0.12;
+/// Baked Lighting at full intensity: a surface facing the sun is lit 1.4 times, the sky adds 1.
+const SUN_GAIN: f32 = 1.4;
+const SKY_GAIN: f32 = 1.0;
 
 #[inline]
 fn hash3(x: i32, y: i32, z: i32, seed: u32) -> u32 {
@@ -229,7 +232,7 @@ pub fn pattern_on(filter: &MaterialFilter, position: [f32; 3], normal: [f32; 3])
             let cell = voronoi(q + warp(q * 0.7, seed ^ 0x44) * 0.8, seed ^ 0x1f3);
             [flake, cell.f2 - cell.f1, fbm(p * scale * 7.0, 4, seed ^ 0x62), vnoise(p * scale * 30.0, seed ^ 0x29)]
         }
-        MaterialFilter::PbrValidate { .. } | MaterialFilter::Hbao { .. } | MaterialFilter::ShutLine { .. } => [0.0; PATTERN],
+        MaterialFilter::PbrValidate { .. } | MaterialFilter::Hbao { .. } | MaterialFilter::ShutLine { .. } | MaterialFilter::BakedLighting { .. } => [0.0; PATTERN],
         MaterialFilter::Grinded { scale, seed, .. } => {
             let q = p * scale;
             let q = q + warp(q * 0.5, seed) * 0.35;
@@ -353,6 +356,7 @@ fn pattern_key(filter: &MaterialFilter) -> field::FieldKey {
         MaterialFilter::PbrValidate { .. } => [7, 0, 0, 0, 0],
         MaterialFilter::Hbao { .. } => [13, 0, 0, 0, 0],
         MaterialFilter::ShutLine { .. } => [14, 0, 0, 0, 0],
+        MaterialFilter::BakedLighting { .. } => [18, 0, 0, 0, 0],
         MaterialFilter::Grinded { scale, seed, .. } => [8, scale.to_bits(), seed, 0, 0],
         MaterialFilter::Rough { scale, grunge_scale, warp, seed, .. } => [9, scale.to_bits(), seed, grunge_scale.to_bits(), warp.to_bits()],
         MaterialFilter::Raw { scale, seed, .. } => [10, scale.to_bits(), seed, 0, 0],
@@ -387,6 +391,8 @@ pub struct Surface {
     pub occlusion: f32,
     /// How much the surface faces up: the Y of its object-space normal, -1..1 (0 when unknown).
     pub up: f32,
+    /// The object-space normal (zero when unknown). Only Baked Lighting reads it.
+    pub normal: [f32; 3],
 }
 
 /// What a filter does to one texel of the material below it.
@@ -409,13 +415,20 @@ pub struct Response {
     pub occlusion: f32,
     /// Every channel: the coverage of the content below is multiplied by this first.
     pub keep: f32,
+    /// Base Color: the colour below is multiplied by this light, per channel, and kept within
+    /// 0..1 (`None`: no lighting).
+    pub light: Option<[f32; 3]>,
 }
 
 impl Response {
-    pub const NONE: Self = Self { color: [0.0; 3], color_alpha: 0.0, color_gain: 1.0, roughness: 0.0, roughness_alpha: 0.0, roughness_add: 0.0, metallic: 0.0, metallic_alpha: 0.0, height: 0.0, occlusion: 0.0, keep: 1.0 };
+    pub const NONE: Self = Self { color: [0.0; 3], color_alpha: 0.0, color_gain: 1.0, roughness: 0.0, roughness_alpha: 0.0, roughness_add: 0.0, metallic: 0.0, metallic_alpha: 0.0, height: 0.0, occlusion: 0.0, keep: 1.0, light: None };
 
     pub fn base_color(&self, below: [f32; 3]) -> [f32; 3] {
-        mix3(below.map(|c| c * self.color_gain), self.color, self.color_alpha)
+        let lit = match self.light {
+            Some(l) => [0, 1, 2].map(|c| (below[c] * l[c]).clamp(0.0, 1.0)),
+            None => below,
+        };
+        mix3(lit.map(|c| c * self.color_gain), self.color, self.color_alpha)
     }
     pub fn rough(&self, below: f32) -> f32 {
         let b = (below + self.roughness_add).clamp(0.0, 1.0);
@@ -666,6 +679,18 @@ pub fn respond(filter: &MaterialFilter, pat: &[f32], s: Surface) -> Response {
             r.metallic = 0.0;
             r.metallic_alpha = m;
         }
+        MaterialFilter::BakedLighting { sun_angle, sun_height, sun_intensity, sun_color, sky_intensity, sky_color, ground_color, ambient_occlusion } => {
+            let n = Vec3::from_array(s.normal).normalize_or_zero();
+            let (az, el) = (sun_angle * std::f32::consts::TAU, sun_height * std::f32::consts::FRAC_PI_2);
+            let to_sun = Vec3::new(el.cos() * az.sin(), el.sin(), el.cos() * az.cos());
+            // Sun: Lambert. Sky and ground: a hemisphere light, blended by how far the surface
+            // faces up. A surface without a normal gets the sky from the side and no sun.
+            let sun = n.dot(to_sun).max(0.0) * sun_intensity * SUN_GAIN;
+            let hemi = mix3(ground_color, sky_color, n.y * 0.5 + 0.5).map(|c| c * sky_intensity * SKY_GAIN);
+            // Occlusion closes off the sky fully and the sun by half (cavities still catch some).
+            let open = 1.0 - s.occlusion.clamp(0.0, 1.0) * ambient_occlusion;
+            r.light = Some([0, 1, 2].map(|c| (sun_color[c] * sun * (0.5 + 0.5 * open) + hemi[c] * open).max(0.0)));
+        }
     }
     r
 }
@@ -831,10 +856,10 @@ mod tests {
         let f = MaterialFilter::ALL[3];
         for p in points().take(500) {
             let pat = pattern(&f, p);
-            let off = respond(&f, &pat, Surface { edge: 0.0, occlusion: 0.0, up: 0.0 });
+            let off = respond(&f, &pat, Surface { edge: 0.0, occlusion: 0.0, up: 0.0, normal: [0.0; 3] });
             assert_eq!((off.color_alpha, off.roughness_alpha, off.metallic_alpha, off.height), (0.0, 0.0, 0.0, 0.0));
             assert_eq!(off.base_color([0.2, 0.3, 0.4]), [0.2, 0.3, 0.4]);
-            let on = respond(&f, &pat, Surface { edge: 1.0, occlusion: 0.0, up: 0.0 });
+            let on = respond(&f, &pat, Surface { edge: 1.0, occlusion: 0.0, up: 0.0, normal: [0.0; 3] });
             assert_eq!((on.color_alpha, on.metallic_alpha, on.metal(0.0)), (1.0, 1.0, 1.0));
             assert!(on.height < 0.0, "chips are carved");
         }
@@ -850,7 +875,7 @@ mod tests {
         };
         assert_eq!(with(0.0), MaterialFilter::ALL[3], "the default has no contrast");
         let p = points().next().unwrap();
-        let alpha = |c: f32, edge: f32| respond(&with(c), &pattern(&with(c), p), Surface { edge, occlusion: 0.0, up: 0.0 }).color_alpha;
+        let alpha = |c: f32, edge: f32| respond(&with(c), &pattern(&with(c), p), Surface { edge, occlusion: 0.0, up: 0.0, normal: [0.0; 3] }).color_alpha;
         let mut last = [0.0f32; 3];
         for i in 0..=100 {
             let edge = i as f32 / 100.0;
@@ -980,6 +1005,47 @@ mod tests {
     }
 
     #[test]
+    fn baked_lighting_lights_the_base_color_from_the_sun_sky_and_ground() {
+        let f = MaterialFilter::ALL[17];
+        let lit = |f: &MaterialFilter, normal: [f32; 3], occlusion: f32| {
+            let r = respond(f, &pattern(f, [0.3, 0.2, 0.1]), Surface { normal, occlusion, ..Surface::default() });
+            assert_eq!((r.color_alpha, r.roughness_alpha, r.roughness_add, r.metallic_alpha, r.height, r.keep), (0.0, 0.0, 0.0, 0.0, 0.0, 1.0));
+            r.base_color([0.4; 3])
+        };
+        // The default sun stands at 45 degrees around and 45 degrees up.
+        let d = std::f32::consts::FRAC_1_SQRT_2;
+        let to_sun = [d * d, d, d * d];
+        let (facing, away, top, bottom) = (lit(&f, to_sun, 0.0), lit(&f, to_sun.map(|v| -v), 0.0), lit(&f, [0.0, 1.0, 0.0], 0.0), lit(&f, [0.0, -1.0, 0.0], 0.0));
+        assert!(facing[0] > top[0] && top[0] > away[0] && away[0] > 0.0, "{facing:?} {top:?} {away:?}");
+        // Away from the sun only the hemisphere lights: 0.4 x colour x 0.5, cool above, warm below.
+        let hemi = |t: f32| [0, 1, 2].map(|c| 0.4 * ([0.36f32, 0.30, 0.24][c] * (1.0 - t) + [0.72f32, 0.84, 1.0][c] * t) * 0.5);
+        let want = hemi((1.0 - d) * 0.5);
+        for c in 0..3 {
+            assert!((away[c] - want[c]).abs() < 1e-5, "{away:?} vs {want:?}");
+            assert!((bottom[c] - 0.4 * [0.36f32, 0.30, 0.24][c] * 0.5).abs() < 1e-5, "{bottom:?}");
+        }
+        assert!(top[2] > top[0] * 0.9 && bottom[0] > bottom[2], "sky is cool, ground is warm: {top:?} {bottom:?}");
+        // Facing the sun: 0.4 x (sun colour x 0.7 x 1.4 + hemisphere).
+        let up = (d + 1.0) * 0.5;
+        assert!((facing[0] - 0.4 * (1.0 * 0.98 + (0.36 * (1.0 - up) + 0.72 * up) * 0.5)).abs() < 1e-5, "{facing:?}");
+        // Occlusion darkens; with Ambient Occlusion at 0 it does nothing.
+        let shadowed = lit(&f, to_sun, 1.0);
+        assert!(shadowed[0] < facing[0] * 0.75 && shadowed[0] > 0.0, "{shadowed:?}");
+        let no_ao = f.with_setting(subcraft_doc::FilterSetting::AmbientOcclusion, [0.0; 3]).unwrap();
+        assert_eq!(lit(&no_ao, to_sun, 1.0), lit(&no_ao, to_sun, 0.0));
+        // The sun turns with its angle and sets with its height; no lights is black; the result
+        // never leaves 0..1.
+        let behind = f.with_setting(subcraft_doc::FilterSetting::SunAngle, [0.625; 3]).unwrap();
+        assert!((lit(&behind, to_sun, 0.0)[0] - hemi(up)[0]).abs() < 1e-5, "the sun is level with this surface: only the hemisphere");
+        let dark = f.with_setting(subcraft_doc::FilterSetting::SunIntensity, [0.0; 3]).unwrap().with_setting(subcraft_doc::FilterSetting::SkyIntensity, [0.0; 3]).unwrap();
+        assert_eq!(lit(&dark, to_sun, 0.0), [0.0; 3]);
+        let bright = f.with_setting(subcraft_doc::FilterSetting::SunIntensity, [1.0; 3]).unwrap().with_setting(subcraft_doc::FilterSetting::SkyIntensity, [1.0; 3]).unwrap();
+        let r = respond(&bright, &[0.0; PATTERN], Surface { normal: to_sun, ..Surface::default() });
+        assert_eq!(r.base_color([0.9; 3]), [1.0; 3]);
+        assert!(lit(&f, [0.0; 3], 0.0).iter().all(|v| v.is_finite() && *v > 0.0), "no normal: the sky from the side");
+    }
+
+    #[test]
     fn grinder_scratches_run_along_arcs() {
         // Inside one pass the pattern changes much faster across the scratches (radially) than
         // along them: compare the steepest and the shallowest of many small steps.
@@ -1052,20 +1118,20 @@ mod tests {
         let f = MaterialFilter::ALL[12];
         let open = respond(&f, &[0.0; PATTERN], Surface::default());
         assert_eq!(open, Response::NONE, "nothing on an open surface");
-        let (half, full) = (respond(&f, &[0.0; PATTERN], Surface { edge: 0.0, occlusion: 0.5, up: 0.0 }), respond(&f, &[0.0; PATTERN], Surface { edge: 0.0, occlusion: 1.0, up: 0.0 }));
+        let (half, full) = (respond(&f, &[0.0; PATTERN], Surface { edge: 0.0, occlusion: 0.5, up: 0.0, normal: [0.0; 3] }), respond(&f, &[0.0; PATTERN], Surface { edge: 0.0, occlusion: 1.0, up: 0.0, normal: [0.0; 3] }));
         assert!(full.occlusion == 1.0 && half.occlusion == 0.5);
         assert!(full.color_gain < half.color_gain && half.color_gain < 1.0 && full.color_gain > 0.4);
         assert!(full.rough(0.3) > half.rough(0.3) && half.rough(0.3) > 0.3);
         assert_eq!((full.color_alpha, full.metallic_alpha, full.roughness_alpha, full.height), (0.0, 0.0, 0.0, 0.0));
         let ao_only = MaterialFilter::Hbao { radius: 0.35, intensity: 0.8, ambient_occlusion: 1.0, base_color: 0.0, roughness: 0.0 };
-        let r = respond(&ao_only, &[0.0; PATTERN], Surface { edge: 0.0, occlusion: 1.0, up: 0.0 });
+        let r = respond(&ao_only, &[0.0; PATTERN], Surface { edge: 0.0, occlusion: 1.0, up: 0.0, normal: [0.0; 3] });
         assert_eq!((r.color_gain, r.roughness_add, r.occlusion), (1.0, 0.0, 1.0));
     }
 
     #[test]
     fn shut_line_carves_where_the_stroke_is_and_hides_the_painted_material() {
         let line = |slope: f32, emboss: f32, source_opacity: f32| MaterialFilter::ShutLine { width: 0.25, slope, emboss, height: 0.6, color: [0.02; 3], line_opacity: 0.8, source_opacity };
-        let at = |f: &MaterialFilter, m: f32| respond(f, &[0.0; PATTERN], Surface { edge: m, occlusion: 0.0, up: 0.0 });
+        let at = |f: &MaterialFilter, m: f32| respond(f, &[0.0; PATTERN], Surface { edge: m, occlusion: 0.0, up: 0.0, normal: [0.0; 3] });
         let f = line(0.4, 0.3, 0.0);
         // Away from any stroke: no groove, and the painted material is hidden.
         let off = at(&f, 0.0);
@@ -1092,7 +1158,7 @@ mod tests {
 
     #[test]
     fn water_drops_are_raised_glossy_lenses_and_amount_sets_how_many() {
-        let top = Surface { edge: 0.0, occlusion: 0.0, up: 1.0 };
+        let top = Surface { edge: 0.0, occlusion: 0.0, up: 1.0, normal: [0.0; 3] };
         let wet = |f: &MaterialFilter, s: Surface| points().map(|p| respond(f, &pattern_on(f, p, [0.0, s.up, 0.0]), s).roughness_alpha).sum::<f32>() / 4000.0;
         assert_eq!(wet(&drops(0.0), top), 0.0);
         let (a, b, c) = (wet(&drops(0.2), top), wet(&drops(0.5), top), wet(&drops(1.0), top));
@@ -1146,7 +1212,7 @@ mod tests {
     #[test]
     fn detail_edge_wear_stays_on_the_edges_and_grunge_breaks_it_up() {
         let wear = |contrast: f32, grunge: f32| MaterialFilter::DetailEdgeWear { level: 0.5, detail: 0.7, contrast, grunge, grunge_scale: 24.0, color: [0.56, 0.57, 0.58], roughness: 0.3, metallic: 1.0, seed: 1 };
-        let on = Surface { edge: 1.0, occlusion: 0.0, up: 0.0 };
+        let on = Surface { edge: 1.0, occlusion: 0.0, up: 0.0, normal: [0.0; 3] };
         for p in points().take(500) {
             let f = wear(0.6, 0.5);
             let off = respond(&f, &pattern(&f, p), Surface::default());
@@ -1160,7 +1226,7 @@ mod tests {
         let (plain, broken) = (coverage(&wear(0.6, 0.0), on), coverage(&wear(0.6, 1.0), on));
         assert!(plain == 1.0 && broken > 0.15 && broken < 0.85, "{plain} {broken}");
         // Contrast hardens the border: fewer half-worn texels.
-        let half = |f: MaterialFilter| points().filter(|&p| (0.1..0.9).contains(&respond(&f, &pattern(&f, p), Surface { edge: 0.6, occlusion: 0.0, up: 0.0 }).color_alpha)).count();
+        let half = |f: MaterialFilter| points().filter(|&p| (0.1..0.9).contains(&respond(&f, &pattern(&f, p), Surface { edge: 0.6, occlusion: 0.0, up: 0.0, normal: [0.0; 3] }).color_alpha)).count();
         assert!(half(wear(1.0, 0.6)) * 2 < half(wear(0.0, 0.6)), "{} {}", half(wear(1.0, 0.6)), half(wear(0.0, 0.6)));
         // The wear is almost flat: far shallower than an Edge Damages chip.
         let f = wear(0.6, 0.0);
@@ -1179,12 +1245,12 @@ mod tests {
         let (a, b, c) = (coverage(&rust(0.2), open), coverage(&rust(0.5), open), coverage(&rust(1.0), open));
         assert!(a < b && b < c, "{a} {b} {c}");
         assert!(a < 0.2 && c > 0.8, "{a} {c}");
-        assert!(coverage(&rust(0.4), Surface { edge: 0.0, occlusion: 1.0, up: 0.0 }) > coverage(&rust(0.4), open) + 0.2);
-        assert!(coverage(&rust(0.4), Surface { edge: 1.0, occlusion: 0.0, up: 0.0 }) > coverage(&rust(0.4), open) + 0.1);
+        assert!(coverage(&rust(0.4), Surface { edge: 0.0, occlusion: 1.0, up: 0.0, normal: [0.0; 3] }) > coverage(&rust(0.4), open) + 0.2);
+        assert!(coverage(&rust(0.4), Surface { edge: 1.0, occlusion: 0.0, up: 0.0, normal: [0.0; 3] }) > coverage(&rust(0.4), open) + 0.1);
         // Rust is a rough dielectric with a brown-orange colour.
         let f = rust(1.0);
         for p in points().take(300) {
-            let r = respond(&f, &pattern(&f, p), Surface { edge: 1.0, occlusion: 1.0, up: 0.0 });
+            let r = respond(&f, &pattern(&f, p), Surface { edge: 1.0, occlusion: 1.0, up: 0.0, normal: [0.0; 3] });
             assert_eq!(r.metallic, 0.0);
             assert!(r.roughness > 0.7);
             assert!(r.color[0] > r.color[1] && r.color[1] > r.color[2], "{:?}", r.color);
@@ -1198,7 +1264,7 @@ mod tests {
         assert_eq!(coverage(&peel(0.0), open), 0.0);
         let (a, b, c) = (coverage(&peel(0.2), open), coverage(&peel(0.5), open), coverage(&peel(1.0), open));
         assert!(a < b && b < c && c > 0.9, "{a} {b} {c}");
-        assert!(coverage(&peel(0.3), Surface { edge: 1.0, occlusion: 0.0, up: 0.0 }) > coverage(&peel(0.3), open) + 0.1);
+        assert!(coverage(&peel(0.3), Surface { edge: 1.0, occlusion: 0.0, up: 0.0, normal: [0.0; 3] }) > coverage(&peel(0.3), open) + 0.1);
         let f = peel(0.5);
         let (mut peeled, mut lips) = (0, 0);
         for p in points() {

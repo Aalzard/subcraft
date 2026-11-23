@@ -162,6 +162,15 @@ fn detail_edge_wear_is_a_thinner_line_than_edge_damages_and_the_new_finishes_kee
         assert!(hi - lo > 0.05 && lo > 0.1 && hi < 0.9, "{} varies the roughness around 0.3: {lo}..{hi}", filter.label());
     }
 
+    // Baked Lighting: the Base Color is lit by where each texel faces; nothing else changes.
+    let (mut s, ts, layer) = session([0.4, 0.4, 0.4], 0.6, 0.0);
+    let plain = [ChannelKind::Roughness, ChannelKind::Metallic, ChannelKind::Height].map(|k| channel(&mut s, ts, k));
+    add(&mut s, layer, MaterialFilter::ALL[17]);
+    let base = channel(&mut s, ts, ChannelKind::BaseColor);
+    let (lo, hi) = base.iter().filter(|b| b[0] > 0.0).fold((1.0f32, 0.0f32), |(a, b), c| (a.min(c[0]), b.max(c[0])));
+    assert!(lo > 0.02 && lo < 0.2 && hi > 0.38 && hi > 4.0 * lo && hi <= 1.0, "shaded and lit sides: {lo}..{hi}");
+    assert_eq!([ChannelKind::Roughness, ChannelKind::Metallic, ChannelKind::Height].map(|k| channel(&mut s, ts, k)), plain);
+
     // Perforated Circles: holes (no metal, dark, sunk) in a sheet that stays as it was.
     let (mut s, ts, layer) = session([0.56, 0.57, 0.58], 0.3, 1.0);
     add(&mut s, layer, MaterialFilter::ALL[16]);

@@ -253,6 +253,23 @@ pub enum MaterialFilter {
         /// Depth of the holes written to Height, 0..1.
         depth: f32,
     },
+    /// Lighting painted into the Base Color: a sun, a sky above and a ground bounce below, from
+    /// the model's own normals and the baked Ambient Occlusion. For stylised and unlit targets.
+    BakedLighting {
+        /// Direction the sun shines from around the up axis, 0..1 = 0..360 degrees.
+        sun_angle: f32,
+        /// Height of the sun, 0..1 = the horizon to straight above.
+        sun_height: f32,
+        sun_intensity: f32,
+        sun_color: [f32; 3],
+        sky_intensity: f32,
+        /// Light from above.
+        sky_color: [f32; 3],
+        /// Light bounced up from below.
+        ground_color: [f32; 3],
+        /// How much the baked Ambient Occlusion darkens the light, 0..1.
+        ambient_occlusion: f32,
+    },
 }
 
 /// One setting of a material filter, by name: what a material parameter can drive
@@ -306,6 +323,13 @@ pub enum FilterSetting {
     Emboss,
     LineOpacity,
     SourceOpacity,
+    SunAngle,
+    SunHeight,
+    SunIntensity,
+    SunColor,
+    SkyIntensity,
+    SkyColor,
+    GroundColor,
 }
 
 impl FilterSetting {
@@ -357,6 +381,13 @@ impl FilterSetting {
             Self::Emboss => "Emboss",
             Self::LineOpacity => "Line opacity",
             Self::SourceOpacity => "Source material opacity",
+            Self::SunAngle => "Sun angle",
+            Self::SunHeight => "Sun height",
+            Self::SunIntensity => "Sun intensity",
+            Self::SunColor => "Sun color",
+            Self::SkyIntensity => "Sky intensity",
+            Self::SkyColor => "Sky color",
+            Self::GroundColor => "Ground color",
         }
     }
 }
@@ -433,7 +464,14 @@ impl MaterialFilter {
             (Self::WaterDrops { wet, .. }, S::Wet) => Slot::Unit(wet),
             (Self::Hbao { radius, .. } | Self::PerforatedCircles { radius, .. }, S::Radius) => Slot::Unit(radius),
             (Self::Hbao { intensity, .. }, S::Intensity) => Slot::Unit(intensity),
-            (Self::Hbao { ambient_occlusion, .. }, S::AmbientOcclusion) => Slot::Unit(ambient_occlusion),
+            (Self::Hbao { ambient_occlusion, .. } | Self::BakedLighting { ambient_occlusion, .. }, S::AmbientOcclusion) => Slot::Unit(ambient_occlusion),
+            (Self::BakedLighting { sun_angle, .. }, S::SunAngle) => Slot::Unit(sun_angle),
+            (Self::BakedLighting { sun_height, .. }, S::SunHeight) => Slot::Unit(sun_height),
+            (Self::BakedLighting { sun_intensity, .. }, S::SunIntensity) => Slot::Unit(sun_intensity),
+            (Self::BakedLighting { sun_color, .. }, S::SunColor) => Slot::Color(sun_color),
+            (Self::BakedLighting { sky_intensity, .. }, S::SkyIntensity) => Slot::Unit(sky_intensity),
+            (Self::BakedLighting { sky_color, .. }, S::SkyColor) => Slot::Color(sky_color),
+            (Self::BakedLighting { ground_color, .. }, S::GroundColor) => Slot::Color(ground_color),
             (Self::Hbao { base_color, .. }, S::BaseColor) => Slot::Unit(base_color),
             (Self::ShutLine { width, .. }, S::Width) => Slot::Unit(width),
             (Self::ShutLine { slope, .. }, S::Slope) => Slot::Unit(slope),
@@ -476,13 +514,13 @@ impl MaterialFilter {
     /// Every setting this filter has, in a fixed order.
     pub fn settings(self) -> Vec<(FilterSetting, FilterValue)> {
         use FilterSetting as S;
-        [S::Amount, S::Scale, S::Spread, S::Depth, S::Relief, S::Spangle, S::Tint, S::Irregularity, S::Color, S::ColorAmount, S::Roughness, S::RoughnessVariation, S::Metallic, S::OrangePeel, S::Grain, S::Edges, S::Cavities, S::Drips, S::EdgeBias, S::Thickness, S::Curl, S::Rust, S::Intensity, S::Level, S::Detail, S::Contrast, S::Brushing, S::Warp, S::Grunge, S::GrungeScale, S::SizeVariation, S::Direction, S::Top, S::Sides, S::Underside, S::Height, S::Wet, S::Radius, S::AmbientOcclusion, S::BaseColor, S::Width, S::Slope, S::Emboss, S::LineOpacity, S::SourceOpacity, S::Seed]
+        [S::Amount, S::Scale, S::Spread, S::Depth, S::Relief, S::Spangle, S::Tint, S::Irregularity, S::Color, S::ColorAmount, S::Roughness, S::RoughnessVariation, S::Metallic, S::OrangePeel, S::Grain, S::Edges, S::Cavities, S::Drips, S::EdgeBias, S::Thickness, S::Curl, S::Rust, S::Intensity, S::Level, S::Detail, S::Contrast, S::Brushing, S::Warp, S::Grunge, S::GrungeScale, S::SizeVariation, S::Direction, S::Top, S::Sides, S::Underside, S::Height, S::Wet, S::Radius, S::AmbientOcclusion, S::BaseColor, S::Width, S::Slope, S::Emboss, S::LineOpacity, S::SourceOpacity, S::SunAngle, S::SunHeight, S::SunIntensity, S::SunColor, S::SkyIntensity, S::SkyColor, S::GroundColor, S::Seed]
             .into_iter()
             .filter_map(|s| self.setting(s).map(|v| (s, v)))
             .collect()
     }
 
-    pub const ALL: [Self; 17] = [
+    pub const ALL: [Self; 18] = [
         Self::Galvanized { scale: 40.0, spangle: 0.6, tint: 0.7, roughness: 0.32, roughness_variation: 0.5, relief: 0.25, seed: 1 },
         Self::Hammered { scale: 26.0, depth: 0.5, irregularity: 0.6, roughness_variation: 0.4, seed: 1 },
         Self::PowderCoated { color: [0.05, 0.05, 0.055], color_amount: 0.0, roughness: 0.48, orange_peel: 0.4, grain: 0.3, scale: 140.0, seed: 1 },
@@ -500,6 +538,7 @@ impl MaterialFilter {
         Self::BrushedLinear { scale: 120.0, intensity: 0.6, direction: 0.0, seed: 1 },
         Self::Grainy { scale: 160.0, intensity: 0.6, seed: 1 },
         Self::PerforatedCircles { scale: 24.0, radius: 0.55, depth: 0.7 },
+        Self::BakedLighting { sun_angle: 0.125, sun_height: 0.5, sun_intensity: 0.7, sun_color: [1.0, 0.95, 0.85], sky_intensity: 0.5, sky_color: [0.72, 0.84, 1.0], ground_color: [0.36, 0.30, 0.24], ambient_occlusion: 0.8 },
     ];
 
     pub fn label(self) -> &'static str {
@@ -521,6 +560,7 @@ impl MaterialFilter {
             Self::BrushedLinear { .. } => "MatFinish Brushed Linear",
             Self::Grainy { .. } => "MatFinish Grainy",
             Self::PerforatedCircles { .. } => "MatFinish Perforated Circles",
+            Self::BakedLighting { .. } => "Baked Lighting Stylized",
         }
     }
 
@@ -544,6 +584,7 @@ impl MaterialFilter {
             Self::BrushedLinear { .. } => "Fine straight brush lines in the Roughness and Height of the material below. Best on a metal fill.",
             Self::Grainy { .. } => "Fine even grain, as on sandblasted or cast metal.",
             Self::PerforatedCircles { .. } => "Staggered rows of round holes pressed into the material below.",
+            Self::BakedLighting { .. } => "Paints a sun, sky and ground light into the Base Color. Put it on a Passthrough layer above everything. Bake Ambient Occlusion for shadowed cavities.",
         }
     }
 
@@ -558,6 +599,7 @@ impl MaterialFilter {
         match self {
             Self::Hammered { .. } | Self::Grinded { .. } | Self::Rough { .. } | Self::Raw { .. } | Self::WaterDrops { .. } | Self::BrushedLinear { .. } | Self::Grainy { .. } => matches!(kind, ChannelKind::BaseColor | ChannelKind::Roughness | ChannelKind::Height),
             Self::Hbao { .. } => matches!(kind, ChannelKind::BaseColor | ChannelKind::Roughness | ChannelKind::AmbientOcclusion),
+            Self::BakedLighting { .. } => kind == ChannelKind::BaseColor,
             Self::PbrValidate { flat, .. } => kind == ChannelKind::BaseColor || (flat && matches!(kind, ChannelKind::Roughness | ChannelKind::Metallic)),
             _ => matches!(kind, ChannelKind::BaseColor | ChannelKind::Roughness | ChannelKind::Metallic | ChannelKind::Height),
         }
@@ -624,7 +666,7 @@ impl MaterialFilter {
             | Self::WaterDrops { seed, .. }
             | Self::BrushedLinear { seed, .. }
             | Self::Grainy { seed, .. } => Some(seed),
-            Self::PbrValidate { .. } | Self::Hbao { .. } | Self::ShutLine { .. } | Self::PerforatedCircles { .. } => None,
+            Self::PbrValidate { .. } | Self::Hbao { .. } | Self::ShutLine { .. } | Self::PerforatedCircles { .. } | Self::BakedLighting { .. } => None,
         }
     }
 
@@ -654,6 +696,9 @@ impl MaterialFilter {
             Self::Grinded { scale: s, intensity, seed: _ } | Self::Raw { scale: s, intensity, seed: _ } | Self::Grainy { scale: s, intensity, seed: _ } => scale(s) && unit(intensity),
             Self::BrushedLinear { scale: s, intensity, direction, seed: _ } => scale(s) && unit(intensity) && unit(direction),
             Self::PerforatedCircles { scale: s, radius, depth } => scale(s) && unit(radius) && unit(depth),
+            Self::BakedLighting { sun_angle, sun_height, sun_intensity, sun_color, sky_intensity, sky_color, ground_color, ambient_occlusion } => {
+                unit(sun_angle) && unit(sun_height) && unit(sun_intensity) && color(sun_color) && unit(sky_intensity) && color(sky_color) && color(ground_color) && unit(ambient_occlusion)
+            }
             Self::Rough { scale: s, grunge_scale, brushing, warp, grunge, seed: _ } => scale(s) && scale(grunge_scale) && unit(brushing) && unit(warp) && unit(grunge),
             Self::DetailEdgeWear { level, detail, contrast, grunge, grunge_scale, color: c, roughness, metallic, seed: _ } => {
                 unit(level) && unit(detail) && unit(contrast) && unit(grunge) && scale(grunge_scale) && color(c) && unit(roughness) && unit(metallic)
@@ -729,6 +774,10 @@ mod tests {
         assert!(!MaterialFilter::BrushedLinear { scale: 120.0, intensity: 0.6, direction: 1.2, seed: 1 }.valid());
         assert!(!MaterialFilter::Grainy { scale: 900.0, intensity: 0.6, seed: 1 }.valid());
         assert!(!MaterialFilter::PerforatedCircles { scale: 24.0, radius: f32::NAN, depth: 0.7 }.valid());
+        let light = MaterialFilter::ALL[17];
+        assert!(light.writes(ChannelKind::BaseColor) && !light.writes(ChannelKind::Roughness) && !light.writes(ChannelKind::Height) && light.seed().is_none());
+        assert!(!light.with_setting(FilterSetting::SunColor, [0.5; 3]).unwrap().with_setting(FilterSetting::SunHeight, [0.2; 3]).is_none());
+        assert!(!MaterialFilter::BakedLighting { sun_angle: 1.5, sun_height: 0.5, sun_intensity: 0.7, sun_color: [1.0; 3], sky_intensity: 0.5, sky_color: [1.0; 3], ground_color: [0.3; 3], ambient_occlusion: 0.8 }.valid());
         assert_eq!(serde_json::to_string(&MaterialFilter::ALL[16]).unwrap(), r#"{"kind":"perforated_circles","scale":24.0,"radius":0.55,"depth":0.7}"#);
         assert!(MaterialFilter::ALL[16].writes(ChannelKind::Metallic) && !MaterialFilter::ALL[14].writes(ChannelKind::Metallic) && MaterialFilter::ALL[16].seed().is_none());
         assert!(!MaterialFilter::Rough { scale: 60.0, grunge_scale: 0.0, brushing: 0.6, warp: 0.3, grunge: 0.5, seed: 1 }.valid());
