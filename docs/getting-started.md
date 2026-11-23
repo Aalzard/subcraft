@@ -226,6 +226,30 @@ by name, for example `seam_color.png`, `seam_height.png` and `seam_normal.png`. 
 Stitches and stitch tiles lie on the model, not in UV space, so a seam can cross UV islands: put one point on each
 side and the stitches run over the surface between them.
 
+### Auto Stitcher: stitches without drawing
+
+With the Pen tool and a stitch (or stitch tile) chosen, **Auto Stitcher** in the Properties panel
+places the rows for you. **Along** says where:
+
+- **UV seams**: where two UV islands meet on the model. Most clothes and bags are unwrapped along
+  their real seams, so this is usually the whole job.
+- **Open borders**: the free edges of the mesh, like a hem or the rim of a pocket.
+- **UV seams and open borders**: both.
+- **Edge of the selected layer's mask**: the outline of the mask, for a patch, a label or any
+  shape you painted or generated.
+
+**Distance** is how far from the edge the row runs, in stitch widths. At 0 a UV seam gets one row
+right on it (good for a zipper or a cross stitch). Above 0 it gets one row on each side, like a
+topstitched seam.
+
+**Place stitches** adds one path layer per row, in a folder named "Auto stitches", as one undo
+step. Each row is a normal pen path: select it to move its points, change the stitch, add needle
+holes or a seam groove, or delete it. The stitches are made the same size on every UV island,
+also when the islands have different texel density. At most 64 rows are placed in one run, the
+longest first.
+
+![Stitches placed by the Auto Stitcher along the seams of a cube and around a masked patch](images/auto-stitcher.png)
+
 ![A stitched path over three faces of a cube, each its own UV island](images/stitches-over-seams.png)
 
 ### Decals: an image placed once on the model

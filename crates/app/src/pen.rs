@@ -204,6 +204,17 @@ impl PenEditor {
         if !force_new && let Some(path) = stored_path(session) {
             return Ok(Edit { layer: session.selected_layer().unwrap().clone(), path: path.clone(), new: false, resolution: session.selected_texture_set().resolution, scene: session.scene().mesh.clone(), selection: session.selection(), handle: None, label: "Edit pen path" });
         }
+        let (path, name) = self.styled_path(session);
+        path.validate().map_err(error)?;
+        let ts = session.selected_texture_set();
+        let mut layer = Layer::new_paint(name, ts);
+        layer.parts = session.selected_layer().and_then(|l| l.parts.clone());
+        Ok(Edit { layer, path, new: true, resolution: ts.resolution, scene: session.scene().mesh.clone(), selection: session.selection(), handle: None, label: "New pen path" })
+    }
+
+    /// A new path without points, as the next click would start it, and the name of its layer:
+    /// the chosen stitch tile or stitch, or a plain stroke of the brush.
+    pub fn styled_path(&self, session: &Session) -> (PenPath, &'static str) {
         let ts = session.selected_texture_set(); let brush = &session.brush;
         let values = brush.material.channels.iter().filter(|(k, v)| v.enabled && ts.has_channel(**k)).map(|(&k, v)| (k, v.value)).collect();
         let mut path = PenPath { anchors: Vec::new(), closed: false, radius: (brush.settings.size * 0.005).clamp(0.00001, 0.5), hardness: brush.settings.hardness.clamp(0.0, 1.0), opacity: brush.settings.stroke_opacity.clamp(0.0, 1.0), values, kind: Default::default(), stamp: None, ribbon: None };
@@ -221,10 +232,7 @@ impl PenEditor {
             path.opacity = 1.0;
             tile.apply_to_path(&mut path, |k| ts.has_channel(k));
         }
-        path.validate().map_err(error)?;
-        let mut layer = Layer::new_paint(if self.tile.is_some() { "Stitch tile" } else { self.style.map_or("Pen path", |s| s.stitch.name) }, ts);
-        layer.parts = session.selected_layer().and_then(|l| l.parts.clone());
-        Ok(Edit { layer, path, new: true, resolution: ts.resolution, scene: session.scene().mesh.clone(), selection: session.selection(), handle: None, label: "New pen path" })
+        (path, if self.tile.is_some() { "Stitch tile" } else { self.style.map_or("Pen path", |s| s.stitch.name) })
     }
 
     pub fn begin(&mut self, session: &Session, uv: Vec2, hit: Option<PenHit>) -> Result<(), CommandError> {
@@ -342,24 +350,27 @@ impl PenEditor {
         self.pending.push_back(Pending { edit, raster }); Ok(())
     }
 
+    /// A path layer of the selected texture set with `path` drawn, not yet in the project.
+    pub(crate) fn drawn_layer(&self, session: &Session, path: PenPath, name: &str) -> Result<Layer, CommandError> {
+        if self.gesture.is_some() || !self.pending.is_empty() { return Err(error("wait for the current path to finish drawing")); }
+        path.validate().map_err(error)?;
+        let ts = session.selected_texture_set();
+        let mut layer = Layer::new_paint(name, ts);
+        layer.parts = session.selected_layer().and_then(|l| l.parts.clone());
+        let scene = session.scene();
+        let mut raster = PenRasterizer::new(&path, ts.resolution).map_err(error)?.with_path_images(|id| session.resources().bitmap(id).cloned())
+            .with_surface(&scene.mesh, &scene.bvh, ts.material_slot).map_err(error)?;
+        raster.run();
+        let LayerContent::Paint(p) = &mut layer.content else { return Err(error("pen layer must be paint content")); };
+        p.channels = raster.finish().ok_or_else(|| error("the path was not drawn"))?;
+        p.path = Some(path);
+        Ok(layer)
+    }
+
     /// Add `path` as a new path layer named `name` above the selected layer, drawn at once.
     /// The selection stays where it was (a companion of the selected path, like needle holes).
     pub fn add_path_layer(&mut self, session: &mut Session, path: PenPath, name: &str) -> Result<(), CommandError> {
-        if self.gesture.is_some() || !self.pending.is_empty() { return Err(error("wait for the current path to finish drawing")); }
-        path.validate().map_err(error)?;
-        let layer = {
-            let ts = session.selected_texture_set();
-            let mut layer = Layer::new_paint(name, ts);
-            layer.parts = session.selected_layer().and_then(|l| l.parts.clone());
-            let scene = session.scene();
-            let mut raster = PenRasterizer::new(&path, ts.resolution).map_err(error)?.with_path_images(|id| session.resources().bitmap(id).cloned())
-                .with_surface(&scene.mesh, &scene.bvh, ts.material_slot).map_err(error)?;
-            raster.run();
-            let LayerContent::Paint(p) = &mut layer.content else { return Err(error("pen layer must be paint content")); };
-            p.channels = raster.finish().ok_or_else(|| error("the path was not drawn"))?;
-            p.path = Some(path);
-            layer
-        };
+        let layer = self.drawn_layer(session, path, name)?;
         let before = session.selection().layer;
         session.execute(Command::InsertLayer { layer: Box::new(layer), label: format!("Add {name}") })?;
         session.execute(Command::SelectLayer(before))?;
