@@ -5,7 +5,7 @@ use subcraft_app::brush_preset::PresetKind;
 use subcraft_paint::{Alignment, PaintTarget};
 
 use crate::state::{Tool, UiState};
-use crate::widgets::{hint, panel, prop_row, section, segmented, slider_row};
+use crate::widgets::{check_row_reset, hint, panel, prop_row, prop_row_reset, section, segmented, segmented_response, slider_row_reset};
 
 /// Id of the panel background that takes the right-click of the tool Properties.
 pub fn properties_menu_id() -> egui::Id {
@@ -79,43 +79,44 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             super::brush_header::show(state, ui);
             section(ui, "tool", "Paint target", true, |ui| {
                 if state.tool == Tool::PolygonFill {
-                    prop_row(ui, "Selection", |ui| {
+                    let ds = crate::state::FILL_DEFAULTS;
+                    prop_row_reset(ui, "Selection", &mut state.fill_selection, ds.selection, |ui, v| {
                         use subcraft_paint::PolygonSelectMode;
-                        egui::ComboBox::from_id_salt("fill_selection").selected_text(state.fill_selection.label()).show_ui(ui, |ui| {
+                        egui::ComboBox::from_id_salt("fill_selection").selected_text(v.label()).show_ui(ui, |ui| {
                             for m in PolygonSelectMode::ALL {
-                                ui.selectable_value(&mut state.fill_selection, m, m.label());
+                                ui.selectable_value(v, m, m.label());
                             }
-                        });
+                        }).response
                     });
-                    prop_row(ui, "Fill by", |ui| crate::brush_bar::fill_mode_combo(ui, &mut state.fill_mode, "fill_mode_panel"));
+                    prop_row_reset(ui, "Fill by", &mut state.fill_mode, ds.mode, |ui, v| crate::brush_bar::fill_mode_combo(ui, v, "fill_mode_panel"));
                     // Greyed out when the fill lands in a mask (Painter): masks take the value as is.
                     let on_mask = !crate::brush_bar::blending_applies(state.session.polygon_fill_destination());
-                    prop_row(ui, "Blending", |ui| {
-                        let current = state.session.brush.fill_blend;
+                    prop_row_reset(ui, "Blending", &mut state.session.brush.fill_blend, subcraft_doc::BlendMode::Normal, |ui, v| {
+                        let current = *v;
                         ui.add_enabled_ui(!on_mask, |ui| {
                             egui::ComboBox::from_id_salt("fill_blend").selected_text(current.label()).show_ui(ui, |ui| {
                                 for m in subcraft_doc::BlendMode::ALL.into_iter().filter(|m| !matches!(m, subcraft_doc::BlendMode::Passthrough | subcraft_doc::BlendMode::Disable)) {
-                                    ui.selectable_value(&mut state.session.brush.fill_blend, m, m.label());
+                                    ui.selectable_value(v, m, m.label());
                                 }
                             }).response
                         }).inner
                     }).on_hover_text(if on_mask { "Blending does not apply when the fill paints a mask" } else { "How the fill combines with what the layer already holds (the layer blending modes); Stroke opacity is its opacity" });
                     if !state.fill_selection.is_loop() {
-                        prop_row(ui, "Hit-test", |ui| {
+                        prop_row_reset(ui, "Hit-test", &mut state.fill_hit_test, ds.hit_test, |ui, v| {
                             use subcraft_paint::PolygonHitTest;
-                            for h in PolygonHitTest::ALL {
-                                let tip = match h {
-                                    PolygonHitTest::Intersection => "A box fills every element it touches",
-                                    PolygonHitTest::ContainedCenter => "A box fills only the elements whose centre is inside it",
-                                };
-                                ui.selectable_value(&mut state.fill_hit_test, h, h.label()).on_hover_text(tip);
-                            }
+                            ui.horizontal(|ui| {
+                                for h in PolygonHitTest::ALL {
+                                    let tip = match h {
+                                        PolygonHitTest::Intersection => "A box fills every element it touches",
+                                        PolygonHitTest::ContainedCenter => "A box fills only the elements whose centre is inside it",
+                                    };
+                                    ui.selectable_value(v, h, h.label()).on_hover_text(tip);
+                                }
+                            }).response
                         });
                     }
-                    prop_row(ui, "", |ui| {
-                        ui.checkbox(&mut state.fill_visible_only, "Visible polygons only")
-                            .on_hover_text("A box drag in the 3D view fills only what the camera sees: no back faces, nothing behind the model. Off: everything under the box.");
-                    });
+                    check_row_reset(ui, "", "Visible polygons only", &mut state.fill_visible_only, ds.visible_only)
+                        .on_hover_text("A box drag in the 3D view fills only what the camera sees: no back faces, nothing behind the model. Off: everything under the box.");
                     match state.fill_selection {
                         subcraft_paint::PolygonSelectMode::Marquee => hint(ui, "Click to fill one element, drag a box to fill the elements it picks. Works in the 3D and 2D views. Hold Shift+A for a polygon loop instead."),
                         subcraft_paint::PolygonSelectMode::Loop => hint(ui, "Drag along the model to fill the loop of quads in that direction (a click: across the nearest edge). 3D view; the 2D view keeps the marquee."),
@@ -132,32 +133,34 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             let brush = state.tool != Tool::PolygonFill;
             section(ui, "brush", "Brush", true, |ui| {
                 let s = &mut state.session.brush.settings;
+                let d = subcraft_paint::BrushSettings::default();
                 super::brush_rows::size_flow_opacity(ui, s, brush);
-                slider_row(ui, "Spacing", egui::Slider::new(&mut s.spacing, 0.02..=2.0).logarithmic(true).clamping(egui::SliderClamping::Edits))
+                slider_row_reset(ui, "Spacing", &mut s.spacing, d.spacing, |v| egui::Slider::new(v, 0.02..=2.0).logarithmic(true).clamping(egui::SliderClamping::Edits))
                     .on_hover_text("Distance between stamps, in brush diameters");
-                slider_row(ui, "Angle", egui::Slider::new(&mut s.angle_deg, -180.0..=180.0).suffix("°"));
-                prop_row(ui, "", |ui| ui.checkbox(&mut s.follow_path, "Follow Path"));
-                slider_row(ui, "Alternate offset", egui::Slider::new(&mut s.alternate_offset, subcraft_paint::BrushSettings::ALTERNATE_OFFSET))
+                slider_row_reset(ui, "Angle", &mut s.angle_deg, d.angle_deg, |v| egui::Slider::new(v, -180.0..=180.0).suffix("°"));
+                check_row_reset(ui, "", "Follow Path", &mut s.follow_path, d.follow_path);
+                slider_row_reset(ui, "Alternate offset", &mut s.alternate_offset, d.alternate_offset, |v| egui::Slider::new(v, subcraft_paint::BrushSettings::ALTERNATE_OFFSET))
                     .on_hover_text("Every second stamp moves across the stroke by this fraction of the radius (stitches, zigzags)");
                 super::brush_rows::jitters(ui, s);
-                prop_row(ui, "Alignment", |ui| {
+                prop_row_reset(ui, "Alignment", &mut s.alignment, d.alignment, |ui, alignment| {
                     egui::ComboBox::from_id_salt("align")
-                        .selected_text(match s.alignment {
+                        .selected_text(match *alignment {
                             Alignment::TangentWrap => "Tangent | Wrap",
                             Alignment::TangentPlanar => "Tangent | Planar",
                             Alignment::Camera => "Camera",
                             Alignment::Uv => "UV",
                         })
                         .show_ui(ui, |ui| {
-                            ui.selectable_value(&mut s.alignment, Alignment::Camera, "Camera");
-                            ui.selectable_value(&mut s.alignment, Alignment::TangentWrap, "Tangent | Wrap");
-                            ui.selectable_value(&mut s.alignment, Alignment::TangentPlanar, "Tangent | Planar");
-                            ui.selectable_value(&mut s.alignment, Alignment::Uv, "UV");
-                        });
+                            ui.selectable_value(alignment, Alignment::Camera, "Camera");
+                            ui.selectable_value(alignment, Alignment::TangentWrap, "Tangent | Wrap");
+                            ui.selectable_value(alignment, Alignment::TangentPlanar, "Tangent | Planar");
+                            ui.selectable_value(alignment, Alignment::Uv, "UV");
+                        })
+                        .response
                 });
-                prop_row(ui, "", |ui| ui.checkbox(&mut s.backface_culling, "Backface Culling"));
+                check_row_reset(ui, "", "Backface Culling", &mut s.backface_culling, d.backface_culling);
                 ui.add_enabled_ui(s.backface_culling, |ui| {
-                    slider_row(ui, "Backface Culling angle", egui::Slider::new(&mut s.backface_angle_deg, 10.0..=90.0).suffix("°"));
+                    slider_row_reset(ui, "Backface Culling angle", &mut s.backface_angle_deg, d.backface_angle_deg, |v| egui::Slider::new(v, 10.0..=90.0).suffix("°"));
                 });
                 super::brush_rows::size_space(ui, s);
             });
@@ -165,14 +168,15 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             section(ui, "alpha", "Alpha", true, |ui| {
                 super::brush_rows::alpha_slot(state, ui);
                 let s = &mut state.session.brush.settings;
+                let d = subcraft_paint::BrushSettings::default();
                 let mut hardness = s.hardness * 100.0;
-                if slider_row(ui, "Hardness", egui::Slider::new(&mut hardness, 0.0..=100.0).max_decimals(0).suffix("%"))
+                if slider_row_reset(ui, "Hardness", &mut hardness, d.hardness * 100.0, |v| egui::Slider::new(v, 0.0..=100.0).max_decimals(0).suffix("%"))
                     .on_hover_text("Tip edge: 0 % fades from the centre, 100 % is a hard edge")
                     .changed()
                 {
                     s.hardness = (hardness * 0.01).clamp(0.0, 1.0);
                 }
-                slider_row(ui, "Roundness", egui::Slider::new(&mut s.roundness, 0.05..=1.0));
+                slider_row_reset(ui, "Roundness", &mut s.roundness, d.roundness, |v| egui::Slider::new(v, 0.05..=1.0));
             });
 
             section(ui, "stencil", "Stencil", false, |ui| {
@@ -187,19 +191,24 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 if let Some(st) = state.session.brush.stencil.clone() {
                     let mut s = (*st).clone();
                     let mut changed = false;
-                    changed |= slider_row(ui, "Scale", egui::Slider::new(&mut s.scale, 0.05..=4.0).logarithmic(true)).changed();
+                    changed |= slider_row_reset(ui, "Scale", &mut s.scale, subcraft_paint::Stencil::DEFAULT_SCALE, |v| egui::Slider::new(v, 0.05..=4.0).logarithmic(true)).changed();
                     let mut deg = s.rotation.to_degrees();
-                    if slider_row(ui, "Rotation", egui::Slider::new(&mut deg, -180.0..=180.0).suffix("°")).changed() {
+                    if slider_row_reset(ui, "Rotation", &mut deg, 0.0, |v| egui::Slider::new(v, -180.0..=180.0).suffix("°")).changed() {
                         s.rotation = deg.to_radians();
                         changed = true;
                     }
-                    prop_row(ui, "Tiling mode", |ui| {
-                        egui::ComboBox::from_id_salt("stencil_tiling").selected_text(s.tiling.label()).show_ui(ui, |ui| {
+                    changed |= prop_row_reset(ui, "Tiling mode", &mut s.tiling, subcraft_paint::StencilTiling::None, |ui, v| {
+                        let mut picked = false;
+                        let mut r = egui::ComboBox::from_id_salt("stencil_tiling").selected_text(v.label()).show_ui(ui, |ui| {
                             for mode in subcraft_paint::StencilTiling::ALL {
-                                changed |= ui.selectable_value(&mut s.tiling, mode, mode.label()).changed();
+                                picked |= ui.selectable_value(v, mode, mode.label()).changed();
                             }
-                        });
-                    });
+                        }).response;
+                        if picked {
+                            r.mark_changed();
+                        }
+                        r
+                    }).changed();
                     ui.add_enabled_ui(s.is_transformed(), |ui| {
                         if crate::widgets::quiet_button(ui, crate::icons::UNDO, "Reset stencil")
                             .on_hover_text("Back to the center, upright, at its default size. Also at the top right of the 3D view while S is held")
@@ -209,14 +218,15 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                             changed = true;
                         }
                     });
+                    let dd = crate::state::StencilDisplay::default();
                     let mut opacity = state.stencil_display.opacity * 100.0;
-                    if slider_row(ui, "Stencil opacity", egui::Slider::new(&mut opacity, 0.0..=100.0).max_decimals(0).suffix("%"))
+                    if slider_row_reset(ui, "Stencil opacity", &mut opacity, dd.opacity * 100.0, |v| egui::Slider::new(v, 0.0..=100.0).max_decimals(0).suffix("%"))
                         .on_hover_text("How strongly the stencil shows over the 3D view. Display only: it masks paint the same at any opacity")
                         .changed()
                     {
                         state.stencil_display.opacity = (opacity * 0.01).clamp(0.0, 1.0);
                     }
-                    prop_row(ui, "", |ui| ui.checkbox(&mut state.stencil_display.hide_when_painting, "Hide stencil when painting"));
+                    check_row_reset(ui, "", "Hide stencil when painting", &mut state.stencil_display.hide_when_painting, dd.hide_when_painting);
                     if changed {
                         state.session.brush.stencil = Some(std::sync::Arc::new(s));
                     }
@@ -227,7 +237,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             section(ui, "material", "Material", true, |ui| {
                 if state.session.brush.target.is_mask() {
                     let mut material = state.session.brush.material.clone();
-                    if slider_row(ui, "Mask value", egui::Slider::new(&mut material.mask_value, 0.0..=1.0)).changed() {
+                    let d = subcraft_paint::BrushMaterial::default().mask_value;
+                    if slider_row_reset(ui, "Mask value", &mut material.mask_value, d, |v| egui::Slider::new(v, 0.0..=1.0)).changed() {
                         let _ = state.session.execute(subcraft_app::Command::SetBrushMaterial(material));
                     }
                 } else if state.tool == Tool::Eraser {
@@ -238,8 +249,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             if state.tool == Tool::Clone {
                 section(ui, "clone", "Clone", true, |ui| {
                     use subcraft_app::CloneSourceMode;
-                    prop_row(ui, "Source", |ui| {
-                        segmented(ui, &mut state.session.brush.clone_mode, &[(CloneSourceMode::Relative, "Relative"), (CloneSourceMode::Absolute, "Absolute")]);
+                    prop_row_reset(ui, "Source", &mut state.session.brush.clone_mode, CloneSourceMode::Relative, |ui, v| {
+                        segmented_response(ui, v, &[(CloneSourceMode::Relative, "Relative"), (CloneSourceMode::Absolute, "Absolute")])
                     });
                     hint(ui, match state.session.brush.clone_mode {
                         CloneSourceMode::Relative => "Relative: the source follows the brush, so each stroke continues the copy. Set the source with V + click.",
@@ -268,24 +279,26 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             let b = &mut state.session.brush;
             section(ui, "smudge", "Smudge", false, |ui| {
                 let s = &mut b.settings;
-                slider_row(ui, "Strength", egui::Slider::new(&mut s.smudge_strength, 0.0..=1.0));
-                slider_row(ui, "Smear length", egui::Slider::new(&mut s.smudge_carry, 0.0..=0.99));
-                slider_row(ui, "Falloff", egui::Slider::new(&mut s.smudge_falloff, 0.25..=8.0).logarithmic(true));
-                slider_row(ui, "Material", egui::Slider::new(&mut s.smudge_material, 0.0..=1.0));
+                let d = subcraft_paint::BrushSettings::default();
+                slider_row_reset(ui, "Strength", &mut s.smudge_strength, d.smudge_strength, |v| egui::Slider::new(v, 0.0..=1.0));
+                slider_row_reset(ui, "Smear length", &mut s.smudge_carry, d.smudge_carry, |v| egui::Slider::new(v, 0.0..=0.99));
+                slider_row_reset(ui, "Falloff", &mut s.smudge_falloff, d.smudge_falloff, |v| egui::Slider::new(v, 0.25..=8.0).logarithmic(true));
+                slider_row_reset(ui, "Material", &mut s.smudge_material, d.smudge_material, |v| egui::Slider::new(v, 0.0..=1.0));
                 hint(ui, "Used by the Smudge tool. Low smear length blends softly; high drags paint far. Material mixes the brush paint into the smear.");
             });
 
             section(ui, "scatter", "Scatter", s_open(&b.settings), |ui| {
                 let s = &mut b.settings;
+                let d = subcraft_paint::BrushSettings::default();
                 let mut count = s.scatter_count;
-                slider_row(ui, "Count", egui::Slider::new(&mut count, 0..=subcraft_paint::MAX_SCATTER));
+                slider_row_reset(ui, "Count", &mut count, d.scatter_count, |v| egui::Slider::new(v, 0..=subcraft_paint::MAX_SCATTER));
                 s.scatter_count = count;
                 ui.add_enabled_ui(count > 0, |ui| {
-                    slider_row(ui, "Radius", egui::Slider::new(&mut s.scatter_radius, 0.0..=4.0));
-                    slider_row(ui, "Size random", egui::Slider::new(&mut s.scatter_size_random, 0.0..=1.0));
-                    slider_row(ui, "Rotation", egui::Slider::new(&mut s.scatter_rotation_deg, 0.0..=180.0).suffix("°"));
-                    slider_row(ui, "Opacity random", egui::Slider::new(&mut s.scatter_opacity_random, 0.0..=1.0));
-                    slider_row(ui, "Fall", egui::Slider::new(&mut s.scatter_fall, 0.0..=8.0));
+                    slider_row_reset(ui, "Radius", &mut s.scatter_radius, d.scatter_radius, |v| egui::Slider::new(v, 0.0..=4.0));
+                    slider_row_reset(ui, "Size random", &mut s.scatter_size_random, d.scatter_size_random, |v| egui::Slider::new(v, 0.0..=1.0));
+                    slider_row_reset(ui, "Rotation", &mut s.scatter_rotation_deg, d.scatter_rotation_deg, |v| egui::Slider::new(v, 0.0..=180.0).suffix("°"));
+                    slider_row_reset(ui, "Opacity random", &mut s.scatter_opacity_random, d.scatter_opacity_random, |v| egui::Slider::new(v, 0.0..=1.0));
+                    slider_row_reset(ui, "Fall", &mut s.scatter_fall, d.scatter_fall, |v| egui::Slider::new(v, 0.0..=8.0));
                 });
                 hint(ui, "0 = normal brush. Particles scatter around each stamp; Fall pulls them down the screen (drips, dust). Raise Spacing for sparse scatter.");
             });

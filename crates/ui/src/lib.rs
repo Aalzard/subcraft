@@ -259,6 +259,9 @@ fn run_with_graphics(mut options: LaunchOptions, graphics: graphics::GraphicsUi,
 pub mod asset_preview;
 
 #[cfg(test)]
+mod reset_everywhere_tests;
+
+#[cfg(test)]
 mod startup_tests {
     use super::*;
     use subcraft_app::graphics::GraphicsApi::*;

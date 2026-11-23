@@ -1,4 +1,4 @@
-<p align="center"><img src="branding/subcraft-logo-orange-1254.png" alt="SubCraft logo: a white hexagonal S ribbon with a four-point star on orange" width="50" height="50"></p>
+<p align="center"><img src="branding/subcraft-logo-orange-1254.png" alt="SubCraft logo: a white hexagonal S ribbon with a four-point star on orange" width="58" height="58"></p>
 
 # SubCraft
 
@@ -7,136 +7,100 @@
 [![Latest release](https://img.shields.io/github/v/release/Aalzard/subcraft?style=for-the-badge&label=latest&color=2b2b2b)](https://github.com/Aalzard/subcraft/releases/latest)
 [![Support SubCraft](https://img.shields.io/badge/Support-%E2%9D%A4-ff4d6d?style=for-the-badge&logo=githubsponsors&logoColor=white)](https://www.paypal.com/donate/?hosted_button_id=UFCVX9QYCB8F8)
 
-**An independent, open-source 3D texture painting app in the spirit of Substance Painter, written in Rust.**
-Paint directly on 3D models with layered PBR materials, masks, generators and smart materials,
-bake mesh maps and export game-ready textures. Windows and Linux.
+**A free, open-source 3D texture painting app in the spirit of Substance Painter, written in Rust.**
+Paint on 3D models with layered PBR materials, masks, generators and smart materials, bake mesh maps
+and export game-ready textures. Windows and Linux, with experimental macOS and Arm builds.
 
 ![SubCraft main window: icon shelf with normal-map tiles, SubCraft_base with the Dusty Plastic smart material, layers with a masked Dust fill and generators, and the Properties panel](docs/images/readme/ui-overview.png)
 
-*The Painter-style layout on the bundled SubCraft_base model: Assets shelf with normal-map tiles (left), 3D view (center), texture set list, layers (Dusty Plastic smart material with a Directional generator mask, Dirt generator) and Properties (right).*
+> **Status: usable, still young.** Painting, layers, baking, smart materials, save / load and export work
+> and are covered by tests. Expect rough edges, and the project format may still change.
+> What is done and what comes next: [`docs/progress.md`](docs/progress.md). Release notes: [CHANGELOG.md](CHANGELOG.md).
+> SubCraft is an independent project, not affiliated with or endorsed by Adobe or ArtCraft.
 
-> **Status: early but usable.** Painting, layers, baking, smart materials, save/load and export work
-> and are covered by tests. Expect rough edges and breaking changes to the project file format.
-> See [`docs/progress.md`](docs/progress.md) for what is done and what comes next.
-> SubCraft is an independent project, not affiliated with or endorsed by ArtCraft.
+New here? Read the [getting-started guide](docs/getting-started.md). The app opens on the bundled
+**SubCraft_base** model with a 2048 x 2048 texture set, so you can paint right away, and a short in-app
+guide walks you through the basics.
 
-New here? Follow the [illustrated getting-started guide](docs/getting-started.md); a welcome screen
-and a six-step in-app guide are included. The app opens on the bundled **SubCraft_base** model with a
-2048 x 2048 texture set, so you can paint immediately. Release notes: [CHANGELOG.md](CHANGELOG.md).
+## New in 0.5.0
 
-## Highlights
+- **Edge wear rebuilt the Painter way**: a continuous edge line at any Wear level that breaks up into
+  chipped paint and grows from the edges, up to most of the model at full Wear and Spread.
+- **Use Micro Details**: Dirt, Edge wear, Ambient Occlusion, Concave and Curvature generators also react
+  to the normal and height of the layers below, so wear follows painted and material relief.
+- **Much lower memory use** on big multi-set projects (an 11-set test project went from 6.0 GB to 1.4 GB
+  peak), and no more desktop stutter while SubCraft sits idle.
+- **Faster**: exports about 3.6x faster, layer edits in heavy stacks up to 3x faster, with identical pixels.
+- **Eyedropper** returns to your brush after one pick and samples every channel the brush paints.
+- **Reset to default everywhere**: Ctrl+click a setting, or right-click its name, to put its default back.
+  A dot marks the settings you changed, in brushes, layers, generators, filters, Bake, Preferences and more.
+- Less load on the GPU and processor while SubCraft works or sits idle.
+- Fixes for UDIM paint-across and brush preset validation.
 
-- **Paint on the model**: brush, eraser, clone, smudge, stencils, polygon fill and editable pen paths,
-  with symmetry, lazy mouse, tips and saveable presets.
-- **Layer stack like Painter**: paint and fill layers, folders, masks, 32 blend modes, generators and
-  filters, smart materials and smart masks.
-- **Bake and export**: nine mesh maps (the ray-based AO, Curvature and Thickness bakes can run on the GPU), per-map export checkboxes and presets for
-  Unreal, Unity HDRP / URP, Godot 4 and glTF.
-- **Normal-map brush and Micro effect**: stamp normal / height textures from the shelf as a brush, and let
-  a generator's mask also carve or raise relief in Normal / Height.
-- **Align a high poly before baking**: offset, scale, rotate and auto-fit it against the low poly with a
-  blue overlay, in a redesigned Bake window.
-- **Opens Painter projects**: read `.spp` files and rebuild their layer stacks; import OBJ, glTF / GLB,
-  FBX, USD, Alembic, PLY and STL.
-- **Fast at 2048 and 4096**: tiled texture storage, a GPU layer compositor and live-preview thinning for
-  big brushes. See [Performance](#performance).
-- **Your language**: English, Korean (한국어) and Traditional Chinese (繁體中文).
-
-## Performance
-
-Texture data is stored in tiles (`TiledImage`), never one dense bitmap per layer, so only the tiles you
-touch are recomposited, saved and uploaded. The numbers below come from [`docs/performance.md`](docs/performance.md),
-[`docs/progress.md`](docs/progress.md) and [`docs/performance/2026-10-28-gpu-bake.md`](docs/performance/2026-10-28-gpu-bake.md),
-measured on one Windows PC with an RTX 4060 in release builds.
-
-- **GPU layer compositing** (Preferences, "Use GPU for compositing"): on by default for texture sets of
-  2048 x 2048 and larger. On a 4096 x 4096 stack of 33 layers, toggling a layer took about 0.49 s instead
-  of 1.8 s, and an opacity edit about 0.5 s instead of 1.1-1.9 s. At 2048 the gain is smaller
-  (about 80 ms instead of 95-110 ms per edit). Smaller sets, sets with blur-type filters and
-  procedural-heavy stacks stay on the processor, which is also the fallback if the graphics card fails.
-- **GPU baking**: Ambient Occlusion, Curvature and Thickness bakes at 4096 went from about 65-440 s on the
-  processor to about 7-11 s on the GPU (roughly 2x to 40x depending on map and mesh).
-- **Brush strokes**: with a 300 px soft brush a stamp costs about 3-5 ms at 2048 and about 17 ms at 4096.
-  For expensive strokes (big brush, large texture) the live preview applies only every 2nd-3rd stamp while
-  you draw and applies the rest exactly when you lift the pen; at 4096 the work while drawing dropped about
-  2.5-3x, with a 0.15-0.25 s pause on release.
-- **2048 is the default** texture resolution (256-4096 available). Saved projects keep their own resolution.
-- **Allocator**: the app uses mimalloc; a full recomposite of the sample at 2048 takes roughly 0.13-0.5 s.
-
-Where it is still limited: a 300 px brush at 4096 is smoother, not 60 fps; the GPU compositor does not
-help stacks dominated by blur-type filters or procedural noise; a 4096 cold composite still takes over a
-second; and the figures come from a single machine that was sometimes busy, so treat them as indicative,
-not as guarantees.
+**Coming next (not in 0.5.0):** the viewport will shade clear coat, sheen, anisotropy, subsurface,
+translucency and transmission, plus a displacement preview. It is waiting for testing on real GPUs.
 
 ## Features
 
-### Painting and brushes
-- Brush and eraser with tips (alphas), symmetry (mirror and radial), lazy mouse, jitter,
-  flow / opacity / hardness, smoothing, scatter and **presets** you can save.
-- **Clone** (Ctrl+click source) and **Smudge** on paint layers and masks. Clone copies from a point;
-  there is no heal or seam blending.
-- **Project from the view**: a brush image can be cast from the camera at the start of a stroke.
-- **Stencils**, polygon fill (triangle, mesh part, UV island) and **pen paths** (press **P**; Bezier
-  handles in 3D or 2D, paths stay editable).
-- Paint in the 3D view or directly in the 2D UV view; Shift+click eyedropper picks all channels.
+### Painting
+- Brush, eraser, clone, smudge, stencils, polygon fill, projection tool and editable **pen paths**
+  (Bezier, snapping, ribbon and stitch brushes).
+- Symmetry (mirror and radial), lazy mouse, jitter, tablet pressure, brush tips and saveable presets.
+- Paint in the 3D view or straight into the 2D UV view, across UDIM tiles as one surface.
+- Normal / height stamps from the shelf, and per-channel brush blending.
+
+### Layers, masks and generators
+- Paint layers, fill layers (uniform, procedural, image, mesh-map), folders, 32 blend modes, anchors.
+- Masks with stacked effects. **Generators**: Edge wear, Dirt, Cavity, Curvature, Ambient Occlusion,
+  Directional, Position gradient, Cracks, Streaks, Scratches, 3D gradients and more.
+- **Filters** such as Blur, Sharpen, Highpass, Bevel, Levels, HSL, Gradient Map, Warp, Kuwahara and Quantize.
+- Fill or mask by part, UV island, object or ID colour; **I** isolates, **H** hides.
+
+### Materials and shelf
+- Smart materials and smart masks, the downloadable **SubCraft Materials** pack, and `.scsmart` import / export.
+- Your own textures (PNG, JPG, TGA, TIF, EXR...) with UV, tri-planar or planar projection.
+- CC0 starter pack of normal maps, brush alphas, grunges and 10 HDRI environments.
+
+### Baking
+- Normal (from a high poly, with cage), world normal, Ambient Occlusion, Curvature, Thickness, Position,
+  ID, Height and Bent Normal, in the background with live results.
+- A Bake window that aligns the high poly to the low poly (offset, scale, rotate, auto-fit).
+
+### GPU
+- **GPU layer compositing** for 2048 and larger texture sets, with automatic processor fallback.
+- **GPU baking**: AO, Curvature and Thickness at 4096 in about 7-11 s instead of minutes.
+- Choose the graphics card and API (DirectX 12, Vulkan, OpenGL) in Preferences > Graphics.
+- Direct3D 12 on Windows, Vulkan on Linux, Metal on macOS.
+
+### Viewport and rendering
+- Real-time PBR viewport with studio presets or HDRI lighting, tone mapping, bloom, AO, depth of field,
+  glow, colour LUTs. Display only: exports are never changed.
+- **Rendering mode** (F10): a path-traced preview in the 3D view.
+- **Render image** (up to 4096 px) and **Turntable** (PNG frames plus a looping GIF).
+
+### Interface
+- **Three themes**: Dark, Light and a neutral grey **Substance Painter-style** theme (Settings > General,
+  or `--theme dark|light|painter`).
+- Painter-style layout, a pen workspace layout, and Painter or Blender 3D navigation.
+- **Substance Painter shortcuts** preset; Help > Keyboard shortcuts lists the Painter equivalent of each.
+- English, Korean (한국어) and Traditional Chinese (繁體中文).
+
+### Import, export and automation
+- Import OBJ, glTF / GLB, FBX, USD, Alembic, PLY and STL. **Open Substance Painter `.spp` projects**
+  and rebuild their layer stacks; read `.sbsar`.
+- Export presets for Unreal (ORM), Unity HDRP / URP, Godot 4, glTF, Roblox and Sketchfab, plus scene export.
+- Project templates, autosave and crash recovery, in-app updates, Help > Report a bug.
+- `subcraft-mcp`: a headless [MCP](https://modelcontextprotocol.io) server so AI agents can texture
+  models with the same engine ([details](apps/subcraft-mcp/README.md)).
 
 ![The 2D UV view with a layer stack: moss fill, generator and paint strokes](docs/images/readme/uv-2d-view.png)
 
-*The 2D view paints straight into the UV layout; the stack shown is the `--demo` project.*
+## Performance
 
-### Layers, masks, generators and filters
-- Paint layers, fill layers (uniform, procedural, image, mesh-map sources) and folders; 32 blend modes;
-  drag to reorder, rename with F2, copy / paste and multi-select.
-- **Masks** with stacked effects (Edges, Cavity, Directional, Position gradient, noise, images, Levels, Invert).
-- **Generators**: Edges, Cavity, noise fills, Dirt, Cracks, Streaks, Speckles, Pores and Scratches.
-- **Filters** on content, masks and folders, including Blur, Sharpen, Directional Blur, Highpass, Bevel,
-  Levels, HSL, Gradient Map, Median, Warp, Histogram, Posterize and Mosaic.
-- **Parts workflow**: right-click to fill or mask by connected piece, UV island, object or material ID;
-  **I** isolates, **H** hides, **Esc** restores.
-
-### Materials and Shelf
-- 20 smart materials and 21 smart masks (edge and cavity ones need baked Curvature / AO), plus import and
-  export of `.scsmart` files.
-- Use your own images (PNG, JPG, TGA, TIF, EXR...) with UV, tri-planar or planar projection, or import a whole
-  texture set matched by file name.
-- CC0 starter pack of normal maps and brush alphas plus 10 bundled HDRI environments
-  ([credits](assets/starter-pack/CREDITS-CC0.txt)). Your own library lives in `Documents\SubCraft\Library`.
-
-![Layer stack with a paint layer, a masked moss fill and a generator](docs/images/readme/demo-stack.png)
-
-*Paint layer over a masked fill with a Directional generator (the `--demo` project).*
-
-### Baking
-- Normal (optionally from a high poly through a cage), world-space normal, Ambient Occlusion, Curvature,
-  Thickness, Position, ID, Height and Bent Normal, in the background with live results on the model.
-
-### Text and decals
-- **Text tool**: text layers with bidirectional text and shaping, embedded fonts and resolution-independent
-  rasterization. Stencils and projected brush images cover decal-style work.
-
-### Viewport and rendering
-![Render quality window](docs/images/readme/render-quality.png)
-
-- Real-time PBR viewport with studio or HDRI lighting; tone mapping, bloom, ambient occlusion, depth of field
-  (off by default), emission glow and glare. These are display-only and never change exported textures.
-- Painter-style or Blender-style 3D navigation, wireframe overlay, camera bookmarks.
-- **Render image** (1024-4096 px) and **Turntable** (numbered PNG frames; no GIF or MP4 encoder), and a
-  path-traced Rendering mode.
-
-### Projects, import and export
-- **New Project window** shows triangles, materials, objects, UV range and warnings before you choose template,
-  resolution, texture-set split, UDIM and normal format. UDIM tiles become one texture set each.
-- Autosave and crash recovery, in-app update check, **Help > Report a bug** with version, OS and GPU filled in.
-- Import: OBJ, glTF / GLB, FBX, USD (usd, usda, usdc, usdz), Alembic, PLY, STL; open Substance Painter `.spp`
-  projects and read `.sbsar`. Project files are `.subcraft`.
-- Export templates: PBR metal/rough, Unreal (ORM), Unity HDRP, Unity URP, Godot 4, glTF, Roblox and Sketchfab
-  presets, 2D View export, and scene export (OBJ, glTF, GLB, USDA). Per-map checkboxes; Alt+click exports one map.
-
-### Languages
-- English, **한국어 (Korean)** and **繁體中文 (Traditional Chinese)**: Preferences > Interface > Language,
-  applied immediately. CJK fonts are loaded from the system. See [`docs/localization.md`](docs/localization.md).
-
-![Preferences window with Language, graphics and 3D navigation settings](docs/images/readme/preferences.png)
+Texture data is stored in tiles, so only the tiles you touch are recomposited, saved and uploaded.
+On an RTX 4060 at 4096 x 4096, a layer toggle on a 33-layer stack takes about 0.5 s with GPU compositing
+(1.8 s on the processor), and a 300 px brush stamp costs about 17 ms. 2048 is the default resolution
+(256-4096 available). Details and limits: [`docs/performance.md`](docs/performance.md).
 
 ## Install
 
@@ -146,7 +110,7 @@ not as guarantees.
    **`SubCraft-<version>-setup.exe`** under **Assets**.
 2. Run it. Windows SmartScreen may say "Windows protected your PC" because the installer isn't
    code-signed yet (free signing through SignPath Foundation is being set up, see the
-   [code signing policy](CODE_SIGNING.md)): click **More info → Run anyway**. Each release's notes say
+   [code signing policy](docs/CODE_SIGNING.md)): click **More info → Run anyway**. Each release's notes say
    whether its Windows files are signed.
 3. Follow the steps (you can choose "Install for me only" if you don't have admin rights), then
    start SubCraft from the Start Menu. Uninstall it any time from **Settings → Apps**.
@@ -177,7 +141,7 @@ Every release file is built by GitHub Actions and has a build provenance attesta
 [GitHub CLI](https://cli.github.com/): `gh attestation verify <file> --repo Aalzard/subcraft`.
 Checksums are in `SHA256SUMS.txt` on the release page.
 
-**[Code signing policy](CODE_SIGNING.md):** Free code signing provided by SignPath.io, certificate by
+**[Code signing policy](docs/CODE_SIGNING.md):** Free code signing provided by SignPath.io, certificate by
 SignPath Foundation (pending approval; until then Windows releases are unsigned and say so in their
 notes).
 
@@ -215,17 +179,10 @@ There is no installer for Arm yet.
   your GPU vendor's) and X11 or Wayland.
 - Memory use grows with texture resolution and layer count; no minimum has been measured.
 
-## Shortcuts
-
-Brush size `[` `]`, bake `Ctrl+B`, export `Ctrl+Shift+E`, undo / redo `Ctrl+Z` / `Ctrl+Y`, pen path `P`,
-isolate / hide part `I` / `H`. **Help > Keyboard shortcuts** lists everything (searchable, with the Substance
-Painter equivalent of each). Coming from Painter? Choose **Substance Painter** under Preferences > Keyboard
-shortcuts; see [`docs/painter-shortcuts.md`](docs/painter-shortcuts.md).
-
 ## Build from source
 
 You need a recent stable [Rust toolchain](https://rustup.rs) (1.95 or newer) and a GPU with
-Vulkan, Metal or DirectX 12 support.
+Vulkan, Metal or DirectX 12.
 
 ```sh
 git clone https://github.com/Aalzard/subcraft.git
@@ -233,61 +190,19 @@ cd subcraft
 cargo run --release
 ```
 
-The app opens with the bundled SubCraft base model. Try `cargo run --release -- --demo` for a ready-made layer
-stack, or pass a mesh / project file: `cargo run --release -- path/to/model.fbx`.
+Try `cargo run --release -- --demo` for a ready-made layer stack, or pass a model or project file.
+On Linux you may need `libxkbcommon-x11-0 libegl1` and a Vulkan driver. Windows setup, packaging and
+the macOS / Arm scripts are in [`docs/development.md`](docs/development.md).
 
-Step-by-step Windows setup, the daily workflow and building the `.exe` yourself:
-[`docs/development.md`](docs/development.md).
-
-On Linux you may need the usual windowing libraries (for example on Debian / Ubuntu:
-`libxkbcommon-x11-0 libegl1`) and a Vulkan driver.
-
-**macOS (Apple Silicon or Intel).** Install the Xcode command line tools (`xcode-select --install`)
-and [rustup](https://rustup.rs), then `cargo run --release` as above. To make the universal app bundle
-and disk image yourself: `./scripts/build-macos.sh` (output in `dist/`).
-
-**Linux aarch64 / Windows on Arm.** The same `cargo run --release` works natively on those machines
-(on Windows on Arm install the Visual Studio Build Tools with the "ARM64 build tools" component).
-`./scripts/build-linux.sh` packages the tarball for the machine it runs on; on Windows on Arm use
-`./scripts/build-windows.ps1 -Arch arm64`.
-
-**Not verified yet:** nothing in the macOS, Linux aarch64 or Windows on Arm packages has been run on real
-hardware by the maintainers: Metal rendering and the 4x MSAA viewport on Apple GPUs, Retina scaling,
-graphics-tablet pressure on macOS, the native file dialogs, and Gatekeeper on the downloaded
-bundle. Issues with logs from **Help → Report a problem** are very welcome.
-
-## Project layout
-
-SubCraft is a Cargo workspace of small crates with a strict dependency direction (lower crates
-never depend on higher ones, and only the rendering and UI crates know about the GPU or egui):
-
-```
-core ← image ← mesh / doc ← materials ← compositor / paint / bake ← project / export / assets ← app ← ui ← apps
-```
-
-| Crate | Purpose |
-| --- | --- |
-| `crates/core` | IDs, channel kinds, shared math types |
-| `crates/image` | Tiled copy-on-write texel storage, image I/O |
-| `crates/mesh` | Mesh model, importers, tangents, BVH, UV rasterization |
-| `crates/doc` | Document model: texture sets, layers, masks, undo history |
-| `crates/materials` | Procedural patterns, projections, sampling |
-| `crates/compositor` | CPU layer compositing with dirty-tile caching |
-| `crates/paint` | Brush engine, stroke placement, symmetry |
-| `crates/bake` | Mesh-map baking |
-| `crates/project`, `crates/export`, `crates/assets` | Project files, texture export, built-in assets |
-| `crates/app` | Session and commands (all editing goes through here) |
-| `crates/render` | wgpu viewport renderer |
-| `crates/ui` | egui interface |
-| `apps/subcraft` | The executable |
-
-Design decisions are recorded in [`docs/adr`](docs/adr).
+SubCraft is a Cargo workspace of small crates with a strict dependency direction
+(`core ← image ← mesh / doc ← materials ← compositor / paint / bake ← project / export / assets ← app ← ui ← apps`).
+Only the rendering and UI crates know about the GPU or egui. Design decisions are in [`docs/adr`](docs/adr).
 
 ## Contributing
 
 Contributions are very welcome: bug reports, feature ideas, docs and code. Please read
-[`CONTRIBUTING.md`](CONTRIBUTING.md) first; it explains how to build, test and structure changes.
-Everyone taking part is expected to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
+[`CONTRIBUTING.md`](.github/CONTRIBUTING.md) first; it explains how to build, test and structure changes.
+Everyone taking part is expected to follow the [Code of Conduct](.github/CODE_OF_CONDUCT.md).
 
 ## Support SubCraft
 

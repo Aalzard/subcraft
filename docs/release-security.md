@@ -37,7 +37,7 @@ timestamp responses must be cryptographically trusted, regardless of HTTP(S) tra
 Windows release signing uses SignPath Foundation's free open-source program instead of Azure or a
 paid certificate ([ADR-0046](adr/0046-free-code-signing.md)). The owner steps (application, SignPath
 project, policy, artifact configuration, repository secret and variables) are in
-[signing-setup.md](signing-setup.md); the public policy is [CODE_SIGNING.md](../CODE_SIGNING.md).
+[signing-setup.md](signing-setup.md); the public policy is [CODE_SIGNING.md](CODE_SIGNING.md).
 
 Until SignPath is configured, a tag release publishes unsigned Windows packages with a notice in the
 release notes instead of failing. Once configured, release.yml signs the application before

@@ -5982,6 +5982,57 @@ re-measured on a GPU. Not taken from his patch: the `SUBCRAFT_REPAINT_LOG` diagn
 * Version 0.5.0, changelog entries for #625 / #626 / #632 / #633, `docs/release-notes-0.5.0.md`.
 * Ran: `cargo build --workspace` on the combined tree (pass). The full local test run hit the container's disk limit while linking the ui integration binaries, so the full suite is CI's run on #635. Not yet run on Windows / a real GPU: release candidate goes to the owner first.
 
+### Reset to default everywhere (2026-11-22, issue #609 follow-up, branch `claude/project-thread-r2ieaz`)
+
+* Ctrl+click, the right-click "Reset to default" menu and the change dot from Display Settings (#607, #632) now cover the
+  other panels: brush (Brush, Alpha, Stencil, Material, Clone, Smudge, Scatter, Polygon Fill options), brush rows (size,
+  flow, opacity, jitters, size space), stamp brush, brush material, every filter, layer / fill / generator / Mask Editor
+  properties, content effects (per-channel blend), text, pen paths and their display, shader settings, mask paint value,
+  Bake window (common and per-baker settings, visualization), Preferences, texture set alpha, auto UV, mesh export
+  subdivisions and high-poly placement.
+* Helpers in `widgets.rs`: `slider_row_reset(_with)`, `slider_row_boxed_reset`, `slider_row_own_parser_reset`,
+  `prop_row_reset`, `check_row_reset`, `reset_on`, `ctrl_reset` (Ctrl only, for toolbar popups where a nested menu
+  would close the popup), `edit_response`, `segmented_response`. `reset_row::ctrl_clicked` for the layer and effect
+  opacity boxes, which keep their own right-click menu. `reset_row::was_reset` makes `Edit::from` report a reset as
+  done, so panels that commit on drag end (text dialog) commit a reset at once.
+* Defaults come from the model's own constructors (`BrushSettings::default`, `Generator::new(kind)`, `Filter::ALL` via
+  `filter::default_like`, which keeps a wrapping blur wrapping, `Projection::default`, `PathRibbon::default`,
+  `bake_defaults()`, `Preferences::default`, ...). Values with no fixed default (a path's width taken from the brush,
+  a text's position, a channel's paint value, the bake resolution chosen from the texture sets) are left alone.
+* Tests: `reset_everywhere_tests.rs` drives the brush panel and filter editor with real egui input: Ctrl+click on a
+  slider rail resets instead of moving it (a plain click still moves it), checkboxes do not toggle, dropdowns do not
+  open, the dot shows only when changed, `BlurWrap` keeps wrapping, a reset is a finished `Edit`, `ctrl_reset` in a
+  popup. With the Ctrl cover disabled 4 of the 5 fail. Ran `cargo test -p subcraft-ui` (596 passed),
+  `cargo check --workspace --all-targets`, clippy on the ui crate (no new warnings).
+* Not run in the real app window here (no display in the cloud container).
+
+## Repo root cleanup (2026-11-22, branch `claude/project-thread-kl776f`)
+
+* Removed `SubCraft_All_60_Textures.zip`, `SubCraft_SciFi_Lines_Pack.zip`, `SubCraft_Starter_Textures.zip`
+  (49 MB) and `__pycache__/`. They were local untracked files committed by accident; every PNG in the zips is
+  byte-identical to a file in `output/`, and nothing in the build, installer or release workflows reads them.
+* Moved `generate_textures.py` and `output/` to `scripts/procedural-textures/` (new README) and
+  `output/social-preview/` to `branding/social-preview/`. `.gitignore` now ignores `__pycache__/`, `*.pyc`, root `*.zip`.
+* `tools/*` is a Cargo workspace glob, so the generator lives under `scripts/` instead (a folder without
+  `Cargo.toml` under `tools/` breaks `cargo build`).
+* Checked: `git grep` finds no reference to the moved paths outside docs history; the generator's default output
+  path is relative, so it still writes `output/` next to itself. No Rust code changed, so no tests were re-run.
+* Moved internal notes (`HANDOFF-codex.md`, `PROMPT-claude-edge-wear.md`, `cloud-brief-engine.md`,
+  `discord-post.md`, `issue-83-reply.md`) to `docs/internal/` with a README; live links in `brush-roadmap.md`,
+  `material-workflow-roadmap.md` and the edge-wear prompt updated. Older progress entries keep their old paths.
+
+## Repo front page tidy (2026-11-23, branch `claude/project-thread-kl776f`)
+
+* Moved `CODE_OF_CONDUCT.md` and `CONTRIBUTING.md` to `.github/` (GitHub still finds them there for the
+  community profile and the new-issue/PR links), `CODE_SIGNING.md` to `docs/`, and `CLAUDE.md` to
+  `.claude/CLAUDE.md` (Claude Code reads project instructions from either place).
+* Kept in the root: `README.md`, both licenses, `Cargo.toml`/`Cargo.lock`, `CHANGELOG.md` (the shipped 0.5.0
+  welcome screen links to `blob/main/CHANGELOG.md`, so moving it would break that link in installed copies).
+* Links updated in README, `docs/development.md`, `docs/signing-setup.md`, `docs/release-security.md`, ADR 0046,
+  the moved files themselves and the release-notes text in `release.yml`. The signing policy URL for the
+  SignPath application is now `https://github.com/Aalzard/subcraft/blob/main/docs/CODE_SIGNING.md`.
+* Checked: every relative link in the touched Markdown files resolves (script over `](path)` targets).
+
 ### Session 134 - Viewport shades coat, sheen, anisotropy, subsurface, translucency, transmission; displacement preview (2026-11-22, branch `claude/project-thread-8mawyv`)
 
 * **Asked:** the gap report's top item: the 3D view shaded only metal/roughness; coat, sheen, anisotropy,

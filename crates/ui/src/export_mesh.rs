@@ -71,8 +71,9 @@ pub fn export_mesh_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
             ui.indent("disp", |ui| {
                 let d = &mut m.displacement;
                 egui::Grid::new("export_mesh_disp").num_columns(2).spacing([16.0, 6.0]).show(ui, |ui| {
-                    ui.label(dim(tr("Subdivisions")));
-                    ui.add(egui::Slider::new(&mut d.subdivisions, 0..=MAX_SUBDIVISIONS)).on_hover_text(tr("Each level splits every triangle into four before displacing"));
+                    let l = ui.add(egui::Label::new(dim(tr("Subdivisions"))).sense(egui::Sense::click()));
+                    let r = ui.add(egui::Slider::new(&mut d.subdivisions, 0..=MAX_SUBDIVISIONS)).on_hover_text(tr("Each level splits every triangle into four before displacing"));
+                    crate::reset_row::reset(ui, &l, &r, &mut d.subdivisions, &Displacement::default().subdivisions);
                     ui.end_row();
                     ui.label(dim(tr("Height scale")));
                     ui.add(egui::DragValue::new(&mut d.scale).speed(0.001).range(-10.0..=10.0).max_decimals(4)).on_hover_text(tr("World units per unit of height (the viewport uses the same scale)"));

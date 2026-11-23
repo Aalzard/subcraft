@@ -3,7 +3,7 @@ use egui::Ui;
 use subcraft_core::ChannelKind;
 use subcraft_core::color::{linear3_to_srgb, srgb3_to_linear};
 use subcraft_doc::{Filter, Gradient, GradientStop, OutlinePosition, GRADIENT_PRESETS, MAX_GRADIENT_STOPS};
-use crate::widgets::{prop_row, slider_row};
+use crate::widgets::{prop_row, prop_row_reset, slider_row_reset};
 
 /// Filters whose name contains every word of `query` (case-insensitive), in list order.
 pub fn search(query: &str, usable: impl Fn(&Filter) -> bool) -> Vec<Filter> {
@@ -57,15 +57,17 @@ pub fn picker(ui: &mut Ui, current: &str, usable: impl Fn(&Filter) -> bool) -> O
 }
 
 /// A noise seed with Painter's Random button (a new seed from the old one, so it is repeatable).
-fn seed_row(ui: &mut Ui, seed: &mut u32) -> bool {
-    prop_row(ui, "Seed", |ui| {
-        let mut changed = ui.add(egui::DragValue::new(seed).range(0..=9999)).changed();
+/// The seed field resets to `default` (the reset gestures of [`crate::reset_row`]).
+fn seed_row(ui: &mut Ui, seed: &mut u32, default: u32) -> bool {
+    prop_row_reset(ui, "Seed", seed, default, |ui, seed| {
+        let mut r = ui.add(egui::DragValue::new(seed).range(0..=9999));
         if ui.small_button("Random").on_hover_text("Pick another seed").clicked() {
             *seed = next_seed(*seed);
-            changed = true;
+            r.mark_changed();
         }
-        changed
+        r
     })
+    .changed()
 }
 
 /// The seed the Random button gives after `seed`: another value in 0..=9999.
@@ -87,395 +89,382 @@ pub fn editor(ui: &mut Ui, filter: &mut Filter, channel: Option<ChannelKind>) ->
         }
     });
     let lower = if channel.is_some_and(|c| c.is_signed()) { -1.0 } else { 0.0 };
-    match filter {
-        Filter::Contrast { gain, pivot } => {
-            changed |= slider_row(ui, "Contrast", egui::Slider::new(gain, 0.0..=4.0)).changed();
-            changed |= slider_row(ui, "Pivot", egui::Slider::new(pivot, lower..=1.0)).changed();
+    let def = default_like(filter);
+    match (&mut *filter, &def) {
+        (Filter::Contrast { gain, pivot }, Filter::Contrast { gain: d_gain, pivot: d_pivot }) => {
+            changed |= slider_row_reset(ui, "Contrast", gain, *d_gain, |v| egui::Slider::new(v, 0.0..=4.0)).changed();
+            changed |= slider_row_reset(ui, "Pivot", pivot, *d_pivot, |v| egui::Slider::new(v, lower..=1.0)).changed();
         }
-        Filter::Hsl { hue, saturation, lightness } | Filter::HslPerceptive { hue, saturation, lightness } => {
-            changed |= slider_row(ui, "Hue", egui::Slider::new(hue, -180.0..=180.0).suffix("°")).changed();
-            changed |= slider_row(ui, "Saturation", egui::Slider::new(saturation, 0.0..=2.0)).changed();
-            changed |= slider_row(ui, "Lightness", egui::Slider::new(lightness, -1.0..=1.0)).changed();
+        (Filter::Hsl { hue, saturation, lightness }, Filter::Hsl { hue: d_hue, saturation: d_saturation, lightness: d_lightness }) | (Filter::HslPerceptive { hue, saturation, lightness }, Filter::HslPerceptive { hue: d_hue, saturation: d_saturation, lightness: d_lightness }) => {
+            changed |= slider_row_reset(ui, "Hue", hue, *d_hue, |v| egui::Slider::new(v, -180.0..=180.0).suffix("°")).changed();
+            changed |= slider_row_reset(ui, "Saturation", saturation, *d_saturation, |v| egui::Slider::new(v, 0.0..=2.0)).changed();
+            changed |= slider_row_reset(ui, "Lightness", lightness, *d_lightness, |v| egui::Slider::new(v, -1.0..=1.0)).changed();
         }
-        Filter::Threshold { cutoff } | Filter::ThresholdCompare { cutoff, .. } => {
-            changed |= slider_row(ui, "Cutoff", egui::Slider::new(cutoff, lower..=1.0)).changed();
+        (Filter::Threshold { cutoff }, Filter::Threshold { cutoff: d_cutoff }) | (Filter::ThresholdCompare { cutoff, .. }, Filter::ThresholdCompare { cutoff: d_cutoff, .. }) => {
+            changed |= slider_row_reset(ui, "Cutoff", cutoff, *d_cutoff, |v| egui::Slider::new(v, lower..=1.0)).changed();
         }
-        Filter::Smoothstep { min, max } => {
-            changed |= slider_row(ui, "Minimum", egui::Slider::new(min, lower..=1.0)).changed();
-            changed |= slider_row(ui, "Maximum", egui::Slider::new(max, lower..=1.0)).changed();
+        (Filter::Smoothstep { min, max }, Filter::Smoothstep { min: d_min, max: d_max }) => {
+            changed |= slider_row_reset(ui, "Minimum", min, *d_min, |v| egui::Slider::new(v, lower..=1.0)).changed();
+            changed |= slider_row_reset(ui, "Maximum", max, *d_max, |v| egui::Slider::new(v, lower..=1.0)).changed();
             ui.weak("Smooth ramp from Minimum (0) to Maximum (1)");
         }
-        Filter::ContrastLuminosity { contrast, luminosity } => {
-            changed |= slider_row(ui, "Contrast", egui::Slider::new(contrast, -1.0..=1.0)).changed();
-            changed |= slider_row(ui, "Luminosity", egui::Slider::new(luminosity, -1.0..=1.0)).changed();
+        (Filter::ContrastLuminosity { contrast, luminosity }, Filter::ContrastLuminosity { contrast: d_contrast, luminosity: d_luminosity }) => {
+            changed |= slider_row_reset(ui, "Contrast", contrast, *d_contrast, |v| egui::Slider::new(v, -1.0..=1.0)).changed();
+            changed |= slider_row_reset(ui, "Luminosity", luminosity, *d_luminosity, |v| egui::Slider::new(v, -1.0..=1.0)).changed();
         }
-        Filter::ColorCorrect { shadows, midtones, highlights } => {
-            for (name, range) in [("Shadows", shadows), ("Midtones", midtones), ("Highlights", highlights)] {
+        (Filter::ColorCorrect { shadows, midtones, highlights }, Filter::ColorCorrect { shadows: d_shadows, midtones: d_midtones, highlights: d_highlights }) => {
+            for (name, range, d_range) in [("Shadows", shadows, d_shadows), ("Midtones", midtones, d_midtones), ("Highlights", highlights, d_highlights)] {
                 ui.label(egui::RichText::new(name).strong());
                 ui.push_id(name, |ui| {
-                    for (label, v) in ["Contrast", "Luminosity", "Saturation"].into_iter().zip(range.iter_mut()) {
-                        changed |= slider_row(ui, label, egui::Slider::new(v, -1.0..=1.0)).changed();
+                    for ((label, v), d) in ["Contrast", "Luminosity", "Saturation"].into_iter().zip(range.iter_mut()).zip(d_range) {
+                        changed |= slider_row_reset(ui, label, v, *d, |v| egui::Slider::new(v, -1.0..=1.0)).changed();
                     }
                 });
             }
         }
-        Filter::Transform { repeat, flip, scale, offset, rotation_deg, tile_safe } => {
-            prop_row(ui, "Repeat mode", |ui| {
+        (Filter::Transform { repeat, flip, scale, offset, rotation_deg, tile_safe }, Filter::Transform { repeat: d_repeat, flip: d_flip, scale: d_scale, offset: d_offset, rotation_deg: d_rotation_deg, tile_safe: d_tile_safe }) => {
+            changed |= prop_row_reset(ui, "Repeat mode", repeat, *d_repeat, |ui, repeat| {
                 egui::ComboBox::from_id_salt("transform_repeat").selected_text(repeat.label()).show_ui(ui, |ui| {
                     for m in subcraft_doc::RepeatMode::ALL { changed |= ui.selectable_value(repeat, m, m.label()).changed(); }
-                });
-            });
-            prop_row(ui, "Flip mode", |ui| {
+                }).response
+            }).changed();
+            changed |= prop_row_reset(ui, "Flip mode", flip, *d_flip, |ui, flip| {
                 egui::ComboBox::from_id_salt("transform_flip").selected_text(flip.label()).show_ui(ui, |ui| {
                     for m in subcraft_doc::FlipMode::ALL { changed |= ui.selectable_value(flip, m, m.label()).changed(); }
-                });
-            });
-            changed |= slider_row(ui, "Scaling X", egui::Slider::new(&mut scale[0], 0.01..=8.0).logarithmic(true)).changed();
-            changed |= slider_row(ui, "Scaling Y", egui::Slider::new(&mut scale[1], 0.01..=8.0).logarithmic(true)).changed();
-            changed |= slider_row(ui, "Offset X", egui::Slider::new(&mut offset[0], -1.0..=1.0)).changed();
-            changed |= slider_row(ui, "Offset Y", egui::Slider::new(&mut offset[1], -1.0..=1.0)).changed();
-            prop_row(ui, "Tile Safe Rotation", |ui| { changed |= ui.checkbox(tile_safe, "").on_hover_text("Quarter turns and whole repetitions only, so a tiling image still tiles").changed(); });
-            changed |= slider_row(ui, "Rotation", egui::Slider::new(rotation_deg, -180.0..=180.0).suffix("\u{00b0}")).changed();
+                }).response
+            }).changed();
+            changed |= slider_row_reset(ui, "Scaling X", &mut scale[0], d_scale[0], |v| egui::Slider::new(v, 0.01..=8.0).logarithmic(true)).changed();
+            changed |= slider_row_reset(ui, "Scaling Y", &mut scale[1], d_scale[1], |v| egui::Slider::new(v, 0.01..=8.0).logarithmic(true)).changed();
+            changed |= slider_row_reset(ui, "Offset X", &mut offset[0], d_offset[0], |v| egui::Slider::new(v, -1.0..=1.0)).changed();
+            changed |= slider_row_reset(ui, "Offset Y", &mut offset[1], d_offset[1], |v| egui::Slider::new(v, -1.0..=1.0)).changed();
+            changed |= prop_row_reset(ui, "Tile Safe Rotation", tile_safe, *d_tile_safe, |ui, v| ui.checkbox(v, "").on_hover_text("Quarter turns and whole repetitions only, so a tiling image still tiles")).changed();
+            changed |= slider_row_reset(ui, "Rotation", rotation_deg, *d_rotation_deg, |v| egui::Slider::new(v, -180.0..=180.0).suffix("\u{00b0}")).changed();
             ui.weak("UV space / also moves paint coverage");
         }
-        Filter::Mirror { mode, offset, invert_x, invert_y, corner } => {
+        (Filter::Mirror { mode, offset, invert_x, invert_y, corner }, Filter::Mirror { mode: d_mode, offset: d_offset, invert_x: d_invert_x, invert_y: d_invert_y, corner: d_corner }) => {
             use subcraft_doc::MirrorMode;
-            prop_row(ui, "Mode", |ui| {
+            changed |= prop_row_reset(ui, "Mode", mode, *d_mode, |ui, mode| {
                 egui::ComboBox::from_id_salt("mirror_mode").selected_text(mode.label()).show_ui(ui, |ui| {
                     for m in MirrorMode::ALL { changed |= ui.selectable_value(mode, m, m.label()).changed(); }
-                });
-            });
+                }).response
+            }).changed();
             if *mode != MirrorMode::AxisY {
-                changed |= slider_row(ui, "Axis X Offset", egui::Slider::new(&mut offset[0], 0.0..=1.0)).changed();
-                prop_row(ui, "Invert Axis X", |ui| { changed |= ui.checkbox(invert_x, "").changed(); });
+                changed |= slider_row_reset(ui, "Axis X Offset", &mut offset[0], d_offset[0], |v| egui::Slider::new(v, 0.0..=1.0)).changed();
+                changed |= prop_row_reset(ui, "Invert Axis X", invert_x, *d_invert_x, |ui, v| ui.checkbox(v, "")).changed();
             }
             if *mode != MirrorMode::AxisX {
-                changed |= slider_row(ui, "Axis Y Offset", egui::Slider::new(&mut offset[1], 0.0..=1.0)).changed();
-                prop_row(ui, "Invert Axis Y", |ui| { changed |= ui.checkbox(invert_y, "").changed(); });
+                changed |= slider_row_reset(ui, "Axis Y Offset", &mut offset[1], d_offset[1], |v| egui::Slider::new(v, 0.0..=1.0)).changed();
+                changed |= prop_row_reset(ui, "Invert Axis Y", invert_y, *d_invert_y, |ui, v| ui.checkbox(v, "")).changed();
             }
             if *mode == MirrorMode::Corner {
-                prop_row(ui, "Corner Type", |ui| {
+                changed |= prop_row_reset(ui, "Corner Type", corner, *d_corner, |ui, corner| {
                     egui::ComboBox::from_id_salt("mirror_corner").selected_text(corner.label()).show_ui(ui, |ui| {
                         for c in subcraft_doc::MirrorCorner::ALL { changed |= ui.selectable_value(corner, c, c.label()).changed(); }
-                    });
-                });
+                    }).response
+                }).changed();
             }
             ui.weak("UV space / the kept side is copied onto the other");
         }
-        Filter::Grayscale | Filter::GrayscaleConvert { .. } => {
+        (Filter::Grayscale, _) | (Filter::GrayscaleConvert { .. }, _) => {
             // The conversion options swap to the variant that stores them (see `Filter::grayscale`).
             if let Some(mut p) = filter.grayscale_parts() {
                 let before = p;
-                prop_row(ui, "Mode", |ui| {
-                    ui.add_enabled_ui(p.weights.is_none(), |ui| {
-                        egui::ComboBox::from_id_salt("grayscale_mode").selected_text(p.mode.label()).show_ui(ui, |ui| {
-                            for m in subcraft_doc::GrayscaleType::ALL { ui.selectable_value(&mut p.mode, m, m.label()); }
-                        });
-                    });
+                let d = subcraft_doc::GrayParts::default();
+                let custom_weights = p.weights.is_some();
+                prop_row_reset(ui, "Mode", &mut p.mode, d.mode, |ui, mode| {
+                    ui.add_enabled_ui(!custom_weights, |ui| {
+                        egui::ComboBox::from_id_salt("grayscale_mode").selected_text(mode.label()).show_ui(ui, |ui| {
+                            for m in subcraft_doc::GrayscaleType::ALL { ui.selectable_value(mode, m, m.label()); }
+                        }).response
+                    }).inner
                 });
                 // Painter's Red / Green / Blue weights: a custom mix instead of the mode.
                 let mut custom = p.weights.is_some();
-                prop_row(ui, "Custom weights", |ui| {
-                    if ui.checkbox(&mut custom, "").on_hover_text("Mix Red, Green and Blue with your own weights instead of the mode").changed() {
-                        p.weights = custom.then_some(subcraft_doc::GrayParts::LUMA_WEIGHTS);
-                    }
-                });
+                if prop_row_reset(ui, "Custom weights", &mut custom, d.weights.is_some(), |ui, v| ui.checkbox(v, "").on_hover_text("Mix Red, Green and Blue with your own weights instead of the mode")).changed() {
+                    p.weights = custom.then_some(subcraft_doc::GrayParts::LUMA_WEIGHTS);
+                }
                 if let Some(w) = p.weights.as_mut() {
-                    for (name, v) in ["Red", "Green", "Blue"].into_iter().zip(w.iter_mut()) {
-                        slider_row(ui, name, egui::Slider::new(v, subcraft_doc::GrayParts::WEIGHT));
+                    for ((name, v), d) in ["Red", "Green", "Blue"].into_iter().zip(w.iter_mut()).zip(subcraft_doc::GrayParts::LUMA_WEIGHTS) {
+                        slider_row_reset(ui, name, v, d, |v| egui::Slider::new(v, subcraft_doc::GrayParts::WEIGHT));
                     }
                 }
-                prop_row(ui, "Invert", |ui| { ui.checkbox(&mut p.invert, ""); });
-                slider_row(ui, "Balance", egui::Slider::new(&mut p.balance, 0.0..=1.0));
-                slider_row(ui, "Contrast", egui::Slider::new(&mut p.contrast, 0.0..=1.0));
+                prop_row_reset(ui, "Invert", &mut p.invert, d.invert, |ui, v| ui.checkbox(v, ""));
+                slider_row_reset(ui, "Balance", &mut p.balance, d.balance, |v| egui::Slider::new(v, 0.0..=1.0));
+                slider_row_reset(ui, "Contrast", &mut p.contrast, d.contrast, |v| egui::Slider::new(v, 0.0..=1.0));
                 if p != before { *filter = Filter::grayscale(p); changed = true; }
             }
             ui.weak("Color to gray, then Invert, Balance and Contrast / color channels only");
         }
-        Filter::Invert => { ui.weak("1 - value / signed Height flips its sign"); }
-        Filter::Posterize { levels } => {
-            changed |= slider_row(ui, "Levels", egui::Slider::new(levels, 2..=subcraft_doc::MAX_POSTERIZE_LEVELS)).changed();
+        (Filter::Invert, _) => { ui.weak("1 - value / signed Height flips its sign"); }
+        (Filter::Posterize { levels }, Filter::Posterize { levels: d_levels }) => {
+            changed |= slider_row_reset(ui, "Levels", levels, *d_levels, |v| egui::Slider::new(v, 2..=subcraft_doc::MAX_POSTERIZE_LEVELS)).changed();
         }
-        Filter::HistogramShift { shift } | Filter::HistogramShiftWrap { shift } => {
-            changed |= slider_row(ui, "Shift", egui::Slider::new(shift, -1.0..=1.0)).changed();
+        (Filter::HistogramShift { shift }, Filter::HistogramShift { shift: d_shift }) | (Filter::HistogramShiftWrap { shift }, Filter::HistogramShiftWrap { shift: d_shift }) => {
+            changed |= slider_row_reset(ui, "Shift", shift, *d_shift, |v| egui::Slider::new(v, -1.0..=1.0)).changed();
         }
-        Filter::ColorBalance { shadows, midtones, highlights } => {
-            for (name, range) in [("Shadows", shadows), ("Midtones", midtones), ("Highlights", highlights)] {
-                for (axis, v) in ["R", "G", "B"].into_iter().zip(range.iter_mut()) {
-                    changed |= slider_row(ui, &format!("{name} {axis}"), egui::Slider::new(v, -1.0..=1.0)).changed();
+        (Filter::ColorBalance { shadows, midtones, highlights }, Filter::ColorBalance { shadows: d_shadows, midtones: d_midtones, highlights: d_highlights }) => {
+            for (name, range, d_range) in [("Shadows", shadows, d_shadows), ("Midtones", midtones, d_midtones), ("Highlights", highlights, d_highlights)] {
+                for ((axis, v), d) in ["R", "G", "B"].into_iter().zip(range.iter_mut()).zip(d_range) {
+                    changed |= slider_row_reset(ui, &format!("{name} {axis}"), v, *d, |v| egui::Slider::new(v, -1.0..=1.0)).changed();
                 }
             }
             ui.weak("Offsets per tonal range (linear RGB)");
         }
-        Filter::ReplaceColor { from, to, tolerance, softness } => {
-            for (name, c) in [("From", from), ("To", to)] {
-                prop_row(ui, name, |ui| {
-                    let mut srgb = linear3_to_srgb(*c);
-                    if crate::color_picker::swatch_srgb(ui, &mut srgb).changed() { *c = srgb3_to_linear(srgb); changed = true; }
-                });
+        (Filter::ReplaceColor { from, to, tolerance, softness }, Filter::ReplaceColor { from: d_from, to: d_to, tolerance: d_tolerance, softness: d_softness }) => {
+            for (name, c, d) in [("From", from, d_from), ("To", to, d_to)] {
+                changed |= color_row(ui, name, c, *d);
             }
-            changed |= slider_row(ui, "Tolerance", egui::Slider::new(tolerance, 0.0..=2.0)).changed();
-            changed |= slider_row(ui, "Softness", egui::Slider::new(softness, 0.0..=2.0)).changed();
+            changed |= slider_row_reset(ui, "Tolerance", tolerance, *d_tolerance, |v| egui::Slider::new(v, 0.0..=2.0)).changed();
+            changed |= slider_row_reset(ui, "Softness", softness, *d_softness, |v| egui::Slider::new(v, 0.0..=2.0)).changed();
         }
-        Filter::NormalInvert { flip_x, flip_y, flip_z } => {
-            prop_row(ui, "Flip X (red)", |ui| { changed |= ui.checkbox(flip_x, "").changed(); });
-            prop_row(ui, "Flip Y (green)", |ui| { changed |= ui.checkbox(flip_y, "").changed(); });
-            prop_row(ui, "Flip Z (blue)", |ui| { changed |= ui.checkbox(flip_z, "").changed(); });
+        (Filter::NormalInvert { flip_x, flip_y, flip_z }, Filter::NormalInvert { flip_x: d_flip_x, flip_y: d_flip_y, flip_z: d_flip_z }) => {
+            changed |= prop_row_reset(ui, "Flip X (red)", flip_x, *d_flip_x, |ui, v| ui.checkbox(v, "")).changed();
+            changed |= prop_row_reset(ui, "Flip Y (green)", flip_y, *d_flip_y, |ui, v| ui.checkbox(v, "")).changed();
+            changed |= prop_row_reset(ui, "Flip Z (blue)", flip_z, *d_flip_z, |ui, v| ui.checkbox(v, "")).changed();
             ui.weak("Flip Y converts OpenGL and DirectX normal maps");
         }
-        Filter::EdgeDetect { radius, strength } => {
-            changed |= slider_row(ui, "Width", egui::Slider::new(radius, 0.0..=32.0).suffix(" px")).changed();
-            changed |= slider_row(ui, "Strength", egui::Slider::new(strength, 0.0..=8.0)).changed();
+        (Filter::EdgeDetect { radius, strength }, Filter::EdgeDetect { radius: d_radius, strength: d_strength }) => {
+            changed |= slider_row_reset(ui, "Width", radius, *d_radius, |v| egui::Slider::new(v, 0.0..=32.0).suffix(" px")).changed();
+            changed |= slider_row_reset(ui, "Strength", strength, *d_strength, |v| egui::Slider::new(v, 0.0..=8.0)).changed();
             ui.weak("Sobel edges of the brightness / grayscale result");
         }
-        Filter::GradientDynamic { vertical, position, .. } => {
-            prop_row(ui, "Gradient Orientation", |ui| {
-                changed |= ui.selectable_value(vertical, false, "Horizontal").changed();
-                changed |= ui.selectable_value(vertical, true, "Vertical").changed();
-            });
-            changed |= slider_row(ui, "Gradient Input Position", egui::Slider::new(position, 0.0..=1.0)).changed();
+        (Filter::GradientDynamic { vertical, position, .. }, Filter::GradientDynamic { vertical: d_vertical, position: d_position, .. }) => {
+            changed |= prop_row_reset(ui, "Gradient Orientation", vertical, *d_vertical, |ui, vertical| ui.selectable_value(vertical, false, "Horizontal") | ui.selectable_value(vertical, true, "Vertical")).changed();
+            changed |= slider_row_reset(ui, "Gradient Input Position", position, *d_position, |v| egui::Slider::new(v, 0.0..=1.0)).changed();
             ui.weak("Values pick colours along one row (or column) of the Gradient Source image");
         }
-        Filter::HeightAdjust { invert, offset, multiply } => {
-            prop_row(ui, "Invert", |ui| { changed |= ui.checkbox(invert, "").changed(); });
-            changed |= slider_row(ui, "Offset", egui::Slider::new(offset, -1.0..=1.0)).changed();
-            changed |= slider_row(ui, "Multiply", egui::Slider::new(multiply, 0.0..=4.0)).changed();
+        (Filter::HeightAdjust { invert, offset, multiply }, Filter::HeightAdjust { invert: d_invert, offset: d_offset, multiply: d_multiply }) => {
+            changed |= prop_row_reset(ui, "Invert", invert, *d_invert, |ui, v| ui.checkbox(v, "")).changed();
+            changed |= slider_row_reset(ui, "Offset", offset, *d_offset, |v| egui::Slider::new(v, -1.0..=1.0)).changed();
+            changed |= slider_row_reset(ui, "Multiply", multiply, *d_multiply, |v| egui::Slider::new(v, 0.0..=4.0)).changed();
             ui.weak("Invert, then value x Multiply + Offset");
         }
-        Filter::GradientCurve { preset, invert, balance, contrast } => {
-            prop_row(ui, "Preset", |ui| {
+        (Filter::GradientCurve { preset, invert, balance, contrast }, Filter::GradientCurve { preset: d_preset, invert: d_invert, balance: d_balance, contrast: d_contrast }) => {
+            changed |= prop_row_reset(ui, "Preset", preset, *d_preset, |ui, preset| {
                 egui::ComboBox::from_id_salt("gradient_curve_preset").selected_text(preset.label()).show_ui(ui, |ui| {
                     for p in subcraft_doc::CurvePreset::ALL { changed |= ui.selectable_value(preset, p, p.label()).changed(); }
-                });
-            });
-            prop_row(ui, "Invert", |ui| { changed |= ui.checkbox(invert, "").changed(); });
-            changed |= slider_row(ui, "Balance", egui::Slider::new(balance, 0.0..=1.0)).changed();
-            changed |= slider_row(ui, "Contrast", egui::Slider::new(contrast, 0.0..=1.0)).changed();
+                }).response
+            }).changed();
+            changed |= prop_row_reset(ui, "Invert", invert, *d_invert, |ui, v| ui.checkbox(v, "")).changed();
+            changed |= slider_row_reset(ui, "Balance", balance, *d_balance, |v| egui::Slider::new(v, 0.0..=1.0)).changed();
+            changed |= slider_row_reset(ui, "Contrast", contrast, *d_contrast, |v| egui::Slider::new(v, 0.0..=1.0)).changed();
             ui.weak("Sends each value through the curve, then Balance and Contrast");
         }
-        Filter::BevelSmooth { radius, direction, smoothing, curve_offset, curve_shape, threshold } => {
-            prop_row(ui, "Direction", |ui| {
+        (Filter::BevelSmooth { radius, direction, smoothing, curve_offset, curve_shape, threshold }, Filter::BevelSmooth { radius: d_radius, direction: d_direction, smoothing: d_smoothing, curve_offset: d_curve_offset, curve_shape: d_curve_shape, threshold: d_threshold }) => {
+            changed |= prop_row_reset(ui, "Direction", direction, *d_direction, |ui, direction| {
                 egui::ComboBox::from_id_salt("bevel_smooth_direction").selected_text(direction.label()).show_ui(ui, |ui| {
                     for d in subcraft_doc::BevelDirection::ALL { changed |= ui.selectable_value(direction, d, d.label()).changed(); }
-                });
-            });
-            changed |= slider_row(ui, "Distance", egui::Slider::new(radius, 0.0..=32.0).suffix(" px")).changed();
-            changed |= slider_row(ui, "Smoothing", egui::Slider::new(smoothing, 0.0..=1.0)).changed();
-            changed |= slider_row(ui, "Curve Offset", egui::Slider::new(curve_offset, -0.9..=0.9)).on_hover_text("Above 0 the ramp starts further from the contour; below 0 it ends sooner").changed();
-            changed |= slider_row(ui, "Curve Shape", egui::Slider::new(curve_shape, -1.0..=1.0)).on_hover_text("Below 0 pinched, above 0 rounded").changed();
-            changed |= slider_row(ui, "Mask Threshold", egui::Slider::new(threshold, 0.0..=1.0)).on_hover_text("Values at or above this are the shape").changed();
+                }).response
+            }).changed();
+            changed |= slider_row_reset(ui, "Distance", radius, *d_radius, |v| egui::Slider::new(v, 0.0..=32.0).suffix(" px")).changed();
+            changed |= slider_row_reset(ui, "Smoothing", smoothing, *d_smoothing, |v| egui::Slider::new(v, 0.0..=1.0)).changed();
+            changed |= slider_row_reset(ui, "Curve Offset", curve_offset, *d_curve_offset, |v| egui::Slider::new(v, -0.9..=0.9)).on_hover_text("Above 0 the ramp starts further from the contour; below 0 it ends sooner").changed();
+            changed |= slider_row_reset(ui, "Curve Shape", curve_shape, *d_curve_shape, |v| egui::Slider::new(v, -1.0..=1.0)).on_hover_text("Below 0 pinched, above 0 rounded").changed();
+            changed |= slider_row_reset(ui, "Mask Threshold", threshold, *d_threshold, |v| egui::Slider::new(v, 0.0..=1.0)).on_hover_text("Values at or above this are the shape").changed();
             if channel.is_some() { ui.weak("On layer content the ramp shows where there is paint: use Inward, or put the filter on a mask"); }
         }
-        Filter::DirectionalDistance { distance, angle_deg, contrast } => {
-            changed |= slider_row(ui, "Distance", egui::Slider::new(distance, 0.0..=32.0).suffix(" px")).changed();
-            changed |= slider_row(ui, "Angle", egui::Slider::new(angle_deg, -180.0..=180.0).suffix("\u{00b0}")).changed();
-            changed |= slider_row(ui, "Contrast", egui::Slider::new(contrast, 0.0..=1.0)).changed();
+        (Filter::DirectionalDistance { distance, angle_deg, contrast }, Filter::DirectionalDistance { distance: d_distance, angle_deg: d_angle_deg, contrast: d_contrast }) => {
+            changed |= slider_row_reset(ui, "Distance", distance, *d_distance, |v| egui::Slider::new(v, 0.0..=32.0).suffix(" px")).changed();
+            changed |= slider_row_reset(ui, "Angle", angle_deg, *d_angle_deg, |v| egui::Slider::new(v, -180.0..=180.0).suffix("\u{00b0}")).changed();
+            changed |= slider_row_reset(ui, "Contrast", contrast, *d_contrast, |v| egui::Slider::new(v, 0.0..=1.0)).changed();
             ui.weak("Spreads bright values along the angle, fading with the distance");
         }
-        Filter::Fxaa { alpha } => {
-            prop_row(ui, "Affect Alpha Channel", |ui| { changed |= ui.checkbox(alpha, "").on_hover_text("Also smooth the edges of the paint coverage").changed(); });
+        (Filter::Fxaa { alpha }, Filter::Fxaa { alpha: d_alpha }) => {
+            changed |= prop_row_reset(ui, "Affect Alpha Channel", alpha, *d_alpha, |ui, v| ui.checkbox(v, "").on_hover_text("Also smooth the edges of the paint coverage")).changed();
             ui.weak("Smooths stair-stepped edges along their direction");
         }
-        Filter::DropShadow { angle_deg, distance, size, spread, opacity, color } => {
-            changed |= slider_row(ui, "Angle", egui::Slider::new(angle_deg, -180.0..=180.0).suffix("\u{00b0}")).changed();
-            changed |= slider_row(ui, "Distance", egui::Slider::new(distance, 0.0..=32.0).suffix(" px")).changed();
-            changed |= slider_row(ui, "Size", egui::Slider::new(size, 0.0..=32.0).suffix(" px")).changed();
-            changed |= slider_row(ui, "Spread", egui::Slider::new(spread, 0.0..=0.99)).changed();
-            changed |= slider_row(ui, "Opacity", egui::Slider::new(opacity, 0.0..=1.0)).changed();
-            prop_row(ui, "Color", |ui| {
-                let mut srgb = linear3_to_srgb(*color);
-                if crate::color_picker::swatch_srgb(ui, &mut srgb).changed() { *color = srgb3_to_linear(srgb); changed = true; }
-            });
+        (Filter::DropShadow { angle_deg, distance, size, spread, opacity, color }, Filter::DropShadow { angle_deg: d_angle_deg, distance: d_distance, size: d_size, spread: d_spread, opacity: d_opacity, color: d_color }) => {
+            changed |= slider_row_reset(ui, "Angle", angle_deg, *d_angle_deg, |v| egui::Slider::new(v, -180.0..=180.0).suffix("\u{00b0}")).changed();
+            changed |= slider_row_reset(ui, "Distance", distance, *d_distance, |v| egui::Slider::new(v, 0.0..=32.0).suffix(" px")).changed();
+            changed |= slider_row_reset(ui, "Size", size, *d_size, |v| egui::Slider::new(v, 0.0..=32.0).suffix(" px")).changed();
+            changed |= slider_row_reset(ui, "Spread", spread, *d_spread, |v| egui::Slider::new(v, 0.0..=0.99)).changed();
+            changed |= slider_row_reset(ui, "Opacity", opacity, *d_opacity, |v| egui::Slider::new(v, 0.0..=1.0)).changed();
+            changed |= color_row(ui, "Color", color, *d_color);
             ui.weak("Shadow of the paint coverage, under the content");
         }
-        Filter::OuterGlow { width, spread, opacity, color, precise } => {
-            prop_row(ui, "Mode", |ui| {
-                changed |= ui.selectable_value(precise, false, "Soft").changed();
-                changed |= ui.selectable_value(precise, true, "Precise").changed();
-            });
-            changed |= slider_row(ui, "Width", egui::Slider::new(width, 0.0..=32.0).suffix(" px")).changed();
-            changed |= slider_row(ui, "Spread", egui::Slider::new(spread, 0.0..=0.99)).changed();
-            changed |= slider_row(ui, "Opacity", egui::Slider::new(opacity, 0.0..=1.0)).changed();
-            prop_row(ui, "Color", |ui| {
-                let mut srgb = linear3_to_srgb(*color);
-                if crate::color_picker::swatch_srgb(ui, &mut srgb).changed() { *color = srgb3_to_linear(srgb); changed = true; }
-            });
+        (Filter::OuterGlow { width, spread, opacity, color, precise }, Filter::OuterGlow { width: d_width, spread: d_spread, opacity: d_opacity, color: d_color, precise: d_precise }) => {
+            changed |= prop_row_reset(ui, "Mode", precise, *d_precise, |ui, precise| ui.selectable_value(precise, false, "Soft") | ui.selectable_value(precise, true, "Precise")).changed();
+            changed |= slider_row_reset(ui, "Width", width, *d_width, |v| egui::Slider::new(v, 0.0..=32.0).suffix(" px")).changed();
+            changed |= slider_row_reset(ui, "Spread", spread, *d_spread, |v| egui::Slider::new(v, 0.0..=0.99)).changed();
+            changed |= slider_row_reset(ui, "Opacity", opacity, *d_opacity, |v| egui::Slider::new(v, 0.0..=1.0)).changed();
+            changed |= color_row(ui, "Color", color, *d_color);
             ui.weak(if channel.is_some_and(|c| c.is_color()) { "Glow around the paint coverage, under the content" } else { "Glow around bright values (masks and gray channels use the color's brightness)" });
         }
-        Filter::BevelShape { radius, .. } | Filter::MaskOutlineShape { radius, .. } => {
-            changed |= slider_row(ui, "Radius", egui::Slider::new(radius, 0.0..=32.0).suffix(" px")).changed();
+        (Filter::BevelShape { radius, .. }, Filter::BevelShape { radius: d_radius, .. }) | (Filter::MaskOutlineShape { radius, .. }, Filter::MaskOutlineShape { radius: d_radius, .. }) => {
+            changed |= slider_row_reset(ui, "Radius", radius, *d_radius, |v| egui::Slider::new(v, 0.0..=32.0).suffix(" px")).changed();
         }
-        Filter::Glow { radius, amount, threshold } => {
-            changed |= slider_row(ui, "Radius", egui::Slider::new(radius, 0.0..=32.0).suffix(" px")).changed();
-            changed |= slider_row(ui, "Amount", egui::Slider::new(amount, 0.0..=4.0)).changed();
-            changed |= slider_row(ui, "Threshold", egui::Slider::new(threshold, 0.0..=0.99)).changed();
+        (Filter::Glow { radius, amount, threshold }, Filter::Glow { radius: d_radius, amount: d_amount, threshold: d_threshold }) => {
+            changed |= slider_row_reset(ui, "Radius", radius, *d_radius, |v| egui::Slider::new(v, 0.0..=32.0).suffix(" px")).changed();
+            changed |= slider_row_reset(ui, "Amount", amount, *d_amount, |v| egui::Slider::new(v, 0.0..=4.0)).changed();
+            changed |= slider_row_reset(ui, "Threshold", threshold, *d_threshold, |v| egui::Slider::new(v, 0.0..=0.99)).changed();
         }
-        Filter::DirectionalWarp { intensity, angle_deg } => {
-            changed |= slider_row(ui, "Intensity", egui::Slider::new(intensity, 0.0..=32.0).suffix(" px")).changed();
-            changed |= slider_row(ui, "Angle", egui::Slider::new(angle_deg, -180.0..=180.0).suffix("\u{00b0}")).changed();
+        (Filter::DirectionalWarp { intensity, angle_deg }, Filter::DirectionalWarp { intensity: d_intensity, angle_deg: d_angle_deg }) => {
+            changed |= slider_row_reset(ui, "Intensity", intensity, *d_intensity, |v| egui::Slider::new(v, 0.0..=32.0).suffix(" px")).changed();
+            changed |= slider_row_reset(ui, "Angle", angle_deg, *d_angle_deg, |v| egui::Slider::new(v, -180.0..=180.0).suffix("\u{00b0}")).changed();
             ui.weak("Pushes pixels along the angle by their own brightness");
         }
-        Filter::Mosaic { size } => {
-            changed |= slider_row(ui, "Block size", egui::Slider::new(size, 1..=subcraft_doc::MAX_MOSAIC_SIZE).suffix(" px")).changed();
+        (Filter::Mosaic { size }, Filter::Mosaic { size: d_size }) => {
+            changed |= slider_row_reset(ui, "Block size", size, *d_size, |v| egui::Slider::new(v, 1..=subcraft_doc::MAX_MOSAIC_SIZE).suffix(" px")).changed();
         }
-        Filter::Blur { radius } | Filter::BlurWrap { radius } | Filter::Sharpen { radius, .. } | Filter::DirectionalBlur {radius,..} | Filter::Highpass {radius,..} | Filter::Bevel {radius,..} | Filter::MaskOutline {radius,..} => {
-            changed |= slider_row(ui, "Radius", egui::Slider::new(radius, 0.0..=32.0).suffix(" px")).changed();
+        (Filter::Blur { radius }, Filter::Blur { radius: d_radius }) | (Filter::BlurWrap { radius }, Filter::BlurWrap { radius: d_radius }) | (Filter::Sharpen { radius, .. }, Filter::Sharpen { radius: d_radius, .. }) | (Filter::DirectionalBlur { radius, .. }, Filter::DirectionalBlur { radius: d_radius, .. }) | (Filter::Highpass { radius, .. }, Filter::Highpass { radius: d_radius, .. }) | (Filter::Bevel { radius, .. }, Filter::Bevel { radius: d_radius, .. }) | (Filter::MaskOutline { radius, .. }, Filter::MaskOutline { radius: d_radius, .. }) => {
+            changed |= slider_row_reset(ui, "Radius", radius, *d_radius, |v| egui::Slider::new(v, 0.0..=32.0).suffix(" px")).changed();
         }
-        Filter::GradientMap { gradient, to_gray } => {
+        (Filter::GradientMap { gradient, to_gray }, Filter::GradientMap { to_gray: d_to_gray, .. }) => {
             changed |= gradient_editor(ui, gradient);
-            prop_row(ui, "Output", |ui| {
-                changed |= ui.selectable_value(to_gray, false, "Color").changed();
-                changed |= ui.selectable_value(to_gray, true, "Gray").changed();
-            });
+            changed |= prop_row_reset(ui, "Output", to_gray, *d_to_gray, |ui, to_gray| ui.selectable_value(to_gray, false, "Color") | ui.selectable_value(to_gray, true, "Gray")).changed();
             ui.weak(if channel.is_some_and(|c| c.is_color()) { "Looked up by luminance / Gray keeps only brightness" } else { "Looked up by value / result is its brightness" });
         }
-        Filter::Median { radius } => {
-            changed |= slider_row(ui, "Radius", egui::Slider::new(radius, 0.0..=subcraft_doc::MAX_MEDIAN_RADIUS).integer().suffix(" px")).changed();
+        (Filter::Median { radius }, Filter::Median { radius: d_radius }) => {
+            changed |= slider_row_reset(ui, "Radius", radius, *d_radius, |v| egui::Slider::new(v, 0.0..=subcraft_doc::MAX_MEDIAN_RADIUS).integer().suffix(" px")).changed();
             ui.weak("Exact median over the square window / removes speckle, keeps edges");
         }
-        Filter::Quantize { colors, contour_smoothing, dithering, pattern, lab, apply_to_alpha, alpha_threshold } => {
-            changed |= slider_row(ui, "Color Amount", egui::Slider::new(colors, 2..=subcraft_doc::MAX_QUANTIZE_COLORS)).changed();
-            changed |= slider_row(ui, "Contour Smoothing", egui::Slider::new(contour_smoothing, 0.0..=subcraft_doc::MAX_QUANTIZE_SMOOTHING).suffix(" px")).on_hover_text("Blur before quantizing: smoother region borders").changed();
-            changed |= slider_row(ui, "Dithering", egui::Slider::new(dithering, 0.0..=1.0)).changed();
+        (Filter::Quantize { colors, contour_smoothing, dithering, pattern, lab, apply_to_alpha, alpha_threshold }, Filter::Quantize { colors: d_colors, contour_smoothing: d_contour_smoothing, dithering: d_dithering, pattern: d_pattern, lab: d_lab, apply_to_alpha: d_apply_to_alpha, alpha_threshold: d_alpha_threshold }) => {
+            changed |= slider_row_reset(ui, "Color Amount", colors, *d_colors, |v| egui::Slider::new(v, 2..=subcraft_doc::MAX_QUANTIZE_COLORS)).changed();
+            changed |= slider_row_reset(ui, "Contour Smoothing", contour_smoothing, *d_contour_smoothing, |v| egui::Slider::new(v, 0.0..=subcraft_doc::MAX_QUANTIZE_SMOOTHING).suffix(" px")).on_hover_text("Blur before quantizing: smoother region borders").changed();
+            changed |= slider_row_reset(ui, "Dithering", dithering, *d_dithering, |v| egui::Slider::new(v, 0.0..=1.0)).changed();
             if *dithering > 0.0 {
-                prop_row(ui, "Dithering Pattern", |ui| {
+                changed |= prop_row_reset(ui, "Dithering Pattern", pattern, *d_pattern, |ui, pattern| {
                     egui::ComboBox::from_id_salt("quantize_dither").selected_text(pattern.label()).show_ui(ui, |ui| {
                         for p in subcraft_doc::DitherPattern::ALL { changed |= ui.selectable_value(pattern, p, p.label()).changed(); }
-                    });
-                });
+                    }).response
+                }).changed();
             }
-            prop_row(ui, "Distance Color Space", |ui| {
-                changed |= ui.selectable_value(lab, true, "Lab (Color)").changed();
-                changed |= ui.selectable_value(lab, false, "RGB (Data)").changed();
-            });
-            prop_row(ui, "Apply To Alpha", |ui| { changed |= ui.checkbox(apply_to_alpha, "").changed(); });
+            changed |= prop_row_reset(ui, "Distance Color Space", lab, *d_lab, |ui, lab| ui.selectable_value(lab, true, "Lab (Color)") | ui.selectable_value(lab, false, "RGB (Data)")).changed();
+            changed |= prop_row_reset(ui, "Apply To Alpha", apply_to_alpha, *d_apply_to_alpha, |ui, v| ui.checkbox(v, "")).changed();
             if *apply_to_alpha {
-                changed |= slider_row(ui, "Alpha Threshold", egui::Slider::new(alpha_threshold, 0.0..=1.0)).changed();
+                changed |= slider_row_reset(ui, "Alpha Threshold", alpha_threshold, *d_alpha_threshold, |v| egui::Slider::new(v, 0.0..=1.0)).changed();
             }
             ui.weak("The palette is picked from the whole texture / data channels always compare values");
         }
-        Filter::AnisotropicKuwahara { radius, smoothness, sharpness, tensor_smoothness, anisotropy, angle, extract_direction } => {
-            prop_row(ui, "Extract Direction", |ui| {
-                changed |= ui.selectable_value(extract_direction, true, "From the image").changed();
-                changed |= ui.selectable_value(extract_direction, false, "Fixed angle").changed();
-            });
-            changed |= slider_row(ui, "Radius", egui::Slider::new(radius, 0.0..=subcraft_doc::MAX_KUWAHARA_RADIUS).suffix(" px")).changed();
-            changed |= slider_row(ui, "Smoothness", egui::Slider::new(smoothness, 0.0..=1.0)).on_hover_text("Wider, softer sectors").changed();
-            changed |= slider_row(ui, "Sharpness", egui::Slider::new(sharpness, 0.0..=subcraft_doc::MAX_KUWAHARA_SHARPNESS)).on_hover_text("How strongly the calmest sectors win: higher keeps edges crisper").changed();
+        (Filter::AnisotropicKuwahara { radius, smoothness, sharpness, tensor_smoothness, anisotropy, angle, extract_direction }, Filter::AnisotropicKuwahara { radius: d_radius, smoothness: d_smoothness, sharpness: d_sharpness, tensor_smoothness: d_tensor_smoothness, anisotropy: d_anisotropy, angle: d_angle, extract_direction: d_extract_direction }) => {
+            changed |= prop_row_reset(ui, "Extract Direction", extract_direction, *d_extract_direction, |ui, extract_direction| ui.selectable_value(extract_direction, true, "From the image") | ui.selectable_value(extract_direction, false, "Fixed angle")).changed();
+            changed |= slider_row_reset(ui, "Radius", radius, *d_radius, |v| egui::Slider::new(v, 0.0..=subcraft_doc::MAX_KUWAHARA_RADIUS).suffix(" px")).changed();
+            changed |= slider_row_reset(ui, "Smoothness", smoothness, *d_smoothness, |v| egui::Slider::new(v, 0.0..=1.0)).on_hover_text("Wider, softer sectors").changed();
+            changed |= slider_row_reset(ui, "Sharpness", sharpness, *d_sharpness, |v| egui::Slider::new(v, 0.0..=subcraft_doc::MAX_KUWAHARA_SHARPNESS)).on_hover_text("How strongly the calmest sectors win: higher keeps edges crisper").changed();
             if *extract_direction {
-                changed |= slider_row(ui, "Tensor Smoothness", egui::Slider::new(tensor_smoothness, 0.0..=subcraft_doc::MAX_KUWAHARA_TENSOR).suffix(" px")).on_hover_text("How far the edge direction is averaged").changed();
+                changed |= slider_row_reset(ui, "Tensor Smoothness", tensor_smoothness, *d_tensor_smoothness, |v| egui::Slider::new(v, 0.0..=subcraft_doc::MAX_KUWAHARA_TENSOR).suffix(" px")).on_hover_text("How far the edge direction is averaged").changed();
             }
-            changed |= slider_row(ui, "Anisotropy", egui::Slider::new(anisotropy, 0.0..=subcraft_doc::MAX_KUWAHARA_ANISOTROPY)).on_hover_text("How much the window stretches along edges (0: round)").changed();
+            changed |= slider_row_reset(ui, "Anisotropy", anisotropy, *d_anisotropy, |v| egui::Slider::new(v, 0.0..=subcraft_doc::MAX_KUWAHARA_ANISOTROPY)).on_hover_text("How much the window stretches along edges (0: round)").changed();
             if !*extract_direction {
-                changed |= slider_row(ui, "Anisotropy Angle", egui::Slider::new(angle, 0.0..=1.0).suffix(" turn")).changed();
+                changed |= slider_row_reset(ui, "Anisotropy Angle", angle, *d_angle, |v| egui::Slider::new(v, 0.0..=1.0).suffix(" turn")).changed();
             }
             ui.weak("Painterly smoothing that keeps edges: each texel takes the calmest part of its window");
         }
-        Filter::BlurSlope { intensity, scale, seed, samples } => {
-            changed |= slider_row(ui, "Intensity", egui::Slider::new(intensity, 0.0..=32.0).suffix(" px")).changed();
-            changed |= slider_row(ui, "Source Tiling", egui::Slider::new(scale, 1..=subcraft_doc::MAX_WARP_SCALE)).on_hover_text("Noise cells across the texture").changed();
-            changed |= seed_row(ui, seed);
-            changed |= slider_row(ui, "Quality", egui::Slider::new(samples, 2..=subcraft_doc::MAX_SLOPE_SAMPLES)).on_hover_text("Reads per texel along the slope").changed();
+        (Filter::BlurSlope { intensity, scale, seed, samples }, Filter::BlurSlope { intensity: d_intensity, scale: d_scale, seed: d_seed, samples: d_samples }) => {
+            changed |= slider_row_reset(ui, "Intensity", intensity, *d_intensity, |v| egui::Slider::new(v, 0.0..=32.0).suffix(" px")).changed();
+            changed |= slider_row_reset(ui, "Source Tiling", scale, *d_scale, |v| egui::Slider::new(v, 1..=subcraft_doc::MAX_WARP_SCALE)).on_hover_text("Noise cells across the texture").changed();
+            changed |= seed_row(ui, seed, *d_seed);
+            changed |= slider_row_reset(ui, "Quality", samples, *d_samples, |v| egui::Slider::new(v, 2..=subcraft_doc::MAX_SLOPE_SAMPLES)).on_hover_text("Reads per texel along the slope").changed();
             ui.weak("Blurs each texel along the direction a noise gives it");
         }
-        Filter::Warp { intensity, scale, seed } => {
-            changed |= slider_row(ui, "Intensity", egui::Slider::new(intensity, 0.0..=32.0).suffix(" px")).changed();
-            changed |= slider_row(ui, "Scale", egui::Slider::new(scale, 1..=subcraft_doc::MAX_WARP_SCALE)).changed();
-            changed |= seed_row(ui, seed);
+        (Filter::Warp { intensity, scale, seed }, Filter::Warp { intensity: d_intensity, scale: d_scale, seed: d_seed }) => {
+            changed |= slider_row_reset(ui, "Intensity", intensity, *d_intensity, |v| egui::Slider::new(v, 0.0..=32.0).suffix(" px")).changed();
+            changed |= slider_row_reset(ui, "Scale", scale, *d_scale, |v| egui::Slider::new(v, 1..=subcraft_doc::MAX_WARP_SCALE)).changed();
+            changed |= seed_row(ui, seed, *d_seed);
             ui.weak("Noise-driven displacement / Scale = cells across the texture");
         }
-        Filter::HistogramScan { position, contrast, invert } => {
-            changed |= slider_row(ui, "Position", egui::Slider::new(position, lower..=1.0)).changed();
-            changed |= slider_row(ui, "Contrast", egui::Slider::new(contrast, 0.0..=1.0)).changed();
-            prop_row(ui, "Invert", |ui| { changed |= ui.checkbox(invert, "").changed(); });
+        (Filter::HistogramScan { position, contrast, invert }, Filter::HistogramScan { position: d_position, contrast: d_contrast, invert: d_invert }) => {
+            changed |= slider_row_reset(ui, "Position", position, *d_position, |v| egui::Slider::new(v, lower..=1.0)).changed();
+            changed |= slider_row_reset(ui, "Contrast", contrast, *d_contrast, |v| egui::Slider::new(v, 0.0..=1.0)).changed();
+            changed |= prop_row_reset(ui, "Invert", invert, *d_invert, |ui, v| ui.checkbox(v, "")).changed();
             ui.weak("Soft threshold / contrast 1 is a hard edge");
         }
-        Filter::HistogramRange { position, range, softness, invert } => {
-            changed |= slider_row(ui, "Position", egui::Slider::new(position, lower..=1.0)).changed();
-            changed |= slider_row(ui, "Range", egui::Slider::new(range, 0.0..=if lower < 0.0 { 2.0 } else { 1.0 })).changed();
-            changed |= slider_row(ui, "Softness", egui::Slider::new(softness, 0.0..=1.0)).changed();
-            prop_row(ui, "Invert", |ui| { changed |= ui.checkbox(invert, "").changed(); });
+        (Filter::HistogramRange { position, range, softness, invert }, Filter::HistogramRange { position: d_position, range: d_range, softness: d_softness, invert: d_invert }) => {
+            changed |= slider_row_reset(ui, "Position", position, *d_position, |v| egui::Slider::new(v, lower..=1.0)).changed();
+            changed |= slider_row_reset(ui, "Range", range, *d_range, |v| egui::Slider::new(v, 0.0..=if lower < 0.0 { 2.0 } else { 1.0 })).changed();
+            changed |= slider_row_reset(ui, "Softness", softness, *d_softness, |v| egui::Slider::new(v, 0.0..=1.0)).changed();
+            changed |= prop_row_reset(ui, "Invert", invert, *d_invert, |ui, v| ui.checkbox(v, "")).changed();
             ui.weak("Selects values near Position / outside the band is 0");
         }
-        Filter::Clamp { low, high } => {
+        (Filter::Clamp { low, high }, Filter::Clamp { low: d_low, high: d_high }) => {
             let lower = lower.min(*low).min(*high); let upper = 1.0f32.max(*low).max(*high);
-            changed |= slider_row(ui, "Minimum", egui::Slider::new(low, lower..=*high)).changed();
-            changed |= slider_row(ui, "Maximum", egui::Slider::new(high, *low..=upper)).changed();
+            changed |= slider_row_reset(ui, "Minimum", low, *d_low, |v| egui::Slider::new(v, lower..=*high)).changed();
+            changed |= slider_row_reset(ui, "Maximum", high, *d_high, |v| egui::Slider::new(v, *low..=upper)).changed();
         }
+        _ => {}
     }
     // Mode / wrap rows: these swap between two variants of the same filter (see `Filter::label`).
+    // Their defaults are the plain variant's (GreaterOrEqual, Regular, no wrap).
     if let Some((cutoff, mut mode)) = filter.threshold_parts() {
-        prop_row(ui, "Mode", |ui| {
+        let before = mode;
+        prop_row_reset(ui, "Mode", &mut mode, subcraft_doc::ThresholdMode::GreaterOrEqual, |ui, mode| {
             egui::ComboBox::from_id_salt("threshold_mode").selected_text(mode.label()).show_ui(ui, |ui| {
-                for m in subcraft_doc::ThresholdMode::ALL {
-                    if ui.selectable_value(&mut mode, m, m.label()).changed() { *filter = Filter::threshold(cutoff, mode); changed = true; }
-                }
-            });
+                for m in subcraft_doc::ThresholdMode::ALL { ui.selectable_value(mode, m, m.label()); }
+            }).response
         });
+        if mode != before { *filter = Filter::threshold(cutoff, mode); changed = true; }
     }
     if let Some((mut mode, [hue, saturation, lightness])) = filter.hsl_parts() {
-        prop_row(ui, "Mode", |ui| {
+        let before = mode;
+        prop_row_reset(ui, "Mode", &mut mode, subcraft_doc::HslMode::Regular, |ui, mode| {
             egui::ComboBox::from_id_salt("hsl_mode").selected_text(mode.label()).show_ui(ui, |ui| {
-                for m in subcraft_doc::HslMode::ALL {
-                    if ui.selectable_value(&mut mode, m, m.label()).changed() { *filter = Filter::hsl(mode, hue, saturation, lightness); changed = true; }
-                }
-            });
+                for m in subcraft_doc::HslMode::ALL { ui.selectable_value(mode, m, m.label()); }
+            }).response
         });
+        if mode != before { *filter = Filter::hsl(mode, hue, saturation, lightness); changed = true; }
     }
-    if let Some((radius, mut wrap)) = filter.blur_parts() {
-        prop_row(ui, "Wrap", |ui| {
-            if ui.checkbox(&mut wrap, "").on_hover_text("The blur continues across the texture borders, for tiling textures").changed() { *filter = Filter::blur(radius, wrap); changed = true; }
-        });
+    if let Some((radius, mut wrap)) = filter.blur_parts()
+        && prop_row_reset(ui, "Wrap", &mut wrap, false, |ui, v| ui.checkbox(v, "").on_hover_text("The blur continues across the texture borders, for tiling textures")).changed()
+    {
+        *filter = Filter::blur(radius, wrap);
+        changed = true;
     }
-    if let Some((shift, mut wrap)) = filter.histogram_shift_parts() {
-        prop_row(ui, "Wrap", |ui| {
-            if ui.checkbox(&mut wrap, "").on_hover_text("Values pushed past one end of the range re-enter at the other").changed() { *filter = Filter::histogram_shift(shift, wrap); changed = true; }
-        });
+    if let Some((shift, mut wrap)) = filter.histogram_shift_parts()
+        && prop_row_reset(ui, "Wrap", &mut wrap, false, |ui, v| ui.checkbox(v, "").on_hover_text("Values pushed past one end of the range re-enter at the other")).changed()
+    {
+        *filter = Filter::histogram_shift(shift, wrap);
+        changed = true;
     }
-    if let Filter::Sharpen { amount, .. } | Filter::Highpass {amount,..} = filter {
-        changed |= slider_row(ui, "Amount", egui::Slider::new(amount, 0.0..=4.0)).changed();
+    if let (Filter::Sharpen { amount, .. }, Filter::Sharpen { amount: d, .. }) | (Filter::Highpass { amount, .. }, Filter::Highpass { amount: d, .. }) = (&mut *filter, &def) {
+        changed |= slider_row_reset(ui, "Amount", amount, *d, |v| egui::Slider::new(v, 0.0..=4.0)).changed();
     }
-    if let Filter::Bevel {amount,..} | Filter::BevelShape {amount,..} = filter {
-        changed |= slider_row(ui, "Amount", egui::Slider::new(amount, lower..=1.0)).changed();
+    if let (Filter::Bevel { amount, .. }, Filter::Bevel { amount: d, .. }) | (Filter::BevelShape { amount, .. }, Filter::BevelShape { amount: d, .. }) = (&mut *filter, &def) {
+        changed |= slider_row_reset(ui, "Amount", amount, *d, |v| egui::Slider::new(v, lower..=1.0)).changed();
     }
-    if let Filter::Bevel {threshold,..} | Filter::MaskOutline {threshold,..} | Filter::BevelShape {threshold,..} | Filter::MaskOutlineShape {threshold,..} = filter {
-        changed |= slider_row(ui, "Threshold", egui::Slider::new(threshold, lower..=1.0)).changed();
+    if let (Filter::Bevel { threshold, .. }, Filter::Bevel { threshold: d, .. })
+        | (Filter::MaskOutline { threshold, .. }, Filter::MaskOutline { threshold: d, .. })
+        | (Filter::BevelShape { threshold, .. }, Filter::BevelShape { threshold: d, .. })
+        | (Filter::MaskOutlineShape { threshold, .. }, Filter::MaskOutlineShape { threshold: d, .. }) = (&mut *filter, &def)
+    {
+        changed |= slider_row_reset(ui, "Threshold", threshold, *d, |v| egui::Slider::new(v, lower..=1.0)).changed();
     }
     // Bevel's Corner Type and Smoothing, Mask Outline's shape options: these swap to the
-    // variant that stores them (see `Filter::bevel`, `Filter::mask_outline`).
+    // variant that stores them (see `Filter::bevel`, `Filter::mask_outline`). Their defaults are
+    // the plain variant's.
     if let Some(mut p) = filter.bevel_parts() {
         let before = p;
-        prop_row(ui, "Corner Type", |ui| {
-            egui::ComboBox::from_id_salt("bevel_corner").selected_text(p.corner.label()).show_ui(ui, |ui| {
-                for c in subcraft_doc::BevelCorner::ALL { ui.selectable_value(&mut p.corner, c, c.label()); }
-            });
+        prop_row_reset(ui, "Corner Type", &mut p.corner, subcraft_doc::BevelCorner::Rounded, |ui, corner| {
+            egui::ComboBox::from_id_salt("bevel_corner").selected_text(corner.label()).show_ui(ui, |ui| {
+                for c in subcraft_doc::BevelCorner::ALL { ui.selectable_value(corner, c, c.label()); }
+            }).response
         });
-        slider_row(ui, "Smoothing", egui::Slider::new(&mut p.smoothing, 0.0..=1.0)).on_hover_text("Eases the ramp from straight to rounded");
+        slider_row_reset(ui, "Smoothing", &mut p.smoothing, 0.0, |v| egui::Slider::new(v, 0.0..=1.0)).on_hover_text("Eases the ramp from straight to rounded");
         if p != before { *filter = Filter::bevel(p); changed = true; }
     }
     if let Some(mut o) = filter.outline_parts() {
         let before = o;
-        prop_row(ui, "Start From Black", |ui| { ui.checkbox(&mut o.start_black, "").on_hover_text("The band ramps up from black at the contour"); });
-        slider_row(ui, "Blur", egui::Slider::new(&mut o.blur, 0.0..=32.0).suffix(" px")).on_hover_text("Fades the band's outer edge over this width");
-        slider_row(ui, "Curve Shape", egui::Slider::new(&mut o.curve, -1.0..=1.0)).on_hover_text("Bends the band's falloff: above 0 sharper, below 0 softer");
+        prop_row_reset(ui, "Start From Black", &mut o.start_black, false, |ui, v| ui.checkbox(v, "").on_hover_text("The band ramps up from black at the contour"));
+        slider_row_reset(ui, "Blur", &mut o.blur, 0.0, |v| egui::Slider::new(v, 0.0..=32.0).suffix(" px")).on_hover_text("Fades the band's outer edge over this width");
+        slider_row_reset(ui, "Curve Shape", &mut o.curve, 0.0, |v| egui::Slider::new(v, -1.0..=1.0)).on_hover_text("Bends the band's falloff: above 0 sharper, below 0 softer");
         if o != before { *filter = Filter::mask_outline(o); changed = true; }
     }
-    if let Filter::MaskOutline {position,..} | Filter::MaskOutlineShape {position,..} = filter {
-        prop_row(ui,"Position",|ui| {
-            egui::ComboBox::from_id_salt("outline_position").selected_text(match position {OutlinePosition::Inner=>"Inner",OutlinePosition::Outer=>"Outer",OutlinePosition::Both=>"Both"}).show_ui(ui,|ui| {
-                for (value,label) in [(OutlinePosition::Inner,"Inner"),(OutlinePosition::Outer,"Outer"),(OutlinePosition::Both,"Both")] {
-                    changed |= ui.selectable_value(position,value,label).changed();
+    if let (Filter::MaskOutline { position, .. }, Filter::MaskOutline { position: d, .. }) | (Filter::MaskOutlineShape { position, .. }, Filter::MaskOutlineShape { position: d, .. }) = (&mut *filter, &def) {
+        let name = |p: &OutlinePosition| match p { OutlinePosition::Inner => "Inner", OutlinePosition::Outer => "Outer", OutlinePosition::Both => "Both" };
+        changed |= prop_row_reset(ui, "Position", position, *d, |ui, position| {
+            egui::ComboBox::from_id_salt("outline_position").selected_text(name(position)).show_ui(ui, |ui| {
+                for value in [OutlinePosition::Inner, OutlinePosition::Outer, OutlinePosition::Both] {
+                    ui.selectable_value(position, value, name(&value));
                 }
-            });
-        });
+            }).response
+        }).changed();
     }
     if filter.is_contour() && !matches!(filter, Filter::BevelSmooth { .. }) {
         ui.weak("Threshold defines the shape / radius sets border width.");
         if channel.is_some() {ui.weak("Grayscale result / paint coverage is preserved.");}
         if matches!(filter,Filter::Bevel {..}) {ui.weak("Inward relief ramp / use Height for raised detail.");}
     }
-    if let Filter::DirectionalBlur {angle_deg,..}=filter {
-        changed |= slider_row(ui, "Angle", egui::Slider::new(angle_deg, -180.0..=180.0).suffix("\u{00b0}")).changed();
+    if let (Filter::DirectionalBlur { angle_deg, .. }, Filter::DirectionalBlur { angle_deg: d, .. }) = (&mut *filter, &def) {
+        changed |= slider_row_reset(ui, "Angle", angle_deg, *d, |v| egui::Slider::new(v, -180.0..=180.0).suffix("\u{00b0}")).changed();
         ui.weak("0 degrees horizontal / 90 vertical");
     }
     if matches!(filter,Filter::Highpass {..}) {ui.weak(if channel.is_some_and(|c|c.is_signed()) {"Detail only / neutral Height = 0"} else {"Detail only / neutral = 0.5"});}
@@ -483,6 +472,62 @@ pub fn editor(ui: &mut Ui, filter: &mut Filter, channel: Option<ChannelKind>) ->
     if matches!(filter, Filter::BlurWrap { .. }) { ui.weak("UV pixels · wraps around the texture"); }
     if filter.softens_coverage() && channel.is_some() { ui.weak("Blur also softens paint coverage."); }
     changed
+}
+
+/// A linear colour row with a swatch (edited in sRGB) that resets to `default`.
+fn color_row(ui: &mut Ui, label: &str, color: &mut [f32; 3], default: [f32; 3]) -> bool {
+    let mut changed = false;
+    prop_row_reset(ui, label, color, default, |ui, c| {
+        let mut srgb = linear3_to_srgb(*c);
+        let r = crate::color_picker::swatch_srgb(ui, &mut srgb);
+        if r.changed() {
+            *c = srgb3_to_linear(srgb);
+            changed = true;
+        }
+        r
+    })
+    .changed()
+        || changed
+}
+
+/// `f` with its default parameters, in the same variant as `f`, so every field has its default beside it
+/// for the reset gestures (see [`crate::reset_row`]). The defaults come from [`Filter::ALL`]. Variants that
+/// only add options to a plain filter (wrap, comparison mode, perceptive HSL, the Bevel and Mask Outline shape
+/// options) take the plain filter's values and keep their own options, which have rows of their own. A filter
+/// without a listed default (Gradient Dynamic needs its image) is its own default: nothing shows as changed.
+pub fn default_like(f: &Filter) -> Filter {
+    let listed = |probe: &Filter| Filter::ALL.iter().find(|e| std::mem::discriminant(*e) == std::mem::discriminant(probe)).cloned();
+    if let Some(d) = listed(f) {
+        return d;
+    }
+    let plain = |probe: Filter| listed(&probe).unwrap_or(probe);
+    match f {
+        Filter::ThresholdCompare { mode, .. } => match plain(Filter::Threshold { cutoff: 0.5 }) {
+            Filter::Threshold { cutoff } => Filter::ThresholdCompare { cutoff, mode: *mode },
+            _ => *f,
+        },
+        Filter::BlurWrap { .. } => match plain(Filter::Blur { radius: 0.0 }) {
+            Filter::Blur { radius } => Filter::BlurWrap { radius },
+            _ => *f,
+        },
+        Filter::HistogramShiftWrap { .. } => match plain(Filter::HistogramShift { shift: 0.0 }) {
+            Filter::HistogramShift { shift } => Filter::HistogramShiftWrap { shift },
+            _ => *f,
+        },
+        Filter::HslPerceptive { .. } => match plain(Filter::Hsl { hue: 0.0, saturation: 1.0, lightness: 0.0 }) {
+            Filter::Hsl { hue, saturation, lightness } => Filter::HslPerceptive { hue, saturation, lightness },
+            _ => *f,
+        },
+        Filter::BevelShape { corner, smoothing, .. } => match plain(Filter::Bevel { radius: 0.0, amount: 0.0, threshold: 0.0 }) {
+            Filter::Bevel { radius, amount, threshold } => Filter::BevelShape { radius, amount, threshold, corner: *corner, smoothing: *smoothing },
+            _ => *f,
+        },
+        Filter::MaskOutlineShape { start_black, blur, curve, .. } => match plain(Filter::MaskOutline { radius: 0.0, threshold: 0.0, position: OutlinePosition::Both }) {
+            Filter::MaskOutline { radius, threshold, position: p } => Filter::MaskOutlineShape { radius, threshold, position: p, start_black: *start_black, blur: *blur, curve: *curve },
+            _ => *f,
+        },
+        _ => *f,
+    }
 }
 
 fn gradient_editor(ui: &mut Ui, gradient: &mut Gradient) -> bool {

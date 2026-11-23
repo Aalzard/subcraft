@@ -10,12 +10,12 @@ to get a change merged.
 - **Suggest features**: open an issue describing the workflow you want (Substance Painter
   comparisons are welcome).
 - **Write code or docs**: issues labelled `good first issue` are a good start. The ordered roadmap
-  is in [`docs/progress.md`](docs/progress.md) under "Next steps". For anything big, open an issue
+  is in [`docs/progress.md`](../docs/progress.md) under "Next steps". For anything big, open an issue
   first so we can agree on the approach before you spend time on it.
 
 ## Setup
 
-New to Rust on Windows? [`docs/development.md`](docs/development.md) walks through installing
+New to Rust on Windows? [`docs/development.md`](../docs/development.md) walks through installing
 everything, the branch / pull request loop and building the `.exe`.
 
 ```sh
@@ -46,7 +46,7 @@ These keep the codebase healthy; reviews check them.
 - **Color is linear internally**: never color-transform data channels (roughness, normal, height…).
 - **Every change needs tests**: image-producing code needs numeric or golden checks.
 
-Background on these decisions is in [`docs/adr`](docs/adr).
+Background on these decisions is in [`docs/adr`](../docs/adr).
 
 ## Making a change
 
@@ -60,7 +60,7 @@ Background on these decisions is in [`docs/adr`](docs/adr).
    Don't add new clippy warnings in the code you touch.
 4. Match the surrounding style: naming, comment density and idioms of the file you're editing.
 5. For UI changes, include before / after screenshots in the pull request.
-6. If you finish a roadmap item or change behavior, update [`docs/progress.md`](docs/progress.md).
+6. If you finish a roadmap item or change behavior, update [`docs/progress.md`](../docs/progress.md).
 7. Open a pull request describing what changed and how you tested it. CI must be green before merge.
 
 Commit messages: a short imperative summary line ("Fix seam in curvature bake"), then a blank line

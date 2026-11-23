@@ -26,7 +26,7 @@ Owner's requested scope. `[x]` implemented and tested; `[~]` partial (remaining 
   prioritizes intrinsic connected-surface curvature over other components' contact curvature;
   rebaking fixes those gaps even with Natural disabled. Flat contact curvature is retained.
   Owner rejected the session 84 result as still unsatisfactory: overall Edge Wear remains
-  unresolved. Claude handoff: PROMPT-claude-edge-wear.md. Prior test results are historical
+  unresolved. Claude handoff: internal/PROMPT-claude-edge-wear.md. Prior test results are historical
   evidence, not owner acceptance or proof that the remaining visual problem is fixed.
 - [x] Pattern Size, Reduce Repetition, Breakup starting at 0.3 and Random Seed/Next.
   Existing saved recipes retain legacy noise (schema 7 migration; ADR-0022).

@@ -1018,11 +1018,16 @@ pub struct BakeUi {
     baseline: Option<subcraft_doc::BakeConfig>,
 }
 
+/// The settings the Bake window starts with (what Reset and Ctrl+click on a row put back).
+fn bake_defaults() -> subcraft_app::BakeSettings {
+    // Painter's defaults for the projection rays.
+    subcraft_app::BakeSettings { average_normals: true, ignore_backface: true, ..Default::default() }
+}
+
 impl Default for BakeUi {
     fn default() -> Self {
         Self { open: false,
-            // Painter's defaults for the projection rays.
-            settings: subcraft_app::BakeSettings { average_normals: true, ignore_backface: true, ..Default::default() },
+            settings: bake_defaults(),
             high_poly: String::new(), extra_high: Vec::new(), cage_file: String::new(), skip_sets: Default::default(), selected_baker: None, log_tab: BakeLogTab::default(), job_maps: Vec::new(), size_chosen: false, job: None, result: None, report: String::new(), notices: Vec::new(), log: Vec::new(), map_rows: Vec::new(),
             preview: true, cage: true, fit_mode: Default::default(), high_opacity: 0.55, vis: Default::default(), vis_selected_only: false, seam_edges: None, seams_uploaded: false, placement_message: None, live_maps: true, displayed_map: None, follow_maps: true, preview_mesh: None,
             preview_job: None, preview_source: None, preview_path: String::new(), preview_scene: None, preview_error: None, preview_uploaded: false, preview_checked_at: 0.,
@@ -1527,22 +1532,35 @@ pub fn tick_bake_map(maps: &mut Vec<subcraft_core::MeshMapKind>, kind: subcraft_
 }
 
 /// A labelled dropdown over the options of one baker setting.
-fn option_row<T: PartialEq + Copy>(ui: &mut egui::Ui, id: &str, label: &str, value: &mut T, options: &[T], name: impl Fn(T) -> &'static str) {
+fn option_row<T: PartialEq + Copy>(ui: &mut egui::Ui, id: &str, label: &str, value: &mut T, default: T, options: &[T], name: impl Fn(T) -> &'static str) -> egui::Response {
     ui.horizontal(|ui| {
-        ui.label(dim(label));
-        egui::ComboBox::from_id_salt(id).selected_text(name(*value)).show_ui(ui, |ui| {
+        let l = dim_label(ui, label);
+        let r = egui::ComboBox::from_id_salt(id).selected_text(name(*value)).show_ui(ui, |ui| {
             for &option in options {
                 ui.selectable_value(value, option, name(option));
             }
-        });
-    });
+        }).response;
+        crate::reset_row::reset(ui, &l, &r, value, &default);
+    })
+    .response
+}
+
+/// A dim row label that takes the reset gestures of [`crate::reset_row`].
+fn dim_label(ui: &mut egui::Ui, text: &str) -> egui::Response {
+    ui.add(egui::Label::new(dim(text)).sense(egui::Sense::click()))
+}
+
+/// A checkbox that goes back to `default` on Ctrl+click or from its right-click menu.
+fn check_reset(ui: &mut egui::Ui, value: &mut bool, default: bool, text: &str) -> egui::Response {
+    let r = ui.checkbox(value, text);
+    crate::widgets::reset_on(ui, r, value, default)
 }
 
 /// Reset the settings of one baker (`Some`) or the common settings (`None`) to the defaults
 /// the Bake window starts with. The files, the ticked maps and the other bakers are kept.
 fn reset_parameters(b: &mut BakeUi, baker: Option<subcraft_core::MeshMapKind>) {
     use subcraft_core::MeshMapKind;
-    let d = BakeUi::default().settings;
+    let d = bake_defaults();
     let s = &mut b.settings;
     match baker {
         None => {
@@ -1593,30 +1611,31 @@ fn reset_all(b: &mut BakeUi) {
 
 /// Settings of the baker selected in the list (nothing while Common settings is selected).
 fn map_settings_panel(ui: &mut egui::Ui, b: &mut BakeUi) {
-    use crate::widgets::slider_row;
+    use crate::widgets::slider_row_reset as slider_row;
     use subcraft_bake::{AoAttenuation, HeightNormalization, IdGenerator, IdSource, PositionNormalization, RayDistribution};
     use subcraft_core::MeshMapKind;
     let Some(kind) = b.selected_baker else { return };
     panel_title(ui, &format!("{} > {}", tr("Mesh map settings"), tr(kind.display_name())));
     ui.spacing_mut().item_spacing.y = 6.0;
+    let d = bake_defaults();
     let s = &mut b.settings;
     match kind {
         MeshMapKind::AmbientOcclusion | MeshMapKind::BentNormal => {
-            slider_row(ui, tr("Secondary rays"), egui::Slider::new(&mut s.ao_samples, 4..=256).logarithmic(true))
+            slider_row(ui, tr("Secondary rays"), &mut s.ao_samples, d.ao_samples, |v| egui::Slider::new(v, 4..=256).logarithmic(true))
                 .on_hover_text(tr("Rays cast per texel: more rays, less noise, a slower bake"));
-            slider_row(ui, tr("Min occluder distance"), egui::Slider::new(&mut s.ao.min_distance, 0.0..=0.1).fixed_decimals(4).clamping(egui::SliderClamping::Never))
+            slider_row(ui, tr("Min occluder distance"), &mut s.ao.min_distance, d.ao.min_distance, |v| egui::Slider::new(v, 0.0..=0.1).fixed_decimals(4).clamping(egui::SliderClamping::Never))
                 .on_hover_text(tr("Fraction of the model diagonal. Surfaces nearer than this do not occlude."));
-            slider_row(ui, tr("Max occluder distance"), egui::Slider::new(&mut s.ao_distance, 0.01..=1.0).logarithmic(true).clamping(egui::SliderClamping::Never))
+            slider_row(ui, tr("Max occluder distance"), &mut s.ao_distance, d.ao_distance, |v| egui::Slider::new(v, 0.01..=1.0).logarithmic(true).clamping(egui::SliderClamping::Never))
                 .on_hover_text(tr("Fraction of the model diagonal. Surfaces further than this do not occlude."));
-            slider_row(ui, tr("Spread angle"), egui::Slider::new(&mut s.ao.spread_angle, 1.0..=180.0).fixed_decimals(0))
+            slider_row(ui, tr("Spread angle"), &mut s.ao.spread_angle, d.ao.spread_angle, |v| egui::Slider::new(v, 1.0..=180.0).fixed_decimals(0))
                 .on_hover_text(tr("Opening angle of the ray cone in degrees: 180 is the whole hemisphere"));
-            option_row(ui, "bake_ao_distribution", tr("Distribution"), &mut s.ao.distribution, &RayDistribution::ALL, RayDistribution::label);
+            option_row(ui, "bake_ao_distribution", tr("Distribution"), &mut s.ao.distribution, d.ao.distribution, &RayDistribution::ALL, RayDistribution::label);
             if kind == MeshMapKind::AmbientOcclusion {
-                option_row(ui, "bake_ao_attenuation", tr("Attenuation"), &mut s.ao.attenuation, &AoAttenuation::ALL, AoAttenuation::label);
+                option_row(ui, "bake_ao_attenuation", tr("Attenuation"), &mut s.ao.attenuation, d.ao.attenuation, &AoAttenuation::ALL, AoAttenuation::label);
             }
-            ui.checkbox(&mut s.ao.ground_plane, tr("Ground plane")).on_hover_text(tr("A floor under the model occludes too"));
+            check_reset(ui, &mut s.ao.ground_plane, d.ao.ground_plane, tr("Ground plane")).on_hover_text(tr("A floor under the model occludes too"));
             if s.ao.ground_plane {
-                slider_row(ui, tr("Ground plane offset"), egui::Slider::new(&mut s.ao.ground_offset, 0.0..=0.5).fixed_decimals(3))
+                slider_row(ui, tr("Ground plane offset"), &mut s.ao.ground_offset, d.ao.ground_offset, |v| egui::Slider::new(v, 0.0..=0.5).fixed_decimals(3))
                     .on_hover_text(tr("How far the floor lies under the model, as a fraction of the model diagonal"));
             }
             if !s.ao.is_plain() && kind == MeshMapKind::AmbientOcclusion {
@@ -1624,15 +1643,15 @@ fn map_settings_panel(ui: &mut egui::Ui, b: &mut BakeUi) {
             }
         }
         MeshMapKind::Thickness => {
-            slider_row(ui, tr("Secondary rays"), egui::Slider::new(&mut s.thickness_samples, 4..=256).logarithmic(true))
+            slider_row(ui, tr("Secondary rays"), &mut s.thickness_samples, d.thickness_samples, |v| egui::Slider::new(v, 4..=256).logarithmic(true))
                 .on_hover_text(tr("Rays cast per texel: more rays, less noise, a slower bake"));
-            slider_row(ui, tr("Min occluder distance"), egui::Slider::new(&mut s.thickness.min_distance, 0.0..=0.1).fixed_decimals(4).clamping(egui::SliderClamping::Never))
+            slider_row(ui, tr("Min occluder distance"), &mut s.thickness.min_distance, d.thickness.min_distance, |v| egui::Slider::new(v, 0.0..=0.1).fixed_decimals(4).clamping(egui::SliderClamping::Never))
                 .on_hover_text(tr("Fraction of the model diagonal. Surfaces nearer than this are looked through."));
-            slider_row(ui, tr("Max occluder distance"), egui::Slider::new(&mut s.thickness_distance, 0.01..=1.0).logarithmic(true).clamping(egui::SliderClamping::Never))
+            slider_row(ui, tr("Max occluder distance"), &mut s.thickness_distance, d.thickness_distance, |v| egui::Slider::new(v, 0.01..=1.0).logarithmic(true).clamping(egui::SliderClamping::Never))
                 .on_hover_text(tr("Fraction of the model diagonal. Thicker parts than this all read as fully thick."));
-            slider_row(ui, tr("Spread angle"), egui::Slider::new(&mut s.thickness.spread_angle, 1.0..=180.0).fixed_decimals(0))
+            slider_row(ui, tr("Spread angle"), &mut s.thickness.spread_angle, d.thickness.spread_angle, |v| egui::Slider::new(v, 1.0..=180.0).fixed_decimals(0))
                 .on_hover_text(tr("Opening angle of the ray cone in degrees: 180 is the whole hemisphere"));
-            option_row(ui, "bake_thickness_distribution", tr("Distribution"), &mut s.thickness.distribution, &RayDistribution::ALL, RayDistribution::label);
+            option_row(ui, "bake_thickness_distribution", tr("Distribution"), &mut s.thickness.distribution, d.thickness.distribution, &RayDistribution::ALL, RayDistribution::label);
             if !s.thickness.is_plain() {
                 hint(ui, tr("With these options thickness is baked on the CPU."));
             }
@@ -1646,12 +1665,13 @@ fn map_settings_panel(ui: &mut egui::Ui, b: &mut BakeUi) {
                 IdSource::FileId => tr("File ID (high-poly file)"),
             };
             ui.horizontal(|ui| {
-                ui.label(tr("ID colors from"));
-                egui::ComboBox::from_id_salt("bake_id_source").selected_text(label(s.id_source)).show_ui(ui, |ui| {
+                let l = crate::reset_row::label(ui, tr("ID colors from"));
+                let r = egui::ComboBox::from_id_salt("bake_id_source").selected_text(label(s.id_source)).show_ui(ui, |ui| {
                     for source in IdSource::ALL {
                         ui.selectable_value(&mut s.id_source, source, label(source));
                     }
-                });
+                }).response;
+                crate::reset_row::reset(ui, &l, &r, &mut s.id_source, &d.id_source);
             })
             .response
             .on_hover_text(tr("Where the ID map takes its colors: the model's vertex colors or material colors, or one generated color per mesh element, per object or per high-poly file. With a high poly, its colors are used."));
@@ -1708,24 +1728,28 @@ fn map_settings_panel(ui: &mut egui::Ui, b: &mut BakeUi) {
             }
             let s = &mut b.settings;
             if matches!(s.id_source, IdSource::MeshId | IdSource::Submesh | IdSource::FileId) {
-                option_row(ui, "bake_id_generator", tr("Color generator"), &mut s.id_generator, &IdGenerator::ALL, IdGenerator::label);
+                option_row(ui, "bake_id_generator", tr("Color generator"), &mut s.id_generator, d.id_generator, &IdGenerator::ALL, IdGenerator::label);
             }
         }
         MeshMapKind::Curvature => {
-            ui.checkbox(&mut s.curvature_from_normal, tr("Curvature from the normal map"))
+            check_reset(ui, &mut s.curvature_from_normal, d.curvature_from_normal, tr("Curvature from the normal map"))
                 .on_hover_text(tr("Measure curvature from the baked normal map along the surface: one clean band per edge, continuous across UV seams and on curved parts"));
             if s.curvature_from_normal {
-                slider_row(ui, tr("Curvature width (texels)"), egui::Slider::new(&mut s.normal_curvature.radius_texels, 0.5..=8.0));
-                slider_row(ui, tr("Curvature intensity"), egui::Slider::new(&mut s.normal_curvature.intensity, 0.1..=4.0).logarithmic(true));
+                slider_row(ui, tr("Curvature width (texels)"), &mut s.normal_curvature.radius_texels, d.normal_curvature.radius_texels, |v| egui::Slider::new(v, 0.5..=8.0));
+                slider_row(ui, tr("Curvature intensity"), &mut s.normal_curvature.intensity, d.normal_curvature.intensity, |v| egui::Slider::new(v, 0.1..=4.0).logarithmic(true));
             } else {
-                slider_row(ui, tr("Curvature radius"), egui::Slider::new(&mut s.curvature_radius, 0.002..=0.1).logarithmic(true));
+                slider_row(ui, tr("Curvature radius"), &mut s.curvature_radius, d.curvature_radius, |v| egui::Slider::new(v, 0.002..=0.1).logarithmic(true));
             }
         }
         MeshMapKind::Position => {
             let mut single = s.position.single_axis.is_some();
             ui.horizontal(|ui| {
-                ui.label(dim(tr("Mode")));
-                segmented(ui, &mut single, &[(false, tr("All axis")), (true, tr("Single axis"))]);
+                let l = dim_label(ui, tr("Mode"));
+                let r = crate::widgets::segmented_response(ui, &mut single, &[(false, tr("All axis")), (true, tr("Single axis"))]);
+                if crate::reset_row::wants_reset(ui, &l, &r, s.position.single_axis != d.position.single_axis) {
+                    s.position.single_axis = d.position.single_axis;
+                    single = d.position.single_axis.is_some();
+                }
             });
             s.position.single_axis = single.then(|| s.position.single_axis.unwrap_or(1));
             if let Some(axis) = &mut s.position.single_axis {
@@ -1734,17 +1758,21 @@ fn map_settings_panel(ui: &mut egui::Ui, b: &mut BakeUi) {
                     segmented(ui, axis, &[(0u8, "X"), (1, "Y"), (2, "Z")]);
                 });
             }
-            option_row(ui, "bake_position_normalization", tr("Normalization"), &mut s.position.normalization, &PositionNormalization::ALL, PositionNormalization::label);
+            option_row(ui, "bake_position_normalization", tr("Normalization"), &mut s.position.normalization, d.position.normalization, &PositionNormalization::ALL, PositionNormalization::label);
             if s.position.normalization == PositionNormalization::None {
-                slider_row(ui, tr("Normalization scale"), egui::Slider::new(&mut s.position.scale, 0.001..=10.0).logarithmic(true).clamping(egui::SliderClamping::Never))
+                slider_row(ui, tr("Normalization scale"), &mut s.position.scale, d.position.scale, |v| egui::Slider::new(v, 0.001..=10.0).logarithmic(true).clamping(egui::SliderClamping::Never))
                     .on_hover_text(tr("Map value per world unit; the world origin is at 0.5"));
             }
         }
         MeshMapKind::Height => {
             let mut manual = matches!(s.height, HeightNormalization::Manual { .. });
             ui.horizontal(|ui| {
-                ui.label(dim(tr("Normalization")));
-                segmented(ui, &mut manual, &[(false, tr("Cage distances")), (true, tr("Manual"))]);
+                let l = dim_label(ui, tr("Normalization"));
+                let r = crate::widgets::segmented_response(ui, &mut manual, &[(false, tr("Cage distances")), (true, tr("Manual"))]);
+                if crate::reset_row::wants_reset(ui, &l, &r, s.height != d.height) {
+                    s.height = d.height;
+                    manual = matches!(d.height, HeightNormalization::Manual { .. });
+                }
             });
             if !manual {
                 s.height = HeightNormalization::Cage;
@@ -1752,7 +1780,7 @@ fn map_settings_panel(ui: &mut egui::Ui, b: &mut BakeUi) {
                 s.height = HeightNormalization::Manual { distance: s.cage_front.max(0.0005) };
             }
             if let HeightNormalization::Manual { distance } = &mut s.height {
-                slider_row(ui, tr("Height range"), egui::Slider::new(distance, 0.0005..=0.25).logarithmic(true).clamping(egui::SliderClamping::Never))
+                crate::widgets::slider_row(ui, tr("Height range"), egui::Slider::new(distance, 0.0005..=0.25).logarithmic(true).clamping(egui::SliderClamping::Never))
                     .on_hover_text(tr("Fraction of the model diagonal: white this far above the low poly, black this far below"));
             }
         }
@@ -1764,7 +1792,8 @@ fn map_settings_panel(ui: &mut egui::Ui, b: &mut BakeUi) {
 fn common_settings(ui: &mut egui::Ui, b: &mut BakeUi, f: &BakeFrame, bake_match: &mut subcraft_core::BakeMatch, placement: &mut subcraft_core::BakePlacement) {
     use crate::bake_view::{card_title, icon_toggle};
     use crate::icons;
-    use crate::widgets::{card, icon_button, slider_row};
+    use crate::widgets::{card, icon_button, slider_row_reset as slider_row};
+    let d = bake_defaults();
     let has_high = !b.high_poly.trim().is_empty();
     // Maps below the texture set's resolution look blocky: default to the largest ticked set.
     let target_res = f.sets.iter().filter(|s| !b.skip_sets.contains(&s.0)).map(|s| s.3).max().unwrap_or(1024).clamp(256, 4096);
@@ -1837,20 +1866,12 @@ fn common_settings(ui: &mut egui::Ui, b: &mut BakeUi, f: &BakeFrame, bake_match:
             ui.end_row();
         });
         ui.add_space(6.0);
-        slider_row(ui, tr("Dilation width"), egui::Slider::new(&mut b.settings.dilation, 0..=64))
+        slider_row(ui, tr("Dilation width"), &mut b.settings.dilation, d.dilation, |v| egui::Slider::new(v, 0..=64))
             .on_hover_text(tr("How many texels around each UV island copy the island edge"));
         ui.add_space(4.0);
-        ui.checkbox(&mut b.settings.diffusion, tr("Apply diffusion"))
+        check_reset(ui, &mut b.settings.diffusion, d.diffusion, tr("Apply diffusion"))
             .on_hover_text(tr("Fill the rest of the texture with a smooth blend of the island edges"));
-        ui.horizontal(|ui| {
-            ui.label(dim(tr("Antialiasing")));
-            egui::ComboBox::from_id_salt("bake_antialiasing").selected_text(b.settings.antialiasing.label()).show_ui(ui, |ui| {
-                for a in subcraft_bake::Antialiasing::ALL {
-                    ui.selectable_value(&mut b.settings.antialiasing, a, a.label());
-                }
-            });
-        })
-        .response
+        option_row(ui, "bake_antialiasing", tr("Antialiasing"), &mut b.settings.antialiasing, d.antialiasing, &subcraft_bake::Antialiasing::ALL, subcraft_bake::Antialiasing::label)
         .on_hover_text(tr("Bake several samples per texel and average them: smoother edges, a slower bake"));
         if has_high {
             ui.add_space(6.0);
@@ -1866,17 +1887,17 @@ fn common_settings(ui: &mut egui::Ui, b: &mut BakeUi, f: &BakeFrame, bake_match:
             })
             .response
             .on_hover_text(tr("A copy of the low poly pushed outwards, with the same UVs: each ray starts on it"));
-            ui.checkbox(&mut b.settings.average_normals, tr("Average normals"))
+            check_reset(ui, &mut b.settings.average_normals, d.average_normals, tr("Average normals"))
                 .on_hover_text(tr("Cast rays along normals averaged across hard edges and UV seams, so no gap opens between faces"));
-            ui.checkbox(&mut b.settings.ignore_backface, tr("Ignore backface"))
+            check_reset(ui, &mut b.settings.ignore_backface, d.ignore_backface, tr("Ignore backface"))
                 .on_hover_text(tr("Rays skip high-poly faces that face away from them"));
         }
         if has_high {
             ui.add_space(6.0);
-            slider_row(ui, tr("Cage front (reach above the surface)"), egui::Slider::new(&mut b.settings.cage_front, 0.0..=0.25).fixed_decimals(3).clamping(egui::SliderClamping::Never))
+            slider_row(ui, tr("Cage front (reach above the surface)"), &mut b.settings.cage_front, d.cage_front, |v| egui::Slider::new(v, 0.0..=0.25).fixed_decimals(3).clamping(egui::SliderClamping::Never))
                 .on_hover_text(tr("Fraction of the model diagonal. Raise it when the high poly stands further out than this."));
             ui.add_space(6.0);
-            slider_row(ui, tr("Cage rear (reach below the surface)"), egui::Slider::new(&mut b.settings.cage_rear, 0.0..=0.25).fixed_decimals(3).clamping(egui::SliderClamping::Never))
+            slider_row(ui, tr("Cage rear (reach below the surface)"), &mut b.settings.cage_rear, d.cage_rear, |v| egui::Slider::new(v, 0.0..=0.25).fixed_decimals(3).clamping(egui::SliderClamping::Never))
                 .on_hover_text(tr("Fraction of the model diagonal. Raise it when parts of the high poly sink under the low poly."));
         }
     });
@@ -1936,6 +1957,7 @@ fn visualization_settings(ui: &mut egui::Ui, b: &mut BakeUi) {
         if ui.checkbox(&mut hide, tr("Hide baking meshes")).on_hover_text(tr("Show the model as it is painted instead of the high / low overlay")).changed() {
             b.preview = !hide;
         }
+        let dv = subcraft_render::BakeVisualization::default();
         ui.add_enabled_ui(b.preview, |ui| {
             let color_row = |ui: &mut egui::Ui, on: Option<&mut bool>, label: &str, color: &mut [f32; 3]| {
                 ui.horizontal(|ui| {
@@ -1950,20 +1972,20 @@ fn visualization_settings(ui: &mut egui::Ui, b: &mut BakeUi) {
             color_row(ui, Some(&mut b.vis.show_low), tr("Project mesh"), &mut b.vis.low_color);
             ui.label(RichText::new(tr("The project mesh shows where the high poly does not cover it: its color marks the matching errors.")).small().color(theme::TEXT_FAINT()));
             color_row(ui, Some(&mut b.cage), tr("Cage wireframe"), &mut b.vis.cage_color);
-            crate::widgets::slider_row(ui, tr("Cage wireframe opacity"), egui::Slider::new(&mut b.vis.cage_opacity, 0.0..=1.0));
+            crate::widgets::slider_row_reset(ui, tr("Cage wireframe opacity"), &mut b.vis.cage_opacity, dv.cage_opacity, |v| egui::Slider::new(v, 0.0..=1.0));
             color_row(ui, Some(&mut b.vis.show_cage_surface), tr("Cage surface"), &mut b.vis.cage_surface_color);
             if b.vis.show_cage_surface {
-                crate::widgets::slider_row(ui, tr("Cage surface opacity"), egui::Slider::new(&mut b.vis.cage_surface_opacity, 0.0..=1.0));
+                crate::widgets::slider_row_reset(ui, tr("Cage surface opacity"), &mut b.vis.cage_surface_opacity, dv.cage_surface_opacity, |v| egui::Slider::new(v, 0.0..=1.0));
             }
-            ui.checkbox(&mut b.vis.neutral_material, tr("Neutral material"))
+            check_reset(ui, &mut b.vis.neutral_material, dv.neutral_material, tr("Neutral material"))
                 .on_hover_text(tr("Show the model in one neutral material shaded by its baked normal and ambient occlusion maps, instead of its painted channels (when the high / low overlay is hidden or after a bake)"));
             if b.vis.neutral_material {
                 ui.horizontal(|ui| {
                     ui.label(dim(tr("Color")));
                     crate::color_picker::swatch_srgb(ui, &mut b.vis.neutral_color);
                 });
-                crate::widgets::slider_row(ui, tr("Roughness"), egui::Slider::new(&mut b.vis.neutral_roughness, 0.0..=1.0));
-                crate::widgets::slider_row(ui, tr("Metallic"), egui::Slider::new(&mut b.vis.neutral_metallic, 0.0..=1.0));
+                crate::widgets::slider_row_reset(ui, tr("Roughness"), &mut b.vis.neutral_roughness, dv.neutral_roughness, |v| egui::Slider::new(v, 0.0..=1.0));
+                crate::widgets::slider_row_reset(ui, tr("Metallic"), &mut b.vis.neutral_metallic, dv.neutral_metallic, |v| egui::Slider::new(v, 0.0..=1.0));
             }
             ui.checkbox(&mut b.vis_selected_only, tr("Show for selected Texture Set only"))
                 .on_hover_text(tr("Draw the project mesh and the cage of the selected texture set only"));

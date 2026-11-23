@@ -411,12 +411,14 @@ fn transparency(state: &UiState, ui: &mut Ui, cmds: &mut Vec<Command>) {
     if a.mode != subcraft_doc::AlphaMode::Opaque {
         ui.horizontal(|ui| {
             field_label(ui, "Alpha threshold");
-            ui.add_enabled(a.mode == subcraft_doc::AlphaMode::Test && !a.dithering, egui::Slider::new(&mut a.threshold, 0.0..=1.0).fixed_decimals(2))
+            let r = ui.add_enabled(a.mode == subcraft_doc::AlphaMode::Test && !a.dithering, egui::Slider::new(&mut a.threshold, 0.0..=1.0).fixed_decimals(2))
                 .on_disabled_hover_text("Used by alpha test");
+            crate::widgets::reset_on(ui, r, &mut a.threshold, subcraft_doc::AlphaSettings::default().threshold);
         });
         ui.horizontal(|ui| {
             field_label(ui, "");
-            ui.checkbox(&mut a.dithering, "Alpha dithering").on_hover_text("Ordered dither instead of a hard cut / blending: depth-correct, no sorting");
+            let r = ui.checkbox(&mut a.dithering, "Alpha dithering").on_hover_text("Ordered dither instead of a hard cut / blending: depth-correct, no sorting");
+            crate::widgets::reset_on(ui, r, &mut a.dithering, subcraft_doc::AlphaSettings::default().dithering);
         });
         if !has_opacity && !transparent {
             ui.horizontal(|ui| {

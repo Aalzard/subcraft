@@ -7,7 +7,7 @@ use subcraft_paint::{BrushSettings, SizeSpace, MAX_PRESSURE_MIN};
 use super::shelf::ShelfDrag;
 use crate::state::UiState;
 use crate::theme::{self, ACCENT, ACCENT_SOFT, BG_4, TEXT, TEXT_DIM, TEXT_FAINT};
-use crate::widgets::{hint, prop_row, slider_row, slider_row_with};
+use crate::widgets::{hint, prop_row_reset, slider_row_reset, slider_row_reset_with};
 
 /// Stable id of the pressure toggle of a row (`size`, `flow`, `size_jitter`, ...).
 pub fn pressure_toggle_id(key: &str) -> Id {
@@ -44,11 +44,12 @@ fn pressure_toggle(ui: &mut Ui, key: &str, on: bool, what: &str) -> Response {
 
 /// Size, Flow (each with its pressure toggle and minimum) and Stroke opacity.
 pub fn size_flow_opacity(ui: &mut Ui, s: &mut BrushSettings, brush: bool) {
+    let d = BrushSettings::default();
     ui.add_enabled_ui(brush, |ui| {
         // Size: pen pressure toggle at the right of the row; the minimum appears while it is on.
         let mut toggle = false;
         let on = s.size_pressure();
-        slider_row_with(ui, "Size", egui::Slider::new(&mut s.size, 0.1..=100.0).logarithmic(true).max_decimals(1).suffix("%"), |ui| {
+        slider_row_reset_with(ui, "Size", &mut s.size, d.size, |v| egui::Slider::new(v, 0.1..=100.0).logarithmic(true).max_decimals(1).suffix("%"), |ui| {
             toggle = pressure_toggle(ui, "size", on, "size").clicked();
         })
         .on_hover_text(match s.size_space {
@@ -63,7 +64,7 @@ pub fn size_flow_opacity(ui: &mut Ui, s: &mut BrushSettings, brush: bool) {
         }
         if s.size_pressure() {
             let mut min = s.min_size();
-            if slider_row(ui, "Minimum Size", egui::Slider::new(&mut min, 0.0..=MAX_PRESSURE_MIN).max_decimals(2))
+            if slider_row_reset(ui, "Minimum Size", &mut min, 0.0, |v| egui::Slider::new(v, 0.0..=MAX_PRESSURE_MIN).max_decimals(2))
                 .on_hover_text("Size at the lightest pen pressure, as a fraction of Size")
                 .changed()
             {
@@ -75,7 +76,7 @@ pub fn size_flow_opacity(ui: &mut Ui, s: &mut BrushSettings, brush: bool) {
         let mut toggle = false;
         let on = s.flow_pressure();
         let mut shown = s.flow * 100.0;
-        if slider_row_with(ui, "Flow", egui::Slider::new(&mut shown, 0.0..=100.0).max_decimals(0).suffix("%"), |ui| {
+        if slider_row_reset_with(ui, "Flow", &mut shown, d.flow * 100.0, |v| egui::Slider::new(v, 0.0..=100.0).max_decimals(0).suffix("%"), |ui| {
             toggle = pressure_toggle(ui, "flow", on, "flow").clicked();
         })
         .on_hover_text("Paint each stamp adds")
@@ -90,7 +91,7 @@ pub fn size_flow_opacity(ui: &mut Ui, s: &mut BrushSettings, brush: bool) {
         }
         if s.flow_pressure() {
             let mut min = s.min_flow();
-            if slider_row(ui, "Minimum Flow", egui::Slider::new(&mut min, 0.0..=MAX_PRESSURE_MIN).max_decimals(2))
+            if slider_row_reset(ui, "Minimum Flow", &mut min, 0.0, |v| egui::Slider::new(v, 0.0..=MAX_PRESSURE_MIN).max_decimals(2))
                 .on_hover_text("Flow at the lightest pen pressure, as a fraction of Flow")
                 .changed()
             {
@@ -100,7 +101,7 @@ pub fn size_flow_opacity(ui: &mut Ui, s: &mut BrushSettings, brush: bool) {
         }
     });
     let mut shown = s.stroke_opacity * 100.0;
-    if slider_row(ui, "Stroke opacity", egui::Slider::new(&mut shown, 0.0..=100.0).max_decimals(0).suffix("%"))
+    if slider_row_reset(ui, "Stroke opacity", &mut shown, d.stroke_opacity * 100.0, |v| egui::Slider::new(v, 0.0..=100.0).max_decimals(0).suffix("%"))
         .on_hover_text("The most opacity one stroke can reach, however many stamps overlap")
         .changed()
     {
@@ -110,12 +111,14 @@ pub fn size_flow_opacity(ui: &mut Ui, s: &mut BrushSettings, brush: bool) {
 
 /// The four jitters, 0..1 each, with their pen-pressure toggles.
 pub fn jitters(ui: &mut Ui, s: &mut BrushSettings) {
+    let d = BrushSettings::default();
+    // Every jitter starts at 0 (`BrushSettings::default`).
     let row = |ui: &mut Ui, label: &str, key: &str, value: &mut f32, pressure: &mut bool| {
         let on = *pressure;
         let mut toggle = false;
         // `Edits`: egui's default clamps the stored value every time the slider is drawn, so just
         // showing Properties cut the built-in Scatter Dots' Position Jitter of 1.5 down to 1.
-        slider_row_with(ui, label, egui::Slider::new(value, 0.0..=1.0).max_decimals(2).clamping(egui::SliderClamping::Edits), |ui| {
+        slider_row_reset_with(ui, label, value, 0.0, |v| egui::Slider::new(v, 0.0..=1.0).max_decimals(2).clamping(egui::SliderClamping::Edits), |ui| {
             toggle = pressure_toggle(ui, key, on, &label.to_lowercase()).clicked();
         });
         if toggle {
@@ -132,39 +135,39 @@ pub fn jitters(ui: &mut Ui, s: &mut BrushSettings) {
         s.angle_jitter_deg = angle * 180.0;
     }
     row(ui, "Position Jitter", "position_jitter", &mut s.position_jitter, &mut s.position_jitter_pressure);
-    prop_row(ui, "Position Jitter Axis", |ui| {
+    prop_row_reset(ui, "Position Jitter Axis", &mut s.position_jitter_axis, d.position_jitter_axis, |ui, v| {
         use subcraft_paint::JitterAxis;
-        egui::ComboBox::from_id_salt("position_jitter_axis").selected_text(s.position_jitter_axis.label()).show_ui(ui, |ui| {
+        egui::ComboBox::from_id_salt("position_jitter_axis").selected_text(v.label()).show_ui(ui, |ui| {
             for axis in JitterAxis::ALL {
-                ui.selectable_value(&mut s.position_jitter_axis, axis, axis.label()).on_hover_text(match axis {
+                ui.selectable_value(v, axis, axis.label()).on_hover_text(match axis {
                     JitterAxis::Both => "Stamps move any way around the stroke",
                     JitterAxis::One => "Stamps move only across the stroke and keep their spacing along it",
                 });
             }
-        });
+        }).response
     });
-    prop_row(ui, "Stamps Blending", |ui| {
+    prop_row_reset(ui, "Stamps Blending", &mut s.stamps_blending, d.stamps_blending, |ui, v| {
         use subcraft_paint::StampBlend;
-        egui::ComboBox::from_id_salt("stamps_blending").selected_text(s.stamps_blending.label()).show_ui(ui, |ui| {
+        egui::ComboBox::from_id_salt("stamps_blending").selected_text(v.label()).show_ui(ui, |ui| {
             for mode in StampBlend::ALL {
-                ui.selectable_value(&mut s.stamps_blending, mode, mode.label()).on_hover_text(mode.tip());
+                ui.selectable_value(v, mode, mode.label()).on_hover_text(mode.tip());
             }
-        });
+        }).response
     });
 }
 
 /// Size Space dropdown: what the Size percentage is measured against.
 pub fn size_space(ui: &mut Ui, s: &mut BrushSettings) {
-    prop_row(ui, "Size Space", |ui| {
-        egui::ComboBox::from_id_salt("size_space").selected_text(s.size_space.label()).show_ui(ui, |ui| {
+    prop_row_reset(ui, "Size Space", &mut s.size_space, BrushSettings::default().size_space, |ui, v| {
+        egui::ComboBox::from_id_salt("size_space").selected_text(v.label()).show_ui(ui, |ui| {
             for space in SizeSpace::ALL {
-                ui.selectable_value(&mut s.size_space, space, space.label()).on_hover_text(match space {
+                ui.selectable_value(v, space, space.label()).on_hover_text(match space {
                     SizeSpace::Object => "Size relative to the model: the brush keeps its size on the surface",
                     SizeSpace::Viewport => "Size relative to the viewport: the brush keeps its size on screen when you zoom (3D view)",
                     SizeSpace::Texture => "Size relative to the texture: the brush covers the same texels everywhere",
                 });
             }
-        });
+        }).response
     });
 }
 

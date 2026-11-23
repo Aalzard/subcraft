@@ -12,7 +12,7 @@ Free code signing provided by [SignPath.io](https://about.signpath.io/), certifi
 - The Windows application `SubCraft.exe` (inside the installer and the portable zip) and the
   Windows installer `SubCraft-<version>-setup.exe`, for the Windows x64 release.
 - Only binaries built by this repository's GitHub Actions release workflow
-  ([`.github/workflows/release.yml`](.github/workflows/release.yml)) on GitHub-hosted runners, from
+  ([`.github/workflows/release.yml`](../.github/workflows/release.yml)) on GitHub-hosted runners, from
   the source code and build scripts in this public repository. Nothing built on a personal computer
   is submitted for signing.
 - SubCraft has no proprietary components. Its third-party dependencies are open-source Rust crates
@@ -20,7 +20,7 @@ Free code signing provided by [SignPath.io](https://about.signpath.io/), certifi
   open-licensed or CC0 (their licenses ship in the package under `third-party/`).
 
 The macOS, Linux and Windows on Arm packages are not Authenticode-signed (see
-[docs/signing-setup.md](docs/signing-setup.md) for why). Like every release file, they have a build
+[docs/signing-setup.md](signing-setup.md) for why). Like every release file, they have a build
 provenance attestation.
 
 ## Team roles
