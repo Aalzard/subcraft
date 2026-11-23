@@ -631,7 +631,7 @@ impl Stroke {
                     ctx.geometry.triangle_region(t as usize, p.kind).is_some_and(|id| p.parts.contains(&id)));
                 let emitter = Dab { screen, radius, flow, angle, roundness: s.roundness, hardness: s.hardness };
                 dabs.clear();
-                if let Some(hit) = resolve_overlap(&emitter, 0, &cameras[0], ctx.mesh, ctx.bvh, s.alignment, false, accept) {
+                if let Some(hit) = resolve_overlap(&emitter, 0, &cameras[0], ctx.mesh, ctx.bvh, ctx.displaced, s.alignment, false, accept) {
                     for i in 0..s.particle_count.min(crate::particles::MAX_PARTICLES) {
                         for point in crate::particles::trail(ctx.mesh, ctx.bvh, s, hit.center, radius, k, i, accept) {
                             let Some(at) = cameras[0].project(point.pos) else { continue };
