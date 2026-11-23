@@ -79,7 +79,7 @@ fn an_alpha_dropped_on_the_stencil_block_becomes_the_stencil() {
     }
     // Open the Stencil block when it starts closed.
     if text_pos(&out, "Choose image…").is_none() {
-        let header = text_pos(&out, "Stencil").expect("the Stencil block header");
+        let header = text_pos(&out, "STENCIL").expect("the Stencil block header");
         frame(&mut s, &ctx, vec![egui::Event::PointerMoved(header), button(header, true)]);
         frame(&mut s, &ctx, vec![button(header, false)]);
         for _ in 0..30 {

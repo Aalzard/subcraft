@@ -214,6 +214,17 @@ surface, upright the way you see it on screen, with the image's own proportions 
 
 ![Three image decals dropped on a sphere, each facing the surface](images/decals.png)
 
+### Stencils: paint through an image
+
+A stencil lies over the 3D view and lets paint through where it is white. Three ways to set one:
+
+- Right-click an alpha or a texture in the shelf and choose **Use as stencil**.
+- Drag an alpha or a texture from the shelf onto the **Stencil** block of the tool Properties.
+- **Choose image…** in the Stencil block, for a file that is not in the shelf.
+
+Hold **S** and drag in the 3D view to place it: left button turns, middle moves, right scales.
+Hold **N** to paint without it for a moment.
+
 ### Stamp a normal map: the Normal Map Brush
 
 Open **Assets > Normal Maps** and **click** a normal map (a Starter pack map, or one you
