@@ -8,6 +8,7 @@ What changed in SubCraft, newest first. Download the latest build from the
 ### Added
 - Stitches with the Pen tool: choose the stitch first, then click along the seam. The Pen tool's Properties now open with a row of stitch tiles (Plain line, Straight, Cross, Zigzag, Staggered, Saddle, Double, Seam Holes), shown before any path exists and on every path, with the current one outlined. New paths are drawn as that stitch from the first point, at the stitch's own width, thread colour and raised Height. Clicking a Stitch brush in the Shelf while the Pen is in use keeps the Pen and applies the stitch (it used to switch to the Brush tool and leave a plain line). Before, the only way was a "Choose…" menu on a finished path.
 - Two new stitches: **Saddle** (thick slanted stitches, as on hand-sewn leather) and **Double** (two parallel rows, like the topstitching on jeans), as brushes in the Shelf and as pen stitches.
+- Stitches continue over UV seams. A stitched pen path now lies on the model's surface instead of in UV space: stitches keep the same size where the UV scale changes, and between two points on different UV islands the path runs straight over the surface, around edges too. Any stamped path can do this with **On the surface** in its Properties (on for stitches, off for paths made before). The path's line in the 3D view is drawn straight across a seam as well.
 - A stitch on a texture set without a Height channel says so and offers to add it, since it would be flat colour otherwise.
 
 ## 0.5.0 - 2026-11-22

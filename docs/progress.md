@@ -6058,3 +6058,29 @@ re-measured on a GPU. Not taken from his patch: the `SUBCRAFT_REPAINT_LOG` diagn
 * Not done: stitches still follow the path in UV space (a path over a UV seam breaks there), spacing is not fitted
   to the path length (the last gap can be shorter), and a seam (thread plus needle holes) is still two paths.
 
+## Stitches over UV seams: stamps on the surface (2026-11-23, branch `claude/project-thread-xwml9x`)
+
+* `PathStamp::surface` (serde default false, not written when false; on for the stitch presets, "On the surface"
+  checkbox for any stamped path). `paint/src/pen_surface.rs`: `SurfaceStamps::build(path, mesh, bvh, slot, res)`.
+  The curve of each segment is sampled in UV and taken to 3D through a UV grid of the texture set's triangles. A
+  segment is "continuous" when every sample is on the set and no 3D step is more than 6x its UV step; otherwise it
+  is routed over the surface: 24 chord samples pulled onto the surface (`Bvh::closest_point`), tightened 48 times
+  (each point to the surface under the middle of its neighbours), then gaps closed by `bridge` (midpoint
+  projection, down to half a radius). Stamps are placed by distance in 3D; radius in object units comes from the UV
+  scale under the first point on the surface. Each stamp paints texels within its square on triangles of the set
+  facing within 60 degrees of its normal and within one radius of its plane; the strongest stamp wins.
+* `PenRasterizer::with_surface`; the app passes the scene at pen release, resolution change and paste.
+* UI: `seam_aware_line` draws a surface path's segment straight between its points when its UV curve leaves the
+  island (hidden sample or a jump on screen).
+* Tests: `pen_surface::tests` (cube: one unbroken line of stamps over the front/top edge, spacing, both faces
+  covered; plane: same size and count as the UV path, coverage area within 10%), app
+  `a_stitched_path_continues_over_a_uv_seam`, doc `a_stamp_without_surface_is_a_uv_stamp`, ui
+  `a_surface_path_over_a_seam_is_drawn_straight_between_its_points`. Ran `cargo test -p subcraft-paint --lib pen`,
+  `-p subcraft-app --test pen`, `-p subcraft-doc --test pen`, `-p subcraft-ui --lib` (424 passed).
+* Images: `stitch_seam` example (cube, path over three faces) -> `docs/images/stitches-over-seams.png`;
+  `stitch_sheet` looks the same as with UV stamps on the plane.
+* Limits: the route over a seam is not an exact geodesic (around a cube edge it climbs straight to the edge, then
+  turns), tangent handles are ignored on a segment that crosses a seam, a stitch that straddles a sharp edge is cut
+  at the edge on each face, UDIM sets were not tested, and the timing on a dense mesh was not measured.
+* Not run in the real app window.
+

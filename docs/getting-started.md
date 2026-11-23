@@ -192,6 +192,11 @@ in the Shelf while the Pen is active does the same as its tile.
 
 ![Every stitch drawn along a pen path](images/stitches.png)
 
+Stitches lie on the model, not in UV space, so a seam can cross UV islands: put one point on each
+side and the stitches run over the surface between them.
+
+![A stitched path over three faces of a cube, each its own UV island](images/stitches-over-seams.png)
+
 ### Stamp a normal map: the Normal Map Brush
 
 Open **Assets > Normal Maps** and **click** a normal map (a Starter pack map, or one you
