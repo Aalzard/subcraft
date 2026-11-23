@@ -69,6 +69,7 @@ pub fn raw(kind: ProceduralKind, p: Vec2, scale: f32, seed: u32) -> f32 {
             let (f1, _) = worley(q * 3.0, period * 3, seed);
             1.0 - smooth((f1 - 0.08) / 0.12)
         }
+        ProceduralKind::Weave => weave(q, period, seed),
     }
 }
 
@@ -88,6 +89,28 @@ pub fn eval(params: &ProceduralParams, p: Vec2) -> f32 {
 pub fn remap(v: f32, balance: f32, contrast: f32) -> f32 {
     let width = (1.0 - contrast.clamp(0.0, 1.0)) * 0.5 + 1e-3;
     ((v - balance) / (2.0 * width) + 0.5).clamp(0.0, 1.0)
+}
+
+/// Threads across one unit of pattern space (even, so the over/under order tiles).
+const WEAVE_THREADS: i32 = 8;
+
+/// Plain weave: warp and weft threads crossing over and under each other. The value is the
+/// cloth's height: a thread is round across its width, highest where it passes over the other
+/// thread and dipping where it goes under. Each thread has its own slight thickness.
+fn weave(q: Vec2, period: i32, seed: u32) -> f32 {
+    let n = period * WEAVE_THREADS;
+    let t = q * WEAVE_THREADS as f32;
+    let cell = crate::noise::floor2(t);
+    let f = t - cell;
+    let (ix, iy) = ((cell.x as i32).rem_euclid(n), (cell.y as i32).rem_euclid(n));
+    // Even crossings: the vertical (warp) thread is on top; odd: the horizontal (weft) one.
+    let warp_on_top = (ix + iy) % 2 == 0;
+    let (across, along, thread) = if warp_on_top { (f.x, f.y, hash_f(ix, -1, seed)) } else { (f.y, f.x, hash_f(-1, iy, seed ^ 0x3c)) };
+    let round = (std::f32::consts::PI * across).sin().max(0.0).powf(0.6);
+    let over = 0.5 + 0.5 * (std::f32::consts::PI * along).sin();
+    // Fibres along the thread.
+    let fibre = if warp_on_top { value_xy(Vec2::new(t.x * 6.0, t.y * 0.5), n * 6, (n / 2).max(1), seed ^ 0x61) } else { value_xy(Vec2::new(t.x * 0.5, t.y * 6.0), (n / 2).max(1), n * 6, seed ^ 0x62) };
+    (round * (0.35 + 0.55 * over) * (0.86 + 0.14 * thread) + (fibre - 0.5) * 0.08).clamp(0.0, 1.0)
 }
 
 fn smooth(t: f32) -> f32 {
@@ -234,7 +257,7 @@ mod tests {
 
     #[test]
     fn uv_patterns_tile_at_integer_scale() {
-        for kind in [ProceduralKind::Clouds, ProceduralKind::Cells, ProceduralKind::Brushed, ProceduralKind::Grunge, ProceduralKind::WoodRings, ProceduralKind::Scratches, ProceduralKind::Dirt, ProceduralKind::Cracks, ProceduralKind::Streaks, ProceduralKind::Speckles, ProceduralKind::Pores] {
+        for kind in [ProceduralKind::Weave, ProceduralKind::Clouds, ProceduralKind::Cells, ProceduralKind::Brushed, ProceduralKind::Grunge, ProceduralKind::WoodRings, ProceduralKind::Scratches, ProceduralKind::Dirt, ProceduralKind::Cracks, ProceduralKind::Streaks, ProceduralKind::Speckles, ProceduralKind::Pores] {
             let params = ProceduralParams::new(kind);
             for k in 0..40 {
                 let p = Vec2::new(0.013 * k as f32, 0.71);
@@ -276,5 +299,31 @@ mod tests {
         assert!(across > 2.0 * along, "across {across} vs along {along}");
         let cracks = mean(ProceduralKind::Cracks, 5.0, 7);
         assert!(cracks < 0.35, "cracks should be thin: {cracks}");
+    }
+
+    /// Weave: threads alternate over and under (neighbouring crossings differ), every thread is
+    /// highest along its middle, and the cloth repeats `WEAVE_THREADS` times per unit.
+    #[test]
+    fn weave_alternates_over_and_under() {
+        let at = |x: f32, y: f32| raw(ProceduralKind::Weave, Vec2::new(x, y), 1.0, 3);
+        let step = 1.0 / WEAVE_THREADS as f32;
+        let (mut middle, mut edge) = (0.0, 0.0);
+        for i in 0..WEAVE_THREADS {
+            for j in 0..WEAVE_THREADS {
+                let (x, y) = ((i as f32 + 0.5) * step, (j as f32 + 0.5) * step);
+                middle += at(x, y);
+                // The corner between four crossings is the gap between threads.
+                edge += at(i as f32 * step + 1e-4, j as f32 * step + 1e-4);
+            }
+        }
+        let n = (WEAVE_THREADS * WEAVE_THREADS) as f32;
+        assert!(middle / n > 0.7 && edge / n < 0.15, "threads are raised, gaps are low: {} {}", middle / n, edge / n);
+        // On a warp-on-top crossing the profile is round across x; on the next one, across y.
+        let quarter = step * 0.15;
+        let c = step * 0.5;
+        let drop_x = |x: f32, y: f32| at(x, y) - at(x + c - quarter, y);
+        let drop_y = |x: f32, y: f32| at(x, y) - at(x, y + c - quarter);
+        assert!(drop_x(c, c) > 0.2 && drop_x(c, c) > drop_y(c, c) + 0.1, "crossing (0,0) is a vertical thread");
+        assert!(drop_y(c + step, c) > 0.2 && drop_y(c + step, c) > drop_x(c + step, c) + 0.1, "crossing (1,0) is a horizontal thread");
     }
 }

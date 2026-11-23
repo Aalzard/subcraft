@@ -154,6 +154,8 @@ pub struct TextureSetGeometry {
     /// Mesh part per triangle (computed on first use).
     parts: OnceLock<Arc<RegionIds>>,
     edges: Arc<OnceLock<super::edge_distance::SurfaceEdges>>,
+    /// Meters of surface per UV unit of this set's triangles (computed on first use).
+    uv_meters: OnceLock<f32>,
 }
 
 impl std::fmt::Debug for TextureSetGeometry {
@@ -197,7 +199,27 @@ impl TextureSetGeometry {
             tiles: (0..n).map(|_| OnceLock::new()).collect(),
             parts: OnceLock::new(),
             edges: Arc::new(OnceLock::new()),
+            uv_meters: OnceLock::new(),
         }
+    }
+
+    /// The real-world scale of this set's surface for Physical size fills: meters of model
+    /// surface per UV unit (the square root of the summed 3D area over the summed UV area of the
+    /// set's triangles) and the model's longest extent. A set
+    /// without UV area reports 1 m per UV unit.
+    pub fn surface_scale(&self) -> subcraft_doc::SurfaceScale {
+        let uv_meters = *self.uv_meters.get_or_init(|| {
+            let (mut world, mut uv) = (0.0f64, 0.0f64);
+            for t in self.mesh.material_triangles(self.material_slot) {
+                let [a, b, c] = self.mesh.tri_positions(t);
+                world += f64::from((b - a).cross(c - a).length()) * 0.5;
+                let [p, q, r] = self.mesh.tri_uvs(t);
+                uv += f64::from(((q - p).perp_dot(r - p)).abs()) * 0.5;
+            }
+            let unit = f64::from(self.mesh.meters_per_unit());
+            if uv > 1e-12 && world > 0.0 { ((world / uv).sqrt() * unit) as f32 } else { 1.0 }
+        });
+        subcraft_doc::SurfaceScale { uv_meters, extent_meters: self.max_extent * self.mesh.meters_per_unit() }
     }
 
     pub fn mesh(&self) -> &Arc<Mesh> {

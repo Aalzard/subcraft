@@ -6033,6 +6033,33 @@ re-measured on a GPU. Not taken from his patch: the `SUBCRAFT_REPAINT_LOG` diagn
   SignPath application is now `https://github.com/Aalzard/subcraft/blob/main/docs/CODE_SIGNING.md`.
 * Checked: every relative link in the touched Markdown files resolves (script over `](path)` targets).
 
+## Physical Size for fills (2026-11-23, branch `claude/project-thread-kj58iu`)
+
+* **Engine:** `Projection::physical_size: Option<[f32; 2]>` (centimeters per repeat; not written when off, so
+  older projects and readers are unaffected). `Projection::resolve_physical(SurfaceScale)` turns it into the
+  Tiling that gives that repeat on the surface: UV mode scales by meters of surface per UV unit (square root of
+  3D area over UV area of the set's triangles, `TextureSetGeometry::surface_scale`), planar / tri-planar / warp
+  by the model's longest extent in meters. Spherical and cylindrical repeat by angle and keep Tiling. Resolved
+  in the compositor's one fill entry (`tile::eval_fill`) and for mask Fill / Image effects, so caches,
+  thumbnails and exports see a plain tiling.
+* **Mesh unit:** FBX positions stay in the file's unit, so the default model (centimeters) measured 100x too
+  big. `Mesh::unit_meters` now records the FBX scene unit (0 = not stated, read as meters; glTF and USD are
+  already meters). Saved as an optional `UNIT` extension after the version 2 mesh blob: older SubCraft
+  versions stop reading before it and ignore it; files without it read as before.
+* **Properties:** UV transformations > Scale is now Tiling / Physical size (was a disabled dropdown). Physical
+  size shows Size (cm) X / Y with a lock (log slider 1 to 500 cm, typed values 0.01 cm to 1 km). The 2D view's
+  UV frame manipulator hides while Physical size is on (it edits Tiling).
+* **Tests:** doc (resolve math, degenerate surfaces, validity, JSON round trip), mesh (unit extension round
+  trip, old data unchanged), compositor `tests/physical_size.rs` (surface scale of 0.5 / 2 / 3 m planes,
+  a 200-unit centimeter plane reads as 2 m, Physical size equals the matching Tiling bit for bit in UV and
+  tri-planar, the same 25 cm repeat gives twice the cells on a plane twice as large). Full workspace:
+  2366 passed before the unit fix; mesh / materials / compositor / doc / project re-run after it, all pass.
+* **Real app (release, Xvfb + lavapipe):** `cargo run -p subcraft-app --example physical_size_project -- out
+  10|tiling` writes the default model with a checker fill. Screenshots `docs/screenshots/fill-physical-size-physical.png`
+  (10 cm) and `fill-physical-size-tiling.png` (Tiling 8): with Physical size the checker cells are the same size on
+  the sphere and the base; with Tiling they follow each part's UV density.
+* Not done: Physical size for brush materials (paint strokes keep Tiling), a per-project unit override for OBJ /
+  PLY / STL files saved in centimeters (they read as meters), a material resource's own physical size.
 ## Procedural materials with sliders (2026-11-23, branch `claude/project-thread-l9014a`, ADR-0047)
 
 * Format: a procedural material is an ordinary layer (a fill or a folder of masked fills) that carries
@@ -6240,3 +6267,36 @@ re-measured on a GPU. Not taken from his patch: the `SUBCRAFT_REPAINT_LOG` diagn
   "environment opacity"); no environment importance sampling (HDRI suns are noisy); no depth of field; SSS radius
   is a fixed fraction of the model size, not a setting; coat normal is ignored; glass casts tinted shadows without
   caustics; the denoiser's albedo guide does not know about transmission. Not checked on a real GPU.
+## Procedural materials: one parameter, several settings (2026-11-23, branch `claude/project-thread-l9014a`)
+
+* Engine (`crates/doc/src/material/author.rs`): `bindings_of`, `can_link` (same kind of value only), `link`
+  (formula is a ratio for sliders and colours, an offset for seeds, so the property keeps its value while the
+  parameter is at its default), `set_formula` (refused with the parser's reason when it does not evaluate),
+  `remove_binding`.
+* UI: in the gear mode each parameter lists what it drives (layer, effect, setting), with the formula in a text
+  field (applied when the field is left; an error stays under the field) and an X to stop driving it, plus an
+  "Also drive..." menu of compatible, not yet driven settings.
+* Ran: `cargo test -p subcraft-assets` (new `a_parameter_can_drive_several_properties`: on all 11 built-ins and
+  each kind of control, link every compatible property, nothing moves, wrong kinds and bad formulas are
+  refused); `crates/ui/tests/material_params.rs` click-through extended (Also drive > layer > Metallic gives
+  one parameter with two bindings and both formulas drawn); `cargo test -p subcraft-ui --lib`.
+* Not seen in a real window.
+
+## Procedural library: 14 more materials and a Weave pattern (2026-11-23, branch `claude/project-thread-l9014a`)
+
+* `ProceduralKind::Weave` (`crates/materials/src/pattern.rs`): plain weave, 8 threads per pattern unit, round
+  thread profile, over/under height, slight per-thread thickness and fibres. Tiles at integer scale. Tests:
+  it is in the tiling test, and `weave_alternates_over_and_under` checks raised threads, low gaps and that
+  neighbouring crossings run in different directions.
+* `crates/assets/src/procedural/more.rs`: Enamel Paint, Cast Iron, Anodized Aluminium, Blued Steel, Aged Bronze,
+  Glossy Plastic, Carbon Fibre, Canvas, Denim, Granite, Marble, Sandstone, Rough Rock, Painted Plaster. Shared
+  helpers `edge_coat`, `pattern_coat`, `dust_layer`. Built-in smart materials are now 64 (25 procedural).
+* The well-formed test now also refuses two bindings on one property (they fight and the layer never settles;
+  it caught this in the first draft of the cloth materials).
+* Ran: `cargo test -p subcraft-assets` (all pass), `cargo test -p subcraft-materials pattern` (8 pass),
+  `cargo test -p subcraft-app --test procedural_materials` (every material composites to finite in-range values).
+* Looked at: `material_sheet` renders of all 14 at 4 settings each, one tuning pass (finer and fewer scratches on
+  anodized and blued metal, dust and weave sizes, granite grains, marble veins broken up, plaster colours).
+* Honest state: metals, enamel paint, bronze, rock and sandstone read well. Fabrics are the weakest: the weave is
+  correct but small at this render size, and cloth has no sheen model. Marble veins come from a cell-crack
+  pattern and still look a little like a net.

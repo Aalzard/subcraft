@@ -657,7 +657,12 @@ pub fn smart_materials() -> Vec<SmartMaterial> {
         named("Leather", leather),
         named("Wood", wood),
     ]
+    .into_iter()
+    .chain(more::smart_materials())
+    .collect()
 }
+
+mod more;
 
 #[cfg(test)]
 mod tests {
@@ -672,7 +677,7 @@ mod tests {
     #[test]
     fn every_procedural_material_is_well_formed() {
         let all = built();
-        assert_eq!(all.len(), 11);
+        assert_eq!(all.len(), 25);
         for (name, layer) in &all {
             assert!(name.starts_with(PREFIX), "{name}");
             let m = layer.material.as_ref().unwrap_or_else(|| panic!("{name} has parameters"));
@@ -681,6 +686,10 @@ mod tests {
             assert!(m.params.len() >= 6, "{name} exposes a useful set of parameters");
             assert!(m.param("scale").is_some() && m.param("seed").is_some(), "{name} has Scale and Seed");
             assert!(m.is_default(), "{name} is built at its defaults");
+            // One binding per property: two would fight, and the layer would never settle.
+            for (i, b) in m.bindings.iter().enumerate() {
+                assert!(!m.bindings[..i].iter().any(|o| o.layer == b.layer && o.effect == b.effect && o.prop == b.prop), "{name}: {:?} is bound twice", b.prop);
+            }
             // Every parameter is read by at least one binding (no dead sliders).
             for p in &m.params {
                 let used = m.bindings.iter().any(|b| subcraft_doc::material_expr::params_used(&b.formula).unwrap().contains(&p.id));
@@ -762,5 +771,55 @@ mod tests {
             }
         }
         assert!(exposed > 300, "{exposed}");
+    }
+
+    /// One parameter driving several properties: linking keeps every property where it is,
+    /// then all of them follow the parameter. Formulas can be rewritten; bad ones are refused.
+    #[test]
+    fn a_parameter_can_drive_several_properties() {
+        for (name, built) in built() {
+            let mut plain = built.clone();
+            plain.material = None;
+            let list = subcraft_doc::material::exposable(&plain);
+            for kind in 0..3 {
+                let same: Vec<_> = list
+                    .iter()
+                    .filter(|e| matches!((kind, e.kind), (0, ParamKind::Float { .. }) | (1, ParamKind::Color { .. }) | (2, ParamKind::Seed { .. })))
+                    .collect();
+                if same.len() < 3 {
+                    continue;
+                }
+                let mut controls = MaterialControls::default();
+                let id = controls.expose(same[0]).unwrap();
+                let mut linked = 0;
+                for e in &same[1..] {
+                    assert!(controls.can_link(&id, e), "{name}: {e:?}");
+                    assert!(controls.link(&id, e) && !controls.link(&id, e), "linked once");
+                    linked += 1;
+                }
+                assert_eq!(controls.bindings_of(&id).len(), linked + 1);
+                assert!(controls.check(&plain).is_empty(), "{name}: {:?}", controls.check(&plain));
+                // Nothing moved by linking (ratios are written with 4 decimals, so allow that).
+                let mut same_layer = plain.clone();
+                controls.apply(&mut same_layer);
+                for e in subcraft_doc::material::exposable(&same_layer).iter().zip(&list) {
+                    let (now, before) = (e.0.kind.default_value().as_value(), e.1.kind.default_value().as_value());
+                    for c in 0..3 {
+                        assert!((now[c] - before[c]).abs() <= 2e-3 * before[c].abs().max(1.0), "{name}: {} of {} moved from {before:?} to {now:?}", e.1.label, e.1.layer_name);
+                    }
+                }
+                // A different kind of control cannot be linked.
+                if let Some(other) = list.iter().find(|e| std::mem::discriminant(&e.kind) != std::mem::discriminant(&same[0].kind)) {
+                    assert!(!controls.can_link(&id, other) && !controls.link(&id, other));
+                }
+                // Formulas: rewritten, refused with a reason, removed.
+                assert_eq!(controls.set_formula(1, &format!("{id} * 0.5 + 0.125")), Ok(true));
+                assert_eq!(controls.set_formula(1, &format!("{id} * 0.5 + 0.125")), Ok(false));
+                assert!(controls.set_formula(1, "nobody + 1").unwrap_err().contains("nobody"));
+                assert!(controls.set_formula(1, "1 +").is_err());
+                assert_eq!(controls.bindings[1].formula, format!("{id} * 0.5 + 0.125"), "a refused formula changes nothing");
+                assert!(controls.remove_binding(1) && controls.bindings_of(&id).len() == linked);
+            }
+        }
     }
 }
