@@ -198,6 +198,10 @@ fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]], input: 
         eval_mask_builder(g, tc, out, details);
         return;
     }
+    if g.kind == GeneratorKind::DrippingRust {
+        crate::drip::eval(g, tc, out);
+        return;
+    }
     let input = input.filter(|_| g.accepts_input());
     if g.kind == GeneratorKind::Edges && let Some(spread) = g.edge_spread {
         eval_edge_spread(g, spread, tc, out, input, details);
@@ -209,7 +213,7 @@ fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]], input: 
         GeneratorKind::Edges | GeneratorKind::Concave => Some(MeshMapKind::Curvature),
         GeneratorKind::Cavity | GeneratorKind::AmbientOcclusion => Some(MeshMapKind::AmbientOcclusion),
         GeneratorKind::MeshMap(k) => Some(k),
-        GeneratorKind::Directional | GeneratorKind::PositionGradient | GeneratorKind::MaskEditor | GeneratorKind::FiberGlass | GeneratorKind::MaskBuilder => None,
+        GeneratorKind::Directional | GeneratorKind::PositionGradient | GeneratorKind::MaskEditor | GeneratorKind::FiberGlass | GeneratorKind::MaskBuilder | GeneratorKind::DrippingRust => None,
         GeneratorKind::Distance3D | GeneratorKind::LinearGradient3D | GeneratorKind::UvRandomColor | GeneratorKind::GrayscaleConversion | GeneratorKind::UvBorderDistance | GeneratorKind::UvChecker | GeneratorKind::UvTexelDensity => None,
     };
     match (input, map_kind) {
@@ -286,7 +290,7 @@ fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]], input: 
             GeneratorKind::Concave => 1.0 - map[i][0],
             GeneratorKind::PositionGradient => (geo.position(i)[axis] * set.max_extent / ext_axis).clamp(0.0, 1.0),
             // Handled above.
-            GeneratorKind::MaskEditor | GeneratorKind::FiberGlass | GeneratorKind::MaskBuilder | GeneratorKind::Distance3D | GeneratorKind::LinearGradient3D | GeneratorKind::UvRandomColor | GeneratorKind::GrayscaleConversion | GeneratorKind::UvBorderDistance | GeneratorKind::UvChecker | GeneratorKind::UvTexelDensity => 0.0,
+            GeneratorKind::MaskEditor | GeneratorKind::FiberGlass | GeneratorKind::MaskBuilder | GeneratorKind::DrippingRust | GeneratorKind::Distance3D | GeneratorKind::LinearGradient3D | GeneratorKind::UvRandomColor | GeneratorKind::GrayscaleConversion | GeneratorKind::UvBorderDistance | GeneratorKind::UvChecker | GeneratorKind::UvTexelDensity => 0.0,
         };
         let level = if let Some(noise) = &noise {
             g.level + (noise[i] - 0.5) * g.noise_amount

@@ -9,6 +9,7 @@
 pub mod blend;
 pub mod cache;
 pub mod curvature;
+mod drip;
 pub mod gpu;
 pub mod prefix;
 pub mod strength;

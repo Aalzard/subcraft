@@ -126,7 +126,7 @@ fn random_mask_effect(r: &mut Rng) -> MaskEffectKind {
             MaskEffectKind::Fill { value: 1.0, procedural: Some(p), projection: Projection::default() }
         }
         2 | 3 => {
-            let kinds = [GeneratorKind::Edges, GeneratorKind::Cavity, GeneratorKind::Directional, GeneratorKind::PositionGradient, GeneratorKind::Concave, GeneratorKind::AmbientOcclusion];
+            let kinds = [GeneratorKind::Edges, GeneratorKind::Cavity, GeneratorKind::Directional, GeneratorKind::PositionGradient, GeneratorKind::Concave, GeneratorKind::AmbientOcclusion, GeneratorKind::DrippingRust];
             let mut g = Generator::new(kinds[r.below(kinds.len())]);
             g.level = r.unit();
             g.noise_amount = r.unit();

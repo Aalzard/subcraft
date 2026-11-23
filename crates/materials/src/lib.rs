@@ -6,6 +6,7 @@ pub mod filter;
 pub mod grunge;
 pub mod organic;
 pub mod chips;
+pub mod drip;
 pub mod matfx;
 pub mod weave;
 pub mod pattern;

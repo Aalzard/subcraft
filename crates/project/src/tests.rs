@@ -1425,7 +1425,13 @@ fn fiber_glass_and_mask_builder_generators_round_trip_and_are_checked() {
     fiber.fiber = Some(FiberSettings { amount: 0.4, scale: 220.0, irregularity: 0.1, triplanar: false });
     let mut builder = Generator::new(GeneratorKind::MaskBuilder);
     builder.builder = Some(MaskBuilder { grunge: 0.7, scratches: 0.3, normal: [0.1, 0.2, 0.3, 0.4, 0.5, 0.6], concave_invert: true, ..MaskBuilder::default() });
-    for g in [fiber, builder] {
+    let mut drip = Generator::new(GeneratorKind::DrippingRust);
+    drip.drip = Some(subcraft_doc::DripSettings { contrast: 0.8, intensity: 0.4, smoothness: 0.9, length: 0.6 });
+    drip.axis = subcraft_doc::GradientAxis::Z;
+    let bad_drip = Generator { drip: Some(subcraft_doc::DripSettings { length: 3.0, ..Default::default() }), ..drip };
+    let err = read_project(Cursor::new(bytes(&doc_with(bad_drip)))).unwrap_err();
+    assert!(matches!(err, ProjectError::Invalid(ref m) if m.contains("Dripping Rust")), "{err}");
+    for g in [fiber, builder, drip] {
         let loaded = read_project(Cursor::new(bytes(&doc_with(g)))).unwrap();
         let effects = &loaded.document.texture_sets[0].layers[0].mask.as_ref().unwrap().effects;
         assert!(matches!(&effects[0].kind, MaskEffectKind::Generator(back) if *back == g));

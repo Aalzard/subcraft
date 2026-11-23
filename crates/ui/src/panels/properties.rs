@@ -628,6 +628,7 @@ pub(crate) fn content_generator_controls(ui: &mut Ui, state: &mut UiState, g: &m
     changed |= level_controls(ui, g);
     changed |= painter_controls(ui, g);
     changed |= fiber_controls(ui, g);
+    changed |= drip_controls(ui, g);
     let d = subcraft_doc::Generator::new(g.kind);
     changed |= prop_row_reset(ui, tr("Seed"), &mut g.noise.seed, d.noise.seed, |ui, seed| {
         let mut r = ui.add(egui::DragValue::new(seed).speed(1.));
@@ -643,7 +644,7 @@ pub(crate) fn content_generator_controls(ui: &mut Ui, state: &mut UiState, g: &m
 
 /// Every generator a mask can hold, in the order the Generator dropdown and the Shelf list them.
 pub fn all_generator_kinds() -> Vec<GeneratorKind> {
-    [GeneratorKind::Edges, GeneratorKind::FiberGlass, GeneratorKind::Cavity, GeneratorKind::AmbientOcclusion, GeneratorKind::Concave, GeneratorKind::Directional, GeneratorKind::PositionGradient, GeneratorKind::MaskEditor, GeneratorKind::MaskBuilder,
+    [GeneratorKind::Edges, GeneratorKind::FiberGlass, GeneratorKind::Cavity, GeneratorKind::AmbientOcclusion, GeneratorKind::Concave, GeneratorKind::DrippingRust, GeneratorKind::Directional, GeneratorKind::PositionGradient, GeneratorKind::MaskEditor, GeneratorKind::MaskBuilder,
         GeneratorKind::Distance3D, GeneratorKind::LinearGradient3D, GeneratorKind::UvRandomColor, GeneratorKind::GrayscaleConversion,
         GeneratorKind::UvBorderDistance, GeneratorKind::UvChecker, GeneratorKind::UvTexelDensity]
         .into_iter().chain(MeshMapKind::ALL.into_iter().map(GeneratorKind::MeshMap)).collect()
@@ -792,6 +793,29 @@ fn fiber_controls(ui: &mut Ui, g: &mut subcraft_doc::Generator) -> bool {
         return false;
     }
     g.fiber = Some(f);
+    true
+}
+
+/// The rust border and the drips of a Dripping Rust (nothing for other kinds).
+fn drip_controls(ui: &mut Ui, g: &mut subcraft_doc::Generator) -> bool {
+    if g.kind != GeneratorKind::DrippingRust {
+        return false;
+    }
+    let mut s = g.drip_settings();
+    let before = s;
+    let d = subcraft_doc::DripSettings::default();
+    slider_row_reset(ui, tr("Rust Contrast"), &mut s.contrast, d.contrast, |v| egui::Slider::new(v, 0.0..=1.0))
+        .on_hover_text(tr("How hard the border of the rust and the end of each drip are."));
+    slider_row_reset(ui, tr("Drips Intensity"), &mut s.intensity, d.intensity, |v| egui::Slider::new(v, 0.0..=1.0))
+        .on_hover_text(tr("How strongly the streaks show under the rust. 0 = no drips."));
+    slider_row_reset(ui, tr("Drips Smoothness"), &mut s.smoothness, d.smoothness, |v| egui::Slider::new(v, 0.0..=1.0))
+        .on_hover_text(tr("How much neighbouring streaks merge on their way down. 0 = thin, separate streaks."));
+    slider_row_reset(ui, tr("Drips Length"), &mut s.length, d.length, |v| egui::Slider::new(v, 0.0..=1.0))
+        .on_hover_text(tr("How far the drips run down the surface, as a share of the model's height."));
+    if s == before {
+        return false;
+    }
+    g.drip = Some(s);
     true
 }
 
@@ -1021,10 +1045,12 @@ fn level_controls(ui: &mut Ui, g: &mut subcraft_doc::Generator) -> bool {
             changed = true;
         }
     } else {
-        changed |= slider_row_reset(ui, tr("Level"), &mut g.level, d.level, |v| egui::Slider::new(v, 0.0..=1.0).max_decimals(3)).on_hover_text("Threshold for the generator's source values.").changed();
-        changed |= slider_row_reset(ui, tr("Softness"), &mut g.softness, d.softness, |v| egui::Slider::new(v, 0.0..=1.0)).changed();
+        let (level, softness) = if g.kind == GeneratorKind::DrippingRust { (tr("Rust Spreading"), tr("Spreading Smoothness")) } else { (tr("Level"), tr("Softness")) };
+        let tip = if g.kind == GeneratorKind::DrippingRust { "How far the rust spreads from the edges and cavities: 0 = no rust, 1 = nearly everywhere (Painter's Rust Spreading)." } else { "Threshold for the generator's source values." };
+        changed |= slider_row_reset(ui, level, &mut g.level, d.level, |v| egui::Slider::new(v, 0.0..=1.0).max_decimals(3)).on_hover_text(tip).changed();
+        changed |= slider_row_reset(ui, softness, &mut g.softness, d.softness, |v| egui::Slider::new(v, 0.0..=1.0)).changed();
     }
-    let breakup = if matches!(g.kind, GeneratorKind::Cavity | GeneratorKind::Edges | GeneratorKind::FiberGlass) { tr("Grunge Amount") } else { tr("Breakup") };
+    let breakup = if matches!(g.kind, GeneratorKind::Cavity | GeneratorKind::Edges | GeneratorKind::FiberGlass | GeneratorKind::DrippingRust) { tr("Grunge Amount") } else { tr("Breakup") };
     changed |= slider_row_reset(ui, breakup, &mut g.noise_amount, d.noise_amount, |v| egui::Slider::new(v, 0.0..=1.0)).on_hover_text("How much the grunge breaks the mask up (0 = smooth).").changed();
     changed
 }
@@ -1034,6 +1060,10 @@ fn level_controls(ui: &mut Ui, g: &mut subcraft_doc::Generator) -> bool {
 /// Edges smoothness, and Grain speckles every kind except the plain curvature threshold. Untouched
 /// generators keep `painter: None` (their exact older look); the first change stores the controls.
 fn painter_controls(ui: &mut Ui, g: &mut subcraft_doc::Generator) -> bool {
+    if g.kind == GeneratorKind::DrippingRust {
+        // Its own controls ([`drip_controls`]); it reads none of these.
+        return false;
+    }
     let natural_edges = g.kind.is_edge_wear() && g.edge_spread.is_some();
     let mut pc = g.painter.unwrap_or_default();
     let before = pc;
@@ -1198,8 +1228,8 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
                             hint(ui, tr("The anchor replaces the baked map this generator reads (curvature for Edges and Concave, occlusion for Dirt and Ambient Occlusion)."));
                         }
                     }
-                    if g.kind == GeneratorKind::PositionGradient {
-                        changed |= prop_row_reset(ui, tr("Axis"), &mut g.axis, dg.axis, |ui, v| {
+                    if matches!(g.kind, GeneratorKind::PositionGradient | GeneratorKind::DrippingRust) {
+                        changed |= prop_row_reset(ui, if g.kind == GeneratorKind::DrippingRust { tr("Up axis") } else { tr("Axis") }, &mut g.axis, dg.axis, |ui, v| {
                             let mut r = ui.selectable_value(v, subcraft_doc::GradientAxis::ALL[0], subcraft_doc::GradientAxis::ALL[0].label());
                             for axis in &subcraft_doc::GradientAxis::ALL[1..] {
                                 r |= ui.selectable_value(v, *axis, axis.label());
@@ -1246,6 +1276,7 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
                     }
                     changed |= painter_controls(ui, g);
                     changed |= fiber_controls(ui, g);
+    changed |= drip_controls(ui, g);
                     if custom_grunge_row(ui, state, g, &mut changed) {
                         crate::files::pick(ui.ctx(), crate::files::Purpose::GeneratorGrunge { layer, effect: e.id }, crate::files::IMAGES, false, None);
                     }

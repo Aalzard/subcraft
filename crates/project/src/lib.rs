@@ -533,6 +533,9 @@ impl<R: Read + Seek> Loader<'_, R> {
         if generator.fiber.as_ref().is_some_and(|f| !f.valid()) {
             return Err(ProjectError::Invalid("invalid Fiber Glass Edge Wear settings".into()));
         }
+        if generator.drip.as_ref().is_some_and(|d| !d.valid()) {
+            return Err(ProjectError::Invalid("invalid Dripping Rust settings".into()));
+        }
         if generator.builder.as_ref().is_some_and(|b| !b.valid()) {
             return Err(ProjectError::Invalid("invalid Mask Builder settings".into()));
         }
