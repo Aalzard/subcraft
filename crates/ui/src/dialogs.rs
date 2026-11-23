@@ -31,6 +31,8 @@ pub enum Pending {
     OpenRecent,
     /// Import a Painter `.spp`: the dropped one (`UiState::dropped_model`), else pick one.
     ImportPainter,
+    /// Open the version picked in File > Version history (`VersionsUi::pending`).
+    RestoreVersion,
 }
 
 pub struct ExportUi {
@@ -118,7 +120,10 @@ pub fn save(state: &mut UiState, save_as: bool, now: f64) -> bool {
     } else {
         None
     };
-    match state.session.save(path.as_deref()) {
+    state.session.set_keep_versions(state.recovery.prefs.keep_versions);
+    let saved = state.session.save(path.as_deref());
+    state.versions.refresh();
+    match saved {
         Ok(p) => {
             state.welcome.remember(&p);
             state.set_status(format!("Saved {}", p.display()), now);
@@ -162,6 +167,7 @@ pub fn run_pending(state: &mut UiState, action: Pending, ctx: &egui::Context, _n
             state.new_project.show_window(&state.recovery.prefs.new_project.clone());
             if let Some(model) = state.dropped_model.take() { state.new_project.load_model(&model); }
         }
+        Pending::RestoreVersion => crate::versions::restore_pending(state, _now),
         Pending::OpenProject => crate::files::pick_with_filters(crate::files::Purpose::OpenProject, &crate::files::OPEN_FILTERS, None),
         Pending::ImportPainter => match state.dropped_model.take() {
             Some(path) => crate::spp_import::start(state, &path),

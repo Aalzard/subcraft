@@ -1877,6 +1877,11 @@ impl SubcraftApp {
                     ui.close();
                     crate::save_template::open(&mut self.state);
                 }
+                if item(ui, icons::HISTORY, tr("Version history…"), "") {
+                    ui.close();
+                    self.state.versions.open = true;
+                    self.state.versions.refresh();
+                }
                 ui.separator();
                 ui.menu_button(format!("{}   {}", icons::IMAGE, tr("Import resources")), |ui| {
                     ui.set_min_width(220.0);
@@ -2740,6 +2745,9 @@ impl eframe::App for SubcraftApp {
         crate::auto_uv::window(&mut self.state, &ctx, now);
         crate::uv_sets::poll(&mut self.state, &ctx, now);
         crate::live_link::window(&mut self.state, &ctx, now);
+        if let Some(p) = crate::versions::window(&mut self.state, &ctx) {
+            self.request(p, now);
+        }
         dialogs::poll_bake(&mut self.state, &ctx, now);
         panels::id_colors::sync_pick_view(&mut self.state);
         crate::spp_import::poll(&mut self.state, &ctx, now);

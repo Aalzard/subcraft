@@ -60,6 +60,8 @@ pub struct Preferences {
     pub autosave_minutes: u32,
     /// Recovery copies kept.
     pub autosave_keep: usize,
+    /// Earlier saves kept next to the project file (File > Version history); 0 turns it off.
+    pub keep_versions: usize,
     /// Painter's maximum number of history (undo) steps.
     pub history_steps: u32,
     pub show_welcome: bool,
@@ -163,6 +165,7 @@ impl Default for Preferences {
             default_library: crate::panels::shelf_filter::YOURS.to_string(),
             autosave_minutes: (recovery::DEFAULT_INTERVAL.as_secs() / 60) as u32,
             autosave_keep: recovery::DEFAULT_KEEP,
+            keep_versions: subcraft_app::versions::DEFAULT_KEEP,
             history_steps: DEFAULT_HISTORY_STEPS,
             show_welcome: true,
             check_updates_on_start: true,
@@ -531,6 +534,11 @@ pub fn preferences_window(state: &mut UiState, ctx: &egui::Context) {
             let l = dim_label(ui, tr("Keep"));
             let r = ui.add(egui::Slider::new(&mut rec.prefs.autosave_keep, 1..=10).suffix(" copies"));
             crate::reset_row::reset(ui, &l, &r, &mut rec.prefs.autosave_keep, &d.autosave_keep);
+            ui.end_row();
+            let l = dim_label(ui, tr("Versions"));
+            let r = ui.add(egui::Slider::new(&mut rec.prefs.keep_versions, 0..=50).suffix(" saves").custom_formatter(|v, _| if v == 0.0 { "off".into() } else { format!("{v}") }))
+                .on_hover_text(tr("Each Save keeps the file it replaces in a folder next to the project (File > Version history)."));
+            crate::reset_row::reset(ui, &l, &r, &mut rec.prefs.keep_versions, &d.keep_versions);
             ui.end_row();
             let l = dim_label(ui, "History");
             let r = ui.add(egui::Slider::new(&mut rec.prefs.history_steps, HISTORY_STEPS_RANGE).suffix(" steps"))

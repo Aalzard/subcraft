@@ -350,6 +350,8 @@ pub struct Session {
     pub(crate) revision: u64,
     layer_counter: u32,
     project_path: Option<PathBuf>,
+    /// Versions of the project file kept when Save replaces it ([`crate::versions`]; 0 = off).
+    keep_versions: usize,
     /// Document as of the last save / load / new (for the unsaved-changes indicator).
     saved_doc: Document,
     /// Saved with the project but outside the undo history (export choices, normal format).
@@ -471,6 +473,7 @@ impl Session {
             revision: 0,
             layer_counter,
             project_path: None,
+            keep_versions: 0,
             maps_dirty: false,
             maps_generation: 0,
             recovered: false,
@@ -512,6 +515,10 @@ impl Session {
             None => return Err("no project path: use Save As".into()),
         };
         let maps: subcraft_project::MeshMapSet = self.mesh_maps.keys().map(|id| (*id, self.stored_mesh_maps(*id))).collect();
+        // Keep what this save replaces; a failure to keep it must not stop the save itself.
+        if let Err(e) = crate::versions::snapshot(&path, self.keep_versions, std::time::SystemTime::now()) {
+            log::warn!("version history: {e}");
+        }
         subcraft_project::save_project_with(&path, &self.scene.mesh, &self.doc, &self.resources, &maps, &self.settings).map_err(|e| e.to_string())?;
         self.project_path = Some(path.clone());
         self.saved_doc = self.doc.clone();
@@ -569,6 +576,15 @@ impl Session {
 
     pub fn project_path(&self) -> Option<&Path> {
         self.project_path.as_deref()
+    }
+
+    /// How many earlier versions Save keeps of the project file (0 turns version history off).
+    pub fn set_keep_versions(&mut self, keep: usize) {
+        self.keep_versions = keep;
+    }
+
+    pub fn keep_versions(&self) -> usize {
+        self.keep_versions
     }
 
     /// True if the document differs from the last save / load.
