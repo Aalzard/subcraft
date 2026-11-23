@@ -299,7 +299,7 @@ fn weathered_materials_follow_their_wear_age_and_dirt_macros() {
     fn filters(l: &Layer) -> usize {
         l.content_effects.iter().filter(|e| matches!(e.kind, ContentEffectKind::Material(_))).count() + l.children().iter().map(|c| filters(c)).sum::<usize>()
     }
-    for name in ["Rusty Painted Steel", "Chipped Enamel", "Scuffed Gun Metal", "Worn Leather Strap", "Dusty Plastic"] {
+    for name in ["Rusty Painted Steel", "Chipped Enamel", "Scuffed Gun Metal", "Worn Leather Strap", "Dusty Plastic", "Galvanized Steel", "Powder Coated Metal", "Hammered Copper", "Raw Steel Plate"] {
         let mut s = baked_crate();
         let id = apply(&mut s, &format!("Procedural {name}"));
         assert!(filters(layer(&s, id)) >= 1, "{name} uses a material filter");
