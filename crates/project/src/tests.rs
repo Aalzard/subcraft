@@ -1404,3 +1404,36 @@ fn file_load_matches_the_sequential_reader() {
     assert_eq!(load_project(&path).unwrap_err().to_string(), expected);
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+/// The Fiber Glass Edge Wear and Mask Builder generators keep their settings through a project
+/// file, and out-of-range settings are refused.
+#[test]
+fn fiber_glass_and_mask_builder_generators_round_trip_and_are_checked() {
+    use subcraft_doc::{FiberSettings, Generator, GeneratorKind, Mask, MaskBuilder, MaskEffect, MaskEffectKind};
+    let doc_with = |g: Generator| {
+        let mut ts = TextureSet::new("Body", 0, 128);
+        let tc = ts.clone();
+        let mut layer = Layer::new_fill("Fill", &tc);
+        let mut mask = Mask::new(128, false);
+        mask.effects.push(std::sync::Arc::new(MaskEffect::new(MaskEffectKind::Generator(g))));
+        layer.mask = Some(mask);
+        ts.insert_above(None, layer);
+        Document { texture_sets: vec![ts] }
+    };
+    let bytes = |doc: &Document| write_project(Cursor::new(Vec::new()), &primitives::cube(2.), doc, &ResourceStore::default(), &MeshMapSet::new()).unwrap().into_inner();
+    let mut fiber = Generator::new(GeneratorKind::FiberGlass);
+    fiber.fiber = Some(FiberSettings { amount: 0.4, scale: 220.0, irregularity: 0.1, triplanar: false });
+    let mut builder = Generator::new(GeneratorKind::MaskBuilder);
+    builder.builder = Some(MaskBuilder { grunge: 0.7, scratches: 0.3, normal: [0.1, 0.2, 0.3, 0.4, 0.5, 0.6], concave_invert: true, ..MaskBuilder::default() });
+    for g in [fiber, builder] {
+        let loaded = read_project(Cursor::new(bytes(&doc_with(g)))).unwrap();
+        let effects = &loaded.document.texture_sets[0].layers[0].mask.as_ref().unwrap().effects;
+        assert!(matches!(&effects[0].kind, MaskEffectKind::Generator(back) if *back == g));
+    }
+    fiber.fiber = Some(FiberSettings { scale: 1.0e30, ..FiberSettings::default() });
+    let err = read_project(Cursor::new(bytes(&doc_with(fiber)))).unwrap_err();
+    assert!(matches!(err, ProjectError::Invalid(ref m) if m.contains("Fiber Glass")), "{err}");
+    builder.builder = Some(MaskBuilder { ao_contrast: 7.0, ..MaskBuilder::default() });
+    let err = read_project(Cursor::new(bytes(&doc_with(builder)))).unwrap_err();
+    assert!(matches!(err, ProjectError::Invalid(ref m) if m.contains("Mask Builder")), "{err}");
+}

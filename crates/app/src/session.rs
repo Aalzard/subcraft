@@ -1512,6 +1512,11 @@ impl Session {
                 Command::SetBlendOpacity { layer, channel, opacity } if self.has_udim_partners(layer) => {
                     return self.execute_across_udims(layer, cmd, move |l| Command::SetBlendOpacity { layer: l, channel, opacity });
                 }
+                // Fill, projection and effect edits of a material that is on every tile (issue
+                // #581: one material controls the whole object, not one copy per tile).
+                _ if crate::udim_mirror::mirrored_layer(&cmd).is_some_and(|l| self.has_udim_partners(l)) => {
+                    return self.execute_mirrored_across_udims(cmd);
+                }
                 _ => {}
             }
         }
@@ -1891,7 +1896,7 @@ impl Session {
                 // Text layers are re-rendered from their outlines instead of resampled.
                 crate::text::refresh_text_rasters(&mut self.doc, &self.resources, &resized);
                 // Pen paths too: their raster is a cache of the path.
-                crate::pen::refresh_path_rasters(&mut self.doc, &self.resources, &resized);
+                crate::pen::refresh_path_rasters(&mut self.doc, &self.resources, &resized, &self.scene);
                 if changed {
                     self.commit(&format!("Resolution {resolution}"), None);
                     self.fit_quick_mask();
@@ -2195,7 +2200,7 @@ impl Session {
                 for r in &clip.resources {
                     self.resources.insert_shared(r.clone());
                 }
-                let layers = redraw_pasted(clip.instantiate(ts, mesh), clip.resolution, ts.resolution, &self.resources);
+                let layers = redraw_pasted(clip.instantiate(ts, mesh), clip.resolution, ts.resolution, &self.resources, &self.scene, ts.material_slot);
                 for mut layer in layers {
                     layer.name = crate::clipboard::pasted_name(ts, &layer.name);
                     at = Some(ts.insert_above(at, layer));
@@ -2466,11 +2471,11 @@ impl Session {
                     return Err(CommandError::Invalid("Layer content cannot be pasted into a folder".into()));
                 }
                 // Fresh effect ids and rasters at this set's resolution, like a pasted layer.
-                let (pasted, resolution) = (clip.instantiate(ts, mesh), ts.resolution);
+                let (pasted, resolution, slot) = (clip.instantiate(ts, mesh), ts.resolution, ts.material_slot);
                 for r in &clip.resources {
                     self.resources.insert_shared(r.clone());
                 }
-                let pasted = redraw_pasted(pasted, clip.resolution, resolution, &self.resources).pop().ok_or(CommandError::LayerNotFound)?;
+                let pasted = redraw_pasted(pasted, clip.resolution, resolution, &self.resources, &self.scene, slot).pop().ok_or(CommandError::LayerNotFound)?;
                 self.edit_layer_set(layer, "Paste Layer Content", None, |ts| {
                     let l = Self::layer_mut(ts, layer)?;
                     l.content = pasted.content;
@@ -3293,6 +3298,14 @@ impl Session {
         }
     }
 
+    /// Pen tilt / rotation for the following stroke points (`None` for a mouse or a pen that
+    /// reports neither).
+    pub fn set_stroke_pen_pose(&mut self, pose: Option<subcraft_paint::PenPose>) {
+        if let Some(active) = self.stroke.as_mut() {
+            active.stroke.set_pen_pose(pose);
+        }
+    }
+
     /// Continue the stroke to a screen position (`line`: straight segment, no lazy mouse).
     pub fn stroke_to(&mut self, camera: &Camera, screen: Vec2, line: bool) -> Result<Vec<usize>, PaintError> {
         let Some(mut active) = self.stroke.take() else { return Ok(Vec::new()) };
@@ -3716,6 +3729,53 @@ impl Session {
             }
             // Partner tiles never take the selection.
             (self.selection, self.brush.target, self.effect) = after;
+            self.squash_since(pushes);
+            self.revision += 1;
+        }
+        self.across_udims = false;
+        (self.across_group, self.across_key) = (false, None);
+        result
+    }
+
+    /// A layer edit on the source tile, then the same edit (see [`crate::udim_mirror`]) on the
+    /// matching layer of every partner UDIM tile whose layer lines up. One undo step; slider
+    /// drags keep coalescing. Partner tiles never take the selection.
+    fn execute_mirrored_across_udims(&mut self, cmd: Command) -> Result<(), CommandError> {
+        let Some(layer) = crate::udim_mirror::mirrored_layer(&cmd) else { return self.execute_once(cmd) };
+        let Some(source_ts) = self.texture_set_of(layer).and_then(|id| self.doc.texture_set(id)).cloned() else { return self.execute_once(cmd) };
+        let Some(source) = source_ts.find(layer) else { return self.execute_once(cmd) };
+        let (sel_mask, sel_content) = (self.selected_effect_in(layer, LayerTarget::Mask), self.selected_effect_in(layer, LayerTarget::Content));
+        let partner_cmds: Vec<Command> = self
+            .doc
+            .udim_paint_partners(source_ts.id)
+            .into_iter()
+            .filter_map(|id| {
+                let ts = self.doc.texture_set(id)?;
+                let partner = ts.find(ts.corresponding_layer(&source_ts, layer)?)?;
+                crate::udim_mirror::partner_command(&cmd, source, partner, ts.resolution, sel_mask, sel_content)
+            })
+            .collect();
+        self.execute_with_partner_commands(cmd, partner_cmds)
+    }
+
+    /// `cmd`, then `partner_cmds` (the same edit on other UDIM tiles), as one undo step; partner
+    /// tiles never take the selection. Partner failures are logged, not returned.
+    pub(crate) fn execute_with_partner_commands(&mut self, cmd: Command, partner_cmds: Vec<Command>) -> Result<(), CommandError> {
+        if partner_cmds.is_empty() {
+            return self.execute_once(cmd);
+        }
+        let pushes = self.history.pushes();
+        self.across_udims = true;
+        (self.across_group, self.across_key) = (true, None);
+        let result = self.execute(cmd);
+        if result.is_ok() {
+            let after = (self.selection, self.brush.target, self.effect);
+            for c in partner_cmds {
+                if let Err(e) = self.execute(c) {
+                    log::warn!("UDIM tile: {e}");
+                }
+                (self.selection, self.brush.target, self.effect) = after;
+            }
             self.squash_since(pushes);
             self.revision += 1;
         }
@@ -4208,7 +4268,15 @@ impl Session {
             self.resources.insert_shared(r.clone());
         }
         let ids = self.import_preset_images(smart.images())?;
-        let layer = smart.build_with(self.selected_texture_set(), &ids);
+        // Cloth brings sheen: build as if the set had the sheen channels; the ones the material
+        // fills are added below, with the layer, as one undo step.
+        let mut wide = self.selected_texture_set().clone();
+        for k in crate::smart_import::OFFERED_ON_APPLY {
+            if !wide.has_channel(k) {
+                wide.channels.push(subcraft_doc::ChannelDef::default_for(k));
+            }
+        }
+        let layer = smart.build_with(&wide, &ids);
         let label = format!("Smart Material: {}", smart.name);
         // Imported texture materials may bring AO / emissive / opacity maps the set lacks.
         let missing: Vec<_> = crate::smart_import::channels_to_add(&layer).into_iter().filter(|&k| !self.selected_texture_set().has_channel(k)).collect();
@@ -4399,12 +4467,12 @@ fn add_blend(layers: &mut [Arc<Layer>], channel: ChannelKind) {
 /// Layers pasted from a set of another resolution: their text and pen path rasters are drawn
 /// again at `to` (resampled, a path or text from 512 pasted at 4096 came out blurred, and was
 /// exported that way until its next edit).
-fn redraw_pasted(layers: Vec<Layer>, from: u32, to: u32, resources: &ResourceStore) -> Vec<Layer> {
+fn redraw_pasted(layers: Vec<Layer>, from: u32, to: u32, resources: &ResourceStore, scene: &Scene, slot: u32) -> Vec<Layer> {
     if from == to {
         return layers;
     }
     let mut layers: Vec<Arc<Layer>> = layers.into_iter().map(Arc::new).collect();
     crate::text::redraw_text_layers(&mut layers, to, resources);
-    crate::pen::redraw_path_layers(&mut layers, to, resources);
+    crate::pen::redraw_path_layers(&mut layers, to, resources, Some((scene, slot)));
     layers.into_iter().map(Arc::unwrap_or_clone).collect()
 }

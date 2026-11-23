@@ -12,17 +12,20 @@ pub enum Handle { Anchor, Incoming, Outgoing }
 /// Draw the raster of every pen path layer in `texture_sets` again (after a resolution change).
 /// A path's width is independent of the resolution and its raster is only a cache: resampled,
 /// a path taken from 512 to 4096 stayed blurred until its next edit, and was exported that way.
-pub(crate) fn refresh_path_rasters(doc: &mut subcraft_doc::Document, resources: &subcraft_doc::ResourceStore, texture_sets: &[subcraft_core::TextureSetId]) {
+pub(crate) fn refresh_path_rasters(doc: &mut subcraft_doc::Document, resources: &subcraft_doc::ResourceStore, texture_sets: &[subcraft_core::TextureSetId], scene: &crate::session::Scene) {
     for ts in doc.texture_sets.iter_mut().filter(|ts| texture_sets.contains(&ts.id)) {
         let resolution = ts.resolution;
-        redraw_path_layers(&mut ts.layers, resolution, resources);
+        let slot = ts.material_slot;
+        redraw_path_layers(&mut ts.layers, resolution, resources, Some((scene, slot)));
     }
 }
 
 /// Draw the raster of every pen path layer in `layers` (and their folders) at `resolution`.
-pub(crate) fn redraw_path_layers(layers: &mut [std::sync::Arc<Layer>], resolution: u32, resources: &subcraft_doc::ResourceStore) {
+/// `surface` is the model and the material slot of the layers' texture set, for paths whose
+/// stamps lie on the surface.
+pub(crate) fn redraw_path_layers(layers: &mut [std::sync::Arc<Layer>], resolution: u32, resources: &subcraft_doc::ResourceStore, surface: Option<(&crate::session::Scene, u32)>) {
     use std::sync::Arc;
-    fn walk(layers: &mut [Arc<Layer>], resolution: u32, resources: &subcraft_doc::ResourceStore) {
+    fn walk(layers: &mut [Arc<Layer>], resolution: u32, resources: &subcraft_doc::ResourceStore, surface: Option<(&crate::session::Scene, u32)>) {
         for layer in layers {
             let needs = match &layer.content {
                 LayerContent::Paint(p) => p.path.is_some(),
@@ -34,7 +37,11 @@ pub(crate) fn redraw_path_layers(layers: &mut [std::sync::Arc<Layer>], resolutio
                 LayerContent::Paint(p) => {
                     let Some(path) = p.path.clone() else { continue };
                     let tip = path.image_resource().and_then(|id| resources.bitmap(id).cloned());
-                    match PenRasterizer::new(&path, resolution) {
+                    let raster = PenRasterizer::new(&path, resolution).and_then(|r| match surface {
+                        Some((scene, slot)) => r.with_surface(&scene.mesh, &scene.bvh, slot),
+                        None => Ok(r),
+                    });
+                    match raster {
                         Ok(raster) => {
                             let mut raster = raster.with_alpha(tip);
                             raster.run();
@@ -43,12 +50,12 @@ pub(crate) fn redraw_path_layers(layers: &mut [std::sync::Arc<Layer>], resolutio
                         Err(e) => log::warn!("pen path not redrawn: {e}"),
                     }
                 }
-                LayerContent::Group(g) => walk(&mut g.children, resolution, resources),
+                LayerContent::Group(g) => walk(&mut g.children, resolution, resources, surface),
                 LayerContent::Fill(_) => {}
             }
         }
     }
-    walk(layers, resolution, resources);
+    walk(layers, resolution, resources, surface);
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -68,6 +75,14 @@ struct Edit {
 
 struct Pending { edit: Edit, raster: PenRasterizer }
 
+/// What a new path is drawn with instead of a plain stroke of the brush: a stitch preset and
+/// the project resource of its tip ([`crate::stitch::style`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PenStyle {
+    pub stitch: &'static crate::stitch::Stitch,
+    pub tip: Option<subcraft_core::ResourceId>,
+}
+
 #[derive(Default)]
 pub struct PenEditor {
     selected: Option<AnchorId>,
@@ -80,6 +95,9 @@ pub struct PenEditor {
     new_on_click: bool,
     /// The current gesture added its point (rather than grabbing an existing one).
     new_point: bool,
+    /// New paths are drawn with this style (the Pen tool's Stitch choice); `None` is a plain
+    /// stroke of the brush.
+    pub style: Option<PenStyle>,
 }
 
 fn error(s: impl Into<String>) -> CommandError { CommandError::Invalid(s.into()) }
@@ -160,6 +178,9 @@ impl PenEditor {
         }
         self.finish_path();
     }
+    /// The next click on the model adds a point to the selected path (it was not finished
+    /// with Enter / New path).
+    pub fn adds_to_selected(&self) -> bool { !self.new_on_click }
     /// Finish adding points without discarding a raster job already in progress.
     pub fn finish_path(&mut self) { self.set_selected(None); self.new_on_click = true; }
 
@@ -183,9 +204,18 @@ impl PenEditor {
         }
         let ts = session.selected_texture_set(); let brush = &session.brush;
         let values = brush.material.channels.iter().filter(|(k, v)| v.enabled && ts.has_channel(**k)).map(|(&k, v)| (k, v.value)).collect();
-        let path = PenPath { anchors: Vec::new(), closed: false, radius: (brush.settings.size * 0.005).clamp(0.00001, 0.5), hardness: brush.settings.hardness.clamp(0.0, 1.0), opacity: brush.settings.stroke_opacity.clamp(0.0, 1.0), values, kind: Default::default(), stamp: None, ribbon: None };
+        let mut path = PenPath { anchors: Vec::new(), closed: false, radius: (brush.settings.size * 0.005).clamp(0.00001, 0.5), hardness: brush.settings.hardness.clamp(0.0, 1.0), opacity: brush.settings.stroke_opacity.clamp(0.0, 1.0), values, kind: Default::default(), stamp: None, ribbon: None };
+        // A stitch style: its own width, tip, spacing and thread values, whatever the brush is.
+        if let Some(style) = self.style {
+            path.radius = style.stitch.radius();
+            path.opacity = 1.0;
+            // Only the thread's channels, unless the texture set has none of them.
+            let brush_values = std::mem::take(&mut path.values);
+            style.stitch.apply_to_path(&mut path, style.tip, |k| ts.has_channel(k));
+            if path.values.is_empty() { path.values = brush_values; }
+        }
         path.validate().map_err(error)?;
-        let mut layer = Layer::new_paint("Pen path", ts);
+        let mut layer = Layer::new_paint(self.style.map_or("Pen path", |s| s.stitch.name), ts);
         layer.parts = session.selected_layer().and_then(|l| l.parts.clone());
         Ok(Edit { layer, path, new: true, resolution: ts.resolution, scene: session.scene().mesh.clone(), selection: session.selection(), handle: None, label: "New pen path" })
     }
@@ -300,7 +330,9 @@ impl PenEditor {
         if !edit.new && expected == Some(&edit.path) { return Ok(()); }
         if self.pending.is_empty() && !edit.valid(session) { return Err(error("path changed; pen edit canceled")); }
         let tip = edit.path.image_resource().and_then(|id| session.resources().bitmap(id).cloned());
-        let raster = PenRasterizer::new(&edit.path, edit.resolution).map_err(error)?.with_alpha(tip);
+        let scene = session.scene();
+        let raster = PenRasterizer::new(&edit.path, edit.resolution).map_err(error)?.with_alpha(tip)
+            .with_surface(&scene.mesh, &scene.bvh, session.selected_texture_set().material_slot).map_err(error)?;
         self.pending.push_back(Pending { edit, raster }); Ok(())
     }
 

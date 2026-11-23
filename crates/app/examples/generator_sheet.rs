@@ -57,6 +57,33 @@ fn settings() -> Vec<(&'static str, Option<Generator>, Option<Generator>)> {
     ]
 }
 
+/// The Fiber Glass Edge Wear and Mask Builder columns (tag `new`).
+fn new_settings() -> Vec<(&'static str, Option<Generator>, Option<Generator>)> {
+    let fiber = |level: f32, amount: f32, scale: f32| {
+        let mut g = Generator::new(GeneratorKind::FiberGlass);
+        g.level = level;
+        g.fiber = Some(subcraft_doc::FiberSettings { amount, scale, ..Default::default() });
+        g
+    };
+    let builder = |edit: &dyn Fn(&mut subcraft_doc::MaskBuilder)| {
+        let mut g = Generator::new(GeneratorKind::MaskBuilder);
+        let mut b = g.builder_settings();
+        edit(&mut b);
+        g.builder = Some(b);
+        g
+    };
+    vec![
+        ("plain wear", None, Some(Generator::new(GeneratorKind::Edges))),
+        ("fiber default", None, Some(Generator::new(GeneratorKind::FiberGlass))),
+        ("fiber heavy coarse", None, Some(fiber(0.75, 1.0, 70.0))),
+        ("fiber light fine", None, Some(fiber(0.35, 0.8, 300.0))),
+        ("builder default", Some(Generator::new(GeneratorKind::MaskBuilder)), None),
+        ("builder grunge scratches", Some(builder(&|b| { b.grunge = 0.5; b.scratches = 1.0; b.curvature = 0.3; b.ao = 0.4; })), None),
+        ("builder gradient top", Some(builder(&|b| { b.ao = 0.0; b.curvature = 0.0; b.gradient = 0.6; b.gradient_range = 0.6; b.world_normal = 0.6; })), None),
+        ("builder scatter concave", Some(builder(&|b| { b.ao = 0.0; b.scatter = 1.0; b.concave_range = 1.0; b.convex_range = 0.0; b.curvature = 1.0; })), None),
+    ]
+}
+
 fn main() -> Result<(), String> {
     let args: Vec<_> = std::env::args().skip(1).collect();
     let prefix = args.first().ok_or("expected output prefix")?.clone();
@@ -104,7 +131,7 @@ fn main() -> Result<(), String> {
         handles.push((ts, pair[0], pair[1]));
     }
     println!("bake {:.2}s", t0.elapsed().as_secs_f32());
-    let mut cols = settings();
+    let mut cols = if args.get(3).map(String::as_str) == Some("new") { new_settings() } else { settings() };
     // `legacy` renders the pre-grain model (what older projects keep): no painter controls, old Spread defaults.
     if args.get(3).map(String::as_str) == Some("legacy") {
         for (_, d, w) in cols.iter_mut() {

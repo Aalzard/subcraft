@@ -222,8 +222,10 @@ fn breadcrumbs_and_sections_are_drawn() {
     s.shelf.filter.query = "metal rust".into();
     drawn(&mut s, show);
     assert_eq!(s.shelf.saved, None);
-}
-
+}
+
+
+
 /// QA 2026-11: a library named with non-ASCII letters showed "All libraries" in the breadcrumbs
 /// while one of its folders was selected (paths are lowercased, the comparison was ASCII-only).
 #[test]
@@ -305,3 +307,32 @@ fn every_shelf_generator_has_its_own_thumbnail_and_the_cube_gives_it_something_t
     let blank: Vec<&str> = coverage.iter().filter(|(_, c)| *c == 0.0).map(|(n, _)| n.as_str()).collect();
     assert_eq!(blank, ["3D Distance", "Grayscale Conversion", "Mesh Map: ID"], "{coverage:?}");
 }
+
+/// Every material filter has its own thumbnail id, and its preview layer changes the plain
+/// steel cube it is shown on (so the tile is not a blank cube). PBR Validate recolours it.
+#[test]
+fn material_filter_thumbnails_show_the_filter_on_the_preview_cube() {
+    use subcraft_core::ChannelKind;
+    let filters = subcraft_doc::MaterialFilter::ALL;
+    let ids: std::collections::HashSet<AssetId> = filters.iter().map(|f| material_filter_thumb_id(f.label())).collect();
+    assert_eq!(ids.len(), filters.len());
+    let scene = subcraft_app::thumbnails::PreviewScene::generator_cube();
+    let ts = scene.texture_set();
+    let texels = |c: &subcraft_compositor::Composite, k: ChannelKind| -> Vec<[f32; 4]> {
+        let img = c.channel(k).unwrap();
+        (0..img.width() * img.height()).map(|i| img.get(i % img.width(), i / img.width())).collect()
+    };
+    let mut plain_layer = material_filter_preview_layer(ts, filters[0]);
+    plain_layer.content_effects.clear();
+    let plain = scene.composite(plain_layer);
+    for f in filters {
+        let shown = scene.composite(material_filter_preview_layer(ts, f));
+        let changed: usize = [ChannelKind::BaseColor, ChannelKind::Roughness, ChannelKind::Metallic]
+            .into_iter()
+            .map(|k| texels(&shown, k).iter().zip(texels(&plain, k)).filter(|(a, b)| a.iter().zip(b.iter()).any(|(x, y)| (x - y).abs() > 0.02)).count())
+            .sum();
+        assert!(changed > 200, "{} shows on its thumbnail: {changed} texels differ", f.label());
+        assert!(texels(&shown, ChannelKind::BaseColor).iter().all(|p| p.iter().all(|v| v.is_finite())));
+    }
+}
+

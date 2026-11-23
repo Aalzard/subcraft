@@ -126,3 +126,15 @@ fn reversing_a_path_keeps_its_curve_and_swaps_its_ends() {
     path.reverse();
     assert_eq!(path.anchors[0], first);
 }
+
+/// `surface` is new in a stamp: files written before it load as UV stamps, and a UV stamp is
+/// written as before.
+#[test]
+fn a_stamp_without_surface_is_a_uv_stamp() {
+    let old: subcraft_doc::PathStamp = serde_json::from_str(r#"{"spacing":1.0,"follow":true}"#).unwrap();
+    assert!(!old.surface);
+    assert!(!serde_json::to_string(&old).unwrap().contains("surface"));
+    let on = subcraft_doc::PathStamp { surface: true, ..old };
+    let text = serde_json::to_string(&on).unwrap();
+    assert_eq!(serde_json::from_str::<subcraft_doc::PathStamp>(&text).unwrap(), on);
+}

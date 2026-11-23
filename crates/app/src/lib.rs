@@ -3,6 +3,7 @@
 //! No UI toolkit and no GPU here: front ends translate input into commands, actions and stroke
 //! calls, and read back the document, history and composites to display them.
 
+mod udim_mirror;
 pub mod actions;
 pub mod keymap;
 pub mod asset_apply;

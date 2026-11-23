@@ -179,6 +179,9 @@ pub fn smart_material_info(name: &str) -> Option<AssetInfo> {
         "Procedural Sandstone" => info("Procedural", "Sandstone with sliders for sediment layers and their angle, sand grain, eroded edges and holes"),
         "Procedural Rough Rock" => info("Procedural", "Broken rock with sliders for facet size, relief, cracks, pale edges and moss"),
         "Procedural Painted Plaster" => info("Procedural", "A painted plaster wall with sliders for peeling, cracks, chipped corners, water streaks and dirt"),
+        "Procedural Cracked Leather" => info("Procedural", "Old dry leather with sliders for cracks, scuffs, folds, edge wear and dark creases"),
+        "Procedural Wood Planks" => info("Procedural", "Boards with gaps, with sliders for board size, grain, knots, weathering, worn edges and dirt"),
+        "Procedural Varnished Wood" => info("Procedural", "Varnished furniture wood with sliders for grain, figure, gloss, scratches and worn edges"),
         // PBR pack (textured, with wear and dirt layers)
         "Black Basalt" => info("Stone", "Dark volcanic basalt with dirt in the pores and dust on top"),
         "Travertine" => info("Stone", "Pale pitted travertine with dirt in the holes and settled dust"),

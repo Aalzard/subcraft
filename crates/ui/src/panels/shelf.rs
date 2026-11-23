@@ -29,6 +29,9 @@ pub enum ShelfDrag {
     Alpha(usize),
     /// A filter (index into `Filter::ALL`): into the stack it becomes a Passthrough filter layer.
     Filter(usize),
+    /// A material filter (index into `MaterialFilter::ALL`): into the stack it becomes a
+    /// Passthrough filter layer, between effect rows a content effect. Never into a mask.
+    MaterialFilter(usize),
     /// A "SubCraft Materials" pack material (index into `UiState::materials_pack`): a new fill
     /// layer with all its maps.
     PackMaterial(usize),
@@ -83,6 +86,9 @@ pub fn drop_label(item: ShelfDrag, alt: bool, target: Option<&str>, on_mask: boo
         ShelfDrag::Alpha(_) => "Set as brush tip".to_string(),
         ShelfDrag::Filter(_) if alt || on_mask => format!("Add this filter to{t}"),
         ShelfDrag::Filter(_) => format!("Add a filter layer (Passthrough) above{t}"),
+        ShelfDrag::MaterialFilter(_) if on_mask => "Material filters do not work on masks: drop it on the row".to_string(),
+        ShelfDrag::MaterialFilter(_) if alt => format!("Add this material filter to{t}"),
+        ShelfDrag::MaterialFilter(_) => format!("Add a material filter layer (Passthrough) above{t}"),
         ShelfDrag::PackMaterial(_) if alt => "Pack materials are added as a new layer: release Alt".to_string(),
         ShelfDrag::PackMaterial(_) => format!("Add material layer above{t} (Ctrl: with a black mask)"),
         ShelfDrag::Generator(_) => format!("Add this generator to the mask of{t} (a black mask is created if needed)"),
@@ -150,6 +156,14 @@ pub fn apply_shelf_item_with(s: &mut UiState, item: ShelfDrag, alt: bool, now: f
             Some(f) => s.session.add_filter_layer(f).map_err(|e| e.to_string()),
             None => Ok(()),
         },
+        ShelfDrag::MaterialFilter(i) => match subcraft_doc::MaterialFilter::ALL.get(i).copied() {
+            Some(f) if alt => match s.session.shelf_material_filter_command(f) {
+                Some(cmd) => { s.run(vec![cmd], now); Ok(()) }
+                None => Err(format!("{} goes into the content of a layer: select a layer (not its mask) first", f.label())),
+            },
+            Some(f) => s.session.add_material_filter_layer(f).map_err(|e| e.to_string()),
+            None => Ok(()),
+        },
         ShelfDrag::PackMaterial(_) if alt => Err("A pack material is added as a new fill layer: drop it without Alt".to_string()),
         ShelfDrag::PackMaterial(i) => match s.materials_pack.get(i).cloned() {
             Some(m) => s.session.apply_pack_material(&m).map(|r| s.set_status(format!("Added {}", r.layer_name), now)),
@@ -177,7 +191,7 @@ pub fn ghost_mask_accepts(item: ShelfDrag) -> bool {
         ShelfDrag::Alpha(_) | ShelfDrag::SmartMask(_) | ShelfDrag::Texture(_) | ShelfDrag::Generator(_) => true,
         ShelfDrag::Filter(i) => subcraft_doc::Filter::ALL.get(i).is_some_and(|f| f.supports_mask()),
         ShelfDrag::Starter(_) => is_starter_texture(item),
-        ShelfDrag::Material(_) | ShelfDrag::SmartMaterial(_) | ShelfDrag::PackMaterial(_) => false,
+        ShelfDrag::Material(_) | ShelfDrag::SmartMaterial(_) | ShelfDrag::PackMaterial(_) | ShelfDrag::MaterialFilter(_) => false,
     }
 }
 
@@ -231,6 +245,7 @@ pub fn apply_ghost_mask_drop(s: &mut UiState, layer: subcraft_core::LayerId, ite
             s.session.execute(Command::ApplyMaskEffects { layer, effects: vec![image(resource)], label: "Mask image".into() }).map_err(|e| e.to_string())
         }),
         ShelfDrag::Starter(_) => Err("A normal map does not go into a mask: drop it on the row".to_string()),
+        ShelfDrag::MaterialFilter(_) => Err("Material filters do not work on masks: drop it on the row".to_string()),
         ShelfDrag::Material(_) | ShelfDrag::SmartMaterial(_) | ShelfDrag::PackMaterial(_) => Err("Materials do not go into a mask: drop them on the row".to_string()),
     };
     match result {
@@ -258,6 +273,18 @@ pub fn apply_effect_drop(s: &mut UiState, drop: crate::panels::effects::ShelfEff
                     Some(channel) => s.session.execute(Command::InsertContentEffect { layer, kind: ContentEffectKind::Filter { channel, filter: f }, above }).map_err(|e| e.to_string()),
                     None => Err(format!("{} fits no channel of this texture set", f.label())),
                 },
+                None => Ok(()),
+            };
+            match result {
+                Ok(()) => s.recovery.autosaver.request_soon(),
+                Err(e) => s.set_status(e, now),
+            }
+            return;
+        }
+        ShelfDrag::MaterialFilter(i) => {
+            let result = match subcraft_doc::MaterialFilter::ALL.get(i).copied() {
+                Some(_) if mask => Err("Material filters do not work on masks".to_string()),
+                Some(f) => s.session.execute(Command::InsertContentEffect { layer, kind: ContentEffectKind::Material(f), above }).map_err(|e| e.to_string()),
                 None => Ok(()),
             };
             match result {
@@ -489,6 +516,11 @@ enum SceneKind {
 /// Thumbnail id of a Shelf generator: generators are built in, so the id comes from the name.
 pub(crate) fn generator_thumb_id(name: &str) -> AssetId {
     AssetId::from_name(&format!("generator-thumbnail:{name}"))
+}
+
+/// Thumbnail id of a Shelf material filter (built in, so the id comes from the name).
+pub(crate) fn material_filter_thumb_id(name: &str) -> AssetId {
+    AssetId::from_name(&format!("material-filter-thumbnail:{name}"))
 }
 
 pub struct ShelfUi {
@@ -735,7 +767,12 @@ pub fn items(state: &UiState, tab: ShelfTab) -> Vec<Item> {
             out.extend(starters(subcraft_assets::starter::Kind::Alpha));
             out
         }
-        ShelfTab::Filters => subcraft_doc::Filter::ALL.iter().enumerate().map(|(i, f)| item(i, f.label(), STARTER.to_string(), None, Vec::new())).collect(),
+        // Material filters follow the plain filters: their index starts at `Filter::ALL.len()`.
+        ShelfTab::Filters => subcraft_doc::Filter::ALL.iter().map(|f| (f.label(), Vec::new()))
+            .chain(subcraft_doc::MaterialFilter::ALL.iter().map(|f| (f.label(), vec!["material".to_string(), "matfx".to_string()])))
+            .enumerate()
+            .map(|(i, (label, tags))| item(i, label, STARTER.to_string(), None, tags))
+            .collect(),
         ShelfTab::Generators => crate::panels::layers::shelf_generators().iter().enumerate().map(|(i, (name, _))| item(i, name, STARTER.to_string(), None, Vec::new())).collect(),
         ShelfTab::Environments => state.library.environments.iter().enumerate().map(|(i, e)| item(i, &e.name, lib(e.user_file.as_deref()), folder(K::Environment, e.user_file.as_deref(), None), Vec::new())).collect(),
     }
@@ -1699,6 +1736,24 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                             }));
                         }
                     }
+                    let selected = selected_material_filter(&state.session);
+                    for (j, f) in subcraft_doc::MaterialFilter::ALL.into_iter().enumerate() {
+                        if !pass(subcraft_doc::Filter::ALL.len() + j) {
+                            continue;
+                        }
+                        shown += 1;
+                        let fits = state.session.shelf_material_filter_command(f).is_some();
+                        let tip = if fits { format!("{} Click: add to the selected layer, or swap the selected material filter to this one. Drag into the layer stack: a filter layer (Passthrough) over everything below", f.hint()) } else { format!("{} Select a layer (not its mask) first, or drag into the layer stack: a filter layer over everything below", f.hint()) };
+                        let resp = tile(ui, tile_size, thumbs.get(&material_filter_thumb_id(f.label())), f.label(), selected == Some(f.label()), &tip);
+                        resp.dnd_set_drag_payload(ShelfDrag::MaterialFilter(j));
+                        if resp.clicked() && fits {
+                            action = Some(Box::new(move |s: &mut UiState| {
+                                if let Some(cmd) = s.session.shelf_material_filter_command(f) {
+                                    s.run(vec![cmd], now);
+                                }
+                            }));
+                        }
+                    }
                 }
                 ShelfTab::Generators => {
                     let has_layer = state.session.selected_layer().is_some();
@@ -2404,7 +2459,12 @@ pub(crate) fn generate_one_thumbnail(state: &mut UiState, ctx: &egui::Context) {
     }
     let job = thumbnail_tabs(&state.shelf).into_iter().find_map(|tab| match tab {
         // Texture thumbnails come from their own background loader.
-        ShelfTab::Textures | ShelfTab::NormalMaps | ShelfTab::Filters => None,
+        ShelfTab::Textures | ShelfTab::NormalMaps => None,
+        // A material filter on a plain steel fill, on the cube (its edges show the edge filters).
+        // The plain filters keep their text tiles.
+        ShelfTab::Filters => subcraft_doc::MaterialFilter::ALL.into_iter().find(|f| missing(&material_filter_thumb_id(f.label()))).map(|f| {
+            Job::Layer(material_filter_thumb_id(f.label()), SceneKind::GeneratorCube, Box::new(move |ts| material_filter_preview_layer(ts, f)), Vec::new())
+        }),
         // A generator alone in a black mask, on the cube.
         ShelfTab::Generators => crate::panels::layers::shelf_generators().into_iter().find(|(name, _)| missing(&generator_thumb_id(name))).map(|(name, kind)| {
             Job::Layer(generator_thumb_id(&name), SceneKind::GeneratorCube, Box::new(move |ts| generator_preview_layer(ts, kind)), Vec::new())
@@ -2541,6 +2601,19 @@ fn mask_preview_layer(ts: &subcraft_doc::TextureSet, effects: &[subcraft_doc::Ma
     l
 }
 
+/// A material filter on a plain steel fill (for material filter thumbnails).
+fn material_filter_preview_layer(ts: &subcraft_doc::TextureSet, filter: subcraft_doc::MaterialFilter) -> Layer {
+    let mut l = Layer::new_fill("Material filter preview", ts);
+    if let LayerContent::Fill(f) = &mut l.content {
+        let set = |k| FillChannel::new(FillSource::uniform(k));
+        f.channels.insert(ChannelKind::BaseColor, set(ChannelValue::rgb(0.56, 0.57, 0.58)));
+        f.channels.insert(ChannelKind::Metallic, set(ChannelValue::scalar(1.0)));
+        f.channels.insert(ChannelKind::Roughness, set(ChannelValue::scalar(0.35)));
+    }
+    l.content_effects.push(Arc::new(subcraft_doc::ContentEffect::new(subcraft_doc::ContentEffectKind::Material(filter), ts)));
+    l
+}
+
 /// A generator alone in a black mask over a plain colour (for generator thumbnails).
 fn generator_preview_layer(ts: &subcraft_doc::TextureSet, kind: subcraft_doc::GeneratorKind) -> Layer {
     mask_preview_layer(ts, &[subcraft_doc::MaskEffectKind::Generator(subcraft_doc::Generator::new(kind))])
@@ -2626,6 +2699,16 @@ fn selected_filter(session: &subcraft_app::Session) -> Option<String> {
     let e = layer.mask.as_ref()?.effects.iter().find(|e| e.id == id)?;
     match &e.kind {
         subcraft_doc::MaskEffectKind::Filter(f) => Some(f.label().to_string()),
+        _ => None,
+    }
+}
+
+/// Label of the selected material filter effect, to highlight its Shelf tile.
+fn selected_material_filter(session: &subcraft_app::Session) -> Option<&'static str> {
+    let layer = session.selected_layer()?;
+    let id = session.selected_effect()?;
+    match &layer.content_effects.iter().find(|e| e.id == id)?.kind {
+        subcraft_doc::ContentEffectKind::Material(m) => Some(m.label()),
         _ => None,
     }
 }
@@ -2935,6 +3018,39 @@ mod stack_drop_tests {
         apply_effect_drop(&mut s, ShelfEffectDrop { layer, domain: LayerTarget::Mask, above: None, item: ShelfDrag::Material(0) }, 1.0);
         assert_eq!(s.session.selected_layer().unwrap().mask.as_ref().unwrap().effects.len(), 2);
         assert!(s.status.is_some());
+    }
+
+    #[test]
+    fn material_filters_sit_in_the_filters_tab_and_drop_as_a_layer_or_a_content_effect_never_a_mask() {
+        use crate::panels::effects::{ShelfEffectDrop, shelf_item_fits};
+        use subcraft_doc::{ContentEffectKind, MaterialFilter};
+        let mut s = state();
+        let layer = s.session.selection().layer.unwrap();
+        let rust = MaterialFilter::ALL.iter().position(|f| matches!(f, MaterialFilter::RustWeathering { .. })).unwrap();
+        let item = ShelfDrag::MaterialFilter(rust);
+        // Listed after the plain filters, found by name.
+        let listed = items(&s, ShelfTab::Filters);
+        assert_eq!(listed.len(), subcraft_doc::Filter::ALL.len() + MaterialFilter::ALL.len());
+        assert_eq!(listed[subcraft_doc::Filter::ALL.len() + rust].name, MaterialFilter::ALL[rust].label());
+        assert!(!ghost_mask_accepts(item) && !shelf_item_fits(item, true) && shelf_item_fits(item, false));
+        // Between effect rows: a content effect; into a mask: refused, nothing changes.
+        apply_effect_drop(&mut s, ShelfEffectDrop { layer, domain: LayerTarget::Content, above: None, item }, 0.0);
+        let effects = s.session.selected_layer().unwrap().content_effects.clone();
+        assert!(matches!(effects[..], [ref e] if e.kind == ContentEffectKind::Material(MaterialFilter::ALL[rust])));
+        s.session.execute(subcraft_app::Command::AddMask { layer, white: true }).unwrap();
+        let steps = s.session.history().entries().len();
+        apply_effect_drop(&mut s, ShelfEffectDrop { layer, domain: LayerTarget::Mask, above: None, item }, 1.0);
+        apply_ghost_mask_drop(&mut s, layer, item, 1.0);
+        assert_eq!(s.session.history().entries().len(), steps);
+        assert!(s.status.as_ref().is_some_and(|(m, _)| m.contains("mask")));
+        // Dropped on the stack: a Passthrough filter layer above, one undo step.
+        let layers = s.session.selected_texture_set().layers.len();
+        apply_shelf_item_with(&mut s, item, false, 2.0);
+        let ts = s.session.selected_texture_set();
+        assert_eq!(ts.layers.len(), layers + 1);
+        let top = ts.layers.last().unwrap();
+        assert!(top.blend.values().all(|b| b.mode == subcraft_doc::BlendMode::Passthrough));
+        assert_eq!(s.session.history().entries().len(), steps + 1);
     }
 
     #[test]

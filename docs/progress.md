@@ -6213,6 +6213,29 @@ re-measured on a GPU. Not taken from his patch: the `SUBCRAFT_REPAINT_LOG` diagn
   with the flag off.
 * Looked at: `material_sheet` renders of all 11 materials; the left/right mirror on the sphere is gone.
   Not run in the real app window.
+## Pen tilt and rotation (2026-11-23, branch `claude/project-thread-kj58iu`)
+
+* **Brush engine** (`paint::settings`): `PenPose { tilt: [x, y] degrees, rotation }` and five brush settings,
+  all off by default (old presets and brush files load unchanged): Angle follows tilt (the brush turns toward
+  the side the pen leans to), Angle follows pen rotation (barrel twist, Art Pen style), Tilt size (up to
+  `1 + tilt_size` times at full tilt), Tilt flow, Tilt flatten (roundness down to a quarter, like the side of a
+  pencil lead). Full tilt is 60 degrees. `Stroke::set_pen_pose` sets the pose for the following points; 3D,
+  2D (UV) strokes and the stamp spacing use it. A mouse has no pose, so nothing changes for it.
+* **Pen input:** `tablet::pen_pose()` returns the latest pose a backend reported in the last 250 ms.
+  Windows: `tablet/windows.rs` wraps the window procedure and reads `GetPointerPenInfo` (tilt X / Y,
+  rotation) on `WM_POINTERDOWN` / `WM_POINTERUPDATE` for pen pointers, then passes every message on to winit
+  unchanged. Linux Wayland: the tablet protocol's tilt and rotation events. X11 / XWayland: not read yet
+  (pressure only, as before). The 3D view sets the pose with the pressure on each stroke point.
+* **Presets:** Pencil (tilt widens and flattens it, angle follows tilt) and Charcoal use tilt.
+* **Panel:** Brush > Pen tilt section (two checkboxes, three sliders, reset by Ctrl+click like the others).
+* **Tests:** `paint/tests/pen_tilt.rs` (a mouse and an upright pen are unchanged by every setting; full tilt
+  with Tilt size 1 gives 3.4 to 4.6x the area, half tilt about 2.25x; Tilt flow 0.5 halves the peak; leaning
+  right / down flattens the footprint along that direction by more than 6:1 in spread; rotation 90 turns a
+  flat brush; pose math and old settings), `tablet` (rotation event, reported pose), a Brush panel test
+  driven with egui input (`pen_tilt_rows_edit_the_brush`). `cargo check -p subcraft-ui --target
+  x86_64-pc-windows-gnu` builds the Windows backend (with a compile-time check of the `POINTER_PEN_INFO` size).
+* **Not verified:** no pen here. Tilt on real Windows Ink / Wintab hardware and on Wayland needs a check by
+  hand; Wintab-only drivers that don't send `WM_POINTER` messages report no tilt.
 
 ## Procedural materials: make your own parameters (2026-11-23, branch `claude/project-thread-l9014a`)
 
@@ -6236,37 +6259,43 @@ re-measured on a GPU. Not taken from his patch: the `SUBCRAFT_REPAINT_LOG` diagn
 * Limit: the panel only makes one-to-one bindings (one slider, one property). Formulas that drive several
   properties from one slider exist in the format but have no editor.
 
-### Session 136 - Path tracer shades the extended channels: coat, sheen, anisotropy, subsurface, translucency, glass, cut-out opacity, specular level (2026-11-23, branch `claude/project-thread-8mawyv`)
+## Material filters in the Shelf, Fiber Glass Edge Wear, Mask Builder (2026-11-23, branch `claude/project-thread-mnp3ay`)
 
-* **Asked:** make the Rendering mode's path tracer (Session 113) support coat, sheen, SSS and transmission
-  as the first step of an Iray-style portfolio render. It ignored every channel added in Session 134.
-* **Packing (`pathtrace_pack_ext.wgsl`, `pathtrace.rs`):** a second compute pass per material slot reads the
-  viewport's packed extended array (`extended.rs`; `render_path_traced` now runs `ensure_bind_groups` first),
-  the Opacity and the Specular level channels, and writes three `rgba32uint` array layers of half-float pairs
-  (24 values per texel, read with `textureLoad`). The arrays are 1 x 1 when no set has any of these channels,
-  else at most 1024 px, and count against the 768 MB texture budget.
-* **Shading (`pathtrace.wgsl`):** one event is picked per bounce from the lobe weights: the reflection /
-  translucency mixture (coat GGX, Charlie sheen, base GGX, anisotropic with VNDF sampling in the painted
-  direction, Lambert, diffuse transmission), rough dielectric transmission (VNDF microfacet, exact Fresnel
-  reflect-or-refract, IOR channel 0..1 = 1..2, tinted by Transmissive on entry) or subsurface scattering (a
-  chromatic random walk inside the mesh: isotropic, mean free path = Scattering Color x 2% of the model
-  diagonal (`SSS_RADIUS`), single-scattering albedo from the base colour by the van de Hulst inversion, spectral
-  MIS by the average pdf, cosine exit lit by the key light). Cut-out opacity passes the ray on without counting a
-  bounce. With see-through channels in the scene, key-light shadow rays pass transmissive, translucent and
-  cut-out surfaces (attenuated, not refracted). The specular level sets the dielectric F0 (0.5 = 4% as before).
-  A set without the new channels takes exactly the old path (old tests unchanged: furnace 0.97).
-* **Tests (`render/tests/pathtrace_extended.rs`, lavapipe):** furnace (uniform radiance 1): white SSS sphere
-  0.92, skin-tinted SSS (0.84, 0.49, 0.38) for base (0.8, 0.45, 0.35), clear glass 1.000, green glass passes
-  green, opacity 0 invisible, opacity 0.5 = 0.71 (front + inside of the back); black base 0.037 -> coat 0.096,
-  sheen 0.167; a back-lit sheet is black opaque and (0.26, 0.67, 0.16) green with translucency; anisotropy changes
-  the highlight. All `subcraft-render` tests pass.
-* **Render:** `cargo run -p subcraft-render --example pathtrace_showcase -- out.png 256 "Library Hall"`;
-  `docs/screenshots/pathtrace-extended-materials.png` (top traced at 128 samples with the denoiser, bottom the
-  raster viewport). On lavapipe: 6-16 s per 240 px sphere.
-* **Limits / next:** the traced background is the plain background colour, not the HDRI (raster shows it at
-  "environment opacity"); no environment importance sampling (HDRI suns are noisy); no depth of field; SSS radius
-  is a fixed fraction of the model size, not a setting; coat normal is ignored; glass casts tinted shadows without
-  caustics; the denoiser's albedo guide does not know about transmission. Not checked on a real GPU.
+* **Shelf:** `ShelfDrag::MaterialFilter(i)` (index into `MaterialFilter::ALL`), listed in the Filters tab after the
+  plain filters (their item index starts at `Filter::ALL.len()`; tags `material`, `matfx` for the search). Click:
+  `Session::shelf_material_filter_command` (swap the selected material filter, else add to the layer's content;
+  `None` while a mask is edited). Drag into the stack: `Session::add_material_filter_layer` (empty paint layer,
+  Passthrough everywhere, one effect). Between effect rows: `InsertContentEffect`. Masks and the ghost mask slot
+  refuse them with a status message. No thumbnails yet (plain tiles, like the other filters).
+* **Fiber Glass Edge Wear** (`GeneratorKind::FiberGlass`, `Generator::fiber: Option<FiberSettings>`): evaluates the
+  same generator as `Edges` (`Generator::fiber_base`, so Spread, Level, grunge, AO masking, anchors and micro
+  details all apply), then adds a fringe: along the surface distance from the edge, out to `FiberSettings::FRINGE`
+  (2.2) times the wear's own reach, a texel is worn where `1 - distance / reach` passes a threshold set by the
+  weave (`materials/src/weave.rs`, tri-planar or UV): gaps never, strand tops almost to the end. A soft noise
+  varies the reach. Without natural edge wear (no distance to follow) the weave frays the curvature falloff instead.
+* **Mask Builder** (`GeneratorKind::MaskBuilder`, `Generator::builder: Option<MaskBuilder>`): seven contributions,
+  each `slider * shaped map`, **added**, then the global Level (a balance) / Contrast / Invert. Adobe does not
+  document how the legacy generator mixes them, so the sum is this project's reading; Scratches only add when
+  Grunge, AO or Curvature is above 0 (that part is in the manual). Range / Contrast per group: `MaskBuilder::ranged`.
+  World Space Normal reads the baked map when there is one, else the mesh normal. Scatter is 3D dots
+  (`weave::dots`), so it has no UV seams.
+* Both are additive in the project file (new `kind` values and optional `fiber` / `builder` keys, no schema
+  bump); out-of-range settings are refused on load. Properties: `fiber_controls`, `mask_builder_controls`
+  (zh-Hant and Korean strings added). Both are in the Generator dropdown and the Shelf's Generators tab.
+* Tests: app 1 (`filter_shelf`), ui 1 (Shelf drops), materials 3 (`weave`), doc 2, project 1, compositor 3
+  (`tests/mask_builder.rs`: each contribution against the baked maps, the sum, Range / Contrast / Invert,
+  scratches gating, scatter, invalid settings; fibre wear equals Edge wear at Fibre Amount 0, only adds wear,
+  leaves gaps, Invert). Suites run locally: doc, materials, compositor, project, ui.
+* Render: `cargo run --release -p subcraft-app --example generator_sheet -- <prefix> crate 1024 new`. Inspected
+  `docs/screenshots/generators/fiber_glass_mask_builder_sheet.png` (top row: plain wear, fibre default, heavy
+  coarse, light fine; bottom row: builder default, grunge + scratches, gradient + top normal, scatter + concave).
+* Not done / honest limits: no Painter side-by-side (no Painter here, and its doc pages give no defaults), so
+  the weave look and the Mask Builder mixing rule are unverified against the original; not run in the real app
+  window; Mask Builder has no custom grunge slots, no curvature Smoothness and no tri-planar toggle (its
+  patterns are always object-space); the fibre fringe is thin on models with a small Spread, raise Spread or
+  lower Fibre Scale to see it; no Shelf thumbnails for material filters.
+
+
 ## Procedural materials: one parameter, several settings (2026-11-23, branch `claude/project-thread-l9014a`)
 
 * Engine (`crates/doc/src/material/author.rs`): `bindings_of`, `can_link` (same kind of value only), `link`
@@ -6300,3 +6329,43 @@ re-measured on a GPU. Not taken from his patch: the `SUBCRAFT_REPAINT_LOG` diagn
 * Honest state: metals, enamel paint, bronze, rock and sandstone read well. Fabrics are the weakest: the weave is
   correct but small at this render size, and cloth has no sheen model. Marble veins come from a cell-crack
   pattern and still look a little like a net.
+
+## Procedural materials: fabric, marble, leather and wood quality pass (2026-11-23)
+
+* New patterns in `crates/materials/src/pattern.rs` (`ProceduralKind::{Twill, Veins, Planks}`, 19 kinds now):
+  Twill is a 2/1 diagonal weave, Veins are thin warped ridge lines, Planks are staggered boards
+  (`PLANK_ROWS` per tile) with a gap, a bevel and one tone per board. All three tile and have numeric tests.
+* `with_height(layer, ts)` in `crates/assets/src/procedural.rs`: a coat only writes colour, roughness and metal,
+  so chips, pits, holes and cracks were flat. They now write Height too.
+* Marble: two layers on the Veins pattern ("Vein Halo" soft, "Veins" sharp) replace the cell-crack net.
+* Cloth: Denim uses Twill; both fabrics gained a "Cross Threads" coat on the inverted weave (the pale weft of
+  denim) and a "Wrinkles" height layer, each with a slider.
+* New materials: Cracked Leather, Wood Planks, Varnished Wood. Built-in smart materials are now 67 (28 procedural).
+* Ran: `cargo test -p subcraft-assets -p subcraft-materials -p subcraft-doc` (all pass), `cargo test -p subcraft-app`
+  (all pass, including `smart_content` and `procedural_materials`), `cargo test -p subcraft-ui --lib` (421 pass),
+  `cargo check --workspace --all-targets`.
+* Looked at: `material_sheet` renders of marble, canvas, denim and the three new materials at 4 settings each,
+  two tuning passes (leather colour and edge wear, board size and gap width, knot size, denim thread size).
+* Honest state: marble and varnished wood read well. Leather cracks are a regular net at high settings. Plank
+  knots are plain dark dots, not real knots with rings. Twill shows chevrons where tri-planar sides meet on round
+  shapes. Cloth still has no sheen.
+
+## Procedural materials: knots, leather cracks, cloth sheen (2026-11-23)
+
+* `ProceduralKind::Knots` (20 kinds): in under half of the cells one oval along U with a solid core and fading
+  growth rings; never touches the cell border, so it tiles. Wood Planks uses it instead of Pores dots.
+* Cracked Leather: each crack set is multiplied by its own harder cloud patches, and a "Fine Cracks" layer at a
+  smaller scale lives in other patches.
+* Cloth sheen: the Weave layer of Canvas and Denim fills Sheen Color / Opacity / Roughness and gets a "Sheen"
+  slider when the texture set has those channels. `Session::add_smart_material` now builds a material as if the
+  set had the sheen channels (`smart_import::OFFERED_ON_APPLY`) and adds the ones it fills with the layer
+  (`InsertLayerWithChannels`, one undo step). Materials that do not fill sheen add nothing.
+* `material_sheet` example draws the viewport's sheen lobe (Charlie distribution, Neubelt visibility) so sheen
+  can be judged without a display. Its ambient sheen term is a rough stand-in, not the viewport's fit.
+* Ran: `cargo test -p subcraft-assets -p subcraft-materials -p subcraft-doc`, `cargo test -p subcraft-app` (all
+  pass; new: `knots_are_sparse_cores_with_rings`, `cloth_has_a_sheen_slider_only_with_sheen_channels`,
+  `cloth_brings_the_sheen_channels_with_it`), `cargo test -p subcraft-ui --lib` (423 pass),
+  `cargo check --workspace --all-targets`.
+* Looked at: sheets of planks (knots 1), leather, canvas and denim with sheen on and off.
+* Honest state: not checked in the real GPU viewport, only in the example renderer. Knots do not bend the grain
+  around them and may sit across a gap. Dirt and stain layers do not reduce the sheen under them.

@@ -232,6 +232,20 @@ fn random_stroke(r: &mut Rng, s: &mut Session) {
 fn check_composite(s: &mut Session, what: &str) {
     s.update_composites();
     let ts = s.selected_texture_set().clone();
+    check_set_composite(s, &ts, what);
+}
+
+/// Every texture set's composite (UDIM walks edit several tiles at once).
+fn check_all_composites(s: &mut Session, what: &str) {
+    s.update_composites();
+    for ts in s.document().texture_sets.clone() {
+        if s.composite(ts.id).is_some() {
+            check_set_composite(s, &ts, &format!("{what} [set {}]", ts.name));
+        }
+    }
+}
+
+fn check_set_composite(s: &mut Session, ts: &subcraft_doc::TextureSet, what: &str) {
     let geo = s.scene().geometry.get(ts.material_slot, ts.resolution);
     let none = MeshMaps::new();
     let maps = s.mesh_maps(ts.id).unwrap_or(&none);
@@ -258,10 +272,30 @@ fn check_composite(s: &mut Session, what: &str) {
 }
 
 fn walk(seed: u64, steps: usize) {
-    let dir = std::env::temp_dir().join(format!("subcraft-qa-fuzz-{seed}-{}", std::process::id()));
+    walk_on(seed, steps, Session::new(primitives::sample_crate(), 128), false);
+}
+
+/// Two quads on UDIM tiles 1001 and 1002 of one material (two texture sets of one group).
+fn udim_strip() -> Session {
+    let mut b = subcraft_mesh::MeshBuilder::new("Strip");
+    let m = b.material("Body");
+    for (i, shift) in [Vec2::ZERO, Vec2::new(1.0, 0.0)].into_iter().enumerate() {
+        let origin = glam::Vec3::new(i as f32, 0.0, 0.0);
+        let c = |x: f32, z: f32| subcraft_mesh::Corner { position: origin + glam::Vec3::new(x, 0.0, z), normal: Some(glam::Vec3::Y), uv: Some(shift + Vec2::new(x, z) * 0.9 + Vec2::splat(0.05)) };
+        b.push_triangle(m, [c(0.0, 0.0), c(0.0, 1.0), c(1.0, 1.0)]);
+        b.push_triangle(m, [c(0.0, 0.0), c(1.0, 1.0), c(1.0, 0.0)]);
+    }
+    let settings = subcraft_app::new_project::NewProjectSettings { resolution: 128, ..Default::default() };
+    let mut s = Session::from_mesh_with(b.build().unwrap(), &settings).unwrap();
+    let first = s.document().texture_sets[0].id;
+    s.execute(Command::SetPaintAcrossUdims { texture_set: first, on: true }).unwrap();
+    s
+}
+
+fn walk_on(seed: u64, steps: usize, mut s: Session, udim: bool) {
+    let dir = std::env::temp_dir().join(format!("subcraft-qa-fuzz-{seed}-{udim}-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let mut r = Rng(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1);
-    let mut s = Session::new(primitives::sample_crate(), 128);
     let mut graveyard: Vec<LayerId> = Vec::new();
     let mut log: Vec<String> = Vec::new();
     for step in 0..steps {
@@ -283,6 +317,17 @@ fn walk(seed: u64, steps: usize) {
             }
             2 if r.chance(0.2) => {
                 let cmd = Command::JumpToHistory(r.below(s.history().entries().len() + 2));
+                what = format!("seed {seed} step {step}: {cmd:?}");
+                log.push(what.clone());
+                let _ = s.execute(cmd);
+            }
+            3 if udim && r.chance(0.3) => {
+                let sets: Vec<_> = s.document().texture_sets.iter().map(|t| t.id).collect();
+                let cmd = if r.chance(0.8) {
+                    Command::SelectTextureSet(r.pick(&sets).unwrap())
+                } else {
+                    Command::SetPaintAcrossUdims { texture_set: r.pick(&sets).unwrap(), on: r.chance(0.7) }
+                };
                 what = format!("seed {seed} step {step}: {cmd:?}");
                 log.push(what.clone());
                 let _ = s.execute(cmd);
@@ -317,15 +362,18 @@ fn walk(seed: u64, steps: usize) {
             assert!(now.contains(&sel), "{what}: the selection names a layer that does not exist\n  {}", trail());
         }
         assert!(s.document().texture_sets.iter().any(|t| t.id == s.selection().texture_set), "{what}: selected texture set missing");
-        check_composite(&mut s, &format!("{what}\n  {}", trail()));
+        if udim { check_all_composites(&mut s, &format!("{what}\n  {}", trail())) } else { check_composite(&mut s, &format!("{what}\n  {}", trail())) }
         if step % 25 == 24 {
             let path = dir.join("walk.subcraft");
             s.save(Some(&path)).unwrap_or_else(|e| panic!("{what}: save failed: {e}"));
             let mut reopened = Session::open_project(&path).unwrap_or_else(|e| panic!("{what}: a saved project does not open: {e}\n  {}", trail()));
             assert_eq!(reopened.document(), s.document(), "{what}: save + open changed the document\n  {}", trail());
             reopened.update_composites();
-            let ts = s.selected_texture_set().id;
-            assert_eq!(reopened.composite(ts), s.composite(ts), "{what}: save + open changed the pixels\n  {}", trail());
+            for ts in s.document().texture_sets.iter().map(|t| t.id).collect::<Vec<_>>() {
+                if s.composite(ts).is_some() {
+                    assert_eq!(reopened.composite(ts), s.composite(ts), "{what}: save + open changed the pixels\n  {}", trail());
+                }
+            }
         }
     }
     let _ = std::fs::remove_dir_all(dir);
@@ -340,5 +388,19 @@ fn random_command_walks_keep_every_invariant() {
     }
     for seed in 1..=6 {
         walk(seed, steps);
+    }
+}
+
+/// The same walk on a UDIM project with "Paint across UDIM tiles" on: commands repeat on the
+/// partner tile (issue #581), the selected tile changes, and every tile's composite is checked.
+#[test]
+fn random_command_walks_on_udim_tiles_keep_every_invariant() {
+    let steps = std::env::var("QA_FUZZ_STEPS").ok().and_then(|v| v.parse().ok()).unwrap_or(150);
+    if let Some(seed) = std::env::var("QA_FUZZ_SEED").ok().and_then(|v| v.parse().ok()) {
+        walk_on(seed, steps, udim_strip(), true);
+        return;
+    }
+    for seed in 1..=4 {
+        walk_on(seed, steps, udim_strip(), true);
     }
 }

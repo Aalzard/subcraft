@@ -303,6 +303,17 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 hint(ui, "0 = normal brush. Particles scatter around each stamp; Fall pulls them down the screen (drips, dust). Raise Spacing for sparse scatter.");
             });
 
+            section(ui, "pen_tilt", "Pen tilt", b.settings.uses_pen_pose(), |ui| {
+                let s = &mut b.settings;
+                let d = subcraft_paint::BrushSettings::default();
+                check_row_reset(ui, "", "Angle follows tilt", &mut s.tilt_angle, d.tilt_angle);
+                check_row_reset(ui, "", "Angle follows pen rotation", &mut s.rotation_angle, d.rotation_angle);
+                slider_row_reset(ui, "Tilt size", &mut s.tilt_size, d.tilt_size, |v| egui::Slider::new(v, 0.0..=4.0));
+                slider_row_reset(ui, "Tilt flow", &mut s.tilt_flow, d.tilt_flow, |v| egui::Slider::new(v, 0.0..=1.0));
+                slider_row_reset(ui, "Tilt flatten", &mut s.tilt_roundness, d.tilt_roundness, |v| egui::Slider::new(v, 0.0..=1.0));
+                hint(ui, "For pens that report tilt (Wacom, Huion, XP-Pen, Surface). Leaning the pen widens the brush, lowers its flow and flattens it like the side of a pencil; Angle follows tilt turns it toward the lean. A mouse is never affected. Rotation needs a pen with barrel rotation (Art Pen).");
+            });
+
 
         });
     });

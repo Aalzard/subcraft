@@ -1032,10 +1032,19 @@ pub enum ProceduralKind {
     Scratch,
     /// Woven threads (plain weave): the height of the cloth, bright where a thread is on top.
     Weave,
+    /// Diagonal twill weave (denim): warp threads float over three weft threads, one step
+    /// across per row. Height of the cloth; the low parts are where the weft shows.
+    Twill,
+    /// Thin wandering mineral veins (marble): 1 on a vein.
+    Veins,
+    /// Boards laid in staggered rows along U: 0 in the gaps, a different brightness per board.
+    Planks,
+    /// Wood knots: sparse ovals stretched along U, a solid core with growth rings around it.
+    Knots,
 }
 
 impl ProceduralKind {
-    pub const ALL: [ProceduralKind; 16] = [
+    pub const ALL: [ProceduralKind; 20] = [
         ProceduralKind::Clouds,
         ProceduralKind::Cells,
         ProceduralKind::Grunge,
@@ -1052,6 +1061,10 @@ impl ProceduralKind {
         ProceduralKind::Pores,
         ProceduralKind::Scratch,
         ProceduralKind::Weave,
+        ProceduralKind::Twill,
+        ProceduralKind::Veins,
+        ProceduralKind::Planks,
+        ProceduralKind::Knots,
     ];
 
     pub fn label(self) -> &'static str {
@@ -1072,6 +1085,10 @@ impl ProceduralKind {
             ProceduralKind::Pores => "Pores",
             ProceduralKind::Scratch => "Scratch Generator",
             ProceduralKind::Weave => "Weave",
+            ProceduralKind::Twill => "Twill",
+            ProceduralKind::Veins => "Veins",
+            ProceduralKind::Planks => "Planks",
+            ProceduralKind::Knots => "Knots",
         }
     }
 }

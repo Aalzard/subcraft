@@ -41,6 +41,10 @@ regex-lite.workspace = true
 web-time.workspace = true
 pollster.workspace = true
 
+# Windows pen tilt / rotation: the window handle of the eframe window.
+[target.'cfg(windows)'.dependencies]
+raw-window-handle = "0.6"
+
 # Native pen tablet input (issue #82): the same crates and versions winit already uses.
 [target.'cfg(target_os = "linux")'.dependencies]
 raw-window-handle = "0.6"

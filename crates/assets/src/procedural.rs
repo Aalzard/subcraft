@@ -109,6 +109,17 @@ impl Recipe {
     }
 }
 
+/// Give a coat a Height it writes (coats come with colour, roughness and metal only), so a
+/// bound height value raises or sinks what the coat covers.
+fn with_height(mut layer: Layer, ts: &TextureSet) -> Layer {
+    if let LayerContent::Fill(f) = &mut layer.content
+        && ts.has_channel(Height)
+    {
+        f.channels.insert(Height, subcraft_doc::FillChannel::new(uni(0.0)));
+    }
+    layer
+}
+
 /// The owner-tuned edge wear generator (Painter-style model with natural spread).
 fn wear() -> MaskEffectKind {
     MaskEffectKind::Generator(Generator::new(GeneratorKind::Edges))
@@ -534,7 +545,7 @@ fn concrete(ts: &TextureSet) -> Layer {
     r.bind(&dust, Prop::Opacity { channel: None }, "saturate(dust * 3) * 0.8");
     r.follow_pattern(&dust);
 
-    let chips = masked(coat(ts, "Chipped Edges", [0.6, 0.59, 0.56], 0.9, 0.0), ts, vec![fx(wear())]);
+    let chips = with_height(masked(coat(ts, "Chipped Edges", [0.6, 0.59, 0.56], 0.9, 0.0), ts, vec![fx(wear())]), ts);
     r.value(&chips, BaseColor, "min(color * 1.6, 1)");
     r.value(&chips, Height, "0 - 0.02");
     r.bind_fx(&chips, 0, Prop::Level, "chips");
@@ -674,10 +685,38 @@ mod tests {
         smart_materials().into_iter().map(|m| (m.name.clone(), m.build(&ts))).collect()
     }
 
+    /// Cloth uses the sheen channels when the texture set has them, and stays well formed
+    /// (no Sheen slider, no idle binding) when it does not.
+    #[test]
+    fn cloth_has_a_sheen_slider_only_with_sheen_channels() {
+        let plain = TextureSet::new("set", 0, 64);
+        let mut sheen = plain.clone();
+        for k in [SheenColor, SheenOpacity, SheenRoughness] {
+            sheen.channels.push(subcraft_doc::ChannelDef::default_for(k));
+        }
+        for name in ["Canvas", "Denim"] {
+            let m = smart_materials().into_iter().find(|m| m.name == format!("{PREFIX}{name}")).unwrap();
+            let without = m.build(&plain);
+            assert!(without.material.as_ref().unwrap().param("sheen").is_none());
+            let with = m.build(&sheen);
+            let controls = with.material.as_ref().unwrap();
+            assert!(controls.param("sheen").is_some());
+            assert_eq!(controls.check(&with), vec![], "{name}");
+            let mut root = with.clone();
+            let mut c = (**controls).clone();
+            assert!(c.set("sheen", ParamValue::Number(0.9)));
+            assert!(c.apply(&mut root));
+            let weave = root.children().iter().find(|l| l.name == "Weave").unwrap();
+            let LayerContent::Fill(f) = &weave.content else { panic!() };
+            assert_eq!(f.channels[&SheenOpacity].source, FillSource::uniform(s(0.9)));
+            assert!(f.channels[&SheenColor].enabled && f.channels[&SheenRoughness].enabled);
+        }
+    }
+
     #[test]
     fn every_procedural_material_is_well_formed() {
         let all = built();
-        assert_eq!(all.len(), 25);
+        assert_eq!(all.len(), 28);
         for (name, layer) in &all {
             assert!(name.starts_with(PREFIX), "{name}");
             let m = layer.material.as_ref().unwrap_or_else(|| panic!("{name} has parameters"));

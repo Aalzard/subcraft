@@ -179,6 +179,17 @@ pub struct BrushSettings {
     pub pressure_size: f32,
     /// How much pen pressure lowers the flow of each stamp (0 = ignored).
     pub pressure_flow: f32,
+    /// Pen tilt turns the brush toward the side the pen leans to (added to the angle).
+    pub tilt_angle: bool,
+    /// How much pen tilt widens the brush: at full tilt the size is `1 + tilt_size` times.
+    pub tilt_size: f32,
+    /// How much pen tilt lowers the flow (0 = ignored, 1 = full tilt gives the minimum flow).
+    pub tilt_flow: f32,
+    /// How much pen tilt flattens the footprint, like the side of a pencil lead (0 = ignored,
+    /// 1 = full tilt gives a quarter of the roundness).
+    pub tilt_roundness: f32,
+    /// The pen's barrel rotation (twist) is added to the angle, for pens that report it.
+    pub rotation_angle: bool,
     /// Scatter mode: particles per path stamp (0 = off, a normal brush).
     pub scatter_count: u32,
     /// How far particles spread around the path, in brush diameters.
@@ -231,6 +242,11 @@ impl Default for BrushSettings {
             position_jitter_pressure: false,
             pressure_size: 1.0,
             pressure_flow: 0.0,
+            tilt_angle: false,
+            tilt_size: 0.0,
+            tilt_flow: 0.0,
+            tilt_roundness: 0.0,
+            rotation_angle: false,
             scatter_count: 0,
             scatter_radius: 1.0,
             scatter_size_random: 0.5,
@@ -320,6 +336,47 @@ pub const MAX_SCATTER: u32 = 64;
 /// Smallest pressure factor, so a feather-light touch still leaves a mark.
 pub const MIN_PRESSURE: f32 = 0.02;
 
+/// Pen tilt (from vertical) that counts as full tilt. Pens report up to about 60 degrees.
+pub const FULL_TILT_DEG: f32 = 60.0;
+
+/// The pose of a pen beyond its pressure, for brushes driven by tilt and rotation. A mouse has
+/// none (`Stroke` keeps `None`, which leaves every tilt setting without effect).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct PenPose {
+    /// Tilt in degrees toward screen +X (right) and +Y (down), -90..90 each; 0, 0 is upright.
+    pub tilt: [f32; 2],
+    /// Barrel rotation in degrees (clockwise on screen), when the pen reports it.
+    pub rotation: Option<f32>,
+}
+
+impl PenPose {
+    /// How far the pen leans, 0 (upright) to 1 ([`FULL_TILT_DEG`] or more).
+    pub fn tilt_amount(&self) -> f32 {
+        let [x, y] = self.tilt.map(|v| if v.is_finite() { v.clamp(-90.0, 90.0) } else { 0.0 });
+        (x.hypot(y) / FULL_TILT_DEG).clamp(0.0, 1.0)
+    }
+
+    /// Screen direction the pen leans to, in radians (0 = right, pi/2 = down); `None` upright.
+    pub fn tilt_direction(&self) -> Option<f32> {
+        let [x, y] = self.tilt;
+        (x.is_finite() && y.is_finite() && x.hypot(y) > 1.0).then(|| y.atan2(x))
+    }
+}
+
+/// What a pen pose does to one stamp: multipliers for size, flow and roundness, and radians
+/// added to the angle. [`PenEffect::NONE`] for a mouse.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PenEffect {
+    pub size: f32,
+    pub flow: f32,
+    pub roundness: f32,
+    pub angle: f32,
+}
+
+impl PenEffect {
+    pub const NONE: PenEffect = PenEffect { size: 1.0, flow: 1.0, roundness: 1.0, angle: 0.0 };
+}
+
 impl BrushSettings {
     /// Radius multiplier for a pen pressure in 0..1 (1 for a mouse).
     pub fn pressure_size_factor(&self, pressure: f32) -> f32 {
@@ -329,6 +386,30 @@ impl BrushSettings {
     /// Flow multiplier for a pen pressure in 0..1 (1 for a mouse).
     pub fn pressure_flow_factor(&self, pressure: f32) -> f32 {
         1.0 - self.pressure_flow.clamp(0.0, 1.0) * (1.0 - pressure.clamp(MIN_PRESSURE, 1.0))
+    }
+
+    /// Whether any setting reads the pen's tilt or rotation.
+    pub fn uses_pen_pose(&self) -> bool {
+        self.tilt_angle || self.rotation_angle || self.tilt_size > 0.0 || self.tilt_flow > 0.0 || self.tilt_roundness > 0.0
+    }
+
+    /// What `pose` does to a stamp under these settings ([`PenEffect::NONE`] without a pose).
+    pub fn pen_effect(&self, pose: Option<PenPose>) -> PenEffect {
+        let Some(pose) = pose else { return PenEffect::NONE };
+        let t = pose.tilt_amount();
+        let mut angle = 0.0;
+        if self.tilt_angle && let Some(dir) = pose.tilt_direction() {
+            angle += dir;
+        }
+        if self.rotation_angle && let Some(r) = pose.rotation.filter(|r| r.is_finite()) {
+            angle += r.to_radians();
+        }
+        PenEffect {
+            size: 1.0 + self.tilt_size.clamp(0.0, 4.0) * t,
+            flow: 1.0 - self.tilt_flow.clamp(0.0, 1.0) * (1.0 - MIN_PRESSURE) * t,
+            roundness: 1.0 - 0.75 * self.tilt_roundness.clamp(0.0, 1.0) * t,
+            angle,
+        }
     }
 }
 
