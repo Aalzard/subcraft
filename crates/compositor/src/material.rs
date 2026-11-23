@@ -12,11 +12,20 @@ use subcraft_materials::matfx::{self, PATTERN, Surface};
 use crate::TileContext;
 use crate::blend::{BlendTarget, composite};
 
+/// Detail Edge Wear: micro convexity (0..1, see `stages::micro_detail_tile`) times this is the
+/// wear a ridge asks for at Painted detail 1. A soft hammered ridge measures about 0.25, a crisp
+/// painted line saturates.
+const DETAIL_WEAR_GAIN: f32 = 4.0;
+/// Half width of the fade around the wear threshold (1 - Wear level).
+const DETAIL_WEAR_BAND: f32 = 0.15;
+
 /// The Edge wear generator a filter places its damage with.
 fn edge_generator(filter: &MaterialFilter) -> Option<Generator> {
     let mut g = Generator::new(GeneratorKind::Edges);
     let (level, distance, scale, seed) = match *filter {
         MaterialFilter::EdgeDamages { amount, spread, scale, seed, .. } => (amount, spread, scale, seed),
+        // A thin line: a third of the default Edge Damages reach.
+        MaterialFilter::DetailEdgeWear { level, grunge_scale, seed, .. } => (level, 0.8, grunge_scale * 2.0, seed),
         // Rust and peeling only lean on the edges: a fixed, generous band.
         MaterialFilter::RustWeathering { edges, scale, seed, .. } if edges > 0.0 => (0.6, 3.5, scale * 5.0, seed),
         MaterialFilter::PeelingPaint { edge_bias, scale, seed, .. } if edge_bias > 0.0 => (0.65, 4.0, scale * 4.0, seed),
@@ -28,18 +37,23 @@ fn edge_generator(filter: &MaterialFilter) -> Option<Generator> {
     if let Some(s) = g.edge_spread.as_mut() {
         s.distance = distance.clamp(0.0, 12.5);
     }
+    g.micro_details = filter.micro_details();
     Some(g)
 }
 
-fn edge_mask(filter: &MaterialFilter, tc: &TileContext) -> Option<Vec<f32>> {
+fn edge_mask(filter: &MaterialFilter, tc: &TileContext, details: Option<&[[f32; 4]]>) -> Option<Vec<f32>> {
     let g = edge_generator(filter)?;
     let zeros = vec![0.0f32; TILE_TEXELS];
     let mut out = vec![[0.0f32; 4]; TILE_TEXELS];
-    crate::mask::evaluate_effect(&MaskEffectKind::Generator(g), tc, &zeros, &mut out, None, None);
+    crate::mask::evaluate_effect(&MaskEffectKind::Generator(g), tc, &zeros, &mut out, None, details);
     Some(out.iter().map(|v| v[0]).collect())
 }
 
-fn occlusion(filter: &MaterialFilter, tc: &TileContext) -> Option<Vec<f32>> {
+fn occlusion(filter: &MaterialFilter, tc: &TileContext, details: Option<&[[f32; 4]]>) -> Option<Vec<f32>> {
+    // HBAO: the micro occlusion of the relief below (1 = open).
+    if let MaterialFilter::Hbao { .. } = *filter {
+        return details.map(|d| d.iter().map(|d| 1.0 - d[1]).collect());
+    }
     let MaterialFilter::RustWeathering { cavities, .. } = *filter else { return None };
     if cavities <= 0.0 || tc.sample.mesh_maps.get(MeshMapKind::AmbientOcclusion).is_none() {
         return None;
@@ -67,8 +81,9 @@ fn over(src: [f32; 4], value: [f32; 3], a: f32) -> [f32; 4] {
 
 /// Apply `filter` to `content` (the channel `kind` of the content below the effect) for one
 /// tile. `metallic` is the Metallic content at the same point of the stack, for filters that
-/// read it (`None`: treated as 0, a dielectric).
-pub(crate) fn apply(filter: &MaterialFilter, kind: ChannelKind, blend: ChannelBlend, content: &mut [[f32; 4]], tc: &TileContext, metallic: Option<&[[f32; 4]]>) {
+/// read it (`None`: treated as 0, a dielectric). `details` are the micro details of the Height
+/// and Normal at that point (`[curvature, occlusion, ..]`), for [`MaterialFilter::micro_details`].
+pub(crate) fn apply(filter: &MaterialFilter, kind: ChannelKind, blend: ChannelBlend, content: &mut [[f32; 4]], tc: &TileContext, metallic: Option<&[[f32; 4]]>, details: Option<&[[f32; 4]]>) {
     if !filter.valid() || !filter.writes(kind) || !blend.is_active() {
         return;
     }
@@ -110,29 +125,58 @@ pub(crate) fn apply(filter: &MaterialFilter, kind: ChannelKind, blend: ChannelBl
         return;
     }
     let pattern = matfx::pattern_tile(filter, tc.geo);
-    let edges = edge_mask(filter, tc);
-    let occluded = occlusion(filter, tc);
+    // Shut Line: the extra input is the blurred coverage of the layer's strokes.
+    let (strokes, details) = if filter.coverage_blur().is_some() { (details, None) } else { (None, details) };
+    let edges = match strokes {
+        Some(c) => Some(c.iter().map(|c| c[3]).collect()),
+        None => edge_mask(filter, tc, details),
+    };
+    // Detail Edge Wear: ridges of the Height / Normal detail below wear like mesh edges.
+    let edges = match (*filter, details, edges) {
+        (MaterialFilter::DetailEdgeWear { level, detail, .. }, Some(d), Some(mut e)) if detail > 0.0 => {
+            let lo = (1.0 - level - DETAIL_WEAR_BAND).max(0.02);
+            for (e, d) in e.iter_mut().zip(d) {
+                let ridge = ((d[0] - 0.5) * 2.0 * DETAIL_WEAR_GAIN * detail).clamp(0.0, 1.0);
+                let t = ((ridge - lo) / (2.0 * DETAIL_WEAR_BAND)).clamp(0.0, 1.0);
+                *e = e.max(t * t * (3.0 - 2.0 * t));
+            }
+            Some(e)
+        }
+        (_, _, e) => e,
+    };
+    let occluded = occlusion(filter, tc, details);
+    let faces = matches!(filter, MaterialFilter::WaterDrops { .. });
     for (i, px) in content.iter_mut().enumerate() {
-        let surface = Surface { edge: edges.as_ref().map_or(0.0, |e| e[i]), occlusion: occluded.as_ref().map_or(0.0, |o| o[i]) };
+        let surface = Surface { edge: edges.as_ref().map_or(0.0, |e| e[i]), occlusion: occluded.as_ref().map_or(0.0, |o| o[i]), up: if faces { tc.geo.normal(i)[1] } else { 0.0 } };
         let r = matfx::respond(filter, &pattern[i * PATTERN..(i + 1) * PATTERN], surface);
         let src = *px;
+        // What the filter works on: the content below with its coverage scaled by `keep`.
+        let kept = [src[0], src[1], src[2], src[3] * r.keep.clamp(0.0, 1.0)];
         let new = match kind {
             ChannelKind::BaseColor => {
-                let gained = [src[0] * r.color_gain, src[1] * r.color_gain, src[2] * r.color_gain, src[3]];
+                let gained = [kept[0] * r.color_gain, kept[1] * r.color_gain, kept[2] * r.color_gain, kept[3]];
                 over(gained, r.color, r.color_alpha)
             }
             ChannelKind::Roughness => {
-                let b = (src[0] + r.roughness_add).clamp(0.0, 1.0);
-                over([b, b, b, src[3]], [r.roughness; 3], r.roughness_alpha)
+                let b = (kept[0] + r.roughness_add).clamp(0.0, 1.0);
+                over([b, b, b, kept[3]], [r.roughness; 3], r.roughness_alpha)
             }
-            ChannelKind::Metallic => over(src, [r.metallic; 3], r.metallic_alpha),
+            ChannelKind::Metallic => over(kept, [r.metallic; 3], r.metallic_alpha),
+            ChannelKind::AmbientOcclusion => {
+                if r.occlusion == 0.0 {
+                    continue;
+                }
+                // Uncovered Ambient Occlusion is open (1).
+                let v = (src[0] * src[3] + (1.0 - src[3])) * (1.0 - r.occlusion);
+                [v, v, v, 1.0]
+            }
             ChannelKind::Height => {
-                if r.height == 0.0 {
+                if r.height == 0.0 && r.keep == 1.0 {
                     continue;
                 }
                 // Height adds: the relief sits on whatever height is below, covered or not.
-                let h = src[0] * src[3] + r.height;
-                [h, h, h, 1.0]
+                let h = kept[0] * kept[3] + r.height;
+                if r.height == 0.0 { [kept[0], kept[0], kept[0], kept[3]] } else { [h, h, h, 1.0] }
             }
             _ => continue,
         };

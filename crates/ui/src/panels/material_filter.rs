@@ -150,6 +150,84 @@ pub fn editor(ui: &mut Ui, filter: &mut MaterialFilter) -> bool {
             changed |= check_row_reset(ui, "", "Flat shading", flat, d_flat).on_hover_text("Sets Metallic 0 and Roughness 1 so reflections do not tint the result").changed();
             ui.weak("Dielectrics: 30 to 240 sRGB. Metals: 180 sRGB or more. Put it on a Passthrough layer above everything, and hide it before exporting.");
         }
+        (MaterialFilter::Grinded { scale: s, intensity, seed: sd }, MaterialFilter::Grinded { scale: d_s, intensity: d_int, seed: d_sd }) => {
+            changed |= scale(ui, "Pass count", ACROSS, s, d_s);
+            changed |= unit(ui, "Grinding intensity", intensity, d_int);
+            changed |= seed(ui, sd, d_sd);
+        }
+        (
+            MaterialFilter::Rough { scale: s, grunge_scale, brushing, warp, grunge, seed: sd },
+            MaterialFilter::Rough { scale: d_s, grunge_scale: d_gs, brushing: d_brushing, warp: d_warp, grunge: d_grunge, seed: d_sd },
+        ) => {
+            changed |= scale(ui, "Brush line count", ACROSS, s, d_s);
+            changed |= unit(ui, "Brushing intensity", brushing, d_brushing);
+            changed |= unit(ui, "Brushing warp", warp, d_warp);
+            changed |= unit(ui, "Grunge amount", grunge, d_grunge);
+            changed |= scale(ui, "Grunge count", ACROSS, grunge_scale, d_gs);
+            changed |= seed(ui, sd, d_sd);
+        }
+        (MaterialFilter::Raw { scale: s, intensity, seed: sd }, MaterialFilter::Raw { scale: d_s, intensity: d_int, seed: d_sd }) => {
+            changed |= scale(ui, "Patch count", ACROSS, s, d_s);
+            changed |= unit(ui, "Details intensity", intensity, d_int);
+            changed |= seed(ui, sd, d_sd);
+        }
+        (
+            MaterialFilter::DetailEdgeWear { level, detail, contrast, grunge, grunge_scale, color: c, roughness, metallic, seed: sd },
+            MaterialFilter::DetailEdgeWear { level: d_level, detail: d_detail, contrast: d_contrast, grunge: d_grunge, grunge_scale: d_gs, color: d_c, roughness: d_roughness, metallic: d_metallic, seed: d_sd },
+        ) => {
+            changed |= unit(ui, "Wear level", level, d_level);
+            changed |= slider_row_reset(ui, "Painted detail", detail, d_detail, |v| egui::Slider::new(v, 0.0..=1.0)).on_hover_text("How much the Height and Normal detail below is worn like an edge").changed();
+            changed |= unit(ui, "Wear contrast", contrast, d_contrast);
+            changed |= unit(ui, "Grunge amount", grunge, d_grunge);
+            changed |= scale(ui, "Grunge count", ACROSS, grunge_scale, d_gs);
+            ui.label(egui::RichText::new("Exposed material").strong());
+            changed |= color(ui, "Color", c, d_c);
+            changed |= unit(ui, "Roughness", roughness, d_roughness);
+            changed |= unit(ui, "Metallic", metallic, d_metallic);
+            changed |= seed(ui, sd, d_sd);
+        }
+        (
+            MaterialFilter::WaterDrops { amount, scale: s, size_variation, direction, top, sides, underside, height, roughness, wet, seed: sd },
+            MaterialFilter::WaterDrops { amount: d_amount, scale: d_s, size_variation: d_size, direction: d_dir, top: d_top, sides: d_sides, underside: d_under, height: d_height, roughness: d_roughness, wet: d_wet, seed: d_sd },
+        ) => {
+            changed |= unit(ui, "Drops amount", amount, d_amount);
+            changed |= scale(ui, "Drop count", ACROSS, s, d_s);
+            changed |= unit(ui, "Size variation", size_variation, d_size);
+            changed |= unit(ui, "Direction intensity", direction, d_dir);
+            ui.label(egui::RichText::new("Where the drops sit").strong());
+            changed |= unit(ui, "Top", top, d_top);
+            changed |= unit(ui, "Sides", sides, d_sides);
+            changed |= unit(ui, "Underside", underside, d_under);
+            ui.label(egui::RichText::new("Water").strong());
+            changed |= unit(ui, "Drops height", height, d_height);
+            changed |= unit(ui, "Drops roughness", roughness, d_roughness);
+            changed |= unit(ui, "Wet darkening", wet, d_wet);
+            changed |= seed(ui, sd, d_sd);
+        }
+        (
+            MaterialFilter::Hbao { radius, intensity, ambient_occlusion, base_color, roughness },
+            MaterialFilter::Hbao { radius: d_radius, intensity: d_int, ambient_occlusion: d_ao, base_color: d_base, roughness: d_roughness },
+        ) => {
+            changed |= unit(ui, "Radius", radius, d_radius);
+            changed |= unit(ui, "Intensity", intensity, d_int);
+            ui.label(egui::RichText::new("Blending").strong());
+            changed |= unit(ui, "Ambient Occlusion intensity", ambient_occlusion, d_ao);
+            changed |= unit(ui, "Base Color intensity", base_color, d_base);
+            changed |= unit(ui, "Roughness intensity", roughness, d_roughness);
+        }
+        (
+            MaterialFilter::ShutLine { width, slope, emboss, height, color: c, line_opacity, source_opacity },
+            MaterialFilter::ShutLine { width: d_width, slope: d_slope, emboss: d_emboss, height: d_height, color: d_c, line_opacity: d_line, source_opacity: d_source },
+        ) => {
+            changed |= unit(ui, "Cavity width", width, d_width);
+            changed |= unit(ui, "Slope intensity", slope, d_slope);
+            changed |= unit(ui, "Emboss strength", emboss, d_emboss);
+            changed |= unit(ui, "Height intensity", height, d_height);
+            ui.label(egui::RichText::new("Material").strong());
+            changed |= color(ui, "Line color", c, d_c);
+            changed |= unit(ui, "Line opacity", line_opacity, d_line);
+            changed |= slider_row_reset(ui, "Source material opacity", source_opacity, d_source, |v| egui::Slider::new(v, 0.0..=1.0)).on_hover_text("How much of the painted material itself stays visible. 0 keeps only the groove.").changed();
+        }
         _ => {}
     }
     changed
@@ -163,7 +241,9 @@ mod tests {
     fn search_finds_filters_by_any_word() {
         assert_eq!(search("").len(), MaterialFilter::ALL.len());
         assert_eq!(search("rust").len(), 1);
-        assert_eq!(search("matfinish").len(), 3);
+        assert_eq!(search("matfinish").len(), 6);
+        assert_eq!(search("edge").len(), 2);
+        assert_eq!(search("water").len(), 1);
         assert_eq!(search("MATFX peel").len(), 1);
         assert!(search("nothing like this").is_empty());
     }

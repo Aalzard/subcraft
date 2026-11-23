@@ -336,7 +336,7 @@ fn apply_content_effects(effects: &[Arc<ContentEffect>], acc: &Acc, content: &mu
             ContentEffectKind::Anchor => continue,
             ContentEffectKind::Material(filter) => {
                 // Filters that read another channel are evaluated by the stage graph.
-                crate::material::apply(filter, kind, blend, content, tc, None);
+                crate::material::apply(filter, kind, blend, content, tc, None, None);
                 continue;
             }
             ContentEffectKind::Filter { filter: subcraft_doc::Filter::GradientDynamic { source, vertical, position }, .. } => {

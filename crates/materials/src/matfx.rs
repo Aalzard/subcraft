@@ -27,6 +27,8 @@ const DIMPLE_HEIGHT: f32 = 0.30;
 const FILM_HEIGHT: f32 = 0.04;
 const PEEL_HEIGHT: f32 = 0.03;
 const GRAIN_HEIGHT: f32 = 0.012;
+const DROP_HEIGHT: f32 = 0.10;
+const SHUT_HEIGHT: f32 = 0.08;
 
 #[inline]
 fn hash3(x: i32, y: i32, z: i32, seed: u32) -> u32 {
@@ -157,6 +159,12 @@ fn frame(h: u32) -> [Vec3; 3] {
 /// The noise values of `filter` at `position` (object space, units of the model's longest side).
 /// What each slot means is private to the filter's branch of [`respond`].
 pub fn pattern(filter: &MaterialFilter, position: [f32; 3]) -> [f32; PATTERN] {
+    pattern_on(filter, position, [0.0; 3])
+}
+
+/// [`pattern`] on a surface with normal `normal` (object space; zero when unknown). Only filters
+/// with a direction read it: their lines must lie in the surface, whichever way it faces.
+pub fn pattern_on(filter: &MaterialFilter, position: [f32; 3], normal: [f32; 3]) -> [f32; PATTERN] {
     let p = Vec3::from_array(position);
     match *filter {
         MaterialFilter::Galvanized { scale, seed, .. } => {
@@ -220,7 +228,72 @@ pub fn pattern(filter: &MaterialFilter, position: [f32; 3]) -> [f32; PATTERN] {
             let cell = voronoi(q + warp(q * 0.7, seed ^ 0x44) * 0.8, seed ^ 0x1f3);
             [flake, cell.f2 - cell.f1, fbm(p * scale * 7.0, 4, seed ^ 0x62), vnoise(p * scale * 30.0, seed ^ 0x29)]
         }
-        MaterialFilter::PbrValidate { .. } => [0.0; PATTERN],
+        MaterialFilter::PbrValidate { .. } | MaterialFilter::Hbao { .. } | MaterialFilter::ShutLine { .. } => [0.0; PATTERN],
+        MaterialFilter::Grinded { scale, seed, .. } => {
+            let q = p * scale;
+            let q = q + warp(q * 0.5, seed) * 0.35;
+            // One grinder pass per cell: scratches are circles around the disc's pivot, which
+            // sits well outside the cell, so each pass is a fan of near-parallel arcs.
+            let cell = voronoi(q, seed);
+            let [d, e1, e2] = frame(cell.id);
+            let (a, b) = (unit(cell.id.rotate_left(5) ^ 0x1f83_d9ab) - 0.5, unit(cell.id.rotate_left(17) ^ 0x5be0_cd19) - 0.5);
+            let l = q - (cell.center + (e1 * a + e2 * b).normalize_or_zero() * 2.2);
+            let along = l.dot(d);
+            let radius = (l - d * along).length();
+            let offset = Vec3::splat(unit(cell.id) * 64.0);
+            let scratch = fbm(Vec3::new(radius * 26.0, along * 1.2, 0.0) + offset, 3, seed ^ 0x3d);
+            let band = fbm(Vec3::new(radius * 4.0, along * 0.6, 7.0) + offset, 2, seed ^ 0x8f);
+            [scratch, unit(cell.id.wrapping_mul(0x2545_f491) ^ 0x9e37_79b9), band, 0.0]
+        }
+        MaterialFilter::Rough { scale, grunge_scale, warp: wander, seed, .. } => {
+            let q = p * scale;
+            let q = q + warp(q * 0.12, seed) * wander * 2.5;
+            // Brush lines are drawn flat on the three axis planes and the surface takes the plane
+            // it faces (stretching 3D noise instead loses the lines as soon as the surface tilts
+            // toward the stretch axis). Lines run along X on the faces looking along Y and Z and
+            // along Y on faces looking down X; the planes cross-fade over a narrow band.
+            const STRETCH: f32 = 0.02;
+            let n = Vec3::from_array(normal).abs();
+            let w = if n.length_squared() < 1e-6 { Vec3::Z } else { Vec3::new(n.x.powi(8), n.y.powi(8), n.z.powi(8)) };
+            let w = w / (w.x + w.y + w.z);
+            let plane = |w: f32, c: Vec3, salt: u32| if w > 0.002 { (fbm(c, 3, seed ^ salt) - 0.5) * w } else { 0.0 };
+            let sum = plane(w.z, Vec3::new(q.x * STRETCH, q.y, 3.7), 0x5b) + plane(w.y, Vec3::new(q.x * STRETCH, q.z, 11.3), 0x5b) + plane(w.x, Vec3::new(q.y * STRETCH, q.z, 23.9), 0x5b);
+            // A blend of independent noises is flatter than either: restore the contrast.
+            let brush = (0.5 + sum / w.length()).clamp(0.0, 1.0);
+            let g = p * grunge_scale;
+            let grunge = fbm(g + warp(g * 0.5, seed ^ 0xa7) * 0.9, 4, seed ^ 0xa7);
+            [brush, grunge, vnoise(q * 3.0, seed ^ 0x17), 0.0]
+        }
+        MaterialFilter::Raw { scale, seed, .. } => {
+            let q = p * scale;
+            let big = fbm(q + warp(q * 0.5, seed) * 1.1, 4, seed);
+            let mid = fbm(q * 7.0, 3, seed ^ 0x2d);
+            let cell = voronoi(q * 9.0, seed ^ 0x6c1);
+            let pit = if unit(cell.id) > 0.7 { 1.0 - smoothstep(0.0, 0.16 + 0.14 * unit(cell.id.rotate_left(9)), cell.f1) } else { 0.0 };
+            [big, mid, pit, vnoise(q * 40.0, seed ^ 0x99)]
+        }
+        MaterialFilter::WaterDrops { scale, size_variation, direction, seed, .. } => {
+            // On a wall a drop sags: stretch it along Y by how vertical the surface is.
+            let wall = 1.0 - normal[1].abs().min(1.0);
+            let q = Vec3::new(p.x, p.y / (1.0 + 1.6 * direction * wall), p.z) * scale;
+            // A drop is the cut of a ball around a feature point with the surface: a disc. The
+            // slot is the distance in drop radii (1 = the rim), pushed to the rim where two
+            // cells meet so neighbours never share a straight cut.
+            let drop = |q: Vec3, seed: u32| {
+                let cell = voronoi(q, seed);
+                let size = unit(cell.id.rotate_left(13) ^ 0x243f_6a88);
+                let radius = 0.46 * (1.0 - 0.75 * size_variation * size);
+                let t = (cell.f1 / radius).max(1.0 - (cell.f2 - cell.f1) / 0.12);
+                (t.clamp(0.0, 1.5), unit(cell.id.wrapping_mul(0x2545_f491) ^ 0x9e37_79b9))
+            };
+            let (big, big_id) = drop(q + warp(q * 0.8, seed) * 0.25, seed);
+            let (small, small_id) = drop(q * 3.3, seed ^ 0x7d1);
+            [big, big_id, small, small_id]
+        }
+        MaterialFilter::DetailEdgeWear { grunge_scale, seed, .. } => {
+            let q = p * grunge_scale;
+            [fbm(q + warp(q * 0.6, seed) * 0.7, 4, seed ^ 0x4e), fbm(q * 5.0, 3, seed ^ 0xb3), vnoise(q * 18.0, seed ^ 0x61), 0.0]
+        }
     }
 }
 
@@ -234,6 +307,13 @@ fn pattern_key(filter: &MaterialFilter) -> field::FieldKey {
         MaterialFilter::RustWeathering { scale, seed, .. } => [5, scale.to_bits(), seed, 0, 0],
         MaterialFilter::PeelingPaint { scale, seed, .. } => [6, scale.to_bits(), seed, 0, 0],
         MaterialFilter::PbrValidate { .. } => [7, 0, 0, 0, 0],
+        MaterialFilter::Hbao { .. } => [13, 0, 0, 0, 0],
+        MaterialFilter::ShutLine { .. } => [14, 0, 0, 0, 0],
+        MaterialFilter::Grinded { scale, seed, .. } => [8, scale.to_bits(), seed, 0, 0],
+        MaterialFilter::Rough { scale, grunge_scale, warp, seed, .. } => [9, scale.to_bits(), seed, grunge_scale.to_bits(), warp.to_bits()],
+        MaterialFilter::Raw { scale, seed, .. } => [10, scale.to_bits(), seed, 0, 0],
+        MaterialFilter::DetailEdgeWear { grunge_scale, seed, .. } => [11, grunge_scale.to_bits(), seed, 0, 0],
+        MaterialFilter::WaterDrops { scale, size_variation, direction, seed, .. } => [12, scale.to_bits(), seed, size_variation.to_bits(), direction.to_bits()],
     };
     field::FieldKey::matfx(bits)
 }
@@ -241,9 +321,11 @@ fn pattern_key(filter: &MaterialFilter) -> field::FieldKey {
 /// [`pattern`] of every texel of a tile ([`PATTERN`] values per texel), cached on the tile.
 pub fn pattern_tile(filter: &MaterialFilter, geo: &TileGeometry) -> std::sync::Arc<field::Field> {
     geo.fields.get_or_compute(pattern_key(filter), || {
+        let directional = matches!(filter, MaterialFilter::Rough { .. } | MaterialFilter::WaterDrops { .. });
         let mut out = Vec::with_capacity(TILE_TEXELS * PATTERN);
         for i in 0..TILE_TEXELS {
-            out.extend_from_slice(&pattern(filter, geo.position(i)));
+            let normal = if directional { geo.normal(i) } else { [0.0; 3] };
+            out.extend_from_slice(&pattern_on(filter, geo.position(i), normal));
         }
         out
     })
@@ -252,10 +334,12 @@ pub fn pattern_tile(filter: &MaterialFilter, geo: &TileGeometry) -> std::sync::A
 /// Surface inputs of a texel that do not come from the pattern.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Surface {
-    /// Edge wear mask, 0..1 (1 on a worn edge).
+    /// Edge wear mask, 0..1 (1 on a worn edge). Shut Line: the blurred coverage of the strokes.
     pub edge: f32,
     /// 0 = open, 1 = fully occluded (1 - baked ambient occlusion).
     pub occlusion: f32,
+    /// How much the surface faces up: the Y of its object-space normal, -1..1 (0 when unknown).
+    pub up: f32,
 }
 
 /// What a filter does to one texel of the material below it.
@@ -274,10 +358,14 @@ pub struct Response {
     pub metallic_alpha: f32,
     /// Added to the Height below.
     pub height: f32,
+    /// Ambient Occlusion: the value below is multiplied by `1 - occlusion`.
+    pub occlusion: f32,
+    /// Every channel: the coverage of the content below is multiplied by this first.
+    pub keep: f32,
 }
 
 impl Response {
-    pub const NONE: Self = Self { color: [0.0; 3], color_alpha: 0.0, color_gain: 1.0, roughness: 0.0, roughness_alpha: 0.0, roughness_add: 0.0, metallic: 0.0, metallic_alpha: 0.0, height: 0.0 };
+    pub const NONE: Self = Self { color: [0.0; 3], color_alpha: 0.0, color_gain: 1.0, roughness: 0.0, roughness_alpha: 0.0, roughness_add: 0.0, metallic: 0.0, metallic_alpha: 0.0, height: 0.0, occlusion: 0.0, keep: 1.0 };
 
     pub fn base_color(&self, below: [f32; 3]) -> [f32; 3] {
         mix3(below.map(|c| c * self.color_gain), self.color, self.color_alpha)
@@ -303,7 +391,14 @@ const FBM_SD: f32 = 0.088;
 fn z(v: f32) -> f32 {
     (v - 0.5) / FBM_SD
 }
+
+/// [`z`] cut at 2.5 standard deviations, for values used as a signed strength.
+#[inline]
+fn zc(v: f32) -> f32 {
+    z(v).clamp(-2.5, 2.5)
+}
 const ZINC: [f32; 3] = [0.78, 0.80, 0.83];
+const MILL_SCALE: [f32; 3] = [0.085, 0.095, 0.115];
 
 /// Rust colour for a thickness 0..1 (thin rust is orange, thick rust dark brown) and a grain 0..1.
 fn rust_color(thickness: f32, grain: f32) -> [f32; 3] {
@@ -415,6 +510,83 @@ pub fn respond(filter: &MaterialFilter, pat: &[f32], s: Surface) -> Response {
             r.height = (-peel + lip * lip * curl * 0.9 - crack * 0.5) * thickness * PEEL_HEIGHT + peel * rusty * (fine - 0.3) * thickness * PEEL_HEIGHT * 0.4;
         }
         MaterialFilter::PbrValidate { .. } => {}
+        MaterialFilter::ShutLine { slope, emboss, height, color, line_opacity, source_opacity, .. } => {
+            r.keep = source_opacity;
+            let m = s.edge.clamp(0.0, 1.0);
+            if m <= 0.0 {
+                return r;
+            }
+            // The blurred stroke is the groove's cross-section: Slope narrows the walls around
+            // its half-way line, so the groove keeps the painted width.
+            let w = 0.5 * (1.0 - 0.9 * slope);
+            let groove = smoothstep(0.5 - w, 0.5 + w, m);
+            // A lip just outside the walls, as on pressed sheet.
+            let lip = smoothstep(0.0, 0.5 - w * 0.6, m) * (1.0 - smoothstep(0.5 - w * 0.6, 0.5 + w * 0.2, m));
+            r.height = (-groove * height + lip * emboss * 0.3) * SHUT_HEIGHT;
+            r.color = color;
+            r.color_alpha = groove * line_opacity;
+        }
+        MaterialFilter::Hbao { ambient_occlusion, base_color, roughness, .. } => {
+            // `s.occlusion` already carries Radius and Intensity (the micro occlusion).
+            let o = s.occlusion.clamp(0.0, 1.0);
+            r.occlusion = o * ambient_occlusion;
+            r.color_gain = 1.0 - o * base_color * 0.85;
+            r.roughness_add = o * roughness * 0.6;
+        }
+        MaterialFilter::Grinded { intensity, .. } => {
+            let (scratch, pass, band) = (zc(pat[0]), pat[1] - 0.5, zc(pat[2]));
+            // Each pass catches the light differently; inside it the scratches are fine grooves.
+            r.height = (scratch * 0.22 + band * 0.08) * intensity * GRAIN_HEIGHT;
+            r.roughness_add = (scratch * 0.045 + band * 0.03 + pass * 0.12) * intensity;
+            r.color_gain = 1.0 + (scratch * 0.03 + band * 0.015 + pass * 0.10) * intensity;
+        }
+        MaterialFilter::Rough { brushing, grunge, .. } => {
+            let (brush, patch, fine) = (zc(pat[0]), smoothstep(-0.4, 1.4, z(pat[1])), pat[2] - 0.5);
+            r.height = (brush * 0.4 + fine * 0.1) * brushing * GRAIN_HEIGHT;
+            r.roughness_add = (0.06 + brush * 0.08 + fine * 0.03) * brushing + (patch - 0.25) * 0.24 * grunge;
+            r.color_gain = (1.0 + (brush * 0.035 + fine * 0.03) * brushing - patch * 0.22 * grunge).max(0.0);
+        }
+        MaterialFilter::Raw { intensity, .. } => {
+            let (big, mid, pit, fine) = (z(pat[0]), zc(pat[1]), pat[2], pat[3] - 0.5);
+            // Mill scale: a dark blue-gray oxide skin, thicker in patches, flaked off in others.
+            let skin = smoothstep(-1.2, 1.0, big + mid * 0.45);
+            r.color = MILL_SCALE.map(|c| (c * (1.0 + mid * 0.08 + fine * 0.1)).clamp(0.0, 1.0));
+            r.color_alpha = (skin * 0.7 + pit * 0.3).min(1.0) * intensity;
+            r.color_gain = 1.0 + (mid * 0.04 + fine * 0.05) * intensity;
+            r.roughness_add = (0.10 + skin * 0.28 + mid * 0.04 + fine * 0.08 + pit * 0.15) * intensity;
+            r.height = (skin * 0.6 + mid * 0.12 + fine * 0.2 - pit * 1.2) * intensity * GRAIN_HEIGHT;
+        }
+        MaterialFilter::WaterDrops { amount, top, sides, underside, height, roughness, wet, .. } => {
+            let up = s.up.clamp(-1.0, 1.0);
+            let facing = top * up.max(0.0) + underside * (-up).max(0.0) + sides * (1.0 - up.abs());
+            let share = amount * facing;
+            if share <= 0.0 {
+                return r;
+            }
+            // A lens: a paraboloid cap, so the rim meets the surface at a finite contact angle (a
+            // half ball's vertical rim aliases into a jagged outline at texture resolution).
+            let lens = |t: f32, id: f32, share: f32| if id < share { (1.0 - t * t).max(0.0) } else { 0.0 };
+            let (big, small) = (lens(pat[0], pat[1], share), lens(pat[2], pat[3], share * 0.7));
+            let dome = big.max(small * 0.3);
+            let m = smoothstep(0.0, 0.2, big.max(small));
+            r.height = dome * height * DROP_HEIGHT;
+            r.roughness = roughness;
+            r.roughness_alpha = m;
+            r.color_gain = 1.0 - wet * 0.3 * m;
+        }
+        MaterialFilter::DetailEdgeWear { contrast, grunge, color, roughness, metallic, .. } => {
+            let (big, fine, grain) = (z(pat[0]), zc(pat[1]), pat[2] - 0.5);
+            let broken = s.edge.clamp(0.0, 1.0) * (1.0 - grunge * smoothstep(-0.8, 0.9, big + fine * 0.5));
+            let w = 0.5 - 0.47 * contrast;
+            let m = smoothstep(0.5 - w, 0.5 + w, broken);
+            r.color = color.map(|c| (c * (1.0 + grain * 0.12)).clamp(0.0, 1.0));
+            r.color_alpha = m;
+            r.roughness = (roughness + grain * 0.16 + fine * 0.02).clamp(0.03, 1.0);
+            r.roughness_alpha = m;
+            r.metallic = metallic;
+            r.metallic_alpha = m;
+            r.height = -m * FILM_HEIGHT * 0.2;
+        }
     }
     r
 }
@@ -580,13 +752,238 @@ mod tests {
         let f = MaterialFilter::ALL[3];
         for p in points().take(500) {
             let pat = pattern(&f, p);
-            let off = respond(&f, &pat, Surface { edge: 0.0, occlusion: 0.0 });
+            let off = respond(&f, &pat, Surface { edge: 0.0, occlusion: 0.0, up: 0.0 });
             assert_eq!((off.color_alpha, off.roughness_alpha, off.metallic_alpha, off.height), (0.0, 0.0, 0.0, 0.0));
             assert_eq!(off.base_color([0.2, 0.3, 0.4]), [0.2, 0.3, 0.4]);
-            let on = respond(&f, &pat, Surface { edge: 1.0, occlusion: 0.0 });
+            let on = respond(&f, &pat, Surface { edge: 1.0, occlusion: 0.0, up: 0.0 });
             assert_eq!((on.color_alpha, on.metallic_alpha, on.metal(0.0)), (1.0, 1.0, 1.0));
             assert!(on.height < 0.0, "chips are carved");
         }
+    }
+
+    #[test]
+    fn finishes_keep_the_metal_and_only_texture_it() {
+        // Grinded, Rough and Raw at their defaults: Metallic untouched, Roughness and Height vary.
+        for f in [MaterialFilter::ALL[7], MaterialFilter::ALL[8], MaterialFilter::ALL[9]] {
+            let (mut rough, mut height) = ((f32::MAX, f32::MIN), (f32::MAX, f32::MIN));
+            for p in points() {
+                let r = respond(&f, &pattern(&f, p), Surface::default());
+                assert_eq!((r.metallic_alpha, r.roughness_alpha), (0.0, 0.0), "{}", f.label());
+                assert!(r.color_gain > 0.5 && r.color_gain < 1.5 && r.height.abs() < 0.05, "{}", f.label());
+                let v = r.rough(0.3);
+                rough = (rough.0.min(v), rough.1.max(v));
+                height = (height.0.min(r.height), height.1.max(r.height));
+            }
+            assert!(rough.1 - rough.0 > 0.08, "{} roughness {rough:?}", f.label());
+            assert!(height.1 - height.0 > 0.002, "{} height {height:?}", f.label());
+        }
+        // Zero strength changes nothing.
+        let off = [
+            MaterialFilter::Grinded { scale: 9.0, intensity: 0.0, seed: 1 },
+            MaterialFilter::Rough { scale: 60.0, grunge_scale: 5.0, brushing: 0.0, warp: 0.3, grunge: 0.0, seed: 1 },
+            MaterialFilter::Raw { scale: 5.0, intensity: 0.0, seed: 1 },
+        ];
+        for f in off {
+            for p in points().take(500) {
+                let r = respond(&f, &pattern(&f, p), Surface::default());
+                assert_eq!((r.base_color([0.5; 3]), r.rough(0.3), r.height), ([0.5; 3], 0.3, 0.0), "{}", f.label());
+            }
+        }
+        // Raw darkens toward mill scale; Grinded and Rough never lay a colour over the metal.
+        let raw = MaterialFilter::ALL[9];
+        let mean = points().map(|p| respond(&raw, &pattern(&raw, p), Surface::default()).base_color([0.56; 3])[0]).sum::<f32>() / 4000.0;
+        assert!(mean < 0.5 && mean > 0.2, "{mean}");
+        for f in [MaterialFilter::ALL[7], MaterialFilter::ALL[8]] {
+            assert!(points().all(|p| respond(&f, &pattern(&f, p), Surface::default()).color_alpha == 0.0));
+        }
+    }
+
+    #[test]
+    fn grinder_scratches_run_along_arcs() {
+        // Inside one pass the pattern changes much faster across the scratches (radially) than
+        // along them: compare the steepest and the shallowest of many small steps.
+        let f = MaterialFilter::ALL[7];
+        let (mut aniso, mut n) = (0.0f32, 0);
+        for p in points().take(400) {
+            let base = pattern(&f, p);
+            let mut steps = Vec::new();
+            for k in 0..24 {
+                let d = frame(hash3(k, 3, 9, 77))[0] * 6e-4;
+                let q = pattern(&f, [p[0] + d.x, p[1] + d.y, p[2] + d.z]);
+                if q[1] == base[1] {
+                    steps.push((q[0] - base[0]).abs());
+                }
+            }
+            if steps.len() == 24 {
+                let (lo, hi) = steps.iter().fold((f32::MAX, 0.0f32), |(a, b), v| (a.min(*v), b.max(*v)));
+                aniso += hi / (lo + 1e-4);
+                n += 1;
+            }
+        }
+        assert!(n > 100 && aniso / n as f32 > 6.0, "{} over {n}", aniso / n as f32);
+    }
+
+    #[test]
+    fn rough_brush_lines_stay_lines_whichever_way_the_surface_faces() {
+        // Walk along the surface: the pattern barely changes along the brush direction and
+        // changes fast across it. Checked on the axis faces and on tilted ones, where stretched
+        // 3D noise used to fall apart into lumps.
+        let f = MaterialFilter::Rough { scale: 60.0, grunge_scale: 9.0, brushing: 0.6, warp: 0.0, grunge: 0.5, seed: 1 };
+        let step = |normal: Vec3, d: Vec3| {
+            let d = d * 4e-3;
+            points().take(800).map(|p| (pattern_on(&f, p, normal.to_array())[0] - pattern_on(&f, [p[0] + d.x, p[1] + d.y, p[2] + d.z], normal.to_array())[0]).abs()).sum::<f32>() / 800.0
+        };
+        // (normal, the axis the facing plane holds constant along a line, least anisotropy).
+        // A line is where the surface cuts a plane of constant Y (faces looking along Z or X)
+        // or constant Z (faces looking along Y).
+        let cases = [
+            (Vec3::Y, Vec3::Z, 6.0),
+            (Vec3::Z, Vec3::Y, 6.0),
+            (Vec3::X, Vec3::Z, 6.0),
+            (Vec3::new(0.0, 0.5, 0.87), Vec3::Y, 6.0),
+            (Vec3::new(0.45, 0.0, 0.89), Vec3::Y, 6.0),
+            (Vec3::new(0.9, 0.3, 0.3), Vec3::Z, 6.0),
+            // Near a three-way corner the neighbours' lines show through a little.
+            (Vec3::new(0.5, 0.5, 0.707), Vec3::Y, 2.0),
+        ];
+        for (normal, constant, least) in cases {
+            let normal = normal.normalize();
+            let along = normal.cross(constant).normalize();
+            let across = normal.cross(along);
+            let (a, c) = (step(normal, along), step(normal, across));
+            assert!(a * least < c, "normal {normal}: {a} along, {c} across");
+        }
+        // The blend keeps its contrast: the spread of the value is alike on an axis face and
+        // half way between two.
+        let sd = |normal: Vec3| {
+            let v: Vec<f32> = points().map(|p| pattern_on(&f, p, normal.normalize().to_array())[0]).collect();
+            let m = v.iter().sum::<f32>() / v.len() as f32;
+            (v.iter().map(|x| (x - m) * (x - m)).sum::<f32>() / v.len() as f32).sqrt()
+        };
+        let (flat, mid) = (sd(Vec3::Z), sd(Vec3::new(0.0, 1.0, 1.0)));
+        assert!((mid / flat - 1.0).abs() < 0.25, "{flat} {mid}");
+        // Unknown normal: the Z plane.
+        assert_eq!(pattern(&f, [0.3, 0.2, 0.1]), pattern_on(&f, [0.3, 0.2, 0.1], [0.0, 0.0, 1.0]));
+    }
+
+    #[test]
+    fn hbao_darkens_dulls_and_occludes_by_the_occlusion_it_is_given() {
+        let f = MaterialFilter::ALL[12];
+        let open = respond(&f, &[0.0; PATTERN], Surface::default());
+        assert_eq!(open, Response::NONE, "nothing on an open surface");
+        let (half, full) = (respond(&f, &[0.0; PATTERN], Surface { edge: 0.0, occlusion: 0.5, up: 0.0 }), respond(&f, &[0.0; PATTERN], Surface { edge: 0.0, occlusion: 1.0, up: 0.0 }));
+        assert!(full.occlusion == 1.0 && half.occlusion == 0.5);
+        assert!(full.color_gain < half.color_gain && half.color_gain < 1.0 && full.color_gain > 0.4);
+        assert!(full.rough(0.3) > half.rough(0.3) && half.rough(0.3) > 0.3);
+        assert_eq!((full.color_alpha, full.metallic_alpha, full.roughness_alpha, full.height), (0.0, 0.0, 0.0, 0.0));
+        let ao_only = MaterialFilter::Hbao { radius: 0.35, intensity: 0.8, ambient_occlusion: 1.0, base_color: 0.0, roughness: 0.0 };
+        let r = respond(&ao_only, &[0.0; PATTERN], Surface { edge: 0.0, occlusion: 1.0, up: 0.0 });
+        assert_eq!((r.color_gain, r.roughness_add, r.occlusion), (1.0, 0.0, 1.0));
+    }
+
+    #[test]
+    fn shut_line_carves_where_the_stroke_is_and_hides_the_painted_material() {
+        let line = |slope: f32, emboss: f32, source_opacity: f32| MaterialFilter::ShutLine { width: 0.25, slope, emboss, height: 0.6, color: [0.02; 3], line_opacity: 0.8, source_opacity };
+        let at = |f: &MaterialFilter, m: f32| respond(f, &[0.0; PATTERN], Surface { edge: m, occlusion: 0.0, up: 0.0 });
+        let f = line(0.4, 0.3, 0.0);
+        // Away from any stroke: no groove, and the painted material is hidden.
+        let off = at(&f, 0.0);
+        assert_eq!((off.height, off.color_alpha, off.keep), (0.0, 0.0, 0.0));
+        // In the stroke: full depth, the line colour.
+        let on = at(&f, 1.0);
+        assert!((on.height + 0.6 * 0.08).abs() < 1e-6 && (on.color_alpha - 0.8).abs() < 1e-6 && on.color == [0.02; 3]);
+        // The wall goes down monotonically from the lip to the floor.
+        let profile: Vec<f32> = (0..=40).map(|i| at(&f, i as f32 / 40.0).height).collect();
+        let top = profile.iter().cloned().fold(f32::MIN, f32::max);
+        let peak = profile.iter().position(|h| *h == top).unwrap();
+        assert!(top > 0.0 && peak > 0 && peak < 20, "a raised lip outside the groove: {top} at {peak}");
+        assert!(profile[peak..].windows(2).all(|w| w[1] <= w[0] + 1e-6), "{profile:?}");
+        // No emboss: never above the surface. Steeper slope: a narrower wall.
+        assert!((0..=40).all(|i| at(&line(0.4, 0.0, 0.0), i as f32 / 40.0).height <= 0.0));
+        let wall = |f: &MaterialFilter| (0..=200).filter(|&i| (0.02..0.98).contains(&(at(f, i as f32 / 200.0).color_alpha / 0.8))).count();
+        assert!(wall(&line(1.0, 0.0, 0.0)) * 3 < wall(&line(0.0, 0.0, 0.0)));
+        assert_eq!(at(&line(0.4, 0.3, 0.7), 0.5).keep, 0.7);
+    }
+
+    fn drops(amount: f32) -> MaterialFilter {
+        MaterialFilter::WaterDrops { amount, scale: 48.0, size_variation: 0.6, direction: 0.4, top: 1.0, sides: 0.8, underside: 0.15, height: 0.6, roughness: 0.04, wet: 0.3, seed: 1 }
+    }
+
+    #[test]
+    fn water_drops_are_raised_glossy_lenses_and_amount_sets_how_many() {
+        let top = Surface { edge: 0.0, occlusion: 0.0, up: 1.0 };
+        let wet = |f: &MaterialFilter, s: Surface| points().map(|p| respond(f, &pattern_on(f, p, [0.0, s.up, 0.0]), s).roughness_alpha).sum::<f32>() / 4000.0;
+        assert_eq!(wet(&drops(0.0), top), 0.0);
+        let (a, b, c) = (wet(&drops(0.2), top), wet(&drops(0.5), top), wet(&drops(1.0), top));
+        assert!(a > 0.01 && a < b && b < c && c < 0.8, "{a} {b} {c}: drops never cover everything");
+        // Fewer on walls, fewest under an overhang, by the three facing sliders.
+        let (side, under) = (wet(&drops(0.5), Surface { up: 0.0, ..top }), wet(&drops(0.5), Surface { up: -1.0, ..top }));
+        assert!(side < b && under < side * 0.6, "{b} {side} {under}");
+        let f = drops(0.6);
+        for p in points() {
+            let r = respond(&f, &pattern_on(&f, p, [0.0, 1.0, 0.0]), top);
+            // Water sits on the surface: never carved, never a colour or a metal of its own.
+            assert!(r.height >= 0.0 && r.height <= 0.06 + 1e-6);
+            assert_eq!((r.color_alpha, r.metallic_alpha), (0.0, 0.0));
+            if r.roughness_alpha > 0.99 {
+                assert!(r.rough(0.7) < 0.05 && r.height > 0.0 && r.color_gain < 1.0);
+            }
+            if r.roughness_alpha == 0.0 {
+                assert_eq!((r.height, r.color_gain, r.rough(0.7)), (0.0, 1.0, 0.7));
+            }
+        }
+    }
+
+    #[test]
+    fn water_drops_sag_on_walls() {
+        // Direction stretches the drops along Y on a vertical face and not on a floor: the drop
+        // slot changes more slowly along Y than along X there.
+        let f = MaterialFilter::WaterDrops { amount: 1.0, scale: 48.0, size_variation: 0.0, direction: 1.0, top: 1.0, sides: 1.0, underside: 1.0, height: 0.6, roughness: 0.04, wet: 0.3, seed: 1 };
+        let step = |normal: [f32; 3], d: [f32; 3]| points().map(|p| (pattern_on(&f, p, normal)[0] - pattern_on(&f, [p[0] + d[0], p[1] + d[1], p[2] + d[2]], normal)[0]).abs()).sum::<f32>() / 4000.0;
+        let e = 1e-3;
+        let wall = [0.0, 0.0, 1.0];
+        assert!(step(wall, [0.0, e, 0.0]) * 1.6 < step(wall, [e, 0.0, 0.0]), "{} {}", step(wall, [0.0, e, 0.0]), step(wall, [e, 0.0, 0.0]));
+        let floor = [0.0, 1.0, 0.0];
+        let (x, z) = (step(floor, [e, 0.0, 0.0]), step(floor, [0.0, 0.0, e]));
+        assert!((x / z - 1.0).abs() < 0.25, "{x} {z}");
+        let still = MaterialFilter::WaterDrops { amount: 1.0, scale: 48.0, size_variation: 0.0, direction: 0.0, top: 1.0, sides: 1.0, underside: 1.0, height: 0.6, roughness: 0.04, wet: 0.3, seed: 1 };
+        assert_ne!(pattern_key(&f), pattern_key(&still));
+        assert_eq!(pattern_key(&still), pattern_key(&MaterialFilter::WaterDrops { amount: 0.3, scale: 48.0, size_variation: 0.0, direction: 0.0, top: 0.5, sides: 1.0, underside: 1.0, height: 0.1, roughness: 0.2, wet: 0.0, seed: 1 }));
+    }
+
+    #[test]
+    fn rough_warp_and_grunge_scale_change_the_pattern_but_strengths_do_not() {
+        let rough = |grunge_scale: f32, warp: f32, brushing: f32| MaterialFilter::Rough { scale: 60.0, grunge_scale, brushing, warp, grunge: 0.5, seed: 1 };
+        assert_ne!(pattern_key(&rough(5.0, 0.3, 0.6)), pattern_key(&rough(6.0, 0.3, 0.6)));
+        assert_ne!(pattern_key(&rough(5.0, 0.3, 0.6)), pattern_key(&rough(5.0, 0.4, 0.6)));
+        assert_eq!(pattern_key(&rough(5.0, 0.3, 0.6)), pattern_key(&rough(5.0, 0.3, 0.9)));
+        // Every filter kind has its own key.
+        let keys: std::collections::BTreeSet<_> = MaterialFilter::ALL.iter().map(|f| format!("{:?}", pattern_key(f))).collect();
+        assert_eq!(keys.len(), MaterialFilter::ALL.len());
+    }
+
+    #[test]
+    fn detail_edge_wear_stays_on_the_edges_and_grunge_breaks_it_up() {
+        let wear = |contrast: f32, grunge: f32| MaterialFilter::DetailEdgeWear { level: 0.5, detail: 0.7, contrast, grunge, grunge_scale: 24.0, color: [0.56, 0.57, 0.58], roughness: 0.3, metallic: 1.0, seed: 1 };
+        let on = Surface { edge: 1.0, occlusion: 0.0, up: 0.0 };
+        for p in points().take(500) {
+            let f = wear(0.6, 0.5);
+            let off = respond(&f, &pattern(&f, p), Surface::default());
+            assert_eq!((off.color_alpha, off.roughness_alpha, off.metallic_alpha, off.height), (0.0, 0.0, 0.0, 0.0));
+            // Without grunge a full edge is fully worn, at any contrast.
+            for c in [0.0, 0.6, 1.0] {
+                let f = wear(c, 0.0);
+                assert_eq!(respond(&f, &pattern(&f, p), on).color_alpha, 1.0);
+            }
+        }
+        let (plain, broken) = (coverage(&wear(0.6, 0.0), on), coverage(&wear(0.6, 1.0), on));
+        assert!(plain == 1.0 && broken > 0.15 && broken < 0.85, "{plain} {broken}");
+        // Contrast hardens the border: fewer half-worn texels.
+        let half = |f: MaterialFilter| points().filter(|&p| (0.1..0.9).contains(&respond(&f, &pattern(&f, p), Surface { edge: 0.6, occlusion: 0.0, up: 0.0 }).color_alpha)).count();
+        assert!(half(wear(1.0, 0.6)) * 2 < half(wear(0.0, 0.6)), "{} {}", half(wear(1.0, 0.6)), half(wear(0.0, 0.6)));
+        // The wear is almost flat: far shallower than an Edge Damages chip.
+        let f = wear(0.6, 0.0);
+        assert!(points().take(200).all(|p| (-0.01..0.0).contains(&respond(&f, &pattern(&f, p), on).height)));
     }
 
     fn coverage(f: &MaterialFilter, s: Surface) -> f32 {
@@ -601,12 +998,12 @@ mod tests {
         let (a, b, c) = (coverage(&rust(0.2), open), coverage(&rust(0.5), open), coverage(&rust(1.0), open));
         assert!(a < b && b < c, "{a} {b} {c}");
         assert!(a < 0.2 && c > 0.8, "{a} {c}");
-        assert!(coverage(&rust(0.4), Surface { edge: 0.0, occlusion: 1.0 }) > coverage(&rust(0.4), open) + 0.2);
-        assert!(coverage(&rust(0.4), Surface { edge: 1.0, occlusion: 0.0 }) > coverage(&rust(0.4), open) + 0.1);
+        assert!(coverage(&rust(0.4), Surface { edge: 0.0, occlusion: 1.0, up: 0.0 }) > coverage(&rust(0.4), open) + 0.2);
+        assert!(coverage(&rust(0.4), Surface { edge: 1.0, occlusion: 0.0, up: 0.0 }) > coverage(&rust(0.4), open) + 0.1);
         // Rust is a rough dielectric with a brown-orange colour.
         let f = rust(1.0);
         for p in points().take(300) {
-            let r = respond(&f, &pattern(&f, p), Surface { edge: 1.0, occlusion: 1.0 });
+            let r = respond(&f, &pattern(&f, p), Surface { edge: 1.0, occlusion: 1.0, up: 0.0 });
             assert_eq!(r.metallic, 0.0);
             assert!(r.roughness > 0.7);
             assert!(r.color[0] > r.color[1] && r.color[1] > r.color[2], "{:?}", r.color);
@@ -620,7 +1017,7 @@ mod tests {
         assert_eq!(coverage(&peel(0.0), open), 0.0);
         let (a, b, c) = (coverage(&peel(0.2), open), coverage(&peel(0.5), open), coverage(&peel(1.0), open));
         assert!(a < b && b < c && c > 0.9, "{a} {b} {c}");
-        assert!(coverage(&peel(0.3), Surface { edge: 1.0, occlusion: 0.0 }) > coverage(&peel(0.3), open) + 0.1);
+        assert!(coverage(&peel(0.3), Surface { edge: 1.0, occlusion: 0.0, up: 0.0 }) > coverage(&peel(0.3), open) + 0.1);
         let f = peel(0.5);
         let (mut peeled, mut lips) = (0, 0);
         for p in points() {

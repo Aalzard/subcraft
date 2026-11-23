@@ -2610,6 +2610,11 @@ fn material_filter_preview_layer(ts: &subcraft_doc::TextureSet, filter: subcraft
         f.channels.insert(ChannelKind::Metallic, set(ChannelValue::scalar(1.0)));
         f.channels.insert(ChannelKind::Roughness, set(ChannelValue::scalar(0.35)));
     }
+    // A filter that only reacts to relief gets some to react to.
+    if matches!(filter, subcraft_doc::MaterialFilter::Hbao { .. }) {
+        let relief = subcraft_doc::MaterialFilter::Hammered { scale: 8.0, depth: 1.0, irregularity: 0.6, roughness_variation: 0.0, seed: 1 };
+        l.content_effects.push(Arc::new(subcraft_doc::ContentEffect::new(subcraft_doc::ContentEffectKind::Material(relief), ts)));
+    }
     l.content_effects.push(Arc::new(subcraft_doc::ContentEffect::new(subcraft_doc::ContentEffectKind::Material(filter), ts)));
     l
 }
