@@ -212,8 +212,11 @@ surface, upright the way you see it on screen, with the image's own proportions 
   with the decal, so its bumps stay lit from the right side at any angle.
 - **More channels:** the decal fills one channel. Switch on Roughness, Height or others in
   Properties like on any fill layer.
-- A decal does not show on surfaces that face away, and it stops at the depth of its box, so it
-  never prints through to the far side of the model.
+- **Edges and corners:** a decal folds over a hard edge like a sticker instead of being cut
+  there. This is **Wrap around edges** in Properties under **3D projection**; any planar fill
+  can switch it on. On strongly curved surfaces the fold is an approximation.
+- A decal does not show on surfaces turned far away from it, and it stops at the depth of its
+  box, so it never prints through to the far side of the model.
 
 ![Three image decals dropped on a sphere, each facing the surface](images/decals.png)
 

@@ -434,6 +434,11 @@ pub struct Projection {
     /// not used, so switching back restores the old tiling. Not written when off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub physical_size: Option<[f32; 2]>,
+    /// Planar only: the image follows the surface around edges and curves instead of being
+    /// projected straight down ([`Projection::wrap_local`]), so it is not cut or smeared where
+    /// the surface turns away. Not written when off.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub wrap_edges: bool,
 }
 
 fn is_false(v: &bool) -> bool {
@@ -468,6 +473,7 @@ impl Default for Projection {
             transform3: ProjectionTransform::default(),
             backface: None,
             physical_size: None,
+            wrap_edges: false,
             triplanar_unique: true,
         }
     }
@@ -599,7 +605,61 @@ impl Projection {
     #[inline]
     pub fn local(&self, pos: [f32; 3], normal: [f32; 3]) -> ([f32; 3], [f32; 3]) {
         let (p, n) = self.effective_symmetry().fold(pos, normal);
-        if self.has_transform3() { self.transform3.to_local(p, n) } else { (p, n) }
+        let (p, n) = if self.has_transform3() { self.transform3.to_local(p, n) } else { (p, n) };
+        if self.wraps_edges() { (self.wrap_local(p, n), n) } else { (p, n) }
+    }
+
+    /// Whether Wrap around edges applies (planar projections only).
+    #[inline]
+    pub fn wraps_edges(&self) -> bool {
+        self.wrap_edges && self.mode == ProjectionMode::Planar
+    }
+
+    /// Largest angle in degrees between the surface and the projection's facing direction that
+    /// [`Projection::wrap_local`] still unfolds; steeper surfaces are treated as this steep.
+    pub const WRAP_MAX_ANGLE_DEG: f32 = 150.0;
+
+    /// A box-frame position (with its box-frame normal, both from the 3D transform) unfolded
+    /// onto the projection plane, for Wrap around edges.
+    ///
+    /// A planar projection reads the position's two in-plane coordinates, so a surface that
+    /// turns away from the plane squeezes the image, and one at a right angle smears a single
+    /// row of it. Here the position is moved outward in the plane by `depth * tan(angle / 2)`
+    /// along the direction the surface leans, where `depth` is how far the point lies below the
+    /// plane through the box centre and `angle` how far the surface is turned from facing the
+    /// projection. That is exact for a flat surface tilted by any angle and for a single sharp
+    /// edge next to a flat face (the far face is laid flat, like a sticker folded over the
+    /// edge), and close on gentle curves. A zero normal (no surface) is left as it is.
+    pub fn wrap_local(&self, p: [f32; 3], n: [f32; 3]) -> [f32; 3] {
+        let t = self.effective_transform3();
+        let s = t.scale.map(|v| v.clamp(ProjectionTransform::MIN_SCALE, ProjectionTransform::MAX_SCALE));
+        let a = (self.planar_axis as usize).min(2);
+        let facing = if a == 0 { -1.0 } else { 1.0 };
+        // Scene lengths and the scene's normal: the box frame divides positions by the box's
+        // scale and tilts normals by it. A mirrored axis is flipped back while unfolding.
+        let flip = |i: usize| if t.mirror[i] { -1.0 } else { 1.0 };
+        let d: [f32; 3] = std::array::from_fn(|i| (p[i] - 0.5) * s[i] * flip(i));
+        let m: [f32; 3] = std::array::from_fn(|i| n[i] / s[i]);
+        let len = (m[0] * m[0] + m[1] * m[1] + m[2] * m[2]).sqrt();
+        if !(len > 1e-12 && len.is_finite()) {
+            return p;
+        }
+        let cos = (m[a] * facing / len).clamp(Self::WRAP_MAX_ANGLE_DEG.to_radians().cos(), 1.0);
+        let lean = [if a == 0 { 0.0 } else { m[0] }, if a == 1 { 0.0 } else { m[1] }, if a == 2 { 0.0 } else { m[2] }];
+        let lean_len = (lean[0] * lean[0] + lean[1] * lean[1] + lean[2] * lean[2]).sqrt();
+        if lean_len <= 1e-6 * len {
+            return p;
+        }
+        let tan_half = (1.0 - cos * cos).max(0.0).sqrt() / (1.0 + cos);
+        let depth = d[a] * facing;
+        let shift = -depth * tan_half / lean_len;
+        let mut out = p;
+        for i in 0..3 {
+            if i != a {
+                out[i] = (d[i] + lean[i] * shift) * flip(i) / s[i] + 0.5;
+            }
+        }
+        out
     }
 
     /// The symmetry in effect: 3D projections only.
@@ -1224,5 +1284,86 @@ pub enum FillSource {
 impl FillSource {
     pub fn uniform(v: ChannelValue) -> Self {
         FillSource::Uniform { value: v }
+    }
+}
+
+#[cfg(test)]
+mod wrap_tests {
+    use super::*;
+
+    fn wrap() -> Projection {
+        Projection { mode: ProjectionMode::Planar, planar_axis: 2, wrap_edges: true, ..Projection::default() }
+    }
+
+    #[test]
+    fn a_surface_facing_the_projection_is_left_alone_and_only_planar_wraps() {
+        let p = wrap();
+        assert_eq!(p.wrap_local([0.8, 0.3, 0.1], [0.0, 0.0, 1.0]), [0.8, 0.3, 0.1]);
+        assert_eq!(p.wrap_local([0.8, 0.3, 0.1], [0.0; 3]), [0.8, 0.3, 0.1], "no normal: no surface to unfold");
+        assert!(p.wraps_edges());
+        assert!(!Projection { mode: ProjectionMode::Triplanar, ..p }.wraps_edges());
+        assert!(!Projection::default().wrap_edges);
+        // Off: `local` is what it was. On: `local` unfolds.
+        let (pos, n) = ([0.9, 0.5, 0.2], [1.0, 0.0, 0.0]);
+        assert_eq!(Projection { wrap_edges: false, ..p }.local(pos, n).0, pos);
+        assert_ne!(p.local(pos, n).0, pos);
+    }
+
+    #[test]
+    fn a_face_past_a_right_angle_edge_is_laid_flat() {
+        // The plane is z = 0.5. A side face at x = 0.9 facing +X: a point 0.3 below the plane
+        // is 0.3 past the edge once the face is folded up.
+        let q = wrap().wrap_local([0.9, 0.4, 0.2], [1.0, 0.0, 0.0]);
+        assert!((q[0] - 1.2).abs() < 1e-5 && (q[1] - 0.4).abs() < 1e-6 && q[2] == 0.2, "{q:?}");
+        // The opposite edge folds the other way.
+        let q = wrap().wrap_local([0.1, 0.4, 0.2], [-1.0, 0.0, 0.0]);
+        assert!((q[0] + 0.2).abs() < 1e-5, "{q:?}");
+        // A wall rising above the plane (an inside corner at x = 0.9) also unfolds outward.
+        let q = wrap().wrap_local([0.9, 0.4, 0.7], [-1.0, 0.0, 0.0]);
+        assert!((q[0] - 1.1).abs() < 1e-5, "{q:?}");
+    }
+
+    #[test]
+    fn a_tilted_flat_surface_reads_true_lengths() {
+        // A plane through the box centre tilted by 40 degrees about Y: a point at distance r
+        // along the slope projects to r * cos, and unfolds back to r, on both sides.
+        let a = 40.0f32.to_radians();
+        let n = [a.sin(), 0.0, a.cos()];
+        for r in [0.3f32, -0.25] {
+            let pos = [0.5 + r * a.cos(), 0.6, 0.5 - r * a.sin()];
+            let q = wrap().wrap_local(pos, n);
+            assert!((q[0] - (0.5 + r)).abs() < 1e-5 && (q[1] - 0.6).abs() < 1e-6, "r {r}: {q:?}");
+        }
+    }
+
+    #[test]
+    fn the_box_scale_and_mirror_do_not_bend_the_unfolding() {
+        // A box 0.5 wide, 0.25 tall and 0.2 deep: the box frame stretches positions by 1 / scale
+        // and tilts normals by the scale. Same right-angle edge as above, in scene lengths:
+        // 0.1 from the centre to the edge, 0.05 down the side face.
+        let mut p = wrap();
+        p.transform3.scale = [0.5, 0.25, 0.2];
+        let local = |d: [f32; 3]| [d[0] / 0.5 + 0.5, d[1] / 0.25 + 0.5, d[2] / 0.2 + 0.5];
+        let q = p.wrap_local(local([0.1, 0.02, -0.05]), [0.5, 0.0, 0.0]);
+        assert!((q[0] - (0.15 / 0.5 + 0.5)).abs() < 1e-5 && (q[1] - (0.02 / 0.25 + 0.5)).abs() < 1e-6, "{q:?}");
+        // Mirrored along X the box frame's x runs the other way; the fold still goes outward.
+        p.transform3.mirror = [true, false, false];
+        let mut pos = local([0.1, 0.02, -0.05]);
+        pos[0] = 1.0 - pos[0];
+        let q = p.wrap_local(pos, [0.5, 0.0, 0.0]);
+        assert!((q[0] - (1.0 - (0.15 / 0.5 + 0.5))).abs() < 1e-5, "{q:?}");
+        // Surfaces turned almost all the way round stay finite.
+        let q = wrap().wrap_local([0.9, 0.4, 0.2], [0.01, 0.0, -1.0]);
+        assert!(q.iter().all(|v| v.is_finite()), "{q:?}");
+    }
+
+    #[test]
+    fn wrap_is_not_written_when_off_and_old_projections_read_without_it() {
+        let json = serde_json::to_string(&Projection::default()).unwrap();
+        assert!(!json.contains("wrap_edges"), "{json}");
+        let back: Projection = serde_json::from_str(&json).unwrap();
+        assert!(!back.wrap_edges);
+        let on: Projection = serde_json::from_str(&serde_json::to_string(&wrap()).unwrap()).unwrap();
+        assert!(on.wrap_edges);
     }
 }

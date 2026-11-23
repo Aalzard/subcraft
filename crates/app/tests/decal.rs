@@ -183,3 +183,45 @@ fn a_decal_fills_the_channel_its_file_name_names() {
     s.update_composites();
     assert!(close(color_at(&s, Vec3::ZERO), [0.0, 0.0, 1.0]));
 }
+
+/// Base Color of the composite where the ray from `eye` along `dir` hits the cube.
+fn color_from(s: &Session, eye: Vec3, dir: Vec3) -> [f32; 3] {
+    let mesh = &s.scene().mesh;
+    let hit = s.scene().bvh.intersect(eye, dir, 0.0, f32::INFINITY).expect("the ray hits the cube");
+    let uv: Vec2 = mesh.interpolate(hit.tri as usize, hit.u, hit.v).uv;
+    let img = s.composite(s.selected_texture_set().id).unwrap().channel(ChannelKind::BaseColor).unwrap();
+    let c = img.get((uv.x * img.width() as f32) as u32, (uv.y * img.height() as f32) as u32);
+    [c[0], c[1], c[2]]
+}
+
+#[test]
+fn a_decal_at_a_hard_edge_folds_over_it_instead_of_being_cut() {
+    let dir = temp("edge");
+    let path = dir.join("logo.png");
+    // Opaque everywhere: red top half, green bottom half, 2:1.
+    let data: Vec<f32> = (0..32).flat_map(|y| (0..64).flat_map(move |_| if y < 16 { [1.0, 0.0, 0.0, 1.0] } else { [0.0, 1.0, 0.0, 1.0] })).collect();
+    save_image(&path, 64, 32, 4, &data, FileFormat::Png8).unwrap();
+    let mut s = session();
+    // On the +Z face, 0.1 from the +X edge. The decal is 0.5 wide: 0.1 of its right half fits
+    // on this face, the remaining 0.15 folds onto the +X face (z from 1 down to 0.85).
+    let centre = Vec3::new(0.9, 0.0, 1.0);
+    s.add_decal_layer(&path, DecalSpot { position: centre, normal: Vec3::Z, up: Vec3::Y }).unwrap();
+    s.update_composites();
+    let (red, green, blue) = ([1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]);
+    // Still right on the face it was dropped on.
+    assert!(close(color_from(&s, Vec3::new(0.95, 0.06, 3.0), Vec3::NEG_Z), red));
+    assert!(close(color_from(&s, Vec3::new(0.7, -0.06, 3.0), Vec3::NEG_Z), green));
+    assert!(close(color_from(&s, Vec3::new(0.6, 0.0, 3.0), Vec3::NEG_Z), blue), "left of the decal");
+    // Over the edge: the image goes on down the side face, top half still above bottom half.
+    for z in [0.97, 0.92, 0.87] {
+        assert!(close(color_from(&s, Vec3::new(3.0, 0.06, z), Vec3::NEG_X), red), "side face, top half at z {z}: {:?}", color_from(&s, Vec3::new(3.0, 0.06, z), Vec3::NEG_X));
+        assert!(close(color_from(&s, Vec3::new(3.0, -0.06, z), Vec3::NEG_X), green), "side face, bottom half at z {z}");
+    }
+    // It ends where the image ends, not at the edge and not further down.
+    for z in [0.82, 0.6, 0.0] {
+        assert!(close(color_from(&s, Vec3::new(3.0, 0.06, z), Vec3::NEG_X), blue), "below the decal at z {z}: {:?}", color_from(&s, Vec3::new(3.0, 0.06, z), Vec3::NEG_X));
+    }
+    assert!(close(color_from(&s, Vec3::new(3.0, 0.2, 0.95), Vec3::NEG_X), blue), "above the decal's top on the side face");
+    // Nothing on the far side of the cube.
+    assert!(close(color_from(&s, Vec3::new(0.9, 0.0, -3.0), Vec3::Z), blue));
+}
