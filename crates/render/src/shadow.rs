@@ -27,12 +27,13 @@ impl ShadowQuality {
         }
     }
 
-    /// Filter radius in texels: (2r + 1)^2 comparisons per pixel.
-    pub fn filter_radius(self) -> u32 {
+    /// Soft filter: radius in shadow-map texels and number of comparisons per pixel, spread
+    /// over a disk (each comparison is itself bilinear, so 2x2 texels).
+    pub fn filter(self) -> (f32, u32) {
         match self {
-            ShadowQuality::Lightweight => 1,
-            ShadowQuality::Average => 1,
-            ShadowQuality::Intensive => 2,
+            ShadowQuality::Lightweight => (1.5, 12),
+            ShadowQuality::Average => (2.0, 16),
+            ShadowQuality::Intensive => (2.5, 24),
         }
     }
 }
@@ -91,7 +92,11 @@ fn depth_view(device: &wgpu::Device, size: u32, label: &str) -> wgpu::TextureVie
     device
         .create_texture(&wgpu::TextureDescriptor {
             label: Some(label),
-            size: wgpu::Extent3d { width: size, height: size, depth_or_array_layers: 1 },
+            size: wgpu::Extent3d {
+                width: size,
+                height: size,
+                depth_or_array_layers: 1,
+            },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -104,30 +109,54 @@ fn depth_view(device: &wgpu::Device, size: u32, label: &str) -> wgpu::TextureVie
 
 impl ShadowPass {
     pub(crate) fn new(device: &wgpu::Device, queue: &wgpu::Queue) -> Self {
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("shadow shader"), source: wgpu::ShaderSource::Wgsl(include_str!("shadow.wgsl").into()) });
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("shadow shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shadow.wgsl").into()),
+        });
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("shadow layout"),
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
                 visibility: wgpu::ShaderStages::VERTEX,
-                ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: None },
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
                 count: None,
             }],
         });
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some("shadow pipeline layout"), bind_group_layouts: &[Some(&layout)], immediate_size: 0 });
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("shadow pipeline layout"),
+            bind_group_layouts: &[Some(&layout)],
+            immediate_size: 0,
+        });
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("shadow pipeline"),
             layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState { module: &shader, entry_point: Some("vs_shadow"), compilation_options: Default::default(), buffers: &[Some(Vertex::layout())] },
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_shadow"),
+                compilation_options: Default::default(),
+                buffers: &[Some(Vertex::layout())],
+            },
             fragment: None,
-            primitive: wgpu::PrimitiveState { topology: wgpu::PrimitiveTopology::TriangleList, cull_mode: None, ..Default::default() },
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                cull_mode: None,
+                ..Default::default()
+            },
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: FORMAT,
                 depth_write_enabled: Some(true),
                 depth_compare: Some(wgpu::CompareFunction::LessEqual),
                 stencil: Default::default(),
                 // Slope-scaled bias against shadow acne on surfaces facing the light at an angle.
-                bias: wgpu::DepthBiasState { constant: 2, slope_scale: 2.0, clamp: 0.0 },
+                bias: wgpu::DepthBiasState {
+                    constant: 2,
+                    slope_scale: 2.0,
+                    clamp: 0.0,
+                },
             }),
             multisample: Default::default(),
             multiview_mask: None,
@@ -139,10 +168,19 @@ impl ShadowPass {
             contents: bytemuck::cast_slice(&Mat4::IDENTITY.to_cols_array()),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
-        let light_bg = device.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("shadow light"), layout: &layout, entries: &[wgpu::BindGroupEntry { binding: 0, resource: light.as_entire_binding() }] });
+        let light_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("shadow light"),
+            layout: &layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: light.as_entire_binding(),
+            }],
+        });
         let placeholder = depth_view(device, 1, "shadow placeholder");
         // Clear the placeholder to the far plane: nothing in it ever shadows.
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("shadow placeholder clear") });
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("shadow placeholder clear"),
+        });
         Self::clear(&mut encoder, &placeholder);
         queue.submit([encoder.finish()]);
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -154,7 +192,14 @@ impl ShadowPass {
             compare: Some(wgpu::CompareFunction::LessEqual),
             ..Default::default()
         });
-        Self { pipeline, light, light_bg, map: None, placeholder, sampler }
+        Self {
+            pipeline,
+            light,
+            light_bg,
+            map: None,
+            placeholder,
+            sampler,
+        }
     }
 
     fn clear(encoder: &mut wgpu::CommandEncoder, view: &wgpu::TextureView) {
@@ -163,7 +208,10 @@ impl ShadowPass {
             color_attachments: &[],
             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                 view,
-                depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(1.0), store: wgpu::StoreOp::Store }),
+                depth_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(1.0),
+                    store: wgpu::StoreOp::Store,
+                }),
                 stencil_ops: None,
             }),
             timestamp_writes: None,
@@ -188,15 +236,29 @@ impl ShadowPass {
     }
 
     /// Render the depth of every visible range of `mesh` as seen through `view_proj`.
-    pub(crate) fn encode(&self, queue: &wgpu::Queue, encoder: &mut wgpu::CommandEncoder, mesh: &GpuMesh, hidden: &std::collections::HashSet<u32>, view_proj: Mat4) {
+    pub(crate) fn encode(
+        &self,
+        queue: &wgpu::Queue,
+        encoder: &mut wgpu::CommandEncoder,
+        mesh: &GpuMesh,
+        hidden: &std::collections::HashSet<u32>,
+        view_proj: Mat4,
+    ) {
         let Some((_, view)) = &self.map else { return };
-        queue.write_buffer(&self.light, 0, bytemuck::cast_slice(&view_proj.to_cols_array()));
+        queue.write_buffer(
+            &self.light,
+            0,
+            bytemuck::cast_slice(&view_proj.to_cols_array()),
+        );
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("shadow pass"),
             color_attachments: &[],
             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                 view,
-                depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(1.0), store: wgpu::StoreOp::Store }),
+                depth_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(1.0),
+                    store: wgpu::StoreOp::Store,
+                }),
                 stencil_ops: None,
             }),
             timestamp_writes: None,
@@ -223,7 +285,14 @@ mod tests {
     #[test]
     fn the_light_box_holds_the_whole_model_from_any_direction() {
         let bounds = (Vec3::new(-1.0, -0.5, -2.0), Vec3::new(3.0, 1.5, 0.5));
-        for dir in [Vec3::Y, Vec3::new(0.65, 0.75, 0.35), Vec3::NEG_Y, Vec3::X, Vec3::new(-0.2, 0.1, -0.9), Vec3::new(0.0, 1.0, 0.0001)] {
+        for dir in [
+            Vec3::Y,
+            Vec3::new(0.65, 0.75, 0.35),
+            Vec3::NEG_Y,
+            Vec3::X,
+            Vec3::new(-0.2, 0.1, -0.9),
+            Vec3::new(0.0, 1.0, 0.0001),
+        ] {
             let m = light_view_proj(dir, bounds);
             for i in 0..8 {
                 let p = Vec3::new(
@@ -232,7 +301,10 @@ mod tests {
                     if i & 4 == 0 { bounds.0.z } else { bounds.1.z },
                 );
                 let c = m.project_point3(p);
-                assert!(c.x.abs() <= 1.0 && c.y.abs() <= 1.0 && (0.0..=1.0).contains(&c.z), "{dir:?}: corner {p:?} at {c:?}");
+                assert!(
+                    c.x.abs() <= 1.0 && c.y.abs() <= 1.0 && (0.0..=1.0).contains(&c.z),
+                    "{dir:?}: corner {p:?} at {c:?}"
+                );
             }
             // Nearer the light is smaller depth.
             let center = (bounds.0 + bounds.1) * 0.5;
@@ -243,11 +315,28 @@ mod tests {
     #[test]
     fn quality_sets_map_size_and_filter_and_the_default_is_off() {
         assert_eq!(ShadowQuality::default(), ShadowQuality::Lightweight);
-        assert!(ShadowQuality::Lightweight.map_size() < ShadowQuality::Average.map_size() && ShadowQuality::Average.map_size() < ShadowQuality::Intensive.map_size());
-        assert!(ShadowQuality::Intensive.filter_radius() >= ShadowQuality::Lightweight.filter_radius());
+        assert!(
+            ShadowQuality::Lightweight.map_size() < ShadowQuality::Average.map_size()
+                && ShadowQuality::Average.map_size() < ShadowQuality::Intensive.map_size()
+        );
+        assert!(ShadowQuality::Intensive.filter().1 >= ShadowQuality::Lightweight.filter().1);
         assert!(!ShadowParams::default().active());
-        assert!(!ShadowParams { enabled: true, opacity: 0.0, ..Default::default() }.active());
-        assert!(ShadowParams { enabled: true, opacity: 0.5, ..Default::default() }.active());
+        assert!(
+            !ShadowParams {
+                enabled: true,
+                opacity: 0.0,
+                ..Default::default()
+            }
+            .active()
+        );
+        assert!(
+            ShadowParams {
+                enabled: true,
+                opacity: 0.5,
+                ..Default::default()
+            }
+            .active()
+        );
         let b = (Vec3::splat(-1.0), Vec3::splat(1.0));
         assert!((texel_world_size(b, 1024) - 2.0 * 3f32.sqrt() * 1.02 / 1024.0).abs() < 1e-6);
     }

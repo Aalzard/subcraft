@@ -62,7 +62,11 @@ impl UserLibrary {
     /// `xdg-user-dirs` there is no Documents folder; the library then lives in the data folder
     /// (`~/.local/share/SubCraft/Library`) instead of not existing at all.
     pub fn default_root() -> Option<PathBuf> {
-        resolve_root(std::env::var_os(ENV_VAR), dirs::document_dir(), dirs::data_local_dir())
+        resolve_root(
+            std::env::var_os(ENV_VAR),
+            dirs::document_dir(),
+            dirs::data_local_dir(),
+        )
     }
 
     pub fn new(root: impl Into<PathBuf>) -> Self {
@@ -90,7 +94,10 @@ impl UserLibrary {
     /// `<root>/textures/grunge/old/a.png`); `None` directly in the folder or outside the library.
     pub fn subfolder(&self, kind: UserAssetKind, path: &Path) -> Option<String> {
         let rel = path.parent()?.strip_prefix(self.folder(kind)).ok()?;
-        let parts: Vec<String> = rel.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect();
+        let parts: Vec<String> = rel
+            .components()
+            .map(|c| c.as_os_str().to_string_lossy().into_owned())
+            .collect();
         (!parts.is_empty()).then(|| parts.join("/"))
     }
 
@@ -107,23 +114,41 @@ impl UserLibrary {
 
     /// [`Self::add_file`] into sub-folder `prefix` of the kind's folder (`"grunge/old"`; empty for
     /// none). Each folder name is cleaned like a file name; `..` and empty parts are dropped.
-    pub fn add_file_to(&self, kind: UserAssetKind, prefix: &str, src: &Path) -> Result<PathBuf, String> {
+    pub fn add_file_to(
+        &self,
+        kind: UserAssetKind,
+        prefix: &str,
+        src: &Path,
+    ) -> Result<PathBuf, String> {
         let bytes = std::fs::read(src).map_err(|e| format!("{}: {e}", src.display()))?;
         let mut dir = self.folder(kind);
-        for part in prefix.split(['/', '\\']).map(clean_name).filter(|p| !p.is_empty() && p != "." && p != "..") {
+        for part in prefix
+            .split(['/', '\\'])
+            .map(clean_name)
+            .filter(|p| !p.is_empty() && p != "." && p != "..")
+        {
             dir.push(part);
         }
         std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
         let stem = src.file_stem().and_then(|s| s.to_str()).unwrap_or("asset");
-        let ext = src.extension().and_then(|e| e.to_str()).unwrap_or("png").to_ascii_lowercase();
+        let ext = src
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("png")
+            .to_ascii_lowercase();
         for n in 1.. {
-            let name = if n == 1 { format!("{stem}.{ext}") } else { format!("{stem} ({n}).{ext}") };
+            let name = if n == 1 {
+                format!("{stem}.{ext}")
+            } else {
+                format!("{stem} ({n}).{ext}")
+            };
             let dest = dir.join(name);
             match std::fs::read(&dest) {
                 Ok(existing) if existing == bytes => return Ok(dest),
                 Ok(_) => continue,
                 Err(_) => {
-                    std::fs::write(&dest, &bytes).map_err(|e| format!("{}: {e}", dest.display()))?;
+                    std::fs::write(&dest, &bytes)
+                        .map_err(|e| format!("{}: {e}", dest.display()))?;
                     return Ok(dest);
                 }
             }
@@ -137,24 +162,43 @@ impl UserLibrary {
     pub fn unnumbered_file_path(&self, kind: UserAssetKind, name: &str) -> PathBuf {
         let clean: String = name
             .chars()
-            .map(|c| if c.is_control() || r#"<>:"/\|?*"#.contains(c) { '_' } else { c })
+            .map(|c| {
+                if c.is_control() || r#"<>:"/\|?*"#.contains(c) {
+                    '_'
+                } else {
+                    c
+                }
+            })
             .collect();
         let clean = clean.trim().trim_end_matches('.');
         let stem = if clean.is_empty() { "Untitled" } else { clean };
-        self.folder(kind).join(format!("{stem}.{}", kind.extensions()[0]))
+        self.folder(kind)
+            .join(format!("{stem}.{}", kind.extensions()[0]))
     }
 
     pub fn new_file_path(&self, kind: UserAssetKind, name: &str) -> PathBuf {
         let clean: String = name
             .chars()
-            .map(|c| if c.is_control() || r#"<>:"/\|?*"#.contains(c) { '_' } else { c })
+            .map(|c| {
+                if c.is_control() || r#"<>:"/\|?*"#.contains(c) {
+                    '_'
+                } else {
+                    c
+                }
+            })
             .collect();
         let clean = clean.trim().trim_end_matches('.');
         let stem = if clean.is_empty() { "Untitled" } else { clean };
         let ext = kind.extensions()[0];
         let dir = self.folder(kind);
         (1..)
-            .map(|n| if n == 1 { dir.join(format!("{stem}.{ext}")) } else { dir.join(format!("{stem} ({n}).{ext}")) })
+            .map(|n| {
+                if n == 1 {
+                    dir.join(format!("{stem}.{ext}"))
+                } else {
+                    dir.join(format!("{stem} ({n}).{ext}"))
+                }
+            })
             .find(|p| !p.exists())
             .expect("an unused name exists")
     }
@@ -190,13 +234,19 @@ impl UserLibrary {
 const MAX_DEPTH: usize = 8;
 
 fn collect_files(dir: &Path, kind: UserAssetKind, depth: usize, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
     for p in entries.filter_map(|e| e.ok().map(|e| e.path())) {
         if p.is_dir() {
             if depth < MAX_DEPTH {
                 collect_files(&p, kind, depth + 1, out);
             }
-        } else if p.extension().and_then(|e| e.to_str()).is_some_and(|e| kind.extensions().contains(&e.to_ascii_lowercase().as_str())) {
+        } else if p
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| kind.extensions().contains(&e.to_ascii_lowercase().as_str()))
+        {
             out.push(p);
         }
     }
@@ -204,21 +254,39 @@ fn collect_files(dir: &Path, kind: UserAssetKind, depth: usize, out: &mut Vec<Pa
 
 /// A name with the characters file systems refuse replaced, trimmed.
 fn clean_name(name: &str) -> String {
-    let clean: String = name.chars().map(|c| if c.is_control() || r#"<>:"/\|?*"#.contains(c) { '_' } else { c }).collect();
+    let clean: String = name
+        .chars()
+        .map(|c| {
+            if c.is_control() || r#"<>:"/\|?*"#.contains(c) {
+                '_'
+            } else {
+                c
+            }
+        })
+        .collect();
     clean.trim().trim_end_matches('.').to_string()
 }
 
 /// Library root from the override variable's value, the Documents folder, and (when there is no
 /// Documents folder) the platform's local data folder.
-fn resolve_root(override_var: Option<std::ffi::OsString>, documents: Option<PathBuf>, data_local: Option<PathBuf>) -> Option<PathBuf> {
+fn resolve_root(
+    override_var: Option<std::ffi::OsString>,
+    documents: Option<PathBuf>,
+    data_local: Option<PathBuf>,
+) -> Option<PathBuf> {
     match override_var.filter(|p| !p.is_empty()) {
         Some(p) => Some(PathBuf::from(p)),
-        None => documents.or(data_local).map(|d| d.join("SubCraft").join("Library")),
+        None => documents
+            .or(data_local)
+            .map(|d| d.join("SubCraft").join("Library")),
     }
 }
 
 fn file_name(path: &Path) -> String {
-    path.file_name().and_then(|n| n.to_str()).unwrap_or_default().to_string()
+    path.file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or_default()
+        .to_string()
 }
 
 /// A brush alpha from a library file (stable id from the file name).
@@ -231,7 +299,8 @@ pub fn load_alpha(path: &Path) -> Result<BrushAlpha, String> {
 
 /// An HDRI environment from a library file (prefiltering is slow: call off the UI thread).
 pub fn load_environment(path: &Path) -> Result<Environment, String> {
-    let mut e = crate::environment::import_hdri(path).map_err(|e| format!("{}: {e}", file_name(path)))?;
+    let mut e =
+        crate::environment::import_hdri(path).map_err(|e| format!("{}: {e}", file_name(path)))?;
     e.id = AssetId::from_name(&format!("environment/user/{}", file_name(path)));
     e.user_file = Some(path.to_path_buf());
     Ok(e)
@@ -243,7 +312,8 @@ mod tests {
     use subcraft_image::{FileFormat, save_image};
 
     fn temp_root(name: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!("subcraft-userlib-{}-{name}", std::process::id()));
+        let d =
+            std::env::temp_dir().join(format!("subcraft-userlib-{}-{name}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         d
     }
@@ -261,8 +331,13 @@ mod tests {
         std::fs::write(src_dir.join("notes.txt"), "x").unwrap();
 
         let lib = UserLibrary::new(&root);
-        assert!(lib.list(UserAssetKind::Alpha).is_empty(), "missing folder = empty");
-        let stored = lib.add_file(UserAssetKind::Alpha, &src_dir.join("dots.png")).unwrap();
+        assert!(
+            lib.list(UserAssetKind::Alpha).is_empty(),
+            "missing folder = empty"
+        );
+        let stored = lib
+            .add_file(UserAssetKind::Alpha, &src_dir.join("dots.png"))
+            .unwrap();
         assert!(stored.starts_with(lib.folder(UserAssetKind::Alpha)));
         std::fs::remove_dir_all(&src_dir).unwrap(); // the original may disappear
 
@@ -272,7 +347,11 @@ mod tests {
         assert_eq!(alphas.len(), 1);
         assert_eq!(alphas[0].name, "dots");
         assert_eq!(alphas[0].user_file.as_deref(), Some(stored.as_path()));
-        assert_eq!(alphas[0].id, load_alpha(&stored).unwrap().id, "stable id across loads");
+        assert_eq!(
+            alphas[0].id,
+            load_alpha(&stored).unwrap().id,
+            "stable id across loads"
+        );
         std::fs::remove_dir_all(&root).ok();
     }
 
@@ -285,9 +364,18 @@ mod tests {
         png(&src.join("a/tip.png"), 0.2);
         png(&src.join("b/tip.png"), 0.9);
         let lib = UserLibrary::new(&root);
-        let first = lib.add_file(UserAssetKind::Alpha, &src.join("a/tip.png")).unwrap();
-        assert_eq!(lib.add_file(UserAssetKind::Alpha, &src.join("a/tip.png")).unwrap(), first, "identical file reused");
-        let second = lib.add_file(UserAssetKind::Alpha, &src.join("b/tip.png")).unwrap();
+        let first = lib
+            .add_file(UserAssetKind::Alpha, &src.join("a/tip.png"))
+            .unwrap();
+        assert_eq!(
+            lib.add_file(UserAssetKind::Alpha, &src.join("a/tip.png"))
+                .unwrap(),
+            first,
+            "identical file reused"
+        );
+        let second = lib
+            .add_file(UserAssetKind::Alpha, &src.join("b/tip.png"))
+            .unwrap();
         assert_eq!(second.file_name().unwrap(), "tip (2).png");
         assert_eq!(lib.list(UserAssetKind::Alpha).len(), 2);
         std::fs::remove_dir_all(&root).ok();
@@ -308,9 +396,13 @@ mod tests {
 
         let outside = root.with_extension("outside.png");
         png(&outside, 0.5);
-        assert!(lib.remove(&outside).is_err(), "never deletes outside the library");
+        assert!(
+            lib.remove(&outside).is_err(),
+            "never deletes outside the library"
+        );
         assert!(outside.exists());
-        lib.remove(&lib.folder(UserAssetKind::Alpha).join("good.png")).unwrap();
+        lib.remove(&lib.folder(UserAssetKind::Alpha).join("good.png"))
+            .unwrap();
         assert_eq!(lib.list(UserAssetKind::Alpha).len(), 1);
         std::fs::remove_file(&outside).ok();
         std::fs::remove_dir_all(&root).ok();
@@ -323,7 +415,15 @@ mod tests {
         let dir = lib.folder(UserAssetKind::Environment);
         std::fs::create_dir_all(&dir).unwrap();
         // Tiny 2:1 float panorama: bright top half.
-        let data: Vec<f32> = (0..16 * 8).flat_map(|i| if i < 64 { [4.0, 4.0, 3.5] } else { [0.1, 0.1, 0.1] }).collect();
+        let data: Vec<f32> = (0..16 * 8)
+            .flat_map(|i| {
+                if i < 64 {
+                    [4.0, 4.0, 3.5]
+                } else {
+                    [0.1, 0.1, 0.1]
+                }
+            })
+            .collect();
         save_image(&dir.join("sky.exr"), 16, 8, 3, &data, FileFormat::Exr32).unwrap();
         let files = lib.list(UserAssetKind::Environment);
         assert_eq!(files.len(), 1);
@@ -343,7 +443,12 @@ mod tests {
         std::fs::write(&p, b"x").unwrap();
         let q = lib.new_file_path(UserAssetKind::SmartMaterial, "Rusty: Iron/Old?");
         assert_eq!(q.file_name().unwrap(), "Rusty_ Iron_Old_ (2).scsmart");
-        assert_eq!(lib.new_file_path(UserAssetKind::SmartMask, "  ").file_name().unwrap(), "Untitled.scmask");
+        assert_eq!(
+            lib.new_file_path(UserAssetKind::SmartMask, "  ")
+                .file_name()
+                .unwrap(),
+            "Untitled.scmask"
+        );
         std::fs::remove_dir_all(&root).ok();
     }
 
@@ -354,17 +459,39 @@ mod tests {
         std::fs::create_dir_all(&src).unwrap();
         png(&src.join("rust.png"), 0.4);
         let lib = UserLibrary::new(&root);
-        let stored = lib.add_file_to(UserAssetKind::Texture, "Grunge/../Old: Metal", &src.join("rust.png")).unwrap();
-        assert_eq!(stored, lib.folder(UserAssetKind::Texture).join("Grunge").join("Old_ Metal").join("rust.png"), "parent steps dropped, names cleaned");
-        let plain = lib.add_file(UserAssetKind::Texture, &src.join("rust.png")).unwrap();
+        let stored = lib
+            .add_file_to(
+                UserAssetKind::Texture,
+                "Grunge/../Old: Metal",
+                &src.join("rust.png"),
+            )
+            .unwrap();
+        assert_eq!(
+            stored,
+            lib.folder(UserAssetKind::Texture)
+                .join("Grunge")
+                .join("Old_ Metal")
+                .join("rust.png"),
+            "parent steps dropped, names cleaned"
+        );
+        let plain = lib
+            .add_file(UserAssetKind::Texture, &src.join("rust.png"))
+            .unwrap();
         assert_eq!(lib.list(UserAssetKind::Texture), {
             let mut v = vec![stored.clone(), plain.clone()];
             v.sort();
             v
         });
-        assert_eq!(lib.subfolder(UserAssetKind::Texture, &stored).as_deref(), Some("Grunge/Old_ Metal"));
+        assert_eq!(
+            lib.subfolder(UserAssetKind::Texture, &stored).as_deref(),
+            Some("Grunge/Old_ Metal")
+        );
         assert_eq!(lib.subfolder(UserAssetKind::Texture, &plain), None);
-        assert_eq!(lib.subfolder(UserAssetKind::Texture, &src.join("rust.png")), None, "outside the library");
+        assert_eq!(
+            lib.subfolder(UserAssetKind::Texture, &src.join("rust.png")),
+            None,
+            "outside the library"
+        );
         assert!(lib.contains(&stored) && !lib.contains(&src.join("rust.png")));
         std::fs::remove_dir_all(&root).ok();
         std::fs::remove_dir_all(&src).ok();
@@ -373,11 +500,33 @@ mod tests {
     #[test]
     fn root_resolution() {
         let docs = Some(PathBuf::from("D:/Docs"));
-        assert_eq!(resolve_root(None, docs.clone(), None), Some(PathBuf::from("D:/Docs").join("SubCraft").join("Library")));
-        assert_eq!(resolve_root(Some("E:/Portable/Lib".into()), docs.clone(), None), Some(PathBuf::from("E:/Portable/Lib")));
-        assert_eq!(resolve_root(Some("".into()), docs.clone(), None), Some(PathBuf::from("D:/Docs").join("SubCraft").join("Library")), "empty = unset");
+        assert_eq!(
+            resolve_root(None, docs.clone(), None),
+            Some(PathBuf::from("D:/Docs").join("SubCraft").join("Library"))
+        );
+        assert_eq!(
+            resolve_root(Some("E:/Portable/Lib".into()), docs.clone(), None),
+            Some(PathBuf::from("E:/Portable/Lib"))
+        );
+        assert_eq!(
+            resolve_root(Some("".into()), docs.clone(), None),
+            Some(PathBuf::from("D:/Docs").join("SubCraft").join("Library")),
+            "empty = unset"
+        );
         assert_eq!(resolve_root(None, None, None), None);
-        assert_eq!(resolve_root(None, None, Some("/home/u/.local/share".into())), Some(PathBuf::from("/home/u/.local/share").join("SubCraft").join("Library")), "no Documents folder: data folder");
-        assert_eq!(resolve_root(None, docs, Some("/home/u/.local/share".into())), Some(PathBuf::from("D:/Docs").join("SubCraft").join("Library")), "Documents wins over the data folder");
+        assert_eq!(
+            resolve_root(None, None, Some("/home/u/.local/share".into())),
+            Some(
+                PathBuf::from("/home/u/.local/share")
+                    .join("SubCraft")
+                    .join("Library")
+            ),
+            "no Documents folder: data folder"
+        );
+        assert_eq!(
+            resolve_root(None, docs, Some("/home/u/.local/share".into())),
+            Some(PathBuf::from("D:/Docs").join("SubCraft").join("Library")),
+            "Documents wins over the data folder"
+        );
     }
 }

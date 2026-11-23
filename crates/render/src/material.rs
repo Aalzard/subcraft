@@ -40,32 +40,82 @@ impl ChannelTexture {
         Self::create(device, size, comps, label, None)
     }
 
-    pub(crate) fn new_mipmapped(device: &wgpu::Device, size: u32, comps: usize, label: &str, layout: &wgpu::BindGroupLayout) -> Self {
+    pub(crate) fn new_mipmapped(
+        device: &wgpu::Device,
+        size: u32,
+        comps: usize,
+        label: &str,
+        layout: &wgpu::BindGroupLayout,
+    ) -> Self {
         Self::create(device, size, comps, label, Some(layout))
     }
 
-    fn create(device: &wgpu::Device, size: u32, comps: usize, label: &str, layout: Option<&wgpu::BindGroupLayout>) -> Self {
-        let levels = if layout.is_some() { size.ilog2() + 1 } else { 1 };
+    fn create(
+        device: &wgpu::Device,
+        size: u32,
+        comps: usize,
+        label: &str,
+        layout: Option<&wgpu::BindGroupLayout>,
+    ) -> Self {
+        let levels = if layout.is_some() {
+            size.ilog2() + 1
+        } else {
+            1
+        };
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some(label),
-            size: wgpu::Extent3d { width: size, height: size, depth_or_array_layers: 1 },
+            size: wgpu::Extent3d {
+                width: size,
+                height: size,
+                depth_or_array_layers: 1,
+            },
             mip_level_count: levels,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: format_for(comps),
             // Render attachment: a full upload clears to the image's fill on the GPU.
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::RENDER_ATTACHMENT,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_DST
+                | wgpu::TextureUsages::COPY_SRC
+                | wgpu::TextureUsages::RENDER_ATTACHMENT,
             view_formats: &[],
         });
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let mip_views: Vec<_> = (0..levels).map(|level| texture.create_view(&wgpu::TextureViewDescriptor {
-            base_mip_level: level, mip_level_count: Some(1), ..Default::default()
-        })).collect();
-        let mip_inputs = layout.map(|layout| mip_views.iter().take((levels - 1) as usize).map(|view| device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("mip source"), layout,
-            entries: &[wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(view) }],
-        })).collect()).unwrap_or_default();
-        Self { texture, view, size, comps, mip_views, mip_inputs }
+        let mip_views: Vec<_> = (0..levels)
+            .map(|level| {
+                texture.create_view(&wgpu::TextureViewDescriptor {
+                    base_mip_level: level,
+                    mip_level_count: Some(1),
+                    ..Default::default()
+                })
+            })
+            .collect();
+        let mip_inputs = layout
+            .map(|layout| {
+                mip_views
+                    .iter()
+                    .take((levels - 1) as usize)
+                    .map(|view| {
+                        device.create_bind_group(&wgpu::BindGroupDescriptor {
+                            label: Some("mip source"),
+                            layout,
+                            entries: &[wgpu::BindGroupEntry {
+                                binding: 0,
+                                resource: wgpu::BindingResource::TextureView(view),
+                            }],
+                        })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        Self {
+            texture,
+            view,
+            size,
+            comps,
+            mip_views,
+            mip_inputs,
+        }
     }
 
     /// Upload all of `image`: clear to its fill value on the GPU, then upload only the allocated
@@ -78,14 +128,24 @@ impl ChannelTexture {
         }
         // The f16 value a fill tile upload would store, exactly representable for the clear.
         let c = |i: usize| f16::from_f32(fill[i]).to_f64();
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("channel clear") });
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("channel clear"),
+        });
         encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("channel clear"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: &self.mip_views[0],
                 depth_slice: None,
                 resolve_target: None,
-                ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color { r: c(0), g: c(1), b: c(2), a: c(3) }), store: wgpu::StoreOp::Store },
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color {
+                        r: c(0),
+                        g: c(1),
+                        b: c(2),
+                        a: c(3),
+                    }),
+                    store: wgpu::StoreOp::Store,
+                },
             })],
             depth_stencil_attachment: None,
             timestamp_writes: None,
@@ -94,19 +154,35 @@ impl ChannelTexture {
         });
         // Submitted before the tile writes below: queued writes run ahead of the next submission.
         queue.submit([encoder.finish()]);
-        let allocated: Vec<usize> = (0..image.tile_count()).filter(|&t| image.is_allocated(t)).collect();
+        let allocated: Vec<usize> = (0..image.tile_count())
+            .filter(|&t| image.is_allocated(t))
+            .collect();
         self.upload(queue, image, &allocated);
     }
 
     /// 1×1 texture holding a constant (channel default when a texture set lacks the channel).
-    pub fn constant(device: &wgpu::Device, queue: &wgpu::Queue, value: [f32; 4], comps: usize, label: &str) -> Self {
+    pub fn constant(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        value: [f32; 4],
+        comps: usize,
+        label: &str,
+    ) -> Self {
         let t = Self::new(device, 1, comps, label);
         let data: Vec<f16> = value[..comps].iter().map(|&v| f16::from_f32(v)).collect();
         queue.write_texture(
             t.texture.as_image_copy(),
             bytemuck::cast_slice(&data),
-            wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(comps as u32 * 2), rows_per_image: None },
-            wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(comps as u32 * 2),
+                rows_per_image: None,
+            },
+            wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
         );
         t
     }
@@ -134,14 +210,20 @@ impl ChannelTexture {
                     if src_comps == 3 {
                         f[3] = 1.0;
                     }
-                    (0..TILE_TEXELS * comps).map(|i| f16::from_f32(f[i % comps])).collect()
+                    (0..TILE_TEXELS * comps)
+                        .map(|i| f16::from_f32(f[i % comps]))
+                        .collect()
                 }),
             };
             queue.write_texture(
                 wgpu::TexelCopyTextureInfo {
                     texture: &self.texture,
                     mip_level: 0,
-                    origin: wgpu::Origin3d { x: r.x0 as u32, y: r.y0 as u32, z: 0 },
+                    origin: wgpu::Origin3d {
+                        x: r.x0 as u32,
+                        y: r.y0 as u32,
+                        z: 0,
+                    },
                     aspect: wgpu::TextureAspect::All,
                 },
                 bytemuck::cast_slice(data),
@@ -150,7 +232,11 @@ impl ChannelTexture {
                     bytes_per_row: Some(TILE_SIZE * comps as u32 * 2),
                     rows_per_image: Some(TILE_SIZE),
                 },
-                wgpu::Extent3d { width: r.width() as u32, height: r.height() as u32, depth_or_array_layers: 1 },
+                wgpu::Extent3d {
+                    width: r.width() as u32,
+                    height: r.height() as u32,
+                    depth_or_array_layers: 1,
+                },
             );
         }
     }
@@ -194,10 +280,18 @@ impl OverlayTexture {
     /// `rg`: `size` x `size` texels of two bytes (grey-out, tint), rows from V = 0.
     pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, size: u32, rg: &[u8]) -> Self {
         let size = size.max(1);
-        assert_eq!(rg.len(), (size * size * 2) as usize, "two bytes per overlay texel");
+        assert_eq!(
+            rg.len(),
+            (size * size * 2) as usize,
+            "two bytes per overlay texel"
+        );
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("part overlay"),
-            size: wgpu::Extent3d { width: size, height: size, depth_or_array_layers: 1 },
+            size: wgpu::Extent3d {
+                width: size,
+                height: size,
+                depth_or_array_layers: 1,
+            },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -208,11 +302,23 @@ impl OverlayTexture {
         queue.write_texture(
             texture.as_image_copy(),
             rg,
-            wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(size * 2), rows_per_image: Some(size) },
-            wgpu::Extent3d { width: size, height: size, depth_or_array_layers: 1 },
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(size * 2),
+                rows_per_image: Some(size),
+            },
+            wgpu::Extent3d {
+                width: size,
+                height: size,
+                depth_or_array_layers: 1,
+            },
         );
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        Self { texture, view, size }
+        Self {
+            texture,
+            view,
+            size,
+        }
     }
 }
 
@@ -256,18 +362,31 @@ pub struct MaterialParams {
 }
 
 impl MaterialParams {
-    pub fn new(alpha: &subcraft_doc::AlphaSettings, shader: &subcraft_doc::ShaderParams, highlight: bool) -> Self {
+    pub fn new(
+        alpha: &subcraft_doc::AlphaSettings,
+        shader: &subcraft_doc::ShaderParams,
+        highlight: bool,
+    ) -> Self {
         use subcraft_doc::AlphaMode;
         let mode = match alpha.mode {
             AlphaMode::Opaque => 0.0,
             AlphaMode::Test => 1.0,
             AlphaMode::Blend => 2.0,
         };
-        let dither = if alpha.mode != AlphaMode::Opaque && alpha.dithering { 1.0 } else { 0.0 };
+        let dither = if alpha.mode != AlphaMode::Opaque && alpha.dithering {
+            1.0
+        } else {
+            0.0
+        };
         let s = shader.clamped();
         Self {
             alpha: [mode, alpha.threshold.clamp(0.0, 1.0), dither, 0.0],
-            shader: [s.ao_intensity, s.emissive_intensity, s.horizon_fading, if highlight { 1.0 } else { 0.0 }],
+            shader: [
+                s.ao_intensity,
+                s.emissive_intensity,
+                s.horizon_fading,
+                if highlight { 1.0 } else { 0.0 },
+            ],
             ext_layers_a: [-1.0; 4],
             ext_layers_b: [-1.0, -1.0, -1.0, 0.0],
             ext_flags: [0.0; 4],
@@ -276,7 +395,12 @@ impl MaterialParams {
 
     /// With the extended channel layers and flags of [`crate::extended::Extended::params`].
     pub fn with_extended(self, ext: [[f32; 4]; 3]) -> Self {
-        Self { ext_layers_a: ext[0], ext_layers_b: ext[1], ext_flags: ext[2], ..self }
+        Self {
+            ext_layers_a: ext[0],
+            ext_layers_b: ext[1],
+            ext_flags: ext[2],
+            ..self
+        }
     }
 }
 

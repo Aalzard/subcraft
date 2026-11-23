@@ -23,7 +23,10 @@ static MAIN_ADAPTER: Mutex<Option<MainAdapter>> = Mutex::new(None);
 /// Record the adapter the window uses so secondary devices follow it.
 pub fn set_main_adapter(info: &wgpu::AdapterInfo) {
     if let Ok(mut main) = MAIN_ADAPTER.lock() {
-        *main = Some(MainAdapter { backend: info.backend, name: info.name.clone() });
+        *main = Some(MainAdapter {
+            backend: info.backend,
+            name: info.name.clone(),
+        });
     }
 }
 
@@ -45,15 +48,24 @@ pub fn secondary_backends(main: Option<&MainAdapter>) -> wgpu::Backends {
 /// known, else the default adapter.
 pub fn secondary_adapter() -> Option<(wgpu::Instance, wgpu::Adapter)> {
     let main = main_adapter();
-    let desc = wgpu::InstanceDescriptor { backends: secondary_backends(main.as_ref()), ..wgpu::InstanceDescriptor::new_without_display_handle_from_env() };
+    let desc = wgpu::InstanceDescriptor {
+        backends: secondary_backends(main.as_ref()),
+        ..wgpu::InstanceDescriptor::new_without_display_handle_from_env()
+    };
     let instance = wgpu::Instance::new(desc);
     if let Some(main) = &main {
-        let adapters = pollster::block_on(instance.enumerate_adapters(wgpu::Backends::from(main.backend)));
-        if let Some(adapter) = adapters.into_iter().find(|a| a.get_info().name == main.name) {
+        let adapters =
+            pollster::block_on(instance.enumerate_adapters(wgpu::Backends::from(main.backend)));
+        if let Some(adapter) = adapters
+            .into_iter()
+            .find(|a| a.get_info().name == main.name)
+        {
             return Some((instance, adapter));
         }
     }
-    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())).ok()?;
+    let adapter =
+        pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
+            .ok()?;
     Some((instance, adapter))
 }
 
@@ -75,13 +87,25 @@ mod tests {
 
     #[test]
     fn secondary_instances_follow_the_window_api_only() {
-        let dx12 = MainAdapter { backend: wgpu::Backend::Dx12, name: "GPU".into() };
+        let dx12 = MainAdapter {
+            backend: wgpu::Backend::Dx12,
+            name: "GPU".into(),
+        };
         assert_eq!(secondary_backends(Some(&dx12)), wgpu::Backends::DX12);
-        let vk = MainAdapter { backend: wgpu::Backend::Vulkan, name: "GPU".into() };
+        let vk = MainAdapter {
+            backend: wgpu::Backend::Vulkan,
+            name: "GPU".into(),
+        };
         assert_eq!(secondary_backends(Some(&vk)), wgpu::Backends::VULKAN);
-        let gl = MainAdapter { backend: wgpu::Backend::Gl, name: "GPU".into() };
+        let gl = MainAdapter {
+            backend: wgpu::Backend::Gl,
+            name: "GPU".into(),
+        };
         assert_eq!(secondary_backends(Some(&gl)), wgpu::Backends::GL);
         // No window adapter yet (tests, tools): unchanged behaviour.
-        assert_eq!(secondary_backends(None), wgpu::InstanceDescriptor::new_without_display_handle_from_env().backends);
+        assert_eq!(
+            secondary_backends(None),
+            wgpu::InstanceDescriptor::new_without_display_handle_from_env().backends
+        );
     }
 }

@@ -1,76 +1,234 @@
-use std::{collections::BTreeSet,sync::Arc};
 use glam::Vec2;
-use subcraft_assets::{starter::{self,Kind},preview::{Address,Settings,ImageJob,example}};
-use subcraft_image::{Bitmap,BitmapData};
-fn finish(b: Bitmap,k: Kind,s: Settings,side: u32,budget: usize)->Bitmap {let mut j=ImageJob::new(Arc::new(b),k,s,side).unwrap();j.step(0);assert_eq!(j.progress(),0.0);while !j.is_done(){j.step(budget);}j.finish().unwrap()}
+use std::{collections::BTreeSet, sync::Arc};
+use subcraft_assets::{
+    preview::{Address, ImageJob, Settings, example},
+    starter::{self, Kind},
+};
+use subcraft_image::{Bitmap, BitmapData};
+fn finish(b: Bitmap, k: Kind, s: Settings, side: u32, budget: usize) -> Bitmap {
+    let mut j = ImageJob::new(Arc::new(b), k, s, side).unwrap();
+    j.step(0);
+    assert_eq!(j.progress(), 0.0);
+    while !j.is_done() {
+        j.step(budget);
+    }
+    j.finish().unwrap()
+}
 
 #[test]
 fn catalog_has_195_unique_small_thumbnails_and_lossless_full_size_pngs() {
-    assert_eq!(starter::ENTRIES.len(),195);let mut ids=BTreeSet::new();let mut normals=0;let mut small=0;let mut bytes=0;let mut thumbs=0;
-    for (i,e) in starter::ENTRIES.iter().enumerate() {
-        assert!(ids.insert(e.id()));let full=starter::encoded(i).unwrap();assert_eq!(e.bytes,full.len());bytes+=full.len();thumbs+=e.thumb.len();
-        let b=subcraft_image::io::decode_bitmap(full,Some(e.file)).unwrap();if (b.width,b.height)==(512,512) {small+=1;assert_eq!(e.kind,Kind::Alpha);} else {assert_eq!((b.width,b.height),(1024,1024));}
-        let t=subcraft_image::io::decode_bitmap(e.thumb,Some("thumb.png")).unwrap();assert_eq!((t.width,t.height),(96,96));
-        if e.kind==Kind::Normal {normals+=1;assert_eq!(b.channels,3);assert!(e.tileable());}else{assert_eq!(b.channels,1);assert!(!e.tileable());}
+    assert_eq!(starter::ENTRIES.len(), 195);
+    let mut ids = BTreeSet::new();
+    let mut normals = 0;
+    let mut small = 0;
+    let mut bytes = 0;
+    let mut thumbs = 0;
+    for (i, e) in starter::ENTRIES.iter().enumerate() {
+        assert!(ids.insert(e.id()));
+        let full = starter::encoded(i).unwrap();
+        assert_eq!(e.bytes, full.len());
+        bytes += full.len();
+        thumbs += e.thumb.len();
+        let b = subcraft_image::io::decode_bitmap(full, Some(e.file)).unwrap();
+        if (b.width, b.height) == (512, 512) {
+            small += 1;
+            assert_eq!(e.kind, Kind::Alpha);
+        } else {
+            assert_eq!((b.width, b.height), (1024, 1024));
+        }
+        let t = subcraft_image::io::decode_bitmap(e.thumb, Some("thumb.png")).unwrap();
+        assert_eq!((t.width, t.height), (96, 96));
+        if e.kind == Kind::Normal {
+            normals += 1;
+            assert_eq!(b.channels, 3);
+            assert!(e.tileable());
+        } else {
+            assert_eq!(b.channels, 1);
+            assert!(!e.tileable());
+        }
     }
     // 194 is the Dirt Grunge texture: the map the generators use, not a second copy of it.
-    assert_eq!((normals,small),(110,4));assert_eq!(bytes,92_194_344+954_546);assert!(thumbs<1_640_000);assert!(starter::encoded(195).is_none());
-    let grunge=&starter::ENTRIES[194];assert_eq!((grunge.name,grunge.kind,grunge.folder()),("Dirt Grunge",Kind::Texture,starter::GRUNGES));
-    assert!(std::ptr::eq(starter::encoded(194).unwrap().as_ptr(),subcraft_materials::grunge::DIRT_GRUNGE_PNG.as_ptr()),"shared with the generators");
-    assert!(starter::ENTRIES.iter().filter(|e|e.kind!=Kind::Texture).all(|e|e.folder()=="Starter pack"));
+    assert_eq!((normals, small), (110, 4));
+    assert_eq!(bytes, 92_194_344 + 954_546);
+    assert!(thumbs < 1_640_000);
+    assert!(starter::encoded(195).is_none());
+    let grunge = &starter::ENTRIES[194];
+    assert_eq!(
+        (grunge.name, grunge.kind, grunge.folder()),
+        ("Dirt Grunge", Kind::Texture, starter::GRUNGES)
+    );
+    assert!(
+        std::ptr::eq(
+            starter::encoded(194).unwrap().as_ptr(),
+            subcraft_materials::grunge::DIRT_GRUNGE_PNG.as_ptr()
+        ),
+        "shared with the generators"
+    );
+    assert!(
+        starter::ENTRIES
+            .iter()
+            .filter(|e| e.kind != Kind::Texture)
+            .all(|e| e.folder() == "Starter pack")
+    );
 }
 #[test]
 fn neutral_normal_and_zero_strength_are_linear_unit_vectors() {
-    let s=Settings {strength:0.0,..Default::default()};let b=Bitmap::new_u8(1,1,3,vec![210,80,230]);
-    let n=s.sample(&b,Kind::Normal,Vec2::splat(0.5));assert_eq!(n,[0.5,0.5,1.0,1.0]);
-    let n=Settings::default().sample(&b,Kind::Normal,Vec2::splat(0.5));let len=((n[0]*2.0-1.0).powi(2)+(n[1]*2.0-1.0).powi(2)+(n[2]*2.0-1.0).powi(2)).sqrt();assert!((len-1.0).abs()<1e-6);assert!(n[0]>0.7);
+    let s = Settings {
+        strength: 0.0,
+        ..Default::default()
+    };
+    let b = Bitmap::new_u8(1, 1, 3, vec![210, 80, 230]);
+    let n = s.sample(&b, Kind::Normal, Vec2::splat(0.5));
+    assert_eq!(n, [0.5, 0.5, 1.0, 1.0]);
+    let n = Settings::default().sample(&b, Kind::Normal, Vec2::splat(0.5));
+    let len =
+        ((n[0] * 2.0 - 1.0).powi(2) + (n[1] * 2.0 - 1.0).powi(2) + (n[2] * 2.0 - 1.0).powi(2))
+            .sqrt();
+    assert!((len - 1.0).abs() < 1e-6);
+    assert!(n[0] > 0.7);
 }
 #[test]
 fn green_flip_inversion_and_rotation_change_tangents_without_inverting_z() {
-    let b=Bitmap::new_u8(1,1,3,vec![190,210,230]);let uv=Vec2::splat(0.5);
-    let n=Settings::default().sample(&b,Kind::Normal,uv);let g=Settings {flip_green:true,..Default::default()}.sample(&b,Kind::Normal,uv);
-    assert!((g[0]-n[0]).abs()<1e-6);assert!((g[1]+n[1]-1.0).abs()<1e-6);assert_eq!(g[2],n[2]);
-    let i=Settings {invert:true,..Default::default()}.sample(&b,Kind::Normal,uv);assert!((i[0]+n[0]-1.0).abs()<1e-6);assert_eq!(i[2],n[2]);
-    let r=Settings {rotation:90.0,..Default::default()}.sample(&b,Kind::Normal,uv);assert!((r[0]-(1.0-n[1])).abs()<1e-6);assert!((r[1]-n[0]).abs()<1e-6);
+    let b = Bitmap::new_u8(1, 1, 3, vec![190, 210, 230]);
+    let uv = Vec2::splat(0.5);
+    let n = Settings::default().sample(&b, Kind::Normal, uv);
+    let g = Settings {
+        flip_green: true,
+        ..Default::default()
+    }
+    .sample(&b, Kind::Normal, uv);
+    assert!((g[0] - n[0]).abs() < 1e-6);
+    assert!((g[1] + n[1] - 1.0).abs() < 1e-6);
+    assert_eq!(g[2], n[2]);
+    let i = Settings {
+        invert: true,
+        ..Default::default()
+    }
+    .sample(&b, Kind::Normal, uv);
+    assert!((i[0] + n[0] - 1.0).abs() < 1e-6);
+    assert_eq!(i[2], n[2]);
+    let r = Settings {
+        rotation: 90.0,
+        ..Default::default()
+    }
+    .sample(&b, Kind::Normal, uv);
+    assert!((r[0] - (1.0 - n[1])).abs() < 1e-6);
+    assert!((r[1] - n[0]).abs() < 1e-6);
 }
 #[test]
 fn alpha_adjustments_keep_coverage_and_do_not_gamma_transform() {
-    let b=Bitmap::new_u8(1,1,2,vec![128,128]);let a=Settings::default().sample(&b,Kind::Alpha,Vec2::splat(0.5));assert!((a[0]-(128.0/255.0f32).powi(2)).abs()<1e-6);
-    let s=Settings {brightness:0.2,contrast:2.0,invert:true,..Default::default()};let a=s.sample(&b,Kind::Alpha,Vec2::splat(0.5));assert!((a[0]-(1.0-((128.0/255.0-0.5)*2.0+0.7))*128.0/255.0).abs()<1e-6);
+    let b = Bitmap::new_u8(1, 1, 2, vec![128, 128]);
+    let a = Settings::default().sample(&b, Kind::Alpha, Vec2::splat(0.5));
+    assert!((a[0] - (128.0 / 255.0f32).powi(2)).abs() < 1e-6);
+    let s = Settings {
+        brightness: 0.2,
+        contrast: 2.0,
+        invert: true,
+        ..Default::default()
+    };
+    let a = s.sample(&b, Kind::Alpha, Vec2::splat(0.5));
+    assert!((a[0] - (1.0 - ((128.0 / 255.0 - 0.5) * 2.0 + 0.7)) * 128.0 / 255.0).abs() < 1e-6);
 }
 #[test]
 fn addressing_modes_and_mirrored_normal_derivatives_differ() {
-    let b=Bitmap::new_u8(2,1,1,vec![0,255]);let uv=Vec2::new(1.25,0.5);
-    let sample=|wrap|Settings{wrap,..Default::default()}.sample(&b,Kind::Alpha,uv)[0];
-    assert_eq!(sample(Address::Repeat),0.0);assert_eq!(sample(Address::Mirror),1.0);assert_eq!(sample(Address::Clamp),1.0);
-    let n=Bitmap::new_u8(1,1,3,vec![220,128,230]);let s=Settings {wrap:Address::Mirror,..Default::default()};assert!(s.sample(&n,Kind::Normal,uv)[0]<0.5);
+    let b = Bitmap::new_u8(2, 1, 1, vec![0, 255]);
+    let uv = Vec2::new(1.25, 0.5);
+    let sample = |wrap| {
+        Settings {
+            wrap,
+            ..Default::default()
+        }
+        .sample(&b, Kind::Alpha, uv)[0]
+    };
+    assert_eq!(sample(Address::Repeat), 0.0);
+    assert_eq!(sample(Address::Mirror), 1.0);
+    assert_eq!(sample(Address::Clamp), 1.0);
+    let n = Bitmap::new_u8(1, 1, 3, vec![220, 128, 230]);
+    let s = Settings {
+        wrap: Address::Mirror,
+        ..Default::default()
+    };
+    assert!(s.sample(&n, Kind::Normal, uv)[0] < 0.5);
 }
 #[test]
 fn raster_work_is_budget_independent_and_seamless_edges_match() {
-    let b=Bitmap::new_u8(2,2,1,vec![0,255,100,200]);let settings=Settings {seamless:0.2,scale:1.4,rotation:24.0,..Default::default()};
-    let a=finish(b.clone(),Kind::Alpha,settings,32,1);let c=finish(b,Kind::Alpha,settings,32,71);assert_eq!(a,c);
-    for i in 0..32 {assert_eq!(a.texel(0,i,false),a.texel(31,i,false));assert_eq!(a.texel(i,0,false),a.texel(i,31,false));}
-    assert!(Settings {strength:f32::NAN,..Default::default()}.validate().is_err());
-    let BitmapData::U8(data)=a.data else{panic!()};assert!(data.iter().any(|&v|v>30));
+    let b = Bitmap::new_u8(2, 2, 1, vec![0, 255, 100, 200]);
+    let settings = Settings {
+        seamless: 0.2,
+        scale: 1.4,
+        rotation: 24.0,
+        ..Default::default()
+    };
+    let a = finish(b.clone(), Kind::Alpha, settings, 32, 1);
+    let c = finish(b, Kind::Alpha, settings, 32, 71);
+    assert_eq!(a, c);
+    for i in 0..32 {
+        assert_eq!(a.texel(0, i, false), a.texel(31, i, false));
+        assert_eq!(a.texel(i, 0, false), a.texel(i, 31, false));
+    }
+    assert!(
+        Settings {
+            strength: f32::NAN,
+            ..Default::default()
+        }
+        .validate()
+        .is_err()
+    );
+    let BitmapData::U8(data) = a.data else {
+        panic!()
+    };
+    assert!(data.iter().any(|&v| v > 30));
 }
 #[test]
 fn sample_stroke_and_lit_normal_preview_contain_image_detail() {
-    for kind in [Kind::Alpha,Kind::Normal] {let b=Bitmap::new_u8(1,1,3,if kind==Kind::Normal{vec![128,128,255]}else{vec![255;3]});let p=example(&b,kind);let BitmapData::U8(v)=p.data else {panic!()};assert!(v.iter().max().unwrap()-v.iter().min().unwrap()>40);}
+    for kind in [Kind::Alpha, Kind::Normal] {
+        let b = Bitmap::new_u8(
+            1,
+            1,
+            3,
+            if kind == Kind::Normal {
+                vec![128, 128, 255]
+            } else {
+                vec![255; 3]
+            },
+        );
+        let p = example(&b, kind);
+        let BitmapData::U8(v) = p.data else { panic!() };
+        assert!(v.iter().max().unwrap() - v.iter().min().unwrap() > 40);
+    }
 }
 #[test]
 fn imported_generator_batch_normals_read_as_tangent_space_data_and_alphas_as_gray_masks() {
     // Entries 160..190 are normal maps (flat areas are (0.5, 0.5, 1)); 190..194 are alpha brushes.
     let mut seen = 0;
     for (i, e) in starter::ENTRIES.iter().enumerate().skip(160).take(34) {
-        let b = subcraft_image::io::decode_bitmap(starter::encoded(i).unwrap(), Some(e.file)).unwrap();
+        let b =
+            subcraft_image::io::decode_bitmap(starter::encoded(i).unwrap(), Some(e.file)).unwrap();
         let (mut sum, mut n) = ([0.0f32; 3], 0.0f32);
-        for y in (0..b.height).step_by(8) { for x in (0..b.width).step_by(8) { let t = b.texel(x, y, false); for c in 0..3 { sum[c] += t[c]; } n += 1.0; } }
+        for y in (0..b.height).step_by(8) {
+            for x in (0..b.width).step_by(8) {
+                let t = b.texel(x, y, false);
+                for c in 0..3 {
+                    sum[c] += t[c];
+                }
+                n += 1.0;
+            }
+        }
         let m = [sum[0] / n, sum[1] / n, sum[2] / n];
         if i < 190 {
             assert_eq!((e.kind, b.channels), (Kind::Normal, 3), "{}", e.name);
-            assert!((m[0] - 0.5).abs() < 0.12 && (m[1] - 0.5).abs() < 0.12 && m[2] > 0.7, "{} mean {m:?} is not a tangent-space normal map", e.name);
+            assert!(
+                (m[0] - 0.5).abs() < 0.12 && (m[1] - 0.5).abs() < 0.12 && m[2] > 0.7,
+                "{} mean {m:?} is not a tangent-space normal map",
+                e.name
+            );
         } else {
-            assert_eq!((e.kind, b.channels, b.width), (Kind::Alpha, 1, 512), "{}", e.name);
+            assert_eq!(
+                (e.kind, b.channels, b.width),
+                (Kind::Alpha, 1, 512),
+                "{}",
+                e.name
+            );
             assert!(m[0] > 0.1 && m[0] < 0.9, "{} mean {m:?}", e.name);
         }
         seen += 1;

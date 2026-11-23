@@ -27,18 +27,38 @@ impl GpuBudget {
     /// about one display frame: the window shares the GPU, and a submission cannot be
     /// interrupted, so a longer one makes the whole desktop miss frames (issue #628: 100 ms
     /// jobs, up to 250 ms, made other programs stutter while compositing).
-    pub const DISCRETE: Self = Self { first_units: 2048, target: Duration::from_millis(12), max: Duration::from_millis(30), growth: 4 };
+    pub const DISCRETE: Self = Self {
+        first_units: 2048,
+        target: Duration::from_millis(12),
+        max: Duration::from_millis(30),
+        growth: 4,
+    };
     /// Integrated, software and unknown adapters: a much smaller first step, a shorter target
     /// and slower growth, so even a very slow adapter stays far from the two-second watchdog.
-    pub const CAUTIOUS: Self = Self { first_units: 64, target: Duration::from_millis(8), max: Duration::from_millis(20), growth: 2 };
+    pub const CAUTIOUS: Self = Self {
+        first_units: 64,
+        target: Duration::from_millis(8),
+        max: Duration::from_millis(20),
+        growth: 2,
+    };
 
     /// `device_type` is the `Debug` text of `wgpu::DeviceType` (as stored in `GpuCaps`).
     pub fn for_device_type(device_type: &str) -> Self {
-        if device_type == "DiscreteGpu" { Self::DISCRETE } else { Self::CAUTIOUS }
+        if device_type == "DiscreteGpu" {
+            Self::DISCRETE
+        } else {
+            Self::CAUTIOUS
+        }
     }
 
     pub fn describe(&self) -> String {
-        format!("first compute submission {} units, target {} ms, limit {} ms, growth x{}", self.first_units, self.target.as_millis(), self.max.as_millis(), self.growth)
+        format!(
+            "first compute submission {} units, target {} ms, limit {} ms, growth x{}",
+            self.first_units,
+            self.target.as_millis(),
+            self.max.as_millis(),
+            self.growth
+        )
     }
 }
 
@@ -55,20 +75,36 @@ pub struct MemoryBudget {
 }
 
 impl MemoryBudget {
-    pub const ROOMY: Self = Self { msaa: true, composite_pool_mb: 2048, environment_width: u32::MAX };
+    pub const ROOMY: Self = Self {
+        msaa: true,
+        composite_pool_mb: 2048,
+        environment_width: u32::MAX,
+    };
     /// Integrated GPUs share the system memory and often have very little of their own.
-    pub const TIGHT: Self = Self { msaa: false, composite_pool_mb: 128, environment_width: 1024 };
+    pub const TIGHT: Self = Self {
+        msaa: false,
+        composite_pool_mb: 128,
+        environment_width: 1024,
+    };
 
     /// `device_type` and `backend` are the `Debug` texts stored in `GpuCaps`. wgpu does not
     /// report the amount of video memory, so the kind of adapter decides. Apple's integrated
     /// GPUs (Metal) have plenty of unified memory and keep the full budget;
     /// `SUBCRAFT_FULL_GPU_MEMORY=1` gives it to any adapter.
     pub fn for_adapter(device_type: &str, backend: &str) -> Self {
-        Self::choose(device_type, backend, std::env::var_os("SUBCRAFT_FULL_GPU_MEMORY").is_some())
+        Self::choose(
+            device_type,
+            backend,
+            std::env::var_os("SUBCRAFT_FULL_GPU_MEMORY").is_some(),
+        )
     }
 
     pub fn choose(device_type: &str, backend: &str, full: bool) -> Self {
-        if device_type == "IntegratedGpu" && backend != "Metal" && !full { Self::TIGHT } else { Self::ROOMY }
+        if device_type == "IntegratedGpu" && backend != "Metal" && !full {
+            Self::TIGHT
+        } else {
+            Self::ROOMY
+        }
     }
 
     pub fn is_tight(&self) -> bool {
@@ -77,16 +113,25 @@ impl MemoryBudget {
 
     pub fn describe(&self) -> String {
         if self.is_tight() {
-            format!("low video memory budget: 4x anti-aliasing off, GPU compositing pool up to {} MB, environment maps up to {} px wide", self.composite_pool_mb, self.environment_width)
+            format!(
+                "low video memory budget: 4x anti-aliasing off, GPU compositing pool up to {} MB, environment maps up to {} px wide",
+                self.composite_pool_mb, self.environment_width
+            )
         } else {
-            format!("full video memory budget: GPU compositing pool up to {} MB", self.composite_pool_mb)
+            format!(
+                "full video memory budget: GPU compositing pool up to {} MB",
+                self.composite_pool_mb
+            )
         }
     }
 
     /// How many of the widest levels of an environment map (widths given, widest first) to
     /// leave out. At least four levels stay, so rough reflections still have their blur chain.
     pub fn environment_levels_skipped(&self, widths: &[u32]) -> usize {
-        let fitting = widths.iter().take_while(|&&w| w > self.environment_width).count();
+        let fitting = widths
+            .iter()
+            .take_while(|&&w| w > self.environment_width)
+            .count();
         fitting.min(widths.len().saturating_sub(4))
     }
 }
@@ -100,7 +145,10 @@ pub struct DispatchPace {
 
 impl DispatchPace {
     pub fn new(budget: GpuBudget) -> Self {
-        Self { budget, units: budget.first_units.max(1) }
+        Self {
+            budget,
+            units: budget.first_units.max(1),
+        }
     }
 
     /// Work units the next submission may hold.
@@ -123,7 +171,9 @@ impl DispatchPace {
         } else {
             // A small submission says little about speed (fixed overhead dominates), so it can
             // only raise the size, by at most `growth` times what was measured.
-            self.units = self.units.max(fit.min(units.saturating_mul(self.budget.growth)));
+            self.units = self
+                .units
+                .max(fit.min(units.saturating_mul(self.budget.growth)));
         }
     }
 }
@@ -134,34 +184,81 @@ mod tests {
 
     #[test]
     fn integrated_adapters_get_the_low_memory_budget() {
-        assert_eq!(MemoryBudget::choose("IntegratedGpu", "Dx12", false), MemoryBudget::TIGHT);
-        assert_eq!(MemoryBudget::choose("IntegratedGpu", "Vulkan", false), MemoryBudget::TIGHT);
-        assert_eq!(MemoryBudget::choose("IntegratedGpu", "Dx12", true), MemoryBudget::ROOMY, "the override");
-        assert_eq!(MemoryBudget::choose("IntegratedGpu", "Metal", false), MemoryBudget::ROOMY);
+        assert_eq!(
+            MemoryBudget::choose("IntegratedGpu", "Dx12", false),
+            MemoryBudget::TIGHT
+        );
+        assert_eq!(
+            MemoryBudget::choose("IntegratedGpu", "Vulkan", false),
+            MemoryBudget::TIGHT
+        );
+        assert_eq!(
+            MemoryBudget::choose("IntegratedGpu", "Dx12", true),
+            MemoryBudget::ROOMY,
+            "the override"
+        );
+        assert_eq!(
+            MemoryBudget::choose("IntegratedGpu", "Metal", false),
+            MemoryBudget::ROOMY
+        );
         for kind in ["DiscreteGpu", "Cpu", "VirtualGpu", "Other", ""] {
-            assert_eq!(MemoryBudget::choose(kind, "Dx12", false), MemoryBudget::ROOMY, "{kind}");
+            assert_eq!(
+                MemoryBudget::choose(kind, "Dx12", false),
+                MemoryBudget::ROOMY,
+                "{kind}"
+            );
         }
         let (t, r) = (MemoryBudget::TIGHT, MemoryBudget::ROOMY);
-        assert!(!t.msaa && r.msaa && t.composite_pool_mb < r.composite_pool_mb && t.environment_width < r.environment_width);
+        assert!(
+            !t.msaa
+                && r.msaa
+                && t.composite_pool_mb < r.composite_pool_mb
+                && t.environment_width < r.environment_width
+        );
         assert!(t.is_tight() && !r.is_tight());
-        assert!(t.describe().contains("anti-aliasing off") && t.describe().contains("128 MB") && t.describe().contains("1024 px"));
+        assert!(
+            t.describe().contains("anti-aliasing off")
+                && t.describe().contains("128 MB")
+                && t.describe().contains("1024 px")
+        );
         // A 4096 px map with 8 levels loses its two widest levels; a small one loses none; a
         // short chain keeps four levels even when they are wide.
-        assert_eq!(t.environment_levels_skipped(&[4096, 2048, 1024, 512, 256, 128, 64, 32]), 2);
+        assert_eq!(
+            t.environment_levels_skipped(&[4096, 2048, 1024, 512, 256, 128, 64, 32]),
+            2
+        );
         assert_eq!(t.environment_levels_skipped(&[1024, 512, 256, 128, 64]), 0);
-        assert_eq!(t.environment_levels_skipped(&[8192, 4096, 2048, 1024, 512]), 1);
+        assert_eq!(
+            t.environment_levels_skipped(&[8192, 4096, 2048, 1024, 512]),
+            1
+        );
         assert_eq!(t.environment_levels_skipped(&[]), 0);
-        assert_eq!(r.environment_levels_skipped(&[8192, 4096, 2048, 1024, 512, 256]), 0);
+        assert_eq!(
+            r.environment_levels_skipped(&[8192, 4096, 2048, 1024, 512, 256]),
+            0
+        );
     }
 
     #[test]
     fn integrated_and_unknown_adapters_get_the_cautious_budget() {
-        assert_eq!(GpuBudget::for_device_type("DiscreteGpu"), GpuBudget::DISCRETE);
+        assert_eq!(
+            GpuBudget::for_device_type("DiscreteGpu"),
+            GpuBudget::DISCRETE
+        );
         for kind in ["IntegratedGpu", "Cpu", "VirtualGpu", "Other", ""] {
-            assert_eq!(GpuBudget::for_device_type(kind), GpuBudget::CAUTIOUS, "{kind}");
+            assert_eq!(
+                GpuBudget::for_device_type(kind),
+                GpuBudget::CAUTIOUS,
+                "{kind}"
+            );
         }
         let (d, c) = (GpuBudget::DISCRETE, GpuBudget::CAUTIOUS);
-        assert!(c.first_units < d.first_units && c.target < d.target && c.max < d.max && c.growth < d.growth);
+        assert!(
+            c.first_units < d.first_units
+                && c.target < d.target
+                && c.max < d.max
+                && c.growth < d.growth
+        );
         // Both stay far below the two-second watchdog, even after one full growth step on top
         // of a submission that only just passed as "not too long".
         for b in [d, c] {
@@ -169,7 +266,10 @@ mod tests {
         }
         assert!(c.describe().contains("64 units") && c.describe().contains("8 ms"));
         // About one display frame, so the desktop keeps drawing while compositing (issue #628).
-        assert!(d.target <= Duration::from_millis(16) && d.max <= Duration::from_millis(33), "{d:?}");
+        assert!(
+            d.target <= Duration::from_millis(16) && d.max <= Duration::from_millis(33),
+            "{d:?}"
+        );
     }
 
     #[test]
@@ -232,7 +332,10 @@ mod tests {
                 p.record(n, took);
                 left -= n;
             }
-            assert!(longest < Duration::from_millis(600), "{budget:?}: longest submission {longest:?}");
+            assert!(
+                longest < Duration::from_millis(600),
+                "{budget:?}: longest submission {longest:?}"
+            );
         }
     }
 }

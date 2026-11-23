@@ -33,7 +33,10 @@ pub enum Classified {
 }
 
 const fn map(channel: ChannelKind, conversion: MapConversion) -> Classified {
-    Classified::Map(MapMatch { channel, conversion })
+    Classified::Map(MapMatch {
+        channel,
+        conversion,
+    })
 }
 
 /// Two-word names, checked before single words (`base_color`, `nor_gl`).
@@ -53,11 +56,14 @@ fn classify_word(w: &str) -> Option<Classified> {
     use ChannelKind as C;
     use MapConversion as M;
     Some(match w {
-        "basecolor" | "basecolour" | "albedo" | "diffuse" | "diff" | "color" | "colour" | "col" | "bc" => map(C::BaseColor, M::None),
+        "basecolor" | "basecolour" | "albedo" | "diffuse" | "diff" | "color" | "colour" | "col"
+        | "bc" => map(C::BaseColor, M::None),
         "roughness" | "rough" | "rgh" => map(C::Roughness, M::None),
         "glossiness" | "gloss" | "smoothness" => map(C::Roughness, M::Invert),
         "metallic" | "metalness" | "metal" | "mtl" => map(C::Metallic, M::None),
-        "normal" | "normals" | "nrm" | "nor" | "norm" | "normalgl" | "normalopengl" => map(C::Normal, M::None),
+        "normal" | "normals" | "nrm" | "nor" | "norm" | "normalgl" | "normalopengl" => {
+            map(C::Normal, M::None)
+        }
         "normaldx" | "normaldirectx" => map(C::Normal, M::FlipGreen),
         "height" | "displacement" | "disp" | "bump" => map(C::Height, M::None),
         "ao" | "ambientocclusion" | "occlusion" => map(C::AmbientOcclusion, M::None),
@@ -140,7 +146,10 @@ fn classify_words(w: &[String]) -> Option<(usize, Classified)> {
 /// `Bricks059_2K-JPG_NormalGL.jpg` -> (`Bricks059_2K-JPG_`, normal). `None` when no map type is
 /// recognized. Used to group the maps of several materials living in one folder.
 pub fn split_map_name(file_name: &str) -> Option<(String, Classified)> {
-    let stem = Path::new(file_name).file_stem().and_then(|s| s.to_str()).unwrap_or(file_name);
+    let stem = Path::new(file_name)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or(file_name);
     let spans = word_spans(stem);
     let words: Vec<String> = spans.iter().map(|(_, w)| w.clone()).collect();
     let (i, c) = classify_words(&words)?;
@@ -150,7 +159,10 @@ pub fn split_map_name(file_name: &str) -> Option<(String, Classified)> {
 /// Classify one file name. Words are scanned from the end, where libraries put the map type
 /// (`metal_plate_roughness` is a roughness map, not a metallic one).
 pub fn classify(file_name: &str) -> Classified {
-    let stem = Path::new(file_name).file_stem().and_then(|s| s.to_str()).unwrap_or(file_name);
+    let stem = Path::new(file_name)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or(file_name);
     classify_words(&words(stem)).map_or(Classified::Unknown, |(_, c)| c)
 }
 
@@ -171,14 +183,23 @@ pub fn plan(paths: &[PathBuf]) -> TextureSetPlan {
     let mut out = TextureSetPlan::default();
     for p in &paths {
         let name = p.file_name().and_then(|n| n.to_str()).unwrap_or_default();
-        let ext = p.extension().and_then(|e| e.to_str()).unwrap_or_default().to_ascii_lowercase();
+        let ext = p
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or_default()
+            .to_ascii_lowercase();
         if !subcraft_image::IMAGE_EXTENSIONS.contains(&ext.as_str()) {
             out.skipped.push((p.clone(), "not an image".into()));
             continue;
         }
         match classify(name) {
-            Classified::Unknown => out.skipped.push((p.clone(), "no channel name recognized".into())),
-            Classified::Packed => out.skipped.push((p.clone(), "packed AO/roughness/metallic maps aren't supported yet".into())),
+            Classified::Unknown => out
+                .skipped
+                .push((p.clone(), "no channel name recognized".into())),
+            Classified::Packed => out.skipped.push((
+                p.clone(),
+                "packed AO/roughness/metallic maps aren't supported yet".into(),
+            )),
             Classified::Map(m) => {
                 if let Some(i) = out.maps.iter().position(|(_, e)| e.channel == m.channel) {
                     let replace = m.channel == ChannelKind::Normal
@@ -186,9 +207,13 @@ pub fn plan(paths: &[PathBuf]) -> TextureSetPlan {
                         && out.maps[i].1.conversion == MapConversion::FlipGreen;
                     if replace {
                         let old = std::mem::replace(&mut out.maps[i], (p.clone(), m));
-                        out.skipped.push((old.0, "a DirectX normal; the OpenGL one is used".into()));
+                        out.skipped
+                            .push((old.0, "a DirectX normal; the OpenGL one is used".into()));
                     } else {
-                        out.skipped.push((p.clone(), format!("another {} map is already used", m.channel.display_name())));
+                        out.skipped.push((
+                            p.clone(),
+                            format!("another {} map is already used", m.channel.display_name()),
+                        ));
                     }
                 } else {
                     out.maps.push((p.clone(), m));
@@ -203,7 +228,9 @@ pub fn plan(paths: &[PathBuf]) -> TextureSetPlan {
 /// Layer name from the file stems: their common prefix cut at a separator (`Wood_BaseColor` +
 /// `Wood_Bump` → `Wood`); a single file drops its last word (`oak_planks_diff` → `oak_planks`).
 fn common_name<'a>(paths: impl Iterator<Item = &'a Path>) -> String {
-    let stems: Vec<&str> = paths.filter_map(|p| p.file_stem().and_then(|s| s.to_str())).collect();
+    let stems: Vec<&str> = paths
+        .filter_map(|p| p.file_stem().and_then(|s| s.to_str()))
+        .collect();
     // Letters of any script are part of the name ("Café", "木材"), not separators.
     let is_sep = |c: char| !c.is_alphanumeric();
     let name = match stems.as_slice() {
@@ -212,7 +239,12 @@ fn common_name<'a>(paths: impl Iterator<Item = &'a Path>) -> String {
         [first, rest @ ..] => {
             let mut len = first.len();
             for s in rest {
-                len = first.bytes().zip(s.bytes()).take(len).take_while(|(a, b)| a.eq_ignore_ascii_case(b)).count();
+                len = first
+                    .bytes()
+                    .zip(s.bytes())
+                    .take(len)
+                    .take_while(|(a, b)| a.eq_ignore_ascii_case(b))
+                    .count();
             }
             // The bytes may agree up to the middle of a character ("é_" / "è_"): cut before it.
             while !first.is_char_boundary(len) {
@@ -221,11 +253,19 @@ fn common_name<'a>(paths: impl Iterator<Item = &'a Path>) -> String {
             let prefix = &first[..len];
             // Keep whole words only: the prefix must end at a separator or at the end of a stem.
             let ends_at_word = first[len..].starts_with(is_sep) || first.len() == len;
-            if ends_at_word { prefix } else { prefix.rsplit_once(is_sep).map_or("", |(head, _)| head) }
+            if ends_at_word {
+                prefix
+            } else {
+                prefix.rsplit_once(is_sep).map_or("", |(head, _)| head)
+            }
         }
     };
     let name = name.trim_matches(is_sep);
-    if name.is_empty() { "Imported material".into() } else { name.to_string() }
+    if name.is_empty() {
+        "Imported material".into()
+    } else {
+        name.to_string()
+    }
 }
 
 #[cfg(test)]
@@ -238,12 +278,20 @@ mod tests {
     fn names_that_differ_inside_a_character_do_not_panic() {
         for (a, b, expected) in [
             ("é_BaseColor.png", "è_Roughness.png", "Imported material"),
-            ("나무_BaseColor.png", "돌_Roughness.png", "Imported material"),
+            (
+                "나무_BaseColor.png",
+                "돌_Roughness.png",
+                "Imported material",
+            ),
             ("木_BaseColor.png", "材_Roughness.png", "Imported material"),
             ("Wood é_BaseColor.png", "Wood è_Roughness.png", "Wood"),
             ("Café_BaseColor.png", "Café_Roughness.png", "Café"),
         ] {
-            assert_eq!(plan(&[PathBuf::from(a), PathBuf::from(b)]).name, expected, "{a} + {b}");
+            assert_eq!(
+                plan(&[PathBuf::from(a), PathBuf::from(b)]).name,
+                expected,
+                "{a} + {b}"
+            );
         }
     }
 
@@ -293,7 +341,10 @@ mod tests {
 
     #[test]
     fn camel_case_and_separators_split_into_words() {
-        assert_eq!(words("MetalPlates006_2K-Roughness"), ["metal", "plates006", "2k", "roughness"]);
+        assert_eq!(
+            words("MetalPlates006_2K-Roughness"),
+            ["metal", "plates006", "2k", "roughness"]
+        );
         assert_eq!(words("rock nor.gl"), ["rock", "nor", "gl"]);
     }
 
@@ -315,7 +366,11 @@ mod tests {
         .collect();
         let p = plan(&files);
         assert_eq!(p.name, "Bricks076C_2K");
-        let got: Vec<(&str, ChannelKind)> = p.maps.iter().map(|(f, m)| (f.to_str().unwrap(), m.channel)).collect();
+        let got: Vec<(&str, ChannelKind)> = p
+            .maps
+            .iter()
+            .map(|(f, m)| (f.to_str().unwrap(), m.channel))
+            .collect();
         assert_eq!(
             got,
             [
@@ -331,7 +386,10 @@ mod tests {
 
     #[test]
     fn layer_name_keeps_whole_words() {
-        let p = plan(&[PathBuf::from("Wood_BaseColor.png"), PathBuf::from("Wood_Bump.png")]);
+        let p = plan(&[
+            PathBuf::from("Wood_BaseColor.png"),
+            PathBuf::from("Wood_Bump.png"),
+        ]);
         assert_eq!(p.name, "Wood");
         let p = plan(&[PathBuf::from("albedo.png"), PathBuf::from("roughness.png")]);
         assert_eq!(p.name, "Imported material");

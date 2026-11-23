@@ -5,8 +5,9 @@ use std::sync::Arc;
 
 use subcraft_core::{AssetId, ChannelKind, ChannelValue, ResourceId};
 use subcraft_doc::{
-    FillChannel, FillSource, Generator, GeneratorKind, Layer, LayerContent, MaskEffectKind, ProceduralKind, ProceduralParams, Projection,
-    ProjectionMode, Resource, ResourceKind, TextureSet,
+    FillChannel, FillSource, Generator, GeneratorKind, Layer, LayerContent, MaskEffectKind,
+    ProceduralKind, ProceduralParams, Projection, ProjectionMode, Resource, ResourceKind,
+    TextureSet,
 };
 
 /// An embedded image a built-in material fills one channel with. It is decoded only when the
@@ -23,7 +24,11 @@ pub struct PresetImage {
 
 impl std::fmt::Debug for PresetImage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("PresetImage").field("channel", &self.channel).field("name", &self.name).field("bytes", &self.bytes.len()).finish()
+        f.debug_struct("PresetImage")
+            .field("channel", &self.channel)
+            .field("name", &self.name)
+            .field("bytes", &self.bytes.len())
+            .finish()
     }
 }
 
@@ -89,7 +94,13 @@ impl MaterialPreset {
             }
             for img in &self.images {
                 if let Some(&resource) = ids.get(img.name).filter(|_| ts.has_channel(img.channel)) {
-                    f.channels.insert(img.channel, FillChannel { strength: img.strength, ..FillChannel::new(FillSource::Bitmap { resource }) });
+                    f.channels.insert(
+                        img.channel,
+                        FillChannel {
+                            strength: img.strength,
+                            ..FillChannel::new(FillSource::Bitmap { resource })
+                        },
+                    );
                 }
             }
         }
@@ -105,26 +116,74 @@ pub(crate) fn rgb(r: f32, g: f32, b: f32) -> FillSource {
     FillSource::uniform(ChannelValue::rgb(r, g, b))
 }
 
-pub(crate) fn proc(kind: ProceduralKind, scale: f32, seed: u32, low: ChannelValue, high: ChannelValue) -> FillSource {
-    FillSource::Procedural { params: ProceduralParams { scale, seed, ..ProceduralParams::new(kind) }, low, high }
+pub(crate) fn proc(
+    kind: ProceduralKind,
+    scale: f32,
+    seed: u32,
+    low: ChannelValue,
+    high: ChannelValue,
+) -> FillSource {
+    FillSource::Procedural {
+        params: ProceduralParams {
+            scale,
+            seed,
+            ..ProceduralParams::new(kind)
+        },
+        low,
+        high,
+    }
 }
 
 pub(crate) fn triplanar(scale: f32) -> Projection {
-    Projection { mode: ProjectionMode::Triplanar, scale: [scale, scale], ..Projection::default() }
+    Projection {
+        mode: ProjectionMode::Triplanar,
+        scale: [scale, scale],
+        ..Projection::default()
+    }
 }
 
-pub(crate) fn preset(name: &str, category: &'static str, channels: Vec<(ChannelKind, FillSource)>, projection: Projection) -> MaterialPreset {
-    MaterialPreset { id: AssetId::from_name(&format!("material/{name}")), name: name.into(), category, channels, images: Vec::new(), projection }
+pub(crate) fn preset(
+    name: &str,
+    category: &'static str,
+    channels: Vec<(ChannelKind, FillSource)>,
+    projection: Projection,
+) -> MaterialPreset {
+    MaterialPreset {
+        id: AssetId::from_name(&format!("material/{name}")),
+        name: name.into(),
+        category,
+        channels,
+        images: Vec::new(),
+        projection,
+    }
 }
 
 fn metal(name: &str, color: [f32; 3], rough: f32) -> MaterialPreset {
     use ChannelKind::*;
-    preset(name, "Metal", vec![(BaseColor, rgb(color[0], color[1], color[2])), (Roughness, uni(rough)), (Metallic, uni(1.0))], Projection::default())
+    preset(
+        name,
+        "Metal",
+        vec![
+            (BaseColor, rgb(color[0], color[1], color[2])),
+            (Roughness, uni(rough)),
+            (Metallic, uni(1.0)),
+        ],
+        Projection::default(),
+    )
 }
 
 fn dielectric(name: &str, category: &'static str, color: [f32; 3], rough: f32) -> MaterialPreset {
     use ChannelKind::*;
-    preset(name, category, vec![(BaseColor, rgb(color[0], color[1], color[2])), (Roughness, uni(rough)), (Metallic, uni(0.0))], Projection::default())
+    preset(
+        name,
+        category,
+        vec![
+            (BaseColor, rgb(color[0], color[1], color[2])),
+            (Roughness, uni(rough)),
+            (Metallic, uni(0.0)),
+        ],
+        Projection::default(),
+    )
 }
 
 /// Built-in materials (linear base colors from measured reflectance where applicable).
@@ -142,8 +201,20 @@ pub fn materials() -> Vec<MaterialPreset> {
             "Iron Rough",
             "Metal",
             vec![
-                (BaseColor, proc(ProceduralKind::Clouds, 6.0, 3, v(0.42, 0.41, 0.40), v(0.56, 0.55, 0.53))),
-                (Roughness, proc(ProceduralKind::Grunge, 8.0, 4, s(0.45), s(0.8))),
+                (
+                    BaseColor,
+                    proc(
+                        ProceduralKind::Clouds,
+                        6.0,
+                        3,
+                        v(0.42, 0.41, 0.40),
+                        v(0.56, 0.55, 0.53),
+                    ),
+                ),
+                (
+                    Roughness,
+                    proc(ProceduralKind::Grunge, 8.0, 4, s(0.45), s(0.8)),
+                ),
                 (Metallic, uni(1.0)),
             ],
             triplanar(2.0),
@@ -158,10 +229,25 @@ pub fn materials() -> Vec<MaterialPreset> {
             "Concrete",
             "Stone",
             vec![
-                (BaseColor, proc(ProceduralKind::Clouds, 8.0, 21, v(0.30, 0.30, 0.29), v(0.48, 0.47, 0.45))),
-                (Roughness, proc(ProceduralKind::Grunge, 12.0, 22, s(0.82), s(0.97))),
+                (
+                    BaseColor,
+                    proc(
+                        ProceduralKind::Clouds,
+                        8.0,
+                        21,
+                        v(0.30, 0.30, 0.29),
+                        v(0.48, 0.47, 0.45),
+                    ),
+                ),
+                (
+                    Roughness,
+                    proc(ProceduralKind::Grunge, 12.0, 22, s(0.82), s(0.97)),
+                ),
                 (Metallic, uni(0.0)),
-                (Height, proc(ProceduralKind::Cells, 24.0, 23, s(0.0), s(0.12))),
+                (
+                    Height,
+                    proc(ProceduralKind::Cells, 24.0, 23, s(0.0), s(0.12)),
+                ),
             ],
             triplanar(2.0),
         ),
@@ -169,10 +255,22 @@ pub fn materials() -> Vec<MaterialPreset> {
             "Wood",
             "Wood",
             vec![
-                (BaseColor, proc(ProceduralKind::WoodRings, 3.0, 31, v(0.18, 0.09, 0.04), v(0.45, 0.25, 0.11))),
+                (
+                    BaseColor,
+                    proc(
+                        ProceduralKind::WoodRings,
+                        3.0,
+                        31,
+                        v(0.18, 0.09, 0.04),
+                        v(0.45, 0.25, 0.11),
+                    ),
+                ),
                 (Roughness, uni(0.6)),
                 (Metallic, uni(0.0)),
-                (Height, proc(ProceduralKind::WoodRings, 3.0, 31, s(0.0), s(0.05))),
+                (
+                    Height,
+                    proc(ProceduralKind::WoodRings, 3.0, 31, s(0.0), s(0.05)),
+                ),
             ],
             triplanar(1.0),
         ),
@@ -180,10 +278,25 @@ pub fn materials() -> Vec<MaterialPreset> {
             "Rust",
             "Metal",
             vec![
-                (BaseColor, proc(ProceduralKind::Grunge, 6.0, 41, v(0.22, 0.07, 0.02), v(0.55, 0.24, 0.07))),
-                (Roughness, proc(ProceduralKind::Clouds, 8.0, 42, s(0.75), s(0.95))),
+                (
+                    BaseColor,
+                    proc(
+                        ProceduralKind::Grunge,
+                        6.0,
+                        41,
+                        v(0.22, 0.07, 0.02),
+                        v(0.55, 0.24, 0.07),
+                    ),
+                ),
+                (
+                    Roughness,
+                    proc(ProceduralKind::Clouds, 8.0, 42, s(0.75), s(0.95)),
+                ),
                 (Metallic, uni(0.0)),
-                (Height, proc(ProceduralKind::Clouds, 16.0, 43, s(0.0), s(0.06))),
+                (
+                    Height,
+                    proc(ProceduralKind::Clouds, 16.0, 43, s(0.0), s(0.06)),
+                ),
             ],
             triplanar(2.0),
         ),
@@ -191,10 +304,22 @@ pub fn materials() -> Vec<MaterialPreset> {
             "Leather",
             "Fabric",
             vec![
-                (BaseColor, proc(ProceduralKind::Cells, 32.0, 51, v(0.14, 0.06, 0.03), v(0.22, 0.10, 0.05))),
+                (
+                    BaseColor,
+                    proc(
+                        ProceduralKind::Cells,
+                        32.0,
+                        51,
+                        v(0.14, 0.06, 0.03),
+                        v(0.22, 0.10, 0.05),
+                    ),
+                ),
                 (Roughness, uni(0.55)),
                 (Metallic, uni(0.0)),
-                (Height, proc(ProceduralKind::Cells, 32.0, 51, s(0.0), s(0.04))),
+                (
+                    Height,
+                    proc(ProceduralKind::Cells, 32.0, 51, s(0.0), s(0.04)),
+                ),
             ],
             triplanar(1.0),
         ),
@@ -217,14 +342,22 @@ pub struct SmartMask {
     pub user_file: Option<std::path::PathBuf>,
 }
 
-pub(crate) fn generator(kind: GeneratorKind, level: f32, softness: f32, noise: f32, invert: bool) -> MaskEffectKind {
+pub(crate) fn generator(
+    kind: GeneratorKind,
+    level: f32,
+    softness: f32,
+    noise: f32,
+    invert: bool,
+) -> MaskEffectKind {
     let mut g = Generator::new(kind);
     // The built-in smart materials and masks were tuned with the organic breakup and fine grain
     // (generator defaults before the grunge map): keep their look exactly.
     if let Some(p) = g.painter.as_mut() {
         p.grunge_map = false;
         p.grain = 0.7;
-        if kind == GeneratorKind::Cavity { p.grunge_floor = 0.1; }
+        if kind == GeneratorKind::Cavity {
+            p.grunge_floor = 0.1;
+        }
     }
     g.level = level;
     g.softness = softness;
@@ -236,35 +369,91 @@ pub(crate) fn generator(kind: GeneratorKind, level: f32, softness: f32, noise: f
 /// The Dirt generator of every built-in smart material: a freshly added Dirt generator (Dirt Level
 /// 0.75, Dirt Contrast 0.39, Grunge Amount 0.52, Pattern size 16%, Edges Masking 0, Grunge Floor
 /// 0.73, grunge map, Grain 0, Seed 1).
-pub(crate) fn dirt_generator() -> MaskEffectKind { MaskEffectKind::Generator(Generator::new(GeneratorKind::Cavity)) }
+pub(crate) fn dirt_generator() -> MaskEffectKind {
+    MaskEffectKind::Generator(Generator::new(GeneratorKind::Cavity))
+}
 
 /// The Ambient Occlusion generator added over the smart materials' dirt (Balance 0.53, Contrast 0,
 /// Breakup 0, Pattern size 12.5%, Grain 0, Seed 1, offsets 0).
-pub(crate) fn ambient_occlusion() -> MaskEffectKind { MaskEffectKind::Generator(Generator::new(GeneratorKind::AmbientOcclusion)) }
+pub(crate) fn ambient_occlusion() -> MaskEffectKind {
+    MaskEffectKind::Generator(Generator::new(GeneratorKind::AmbientOcclusion))
+}
 
 pub(crate) fn mask(name: &str, effects: Vec<MaskEffectKind>) -> SmartMask {
-    SmartMask { id: AssetId::from_name(&format!("smart_mask/{name}")), name: name.into(), effects, resources: Vec::new(), user_file: None }
+    SmartMask {
+        id: AssetId::from_name(&format!("smart_mask/{name}")),
+        name: name.into(),
+        effects,
+        resources: Vec::new(),
+        user_file: None,
+    }
 }
 
 /// Built-in smart masks. Edges / Cavity need baked curvature / AO.
 pub fn smart_masks() -> Vec<SmartMask> {
     vec![
-        mask("Edge Wear", vec![generator(GeneratorKind::Edges, 0.62, 0.08, 0.35, false)]),
-        mask("Cavity Dirt", vec![generator(GeneratorKind::Cavity, 0.25, 0.25, 0.3, false)]),
-        mask("Top Dust", vec![generator(GeneratorKind::Directional, 0.72, 0.25, 0.4, false)]),
-        mask("Bottom Grime", vec![generator(GeneratorKind::PositionGradient, 0.3, 0.35, 0.3, true)]),
+        mask(
+            "Edge Wear",
+            vec![generator(GeneratorKind::Edges, 0.62, 0.08, 0.35, false)],
+        ),
+        mask(
+            "Cavity Dirt",
+            vec![generator(GeneratorKind::Cavity, 0.25, 0.25, 0.3, false)],
+        ),
+        mask(
+            "Top Dust",
+            vec![generator(
+                GeneratorKind::Directional,
+                0.72,
+                0.25,
+                0.4,
+                false,
+            )],
+        ),
+        mask(
+            "Bottom Grime",
+            vec![generator(
+                GeneratorKind::PositionGradient,
+                0.3,
+                0.35,
+                0.3,
+                true,
+            )],
+        ),
         mask(
             "Grunge Breakup",
             vec![MaskEffectKind::Fill {
                 value: 1.0,
-                procedural: Some(ProceduralParams { scale: 6.0, contrast: 0.4, ..ProceduralParams::new(ProceduralKind::Grunge) }),
+                procedural: Some(ProceduralParams {
+                    scale: 6.0,
+                    contrast: 0.4,
+                    ..ProceduralParams::new(ProceduralKind::Grunge)
+                }),
                 projection: triplanar(2.0),
             }],
         ),
-        mask("Heavy Edge Wear", vec![generator(GeneratorKind::Edges, 0.45, 0.15, 0.6, false)]),
-        mask("Soft Cavity Dirt", vec![generator(GeneratorKind::Cavity, 0.4, 0.45, 0.25, false)]),
-        mask("Rising Damp", vec![generator(GeneratorKind::PositionGradient, 0.18, 0.2, 0.6, true)]),
-        mask("Cloudy Variation", vec![procedural_mask(ProceduralKind::Clouds, 4.0, 0.2)]),
+        mask(
+            "Heavy Edge Wear",
+            vec![generator(GeneratorKind::Edges, 0.45, 0.15, 0.6, false)],
+        ),
+        mask(
+            "Soft Cavity Dirt",
+            vec![generator(GeneratorKind::Cavity, 0.4, 0.45, 0.25, false)],
+        ),
+        mask(
+            "Rising Damp",
+            vec![generator(
+                GeneratorKind::PositionGradient,
+                0.18,
+                0.2,
+                0.6,
+                true,
+            )],
+        ),
+        mask(
+            "Cloudy Variation",
+            vec![procedural_mask(ProceduralKind::Clouds, 4.0, 0.2)],
+        ),
     ]
     .into_iter()
     .chain(crate::smart_more::smart_masks())
@@ -273,5 +462,13 @@ pub fn smart_masks() -> Vec<SmartMask> {
 }
 
 fn procedural_mask(kind: ProceduralKind, scale: f32, contrast: f32) -> MaskEffectKind {
-    MaskEffectKind::Fill { value: 1.0, procedural: Some(ProceduralParams { scale, contrast, ..ProceduralParams::new(kind) }), projection: triplanar(2.0) }
+    MaskEffectKind::Fill {
+        value: 1.0,
+        procedural: Some(ProceduralParams {
+            scale,
+            contrast,
+            ..ProceduralParams::new(kind)
+        }),
+        projection: triplanar(2.0),
+    }
 }

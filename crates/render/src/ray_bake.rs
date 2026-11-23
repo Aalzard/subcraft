@@ -14,7 +14,10 @@ use bytemuck::{Pod, Zeroable};
 use egui_wgpu::wgpu;
 use rayon::prelude::*;
 use subcraft_mesh::Bvh;
-use subcraft_mesh::ray_batch::{BatchControl, CurvatureSurface, CurvatureTexel, NO_GROUP, RayBatchBackend, RayBatchError, RayMode, RayTexel};
+use subcraft_mesh::ray_batch::{
+    BatchControl, CurvatureSurface, CurvatureTexel, NO_GROUP, RayBatchBackend, RayBatchError,
+    RayMode, RayTexel,
+};
 
 /// Texels uploaded per chunk (48 bytes each).
 const CHUNK: usize = 1 << 16;
@@ -100,19 +103,36 @@ impl GpuRayBaker {
         let storage = |binding, read_only| wgpu::BindGroupLayoutEntry {
             binding,
             visibility: wgpu::ShaderStages::COMPUTE,
-            ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Storage { read_only }, has_dynamic_offset: false, min_binding_size: None },
+            ty: wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Storage { read_only },
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
             count: None,
         };
         let uniform = wgpu::BindGroupLayoutEntry {
             binding: 4,
             visibility: wgpu::ShaderStages::COMPUTE,
-            ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: None },
+            ty: wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Uniform,
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
             count: None,
         };
         let make = |label: &str, module: &wgpu::ShaderModule, extra: usize| {
-            let mut entries = vec![storage(0, true), storage(1, true), storage(2, true), storage(3, false), uniform];
+            let mut entries = vec![
+                storage(0, true),
+                storage(1, true),
+                storage(2, true),
+                storage(3, false),
+                uniform,
+            ];
             entries.extend((0..extra).map(|i| storage(5 + i as u32, true)));
-            let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { label: Some(label), entries: &entries });
+            let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some(label),
+                entries: &entries,
+            });
             let pl = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some(label),
                 bind_group_layouts: &[Some(&layout)],
@@ -130,18 +150,33 @@ impl GpuRayBaker {
         };
         let rays = make("ray bake", &rays_module, 0);
         let curvature = make("curvature bake", &curvature_module, 2);
-        Self { device, queue, adapter_name: adapter.get_info().name, rays, curvature, busy: Mutex::new(()), lost: Arc::default() }
+        Self {
+            device,
+            queue,
+            adapter_name: adapter.get_info().name,
+            rays,
+            curvature,
+            busy: Mutex::new(()),
+            lost: Arc::default(),
+        }
     }
 
     fn buffer(&self, label: &str, size: u64, usage: wgpu::BufferUsages) -> wgpu::Buffer {
-        self.device.create_buffer(&wgpu::BufferDescriptor { label: Some(label), size, usage, mapped_at_creation: false })
+        self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some(label),
+            size,
+            usage,
+            mapped_at_creation: false,
+        })
     }
 
     /// `Err` (the baker then uses the CPU) once this device, or the window's device on the same
     /// adapter, is lost: a driver reset takes every device with it (issue #119).
     fn check_usable(&self) -> Result<(), RayBatchError> {
         if self.lost.load(Ordering::Relaxed) || crate::caps::device_lost().is_some() {
-            return Err(RayBatchError::Unsupported("the graphics device is lost".into()));
+            return Err(RayBatchError::Unsupported(
+                "the graphics device is lost".into(),
+            ));
         }
         Ok(())
     }
@@ -158,13 +193,21 @@ impl GpuRayBaker {
         let limits = self.device.limits();
         let max = (limits.max_storage_buffer_binding_size as u64).min(limits.max_buffer_size);
         if bytes > max {
-            return Err(RayBatchError::Unsupported(format!("{what} needs {} MB of GPU buffer, this GPU allows {} MB per buffer", bytes >> 20, max >> 20)));
+            return Err(RayBatchError::Unsupported(format!(
+                "{what} needs {} MB of GPU buffer, this GPU allows {} MB per buffer",
+                bytes >> 20,
+                max >> 20
+            )));
         }
         Ok(())
     }
 
     fn storage_buffer(&self, label: &str, data: &[u8]) -> wgpu::Buffer {
-        let buf = self.buffer(label, (data.len() as u64).max(16), wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST);
+        let buf = self.buffer(
+            label,
+            (data.len() as u64).max(16),
+            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        );
         self.queue.write_buffer(&buf, 0, data);
         buf
     }
@@ -177,18 +220,57 @@ impl GpuRayBaker {
         let storage = wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST;
         let chunk = CHUNK.min(job.count);
         let texel_buf = self.buffer("bake texels", (chunk * 48) as u64, storage);
-        let accum_buf = self.buffer("bake accum", (chunk * 8) as u64, storage | wgpu::BufferUsages::COPY_SRC);
-        let read_buf = self.buffer("bake readback", (chunk * 8) as u64, wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ);
-        let param_buf = self.buffer("bake params", std::mem::size_of::<Params>() as u64, wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST);
+        let accum_buf = self.buffer(
+            "bake accum",
+            (chunk * 8) as u64,
+            storage | wgpu::BufferUsages::COPY_SRC,
+        );
+        let read_buf = self.buffer(
+            "bake readback",
+            (chunk * 8) as u64,
+            wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        );
+        let param_buf = self.buffer(
+            "bake params",
+            std::mem::size_of::<Params>() as u64,
+            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        );
         let mut entries = vec![
-            wgpu::BindGroupEntry { binding: 0, resource: job.nodes.as_entire_binding() },
-            wgpu::BindGroupEntry { binding: 1, resource: job.tris.as_entire_binding() },
-            wgpu::BindGroupEntry { binding: 2, resource: texel_buf.as_entire_binding() },
-            wgpu::BindGroupEntry { binding: 3, resource: accum_buf.as_entire_binding() },
-            wgpu::BindGroupEntry { binding: 4, resource: param_buf.as_entire_binding() },
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: job.nodes.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: job.tris.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: texel_buf.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 3,
+                resource: accum_buf.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 4,
+                resource: param_buf.as_entire_binding(),
+            },
         ];
-        entries.extend(job.extra.iter().enumerate().map(|(i, b)| wgpu::BindGroupEntry { binding: 5 + i as u32, resource: b.as_entire_binding() }));
-        let group = self.device.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("bake"), layout: &job.pass.layout, entries: &entries });
+        entries.extend(
+            job.extra
+                .iter()
+                .enumerate()
+                .map(|(i, b)| wgpu::BindGroupEntry {
+                    binding: 5 + i as u32,
+                    resource: b.as_entire_binding(),
+                }),
+        );
+        let group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("bake"),
+            layout: &job.pass.layout,
+            entries: &entries,
+        });
 
         let run_started = Instant::now();
         let (mut prep_time, mut gpu_time, mut passes) = (Duration::ZERO, Duration::ZERO, 0u32);
@@ -203,8 +285,12 @@ impl GpuRayBaker {
             let first = ci * chunk;
             let part_len = chunk.min(job.count - first);
             let prep = Instant::now();
-            (first..first + part_len).into_par_iter().map(job.record).collect_into_vec(&mut records);
-            self.queue.write_buffer(&texel_buf, 0, bytemuck::cast_slice(&records));
+            (first..first + part_len)
+                .into_par_iter()
+                .map(job.record)
+                .collect_into_vec(&mut records);
+            self.queue
+                .write_buffer(&texel_buf, 0, bytemuck::cast_slice(&records));
             let mut enc = self.device.create_command_encoder(&Default::default());
             enc.clear_buffer(&accum_buf, 0, None);
             self.queue.submit([enc.finish()]);
@@ -225,7 +311,11 @@ impl GpuRayBaker {
                     Units::Texels => end - done,
                 };
                 let groups = threads.div_ceil(64);
-                let (gx, gy) = if groups <= max_groups { (groups, 1) } else { (max_groups, groups.div_ceil(max_groups)) };
+                let (gx, gy) = if groups <= max_groups {
+                    (groups, 1)
+                } else {
+                    (max_groups, groups.div_ceil(max_groups))
+                };
                 let params = Params {
                     mode: job.mode,
                     ray_start: done,
@@ -236,7 +326,8 @@ impl GpuRayBaker {
                     node_count: 0,
                     pad: 0,
                 };
-                self.queue.write_buffer(&param_buf, 0, bytemuck::bytes_of(&params));
+                self.queue
+                    .write_buffer(&param_buf, 0, bytemuck::bytes_of(&params));
                 let mut enc = self.device.create_command_encoder(&Default::default());
                 {
                     let mut pass = enc.begin_compute_pass(&Default::default());
@@ -256,7 +347,11 @@ impl GpuRayBaker {
                 // Next pass: scale toward the target time (at most 4x growth; shrink at once).
                 let per_unit = took.as_secs_f64().max(1e-5) / n as f64;
                 let fit = (TARGET_PASS.as_secs_f64() / per_unit).min(u32::MAX as f64) as u32;
-                per_pass = if took > MAX_PASS { fit.max(1) } else { fit.clamp(1, n.saturating_mul(4).max(1)) };
+                per_pass = if took > MAX_PASS {
+                    fit.max(1)
+                } else {
+                    fit.clamp(1, n.saturating_mul(4).max(1))
+                };
                 let frac = first as f32 + part_len as f32 * done as f32 / total_units as f32;
                 control.progress(frac / job.count as f32);
             }
@@ -267,10 +362,16 @@ impl GpuRayBaker {
             let slice = read_buf.slice(..(part_len * 8) as u64);
             // A failed map (device lost, driver reset) must not panic: `get_mapped_range` below then
             // errors and the bake falls back to the CPU (issue #119).
-            slice.map_async(wgpu::MapMode::Read, |r| if let Err(e) = r { log::warn!("GPU bake readback failed: {e}") });
+            slice.map_async(wgpu::MapMode::Read, |r| {
+                if let Err(e) = r {
+                    log::warn!("GPU bake readback failed: {e}")
+                }
+            });
             self.wait()?;
             {
-                let data = slice.get_mapped_range().map_err(|e| RayBatchError::Unsupported(format!("GPU readback failed: {e}")))?;
+                let data = slice
+                    .get_mapped_range()
+                    .map_err(|e| RayBatchError::Unsupported(format!("GPU readback failed: {e}")))?;
                 let acc: &[[f32; 2]] = bytemuck::cast_slice(&data);
                 out.extend(acc.iter().map(|a| (job.finish)(*a)));
             }
@@ -287,11 +388,16 @@ impl GpuRayBaker {
     }
 
     /// Upload the tree. `Err` when it does not fit the device or is too deep for the shader stack.
-    fn upload_bvh(&self, bvh: &Bvh) -> Result<(wgpu::Buffer, wgpu::Buffer, Vec<u32>), RayBatchError> {
+    fn upload_bvh(
+        &self,
+        bvh: &Bvh,
+    ) -> Result<(wgpu::Buffer, wgpu::Buffer, Vec<u32>), RayBatchError> {
         self.check_usable()?;
         let flat = bvh.flatten();
         if tree_depth(&flat.nodes) + 2 >= STACK_DEPTH {
-            return Err(RayBatchError::Unsupported("BVH is too deep for the GPU traversal stack".into()));
+            return Err(RayBatchError::Unsupported(
+                "BVH is too deep for the GPU traversal stack".into(),
+            ));
         }
         self.check_size("the BVH nodes", (flat.nodes.len() * 32) as u64)?;
         self.check_size("the BVH triangles", (flat.tris.len() * 48) as u64)?;
@@ -322,7 +428,13 @@ impl RayBatchBackend for GpuRayBaker {
     }
 
     fn run(
-        &self, bvh: &Bvh, count: usize, texel: &(dyn Fn(usize) -> RayTexel + Sync), rays: u32, mode: RayMode, control: &dyn BatchControl,
+        &self,
+        bvh: &Bvh,
+        count: usize,
+        texel: &(dyn Fn(usize) -> RayTexel + Sync),
+        rays: u32,
+        mode: RayMode,
+        control: &dyn BatchControl,
     ) -> Result<Vec<f32>, RayBatchError> {
         let rays = rays.max(1);
         let (mode_id, distance) = match mode {
@@ -341,22 +453,56 @@ impl RayBatchBackend for GpuRayBaker {
         let (nodes, tris, _) = self.upload_bvh(bvh)?;
         let record = |i: usize| {
             let t = texel(i);
-            [t.origin[0], t.origin[1], t.origin[2], t.rotation, t.axis[0], t.axis[1], t.axis[2], 0.0, t.offset[0], t.offset[1], t.offset[2], 0.0]
+            [
+                t.origin[0],
+                t.origin[1],
+                t.origin[2],
+                t.rotation,
+                t.axis[0],
+                t.axis[1],
+                t.axis[2],
+                0.0,
+                t.offset[0],
+                t.offset[1],
+                t.offset[2],
+                0.0,
+            ]
         };
         let finish = |acc: [f32; 2]| match mode {
             RayMode::Occlusion { .. } => {
-                if acc[1] <= 0.0 { 1.0 } else { 1.0 - acc[0] / acc[1] }
+                if acc[1] <= 0.0 {
+                    1.0
+                } else {
+                    1.0 - acc[0] / acc[1]
+                }
             }
             RayMode::MeanDistance { max } => 1.0 - acc[0] / rays as f32 / max,
         };
         self.drive(
-            &Job { pass: &self.rays, nodes: &nodes, tris: &tris, extra: vec![], count, record: &record, units: Units::Rays(rays), mode: mode_id, distance, finish: &finish },
+            &Job {
+                pass: &self.rays,
+                nodes: &nodes,
+                tris: &tris,
+                extra: vec![],
+                count,
+                record: &record,
+                units: Units::Rays(rays),
+                mode: mode_id,
+                distance,
+                finish: &finish,
+            },
             control,
         )
     }
 
     fn curvature(
-        &self, bvh: &Bvh, surface: CurvatureSurface, count: usize, texel: &(dyn Fn(usize) -> CurvatureTexel + Sync), radius: f32, control: &dyn BatchControl,
+        &self,
+        bvh: &Bvh,
+        surface: CurvatureSurface,
+        count: usize,
+        texel: &(dyn Fn(usize) -> CurvatureTexel + Sync),
+        radius: f32,
+        control: &dyn BatchControl,
     ) -> Result<Vec<f32>, RayBatchError> {
         if bvh.is_empty() || count == 0 {
             return Ok(vec![0.5; count]);
@@ -364,15 +510,38 @@ impl RayBatchBackend for GpuRayBaker {
         let _guard = self.busy.lock().unwrap_or_else(|p| p.into_inner());
         let (nodes, tris, tri_ids) = self.upload_bvh(bvh)?;
         // Per-triangle data in leaf order, like the triangles.
-        let normals: Vec<[f32; 12]> = tri_ids.iter().map(|&t| surface.tri_normals[t as usize]).collect();
-        let groups: Vec<u32> = tri_ids.iter().map(|&t| surface.tri_group[t as usize]).collect();
+        let normals: Vec<[f32; 12]> = tri_ids
+            .iter()
+            .map(|&t| surface.tri_normals[t as usize])
+            .collect();
+        let groups: Vec<u32> = tri_ids
+            .iter()
+            .map(|&t| surface.tri_group[t as usize])
+            .collect();
         self.check_size("the triangle normals", (normals.len() * 48) as u64)?;
         let normal_buf = self.storage_buffer("triangle normals", bytemuck::cast_slice(&normals));
         let group_buf = self.storage_buffer("triangle groups", bytemuck::cast_slice(&groups));
         drop((normals, groups));
         let record = |i: usize| {
             let t = texel(i);
-            [t.position[0], t.position[1], t.position[2], if t.group == NO_GROUP { -1.0 } else { t.group as f32 }, t.normal[0], t.normal[1], t.normal[2], 0.0, 0.0, 0.0, 0.0, 0.0]
+            [
+                t.position[0],
+                t.position[1],
+                t.position[2],
+                if t.group == NO_GROUP {
+                    -1.0
+                } else {
+                    t.group as f32
+                },
+                t.normal[0],
+                t.normal[1],
+                t.normal[2],
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+            ]
         };
         let finish = |acc: [f32; 2]| acc[0];
         self.drive(

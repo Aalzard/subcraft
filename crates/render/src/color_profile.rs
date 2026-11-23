@@ -19,7 +19,16 @@ pub fn lut_cube_size(width: u32, height: u32) -> Option<u32> {
 /// `ociolutimage --generate` writes it.
 pub fn identity_lut(n: u32) -> Vec<[f32; 4]> {
     let c = 1.0 / (n.max(2) - 1) as f32;
-    (0..n * n * n).map(|i| [(i % n) as f32 * c, ((i / n) % n) as f32 * c, ((i / n / n) % n) as f32 * c, 1.0]).collect()
+    (0..n * n * n)
+        .map(|i| {
+            [
+                (i % n) as f32 * c,
+                ((i / n) % n) as f32 * c,
+                ((i / n / n) % n) as f32 * c,
+                1.0,
+            ]
+        })
+        .collect()
 }
 
 /// CPU reference of the shader: `rgb` (0..1) through the cube `lut` (entries in the
@@ -30,8 +39,19 @@ pub fn lut_lookup(lut: &[[f32; 4]], n: u32, rgb: [f32; 3]) -> [f32; 3] {
     let pos = rgb.map(|v| v.clamp(0.0, 1.0) * (n - 1) as f32);
     let i0 = pos.map(|p| p.floor() as usize);
     let i1 = i0.map(|i| (i + 1).min(n - 1));
-    let f = [pos[0] - i0[0] as f32, pos[1] - i0[1] as f32, pos[2] - i0[2] as f32];
-    let mix = |a: [f32; 4], b: [f32; 4], t: f32| [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t, 1.0];
+    let f = [
+        pos[0] - i0[0] as f32,
+        pos[1] - i0[1] as f32,
+        pos[2] - i0[2] as f32,
+    ];
+    let mix = |a: [f32; 4], b: [f32; 4], t: f32| {
+        [
+            a[0] + (b[0] - a[0]) * t,
+            a[1] + (b[1] - a[1]) * t,
+            a[2] + (b[2] - a[2]) * t,
+            1.0,
+        ]
+    };
     let c00 = mix(at(i0[0], i0[1], i0[2]), at(i1[0], i0[1], i0[2]), f[0]);
     let c10 = mix(at(i0[0], i1[1], i0[2]), at(i1[0], i1[1], i0[2]), f[0]);
     let c01 = mix(at(i0[0], i0[1], i1[2]), at(i1[0], i0[1], i1[2]), f[0]);
@@ -66,7 +86,11 @@ impl ColorProfile {
         let tex = |binding| wgpu::BindGroupLayoutEntry {
             binding,
             visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Float { filterable: false }, view_dimension: wgpu::TextureViewDimension::D2, multisampled: false },
+            ty: wgpu::BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                view_dimension: wgpu::TextureViewDimension::D2,
+                multisampled: false,
+            },
             count: None,
         };
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -75,18 +99,31 @@ impl ColorProfile {
                 wgpu::BindGroupLayoutEntry {
                     binding: 0,
                     visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: None },
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
                     count: None,
                 },
                 tex(1),
                 tex(2),
             ],
         });
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some("color profile pipeline layout"), bind_group_layouts: &[Some(&layout)], immediate_size: 0 });
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("color profile pipeline layout"),
+            bind_group_layouts: &[Some(&layout)],
+            immediate_size: 0,
+        });
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("color profile"),
             layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState { module: &shader, entry_point: Some("vs_full"), compilation_options: Default::default(), buffers: &[] },
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_full"),
+                compilation_options: Default::default(),
+                buffers: &[],
+            },
             primitive: Default::default(),
             depth_stencil: None,
             multisample: Default::default(),
@@ -94,20 +131,41 @@ impl ColorProfile {
                 module: &shader,
                 entry_point: Some("fs_profile"),
                 compilation_options: Default::default(),
-                targets: &[Some(wgpu::ColorTargetState { format: crate::target::OUTPUT_FORMAT, blend: None, write_mask: wgpu::ColorWrites::ALL })],
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: crate::target::OUTPUT_FORMAT,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
             }),
             multiview_mask: None,
             cache: None,
         });
-        let uniform = device.create_buffer(&wgpu::BufferDescriptor { label: Some("color profile params"), size: 16, usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false });
-        let empty = Self::lut_texture(device, 1, 1, "color lut (none)").create_view(&wgpu::TextureViewDescriptor::default());
-        Self { layout, pipeline, uniform, lut: None, empty, scratch: None }
+        let uniform = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("color profile params"),
+            size: 16,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let empty = Self::lut_texture(device, 1, 1, "color lut (none)")
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        Self {
+            layout,
+            pipeline,
+            uniform,
+            lut: None,
+            empty,
+            scratch: None,
+        }
     }
 
     fn lut_texture(device: &wgpu::Device, width: u32, height: u32, label: &str) -> wgpu::Texture {
         device.create_texture(&wgpu::TextureDescriptor {
             label: Some(label),
-            size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -119,7 +177,12 @@ impl ColorProfile {
 
     /// Load a LUT image (`width x height` RGBA entries) or clear it. `Err` when the image does not
     /// hold a whole cube or is larger than the GPU allows.
-    pub(crate) fn set_lut(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, lut: Option<(&[[f32; 4]], u32, u32)>) -> Result<(), String> {
+    pub(crate) fn set_lut(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        lut: Option<(&[[f32; 4]], u32, u32)>,
+    ) -> Result<(), String> {
         let Some((pixels, width, height)) = lut else {
             self.lut = None;
             return Ok(());
@@ -127,7 +190,9 @@ impl ColorProfile {
         let size = lut_cube_size(width, height).ok_or_else(|| format!("a {width} x {height} image is not a 3D LUT (width x height must be a cube, such as 2048 x 128)"))?;
         let max = device.limits().max_texture_dimension_2d;
         if width > max || height > max {
-            return Err(format!("a {width} x {height} LUT is larger than this graphics card allows ({max})"));
+            return Err(format!(
+                "a {width} x {height} LUT is larger than this graphics card allows ({max})"
+            ));
         }
         if pixels.len() != (width * height) as usize {
             return Err("the LUT image data does not match its size".into());
@@ -136,10 +201,22 @@ impl ColorProfile {
         queue.write_texture(
             texture.as_image_copy(),
             bytemuck::cast_slice(pixels),
-            wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(width * 16), rows_per_image: Some(height) },
-            wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(width * 16),
+                rows_per_image: Some(height),
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
         );
-        self.lut = Some(Lut { size, width, view: texture.create_view(&wgpu::TextureViewDescriptor::default()) });
+        self.lut = Some(Lut {
+            size,
+            width,
+            view: texture.create_view(&wgpu::TextureViewDescriptor::default()),
+        });
         Ok(())
     }
 
@@ -149,11 +226,21 @@ impl ColorProfile {
     }
 
     /// Apply the profile to `target`'s finished image, in place.
-    pub(crate) fn encode(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, encoder: &mut wgpu::CommandEncoder, target: &crate::target::RenderTarget) {
+    pub(crate) fn encode(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        encoder: &mut wgpu::CommandEncoder,
+        target: &crate::target::RenderTarget,
+    ) {
         if self.scratch.as_ref().is_none_or(|s| s.0 != target.size) {
             let texture = device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("color profile source"),
-                size: wgpu::Extent3d { width: target.size[0], height: target.size[1], depth_or_array_layers: 1 },
+                size: wgpu::Extent3d {
+                    width: target.size[0],
+                    height: target.size[1],
+                    depth_or_array_layers: 1,
+                },
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
@@ -168,20 +255,37 @@ impl ColorProfile {
         encoder.copy_texture_to_texture(
             target.output.as_image_copy(),
             scratch.as_image_copy(),
-            wgpu::Extent3d { width: target.size[0], height: target.size[1], depth_or_array_layers: 1 },
+            wgpu::Extent3d {
+                width: target.size[0],
+                height: target.size[1],
+                depth_or_array_layers: 1,
+            },
         );
         let (size, width, lut_view) = match &self.lut {
             Some(l) => (l.size as i32, l.width as i32, &l.view),
             None => (0, 1, &self.empty),
         };
-        queue.write_buffer(&self.uniform, 0, bytemuck::cast_slice(&[size, width, 0i32, 0]));
+        queue.write_buffer(
+            &self.uniform,
+            0,
+            bytemuck::cast_slice(&[size, width, 0i32, 0]),
+        );
         let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("color profile"),
             layout: &self.layout,
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: self.uniform.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(scratch_view) },
-                wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::TextureView(lut_view) },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: self.uniform.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(scratch_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(lut_view),
+                },
             ],
         });
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -190,7 +294,10 @@ impl ColorProfile {
                 view: &target.output_view,
                 depth_slice: None,
                 resolve_target: None,
-                ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::BLACK), store: wgpu::StoreOp::Store },
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                    store: wgpu::StoreOp::Store,
+                },
             })],
             depth_stencil_attachment: None,
             timestamp_writes: None,
@@ -225,14 +332,30 @@ mod tests {
         // The ociolutimage order: red fastest.
         assert_eq!(id[1], [1.0 / 16.0, 0.0, 0.0, 1.0]);
         assert_eq!(id[n as usize], [0.0, 1.0 / 16.0, 0.0, 1.0]);
-        for rgb in [[0.0, 0.0, 0.0], [1.0, 1.0, 1.0], [0.3, 0.71, 0.05], [0.5, 0.25, 0.9]] {
+        for rgb in [
+            [0.0, 0.0, 0.0],
+            [1.0, 1.0, 1.0],
+            [0.3, 0.71, 0.05],
+            [0.5, 0.25, 0.9],
+        ] {
             let out = lut_lookup(&id, n, rgb);
-            assert!(out.iter().zip(rgb).all(|(a, b)| (a - b).abs() < 1e-5), "{rgb:?} -> {out:?}");
+            assert!(
+                out.iter().zip(rgb).all(|(a, b)| (a - b).abs() < 1e-5),
+                "{rgb:?} -> {out:?}"
+            );
         }
         // An inverting cube inverts, between its entries too.
-        let inv: Vec<[f32; 4]> = id.iter().map(|c| [1.0 - c[0], 1.0 - c[1], 1.0 - c[2], 1.0]).collect();
+        let inv: Vec<[f32; 4]> = id
+            .iter()
+            .map(|c| [1.0 - c[0], 1.0 - c[1], 1.0 - c[2], 1.0])
+            .collect();
         let out = lut_lookup(&inv, n, [0.33, 0.6, 0.12]);
-        assert!((out[0] - 0.67).abs() < 1e-5 && (out[1] - 0.4).abs() < 1e-5 && (out[2] - 0.88).abs() < 1e-5, "{out:?}");
+        assert!(
+            (out[0] - 0.67).abs() < 1e-5
+                && (out[1] - 0.4).abs() < 1e-5
+                && (out[2] - 0.88).abs() < 1e-5,
+            "{out:?}"
+        );
         // Out of range input is clamped to the cube.
         assert_eq!(lut_lookup(&id, n, [-1.0, 2.0, 0.5]), [0.0, 1.0, 0.5]);
     }

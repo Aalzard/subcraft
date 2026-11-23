@@ -1,4 +1,4 @@
-﻿//! Optional GPU capabilities, probed once from the adapter at start-up so features can degrade
+//! Optional GPU capabilities, probed once from the adapter at start-up so features can degrade
 //! with a reason instead of failing a pipeline / texture creation (which would be a validation
 //! error on the device). Headless tools and tests never set it, which means "assume everything".
 use egui_wgpu::wgpu;
@@ -26,8 +26,21 @@ pub struct GpuCaps {
 impl Default for GpuCaps {
     /// Everything available: used when no adapter was probed (tests, headless tools).
     fn default() -> Self {
-        Self { name: "unprobed".into(), backend: String::new(), driver: String::new(), device_type: String::new(), max_texture_2d: 16384, max_buffer_size: u64::MAX,
-            msaa4: true, compute: true, storage_textures_per_stage: 8, max_storage_buffer_binding: u64::MAX, rgba16f_filterable: true, rgba16f_renderable: true, anisotropy: true }
+        Self {
+            name: "unprobed".into(),
+            backend: String::new(),
+            driver: String::new(),
+            device_type: String::new(),
+            max_texture_2d: 16384,
+            max_buffer_size: u64::MAX,
+            msaa4: true,
+            compute: true,
+            storage_textures_per_stage: 8,
+            max_storage_buffer_binding: u64::MAX,
+            rgba16f_filterable: true,
+            rgba16f_renderable: true,
+            anisotropy: true,
+        }
     }
 }
 
@@ -35,19 +48,39 @@ impl GpuCaps {
     pub fn from_adapter(adapter: &wgpu::Adapter) -> Self {
         let info = adapter.get_info();
         let limits = adapter.limits();
-        let sample4 = |f: wgpu::TextureFormat| adapter.get_texture_format_features(f).flags.sample_count_supported(4);
+        let sample4 = |f: wgpu::TextureFormat| {
+            adapter
+                .get_texture_format_features(f)
+                .flags
+                .sample_count_supported(4)
+        };
         let f16 = adapter.get_texture_format_features(wgpu::TextureFormat::Rgba16Float);
         Self {
-            name: info.name.clone(), backend: format!("{:?}", info.backend), driver: format!("{} {}", info.driver, info.driver_info).trim().to_string(),
+            name: info.name.clone(),
+            backend: format!("{:?}", info.backend),
+            driver: format!("{} {}", info.driver, info.driver_info)
+                .trim()
+                .to_string(),
             device_type: format!("{:?}", info.device_type),
-            max_texture_2d: limits.max_texture_dimension_2d, max_buffer_size: limits.max_buffer_size,
+            max_texture_2d: limits.max_texture_dimension_2d,
+            max_buffer_size: limits.max_buffer_size,
             msaa4: sample4(crate::target::OUTPUT_FORMAT) && sample4(crate::target::DEPTH_FORMAT),
-            compute: adapter.get_downlevel_capabilities().flags.contains(wgpu::DownlevelFlags::COMPUTE_SHADERS),
+            compute: adapter
+                .get_downlevel_capabilities()
+                .flags
+                .contains(wgpu::DownlevelFlags::COMPUTE_SHADERS),
             storage_textures_per_stage: limits.max_storage_textures_per_shader_stage,
             max_storage_buffer_binding: limits.max_storage_buffer_binding_size,
-            rgba16f_filterable: f16.flags.contains(wgpu::TextureFormatFeatureFlags::FILTERABLE),
-            rgba16f_renderable: f16.allowed_usages.contains(wgpu::TextureUsages::RENDER_ATTACHMENT),
-            anisotropy: adapter.get_downlevel_capabilities().flags.contains(wgpu::DownlevelFlags::ANISOTROPIC_FILTERING),
+            rgba16f_filterable: f16
+                .flags
+                .contains(wgpu::TextureFormatFeatureFlags::FILTERABLE),
+            rgba16f_renderable: f16
+                .allowed_usages
+                .contains(wgpu::TextureUsages::RENDER_ATTACHMENT),
+            anisotropy: adapter
+                .get_downlevel_capabilities()
+                .flags
+                .contains(wgpu::DownlevelFlags::ANISOTROPIC_FILTERING),
         }
     }
 
@@ -58,43 +91,85 @@ impl GpuCaps {
 
     /// Why GPU path tracing / GPU baking cannot run, if they cannot.
     pub fn compute_problem(&self) -> Option<String> {
-        if !self.compute { return Some(format!("{} ({}) has no compute shader support; GPU path tracing, baking and compositing fall back to the CPU or are unavailable.", self.name, self.backend)); }
-        if self.storage_textures_per_stage < 3 { return Some(format!("{} allows only {} storage textures per shader stage (3 are needed); GPU features that need them are unavailable.", self.name, self.storage_textures_per_stage)); }
+        if !self.compute {
+            return Some(format!(
+                "{} ({}) has no compute shader support; GPU path tracing, baking and compositing fall back to the CPU or are unavailable.",
+                self.name, self.backend
+            ));
+        }
+        if self.storage_textures_per_stage < 3 {
+            return Some(format!(
+                "{} allows only {} storage textures per shader stage (3 are needed); GPU features that need them are unavailable.",
+                self.name, self.storage_textures_per_stage
+            ));
+        }
         None
     }
 
     /// Largest texture edge the viewport can hold, with a hint when it is small.
     pub fn texture_problem(&self, wanted: u32) -> Option<String> {
-        (self.max_texture_2d < wanted).then(|| format!("{} supports textures up to {0}px; {1}px previews are scaled down.", self.max_texture_2d, wanted))
+        (self.max_texture_2d < wanted).then(|| {
+            format!(
+                "{} supports textures up to {0}px; {1}px previews are scaled down.",
+                self.max_texture_2d, wanted
+            )
+        })
     }
 
     /// One block of text for diagnostics.
     pub fn report(&self) -> String {
-        format!("Adapter: {} ({}, {})\nDriver: {}\nMax texture: {}px, max buffer: {} MiB, storage textures/stage: {}\n4x MSAA: {}, compute: {}, RGBA16F filterable/renderable: {}/{}",
-            self.name, self.backend, self.device_type, self.driver, self.max_texture_2d, self.max_buffer_size / (1 << 20), self.storage_textures_per_stage,
-            self.msaa4, self.compute, self.rgba16f_filterable, self.rgba16f_renderable)
+        format!(
+            "Adapter: {} ({}, {})\nDriver: {}\nMax texture: {}px, max buffer: {} MiB, storage textures/stage: {}\n4x MSAA: {}, compute: {}, RGBA16F filterable/renderable: {}/{}",
+            self.name,
+            self.backend,
+            self.device_type,
+            self.driver,
+            self.max_texture_2d,
+            self.max_buffer_size / (1 << 20),
+            self.storage_textures_per_stage,
+            self.msaa4,
+            self.compute,
+            self.rgba16f_filterable,
+            self.rgba16f_renderable
+        )
     }
 }
 
 static CAPS: OnceLock<GpuCaps> = OnceLock::new();
 
 /// Record the capabilities of the adapter in use (first call wins).
-pub fn set(caps: GpuCaps) { let _ = CAPS.set(caps); }
+pub fn set(caps: GpuCaps) {
+    let _ = CAPS.set(caps);
+}
 /// The recorded capabilities, or "everything available" when none were recorded.
 pub fn get() -> GpuCaps {
     let mut c = CAPS.get().cloned().unwrap_or_default();
-    if SAFE.load(std::sync::atomic::Ordering::Relaxed) || LOW_MEMORY.load(std::sync::atomic::Ordering::Relaxed) { c.msaa4 = false; }
+    if SAFE.load(std::sync::atomic::Ordering::Relaxed)
+        || LOW_MEMORY.load(std::sync::atomic::Ordering::Relaxed)
+    {
+        c.msaa4 = false;
+    }
     c
 }
 static LOW_MEMORY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 /// Low video memory (see `pace::MemoryBudget`): no MSAA, smaller environment maps.
-pub fn set_low_memory(on: bool) { LOW_MEMORY.store(on, std::sync::atomic::Ordering::Relaxed); }
-pub fn low_memory() -> bool { LOW_MEMORY.load(std::sync::atomic::Ordering::Relaxed) }
+pub fn set_low_memory(on: bool) {
+    LOW_MEMORY.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+pub fn low_memory() -> bool {
+    LOW_MEMORY.load(std::sync::atomic::Ordering::Relaxed)
+}
 static SAFE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 /// Safe mode: no MSAA, no path tracing.
-pub fn set_safe_mode(on: bool) { SAFE.store(on, std::sync::atomic::Ordering::Relaxed); }
-pub fn safe_mode() -> bool { SAFE.load(std::sync::atomic::Ordering::Relaxed) }
-pub fn is_probed() -> bool { CAPS.get().is_some() }
+pub fn set_safe_mode(on: bool) {
+    SAFE.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+pub fn safe_mode() -> bool {
+    SAFE.load(std::sync::atomic::Ordering::Relaxed)
+}
+pub fn is_probed() -> bool {
+    CAPS.get().is_some()
+}
 
 // ---- device errors -------------------------------------------------------------------------
 
@@ -111,12 +186,20 @@ pub fn install_error_handlers(device: &wgpu::Device) {
         // A call that fails because the device is gone can reach this handler before (or
         // without) the device-lost callback; egui-wgpu panics right after such a failure, so the
         // loss has to be on record by then.
-        if is_loss_message(&text) { report_device_lost(&text); }
-        if let Ok(mut v) = ERRORS.lock() { if v.len() < 50 && !v.contains(&text) { v.push(text); } }
+        if is_loss_message(&text) {
+            report_device_lost(&text);
+        }
+        if let Ok(mut v) = ERRORS.lock() {
+            if v.len() < 50 && !v.contains(&text) {
+                v.push(text);
+            }
+        }
     }));
     device.set_device_lost_callback(|reason, message| {
         // Dropping the device at exit also ends here; that is not a failure.
-        if matches!(reason, wgpu::DeviceLostReason::Destroyed) { return; }
+        if matches!(reason, wgpu::DeviceLostReason::Destroyed) {
+            return;
+        }
         report_device_lost(&format!("{reason:?}: {message}"));
     });
 }
@@ -124,33 +207,68 @@ pub fn install_error_handlers(device: &wgpu::Device) {
 /// Record that the window's device is lost (first report wins) and tell the UI. From then on
 /// [`device_lost`] is set, the secondary devices stop submitting work, and the UI stops drawing.
 pub fn report_device_lost(text: &str) {
-    let first = LOST.lock().map(|mut l| { let first = l.is_none(); if first { *l = Some(text.to_string()); } first }).unwrap_or(true);
-    if !first { return; }
+    let first = LOST
+        .lock()
+        .map(|mut l| {
+            let first = l.is_none();
+            if first {
+                *l = Some(text.to_string());
+            }
+            first
+        })
+        .unwrap_or(true);
+    if !first {
+        return;
+    }
     log::error!("GPU device lost: {text}");
-    if let Some(hook) = LOST_HOOK.get() { hook(text); }
+    if let Some(hook) = LOST_HOOK.get() {
+        hook(text);
+    }
 }
 
 /// Whether an error text from wgpu or the driver means the device is gone (driver reset, GPU
 /// removed) rather than one failed call.
 pub fn is_loss_message(text: &str) -> bool {
     let t = text.to_ascii_lowercase();
-    ["device is lost", "device lost", "devicelost", "device removed", "device_removed", "device hung", "device_hung", "device reset", "device_reset", "0x887a0005", "0x887a0006", "0x887a0007"]
-        .iter().any(|needle| t.contains(needle))
+    [
+        "device is lost",
+        "device lost",
+        "devicelost",
+        "device removed",
+        "device_removed",
+        "device hung",
+        "device_hung",
+        "device reset",
+        "device_reset",
+        "0x887a0005",
+        "0x887a0006",
+        "0x887a0007",
+    ]
+    .iter()
+    .any(|needle| t.contains(needle))
 }
 /// For the extra devices (GPU compositing, GPU baking): wgpu's default reaction to an uncaptured
 /// error such as running out of video memory is a panic, which killed the compositor or bake
 /// worker. Errors are logged instead; the failed work then errors at readback and falls back to
 /// the processor. A lost worker device doesn't trigger the window's device-lost dialog.
 /// `lost` is set when the device is gone, so its owner stops submitting work on it.
-pub fn install_worker_error_handlers(device: &wgpu::Device, name: &'static str, lost: std::sync::Arc<std::sync::atomic::AtomicBool>) {
+pub fn install_worker_error_handlers(
+    device: &wgpu::Device,
+    name: &'static str,
+    lost: std::sync::Arc<std::sync::atomic::AtomicBool>,
+) {
     let flag = lost.clone();
     device.on_uncaptured_error(std::sync::Arc::new(move |e: wgpu::Error| {
         let text = e.to_string();
         log::error!("GPU error ({name}): {text}");
-        if is_loss_message(&text) { flag.store(true, std::sync::atomic::Ordering::Relaxed); }
+        if is_loss_message(&text) {
+            flag.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
     }));
     device.set_device_lost_callback(move |reason, message| {
-        if matches!(reason, wgpu::DeviceLostReason::Destroyed) { return; }
+        if matches!(reason, wgpu::DeviceLostReason::Destroyed) {
+            return;
+        }
         lost.store(true, std::sync::atomic::Ordering::Relaxed);
         log::warn!("GPU device lost ({name}): {reason:?}: {message}");
     });
@@ -158,11 +276,17 @@ pub fn install_worker_error_handlers(device: &wgpu::Device, name: &'static str, 
 static LOST_HOOK: OnceLock<fn(&str)> = OnceLock::new();
 /// Called once (on a wgpu thread, possibly in the middle of a frame) when the device is lost.
 /// The UI records it there and handles it at the start of its next frame, before drawing.
-pub fn set_device_lost_hook(hook: fn(&str)) { let _ = LOST_HOOK.set(hook); }
+pub fn set_device_lost_hook(hook: fn(&str)) {
+    let _ = LOST_HOOK.set(hook);
+}
 /// Set when the GPU device was lost (driver reset, GPU removed, TDR). Not recoverable in-process.
-pub fn device_lost() -> Option<String> { LOST.lock().ok().and_then(|l| l.clone()) }
+pub fn device_lost() -> Option<String> {
+    LOST.lock().ok().and_then(|l| l.clone())
+}
 /// Distinct uncaptured GPU errors seen so far (validation / out of memory), oldest first.
-pub fn recent_errors() -> Vec<String> { ERRORS.lock().map(|v| v.clone()).unwrap_or_default() }
+pub fn recent_errors() -> Vec<String> {
+    ERRORS.lock().map(|v| v.clone()).unwrap_or_default()
+}
 
 #[cfg(test)]
 mod tests {
@@ -172,20 +296,33 @@ mod tests {
         // The texts from issue #119's logs (wgpu, and the DX12 error in the user's language).
         assert!(is_loss_message("Unknown: Device is lost"));
         assert!(is_loss_message("Parent device is lost"));
-        assert!(is_loss_message("A instância de dispositivo GPU foi suspensa. Use GetDeviceRemovedReason para determinar a ação apropriada. (0x887A0005)"));
+        assert!(is_loss_message(
+            "A instância de dispositivo GPU foi suspensa. Use GetDeviceRemovedReason para determinar a ação apropriada. (0x887A0005)"
+        ));
         assert!(is_loss_message("DXGI_ERROR_DEVICE_HUNG"));
-        assert!(!is_loss_message("Validation Error: In Device::create_texture, dimension X is zero"));
+        assert!(!is_loss_message(
+            "Validation Error: In Device::create_texture, dimension X is zero"
+        ));
         assert!(!is_loss_message("Out of Memory"));
         assert!(!is_loss_message(""));
     }
 
     #[test]
     fn limited_adapter_reports_reasons() {
-        let c = GpuCaps { msaa4: false, compute: false, max_texture_2d: 2048, name: "Old GPU".into(), ..Default::default() };
+        let c = GpuCaps {
+            msaa4: false,
+            compute: false,
+            max_texture_2d: 2048,
+            name: "Old GPU".into(),
+            ..Default::default()
+        };
         assert!(c.msaa_problem().unwrap().contains("Old GPU"));
         assert!(c.compute_problem().unwrap().contains("compute"));
         assert!(c.texture_problem(4096).is_some() && c.texture_problem(1024).is_none());
-        assert!(GpuCaps::default().msaa_problem().is_none() && GpuCaps::default().compute_problem().is_none());
+        assert!(
+            GpuCaps::default().msaa_problem().is_none()
+                && GpuCaps::default().compute_problem().is_none()
+        );
         assert!(c.report().contains("Old GPU"));
     }
 }

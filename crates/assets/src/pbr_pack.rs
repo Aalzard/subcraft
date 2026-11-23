@@ -7,11 +7,11 @@
 use crate::presets::MaterialPreset;
 
 #[cfg(not(target_arch = "wasm32"))]
+use crate::presets::PresetImage;
+#[cfg(not(target_arch = "wasm32"))]
 use subcraft_core::{AssetId, ChannelKind};
 #[cfg(not(target_arch = "wasm32"))]
 use subcraft_doc::{Projection, ProjectionMode};
-#[cfg(not(target_arch = "wasm32"))]
-use crate::presets::PresetImage;
 
 /// Height maps cover the full 0..1 range: a gentle bump like the other image materials.
 #[cfg(not(target_arch = "wasm32"))]
@@ -24,7 +24,15 @@ macro_rules! map {
             channel: $channel,
             name: concat!($id, "_", $map, ".jpg"),
             strength: $strength,
-            bytes: include_bytes!(concat!("../../../assets/pbr-pack/materials/", $id, "/", $id, "_", $map, ".jpg")),
+            bytes: include_bytes!(concat!(
+                "../../../assets/pbr-pack/materials/",
+                $id,
+                "/",
+                $id,
+                "_",
+                $map,
+                ".jpg"
+            )),
         }
     };
 }
@@ -45,7 +53,12 @@ macro_rules! maps {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn material(name: &str, category: &'static str, images: Vec<PresetImage>, tiling: f32) -> MaterialPreset {
+fn material(
+    name: &str,
+    category: &'static str,
+    images: Vec<PresetImage>,
+    tiling: f32,
+) -> MaterialPreset {
     MaterialPreset {
         id: AssetId::from_name(&format!("material/pbr-pack/{name}")),
         name: name.into(),
@@ -53,7 +66,11 @@ fn material(name: &str, category: &'static str, images: Vec<PresetImage>, tiling
         channels: Vec::new(),
         images,
         // UV: tangent-space normal maps need the mesh's tangent frame.
-        projection: Projection { mode: ProjectionMode::Uv, scale: [tiling, tiling], ..Projection::default() },
+        projection: Projection {
+            mode: ProjectionMode::Uv,
+            scale: [tiling, tiling],
+            ..Projection::default()
+        },
     }
 }
 
@@ -74,7 +91,12 @@ pub fn materials() -> Vec<MaterialPreset> {
         material("Bamboo Flooring", "Wood", maps!("Bamboo_Flooring"), 2.0),
         material("Woven Linen", "Fabric", maps!("Woven_Linen"), 3.0),
         material("Worn Leather", "Fabric", maps!("Worn_Leather"), 3.0),
-        material("Industrial Rubber", "Plastic", maps!("Industrial_Rubber"), 2.0),
+        material(
+            "Industrial Rubber",
+            "Plastic",
+            maps!("Industrial_Rubber"),
+            2.0,
+        ),
         material("Brushed Aluminum", "Metal", maps!("Brushed_Aluminum"), 2.0),
         material("Oxidized Copper", "Metal", maps!("Oxidized_Copper"), 2.0),
         material("Galvanized Steel", "Metal", maps!("Galvanized_Steel"), 2.0),
