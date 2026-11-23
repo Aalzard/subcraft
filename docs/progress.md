@@ -6213,6 +6213,29 @@ re-measured on a GPU. Not taken from his patch: the `SUBCRAFT_REPAINT_LOG` diagn
   with the flag off.
 * Looked at: `material_sheet` renders of all 11 materials; the left/right mirror on the sphere is gone.
   Not run in the real app window.
+## Pen tilt and rotation (2026-11-23, branch `claude/project-thread-kj58iu`)
+
+* **Brush engine** (`paint::settings`): `PenPose { tilt: [x, y] degrees, rotation }` and five brush settings,
+  all off by default (old presets and brush files load unchanged): Angle follows tilt (the brush turns toward
+  the side the pen leans to), Angle follows pen rotation (barrel twist, Art Pen style), Tilt size (up to
+  `1 + tilt_size` times at full tilt), Tilt flow, Tilt flatten (roundness down to a quarter, like the side of a
+  pencil lead). Full tilt is 60 degrees. `Stroke::set_pen_pose` sets the pose for the following points; 3D,
+  2D (UV) strokes and the stamp spacing use it. A mouse has no pose, so nothing changes for it.
+* **Pen input:** `tablet::pen_pose()` returns the latest pose a backend reported in the last 250 ms.
+  Windows: `tablet/windows.rs` wraps the window procedure and reads `GetPointerPenInfo` (tilt X / Y,
+  rotation) on `WM_POINTERDOWN` / `WM_POINTERUPDATE` for pen pointers, then passes every message on to winit
+  unchanged. Linux Wayland: the tablet protocol's tilt and rotation events. X11 / XWayland: not read yet
+  (pressure only, as before). The 3D view sets the pose with the pressure on each stroke point.
+* **Presets:** Pencil (tilt widens and flattens it, angle follows tilt) and Charcoal use tilt.
+* **Panel:** Brush > Pen tilt section (two checkboxes, three sliders, reset by Ctrl+click like the others).
+* **Tests:** `paint/tests/pen_tilt.rs` (a mouse and an upright pen are unchanged by every setting; full tilt
+  with Tilt size 1 gives 3.4 to 4.6x the area, half tilt about 2.25x; Tilt flow 0.5 halves the peak; leaning
+  right / down flattens the footprint along that direction by more than 6:1 in spread; rotation 90 turns a
+  flat brush; pose math and old settings), `tablet` (rotation event, reported pose), a Brush panel test
+  driven with egui input (`pen_tilt_rows_edit_the_brush`). `cargo check -p subcraft-ui --target
+  x86_64-pc-windows-gnu` builds the Windows backend (with a compile-time check of the `POINTER_PEN_INFO` size).
+* **Not verified:** no pen here. Tilt on real Windows Ink / Wintab hardware and on Wayland needs a check by
+  hand; Wintab-only drivers that don't send `WM_POINTER` messages report no tilt.
 
 ## Procedural materials: make your own parameters (2026-11-23, branch `claude/project-thread-l9014a`)
 

@@ -45,6 +45,8 @@ pub struct Stroke {
     stamp_count: u32,
     /// Pen pressure for the stamps placed next (1 for a mouse).
     pressure: f32,
+    /// Pen tilt / rotation for the stamps placed next (`None` for a mouse).
+    pen_pose: Option<crate::settings::PenPose>,
     last_depth: Option<f32>,
     alpha: Option<Arc<subcraft_image::Bitmap>>,
     stencil: Option<Arc<crate::stencil::Stencil>>,
@@ -187,6 +189,7 @@ impl Stroke {
             path: ScreenPath::new(),
             stamp_count: 0,
             pressure: 1.0,
+            pen_pose: None,
             last_depth: None,
             alpha: None,
             stencil: None,
@@ -350,6 +353,12 @@ impl Stroke {
         self.pressure = pressure.clamp(0.0, 1.0);
     }
 
+    /// Pen tilt and rotation applied to the stamps of the following points (`None`: a mouse, or
+    /// a pen that reports neither).
+    pub fn set_pen_pose(&mut self, pose: Option<crate::settings::PenPose>) {
+        self.pen_pose = pose;
+    }
+
     /// Feed a cursor position; returns the tiles rewritten in `ts`.
     pub fn add_point(&mut self, ts: &mut TextureSet, ctx: &PaintContext, cursor: Vec2) -> Result<Vec<usize>, PaintError> {
         let mut samples = Vec::new();
@@ -439,13 +448,14 @@ impl Stroke {
         let upu = self.uv_per_unit.unwrap_or(0.0);
         let radius = if upu > 0.0 { radius_uv / upu } else { s.radius(ctx.mesh.bounds.diagonal()) };
         let [size_jitter, flow_jitter, angle_jitter, position_jitter] = s.jitters(self.pressure);
+        let pen = s.pen_effect(self.pen_pose);
         let mut stamps = Vec::with_capacity(samples.len());
         for sample in samples {
             let k = self.stamp_count;
             self.stamp_count += 1;
-            let scale = 1.0 - size_jitter * rand01(s.seed, k, 0);
-            let flow = s.flow.clamp(0.0, 1.0) * (1.0 - flow_jitter * rand01(s.seed, k, 1));
-            let mut angle = (s.angle_deg + angle_jitter * (2.0 * rand01(s.seed, k, 2) - 1.0)).to_radians();
+            let scale = (1.0 - size_jitter * rand01(s.seed, k, 0)) * pen.size;
+            let flow = s.flow.clamp(0.0, 1.0) * pen.flow * (1.0 - flow_jitter * rand01(s.seed, k, 1));
+            let mut angle = (s.angle_deg + angle_jitter * (2.0 * rand01(s.seed, k, 2) - 1.0)).to_radians() + pen.angle;
             if s.follow_path {
                 angle += sample.dir.y.atan2(sample.dir.x);
             }
@@ -467,7 +477,7 @@ impl Stroke {
                 radius_uv: radius_uv * scale,
                 flow,
                 angle,
-                roundness: s.roundness,
+                roundness: s.roundness * pen.roundness,
                 hardness: s.hardness,
                 tangent: Vec3::X,
                 bitangent: Vec3::Y,
@@ -534,7 +544,7 @@ impl Stroke {
     fn spacing_px(&mut self, ctx: &PaintContext) -> f32 {
         // The spacing follows the size the pen pressure gives the dabs: with the nominal size, a
         // light contact (a few percent of the diameter) left a dotted line. A mouse is factor 1.
-        let r = self.base_radius(ctx) * self.settings.pressure_size_factor(self.pressure);
+        let r = self.base_radius(ctx) * self.settings.pressure_size_factor(self.pressure) * self.settings.pen_effect(self.pen_pose).size;
         let diameter_px = 2.0 * r * ctx.camera.pixels_per_unit(self.depth_hint(ctx));
         (self.settings.spacing * diameter_px).max(0.5)
     }
@@ -556,14 +566,16 @@ impl Stroke {
         let base_radius = self.base_radius(ctx);
         let s = &self.settings;
         let [size_jitter, flow_jitter, angle_jitter, position_jitter] = s.jitters(self.pressure);
+        let pen = s.pen_effect(self.pen_pose);
+        let roundness = s.roundness * pen.roundness;
         let mut stamps = Vec::new();
         let mut stamp_k: Vec<u32> = Vec::new();
         for sample in samples {
             let k = self.stamp_count;
             self.stamp_count += 1;
-            let radius = base_radius * s.pressure_size_factor(self.pressure) * (1.0 - size_jitter * rand01(s.seed, k, 0));
-            let flow = s.flow.clamp(0.0, 1.0) * s.pressure_flow_factor(self.pressure) * (1.0 - flow_jitter * rand01(s.seed, k, 1));
-            let mut angle = (s.angle_deg + angle_jitter * (2.0 * rand01(s.seed, k, 2) - 1.0)).to_radians();
+            let radius = base_radius * s.pressure_size_factor(self.pressure) * pen.size * (1.0 - size_jitter * rand01(s.seed, k, 0));
+            let flow = s.flow.clamp(0.0, 1.0) * s.pressure_flow_factor(self.pressure) * pen.flow * (1.0 - flow_jitter * rand01(s.seed, k, 1));
+            let mut angle = (s.angle_deg + angle_jitter * (2.0 * rand01(s.seed, k, 2) - 1.0)).to_radians() + pen.angle;
             if s.follow_path {
                 angle += sample.dir.y.atan2(sample.dir.x);
             }
@@ -576,7 +588,7 @@ impl Stroke {
                 }
                 screen += s.alternate_shift(k, sample.dir) * r_px;
             }
-            let mut dabs = vec![Dab { screen, radius, flow, angle, roundness: s.roundness, hardness: s.hardness }];
+            let mut dabs = vec![Dab { screen, radius, flow, angle, roundness, hardness: s.hardness }];
             if s.scatter_count > 0 {
                 // Particles around the path point; each draws from its own random streams.
                 let diameter_px = 2.0 * radius * ctx.camera.pixels_per_unit(self.depth_hint(ctx));
@@ -591,7 +603,7 @@ impl Stroke {
                         radius: radius * (1.0 - s.scatter_size_random.clamp(0.0, 1.0) * rand01(s.seed, k, st + 3)),
                         flow: flow * (1.0 - s.scatter_opacity_random.clamp(0.0, 1.0) * rand01(s.seed, k, st + 4)),
                         angle: angle + (s.scatter_rotation_deg * (2.0 * rand01(s.seed, k, st + 5) - 1.0)).to_radians(),
-                        roundness: s.roundness,
+                        roundness,
                         hardness: s.hardness,
                     });
                 }

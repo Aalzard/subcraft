@@ -156,3 +156,20 @@ fn ctrl_reset_in_toolbar_popups_resets_without_a_dot_or_menu() {
     h.click(at, egui::Modifiers::NONE);
     assert!(h.s > 0.0, "a plain click still moves the slider, got {}", h.s);
 }
+
+/// The Brush panel's Pen tilt section: a click on its checkbox drives the brush setting, and
+/// Ctrl+click on a tilt slider puts it back to off.
+#[test]
+fn pen_tilt_rows_edit_the_brush() {
+    let mut h = brush_panel();
+    // Open with a tilt setting on, so the section starts expanded.
+    h.s.session.brush.settings.tilt_size = 1.5;
+    let mut h = Harness::new(h.s, crate::panels::brush::show);
+    let check = h.text_rect("Angle follows tilt").center();
+    h.click(check, egui::Modifiers::NONE);
+    assert!(h.s.session.brush.settings.tilt_angle, "the checkbox turns Angle follows tilt on");
+    assert!(h.dot_before("Tilt size"));
+    let rail = h.rail_under("Tilt size");
+    h.click(rail, CTRL);
+    assert_eq!(h.s.session.brush.settings.tilt_size, 0.0, "Ctrl+click resets Tilt size to off");
+}

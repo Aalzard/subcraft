@@ -130,6 +130,7 @@ impl State {
             E::Motion { x, y } => ToolEvent::Motion { x: x as f32, y: y as f32 },
             E::Pressure { pressure } => ToolEvent::Pressure(pressure as f32 / 65535.0),
             E::Tilt { tilt_x, tilt_y } => ToolEvent::Tilt { x: tilt_x as f32, y: tilt_y as f32 },
+            E::Rotation { degrees } => ToolEvent::Rotation(degrees as f32),
             E::Button { button, state, .. } => match stylus_button(button) {
                 Some(b) => ToolEvent::Button { button: b, pressed: state == WEnum::Value(zwp_tablet_tool_v2::ButtonState::Pressed) },
                 None => return,

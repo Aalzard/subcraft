@@ -25,6 +25,27 @@ use egui::{Event, Modifiers, PointerButton, Pos2, TouchDeviceId, TouchId, TouchP
 mod wayland;
 #[cfg(target_os = "linux")]
 mod x11;
+#[cfg(windows)]
+mod windows;
+
+/// The latest pen tilt / rotation a platform backend reported, and when.
+static PEN_POSE: Mutex<Option<(subcraft_paint::PenPose, std::time::Instant)>> = Mutex::new(None);
+
+/// How long a reported pose stays current: a pen in contact reports many times a second, so an
+/// older pose belongs to a pen that has left (a later mouse stroke must not use it).
+const POSE_LIFETIME: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// Record the pen's tilt and rotation (called by the backends from their event threads).
+pub fn report_pen_pose(pose: subcraft_paint::PenPose) {
+    *PEN_POSE.lock().unwrap_or_else(|e| e.into_inner()) = Some((pose, std::time::Instant::now()));
+}
+
+/// The pen's current tilt and rotation for brushes, `None` for a mouse, a pen that reports
+/// neither, or a pose older than [`POSE_LIFETIME`].
+pub fn pen_pose() -> Option<subcraft_paint::PenPose> {
+    let guard = PEN_POSE.lock().unwrap_or_else(|e| e.into_inner());
+    guard.filter(|(_, at)| at.elapsed() <= POSE_LIFETIME).map(|(p, _)| p)
+}
 
 /// Device id of the touch events this module produces. `pen_input::PenInputFixer` leaves them
 /// alone: the Wayland backend emits its own pointer events, and on X11 winit does.
@@ -72,8 +93,15 @@ impl Tablet {
                 Err(e) => log::info!(target: "subcraft::input", "native tablet input not available: {e}"),
             }
         }
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(windows)]
+        match windows::start(frame) {
+            Ok(()) => log::info!(target: "subcraft::input", "Windows pen tilt / rotation active"),
+            Err(e) => log::info!(target: "subcraft::input", "Windows pen tilt not available: {e}"),
+        }
+        #[cfg(not(any(target_os = "linux", windows)))]
         let _ = (frame, ctx);
+        #[cfg(windows)]
+        let _ = ctx;
     }
 
     /// Move the queued tablet events into this frame's input.
@@ -171,6 +199,8 @@ pub enum ToolEvent {
     Motion { x: f32, y: f32 },
     Pressure(f32),
     Tilt { x: f32, y: f32 },
+    /// Barrel rotation in degrees (clockwise).
+    Rotation(f32),
     Button { button: PointerButton, pressed: bool },
     Frame,
 }
@@ -206,19 +236,25 @@ pub struct ToolMapper {
     pos: Pos2,
     pressure: f32,
     tilt: [f32; 2],
+    rotation: Option<f32>,
     pending: Pending,
 }
 
 impl Default for ToolMapper {
     fn default() -> Self {
-        Self { on_window: false, down: false, pos: Pos2::ZERO, pressure: 1.0, tilt: [0.0; 2], pending: Pending::default() }
+        Self { on_window: false, down: false, pos: Pos2::ZERO, pressure: 1.0, tilt: [0.0; 2], rotation: None, pending: Pending::default() }
     }
 }
 
 impl ToolMapper {
-    /// Last tilt in degrees (x, y), for diagnostics; brushes don't use tilt yet.
+    /// Last tilt in degrees (x, y).
     pub fn tilt(&self) -> [f32; 2] {
         self.tilt
+    }
+
+    /// Tilt and rotation as a brush reads them.
+    pub fn pose(&self) -> subcraft_paint::PenPose {
+        subcraft_paint::PenPose { tilt: self.tilt, rotation: self.rotation }
     }
 
     pub fn handle(&mut self, event: ToolEvent, out: &mut Vec<Event>) {
@@ -239,7 +275,14 @@ impl ToolMapper {
                 self.pressure = v.clamp(0.0, 1.0);
                 p.pressure = true;
             }
-            ToolEvent::Tilt { x, y } => self.tilt = [x, y],
+            ToolEvent::Tilt { x, y } => {
+                self.tilt = [x, y];
+                report_pen_pose(self.pose());
+            }
+            ToolEvent::Rotation(degrees) => {
+                self.rotation = Some(degrees);
+                report_pen_pose(self.pose());
+            }
             ToolEvent::Button { button, pressed } => p.buttons.push((button, pressed)),
             ToolEvent::Frame => self.frame(out),
         }
@@ -472,6 +515,10 @@ mod tests {
         let mut m = ToolMapper::default();
         run(&mut m, &[ToolEvent::Tilt { x: 30.0, y: -10.0 }]);
         assert_eq!(m.tilt(), [30.0, -10.0]);
+        run(&mut m, &[ToolEvent::Rotation(45.0)]);
+        assert_eq!(m.pose(), subcraft_paint::PenPose { tilt: [30.0, -10.0], rotation: Some(45.0) });
+        // The brushes see the reported pose while it is fresh.
+        assert_eq!(pen_pose().map(|p| p.tilt), Some([30.0, -10.0]));
     }
 
     #[test]
