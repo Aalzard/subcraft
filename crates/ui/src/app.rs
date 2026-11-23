@@ -2144,7 +2144,8 @@ impl SubcraftApp {
             // Painter lists its JavaScript and Python plugins here.
             ui.menu_button(tr("Plugins"), |ui| {
                 ui.set_min_width(240.0);
-                ui.weak(tr("No plugins: SubCraft has no scripting API yet."));
+                let now = ui.input(|i| i.time);
+                crate::plugins::menu(&mut self.state, ui, now);
             });
             ui.menu_button(tr("Help"), |ui| {
                 ui.set_min_width(240.0);

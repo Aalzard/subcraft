@@ -11,7 +11,15 @@
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
+/// The Plugins menu's script engine (`subcraft_mcp::script`), handed to the ui crate.
+fn run_plugin(session: subcraft_app::Session, source: &str) -> (subcraft_app::Session, subcraft_ui::plugins::RunReport) {
+    let (session, outcome) = subcraft_mcp::script::run_on_session(session, source);
+    let report = subcraft_ui::plugins::RunReport { summary: outcome.summary(), ok: outcome.ok(), output: outcome.output };
+    (session, report)
+}
+
 fn main() {
+    subcraft_ui::plugins::set_runner(run_plugin);
     // Every failure ends in something visible: a packaged Windows build has no console.
     let outcome = std::panic::catch_unwind(run_app);
     match outcome {
