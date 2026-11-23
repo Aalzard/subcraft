@@ -1,55 +1,62 @@
 # Missing features compared with Substance 3D Painter
 
-Written 2026-10-22 from SubCraft 0.1.8's own limits (see `docs/progress.md`) and the Painter feature set
-as generally known. It is a planning list, not a promise. "Known" means we already recorded the gap.
+First written 2026-10-22. Checked again against the code on 2026-11-23: every item below was
+searched for in the source, and items that now exist moved to "Done since the first list". It is
+a planning list, not a promise.
 
-## Interop (the .spp goal)
-- Read Substance Painter `.spp` projects: mesh, baked maps, flattened per-channel images first;
-  editable layers only if the container turns out to allow it. Needs sample files (investigation not started).
-- Export `.spp`: not planned, unsupported and fragile.
-- Import `.sbsar` Substance materials / `.sbs` graphs (procedural inputs): not started.
+## Still missing
 
-## Painting
-- Tablet pressure / tilt mapping (not verified with a real tablet).
-- Per-stamp camera projection; Clone with rotate/scale and heal/seam blending (known).
-- Physics/"paint with dynamics", liquify. (Done in session 109: scatter/particle brush with fall, smudge-with-material.) Smart/decal brushes still missing.
-- Paint through UV-space projection tools, Fill with symmetric tri-planar per-island controls.
-- Stroke stabilizer: weighted-average smoothing + rope (lazy) + catch-up exist (session 109). Missing: post-smoothing, speed-adaptive smoothing, Shift-drag line lock/snapping, smoothing preset buttons. Paint-through-mask tool variants (partly there: stencils).
-- Anchor points / Bezier editing exists; no shape tools beyond polygon fill.
+### Interop
+- Export `.spp`: not planned (unsupported and fragile).
+- Editable `.sbsar` graphs: SubCraft reads what `.spp` / `.spsm` containers hold, but does not run
+  Substance graphs.
 
-## Layers, masks, filters
-- Anchor point system and layer links across texture sets; shared layer stacks across UDIM tiles (known).
-- Apply-smart-material-to-all-tiles command and 2D UDIM tile picker (known).
-- Layer instances / linked layers, adjustment layers beyond Levels/Filter folders, per-channel blend mixing.
-- More filters: Non-uniform blur, Slope blur, Color match (Gradient Map, Histogram Scan / Range, Median and Warp were added in session 108). Warp has no image-driven intensity map yet; Gradient Map has no gradient-driven (curve) editor or import from Substance gradients.
-- Generators: more bake-driven generators (Ambient Occlusion cavity variants, Thickness, World-space normal usage
-  in more presets), Dirt/curvature presets beyond the new five.
-- Smart material export/import compatibility with Substance `.spsm` / `.sbsar` (not started).
-- Built-in content is now 26 smart materials (13 were removed on remove-13-materials), 36 smart masks and 13 brush presets. Still missing: a real brick-course
-  pattern, smart masks that combine several effects with blend modes (a recipe is
-  one effect), fingerprint / fabric-weave / rivet patterns, and shelf tags beyond one category per smart asset.
+### Painting
+- Liquify / push brush that moves existing paint.
+- Heal (clone with seam-free blending into the target).
+- Shape tools beyond polygon fill and paths (rectangle, ellipse).
+- Stroke stabilizer extras: post-smoothing, speed-adaptive smoothing, smoothing preset buttons.
 
-## Baking
-- GPU baking for Bent normal, Height and the high-poly projection (AO, Thickness and Curvature run on the GPU since session 109; the rest and the UV rasterisation stay on the CPU), Ray-traced AO with multiple samples/denoise, Bent normal on production meshes (not verified),
-  Position/World normal from high poly with multiple UV sets, bake by mesh name / match "_high/_low", multiple high polys,
-  texture-set-wide baking queue with presets.
+### Layers and masks
+- Layer links across texture sets (one layer driving several sets).
+- 2D UDIM tile picker.
 
-## Viewport and rendering
-- Real path-traced / Iray-style rendering and render settings; motion blur, SSS, refraction,
-  anisotropy, clear coat and sheen layers in the viewport shader.
-- Environment: custom environment blur/rotation lock, background modes and lights (point/spot/area), shadows.
-- Turntable as GIF/MP4 (PNG frames only), scene camera bookmarks.
-- Displacement / tessellation preview (height shown as bump).
+### Baking
+- Bake setting presets (save a configuration and reuse it in other projects).
+- GPU path for Bent normal, Height and the high-poly projection (AO, Thickness and Curvature
+  already run on the GPU).
 
-## Materials and workflow
-- Texture-set settings parity: per-channel bit depth (16/32-bit), custom channel formats, channel packing UI beyond presets.
-- Export presets: Substance-compatible preset import, custom preset editor, bit depth/dilation per map, sbsar publish.
-- Resource shelf: online library, shelf "Share"/sync, tags beyond category, saved-search.
-- Plugins/scripting API: SubCraft has Rhai scripts over the MCP tool catalog (Plugins menu, `subcraft-mcp --script`); Painter has JS + Python.
-- Collaboration: version history beyond undo, project merge, auto-save versioning.
-- Multi-mesh scenes: several meshes in one project with per-mesh sets; mesh editing such as UV edits.
-- Mesh formats: USD, Alembic, FBX animation, point clouds (OBJ/glTF/FBX static meshes only).
+### Viewport and rendering (owned by the viewport thread)
+- Scene lights (point / spot / area).
 
-## Platform and distribution
-- Code-signed installers (needs an enrolled signing identity), macOS build, ARM builds.
-- Auto-update for Linux packages beyond executable replace; Flatpak/AppImage packaging.
+### Workflow
+- Version history beyond undo (saved versions you can browse and restore).
+- Mesh editing such as UV edits.
+- Point clouds, FBX animation.
+
+### Platform and distribution
+- Code-signed installers (needs an enrolled signing identity).
+- AppImage / Flatpak packaging.
+
+## Done since the first list
+- Read Painter `.spp` projects and `.spsm` smart materials.
+- Pen pressure and tilt, Physical Size brushes, particle (scatter) brushes, smudge with material.
+- Shift + click straight lines with 15 degree snapping, stroke stabilizer (average, rope, catch-up).
+- Clone and camera projection painting.
+- Copy and paste layers and effects between projects (the in-app clipboard outlives the open project).
+- Anchor points (content and mask anchors, references from fills, masks and generators).
+- Color / ID selection masks with tolerance and softness.
+- Fill projections: UV, tri-planar, planar, spherical, cylindrical.
+- Filters: Gradient Map (with editor), Histogram Scan, Median, Warp, MatFinish / MatFX, PBR Validate.
+  Slope blur, Non-uniform blur and Color match are being added by the material-filters work.
+- Per-channel format (8-bit, 16-bit, 16F, 32F).
+- Export presets: SubCraft presets library and import of Painter export presets.
+- Baking: several high polys, match by name (`_low` / `_high`), Thickness, Bent normal,
+  multi-sample AO with denoise.
+- Multiple UV sets per model.
+- Scripting: Rhai scripts over the tool catalog (Plugins menu, `subcraft-mcp --script`).
+- Live link to Unity, Unreal and Godot.
+- Mesh formats: OBJ, glTF, FBX, USD, Alembic.
+- Turntable as GIF, camera bookmarks, environment rotation and blur.
+- Shelf tags and saved searches; weave, rivet, brick and fingerprint content.
+- ARM and macOS builds through the release workflow.
