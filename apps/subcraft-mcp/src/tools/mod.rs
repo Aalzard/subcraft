@@ -130,7 +130,7 @@ fn with(mut base: Value, extra: Value) -> Value {
 pub fn definitions() -> Vec<Value> {
     let fill_spec = "Per channel (base_color, roughness, metallic, height (0 = neutral, positive raises, negative carves), normal, emissive, ambient_occlusion (1 = unoccluded), opacity, specular): a value \
 (number, '#rrggbb', or [r,g,b] in sRGB for color channels), false to switch the channel off, or an object \
-{value, enabled, strength, linear, procedural: {kind: clouds|cells|grunge|scratches|wood_rings|brushed|checker|gradient_u|gradient_v|dirt|cracks|streaks|speckles|pores|scratch, scale, seed, balance, contrast, invert, ...}, low, high, image: '<file path>', mesh_map: curvature|ambient_occlusion|...}. A procedural/mesh map blends from `low` (0) to `high` (1).";
+{value, enabled, strength, linear, procedural: {kind: clouds|cells|grunge|scratches|wood_rings|brushed|checker|gradient_u|gradient_v|dirt|cracks|streaks|speckles|pores|scratch|weave|twill|veins|planks, scale, seed, balance, contrast, invert, ...}, low, high, image: '<file path>', mesh_map: curvature|ambient_occlusion|...}. A procedural/mesh map blends from `low` (0) to `high` (1).";
     vec![
         // ----- project
         tool("status", "Server status", "Server version, whether a project is open, the rendering adapter and the shelf library location. Call first if unsure.", json!({}), &[], true),
@@ -232,7 +232,7 @@ pub fn definitions() -> Vec<Value> {
             json!({ "layer": { "type": "string", "description": LAYER }, "texture_set": { "type": "string" }, "color": { "type": "string", "enum": ["white", "black"] }, "smart_mask": { "type": "string", "description": "Smart mask name from shelf_list." } }), &["layer"], false),
         tool("mask_remove", "Remove mask", "Delete a layer's mask.", json!({ "layer": { "type": "string", "description": LAYER }, "texture_set": { "type": "string" } }), &["layer"], false),
         tool("mask_add_effect", "Add mask effect", "Add an effect on top of a layer's mask (a black mask is created when there is none). effect.type: \
-generator {kind: edges|cavity|concave|directional|position_gradient|{mesh_map: curvature}, level, softness, invert, noise_amount, direction:[x,y,z], axis: x|y|z, organic_breakup, edge_spread:{distance,variation}} (edges/cavity need bake_mesh_maps; position_gradient: 0 = bottom of the model along `axis`, default y, 1 = top; it selects above `level`, so invert: true with level 0.2-0.3 gives grime rising from the bottom; directional: selects faces whose normal points along `direction`, default up); \
+generator {kind: edges|fiber_glass|mask_builder|cavity|concave|directional|position_gradient|{mesh_map: curvature}, level, softness, invert, noise_amount, direction:[x,y,z], axis: x|y|z, organic_breakup, edge_spread:{distance,variation}} (edges/cavity need bake_mesh_maps; position_gradient: 0 = bottom of the model along `axis`, default y, 1 = top; it selects above `level`, so invert: true with level 0.2-0.3 gives grime rising from the bottom; directional: selects faces whose normal points along `direction`, default up); \
 fill {value 0..1, procedural:{kind,...}, projection}; levels {in_low,in_high,gamma,out_low,out_high}; \
 filter {kind, ...fields at the top level, see content_add_effect for every filter and its ranges}; invert; image {image: path, invert, projection}. \
 Check the result with render_texture {layer, mask: true}.",

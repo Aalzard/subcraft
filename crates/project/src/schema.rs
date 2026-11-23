@@ -156,6 +156,43 @@ pub struct LayerV1 {
     /// Schema 5. Bottom-to-top content effects; absent in older files (no effects).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub content_effects: Vec<ContentEffectV5>,
+    /// Procedural material controls (ADR-0047): absent = an ordinary layer. Additive and
+    /// optional: older readers ignore it and see the layers as the parameters last left them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub material: Option<MaterialV1>,
+}
+
+/// A layer's exposed parameters and bindings (ADR-0047). Each entry is the JSON form of
+/// `subcraft_doc::Param` / `subcraft_doc::Binding`, kept as loose values so one entry a newer
+/// version wrote (a property this version does not know) is skipped instead of failing the file.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct MaterialV1 {
+    #[serde(default)]
+    pub params: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub bindings: Vec<serde_json::Value>,
+}
+
+impl MaterialV1 {
+    pub fn from_doc(m: &subcraft_doc::MaterialControls) -> Self {
+        let values = |v: serde_json::Value| match v {
+            serde_json::Value::Array(a) => a,
+            _ => Vec::new(),
+        };
+        Self {
+            params: values(serde_json::to_value(&m.params).unwrap_or_default()),
+            bindings: values(serde_json::to_value(&m.bindings).unwrap_or_default()),
+        }
+    }
+
+    /// The controls, without the entries this version cannot read, made safe to use.
+    pub fn to_doc(&self) -> subcraft_doc::MaterialControls {
+        subcraft_doc::MaterialControls {
+            params: self.params.iter().filter_map(|v| serde_json::from_value(v.clone()).ok()).collect(),
+            bindings: self.bindings.iter().filter_map(|v| serde_json::from_value(v.clone()).ok()).collect(),
+        }
+        .sanitized()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -182,6 +219,9 @@ pub enum ContentEffectKindV5 {
     Anchor,
     /// A generator in the content stack.
     Generator { generator: subcraft_doc::Generator },
+    /// A material filter (MatFinish / MatFX / PBR Validate). Additive: projects without one are
+    /// unchanged, and older SubCraft versions refuse a file that has one instead of dropping it.
+    Material { filter: subcraft_doc::MaterialFilter },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

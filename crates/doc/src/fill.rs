@@ -399,6 +399,11 @@ pub struct Projection {
     pub triplanar_sharpness: f32,
     /// Planar projection axis (0 = X, 1 = Y, 2 = Z).
     pub planar_axis: u8,
+    /// Tri-planar: each of the six sides reads its own part of the pattern, so the two opposite
+    /// sides (and the blend between two axes) do not show the same shapes mirrored. On for new
+    /// projections; projects saved before it existed read `false` and keep their look.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub triplanar_unique: bool,
     /// Bitmap reconstruction. Not written at its default, so older projects serialize unchanged.
     #[serde(default, skip_serializing_if = "FillFiltering::is_default")]
     pub filtering: FillFiltering,
@@ -424,6 +429,15 @@ pub struct Projection {
     /// Backface culling (planar and cylindrical). Not written when off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub backface: Option<BackfaceCulling>,
+    /// Painter's Scale "Physical size": the width and height of one repeat on the model, in
+    /// centimeters. `None` is Scale "Tiling" (the `scale` field). While set, `scale` is kept but
+    /// not used, so switching back restores the old tiling. Not written when off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub physical_size: Option<[f32; 2]>,
+}
+
+fn is_false(v: &bool) -> bool {
+    !*v
 }
 
 fn full_turn() -> f32 {
@@ -453,11 +467,54 @@ impl Default for Projection {
             warp: None,
             transform3: ProjectionTransform::default(),
             backface: None,
+            physical_size: None,
+            triplanar_unique: true,
         }
     }
 }
 
+/// The real-world size of the surface a texture set covers, for [`Projection::resolve_physical`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SurfaceScale {
+    /// Meters of model surface per UV unit (square root of 3D area over UV area).
+    pub uv_meters: f32,
+    /// Meters of the model's longest bounds extent (3D projections read positions divided by it).
+    pub extent_meters: f32,
+}
+
 impl Projection {
+    /// Smallest and largest repeat size in centimeters (0.1 mm to 1 km).
+    pub const PHYSICAL_SIZE_RANGE: (f32, f32) = (0.01, 100_000.0);
+    /// Repeat size a projection starts with when Physical size is switched on.
+    pub const DEFAULT_PHYSICAL_SIZE: [f32; 2] = [100.0, 100.0];
+
+    /// Whether the mode can be scaled by Physical size: UV, planar, tri-planar and warp read
+    /// lengths on the surface. Spherical and cylindrical repeat by angle, so they keep Tiling.
+    #[inline]
+    pub fn supports_physical_size(&self) -> bool {
+        matches!(self.mode, ProjectionMode::Uv | ProjectionMode::Planar | ProjectionMode::Triplanar | ProjectionMode::Warp)
+    }
+
+    /// The Physical size in effect: `None` when off or the mode does not support it.
+    #[inline]
+    pub fn effective_physical_size(&self) -> Option<[f32; 2]> {
+        self.physical_size.filter(|_| self.supports_physical_size())
+    }
+
+    /// The tiling that gives one repeat of `physical_size` centimeters on a surface of `surface`
+    /// scale: UV coordinates are scaled by meters per UV unit, 3D positions (normalized by the
+    /// longest extent) by that extent. Returns the projection unchanged when Physical size is
+    /// off, otherwise a copy in Tiling mode with that scale, so every evaluator, cache key and
+    /// thumbnail treats it like a hand-set tiling.
+    pub fn resolve_physical(&self, surface: SurfaceScale) -> Projection {
+        let Some(size) = self.effective_physical_size() else { return *self };
+        let meters = if self.mode == ProjectionMode::Uv { surface.uv_meters } else { surface.extent_meters };
+        let meters = if meters.is_finite() && meters > 0.0 { meters } else { 1.0 };
+        let (lo, hi) = Self::PHYSICAL_SIZE_RANGE;
+        let tiling = |cm: f32| meters * 100.0 / cm.clamp(lo, hi);
+        Projection { scale: [tiling(size[0]), tiling(size[1])], physical_size: None, ..*self }
+    }
+
     /// Tri-planar Hardness 0..=1 as Painter shows it: 0 blends the three planes over the widest
     /// band, 1 is a hard cut. It is the stored exponent `s` seen as `1 - 1 / s`.
     pub fn hardness(&self) -> f32 {
@@ -483,7 +540,9 @@ impl Projection {
     /// count multiplied the work per texel.
     pub fn valid(&self) -> bool {
         let floats = [self.scale[0], self.scale[1], self.rotation_deg, self.offset[0], self.offset[1], self.triplanar_sharpness, self.cylinder_angle];
-        floats.iter().all(|v| v.is_finite()) && self.symmetry.valid() && self.transform3.valid() && self.backface.is_none_or(|b| b.valid())
+        let (lo, hi) = Self::PHYSICAL_SIZE_RANGE;
+        let size_ok = self.physical_size.is_none_or(|s| s.iter().all(|v| v.is_finite() && (lo..=hi).contains(v)));
+        size_ok && floats.iter().all(|v| v.is_finite()) && self.symmetry.valid() && self.transform3.valid() && self.backface.is_none_or(|b| b.valid())
     }
 
     /// The backface culling in effect: planar and cylindrical projections only.
@@ -640,6 +699,41 @@ mod tests {
     }
 
     #[test]
+    fn physical_size_resolves_to_tiling_from_the_surface_scale() {
+        let surface = SurfaceScale { uv_meters: 2.0, extent_meters: 0.5 };
+        // UV: 2 m of surface per UV unit, 50 cm repeat -> 4 repeats per UV unit.
+        let uv = Projection { physical_size: Some([50.0, 25.0]), scale: [3.0, 3.0], ..Projection::default() };
+        let r = uv.resolve_physical(surface);
+        assert_eq!(r.scale, [4.0, 8.0]);
+        assert_eq!(r.physical_size, None);
+        // 3D: positions are normalized by the 0.5 m extent; a 10 cm repeat is 5 per extent.
+        let tri = Projection { mode: ProjectionMode::Triplanar, physical_size: Some([10.0, 10.0]), ..Projection::default() };
+        assert_eq!(tri.resolve_physical(surface).scale, [5.0, 5.0]);
+        // Off, or a mode that repeats by angle: unchanged.
+        let off = Projection { scale: [3.0, 3.0], ..Projection::default() };
+        assert_eq!(off.resolve_physical(surface), off);
+        let sphere = Projection { mode: ProjectionMode::Spherical, physical_size: Some([10.0, 10.0]), ..Projection::default() };
+        assert_eq!(sphere.resolve_physical(surface), sphere);
+        // A degenerate surface (no UV area) falls back to 1 m per unit instead of NaN.
+        let flat = SurfaceScale { uv_meters: 0.0, extent_meters: f32::NAN };
+        assert_eq!(uv.resolve_physical(flat).scale, [2.0, 4.0]);
+        // Out of range sizes make the projection invalid (a damaged file).
+        assert!(uv.valid());
+        assert!(!Projection { physical_size: Some([0.0, 1.0]), ..uv }.valid());
+        assert!(!Projection { physical_size: Some([f32::NAN, 1.0]), ..uv }.valid());
+    }
+
+    #[test]
+    fn physical_size_is_not_written_when_off_and_round_trips() {
+        let off = serde_json::to_string(&Projection::default()).unwrap();
+        assert!(!off.contains("physical_size"));
+        let on = Projection { physical_size: Some([12.5, 30.0]), ..Projection::default() };
+        let json = serde_json::to_string(&on).unwrap();
+        assert!(json.contains("\"physical_size\":[12.5,30.0]"));
+        assert_eq!(serde_json::from_str::<Projection>(&json).unwrap(), on);
+    }
+
+    #[test]
     fn spherical_and_cylindrical_coordinates_and_symmetry_folds() {
         let near = |a: [f32; 2], b: [f32; 2]| (a[0] - b[0]).abs() < 1e-5 && (a[1] - b[1]).abs() < 1e-5;
         // Sphere with the Y pole: the equator point on +Z is u 0.5, v 0.5; the pole is v 0.
@@ -742,7 +836,9 @@ mod tests {
         let json = serde_json::to_string(&p).unwrap();
         assert!(!json.contains("filtering") && !json.contains("uv_wrap") && !json.contains("shape_crop"), "{json}");
         let old: Projection = serde_json::from_str(r#"{"mode":"triplanar","scale":[1.0,1.0],"rotation_deg":0.0,"offset":[0.0,0.0],"triplanar_sharpness":8.0,"planar_axis":2}"#).unwrap();
-        assert_eq!(old, Projection { mode: ProjectionMode::Triplanar, ..Projection::default() });
+        // A file from before `triplanar_unique` keeps the mirrored sides it was made with.
+        assert_eq!(old, Projection { mode: ProjectionMode::Triplanar, triplanar_unique: false, ..Projection::default() });
+        assert!(json.contains(r#""triplanar_unique":true"#) && !serde_json::to_string(&old).unwrap().contains("triplanar_unique"), "{json}");
         let set = Projection { filtering: FillFiltering::Nearest, uv_wrap: UvWrap::RepeatHorizontal, shape_crop: ShapeCrop::Crop, ..p };
         let json = serde_json::to_string(&set).unwrap();
         assert!(json.ends_with(r#""filtering":"nearest","uv_wrap":"repeat_horizontal","shape_crop":"crop"}"#), "{json}");
@@ -934,10 +1030,19 @@ pub enum ProceduralKind {
     /// Scratch generator: long hairlines and gouges with direction, length, width, depth,
     /// curvature, density, clustering and curvature-driven wear (`ProceduralParams::scratch`).
     Scratch,
+    /// Woven threads (plain weave): the height of the cloth, bright where a thread is on top.
+    Weave,
+    /// Diagonal twill weave (denim): warp threads float over three weft threads, one step
+    /// across per row. Height of the cloth; the low parts are where the weft shows.
+    Twill,
+    /// Thin wandering mineral veins (marble): 1 on a vein.
+    Veins,
+    /// Boards laid in staggered rows along U: 0 in the gaps, a different brightness per board.
+    Planks,
 }
 
 impl ProceduralKind {
-    pub const ALL: [ProceduralKind; 15] = [
+    pub const ALL: [ProceduralKind; 19] = [
         ProceduralKind::Clouds,
         ProceduralKind::Cells,
         ProceduralKind::Grunge,
@@ -953,6 +1058,10 @@ impl ProceduralKind {
         ProceduralKind::Speckles,
         ProceduralKind::Pores,
         ProceduralKind::Scratch,
+        ProceduralKind::Weave,
+        ProceduralKind::Twill,
+        ProceduralKind::Veins,
+        ProceduralKind::Planks,
     ];
 
     pub fn label(self) -> &'static str {
@@ -972,6 +1081,10 @@ impl ProceduralKind {
             ProceduralKind::Speckles => "Speckles",
             ProceduralKind::Pores => "Pores",
             ProceduralKind::Scratch => "Scratch Generator",
+            ProceduralKind::Weave => "Weave",
+            ProceduralKind::Twill => "Twill",
+            ProceduralKind::Veins => "Veins",
+            ProceduralKind::Planks => "Planks",
         }
     }
 }

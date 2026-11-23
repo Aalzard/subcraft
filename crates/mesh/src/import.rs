@@ -376,6 +376,8 @@ fn load_fbx(path: &Path, b: &mut MeshBuilder, warnings: &mut Vec<String>) -> Res
 }
 
 fn fbx_scene(scene: &ufbx::Scene, b: &mut MeshBuilder, warnings: &mut Vec<String>) {
+    // Positions stay in the file's unit; Physical size fills read it (0.01 for centimeters).
+    b.set_unit_meters(scene.settings.unit_meters as f32);
     let mut tri_indices: Vec<u32> = Vec::new();
     for node in scene.nodes.iter() {
         let Some(mesh) = node.mesh.as_ref() else { continue };

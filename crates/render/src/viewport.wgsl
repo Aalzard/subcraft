@@ -35,7 +35,7 @@ struct Globals {
     shadow_mat: mat4x4<f32>,
     // x: 1 = shadows on, y: opacity, z: one texel in map UV, w: one texel in world units
     shadow: vec4<f32>,
-    // x: filter radius in texels
+    // x: filter radius in texels, y: comparisons, z: TAA frame
     shadow_filter: vec4<f32>,
 };
 
@@ -63,8 +63,19 @@ struct MaterialParams {
     alpha: vec4<f32>,
     // Shader Settings: x AO intensity, y emissive intensity, z horizon fading
     shader: vec4<f32>,
+    // Layer in `t_ext` of the extended channel groups 0..3 and 4..6 (-1: the set has none of
+    // the group's channels), see `extended.rs`.
+    ext_a: vec4<f32>,
+    ext_b: vec4<f32>,
+    // x: anisotropy, y: subsurface scattering, z: translucency (1 = the set has the channel)
+    ext_flags: vec4<f32>,
 };
 @group(1) @binding(10) var<uniform> mat: MaterialParams;
+// Extended channels packed into array layers (`extended.wgsl`): 0 coat colour + opacity,
+// 1 coat roughness, specular level, normal XY, 2 sheen colour + opacity, 3 sheen roughness,
+// anisotropy vector (level at twice the angle), translucency, 4 scattering colour + amount,
+// 5 transmissive + IOR, 6 displacement.
+@group(1) @binding(13) var t_ext: texture_2d_array<f32>;
 // Specular level: the reflectance of non-metals (0.5 = 4%).
 @group(1) @binding(11) var t_specular: texture_2d<f32>;
 // Part overlay (geometry mask editing, Polygon Fill): a UV-space mask over the texture set.
@@ -80,25 +91,31 @@ fn part_overlay(color: vec3<f32>, uv: vec2<f32>, pixel: vec2<f32>) -> vec3<f32> 
     return mix(greyed, vec3<f32>(1.0, 0.62, 0.22), 0.4 * o.g);
 }
 
-// How much key light reaches `world` (a point on a surface with geometric normal `n`): 1 lit,
-// down to 1 - opacity in full shadow. Percentage-closer filter over the shadow map's texels.
-fn shadow_visibility(world: vec3<f32>, n: vec3<f32>) -> f32 {
+// How much key light reaches `world` (a point on a surface with geometric normal `n`, seen at
+// framebuffer position `frag`): 1 lit, down to 1 - opacity in full shadow. Percentage-closer
+// filter over a disk of bilinear comparisons (Vogel spiral), rotated per pixel by interleaved
+// gradient noise and per TAA frame, so the penumbra is smooth instead of a blocky box.
+fn shadow_visibility(world: vec3<f32>, n: vec3<f32>, frag: vec2<f32>) -> f32 {
     if (g.shadow.x < 0.5) { return 1.0; }
-    // Offset along the normal so a lit surface does not shadow itself.
-    let c = g.shadow_mat * vec4<f32>(world + n * g.shadow.w * 1.5, 1.0);
+    // Offset along the normal so a lit surface does not shadow itself; surfaces at a grazing
+    // angle to the light and wider filters need more (slope-scaled).
+    let nl = dot(n, normalize(g.light_dir.xyz));
+    let sin_l = sqrt(clamp(1.0 - nl * nl, 0.0, 1.0));
+    let radius = max(g.shadow_filter.x, 0.0);
+    let c = g.shadow_mat * vec4<f32>(world + n * g.shadow.w * (1.5 + radius * 0.5 * sin_l), 1.0);
     let ndc = c.xyz / c.w;
     let uv = vec2<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
     if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || ndc.z > 1.0) { return 1.0; }
-    let r = i32(g.shadow_filter.x);
+    let count = max(i32(g.shadow_filter.y), 1);
+    let ign = fract(52.9829189 * fract(dot(frag, vec2<f32>(0.06711056, 0.00583715))));
+    let rot = 6.2831853 * ign + g.shadow_filter.z * 2.39996323;
     var lit = 0.0;
-    var taps = 0.0;
-    for (var y = -r; y <= r; y = y + 1) {
-        for (var x = -r; x <= r; x = x + 1) {
-            lit += textureSampleCompareLevel(shadow_map, shadow_samp, uv + vec2<f32>(f32(x), f32(y)) * g.shadow.z, ndc.z);
-            taps += 1.0;
-        }
+    for (var i = 0; i < count; i = i + 1) {
+        let rr = sqrt((f32(i) + 0.5) / f32(count)) * radius;
+        let th = f32(i) * 2.39996323 + rot;
+        lit += textureSampleCompareLevel(shadow_map, shadow_samp, uv + vec2<f32>(cos(th), sin(th)) * rr * g.shadow.z, ndc.z);
     }
-    return 1.0 - clamp(g.shadow.y, 0.0, 1.0) * (1.0 - lit / taps);
+    return 1.0 - clamp(g.shadow.y, 0.0, 1.0) * (1.0 - lit / f32(count));
 }
 
 struct VsIn {
@@ -206,19 +223,47 @@ fn irradiance(n: vec3<f32>) -> vec3<f32> {
 fn environment(r: vec3<f32>, key: vec3<f32>, rough: f32) -> vec3<f32> {
     if (g.lights.w > 0.5) {
         let uv = equirect(rotate_env(r));
-        return textureSampleLevel(env_tex, env_samp, uv, rough * g.env_misc.z).rgb * g.env_misc.y;
+        return textureSampleLevel(env_tex, env_samp, uv, env_lod(rough)).rgb * g.env_misc.y;
     }
     return mix(sky(r), irradiance(r), rough) + studio(r, key, rough);
 }
 
-// Analytic split-sum environment BRDF (Karis, "Physically Based Shading on Mobile").
-fn env_brdf(f0: vec3<f32>, roughness: f32, nov: f32) -> vec3<f32> {
+// Prefiltered HDRI level for a GGX lobe of perceptual roughness `rough`. Each level doubles the
+// blur angle and the last one matches roughness 1 (see subcraft_assets::environment), so the
+// level is last + log2(lobe width) with the lobe width ~ alpha = rough^2.
+fn env_lod(rough: f32) -> f32 {
+    return clamp(g.env_misc.z + 2.0 * log2(max(rough, 1e-3)), 0.0, g.env_misc.z);
+}
+
+// Analytic split-sum environment BRDF terms (Karis, "Physically Based Shading on Mobile"):
+// reflectance = f0 * x + y.
+fn dfg(roughness: f32, nov: f32) -> vec2<f32> {
     let c0 = vec4<f32>(-1.0, -0.0275, -0.572, 0.022);
     let c1 = vec4<f32>(1.0, 0.0425, 1.04, -0.04);
     let r = roughness * c0 + c1;
     let a004 = min(r.x * r.x, exp2(-9.28 * nov)) * r.x + r.y;
-    let ab = vec2<f32>(-1.04, 1.04) * a004 + r.zw;
+    return vec2<f32>(-1.04, 1.04) * a004 + r.zw;
+}
+
+fn env_brdf(f0: vec3<f32>, roughness: f32, nov: f32) -> vec3<f32> {
+    let ab = dfg(roughness, nov);
     return f0 * ab.x + ab.y;
+}
+
+// Multiple-scattering compensation (Fdez-Aguera; Filament): single-scatter GGX loses the light
+// that bounces between microfacets, so rough metals render too dark. Scale the specular lobe by
+// the lost energy, tinted by f0 (1 for smooth surfaces and dielectrics barely change).
+fn spec_energy(f0: vec3<f32>, roughness: f32, nov: f32) -> vec3<f32> {
+    let ab = dfg(roughness, nov);
+    return vec3<f32>(1.0) + f0 * (1.0 / max(ab.x + ab.y, 0.05) - 1.0);
+}
+
+// Specular occlusion from ambient occlusion (Lagarde & de Rousiers 2014): a cavity hides
+// reflections less than it hides diffuse light at normal incidence, more at grazing angles and
+// for sharp reflections. 1 wherever AO is 1.
+fn spec_occlusion(nov: f32, ao: f32, roughness: f32) -> f32 {
+    let a = roughness * roughness;
+    return clamp(pow(nov + ao, exp2(-16.0 * a - 1.0)) - 1.0 + ao, 0.0, 1.0);
 }
 
 // Data value shown as stored: pre-linearized so the sRGB target encodes it back to `c`.
@@ -334,6 +379,94 @@ fn surface_alpha(uv: vec2<f32>, frag: vec2<f32>) -> f32 {
     return a;
 }
 
+// The environment seen through a transmissive surface along `d`: the HDRI, or the procedural
+// sky as the background shows it (without the studio panels, which exist to be reflected).
+fn background_radiance_lit(d: vec3<f32>, rough: f32) -> vec3<f32> {
+    if (g.lights.w > 0.5) {
+        let uv = equirect(rotate_env(d));
+        return textureSampleLevel(env_tex, env_samp, uv, env_lod(rough)).rgb * g.env_misc.y;
+    }
+    return mix(sky(d), irradiance(d), rough);
+}
+
+// Layer of extended group `grp` in `t_ext`, -1 when absent.
+fn ext_layer(grp: i32) -> i32 {
+    switch grp {
+        case 0: { return i32(round(mat.ext_a.x)); }
+        case 1: { return i32(round(mat.ext_a.y)); }
+        case 2: { return i32(round(mat.ext_a.z)); }
+        case 3: { return i32(round(mat.ext_a.w)); }
+        case 4: { return i32(round(mat.ext_b.x)); }
+        case 5: { return i32(round(mat.ext_b.y)); }
+        default: { return i32(round(mat.ext_b.z)); }
+    }
+}
+
+// Extended group `grp` at `uv`, or `def` (the channels' defaults) when the set has none of its
+// channels. Always samples (layer 0 of a 1x1 texture when absent) so derivatives stay in
+// uniform control flow.
+fn ext_sample(grp: i32, def: vec4<f32>, uv: vec2<f32>) -> vec4<f32> {
+    let layer = ext_layer(grp);
+    var v: vec4<f32>;
+    if (g.solo_positive.a != 0.0) {
+        v = textureSampleBias(t_ext, samp, uv, max(layer, 0), g.solo_positive.a);
+    } else {
+        v = textureSample(t_ext, samp, uv, max(layer, 0));
+    }
+    return select(v, def, layer < 0);
+}
+
+// Anisotropic GGX (Burley 2012) with the height-correlated Smith visibility (Heitz 2014):
+// roughness `at` along the tangent `ta`, `ab` along the bitangent `ba`.
+fn aniso_ggx(n: vec3<f32>, v: vec3<f32>, l: vec3<f32>, ta: vec3<f32>, ba: vec3<f32>, at: f32, ab: f32) -> f32 {
+    let h = normalize(v + l);
+    let noh = max(dot(n, h), 0.0);
+    let toh = dot(ta, h);
+    let boh = dot(ba, h);
+    let a2 = at * ab;
+    let dv = vec3<f32>(ab * toh, at * boh, a2 * noh);
+    let w2 = a2 / max(dot(dv, dv), 1e-7);
+    let d = a2 * w2 * w2 / PI;
+    let nov = max(dot(n, v), 1e-4);
+    let nol = max(dot(n, l), 0.0);
+    let lv = nol * length(vec3<f32>(at * dot(ta, v), ab * dot(ba, v), nov));
+    let ll = nov * length(vec3<f32>(at * dot(ta, l), ab * dot(ba, l), nol));
+    let vis = 0.5 / max(lv + ll, 1e-5);
+    return d * vis;
+}
+
+// Isotropic GGX distribution times Schlick-Smith visibility / (4 n.v n.l), as the base layer.
+fn ggx(nol: f32, nov: f32, noh: f32, rough: f32) -> f32 {
+    let a = rough * rough;
+    let a2 = a * a;
+    let dd = noh * noh * (a2 - 1.0) + 1.0;
+    let d = a2 / (PI * dd * dd);
+    let k = (rough + 1.0) * (rough + 1.0) / 8.0;
+    let gv = nov / (nov * (1.0 - k) + k);
+    let gl = nol / (nol * (1.0 - k) + k);
+    return d * gv * gl / max(4.0 * nov * nol, 1e-4);
+}
+
+// "Charlie" sheen distribution (Estevez & Kulla 2017) with Neubelt's visibility.
+fn sheen_brdf(nol: f32, nov: f32, noh: f32, rough: f32) -> f32 {
+    let inv = 1.0 / (rough * rough);
+    let sin2 = max(1.0 - noh * noh, 0.0);
+    let d = (2.0 + inv) * pow(sin2, inv * 0.5) / (2.0 * PI);
+    let vis = 1.0 / max(4.0 * (nol + nov - nol * nov), 1e-4);
+    return d * vis;
+}
+
+// Directional albedo of the sheen lobe under uniform light (fit used by three.js), in the units
+// of `irradiance()` (which already divides by pi).
+fn sheen_albedo(nov: f32, rough: f32) -> f32 {
+    let r2 = rough * rough;
+    let lo = rough < 0.25;
+    let a = select(-8.48 * r2 + 14.3 * rough - 9.95, -339.2 * r2 + 161.4 * rough - 25.9, lo);
+    let b = select(1.97 * r2 - 3.27 * rough + 0.72, 44.0 * r2 - 23.7 * rough + 3.26, lo);
+    let dg = exp(a * nov + b) + select(0.1 * (rough - 0.25), 0.0, lo);
+    return clamp(dg, 0.0, PI);
+}
+
 // The surface's display colour and coverage (what `fs_main` draws and `fs_oit` accumulates).
 fn shade(in: VsOut, front: bool) -> vec4<f32> {
     let mode = i32(round(g.env_misc.w));
@@ -393,17 +526,141 @@ fn shade(in: VsOut, front: bool) -> vec4<f32> {
     let spec = d * gv * gl * f / max(4.0 * nov * nol, 1e-4);
     let kd = (1.0 - f) * diffuse / PI;
     let light = g.light_color.rgb * g.params.z;
-    let direct = (kd + spec) * light * nol * shadow_visibility(in.world, n0);
+    let ec = spec_energy(f0, rough, nov);
+    let direct = (kd + spec * ec) * light * nol * shadow_visibility(in.world, n0, in.clip.xy);
 
     let r = reflect(-v, n);
     // Horizon fading: a normal map can tilt the reflection below the geometric surface; such
     // reflections would see through the mesh, so they fade out (Painter's Horizon Fading).
     let horizon = clamp(1.0 + mat.shader.z * dot(r, n0), 0.0, 1.0);
     let env_spec = environment(r, l, rough) * horizon * horizon;
-    // Ambient (environment) light is occluded by AO; specular occlusion approximated by AO too.
-    let ambient = (diffuse * irradiance(n) + env_brdf(f0, rough, nov) * env_spec) * g.params.y * ao;
+    // Ambient (environment) light: AO darkens the diffuse part, specular occlusion derived from
+    // AO the reflections.
+    let so = spec_occlusion(nov, ao, rough);
+    let ambient = (diffuse * irradiance(n) * ao + env_brdf(f0, rough, nov) * ec * env_spec * so) * g.params.y;
 
-    let color = (direct + ambient + emissive) * g.params.x;
+    var color = (direct + ambient + emissive) * g.params.x;
+
+    // ---- extended channels: anisotropy, subsurface, translucency, transmission, sheen, coat.
+    // A set without any of them keeps the shading above exactly.
+    let x_coat = ext_sample(0, vec4<f32>(1.0, 1.0, 1.0, 0.0), in.uv);
+    let x_coat2 = ext_sample(1, vec4<f32>(0.1, 0.5, 0.0, 0.0), in.uv);
+    let x_sheen = ext_sample(2, vec4<f32>(1.0, 1.0, 1.0, 0.0), in.uv);
+    let x_misc = ext_sample(3, vec4<f32>(0.5, 0.0, 0.0, 0.0), in.uv);
+    let x_sss = ext_sample(4, vec4<f32>(1.0, 1.0, 1.0, 0.0), in.uv);
+    let x_trans = ext_sample(5, vec4<f32>(0.0, 0.0, 0.0, 0.5), in.uv);
+    let coat_on = ext_layer(0) >= 0 || ext_layer(1) >= 0;
+    let sheen_on = ext_layer(2) >= 0;
+    let aniso_on = mat.ext_flags.x > 0.5;
+    let sss_on = mat.ext_flags.y > 0.5;
+    let transl_on = mat.ext_flags.z > 0.5;
+    let trans_on = ext_layer(5) >= 0;
+    if (coat_on || sheen_on || aniso_on || sss_on || transl_on || trans_on) {
+        let vis = shadow_visibility(in.world, n0, in.clip.xy);
+        let env_i = g.params.y;
+        // Base specular, anisotropic when the set has Anisotropy Level.
+        var spec_d = spec;
+        var r_spec = r;
+        let aniso_level = clamp(length(x_misc.yz), 0.0, 1.0);
+        if (aniso_on && aniso_level > 1e-3) {
+            let ang = 0.5 * atan2(x_misc.z, x_misc.y);
+            let tr0 = t * cos(ang) + b * sin(ang);
+            let ta = normalize(tr0 - n * dot(n, tr0));
+            let ba = cross(n, ta);
+            let at = max(a * (1.0 + aniso_level), 1e-3);
+            let ab = max(a * (1.0 - aniso_level), 1e-3);
+            spec_d = aniso_ggx(n, v, l, ta, ba, at, ab) * f;
+            // Reflections stretched across the tangent (bent normal, as Filament does).
+            let a_tan = cross(ba, v);
+            let a_nrm = cross(a_tan, ba);
+            let bent = normalize(mix(n, a_nrm, aniso_level * clamp(5.0 * rough, 0.0, 1.0)));
+            r_spec = reflect(-v, bent);
+        }
+        let horizon_s = clamp(1.0 + mat.shader.z * dot(r_spec, n0), 0.0, 1.0);
+        let env_spec_d = environment(r_spec, l, rough) * horizon_s * horizon_s;
+
+        // Diffuse share left by transmission and translucency.
+        let trans = clamp(x_trans.rgb, vec3<f32>(0.0), vec3<f32>(1.0)) * (1.0 - metal) * select(0.0, 1.0, trans_on);
+        let transl = clamp(x_misc.w, 0.0, 1.0) * select(0.0, 1.0, transl_on);
+        let dscale = (vec3<f32>(1.0) - trans) * (1.0 - 0.5 * transl);
+
+        // Subsurface scattering: light spreads further for the scattering colour, so those
+        // channels see a smoother normal (the geometric one) and wrap past the terminator, and
+        // their shadow edges soften.
+        let w = select(vec3<f32>(0.0), clamp(x_sss.a, 0.0, 1.0) * clamp(x_sss.rgb, vec3<f32>(0.0), vec3<f32>(1.0)), sss_on);
+        let nl = mix(vec3<f32>(dot(n, l)), vec3<f32>(dot(n0, l)), w);
+        let wrap = w * 0.6;
+        let diff_nl = clamp((nl + wrap) / (1.0 + wrap), vec3<f32>(0.0), vec3<f32>(1.0));
+        let vis_s = mix(vec3<f32>(vis), vec3<f32>(sqrt(vis)), w);
+        let irr_d = mix(irradiance(n), irradiance(n0), w);
+
+        var layer = kd * dscale * light * diff_nl * vis_s
+            + spec_d * ec * light * nol * vis
+            + (diffuse * dscale * irr_d * ao + env_brdf(f0, rough, nov) * ec * env_spec_d * so) * env_i;
+
+        // Translucency: light from behind passes through thin parts, tinted by the scattering
+        // colour when there is one.
+        if (transl_on) {
+            let tint = diffuse * mix(vec3<f32>(1.0), x_sss.rgb, x_sss.a * select(0.0, 1.0, sss_on));
+            // Diffuse light through the back face, and light scattered forward toward the viewer,
+            // strongest at the silhouette where the surface is thinnest.
+            let back = max((dot(-n, l) + 0.3) / 1.3, 0.0);
+            let thin = (1.0 - nov) * (1.0 - nov);
+            let forward = pow(max(dot(v, -l), 0.0), 4.0) * thin;
+            layer += tint * transl * (light * (back * 0.3 + forward * 1.5) / PI + irradiance(-n) * env_i * 0.3);
+        }
+
+        // Transmission: the environment seen through the surface, refracted by the IOR channel
+        // (0..1 = IOR 1..2; 0.5 = 1.5, glass), tinted by the base colour and blurred by roughness.
+        if (trans_on) {
+            // Refracted in, then out of the back of a solid body (Filament's solid sphere model).
+            let ior = 1.0 + clamp(x_trans.a, 0.0, 1.0);
+            var rr = refract(-v, n, 1.0 / ior);
+            if (dot(rr, rr) < 1e-6) {
+                rr = reflect(-v, n);
+            }
+            let n1 = normalize(dot(n, rr) * rr - n * 0.5);
+            let out = refract(rr, n1, ior);
+            if (dot(out, out) > 1e-6) {
+                rr = out;
+            }
+            let through = background_radiance_lit(rr, rough) * env_i;
+            layer += through * base * trans * (vec3<f32>(1.0) - env_brdf(f0, rough, nov));
+        }
+
+        // Sheen: a soft, rim-bright velvet lobe over the base (energy taken from the base).
+        if (sheen_on) {
+            let sheen_col = clamp(x_sheen.rgb, vec3<f32>(0.0), vec3<f32>(1.0)) * clamp(x_sheen.a, 0.0, 1.0);
+            let sr = clamp(x_misc.x, 0.07, 1.0);
+            let sheen_scale = 1.0 - 0.157 * max(sheen_col.r, max(sheen_col.g, sheen_col.b));
+            layer = layer * sheen_scale
+                + sheen_col * sheen_brdf(nol, nov, noh, sr) * light * nol * vis
+                + sheen_col * irradiance(n) * sheen_albedo(nov, sr) * env_i * ao;
+        }
+
+        // Clear coat: a second, smooth specular layer with its own normal and roughness,
+        // tinting and dimming what is under it (Fresnel of the coat).
+        if (coat_on) {
+            let amount = clamp(x_coat.a, 0.0, 1.0);
+            let cr = clamp(x_coat2.x, 0.04, 1.0);
+            let f0c = 0.08 * clamp(x_coat2.y, 0.0, 1.0);
+            let cxy = x_coat2.zw;
+            let cts = vec3<f32>(cxy, sqrt(max(1.0 - dot(cxy, cxy), 0.0)));
+            let nc = normalize(t * cts.x + b * cts.y + n0 * cts.z);
+            let novc = max(dot(nc, v), 1e-4);
+            let nolc = max(dot(nc, l), 0.0);
+            let nohc = max(dot(nc, h), 0.0);
+            let fc = f0c + (1.0 - f0c) * pow(1.0 - voh, 5.0);
+            let fc_view = f0c + (1.0 - f0c) * pow(1.0 - novc, 5.0);
+            let rc = reflect(-v, nc);
+            let horizon_c = clamp(1.0 + mat.shader.z * dot(rc, n0), 0.0, 1.0);
+            let coat_env = environment(rc, l, cr) * horizon_c * horizon_c * env_brdf(vec3<f32>(f0c), cr, novc);
+            let under = (1.0 - amount * fc_view) * mix(vec3<f32>(1.0), clamp(x_coat.rgb, vec3<f32>(0.0), vec3<f32>(1.0)), amount);
+            layer = layer * under
+                + amount * (ggx(nolc, novc, nohc, cr) * fc * light * nolc * vis + coat_env * env_i * ao);
+        }
+        color = (layer + emissive) * g.params.x;
+    }
     let alpha = surface_alpha(in.uv, in.clip.xy);
     // The highlighted texture set (under the cursor or hovered in the list) is tinted warm.
     let shown = mix(tonemap(color, i32(round(g.post.x)), g.post.y), vec3<f32>(1.0, 0.62, 0.22), 0.3 * mat.shader.w);

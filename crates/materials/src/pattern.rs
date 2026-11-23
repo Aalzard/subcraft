@@ -69,6 +69,10 @@ pub fn raw(kind: ProceduralKind, p: Vec2, scale: f32, seed: u32) -> f32 {
             let (f1, _) = worley(q * 3.0, period * 3, seed);
             1.0 - smooth((f1 - 0.08) / 0.12)
         }
+        ProceduralKind::Weave => weave(q, period, seed),
+        ProceduralKind::Twill => twill(q, period, seed),
+        ProceduralKind::Veins => veins(q, period, seed),
+        ProceduralKind::Planks => planks(q, period, seed),
     }
 }
 
@@ -88,6 +92,99 @@ pub fn eval(params: &ProceduralParams, p: Vec2) -> f32 {
 pub fn remap(v: f32, balance: f32, contrast: f32) -> f32 {
     let width = (1.0 - contrast.clamp(0.0, 1.0)) * 0.5 + 1e-3;
     ((v - balance) / (2.0 * width) + 0.5).clamp(0.0, 1.0)
+}
+
+/// Threads across one unit of pattern space (even, so the over/under order tiles).
+const WEAVE_THREADS: i32 = 8;
+
+/// Plain weave: warp and weft threads crossing over and under each other. The value is the
+/// cloth's height: a thread is round across its width, highest where it passes over the other
+/// thread and dipping where it goes under. Each thread has its own slight thickness.
+fn weave(q: Vec2, period: i32, seed: u32) -> f32 {
+    let n = period * WEAVE_THREADS;
+    let t = q * WEAVE_THREADS as f32;
+    let cell = crate::noise::floor2(t);
+    let f = t - cell;
+    let (ix, iy) = ((cell.x as i32).rem_euclid(n), (cell.y as i32).rem_euclid(n));
+    // Even crossings: the vertical (warp) thread is on top; odd: the horizontal (weft) one.
+    let warp_on_top = (ix + iy) % 2 == 0;
+    let (across, along, thread) = if warp_on_top { (f.x, f.y, hash_f(ix, -1, seed)) } else { (f.y, f.x, hash_f(-1, iy, seed ^ 0x3c)) };
+    let round = (std::f32::consts::PI * across).sin().max(0.0).powf(0.6);
+    let over = 0.5 + 0.5 * (std::f32::consts::PI * along).sin();
+    // Fibres along the thread.
+    let fibre = if warp_on_top { value_xy(Vec2::new(t.x * 6.0, t.y * 0.5), n * 6, (n / 2).max(1), seed ^ 0x61) } else { value_xy(Vec2::new(t.x * 0.5, t.y * 6.0), (n / 2).max(1), n * 6, seed ^ 0x62) };
+    (round * (0.35 + 0.55 * over) * (0.86 + 0.14 * thread) + (fibre - 0.5) * 0.08).clamp(0.0, 1.0)
+}
+
+/// 3/1 twill: every warp (vertical) thread floats over three weft threads and dips under the
+/// fourth, and that dip moves one thread sideways per row, which draws the diagonal rib of
+/// denim. Height of the cloth: the warp floats are high and round, the weft crossings lower.
+fn twill(q: Vec2, period: i32, seed: u32) -> f32 {
+    let n = period * WEAVE_THREADS;
+    let t = q * WEAVE_THREADS as f32;
+    let cell = crate::noise::floor2(t);
+    let f = t - cell;
+    let (ix, iy) = ((cell.x as i32).rem_euclid(n), (cell.y as i32).rem_euclid(n));
+    // `n` is a multiple of 4 (8 threads per unit), so the step tiles.
+    let phase = (ix - iy).rem_euclid(4);
+    let pi = std::f32::consts::PI;
+    let thread = hash_f(ix, -1, seed);
+    let v = if phase == 0 {
+        // The weft is on top here: a short, lower crossing running along x.
+        (pi * f.y).sin().max(0.0).powf(0.6) * (0.3 + 0.2 * (pi * f.x).sin())
+    } else {
+        // Warp float: round across x; it dips towards the crossing at the end of the float.
+        let dip = match phase {
+            1 => 0.75 + 0.25 * (0.5 * pi * f.y).sin(),
+            3 => 0.75 + 0.25 * (0.5 * pi * (1.0 - f.y)).sin(),
+            _ => 1.0,
+        };
+        (pi * f.x).sin().max(0.0).powf(0.6) * dip * (0.88 + 0.12 * thread)
+    };
+    let fibre = value_xy(Vec2::new(t.x * 6.0, t.y * 0.5), n * 6, (n / 2).max(1), seed ^ 0x61);
+    (v + (fibre - 0.5) * 0.08).clamp(0.0, 1.0)
+}
+
+/// Mineral veins: the level lines of a noise field that is itself bent by noise, so the lines
+/// wander, fork and fade instead of forming a net. A second, finer set runs between them.
+fn veins(q: Vec2, period: i32, seed: u32) -> f32 {
+    let line = |q: Vec2, period: i32, seed: u32, width: f32| {
+        let warp = Vec2::new(fbm(q, period, 4, seed ^ 0x1b3) - 0.5, fbm(q + Vec2::splat(13.0), period, 4, seed ^ 0x2c7) - 0.5);
+        let n = fbm(q + warp * 1.6, period, 5, seed);
+        // Distance from the 0.5 level, in units of the line width.
+        let d = (n - 0.5).abs() / width;
+        // Veins fade in and out along their length.
+        let fade = smooth((fbm(q + Vec2::splat(41.0), period, 3, seed ^ 0x3d1) - 0.35) / 0.25);
+        (1.0 - d).clamp(0.0, 1.0) * fade
+    };
+    let main = line(q, period, seed, 0.035);
+    let fine = line(q * 2.0, period * 2, seed ^ 0x9e37, 0.03) * 0.55;
+    main.max(fine)
+}
+
+/// Boards per unit across (V); a board is one unit long (U), so boards are 5 times longer
+/// than wide before the projection's own scale.
+const PLANK_ROWS: i32 = 5;
+
+/// Boards in staggered rows. 0 in the gap between boards, rising over a narrow bevel to the
+/// board's own brightness (0.35 to 1, one value per board), so the same pattern gives a
+/// height with rounded edges, a tone per board, and (inverted, with contrast) the gaps.
+fn planks(q: Vec2, period: i32, seed: u32) -> f32 {
+    let rows = period * PLANK_ROWS;
+    let y = q.y * PLANK_ROWS as f32;
+    let row_f = crate::noise::floor(y);
+    let row = (row_f as i32).rem_euclid(rows);
+    // Each row starts its boards somewhere else.
+    let x = q.x + hash_f(row, 7, seed) * period as f32;
+    let col_f = crate::noise::floor(x);
+    let col = (col_f as i32).rem_euclid(period.max(1));
+    let (fx, fy) = (x - col_f, y - row_f);
+    // Distance to the nearest edge, in board widths (the ends are measured in the same unit).
+    let edge = fy.min(1.0 - fy).min(fx.min(1.0 - fx) * PLANK_ROWS as f32);
+    let gap = 0.03;
+    let bevel = 0.035;
+    let rise = smooth((edge - gap) / bevel);
+    rise * (0.35 + 0.65 * hash_f(col, row, seed ^ 0x51f))
 }
 
 fn smooth(t: f32) -> f32 {
@@ -234,7 +331,7 @@ mod tests {
 
     #[test]
     fn uv_patterns_tile_at_integer_scale() {
-        for kind in [ProceduralKind::Clouds, ProceduralKind::Cells, ProceduralKind::Brushed, ProceduralKind::Grunge, ProceduralKind::WoodRings, ProceduralKind::Scratches, ProceduralKind::Dirt, ProceduralKind::Cracks, ProceduralKind::Streaks, ProceduralKind::Speckles, ProceduralKind::Pores] {
+        for kind in [ProceduralKind::Twill, ProceduralKind::Veins, ProceduralKind::Planks, ProceduralKind::Weave, ProceduralKind::Clouds, ProceduralKind::Cells, ProceduralKind::Brushed, ProceduralKind::Grunge, ProceduralKind::WoodRings, ProceduralKind::Scratches, ProceduralKind::Dirt, ProceduralKind::Cracks, ProceduralKind::Streaks, ProceduralKind::Speckles, ProceduralKind::Pores] {
             let params = ProceduralParams::new(kind);
             for k in 0..40 {
                 let p = Vec2::new(0.013 * k as f32, 0.71);
@@ -276,5 +373,79 @@ mod tests {
         assert!(across > 2.0 * along, "across {across} vs along {along}");
         let cracks = mean(ProceduralKind::Cracks, 5.0, 7);
         assert!(cracks < 0.35, "cracks should be thin: {cracks}");
+    }
+
+    /// Weave: threads alternate over and under (neighbouring crossings differ), every thread is
+    /// highest along its middle, and the cloth repeats `WEAVE_THREADS` times per unit.
+    #[test]
+    fn weave_alternates_over_and_under() {
+        let at = |x: f32, y: f32| raw(ProceduralKind::Weave, Vec2::new(x, y), 1.0, 3);
+        let step = 1.0 / WEAVE_THREADS as f32;
+        let (mut middle, mut edge) = (0.0, 0.0);
+        for i in 0..WEAVE_THREADS {
+            for j in 0..WEAVE_THREADS {
+                let (x, y) = ((i as f32 + 0.5) * step, (j as f32 + 0.5) * step);
+                middle += at(x, y);
+                // The corner between four crossings is the gap between threads.
+                edge += at(i as f32 * step + 1e-4, j as f32 * step + 1e-4);
+            }
+        }
+        let n = (WEAVE_THREADS * WEAVE_THREADS) as f32;
+        assert!(middle / n > 0.7 && edge / n < 0.15, "threads are raised, gaps are low: {} {}", middle / n, edge / n);
+        // On a warp-on-top crossing the profile is round across x; on the next one, across y.
+        let quarter = step * 0.15;
+        let c = step * 0.5;
+        let drop_x = |x: f32, y: f32| at(x, y) - at(x + c - quarter, y);
+        let drop_y = |x: f32, y: f32| at(x, y) - at(x, y + c - quarter);
+        assert!(drop_x(c, c) > 0.2 && drop_x(c, c) > drop_y(c, c) + 0.1, "crossing (0,0) is a vertical thread");
+        assert!(drop_y(c + step, c) > 0.2 && drop_y(c + step, c) > drop_x(c + step, c) + 0.1, "crossing (1,0) is a horizontal thread");
+    }
+
+    /// Twill: the weft crossing moves one thread across per row (a diagonal), and three of
+    /// every four crossings are high warp floats.
+    #[test]
+    fn twill_steps_diagonally() {
+        let step = 1.0 / WEAVE_THREADS as f32;
+        let at = |i: i32, j: i32| raw(ProceduralKind::Twill, Vec2::new((i as f32 + 0.5) * step, (j as f32 + 0.5) * step), 1.0, 3);
+        let mut low = 0;
+        for j in 0..WEAVE_THREADS {
+            for i in 0..WEAVE_THREADS {
+                let weft = (i - j).rem_euclid(4) == 0;
+                assert_eq!(at(i, j) < 0.6, weft, "crossing {i},{j}: {}", at(i, j));
+                low += weft as i32;
+                // The same kind of crossing one step along the diagonal.
+                assert_eq!(at(i, j) < 0.6, at(i + 1, j + 1) < 0.6);
+            }
+        }
+        assert_eq!(low, WEAVE_THREADS * WEAVE_THREADS / 4);
+    }
+
+    /// Veins are thin lines (they cover little) that depend on the seed, and they are not a
+    /// closed net: long stretches of a straight walk cross no vein at all.
+    #[test]
+    fn veins_are_thin_wandering_lines() {
+        let m = mean(ProceduralKind::Veins, 4.0, 3);
+        assert!((0.01..0.2).contains(&m), "veins cover {m}");
+        assert!((m - mean(ProceduralKind::Veins, 4.0, 4)).abs() > 1e-4);
+        let params = ProceduralParams { scale: 4.0, seed: 3, ..ProceduralParams::new(ProceduralKind::Veins) };
+        let on: Vec<bool> = (0..2000).map(|i| eval(&params, Vec2::new(i as f32 / 2000.0, 0.37)) > 0.5).collect();
+        let crossings = on.windows(2).filter(|w| !w[0] && w[1]).count();
+        assert!((1..40).contains(&crossings), "{crossings} veins crossed on one line");
+        assert!(on.iter().filter(|v| **v).count() < 400, "lines, not areas");
+    }
+
+    /// Planks: gaps are 0 and thin, a board has one brightness, and neighbouring boards differ.
+    #[test]
+    fn planks_have_gaps_and_a_tone_per_board() {
+        let at = |x: f32, y: f32| raw(ProceduralKind::Planks, Vec2::new(x, y), 1.0, 9);
+        let row = 1.0 / PLANK_ROWS as f32;
+        for r in 0..PLANK_ROWS {
+            assert_eq!(at(0.3, r as f32 * row + 1e-4), 0.0, "the line between rows is a gap");
+        }
+        let tones: Vec<f32> = (0..PLANK_ROWS).map(|r| at(0.31, (r as f32 + 0.5) * row)).collect();
+        assert!(tones.iter().all(|t| (0.35..=1.0).contains(t)), "{tones:?}");
+        assert!(tones.windows(2).any(|w| (w[0] - w[1]).abs() > 0.05), "boards differ: {tones:?}");
+        let covered = (0..4096).filter(|i| at((i % 64) as f32 / 64.0 + 0.003, (i / 64) as f32 / 64.0 + 0.003) == 0.0).count();
+        assert!((40..700).contains(&covered), "gaps are thin: {covered} of 4096");
     }
 }

@@ -140,6 +140,7 @@ impl Writer {
                 ContentEffectKind::Filter { channel, filter } => ContentEffectKindV5::Filter { channel: *channel, filter: *filter },
                 ContentEffectKind::Anchor => ContentEffectKindV5::Anchor,
                 ContentEffectKind::Generator(g) => ContentEffectKindV5::Generator { generator: *g },
+                ContentEffectKind::Material(m) => ContentEffectKindV5::Material { filter: *m },
             },
             extra_channels: e.extra_channels.iter().copied().collect(),
         }
@@ -174,7 +175,7 @@ impl Writer {
         };
         let parts = l.parts.as_ref().map(|p| PartsV1 { enabled: p.enabled, kind: p.kind, parts: p.parts.iter().copied().collect() });
         let content_effects = l.content_effects.iter().map(|e| self.content_effect(e)).collect();
-        LayerV1 { id: l.id.0, name: l.name.clone(), visible: l.visible, blend, mask, parts, color: l.color, instance_of: l.instance_of.map(|i| i.0), content, content_effects }
+        LayerV1 { id: l.id.0, name: l.name.clone(), visible: l.visible, blend, mask, parts, color: l.color, instance_of: l.instance_of.map(|i| i.0), content, content_effects, material: l.material.as_deref().map(schema::MaterialV1::from_doc) }
     }
 }
 
@@ -529,6 +530,12 @@ impl<R: Read + Seek> Loader<'_, R> {
         if generator.editor.as_ref().is_some_and(|e| !e.valid()) {
             return Err(ProjectError::Invalid("invalid Mask Editor settings".into()));
         }
+        if generator.fiber.as_ref().is_some_and(|f| !f.valid()) {
+            return Err(ProjectError::Invalid("invalid Fiber Glass Edge Wear settings".into()));
+        }
+        if generator.builder.as_ref().is_some_and(|b| !b.valid()) {
+            return Err(ProjectError::Invalid("invalid Mask Builder settings".into()));
+        }
         if generator.shape.as_ref().is_some_and(|s| !s.valid()) {
             return Err(ProjectError::Invalid("invalid generator shape settings".into()));
         }
@@ -623,6 +630,10 @@ impl<R: Read + Seek> Loader<'_, R> {
                 Self::check_generator(generator, self.trusted)?;
                 ContentEffectKind::Generator(*generator)
             }
+            ContentEffectKindV5::Material { filter } => {
+                if !self.trusted && !filter.valid() { return Err(ProjectError::Invalid("invalid material filter".into())); }
+                ContentEffectKind::Material(*filter)
+            }
         };
         let blend = e.blend.iter().map(|b| (b.channel, ChannelBlend { mode: b.mode, opacity: b.opacity })).collect();
         let extra_channels = if matches!(kind, ContentEffectKind::Filter { .. }) { e.extra_channels.iter().copied().collect() } else { Default::default() };
@@ -684,7 +695,7 @@ impl<R: Read + Seek> Loader<'_, R> {
             }),
         };
         if matches!(content, LayerContent::Group(_)) && l.content_effects.iter().any(|e|
-            !matches!(e.kind, ContentEffectKindV5::Filter { .. } | ContentEffectKindV5::Levels { .. } | ContentEffectKindV5::Anchor)) {
+            !matches!(e.kind, ContentEffectKindV5::Filter { .. } | ContentEffectKindV5::Levels { .. } | ContentEffectKindV5::Anchor | ContentEffectKindV5::Material { .. })) {
             return Err(ProjectError::Invalid("source effects on a folder".into()));
         }
         let content_effects = l.content_effects.iter().map(|e| self.content_effect(e, res).map(Arc::new)).collect::<Result<_, _>>()?;
@@ -699,6 +710,7 @@ impl<R: Read + Seek> Loader<'_, R> {
             instance_of: l.instance_of.map(LayerId),
             content,
             content_effects,
+            material: l.material.as_ref().map(|m| Arc::new(m.to_doc())),
         })
     }
 }

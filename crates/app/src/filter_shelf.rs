@@ -3,7 +3,7 @@
 //! when the mask is being edited, otherwise to its content on the first channel it supports.
 
 use subcraft_core::ChannelKind;
-use subcraft_doc::{ContentEffectKind, Filter, MaskEffectKind};
+use subcraft_doc::{ContentEffectKind, Filter, MaskEffectKind, MaterialFilter};
 
 use crate::session::LayerTarget;
 use crate::{Command, Session};
@@ -24,7 +24,54 @@ pub fn filter_layer(filter: Filter, ts: &subcraft_doc::TextureSet) -> Option<sub
     Some(layer)
 }
 
+/// A material filter (Galvanized, Rust Weathering...) as a filter layer: an empty paint layer,
+/// Passthrough on every channel, whose only effect is `filter`. It reworks the material of
+/// everything below it. `None` when the texture set has none of the channels the filter writes.
+pub fn material_filter_layer(filter: MaterialFilter, ts: &subcraft_doc::TextureSet) -> Option<subcraft_doc::Layer> {
+    if !ts.channels.iter().any(|c| filter.writes(c.kind)) {
+        return None;
+    }
+    let mut layer = subcraft_doc::Layer::new_paint(filter.label(), ts);
+    for blend in layer.blend.values_mut() {
+        *blend = subcraft_doc::ChannelBlend::new(subcraft_doc::BlendMode::Passthrough);
+    }
+    let mut effect = subcraft_doc::ContentEffect::new(ContentEffectKind::Material(filter), ts);
+    effect.name = filter.label().into();
+    layer.content_effects.push(std::sync::Arc::new(effect));
+    Some(layer)
+}
+
 impl Session {
+    /// A material filter dragged from the Shelf into the layer stack: a new filter layer above
+    /// the selection (see [`material_filter_layer`]). One undo step.
+    pub fn add_material_filter_layer(&mut self, filter: MaterialFilter) -> Result<(), crate::CommandError> {
+        let layer = material_filter_layer(filter, self.selected_texture_set())
+            .ok_or_else(|| crate::CommandError::Invalid(format!("{} writes none of this texture set's channels", filter.label())))?;
+        self.execute(Command::InsertLayer { layer: Box::new(layer), label: format!("Filter layer: {}", filter.label()) })
+    }
+
+    /// The command a Shelf click on a material filter runs: it swaps the selected material
+    /// filter to this one (its blend, visibility and position stay), or adds the filter to the
+    /// content of the selected layer. `None` without a selected layer, while a mask is being
+    /// edited (material filters do not work on masks) or when the set has none of its channels.
+    pub fn shelf_material_filter_command(&self, filter: MaterialFilter) -> Option<Command> {
+        let layer = self.selected_layer()?;
+        if self.layer_target() != LayerTarget::Content || !self.selected_texture_set().channels.iter().any(|c| filter.writes(c.kind)) {
+            return None;
+        }
+        if let Some(e) = self.selected_effect().and_then(|id| layer.content_effects.iter().find(|e| e.id == id))
+            && let ContentEffectKind::Material(old) = &e.kind
+        {
+            let mut e = subcraft_doc::ContentEffect::clone(e);
+            if e.name == old.label() || e.name == e.kind.label() {
+                e.name = ContentEffectKind::Material(filter).label();
+            }
+            e.kind = ContentEffectKind::Material(filter);
+            return Some(Command::SetContentEffect { layer: layer.id, effect: e });
+        }
+        Some(Command::AddContentEffect { layer: layer.id, kind: ContentEffectKind::Material(filter) })
+    }
+
     /// A filter dragged from the Shelf into the layer stack: a new filter layer above the
     /// selection (see [`filter_layer`]). One undo step.
     pub fn add_filter_layer(&mut self, filter: Filter) -> Result<(), crate::CommandError> {
@@ -146,5 +193,47 @@ mod tests {
         s.execute(Command::Undo).unwrap();
         s.execute(Command::Undo).unwrap();
         assert_eq!(s.selected_texture_set().layers.len(), 1);
+    }
+
+    #[test]
+    fn shelf_material_filters_add_swap_and_become_passthrough_filter_layers() {
+        let mut s = Session::new(subcraft_mesh::primitives::cube(2.0), 32);
+        let [galvanized, hammered, ..] = MaterialFilter::ALL;
+        let kinds = |s: &Session| -> Vec<&'static str> {
+            s.selected_layer().unwrap().content_effects.iter().filter_map(|e| match &e.kind {
+                ContentEffectKind::Material(m) => Some(m.label()),
+                _ => None,
+            }).collect()
+        };
+        let cmd = s.shelf_material_filter_command(galvanized).expect("a layer is selected");
+        s.execute(cmd).unwrap();
+        assert_eq!(kinds(&s), vec![galvanized.label()]);
+        let layer = s.selected_layer().unwrap();
+        let (lid, eid) = (layer.id, layer.content_effects.last().unwrap().id);
+        s.execute(Command::SelectEffect { layer: lid, target: LayerTarget::Content, effect: Some(eid) }).unwrap();
+        let cmd = s.shelf_material_filter_command(hammered).unwrap();
+        assert!(matches!(cmd, Command::SetContentEffect { .. }), "swaps rather than adds");
+        s.execute(cmd).unwrap();
+        assert_eq!(kinds(&s), vec![hammered.label()]);
+        let e = s.selected_layer().unwrap().content_effects.last().unwrap().clone();
+        assert_eq!((e.id, e.name.as_str()), (eid, hammered.label()), "same effect, renamed");
+
+        // Dragged into the stack: a Passthrough layer above, one undo step.
+        let steps = s.history().entries().len();
+        s.add_material_filter_layer(galvanized).unwrap();
+        assert_eq!(s.history().entries().len(), steps + 1);
+        let ts = s.selected_texture_set();
+        let top = ts.layers.last().unwrap();
+        assert_eq!(s.selection().layer, Some(top.id));
+        assert_eq!(top.name, galvanized.label());
+        assert!(top.blend.values().all(|b| b.mode == subcraft_doc::BlendMode::Passthrough));
+        assert!(matches!(top.content_effects[..], [ref e] if e.kind == ContentEffectKind::Material(galvanized)));
+
+        // Material filters never go into a mask.
+        s.execute(Command::AddMask { layer: lid, white: false }).unwrap();
+        s.execute(Command::SelectLayer(Some(lid))).unwrap();
+        s.execute(Command::SelectLayerTarget { layer: lid, target: LayerTarget::Mask }).unwrap();
+        assert_eq!(s.layer_target(), LayerTarget::Mask);
+        assert!(s.shelf_material_filter_command(galvanized).is_none());
     }
 }

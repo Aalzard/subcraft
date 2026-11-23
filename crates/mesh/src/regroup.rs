@@ -86,6 +86,7 @@ impl Mesh {
         }
         let mut mesh = Mesh {
             name: self.name.clone(),
+            unit_meters: self.unit_meters,
             objects: self.objects.clone(),
             materials: kept.iter().map(|&s| MaterialSlot { name: names[s as usize].clone() }).collect(),
             ..Default::default()

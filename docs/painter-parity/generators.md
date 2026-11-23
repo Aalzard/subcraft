@@ -225,7 +225,7 @@ Layout notes: Same layout as Metal Edge Wear, without Grunge Scale.
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Fiber Glass Edge Wear (generator) | Properties > Generator | used on: mask or fill | missing | - | - |
+| Fiber Glass Edge Wear (generator) | Properties > Generator | used on: mask or fill | partial: `FiberGlass` kind, the Edge wear model plus a woven fringe (Fibre Amount / Scale / Irregularity, Use Triplanar); look not checked against Painter | crates/doc/src/mask.rs (FiberSettings) | 2026-11-23 |
 | Custom grunge | Properties > Generator > Image inputs | grayscale; texture or anchor | partial: an image resource replacing the breakup noise, projected tri-planar at the pattern size (anchors not offered) | crates/ui/src/panels/properties.rs:441 | chunk 34 |
 | Curvature | Properties > Generator > Image inputs | grayscale; baked map | missing | - | - |
 | Ambient Occlusion | Properties > Generator > Image inputs | grayscale; baked map | missing | - | - |
@@ -313,7 +313,7 @@ Layout notes: Legacy version of Mask Editor. Global Seed / Level / Contrast / In
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Mask Builder (generator, legacy) | Properties > Generator | used on: mask or fill | missing | - | - |
+| Mask Builder (generator, legacy) | Properties > Generator | used on: mask or fill | partial: `MaskBuilder` kind with the seven sliders and their groups, contributions added; no custom grunge slots, curvature Smoothness or tri-planar toggle; mixing rule not checked against Painter | crates/doc/src/mask.rs (MaskBuilder) | 2026-11-23 |
 | World space normal | Properties > Generator > Image inputs | colour; baked map | missing | - | - |
 | Custom grunge 1 | Properties > Generator > Image inputs | grayscale; texture or anchor | partial: an image resource replacing the breakup noise, projected tri-planar at the pattern size (anchors not offered) | crates/ui/src/panels/properties.rs:441 | chunk 34 |
 | Custom grunge 2 | Properties > Generator > Image inputs | grayscale; texture or anchor | missing | - | - |
