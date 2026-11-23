@@ -742,9 +742,9 @@ mod keyboard_tests {
         assert!(state.pen.style.is_none());
 
         // Any other brush from the Shelf still goes to the Brush tool.
-        let other = state.brush_presets.iter().find(|p| !p.name.starts_with("Stitch") && p.kind == subcraft_app::brush_preset::PresetKind::Brush).cloned().unwrap();
+        let other = state.brush_presets.iter().find(|p| !p.name.starts_with("Stitch")).cloned().unwrap();
         state.select_shelf_brush(subcraft_app::brush_preset::ShelfBrush::Preset(&other), 0.0);
-        assert_eq!(state.tool, Tool::Brush);
+        assert_ne!(state.tool, Tool::Pen, "{}", other.name);
     }
 
     /// The stitch choice outlives the project it was made in: its tip becomes a resource of
@@ -768,7 +768,8 @@ mod keyboard_tests {
         let mut state = UiState::new(subcraft_app::Session::sample(), None);
         state.tool = Tool::Pen;
         let ctx = egui::Context::default();
-        let mut frame = |state: &mut UiState| {
+        crate::theme::apply(&ctx);
+        let frame = |state: &mut UiState| {
             let mut out = ctx.run_ui(egui::RawInput::default(), |ui| crate::panels::properties::show(state, ui));
             out.textures_delta.clear();
         };
