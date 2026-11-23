@@ -662,7 +662,7 @@ pub fn smart_materials() -> Vec<SmartMaterial> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use subcraft_doc::ParamValue;
+    use subcraft_doc::{ParamKind, ParamValue};
 
     fn built() -> Vec<(String, Layer)> {
         let ts = TextureSet::new("set", 0, 64);
@@ -728,5 +728,39 @@ mod tests {
         let (ma, mb) = (a.material.as_ref().unwrap(), b.material.as_ref().unwrap());
         assert!(ma.bindings.iter().zip(&mb.bindings).all(|(x, y)| x.layer != y.layer));
         assert_eq!(ma.check(&b).len(), ma.bindings.len(), "bindings of one application find nothing in the other");
+    }
+
+    /// Authoring: every property the panel offers can be exposed on any material's layers.
+    /// Exposing changes nothing (the control starts at the value the property has), the
+    /// binding applies, and moving the control changes the layers.
+    #[test]
+    fn every_exposable_property_can_be_exposed_and_then_drives_its_layer() {
+        let mut exposed = 0;
+        for (name, built) in built() {
+            let mut plain = built.clone();
+            plain.material = None;
+            let list = subcraft_doc::material::exposable(&plain);
+            assert!(list.len() > 10, "{name}: {}", list.len());
+            for e in &list {
+                let mut controls = MaterialControls::default();
+                let id = controls.expose(e).unwrap_or_else(|| panic!("{name}: {e:?}"));
+                assert!(controls.validate().is_empty() && controls.check(&plain).is_empty(), "{name}: {e:?} {:?}", controls.check(&plain));
+                assert!(controls.expose(e).is_none(), "a property is exposed once");
+                let mut same = plain.clone();
+                assert!(!controls.apply(&mut same), "{name}: exposing {} of {} changed the layer", e.label, e.layer_name);
+                let other = match e.kind {
+                    ParamKind::Float { min, max, default } => ParamValue::Number(if (default - min).abs() > (max - default).abs() { min } else { max }),
+                    ParamKind::Color { default } => ParamValue::Color([1.0 - default[0].min(1.0), 0.3, 0.7]),
+                    ParamKind::Toggle { default } => ParamValue::Toggle(!default),
+                    ParamKind::Seed { default } => ParamValue::Number(((default + 7) % 1000) as f32),
+                };
+                assert!(controls.set(&id, other), "{name}: {e:?}");
+                let mut moved = plain.clone();
+                assert!(controls.apply(&mut moved), "{name}: {} of {} did not follow its control", e.label, e.layer_name);
+                assert!(controls.remove_param(&id) && controls.params.is_empty() && controls.bindings.is_empty());
+                exposed += 1;
+            }
+        }
+        assert!(exposed > 300, "{exposed}");
     }
 }

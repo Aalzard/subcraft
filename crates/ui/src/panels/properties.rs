@@ -207,8 +207,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         cmds.extend(part_cmds);
 
         // Procedural material (ADR-0047): the layer's exposed parameters, above its own content.
-        if let Some(m) = &layer.material {
-            super::material_params::section(ui, id, m, &mut cmds);
+        if layer.material.is_some() {
+            super::material_params::section(ui, &layer, &mut cmds);
         }
 
         match &layer.content {
@@ -383,6 +383,11 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             }
         }
 
+        // A fill or folder without parameters can get some: offered (closed) below its content,
+        // so the layer's own settings stay where they were.
+        if layer.material.is_none() && matches!(layer.content, LayerContent::Fill(_) | LayerContent::Group(_)) {
+            super::material_params::section(ui, &layer, &mut cmds);
+        }
 
         let mut head_cmds = Vec::new();
         section_with(
