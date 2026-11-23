@@ -73,8 +73,10 @@ fn the_window_changes_the_tone_map_and_reset_restores_the_default_look() {
 #[test]
 fn prefs_map_to_render_settings_and_old_files_get_defaults() {
     let defaults = ViewportPrefs::default().post_params(2.0);
-    assert_eq!(defaults, PostParams { ssao_radius: defaults.ssao_radius, dof_range: defaults.dof_range, ..PostParams::default() });
+    assert_eq!(defaults, PostParams { ssao_radius: defaults.ssao_radius, dof_range: defaults.dof_range, contact_length: defaults.contact_length, ssr_distance: defaults.ssr_distance, ..PostParams::default() });
     assert!((defaults.ssao_radius - 0.03 * 2.0).abs() < 1e-6, "3% of a model with diagonal 2");
+    assert!((defaults.contact_length - 0.03 * 2.0).abs() < 1e-6 && (defaults.ssr_distance - 0.5 * 2.0).abs() < 1e-6, "lengths follow the model size");
+    assert_eq!((defaults.contact_shadows, defaults.ssr), (0.0, 0.0), "both off by default");
     let old: ViewportPrefs = serde_json::from_str(r#"{"grid":false}"#).unwrap();
     assert_eq!((old.tone_map(), old.bloom, old.ssao, old.exposure, old.emission_glow), (ToneMap::Aces, 0.0, 0.0, 1.0, 0.35));
     let wild = ViewportPrefs { display: subcraft_doc::DisplaySettings { bloom: -3.0, ssao: 9.0, glare_length: 7.0, ssao_radius: 1e6, ..Default::default() }, ..Default::default() };
