@@ -242,3 +242,27 @@ fn breakup_never_spreads_baked_wear_onto_mildly_convex_surface() {
     let worn = m.iter().filter(|&&v| v > 0.5).count();
     assert!(worn > m.len() / 3, "apex wear {worn} of {}", m.len());
 }
+
+/// QA fuzz seed 424: a Height blend mode change on a layer under an HBAO material filter must
+/// also redraw the Base Color the filter darkens (the cache once confined it to Height).
+#[test]
+fn incremental_cache_follows_a_height_blend_change_under_hbao() {
+    use subcraft_doc::{BlendMode, ChannelBlend, ContentEffect, ContentEffectKind, MaterialFilter};
+    let fx = Fx::plane();
+    let mut ts = TextureSet::new("T", 0, RES);
+    let tc = ts.clone();
+    let relief_id = ts.insert_above(None, relief(&tc));
+    let mut top = Layer::new_fill("Top", &tc);
+    let hbao = MaterialFilter::ALL.into_iter().find(|f| matches!(f, MaterialFilter::Hbao { .. })).unwrap();
+    top.content_effects.push(Arc::new(ContentEffect::new(ContentEffectKind::Material(hbao), &tc)));
+    ts.insert_above(None, top);
+    let mut cache = CompositeCache::new();
+    cache.update(&ts, &fx.ctx());
+    let before = bits(cache.composite().unwrap(), ChannelKind::BaseColor);
+    assert_eq!(before, bits(&composite_full(&ts, &fx.ctx()), ChannelKind::BaseColor));
+    ts.find_mut(relief_id).unwrap().blend.insert(ChannelKind::Height, ChannelBlend::new(BlendMode::Difference));
+    cache.update(&ts, &fx.ctx());
+    let full = composite_full(&ts, &fx.ctx());
+    assert_ne!(before, bits(&full, ChannelKind::BaseColor), "the blend change moves the occlusion");
+    assert_eq!(bits(cache.composite().unwrap(), ChannelKind::BaseColor), bits(&full, ChannelKind::BaseColor), "incremental == full");
+}
