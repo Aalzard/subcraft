@@ -15,6 +15,7 @@ pub mod procedural;
 pub mod smart;
 mod smart_more;
 mod smart_extra;
+mod smart_stacks;
 pub mod texture_maps;
 pub mod materials_pack;
 pub mod user_library;

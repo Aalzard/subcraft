@@ -2067,6 +2067,17 @@ impl Session {
                     Ok(())
                 })?;
             }
+            Command::ApplyMaskStack { layer, effects, replace, label } => {
+                for e in &effects { Self::check_mask_effect(&e.kind)?; }
+                self.edit_layer_set(layer, &label, None, |ts| {
+                    let res = ts.resolution;
+                    let l = Self::layer_mut(ts, layer)?;
+                    let mask = l.mask.get_or_insert_with(|| Mask::new(res, false));
+                    if replace { mask.effects.clear(); }
+                    mask.effects.extend(effects.into_iter().map(|e| Arc::new(MaskEffect { blend: e.blend, opacity: e.opacity.clamp(0.0, 1.0), ..MaskEffect::new(e.kind) })));
+                    Ok(())
+                })?;
+            }
             Command::DeleteLayer(id) => {
                 let loc = self.edit_layer_set(id, "Delete Layer", None, |ts| {
                     let loc = ts.location(id);
@@ -4375,7 +4386,11 @@ impl Session {
         for r in &mask.resources {
             self.resources.insert_shared(r.clone());
         }
-        let (effects, label) = (mask.effects.clone(), format!("Smart Mask: {}", mask.name));
+        let label = format!("Smart Mask: {}", mask.name);
+        if mask.is_stacked() {
+            return self.execute(Command::ApplyMaskStack { layer, effects: mask.stack(), replace, label });
+        }
+        let effects = mask.effects.clone();
         self.execute(if replace { Command::ReplaceMaskEffects { layer, effects, label } } else { Command::ApplyMaskEffects { layer, effects, label } })
     }
 

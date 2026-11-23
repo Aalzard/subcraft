@@ -108,6 +108,10 @@ pub enum Command {
     /// Like `ApplyMaskEffects`, but the mask's previous effects go first (Painter: a smart mask
     /// dropped with Ctrl or Alt). What was painted into the mask stays.
     ReplaceMaskEffects { layer: LayerId, effects: Vec<MaskEffectKind>, label: String },
+    /// A smart mask whose effects carry blend modes and opacities: give the layer a black mask
+    /// (if it has none) and append these effects, or with `replace` put them in place of the
+    /// mask's effects. The effects get fresh ids.
+    ApplyMaskStack { layer: LayerId, effects: Vec<subcraft_doc::MaskEffect>, replace: bool, label: String },
     DeleteLayer(LayerId),
     /// Painter's "Paste as instance": above the selected layer, one instance of each of these
     /// layers of the selected texture set. An instance follows its source (content, content

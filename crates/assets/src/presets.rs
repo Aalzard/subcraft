@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use subcraft_core::{AssetId, ChannelKind, ChannelValue, ResourceId};
+use subcraft_doc::BlendMode;
 use subcraft_doc::{
     FillChannel, FillSource, Generator, GeneratorKind, Layer, LayerContent, MaskEffectKind, ProceduralKind, ProceduralParams, Projection,
     ProjectionMode, Resource, ResourceKind, TextureSet,
@@ -211,6 +212,9 @@ pub struct SmartMask {
     pub id: AssetId,
     pub name: String,
     pub effects: Vec<MaskEffectKind>,
+    /// Blend mode and opacity of each effect, in the order of `effects`. An effect without an
+    /// entry is Normal at full opacity (every single-effect mask leaves this empty).
+    pub blends: Vec<(BlendMode, f32)>,
     /// Images used by image mask effects (saved smart masks).
     pub resources: Vec<std::sync::Arc<subcraft_doc::Resource>>,
     /// File in the user library (`None` for built-in smart masks).
@@ -243,7 +247,32 @@ pub(crate) fn dirt_generator() -> MaskEffectKind { MaskEffectKind::Generator(Gen
 pub(crate) fn ambient_occlusion() -> MaskEffectKind { MaskEffectKind::Generator(Generator::new(GeneratorKind::AmbientOcclusion)) }
 
 pub(crate) fn mask(name: &str, effects: Vec<MaskEffectKind>) -> SmartMask {
-    SmartMask { id: AssetId::from_name(&format!("smart_mask/{name}")), name: name.into(), effects, resources: Vec::new(), user_file: None }
+    SmartMask { id: AssetId::from_name(&format!("smart_mask/{name}")), name: name.into(), effects, blends: Vec::new(), resources: Vec::new(), user_file: None }
+}
+
+/// A smart mask of several effects, bottom to top, each with its blend mode over the ones below.
+pub(crate) fn stacked(name: &str, effects: Vec<(MaskEffectKind, BlendMode)>) -> SmartMask {
+    let blends = effects.iter().map(|(_, b)| (*b, 1.0)).collect();
+    SmartMask { blends, ..mask(name, effects.into_iter().map(|(k, _)| k).collect()) }
+}
+
+impl SmartMask {
+    /// The effects as they go on a mask, bottom to top, with their blend modes and opacities
+    /// (fresh effect ids on every call).
+    pub fn stack(&self) -> Vec<subcraft_doc::MaskEffect> {
+        self.effects.iter().enumerate().map(|(i, k)| {
+            let mut e = subcraft_doc::MaskEffect::new(k.clone());
+            if let Some(&(blend, opacity)) = self.blends.get(i) {
+                (e.blend, e.opacity) = (blend, opacity);
+            }
+            e
+        }).collect()
+    }
+
+    /// Any effect blends other than Normal at full opacity.
+    pub fn is_stacked(&self) -> bool {
+        self.blends.iter().any(|&(b, o)| b != BlendMode::Normal || o != 1.0)
+    }
 }
 
 /// Built-in smart masks. Edges / Cavity need baked curvature / AO.
@@ -269,6 +298,7 @@ pub fn smart_masks() -> Vec<SmartMask> {
     .into_iter()
     .chain(crate::smart_more::smart_masks())
     .chain(crate::smart_extra::smart_masks())
+    .chain(crate::smart_stacks::smart_masks())
     .collect()
 }
 
