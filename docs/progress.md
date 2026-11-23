@@ -6134,6 +6134,38 @@ re-measured on a GPU. Not taken from his patch: the `SUBCRAFT_REPAINT_LOG` diagn
   per texel; Grinded / Rough / Raw finishes, Detail Edge Wear, Water Drops, Shut Line and HBAO are still missing.
 
 
+### Session 135 - Viewport IBL and shadow quality: energy-conserving rough reflections, specular occlusion, GGX-matched HDRI blur, soft disk PCF (2026-11-23, branch `claude/project-thread-8mawyv`)
+
+* **Asked:** after Session 134, raise HDRI lighting and shadows to Painter's level. Audit found: rough metals
+  rendered too dark (single-scatter GGX loses ~half the light at roughness 1), AO multiplied reflections like
+  diffuse light, the HDRI's sharpest level was 512 px (0.7 deg per texel) and its blur levels were picked
+  linearly by roughness (roughness 1 saw only ~28 deg of blur, far narrower than a GGX lobe), and shadows used a
+  3x3 / 5x5 box filter with blocky edges.
+* **Energy (`viewport.wgsl`):** `dfg()` returns Karis' split-sum terms; `spec_energy()` scales direct and
+  environment specular by 1 + f0 (1/(A+B) - 1) (multiple-scattering compensation as in Filament), so a white
+  metal reflects its surroundings fully at any roughness. Applied to the plain path and the extended path.
+* **Specular occlusion:** Lagarde & de Rousiers from AO; AO still scales diffuse light. Identical where AO = 1.
+* **HDRI (`assets/src/environment.rs`):** the sharp level is the source width rounded down to a power of two,
+  512..2048 (bundled 1024-px HDRIs keep 1024; 4K files get 2048). Levels go down to 16 px wide; level k is
+  blurred to a lobe of `level_blur(k) = TOP_BLUR / 2^(last - k)` radians with TOP_BLUR = 1 (the core of a GGX
+  lobe is ~alpha wide), adding only the missing blur at each level. The shader picks
+  `last + 2 log2(roughness)` (`env_lod`), which stays right when the GPU budget skips sharp levels. SH now
+  comes from the 128-px level, the sun from the 64-px level. Prefilter of a bundled HDRI: ~57 ms (was ~20).
+* **Shadows (`shadow.rs`, `viewport.wgsl`):** `ShadowQuality::filter()` gives (radius in texels, comparisons):
+  Lightweight 1.5 / 12, Average 2 / 16, Intensive 2.5 / 24, on a Vogel disk of bilinear comparisons rotated per
+  pixel (interleaved gradient noise) and per TAA frame, so TAA averages the penumbra smooth. Normal offset is
+  now slope-scaled by the light angle and filter radius.
+* **Tests:** `render/tests/ibl.rs` (white furnace within 12% at roughness 0.05/0.5/1; AO 0.5 keeps x0.83 of
+  glossy reflections vs x0.63 of diffuse; roughness 0 / 0.5 / 1 sample levels 0 / ~4 / 6),
+  `shadows.rs::the_shadow_edge_is_a_smooth_ramp_without_steps` (penumbra 13 / 8 / 6 px, largest column step
+  9-22% of the ramp), `assets` `prefiltered_levels_blur_like_ggx_lobes_doubling_per_level` (measured spread of
+  each level within 25% of `level_blur`). All `subcraft-render` and `subcraft-assets` tests pass on lavapipe
+  (checked they did not skip).
+* **Render:** `cargo run -p subcraft-render --example ibl_showcase -- out.png "Library Hall"`;
+  before/after in `docs/screenshots/viewport-ibl-before-after.png` (left main, right this change).
+* **Not done / limits:** not checked on a real GPU; the Gaussian prefilter approximates GGX's long tail;
+  no screen-space reflections or contact shadows; the path tracer is unchanged.
+
 ## Procedural materials look pass: tri-planar sides, rust (2026-11-23, branch `claude/project-thread-l9014a`)
 
 * Mirrored patterns on round shapes: tri-planar sampled the same 2D pattern for all three axes and both signs, so

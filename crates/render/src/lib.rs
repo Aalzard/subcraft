@@ -375,7 +375,7 @@ struct Globals {
     shadow_mat: [[f32; 4]; 4],
     /// x: 1 = shadows on, y: opacity, z: one texel in map UV, w: one texel in world units.
     shadow: [f32; 4],
-    /// x: filter radius in texels.
+    /// x: filter radius in texels, y: comparisons, z: TAA frame (rotates the filter disk).
     shadow_filter: [f32; 4],
 }
 
@@ -1299,7 +1299,10 @@ impl ViewportRenderer {
                 Some((_, texel)) => [1.0, params.shadows.opacity.clamp(0.0, 1.0), 1.0 / shadow_size as f32, texel],
                 None => [0.0; 4],
             },
-            shadow_filter: [params.shadows.quality.filter_radius() as f32, 0.0, 0.0, 0.0],
+            shadow_filter: {
+                let (radius, taps) = params.shadows.quality.filter();
+                [radius, taps as f32, params.taa_frame as f32, 0.0]
+            },
         };
         queue.write_buffer(&self.globals, 0, bytemuck::bytes_of(&globals));
         if params.symmetry_guides && let Some(guides) = &self.symmetry { guides.prepare_lines(queue, params.proj * params.view); }

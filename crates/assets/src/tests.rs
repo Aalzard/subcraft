@@ -71,6 +71,36 @@ fn constant_environment_prefilters_to_constant_irradiance() {
 }
 
 #[test]
+fn prefiltered_levels_blur_like_ggx_lobes_doubling_per_level() {
+    // A thin bright vertical line through a 2048-wide panorama: the horizontal spread of each
+    // level at the equator is that level's blur angle.
+    let (w, h) = (2048u32, 1024u32);
+    let mut data = vec![0.0f32; (w * h * 3) as usize];
+    for y in 0..h {
+        let i = ((y * w + w / 2) * 3) as usize;
+        data[i..i + 3].copy_from_slice(&[1.0, 1.0, 1.0]);
+    }
+    let p = environment::prefilter(&Bitmap::new_f32(w, h, 3, data));
+    assert_eq!(p.levels.len(), 8, "2048 .. 16");
+    assert_eq!(p.levels[0].width, 2048);
+    let n = p.levels.len();
+    for (k, l) in p.levels.iter().enumerate().skip(1).take(n - 3) {
+        let y = l.height / 2;
+        let (mut sum, mut m2) = (0.0f64, 0.0f64);
+        for x in 0..l.width {
+            let v = l.rgba[((y * l.width + x) * 4) as usize] as f64;
+            let ang = ((x as f64 + 0.5) / l.width as f64 - 0.5) * std::f64::consts::TAU;
+            sum += v;
+            m2 += v * ang * ang;
+        }
+        let sigma = (m2 / sum).sqrt() as f32;
+        let want = environment::level_blur(k, n);
+        assert!((sigma / want - 1.0).abs() < 0.25, "level {k}: {:.2} deg, want {:.2} deg", sigma.to_degrees(), want.to_degrees());
+    }
+    assert!((environment::level_blur(n - 1, n) - environment::TOP_BLUR).abs() < 1e-6, "the last level is roughness 1");
+}
+
+#[test]
 fn bright_sky_lights_upward_normals_and_finds_the_sun() {
     // Upper hemisphere 1, lower 0.05, plus a bright spot (sun) at u=0.25, v=0.2.
     let (w, h) = (128u32, 64u32);
@@ -145,7 +175,9 @@ fn bundled_hdri_prefilters_on_first_use_with_a_sun_direction() {
     let lib = Library::builtin();
     let sky = lib.environments.iter().find(|e| e.name == "Salt Flats Twilight").expect("bundled sky");
     let h = sky.source.hdri().expect("hdri");
-    assert_eq!(h.levels.len(), 6);
+    // 1024 wide: levels 1024, 512, ... 16.
+    assert_eq!(h.levels.len(), 7);
+    assert_eq!(h.levels[0].width, 1024);
     assert!(h.sun_direction.iter().all(|v| v.is_finite()));
     assert!(lib.environments[0].source.hdri().is_none(), "procedural presets have no panorama");
 }
