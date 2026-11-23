@@ -169,6 +169,8 @@ enum Node<'a> {
         filter: Filter,
         kind: ChannelKind,
         support: u32,
+        /// A smoothed copy of `input` (Blur Slope on Previous input measures its slope there).
+        slope: Option<usize>,
     },
     Contour {
         input: usize,
@@ -306,6 +308,8 @@ pub(crate) struct Graph<'a> {
     /// Quantize palettes per node: picked once from the whole input texture, then shared by
     /// every tile.
     palettes: Mutex<HashMap<usize, Arc<OnceLock<Arc<subcraft_materials::filter::quantize::Palette>>>>>,
+    /// Color Match averages per node: the mean colour of the whole input, found once.
+    averages: Mutex<HashMap<usize, Arc<OnceLock<Option<[f32; 3]>>>>>,
 }
 
 /// Anchor bookkeeping of a graph whose texture set has references.
@@ -386,6 +390,7 @@ impl<'a> Graph<'a> {
             compare_content: HashMap::new(),
             top: &[],
             palettes: Mutex::new(HashMap::new()),
+            averages: Mutex::new(HashMap::new()),
         }
     }
     /// Index the anchors of `layers` when any layer reads one.
@@ -631,10 +636,14 @@ impl<'a> Graph<'a> {
                 v.extend(*mask);
                 v
             }
+            Node::Pixelwise { input, filter: _, kind: _, support: _, slope } => {
+                let mut v = vec![*input];
+                v.extend(*slope);
+                v
+            }
             Node::Directional { input, taps: _, support: _ }
             | Node::Median { input, radius: _ }
             | Node::Warp { input, intensity: _, scale: _, seed: _, support: _, samples: _ }
-            | Node::Pixelwise { input, filter: _, kind: _, support: _ }
             | Node::Contour { input, filter: _, kind: _, radius: _ }
             | Node::Gaussian { input, weights: _, horizontal: _, wrap: _ } => vec![*input],
             Node::MicroDelta { mask, generator: _, opacity: _ } => vec![*mask],
@@ -801,7 +810,7 @@ impl<'a> Graph<'a> {
                     tile_safe: false,
                 };
                 let support = dx.abs().max(dy.abs()).ceil() as u32 + 1;
-                node = self.push(Node::Pixelwise { input: node, filter: shift, kind, support });
+                node = self.push(Node::Pixelwise { input: node, filter: shift, kind, support, slope: None });
             }
             if size > 0.0 {
                 let weights = Arc::new(subcraft_materials::filter::gaussian_weights(size));
@@ -813,7 +822,8 @@ impl<'a> Graph<'a> {
         // A uniform image is unchanged by any of these, except by Edge Detect (0 on a flat input)
         // and by a Transform that leaves part of the texture empty: those must still be evaluated.
         let leaves_gaps = matches!(filter, Filter::Transform { repeat, .. } if repeat != subcraft_doc::RepeatMode::Both);
-        if (self.uniform[input] && !leaves_gaps && !matches!(filter, Filter::EdgeDetect { .. }))
+        // Color Match in Average mode recolours a flat input too.
+        if (self.uniform[input] && !leaves_gaps && !matches!(filter, Filter::EdgeDetect { .. } | Filter::ColorMatch { .. }))
             || radius == 0.0
             || matches!(
                 filter,
@@ -833,7 +843,19 @@ impl<'a> Graph<'a> {
                     input = self.push(Node::Gaussian { input: h, weights, horizontal: false, wrap: false });
                 }
             }
-            return Some(self.push(Node::Pixelwise { input, filter, kind, support: filter.support() }));
+            // Blur Slope on Previous input: the slope is measured on a Gaussian-smoothed copy.
+            let mut slope = None;
+            if let Filter::BlurSlopeMode { intensity, source: subcraft_doc::SlopeSource::Input, .. } = filter {
+                let weights = Arc::new(subcraft_materials::filter::gaussian_weights(intensity * subcraft_doc::SLOPE_SMOOTHING));
+                let h = self.push(Node::Gaussian { input, weights: weights.clone(), horizontal: true, wrap: false });
+                slope = Some(self.push(Node::Gaussian { input: h, weights, horizontal: false, wrap: false }));
+            }
+            let support = match filter {
+                // The node itself only walks `intensity` pixels; the smoothing has its own nodes.
+                Filter::BlurSlopeMode { intensity, .. } => intensity.ceil() as u32 + 1,
+                _ => filter.support(),
+            };
+            return Some(self.push(Node::Pixelwise { input, filter, kind, support, slope }));
         }
         if let Filter::Warp { scale, seed, .. } = filter {
             let intensity = radius * self.radius_scale;
@@ -1245,10 +1267,15 @@ impl<'a> Graph<'a> {
                             read(*m);
                         }
                     }
+                    Node::Pixelwise { input, slope, .. } => {
+                        for n in [Some(*input), *slope].into_iter().flatten() {
+                            shared[n] = true;
+                            uses[n] += 2;
+                        }
+                    }
                     Node::Directional { input, .. }
                     | Node::Median { input, .. }
                     | Node::Warp { input, .. }
-                    | Node::Pixelwise { input, .. }
                     | Node::Contour { input, .. }
                     | Node::Gaussian { input, .. } => {
                         shared[*input] = true;
@@ -1772,9 +1799,11 @@ impl<'a> Graph<'a> {
                 filter,
                 kind,
                 support,
+                slope,
             } => {
                 use subcraft_materials::filter::pixelwise as pw;
                 let grid = Neighborhood::new(self, *input, &geo, *support);
+                let slope = slope.map(|n| Neighborhood::new(self, n, &geo, 1));
                 let res = self.ctx.geometry.resolution;
                 let mut out = vec![[0.0; 4]; TILE_TEXELS];
                 if let Filter::Quantize { colors, dithering, pattern, lab, apply_to_alpha, alpha_threshold, .. } = *filter {
@@ -1791,6 +1820,20 @@ impl<'a> Graph<'a> {
                     }
                     return out;
                 }
+                if let Filter::ColorMatch { source, target, hue, chroma, luma, .. } = *filter {
+                    // Average mode (Parameter mode is a point filter): the mean of the input.
+                    let cell = self.averages.lock().unwrap().entry(node).or_default().clone();
+                    let source = cell.get_or_init(|| average_color(&grid, res)).unwrap_or(source);
+                    for (i, dst) in out.iter_mut().enumerate() {
+                        let (x, y) = geo.texel_xy(i);
+                        if x < res && y < res {
+                            let p = grid.pixel(x, y);
+                            let c = subcraft_materials::filter::color_match([p[0], p[1], p[2]], source, target, hue, chroma, luma);
+                            *dst = [c[0], c[1], c[2], p[3]];
+                        }
+                    }
+                    return out;
+                }
                 for (i, dst) in out.iter_mut().enumerate() {
                     let (x, y) = geo.texel_xy(i);
                     if x >= res || y >= res {
@@ -1798,6 +1841,25 @@ impl<'a> Graph<'a> {
                     }
                     let here = grid.pixel(x, y);
                     *dst = match *filter {
+                        Filter::BlurSlopeMode { intensity, scale, seed, samples, mode, .. } => {
+                            let sample = |dx: f32, dy: f32| grid.premultiplied(x as f32 + dx, y as f32 + dy);
+                            match &slope {
+                                // Previous input: across the nearest edge, both ways.
+                                Some(smooth) => {
+                                    let v = |dx: i32, dy: i32| {
+                                        let p = smooth.pixel((x as i32 + dx).clamp(0, res as i32 - 1) as u32, (y as i32 + dy).clamp(0, res as i32 - 1) as u32);
+                                        pw::scalar(p, *kind) * p[3].min(1.0)
+                                    };
+                                    let g = [(v(1, 0) - v(-1, 0)) * 0.5, (v(0, 1) - v(0, -1)) * 0.5];
+                                    pw::slope_blur(sample, pw::slope_offset(g, intensity), true, samples, mode, *kind)
+                                }
+                                None => pw::slope_blur(sample, subcraft_materials::filter::warp::offset(x, y, res, intensity, scale, seed), false, samples, mode, *kind),
+                            }
+                        }
+                        Filter::NonUniformBlur { radius, map, scale, seed, samples } => {
+                            let m = pw::blur_map(map, pw::scalar(here, *kind), x, y, res, scale, seed);
+                            pw::disc_blur(|dx, dy| grid.premultiplied(x as f32 + dx, y as f32 + dy), radius * m, samples)
+                        }
                         Filter::EdgeDetect { radius, strength } => {
                             let read = |dx: i32, dy: i32| {
                                 let px = (x as i32 + dx).clamp(0, res as i32 - 1) as u32;
@@ -2054,6 +2116,25 @@ fn quantize_samples(grid: &Neighborhood, res: u32) -> Vec<[f32; 3]> {
     samples
 }
 
+/// Mean colour of the covered texels of the whole texture, weighted by coverage, from the
+/// same regular grid the Quantize palette uses. `None` when nothing is covered.
+fn average_color(grid: &Neighborhood, res: u32) -> Option<[f32; 3]> {
+    let side = (subcraft_materials::filter::quantize::MAX_PALETTE_SAMPLES as f64).sqrt() as u32;
+    let step = res.div_ceil(side).max(1);
+    let (mut sum, mut total) = ([0.0f64; 3], 0.0f64);
+    for y in (0..res).step_by(step as usize) {
+        for x in (0..res).step_by(step as usize) {
+            let p = grid.pixel(x, y);
+            let a = p[3].clamp(0.0, 1.0) as f64;
+            for c in 0..3 {
+                sum[c] += p[c] as f64 * a;
+            }
+            total += a;
+        }
+    }
+    (total > 0.0).then(|| sum.map(|v| (v / total) as f32))
+}
+
 struct Neighborhood {
     x0: usize,
     y0: usize,
@@ -2162,6 +2243,7 @@ fn spatial_value(
         Filter::BevelSmooth { .. } | Filter::DirectionalDistance { .. } => blurred,
         // Pixelwise nodes whose output is the final value (a filter missing here is ignored).
         Filter::AnisotropicKuwahara { .. } | Filter::Quantize { .. } => blurred,
+        Filter::BlurSlopeMode { .. } | Filter::NonUniformBlur { .. } | Filter::ColorMatch { .. } => blurred,
         Filter::DropShadow { spread, opacity, color, .. } => under(source, blurred, spread, opacity, false, color, kind),
         Filter::OuterGlow { spread, opacity, color, precise, .. } => under(source, blurred, spread, opacity, precise, color, kind),
         Filter::Blur { radius: 0.0 }

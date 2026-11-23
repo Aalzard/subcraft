@@ -63,7 +63,7 @@ fn the_drop_menu_places_the_image_as_a_decal_and_arms_the_manipulator() {
     assert_eq!(layer.name, "badge");
     let LayerContent::Fill(fill) = &layer.content else { panic!("a fill layer") };
     assert_eq!((fill.projection.mode, fill.projection.uv_wrap), (ProjectionMode::Planar, UvWrap::None));
-    assert_eq!(fill.projection.transform3.scale, [0.25, 0.125, 0.25], "keeps the image's 2:1 shape");
+    assert_eq!(fill.projection.transform3.scale, [0.25, 0.125, 0.5], "keeps the image's 2:1 shape");
     assert!(state.gizmo.visible && state.gizmo.mode == GizmoMode::Surface, "ready to slide over the model");
 }
 

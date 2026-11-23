@@ -92,6 +92,23 @@ fn random_filter(r: &mut Rng) -> Filter {
         Filter::HistogramShift { .. } => Filter::HistogramShift { shift: r.unit() - 0.5 },
         Filter::Quantize { .. } => Filter::Quantize { colors: 2 + r.below(10) as u32, contour_smoothing: r.unit() * 2.0, dithering: r.unit(), pattern: subcraft_doc::DitherPattern::ALL[r.below(3)], lab: r.chance(0.5), apply_to_alpha: r.chance(0.3), alpha_threshold: r.unit() },
         Filter::AnisotropicKuwahara { .. } => Filter::AnisotropicKuwahara { radius: r.unit() * 3.0, smoothness: r.unit(), sharpness: r.unit() * 12.0, tensor_smoothness: r.unit() * 2.0, anisotropy: r.unit() * 2.0, angle: r.unit(), extract_direction: r.chance(0.5) },
+        Filter::BlurSlope { .. } => Filter::blur_slope(subcraft_doc::SlopeParts {
+            intensity: r.unit() * 6.0,
+            scale: 1 + r.below(6) as u32,
+            seed: r.below(9) as u32,
+            samples: 2 + r.below(8) as u32,
+            source: subcraft_doc::SlopeSource::ALL[r.below(2)],
+            mode: subcraft_doc::SlopeMode::ALL[r.below(3)],
+        }),
+        Filter::NonUniformBlur { .. } => Filter::NonUniformBlur { radius: r.unit() * 6.0, map: subcraft_doc::BlurMap::ALL[r.below(3)], scale: 1 + r.below(6) as u32, seed: r.below(9) as u32, samples: 4 + r.below(12) as u32 },
+        Filter::ColorMatch { .. } => Filter::ColorMatch {
+            source_mode: subcraft_doc::MatchSource::ALL[r.below(2)],
+            source: [r.unit(), r.unit(), r.unit()],
+            target: [r.unit(), r.unit(), r.unit()],
+            hue: r.unit(),
+            chroma: r.unit(),
+            luma: r.unit(),
+        },
         other => other,
     }
 }

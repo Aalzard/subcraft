@@ -212,9 +212,16 @@ fn bilinear(bmp: &Bitmap, p: [f32; 2], repeat: [bool; 2], linearize: bool) -> [f
 /// the normalized bounding cube of the model.
 #[inline]
 pub fn projection_covers(projection: &Projection, sc: (f32, f32), uv: [f32; 2], pos: [f32; 3]) -> bool {
+    projection_covers_at(projection, sc, uv, pos, [0.0; 3])
+}
+
+/// [`projection_covers`] with the texel's normal, which Wrap around edges needs to unfold the
+/// position the same way the sampling does.
+#[inline]
+pub fn projection_covers_at(projection: &Projection, sc: (f32, f32), uv: [f32; 2], pos: [f32; 3], normal: [f32; 3]) -> bool {
     const EPS: f32 = 1e-4;
     // The position in the projection box's frame (symmetry, then the 3D transform).
-    let local = projection.local(pos, [0.0; 3]).0;
+    let local = projection.local(pos, normal).0;
     // The box is the bounding cube until it is moved, turned or scaled; then the crop follows
     // the box (and the symmetric copies with it).
     let shape = if projection.effective_transform3().is_identity() { pos } else { local };
@@ -242,7 +249,7 @@ pub fn projection_covers(projection: &Projection, sc: (f32, f32), uv: [f32; 2], 
 /// ([`projection_covers`]), otherwise what backface culling leaves (1 without it).
 #[inline]
 pub fn projection_coverage(projection: &Projection, sc: (f32, f32), uv: [f32; 2], pos: [f32; 3], normal: [f32; 3]) -> f32 {
-    if !projection_covers(projection, sc, uv, pos) {
+    if !projection_covers_at(projection, sc, uv, pos, normal) {
         return 0.0;
     }
     if projection.backface_culling().is_none() {

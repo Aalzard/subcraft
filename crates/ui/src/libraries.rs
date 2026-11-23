@@ -270,6 +270,7 @@ impl UiState {
                 Ok(name)
             }
             UserAssetKind::ExportPreset => Err("export presets are imported from the Export window".into()),
+            UserAssetKind::BakePreset => Err("bake presets are saved from the Bake window".into()),
         }
     }
 }

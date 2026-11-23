@@ -24,6 +24,8 @@ pub enum UserAssetKind {
     Texture,
     /// Export Textures presets (`subcraft_export::preset` JSON files).
     ExportPreset,
+    /// Bake window presets (`subcraft_app::bake_presets` JSON files).
+    BakePreset,
 }
 
 impl UserAssetKind {
@@ -36,6 +38,7 @@ impl UserAssetKind {
             UserAssetKind::BrushPreset => "brush-presets",
             UserAssetKind::Texture => "textures",
             UserAssetKind::ExportPreset => "export-presets",
+            UserAssetKind::BakePreset => "bake-presets",
         }
     }
 
@@ -47,7 +50,7 @@ impl UserAssetKind {
             UserAssetKind::SmartMask => &["scmask"],
             UserAssetKind::BrushPreset => &["scbrush"],
             UserAssetKind::Texture => &subcraft_image::IMAGE_EXTENSIONS,
-            UserAssetKind::ExportPreset => &["json"],
+            UserAssetKind::ExportPreset | UserAssetKind::BakePreset => &["json"],
         }
     }
 }

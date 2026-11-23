@@ -1999,6 +1999,11 @@ fn backface_rows(ui: &mut Ui, proj: &mut Projection) -> bool {
         return false;
     }
     let before = proj.backface;
+    let wrapped = proj.wrap_edges;
+    if proj.mode == subcraft_doc::ProjectionMode::Planar {
+        check_row_reset(ui, "", "Wrap around edges", &mut proj.wrap_edges, Projection::default().wrap_edges)
+            .on_hover_text("The image follows the surface over edges and curves, like a sticker, instead of being projected straight down");
+    }
     let mut on = proj.backface.is_some();
     if check_row_reset(ui, "", tr("Backface culling"), &mut on, Projection::default().backface.is_some()).on_hover_text(tr("Project only on the surfaces that face the projection")).changed() {
         proj.backface = on.then(subcraft_doc::BackfaceCulling::default);
@@ -2013,7 +2018,7 @@ fn backface_rows(ui: &mut Ui, proj: &mut Projection) -> bool {
         slider_row_reset(ui, tr("Culling hardness"), &mut b.hardness, db.hardness, |v| egui::Slider::new(v, 0.0..=1.0))
             .on_hover_text(tr("1 cuts at the angle; lower values fade the projection out before it"));
     }
-    proj.backface != before
+    proj.backface != before || proj.wrap_edges != wrapped
 }
 
 /// Painter's Symmetry group of a fill projection (3D projections only): Enable symmetry, the
