@@ -100,6 +100,20 @@ pub struct Mesh {
     /// the file does not say (OBJ, PLY, STL, Alembic), which reads as meters. Positions are not
     /// rescaled; fills with a Physical size use it to turn lengths into real-world sizes.
     pub unit_meters: f32,
+    /// Every UV set of the file (glTF `TEXCOORD_n`, FBX UV layers), each with one UV per triangle
+    /// corner in the order of `indices`. Empty when the file had one set or none: then `uvs` is all
+    /// there is. When present, `uvs` holds, for each triangle, the corners of the set
+    /// [`Mesh::tri_uv_set`] names (see [`Mesh::with_uv_set`]).
+    pub uv_sets: Vec<UvSet>,
+    /// Which of `uv_sets` each triangle is painted with; empty = set 0 everywhere.
+    pub tri_uv_set: Vec<u32>,
+}
+
+/// One named UV layout of a mesh, per triangle corner (see [`Mesh::uv_sets`]).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct UvSet {
+    pub name: String,
+    pub corners: Vec<Vec2>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -170,6 +184,68 @@ impl Mesh {
         self.material_colors.get(slot).copied().flatten()
     }
 
+    /// How many UV sets the mesh has (1 when the file had one or none).
+    pub fn uv_set_count(&self) -> usize {
+        self.uv_sets.len().max(1)
+    }
+
+    /// Display name of UV set `set` ("UV0", "UV1"... when the file named none).
+    pub fn uv_set_name(&self, set: usize) -> String {
+        match self.uv_sets.get(set) {
+            Some(s) if !s.name.trim().is_empty() => s.name.clone(),
+            _ => format!("UV{set}"),
+        }
+    }
+
+    /// The UV set triangle `tri` is painted with.
+    pub fn tri_uv_set(&self, tri: usize) -> usize {
+        self.tri_uv_set.get(tri).copied().unwrap_or(0) as usize
+    }
+
+    /// The UV set the triangles of material slot `slot` are painted with (the first triangle's;
+    /// [`Mesh::with_uv_set`] keeps a slot on one set). `None` for a slot without triangles.
+    pub fn slot_uv_set(&self, slot: u32) -> Option<usize> {
+        self.tri_material.iter().position(|&m| m == slot).map(|t| self.tri_uv_set(t))
+    }
+
+    /// A copy whose triangles in the material slots `slots` are painted with UV set `set`:
+    /// their corners take that set's UVs, vertices are split or rejoined where the layouts differ
+    /// and tangents are recomputed. Everything else (positions, normals, triangle order, slots,
+    /// objects, colours) is unchanged. `None` when the set does not exist.
+    pub fn with_uv_set(&self, slots: &[u32], set: usize) -> Option<Mesh> {
+        let chosen = self.uv_sets.get(set)?;
+        let tris = self.triangle_count();
+        if chosen.corners.len() != 3 * tris || self.uv_sets.iter().any(|s| s.corners.len() != 3 * tris) {
+            return None;
+        }
+        let mut tri_set: Vec<u32> = (0..tris).map(|t| self.tri_uv_set(t) as u32).collect();
+        for (t, m) in self.tri_material.iter().enumerate() {
+            if slots.contains(m) {
+                tri_set[t] = set as u32;
+            }
+        }
+        let corner_uv: Vec<Vec2> = (0..3 * tris).map(|c| self.uv_sets[tri_set[c / 3] as usize].corners[c]).collect();
+        let corner_pos: Vec<Vec3> = self.indices.iter().map(|&i| self.positions[i as usize]).collect();
+        let corner_nrm: Vec<Vec3> = self.indices.iter().map(|&i| self.normals[i as usize]).collect();
+        let tangents = crate::tangent::compute_corner_tangents(&corner_pos, &corner_nrm, &corner_uv);
+        let mut out = Mesh { positions: Vec::new(), normals: Vec::new(), uvs: Vec::new(), tangents: Vec::new(), indices: Vec::new(), ..self.clone() };
+        let mut lookup: HashMap<(u32, [u32; 2], [u32; 4]), u32> = HashMap::with_capacity(self.positions.len());
+        for (c, &orig) in self.indices.iter().enumerate() {
+            let (uv, t) = (corner_uv[c], tangents[c]);
+            let key = (orig, uv.to_array().map(f32::to_bits), t.to_array().map(f32::to_bits));
+            let idx = *lookup.entry(key).or_insert_with(|| {
+                out.positions.push(self.positions[orig as usize]);
+                out.normals.push(self.normals[orig as usize]);
+                out.uvs.push(uv);
+                out.tangents.push(t);
+                (out.positions.len() - 1) as u32
+            });
+            out.indices.push(idx);
+        }
+        out.tri_uv_set = if tri_set.iter().all(|&s| s == 0) { Vec::new() } else { tri_set };
+        Some(out)
+    }
+
     /// Several meshes as one (baking against several high-poly files): vertices, triangles,
     /// materials and objects are appended in order. Nothing is welded or renamed.
     pub fn merged(parts: &[&Mesh]) -> Mesh {
@@ -237,6 +313,9 @@ impl Mesh {
             for tri in out.corner_colors.chunks_exact_mut(3) { tri.swap(1, 2); }
             for set in &mut out.extra_color_sets {
                 for tri in set.chunks_exact_mut(3) { tri.swap(1, 2); }
+            }
+            for set in &mut out.uv_sets {
+                for tri in set.corners.chunks_exact_mut(3) { tri.swap(1, 2); }
             }
         }
         out.bounds = Aabb::from_points(out.positions.iter().copied());
@@ -318,6 +397,11 @@ impl Mesh {
             || self.tri_object.iter().flatten().any(|&o| o as usize >= self.objects.len())) {
             problems.push("object indices are invalid".into());
         }
+        if self.uv_sets.iter().any(|s| s.corners.len() != self.indices.len())
+            || (!self.tri_uv_set.is_empty() && (self.tri_uv_set.len() != self.triangle_count() || self.tri_uv_set.iter().any(|&s| s as usize >= self.uv_sets.len())))
+        {
+            problems.push("UV set arrays are invalid".into());
+        }
         let mut object_ids = std::collections::HashSet::new();
         if self.objects.iter().any(|o| !object_ids.insert(o.id)) {
             problems.push("duplicate object UUID".into());
@@ -379,6 +463,10 @@ pub struct MeshBuilder {
     any_corner_color: bool,
     /// Vertex colour sets after the first, each padded lazily to `corners` (white where a triangle had none).
     extra_colors: Vec<Vec<[f32; 4]>>,
+    /// UV sets after the first, each padded lazily to `corners` (zero where a triangle had none).
+    extra_uvs: Vec<Vec<Vec2>>,
+    /// The file's names of its UV sets (set 0 first), where it gave them.
+    uv_set_names: Vec<String>,
     /// Meters per unit stated by the file (0 = not stated), copied to [`Mesh::unit_meters`].
     unit_meters: f32,
     /// File colour per material slot, parallel to `materials`.
@@ -394,6 +482,7 @@ impl MeshBuilder {
         self.corner_colors.clear();
         self.any_corner_color = false;
         self.extra_colors.clear();
+        self.extra_uvs.clear();
         std::mem::take(&mut self.corners)
     }
 }
@@ -470,6 +559,34 @@ impl MeshBuilder {
         }
     }
 
+    /// [`Self::push_triangle_color_sets`] with the UVs of the file's further UV sets (set 1
+    /// onward; each corner's `uv` is set 0). A missing UV in a further set reads as zero.
+    pub fn push_triangle_uv_sets(&mut self, material: u32, c: [Corner; 3], colors: &[[[f32; 4]; 3]], uv_sets: &[[Option<Vec2>; 3]]) {
+        let before = self.corners.len();
+        self.push_triangle_color_sets(material, c, colors);
+        if self.corners.len() == before {
+            return;
+        }
+        for (i, uvs) in uv_sets.iter().enumerate() {
+            if self.extra_uvs.len() <= i {
+                self.extra_uvs.push(Vec::new());
+            }
+            let set = &mut self.extra_uvs[i];
+            set.resize(before, Vec2::ZERO);
+            set.extend(uvs.map(|uv| uv.filter(|uv| uv.is_finite()).unwrap_or(Vec2::ZERO)));
+        }
+    }
+
+    /// Name UV set `set` (0 = the corners' own `uv`). The first name given stays.
+    pub fn set_uv_set_name(&mut self, set: usize, name: &str) {
+        if self.uv_set_names.len() <= set {
+            self.uv_set_names.resize(set + 1, String::new());
+        }
+        if self.uv_set_names[set].is_empty() {
+            self.uv_set_names[set] = name.trim().to_string();
+        }
+    }
+
     pub fn push_triangle(&mut self, material: u32, mut c: [Corner; 3]) {
         if c.iter().any(|c| !c.position.is_finite()) {
             self.stats.non_finite_dropped += 1;
@@ -535,7 +652,14 @@ impl MeshBuilder {
             set.resize(self.corners.len(), [1.0; 4]);
         }
         let mut extra_color_sets: Vec<Vec<[f32; 4]>> = vec![Vec::with_capacity(self.corners.len()); self.extra_colors.len()];
+        for set in &mut self.extra_uvs {
+            set.resize(self.corners.len(), Vec2::ZERO);
+        }
+        let mut extra_uv_sets: Vec<Vec<Vec2>> = vec![Vec::with_capacity(self.corners.len()); self.extra_uvs.len()];
         for &t in &order {
+            for (out, set) in extra_uv_sets.iter_mut().zip(&self.extra_uvs) {
+                out.extend_from_slice(&set[3 * t..3 * t + 3]);
+            }
             for (out, set) in extra_color_sets.iter_mut().zip(&self.extra_colors) {
                 out.extend_from_slice(&set[3 * t..3 * t + 3]);
             }
@@ -601,6 +725,13 @@ impl MeshBuilder {
         mesh.tri_object = tri_object;
         mesh.corner_colors = corner_colors;
         mesh.extra_color_sets = extra_color_sets;
+        if !extra_uv_sets.is_empty() {
+            let name = |i: usize| self.uv_set_names.get(i).cloned().unwrap_or_default();
+            mesh.uv_sets.push(UvSet { name: name(0), corners: uvs.clone() });
+            for (i, corners) in extra_uv_sets.into_iter().enumerate() {
+                mesh.uv_sets.push(UvSet { name: name(i + 1), corners });
+            }
+        }
         mesh.bounds = Aabb::from_points(mesh.positions.iter().copied());
 
         // Submesh ranges.

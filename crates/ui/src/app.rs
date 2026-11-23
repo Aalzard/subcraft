@@ -2733,6 +2733,7 @@ impl eframe::App for SubcraftApp {
         crate::export_mesh::export_mesh_window(&mut self.state, &ctx, now);
         crate::mesh_reload::window(&mut self.state, &ctx, now);
         crate::auto_uv::window(&mut self.state, &ctx, now);
+        crate::uv_sets::poll(&mut self.state, &ctx, now);
         dialogs::poll_bake(&mut self.state, &ctx, now);
         panels::id_colors::sync_pick_view(&mut self.state);
         crate::spp_import::poll(&mut self.state, &ctx, now);
