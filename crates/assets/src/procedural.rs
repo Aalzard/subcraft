@@ -512,13 +512,15 @@ fn rubber(ts: &TextureSet) -> Layer {
 
 fn concrete(ts: &TextureSet) -> Layer {
     let mut r = Recipe::default();
-    r.param(color("color", "Color", [0.37, 0.365, 0.35]).group("Concrete"));
+    r.param(color("color", "Color", [0.3, 0.295, 0.28]).group("Concrete"));
     r.param(unit("variation", "Color variation", 0.5).group("Concrete"));
     r.param(unit("roughness", "Roughness", 0.9).group("Concrete"));
     r.param(unit("pores", "Pores", 0.5).group("Concrete").tip("Depth of the small pits in the surface"));
+    r.param(unit("aggregate", "Aggregate", 0.4).group("Concrete").tip("The small stones and sand showing in the surface"));
+    r.param(unit("cracks", "Cracks", 0.3).group("Weathering").tip("Hairline cracks"));
     r.param(unit("stains", "Stains", 0.3).group("Weathering").tip("Dark streaks running down the surface"));
     r.param(unit("chips", "Chipped edges", 0.5).group("Weathering").tip("Pale, broken edges (reads the baked curvature)"));
-    r.param(unit("dust", "Amount", 0.4).group("Dust").tip("Dust settled on the surfaces that face up"));
+    r.param(unit("dust", "Amount", 0.25).group("Dust").tip("Dust settled on the surfaces that face up"));
     r.param(color("dust_color", "Color", [0.52, 0.49, 0.44]).group("Dust"));
     r.pattern_params();
 
@@ -533,11 +535,43 @@ fn concrete(ts: &TextureSet) -> Layer {
     r.range(&base, Height, "0", "0 - pores * 0.1");
     r.follow_pattern(&base);
 
-    let stains = masked(coat(ts, "Stains", [0.2, 0.19, 0.18], 0.9, 0.0), ts, vec![fx(pattern(ProceduralKind::Streaks, 4.0, 105, 0.68, 0.4))]);
+    // Large darker and paler areas from uneven curing, then the sand and small stones.
+    let patches = masked(coat(ts, "Patches", [0.3, 0.3, 0.29], 0.9, 0.0), ts, vec![fx(pattern(ProceduralKind::Clouds, 2.0, 106, 0.5, 0.2))]);
+    r.value(&patches, BaseColor, "color * 0.72");
+    r.value(&patches, Roughness, "roughness");
+    r.bind(&patches, Prop::Opacity { channel: None }, "variation * 0.7");
+    r.follow_pattern(&patches);
+
+    let dark_grit = masked(coat(ts, "Dark Aggregate", [0.2, 0.2, 0.19], 0.85, 0.0), ts, vec![fx(pattern(ProceduralKind::Speckles, 9.0, 107, 0.5, 0.5))]);
+    r.value(&dark_grit, BaseColor, "color * 0.5");
+    r.value(&dark_grit, Roughness, "clamp(roughness - 0.1, 0, 1)");
+    r.bind(&dark_grit, Prop::Opacity { channel: None }, "aggregate * 0.8");
+    r.follow_pattern(&dark_grit);
+    let pale_grit = masked(coat(ts, "Pale Aggregate", [0.55, 0.54, 0.5], 0.85, 0.0), ts, vec![fx(pattern(ProceduralKind::Speckles, 6.0, 108, 0.55, 0.5))]);
+    r.value(&pale_grit, BaseColor, "min(color * 1.5, 1)");
+    r.value(&pale_grit, Roughness, "clamp(roughness - 0.1, 0, 1)");
+    r.bind(&pale_grit, Prop::Opacity { channel: None }, "aggregate * 0.6");
+    r.follow_pattern(&pale_grit);
+
+    // Streaks only where a soft cloud lets them through, so they start and stop.
+    let stains = masked(coat(ts, "Stains", [0.2, 0.19, 0.18], 0.9, 0.0), ts, vec![
+        fx(pattern(ProceduralKind::Streaks, 7.0, 105, 0.68, 0.15)),
+        fx_blend(pattern(ProceduralKind::Clouds, 3.0, 109, 0.45, 0.4), BlendMode::Multiply),
+    ]);
     r.value(&stains, BaseColor, "color * 0.55");
     r.bind_fx(&stains, 0, Prop::PatternBalance { channel: None }, "remap(stains, 0.95, 0.4)");
-    r.bind(&stains, Prop::Opacity { channel: None }, "saturate(stains * 3) * 0.6");
+    r.bind(&stains, Prop::Opacity { channel: None }, "saturate(stains * 3) * 0.5");
     r.follow_pattern(&stains);
+
+    let cracks = with_height(masked(coat(ts, "Cracks", [0.12, 0.12, 0.11], 0.95, 0.0), ts, vec![
+        fx(pattern(ProceduralKind::Cracks, 3.0, 110, 0.6, 0.85)),
+        fx_blend(pattern(ProceduralKind::Clouds, 2.0, 111, 0.5, 0.7), BlendMode::Multiply),
+    ]), ts);
+    r.value(&cracks, BaseColor, "color * 0.3");
+    r.value(&cracks, Height, "0 - 0.03");
+    r.bind_fx(&cracks, 1, Prop::PatternBalance { channel: None }, "remap(cracks, 0.8, 0.3)");
+    r.bind(&cracks, Prop::Opacity { channel: None }, "saturate(cracks * 5) * 0.9");
+    r.follow_pattern(&cracks);
 
     let dust = masked(coat(ts, "Dust", [0.52, 0.49, 0.44], 0.98, 0.0), ts, vec![fx(top(0.62, 0.45, 0.45)), fx_blend(pattern(ProceduralKind::Clouds, 3.0, 104, 0.4, 0.0), BlendMode::Multiply)]);
     r.value(&dust, BaseColor, "dust_color");
@@ -549,9 +583,11 @@ fn concrete(ts: &TextureSet) -> Layer {
     r.value(&chips, BaseColor, "min(color * 1.6, 1)");
     r.value(&chips, Height, "0 - 0.02");
     r.bind_fx(&chips, 0, Prop::Level, "chips");
+    r.bind_fx(&chips, 0, Prop::Spread, "0.8 + chips * 1.6");
+    r.bind_fx(&chips, 0, Prop::Softness, "0.4");
     r.bind(&chips, Prop::Opacity { channel: None }, "saturate(chips * 20)");
     r.follow_pattern(&chips);
-    r.finish(folder(&format!("{PREFIX}Concrete"), ts, vec![base, stains, dust, chips]))
+    r.finish(folder(&format!("{PREFIX}Concrete"), ts, vec![base, patches, dark_grit, pale_grit, stains, cracks, dust, chips]))
 }
 
 fn leather(ts: &TextureSet) -> Layer {
@@ -611,18 +647,24 @@ fn wood(ts: &TextureSet) -> Layer {
     dirt_params(&mut r, "dirt", "Dirt", [0.06, 0.045, 0.03]);
     r.pattern_params();
 
+    // Straight grain first; the growth rings are broad bands laid over it. (Rings alone, bent
+    // as hard as the pattern bends them, read as islands on a map, not as wood.)
     let base = mat(ts, "Wood", vec![
-        (BaseColor, proc(ProceduralKind::WoodRings, 3.0, 31, v(0.18, 0.09, 0.04), v(0.45, 0.25, 0.11))),
-        (Roughness, proc(ProceduralKind::WoodRings, 3.0, 31, s(0.5), s(0.6))),
+        (BaseColor, proc(ProceduralKind::Brushed, 2.0, 30, v(0.3, 0.16, 0.07), v(0.45, 0.25, 0.11))),
+        (Roughness, proc(ProceduralKind::Clouds, 5.0, 36, s(0.5), s(0.6))),
         (Metallic, uni(0.0)),
-        (Height, proc(ProceduralKind::WoodRings, 3.0, 31, s(0.0), s(0.05))),
-    ], triplanar(1.0));
-    r.range(&base, BaseColor, "dark", "light");
+        (Height, proc(ProceduralKind::Brushed, 2.0, 30, s(0.0), s(0.03))),
+    ], triplanar(2.0));
+    r.range(&base, BaseColor, "mix(light, dark, 0.45)", "light");
     r.roughness(&base, "roughness", "0.2");
-    r.range(&base, Height, "0", "grain_depth * 0.1");
-    r.bind(&base, Prop::PatternScale { channel: None }, "3 / ring_size");
-    r.bind(&base, Prop::PatternSeed { channel: None }, "seed + 31");
-    r.bind(&base, Prop::Tiling, "1 * scale");
+    r.range(&base, Height, "0", "grain_depth * 0.06");
+    r.follow_pattern(&base);
+
+    let rings = mat(ts, "Rings", vec![(BaseColor, proc(ProceduralKind::WoodRings, 1.0, 31, v(0.18, 0.09, 0.04), v(0.45, 0.25, 0.11)))], triplanar(1.0));
+    r.range(&rings, BaseColor, "dark", "light");
+    r.bind(&rings, Prop::Opacity { channel: Some(BaseColor) }, "0.45");
+    r.bind(&rings, Prop::PatternSeed { channel: None }, "seed + 31");
+    r.bind(&rings, Prop::Tiling, "scale / ring_size");
 
     let fibres = masked(coat(ts, "Fibres", [0.1, 0.05, 0.02], 0.7, 0.0), ts, vec![fx(pattern(ProceduralKind::Brushed, 10.0, 32, 0.6, 0.35))]);
     r.value(&fibres, BaseColor, "dark * 0.7");
@@ -649,7 +691,7 @@ fn wood(ts: &TextureSet) -> Layer {
 
     let dirt = dirt_layer(&mut r, ts, "Dirt", "dirt", 0.6);
     r.follow_pattern(&dirt);
-    r.finish(folder(&format!("{PREFIX}Wood"), ts, vec![base, fibres, paint, occlusion(ts), dirt]))
+    r.finish(folder(&format!("{PREFIX}Wood"), ts, vec![base, rings, fibres, paint, occlusion(ts), dirt]))
 }
 
 /// The built-in procedural materials, in shelf order.
