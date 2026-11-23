@@ -18,6 +18,7 @@ pub mod stitch;
 pub mod brush_textures;
 pub mod command;
 pub mod diagnostics;
+pub mod displaced_pick;
 pub mod log_buffer;
 pub mod id_color;
 pub mod images;

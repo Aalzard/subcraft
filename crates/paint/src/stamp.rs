@@ -2,7 +2,7 @@
 
 use glam::{Vec2, Vec3};
 use subcraft_image::{Bitmap, Wrap};
-use subcraft_mesh::{Bvh, Mesh};
+use subcraft_mesh::{Bvh, DisplacedSurface, Mesh};
 
 use crate::camera::Camera;
 use crate::settings::{Alignment, falloff};
@@ -42,10 +42,14 @@ pub struct Dab {
     pub hardness: f32,
 }
 
-/// Ray-cast a dab through `camera`; `None` if it misses the mesh.
-pub fn resolve(dab: &Dab, camera_index: usize, camera: &Camera, mesh: &Mesh, bvh: &Bvh) -> Option<Stamp> {
+/// Ray-cast a dab through `camera` (onto `displaced` when given: the displacement preview);
+/// `None` if it misses the mesh.
+pub fn resolve(dab: &Dab, camera_index: usize, camera: &Camera, mesh: &Mesh, bvh: &Bvh, displaced: Option<&DisplacedSurface>) -> Option<Stamp> {
     let (origin, dir) = camera.ray(dab.screen);
-    let hit = bvh.intersect(origin, dir, 0.0, f32::INFINITY)?;
+    let hit = match displaced {
+        Some(d) => d.intersect(origin, dir, 0.0, f32::INFINITY),
+        None => bvh.intersect(origin, dir, 0.0, f32::INFINITY),
+    }?;
     Some(from_surface(dab, camera_index, camera, mesh, hit.tri, hit.u, hit.v, None))
 }
 
@@ -96,10 +100,10 @@ fn from_surface(dab: &Dab, camera_index: usize, camera: &Camera, mesh: &Mesh, tr
 
 /// Resolve a full footprint, including when its center ray misses. The center remains on the
 /// cursor ray, at the nearest touched surface's depth. Final coverage/occlusion stays in kernel.
-pub fn resolve_overlap(dab: &Dab, camera_index: usize, camera: &Camera, mesh: &Mesh, bvh: &Bvh,
+pub fn resolve_overlap(dab: &Dab, camera_index: usize, camera: &Camera, mesh: &Mesh, bvh: &Bvh, displaced: Option<&DisplacedSurface>,
     alignment: Alignment, has_alpha: bool, accept: impl Fn(u32) -> bool) -> Option<Stamp> {
     if !dab.screen.is_finite() || !dab.radius.is_finite() || dab.radius <= 0.0 { return None; }
-    if let Some(stamp) = resolve(dab, camera_index, camera, mesh, bvh) && accept(stamp.tri) { return Some(stamp); }
+    if let Some(stamp) = resolve(dab, camera_index, camera, mesh, bvh, displaced) && accept(stamp.tri) { return Some(stamp); }
     let (origin, dir) = camera.ray(dab.screen);
     let extent = reach(has_alpha) * if alignment == Alignment::TangentPlanar { std::f32::consts::SQRT_2 } else { 1.0 };
     let radius = dab.radius * extent;

@@ -31,7 +31,7 @@ impl Scene {
     }
 
     fn ctx<'a>(&'a self, camera: &'a Camera) -> PaintContext<'a> {
-        PaintContext { mesh: &self.mesh, bvh: &self.bvh, geometry: &self.geo, camera, depth: &self.depth }
+        PaintContext { displaced: None, mesh: &self.mesh, bvh: &self.bvh, geometry: &self.geo, camera, depth: &self.depth }
     }
 
     fn image(&self, kind: ChannelKind) -> Option<TiledImage> {

@@ -521,7 +521,7 @@ impl<'a> StrokeReplay<'a> {
         }
         for (k, s) in all.iter().enumerate().filter(|(_, s)| !s.uv_space) {
             let camera = self.camera(s);
-            let ctx = subcraft_paint::PaintContext { mesh: &self.picker.mesh, bvh: &self.picker.bvh, geometry: &self.geometry, camera: &camera, depth: &self.depth };
+            let ctx = subcraft_paint::PaintContext { displaced: None, mesh: &self.picker.mesh, bvh: &self.picker.bvh, geometry: &self.geometry, camera: &camera, depth: &self.depth };
             let size = match screen_brush() {
                 Some(k) => screen_brush_size(s, brush.size * k, &self.picker.mesh),
                 None => settings.size,

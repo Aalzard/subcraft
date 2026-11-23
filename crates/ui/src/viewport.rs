@@ -751,6 +751,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 renderer.set_bake_cage_normals(&rs.device, low, normals.as_deref());
             }
             params.bake_overlay = state.bake.overlay_active();
+            // Picking and the brush follow the displacement preview as it is drawn.
+            let displaced = params.displacement.filter(|_| subcraft_render::caps::get().compute && !params.bake_overlay);
+            state.session.set_displacement_preview(displaced.map(|level| (level, params.height_scale)));
             if state.bake.preview_mesh.is_some() && !state.bake.miss_uploaded && let Some(r) = &state.bake.cage_result {
                 let maps: Vec<(u32, &subcraft_image::TiledImage)> = r.maps.iter().map(|(_, slot, img)| (*slot, img)).collect();
                 renderer.set_bake_miss_maps(&rs.device, &rs.queue, &maps);

@@ -53,7 +53,7 @@ fn projected_color_data_and_alpha_match_numeric_sampler_at_every_written_texel()
         100.0,
         [512, 512],
     );
-    let ctx = PaintContext {
+    let ctx = PaintContext { displaced: None,
         mesh: &mesh,
         bvh: &bvh,
         geometry: &geo,
@@ -226,7 +226,7 @@ fn non_tiling_image_outside_uv_domain_does_not_paint() {
         100.0,
         [512, 512],
     );
-    let ctx = PaintContext {
+    let ctx = PaintContext { displaced: None,
         mesh: &mesh,
         bvh: &bvh,
         geometry: &geo,

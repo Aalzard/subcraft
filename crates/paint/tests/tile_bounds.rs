@@ -67,6 +67,7 @@ fn bounded_tiles_are_bit_exact_to_full_triangle_kernel_for_seams_alpha_and_mirro
                             cam,
                             &mesh,
                             &bvh,
+                            None,
                             alignment,
                             tip.is_some(),
                             |_| true,

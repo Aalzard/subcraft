@@ -43,7 +43,7 @@ impl Scene {
         let mut s = setup(Stroke::begin(&self.ts, self.layer, PaintTarget::Content, mode, settings, options, material)?);
         let cam = uv_camera();
         let mut ts = self.ts.clone();
-        let ctx = PaintContext { mesh: &self.mesh, bvh: &self.bvh, geometry: &self.geo, camera: &cam, depth: &self.depth };
+        let ctx = PaintContext { displaced: None, mesh: &self.mesh, bvh: &self.bvh, geometry: &self.geo, camera: &cam, depth: &self.depth };
         for &p in points {
             s.add_uv_point(&mut ts, &ctx, p, false, 1.0)?;
         }
@@ -159,7 +159,7 @@ fn mirror_symmetry_in_uv_paints_the_mirrored_face_too() {
     let left = sc.face_uv(-Vec3::X);
     let options = StrokeOptions { symmetry: [true, false, false], ..StrokeOptions::default() };
     let cam = uv_camera();
-    let ctx = PaintContext { mesh: &sc.mesh, bvh: &sc.bvh, geometry: &sc.geo, camera: &cam, depth: &sc.depth };
+    let ctx = PaintContext { displaced: None, mesh: &sc.mesh, bvh: &sc.bvh, geometry: &sc.geo, camera: &cam, depth: &sc.depth };
     let copies = uv_symmetry_copies(&ctx, &options, right);
     assert_eq!(copies.len(), 1, "{copies:?}");
     // The copy is the surface point mirrored across X: same Y and Z, opposite X.
@@ -209,7 +209,7 @@ fn uv_smudge_with_symmetry_carries_each_sides_own_paint() {
     let options = StrokeOptions { symmetry: [true, false, false], ..StrokeOptions::default() };
     let cam = uv_camera();
     let mirrored = {
-        let ctx = PaintContext { mesh: &sc.mesh, bvh: &sc.bvh, geometry: &sc.geo, camera: &cam, depth: &sc.depth };
+        let ctx = PaintContext { displaced: None, mesh: &sc.mesh, bvh: &sc.bvh, geometry: &sc.geo, camera: &cam, depth: &sc.depth };
         uv_symmetry_copies(&ctx, &options, right)[0]
     };
     let path: Vec<Vec2> = (0..=8).map(|i| right + Vec2::new(0.0, r * i as f32 / 8.0)).collect();
@@ -231,7 +231,7 @@ fn uv_smudge_carries_paint_for_every_symmetry_copy_even_when_one_is_dropped() {
     assert_eq!(subcraft_paint::stroke::uv_copy_count(&options), 2);
     assert_eq!(subcraft_paint::stroke::uv_copy_count(&StrokeOptions::default()), 1);
     let cam = uv_camera();
-    let ctx = PaintContext { mesh: &sc.mesh, bvh: &sc.bvh, geometry: &sc.geo, camera: &cam, depth: &sc.depth };
+    let ctx = PaintContext { displaced: None, mesh: &sc.mesh, bvh: &sc.bvh, geometry: &sc.geo, camera: &cam, depth: &sc.depth };
     // Outside every island the copy is dropped; the count stays.
     assert!(uv_symmetry_copies(&ctx, &options, Vec2::new(-1.0, -1.0)).is_empty());
     assert_eq!(subcraft_paint::stroke::uv_copy_count(&options), 2);
@@ -241,7 +241,7 @@ fn uv_smudge_carries_paint_for_every_symmetry_copy_even_when_one_is_dropped() {
 fn without_symmetry_there_are_no_uv_copies() {
     let sc = Scene::new();
     let cam = uv_camera();
-    let ctx = PaintContext { mesh: &sc.mesh, bvh: &sc.bvh, geometry: &sc.geo, camera: &cam, depth: &sc.depth };
+    let ctx = PaintContext { displaced: None, mesh: &sc.mesh, bvh: &sc.bvh, geometry: &sc.geo, camera: &cam, depth: &sc.depth };
     assert!(uv_symmetry_copies(&ctx, &StrokeOptions::default(), sc.face_uv(Vec3::X)).is_empty());
     // Outside every UV island: nothing to mirror.
     let options = StrokeOptions { symmetry: [true, true, true], ..StrokeOptions::default() };

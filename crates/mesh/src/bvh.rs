@@ -168,6 +168,41 @@ impl Bvh {
         bvh
     }
 
+    /// Move the triangles to `tris` (same count and order as the build) and recompute every
+    /// node's bounds, keeping the tree's topology: O(n), for surfaces that deform a little at a
+    /// time (the displacement preview while height is painted). The tree gets less efficient as
+    /// the shape drifts from the one it was built for, never wrong.
+    pub fn refit(&mut self, tris: &[[Vec3; 3]]) {
+        if tris.len() != self.v0.len() {
+            *self = Self::from_triangles(tris);
+            return;
+        }
+        for (i, t) in tris.iter().enumerate() {
+            self.v0[i] = t[0];
+            self.e1[i] = t[1] - t[0];
+            self.e2[i] = t[2] - t[0];
+        }
+        // Children always come after their parent, so one backwards pass sees children first.
+        for ni in (0..self.nodes.len()).rev() {
+            let n = self.nodes[ni];
+            let (min, max) = if n.count > 0 {
+                let mut b = Aabb::EMPTY;
+                for &t in &self.tri_ids[n.left_first as usize..(n.left_first + n.count) as usize] {
+                    let (v, a, c) = (self.v0[t as usize], self.e1[t as usize], self.e2[t as usize]);
+                    b.grow(v);
+                    b.grow(v + a);
+                    b.grow(v + c);
+                }
+                (b.min, b.max)
+            } else {
+                let (l, r) = (self.nodes[n.left_first as usize], self.nodes[n.left_first as usize + 1]);
+                (l.min.min(r.min), l.max.max(r.max))
+            };
+            self.nodes[ni].min = min;
+            self.nodes[ni].max = max;
+        }
+    }
+
     /// Plain arrays for uploading the tree to a GPU. `nodes`: 8 words per node
     /// (`min.xyz` as f32 bits, `left_first`, `max.xyz` as f32 bits, `count`; leaf when `count > 0`,
     /// otherwise the right child is `left_first + 1`). `tris`: 12 floats per entry
