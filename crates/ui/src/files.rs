@@ -57,7 +57,7 @@ pub enum Purpose {
     GeneratorGrunge { layer: LayerId, effect: EffectId },
     /// Image of a Mask Editor generator's texture group (`slot` 0 = Texture, 1 = Texture 2).
     GeneratorTexture { layer: LayerId, effect: EffectId, slot: u8 },
-    /// Substance archives (`.sbsar`) to add as layers with their parameters.
+    /// Material graph files (`.sbsar`, ...) to add as layers with their parameters.
     GraphMaterial,
 }
 
@@ -70,7 +70,7 @@ pub const PAINTER_PROJECTS: (&str, &[&str]) = ("Substance Painter project \u{201
 /// a Painter `.spp` could not be picked there at all (it was only reachable from New).
 pub const OPEN_FILTERS: [(&str, &[&str]); 3] =
     [("All supported projects", &[subcraft_app::PROJECT_EXTENSION, "spp"]), PROJECTS, PAINTER_PROJECTS];
-pub const GRAPH_MATERIALS: (&str, &[&str]) = ("Substance materials", subcraft_app::graph_layer::GRAPH_EXTENSIONS);
+pub const GRAPH_MATERIALS: (&str, &[&str]) = ("Material graphs", subcraft_app::graph_layer::GRAPH_EXTENSIONS);
 pub const FONTS: (&str, &[&str]) = ("Fonts", &["ttf", "otf", "ttc"]);
 pub const ALPHAS: (&str, &[&str]) = ("Images", &["png", "jpg", "jpeg", "tga", "tif", "tiff", "exr"]);
 pub const PANORAMAS: (&str, &[&str]) = ("Panoramas", &["hdr", "exr", "png", "jpg", "jpeg"]);
@@ -200,7 +200,7 @@ pub fn import_graph_materials(state: &mut UiState, paths: &[PathBuf], now: f64) 
     for p in paths {
         let text = match state.graph_layers.import_file(&mut state.session, p) {
             Ok(t) => t,
-            Err(e) => format!("Substance material: {e}"),
+            Err(e) => format!("Material graph: {e}"),
         };
         state.set_status(text, now);
     }
@@ -220,7 +220,7 @@ pub enum WindowDrop {
     SmartMaterial(PathBuf),
     /// A Painter project: imported straight away (after the unsaved-changes question).
     PainterProject(PathBuf),
-    /// A Substance archive: added as a layer of the selected texture set.
+    /// A material graph file: added as a layer of the selected texture set.
     GraphMaterial(PathBuf),
 }
 
@@ -463,14 +463,15 @@ mod window_drop_tests {
 
     #[test]
     fn models_projects_and_smart_materials_are_recognised_by_extension() {
-        let paths: Vec<PathBuf> = ["tank.FBX", "crate.obj", "scene.glb", "old.subcraft", "Leather.spsm", "notes.txt", "photo.png", "Robot.SPP"].iter().map(PathBuf::from).collect();
+        let paths: Vec<PathBuf> = ["tank.FBX", "crate.obj", "scene.glb", "old.subcraft", "Leather.spsm", "notes.txt", "photo.png", "Robot.SPP", "Cardboard.sbsar"].iter().map(PathBuf::from).collect();
         let kinds: Vec<&str> = window_drops(&paths).iter().map(|d| match d {
             WindowDrop::Model(_) => "model",
             WindowDrop::Project(_) => "project",
             WindowDrop::SmartMaterial(_) => "smart",
             WindowDrop::PainterProject(_) => "painter",
+            WindowDrop::GraphMaterial(_) => "graph",
         }).collect();
-        assert_eq!(kinds, ["model", "model", "model", "project", "smart", "painter"], "unknown types are ignored");
+        assert_eq!(kinds, ["model", "model", "model", "project", "smart", "painter", "graph"], "unknown types are ignored");
     }
 
     /// Discord report (Windows): File > Open showed no file type for `.spp`, so a Painter

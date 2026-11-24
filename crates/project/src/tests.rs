@@ -720,7 +720,7 @@ fn loader_rejects_filters_with_invalid_domains_or_parameters() {
 #[test]
 fn neighborhood_filters_keep_their_original_json() {
     use subcraft_doc::Filter;
-    assert_eq!(SCHEMA_VERSION,18);
+    assert_eq!(SCHEMA_VERSION,19);
     assert_eq!(serde_json::to_string(&Filter::Blur {radius:4.0}).unwrap(),r#"{"kind":"blur","radius":4.0}"#);
     assert_eq!(serde_json::to_string(&Filter::Sharpen {radius:2.0,amount:1.5}).unwrap(),r#"{"kind":"sharpen","radius":2.0,"amount":1.5}"#);
 }
