@@ -11,10 +11,6 @@ a planning list, not a promise.
 - Editable `.sbsar` graphs: SubCraft reads what `.spp` / `.spsm` containers hold, but does not run
   Substance graphs.
 
-### Baking
-- The high-poly projection runs on the CPU when parts are matched by name (the GPU pass cannot
-  filter hits by part).
-
 ### Viewport and rendering (owned by the viewport thread)
 - Scene lights (point / spot / area).
 
@@ -59,5 +55,6 @@ a planning list, not a promise.
 - Linux AppImage (x86_64), built and checked by the release workflow.
 - GPU Bent normal bake (same rays as AO, checked against the CPU bake).
 - GPU high-poly projection (cage rays for Normal, Height, ID, Position ...), checked against the CPU.
+- GPU bakes with Match by name (projection, AO, thickness and bent normal filter hits by part).
 - Edit UV islands: move, rotate, scale and flip islands in the 2D view; painted layers follow.
 - Linux Flatpak bundle (x86_64), built and checked by the release workflow.

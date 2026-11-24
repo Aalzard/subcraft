@@ -104,6 +104,11 @@ impl PartMatch {
         self.low_tri.get(low_tri as usize).copied().unwrap_or(NO_GROUP)
     }
 
+    /// The group of every high triangle (what [`PartMatch::accepts`] compares with), for the GPU kernels.
+    pub fn high_groups(&self) -> &[u32] {
+        &self.high_tri
+    }
+
     /// May a ray from a low part of `group` hit high triangle `high_tri`?
     pub fn accepts(&self, group: u32, high_tri: u32) -> bool {
         group == NO_GROUP || self.high_tri.get(high_tri as usize) == Some(&group)
