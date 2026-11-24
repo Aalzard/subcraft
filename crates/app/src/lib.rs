@@ -7,6 +7,7 @@ mod udim_mirror;
 pub mod actions;
 pub mod keymap;
 pub mod asset_apply;
+pub mod materialcraft;
 pub mod auto_stitch;
 pub mod auto_uv;
 pub mod uv_sets;
