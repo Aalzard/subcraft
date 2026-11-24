@@ -15,6 +15,7 @@ update-fixture = ["subcraft-app/update-fixture"]
 subcraft-core.workspace = true
 rayon.workspace = true
 subcraft-image.workspace = true
+subcraft-sbsar.workspace = true
 image.workspace = true
 subcraft-mesh.workspace = true
 subcraft-doc.workspace = true

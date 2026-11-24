@@ -175,6 +175,9 @@ pub struct Layer {
     /// Procedural material (ADR-0047): parameters this layer exposes and the properties of
     /// itself and of the layers inside it that they drive. `None` for an ordinary layer.
     pub material: Option<Arc<crate::material::MaterialControls>>,
+    /// Graph material: the package, graph and values that render this fill layer's channel
+    /// images (see `crate::graph_material`). `None` for an ordinary layer.
+    pub graph: Option<Arc<crate::graph_material::GraphMaterial>>,
 }
 
 /// Colour tags a layer or folder can carry. A folder's tag also marks the rows inside it.
@@ -271,6 +274,7 @@ impl Layer {
             instance_of: None,
             content_effects: Vec::new(),
             material: None,
+            graph: None,
             content: LayerContent::Paint(PaintContent::default()),
         }
     }
@@ -293,6 +297,7 @@ impl Layer {
             instance_of: None,
             content_effects: Vec::new(),
             material: None,
+            graph: None,
             content: LayerContent::Fill(FillContent { projection: Projection::default(), channels }),
         }
     }
@@ -309,6 +314,7 @@ impl Layer {
             instance_of: None,
             content_effects: Vec::new(),
             material: None,
+            graph: None,
             content: LayerContent::Group(GroupContent { children: Vec::new(), expanded: true }),
         }
     }
@@ -467,6 +473,9 @@ impl Layer {
                     add(resource);
                 }
             }
+        }
+        if let Some(g) = &self.graph {
+            add(g.package);
         }
         if let LayerContent::Paint(p) = &self.content && let Some(r) = p.text.as_ref().and_then(|t| t.resource()) {
             add(r);
