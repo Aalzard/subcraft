@@ -54,15 +54,17 @@ fn painted(mut r: Recipe, ts: &TextureSet, name: &str, layers: Vec<Layer>, seed:
 }
 
 fn stylized_metal(ts: &TextureSet) -> Layer {
-    metal(ts, "Stylized Metal", [0.34, 0.42, 0.55], 0.42, "A cool steel by default; try a brown for bronze", 0)
+    metal(ts, "Stylized Metal", [0.34, 0.42, 0.55], 0.42, "A cool steel by default; try a brown for bronze", "color * 0.45", 0)
 }
 
 fn stylized_gold(ts: &TextureSet) -> Layer {
-    metal(ts, "Stylized Gold", [0.95, 0.6, 0.12], 0.3, "A rich yellow gold by default; paler for brass", 40)
+    metal(ts, "Stylized Gold", [0.95, 0.6, 0.12], 0.3, "A rich yellow gold by default; paler for brass", "mix(color, rgb(0.6, 0.2, 0.03), 0.7)", 40)
 }
 
-/// A painted metal: `k` shifts the seeds, so two metals do not share their strokes.
-fn metal(ts: &TextureSet, name: &str, tint: [f32; 3], rough: f32, tip: &str, k: u32) -> Layer {
+/// A painted metal. `shadow` is the colour of the dark patches (a plain darker `color` turns a
+/// yellow into a muddy olive, so gold shades towards orange). `k` shifts the seeds, so two
+/// metals do not share their strokes.
+fn metal(ts: &TextureSet, name: &str, tint: [f32; 3], rough: f32, tip: &str, shadow: &str, k: u32) -> Layer {
     let mut r = Recipe::default();
     r.param(color("color", "Color", tint).group("Metal").tip(tip));
     r.param(unit("roughness", "Roughness", rough).group("Metal"));
@@ -92,7 +94,7 @@ fn metal(ts: &TextureSet, name: &str, tint: [f32; 3], rough: f32, tip: &str, k: 
     r.follow_pattern(&strokes);
 
     let dents = masked(coat(ts, "Dark Patches", [0.2, 0.22, 0.26], 0.5, 1.0), ts, vec![fx(pattern(ProceduralKind::Clouds, 2.4, 805 + k, 0.56, 0.9))]);
-    r.value(&dents, BaseColor, "color * 0.45");
+    r.value(&dents, BaseColor, shadow);
     r.value(&dents, Roughness, "clamp(roughness + 0.1, 0.02, 1)");
     r.value(&dents, Metallic, "metallic");
     r.bind(&dents, Prop::Opacity { channel: None }, "variation * 1.3");
