@@ -12,7 +12,9 @@ use subcraft_core::color::linear_to_srgb;
 use subcraft_doc::graph_material::{channel_for_usage, usage_inverts};
 use subcraft_doc::{GraphParam, GraphParamKind};
 use subcraft_image::{Bitmap, BitmapData};
-pub use subcraft_materialcraft::{EXTENSIONS, Error, Material, Output, Param, ParamValue, is_materialcraft};
+use subcraft_core::MeshMapKind;
+use subcraft_materials::MeshMaps;
+pub use subcraft_materialcraft::{EXTENSIONS, Error, ImageInput, InputImage, Material, Output, Param, ParamValue, is_materialcraft};
 
 use crate::graph_layer::{GraphBackend, GraphDesc, RenderedMap};
 
@@ -151,6 +153,51 @@ pub fn channel_maps(outputs: &[Output]) -> Vec<RenderedMap> {
         .collect()
 }
 
+/// The baked mesh map an image input wants, from its identifier (the names TextureCraft hands
+/// MaterialCraft: `ambientOcclusion`, `curvature`, `worldNormal`...) or, failing that, its usage.
+/// Case, `_`, `-` and spaces are ignored, and the common Substance spellings are accepted.
+pub fn mesh_map_for_input(input: &ImageInput) -> Option<MeshMapKind> {
+    let by_name = |name: &str| {
+        let key: String = name.chars().filter(|c| c.is_ascii_alphanumeric()).collect::<String>().to_ascii_lowercase();
+        Some(match key.as_str() {
+            "ambientocclusion" | "ao" | "occlusion" => MeshMapKind::AmbientOcclusion,
+            "curvature" | "curv" => MeshMapKind::Curvature,
+            "thickness" => MeshMapKind::Thickness,
+            "position" | "pos" => MeshMapKind::Position,
+            "worldnormal" | "worldnormals" | "worldspacenormal" | "worldspacenormals" | "wsnormal" => MeshMapKind::WorldSpaceNormal,
+            "normal" | "normals" | "tangentnormal" | "normalmap" => MeshMapKind::Normal,
+            "height" | "heightmap" => MeshMapKind::Height,
+            "id" | "idmap" | "colorid" | "materialid" => MeshMapKind::Id,
+            "bentnormal" | "bentnormals" => MeshMapKind::BentNormal,
+            _ => return None,
+        })
+    };
+    by_name(&input.identifier).or(match input.usage.as_str() {
+        "ambientOcclusion" => Some(MeshMapKind::AmbientOcclusion),
+        "normal" => Some(MeshMapKind::Normal),
+        "height" => Some(MeshMapKind::Height),
+        _ => None,
+    })
+}
+
+/// Baked maps for the graph's image inputs, as raw values (mesh maps are data, never
+/// color-transformed). An input whose map is not baked yet gets that map's neutral value (no
+/// occlusion, flat curvature, flat normal), as SubCraft's own generators read it, instead of
+/// MaterialCraft's 50% gray placeholder.
+pub fn input_images(inputs: &[ImageInput], maps: &MeshMaps) -> BTreeMap<String, InputImage> {
+    inputs
+        .iter()
+        .filter_map(|input| {
+            let kind = mesh_map_for_input(input)?;
+            let image = match maps.get(kind) {
+                Some(image) if matches!(image.comps(), 1 | 3 | 4) => InputImage { width: image.width(), height: image.height(), channels: image.comps(), texels: image.to_dense() },
+                _ => InputImage { width: 1, height: 1, channels: 3, texels: kind.neutral_value().to_vec() },
+            };
+            Some((input.identifier.clone(), image))
+        })
+        .collect()
+}
+
 /// An opened MaterialCraft file for graph layers.
 pub struct MaterialCraftBackend {
     material: Material,
@@ -176,12 +223,24 @@ impl MaterialCraftBackend {
                 continue;
             }
             let skipped: Vec<&str> = params.iter().filter(|p| graph_param(p).is_none()).map(|p| p.label.as_str()).collect();
+            let inputs = material.image_inputs(info.index).map_err(|e| e.to_string())?;
+            let unmatched: Vec<&str> = inputs.iter().filter(|i| mesh_map_for_input(i).is_none()).map(|i| i.identifier.as_str()).collect();
+            let mut notes = Vec::new();
+            if !skipped.is_empty() {
+                notes.push(format!("text parameters keep the file's value: {}", skipped.join(", ")));
+            }
+            if inputs.len() > unmatched.len() {
+                notes.push("baked mesh maps feed the graph's inputs; bake the texture set for them to show".to_string());
+            }
+            if !unmatched.is_empty() {
+                notes.push(format!("image inputs with no mesh map: {}", unmatched.join(", ")));
+            }
             graphs.push(GraphDesc {
                 graph: info.name.clone(),
                 label: info.name.clone(),
                 params: params.iter().filter_map(graph_param).collect(),
                 channels,
-                notes: if skipped.is_empty() { Vec::new() } else { vec![format!("text parameters keep the file's value: {}", skipped.join(", "))] },
+                notes,
             });
         }
         if graphs.is_empty() {
@@ -197,11 +256,16 @@ impl GraphBackend for MaterialCraftBackend {
     }
 
     fn render(&mut self, graph: &str, values: &BTreeMap<String, Vec<f64>>, size_log2: u32) -> Result<Vec<RenderedMap>, String> {
+        self.render_with_maps(graph, values, size_log2, &MeshMaps::new())
+    }
+
+    fn render_with_maps(&mut self, graph: &str, values: &BTreeMap<String, Vec<f64>>, size_log2: u32, maps: &MeshMaps) -> Result<Vec<RenderedMap>, String> {
         let name = if graph.is_empty() { self.graphs.first().map_or("", |g| g.graph.as_str()) } else { graph };
         let index = self.material.graph_index(name).ok_or_else(|| format!("graph `{name}` is not in this MaterialCraft file"))?;
         let params = self.material.params(index).map_err(|e| e.to_string())?;
         let size = 1u32 << size_log2.clamp(subcraft_materialcraft::MIN_SIZE.ilog2(), subcraft_materialcraft::MAX_SIZE.ilog2());
-        let outputs = self.material.cook(index, &overrides(&params, values), size).map_err(|e| e.to_string())?;
+        let inputs = input_images(&self.material.image_inputs(index).map_err(|e| e.to_string())?, maps);
+        let outputs = self.material.cook_with_inputs(index, &overrides(&params, values), size, &inputs).map_err(|e| e.to_string())?;
         Ok(channel_maps(&outputs))
     }
 }
@@ -264,6 +328,34 @@ mod tests {
         }
         // Too few numbers keep the default's components.
         assert_eq!(numbers_to_value(&ParamValue::Float2([1.0, 2.0]), &[5.0]), ParamValue::Float2([5.0, 2.0]));
+    }
+
+    #[test]
+    fn inputs_find_their_mesh_maps() {
+        let input = |identifier: &str, usage: &str| ImageInput { identifier: identifier.into(), usage: usage.into(), gray: true };
+        for (id, kind) in [
+            ("ambientOcclusion", MeshMapKind::AmbientOcclusion),
+            ("ambient_occlusion", MeshMapKind::AmbientOcclusion),
+            ("curvature", MeshMapKind::Curvature),
+            ("World Space Normals", MeshMapKind::WorldSpaceNormal),
+            ("worldNormal", MeshMapKind::WorldSpaceNormal),
+            ("position", MeshMapKind::Position),
+            ("thickness", MeshMapKind::Thickness),
+            ("bentNormal", MeshMapKind::BentNormal),
+            ("id", MeshMapKind::Id),
+        ] {
+            assert_eq!(mesh_map_for_input(&input(id, "any")), Some(kind), "{id}");
+        }
+        assert_eq!(mesh_map_for_input(&input("dirt_mask", "ambientOcclusion")), Some(MeshMapKind::AmbientOcclusion), "usage is the fallback");
+        assert_eq!(mesh_map_for_input(&input("colorMap", "any")), None);
+
+        let mut maps = MeshMaps::new();
+        maps.insert(MeshMapKind::Curvature, subcraft_image::TiledImage::new(4, 4, 1, [0.75, 0.0, 0.0, 0.0]));
+        let images = input_images(&[input("curvature", "any"), input("thickness", "any")], &maps);
+        assert_eq!(images["curvature"].texels, vec![0.75; 16]);
+        let neutral = MeshMapKind::Thickness.neutral_value();
+        assert_eq!((images["thickness"].width, &images["thickness"].texels[..]), (1, &neutral[..]), "an unbaked map is its neutral value");
+        assert!(!input_images(&[input("colorMap", "any")], &maps).contains_key("colorMap"), "inputs that are not mesh maps are left alone");
     }
 
     #[test]

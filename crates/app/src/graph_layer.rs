@@ -16,6 +16,7 @@ use std::sync::{Arc, Mutex};
 use subcraft_core::{ChannelKind, LayerId, ResourceId, TextureSetId};
 use subcraft_doc::{FillChannel, FillSource, GraphEngine, GraphMaterial, GraphParam, Layer, LayerContent, Resource, ResourceKind};
 use subcraft_image::Bitmap;
+use subcraft_materials::MeshMaps;
 
 use crate::{Command, Session};
 
@@ -48,6 +49,12 @@ pub trait GraphBackend: Send {
     fn graphs(&self) -> &[GraphDesc];
     /// Render `graph` (empty: the first) with `values` at `2^size_log2` pixels.
     fn render(&mut self, graph: &str, values: &BTreeMap<String, Vec<f64>>, size_log2: u32) -> Result<Vec<RenderedMap>, String>;
+    /// [`Self::render`] with the texture set's baked mesh maps for the graph's image inputs
+    /// (curvature, ambient occlusion, ...). Engines without image inputs ignore them.
+    fn render_with_maps(&mut self, graph: &str, values: &BTreeMap<String, Vec<f64>>, size_log2: u32, maps: &MeshMaps) -> Result<Vec<RenderedMap>, String> {
+        let _ = maps;
+        self.render(graph, values, size_log2)
+    }
 }
 
 /// The engine that opens a file, by extension.
@@ -238,7 +245,8 @@ impl GraphLayers {
         self.backends.insert(id, Ok(shared.clone()));
         let material = GraphMaterial::new(engine, id, graph.graph.clone(), subcraft_sbsar::DEFAULT_SIZE_LOG2);
         let texture_set = session.selection().texture_set;
-        self.spawn(shared, Target::New { texture_set, name: graph.label.clone() }, material);
+        let maps = session.mesh_maps(texture_set).cloned().unwrap_or_default();
+        self.spawn(shared, Target::New { texture_set, name: graph.label.clone() }, material, maps);
         let mut msg = format!("Rendering {} ({})…", graph.label, engine.label());
         for n in &graph.notes {
             msg.push_str(&format!(" Note: {n}."));
@@ -254,18 +262,19 @@ impl GraphLayers {
             return Ok(());
         }
         let backend = self.backend(session, material.engine, material.package)?;
-        self.spawn(backend, Target::Update { layer }, material);
+        let maps = find_layer(session, layer).and_then(|(ts, _)| session.mesh_maps(ts).cloned()).unwrap_or_default();
+        self.spawn(backend, Target::Update { layer }, material, maps);
         Ok(())
     }
 
-    fn spawn(&mut self, backend: SharedBackend, target: Target, material: GraphMaterial) {
+    fn spawn(&mut self, backend: SharedBackend, target: Target, material: GraphMaterial, maps: MeshMaps) {
         let (tx, rx) = channel();
         let m = material.clone();
         let spawned = std::thread::Builder::new().name("graph-render".into()).spawn(move || {
             let result = match backend.lock() {
                 Ok(mut b) => {
                     let graph = m.graph.clone();
-                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| b.render(&graph, &m.values, m.size_log2))).unwrap_or_else(|_| Err("the renderer crashed on this material".into()))
+                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| b.render_with_maps(&graph, &m.values, m.size_log2, &maps))).unwrap_or_else(|_| Err("the renderer crashed on this material".into()))
                 }
                 Err(_) => Err("the renderer crashed earlier on this material".into()),
             };
