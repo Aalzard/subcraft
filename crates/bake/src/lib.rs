@@ -791,25 +791,28 @@ fn bake_core(
 
     // Low on low: the detail is the texel itself, so it is derived on the fly instead of holding
     // a second 48-byte record per texel (800 MB at 4096) for the whole bake.
-    // The projection runs on the GPU when it can: it cannot filter hits by part, so not with name matching.
+    // The projection runs on the GPU when it can (with name matching too: the kernel filters hits by part).
+    let tri_group = matching.as_ref().map(|m| m.high_groups());
     let mut projected_on: Option<String> = None;
     let details: Option<Vec<Detail>> = match (input.high, &cage) {
         (Some(high), Some(cage)) => {
             let mut fast = None;
-            if let Some(gpu) = gpu_backend.filter(|_| settings.use_gpu && matching.is_none()) {
+            if let Some(gpu) = gpu_backend.filter(|_| settings.use_gpu) {
+                let group = |t: &Texel| matching.as_ref().map_or(NO_GROUP, |m| m.low_group(t.tri));
                 let ray = |i: usize| {
-                    let r = cage.ray(low, &samples[i]);
-                    ProjectionRay { origin: r.origin.to_array(), dir: r.dir.to_array(), reach: r.reach }
+                    let t = &samples[i];
+                    let r = cage.ray(low, t);
+                    ProjectionRay { origin: r.origin.to_array(), dir: r.dir.to_array(), reach: r.reach, group: group(t) }
                 };
                 let control = GpuControl { progress, base: progress.done.load(Ordering::Relaxed), count: 0 };
-                match gpu.project(high.bvh, samples.len(), &ray, settings.ignore_backface, &control) {
+                match gpu.project(high.bvh, tri_group, samples.len(), &ray, settings.ignore_backface, &control) {
                     Ok(hits) => {
                         projected_on = Some(gpu.description());
                         fast = Some(
                             samples
                                 .par_iter()
                                 .zip(hits.par_iter())
-                                .map(|(t, h)| detail_at(t, NO_GROUP, &cage.ray(low, t), h.map(|h| (h.tri, h.t, h.u, h.v))))
+                                .map(|(t, h)| detail_at(t, group(t), &cage.ray(low, t), h.map(|h| (h.tri, h.t, h.u, h.v))))
                                 .collect(),
                         );
                     }
@@ -831,9 +834,6 @@ fn bake_core(
                 "Cage: {missed} of {} texels ({:.1}%) reached no high-poly surface and keep the low poly's own surface. Increase Cage front / rear or align the meshes.",
                 details.len(), 100.0 * missed as f32 / details.len() as f32));
         }
-    }
-    if settings.use_gpu && matching.is_some() && gpu_backend.is_some() && settings.maps.iter().any(|k| matches!(k, MeshMapKind::AmbientOcclusion | MeshMapKind::Thickness)) {
-        progress.warn("Ambient occlusion and thickness run on the CPU because matching parts by name is on (the GPU kernels cannot filter hits by part).".into());
     }
     let elements = if wanted(MeshMapKind::Id) || (wanted(MeshMapKind::Curvature) && !from_normal) { Some(topology::mesh_elements(detail_geo.mesh)) } else { None };
     // The ID source the mesh can actually serve: a file without the asked colours falls back to
@@ -1063,14 +1063,14 @@ fn bake_core(
             Some(gpu) => format!("CPU, projection on {gpu}"),
             None => "CPU".to_string(),
         };
-        // The GPU ray kernels cannot filter hits by part, so name matching bakes AO and thickness on the CPU.
-        // Nor do they know the occlusion or thickness options (cone, distances, attenuation, ground plane).
+        // The GPU ray kernels filter hits by part (name matching) but do not know the occlusion or
+        // thickness options (cone, distances, attenuation, ground plane).
         let plain = match kind {
             MeshMapKind::AmbientOcclusion | MeshMapKind::BentNormal => settings.ao.is_plain(),
             MeshMapKind::Thickness => settings.thickness.is_plain(),
             _ => true,
         };
-        let backend_gpu = if settings.use_gpu && plain && (matching.is_none() || kind == MeshMapKind::Curvature) { gpu_backend } else { None };
+        let backend_gpu = if settings.use_gpu && plain { gpu_backend } else { None };
         // The GPU kernels need every texel's projection; low-on-low bakes derive it only now.
         let derived: Option<Vec<Detail>> = (backend_gpu.is_some() && details.is_none()).then(|| samples.par_iter().map(project).collect());
         let gpu_details = || details.as_deref().or(derived.as_deref()).unwrap_or(&[]);
@@ -1079,7 +1079,7 @@ fn bake_core(
                 let radius = settings.curvature_radius * diag;
                 gpu_curvature_map(gpu, detail_geo, elements.as_deref(), gpu_details(), radius, progress, &mut backend)?.map(|v| v.into_iter().map(|a| [a; 3]).collect())
             }
-            Some(gpu) => gpu_ray_map(gpu, kind, settings, detail_geo.bvh, &samples, gpu_details(), bias, diag, progress, &mut backend)?,
+            Some(gpu) => gpu_ray_map(gpu, kind, settings, detail_geo.bvh, tri_group, &samples, gpu_details(), bias, diag, progress, &mut backend)?,
             None => None,
         };
         let values: Vec<[f32; 3]> = match gpu {
@@ -1271,7 +1271,7 @@ fn gpu_curvature_map(
 /// use the CPU (not a ray map, no backend, or the backend refused: `backend` then says why).
 #[allow(clippy::too_many_arguments)]
 fn gpu_ray_map(
-    gpu: &dyn RayBatchBackend, kind: MeshMapKind, settings: &BakeSettings, bvh: &Bvh, samples: &[Texel], details: &[Detail], bias: f32, diag: f32,
+    gpu: &dyn RayBatchBackend, kind: MeshMapKind, settings: &BakeSettings, bvh: &Bvh, tri_group: Option<&[u32]>, samples: &[Texel], details: &[Detail], bias: f32, diag: f32,
     progress: &Progress, backend: &mut String,
 ) -> Result<Option<Vec<[f32; 3]>>, BakeError> {
     let (rays, mode, salt, sign) = match kind {
@@ -1286,10 +1286,10 @@ fn gpu_ray_map(
         // Same origins, axes and seeds as the CPU `eval`: occlusion starts above the surface,
         // thickness just below it, looking inward.
         let origin = d.position + d.offset * (bias * sign);
-        RayTexel { origin: origin.to_array(), rotation: hash01(t.index, salt), axis: (d.normal * sign).to_array(), offset: d.offset.to_array() }
+        RayTexel { origin: origin.to_array(), rotation: hash01(t.index, salt), axis: (d.normal * sign).to_array(), offset: d.offset.to_array(), group: d.group }
     };
     let control = GpuControl { progress, base: progress.done.load(Ordering::Relaxed), count: samples.len() };
-    match gpu.run(bvh, samples.len(), &texel, rays, mode, &control) {
+    match gpu.run(bvh, tri_group, samples.len(), &texel, rays, mode, &control) {
         Ok(values) => {
             progress.done.store(control.base + samples.len(), Ordering::Relaxed);
             *backend = gpu.description();

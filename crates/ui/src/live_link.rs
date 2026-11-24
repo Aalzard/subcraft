@@ -124,9 +124,9 @@ fn choose(state: &mut UiState, dir: &std::path::Path) {
 
 fn engine_note(engine: Engine) -> &'static str {
     match engine {
-        Engine::Godot => "Godot imports the files when its window gets focus. Each texture set also gets a ready StandardMaterial3D (.tres) next to the textures: drag it onto the mesh.",
-        Engine::Unity => "Unity imports the files when its window gets focus. Maps are for URP Lit: Base Map, Metallic Map (smoothness in alpha), Normal Map.",
-        Engine::Unreal => "Unreal imports new and changed files in Content when Editor Preferences > Loading & Saving > Auto Reimport is on (the default). Maps: Base Color, Normal (DirectX), packed Occlusion / Roughness / Metallic.",
+        Engine::Godot => crate::i18n::tr("Godot imports the files when its window gets focus. Each texture set also gets a ready StandardMaterial3D (.tres) next to the textures: drag it onto the mesh."),
+        Engine::Unity => crate::i18n::tr("Unity imports the files when its window gets focus. Maps are for URP Lit: Base Map, Metallic Map (smoothness in alpha), Normal Map."),
+        Engine::Unreal => crate::i18n::tr("Unreal imports new and changed files in Content when Editor Preferences > Loading & Saving > Auto Reimport is on (the default). Maps: Base Color, Normal (DirectX), packed Occlusion / Roughness / Metallic."),
     }
 }
 
@@ -140,7 +140,7 @@ pub fn window(state: &mut UiState, ctx: &egui::Context, now: f64) {
     let mut pick = false;
     let mut forget = false;
     crate::widgets::window(ctx, RichText::new(crate::i18n::tr("Live link")).strong()).open(&mut open).collapsible(false).default_width(460.0).show(ctx, |ui| {
-        ui.label(RichText::new("Send this project's textures to a game engine project and keep them up to date while you paint.").color(TEXT_DIM()));
+        ui.label(RichText::new(crate::i18n::tr("Send this project's textures to a game engine project and keep them up to date while you paint.")).color(TEXT_DIM()));
         ui.add_space(6.0);
         match &target {
             Some(t) => {
@@ -151,14 +151,14 @@ pub fn window(state: &mut UiState, ctx: &egui::Context, now: f64) {
                 ui.label(RichText::new(engine_note(t.engine)).color(TEXT_DIM()).small());
             }
             None => {
-                ui.label("No engine project chosen yet.");
+                ui.label(crate::i18n::tr("No engine project chosen yet."));
             }
         }
         ui.horizontal(|ui| {
-            if ui.button(if target.is_some() { "Change project..." } else { "Choose engine project..." }).clicked() {
+            if ui.button(if target.is_some() { crate::i18n::tr("Change project...") } else { crate::i18n::tr("Choose engine project...") }).clicked() {
                 pick = true;
             }
-            if target.is_some() && ui.button("Forget").on_hover_text("Stop linking this project to the engine project").clicked() {
+            if target.is_some() && ui.button(crate::i18n::tr("Forget")).on_hover_text(crate::i18n::tr("Stop linking this project to the engine project")).clicked() {
                 forget = true;
             }
         });
@@ -166,8 +166,8 @@ pub fn window(state: &mut UiState, ctx: &egui::Context, now: f64) {
         let link = &mut state.live_link;
         ui.add_enabled_ui(target.is_some(), |ui| {
             ui.horizontal(|ui| {
-                ui.checkbox(&mut link.on, "Send automatically after edits");
-                if ui.add_enabled(!link.busy(), egui::Button::new("Send now")).clicked() {
+                ui.checkbox(&mut link.on, crate::i18n::tr("Send automatically after edits"));
+                if ui.add_enabled(!link.busy(), egui::Button::new(crate::i18n::tr("Send now"))).clicked() {
                     link.forced = true;
                 }
                 if link.busy() {

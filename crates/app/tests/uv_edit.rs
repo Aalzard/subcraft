@@ -122,6 +122,30 @@ fn every_island_can_move_together_and_bad_edits_are_refused() {
     assert!(worst < 0.05, "largest color error {worst} after the edit");
 }
 
+/// The edited layout is what the project file keeps: after save and reopen, the UVs are the edited
+/// ones and the paint still sits on the surface (the remembered model file is the original one).
+#[test]
+fn an_island_edit_survives_save_and_reopen() {
+    let mut s = painted_cube();
+    let islands = s.uv_islands();
+    let first = *s.uv_islands_of_texture_set(&islands).iter().next().unwrap();
+    s.edit_uv_islands(BTreeSet::from([first]), UvTransform { rotation_deg: 90.0, scale: Vec2::splat(0.7), pivot: UvPivot::EachIsland, ..Default::default() }).unwrap();
+    let edited = s.scene().mesh.clone();
+    let dir = std::env::temp_dir().join(format!("subcraft-uv-edit-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("edited.subcraft");
+    s.save(Some(&path)).unwrap();
+    let reopened = Session::open_project(&path).unwrap();
+    let mesh = reopened.scene().mesh.clone();
+    assert_eq!(mesh.triangle_count(), edited.triangle_count());
+    for tri in 0..mesh.triangle_count() {
+        assert!(mesh.tri_uvs(tri).iter().zip(edited.tri_uvs(tri)).all(|(a, b)| (*a - b).length() < 1e-5), "triangle {tri} lost its edited UVs");
+    }
+    let worst = worst_error(&reopened);
+    assert!(worst < 0.05, "largest color error {worst} after reopening");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
 /// Two quads on UDIM tiles 1001 and 1002 of one material, "paint across UDIM tiles" on.
 fn udim_strip() -> Session {
     let mut b = subcraft_mesh::MeshBuilder::new("Strip");
