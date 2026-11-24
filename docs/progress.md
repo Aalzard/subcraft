@@ -1,8 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-11-22 (export padding 3.6x, exact mask cache for layer edits)
-
-Last updated: 2026-11-22 (issue #628: RAM of big multi-set projects, desktop lag)
+Last updated: 2026-11-24 (0.6.0 release candidate: batch changelog and progress notes)
 
 ## Decisions
 
@@ -6369,3 +6367,32 @@ re-measured on a GPU. Not taken from his patch: the `SUBCRAFT_REPAINT_LOG` diagn
 * Looked at: sheets of planks (knots 1), leather, canvas and denim with sheen on and off.
 * Honest state: not checked in the real GPU viewport, only in the example renderer. Knots do not bend the grain
   around them and may sit across a gap. Dirt and stain layers do not reduce the sheen under them.
+
+## Release 0.6.0 candidate (2026-11-24, branch `claude/project-thread-2a6ygp`)
+
+Batch update. Since 2026-11-23 feature PRs left `CHANGELOG.md` and this file alone to stop merge conflicts
+between parallel threads, so this entry lists what merged after 0.5.0 and how each part was checked, taken from
+the PR descriptions. The user-facing list is the 0.6.0 section of `CHANGELOG.md`; release notes are
+`docs/release-notes-0.6.0.md`. Version bumped to 0.6.0 (workspace `Cargo.toml` + `Cargo.lock`).
+
+* Checked in the real app (Xvfb + lavapipe, release build): UDIM one material on every tile (#643), Physical
+  size screenshots (#649), particle brushes (#659), tab marker clip (#663), multiple UV sets example project
+  (#664), Plugins > Examples script (#667), Live link to a Godot folder (#672), Liquify Push (#680), bake presets
+  (#683), version history (#688), Shape fill (#690), filter-based materials in the GPU viewport path (#692),
+  Heal / stabilizer / post-smoothing / UDIM picker (#694), stitches button, Auto Stitcher and the guide
+  screenshots (#705), GPU high-poly projection on a 262k-triangle torus (#707), stitch rename (#709), Edit UV
+  islands on the demo (#711).
+* Checked by tests and rendered sheets only, not in an app window: material filters (#647, #661, #674, #678,
+  #685, #691, #701, #704), Shelf filter thumbnails (#658), procedural, weathered and stylized materials (#646 to
+  #713, `material_sheet`), Dripping Rust and the smart masks (#697, #698, #702, #706, #710), image and normal
+  decals and edge wrap (#669, #676, #681), tri-planar normals (#679), stencils from the shelf (#673), stitch
+  tiles and pen stitches (#645, #662, #687, #693, #696, #700), path tracer features (#656, #670), Contact
+  shadows / SSR (#670), compositor freeze and stale-channel fixes (#689, #699).
+* Not checked on real hardware: 3D view IBL and shadows (#648, no real GPU yet), extended viewport shading
+  (#631, lavapipe only), pen tilt and rotation (#654, no pen), engine-side reimport for Live link (#672),
+  FBX files with several UV layers (#664).
+* Packaging: the AppImage (#694) and Flatpak (#711) are built and run with `--version` only by the release
+  workflow; neither was opened as a desktop app.
+* Heal deadlock (#711): the heal test hung 12 times in 100 runs before the fix, 0 in 200 after.
+* Left out: #677 (screen-space SSS, draft), #708 (Dripping Rust drips across UV seams, open), #714 (Stylized
+  Gold shadow tweak, draft).

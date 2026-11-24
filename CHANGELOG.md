@@ -3,28 +3,85 @@
 What changed in SubCraft, newest first. Download the latest build from the
 [Releases page](https://github.com/Aalzard/subcraft/releases/latest).
 
-## Unreleased
+## 0.6.0 - 2026-11-24
 
 ### Added
-- Material filters are in the Shelf: the Filters tab lists them after the plain filters. Click one to add it to the selected layer (or to swap the selected material filter), drag it into the layer stack for a Passthrough filter layer over everything below, or drop it between effect rows. They do not go into masks.
-- Fiber Glass Edge Wear generator: the Edge wear model with a woven glass mat. Loose fibres run out past the solid wear, the gaps of the weave stay closed. Fibre Amount, Fibre Scale, Fibre Irregularity and Use Triplanar sit next to the usual wear controls.
-- Mask Builder generator (Painter's legacy Mask Editor): Grunge, AO, Curvature, Top/Down Gradient, World Space Normal, Scratches and Scatter sliders that add up to one mask, a group of settings for each, and a global Level, Contrast and Invert.
-- Material filters, as Painter's MatFinish and MatFX: Galvanized, Hammered and Powder Coated finishes, and Edge Damages, Rust Weathering and Peeling Paint. One filter rewrites Base Color, Roughness, Metallic and Height of the material below it together, in object space, so nothing follows a UV seam. Find them in a layer's effect menu under Add material filter; on a Passthrough layer they process everything below. Edge Damages uses the Edge wear model, and Rust Weathering reads the baked Ambient Occlusion and Curvature when they exist.
-- PBR Validate filter: colours the Base Color green where it is physically plausible, red where it is too dark, blue where it is too bright and yellow where Metallic is neither 0 nor 1 (dielectrics 30 to 240 sRGB, metals 180 sRGB or more).
+
+#### Viewport and rendering
+- The 3D view shades clear coat, sheen, anisotropy, subsurface scattering, translucency and transmission (glass). A texture set without these channels looks exactly as before.
+- Displacement preview (View menu): the 3D view subdivides the model and moves it by Height and Displacement, with a subdivision level (Auto, or 0 to 4). Shadows, AO and the brush all follow the displaced surface.
+- New Contact shadows and Screen-space reflections post effects.
+- Path tracer: renders clear coat, sheen, anisotropy, subsurface scattering, translucency, glass and cut-out opacity, draws the HDRI as a backdrop and samples it for much less noise, and has depth of field.
+
+#### Smart materials
 - Procedural materials: 11 new materials in the Smart Materials shelf (category Procedural) that come with their own sliders. Painted Metal, Rusted Steel, Brushed Metal, Polished Metal, Hammered Metal, Aged Copper, Worn Plastic, Rubber, Concrete, Leather and Wood. Apply one, select its folder, and the Properties panel shows a Material parameters section: colours, edge wear, chips, rust amount, dirt, pattern scale, roughness, bump and a seed. Change them at any time; they are saved in the project, kept when you duplicate the folder or save it to your library, and each drag is one undo step. The layers inside stay normal layers, so you can still edit them by hand.
-- 14 more procedural materials with sliders: Enamel Paint (paint over primer and metal, with chips, scratches and rust), Cast Iron, Anodized Aluminium, Blued Steel, Aged Bronze, Glossy Plastic, Carbon Fibre, Canvas, Denim, Granite, Marble, Sandstone, Rough Rock (with moss) and Painted Plaster. That makes 25 in the Procedural category.
-- New Weave pattern (woven threads going over and under each other) for fills and masks. The fabrics and Carbon Fibre use it.
-- 3 more procedural materials: Cracked Leather (grain, dry cracks with pale rims, scuffs, folds, worn edges), Wood Planks (boards with gaps, grain, knots, grey weathering) and Varnished Wood (grain and figure under a gloss coat, open pores, scratches, edges worn to bare wood). That makes 28 in the Procedural category.
-- 3 new patterns for fills and masks: Twill (the diagonal weave of denim), Veins (thin wandering lines, as in marble) and Planks (rows of boards with gaps).
-- Better fabrics and marble. Denim now has a diagonal twill weave with pale cross threads, Canvas and Denim got a Cross thread and a Wrinkles slider, and Marble veins are thin wandering lines with a soft halo instead of a net of cracks. Pits, chips and cracks in the stone, concrete and paint materials now also dent the surface.
-- Cloth sheen. Canvas and Denim now have a Sheen slider: the soft glow of fibres when you look along the cloth. Applying one of them adds the Sheen channels to the texture set in the same undo step.
-- Wood Planks has real knots: ovals along the grain with a dark core and growth rings (new Knots pattern, also available for fills and masks). Cracked Leather cracks now gather in patches, with a second finer set, instead of covering the hide as one even net. Cast Iron polished edges are a thin broken line instead of a wide pale band.
-- Tri-planar projection: "Different on every side". Each of the six sides now shows its own part of a pattern or texture, so round objects no longer show the same shapes mirrored left and right (the butterfly look). On for new fills, masks and materials; projects you already saved keep their look, and the checkbox under Hardness turns it on for them.
-- Make your own material sliders. On a fill layer or a folder, open Material parameters in Properties and choose Add parameter: pick a setting of that layer, its mask or a layer inside it (colour, roughness, opacity, pattern scale, a generator's level, and so on) and it becomes a slider that starts at the value it has now. The gear lets you rename a slider, change its range, remove it, or make the current values the defaults. Save the folder to your library and it keeps its sliders.
-- One material slider can drive several settings. In the gear mode of Material parameters, "Also drive..." adds another setting to a slider (for example one Wear slider for two masks), and each setting shows a small formula you can edit, such as `wear * 0.5` or `1 - wear`. A new link keeps the setting at its current value until you move the slider. A formula with a mistake is not applied and the reason is shown under it.
+- 17 more procedural materials with sliders: Enamel Paint, Cast Iron, Anodized Aluminium, Blued Steel, Aged Bronze, Glossy Plastic, Carbon Fibre, Canvas, Denim, Granite, Marble, Sandstone, Rough Rock (with moss), Painted Plaster, Cracked Leather, Wood Planks and Varnished Wood. That makes 28 in the Procedural category.
+- 17 weathered smart materials built on the material filters and the Mask Builder, each with Wear, Age and Dirt sliders: Rusty Painted Steel, Chipped Enamel, Scuffed Gun Metal, Worn Leather Strap, Dusty Plastic, Galvanized Steel, Powder Coated Metal, Hammered Copper, Raw Steel Plate, Weathered Painted Wood, Worn Canvas, Weathered Concrete, Perished Rubber, Chipped Painted Plastic, Worn Denim, Worn Wool (with a Nap slider) and Weathered Limestone. At high Wear the chips have hard borders.
+- Stylized (hand-painted) smart materials for game art: Stylized Metal, Gold, Wood, Stone, Cloth and Leather. Large flat colour patches and bold strokes, and three shared sliders: Edge highlight, Cavity shade and Baked light (0 keeps the Base Color unlit for a lit engine).
+- Make your own material sliders. On a fill layer or a folder, open Material parameters in Properties and choose Add parameter: pick a setting of that layer, its mask, a layer inside it or a material filter on it (colour, roughness, opacity, pattern scale, a generator's level, rust amount, and so on) and it becomes a slider that starts at the value it has now. The gear lets you rename a slider, change its range, remove it, or make the current values the defaults. Save the folder to your library and it keeps its sliders.
+- One material slider can drive several settings. In the gear mode of Material parameters, "Also drive..." adds another setting to a slider (for example one Wear slider for two masks), and each setting shows a small formula you can edit, such as `wear * 0.5` or `1 - wear`. A formula with a mistake is not applied and the reason is shown under it.
+- New patterns for fills and masks: Weave, Twill (denim), Veins (marble), Planks and Knots.
+- Cloth sheen: Canvas and Denim have a Sheen slider, and applying one adds the Sheen channels to the texture set in the same undo step.
+- Physical size for fills: Fill Properties > UV transformations > Scale can be set to Physical size, one repeat in centimetres, so a pattern keeps its real size across parts with different UV density. FBX models remember their file unit.
+
+#### Filters
+- Material filters, as Painter's MatFinish and MatFX. One filter rewrites Base Color, Roughness, Metallic and Height of the material below it together, in object space, so nothing follows a UV seam. Find them in a layer's effect menu under Add material filter, or in the Shelf's Filters tab (with rendered thumbnails); on a Passthrough layer they process everything below.
+  - Finishes: Galvanized, Hammered, Powder Coated, Grinded, Rough, Raw, Brushed Linear, Grainy and Perforated Circles.
+  - Effects: Edge Damages (with a Contrast setting for hard chips), Rust Weathering, Peeling Paint, Detail Edge Wear, Water Drops, HBAO and Shut Line.
+  - Baked Lighting Stylized: multiplies the Base Color by a painted sun, sky and ground light and the baked AO, for stylized or unlit targets.
+- PBR Validate filter: colours the Base Color green where it is physically plausible, red where it is too dark, blue where it is too bright and yellow where Metallic is neither 0 nor 1.
+- Non-uniform Blur and Color Match filters. Blur Slope gets Source Type (Previous input) and Blending Mode (Blur / Min / Max). All three can read imported images (blur map, custom noise, source and target colours) or an anchor point.
+
+#### Generators and smart masks
+- Dripping Rust generator: rust on edges and in cavities with drips running down the surface, with Rust Spreading, Drips Length, Drips Intensity and the usual grunge controls.
+- Fiber Glass Edge Wear generator: the Edge wear model with a woven glass mat. Loose fibres run out past the solid wear.
+- Mask Builder generator (Painter's legacy Mask Editor): Grunge, AO, Curvature, Top/Down Gradient, World Space Normal, Scratches and Scatter sliders that add up to one mask, and a global Level, Contrast and Invert.
+- 19 new smart masks made of several effects with blend modes: Dust Occlusion, Sharp Dirt, Ground Dirt, Dust from Above, Moss, Edges Scratched, Surface Worn, Stains and Scratches, Oxidation, Spots, Leaks, Dirt and Leaks, Paint Old, Edge Drips, Long Leaks, Soft Run-off Stains, Fibre Glass Wear, Frayed Edges and Threadbare Cloth.
+
+#### Painting
+- Heal option for the Clone tool: copies the detail of the source but keeps the tone of the place you paint.
+- Stroke stabilizer presets (Off, Light, Medium, Strong, Rope), smoothing that follows pen speed, and Post-smoothing, which redraws the stroke along a smoothed path when the pen lifts.
+- Shape fill tool: drag a rectangle or ellipse in the 3D or 2D view to fill it with the brush material, with rounded corners and feather. Shift for square or circle, Ctrl from the centre.
+- Liquify: the Smudge tool has a Push mode that moves the paint itself along the stroke, and a "Liquify Push" brush.
+- Particle brushes: Rain Streaks, Leaking Drips and Burn Marks release particles that run over the model's surface and paint trails.
+- Pen tilt and barrel rotation can drive brush angle, size, flow and flatness (Brush > Pen tilt). Windows and Wayland; X11 stays pressure only.
+- Image decals: drop a texture on the model and choose "Place as a decal here", then slide, turn and scale it. An image whose name names a channel (normal, height) fills that channel. Planar projections get "Wrap around edges", so a decal folds over hard edges like a sticker.
+- "Use as stencil" for Shelf alphas and textures, and drag and drop of them onto the Stencil block.
+- 2D view: a UDIM tile picker (previous / next and a grid laid out like UV space).
+
+#### Stitches
+- Stitches with the Pen tool: choose the stitch first, then click along the seam. 14 stitches, drawn as twisted thread: Straight, Cross, Zigzag, Staggered, Saddle, Double, Seam Holes and the new Whip, Blanket, Chain, Herringbone, Baseball, Triple and Cord.
+- Stitches lie on the model's surface and continue over UV seams, spaced evenly, with a short settings block (size, spacing, thread colour, raised), one-click needle holes and an "Add seam groove" button.
+- Auto Stitcher: places stitch rows along UV seams, open borders or a mask edge as smooth curves, one editable path per row.
+- Stitch tiles: lay your own colour, height and normal images along a path, with three samples (Saddle Leather, Denim Topstitch, Zipper). They cross UV islands too.
+- Easy to find: a Stitches button in the tool rail, Edit > Stitches, and a guide page (Help > Stitches guide).
+
+#### Models, baking and projects
+- Multiple UV sets: models keep all their UV layouts (glTF TEXCOORD_1+, FBX UV layers), and each texture set can be painted with any of them (Texture Set Settings > UV set).
+- Edit > Edit UV islands: select islands in the 2D view, then move, rotate, scale or flip them with a live preview. Painted layers follow. Like Auto UV, this clears the undo history.
+- Bake presets: Fast preview, Standard and High quality, plus your own, saved to the library and shared across projects.
+- GPU baking now also does Bent normal and the high-poly projection (Normal, Height, ID, Position and the other projected maps).
+- Version history: each Save keeps the file it replaces (10 by default, Settings > Autosave > Versions); File > Version history lists them and restores one.
+- Live link (File > Live link...): pick a Unity, Unreal or Godot project and SubCraft re-exports the textures into it a second after each edit. Godot also gets a ready material per texture set.
+- Scripting: Rhai scripts (`.rhai`) drive SubCraft through the same tools as the MCP server, from the new Plugins menu or headless with `subcraft-mcp --script`.
+
+#### Linux
+- Releases include a Linux AppImage and a Flatpak bundle. The in-app updater is off inside both and says how to update.
 
 ### Changed
-- Procedural Rusted Steel: rust is darker and redder instead of orange, with a deep rust core in the middle of each patch.
+- Tri-planar projection: "Different on every side". Each of the six sides shows its own part of a pattern or texture, so round objects no longer show the same shapes mirrored left and right. On for new fills, masks and materials; saved projects keep their look, and the checkbox under Hardness turns it on for them.
+- 3D view lighting is closer to Painter: rough metals no longer go dark, AO also dims reflections in cavities, the HDRI blur matches the roughness (and uses up to 2048 px of the HDRI), and shadows are soft.
+- Better procedural materials: darker, redder rust; denim twill and marble veins; real wood grain and knots; concrete aggregate and hairline cracks; patchy leather cracks; rubber scuffs; crisper edge wear on the hard materials; pits, chips and cracks dent the surface.
+
+### Fixed
+- UDIM with "Paint across UDIM tiles" on: adjusting a material (fill channels, projection, mask and effects, procedural sliders, or dropping a new material onto it) now changes it on every tile, so one material controls the whole object (issue #581).
+- Normal maps on planar, spherical, cylindrical, warp, rotated UV and tri-planar fill projections now turn with the projection, so bumps are lit from the right side.
+- Smart masks lost their blend modes and opacities when saved and applied again, or when dropped between effect rows.
+- A Heal stroke could hang painting for good, and a stack with an image fill and a filter or micro details could freeze the viewport or an export under load.
+- Stale 3D view after changing Height or Normal under an HBAO / Detail Edge Wear filter or a generator with micro details.
+- Blur Slope Min / Max no longer leaves ribs on thin diagonal lines.
+- The orange line on the active tab no longer slides out of its panel when a crowded tab row is scrolled (issue #637).
+- A stitch row's layer is renamed when its stitch is changed (names you typed stay).
 
 ## 0.5.0 - 2026-11-22
 
