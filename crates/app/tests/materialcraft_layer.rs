@@ -175,6 +175,50 @@ fn baked_mesh_maps_feed_graph_inputs() {
     assert!(bitmap_row(&s, &layer, ChannelKind::Roughness).last().copied().unwrap_or(0.0) > 0.95);
 }
 
+/// Two quads on UDIM tiles 1001 and 1002 of one material, "paint across UDIM tiles" on.
+fn udim_strip() -> Session {
+    use glam::{Vec2, Vec3};
+    let mut b = subcraft_mesh::MeshBuilder::new("Strip");
+    let m = b.material("Body");
+    for (i, shift) in [Vec2::ZERO, Vec2::new(1.0, 0.0)].into_iter().enumerate() {
+        let origin = Vec3::new(i as f32, 0.0, 0.0);
+        let c = |x: f32, z: f32| subcraft_mesh::Corner { position: origin + Vec3::new(x, 0.0, z), normal: Some(Vec3::Y), uv: Some(shift + Vec2::new(x, z) * 0.9 + Vec2::splat(0.05)) };
+        b.push_triangle(m, [c(0.0, 0.0), c(0.0, 1.0), c(1.0, 1.0)]);
+        b.push_triangle(m, [c(0.0, 0.0), c(1.0, 1.0), c(1.0, 0.0)]);
+    }
+    let settings = subcraft_app::new_project::NewProjectSettings { resolution: 128, ..Default::default() };
+    let mut s = Session::from_mesh_with(b.build().unwrap(), &settings).unwrap();
+    let first = s.document().texture_sets[0].id;
+    s.execute(subcraft_app::Command::SetPaintAcrossUdims { texture_set: first, on: true }).unwrap();
+    s
+}
+
+/// Issue #581 for graph layers: the import lands on every UDIM tile, so moving a parameter must
+/// re-render every tile's copy too, as one undo step (it only changed the selected tile).
+#[test]
+fn graph_parameters_drive_every_udim_tile() {
+    let mut s = udim_strip();
+    let mut graphs = GraphLayers::new();
+    let layer = import(&mut s, &mut graphs, FIXTURE);
+    let copies = |s: &Session| -> Vec<Layer> {
+        s.document().texture_sets.iter().filter_map(|ts| ts.layers.iter().find(|l| l.graph.is_some()).map(|l| (**l).clone())).collect()
+    };
+    assert_eq!(copies(&s).len(), 2, "the import reached both tiles");
+    let mut edited = layer.graph.as_deref().unwrap().clone();
+    edited.values.insert("tint".into(), vec![0.1, 0.3, 0.9, 1.0]);
+    graphs.request(&s, layer.id, edited.clone()).expect("request");
+    graphs.finish(&mut s);
+    for l in copies(&s) {
+        let base = texel(&s, &l, ChannelKind::BaseColor);
+        assert!(close(base[0], 0.1) && close(base[2], 0.9), "{}: {base:?}", l.name);
+        assert_eq!(l.graph.as_deref().unwrap().values, edited.values, "the copy remembers the new values");
+    }
+    s.execute(subcraft_app::Command::Undo).expect("undo");
+    for l in copies(&s) {
+        assert!(close(texel(&s, &l, ChannelKind::BaseColor)[0], 0.6), "one undo step restores every tile");
+    }
+}
+
 #[test]
 fn a_new_bake_re_renders_only_layers_that_read_it() {
     use subcraft_core::MeshMapKind;
@@ -208,4 +252,46 @@ fn a_new_bake_re_renders_only_layers_that_read_it() {
     s.set_mesh_maps(ts, std::collections::BTreeMap::from([(MeshMapKind::Thickness, TiledImage::new(res, res, 1, [0.5, 0.0, 0.0, 0.0]))]));
     assert_eq!(graphs.refresh_baked(&s), Ok(0));
     assert!(!graphs.busy());
+}
+
+/// A refresh after a bake renders each UDIM tile's copy with that tile's own maps: one tile's
+/// result must not be copied onto the others like a parameter change is.
+#[test]
+fn a_new_bake_refreshes_each_udim_tile_with_its_own_maps() {
+    use subcraft_core::MeshMapKind;
+    use subcraft_image::TiledImage;
+
+    let mut s = udim_strip();
+    let mut graphs = GraphLayers::new();
+    import(&mut s, &mut graphs, INPUT_FIXTURE);
+    assert_eq!(graphs.refresh_baked(&s), Ok(0), "the first call only notes the maps");
+    let sets: Vec<_> = s.document().texture_sets.iter().map(|t| t.id).collect();
+    assert_eq!(sets.len(), 2);
+    let res = 64u32;
+    for (i, ts) in sets.iter().enumerate() {
+        let mut curvature = TiledImage::new(res, res, 1, [0.0; 4]);
+        for y in 0..res {
+            for x in 0..res {
+                let t = x as f32 / (res - 1) as f32;
+                curvature.set(x, y, [if i == 0 { t } else { 1.0 - t }, 0.0, 0.0, 0.0]);
+            }
+        }
+        s.set_mesh_maps(*ts, std::collections::BTreeMap::from([(MeshMapKind::Curvature, curvature)]));
+    }
+    assert_eq!(graphs.refresh_baked(&s), Ok(2), "both tiles' copies read the new curvature");
+    while graphs.busy() {
+        graphs.finish(&mut s);
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    graphs.finish(&mut s);
+    for (i, ts) in sets.iter().enumerate() {
+        let layer = s.document().texture_set(*ts).unwrap().layers.iter().find(|l| l.graph.is_some()).expect("graph layer").clone();
+        let row = bitmap_row(&s, &layer, ChannelKind::Roughness);
+        let (first, last) = (row[0], row[row.len() - 1]);
+        if i == 0 {
+            assert!(first < 0.05 && last > 0.95, "tile 1001 follows its own bake: {first} .. {last}");
+        } else {
+            assert!(first > 0.95 && last < 0.05, "tile 1002 follows its own bake: {first} .. {last}");
+        }
+    }
 }

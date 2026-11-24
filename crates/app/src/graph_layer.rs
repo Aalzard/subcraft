@@ -407,6 +407,12 @@ fn find_layer(session: &Session, id: LayerId) -> Option<(TextureSetId, Layer)> {
 
 /// Put `maps` into `layer`'s fill channels; channels without a map are switched off.
 fn fill_with(session: &mut Session, layer: &mut Layer, material: &GraphMaterial, maps: Vec<RenderedMap>) {
+    let ids = add_maps(session, material, maps);
+    fill_with_ids(layer, material, &ids);
+}
+
+/// The rendered maps as texture resources of the project, by channel.
+fn add_maps(session: &mut Session, material: &GraphMaterial, maps: Vec<RenderedMap>) -> BTreeMap<ChannelKind, ResourceId> {
     let name = session.resources().get(material.package).map(|r| r.name.clone()).unwrap_or_default();
     let mut ids: BTreeMap<ChannelKind, ResourceId> = BTreeMap::new();
     for m in maps {
@@ -420,6 +426,11 @@ fn fill_with(session: &mut Session, layer: &mut Layer, material: &GraphMaterial,
         });
         ids.insert(m.channel, id);
     }
+    ids
+}
+
+/// Point `layer`'s fill channels at the rendered `ids`; channels without a map are switched off.
+fn fill_with_ids(layer: &mut Layer, material: &GraphMaterial, ids: &BTreeMap<ChannelKind, ResourceId>) {
     if let LayerContent::Fill(f) = &mut layer.content {
         for (kind, c) in f.channels.iter_mut() {
             match ids.get(kind) {
@@ -464,14 +475,37 @@ fn apply(session: &mut Session, target: &Target, material: &GraphMaterial, refre
             Ok(format!("Added {name}"))
         }
         Target::Update { layer } => {
-            let (_, mut l) = find_layer(session, *layer).ok_or("the layer was deleted while rendering")?;
+            let (ts_id, mut l) = find_layer(session, *layer).ok_or("the layer was deleted while rendering")?;
             if !matches!(l.content, LayerContent::Fill(_)) {
                 return Err("the layer is no longer a fill layer".into());
             }
-            fill_with(session, &mut l, material, maps);
+            let ids = add_maps(session, material, maps);
+            fill_with_ids(&mut l, material, &ids);
             let label = if refresh { format!("Refresh After Bake: {}", l.name) } else { format!("Material Parameters: {}", l.name) };
             let name = l.name.clone();
-            session.execute(Command::ReplaceLayer { layer: *layer, replacement: Box::new(l), label }).map_err(|e| e.to_string())?;
+            // Paint across UDIM tiles (issue #581): the graph layer was added on every tile of
+            // the group, so the new parameters drive every tile's copy (the maps are UV-free).
+            // A refresh after a bake re-renders each tile's copy with that tile's own maps.
+            let doc = session.document();
+            let partners: Vec<Command> = doc
+                .texture_set(ts_id)
+                .filter(|_| !refresh)
+                .map(|source| {
+                    doc.udim_paint_partners(ts_id)
+                        .into_iter()
+                        .filter_map(|id| {
+                            let ts = doc.texture_set(id)?;
+                            let mut other = ts.find(ts.corresponding_layer(source, *layer)?)?.clone();
+                            if !matches!(other.content, LayerContent::Fill(_)) || other.graph.as_ref().is_none_or(|g| g.package != material.package) {
+                                return None;
+                            }
+                            fill_with_ids(&mut other, material, &ids);
+                            Some(Command::ReplaceLayer { layer: other.id, replacement: Box::new(other), label: label.clone() })
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            session.execute_with_partner_commands(Command::ReplaceLayer { layer: *layer, replacement: Box::new(l), label }, partners).map_err(|e| e.to_string())?;
             Ok(if refresh { format!("Updated {name} for the new bake") } else { format!("Updated {name}") })
         }
     }
