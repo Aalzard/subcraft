@@ -46,6 +46,9 @@ pub struct AutoStitch {
     /// How far from the edge the row runs, in stitch widths. At 0 a UV seam gets one row right
     /// on it; above 0 it gets a row on each side.
     pub inset: f32,
+    /// Round the rows into curves through their points; corners sharper than
+    /// [`CORNER_DEGREES`] stay corners. Off: straight segments.
+    pub smooth: bool,
 }
 
 impl AutoStitch {
@@ -54,7 +57,7 @@ impl AutoStitch {
 
 impl Default for AutoStitch {
     fn default() -> Self {
-        Self { along: StitchAlong::Seams, inset: 1.0 }
+        Self { along: StitchAlong::Seams, inset: 1.0, smooth: true }
     }
 }
 
@@ -74,6 +77,9 @@ const MAX_POINTS: usize = 200;
 /// The mask is traced on a grid of at most this many texels a side.
 const MASK_GRID: u32 = 1024;
 
+/// A row turns a corner, and is not rounded there, where it bends by more than this.
+pub const CORNER_DEGREES: f32 = 40.0;
+
 /// One line of stitches, in the UV square of the texture set.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Line {
@@ -92,6 +98,31 @@ impl Line {
             _ => open,
         }
     }
+}
+
+/// The points of `line` as path anchors. With `smooth` every point where the line bends gently
+/// gets handles along the direction from its neighbour before to the one after, a third of the
+/// way to each: one curve through all the points. Sharp corners and the ends of an open line
+/// keep no handles.
+pub fn anchors(line: &Line, smooth: bool) -> Vec<PenAnchor> {
+    let p = &line.points;
+    let n = p.len();
+    let limit = CORNER_DEGREES.to_radians().cos();
+    (0..n)
+        .map(|i| {
+            let mut anchor = PenAnchor::new(p[i]);
+            let neighbours = if line.closed && n > 2 { Some((p[(i + n - 1) % n], p[(i + 1) % n])) } else if i > 0 && i + 1 < n { Some((p[i - 1], p[i + 1])) } else { None };
+            if let Some((before, after)) = neighbours.filter(|_| smooth) {
+                let (a, b) = (p[i] - before, after - p[i]);
+                let tangent = (after - before).normalize_or_zero();
+                if a.length() > 1e-9 && b.length() > 1e-9 && a.normalize().dot(b.normalize()) >= limit {
+                    anchor.incoming = -tangent * a.length() / 3.0;
+                    anchor.outgoing = tangent * b.length() / 3.0;
+                }
+            }
+            anchor
+        })
+        .collect()
 }
 
 /// Segments joined end to end into lines: for each line its segments in order (the flag says
@@ -542,7 +573,7 @@ impl PenEditor {
         let mut add = |editor: &mut Self, session: &mut Session| -> Result<(), CommandError> {
             for line in &lines {
                 let mut path = template.clone();
-                path.anchors = line.points.iter().map(|&p| PenAnchor::new(p)).collect();
+                path.anchors = anchors(line, options.smooth);
                 path.closed = line.closed;
                 path.radius = (path.radius * line.scale).clamp(0.00001, 0.5);
                 let layer = editor.drawn_layer(session, path, name)?;
@@ -601,6 +632,28 @@ mod tests {
         assert!(w.len() == 4 && w[0] == w[3] && [10, 11, 12].iter().all(|k| w.contains(k)), "{w:?}");
         // Three lines meeting in one point end there.
         assert_eq!(chains(&[(0, 1), (0, 2), (0, 3)]).len(), 3);
+    }
+
+    /// A circle of 16 points becomes one smooth curve that stays close to the circle; a square
+    /// keeps its corners.
+    #[test]
+    fn gentle_bends_become_curves_and_corners_stay_corners() {
+        let circle = Line { points: (0..16).map(|i| Vec2::splat(0.5) + Vec2::from_angle(i as f32 * std::f32::consts::TAU / 16.0) * 0.3).collect(), closed: true, scale: 1.0 };
+        let round = anchors(&circle, true);
+        assert!(round.iter().all(|a| a.outgoing.length() > 0.03 && (a.incoming + a.outgoing).length() < 1e-5), "every point is smooth");
+        // The curve between two points: its middle is on the circle, where the straight
+        // segment's middle is 0.0058 inside it.
+        let (a, b) = (&round[0], &round[1]);
+        let c = [a.position, a.position + a.outgoing, b.position + b.incoming, b.position];
+        let mid = (c[0] + c[1] * 3.0 + c[2] * 3.0 + c[3]) / 8.0;
+        assert!((mid.distance(Vec2::splat(0.5)) - 0.3).abs() < 0.0008, "{}", mid.distance(Vec2::splat(0.5)));
+        assert!(anchors(&circle, false).iter().all(|a| a.incoming == Vec2::ZERO && a.outgoing == Vec2::ZERO));
+        let square = Line { points: vec![Vec2::new(0.2, 0.2), Vec2::new(0.8, 0.2), Vec2::new(0.8, 0.8), Vec2::new(0.2, 0.8)], closed: true, scale: 1.0 };
+        assert!(anchors(&square, true).iter().all(|a| a.outgoing == Vec2::ZERO), "right angles are corners");
+        // An open line: its ends have no handles, a gentle bend between them has.
+        let bend = Line { points: vec![Vec2::new(0.1, 0.5), Vec2::new(0.5, 0.52), Vec2::new(0.9, 0.5)], closed: false, scale: 1.0 };
+        let b = anchors(&bend, true);
+        assert!(b[0].outgoing == Vec2::ZERO && b[2].incoming == Vec2::ZERO && b[1].outgoing.x > 0.1 && b[1].outgoing.y.abs() < 1e-6);
     }
 
     #[test]
@@ -738,10 +791,10 @@ mod tests {
         s.execute(Command::Undo).unwrap();
         assert_eq!(path_layers(&s), 0, "undone in one step");
         // One row on each seam.
-        let made = pen.auto_stitch(&mut s, AutoStitch { along: StitchAlong::Seams, inset: 0.0 }).unwrap();
+        let made = pen.auto_stitch(&mut s, AutoStitch { along: StitchAlong::Seams, inset: 0.0, ..Default::default() }).unwrap();
         assert!((3..=12).contains(&made.paths), "{} rows for 12 edges (rows that meet on one face are one path)", made.paths);
         // A closed cube has no open border.
-        assert!(pen.auto_stitch(&mut s, AutoStitch { along: StitchAlong::Borders, inset: 1.0 }).is_err());
+        assert!(pen.auto_stitch(&mut s, AutoStitch { along: StitchAlong::Borders, ..Default::default() }).is_err());
     }
     /// A disc painted into a layer's mask on a plane: one closed row of stitches around it.
     #[test]
@@ -759,7 +812,7 @@ mod tests {
         s.execute(Command::AddLayer(crate::NewLayer::Fill)).unwrap();
         let layer = s.selection().layer.unwrap();
         // Without a mask there is no edge to follow.
-        assert!(pen.auto_stitch(&mut s, AutoStitch { along: StitchAlong::MaskEdge, inset: 0.0 }).is_err());
+        assert!(pen.auto_stitch(&mut s, AutoStitch { along: StitchAlong::MaskEdge, inset: 0.0, ..Default::default() }).is_err());
         s.execute(Command::AddMask { layer, white: false }).unwrap();
         let disc: Vec<f32> = (0..256 * 256).flat_map(|i| {
             let p = Vec2::new((i % 256) as f32 + 0.5, (i / 256) as f32 + 0.5) / 256.0;
@@ -767,12 +820,13 @@ mod tests {
         }).collect();
         s.execute(Command::AddMaskEffect { layer, kind: MaskEffectKind::Paint { image: TiledImage::from_dense(256, 256, 2, [0.0; 4], &disc) } }).unwrap();
         s.execute(Command::SelectLayer(Some(layer))).unwrap();
-        let made = pen.auto_stitch(&mut s, AutoStitch { along: StitchAlong::MaskEdge, inset: 0.0 }).unwrap();
+        let made = pen.auto_stitch(&mut s, AutoStitch { along: StitchAlong::MaskEdge, inset: 0.0, ..Default::default() }).unwrap();
         assert_eq!(made, AutoStitched { paths: 1, skipped: 0 });
         let LayerContent::Paint(p) = &s.selected_layer().unwrap().content else { panic!("the new path layer is selected") };
         let path = p.path.as_ref().unwrap();
         assert!(path.closed && path.anchors.len() > 12);
         assert!(path.anchors.iter().all(|a| (a.position.distance(Vec2::splat(0.5)) - 0.3).abs() < 0.01), "the points lie on the disc's edge");
+        assert!(path.anchors.iter().filter(|a| a.outgoing != Vec2::ZERO).count() * 10 >= path.anchors.len() * 9, "and the row is a curve through them");
         // The stitches are painted along the edge and nowhere else.
         let height = &p.channels[&ChannelKind::Height];
         let (mut on, mut off) = (0, 0);
