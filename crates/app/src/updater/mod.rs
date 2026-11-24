@@ -176,11 +176,18 @@ pub fn compact_finished_cache(root: &Path) {
 pub fn appimage_update_error(appimage: Option<&std::ffi::OsStr>) -> Option<String> {
     appimage.filter(|v| !v.is_empty()).map(|_| "Running as an AppImage: download the new AppImage from the GitHub releases page to update.".to_owned())
 }
+/// Why automatic updates are off inside a Flatpak (`FLATPAK_ID` is set in its sandbox), if so.
+pub fn flatpak_update_error(flatpak_id: Option<&std::ffi::OsStr>) -> Option<String> {
+    flatpak_id.filter(|v| !v.is_empty()).map(|_| "Running as a Flatpak: update it with `flatpak update` or your software center.".to_owned())
+}
 pub fn detect_kind(target: &Path) -> Result<PackageKind, String> {
     // An AppImage runs from a read-only mount and cannot replace itself: like the macOS build, it
     // is updated by downloading the new file.
     #[cfg(target_os = "linux")]
     if let Some(e) = appimage_update_error(std::env::var_os("APPIMAGE").as_deref()) { return Err(e); }
+    // A Flatpak's files are read-only and owned by flatpak, which updates them itself.
+    #[cfg(target_os = "linux")]
+    if let Some(e) = flatpak_update_error(std::env::var_os("FLATPAK_ID").as_deref()) { return Err(e); }
     // Only x86_64 and aarch64 Windows/Linux builds are published as self-updating packages.
     // macOS builds are updated by downloading the new disk image: the app bundle is unsigned.
     #[cfg(all(windows, target_arch = "aarch64"))] { let _ = target; return Ok(PackageKind::WindowsPortableArm64); }

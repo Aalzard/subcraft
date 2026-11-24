@@ -126,3 +126,10 @@ fn an_appimage_does_not_update_itself() {
     assert_eq!(appimage_update_error(None), None);
     assert_eq!(appimage_update_error(Some(std::ffi::OsStr::new(""))), None);
 }
+
+#[test]
+fn a_flatpak_does_not_update_itself() {
+    assert!(flatpak_update_error(Some(std::ffi::OsStr::new("io.github.aalzard.SubCraft"))).is_some_and(|e| e.contains("flatpak update")));
+    assert_eq!(flatpak_update_error(None), None);
+    assert_eq!(flatpak_update_error(Some(std::ffi::OsStr::new(""))), None);
+}

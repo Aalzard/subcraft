@@ -1,5 +1,5 @@
 name: Release
-# Windows x64 and Linux x86_64 packages (tar.gz and AppImage). Windows binaries are code-signed for free through
+# Windows x64 and Linux x86_64 packages (tar.gz, AppImage and Flatpak). Windows binaries are code-signed for free through
 # SignPath Foundation when its configuration is present (docs/signing-setup.md); without it the
 # release still completes and is published unsigned, with a notice in the release notes.
 # Every published file gets a Sigstore build provenance attestation.
@@ -252,12 +252,23 @@ jobs:
           sudo apt-get update -q
           sudo apt-get install -y -q desktop-file-utils
           ./scripts/build-appimage.sh
+      - name: Build Flatpak
+        run: |
+          sudo apt-get install -y -q flatpak flatpak-builder
+          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          ./scripts/build-flatpak.sh
       - name: Check Linux package
         run: |
           tar -xzf dist/*.tar.gz -C "$RUNNER_TEMP"
           "$RUNNER_TEMP"/SubCraft-*/subcraft --help
           # No FUSE on the runner: the AppImage unpacks itself and runs.
           APPIMAGE_EXTRACT_AND_RUN=1 dist/SubCraft-*.AppImage --version
+          # The bundle installs (runtime from Flathub) and starts inside its sandbox.
+          flatpak install --user -y --noninteractive dist/SubCraft-*.flatpak
+          # Updating means installing the next bundle over it.
+          flatpak install --user -y --noninteractive --reinstall dist/SubCraft-*.flatpak
+          flatpak run io.github.aalzard.SubCraft --version
+          flatpak uninstall --user -y --noninteractive io.github.aalzard.SubCraft
       - name: Checksums
         shell: pwsh
         run: ./scripts/write-release-checksums.ps1 -Directory dist
@@ -268,6 +279,7 @@ jobs:
           subject-path: |
             dist/*.tar.gz
             dist/*.AppImage
+            dist/*.flatpak
             dist/SHA256SUMS.txt
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -275,6 +287,7 @@ jobs:
           path: |
             dist/*.tar.gz
             dist/*.AppImage
+            dist/*.flatpak
             dist/SHA256SUMS.txt
           if-no-files-found: error
   publish:
@@ -314,7 +327,7 @@ jobs:
           TAG: ${{ github.event.release.tag_name || inputs.tag }}
         run: |
           shopt -s nullglob
-          files=(dist/*-setup.exe dist/*.zip dist/*.tar.gz dist/*.AppImage dist/SHA256SUMS.txt dist/release-security-windows.json dist/*.defender.txt)
+          files=(dist/*-setup.exe dist/*.zip dist/*.tar.gz dist/*.AppImage dist/*.flatpak dist/SHA256SUMS.txt dist/release-security-windows.json dist/*.defender.txt)
           gh release upload "$TAG" "${files[@]}" --repo "${{ github.repository }}"
       - name: Note signing status and verification in the release notes
         env:
