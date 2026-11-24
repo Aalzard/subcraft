@@ -127,17 +127,35 @@ fn effects_inserted_at_a_position_land_there_in_one_step_and_the_last_is_selecte
     s.execute(Command::AddMaskEffect { layer, kind: MaskEffectKind::Invert }).unwrap();
     let steps = s.history().entries().len();
     // Between the two: right above Levels.
-    s.execute(Command::InsertMaskEffects { layer, effects: vec![MaskEffectKind::Anchor, MaskEffectKind::Invert], above: Some(levels), label: "drop".into() }).unwrap();
+    s.execute(Command::InsertMaskEffects { layer, effects: vec![MaskEffectKind::Anchor, MaskEffectKind::Invert], blends: vec![], above: Some(levels), label: "drop".into() }).unwrap();
     assert!(matches!(kinds(&s)[..], [MaskEffectKind::Levels(_), MaskEffectKind::Anchor, MaskEffectKind::Invert, MaskEffectKind::Invert]));
     assert_eq!(s.history().entries().len(), steps + 1);
     let selected = s.selected_effect().unwrap();
     let mask = s.selected_texture_set().find(layer).unwrap().mask.clone().unwrap();
     assert_eq!(mask.effects[2].id, selected, "the last inserted effect is selected");
     // At the bottom.
-    s.execute(Command::InsertMaskEffects { layer, effects: vec![MaskEffectKind::Anchor], above: None, label: "drop".into() }).unwrap();
+    s.execute(Command::InsertMaskEffects { layer, effects: vec![MaskEffectKind::Anchor], blends: vec![], above: None, label: "drop".into() }).unwrap();
     assert!(matches!(kinds(&s)[0], MaskEffectKind::Anchor));
     // An unknown position changes nothing.
     let steps = s.history().entries().len();
-    assert!(s.execute(Command::InsertMaskEffects { layer, effects: vec![MaskEffectKind::Invert], above: Some(subcraft_core::EffectId::new()), label: "x".into() }).is_err());
+    assert!(s.execute(Command::InsertMaskEffects { layer, effects: vec![MaskEffectKind::Invert], blends: vec![], above: Some(subcraft_core::EffectId::new()), label: "x".into() }).is_err());
+
     assert_eq!(s.history().entries().len(), steps);
+    // Inserting with blends: each effect takes its own mode and opacity, in one undo step.
+    let before = s.selected_layer().unwrap().mask.as_ref().unwrap().effects.len();
+    s.execute(Command::InsertMaskEffects {
+        layer,
+        effects: vec![MaskEffectKind::Invert, MaskEffectKind::Anchor],
+        blends: vec![(subcraft_doc::BlendMode::Multiply, 0.6), (subcraft_doc::BlendMode::Subtract, 7.0)],
+        above: None,
+        label: "drop".into(),
+    }).unwrap();
+    {
+        let effects = &s.selected_layer().unwrap().mask.as_ref().unwrap().effects;
+        assert_eq!(effects.len(), before + 2);
+        assert_eq!((effects[0].blend, effects[0].opacity), (subcraft_doc::BlendMode::Multiply, 0.6));
+        assert_eq!((effects[1].blend, effects[1].opacity), (subcraft_doc::BlendMode::Subtract, 1.0), "opacity is clamped");
+    }
+    s.execute(Command::Undo).unwrap();
+    assert_eq!(s.selected_layer().unwrap().mask.as_ref().unwrap().effects.len(), before);
 }

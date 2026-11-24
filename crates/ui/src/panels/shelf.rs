@@ -266,6 +266,7 @@ pub fn apply_effect_drop(s: &mut UiState, drop: crate::panels::effects::ShelfEff
     let crate::panels::effects::ShelfEffectDrop { layer, domain, above, item } = drop;
     let image = |resource| MaskEffectKind::Image { resource, projection: Projection::default(), invert: false, balance: 0.5, contrast: 0.0 };
     let mask = domain == LayerTarget::Mask;
+    let mut blends = Vec::new();
     let effects: Result<Vec<MaskEffectKind>, String> = match item {
         ShelfDrag::Filter(i) if !mask => {
             let result = match subcraft_doc::Filter::ALL.get(i).copied() {
@@ -316,6 +317,8 @@ pub fn apply_effect_drop(s: &mut UiState, drop: crate::panels::effects::ShelfEff
         ShelfDrag::SmartMask(i) if mask => match s.library.smart_masks.get(i).cloned() {
             Some(m) => {
                 for r in &m.resources { s.session.share_resource(r.clone()); }
+                // A stacked mask keeps the blend mode and opacity of each effect.
+                if m.is_stacked() { blends = m.blends.clone(); }
                 Ok(m.effects.clone())
             }
             None => Ok(Vec::new()),
@@ -325,7 +328,7 @@ pub fn apply_effect_drop(s: &mut UiState, drop: crate::panels::effects::ShelfEff
     };
     let result = effects.and_then(|effects| {
         if effects.is_empty() { return Ok(()); }
-        s.session.execute(Command::InsertMaskEffects { layer, effects, above, label: "Add Mask Effect".into() }).map_err(|e| e.to_string())
+        s.session.execute(Command::InsertMaskEffects { layer, effects, blends, above, label: "Add Mask Effect".into() }).map_err(|e| e.to_string())
     });
     match result {
         Ok(()) => s.recovery.autosaver.request_soon(),

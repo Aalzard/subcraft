@@ -102,7 +102,9 @@ pub enum Command {
     /// Insert mask effects at a position of the layer's mask stack: right above `above`, or at
     /// the bottom when it is `None` (a Shelf item dropped between effect rows). The last one
     /// becomes the selection.
-    InsertMaskEffects { layer: LayerId, effects: Vec<MaskEffectKind>, above: Option<EffectId>, label: String },
+    /// `blends` gives the blend mode and opacity of each effect, in order; a missing entry (an
+    /// empty list for plain effects) means Normal at 100%.
+    InsertMaskEffects { layer: LayerId, effects: Vec<MaskEffectKind>, blends: Vec<(BlendMode, f32)>, above: Option<EffectId>, label: String },
     /// The same for one content effect.
     InsertContentEffect { layer: LayerId, kind: ContentEffectKind, above: Option<EffectId> },
     /// Like `ApplyMaskEffects`, but the mask's previous effects go first (Painter: a smart mask
