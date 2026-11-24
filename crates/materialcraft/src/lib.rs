@@ -187,6 +187,56 @@ pub struct Output {
     pub normal_y_down: bool,
 }
 
+/// An image input of a graph (an `input_color` or `input_grayscale` node), such as a slot for a
+/// baked mesh map.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ImageInput {
+    /// The node's identifier (`curvature`, `ambientOcclusion`, `worldNormal`...).
+    pub identifier: String,
+    /// The SBS usage the author tagged, or `any`.
+    pub usage: String,
+    /// True for a grayscale input node.
+    pub gray: bool,
+}
+
+/// An image handed to an [`ImageInput`]: linear or raw values, top row first. It is resized to
+/// the graph's size by MaterialCraft.
+#[derive(Clone, Debug)]
+pub struct InputImage {
+    pub width: u32,
+    pub height: u32,
+    /// 1 (gray), 3 (RGB) or 4 (RGBA).
+    pub channels: usize,
+    pub texels: Vec<f32>,
+}
+
+impl InputImage {
+    fn to_engine(&self, gray: bool) -> Result<materialcraft_engine::image::Image> {
+        use materialcraft_engine::image::{Image, Kind, Limits};
+        let (w, h, c) = (self.width as usize, self.height as usize, self.channels);
+        if !(1..=4).contains(&c) || c == 2 || self.texels.len() != w * h * c || w == 0 || h == 0 {
+            return Err(Error::Engine(format!("input image is {}x{} with {c} channels but holds {} values", self.width, self.height, self.texels.len())));
+        }
+        let finite = |v: f32| if v.is_finite() { v } else { 0.0 };
+        let (kind, data): (Kind, Vec<f32>) = if gray {
+            (Kind::Gray, self.texels.chunks_exact(c).map(|t| finite(if c >= 3 { (t[0] + t[1] + t[2]) / 3.0 } else { t[0] })).collect())
+        } else {
+            let data = self
+                .texels
+                .chunks_exact(c)
+                .flat_map(|t| match c {
+                    1 => [t[0], t[0], t[0], 1.0],
+                    3 => [t[0], t[1], t[2], 1.0],
+                    _ => [t[0], t[1], t[2], t[3]],
+                })
+                .map(finite)
+                .collect();
+            (Kind::Color, data)
+        };
+        Image::from_data(self.width, self.height, kind, data, &Limits::default()).map_err(engine)
+    }
+}
+
 /// A material graph inside an opened file.
 #[derive(Clone, Debug, PartialEq)]
 pub struct GraphInfo {
@@ -314,6 +364,14 @@ impl Material {
             .collect())
     }
 
+    /// The graph's image inputs, one per identifier, in node order.
+    pub fn image_inputs(&self, graph: usize) -> Result<Vec<ImageInput>> {
+        Ok(materialcraft_engine::material_cmds::image_inputs(self.graph(graph)?)
+            .into_iter()
+            .map(|input| ImageInput { gray: input.kind == "gray", identifier: input.identifier, usage: input.usage })
+            .collect())
+    }
+
     /// Check `values` against the graph's parameters and convert them, clamped where asked.
     fn overrides(&self, graph: usize, values: &BTreeMap<String, ParamValue>) -> Result<BTreeMap<String, Value>> {
         let params = self.params(graph)?;
@@ -332,8 +390,22 @@ impl Material {
     /// Cook `graph` with `values` over its defaults, with the larger side at `size` pixels
     /// (rounded down to a power of two, 16 to 8192). Returns every output that cooked.
     pub fn cook(&self, graph: usize, values: &BTreeMap<String, ParamValue>, size: u32) -> Result<Vec<Output>> {
+        self.cook_with_inputs(graph, values, size, &BTreeMap::new())
+    }
+
+    /// [`Material::cook`] with images for the graph's image inputs, by identifier. Inputs left
+    /// out keep what the file binds to them (often nothing, which cooks as black).
+    pub fn cook_with_inputs(&self, graph: usize, values: &BTreeMap<String, ParamValue>, size: u32, inputs: &BTreeMap<String, InputImage>) -> Result<Vec<Output>> {
         let source = self.graph(graph)?;
         let overrides = self.overrides(graph, values)?;
+        let declared = self.image_inputs(graph)?;
+        let images = inputs
+            .iter()
+            .map(|(id, image)| {
+                let input = declared.iter().find(|input| input.identifier == *id).ok_or_else(|| Error::UnknownParam(id.clone()))?;
+                Ok((id.clone(), image.to_engine(input.gray)?))
+            })
+            .collect::<Result<BTreeMap<_, _>>>()?;
 
         // Same steps as MaterialCraft's own export (`MaterialOptions::cook`): resize the graph,
         // and let fixed-size output bridges follow it.
@@ -352,6 +424,7 @@ impl Material {
         options.environment = self.session.environment;
         options.only = Some(roots);
         options.overrides = overrides;
+        options.inputs = images;
         let cooked = materialcraft_eval::cook(&package, graph, &options, &self.session.cache);
 
         let resized = package.graphs.get(graph).ok_or(Error::NoGraph(graph))?;

@@ -114,9 +114,7 @@ fn build_field(g: &Generator, set: &TextureSetGeometry, maps: &MeshMaps) -> Fiel
     let axis = g.axis.index();
     // One sample per stride x stride block, at its middle texel.
     let pick = stride / 2;
-    let samples: Vec<(usize, [f32; 3], f32)> = (0..set.tile_count())
-        .into_par_iter()
-        .flat_map_iter(|index| {
+    let tile_samples = |index: usize| {
             let geo = set.tile(index);
             let mut found = Vec::new();
             if !geo.is_empty() {
@@ -132,8 +130,17 @@ fn build_field(g: &Generator, set: &TextureSetGeometry, maps: &MeshMaps) -> Fiel
                 }
             }
             found
-        })
-        .collect();
+        };
+    // The field is built by the first tile that needs it, inside a one-time init that every
+    // other tile then waits on. A rayon wait in there lets this thread steal one of those
+    // tiles, which blocks on the init this very thread is running: a deadlock that froze the
+    // QA fuzz now and then. Inside the pool the tiles already keep every core busy, so build
+    // it serially there.
+    let samples: Vec<(usize, [f32; 3], f32)> = if rayon::current_thread_index().is_some() {
+        (0..set.tile_count()).flat_map(tile_samples).collect()
+    } else {
+        (0..set.tile_count()).into_par_iter().flat_map_iter(tile_samples).collect()
+    };
     let mut position = vec![[0.0f32; 3]; size * size];
     let mut covered = vec![false; size * size];
     let mut source = vec![0.0f32; size * size];

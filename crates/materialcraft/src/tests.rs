@@ -139,3 +139,52 @@ fn bad_input_is_an_error_not_a_panic() {
     assert!(matches!(material.cook(material.entry, &wrong, 32), Err(Error::WrongType { .. })));
     assert!(matches!(material.cook(99, &BTreeMap::new(), 32), Err(Error::NoGraph(99))));
 }
+
+/// A graph whose roughness is its `curvature` gray input and whose base color is its `ao`
+/// color input, like a material that reads baked mesh maps.
+fn input_package() -> Package {
+    let mut graph = template("empty", "Reads_mesh_maps", 6).expect("template");
+    for (index, (def, identifier, usage)) in [("input_grayscale", "curvature", 2u32), ("input_color", "ambientOcclusion", 0)].into_iter().enumerate() {
+        let input = graph.add_node(def, [0.0, index as f32 * 180.0]);
+        graph.node_mut(input).expect("node").params.insert("identifier".into(), Value::Text(identifier.into()));
+        let output = graph.add_node("output", [220.0, index as f32 * 180.0]);
+        let node = graph.node_mut(output).expect("node");
+        node.params.insert("identifier".into(), Value::Text(format!("out_{identifier}")));
+        node.params.insert("usage".into(), Value::Enum(usage));
+        graph.connect(input, "output", output, "input").expect("connect");
+    }
+    let mut package = Package::new("Inputs");
+    package.graphs.push(graph);
+    package
+}
+
+#[test]
+fn image_inputs_take_baked_maps() {
+    let material = Material::open(&write_material(&input_package(), 0).expect("write"), "inputs.mcmat").expect("open");
+    let inputs = material.image_inputs(material.entry).expect("inputs");
+    assert_eq!(inputs.iter().map(|i| (i.identifier.as_str(), i.gray)).collect::<Vec<_>>(), [("curvature", true), ("ambientOcclusion", false)]);
+
+    // A left-to-right ramp as curvature (RGB, as a baked map may come), a flat gray as AO.
+    let (w, h) = (32u32, 8u32);
+    let ramp: Vec<f32> = (0..w * h).flat_map(|i| [(i % w) as f32 / (w - 1) as f32; 3]).collect();
+    let inputs = BTreeMap::from([
+        ("curvature".to_string(), InputImage { width: w, height: h, channels: 3, texels: ramp }),
+        ("ambientOcclusion".to_string(), InputImage { width: 4, height: 4, channels: 1, texels: vec![0.25; 16] }),
+    ]);
+    let outputs = material.cook_with_inputs(material.entry, &BTreeMap::new(), 64, &inputs).expect("cook");
+    let rough = by_usage(&outputs, "roughness");
+    assert_eq!((rough.width, rough.height), (64, 64), "inputs are resized to the cook size");
+    let row = &rough.texels[..rough.width as usize * rough.channels];
+    let (left, right) = (row[0], row[row.len() - rough.channels]);
+    assert!(left < 0.1 && right > 0.9, "roughness follows the curvature ramp: {left} .. {right}");
+    assert!((mean(rough)[0] - 0.5).abs() < 0.05);
+    let base = mean(by_usage(&outputs, "baseColor"));
+    assert!(close(base[0], 0.25) && close(base[2], 0.25), "gray map fills a color input: {base:?}");
+
+    // Without inputs it still cooks; unknown inputs and bad sizes are errors.
+    assert!(material.cook(material.entry, &BTreeMap::new(), 32).is_ok());
+    let unknown = BTreeMap::from([("thickness".to_string(), InputImage { width: 1, height: 1, channels: 1, texels: vec![0.0] })]);
+    assert!(material.cook_with_inputs(material.entry, &BTreeMap::new(), 32, &unknown).is_err());
+    let short = BTreeMap::from([("curvature".to_string(), InputImage { width: 4, height: 4, channels: 1, texels: vec![0.0; 3] })]);
+    assert!(material.cook_with_inputs(material.entry, &BTreeMap::new(), 32, &short).is_err());
+}
