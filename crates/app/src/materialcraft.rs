@@ -6,12 +6,15 @@
 //! normals are turned into SubCraft's OpenGL (+Y) convention.
 
 use std::collections::BTreeMap;
-use std::sync::Arc;
 
-use parking_lot::Mutex;
+use subcraft_core::ChannelKind;
 use subcraft_core::color::linear_to_srgb;
+use subcraft_doc::graph_material::{channel_for_usage, usage_inverts};
+use subcraft_doc::{GraphParam, GraphParamKind};
 use subcraft_image::{Bitmap, BitmapData};
 pub use subcraft_materialcraft::{EXTENSIONS, Error, Material, Output, Param, ParamValue, is_materialcraft};
+
+use crate::graph_layer::{GraphBackend, GraphDesc, RenderedMap};
 
 /// Usages whose values are colors (written through sRGB); everything else is data.
 pub fn is_color_usage(usage: &str) -> bool {
@@ -93,58 +96,114 @@ pub fn overrides(params: &[Param], saved: &BTreeMap<String, Vec<f64>>) -> BTreeM
         .collect()
 }
 
-/// Opening a file parses its whole SBS graph; slider edits re-cook the same file many times, so
-/// the last few opened files are kept, keyed by a hash of their bytes.
-#[derive(Default)]
-pub struct MaterialCache {
-    open: Mutex<Vec<(u64, Arc<Material>)>>,
+/// A slider description for one MaterialCraft parameter. Text parameters have no control.
+pub fn graph_param(param: &Param) -> Option<GraphParam> {
+    let (lo, hi) = (f64::from(param.min.min(param.max)), f64::from(param.min.max(param.max)));
+    let float = |components: usize| GraphParamKind::Float {
+        components,
+        min: vec![lo; components],
+        max: vec![hi; components],
+        step: param.step.map_or(0.0, f64::from),
+    };
+    let int = |components: usize| GraphParamKind::Int { components, min: vec![lo.round(); components], max: vec![hi.round(); components] };
+    let kind = match &param.default {
+        ParamValue::Float(_) => float(1),
+        ParamValue::Float2(_) => float(2),
+        ParamValue::Float3(_) => float(3),
+        ParamValue::Float4(_) => float(4),
+        ParamValue::Int(_) => int(1),
+        ParamValue::Int2(_) => int(2),
+        ParamValue::Int3(_) => int(3),
+        ParamValue::Int4(_) => int(4),
+        ParamValue::Bool(_) => GraphParamKind::Bool,
+        ParamValue::Color(_) => GraphParamKind::Color { alpha: true, linear: true },
+        ParamValue::Enum(_) => GraphParamKind::Enum(param.options.iter().enumerate().map(|(i, label)| (i as i32, label.clone())).collect()),
+        ParamValue::Text(_) => return None,
+    };
+    Some(GraphParam { id: param.id.clone(), label: param.label.clone(), group: param.group.clone(), kind, default: value_to_numbers(&param.default) })
 }
 
-const CACHED_FILES: usize = 4;
-
-fn hash(bytes: &[u8], name: &str) -> u64 {
-    use std::hash::{Hash, Hasher};
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    name.hash(&mut hasher);
-    bytes.hash(&mut hasher);
-    hasher.finish()
-}
-
-impl MaterialCache {
-    pub fn open(&self, bytes: &[u8], name: &str) -> Result<Arc<Material>, Error> {
-        let key = hash(bytes, name);
-        if let Some(material) = self.open.lock().iter().find(|(k, _)| *k == key).map(|(_, m)| m.clone()) {
-            return Ok(material);
+/// Cooked outputs as channel maps: the best-ranked usage per channel (base color over diffuse,
+/// roughness over glossiness), inverted where the shared mapping says so.
+pub fn channel_maps(outputs: &[Output]) -> Vec<RenderedMap> {
+    let mut best: BTreeMap<ChannelKind, (u8, &Output)> = BTreeMap::new();
+    for output in outputs {
+        let Some((channel, rank)) = channel_for_usage(&output.usage) else { continue };
+        if best.get(&channel).is_none_or(|(r, _)| rank < *r) {
+            best.insert(channel, (rank, output));
         }
-        let material = Arc::new(Material::open(bytes, name)?);
-        let mut open = self.open.lock();
-        open.insert(0, (key, material.clone()));
-        open.truncate(CACHED_FILES);
-        Ok(material)
+    }
+    best.into_iter()
+        .map(|(channel, (rank, output))| {
+            let mut bitmap = output_bitmap(output);
+            if usage_inverts(channel, rank)
+                && let BitmapData::U16(data) = &mut bitmap.data
+            {
+                let channels = bitmap.channels as usize;
+                for (i, v) in data.iter_mut().enumerate() {
+                    if !(channels == 4 && i % 4 == 3) {
+                        *v = 65535 - *v;
+                    }
+                }
+            }
+            RenderedMap { channel, bitmap }
+        })
+        .collect()
+}
+
+/// An opened MaterialCraft file for graph layers.
+pub struct MaterialCraftBackend {
+    material: Material,
+    graphs: Vec<GraphDesc>,
+}
+
+impl MaterialCraftBackend {
+    pub fn open(bytes: &[u8], name: &str) -> Result<Self, String> {
+        let material = Material::open(bytes, name).map_err(|e| format!("{name}: {e}"))?;
+        for warning in material.warnings() {
+            log::info!("MaterialCraft {name}: {warning}");
+        }
+        let mut graphs = Vec::new();
+        // The entry graph first, so a layer without a graph name opens what the author published.
+        let mut infos = material.graphs();
+        infos.sort_by_key(|info| info.index != material.entry);
+        for info in infos {
+            let params = material.params(info.index).map_err(|e| e.to_string())?;
+            let mut channels: Vec<ChannelKind> = info.usages.iter().filter_map(|u| channel_for_usage(u)).map(|(c, _)| c).collect();
+            channels.sort();
+            channels.dedup();
+            if channels.is_empty() {
+                continue;
+            }
+            let skipped: Vec<&str> = params.iter().filter(|p| graph_param(p).is_none()).map(|p| p.label.as_str()).collect();
+            graphs.push(GraphDesc {
+                graph: info.name.clone(),
+                label: info.name.clone(),
+                params: params.iter().filter_map(graph_param).collect(),
+                channels,
+                notes: if skipped.is_empty() { Vec::new() } else { vec![format!("text parameters keep the file's value: {}", skipped.join(", "))] },
+            });
+        }
+        if graphs.is_empty() {
+            return Err(format!("{name}: no material graph with base color, normal, roughness or other channel outputs"));
+        }
+        Ok(Self { material, graphs })
     }
 }
 
-/// Parameters of graph `graph` (a name, or empty for the file's entry graph).
-pub fn params(cache: &MaterialCache, bytes: &[u8], name: &str, graph: &str) -> Result<Vec<Param>, Error> {
-    let material = cache.open(bytes, name)?;
-    let index = material.graph_index(graph).ok_or(Error::NoMaterial)?;
-    material.params(index)
-}
+impl GraphBackend for MaterialCraftBackend {
+    fn graphs(&self) -> &[GraphDesc] {
+        &self.graphs
+    }
 
-/// Cook graph `graph` at `2^size_log2` pixels with saved values; returns (usage, bitmap) pairs.
-pub fn render(
-    cache: &MaterialCache,
-    bytes: &[u8],
-    name: &str,
-    graph: &str,
-    saved: &BTreeMap<String, Vec<f64>>,
-    size_log2: u32,
-) -> Result<Vec<(String, Bitmap)>, Error> {
-    let material = cache.open(bytes, name)?;
-    let index = material.graph_index(graph).ok_or(Error::NoMaterial)?;
-    let values = overrides(&material.params(index)?, saved);
-    let size = 1u32 << size_log2.min(13);
-    Ok(material.cook(index, &values, size)?.iter().map(|output| (output.usage.clone(), output_bitmap(output))).collect())
+    fn render(&mut self, graph: &str, values: &BTreeMap<String, Vec<f64>>, size_log2: u32) -> Result<Vec<RenderedMap>, String> {
+        let name = if graph.is_empty() { self.graphs.first().map_or("", |g| g.graph.as_str()) } else { graph };
+        let index = self.material.graph_index(name).ok_or_else(|| format!("graph `{name}` is not in this MaterialCraft file"))?;
+        let params = self.material.params(index).map_err(|e| e.to_string())?;
+        let size = 1u32 << size_log2.clamp(subcraft_materialcraft::MIN_SIZE.ilog2(), subcraft_materialcraft::MAX_SIZE.ilog2());
+        let outputs = self.material.cook(index, &overrides(&params, values), size).map_err(|e| e.to_string())?;
+        Ok(channel_maps(&outputs))
+    }
 }
 
 #[cfg(test)]
