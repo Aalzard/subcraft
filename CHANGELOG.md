@@ -62,7 +62,7 @@ What changed in SubCraft, newest first. Download the latest build from the
 - Multiple UV sets: models keep all their UV layouts (glTF TEXCOORD_1+, FBX UV layers), and each texture set can be painted with any of them (Texture Set Settings > UV set).
 - Edit > Edit UV islands: select islands in the 2D view, then move, rotate, scale or flip them with a live preview. Painted layers follow. Like Auto UV, this clears the undo history.
 - Substance archives (.sbsar) load as layers with their parameters as sliders, rendered in the background (open-sbsar engine, issue #682).
-- Open MaterialCraft materials (.mcmat, .mcraft, .sbs) as fill layers whose exposed parameters stay live controls, cooked by MaterialCraft's own engine.
+- Open MaterialCraft materials (.mcmat, .mcraft, .sbs) as fill layers whose exposed parameters stay live controls, cooked by MaterialCraft's own engine. Their mesh map inputs (curvature, AO, world normal and so on) read the texture set's baked maps.
 - Bake presets: Fast preview, Standard and High quality, plus your own, saved to the library and shared across projects.
 - GPU baking now also does Bent normal, the high-poly projection (Normal, Height, ID, Position and the other projected maps) and bakes with Match by name (`_low` / `_high`), which used to fall back to the CPU.
 - Version history: each Save keeps the file it replaces (10 by default, Settings > Autosave > Versions); File > Version history lists them and restores one.
@@ -78,11 +78,14 @@ What changed in SubCraft, newest first. Download the latest build from the
 - 3D view lighting is closer to Painter: rough metals no longer go dark, AO also dims reflections in cavities, the HDRI blur matches the roughness (and uses up to 2048 px of the HDRI), and shadows are soft.
 - Better procedural materials: darker, redder rust; denim twill and marble veins; real wood grain and knots; concrete aggregate and hairline cracks; patchy leather cracks; rubber scuffs; crisper edge wear on the hard materials; pits, chips and cracks dent the surface; Stylized Gold's dark patches are warm orange instead of olive.
 
+### Faster
+- Anisotropic Kuwahara, MatFX Comic Book and MatFX Watercolor are about 2.6 times faster.
+
 ### Fixed
 - UDIM with "Paint across UDIM tiles" on: adjusting a material (fill channels, projection, mask and effects, procedural sliders, or dropping a new material onto it) now changes it on every tile, so one material controls the whole object (issue #581).
 - Normal maps on planar, spherical, cylindrical, warp, rotated UV and tri-planar fill projections now turn with the projection, so bumps are lit from the right side.
 - Smart masks lost their blend modes and opacities when saved and applied again, or when dropped between effect rows.
-- A Heal stroke could hang painting for good, and a stack with an image fill and a filter or micro details could freeze the viewport or an export under load.
+- A Heal stroke could hang painting for good, a Dripping Rust generator could freeze while being composited, and a stack with an image fill and a filter or micro details could freeze the viewport or an export under load.
 - Stale 3D view after changing Height or Normal under an HBAO / Detail Edge Wear filter or a generator with micro details.
 - Blur Slope Min / Max no longer leaves ribs on thin diagonal lines.
 - Edit UV islands keeps the chosen pivot after Apply, and keeps each UDIM tile's number and grouping.
