@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.aalzard.SubCraft</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT OR Apache-2.0</project_license>
+  <name>SubCraft</name>
+  <summary>Paint PBR textures directly on 3D models</summary>
+  <description>
+    <p>SubCraft is a 3D texturing application: bake mesh maps, paint with layers, masks, smart
+    materials and procedural generators, and export texture sets for game engines.</p>
+  </description>
+  <launchable type="desktop-id">io.github.aalzard.SubCraft.desktop</launchable>
+  <url type="homepage">https://github.com/Aalzard/subcraft</url>
+  <url type="bugtracker">https://github.com/Aalzard/subcraft/issues</url>
+  <categories>
+    <category>Graphics</category>
+    <category>3DGraphics</category>
+  </categories>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="@VERSION@" date="@DATE@"/>
+  </releases>
+</component>
