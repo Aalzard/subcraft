@@ -1,6 +1,7 @@
-# Flatpak manifest for SubCraft. It wraps the prebuilt release binary (built with
-# cargo build --profile dist): scripts/build-flatpak.sh stages it with the desktop file, icon,
-# metainfo and licenses in target/flatpak/src and builds dist/SubCraft-<version>-linux-<arch>.flatpak.
+# Flatpak manifest for SubCraft (flatpak-builder / Flathub). It wraps the prebuilt release binary
+# (cargo build --profile dist) staged with the desktop file, icon, metainfo and licenses in
+# target/flatpak/src. The release workflow builds the same app without flatpak-builder:
+# scripts/build-flatpak.sh, which must keep the same permissions.
 app-id: io.github.aalzard.SubCraft
 runtime: org.freedesktop.Platform
 runtime-version: '26.08'
