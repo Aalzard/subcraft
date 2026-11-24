@@ -525,6 +525,17 @@ fn walk_on(seed: u64, steps: usize, mut s: Session, udim: bool) {
             }
         }
     }
+    // Whatever the walk built must export: every planned file written, none empty.
+    let settings = subcraft_export::ExportSettings::default();
+    let plan = s.export_plan(&settings);
+    let out = dir.join("export");
+    std::fs::create_dir_all(&out).unwrap();
+    let files = s.export_textures(&out, &settings).unwrap_or_else(|e| panic!("seed {seed}: export failed: {e}"));
+    assert_eq!(files.len(), plan.len(), "seed {seed}: export wrote {} files for a plan of {}", files.len(), plan.len());
+    for f in &files {
+        let len = std::fs::metadata(f).map(|m| m.len()).unwrap_or(0);
+        assert!(len > 0, "seed {seed}: exported {} is missing or empty", f.display());
+    }
     let _ = std::fs::remove_dir_all(dir);
 }
 
