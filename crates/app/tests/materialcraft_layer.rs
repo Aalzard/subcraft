@@ -174,3 +174,47 @@ fn baked_mesh_maps_feed_graph_inputs() {
     let layer = import(&mut s, &mut graphs, INPUT_FIXTURE);
     assert!(bitmap_row(&s, &layer, ChannelKind::Roughness).last().copied().unwrap_or(0.0) > 0.95);
 }
+
+/// Two quads on UDIM tiles 1001 and 1002 of one material, "paint across UDIM tiles" on.
+fn udim_strip() -> Session {
+    use glam::{Vec2, Vec3};
+    let mut b = subcraft_mesh::MeshBuilder::new("Strip");
+    let m = b.material("Body");
+    for (i, shift) in [Vec2::ZERO, Vec2::new(1.0, 0.0)].into_iter().enumerate() {
+        let origin = Vec3::new(i as f32, 0.0, 0.0);
+        let c = |x: f32, z: f32| subcraft_mesh::Corner { position: origin + Vec3::new(x, 0.0, z), normal: Some(Vec3::Y), uv: Some(shift + Vec2::new(x, z) * 0.9 + Vec2::splat(0.05)) };
+        b.push_triangle(m, [c(0.0, 0.0), c(0.0, 1.0), c(1.0, 1.0)]);
+        b.push_triangle(m, [c(0.0, 0.0), c(1.0, 1.0), c(1.0, 0.0)]);
+    }
+    let settings = subcraft_app::new_project::NewProjectSettings { resolution: 128, ..Default::default() };
+    let mut s = Session::from_mesh_with(b.build().unwrap(), &settings).unwrap();
+    let first = s.document().texture_sets[0].id;
+    s.execute(subcraft_app::Command::SetPaintAcrossUdims { texture_set: first, on: true }).unwrap();
+    s
+}
+
+/// Issue #581 for graph layers: the import lands on every UDIM tile, so moving a parameter must
+/// re-render every tile's copy too, as one undo step (it only changed the selected tile).
+#[test]
+fn graph_parameters_drive_every_udim_tile() {
+    let mut s = udim_strip();
+    let mut graphs = GraphLayers::new();
+    let layer = import(&mut s, &mut graphs, FIXTURE);
+    let copies = |s: &Session| -> Vec<Layer> {
+        s.document().texture_sets.iter().filter_map(|ts| ts.layers.iter().find(|l| l.graph.is_some()).map(|l| (**l).clone())).collect()
+    };
+    assert_eq!(copies(&s).len(), 2, "the import reached both tiles");
+    let mut edited = layer.graph.as_deref().unwrap().clone();
+    edited.values.insert("tint".into(), vec![0.1, 0.3, 0.9, 1.0]);
+    graphs.request(&s, layer.id, edited.clone()).expect("request");
+    graphs.finish(&mut s);
+    for l in copies(&s) {
+        let base = texel(&s, &l, ChannelKind::BaseColor);
+        assert!(close(base[0], 0.1) && close(base[2], 0.9), "{}: {base:?}", l.name);
+        assert_eq!(l.graph.as_deref().unwrap().values, edited.values, "the copy remembers the new values");
+    }
+    s.execute(subcraft_app::Command::Undo).expect("undo");
+    for l in copies(&s) {
+        assert!(close(texel(&s, &l, ChannelKind::BaseColor)[0], 0.6), "one undo step restores every tile");
+    }
+}
