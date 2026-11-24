@@ -266,8 +266,10 @@ jobs:
           APPIMAGE_EXTRACT_AND_RUN=1 dist/SubCraft-*.AppImage --version
           # The bundle installs (runtime from Flathub) and starts inside its sandbox.
           flatpak install --user -y --noninteractive dist/SubCraft-*.flatpak
-          # Updating means installing the next bundle over it.
-          flatpak install --user -y --noninteractive --reinstall dist/SubCraft-*.flatpak
+          dbus-run-session -- flatpak run io.github.aalzard.SubCraft --version
+          # Updating: uninstall (user data in ~/.var/app stays), then install the next bundle.
+          flatpak uninstall --user -y --noninteractive io.github.aalzard.SubCraft
+          flatpak install --user -y --noninteractive dist/SubCraft-*.flatpak
           dbus-run-session -- flatpak run io.github.aalzard.SubCraft --version
           flatpak uninstall --user -y --noninteractive io.github.aalzard.SubCraft
       - name: Checksums

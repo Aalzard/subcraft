@@ -178,7 +178,7 @@ pub fn appimage_update_error(appimage: Option<&std::ffi::OsStr>) -> Option<Strin
 }
 /// Why automatic updates are off inside a Flatpak (`FLATPAK_ID` is set in its sandbox), if so.
 pub fn flatpak_update_error(flatpak_id: Option<&std::ffi::OsStr>) -> Option<String> {
-    flatpak_id.filter(|v| !v.is_empty()).map(|_| "Running as a Flatpak: update it with `flatpak update` or your software center.".to_owned())
+    flatpak_id.filter(|v| !v.is_empty()).map(|_| "Running as a Flatpak: uninstall it (`flatpak uninstall io.github.aalzard.SubCraft`, settings stay), then install the new .flatpak file from the GitHub releases page.".to_owned())
 }
 pub fn detect_kind(target: &Path) -> Result<PackageKind, String> {
     // An AppImage runs from a read-only mount and cannot replace itself: like the macOS build, it

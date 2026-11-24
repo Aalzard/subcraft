@@ -138,7 +138,8 @@ download the new AppImage to update.
 
 Or install **`SubCraft-<version>-linux-x86_64.flatpak`** with `flatpak install --user SubCraft-*.flatpak`
 (it fetches the freedesktop runtime from Flathub), then start it from the menu or with
-`flatpak run io.github.aalzard.SubCraft`. To update, install the next release's file with `flatpak install --user --reinstall`.
+`flatpak run io.github.aalzard.SubCraft`. To update, run `flatpak uninstall --user io.github.aalzard.SubCraft`
+(your settings in `~/.var/app` stay), then install the next release's file.
 
 Needs a Vulkan driver (Mesa or your GPU vendor's) and X11 or Wayland. Built on Ubuntu 22.04, so it
 runs on that and newer distributions.
