@@ -542,21 +542,23 @@ Layout notes: MatFX group. Used on texture layers (content).
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| MatFX Comic Book (filter) | Properties > Filter | works on: content | missing | - | - |
+| MatFX Comic Book (filter) | Properties > Filter | works on: content | partial: per channel (content and masks): a Kuwahara paint pass, tone steps, saturation and ink borders from a Sobel of the result; no baked-map inputs | Properties > Filter > MatFX Comic Book | (this PR) |
 | Ambient Occlusion | Properties > Filter > Image inputs | grayscale; baked map | missing | - | - |
 | Curvature | Properties > Filter > Image inputs | grayscale; baked map | missing | - | - |
 | Input Type | Properties > Filter | not documented (dropdown) | missing | - | - |
-| Input Contrast | Properties > Filter | not documented | missing | - | - |
-| Input Luminosity | Properties > Filter | not documented | missing | - | - |
-| Color Intensity | Properties > Filter | not documented | missing | - | - |
-| Border Opacity | Properties > Filter | not documented | missing | - | - |
-| Border Tolerance | Properties > Filter | not documented | missing | - | - |
-| Border Smoothness | Properties > Filter | not documented | missing | - | - |
-| Paint Intensity | Properties > Filter | not documented | missing | - | - |
+| Input Contrast | Properties > Filter | not documented | done: -1..1, default 0 | Properties > Filter > MatFX Comic Book | (this PR) |
+| Input Luminosity | Properties > Filter | not documented | done: -1..1, default 0 | Properties > Filter > MatFX Comic Book | (this PR) |
+| Color Intensity | Properties > Filter | not documented | done: saturation 0..2, default 1.3 (colour channels) | Properties > Filter > MatFX Comic Book | (this PR) |
+| Border Opacity | Properties > Filter | not documented | done: 0..1, default 1 | Properties > Filter > MatFX Comic Book | (this PR) |
+| Border Tolerance | Properties > Filter | not documented | done: 0..1, default 0.25 (edge strength where ink starts) | Properties > Filter > MatFX Comic Book | (this PR) |
+| Border Smoothness | Properties > Filter | not documented | done: 0..1, default 0.3 | Properties > Filter > MatFX Comic Book | (this PR) |
+| Paint Intensity | Properties > Filter | not documented | done: 0..16 px of Kuwahara smoothing, default 5 | Properties > Filter > MatFX Comic Book | (this PR) |
 | Warp | Properties > Filter | not documented | missing | - | - |
 | Sharpness | Properties > Filter | not documented | missing | - | - |
 | Output Contrast | Properties > Filter | not documented | missing | - | - |
 | Output Luminosity | Properties > Filter | not documented | missing | - | - |
+
+SubCraft extras: Tones (0..16 flat brightness steps, default 4; cel shading, their borders are inked) and Border Width (0.5..4 px, default 1.5). Not built: the Ambient Occlusion / Curvature inputs, Input Type, Warp, Sharpness, Output Contrast / Luminosity.
 
 ## MatFX Detail Edge Wear
 
@@ -626,11 +628,11 @@ Layout notes: MatFX group. Content. A Presets dropdown resets every parameter. M
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| MatFX Oil Paint (filter) | Properties > Filter | works on: content | missing | - | - |
+| MatFX Oil Paint (filter) | Properties > Filter | works on: content | partial: per channel (content and masks): overlapping brush strokes on a jittered grid, each with the colour under its centre, following the local edge direction; one stroke layer, no relief | Properties > Filter > MatFX Oil Paint | (this PR) |
 | Image Input | Properties > Filter > Image inputs | colour | missing | - | - |
 | Presets | Properties > Filter | not documented (dropdown; overwrites all parameters) | missing | - | - |
 | Input Type | Properties > Filter | not documented (dropdown) | missing | - | - |
-| Effect Intensity | Properties > Filter | not documented | missing | - | - |
+| Effect Intensity | Properties > Filter | not documented | done: 0..1, default 1 | Properties > Filter > MatFX Oil Paint | (this PR) |
 | Fine Details | Properties > Filter | not documented | missing | - | - |
 | Sharpness | Properties > Filter | not documented | missing | - | - |
 | Roughness | Properties > Filter | not documented | missing | - | - |
@@ -644,9 +646,9 @@ Layout notes: MatFX group. Content. A Presets dropdown resets every parameter. M
 | Input Image Luminosity | Properties > Filter > Input Color Correction | not documented | missing | - | - |
 | Global Scale Multiplier | Properties > Filter > Strokes | not documented | missing | - | - |
 | Scale Random | Properties > Filter > Strokes | not documented | missing | - | - |
-| Size | Properties > Filter > Strokes | not documented | missing | - | - |
-| Size Random | Properties > Filter > Strokes | not documented | missing | - | - |
-| Random Color | Properties > Filter > Strokes | not documented | missing | - | - |
+| Size | Properties > Filter > Strokes | not documented | done: Stroke Size 2..32 px, default 10 | Properties > Filter > MatFX Oil Paint | (this PR) |
+| Size Random | Properties > Filter > Strokes | not documented | done: 0..1, default 0.3 | Properties > Filter > MatFX Oil Paint | (this PR) |
+| Random Color | Properties > Filter > Strokes | not documented | done: Color Random 0..1, default 0.15 (brightness per stroke) | Properties > Filter > MatFX Oil Paint | (this PR) |
 | Strokes Hardness | Properties > Filter > Strokes | not documented | missing | - | - |
 | Automatic Orientation Multiplier | Properties > Filter > Strokes | not documented | missing | - | - |
 | Orientation Smoothness | Properties > Filter > Strokes | not documented | missing | - | - |
@@ -673,6 +675,8 @@ Layout notes: MatFX group. Content. A Presets dropdown resets every parameter. M
 | Thickness | Properties > Filter > Contour | not documented | missing | - | - |
 | Texture Intensity | Properties > Filter > Canvas | not documented | missing | - | - |
 | Fibers Count | Properties > Filter > Canvas | not documented | missing | - | - |
+
+SubCraft extras: Stroke Length (1..4 widths, default 3), Bristles (streaks and dry stroke ends, 0..1, default 0.4), Angle (direction on flat areas, in turns) and Seed. Not built: Presets, the Roughness / Normal outputs (the filter works on the channel it is added to, so paint relief needs it on Height too), Input Color Correction, the four tonal stroke layers, Contour and Canvas.
 
 ## MatFX Peeling Paint
 
@@ -744,15 +748,17 @@ Layout notes: MatFX group. Content.
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| MatFX Watercolor (filter) | Properties > Filter | works on: content | missing | - | - |
-| Paint Opacity | Properties > Filter | not documented | missing | - | - |
-| Paper Absorption | Properties > Filter | not documented | missing | - | - |
+| MatFX Watercolor (filter) | Properties > Filter | works on: content | partial: per channel (content and masks): a Kuwahara wash, a transparent paint film over white paper, pigment gathering at wash edges and soaking into paper blotches; data channels get the edges and grain only | Properties > Filter > MatFX Watercolor | (this PR) |
+| Paint Opacity | Properties > Filter | not documented | done: 0..1, default 0.9 (film thickness) | Properties > Filter > MatFX Watercolor | (this PR) |
+| Paper Absorption | Properties > Filter | not documented | done: 0..1, default 0.5 | Properties > Filter > MatFX Watercolor | (this PR) |
 | Accumulation Type | Properties > Filter | not documented (dropdown) | missing | - | - |
-| Borders Spread | Properties > Filter | not documented | missing | - | - |
-| Borders Density | Properties > Filter | not documented | missing | - | - |
+| Borders Spread | Properties > Filter | not documented | done: 0..16 px, default 4 | Properties > Filter > MatFX Watercolor | (this PR) |
+| Borders Density | Properties > Filter | not documented | done: 0..1, default 0.5 | Properties > Filter > MatFX Watercolor | (this PR) |
 | Show cross paint edges | Properties > Filter | not documented (toggle) | missing | - | - |
-| Hide Paper | Properties > Filter | not documented (toggle) | missing | - | - |
+| Hide Paper | Properties > Filter | not documented (toggle) | done: toggle (removes the paper fibres) | Properties > Filter > MatFX Watercolor | (this PR) |
 | Custom Paper | Properties > Filter | not documented (toggle) | missing | - | - |
+
+SubCraft extras: Paint Bleed (0..16 px of smoothing, default 5) and Seed. Not built: Accumulation Type, Show cross paint edges, Custom Paper.
 
 ## MatFX Water Drops
 
@@ -1100,6 +1106,8 @@ Layout notes: Advanced group (11.0). Content; ships with presets. Seven global a
 | Custom Edges Color | Properties > Filter > Edges And Cavities | not documented (toggle) | missing | - | - |
 | Edges Color | Properties > Filter > Edges And Cavities | not documented | missing | - | - |
 | Display Helpers | Properties > Filter > Edges And Cavities > Helpers | not documented (dropdown) | missing | - | - |
+
+Not built as one filter. Its main parts exist as separate filters that can be stacked: MatFX Oil Paint (brush strokes), Anisotropic Kuwahara (smoothness), MatFX Comic Book (tone steps and edges), Baked Lighting Stylized, Gradient Map (colorize).
 
 ## Tri-Planar Advanced
 

@@ -867,8 +867,9 @@ impl<'a> Graph<'a> {
         // A uniform image is unchanged by any of these, except by Edge Detect (0 on a flat input)
         // and by a Transform that leaves part of the texture empty: those must still be evaluated.
         let leaves_gaps = matches!(filter, Filter::Transform { repeat, .. } if repeat != subcraft_doc::RepeatMode::Both);
-        // Color Match in Average mode recolours a flat input too.
-        if (self.uniform[input] && !leaves_gaps && !matches!(filter, Filter::EdgeDetect { .. } | Filter::ColorMatch { .. }))
+        // Color Match in Average mode recolours a flat input too, and so do the stylization
+        // filters (saturation, paper, stroke colour variation).
+        if (self.uniform[input] && !leaves_gaps && !matches!(filter, Filter::EdgeDetect { .. } | Filter::ColorMatch { .. } | Filter::ComicBook { .. } | Filter::Watercolor { .. } | Filter::OilPaint { .. }))
             || radius == 0.0
             || matches!(
                 filter,
@@ -887,6 +888,10 @@ impl<'a> Graph<'a> {
                     let h = self.push(Node::Gaussian { input, weights: weights.clone(), horizontal: true, wrap: false });
                     input = self.push(Node::Gaussian { input: h, weights, horizontal: false, wrap: false });
                 }
+            }
+            // Comic Book / Watercolor: a Kuwahara pass paints the flat areas first.
+            if let Some(smoothing) = filter.style_smoothing().filter(|_| !self.uniform[input]) {
+                input = self.push(Node::Pixelwise { input, filter: smoothing, kind, support: smoothing.support(), slope: None, images: [None; 2] });
             }
             // Blur Slope on Previous input: the slope is measured on a Gaussian-smoothed copy.
             let mut slope = None;
@@ -2012,6 +2017,34 @@ impl<'a> Graph<'a> {
                             };
                             pw::kuwahara(read, pw::Kuwahara { radius, smoothness, sharpness, tensor_smoothness, anisotropy, angle, extract_direction }, *kind)
                         }
+                        Filter::ComicBook { tones, color_intensity, border_opacity, border_tolerance, border_smoothness, border_width, input_contrast, input_luminosity, .. } => {
+                            let read = |dx: i32, dy: i32| {
+                                let px = (x as i32 + dx).clamp(0, res as i32 - 1) as u32;
+                                let py = (y as i32 + dy).clamp(0, res as i32 - 1) as u32;
+                                grid.pixel(px, py)
+                            };
+                            let comic = subcraft_materials::filter::stylize::Comic { tones, color_intensity, border_opacity, border_tolerance, border_smoothness, border_width, input_contrast, input_luminosity };
+                            subcraft_materials::filter::stylize::comic_book(read, comic, *kind)
+                        }
+                        Filter::Watercolor { paint_opacity, paper_absorption, borders_spread, borders_density, hide_paper, seed, .. } => {
+                            let read = |dx: i32, dy: i32| {
+                                let px = (x as i32 + dx).clamp(0, res as i32 - 1) as u32;
+                                let py = (y as i32 + dy).clamp(0, res as i32 - 1) as u32;
+                                grid.pixel(px, py)
+                            };
+                            let uv = [(x as f32 + 0.5) / res as f32, (y as f32 + 0.5) / res as f32];
+                            let wash = subcraft_materials::filter::stylize::Watercolor { paint_opacity, paper_absorption, borders_spread, borders_density, hide_paper, seed };
+                            subcraft_materials::filter::stylize::watercolor(read, wash, uv, *kind)
+                        }
+                        Filter::OilPaint { effect_intensity, stroke_size, stroke_length, size_random, color_random, bristles, angle, seed } => {
+                            let read = |dx: i32, dy: i32| {
+                                let px = (x as i32 + dx).clamp(0, res as i32 - 1) as u32;
+                                let py = (y as i32 + dy).clamp(0, res as i32 - 1) as u32;
+                                grid.pixel(px, py)
+                            };
+                            let oil = subcraft_materials::filter::stylize::OilPaint { effect_intensity, stroke_size, stroke_length, size_random, color_random, bristles, angle, seed };
+                            subcraft_materials::filter::stylize::oil_paint(read, x, y, oil, *kind)
+                        }
                         Filter::DirectionalDistance { distance, angle_deg, contrast } => {
                             // Beyond the texture there is nothing to spread from.
                             let read = |dx: i32, dy: i32| {
@@ -2347,6 +2380,7 @@ fn spatial_value(
         Filter::BevelSmooth { .. } | Filter::DirectionalDistance { .. } => blurred,
         // Pixelwise nodes whose output is the final value (a filter missing here is ignored).
         Filter::AnisotropicKuwahara { .. } | Filter::Quantize { .. } => blurred,
+        Filter::ComicBook { .. } | Filter::Watercolor { .. } | Filter::OilPaint { .. } => blurred,
         Filter::BlurSlopeMode { .. } | Filter::NonUniformBlur { .. } | Filter::ColorMatch { .. } => blurred,
         Filter::DropShadow { spread, opacity, color, .. } => under(source, blurred, spread, opacity, false, color, kind),
         Filter::OuterGlow { spread, opacity, color, precise, .. } => under(source, blurred, spread, opacity, precise, color, kind),

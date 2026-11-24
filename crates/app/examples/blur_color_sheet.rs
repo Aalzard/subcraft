@@ -1,6 +1,7 @@
 //! Render check for the Blur Slope options, Non-uniform Blur and Color Match: each case is the
 //! Base Color of a flat plane before (left) and after (right) the filter, as a PNG, with the
-//! composite time. `cargo run --release -p subcraft-app --example blur_color_sheet -- <prefix> [size]`
+//! composite time. Also the stylization filters (case names start with `style_`).
+//! `cargo run --release -p subcraft-app --example blur_color_sheet -- <prefix> [size] [name part]`
 use subcraft_app::{Command, NewLayer, Session};
 use subcraft_core::{ChannelKind as C, ChannelValue, color::linear3_to_srgb};
 use subcraft_doc::{AnchorInput, BlurMap, ContentEffectKind, FillChannel, FillSource, Filter, MatchSource, ProceduralKind, ProceduralParams, SlopeMode, SlopeSource};
@@ -14,6 +15,7 @@ fn main() -> Result<(), String> {
     let args: Vec<_> = std::env::args().skip(1).collect();
     let prefix = args.first().ok_or("expected output prefix")?.clone();
     let size: u32 = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(1024);
+    let only = args.get(2).cloned().unwrap_or_default();
     let px = size as f32 / 1024.0;
     let slope = |source, mode| Filter::BlurSlopeMode { intensity: 16.0 * px, scale: 6, seed: 3, samples: 16, source, mode, image: None };
     let shapes = (ProceduralKind::Checker, 6.0, [0.02, 0.02, 0.025], [0.85, 0.8, 0.7]);
@@ -60,8 +62,18 @@ fn main() -> Result<(), String> {
         ("non_uniform_anchor", cells, Filter::NonUniformBlur { radius: 24.0 * px, map: BlurMap::Image, scale: 4, seed: 1, samples: 48, image: None }, &[][..], Some((0, gradient))),
         ("slope_custom_anchor", shapes, slope(SlopeSource::Custom, SlopeMode::Blur), &[][..], Some((0, clouds))),
         ("color_match_target_anchor", rust, Filter::ColorMatch { source_mode: MatchSource::Average, source: [0.5; 3], target: [0.05, 0.22, 0.3], hue: 1.0, chroma: 1.0, luma: 1.0, source_image: None, target_image: None }, &[][..], Some((1, moss))),
+        ("style_comic_cells", moss, Filter::ComicBook { tones: 4, paint: 5.0 * px, color_intensity: 1.3, border_opacity: 1.0, border_tolerance: 0.25, border_smoothness: 0.3, border_width: 1.5 * px, input_contrast: 0.0, input_luminosity: 0.0 }, &[][..], None),
+        ("style_comic_clouds", clouds, Filter::ComicBook { tones: 3, paint: 8.0 * px, color_intensity: 1.5, border_opacity: 1.0, border_tolerance: 0.1, border_smoothness: 0.2, border_width: 2.0 * px, input_contrast: 0.3, input_luminosity: 0.0 }, &[][..], None),
+        ("style_watercolor_cells", moss, Filter::Watercolor { paint_opacity: 0.9, paper_absorption: 0.5, borders_spread: 4.0 * px, borders_density: 0.5, bleed: 5.0 * px, hide_paper: false, seed: 1 }, &[][..], None),
+        ("style_watercolor_clouds", clouds, Filter::Watercolor { paint_opacity: 0.7, paper_absorption: 0.8, borders_spread: 6.0 * px, borders_density: 1.0, bleed: 8.0 * px, hide_paper: false, seed: 1 }, &[][..], None),
+        ("style_oil_rust", rust, Filter::OilPaint { effect_intensity: 1.0, stroke_size: 10.0 * px, stroke_length: 3.0, size_random: 0.3, color_random: 0.15, bristles: 0.4, angle: 0.125, seed: 1 }, &[][..], None),
+        ("style_oil_clouds", clouds, Filter::OilPaint { effect_intensity: 1.0, stroke_size: 16.0 * px, stroke_length: 4.0, size_random: 0.5, color_random: 0.3, bristles: 0.8, angle: 0.125, seed: 1 }, &[][..], None),
+        ("style_oil_cells", moss, Filter::OilPaint { effect_intensity: 1.0, stroke_size: 6.0 * px, stroke_length: 2.0, size_random: 0.3, color_random: 0.15, bristles: 0.4, angle: 0.0, seed: 2 }, &[][..], None),
     ];
     for (name, (kind, scale, low, high), mut filter, inputs, anchor) in cases {
+        if !name.contains(&only) {
+            continue;
+        }
         if !filter.valid() {
             return Err(format!("{name}: invalid at this size"));
         }

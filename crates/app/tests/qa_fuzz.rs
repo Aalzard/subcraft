@@ -91,6 +91,9 @@ fn random_filter(r: &mut Rng) -> Filter {
         Filter::Clamp { .. } => Filter::Clamp { low: r.unit() * 0.5, high: 0.5 + r.unit() * 0.5 },
         Filter::HistogramShift { .. } => Filter::HistogramShift { shift: r.unit() - 0.5 },
         Filter::Quantize { .. } => Filter::Quantize { colors: 2 + r.below(10) as u32, contour_smoothing: r.unit() * 2.0, dithering: r.unit(), pattern: subcraft_doc::DitherPattern::ALL[r.below(3)], lab: r.chance(0.5), apply_to_alpha: r.chance(0.3), alpha_threshold: r.unit() },
+        Filter::ComicBook { .. } => Filter::ComicBook { tones: [0, 2, 3, 5][r.below(4)], paint: r.unit() * 3.0, color_intensity: r.unit() * 2.0, border_opacity: r.unit(), border_tolerance: r.unit(), border_smoothness: r.unit(), border_width: 0.5 + r.unit() * 2.0, input_contrast: r.unit() - 0.5, input_luminosity: r.unit() - 0.5 },
+        Filter::Watercolor { .. } => Filter::Watercolor { paint_opacity: r.unit(), paper_absorption: r.unit(), borders_spread: r.unit() * 4.0, borders_density: r.unit(), bleed: r.unit() * 3.0, hide_paper: r.chance(0.5), seed: r.below(9) as u32 },
+        Filter::OilPaint { .. } => Filter::OilPaint { effect_intensity: r.unit(), stroke_size: 2.0 + r.unit() * 4.0, stroke_length: 1.0 + r.unit() * 2.0, size_random: r.unit(), color_random: r.unit(), bristles: r.unit(), angle: r.unit(), seed: r.below(9) as u32 },
         Filter::AnisotropicKuwahara { .. } => Filter::AnisotropicKuwahara { radius: r.unit() * 3.0, smoothness: r.unit(), sharpness: r.unit() * 12.0, tensor_smoothness: r.unit() * 2.0, anisotropy: r.unit() * 2.0, angle: r.unit(), extract_direction: r.chance(0.5) },
         Filter::BlurSlope { .. } => Filter::blur_slope(subcraft_doc::SlopeParts {
             intensity: r.unit() * 6.0,

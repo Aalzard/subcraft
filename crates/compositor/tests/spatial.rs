@@ -1328,3 +1328,79 @@ fn anisotropic_kuwahara_reaches_the_composite() {
         assert!((v - 0.5).abs() < 0.03, "at {x},{y}: {v}");
     }
 }
+
+/// A paint layer whose Roughness is `f(x, y)`, with `filter` on it, composited.
+fn styled(f: impl Fn(u32, u32) -> f32, filter: Filter) -> Vec<f32> {
+    let fx = Fixture::new();
+    let mut ts = TextureSet::new("T", 0, N);
+    let mut l = Layer::new_paint("P", &ts);
+    let LayerContent::Paint(p) = &mut l.content else { unreachable!() };
+    let image = p.channel_mut(C::Roughness, N);
+    for y in 0..N {
+        for x in 0..N {
+            image.set(x, y, [f(x, y), 1.0, 0.0, 0.0]);
+        }
+    }
+    assert!(filter.valid());
+    add(&mut l, &ts, C::Roughness, filter);
+    ts.insert_above(None, l);
+    let c = composite_full(&ts, &fx.ctx());
+    let img = c.channel(C::Roughness).unwrap();
+    (0..N * N).map(|i| img.get(i % N, i / N)[0]).collect()
+}
+
+#[test]
+fn comic_book_inks_an_edge_on_a_tile_border() {
+    // A step at x = 64 (the tile border): the ink line is drawn on both sides of it, the
+    // flat areas keep their value, and the paint pass smooths the checker noise first.
+    let step = |x: u32, y: u32| if x < 64 { 0.25 } else { 0.75 } + if (x + y) % 2 == 0 { 0.02 } else { -0.02 };
+    let comic = Filter::ComicBook { tones: 0, paint: 4.0, color_intensity: 1.0, border_opacity: 1.0, border_tolerance: 0.25, border_smoothness: 0.3, border_width: 1.5, input_contrast: 0.0, input_luminosity: 0.0 };
+    let out = styled(step, comic);
+    let at = |x: u32, y: u32| out[(y * N + x) as usize];
+    for y in [10, 63, 64, 100] {
+        assert!(at(63, y) < 0.05 && at(64, y) < 0.05, "ink at the border, row {y}: {} {}", at(63, y), at(64, y));
+        assert!((at(30, y) - 0.25).abs() < 0.02 && (at(100, y) - 0.75).abs() < 0.02, "flat areas, row {y}: {} {}", at(30, y), at(100, y));
+    }
+    // Without paint the noise stays; without border opacity there is no line.
+    let Filter::ComicBook { tones, color_intensity, border_tolerance, border_smoothness, border_width, input_contrast, input_luminosity, .. } = comic else { unreachable!() };
+    let plain = styled(step, Filter::ComicBook { tones, paint: 0.0, color_intensity, border_opacity: 0.0, border_tolerance, border_smoothness, border_width, input_contrast, input_luminosity });
+    assert!((plain[(30 * N + 30) as usize] - step(30, 30)).abs() < 1e-3);
+    assert!((plain[(30 * N + 63) as usize] - step(63, 30)).abs() < 1e-3);
+}
+
+#[test]
+fn watercolor_reaches_the_composite_on_a_data_channel() {
+    // Roughness has no paper: a flat value only gets the grain, an edge gets darker.
+    let step = |x: u32, _y: u32| if x < 64 { 0.3 } else { 0.8 };
+    let out = styled(step, Filter::Watercolor { paint_opacity: 0.8, paper_absorption: 0.0, borders_spread: 4.0, borders_density: 1.0, bleed: 0.0, hide_paper: true, seed: 1 });
+    let at = |x: u32, y: u32| out[(y * N + x) as usize];
+    assert!((at(20, 20) - 0.3).abs() < 1e-3 && (at(110, 90) - 0.8).abs() < 1e-3, "flat: {} {}", at(20, 20), at(110, 90));
+    assert!(at(65, 40) < 0.8 - 0.1 && at(62, 40) < 0.3 - 0.03, "edges hold pigment: {} {}", at(62, 40), at(65, 40));
+    // Absorption brings the grain in.
+    let grain = styled(|_, _| 0.5, Filter::Watercolor { paint_opacity: 0.8, paper_absorption: 1.0, borders_spread: 4.0, borders_density: 1.0, bleed: 0.0, hide_paper: true, seed: 1 });
+    let (lo, hi) = grain.iter().fold((f32::MAX, f32::MIN), |(lo, hi), v| (lo.min(*v), hi.max(*v)));
+    assert!(hi - lo > 0.05 && lo > 0.4 && hi < 0.6, "grain on a flat value: {lo}..{hi}");
+}
+
+#[test]
+fn oil_paint_strokes_cross_tile_borders_without_a_seam() {
+    // Blocky noise repainted with strokes. A seam would show as a column (x = 63 | 64) or row
+    // where far more neighbouring texels differ than anywhere else.
+    let noise = |x: u32, y: u32| ((x / 5).wrapping_mul(7349) ^ (y / 5).wrapping_mul(9151)).wrapping_mul(2654435761) as f32 / u32::MAX as f32;
+    let oil = Filter::OilPaint { effect_intensity: 1.0, stroke_size: 6.0, stroke_length: 3.0, size_random: 0.5, color_random: 0.3, bristles: 0.5, angle: 0.1, seed: 2 };
+    let out = styled(noise, oil);
+    let at = |x: u32, y: u32| out[(y * N + x) as usize];
+    let input: Vec<f32> = (0..N * N).map(|i| noise(i % N, i / N)).collect();
+    let changed = out.iter().zip(&input).filter(|(a, b)| (**a - **b).abs() > 0.02).count();
+    assert!(changed as u32 > N * N / 3, "repainted: {changed}");
+    let jumps = |x: u32| (8..N - 8).filter(|&y| (at(x, y) - at(x + 1, y)).abs() > 0.02).count();
+    let typical = (20..108).filter(|x| *x != 63).map(jumps).max().unwrap();
+    assert!(jumps(63) <= typical, "no seam at the tile border: {} vs at most {typical} elsewhere", jumps(63));
+    let jumps_y = |y: u32| (8..N - 8).filter(|&x| (at(x, y) - at(x, y + 1)).abs() > 0.02).count();
+    let typical = (20..108).filter(|y| *y != 63).map(jumps_y).max().unwrap();
+    assert!(jumps_y(63) <= typical, "no seam at the tile row: {} vs at most {typical} elsewhere", jumps_y(63));
+    // Effect Intensity 0 leaves the input alone.
+    let Filter::OilPaint { stroke_size, stroke_length, size_random, color_random, bristles, angle, seed, .. } = oil else { unreachable!() };
+    let off = styled(noise, Filter::OilPaint { effect_intensity: 0.0, stroke_size, stroke_length, size_random, color_random, bristles, angle, seed });
+    assert!(off.iter().zip(&input).all(|(a, b)| (a - b).abs() < 1e-3));
+}

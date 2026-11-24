@@ -5,6 +5,7 @@ pub mod contour;
 pub mod median;
 pub mod warp;
 pub mod pixelwise;
+pub mod stylize;
 pub mod quantize;
 
 pub fn apply(filter: Filter, input: [f32; 3], channel: ChannelKind) -> [f32; 3] {
@@ -21,6 +22,7 @@ pub fn apply(filter: Filter, input: [f32; 3], channel: ChannelKind) -> [f32; 3] 
         Filter::HeightAdjust { invert, offset, multiply } => input.map(|v| height_adjust(v, invert, offset, multiply, channel)),
         Filter::BevelSmooth { .. } | Filter::DirectionalDistance { .. } | Filter::BlurSlope { .. } | Filter::AnisotropicKuwahara { .. } | Filter::Quantize { .. } => input, // Staged by the compositor.
         Filter::BlurSlopeMode { .. } | Filter::NonUniformBlur { .. } => input, // Staged by the compositor.
+        Filter::ComicBook { .. } | Filter::Watercolor { .. } | Filter::OilPaint { .. } => input, // Staged by the compositor.
         // The average of the whole input is found by the compositor, which stages this mode.
         Filter::ColorMatch { source_mode: subcraft_doc::MatchSource::Average, .. } => input,
         // Images are read by the compositor too.
