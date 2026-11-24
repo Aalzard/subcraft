@@ -261,3 +261,75 @@ fn gpu_curvature_matches_cpu_with_a_high_poly_source() {
     eprintln!("high-poly curvature: mean abs error {:.5}, p99 {:.5}", s.mean, s.p99);
     assert!(s.mean <= CURV_MEAN_TOL && s.p99 <= CURV_P99_TOL, "mean {} p99 {}", s.mean, s.p99);
 }
+
+const PROJECTED: [MeshMapKind; 4] = [MeshMapKind::Height, MeshMapKind::Normal, MeshMapKind::WorldSpaceNormal, MeshMapKind::AmbientOcclusion];
+
+#[test]
+fn gpu_high_poly_projection_matches_cpu() {
+    let _g = gpu_test();
+    let Some(gpu) = backend() else { return };
+    let low = primitives::torus(1.0, 0.35, 32, 16);
+    let high = primitives::torus(1.0, 0.37, 96, 48);
+    let (low_bvh, high_bvh) = (Bvh::build(&low), Bvh::build(&high));
+    let input = BakeInput { low: Geometry { mesh: &low, bvh: &low_bvh }, high: Some(Geometry { mesh: &high, bvh: &high_bvh }), material_slot: 0 };
+    for ignore_backface in [false, true] {
+        let settings = BakeSettings { size: SIZE, maps: PROJECTED.to_vec(), cage_front: 0.1, cage_rear: 0.1, ignore_backface, ..BakeSettings::default() };
+        let cpu = bake_streamed_with(&input, &settings, &Progress::new(), None, |_, _| {}).expect("cpu");
+        let progress = Progress::new();
+        let fast = bake_streamed_with(&input, &settings, &progress, Some(gpu.as_ref()), |_, _| {}).expect("gpu");
+        let reports = progress.reports();
+        let height = reports.iter().find(|r| r.kind == MeshMapKind::Height).expect("height report");
+        assert!(height.backend.starts_with("CPU, projection on GPU"), "{reports:?}");
+        for kind in PROJECTED {
+            let s = compare(&low, &cpu[&kind], &fast[&kind]);
+            eprintln!("projection (ignore backface {ignore_backface}) {}: mean abs error {:.5}, p99 {:.5}", kind.display_name(), s.mean, s.p99);
+            assert!(s.mean <= MEAN_TOL && s.p99 <= P99_TOL, "{}: mean {} p99 {}", kind.display_name(), s.mean, s.p99);
+        }
+    }
+}
+
+#[test]
+fn gpu_projection_hits_match_the_bvh() {
+    use subcraft_mesh::ray_batch::ProjectionRay;
+    let _g = gpu_test();
+    let Some(gpu) = backend() else { return };
+    let mesh = primitives::sample_crate();
+    let bvh = Bvh::build(&mesh);
+    let n = 4000usize;
+    // Rays from a sphere around the crate toward jittered points near its centre; some miss.
+    let ray = |i: usize| {
+        let f = i as f32;
+        let (theta, phi) = (f * 2.399_963, (1.0 - 2.0 * (f + 0.5) / n as f32).acos());
+        let origin = glam::Vec3::new(phi.sin() * theta.cos(), phi.cos(), phi.sin() * theta.sin()) * 3.0;
+        let target = glam::Vec3::new((f * 0.37).sin(), (f * 0.53).cos(), (f * 0.71).sin()) * 0.8;
+        // Every other ray starts inside the crate and looks out: it only meets back faces.
+        let (origin, dir) = if i % 2 == 1 { (target * 0.5, (origin - target).normalize()) } else { (origin, (target - origin).normalize()) };
+        ProjectionRay { origin: origin.to_array(), dir: dir.to_array(), reach: 2.0 + (i % 5) as f32 * 0.5 }
+    };
+    let mut counts = Vec::new();
+    for front_only in [false, true] {
+        let hits = gpu.project(&bvh, n, &ray, front_only, &NoControl).expect("project");
+        assert_eq!(hits.len(), n);
+        let (mut agree, mut hit_count) = (0usize, 0usize);
+        for (i, h) in hits.iter().enumerate() {
+            let r = ray(i);
+            let (o, d) = (glam::Vec3::from(r.origin), glam::Vec3::from(r.dir));
+            let cpu = bvh.intersect_filtered(o, d, 0.0, r.reach, |t| !front_only || mesh.geometric_normal(t as usize).dot(d) < 0.0);
+            hit_count += cpu.is_some() as usize;
+            let same = match (cpu, h) {
+                (None, None) => true,
+                (Some(c), Some(g)) => (c.t - g.t).abs() < 1e-4 && (c.tri == g.tri || ((c.u - g.u).abs() < 1e-3 || (c.v - g.v).abs() < 1e-3)),
+                _ => false,
+            };
+            agree += same as usize;
+        }
+        eprintln!("front_only {front_only}: {agree} of {n} agree, {hit_count} hits");
+        assert!(hit_count > n / 4 && hit_count < n, "test rays should both hit and miss: {hit_count}");
+        // Rays that graze an edge may pick the neighbouring triangle or miss; allow a handful.
+        assert!(agree >= n - n / 200, "only {agree} of {n} projection rays agree");
+        counts.push(hit_count);
+    }
+    assert!(counts[1] < counts[0], "front only must skip the back faces the inside rays meet: {counts:?}");
+    // Empty tree: every ray misses without touching the GPU.
+    assert_eq!(gpu.project(&Bvh::default(), 3, &ray, false, &NoControl).unwrap(), vec![None; 3]);
+}
