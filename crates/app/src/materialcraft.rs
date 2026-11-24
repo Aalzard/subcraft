@@ -241,6 +241,12 @@ impl MaterialCraftBackend {
                 params: params.iter().filter_map(graph_param).collect(),
                 channels,
                 notes,
+                mesh_inputs: {
+                    let mut kinds: Vec<MeshMapKind> = inputs.iter().filter_map(mesh_map_for_input).collect();
+                    kinds.sort();
+                    kinds.dedup();
+                    kinds
+                },
             });
         }
         if graphs.is_empty() {

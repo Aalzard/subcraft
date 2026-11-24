@@ -8,7 +8,7 @@
 //!
 //! Texels are stored as interleaved `f16` components. All math happens in `f32`.
 
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
 use half::f16;
 use half::slice::HalfFloatSliceExt;
@@ -84,6 +84,22 @@ pub fn write_slot_shared(slot: &mut TileSlot, comps: usize, fill: &[f32; 4], dat
     match shared_uniform_tile(data, comps) {
         Some(tile) => *slot = Some(tile),
         None => slot_data_mut(slot, comps, fill).copy_from_slice(data),
+    }
+}
+
+/// What [`TiledImage::storage_token`] returns. It holds a weak reference to the tile table:
+/// the texels are freed with the image, and the table's address is never reused while the
+/// token lives, so a new image cannot be mistaken for the old one.
+#[derive(Clone, Debug)]
+pub struct StorageToken {
+    tiles: Weak<Vec<TileSlot>>,
+    fill: [f32; 4],
+}
+
+impl StorageToken {
+    /// True if `image` shares the storage this token was taken from (no change at all).
+    pub fn matches(&self, image: &TiledImage) -> bool {
+        Weak::ptr_eq(&self.tiles, &Arc::downgrade(&image.tiles)) && self.fill == image.fill
     }
 }
 
@@ -229,6 +245,12 @@ impl TiledImage {
     /// True if both images share the same tile table (no change at all).
     pub fn same_storage(&self, other: &TiledImage) -> bool {
         Arc::ptr_eq(&self.tiles, &other.tiles) && self.fill == other.fill
+    }
+
+    /// A token that later tells whether an image still has exactly this storage
+    /// ([`StorageToken::matches`]), without keeping the texels alive.
+    pub fn storage_token(&self) -> StorageToken {
+        StorageToken { tiles: Arc::downgrade(&self.tiles), fill: self.fill }
     }
 
     /// True if tile `index` differs in identity between two images of identical layout.
@@ -525,6 +547,24 @@ mod tests {
         assert_eq!(img.allocated_tiles(), 1);
         assert_eq!(img.get(70, 3)[..2], [1.0, 0.5]);
         assert_eq!(img.get(71, 3)[0], 0.25);
+    }
+
+    #[test]
+    fn storage_token_sees_replacement_and_edits_but_not_clones() {
+        let mut a = TiledImage::new(128, 128, 1, [0.0; 4]);
+        a.set(0, 0, [1.0; 4]);
+        let token = a.storage_token();
+        assert!(token.matches(&a));
+        assert!(token.matches(&a.clone()), "a clone shares the storage");
+        assert!(!token.matches(&TiledImage::new(128, 128, 1, [0.0; 4])), "a new image never matches");
+        // Writing to the only copy still moves the table away from the token.
+        a.set(100, 100, [0.5; 4]);
+        assert!(!token.matches(&a));
+        // The token does not keep the texels alive.
+        let before = a.storage_token();
+        let weak = before.clone();
+        drop(a);
+        assert!(!weak.matches(&TiledImage::new(1, 1, 1, [0.0; 4])));
     }
 
     #[test]

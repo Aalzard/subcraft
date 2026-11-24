@@ -14,4 +14,4 @@ pub mod tiled;
 
 pub use bitmap::{Bitmap, BitmapData, TextureFilter, Wrap};
 pub use io::{BitDepth, Container, FileFormat, IMAGE_EXTENSIONS, ImageIoError, encode_bitmap, guess_extension, load_bitmap, save_image};
-pub use tiled::{TILE_SIZE, TILE_TEXELS, Tile, TileSlot, TiledImage, shared_uniform_tile, slot_data_mut, slot_read, write_slot_shared};
+pub use tiled::{StorageToken, TILE_SIZE, TILE_TEXELS, Tile, TileSlot, TiledImage, shared_uniform_tile, slot_data_mut, slot_read, write_slot_shared};
