@@ -1510,3 +1510,28 @@ fn fill_area_color_paints_inside_the_painted_outline() {
     let hard = run(Filter::FillAreaColor { threshold: 0.8, closed_borders: false, mode: subcraft_doc::FillColorMode::Color, color: blue });
     assert!(near(at(&hard, 64, 45), blue), "soft edge filled: {:?}", at(&hard, 64, 45));
 }
+
+#[test]
+fn every_filter_on_a_flat_stack_gives_the_same_composite_cached_or_full() {
+    // Oil Paint strokes vary in tone and Watercolor lays paper grain: a flat input does not
+    // stay flat, so it may not be computed for one tile and reused for all (QA fuzz seed 914).
+    let fx = Fixture::new();
+    for filter in Filter::ALL {
+        if !filter.valid() || !filter.supports_channel(C::BaseColor) {
+            continue;
+        }
+        let mut ts = TextureSet::new("T", 0, N);
+        let mut folder = Layer::new_folder("F", &ts);
+        let LayerContent::Group(g) = &mut folder.content else { unreachable!() };
+        g.children.push(Arc::new(Layer::new_paint("Empty", &ts)));
+        add(&mut folder, &ts, C::BaseColor, filter);
+        ts.insert_above(None, folder);
+        let full = composite_full(&ts, &fx.ctx());
+        let mut cache = CompositeCache::new();
+        cache.update(&ts, &fx.ctx());
+        let a = full.channel(C::BaseColor).unwrap().to_dense();
+        let b = cache.composite().unwrap().channel(C::BaseColor).unwrap().to_dense();
+        let worst = a.iter().zip(&b).map(|(p, q)| (p - q).abs()).fold(0.0f32, f32::max);
+        assert!(worst <= 1e-6, "{}: cached composite differs from a full one by {worst}", filter.label());
+    }
+}

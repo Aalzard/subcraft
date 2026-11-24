@@ -761,13 +761,15 @@ impl<'a> Graph<'a> {
             | Node::Median { input, .. }
             | Node::Warp { input, .. }
             | Node::Contour { input, .. } => self.uniform[*input],
-            // Edge Detect and a Transform that leaves gaps turn a flat input into an image.
+            // Edge Detect, Watercolor, Oil Paint and a gap-leaving Transform turn a flat input into an image.
             Node::Pixelwise { input, filter, images, .. } => {
                 self.uniform[*input]
                     // A Color Match recolours a flat input per texel from its images.
                     && !filter.match_reads_images()
                     && images.iter().flatten().all(|n| self.uniform[*n])
                     && !matches!(filter, Filter::EdgeDetect { .. })
+                    // Paper grain and stroke tones: a flat input comes out textured.
+                    && !matches!(filter, Filter::Watercolor { .. } | Filter::OilPaint { .. })
                     && !matches!(filter, Filter::Transform { repeat, .. } if *repeat != subcraft_doc::RepeatMode::Both)
             }
             Node::ContentEffect {
