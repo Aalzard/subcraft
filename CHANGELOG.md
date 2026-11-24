@@ -82,7 +82,7 @@ What changed in SubCraft, newest first. Download the latest build from the
 - A Heal stroke could hang painting for good, and a stack with an image fill and a filter or micro details could freeze the viewport or an export under load.
 - Stale 3D view after changing Height or Normal under an HBAO / Detail Edge Wear filter or a generator with micro details.
 - Blur Slope Min / Max no longer leaves ribs on thin diagonal lines.
-- Edit UV islands keeps the chosen pivot after Apply.
+- Edit UV islands keeps the chosen pivot after Apply, and keeps each UDIM tile's number and grouping.
 - The orange line on the active tab no longer slides out of its panel when a crowded tab row is scrolled (issue #637).
 - A stitch row's layer is renamed when its stitch is changed (names you typed stay).
 
