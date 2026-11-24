@@ -1,4 +1,4 @@
-//! Graph layers: fill layers rendered by a material graph (`.sbsar` today, MaterialCraft next),
+//! Graph layers: fill layers rendered by a material graph (`.sbsar` through open-sbsar, `.mcmat`/`.mcraft`/`.sbs` through MaterialCraft),
 //! with the graph's parameters as controls (see `subcraft_doc::graph_material`).
 //!
 //! [`GraphLayers`] is owned by the caller (the UI keeps it next to the session) and polled once
