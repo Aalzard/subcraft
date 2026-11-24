@@ -332,7 +332,7 @@ fn stylized_materials_follow_their_highlight_shade_and_light_sliders() {
     fn lit(l: &Layer) -> bool {
         l.content_effects.iter().any(|e| matches!(e.kind, ContentEffectKind::Material(MaterialFilter::BakedLighting { .. }))) || l.children().iter().any(|c| lit(c))
     }
-    for name in ["Stylized Metal", "Stylized Wood", "Stylized Stone"] {
+    for name in ["Stylized Metal", "Stylized Wood", "Stylized Stone", "Stylized Gold", "Stylized Cloth", "Stylized Leather"] {
         let mut s = baked_crate();
         let id = apply(&mut s, &format!("Procedural {name}"));
         assert!(lit(layer(&s, id)), "{name} uses the Baked Lighting filter");

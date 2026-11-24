@@ -49,9 +49,16 @@ fn main() -> Result<(), String> {
     let lib = subcraft_assets::Library::builtin();
     let material = lib.smart_materials.iter().find(|m| m.name == *name || m.name == format!("Procedural {name}")).ok_or("no such material")?;
 
-    let mesh = subcraft_mesh::import_fbx_bytes(subcraft_assets::default_model::FBX, subcraft_assets::default_model::NAME).map_err(err)?.mesh;
+    // SHEET_MODEL=crate: the sample crate (posts and bands: many edges and creases) instead of
+    // the default model, to judge edge and cavity effects.
+    let crate_model = std::env::var("SHEET_MODEL").is_ok_and(|m| m == "crate");
+    let mesh = if crate_model {
+        subcraft_mesh::primitives::sample_crate()
+    } else {
+        subcraft_mesh::import_fbx_bytes(subcraft_assets::default_model::FBX, subcraft_assets::default_model::NAME).map_err(err)?.mesh
+    };
     let bvh = Bvh::build(&mesh);
-    let mut s = Session::default_model();
+    let mut s = if crate_model { Session::new(mesh.clone(), size) } else { Session::default_model() };
     let sets: Vec<_> = s.document().texture_sets.iter().map(|t| (t.id, t.material_slot)).collect();
     let mut roots = Vec::new();
     for &(ts, slot) in &sets {
