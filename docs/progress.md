@@ -6397,6 +6397,7 @@ the PR descriptions. The user-facing list is the 0.6.0 section of `CHANGELOG.md`
 * Added after the first draft of this entry: #708 (stylization filters, Fill Area, drips across UV seams;
   numeric compositor tests only, panels not opened in the app), #714 (Stylized Gold shadow colour, rendered
   sheets), #719 (Comic Book / Watercolor / Oil Paint toggles on the stylized
-  materials; Comic Book looks poor on Stylized Gold, left for 0.6.1), #720 (Edit UV islands keeps UDIM tiles; qa_fuzz edits islands), #722 (.sbsar layers, open-sbsar engine, project schema 19, ADR-0048), #716 (name-matched GPU bakes, lavapipe test against the CPU and a real-app bake; Edit UV islands and
+  materials; Comic Book looks poor on Stylized Gold, left for 0.6.1), #720 (Edit UV islands keeps UDIM tiles; qa_fuzz edits islands), #721 (MaterialCraft .mcmat/.mcraft/.sbs graph layers; binary about 20 MB bigger; about 10 new MIT/Apache
+  git dependencies from storytold/materialcraft and craft-libs), #722 (.sbsar layers, open-sbsar engine, project schema 19, ADR-0048), #716 (name-matched GPU bakes, lavapipe test against the CPU and a real-app bake; Edit UV islands and
   Heal used in the real app).
 * Left out: #677 (screen-space SSS, draft).
