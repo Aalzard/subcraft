@@ -253,3 +253,45 @@ fn a_new_bake_re_renders_only_layers_that_read_it() {
     assert_eq!(graphs.refresh_baked(&s), Ok(0));
     assert!(!graphs.busy());
 }
+
+/// A refresh after a bake renders each UDIM tile's copy with that tile's own maps: one tile's
+/// result must not be copied onto the others like a parameter change is.
+#[test]
+fn a_new_bake_refreshes_each_udim_tile_with_its_own_maps() {
+    use subcraft_core::MeshMapKind;
+    use subcraft_image::TiledImage;
+
+    let mut s = udim_strip();
+    let mut graphs = GraphLayers::new();
+    import(&mut s, &mut graphs, INPUT_FIXTURE);
+    assert_eq!(graphs.refresh_baked(&s), Ok(0), "the first call only notes the maps");
+    let sets: Vec<_> = s.document().texture_sets.iter().map(|t| t.id).collect();
+    assert_eq!(sets.len(), 2);
+    let res = 64u32;
+    for (i, ts) in sets.iter().enumerate() {
+        let mut curvature = TiledImage::new(res, res, 1, [0.0; 4]);
+        for y in 0..res {
+            for x in 0..res {
+                let t = x as f32 / (res - 1) as f32;
+                curvature.set(x, y, [if i == 0 { t } else { 1.0 - t }, 0.0, 0.0, 0.0]);
+            }
+        }
+        s.set_mesh_maps(*ts, std::collections::BTreeMap::from([(MeshMapKind::Curvature, curvature)]));
+    }
+    assert_eq!(graphs.refresh_baked(&s), Ok(2), "both tiles' copies read the new curvature");
+    while graphs.busy() {
+        graphs.finish(&mut s);
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    graphs.finish(&mut s);
+    for (i, ts) in sets.iter().enumerate() {
+        let layer = s.document().texture_set(*ts).unwrap().layers.iter().find(|l| l.graph.is_some()).expect("graph layer").clone();
+        let row = bitmap_row(&s, &layer, ChannelKind::Roughness);
+        let (first, last) = (row[0], row[row.len() - 1]);
+        if i == 0 {
+            assert!(first < 0.05 && last > 0.95, "tile 1001 follows its own bake: {first} .. {last}");
+        } else {
+            assert!(first > 0.95 && last < 0.05, "tile 1002 follows its own bake: {first} .. {last}");
+        }
+    }
+}

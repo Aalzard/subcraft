@@ -485,9 +485,11 @@ fn apply(session: &mut Session, target: &Target, material: &GraphMaterial, refre
             let name = l.name.clone();
             // Paint across UDIM tiles (issue #581): the graph layer was added on every tile of
             // the group, so the new parameters drive every tile's copy (the maps are UV-free).
+            // A refresh after a bake re-renders each tile's copy with that tile's own maps.
             let doc = session.document();
             let partners: Vec<Command> = doc
                 .texture_set(ts_id)
+                .filter(|_| !refresh)
                 .map(|source| {
                     doc.udim_paint_partners(ts_id)
                         .into_iter()
