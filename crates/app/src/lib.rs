@@ -63,6 +63,7 @@ pub mod text;
 pub mod spp_fit;
 pub mod spp_import;
 pub mod spp_job;
+pub mod graph_layer;
 pub mod smart_import;
 pub mod spp_select;
 pub mod stamp_brush;

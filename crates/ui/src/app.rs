@@ -1910,6 +1910,10 @@ impl SubcraftApp {
                         ui.close();
                         crate::panels::shelf::import_smart_folder_dialog(ui.ctx());
                     }
+                    if item(ui, icons::SPARKLE, tr("Import Substance material (.sbsar)…"), "") {
+                        ui.close();
+                        crate::files::pick(ui.ctx(), crate::files::Purpose::GraphMaterial, crate::files::GRAPH_MATERIALS, true, Some("Add Substance materials (.sbsar) as layers"));
+                    }
                 });
                 if item(ui, icons::EXPORT, tr("Export textures…"), &sc(km, Action::Export)) {
                     ui.close();
@@ -2769,6 +2773,10 @@ impl eframe::App for SubcraftApp {
         panels::id_colors::sync_pick_view(&mut self.state);
         crate::spp_import::poll(&mut self.state, &ctx, now);
         crate::files::poll(&mut self.state, now);
+        self.state.poll_graph_layers(now);
+        if self.state.graph_layers.busy() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(100));
+        }
         crate::files::import_report_window(&mut self.state, &ctx);
         crate::import_resources::window(&mut self.state, &ctx);
         crate::clipboard::shortcut_requests(&ctx);
@@ -2782,6 +2790,7 @@ impl eframe::App for SubcraftApp {
                     crate::files::WindowDrop::Model(p) => { self.state.dropped_model = Some(p); self.request(Pending::OpenMesh, now); }
                     crate::files::WindowDrop::Project(p) => { self.state.welcome.pending_recent = Some(p); self.request(Pending::OpenRecent, now); }
                     crate::files::WindowDrop::PainterProject(p) => { self.state.dropped_model = Some(p); self.request(Pending::ImportPainter, now); }
+                    crate::files::WindowDrop::GraphMaterial(p) => crate::files::import_graph_materials(&mut self.state, &[p], now),
                 }
             }
         }

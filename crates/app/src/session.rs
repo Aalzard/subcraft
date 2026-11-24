@@ -4496,6 +4496,12 @@ impl Session {
         }))
     }
 
+    /// Add an immutable resource (rendered images, a graph package) to the project. Resources
+    /// are never removed during a session; unreferenced ones are not saved.
+    pub fn add_resource(&mut self, r: subcraft_doc::Resource) -> subcraft_core::ResourceId {
+        self.resources.insert(r)
+    }
+
     /// Use a brush alpha for the next strokes.
     /// The current brush tip as an Alpha resource of the project (the same resource again for
     /// the same tip), so a pen path can stamp it and the project keeps it. `None` for the round tip.

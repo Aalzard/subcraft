@@ -418,6 +418,8 @@ pub struct UiState {
     pub spp_notice: Option<String>,
     /// Running Edit in PhotoCraft exchange (ADR-0040).
     pub photocraft: Option<subcraft_app::photocraft::Exchange>,
+    /// Background renders of graph layers (`.sbsar` materials) and their opened packages.
+    pub graph_layers: subcraft_app::graph_layer::GraphLayers,
     /// Key of the polygon wireframe currently uploaded to the renderer.
     pub wire_uploaded: Option<crate::view_extras::WireKey>,
     pub symmetry_uploaded: Option<crate::symmetry_view::GuideKey>,
@@ -678,6 +680,7 @@ impl UiState {
             spp_import: None,
             spp_notice: None,
             photocraft: None,
+            graph_layers: subcraft_app::graph_layer::GraphLayers::new(),
             wire_uploaded: None,
             symmetry_uploaded: None,
             uv_wireframe: true,
@@ -801,6 +804,17 @@ impl UiState {
                     self.set_status(text, now);
                     return;
                 }
+            }
+        }
+    }
+
+    /// Apply finished graph-layer renders (call once per frame).
+    pub fn poll_graph_layers(&mut self, now: f64) {
+        for event in self.graph_layers.poll(&mut self.session) {
+            use subcraft_app::graph_layer::GraphEvent;
+            match event {
+                GraphEvent::Applied(text) => self.set_status(text, now),
+                GraphEvent::Failed(text) => self.set_status(format!("Substance material: {text}"), now),
             }
         }
     }

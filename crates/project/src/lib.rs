@@ -175,7 +175,7 @@ impl Writer {
         };
         let parts = l.parts.as_ref().map(|p| PartsV1 { enabled: p.enabled, kind: p.kind, parts: p.parts.iter().copied().collect() });
         let content_effects = l.content_effects.iter().map(|e| self.content_effect(e)).collect();
-        LayerV1 { id: l.id.0, name: l.name.clone(), visible: l.visible, blend, mask, parts, color: l.color, instance_of: l.instance_of.map(|i| i.0), content, content_effects, material: l.material.as_deref().map(schema::MaterialV1::from_doc) }
+        LayerV1 { id: l.id.0, name: l.name.clone(), visible: l.visible, blend, mask, parts, color: l.color, instance_of: l.instance_of.map(|i| i.0), content, content_effects, material: l.material.as_deref().map(schema::MaterialV1::from_doc), graph: l.graph.as_deref().map(schema::GraphV19::from_doc) }
     }
 }
 
@@ -296,7 +296,11 @@ fn pack_resources(ids: &[ResourceId], resources: &ResourceStore) -> (Vec<Resourc
             Some(bytes) => {
                 // By content, so re-saving a loaded project keeps the extension (TGA falls back to the name).
                 let hint = r.source_path.as_deref().and_then(|p| p.to_str()).unwrap_or(&r.name);
-                let ext = if r.kind == subcraft_doc::ResourceKind::Font { font_extension(bytes).to_string() } else { subcraft_image::guess_extension(bytes, Some(hint)) };
+                let ext = match r.kind {
+                    subcraft_doc::ResourceKind::Font => font_extension(bytes).to_string(),
+                    subcraft_doc::ResourceKind::GraphPackage => package_extension(&r.name),
+                    _ => subcraft_image::guess_extension(bytes, Some(hint)),
+                };
                 (bytes.clone(), ext)
             }
             None => match subcraft_image::encode_bitmap(&r.bitmap) {
@@ -355,6 +359,12 @@ fn write_payload<W: Write + Seek>(
     Ok(())
 }
 
+/// A graph package keeps its original extension (`sbsar`, `mcmat`, ...); anything odd is `bin`.
+fn package_extension(name: &str) -> String {
+    let ext = std::path::Path::new(name).extension().and_then(|e| e.to_str()).unwrap_or_default().to_ascii_lowercase();
+    if !ext.is_empty() && ext.len() <= 8 && ext.chars().all(|c| c.is_ascii_alphanumeric()) { ext } else { "bin".into() }
+}
+
 fn font_extension(bytes: &[u8]) -> &'static str {
     match bytes.get(..4) {
         Some(b"OTTO") => "otf",
@@ -369,6 +379,10 @@ fn unpack_resources<R: Read + Seek>(loader: &mut Loader<'_, R>, entries: &[Resou
         let bytes = loader.bytes(&r.file)?;
         let bitmap = if r.kind == subcraft_doc::ResourceKind::Font {
             subcraft_text::Font::from_bytes(Arc::new(bytes.clone()), 0).map_err(|e| ProjectError::Invalid(format!("font {}: {e}", r.name)))?;
+            subcraft_image::Bitmap::new_f32(1, 1, 1, vec![0.0])
+        } else if r.kind == subcraft_doc::ResourceKind::GraphPackage {
+            // Opened by its engine when a layer needs it; a broken package only breaks that
+            // layer's controls, never the project.
             subcraft_image::Bitmap::new_f32(1, 1, 1, vec![0.0])
         } else {
             subcraft_image::io::decode_bitmap(&bytes, Some(&r.file)).map_err(|e| ProjectError::Invalid(format!("resource {}: {e}", r.name)))?
@@ -714,6 +728,7 @@ impl<R: Read + Seek> Loader<'_, R> {
             content,
             content_effects,
             material: l.material.as_ref().map(|m| Arc::new(m.to_doc())),
+            graph: l.graph.as_ref().map(|g| Arc::new(g.to_doc())),
         })
     }
 }

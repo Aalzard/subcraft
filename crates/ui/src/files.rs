@@ -57,6 +57,8 @@ pub enum Purpose {
     GeneratorGrunge { layer: LayerId, effect: EffectId },
     /// Image of a Mask Editor generator's texture group (`slot` 0 = Texture, 1 = Texture 2).
     GeneratorTexture { layer: LayerId, effect: EffectId, slot: u8 },
+    /// Substance archives (`.sbsar`) to add as layers with their parameters.
+    GraphMaterial,
 }
 
 pub const SMART_MATERIALS: (&str, &[&str]) = ("Smart materials and textures", &["scsmart", "png", "jpg", "jpeg", "tga", "tif", "tiff", "exr", "bmp"]);
@@ -68,6 +70,7 @@ pub const PAINTER_PROJECTS: (&str, &[&str]) = ("Substance Painter project \u{201
 /// a Painter `.spp` could not be picked there at all (it was only reachable from New).
 pub const OPEN_FILTERS: [(&str, &[&str]); 3] =
     [("All supported projects", &[subcraft_app::PROJECT_EXTENSION, "spp"]), PROJECTS, PAINTER_PROJECTS];
+pub const GRAPH_MATERIALS: (&str, &[&str]) = ("Substance materials", subcraft_app::graph_layer::GRAPH_EXTENSIONS);
 pub const FONTS: (&str, &[&str]) = ("Fonts", &["ttf", "otf", "ttc"]);
 pub const ALPHAS: (&str, &[&str]) = ("Images", &["png", "jpg", "jpeg", "tga", "tif", "tiff", "exr"]);
 pub const PANORAMAS: (&str, &[&str]) = ("Panoramas", &["hdr", "exr", "png", "jpg", "jpeg"]);
@@ -191,6 +194,23 @@ pub fn import_painter_smart_material(state: &mut UiState, path: &std::path::Path
     }
 }
 
+/// Add each graph material file (`.sbsar`) as a layer of the selected texture set; the layer
+/// appears when its first render is done.
+pub fn import_graph_materials(state: &mut UiState, paths: &[PathBuf], now: f64) {
+    for p in paths {
+        let text = match state.graph_layers.import_file(&mut state.session, p) {
+            Ok(t) => t,
+            Err(e) => format!("Substance material: {e}"),
+        };
+        state.set_status(text, now);
+    }
+}
+
+/// True for a file [`import_graph_materials`] takes.
+pub fn is_graph_material(p: &std::path::Path) -> bool {
+    p.file_name().and_then(|n| n.to_str()).is_some_and(|n| subcraft_app::graph_layer::engine_for_file(n).is_some())
+}
+
 /// What a file dropped anywhere on the window (outside the Shelf) does: a model starts a New
 /// Project with it (after the unsaved-changes question), a `.subcraft` project opens, a Painter
 /// smart material (`.spsm`) is added to the selected texture set.
@@ -200,6 +220,8 @@ pub enum WindowDrop {
     SmartMaterial(PathBuf),
     /// A Painter project: imported straight away (after the unsaved-changes question).
     PainterProject(PathBuf),
+    /// A Substance archive: added as a layer of the selected texture set.
+    GraphMaterial(PathBuf),
 }
 
 /// Classify dropped files (unknown types are ignored).
@@ -208,6 +230,7 @@ pub fn window_drops(paths: &[PathBuf]) -> Vec<WindowDrop> {
     paths.iter().filter_map(|p| {
         let e = ext(p);
         if e == "spsm" { Some(WindowDrop::SmartMaterial(p.clone())) }
+        else if is_graph_material(p) { Some(WindowDrop::GraphMaterial(p.clone())) }
         else if e == "spp" { Some(WindowDrop::PainterProject(p.clone())) }
         else if e == subcraft_app::PROJECT_EXTENSION { Some(WindowDrop::Project(p.clone())) }
         else if subcraft_mesh::SUPPORTED_EXTENSIONS.contains(&e.as_str()) { Some(WindowDrop::Model(p.clone())) }
@@ -304,6 +327,7 @@ pub(crate) fn handle(state: &mut UiState, purpose: Purpose, paths: &[PathBuf], n
             Err(e) => state.set_status(format!("Import texture set: {e}"), now),
         },
         Purpose::SmartMaterials | Purpose::SmartMaterialFolder => import_smart_materials(state, paths, now),
+        Purpose::GraphMaterial => import_graph_materials(state, paths, now),
         Purpose::ShelfTextures => import_shelf_textures(state, paths, now),
         Purpose::Alpha => {
             // Copied into the library so it is still there next time.

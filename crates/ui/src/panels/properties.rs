@@ -217,6 +217,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         if layer.material.is_some() {
             super::material_params::section(ui, &layer, &mut cmds);
         }
+        // Graph material (`.sbsar`): the graph's parameters, rendered in the background.
+        if layer.graph.is_some() {
+            super::graph_params::section(state, ui, &layer, now);
+        }
 
         match &layer.content {
             LayerContent::Paint(p) if p.path.is_some() => {
