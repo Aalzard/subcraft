@@ -18,6 +18,15 @@ pub const MAX_KUWAHARA_SHARPNESS: f32 = 16.0;
 pub const MAX_KUWAHARA_TENSOR: f32 = 8.0;
 pub const MAX_KUWAHARA_ANISOTROPY: f32 = 4.0;
 
+/// Stylization filters: largest paint smoothing (px), border width (px), stroke width (px),
+/// stroke length (in stroke widths) and watercolor edge spread (px).
+pub const MAX_STYLE_PAINT: f32 = 16.0;
+pub const MAX_COMIC_BORDER: f32 = 4.0;
+pub const MAX_COMIC_TONES: u32 = 16;
+pub const MAX_STROKE_SIZE: f32 = 32.0;
+pub const MAX_STROKE_LENGTH: f32 = 4.0;
+pub const MAX_WATERCOLOR_SPREAD: f32 = 16.0;
+
 /// Median cost grows with the window, so it is capped below the Gaussian radii.
 pub const MAX_MEDIAN_RADIUS: f32 = 16.0;
 /// Warp noise cells across the texture.
@@ -48,6 +57,21 @@ pub enum DitherPattern {
 impl DitherPattern {
     pub const ALL: [Self; 3] = [Self::Bayer4, Self::Bayer8, Self::Noise];
     pub fn label(self) -> &'static str { match self { Self::Bayer4 => "Bayer 4x4", Self::Bayer8 => "Bayer 8x8", Self::Noise => "Noise" } }
+}
+
+/// Where the colour of a Fill Area Color fill comes from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FillColorMode {
+    /// The filter's Fill Color.
+    Color,
+    /// The average colour of the outline around each area.
+    Border,
+}
+
+impl FillColorMode {
+    pub const ALL: [Self; 2] = [Self::Color, Self::Border];
+    pub fn label(self) -> &'static str { match self { Self::Color => "Fill color", Self::Border => "Outline color" } }
 }
 
 /// Up to [`MAX_GRADIENT_STOPS`] stops in a fixed array so `Filter` stays `Copy`.
@@ -373,6 +397,32 @@ pub enum Filter {
     /// `angle` in turns when `extract_direction` is off). `sharpness` favours calm sectors,
     /// `smoothness` widens the sectors, `anisotropy` stretches the ellipse along edges.
     AnisotropicKuwahara { radius: f32, smoothness: f32, sharpness: f32, tensor_smoothness: f32, anisotropy: f32, angle: f32, extract_direction: bool },
+    /// MatFX Comic Book look: the image smoothed into flat painted areas (a Kuwahara pass of
+    /// `paint` pixels), saturated by `color_intensity`, with ink borders where the smoothed image
+    /// changes. A border starts at an edge strength of `border_tolerance`, ramps over
+    /// `border_smoothness`, is `border_width` pixels wide and `border_opacity` dark.
+    /// `input_contrast` / `input_luminosity` adjust the image first; `tones` cuts brightness into
+    /// that many flat steps (cel shading, 0 = off), whose borders are inked too.
+    ComicBook { tones: u32, paint: f32, color_intensity: f32, border_opacity: f32, border_tolerance: f32, border_smoothness: f32, border_width: f32, input_contrast: f32, input_luminosity: f32 },
+    /// MatFX Watercolor look: a soft wash (`bleed` pixels of smoothing) thinned towards white
+    /// paper by `1 - paint_opacity`, with pigment gathering at the edges of each wash
+    /// (`borders_spread` pixels wide, `borders_density` strong) and soaking unevenly into the
+    /// paper grain (`paper_absorption`). `hide_paper` removes the paper's own texture.
+    Watercolor { paint_opacity: f32, paper_absorption: f32, borders_spread: f32, borders_density: f32, bleed: f32, hide_paper: bool, seed: u32 },
+    /// MatFX Oil Paint strokes: the image repainted with overlapping brush strokes. Each stroke
+    /// is `stroke_size` pixels wide and `stroke_length` widths long, takes the colour under its
+    /// centre, follows the local edge direction (`angle` in turns where the image is flat),
+    /// and shows bristle streaks (`bristles`). `size_random` and `color_random` vary strokes;
+    /// `effect_intensity` mixes the result with the input.
+    OilPaint { effect_intensity: f32, stroke_size: f32, stroke_length: f32, size_random: f32, color_random: f32, bristles: f32, angle: f32, seed: u32 },
+    /// Painter's Fill Area Mask: areas of the mask closed off by a painted outline (values of
+    /// `threshold` or more) become white. With `closed_borders` the edges of a UV island close
+    /// an area too (the largest area of an island is taken as its outside); otherwise an area
+    /// that reaches the island edge stays empty. Masks only; reads the whole texture.
+    FillAreaMask { threshold: f32, closed_borders: bool },
+    /// Painter's Fill Area Color: the same areas, found from the paint coverage (alpha) of the
+    /// content, painted with `color` or with the average colour of their outline.
+    FillAreaColor { threshold: f32, closed_borders: bool, mode: FillColorMode, color: [f32; 3] },
     /// Painter's Quantize: the image reduced to a palette of `colors` colours picked from the
     /// whole texture (median cut refined by k-means). `contour_smoothing` blurs the input first
     /// (pixels) for smoother region borders; `dithering` (0..1) mixes neighbouring colours with
@@ -694,7 +744,7 @@ pub struct OutlineParts {
 }
 
 impl Filter {
-    pub const ALL: [Self; 43] = [Self::Contrast { gain: 1.0, pivot: 0.5 },
+    pub const ALL: [Self; 48] = [Self::Contrast { gain: 1.0, pivot: 0.5 },
         Self::Hsl { hue: 0.0, saturation: 1.0, lightness: 0.0 },
         Self::Threshold { cutoff: 0.5 }, Self::Clamp { low: 0.0, high: 1.0 }, Self::Blur { radius: 4.0 }, Self::Sharpen { radius: 2.0, amount: 1.0 }, Self::DirectionalBlur { radius: 8.0, angle_deg: 0.0 }, Self::Highpass { radius: 4.0, amount: 1.0 },
         Self::Bevel {radius:8.0,amount:1.0,threshold:0.5}, Self::MaskOutline {radius:4.0,threshold:0.5,position:OutlinePosition::Both},
@@ -724,7 +774,14 @@ impl Filter {
         // Painter documents no defaults.
         Self::Quantize { colors: 8, contour_smoothing: 0.0, dithering: 0.0, pattern: DitherPattern::Bayer4, lab: true, apply_to_alpha: false, alpha_threshold: 0.5 },
         Self::NonUniformBlur { radius: 12.0, map: BlurMap::Value, scale: 4, seed: 1, samples: 32, image: None },
-        Self::ColorMatch { source_mode: MatchSource::Average, source: [0.5; 3], target: [0.5; 3], hue: 1.0, chroma: 1.0, luma: 1.0, source_image: None, target_image: None }];
+        Self::ColorMatch { source_mode: MatchSource::Average, source: [0.5; 3], target: [0.5; 3], hue: 1.0, chroma: 1.0, luma: 1.0, source_image: None, target_image: None },
+        // Painter documents no defaults for the three stylization filters.
+        Self::ComicBook { tones: 4, paint: 5.0, color_intensity: 1.3, border_opacity: 1.0, border_tolerance: 0.25, border_smoothness: 0.3, border_width: 1.5, input_contrast: 0.0, input_luminosity: 0.0 },
+        Self::Watercolor { paint_opacity: 0.9, paper_absorption: 0.5, borders_spread: 4.0, borders_density: 0.5, bleed: 5.0, hide_paper: false, seed: 1 },
+        Self::OilPaint { effect_intensity: 1.0, stroke_size: 10.0, stroke_length: 3.0, size_random: 0.3, color_random: 0.15, bristles: 0.4, angle: 0.125, seed: 1 },
+        // Painter documents no defaults for the two Fill Area filters.
+        Self::FillAreaMask { threshold: 0.5, closed_borders: false },
+        Self::FillAreaColor { threshold: 0.5, closed_borders: false, mode: FillColorMode::Color, color: [0.5; 3] }];
     /// A Blur Slope filter: the plain variant when the options are the defaults.
     pub fn blur_slope(p: SlopeParts) -> Self {
         let SlopeParts { intensity, scale, seed, samples, source, mode, image } = p;
@@ -956,11 +1013,15 @@ impl Filter {
             Self::Fxaa {..} => "FXAA (Anti-Aliasing)", Self::DropShadow {..} => "Drop Shadow", Self::OuterGlow {..} => "Glow", Self::GradientDynamic {..} => "Gradient Dynamic",
             Self::GradientCurve {..} => "Gradient Curve", Self::BevelSmooth {..} => "Bevel Smooth", Self::DirectionalDistance {..} => "Directional Distance",
             Self::BlurSlope {..} | Self::BlurSlopeMode {..} => "Blur Slope", Self::NonUniformBlur {..} => "Non-uniform Blur", Self::ColorMatch {..} => "Color Match", Self::GrayscaleConvert {..} => "Grayscale",
-            Self::AnisotropicKuwahara {..} => "Anisotropic Kuwahara", Self::Quantize {..} => "Quantize" }
+            Self::AnisotropicKuwahara {..} => "Anisotropic Kuwahara", Self::Quantize {..} => "Quantize",
+            Self::ComicBook {..} => "MatFX Comic Book", Self::Watercolor {..} => "MatFX Watercolor", Self::OilPaint {..} => "MatFX Oil Paint",
+            Self::FillAreaMask {..} => "Fill Area Mask", Self::FillAreaColor {..} => "Fill Area Color" }
     }
 
     pub fn supports_channel(self, channel: ChannelKind) -> bool {
         if matches!(self, Self::NormalInvert { .. }) { return channel == ChannelKind::Normal; }
+        // Masks only.
+        if matches!(self, Self::FillAreaMask { .. }) { return false; }
         channel != ChannelKind::Normal && (!self.color_only() || channel.is_color())
     }
 
@@ -970,7 +1031,7 @@ impl Filter {
     }
 
     /// Quantize works on content only, as in Painter.
-    pub fn supports_mask(self) -> bool { !self.color_only() && !matches!(self, Self::NormalInvert { .. } | Self::Quantize { .. }) }
+    pub fn supports_mask(self) -> bool { !self.color_only() && !matches!(self, Self::NormalInvert { .. } | Self::Quantize { .. } | Self::FillAreaColor { .. }) }
 
     /// Copy with pixel-based parameters multiplied by `factor` (texture resolution ratio).
     pub fn scaled(self, factor: f32) -> Self {
@@ -988,6 +1049,15 @@ impl Filter {
             Self::AnisotropicKuwahara { radius, smoothness, sharpness, tensor_smoothness, anisotropy, angle, extract_direction } => {
                 Self::AnisotropicKuwahara { radius: (radius * factor).min(MAX_KUWAHARA_RADIUS), smoothness, sharpness, tensor_smoothness: (tensor_smoothness * factor).min(MAX_KUWAHARA_TENSOR), anisotropy, angle, extract_direction }
             }
+            Self::ComicBook { tones, paint, color_intensity, border_opacity, border_tolerance, border_smoothness, border_width, input_contrast, input_luminosity } => {
+                Self::ComicBook { tones, paint: (paint * factor).min(MAX_STYLE_PAINT), color_intensity, border_opacity, border_tolerance, border_smoothness, border_width: (border_width * factor).min(MAX_COMIC_BORDER), input_contrast, input_luminosity }
+            }
+            Self::Watercolor { paint_opacity, paper_absorption, borders_spread, borders_density, bleed, hide_paper, seed } => {
+                Self::Watercolor { paint_opacity, paper_absorption, borders_spread: (borders_spread * factor).min(MAX_WATERCOLOR_SPREAD), borders_density, bleed: (bleed * factor).min(MAX_STYLE_PAINT), hide_paper, seed }
+            }
+            Self::OilPaint { effect_intensity, stroke_size, stroke_length, size_random, color_random, bristles, angle, seed } => {
+                Self::OilPaint { effect_intensity, stroke_size: (stroke_size * factor).min(MAX_STROKE_SIZE), stroke_length, size_random, color_random, bristles, angle, seed }
+            }
             // The outline shape draws its band from its own width and blur, not from the node
             // radius the other contour filters use: both follow the resolution scale.
             Self::MaskOutlineShape { radius, threshold, position, start_black, blur, curve } => {
@@ -1000,17 +1070,37 @@ impl Filter {
     /// Neighbourhood filters evaluated per texel by the compositor with direct pixel reads
     /// (no Gaussian staging). The node output is the final value.
     pub fn is_pixelwise(self) -> bool {
-        matches!(self, Self::EdgeDetect { .. } | Self::DirectionalWarp { .. } | Self::Mosaic { .. } | Self::Transform { .. } | Self::Mirror { .. } | Self::Fxaa { .. } | Self::DirectionalDistance { .. } | Self::AnisotropicKuwahara { .. } | Self::Quantize { .. } | Self::BlurSlopeMode { .. } | Self::NonUniformBlur { .. }) || self.match_is_staged()
+        matches!(self, Self::EdgeDetect { .. } | Self::DirectionalWarp { .. } | Self::Mosaic { .. } | Self::Transform { .. } | Self::Mirror { .. } | Self::Fxaa { .. } | Self::DirectionalDistance { .. } | Self::AnisotropicKuwahara { .. } | Self::Quantize { .. } | Self::BlurSlopeMode { .. } | Self::NonUniformBlur { .. }
+            | Self::ComicBook { .. } | Self::Watercolor { .. } | Self::OilPaint { .. } | Self::FillAreaMask { .. } | Self::FillAreaColor { .. }) || self.match_is_staged()
+    }
+
+    /// The Kuwahara smoothing pass the Comic Book and Watercolor filters run before their own
+    /// node (none under half a pixel).
+    pub fn style_smoothing(self) -> Option<Self> {
+        let (radius, smoothness, sharpness) = match self {
+            Self::ComicBook { paint, .. } => (paint, 0.5, 8.0),
+            // A wash is softer than flat comic paint: wide sectors, less edge keeping.
+            Self::Watercolor { bleed, .. } => (bleed, 1.0, 4.0),
+            _ => return None,
+        };
+        (radius >= 0.5).then_some(Self::AnisotropicKuwahara { radius, smoothness, sharpness, tensor_smoothness: 2.0, anisotropy: 1.0, angle: 0.0, extract_direction: true })
+    }
+
+    /// Farthest texel an Oil Paint stroke can reach from a texel it covers: half its (largest)
+    /// length, the jitter of its centre, and the taps its direction is measured with.
+    pub fn stroke_reach(stroke_size: f32, stroke_length: f32, size_random: f32) -> f32 {
+        let size = stroke_size * (1.0 + 0.5 * size_random.clamp(0.0, 1.0));
+        size * stroke_length.clamp(1.0, MAX_STROKE_LENGTH) * 0.5 + stroke_size * 0.75 + (stroke_size * 0.25).max(1.0) + 1.0
     }
 
     /// Filters whose every texel may read any other texel of the texture.
     pub fn reads_whole_texture(self) -> bool {
-        // Quantize picks its palette from the whole texture.
-        matches!(self, Self::Transform { .. } | Self::Mirror { .. } | Self::Quantize { .. } | Self::ColorMatch { source_mode: MatchSource::Average, .. }) || matches!(self, Self::BlurWrap { radius } if radius > 0.0)
+        // Quantize picks its palette from the whole texture; Fill Area flood-fills it.
+        matches!(self, Self::Transform { .. } | Self::Mirror { .. } | Self::Quantize { .. } | Self::FillAreaMask { .. } | Self::FillAreaColor { .. } | Self::ColorMatch { source_mode: MatchSource::Average, .. }) || matches!(self, Self::BlurWrap { radius } if radius > 0.0)
     }
 
     pub fn radius(self) -> Option<f32> {
-        match self { Self::Transform { .. } | Self::Mirror { .. } | Self::Quantize { .. } | Self::ColorMatch { source_mode: MatchSource::Average, .. } => Some(FULL_SUPPORT as f32),
+        match self { Self::Transform { .. } | Self::Mirror { .. } | Self::Quantize { .. } | Self::FillAreaMask { .. } | Self::FillAreaColor { .. } | Self::ColorMatch { source_mode: MatchSource::Average, .. } => Some(FULL_SUPPORT as f32),
             Self::Blur { radius } | Self::BlurWrap { radius } | Self::Sharpen { radius, .. } | Self::DirectionalBlur { radius, .. } | Self::Highpass { radius, .. } | Self::Median { radius } | Self::Warp { intensity: radius, .. } | Self::Bevel {radius,..} | Self::MaskOutline {radius,..} | Self::EdgeDetect { radius, .. } | Self::Glow { radius, .. } | Self::DirectionalWarp { intensity: radius, .. } => Some(radius),
             Self::Mosaic { size } => Some(size as f32),
             Self::BevelShape { radius, .. } | Self::BevelSmooth { radius, .. } => Some(radius),
@@ -1023,6 +1113,11 @@ impl Filter {
             Self::Fxaa { .. } => Some(1.0),
             Self::DropShadow { distance, size, .. } => Some(distance + size),
             Self::OuterGlow { width, .. } => Some(width),
+            // Their own nodes only: the smoothing pass before them is a separate node.
+            Self::ComicBook { border_width, .. } => Some(border_width.max(1.0)),
+            Self::Watercolor { borders_spread, .. } => Some(borders_spread.max(1.0)),
+            Self::OilPaint { effect_intensity: 0.0, .. } => Some(0.0),
+            Self::OilPaint { stroke_size, stroke_length, size_random, .. } => Some(Self::stroke_reach(stroke_size, stroke_length, size_random)),
             // The ellipse reaches `radius * (1 + anisotropy)` along an edge; the tensor reads
             // its smoothing span plus the Sobel taps.
             Self::AnisotropicKuwahara { radius, anisotropy, tensor_smoothness, extract_direction, .. } => {
@@ -1050,7 +1145,9 @@ impl Filter {
 
     pub fn softens_coverage(self) -> bool {
         matches!(self, Self::Blur { .. } | Self::BlurWrap { .. } | Self::Transform { .. } | Self::Mirror { .. } | Self::DirectionalBlur { .. } | Self::Warp { .. } | Self::DirectionalWarp { .. } | Self::Mosaic { .. }
-            | Self::Fxaa { alpha: true } | Self::DropShadow { .. } | Self::OuterGlow { .. } | Self::BlurSlope { .. } | Self::BlurSlopeMode { .. } | Self::NonUniformBlur { .. })
+            | Self::Fxaa { alpha: true } | Self::DropShadow { .. } | Self::OuterGlow { .. } | Self::BlurSlope { .. } | Self::BlurSlopeMode { .. } | Self::NonUniformBlur { .. }
+            // A filled area becomes covered.
+            | Self::FillAreaColor { .. })
     }
 
     /// Highpass is deliberately excluded: radius/amount zero gives its neutral value.
@@ -1087,6 +1184,28 @@ impl Filter {
                     && contour_smoothing.is_finite() && (0.0..=MAX_QUANTIZE_SMOOTHING).contains(&contour_smoothing)
                     && dithering.is_finite() && (0.0..=1.0).contains(&dithering)
                     && alpha_threshold.is_finite() && (0.0..=1.0).contains(&alpha_threshold)
+            }
+            // A threshold of 0 would make every texel outline.
+            Self::FillAreaMask { threshold, .. } => threshold.is_finite() && (0.01..=1.0).contains(&threshold),
+            Self::FillAreaColor { threshold, color, .. } => threshold.is_finite() && (0.01..=1.0).contains(&threshold) && color.iter().all(|v| v.is_finite() && *v >= 0.0),
+            Self::ComicBook { tones, paint, color_intensity, border_opacity, border_tolerance, border_smoothness, border_width, input_contrast, input_luminosity } => {
+                let unit = |v: f32| v.is_finite() && (0.0..=1.0).contains(&v);
+                tones <= MAX_COMIC_TONES && tones != 1 && paint.is_finite() && (0.0..=MAX_STYLE_PAINT).contains(&paint)
+                    && color_intensity.is_finite() && (0.0..=2.0).contains(&color_intensity)
+                    && unit(border_opacity) && unit(border_tolerance) && unit(border_smoothness)
+                    && border_width.is_finite() && (0.5..=MAX_COMIC_BORDER).contains(&border_width)
+                    && [input_contrast, input_luminosity].iter().all(|v| v.is_finite() && (-1.0..=1.0).contains(v))
+            }
+            Self::Watercolor { paint_opacity, paper_absorption, borders_spread, borders_density, bleed, .. } => {
+                [paint_opacity, paper_absorption, borders_density].iter().all(|v| v.is_finite() && (0.0..=1.0).contains(v))
+                    && borders_spread.is_finite() && (0.0..=MAX_WATERCOLOR_SPREAD).contains(&borders_spread)
+                    && bleed.is_finite() && (0.0..=MAX_STYLE_PAINT).contains(&bleed)
+            }
+            Self::OilPaint { effect_intensity, stroke_size, stroke_length, size_random, color_random, bristles, angle, .. } => {
+                [effect_intensity, size_random, color_random, bristles].iter().all(|v| v.is_finite() && (0.0..=1.0).contains(v))
+                    && stroke_size.is_finite() && (2.0..=MAX_STROKE_SIZE).contains(&stroke_size)
+                    && stroke_length.is_finite() && (1.0..=MAX_STROKE_LENGTH).contains(&stroke_length)
+                    && angle.is_finite()
             }
             Self::AnisotropicKuwahara { radius, smoothness, sharpness, tensor_smoothness, anisotropy, angle, .. } => {
                 radius.is_finite() && (0.0..=MAX_KUWAHARA_RADIUS).contains(&radius)
@@ -1316,6 +1435,47 @@ mod tests {
         names.dedup();
         assert_eq!(names.len(), Filter::ALL.len());
     }
+    #[test]
+    fn fill_area_filters_read_the_whole_texture_and_split_by_target() {
+        let find = |name: &str| Filter::ALL.iter().copied().find(|f| f.label() == name).unwrap();
+        let (mask, color) = (find("Fill Area Mask"), find("Fill Area Color"));
+        for f in [mask, color] {
+            assert!(f.valid() && f.is_pixelwise() && f.reads_whole_texture() && f.support() == FULL_SUPPORT && !f.spatial_identity());
+            assert_eq!(f.scaled(4.0), f, "nothing in pixels");
+        }
+        // The mask filter is for masks only, the colour filter for content only (it adds coverage).
+        assert!(mask.supports_mask() && ChannelKind::ALL.iter().all(|k| !mask.supports_channel(*k)));
+        assert!(!color.supports_mask() && color.supports_channel(ChannelKind::BaseColor) && color.supports_channel(ChannelKind::Height) && !color.supports_channel(ChannelKind::Normal));
+        assert!(color.softens_coverage() && !mask.softens_coverage());
+        assert!(!Filter::FillAreaMask { threshold: 0.0, closed_borders: false }.valid());
+        assert!(!Filter::FillAreaColor { threshold: 0.5, closed_borders: false, mode: FillColorMode::Border, color: [f32::NAN, 0.0, 0.0] }.valid());
+    }
+
+    #[test]
+    fn stylization_filters_validate_scale_and_stage() {
+        let find = |name: &str| Filter::ALL.iter().copied().find(|f| f.label() == name).unwrap();
+        let (comic, wash, oil) = (find("MatFX Comic Book"), find("MatFX Watercolor"), find("MatFX Oil Paint"));
+        for f in [comic, wash, oil] {
+            assert!(f.valid() && f.is_pixelwise() && f.supports_channel(ChannelKind::BaseColor) && !f.supports_channel(ChannelKind::Normal));
+            assert!(f.scaled(64.0).valid(), "pixel sizes stay in range at any resolution: {f:?}");
+        }
+        // Comic Book and Watercolor smooth first with a Kuwahara pass of their paint size.
+        assert!(matches!(comic.style_smoothing(), Some(Filter::AnisotropicKuwahara { radius, .. }) if radius == 5.0));
+        assert!(matches!(wash.scaled(2.0).style_smoothing(), Some(Filter::AnisotropicKuwahara { radius, .. }) if radius == 10.0));
+        assert_eq!(oil.style_smoothing(), None);
+        let Filter::ComicBook { tones, color_intensity, border_opacity, border_tolerance, border_smoothness, border_width, input_contrast, input_luminosity, .. } = comic else { unreachable!() };
+        let unpainted = Filter::ComicBook { tones, paint: 0.2, color_intensity, border_opacity, border_tolerance, border_smoothness, border_width, input_contrast, input_luminosity };
+        assert_eq!(unpainted.style_smoothing(), None);
+        // One tone is no shading: rejected. Border width and stroke size have a floor.
+        assert!(!Filter::ComicBook { tones: 1, paint: 0.2, color_intensity, border_opacity, border_tolerance, border_smoothness, border_width, input_contrast, input_luminosity }.valid());
+        assert!(!Filter::ComicBook { tones, paint: 0.2, color_intensity, border_opacity, border_tolerance, border_smoothness, border_width: 0.0, input_contrast, input_luminosity }.valid());
+        let Filter::OilPaint { effect_intensity, stroke_length, size_random, color_random, bristles, angle, seed, .. } = oil else { unreachable!() };
+        assert!(!Filter::OilPaint { effect_intensity, stroke_size: 1.0, stroke_length, size_random, color_random, bristles, angle, seed }.valid());
+        // The oil node reads as far as its longest stroke can reach; none at intensity 0.
+        assert!(oil.support() as f32 >= 10.0 * 1.15 * 3.0 * 0.5 + 7.5);
+        assert_eq!(Filter::OilPaint { effect_intensity: 0.0, stroke_size: 10.0, stroke_length, size_random, color_random, bristles, angle, seed }.support(), 0);
+    }
+
     #[test]
     fn filter_parameters_and_domains_are_checked() {
         assert!(!Filter::Bevel {radius:2.0,amount:1.01,threshold:0.5}.valid());

@@ -18,6 +18,9 @@ pub struct RayTexel {
     pub rotation: f32,
     pub axis: [f32; 3],
     pub offset: [f32; 3],
+    /// Part group of the texel (bake by mesh name): only triangles of this group in the
+    /// `tri_group` list passed to [`RayBatchBackend::run`] are hit. [`NO_GROUP`] hits every triangle.
+    pub group: u32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -94,6 +97,8 @@ pub struct ProjectionRay {
     pub origin: [f32; 3],
     pub dir: [f32; 3],
     pub reach: f32,
+    /// Part group of the ray, as in [`RayTexel::group`]; [`NO_GROUP`] hits every triangle.
+    pub group: u32,
 }
 
 /// The closest hit of a [`ProjectionRay`], like [`crate::bvh::RayHit`]: mesh triangle, distance and
@@ -122,13 +127,18 @@ pub trait RayBatchBackend: Send + Sync {
     }
     /// The closest hit of each ray `0..count` (see [`ProjectionRay`]), or `None` on a miss. With
     /// `front_only`, triangles the ray reaches from behind (`dot(geometric normal, dir) >= 0`) are
-    /// skipped. The default refuses, so the caller uses the CPU.
+    /// skipped. `tri_group` (one per mesh triangle) filters hits by part, see [`ProjectionRay::group`].
+    /// The default refuses, so the caller uses the CPU.
+    #[allow(clippy::too_many_arguments)]
     fn project(
-        &self, _bvh: &Bvh, _count: usize, _ray: &(dyn Fn(usize) -> ProjectionRay + Sync), _front_only: bool, _control: &dyn BatchControl,
+        &self, _bvh: &Bvh, _tri_group: Option<&[u32]>, _count: usize, _ray: &(dyn Fn(usize) -> ProjectionRay + Sync), _front_only: bool,
+        _control: &dyn BatchControl,
     ) -> Result<Vec<Option<ProjectionHit>>, RayBatchError> {
         Err(RayBatchError::Unsupported("this backend has no projection pass".into()))
     }
-    fn run(&self, bvh: &Bvh, count: usize, texel: &(dyn Fn(usize) -> RayTexel + Sync), rays: u32, mode: RayMode, control: &dyn BatchControl)
+    /// `tri_group` (one per mesh triangle) filters hits by part, see [`RayTexel::group`].
+    #[allow(clippy::too_many_arguments)]
+    fn run(&self, bvh: &Bvh, tri_group: Option<&[u32]>, count: usize, texel: &(dyn Fn(usize) -> RayTexel + Sync), rays: u32, mode: RayMode, control: &dyn BatchControl)
         -> Result<Vec<f32>, RayBatchError>;
 }
 

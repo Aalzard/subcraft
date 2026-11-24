@@ -114,7 +114,8 @@ pub fn poll(state: &mut UiState, ctx: &egui::Context, now: f64) {
             let selected = std::mem::take(&mut state.uv_edit.selected);
             refresh(state);
             state.uv_edit.selected = selected;
-            state.uv_edit.transform = UvTransform::default();
+            // The pivot choice stays for the next edit.
+            state.uv_edit.transform = UvTransform { pivot: state.uv_edit.transform.pivot, ..UvTransform::default() };
         }
         Err(e) => state.uv_edit.error = Some(e),
     }
