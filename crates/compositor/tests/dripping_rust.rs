@@ -182,3 +182,29 @@ fn what_a_set_keeps_for_its_generators_is_shared_and_bounded() {
     let before = made.load(std::sync::atomic::Ordering::Relaxed);
     assert!(*get(7) == 7 && made.load(std::sync::atomic::Ordering::Relaxed) == before + 1);
 }
+
+/// The drip field is built by the first tile that needs it while the other tiles wait for it.
+/// It used to be built with a parallel loop, and a thread waiting in that loop could pick up
+/// one of the waiting tiles and so wait for itself: every so often the composite froze.
+#[test]
+fn building_the_field_from_many_tiles_at_once_never_freezes() {
+    let (done, wait) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        for seed in 0..40 {
+            // A fresh set each time, so the field is built again, from inside the tile jobs.
+            // Several composites ask for it at the same moment, as the tiles of one composite
+            // do in the application.
+            let fx = Fx { geo: TextureSetGeometry::new(Arc::new(primitives::cube(2.0)), 0, RES), surface: Vec::new() };
+            let pool = rayon::ThreadPoolBuilder::new().num_threads(4).build().unwrap();
+            pool.install(|| {
+                use rayon::prelude::*;
+                (0..16).into_par_iter().for_each(|_| {
+                    let mask = fx.mask(rust(|_, d| d.length = 0.2 + seed as f32 * 0.01));
+                    assert!(mask.iter().any(|v| *v > 0.5));
+                });
+            });
+        }
+        let _ = done.send(());
+    });
+    assert!(wait.recv_timeout(std::time::Duration::from_secs(240)).is_ok(), "the composite froze (or a run failed)");
+}
