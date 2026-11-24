@@ -1,0 +1,23 @@
+[package]
+name = "subcraft-materialcraft"
+description = "Open MaterialCraft materials (.mcmat, .mcraft, .sbs) through MaterialCraft's own engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+# MaterialCraft (https://github.com/storytold/materialcraft) is MIT OR Apache-2.0, like SubCraft.
+# Pinned to one revision: its API is not stable, so update all three together and run this
+# crate's tests. Keep every MaterialCraft type inside this crate.
+[dependencies]
+materialcraft-core = { git = "https://github.com/storytold/materialcraft", rev = "356c066e838c1f8ae31dce8a0ab370d889c8f868" }
+materialcraft-eval = { git = "https://github.com/storytold/materialcraft", rev = "356c066e838c1f8ae31dce8a0ab370d889c8f868" }
+materialcraft-engine = { git = "https://github.com/storytold/materialcraft", rev = "356c066e838c1f8ae31dce8a0ab370d889c8f868" }
+materialcraft-formats = { git = "https://github.com/storytold/materialcraft", rev = "356c066e838c1f8ae31dce8a0ab370d889c8f868" }
+thiserror.workspace = true
+
+[dev-dependencies]
+image.workspace = true
