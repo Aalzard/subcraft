@@ -61,6 +61,7 @@ What changed in SubCraft, newest first. Download the latest build from the
 #### Models, baking and projects
 - Multiple UV sets: models keep all their UV layouts (glTF TEXCOORD_1+, FBX UV layers), and each texture set can be painted with any of them (Texture Set Settings > UV set).
 - Edit > Edit UV islands: select islands in the 2D view, then move, rotate, scale or flip them with a live preview. Painted layers follow. Like Auto UV, this clears the undo history.
+- Substance archives (.sbsar) load as layers with their parameters as sliders, rendered in the background (open-sbsar engine, issue #682).
 - Bake presets: Fast preview, Standard and High quality, plus your own, saved to the library and shared across projects.
 - GPU baking now also does Bent normal, the high-poly projection (Normal, Height, ID, Position and the other projected maps) and bakes with Match by name (`_low` / `_high`), which used to fall back to the CPU.
 - Version history: each Save keeps the file it replaces (10 by default, Settings > Autosave > Versions); File > Version history lists them and restores one.
@@ -71,6 +72,7 @@ What changed in SubCraft, newest first. Download the latest build from the
 - Releases include a Linux AppImage and a Flatpak bundle. The in-app updater is off inside both and says how to update.
 
 ### Changed
+- Project files are now schema 19 (new graph layers). SubCraft 0.5.x cannot open projects saved by 0.6.0.
 - Tri-planar projection: "Different on every side". Each of the six sides shows its own part of a pattern or texture, so round objects no longer show the same shapes mirrored left and right. On for new fills, masks and materials; saved projects keep their look, and the checkbox under Hardness turns it on for them.
 - 3D view lighting is closer to Painter: rough metals no longer go dark, AO also dims reflections in cavities, the HDRI blur matches the roughness (and uses up to 2048 px of the HDRI), and shadows are soft.
 - Better procedural materials: darker, redder rust; denim twill and marble veins; real wood grain and knots; concrete aggregate and hairline cracks; patchy leather cracks; rubber scuffs; crisper edge wear on the hard materials; pits, chips and cracks dent the surface; Stylized Gold's dark patches are warm orange instead of olive.

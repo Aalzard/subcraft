@@ -6,10 +6,13 @@ SubCraft 0.6.0.
 - **Better 3D view**: clear coat, sheen, anisotropy, subsurface, translucency and glass; a displacement preview; brighter rough metals, soft shadows, contact shadows and screen-space reflections. The path tracer renders all of these too, with depth of field.
 - **Painting**: Heal for the Clone tool, stabilizer presets and post-smoothing, a Shape fill tool, Liquify Push, particle brushes (rain streaks, drips, burns), pen tilt, image decals that wrap over edges, and stencils from the Shelf.
 - **Stitches**: draw stitches with the Pen, 14 thread stitches that cross UV seams, an Auto Stitcher for UV seams and hems, and your own stitch tiles.
+- **Substance archives**: load a .sbsar as a layer and change its parameters with sliders.
 - **Models and baking**: multiple UV sets, Edit UV islands, bake presets, and Bent normal, high-poly projection and Match by name bakes on the GPU.
 - **Workflow**: version history (File > Version history), Live link to Unity, Unreal and Godot, and Rhai scripts in a Plugins menu.
 - **Linux**: an AppImage and a Flatpak bundle.
 - **Fixes**: one material now controls every UDIM tile (issue #581), normal maps on projected and tri-planar fills, smart masks keep their blend modes, a Heal hang and a rare compositor freeze.
+
+**Projects saved by 0.6.0 do not open in 0.5.x.** Keep a copy if you may need to go back.
 
 Full details: [CHANGELOG.md](https://github.com/Aalzard/subcraft/blob/main/CHANGELOG.md).
 
