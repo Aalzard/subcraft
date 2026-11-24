@@ -1,4 +1,4 @@
-//! Graph layers: fill layers rendered by a material graph (`.sbsar` today, MaterialCraft next),
+//! Graph layers: fill layers rendered by a material graph (`.sbsar` through open-sbsar, `.mcmat`/`.mcraft`/`.sbs` through MaterialCraft),
 //! with the graph's parameters as controls (see `subcraft_doc::graph_material`).
 //!
 //! [`GraphLayers`] is owned by the caller (the UI keeps it next to the session) and polled once
@@ -55,18 +55,19 @@ pub fn engine_for_file(name: &str) -> Option<GraphEngine> {
     let ext = Path::new(name).extension()?.to_str()?.to_ascii_lowercase();
     match ext.as_str() {
         "sbsar" => Some(GraphEngine::Sbsar),
+        "mcmat" | "mcraft" | "sbs" => Some(GraphEngine::MaterialCraft),
         _ => None,
     }
 }
 
 /// File extensions graph layers are made from (for file dialogs and drops).
-pub const GRAPH_EXTENSIONS: &[&str] = &["sbsar"];
+pub const GRAPH_EXTENSIONS: &[&str] = &["sbsar", "mcmat", "mcraft", "sbs"];
 
 /// Open `bytes` (a file named `name`) with `engine`.
 pub fn open_backend(engine: GraphEngine, bytes: &[u8], name: &str) -> Result<Box<dyn GraphBackend>, String> {
     match engine {
         GraphEngine::Sbsar => Ok(Box::new(SbsarBackend::open(bytes)?)),
-        GraphEngine::MaterialCraft => Err(format!("{name}: MaterialCraft materials are not supported by this build")),
+        GraphEngine::MaterialCraft => Ok(Box::new(crate::materialcraft::MaterialCraftBackend::open(bytes, name)?)),
     }
 }
 
