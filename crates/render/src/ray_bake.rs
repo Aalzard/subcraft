@@ -132,9 +132,9 @@ impl GpuRayBaker {
             });
             Pass { pipeline, layout }
         };
-        let rays = make("ray bake", &rays_module, 0);
+        let rays = make("ray bake", &rays_module, 1);
         let curvature = make("curvature bake", &curvature_module, 2);
-        let project = make("projection bake", &project_module, 0);
+        let project = make("projection bake", &project_module, 1);
         Self { device, queue, adapter_name: adapter.get_info().name, rays, curvature, project, busy: Mutex::new(()), lost: Arc::default() }
     }
 
@@ -308,6 +308,28 @@ impl GpuRayBaker {
     }
 }
 
+impl GpuRayBaker {
+    /// The part group of each triangle in leaf order (one dummy entry without a filter), and the
+    /// group a record carries: -1 (every triangle) when there is no filter.
+    fn group_buffer(&self, tri_ids: &[u32], tri_group: Option<&[u32]>) -> Result<wgpu::Buffer, RayBatchError> {
+        let groups: Vec<u32> = match tri_group {
+            Some(g) => tri_ids.iter().map(|&t| g.get(t as usize).copied().unwrap_or(NO_GROUP)).collect(),
+            None => vec![NO_GROUP],
+        };
+        // The records carry their group as an exact float.
+        if groups.iter().any(|&g| g != NO_GROUP && g >= 1 << 24) {
+            return Err(RayBatchError::Unsupported("too many part groups for the GPU".into()));
+        }
+        self.check_size("the triangle groups", (groups.len() * 4) as u64)?;
+        Ok(self.storage_buffer("triangle groups", bytemuck::cast_slice(&groups)))
+    }
+}
+
+/// A record's part group as the shaders read it: an exact float, -1 for every triangle.
+fn group_value(group: u32, filtered: bool) -> f32 {
+    if !filtered || group == NO_GROUP { -1.0 } else { group as f32 }
+}
+
 /// Deepest root-to-leaf path (nodes). The shader stack holds [`STACK_DEPTH`] entries.
 fn tree_depth(nodes: &[[u32; 8]]) -> usize {
     let mut deepest = 0;
@@ -329,7 +351,7 @@ impl RayBatchBackend for GpuRayBaker {
     }
 
     fn run(
-        &self, bvh: &Bvh, count: usize, texel: &(dyn Fn(usize) -> RayTexel + Sync), rays: u32, mode: RayMode, control: &dyn BatchControl,
+        &self, bvh: &Bvh, tri_group: Option<&[u32]>, count: usize, texel: &(dyn Fn(usize) -> RayTexel + Sync), rays: u32, mode: RayMode, control: &dyn BatchControl,
     ) -> Result<Vec<f32>, RayBatchError> {
         let rays = rays.max(1);
         let (mode_id, distance) = match mode {
@@ -348,10 +370,14 @@ impl RayBatchBackend for GpuRayBaker {
             return Ok(vec![value; count]);
         }
         let _guard = self.busy.lock().unwrap_or_else(|p| p.into_inner());
-        let (nodes, tris, _) = self.upload_bvh(bvh)?;
+        let (nodes, tris, tri_ids) = self.upload_bvh(bvh)?;
+        let groups = self.group_buffer(&tri_ids, tri_group)?;
+        drop(tri_ids);
+        let filtered = tri_group.is_some();
         let record = |i: usize| {
             let t = texel(i);
-            [t.origin[0], t.origin[1], t.origin[2], t.rotation, t.axis[0], t.axis[1], t.axis[2], 0.0, t.offset[0], t.offset[1], t.offset[2], 0.0]
+            let g = group_value(t.group, filtered);
+            [t.origin[0], t.origin[1], t.origin[2], t.rotation, t.axis[0], t.axis[1], t.axis[2], g, t.offset[0], t.offset[1], t.offset[2], 0.0]
         };
         let finish = |acc: [f32; 4]| match mode {
             RayMode::Occlusion { .. } => [if acc[1] <= 0.0 { 1.0 } else { 1.0 - acc[0] / acc[1] }; 4],
@@ -360,7 +386,7 @@ impl RayBatchBackend for GpuRayBaker {
         };
         let components = mode.components();
         self.drive(
-            &Job { pass: &self.rays, nodes: &nodes, tris: &tris, extra: vec![], count, record: &record, units: Units::Rays(rays), mode: mode_id, distance, components, finish: &finish },
+            &Job { pass: &self.rays, nodes: &nodes, tris: &tris, extra: vec![&groups], count, record: &record, units: Units::Rays(rays), mode: mode_id, distance, components, finish: &finish },
             control,
         )
     }
@@ -404,7 +430,8 @@ impl RayBatchBackend for GpuRayBaker {
     }
 
     fn project(
-        &self, bvh: &Bvh, count: usize, ray: &(dyn Fn(usize) -> ProjectionRay + Sync), front_only: bool, control: &dyn BatchControl,
+        &self, bvh: &Bvh, tri_group: Option<&[u32]>, count: usize, ray: &(dyn Fn(usize) -> ProjectionRay + Sync), front_only: bool,
+        control: &dyn BatchControl,
     ) -> Result<Vec<Option<ProjectionHit>>, RayBatchError> {
         if bvh.is_empty() || count == 0 {
             return Ok(vec![None; count]);
@@ -415,9 +442,11 @@ impl RayBatchBackend for GpuRayBaker {
         if tri_ids.len() >= 1 << 24 {
             return Err(RayBatchError::Unsupported("the high poly has too many triangles for the GPU projection".into()));
         }
+        let groups = self.group_buffer(&tri_ids, tri_group)?;
+        let filtered = tri_group.is_some();
         let record = |i: usize| {
             let r = ray(i);
-            [r.origin[0], r.origin[1], r.origin[2], r.reach, r.dir[0], r.dir[1], r.dir[2], 0.0, 0.0, 0.0, 0.0, 0.0]
+            [r.origin[0], r.origin[1], r.origin[2], r.reach, r.dir[0], r.dir[1], r.dir[2], group_value(r.group, filtered), 0.0, 0.0, 0.0, 0.0]
         };
         let finish = |acc: [f32; 4]| acc;
         let raw = self.drive(
@@ -425,7 +454,7 @@ impl RayBatchBackend for GpuRayBaker {
                 pass: &self.project,
                 nodes: &nodes,
                 tris: &tris,
-                extra: vec![],
+                extra: vec![&groups],
                 count,
                 record: &record,
                 units: Units::Texels,
