@@ -6,7 +6,7 @@ SubCraft 0.6.0.
 - **Better 3D view**: clear coat, sheen, anisotropy, subsurface, translucency and glass; a displacement preview; brighter rough metals, soft shadows, contact shadows and screen-space reflections. The path tracer renders all of these too, with depth of field.
 - **Painting**: Heal for the Clone tool, stabilizer presets and post-smoothing, a Shape fill tool, Liquify Push, particle brushes (rain streaks, drips, burns), pen tilt, image decals that wrap over edges, and stencils from the Shelf.
 - **Stitches**: draw stitches with the Pen, 14 thread stitches that cross UV seams, an Auto Stitcher for UV seams and hems, and your own stitch tiles.
-- **Substance archives and MaterialCraft**: load a .sbsar, or a MaterialCraft material (.mcmat, .mcraft, .sbs), as a layer and change its parameters with sliders. The download is about 20 MB bigger because MaterialCraft's node library is built in.
+- **Substance archives and MaterialCraft**: load a .sbsar, or a MaterialCraft material (.mcmat, .mcraft, .sbs), as a layer and change its parameters with sliders. They read your baked maps and update after a new bake. The download is about 20 MB bigger because MaterialCraft's node library is built in.
 - **Models and baking**: multiple UV sets, Edit UV islands, bake presets, and Bent normal, high-poly projection and Match by name bakes on the GPU.
 - **Workflow**: version history (File > Version history), Live link to Unity, Unreal and Godot, and Rhai scripts in a Plugins menu.
 - **Linux**: an AppImage and a Flatpak bundle.

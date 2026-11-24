@@ -62,7 +62,7 @@ What changed in SubCraft, newest first. Download the latest build from the
 - Multiple UV sets: models keep all their UV layouts (glTF TEXCOORD_1+, FBX UV layers), and each texture set can be painted with any of them (Texture Set Settings > UV set).
 - Edit > Edit UV islands: select islands in the 2D view, then move, rotate, scale or flip them with a live preview. Painted layers follow. Like Auto UV, this clears the undo history.
 - Substance archives (.sbsar) load as layers with their parameters as sliders, rendered in the background (open-sbsar engine, issue #682).
-- Open MaterialCraft materials (.mcmat, .mcraft, .sbs) as fill layers whose exposed parameters stay live controls, cooked by MaterialCraft's own engine. Their mesh map inputs (curvature, AO, world normal and so on) read the texture set's baked maps.
+- Open MaterialCraft materials (.mcmat, .mcraft, .sbs) as fill layers whose exposed parameters stay live controls, cooked by MaterialCraft's own engine. Their mesh map inputs (curvature, AO, world normal and so on) read the texture set's baked maps. Graph layers render again when a new bake changes the maps they read.
 - Bake presets: Fast preview, Standard and High quality, plus your own, saved to the library and shared across projects.
 - GPU baking now also does Bent normal, the high-poly projection (Normal, Height, ID, Position and the other projected maps) and bakes with Match by name (`_low` / `_high`), which used to fall back to the CPU.
 - Version history: each Save keeps the file it replaces (10 by default, Settings > Autosave > Versions); File > Version history lists them and restores one.
