@@ -2185,6 +2185,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "lzma-rust2"
+version = "0.25.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ef1d73c59a56771343712b22ea5615092c612c16ba291c0979e3105dfeec4890"
+
+[[package]]
 name = "matrixmultiply"
 version = "0.3.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2775,6 +2781,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 dependencies = [
  "portable-atomic",
+]
+
+[[package]]
+name = "open-sbsar"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1d4ffb6fcc3eaec05ebe21419d16c2c26348d12f94c0de0b55e542f951eb048f"
+dependencies = [
+ "crc32fast",
+ "image",
+ "lzma-rust2",
+ "rayon",
+ "roxmltree",
 ]
 
 [[package]]
@@ -3432,6 +3451,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "roxmltree"
+version = "0.21.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9da7f59328b09405b181fee1018925fad50f157afb43c0c0f5c522c256dd5907"
+dependencies = [
+ "memchr",
+]
+
+[[package]]
 name = "rustc-hash"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3913,6 +3941,7 @@ dependencies = [
  "subcraft-mesh",
  "subcraft-paint",
  "subcraft-project",
+ "subcraft-sbsar",
  "subcraft-text",
  "sysinfo",
  "tar",
@@ -4173,6 +4202,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "subcraft-sbsar"
+version = "0.5.0"
+dependencies = [
+ "open-sbsar",
+ "subcraft-core",
+ "subcraft-doc",
+ "subcraft-image",
+]
+
+[[package]]
 name = "subcraft-text"
 version = "0.6.0"
 dependencies = [
@@ -4219,6 +4258,7 @@ dependencies = [
  "subcraft-mesh",
  "subcraft-paint",
  "subcraft-render",
+ "subcraft-sbsar",
  "subcraft-text",
  "wayland-backend",
  "wayland-client",

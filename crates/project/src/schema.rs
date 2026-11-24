@@ -35,7 +35,11 @@ use uuid::Uuid;
 //     contain anchors); older SubCraft versions refuse schema-17 files instead of dropping them.
 // 18: transparent texture sets (`transparent`) and viewport alpha settings (`alpha`, issue #145).
 //     Both are omitted when default; schemas 1-17 migrate to opaque sets drawn opaque.
-pub const SCHEMA_VERSION: u32 = 18;
+// 19: graph layers (`graph`: a fill layer rendered by a material graph package) and resources
+//     of kind `graph_package` (the package file, e.g. an `.sbsar`). Schemas 1-18 migrate
+//     unchanged (they cannot contain them); older SubCraft versions refuse schema-19 files
+//     rather than fail on the unknown resource kind.
+pub const SCHEMA_VERSION: u32 = 19;
 pub const FORMAT_NAME: &str = "subcraft-project";
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -160,6 +164,31 @@ pub struct LayerV1 {
     /// optional: older readers ignore it and see the layers as the parameters last left them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub material: Option<MaterialV1>,
+    /// Schema 19. What renders this fill layer's images (absent = an ordinary layer).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub graph: Option<GraphV19>,
+}
+
+/// A graph layer's package, graph, values and render size (`subcraft_doc::GraphMaterial`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct GraphV19 {
+    pub engine: subcraft_doc::GraphEngine,
+    pub package: Uuid,
+    #[serde(default)]
+    pub graph: String,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub values: std::collections::BTreeMap<String, Vec<f64>>,
+    pub size_log2: u32,
+}
+
+impl GraphV19 {
+    pub fn from_doc(g: &subcraft_doc::GraphMaterial) -> Self {
+        GraphV19 { engine: g.engine, package: g.package.0, graph: g.graph.clone(), values: g.values.clone(), size_log2: g.size_log2 }
+    }
+
+    pub fn to_doc(&self) -> subcraft_doc::GraphMaterial {
+        subcraft_doc::GraphMaterial { engine: self.engine, package: subcraft_core::ResourceId(self.package), graph: self.graph.clone(), values: self.values.clone(), size_log2: self.size_log2 }.sanitized()
+    }
 }
 
 /// A layer's exposed parameters and bindings (ADR-0047). Each entry is the JSON form of
