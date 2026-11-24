@@ -6394,5 +6394,8 @@ the PR descriptions. The user-facing list is the 0.6.0 section of `CHANGELOG.md`
 * Packaging: the AppImage (#694) and Flatpak (#711) are built and run with `--version` only by the release
   workflow; neither was opened as a desktop app.
 * Heal deadlock (#711): the heal test hung 12 times in 100 runs before the fix, 0 in 200 after.
-* Left out: #677 (screen-space SSS, draft), #708 (Dripping Rust drips across UV seams, open), #714 (Stylized
-  Gold shadow tweak, draft).
+* Added after the first draft of this entry: #708 (stylization filters, Fill Area, drips across UV seams;
+  numeric compositor tests only, panels not opened in the app), #714 (Stylized Gold shadow colour, rendered
+  sheets), #716 (name-matched GPU bakes, lavapipe test against the CPU and a real-app bake; Edit UV islands and
+  Heal used in the real app).
+* Left out: #677 (screen-space SSS, draft).

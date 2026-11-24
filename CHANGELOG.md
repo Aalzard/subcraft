@@ -29,11 +29,13 @@ What changed in SubCraft, newest first. Download the latest build from the
   - Finishes: Galvanized, Hammered, Powder Coated, Grinded, Rough, Raw, Brushed Linear, Grainy and Perforated Circles.
   - Effects: Edge Damages (with a Contrast setting for hard chips), Rust Weathering, Peeling Paint, Detail Edge Wear, Water Drops, HBAO and Shut Line.
   - Baked Lighting Stylized: multiplies the Base Color by a painted sun, sky and ground light and the baked AO, for stylized or unlit targets.
+- Stylization filters: MatFX Comic Book (cel tones and ink borders), MatFX Watercolor (paint film, pigment at wash edges, paper blotches) and MatFX Oil Paint (overlapping brush strokes that follow the shapes). They work on content and masks.
+- Fill Area Mask and Fill Area Color: find the areas a painted outline closes off and fill them, as a mask or with a colour (or the outline's average colour), with no halo at the outline.
 - PBR Validate filter: colours the Base Color green where it is physically plausible, red where it is too dark, blue where it is too bright and yellow where Metallic is neither 0 nor 1.
 - Non-uniform Blur and Color Match filters. Blur Slope gets Source Type (Previous input) and Blending Mode (Blur / Min / Max). All three can read imported images (blur map, custom noise, source and target colours) or an anchor point.
 
 #### Generators and smart masks
-- Dripping Rust generator: rust on edges and in cavities with drips running down the surface, with Rust Spreading, Drips Length, Drips Intensity and the usual grunge controls.
+- Dripping Rust generator: rust on edges and in cavities with drips running down the surface and across UV seams, with Rust Spreading, Drips Length, Drips Intensity and the usual grunge controls.
 - Fiber Glass Edge Wear generator: the Edge wear model with a woven glass mat. Loose fibres run out past the solid wear.
 - Mask Builder generator (Painter's legacy Mask Editor): Grunge, AO, Curvature, Top/Down Gradient, World Space Normal, Scratches and Scatter sliders that add up to one mask, and a global Level, Contrast and Invert.
 - 19 new smart masks made of several effects with blend modes: Dust Occlusion, Sharp Dirt, Ground Dirt, Dust from Above, Moss, Edges Scratched, Surface Worn, Stains and Scratches, Oxidation, Spots, Leaks, Dirt and Leaks, Paint Old, Edge Drips, Long Leaks, Soft Run-off Stains, Fibre Glass Wear, Frayed Edges and Threadbare Cloth.
@@ -60,7 +62,7 @@ What changed in SubCraft, newest first. Download the latest build from the
 - Multiple UV sets: models keep all their UV layouts (glTF TEXCOORD_1+, FBX UV layers), and each texture set can be painted with any of them (Texture Set Settings > UV set).
 - Edit > Edit UV islands: select islands in the 2D view, then move, rotate, scale or flip them with a live preview. Painted layers follow. Like Auto UV, this clears the undo history.
 - Bake presets: Fast preview, Standard and High quality, plus your own, saved to the library and shared across projects.
-- GPU baking now also does Bent normal and the high-poly projection (Normal, Height, ID, Position and the other projected maps).
+- GPU baking now also does Bent normal, the high-poly projection (Normal, Height, ID, Position and the other projected maps) and bakes with Match by name (`_low` / `_high`), which used to fall back to the CPU.
 - Version history: each Save keeps the file it replaces (10 by default, Settings > Autosave > Versions); File > Version history lists them and restores one.
 - Live link (File > Live link...): pick a Unity, Unreal or Godot project and SubCraft re-exports the textures into it a second after each edit. Godot also gets a ready material per texture set.
 - Scripting: Rhai scripts (`.rhai`) drive SubCraft through the same tools as the MCP server, from the new Plugins menu or headless with `subcraft-mcp --script`.
@@ -71,7 +73,7 @@ What changed in SubCraft, newest first. Download the latest build from the
 ### Changed
 - Tri-planar projection: "Different on every side". Each of the six sides shows its own part of a pattern or texture, so round objects no longer show the same shapes mirrored left and right. On for new fills, masks and materials; saved projects keep their look, and the checkbox under Hardness turns it on for them.
 - 3D view lighting is closer to Painter: rough metals no longer go dark, AO also dims reflections in cavities, the HDRI blur matches the roughness (and uses up to 2048 px of the HDRI), and shadows are soft.
-- Better procedural materials: darker, redder rust; denim twill and marble veins; real wood grain and knots; concrete aggregate and hairline cracks; patchy leather cracks; rubber scuffs; crisper edge wear on the hard materials; pits, chips and cracks dent the surface.
+- Better procedural materials: darker, redder rust; denim twill and marble veins; real wood grain and knots; concrete aggregate and hairline cracks; patchy leather cracks; rubber scuffs; crisper edge wear on the hard materials; pits, chips and cracks dent the surface; Stylized Gold's dark patches are warm orange instead of olive.
 
 ### Fixed
 - UDIM with "Paint across UDIM tiles" on: adjusting a material (fill channels, projection, mask and effects, procedural sliders, or dropping a new material onto it) now changes it on every tile, so one material controls the whole object (issue #581).
@@ -80,6 +82,7 @@ What changed in SubCraft, newest first. Download the latest build from the
 - A Heal stroke could hang painting for good, and a stack with an image fill and a filter or micro details could freeze the viewport or an export under load.
 - Stale 3D view after changing Height or Normal under an HBAO / Detail Edge Wear filter or a generator with micro details.
 - Blur Slope Min / Max no longer leaves ribs on thin diagonal lines.
+- Edit UV islands keeps the chosen pivot after Apply.
 - The orange line on the active tab no longer slides out of its panel when a crowded tab row is scrolled (issue #637).
 - A stitch row's layer is renamed when its stitch is changed (names you typed stay).
 
