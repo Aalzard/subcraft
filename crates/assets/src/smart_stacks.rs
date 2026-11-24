@@ -3,7 +3,7 @@
 //! scattered spots, each with its own slider) and short stacks of effects with blend modes.
 //! Every slider of the generator stays editable after the mask is applied.
 
-use subcraft_doc::{BlendMode, DripSettings, Generator, GeneratorKind, MaskBuilder, MaskEffectKind, ProceduralKind};
+use subcraft_doc::{BlendMode, DripSettings, FiberSettings, Generator, GeneratorKind, MaskBuilder, MaskEffectKind, ProceduralKind};
 
 use crate::presets::{SmartMask, mask, stacked};
 use crate::smart_more::{all_white, cavity, pattern};
@@ -30,6 +30,15 @@ fn drips(seed: u32, spreading: f32, softness: f32, d: DripSettings) -> MaskEffec
     MaskEffectKind::Generator(g)
 }
 
+/// A Fiber Glass Edge Wear generator: edge wear whose border frays into the strands of a weave.
+fn fibres(seed: u32, level: f32, f: FiberSettings) -> MaskEffectKind {
+    let mut g = Generator::new(GeneratorKind::FiberGlass);
+    g.noise.seed = seed;
+    g.level = level;
+    g.fiber = Some(f);
+    MaskEffectKind::Generator(g)
+}
+
 fn off() -> MaskBuilder {
     MaskBuilder { ao: 0.0, curvature: 0.0, ..MaskBuilder::default() }
 }
@@ -49,6 +58,9 @@ pub fn smart_masks() -> Vec<SmartMask> {
         mask("Spots", vec![builder(710, 0.5, 0.5, MaskBuilder { scatter: 1.0, grunge: 0.2, scatter_density: 0.75, ..off() })]),
         // Gravity drips: these three are the Dripping Rust generator, so the streaks really hang
         // below the edges and creases they start from.
+        mask("Fibre Glass Wear", vec![fibres(722, 0.5, FiberSettings { amount: 0.8, scale: 160.0, irregularity: 0.5, triplanar: true })]),
+        mask("Frayed Edges", vec![fibres(723, 0.6, FiberSettings { amount: 1.0, scale: 240.0, irregularity: 0.8, triplanar: true })]),
+        mask("Threadbare Cloth", vec![fibres(724, 0.8, FiberSettings { amount: 0.9, scale: 320.0, irregularity: 0.9, triplanar: true })]),
         mask("Edge Drips", vec![drips(719, 0.5, 0.3, DripSettings { contrast: 0.5, intensity: 0.8, smoothness: 0.25, length: 0.3 })]),
         // The streaks alone: the same generator without drips takes the rusted edges back out.
         stacked("Long Leaks", vec![

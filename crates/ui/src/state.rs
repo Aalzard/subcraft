@@ -372,6 +372,7 @@ pub struct UiState {
     pub new_project: crate::new_project::NewProjectUi,
     pub mesh_reload: crate::mesh_reload::MeshReloadUi,
     pub auto_uv: crate::auto_uv::AutoUvUi,
+    pub uv_edit: crate::uv_edit::UvEditUi,
     /// Texture Set Settings > UV set (models with several UV sets).
     pub uv_sets: crate::uv_sets::UvSetUi,
     /// File > Live link (send textures to a game engine project).
@@ -601,6 +602,7 @@ impl UiState {
             new_project: Default::default(),
             mesh_reload: Default::default(),
             auto_uv: Default::default(),
+            uv_edit: Default::default(),
             uv_sets: Default::default(),
             live_link: Default::default(),
             versions: Default::default(),

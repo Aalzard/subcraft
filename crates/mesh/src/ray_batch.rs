@@ -87,6 +87,25 @@ pub struct CurvatureTexel {
     pub group: u32,
 }
 
+/// One projection ray of the baker's cage: the closest hit in `(0, reach)` along `dir` (unit length)
+/// from `origin`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ProjectionRay {
+    pub origin: [f32; 3],
+    pub dir: [f32; 3],
+    pub reach: f32,
+}
+
+/// The closest hit of a [`ProjectionRay`], like [`crate::bvh::RayHit`]: mesh triangle, distance and
+/// the barycentric weights of vertices 1 and 2.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ProjectionHit {
+    pub tri: u32,
+    pub t: f32,
+    pub u: f32,
+    pub v: f32,
+}
+
 pub trait RayBatchBackend: Send + Sync {
     /// Short human description, e.g. the adapter name.
     fn description(&self) -> String;
@@ -100,6 +119,14 @@ pub trait RayBatchBackend: Send + Sync {
         _control: &dyn BatchControl,
     ) -> Result<Vec<f32>, RayBatchError> {
         Err(RayBatchError::Unsupported("this backend has no curvature pass".into()))
+    }
+    /// The closest hit of each ray `0..count` (see [`ProjectionRay`]), or `None` on a miss. With
+    /// `front_only`, triangles the ray reaches from behind (`dot(geometric normal, dir) >= 0`) are
+    /// skipped. The default refuses, so the caller uses the CPU.
+    fn project(
+        &self, _bvh: &Bvh, _count: usize, _ray: &(dyn Fn(usize) -> ProjectionRay + Sync), _front_only: bool, _control: &dyn BatchControl,
+    ) -> Result<Vec<Option<ProjectionHit>>, RayBatchError> {
+        Err(RayBatchError::Unsupported("this backend has no projection pass".into()))
     }
     fn run(&self, bvh: &Bvh, count: usize, texel: &(dyn Fn(usize) -> RayTexel + Sync), rays: u32, mode: RayMode, control: &dyn BatchControl)
         -> Result<Vec<f32>, RayBatchError>;

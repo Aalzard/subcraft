@@ -33,7 +33,7 @@ use rayon::prelude::*;
 use subcraft_core::MeshMapKind;
 use subcraft_core::color::hsv_to_rgb;
 use subcraft_image::TiledImage;
-use subcraft_mesh::ray_batch::{BatchControl, CurvatureSurface, CurvatureTexel, NO_GROUP, RayBatchBackend, RayBatchError, RayMode, RayTexel, ray_backend};
+use subcraft_mesh::ray_batch::{BatchControl, CurvatureSurface, CurvatureTexel, NO_GROUP, ProjectionRay, RayBatchBackend, RayBatchError, RayMode, RayTexel, ray_backend};
 use subcraft_mesh::{Bvh, Mesh, topology};
 
 use name_match::PartMatch;
@@ -434,7 +434,8 @@ pub struct Progress {
 #[derive(Clone, Debug, PartialEq)]
 pub struct MapReport {
     pub kind: MeshMapKind,
-    /// `CPU`, `GPU (adapter)` or `CPU (GPU failed: reason)`.
+    /// `CPU`, `GPU (adapter)`, `CPU (GPU failed: reason)`, or `CPU, projection on GPU (adapter)` when only the
+    /// high-poly projection ran on the GPU.
     pub backend: String,
     pub seconds: f32,
 }
@@ -753,21 +754,25 @@ fn bake_core(
 
     // Project onto the detail surface.
     let cage = input.high.map(|_| Cage::new(low, input.material_slot, size, settings, diag));
+    // The texel's own surface: low on low, or a cage ray that reached no high-poly surface.
+    let own = |t: &Texel, group: u32| Detail { position: t.position, normal: t.normal, tri: input.high.is_none().then_some(t.tri), offset: t.geometric_normal, height: 0.0, group };
+    // The detail at a cage ray's closest high-poly hit (`tri`, distance, barycentrics u, v).
+    let detail_at = |t: &Texel, group: u32, ray: &CageRay, hit: Option<(u32, f32, f32, f32)>| -> Detail {
+        let (Some(high), Some((tri, dist, u, v))) = (input.high, hit) else { return own(t, group) };
+        // Outwards, against the ray.
+        let n = -ray.dir;
+        let sp = high.mesh.interpolate(tri as usize, u, v);
+        let ng = sp.geometric_normal;
+        let normal = if sp.normal.dot(n) < 0.0 { -sp.normal } else { sp.normal };
+        Detail { position: sp.position, normal, tri: Some(tri), offset: if ng.dot(n) < 0.0 { -ng } else { ng }, height: ray.front - dist, group }
+    };
     let project = |t: &Texel| -> Detail {
         let group = matching.as_ref().map_or(NO_GROUP, |m| m.low_group(t.tri));
-        if let (Some(high), Some(cage)) = (input.high, &cage) {
-            let ray = cage.ray(low, t);
-            // Outwards, against the ray.
-            let n = -ray.dir;
-            let accept = |tri: u32| accepts(group, tri) && (!settings.ignore_backface || high.mesh.geometric_normal(tri as usize).dot(ray.dir) < 0.0);
-            if let Some(hit) = high.bvh.intersect_filtered(ray.origin, ray.dir, 0.0, ray.reach, accept) {
-                let sp = high.mesh.interpolate(hit.tri as usize, hit.u, hit.v);
-                let ng = sp.geometric_normal;
-                let normal = if sp.normal.dot(n) < 0.0 { -sp.normal } else { sp.normal };
-                return Detail { position: sp.position, normal, tri: Some(hit.tri), offset: if ng.dot(n) < 0.0 { -ng } else { ng }, height: ray.front - hit.t, group };
-            }
-        }
-        Detail { position: t.position, normal: t.normal, tri: input.high.is_none().then_some(t.tri), offset: t.geometric_normal, height: 0.0, group }
+        let (Some(high), Some(cage)) = (input.high, &cage) else { return own(t, group) };
+        let ray = cage.ray(low, t);
+        let accept = |tri: u32| accepts(group, tri) && (!settings.ignore_backface || high.mesh.geometric_normal(tri as usize).dot(ray.dir) < 0.0);
+        let hit = high.bvh.intersect_filtered(ray.origin, ray.dir, 0.0, ray.reach, accept).map(|h| (h.tri, h.t, h.u, h.v));
+        detail_at(t, group, &ray, hit)
     };
 
     let wanted = |k: MeshMapKind| settings.maps.contains(&k);
@@ -786,7 +791,36 @@ fn bake_core(
 
     // Low on low: the detail is the texel itself, so it is derived on the fly instead of holding
     // a second 48-byte record per texel (800 MB at 4096) for the whole bake.
-    let details: Option<Vec<Detail>> = input.high.map(|_| samples.par_iter().map(project).collect());
+    // The projection runs on the GPU when it can: it cannot filter hits by part, so not with name matching.
+    let mut projected_on: Option<String> = None;
+    let details: Option<Vec<Detail>> = match (input.high, &cage) {
+        (Some(high), Some(cage)) => {
+            let mut fast = None;
+            if let Some(gpu) = gpu_backend.filter(|_| settings.use_gpu && matching.is_none()) {
+                let ray = |i: usize| {
+                    let r = cage.ray(low, &samples[i]);
+                    ProjectionRay { origin: r.origin.to_array(), dir: r.dir.to_array(), reach: r.reach }
+                };
+                let control = GpuControl { progress, base: progress.done.load(Ordering::Relaxed), count: 0 };
+                match gpu.project(high.bvh, samples.len(), &ray, settings.ignore_backface, &control) {
+                    Ok(hits) => {
+                        projected_on = Some(gpu.description());
+                        fast = Some(
+                            samples
+                                .par_iter()
+                                .zip(hits.par_iter())
+                                .map(|(t, h)| detail_at(t, NO_GROUP, &cage.ray(low, t), h.map(|h| (h.tri, h.t, h.u, h.v))))
+                                .collect(),
+                        );
+                    }
+                    Err(RayBatchError::Cancelled) => return Err(BakeError::Cancelled),
+                    Err(RayBatchError::Unsupported(why)) => log::warn!("GPU high-poly projection failed, using the CPU: {why}"),
+                }
+            }
+            Some(fast.unwrap_or_else(|| samples.par_iter().map(project).collect()))
+        }
+        _ => None,
+    };
     if details.as_ref().is_some_and(|details| details.iter().all(|d| d.tri.is_none())) {
         return Err(BakeError::NoProjection);
     }
@@ -1025,7 +1059,10 @@ fn bake_core(
             }
         };
         let started = Instant::now();
-        let mut backend = "CPU".to_string();
+        let mut backend = match &projected_on {
+            Some(gpu) => format!("CPU, projection on {gpu}"),
+            None => "CPU".to_string(),
+        };
         // The GPU ray kernels cannot filter hits by part, so name matching bakes AO and thickness on the CPU.
         // Nor do they know the occlusion or thickness options (cone, distances, attenuation, ground plane).
         let plain = match kind {

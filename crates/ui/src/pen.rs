@@ -449,7 +449,7 @@ pub fn choose_tile(state: &mut UiState, tile: subcraft_app::stitch::TileStyle, n
     };
     let channels = state.session.channels();
     tile.apply_to_path(&mut path, |k| channels.contains(&k));
-    match state.pen.set_path(&state.session, path).and_then(|()| state.pen.release(&state.session)) {
+    match state.pen.restyle_path(&state.session, path, "Stitch tile").and_then(|()| state.pen.release(&state.session)) {
         Ok(()) => state.set_status(format!("{name} on this path and on new paths"), now),
         Err(e) => state.set_status(e.to_string(), now),
     }
@@ -514,7 +514,8 @@ pub fn choose_stitch(state: &mut UiState, stitch: Option<&'static subcraft_app::
         }
         None => path.stamp = None,
     }
-    let done = state.pen.set_path(&state.session, path).and_then(|()| state.pen.release(&state.session));
+    let name = stitch.map_or("Pen path", |s| s.name);
+    let done = state.pen.restyle_path(&state.session, path, name).and_then(|()| state.pen.release(&state.session));
     match (done, stitch) {
         (Err(e), _) => state.set_status(e.to_string(), now),
         (Ok(()), Some(s)) => state.set_status(format!("{} on this path and on new paths", s.name), now),
@@ -654,20 +655,22 @@ pub fn tool_section(state: &mut UiState, ui: &mut Ui, now: f64) {
         height_note(state, ui, now);
     }
     crate::widgets::hint(ui, "Choose a stitch, then click on the model to place the points of the path (drag for a curve). Enter finishes the path. Width, spacing, thread colour and height can be changed afterwards, here.");
-    auto_stitcher(state, ui, now);
+    auto_stitcher(state, ui, true, now);
 }
 
 /// Painter's Auto Stitcher: the chosen stitch placed along the UV seams, the open borders or
 /// the edge of the selected layer's mask, without drawing.
-fn auto_stitcher(state: &mut UiState, ui: &mut Ui, now: f64) {
+fn auto_stitcher(state: &mut UiState, ui: &mut Ui, open: bool, now: f64) {
     use subcraft_app::auto_stitch::{AutoStitch, StitchAlong};
     ui.add_space(6.0);
-    egui::CollapsingHeader::new("Auto Stitcher").id_salt("pen_auto_stitcher").default_open(true).show(ui, |ui| {
+    egui::CollapsingHeader::new("Auto Stitcher").id_salt(("pen_auto_stitcher", open)).default_open(open).show(ui, |ui| {
         let d = AutoStitch::default();
         prop_row_reset(ui, "Along", &mut state.auto_stitch.along, d.along, |ui, v| combo(ui, "auto_stitch_along", v, &StitchAlong::ALL, |a| a.label()))
             .on_hover_text("UV seams: where two UV islands meet on the model. Open borders: the free edges of the mesh, like a hem. Mask edge: the outline of the selected layer's mask");
-        slider_row_reset(ui, "Distance", &mut state.auto_stitch.inset, d.inset, |v| egui::Slider::new(v, AutoStitch::INSET).suffix(" widths"))
+        slider_row_reset(ui, "Distance (stitch widths)", &mut state.auto_stitch.inset, d.inset, |v| egui::Slider::new(v, AutoStitch::INSET))
             .on_hover_text("How far from the edge the row runs, in stitch widths. At 0 a UV seam gets one row right on it; above 0 it gets a row on each side");
+        let r = ui.checkbox(&mut state.auto_stitch.smooth, "Smooth curves").on_hover_text("Round the rows into curves through their points. Sharp corners stay corners. Off: straight segments");
+        reset_on(ui, r, &mut state.auto_stitch.smooth, d.smooth);
         if ui.button("Place stitches").on_hover_text("Add the stitch chosen above along every seam, border or mask edge of this texture set. Each row is its own path layer, in one folder: edit, restyle or delete any of them afterwards. One undo step").clicked() {
             place_auto_stitches(state, now);
         }
@@ -752,6 +755,34 @@ pub fn start_stitching(state: &mut UiState, now: f64) {
     state.picking_parts = false;
     let stitch = state.pen.style.map(|s| s.stitch).or_else(|| subcraft_app::stitch::find("Stitch: Straight"));
     choose_stitch(state, stitch, false, now);
+    state.set_status(STITCH_HINT, now);
+}
+
+/// What to do next, said once the stitch tools are opened from the tool rail or the Edit menu.
+pub const STITCH_HINT: &str = "Stitches: click points on the model to sew along them, Enter finishes the row. Pick the stitch in Properties, or let the Auto Stitcher there place the rows for you";
+
+/// Where the stitch guide is read (Help > Stitches guide, Edit > Stitches > How to...).
+pub const STITCH_GUIDE: &str = "https://github.com/Aalzard/subcraft/blob/main/docs/stitches.md";
+
+/// Edit > Stitches: the ways into the stitch tools, by name, for who does not know the tool
+/// rail's button.
+pub fn stitch_menu(state: &mut UiState, ui: &mut Ui, now: f64) {
+    ui.set_min_width(260.0);
+    if ui.button("Draw stitches with the pen").on_hover_text("Click points on the model and a row of stitches is sewn along them. The same as the Stitches button in the tool rail").clicked() {
+        start_stitching(state, now);
+        ui.close();
+    }
+    if ui.button("Auto Stitcher: place along UV seams").on_hover_text("Rows of the chosen stitch along every UV seam of this texture set, without drawing. More choices (open borders, a mask's edge, distance) are in Properties > Auto Stitcher").clicked() {
+        start_stitching(state, now);
+        state.auto_stitch.along = subcraft_app::auto_stitch::StitchAlong::Seams;
+        place_auto_stitches(state, now);
+        ui.close();
+    }
+    ui.separator();
+    if ui.button("How to make stitches (guide)").on_hover_text(STITCH_GUIDE).clicked() {
+        ui.ctx().open_url(egui::OpenUrl::new_tab(STITCH_GUIDE));
+        ui.close();
+    }
 }
 
 /// The tool rail's Stitches button: three stitches drawn on a tool button.
@@ -759,9 +790,14 @@ pub fn stitch_tool_button(ui: &mut Ui, selected: bool, tooltip: &str) -> egui::R
     let resp = crate::widgets::tool_button(ui, "", selected, tooltip);
     let color = if selected { theme::ACCENT() } else if resp.hovered() { theme::TEXT() } else { theme::TEXT_DIM() };
     let c = resp.rect.center();
+    // Three stitches in a row with clear gaps, and the needle holes at their ends: the dashes
+    // on one slanted line read as a plain line at this size.
     for i in -1..=1 {
-        let at = c + egui::vec2(i as f32 * 7.0, -(i as f32) * 5.0);
-        ui.painter().line_segment([at + egui::vec2(-2.5, 2.5), at + egui::vec2(2.5, -2.5)], Stroke::new(2.5, color));
+        let at = c + egui::vec2(i as f32 * 8.0, 0.0);
+        ui.painter().line_segment([at + egui::vec2(-2.6, 0.0), at + egui::vec2(2.6, 0.0)], Stroke::new(2.6, color));
+    }
+    for i in [-1.5f32, -0.5, 0.5, 1.5] {
+        ui.painter().circle_filled(c + egui::vec2(i * 8.0, 0.0), 0.9, color.gamma_multiply(0.7));
     }
     resp
 }
@@ -899,6 +935,7 @@ pub fn properties(state: &mut UiState, ui: &mut Ui, path: &PenPath, now: f64) {
             reset_on(ui, r, &mut d.direction, dd.direction);
         });
     });
+    auto_stitcher(state, ui, false, now);
     // Painter's magnet menu: snap new and moved points to the model.
     crate::widgets::prop_row(ui, "Snap", |ui| {
         let s = &mut state.pen_snap;
@@ -1134,6 +1171,40 @@ mod keyboard_tests {
     }
 
     /// The Pen tool's Properties show the stitch row before any path exists, and on a path.
+    /// Seen in the app (2026-11-24): a row changed from Straight to Cross kept the layer name
+    /// "Stitch: Straight". The layer follows the stitch, in the same undo step, unless the user
+    /// named it.
+    #[test]
+    fn a_restyled_row_takes_the_name_of_its_new_stitch() {
+        let mut state = UiState::new(subcraft_app::Session::sample(), None);
+        state.tool = Tool::Pen;
+        choose_stitch(&mut state, subcraft_app::stitch::find("Stitch: Straight"), false, 0.0);
+        click(&mut state, Vec2::new(0.3, 0.3));
+        click(&mut state, Vec2::new(0.5, 0.3));
+        let name = |state: &UiState| state.session.selected_layer().unwrap().name.clone();
+        let settle = |state: &mut UiState| while state.pen.poll(&mut state.session, 1 << 20).unwrap() {};
+        settle(&mut state);
+        assert_eq!(name(&state), "Stitch: Straight");
+        let steps = state.session.history().cursor();
+        choose_stitch(&mut state, subcraft_app::stitch::find("Stitch: Cross"), true, 0.0);
+        settle(&mut state);
+        assert_eq!(name(&state), "Stitch: Cross");
+        assert_eq!(stitch_of(&state, &drawn_path(&state)).map(|s| s.name), Some("Stitch: Cross"));
+        assert_eq!(state.session.history().cursor(), steps + 1, "the name changes with the stitch, in one undo step");
+        // A sample tile: "Stitch tile". Back to a plain line: "Pen path".
+        let tile = subcraft_app::stitch::sample_tile(&mut state.session, &sample_tiles()[0]);
+        choose_tile(&mut state, tile, "Tile: Saddle Leather", true, 0.0);
+        settle(&mut state);
+        assert_eq!(name(&state), "Stitch tile");
+        // A name the user gave stays.
+        let layer = state.session.selected_layer().unwrap().id;
+        state.session.execute(subcraft_app::Command::Rename { layer, name: "Collar seam".into() }).unwrap();
+        choose_stitch(&mut state, subcraft_app::stitch::find("Stitch: Zigzag"), true, 0.0);
+        settle(&mut state);
+        assert_eq!(name(&state), "Collar seam");
+        assert_eq!(stitch_of(&state, &drawn_path(&state)).map(|s| s.name), Some("Stitch: Zigzag"));
+    }
+
     #[test]
     fn the_stitch_row_is_drawn_with_and_without_a_path() {
         let mut state = UiState::new(subcraft_app::Session::sample(), None);
@@ -1169,6 +1240,7 @@ mod keyboard_tests {
             found
         };
         assert!(paths(&state).is_empty());
+        assert!(state.status.as_ref().is_some_and(|(s, _)| s.contains("Auto Stitcher") && s.contains("click points")), "the Stitches button says what to do next: {:?}", state.status);
         place_auto_stitches(&mut state, 1.0);
         let made = paths(&state);
         assert!(made.len() > 1, "{:?}", state.status);

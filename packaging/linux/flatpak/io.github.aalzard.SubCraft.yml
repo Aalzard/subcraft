@@ -1,0 +1,32 @@
+# Flatpak manifest for SubCraft (flatpak-builder / Flathub). It wraps the prebuilt release binary
+# (cargo build --profile dist) staged with the desktop file, icon, metainfo and licenses in
+# target/flatpak/src. The release workflow builds the same app without flatpak-builder:
+# scripts/build-flatpak.sh, which must keep the same permissions.
+app-id: io.github.aalzard.SubCraft
+runtime: org.freedesktop.Platform
+runtime-version: '26.08'
+sdk: org.freedesktop.Sdk
+command: subcraft
+finish-args:
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  # Vulkan / GL for the viewport and GPU baking.
+  - --device=dri
+  # Update check and online content.
+  - --share=network
+  # Models, textures and projects live anywhere in the home folder; file dialogs use the portal.
+  - --filesystem=home
+modules:
+  - name: subcraft
+    buildsystem: simple
+    build-commands:
+      - install -Dm755 subcraft /app/bin/subcraft
+      - install -Dm644 subcraft.desktop /app/share/applications/io.github.aalzard.SubCraft.desktop
+      - install -Dm644 subcraft.png /app/share/icons/hicolor/256x256/apps/io.github.aalzard.SubCraft.png
+      - install -Dm644 io.github.aalzard.SubCraft.metainfo.xml /app/share/metainfo/io.github.aalzard.SubCraft.metainfo.xml
+      - install -Dm644 -t /app/share/doc/subcraft README.md LICENSE-MIT LICENSE-APACHE
+      - install -Dm644 -t /app/share/doc/subcraft/third-party third-party/*
+    sources:
+      - type: dir
+        path: ../../../target/flatpak/src

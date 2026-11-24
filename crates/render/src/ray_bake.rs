@@ -14,7 +14,7 @@ use bytemuck::{Pod, Zeroable};
 use egui_wgpu::wgpu;
 use rayon::prelude::*;
 use subcraft_mesh::Bvh;
-use subcraft_mesh::ray_batch::{BatchControl, CurvatureSurface, CurvatureTexel, NO_GROUP, RayBatchBackend, RayBatchError, RayMode, RayTexel};
+use subcraft_mesh::ray_batch::{BatchControl, CurvatureSurface, CurvatureTexel, NO_GROUP, ProjectionHit, ProjectionRay, RayBatchBackend, RayBatchError, RayMode, RayTexel};
 
 /// Texels uploaded per chunk (48 bytes each).
 const CHUNK: usize = 1 << 16;
@@ -47,6 +47,7 @@ pub struct GpuRayBaker {
     adapter_name: String,
     rays: Pass,
     curvature: Pass,
+    project: Pass,
     /// One bake at a time per device keeps dispatches short and memory bounded.
     busy: Mutex<()>,
     /// Set when this device is lost; nothing more is submitted on it.
@@ -85,7 +86,7 @@ struct Job<'a> {
     distance: f32,
     /// Values per texel in the output (the first ones `finish` returns).
     components: usize,
-    finish: &'a (dyn Fn([f32; 4]) -> [f32; 3] + Sync),
+    finish: &'a (dyn Fn([f32; 4]) -> [f32; 4] + Sync),
 }
 
 impl GpuRayBaker {
@@ -99,6 +100,7 @@ impl GpuRayBaker {
         };
         let rays_module = module("ray bake", include_str!("ray_bake.wgsl"));
         let curvature_module = module("curvature bake", include_str!("curvature.wgsl"));
+        let project_module = module("projection bake", include_str!("project.wgsl"));
         let storage = |binding, read_only| wgpu::BindGroupLayoutEntry {
             binding,
             visibility: wgpu::ShaderStages::COMPUTE,
@@ -132,7 +134,8 @@ impl GpuRayBaker {
         };
         let rays = make("ray bake", &rays_module, 0);
         let curvature = make("curvature bake", &curvature_module, 2);
-        Self { device, queue, adapter_name: adapter.get_info().name, rays, curvature, busy: Mutex::new(()), lost: Arc::default() }
+        let project = make("projection bake", &project_module, 0);
+        Self { device, queue, adapter_name: adapter.get_info().name, rays, curvature, project, busy: Mutex::new(()), lost: Arc::default() }
     }
 
     fn buffer(&self, label: &str, size: u64, usage: wgpu::BufferUsages) -> wgpu::Buffer {
@@ -351,9 +354,9 @@ impl RayBatchBackend for GpuRayBaker {
             [t.origin[0], t.origin[1], t.origin[2], t.rotation, t.axis[0], t.axis[1], t.axis[2], 0.0, t.offset[0], t.offset[1], t.offset[2], 0.0]
         };
         let finish = |acc: [f32; 4]| match mode {
-            RayMode::Occlusion { .. } => [if acc[1] <= 0.0 { 1.0 } else { 1.0 - acc[0] / acc[1] }; 3],
-            RayMode::MeanDistance { max } => [1.0 - acc[0] / rays as f32 / max; 3],
-            RayMode::BentNormal { .. } => [acc[0], acc[1], acc[2]],
+            RayMode::Occlusion { .. } => [if acc[1] <= 0.0 { 1.0 } else { 1.0 - acc[0] / acc[1] }; 4],
+            RayMode::MeanDistance { max } => [1.0 - acc[0] / rays as f32 / max; 4],
+            RayMode::BentNormal { .. } => acc,
         };
         let components = mode.components();
         self.drive(
@@ -381,7 +384,7 @@ impl RayBatchBackend for GpuRayBaker {
             let t = texel(i);
             [t.position[0], t.position[1], t.position[2], if t.group == NO_GROUP { -1.0 } else { t.group as f32 }, t.normal[0], t.normal[1], t.normal[2], 0.0, 0.0, 0.0, 0.0, 0.0]
         };
-        let finish = |acc: [f32; 4]| [acc[0]; 3];
+        let finish = |acc: [f32; 4]| [acc[0]; 4];
         self.drive(
             &Job {
                 pass: &self.curvature,
@@ -398,5 +401,47 @@ impl RayBatchBackend for GpuRayBaker {
             },
             control,
         )
+    }
+
+    fn project(
+        &self, bvh: &Bvh, count: usize, ray: &(dyn Fn(usize) -> ProjectionRay + Sync), front_only: bool, control: &dyn BatchControl,
+    ) -> Result<Vec<Option<ProjectionHit>>, RayBatchError> {
+        if bvh.is_empty() || count == 0 {
+            return Ok(vec![None; count]);
+        }
+        let _guard = self.busy.lock().unwrap_or_else(|p| p.into_inner());
+        let (nodes, tris, tri_ids) = self.upload_bvh(bvh)?;
+        // The shader returns the leaf index as an f32, exact below 2^24.
+        if tri_ids.len() >= 1 << 24 {
+            return Err(RayBatchError::Unsupported("the high poly has too many triangles for the GPU projection".into()));
+        }
+        let record = |i: usize| {
+            let r = ray(i);
+            [r.origin[0], r.origin[1], r.origin[2], r.reach, r.dir[0], r.dir[1], r.dir[2], 0.0, 0.0, 0.0, 0.0, 0.0]
+        };
+        let finish = |acc: [f32; 4]| acc;
+        let raw = self.drive(
+            &Job {
+                pass: &self.project,
+                nodes: &nodes,
+                tris: &tris,
+                extra: vec![],
+                count,
+                record: &record,
+                units: Units::Texels,
+                mode: front_only as u32,
+                distance: 0.0,
+                components: 4,
+                finish: &finish,
+            },
+            control,
+        )?;
+        Ok(raw
+            .chunks_exact(4)
+            .map(|h| {
+                let leaf = h[3] as usize;
+                (h[0] >= 0.0 && leaf < tri_ids.len()).then(|| ProjectionHit { tri: tri_ids[leaf], t: h[0], u: h[1], v: h[2] })
+            })
+            .collect())
     }
 }
