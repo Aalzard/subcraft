@@ -26,7 +26,7 @@ fn painted(mut r: Recipe, ts: &TextureSet, name: &str, layers: Vec<Layer>, seed:
     r.value(&shade, Metallic, metal);
 
     // A hard, thin line: low softness, so it reads as a brush stroke and not as a glow.
-    let highlight = built_coat(&mut r, ts, "Edge Highlight", seed + 1, MaskBuilder { grunge: 0.2, ao: 0.0, curvature: 1.0, convex_range: 1.0, concave_range: 0.0, ..MaskBuilder::default() }, "highlight", 0.25, 0.62, 1.0);
+    let highlight = built_coat(&mut r, ts, "Edge Highlight", seed + 1, MaskBuilder { grunge: 0.2, ao: 0.0, curvature: 1.0, convex_range: 1.0, concave_range: 0.0, ..MaskBuilder::default() }, "highlight", 0.2, 0.5, 1.0);
     r.bind_fx(&highlight, 0, Prop::Softness, "0.12");
     r.value(&highlight, BaseColor, "min(color * 1.8 + 0.08, 1)");
     r.value(&highlight, Roughness, "roughness");
@@ -54,17 +54,26 @@ fn painted(mut r: Recipe, ts: &TextureSet, name: &str, layers: Vec<Layer>, seed:
 }
 
 fn stylized_metal(ts: &TextureSet) -> Layer {
+    metal(ts, "Stylized Metal", [0.34, 0.42, 0.55], 0.42, "A cool steel by default; try a brown for bronze", 0)
+}
+
+fn stylized_gold(ts: &TextureSet) -> Layer {
+    metal(ts, "Stylized Gold", [0.95, 0.6, 0.12], 0.3, "A rich yellow gold by default; paler for brass", 40)
+}
+
+/// A painted metal: `k` shifts the seeds, so two metals do not share their strokes.
+fn metal(ts: &TextureSet, name: &str, tint: [f32; 3], rough: f32, tip: &str, k: u32) -> Layer {
     let mut r = Recipe::default();
-    r.param(color("color", "Color", [0.34, 0.42, 0.55]).group("Metal").tip("A cool steel by default; try a warm yellow for gold or a brown for bronze"));
-    r.param(unit("roughness", "Roughness", 0.42).group("Metal"));
+    r.param(color("color", "Color", tint).group("Metal").tip(tip));
+    r.param(unit("roughness", "Roughness", rough).group("Metal"));
     r.param(unit("metallic", "Metallic", 1.0).group("Metal").tip("Lower it for a painted, non-PBR metal look"));
     r.param(unit("variation", "Colour patches", 0.45).group("Metal").tip("Large light and dark patches, as if blocked in with a wide brush"));
     r.param(unit("strokes", "Brush strokes", 0.5).group("Metal").tip("Bold light strokes across the faces"));
     paint_params(&mut r, 0.75, 0.6, 0.35);
 
     let base = mat(ts, "Metal", vec![
-        (BaseColor, proc(ProceduralKind::Clouds, 1.6, 801, v(0.36, 0.4, 0.46), v(0.48, 0.52, 0.58))),
-        (Roughness, proc(ProceduralKind::Clouds, 2.0, 802, s(0.38), s(0.46))),
+        (BaseColor, proc(ProceduralKind::Clouds, 1.6, 801 + k, v(0.36, 0.4, 0.46), v(0.48, 0.52, 0.58))),
+        (Roughness, proc(ProceduralKind::Clouds, 2.0, 802 + k, s(0.38), s(0.46))),
         (Metallic, uni(1.0)),
     ], triplanar(1.0));
     r.color(&base, "color", "variation * 1.2");
@@ -73,8 +82,8 @@ fn stylized_metal(ts: &TextureSet) -> Layer {
     r.follow_pattern(&base);
 
     let strokes = masked(coat(ts, "Brush Strokes", [0.6, 0.63, 0.68], 0.35, 1.0), ts, vec![
-        fx(pattern(ProceduralKind::Brushed, 0.8, 803, 0.52, 0.85)),
-        fx_blend(pattern(ProceduralKind::Clouds, 1.5, 804, 0.5, 0.7), BlendMode::Multiply),
+        fx(pattern(ProceduralKind::Brushed, 0.8, 803 + k, 0.52, 0.85)),
+        fx_blend(pattern(ProceduralKind::Clouds, 1.5, 804 + k, 0.5, 0.7), BlendMode::Multiply),
     ]);
     r.value(&strokes, BaseColor, "min(color * 1.6 + 0.04, 1)");
     r.value(&strokes, Roughness, "clamp(roughness - 0.1, 0.02, 1)");
@@ -82,14 +91,14 @@ fn stylized_metal(ts: &TextureSet) -> Layer {
     r.bind(&strokes, Prop::Opacity { channel: None }, "strokes * 1.4");
     r.follow_pattern(&strokes);
 
-    let dents = masked(coat(ts, "Dark Patches", [0.2, 0.22, 0.26], 0.5, 1.0), ts, vec![fx(pattern(ProceduralKind::Clouds, 2.4, 805, 0.56, 0.9))]);
+    let dents = masked(coat(ts, "Dark Patches", [0.2, 0.22, 0.26], 0.5, 1.0), ts, vec![fx(pattern(ProceduralKind::Clouds, 2.4, 805 + k, 0.56, 0.9))]);
     r.value(&dents, BaseColor, "color * 0.45");
     r.value(&dents, Roughness, "clamp(roughness + 0.1, 0.02, 1)");
     r.value(&dents, Metallic, "metallic");
     r.bind(&dents, Prop::Opacity { channel: None }, "variation * 1.3");
     r.follow_pattern(&dents);
 
-    painted(r, ts, "Stylized Metal", vec![base, strokes, dents], 806, "metallic")
+    painted(r, ts, name, vec![base, strokes, dents], 806 + k, "metallic")
 }
 
 fn stylized_wood(ts: &TextureSet) -> Layer {
@@ -162,8 +171,81 @@ fn stylized_stone(ts: &TextureSet) -> Layer {
     painted(r, ts, "Stylized Stone", vec![base, facets, cracks], 826, "0")
 }
 
+fn stylized_cloth(ts: &TextureSet) -> Layer {
+    let mut r = Recipe::default();
+    r.param(color("color", "Color", [0.5, 0.1, 0.1]).group("Cloth").tip("A deep red by default"));
+    r.param(unit("roughness", "Roughness", 0.9).group("Cloth"));
+    r.param(unit("variation", "Colour patches", 0.4).group("Cloth").tip("Large light and dark patches, as if blocked in with a wide brush"));
+    r.param(unit("folds", "Painted folds", 0.5).group("Cloth").tip("Soft dark bands, as if the cloth hung in folds"));
+    r.param(unit("weave", "Weave strokes", 0.4).group("Cloth").tip("Short light strokes that suggest the threads"));
+    paint_params(&mut r, 0.6, 0.7, 0.35);
+
+    let base = mat(ts, "Cloth", vec![
+        (BaseColor, proc(ProceduralKind::Clouds, 1.4, 831, v(0.42, 0.08, 0.08), v(0.58, 0.12, 0.12))),
+        (Roughness, proc(ProceduralKind::Clouds, 2.0, 832, s(0.86), s(0.94))),
+        (Metallic, uni(0.0)),
+    ], triplanar(1.0));
+    r.color(&base, "color", "variation * 1.1");
+    r.roughness(&base, "roughness", "0.08");
+    r.follow_pattern(&base);
+
+    let folds = masked(coat(ts, "Painted Folds", [0.25, 0.05, 0.05], 0.92, 0.0), ts, vec![
+        fx(pattern(ProceduralKind::Brushed, 0.35, 833, 0.55, 0.45)),
+        fx_blend(pattern(ProceduralKind::Clouds, 1.2, 834, 0.45, 0.5), BlendMode::Multiply),
+    ]);
+    r.value(&folds, BaseColor, "color * 0.45");
+    r.value(&folds, Roughness, "roughness");
+    r.bind(&folds, Prop::Opacity { channel: None }, "folds * 1.3");
+    r.follow_pattern(&folds);
+
+    let weave = masked(coat(ts, "Weave Strokes", [0.7, 0.3, 0.3], 0.85, 0.0), ts, vec![fx(pattern(ProceduralKind::Brushed, 3.0, 835, 0.62, 0.85))]);
+    r.value(&weave, BaseColor, "min(color * 1.4 + 0.04, 1)");
+    r.value(&weave, Roughness, "roughness");
+    r.bind(&weave, Prop::Opacity { channel: None }, "weave * 0.8");
+    r.follow_pattern(&weave);
+
+    painted(r, ts, "Stylized Cloth", vec![base, folds, weave], 836, "0")
+}
+
+fn stylized_leather(ts: &TextureSet) -> Layer {
+    let mut r = Recipe::default();
+    r.param(color("color", "Color", [0.36, 0.16, 0.07]).group("Leather").tip("A saddle brown by default"));
+    r.param(unit("roughness", "Roughness", 0.6).group("Leather"));
+    r.param(unit("variation", "Colour patches", 0.45).group("Leather").tip("Large light and dark patches, as if blocked in with a wide brush"));
+    r.param(unit("creases", "Creases", 0.5).group("Leather").tip("A few bold painted crease lines"));
+    r.param(unit("scuffs", "Scuffs", 0.4).group("Leather").tip("Pale rubbed patches"));
+    paint_params(&mut r, 0.7, 0.65, 0.35);
+
+    let base = mat(ts, "Leather", vec![
+        (BaseColor, proc(ProceduralKind::Clouds, 1.4, 841, v(0.3, 0.13, 0.06), v(0.42, 0.19, 0.08))),
+        (Roughness, proc(ProceduralKind::Clouds, 2.0, 842, s(0.55), s(0.65))),
+        (Metallic, uni(0.0)),
+    ], triplanar(1.0));
+    r.color(&base, "color", "variation * 1.2");
+    r.roughness(&base, "roughness", "0.1");
+    r.follow_pattern(&base);
+
+    let scuffs = masked(coat(ts, "Scuffs", [0.55, 0.35, 0.2], 0.75, 0.0), ts, vec![fx(pattern(ProceduralKind::Clouds, 2.6, 843, 0.6, 0.9))]);
+    r.value(&scuffs, BaseColor, "min(color * 1.5 + 0.05, 1)");
+    r.value(&scuffs, Roughness, "clamp(roughness + 0.15, 0.02, 1)");
+    r.bind(&scuffs, Prop::Opacity { channel: None }, "scuffs * 1.2");
+    r.follow_pattern(&scuffs);
+
+    let creases = with_height(masked(coat(ts, "Creases", [0.1, 0.04, 0.02], 0.7, 0.0), ts, vec![
+        fx(pattern(ProceduralKind::Cracks, 3.0, 844, 0.5, 0.9)),
+        fx_blend(pattern(ProceduralKind::Clouds, 1.6, 845, 0.5, 0.7), BlendMode::Multiply),
+    ]), ts);
+    r.value(&creases, BaseColor, "color * 0.3");
+    r.value(&creases, Height, "0 - 0.03");
+    r.bind_fx(&creases, 1, Prop::PatternBalance { channel: None }, "remap(creases, 0.8, 0.2)");
+    r.bind(&creases, Prop::Opacity { channel: None }, "saturate(creases * 5) * 0.9");
+    r.follow_pattern(&creases);
+
+    painted(r, ts, "Stylized Leather", vec![base, scuffs, creases], 846, "0")
+}
+
 /// The stylized family, in shelf order.
 pub(super) fn smart_materials() -> Vec<SmartMaterial> {
     let named = |name: &str, build: fn(&TextureSet) -> Layer| smart(&format!("{PREFIX}{name}"), build);
-    vec![named("Stylized Metal", stylized_metal), named("Stylized Wood", stylized_wood), named("Stylized Stone", stylized_stone)]
+    vec![named("Stylized Metal", stylized_metal), named("Stylized Wood", stylized_wood), named("Stylized Stone", stylized_stone), named("Stylized Gold", stylized_gold), named("Stylized Cloth", stylized_cloth), named("Stylized Leather", stylized_leather)]
 }
