@@ -382,6 +382,25 @@ fn walk_on(seed: u64, steps: usize, mut s: Session, udim: bool) {
                 log.push(what.clone());
                 let _ = s.execute(cmd);
             }
+            // Edit UV islands (#711): move / rotate / scale / flip islands of the selected set,
+            // past UDIM tile borders too. Not undoable: it clears the history like a mesh reload.
+            6 if r.chance(0.04) => {
+                let islands = s.uv_islands();
+                let mine: Vec<u32> = s.uv_islands_of_texture_set(&islands).into_iter().collect();
+                let selected: std::collections::BTreeSet<u32> = (0..1 + r.below(3)).filter_map(|_| r.pick(&mine)).collect();
+                let t = subcraft_mesh::uv_edit::UvTransform {
+                    offset: Vec2::new([0.0, 1.0, -1.0, 0.25, r.unit()][r.below(5)], [0.0, 0.5, r.wild()][r.below(3)]),
+                    rotation_deg: [0.0, 90.0, 45.0, r.wild() * 360.0][r.below(4)],
+                    scale: Vec2::new([1.0, 0.5, r.wild()][r.below(3)], [1.0, 2.0, r.wild()][r.below(3)]),
+                    flip_u: r.chance(0.3),
+                    flip_v: r.chance(0.3),
+                    ..Default::default()
+                };
+                what = format!("seed {seed} step {step}: edit UV islands {selected:?} {t:?}");
+                log.push(what.clone());
+                let _ = s.edit_uv_islands(selected, t);
+                graveyard.clear();
+            }
             // Shape fill (#690): one rectangle / ellipse dab in the 2D view, degenerate boxes too.
             5 if r.chance(0.2) => {
                 let shape = subcraft_paint::shape::Shape {
@@ -488,6 +507,15 @@ fn walk_on(seed: u64, steps: usize, mut s: Session, udim: bool) {
             let path = dir.join("walk.subcraft");
             s.save(Some(&path)).unwrap_or_else(|e| panic!("{what}: save failed: {e}"));
             let mut reopened = Session::open_project(&path).unwrap_or_else(|e| panic!("{what}: a saved project does not open: {e}\n  {}", trail()));
+            if reopened.document() != s.document() && std::env::var("QA_DEBUG").is_ok() {
+                let (a, b) = (format!("{:#?}", s.document()), format!("{:#?}", reopened.document()));
+                for (i, (x, y)) in a.lines().zip(b.lines()).enumerate().filter(|(_, (x, y))| x != y).take(6) {
+                    eprintln!("DOCDIFF line {i}: saved {x:?} reopened {y:?}");
+                }
+                for (t, u) in s.document().texture_sets.iter().zip(&reopened.document().texture_sets) {
+                    eprintln!("DOCDIFF set {} tile {:?}/{:?} across {}/{}", t.name, t.udim_tile, u.udim_tile, t.paint_across_udims, u.paint_across_udims);
+                }
+            }
             assert_eq!(reopened.document(), s.document(), "{what}: save + open changed the document\n  {}", trail());
             reopened.update_composites();
             for ts in s.document().texture_sets.iter().map(|t| t.id).collect::<Vec<_>>() {
