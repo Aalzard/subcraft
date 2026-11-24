@@ -1910,9 +1910,9 @@ impl SubcraftApp {
                         ui.close();
                         crate::panels::shelf::import_smart_folder_dialog(ui.ctx());
                     }
-                    if item(ui, icons::SPARKLE, tr("Import Substance material (.sbsar)…"), "") {
+                    if item(ui, icons::SPARKLE, tr("Import material graph…"), "") {
                         ui.close();
-                        crate::files::pick(ui.ctx(), crate::files::Purpose::GraphMaterial, crate::files::GRAPH_MATERIALS, true, Some("Add Substance materials (.sbsar) as layers"));
+                        crate::files::pick(ui.ctx(), crate::files::Purpose::GraphMaterial, crate::files::GRAPH_MATERIALS, true, Some("Add material graphs (.sbsar) as layers"));
                     }
                 });
                 if item(ui, icons::EXPORT, tr("Export textures…"), &sc(km, Action::Export)) {

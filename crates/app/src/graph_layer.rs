@@ -378,7 +378,7 @@ fn apply(session: &mut Session, target: &Target, material: &GraphMaterial, maps:
             let missing: Vec<ChannelKind> = wide.channels.iter().map(|c| c.kind).filter(|k| !ts.has_channel(*k)).collect();
             let mut layer = Layer::new_fill(name.clone(), &wide);
             fill_with(session, &mut layer, material, maps);
-            let label = format!("Substance Material: {name}");
+            let label = format!("Graph Material: {name}");
             if session.selection().texture_set != *texture_set {
                 return Err(format!("{name}: the texture set changed while rendering; import it again"));
             }

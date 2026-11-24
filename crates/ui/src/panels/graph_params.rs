@@ -31,7 +31,7 @@ pub(crate) fn section(state: &mut UiState, ui: &mut Ui, layer: &Layer, now: f64)
     section_with(
         ui,
         "graph-params",
-        tr("Substance material"),
+        tr("Graph material"),
         true,
         |ui| {
             if rendering || pending.is_some() {
@@ -112,7 +112,7 @@ fn request(state: &mut UiState, layer: &Layer, m: GraphMaterial, now: f64) {
         return;
     }
     if let Err(e) = state.graph_layers.request(&state.session, layer.id, m) {
-        state.set_status(format!("Substance material: {e}"), now);
+        state.set_status(format!("Material graph: {e}"), now);
     }
 }
 
@@ -148,7 +148,7 @@ fn row(ui: &mut Ui, layer: subcraft_core::LayerId, p: &GraphParam, v: &mut Vec<f
                 super::properties::linear_color_row(ui, &p.label, &mut c, d)
             } else {
                 // Substance colours are sRGB-encoded values.
-                prop_row_reset(ui, &p.label, &mut c, d, |ui, c| crate::color_picker::swatch_srgb(ui, c)).changed()
+                prop_row_reset(ui, &p.label, &mut c, d, crate::color_picker::swatch_srgb).changed()
             };
             if changed {
                 for i in 0..3 {

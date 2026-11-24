@@ -814,7 +814,7 @@ impl UiState {
             use subcraft_app::graph_layer::GraphEvent;
             match event {
                 GraphEvent::Applied(text) => self.set_status(text, now),
-                GraphEvent::Failed(text) => self.set_status(format!("Substance material: {text}"), now),
+                GraphEvent::Failed(text) => self.set_status(format!("Material graph: {text}"), now),
             }
         }
     }
