@@ -857,6 +857,12 @@ impl Stroke {
         let tiles: Vec<usize> =
             tiles.iter().copied().filter(|t| self.coverage.get(t).is_some_and(|c| c.iter().any(|&v| v > 0.0))).collect();
         let opacity = self.settings.stroke_opacity.clamp(0.0, 1.0);
+        // Heal's low-pass images are built here, before the tile jobs: building them inside the
+        // jobs (a parallel map under `OnceLock::get_or_init`) deadlocks when a worker waiting in
+        // that map steals another tile job that then blocks on the same OnceLock.
+        if self.mode == StrokeMode::Clone && self.settings.clone_heal && self.images.iter().any(crate::heal::heals) {
+            self.heal_low.get_or_init(|| self.heal_low_pass(true));
+        }
         let writes: Vec<(ImageKey, usize, Box<[half::f16]>)> = tiles
             .par_iter()
             .flat_map_iter(|&t| {
@@ -867,10 +873,8 @@ impl Stroke {
                         (Remap::Clone(uvs), StrokeMode::Clone) => {
                             let mut values = clone_source_tile(img, uvs);
                             if self.settings.clone_heal && crate::heal::heals(img) {
-                                let low = self.heal_low.get_or_init(|| {
-                                    let cells = self.heal_cells.unwrap_or(crate::heal::DEFAULT_CELLS);
-                                    self.images.par_iter().map(|i| crate::heal::LowPass::new(i, cells)).collect()
-                                });
+                                // Built before the tile jobs; the serial fallback never nests rayon here.
+                                let low = self.heal_low.get_or_init(|| self.heal_low_pass(false));
                                 let k = self.images.iter().position(|i| i.key == img.key).unwrap_or(0);
                                 let g = ctx.geometry;
                                 let res = g.resolution as f32;
@@ -963,6 +967,16 @@ impl Stroke {
     fn texel_position(&self, ctx: &PaintContext, geo: &subcraft_materials::TileGeometry, i: usize) -> Vec3 {
         let g = ctx.geometry;
         g.bounds.min + Vec3::from(geo.position(i)) * g.max_extent
+    }
+
+    /// Heal's low-pass copy of every target image (in parallel only outside the tile jobs).
+    fn heal_low_pass(&self, parallel: bool) -> Vec<crate::heal::LowPass> {
+        let cells = self.heal_cells.unwrap_or(crate::heal::DEFAULT_CELLS);
+        if parallel {
+            self.images.par_iter().map(|i| crate::heal::LowPass::new(i, cells)).collect()
+        } else {
+            self.images.iter().map(|i| crate::heal::LowPass::new(i, cells)).collect()
+        }
     }
 
     fn remap(&self, ctx: &PaintContext, tile: usize, cov: &[f32]) -> Remap {
