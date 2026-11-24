@@ -23,6 +23,10 @@ pub enum ResourceKind {
     /// A colour profile's 3D LUT (Painter's "colorlut" usage): a float image in OpenColorIO's
     /// `ociolutimage` layout (see `display::lut_cube_size`).
     ColorLut,
+    /// A material graph package (`.sbsar`, `.mcmat`, `.sbs`, ...) driving a graph layer (see
+    /// `graph_material`). The bitmap is a 1x1 placeholder; the package is the `encoded` bytes,
+    /// and the name keeps the original file name (its extension tells formats apart).
+    GraphPackage,
 }
 
 #[derive(Debug)]

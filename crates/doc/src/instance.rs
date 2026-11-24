@@ -221,6 +221,7 @@ pub fn derive(source: &Layer, instance: &Layer, cross: Option<Cross>) -> Layer {
     l.instance_of = instance.instance_of;
     // The parameters belong to the source; the instance only shows what they produce.
     l.material = None;
+    l.graph = None;
     if let (LayerContent::Group(new), LayerContent::Group(old)) = (&mut l.content, &instance.content) {
         new.expanded = old.expanded;
     }

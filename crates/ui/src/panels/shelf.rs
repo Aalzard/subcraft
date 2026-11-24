@@ -1266,7 +1266,7 @@ fn handle_drops(state: &mut UiState, ui: &Ui, now: f64) {
     state.drops_taken = true;
     let paths: Vec<std::path::PathBuf> = dropped
         .into_iter()
-        .filter(|p| !p.extension().is_some_and(|e| e.eq_ignore_ascii_case("spsm")))
+        .filter(|p| !p.extension().is_some_and(|e| e.eq_ignore_ascii_case("spsm")) && !crate::files::is_graph_material(p))
         .collect();
     if paths.is_empty() {
     } else if state.shelf.tab == ShelfTab::SmartMaterials && state.shelf.extra_tabs.is_empty() {
@@ -1280,6 +1280,8 @@ fn handle_drops(state: &mut UiState, ui: &Ui, now: f64) {
     for path in ui.ctx().input(|i| i.raw.dropped_files.iter().map(|f| f.path().to_path_buf()).collect::<Vec<_>>()) {
         if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("spsm")) {
             crate::files::import_painter_smart_material(state, &path, now);
+        } else if crate::files::is_graph_material(&path) {
+            crate::files::import_graph_materials(state, &[path], now);
         }
     }
 }

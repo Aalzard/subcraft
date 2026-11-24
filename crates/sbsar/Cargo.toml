@@ -1,0 +1,17 @@
+[package]
+name = "subcraft-sbsar"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Substance archives (.sbsar): parameters and rendered channel maps, through open-sbsar"
+
+[lints]
+workspace = true
+
+[dependencies]
+subcraft-core.workspace = true
+subcraft-image.workspace = true
+subcraft-doc.workspace = true
+# CPU engine only: crates below `render` must not depend on wgpu (see .claude/CLAUDE.md).
+open-sbsar = { version = "0.1", default-features = false }
