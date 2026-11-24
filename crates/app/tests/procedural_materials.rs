@@ -359,3 +359,37 @@ fn stylized_materials_follow_their_highlight_shade_and_light_sliders() {
         assert!(bright[1] > plain[1] && dark[1] < plain[1], "{name}: highlight lightens, shade darkens: {dark:?} < {plain:?} < {bright:?}");
     }
 }
+
+/// Base Color of every covered texel of the selected set.
+fn base_color(s: &mut Session) -> Vec<[f32; 4]> {
+    s.update_composites();
+    let ts = s.selection().texture_set;
+    let slot = s.document().texture_set(ts).unwrap().material_slot;
+    let img = s.composite(ts).unwrap().channel(ChannelKind::BaseColor).unwrap().clone();
+    texels(&s.scene().mesh, slot, SIZE).iter().map(|t| img.get(t.index % SIZE, t.index / SIZE)).collect()
+}
+
+#[test]
+fn stylized_materials_carry_the_stylization_filters_switched_off() {
+    use subcraft_doc::{ContentEffectKind, Filter};
+    for name in ["Stylized Metal", "Stylized Wood", "Stylized Stone", "Stylized Gold", "Stylized Cloth", "Stylized Leather"] {
+        let mut s = baked_crate();
+        let id = apply(&mut s, &format!("Procedural {name}"));
+        let styles = |s: &Session| -> Vec<(bool, bool)> {
+            let on = |f: fn(&Filter) -> bool| layer(s, id).content_effects.iter().find(|e| matches!(&e.kind, ContentEffectKind::Filter { channel: ChannelKind::BaseColor, filter } if f(filter))).map(|e| e.visible);
+            [on(|f| matches!(f, Filter::ComicBook { .. })), on(|f| matches!(f, Filter::Watercolor { .. })), on(|f| matches!(f, Filter::OilPaint { .. }))].iter().map(|v| (v.is_some(), v.unwrap_or(false))).collect()
+        };
+        assert_eq!(styles(&s), vec![(true, false); 3], "{name}: all three filters are there, hidden");
+        let plain = base_color(&mut s);
+        for (i, style) in ["comic", "watercolor", "oil"].into_iter().enumerate() {
+            set(&mut s, id, style, ParamValue::Toggle(true));
+            assert!(styles(&s)[i].1 && styles(&s).iter().filter(|v| v.1).count() == 1, "{name}: {style} shows its filter only");
+            let on = base_color(&mut s);
+            assert!(on.iter().flatten().all(|c| c.is_finite()), "{name}: {style} is finite");
+            let change = on.iter().zip(&plain).map(|(a, b)| (0..3).map(|c| (a[c] - b[c]).abs()).sum::<f32>() / 3.0).sum::<f32>() / plain.len() as f32;
+            assert!(change > 0.005, "{name}: {style} repaints the Base Color (mean change {change})");
+            set(&mut s, id, style, ParamValue::Toggle(false));
+            assert!(base_color(&mut s) == plain, "{name}: {style} off is the plain material again");
+        }
+    }
+}
