@@ -115,3 +115,62 @@ fn import_render_edit_save_reopen() {
     let layer = reopened.document().texture_sets.iter().find_map(|ts| ts.find(layer.id)).expect("layer").clone();
     assert!(close(texel(&reopened, &layer, ChannelKind::Roughness)[0], 0.25));
 }
+
+/// `fixtures/reads_mesh_maps.mcmat` (`mc_fixture -- <path> inputs`): roughness is the graph's
+/// `curvature` input, base color its `ambientOcclusion` input.
+const INPUT_FIXTURE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/reads_mesh_maps.mcmat");
+
+fn import(s: &mut Session, graphs: &mut GraphLayers, path: &str) -> Layer {
+    graphs.import_file(s, Path::new(path)).expect("import");
+    let events = graphs.finish(s);
+    assert!(events.iter().all(|e| matches!(e, subcraft_app::graph_layer::GraphEvent::Applied(_))), "{events:?}");
+    s.selected_layer().expect("layer").clone()
+}
+
+fn bitmap_row(s: &Session, layer: &Layer, channel: ChannelKind) -> Vec<f32> {
+    let LayerContent::Fill(f) = &layer.content else { panic!("not a fill layer") };
+    let FillSource::Bitmap { resource } = f.channels[&channel].source else { panic!("{channel:?} is not a bitmap") };
+    let bitmap = &s.resources().get(resource).expect("resource").bitmap;
+    (0..bitmap.width).map(|x| bitmap.texel(x, 0, false)[0]).collect()
+}
+
+#[test]
+fn baked_mesh_maps_feed_graph_inputs() {
+    use subcraft_core::MeshMapKind;
+    use subcraft_image::TiledImage;
+
+    let mut s = session();
+    let mut graphs = GraphLayers::new();
+    let layer = import(&mut s, &mut graphs, INPUT_FIXTURE);
+    // Before baking the inputs read each map's neutral value, like SubCraft's generators.
+    let curvature = MeshMapKind::Curvature.neutral_value()[0];
+    assert!(bitmap_row(&s, &layer, ChannelKind::Roughness).iter().all(|v| close(*v, curvature)), "unbaked curvature is neutral");
+    assert!(close(texel(&s, &layer, ChannelKind::BaseColor)[0], MeshMapKind::AmbientOcclusion.neutral_value()[0]), "unbaked AO is neutral");
+
+    // Bake: curvature is a left-to-right ramp, AO a flat 0.25.
+    let ts = s.selection().texture_set;
+    let res = 64u32;
+    let mut curvature = TiledImage::new(res, res, 1, [0.0; 4]);
+    for y in 0..res {
+        for x in 0..res {
+            curvature.set(x, y, [x as f32 / (res - 1) as f32, 0.0, 0.0, 0.0]);
+        }
+    }
+    let maps = std::collections::BTreeMap::from([(MeshMapKind::Curvature, curvature), (MeshMapKind::AmbientOcclusion, TiledImage::new(res, res, 1, [0.25, 0.0, 0.0, 0.0]))]);
+    s.set_mesh_maps(ts, maps);
+
+    // Re-render the same layer (what a slider move does): it now reads the bakes.
+    let material = layer.graph.as_deref().expect("graph material").clone();
+    graphs.request(&s, layer.id, material).expect("request");
+    graphs.finish(&mut s);
+    let layer = s.selected_layer().expect("layer").clone();
+    let row = bitmap_row(&s, &layer, ChannelKind::Roughness);
+    let (first, last) = (row[0], row[row.len() - 1]);
+    assert!(first < 0.05 && last > 0.95, "roughness follows the baked curvature: {first} .. {last}");
+    let base = texel(&s, &layer, ChannelKind::BaseColor);
+    assert!(close(base[0], 0.25) && close(base[1], 0.25), "AO feeds the color input as raw data: {base:?}");
+
+    // A new import on the baked texture set reads them from the first render.
+    let layer = import(&mut s, &mut graphs, INPUT_FIXTURE);
+    assert!(bitmap_row(&s, &layer, ChannelKind::Roughness).last().copied().unwrap_or(0.0) > 0.95);
+}
