@@ -254,9 +254,11 @@ jobs:
           ./scripts/build-appimage.sh
       - name: Build Flatpak
         run: |
-          sudo apt-get install -y -q flatpak flatpak-builder
+          sudo apt-get install -y -q flatpak
           flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
-          ./scripts/build-flatpak.sh
+          # Ubuntu 22.04's flatpak-builder is too old for current runtimes: use Flathub's.
+          flatpak install --user -y --noninteractive flathub org.flatpak.Builder
+          FLATPAK_BUILDER="flatpak run --command=flatpak-builder org.flatpak.Builder" ./scripts/build-flatpak.sh
       - name: Check Linux package
         run: |
           tar -xzf dist/*.tar.gz -C "$RUNNER_TEMP"
