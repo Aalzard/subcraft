@@ -336,6 +336,59 @@ pub fn editor(ui: &mut Ui, filter: &mut Filter, channel: Option<ChannelKind>) ->
             }
             ui.weak("The palette is picked from the whole texture / data channels always compare values");
         }
+        (Filter::FillAreaMask { threshold, closed_borders }, Filter::FillAreaMask { threshold: d_threshold, closed_borders: d_closed_borders }) => {
+            changed |= slider_row_reset(ui, "Area Detection Threshold", threshold, *d_threshold, |v| egui::Slider::new(v, 0.01..=1.0)).on_hover_text("Mask values from here up are outline").changed();
+            changed |= prop_row_reset(ui, "UV Border Behavior", closed_borders, *d_closed_borders, |ui, v| ui.selectable_value(v, false, "Open") | ui.selectable_value(v, true, "Closed")).on_hover_text("Closed: the edge of a UV island closes an area too, and the largest area of an island stays empty").changed();
+            ui.weak("Fills the areas a painted outline closes off / reads the whole texture");
+        }
+        (Filter::FillAreaColor { threshold, closed_borders, mode, color }, Filter::FillAreaColor { threshold: d_threshold, closed_borders: d_closed_borders, mode: d_mode, color: d_color }) => {
+            changed |= slider_row_reset(ui, "Area Detection Threshold", threshold, *d_threshold, |v| egui::Slider::new(v, 0.01..=1.0)).on_hover_text("Paint coverage from here up is outline").changed();
+            changed |= prop_row_reset(ui, "UV Border Behavior", closed_borders, *d_closed_borders, |ui, v| ui.selectable_value(v, false, "Open") | ui.selectable_value(v, true, "Closed")).on_hover_text("Closed: the edge of a UV island closes an area too, and the largest area of an island stays empty").changed();
+            changed |= prop_row_reset(ui, "Color Mode", mode, *d_mode, |ui, mode| {
+                let mut r = ui.selectable_value(mode, subcraft_doc::FillColorMode::Color, subcraft_doc::FillColorMode::Color.label());
+                r |= ui.selectable_value(mode, subcraft_doc::FillColorMode::Border, subcraft_doc::FillColorMode::Border.label());
+                r
+            }).changed();
+            if *mode == subcraft_doc::FillColorMode::Color {
+                changed |= color_row(ui, "Fill Color", color, *d_color);
+            }
+            ui.weak("Fills the areas a painted outline closes off, found from the paint coverage / reads the whole texture");
+        }
+        (Filter::ComicBook { tones, paint, color_intensity, border_opacity, border_tolerance, border_smoothness, border_width, input_contrast, input_luminosity }, Filter::ComicBook { tones: d_tones, paint: d_paint, color_intensity: d_color_intensity, border_opacity: d_border_opacity, border_tolerance: d_border_tolerance, border_smoothness: d_border_smoothness, border_width: d_border_width, input_contrast: d_input_contrast, input_luminosity: d_input_luminosity }) => {
+            changed |= slider_row_reset(ui, "Input Contrast", input_contrast, *d_input_contrast, |v| egui::Slider::new(v, -1.0..=1.0)).changed();
+            changed |= slider_row_reset(ui, "Input Luminosity", input_luminosity, *d_input_luminosity, |v| egui::Slider::new(v, -1.0..=1.0)).changed();
+            changed |= slider_row_reset(ui, "Color Intensity", color_intensity, *d_color_intensity, |v| egui::Slider::new(v, 0.0..=2.0)).on_hover_text("Saturation: 0 is gray, 1 keeps the colours").changed();
+            changed |= slider_row_reset(ui, "Tones", tones, *d_tones, |v| egui::Slider::new(v, 0..=subcraft_doc::MAX_COMIC_TONES)).on_hover_text("Flat brightness steps (cel shading); 0 keeps smooth shading").changed();
+            // One step is no shading at all: the smallest real setting is two.
+            if *tones == 1 { *tones = 2; }
+            changed |= slider_row_reset(ui, "Paint Intensity", paint, *d_paint, |v| egui::Slider::new(v, 0.0..=subcraft_doc::MAX_STYLE_PAINT).suffix(" px")).on_hover_text("How far details are smoothed into flat painted areas").changed();
+            changed |= slider_row_reset(ui, "Border Opacity", border_opacity, *d_border_opacity, |v| egui::Slider::new(v, 0.0..=1.0)).changed();
+            changed |= slider_row_reset(ui, "Border Tolerance", border_tolerance, *d_border_tolerance, |v| egui::Slider::new(v, 0.0..=1.0)).on_hover_text("How strong a change must be to get an ink line").changed();
+            changed |= slider_row_reset(ui, "Border Smoothness", border_smoothness, *d_border_smoothness, |v| egui::Slider::new(v, 0.0..=1.0)).changed();
+            changed |= slider_row_reset(ui, "Border Width", border_width, *d_border_width, |v| egui::Slider::new(v, 0.5..=subcraft_doc::MAX_COMIC_BORDER).suffix(" px")).changed();
+            ui.weak("Flat painted colour with ink lines where the image changes");
+        }
+        (Filter::Watercolor { paint_opacity, paper_absorption, borders_spread, borders_density, bleed, hide_paper, seed }, Filter::Watercolor { paint_opacity: d_paint_opacity, paper_absorption: d_paper_absorption, borders_spread: d_borders_spread, borders_density: d_borders_density, bleed: d_bleed, hide_paper: d_hide_paper, seed: d_seed }) => {
+            changed |= slider_row_reset(ui, "Paint Opacity", paint_opacity, *d_paint_opacity, |v| egui::Slider::new(v, 0.0..=1.0)).on_hover_text("Lower lets more white paper through").changed();
+            changed |= slider_row_reset(ui, "Paper Absorption", paper_absorption, *d_paper_absorption, |v| egui::Slider::new(v, 0.0..=1.0)).on_hover_text("How unevenly the paper soaks up the paint").changed();
+            changed |= slider_row_reset(ui, "Borders Spread", borders_spread, *d_borders_spread, |v| egui::Slider::new(v, 0.0..=subcraft_doc::MAX_WATERCOLOR_SPREAD).suffix(" px")).changed();
+            changed |= slider_row_reset(ui, "Borders Density", borders_density, *d_borders_density, |v| egui::Slider::new(v, 0.0..=1.0)).on_hover_text("How much pigment gathers at the edges of a wash").changed();
+            changed |= slider_row_reset(ui, "Paint Bleed", bleed, *d_bleed, |v| egui::Slider::new(v, 0.0..=subcraft_doc::MAX_STYLE_PAINT).suffix(" px")).on_hover_text("How far details run together into washes").changed();
+            changed |= prop_row_reset(ui, "Hide Paper", hide_paper, *d_hide_paper, |ui, v| ui.checkbox(v, "")).changed();
+            changed |= slider_row_reset(ui, "Seed", seed, *d_seed, |v| egui::Slider::new(v, 0..=99)).changed();
+            ui.weak("On colour channels the paint thins towards white paper / data channels only get the edges and grain");
+        }
+        (Filter::OilPaint { effect_intensity, stroke_size, stroke_length, size_random, color_random, bristles, angle, seed }, Filter::OilPaint { effect_intensity: d_effect_intensity, stroke_size: d_stroke_size, stroke_length: d_stroke_length, size_random: d_size_random, color_random: d_color_random, bristles: d_bristles, angle: d_angle, seed: d_seed }) => {
+            changed |= slider_row_reset(ui, "Effect Intensity", effect_intensity, *d_effect_intensity, |v| egui::Slider::new(v, 0.0..=1.0)).changed();
+            changed |= slider_row_reset(ui, "Stroke Size", stroke_size, *d_stroke_size, |v| egui::Slider::new(v, 2.0..=subcraft_doc::MAX_STROKE_SIZE).suffix(" px")).changed();
+            changed |= slider_row_reset(ui, "Stroke Length", stroke_length, *d_stroke_length, |v| egui::Slider::new(v, 1.0..=subcraft_doc::MAX_STROKE_LENGTH)).on_hover_text("In stroke widths").changed();
+            changed |= slider_row_reset(ui, "Size Random", size_random, *d_size_random, |v| egui::Slider::new(v, 0.0..=1.0)).changed();
+            changed |= slider_row_reset(ui, "Color Random", color_random, *d_color_random, |v| egui::Slider::new(v, 0.0..=1.0)).on_hover_text("Brightness difference between strokes").changed();
+            changed |= slider_row_reset(ui, "Bristles", bristles, *d_bristles, |v| egui::Slider::new(v, 0.0..=1.0)).on_hover_text("Streaks inside a stroke and dry stroke ends").changed();
+            changed |= slider_row_reset(ui, "Angle", angle, *d_angle, |v| egui::Slider::new(v, 0.0..=1.0).suffix(" turn")).on_hover_text("Stroke direction where the image is flat; elsewhere strokes follow the edges").changed();
+            changed |= slider_row_reset(ui, "Seed", seed, *d_seed, |v| egui::Slider::new(v, 0..=99)).changed();
+            ui.weak("Repaints the channel with brush strokes / large strokes are slow on big textures");
+        }
         (Filter::AnisotropicKuwahara { radius, smoothness, sharpness, tensor_smoothness, anisotropy, angle, extract_direction }, Filter::AnisotropicKuwahara { radius: d_radius, smoothness: d_smoothness, sharpness: d_sharpness, tensor_smoothness: d_tensor_smoothness, anisotropy: d_anisotropy, angle: d_angle, extract_direction: d_extract_direction }) => {
             changed |= prop_row_reset(ui, "Extract Direction", extract_direction, *d_extract_direction, |ui, extract_direction| ui.selectable_value(extract_direction, true, "From the image") | ui.selectable_value(extract_direction, false, "Fixed angle")).changed();
             changed |= slider_row_reset(ui, "Radius", radius, *d_radius, |v| egui::Slider::new(v, 0.0..=subcraft_doc::MAX_KUWAHARA_RADIUS).suffix(" px")).changed();

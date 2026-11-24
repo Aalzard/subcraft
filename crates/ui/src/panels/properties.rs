@@ -218,7 +218,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             super::material_params::section(ui, &layer, &mut cmds);
         }
         // Graph material (`.sbsar`): the graph's parameters, rendered in the background.
-        if layer.graph.is_some() {
+        if layer.graph.is_some() && matches!(layer.content, LayerContent::Fill(_)) {
             super::graph_params::section(state, ui, &layer, now);
         }
 

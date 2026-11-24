@@ -497,7 +497,7 @@ mod ray_backend {
         fn description(&self) -> String {
             "fake".into()
         }
-        fn run(&self, _: &Bvh, count: usize, texel: &(dyn Fn(usize) -> RayTexel + Sync), rays: u32, _: RayMode, control: &dyn BatchControl)
+        fn run(&self, _: &Bvh, _: Option<&[u32]>, count: usize, texel: &(dyn Fn(usize) -> RayTexel + Sync), rays: u32, _: RayMode, control: &dyn BatchControl)
             -> Result<Vec<f32>, RayBatchError> {
             self.calls.fetch_add(1, Ordering::Relaxed);
             assert!(rays >= 1);
