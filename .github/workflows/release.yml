@@ -256,9 +256,10 @@ jobs:
         run: |
           sudo apt-get install -y -q flatpak
           flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
-          # Ubuntu 22.04's flatpak-builder is too old for current runtimes: use Flathub's.
-          flatpak install --user -y --noninteractive flathub org.flatpak.Builder
-          FLATPAK_BUILDER="flatpak run --command=flatpak-builder org.flatpak.Builder" ./scripts/build-flatpak.sh
+          # Ubuntu 22.04's flatpak-builder is too old for current runtimes: use Flathub's. The runtime
+          # and SDK are installed here; the sandboxed builder talks to flatpak over a D-Bus session.
+          flatpak install --user -y --noninteractive flathub org.flatpak.Builder org.freedesktop.Platform//26.08 org.freedesktop.Sdk//26.08
+          FLATPAK_BUILDER="flatpak run --command=flatpak-builder org.flatpak.Builder" dbus-run-session -- ./scripts/build-flatpak.sh
       - name: Check Linux package
         run: |
           tar -xzf dist/*.tar.gz -C "$RUNNER_TEMP"
@@ -269,7 +270,7 @@ jobs:
           flatpak install --user -y --noninteractive dist/SubCraft-*.flatpak
           # Updating means installing the next bundle over it.
           flatpak install --user -y --noninteractive --reinstall dist/SubCraft-*.flatpak
-          flatpak run io.github.aalzard.SubCraft --version
+          dbus-run-session -- flatpak run io.github.aalzard.SubCraft --version
           flatpak uninstall --user -y --noninteractive io.github.aalzard.SubCraft
       - name: Checksums
         shell: pwsh
