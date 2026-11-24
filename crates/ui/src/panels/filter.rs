@@ -336,6 +336,24 @@ pub fn editor(ui: &mut Ui, filter: &mut Filter, channel: Option<ChannelKind>) ->
             }
             ui.weak("The palette is picked from the whole texture / data channels always compare values");
         }
+        (Filter::FillAreaMask { threshold, closed_borders }, Filter::FillAreaMask { threshold: d_threshold, closed_borders: d_closed_borders }) => {
+            changed |= slider_row_reset(ui, "Area Detection Threshold", threshold, *d_threshold, |v| egui::Slider::new(v, 0.01..=1.0)).on_hover_text("Mask values from here up are outline").changed();
+            changed |= prop_row_reset(ui, "UV Border Behavior", closed_borders, *d_closed_borders, |ui, v| ui.selectable_value(v, false, "Open") | ui.selectable_value(v, true, "Closed")).on_hover_text("Closed: the edge of a UV island closes an area too, and the largest area of an island stays empty").changed();
+            ui.weak("Fills the areas a painted outline closes off / reads the whole texture");
+        }
+        (Filter::FillAreaColor { threshold, closed_borders, mode, color }, Filter::FillAreaColor { threshold: d_threshold, closed_borders: d_closed_borders, mode: d_mode, color: d_color }) => {
+            changed |= slider_row_reset(ui, "Area Detection Threshold", threshold, *d_threshold, |v| egui::Slider::new(v, 0.01..=1.0)).on_hover_text("Paint coverage from here up is outline").changed();
+            changed |= prop_row_reset(ui, "UV Border Behavior", closed_borders, *d_closed_borders, |ui, v| ui.selectable_value(v, false, "Open") | ui.selectable_value(v, true, "Closed")).on_hover_text("Closed: the edge of a UV island closes an area too, and the largest area of an island stays empty").changed();
+            changed |= prop_row_reset(ui, "Color Mode", mode, *d_mode, |ui, mode| {
+                let mut r = ui.selectable_value(mode, subcraft_doc::FillColorMode::Color, subcraft_doc::FillColorMode::Color.label());
+                r |= ui.selectable_value(mode, subcraft_doc::FillColorMode::Border, subcraft_doc::FillColorMode::Border.label());
+                r
+            }).changed();
+            if *mode == subcraft_doc::FillColorMode::Color {
+                changed |= color_row(ui, "Fill Color", color, *d_color);
+            }
+            ui.weak("Fills the areas a painted outline closes off, found from the paint coverage / reads the whole texture");
+        }
         (Filter::ComicBook { tones, paint, color_intensity, border_opacity, border_tolerance, border_smoothness, border_width, input_contrast, input_luminosity }, Filter::ComicBook { tones: d_tones, paint: d_paint, color_intensity: d_color_intensity, border_opacity: d_border_opacity, border_tolerance: d_border_tolerance, border_smoothness: d_border_smoothness, border_width: d_border_width, input_contrast: d_input_contrast, input_luminosity: d_input_luminosity }) => {
             changed |= slider_row_reset(ui, "Input Contrast", input_contrast, *d_input_contrast, |v| egui::Slider::new(v, -1.0..=1.0)).changed();
             changed |= slider_row_reset(ui, "Input Luminosity", input_luminosity, *d_input_luminosity, |v| egui::Slider::new(v, -1.0..=1.0)).changed();

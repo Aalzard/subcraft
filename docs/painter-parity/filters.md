@@ -146,17 +146,19 @@ Layout notes: Standard group (10.1). Paint layer colour content; alpha defines t
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Fill Area Color (filter) | Properties > Filter | works on: paint layer colour content | missing | - | - |
+| Fill Area Color (filter) | Properties > Filter | works on: paint layer colour content | partial: a flood fill of the whole texture finds the areas the paint coverage closes off and paints them (fully covered); the soft edge of the outline is laid over the fill | Properties > Filter > Fill Area Color | (this PR) |
 | Area Detection | Properties > Filter | not documented (dropdown) | missing | - | - |
-| Area Detection Threshold | Properties > Filter | not documented | missing | - | - |
+| Area Detection Threshold | Properties > Filter | not documented | done: coverage 0.01..1 that counts as outline, default 0.5 | Properties > Filter > Fill Area Color | (this PR) |
 | Debug Area Detection | Properties > Filter | not documented (toggle) | missing | - | - |
-| UV Border Behavior | Properties > Filter | not documented (dropdown) | missing | - | - |
+| UV Border Behavior | Properties > Filter | not documented (dropdown) | done: Open (an area reaching its UV island edge stays empty) / Closed (island edges close areas; the largest area of an island stays empty) | Properties > Filter > Fill Area Color | (this PR) |
 | UV Border Threshold | Properties > Filter | not documented | missing | - | - |
-| Color Mode | Properties > Filter | not documented (dropdown) | missing | - | - |
-| Fill Color | Properties > Filter | not documented | missing | - | - |
+| Color Mode | Properties > Filter | not documented (dropdown) | partial: Fill color / Outline color (the average colour of the outline around each area) | Properties > Filter > Fill Area Color | (this PR) |
+| Fill Color | Properties > Filter | not documented | done: default mid gray (data channels use its brightness) | Properties > Filter > Fill Area Color | (this PR) |
 | Blur Intensity | Properties > Filter | not documented | missing | - | - |
 | Blur Samples | Properties > Filter | not documented | missing | - | - |
 | Diffusion Iterations | Properties > Filter | default not documented; useful range 8-48 | missing | - | - |
+
+Not built: the Area Detection dropdown, Debug Area Detection, UV Border Threshold, and the blurred / diffused colour modes (Blur Intensity, Blur Samples, Diffusion Iterations). Works on every content channel except Normal.
 
 ## Fill Area Mask
 
@@ -164,12 +166,14 @@ Layout notes: Standard group (10.1). Masks, above a paint effect.
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Fill Area Mask (filter) | Properties > Filter | works on: masks | missing | - | - |
+| Fill Area Mask (filter) | Properties > Filter | works on: masks | done: the same flood fill on the mask value; enclosed areas become white. Masks only | Properties > Filter > Fill Area Mask | (this PR) |
 | Area Detection | Properties > Filter | not documented (dropdown) | missing | - | - |
-| Area Detection Threshold | Properties > Filter | not documented | missing | - | - |
+| Area Detection Threshold | Properties > Filter | not documented | done: mask value 0.01..1 that counts as outline, default 0.5 | Properties > Filter > Fill Area Mask | (this PR) |
 | Debug Area Detection | Properties > Filter | not documented (toggle) | missing | - | - |
-| UV Border Behavior | Properties > Filter | not documented (dropdown) | missing | - | - |
+| UV Border Behavior | Properties > Filter | not documented (dropdown) | done: Open / Closed, as in Fill Area Color | Properties > Filter > Fill Area Mask | (this PR) |
 | UV Border Detection Threshold | Properties > Filter | not documented | missing | - | - |
+
+Not built: the Area Detection dropdown, Debug Area Detection, UV Border Detection Threshold.
 
 ## FXAA (Anti-Aliasing)
 

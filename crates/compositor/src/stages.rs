@@ -310,6 +310,8 @@ pub(crate) struct Graph<'a> {
     /// Quantize palettes per node: picked once from the whole input texture, then shared by
     /// every tile.
     palettes: Mutex<HashMap<usize, Arc<OnceLock<Arc<subcraft_materials::filter::quantize::Palette>>>>>,
+    /// Fill Area results per node: the enclosed areas of the whole input, found once.
+    fills: Mutex<HashMap<usize, Arc<OnceLock<Arc<FilledAreas>>>>>,
     /// Color Match averages per node: the mean colour of the whole input, found once.
     averages: Mutex<HashMap<usize, Arc<OnceLock<Option<[f32; 3]>>>>>,
 }
@@ -393,6 +395,7 @@ impl<'a> Graph<'a> {
             top: &[],
             palettes: Mutex::new(HashMap::new()),
             averages: Mutex::new(HashMap::new()),
+            fills: Mutex::new(HashMap::new()),
         }
     }
     /// Index the anchors of `layers` when any layer reads one.
@@ -1885,6 +1888,50 @@ impl<'a> Graph<'a> {
                     }
                     return out;
                 }
+                if let Filter::FillAreaMask { threshold, closed_borders } | Filter::FillAreaColor { threshold, closed_borders, .. } = *filter {
+                    // Masks carry their value in the first component, content its coverage in alpha.
+                    let mask = matches!(filter, Filter::FillAreaMask { .. });
+                    let border_colors = matches!(filter, Filter::FillAreaColor { mode: subcraft_doc::FillColorMode::Border, .. });
+                    let cell = self.fills.lock().unwrap().entry(node).or_default().clone();
+                    let areas = cell.get_or_init(|| Arc::new(filled_areas(&grid, self.ctx.geometry, threshold, closed_borders, mask, border_colors))).clone();
+                    let fill = match *filter {
+                        Filter::FillAreaColor { color, .. } if kind.is_color() => color,
+                        Filter::FillAreaColor { color, .. } => [color[0] * 0.2126 + color[1] * 0.7152 + color[2] * 0.0722; 3],
+                        _ => [1.0; 3],
+                    };
+                    let r = res as usize;
+                    for (i, dst) in out.iter_mut().enumerate() {
+                        let (x, y) = geo.texel_xy(i);
+                        if x >= res || y >= res {
+                            continue;
+                        }
+                        let p = grid.pixel(x, y);
+                        let at = y as usize * r + x as usize;
+                        let mut area = areas.labels[at];
+                        let own = area != 0;
+                        if !own {
+                            // An outline texel next to a filled area: the fill shows through
+                            // its soft edge.
+                            let (x, y) = (x as usize, y as usize);
+                            for (ok, j) in [(x > 0, at.wrapping_sub(1)), (x + 1 < r, at + 1), (y > 0, at.wrapping_sub(r)), (y + 1 < r, at + r)] {
+                                if ok && areas.labels[j] != 0 {
+                                    area = areas.labels[j];
+                                    break;
+                                }
+                            }
+                        }
+                        *dst = if area == 0 {
+                            p
+                        } else if mask {
+                            [1.0, 1.0, 1.0, p[3]]
+                        } else {
+                            let c = if border_colors { areas.colors[area as usize - 1] } else { fill };
+                            let a = if own { 0.0 } else { p[3].clamp(0.0, 1.0) };
+                            [p[0] * a + c[0] * (1.0 - a), p[1] * a + c[1] * (1.0 - a), p[2] * a + c[2] * (1.0 - a), 1.0]
+                        };
+                    }
+                    return out;
+                }
                 if let Filter::ColorMatch { source_mode, source, target, hue, chroma, luma, source_image, target_image } = *filter {
                     // Average mode: the mean of the input.
                     let source = if source_mode == subcraft_doc::MatchSource::Average {
@@ -2253,6 +2300,65 @@ fn quantize_samples(grid: &Neighborhood, res: u32) -> Vec<[f32; 3]> {
     samples
 }
 
+/// The areas a Fill Area filter fills, for the whole texture.
+struct FilledAreas {
+    /// Per texel: 0, or the 1-based id of the area it is in.
+    labels: Vec<u32>,
+    /// Outline colour mode: per area the mean colour of the outline texels around it.
+    colors: Vec<[f32; 3]>,
+}
+
+/// Flood-fills the whole input once: outline texels are those whose value (`mask`) or paint
+/// coverage reaches `threshold`; the UV islands come from the texture set's geometry.
+fn filled_areas(grid: &Neighborhood, set: &subcraft_materials::TextureSetGeometry, threshold: f32, closed_borders: bool, mask: bool, border_colors: bool) -> FilledAreas {
+    let res = grid.res as usize;
+    let amount = |p: [f32; 4]| if mask { p[0] } else { p[3] };
+    let mut wall = vec![false; res * res];
+    for y in 0..res {
+        for x in 0..res {
+            wall[y * res + x] = amount(grid.pixel(x as u32, y as u32)) >= threshold;
+        }
+    }
+    let mut inside = vec![false; res * res];
+    for index in 0..set.tile_count() {
+        let geo = set.tile(index);
+        if geo.is_empty() {
+            continue;
+        }
+        for i in 0..TILE_TEXELS {
+            let (x, y) = geo.texel_xy(i);
+            if (x as usize) < res && (y as usize) < res && geo.coverage(i) > 0.0 {
+                inside[y as usize * res + x as usize] = true;
+            }
+        }
+    }
+    let areas = subcraft_materials::filter::fill_area::enclosed(res, &wall, &inside, closed_borders);
+    let mut colors = Vec::new();
+    if border_colors {
+        let mut sums = vec![([0.0f64; 3], 0.0f64); areas.count as usize];
+        for y in 0..res {
+            for x in 0..res {
+                let at = y * res + x;
+                if !wall[at] {
+                    continue;
+                }
+                let p = grid.pixel(x as u32, y as u32);
+                for (ok, j) in [(x > 0, at.wrapping_sub(1)), (x + 1 < res, at + 1), (y > 0, at.wrapping_sub(res)), (y + 1 < res, at + res)] {
+                    if ok && areas.labels[j] != 0 {
+                        let sum = &mut sums[areas.labels[j] as usize - 1];
+                        for c in 0..3 {
+                            sum.0[c] += p[c] as f64;
+                        }
+                        sum.1 += 1.0;
+                    }
+                }
+            }
+        }
+        colors = sums.into_iter().map(|(sum, n)| if n > 0.0 { sum.map(|v| (v / n) as f32) } else { [0.0; 3] }).collect();
+    }
+    FilledAreas { labels: areas.labels, colors }
+}
+
 /// Mean colour of the covered texels of the whole texture, weighted by coverage, from the
 /// same regular grid the Quantize palette uses. `None` when nothing is covered.
 fn average_color(grid: &Neighborhood, res: u32) -> Option<[f32; 3]> {
@@ -2381,6 +2487,7 @@ fn spatial_value(
         // Pixelwise nodes whose output is the final value (a filter missing here is ignored).
         Filter::AnisotropicKuwahara { .. } | Filter::Quantize { .. } => blurred,
         Filter::ComicBook { .. } | Filter::Watercolor { .. } | Filter::OilPaint { .. } => blurred,
+        Filter::FillAreaMask { .. } | Filter::FillAreaColor { .. } => blurred,
         Filter::BlurSlopeMode { .. } | Filter::NonUniformBlur { .. } | Filter::ColorMatch { .. } => blurred,
         Filter::DropShadow { spread, opacity, color, .. } => under(source, blurred, spread, opacity, false, color, kind),
         Filter::OuterGlow { spread, opacity, color, precise, .. } => under(source, blurred, spread, opacity, precise, color, kind),

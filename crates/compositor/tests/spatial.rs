@@ -1404,3 +1404,109 @@ fn oil_paint_strokes_cross_tile_borders_without_a_seam() {
     let off = styled(noise, Filter::OilPaint { effect_intensity: 0.0, stroke_size, stroke_length, size_random, color_random, bristles, angle, seed });
     assert!(off.iter().zip(&input).all(|(a, b)| (a - b).abs() < 1e-3));
 }
+
+/// Texels of a square ring: `r` from the centre (Chebyshev), 2 texels thick.
+fn on_ring(x: u32, y: u32, cx: u32, cy: u32, r: u32) -> bool {
+    let d = x.abs_diff(cx).max(y.abs_diff(cy));
+    d == r || d == r + 1
+}
+
+#[test]
+fn fill_area_mask_fills_a_closed_outline_across_tiles() {
+    let fx = Fixture::new();
+    let ts = TextureSet::new("T", 0, N);
+    let build = |gap: bool, filter: Option<Filter>| {
+        let mut layer = Layer::new_fill("M", &ts);
+        let LayerContent::Fill(f) = &mut layer.content else { unreachable!() };
+        f.channels.insert(C::Roughness, subcraft_doc::FillChannel::new(subcraft_doc::FillSource::uniform(subcraft_core::ChannelValue::scalar(0.9))));
+        let mut mask = Mask::new(N, false);
+        // A ring around the meeting point of four tiles; optionally with a gap in it.
+        for y in 0..N {
+            for x in 0..N {
+                if on_ring(x, y, 64, 64, 20) && !(gap && y == 64 && x > 64) {
+                    mask.base.set(x, y, [1.0; 4]);
+                }
+            }
+        }
+        if let Some(filter) = filter {
+            assert!(filter.valid() && filter.supports_mask());
+            mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Filter(filter))));
+        }
+        layer.mask = Some(mask);
+        let mut ts = TextureSet::new("T2", 0, N);
+        ts.insert_above(None, layer);
+        let c = composite_full(&ts, &fx.ctx());
+        // The layer shows where its mask is white: read the mask back from the composite as
+        // how far a texel is from the unmasked value (5, 5) towards the ring's value.
+        let img = c.channel(C::Roughness).unwrap();
+        let (off, on) = (img.get(5, 5)[0], img.get(64, 44)[0]);
+        assert!((on - off).abs() > 0.05, "the fill layer must show: {off} vs {on}");
+        (0..N * N).map(|i| (img.get(i % N, i / N)[0] - off) / (on - off)).collect::<Vec<f32>>()
+    };
+    let at = |v: &[f32], x: u32, y: u32| v[(y * N + x) as usize];
+    let plain = build(false, None);
+    assert!(at(&plain, 64, 44) > 0.99 && at(&plain, 64, 64) < 0.01, "the ring alone: {} {}", at(&plain, 64, 44), at(&plain, 64, 64));
+    let fill = Filter::FillAreaMask { threshold: 0.5, closed_borders: false };
+    let filled = build(false, Some(fill));
+    // Inside, in all four tiles: filled. The ring stays, the outside stays empty.
+    for (x, y) in [(64, 64), (50, 50), (80, 50), (50, 80), (80, 80), (63, 63)] {
+        assert!(at(&filled, x, y) > 0.99, "inside at {x},{y}: {}", at(&filled, x, y));
+    }
+    assert!(at(&filled, 64, 44) > 0.99);
+    for (x, y) in [(5, 5), (64, 30), (100, 100), (127, 64)] {
+        assert!(at(&filled, x, y) < 0.01, "outside at {x},{y}: {}", at(&filled, x, y));
+    }
+    // A gap in the outline: the fill leaks out, nothing is filled.
+    let leaked = build(true, Some(fill));
+    assert!(at(&leaked, 64, 64) < 0.01 && at(&leaked, 50, 50) < 0.01, "leaked: {}", at(&leaked, 64, 64));
+    // Closed borders make no difference here: the outside is the largest area.
+    let closed = build(false, Some(Filter::FillAreaMask { threshold: 0.5, closed_borders: true }));
+    assert!(at(&closed, 64, 64) > 0.99 && at(&closed, 5, 5) < 0.01);
+}
+
+#[test]
+fn fill_area_color_paints_inside_the_painted_outline() {
+    let fx = Fixture::new();
+    let run = |filter: Filter| {
+        let mut ts = TextureSet::new("T", 0, N);
+        let mut l = Layer::new_paint("P", &ts);
+        let LayerContent::Paint(p) = &mut l.content else { unreachable!() };
+        let image = p.channel_mut(C::BaseColor, N);
+        for y in 0..N {
+            for x in 0..N {
+                if on_ring(x, y, 64, 64, 20) {
+                    image.set(x, y, [0.9, 0.1, 0.1, 1.0]);
+                }
+                // A soft inner edge: half-covered texels just inside the ring.
+                if x.abs_diff(64).max(y.abs_diff(64)) == 19 {
+                    image.set(x, y, [0.9, 0.1, 0.1, 0.6]);
+                }
+            }
+        }
+        assert!(filter.valid() && filter.supports_channel(C::BaseColor) && !filter.supports_mask());
+        add(&mut l, &ts, C::BaseColor, filter);
+        ts.insert_above(None, l);
+        let c = composite_full(&ts, &fx.ctx());
+        let img = c.channel(C::BaseColor).unwrap();
+        (0..N * N).map(|i| img.get(i % N, i / N)).collect::<Vec<[f32; 4]>>()
+    };
+    let near = |p: [f32; 4], c: [f32; 3]| p[3] > 0.99 && (0..3).all(|i| (p[i] - c[i]).abs() < 0.01);
+    let blue = [0.1, 0.2, 0.8];
+    let out = run(Filter::FillAreaColor { threshold: 0.5, closed_borders: false, mode: subcraft_doc::FillColorMode::Color, color: blue });
+    let at = |v: &[[f32; 4]], x: u32, y: u32| v[(y * N + x) as usize];
+    for (x, y) in [(64, 64), (50, 50), (80, 80), (63, 64)] {
+        assert!(near(at(&out, x, y), blue), "filled at {x},{y}: {:?}", at(&out, x, y));
+    }
+    assert!(near(at(&out, 64, 44), [0.9, 0.1, 0.1]), "the outline keeps its colour: {:?}", at(&out, 64, 44));
+    assert!(!near(at(&out, 5, 5), blue) && !near(at(&out, 5, 5), [0.9, 0.1, 0.1]), "outside stays unpainted: {:?}", at(&out, 5, 5));
+    assert_eq!(at(&out, 5, 5), at(&out, 120, 30));
+    // The soft edge (60 % covered, so outline) shows the fill through it and is fully covered.
+    let soft = at(&out, 64, 45);
+    assert!(near(soft, [0.9 * 0.6 + 0.1 * 0.4, 0.1 * 0.6 + 0.2 * 0.4, 0.1 * 0.6 + 0.8 * 0.4]), "soft edge over the fill: {soft:?}");
+    // Outline colour mode: the area takes the ring's colour.
+    let own = run(Filter::FillAreaColor { threshold: 0.5, closed_borders: false, mode: subcraft_doc::FillColorMode::Border, color: blue });
+    assert!(near(at(&own, 64, 64), [0.9, 0.1, 0.1]), "outline colour: {:?}", at(&own, 64, 64));
+    // A higher threshold than the soft edge: those texels are part of the area instead.
+    let hard = run(Filter::FillAreaColor { threshold: 0.8, closed_borders: false, mode: subcraft_doc::FillColorMode::Color, color: blue });
+    assert!(near(at(&hard, 64, 45), blue), "soft edge filled: {:?}", at(&hard, 64, 45));
+}
