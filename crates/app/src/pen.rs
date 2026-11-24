@@ -70,6 +70,8 @@ struct Edit {
     selection: Selection,
     handle: Option<PenHit>,
     label: &'static str,
+    /// The layer's new name, set with the path (a row restyled with another stitch).
+    rename: Option<String>,
 }
 
 struct Pending { edit: Edit, raster: PenRasterizer }
@@ -202,14 +204,14 @@ impl PenEditor {
             self.new_on_click = false;
         }
         if !force_new && let Some(path) = stored_path(session) {
-            return Ok(Edit { layer: session.selected_layer().unwrap().clone(), path: path.clone(), new: false, resolution: session.selected_texture_set().resolution, scene: session.scene().mesh.clone(), selection: session.selection(), handle: None, label: "Edit pen path" });
+            return Ok(Edit { layer: session.selected_layer().unwrap().clone(), path: path.clone(), new: false, resolution: session.selected_texture_set().resolution, scene: session.scene().mesh.clone(), selection: session.selection(), handle: None, label: "Edit pen path", rename: None });
         }
         let (path, name) = self.styled_path(session);
         path.validate().map_err(error)?;
         let ts = session.selected_texture_set();
         let mut layer = Layer::new_paint(name, ts);
         layer.parts = session.selected_layer().and_then(|l| l.parts.clone());
-        Ok(Edit { layer, path, new: true, resolution: ts.resolution, scene: session.scene().mesh.clone(), selection: session.selection(), handle: None, label: "New pen path" })
+        Ok(Edit { layer, path, new: true, resolution: ts.resolution, scene: session.scene().mesh.clone(), selection: session.selection(), handle: None, label: "New pen path", rename: None })
     }
 
     /// A new path without points, as the next click would start it, and the name of its layer:
@@ -378,6 +380,19 @@ impl PenEditor {
         Ok(())
     }
 
+    /// [`PenEditor::set_path`] for a path restyled with another stitch or tile: the layer takes
+    /// `name` too, in the same undo step, unless the user gave it a name of their own (it is
+    /// renamed only while it still has a name this tool gives: a stitch, "Stitch tile" or "Pen path").
+    pub fn restyle_path(&mut self, session: &Session, path: PenPath, name: &str) -> Result<(), CommandError> {
+        self.set_path(session, path)?;
+        if let Some(edit) = self.gesture.as_mut() {
+            let current = edit.layer.name.as_str();
+            let default = current == "Pen path" || current == "Stitch tile" || crate::stitch::find(current).is_some();
+            if default && current != name { edit.rename = Some(name.to_string()); }
+        }
+        Ok(())
+    }
+
     pub fn set_path(&mut self, session: &Session, path: PenPath) -> Result<(), CommandError> {
         path.validate().map_err(error)?;
         let mut edit = self.gesture.take().map(Ok).unwrap_or_else(|| self.edit(session, false))?;
@@ -457,11 +472,12 @@ impl PenEditor {
         let _ = budget;
         pending.raster.run();
         if !pending.raster.is_done() { self.pending.push_front(pending); return Ok(true); }
-        let Edit { mut layer, path, new, label, selection, .. } = pending.edit;
+        let Edit { mut layer, path, new, label, selection, rename, .. } = pending.edit;
         let current = session.selection();
         if !new {
             layer = session.document().texture_set(selection.texture_set).and_then(|ts| ts.find(layer.id)).ok_or(CommandError::LayerNotFound)?.clone();
         }
+        if let Some(name) = rename { layer.name = name; }
         let LayerContent::Paint(p) = &mut layer.content else { return Err(error("pen layer must be paint content")); };
         let mut images = pending.raster.finish().unwrap();
         // Reuse byte-identical tiles from the previous cache, keeping path history sparse.

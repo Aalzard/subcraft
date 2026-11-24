@@ -449,7 +449,7 @@ pub fn choose_tile(state: &mut UiState, tile: subcraft_app::stitch::TileStyle, n
     };
     let channels = state.session.channels();
     tile.apply_to_path(&mut path, |k| channels.contains(&k));
-    match state.pen.set_path(&state.session, path).and_then(|()| state.pen.release(&state.session)) {
+    match state.pen.restyle_path(&state.session, path, "Stitch tile").and_then(|()| state.pen.release(&state.session)) {
         Ok(()) => state.set_status(format!("{name} on this path and on new paths"), now),
         Err(e) => state.set_status(e.to_string(), now),
     }
@@ -514,7 +514,8 @@ pub fn choose_stitch(state: &mut UiState, stitch: Option<&'static subcraft_app::
         }
         None => path.stamp = None,
     }
-    let done = state.pen.set_path(&state.session, path).and_then(|()| state.pen.release(&state.session));
+    let name = stitch.map_or("Pen path", |s| s.name);
+    let done = state.pen.restyle_path(&state.session, path, name).and_then(|()| state.pen.release(&state.session));
     match (done, stitch) {
         (Err(e), _) => state.set_status(e.to_string(), now),
         (Ok(()), Some(s)) => state.set_status(format!("{} on this path and on new paths", s.name), now),
@@ -1170,6 +1171,40 @@ mod keyboard_tests {
     }
 
     /// The Pen tool's Properties show the stitch row before any path exists, and on a path.
+    /// Seen in the app (2026-11-24): a row changed from Straight to Cross kept the layer name
+    /// "Stitch: Straight". The layer follows the stitch, in the same undo step, unless the user
+    /// named it.
+    #[test]
+    fn a_restyled_row_takes_the_name_of_its_new_stitch() {
+        let mut state = UiState::new(subcraft_app::Session::sample(), None);
+        state.tool = Tool::Pen;
+        choose_stitch(&mut state, subcraft_app::stitch::find("Stitch: Straight"), false, 0.0);
+        click(&mut state, Vec2::new(0.3, 0.3));
+        click(&mut state, Vec2::new(0.5, 0.3));
+        let name = |state: &UiState| state.session.selected_layer().unwrap().name.clone();
+        let settle = |state: &mut UiState| while state.pen.poll(&mut state.session, 1 << 20).unwrap() {};
+        settle(&mut state);
+        assert_eq!(name(&state), "Stitch: Straight");
+        let steps = state.session.history().cursor();
+        choose_stitch(&mut state, subcraft_app::stitch::find("Stitch: Cross"), true, 0.0);
+        settle(&mut state);
+        assert_eq!(name(&state), "Stitch: Cross");
+        assert_eq!(stitch_of(&state, &drawn_path(&state)).map(|s| s.name), Some("Stitch: Cross"));
+        assert_eq!(state.session.history().cursor(), steps + 1, "the name changes with the stitch, in one undo step");
+        // A sample tile: "Stitch tile". Back to a plain line: "Pen path".
+        let tile = subcraft_app::stitch::sample_tile(&mut state.session, &sample_tiles()[0]);
+        choose_tile(&mut state, tile, "Tile: Saddle Leather", true, 0.0);
+        settle(&mut state);
+        assert_eq!(name(&state), "Stitch tile");
+        // A name the user gave stays.
+        let layer = state.session.selected_layer().unwrap().id;
+        state.session.execute(subcraft_app::Command::Rename { layer, name: "Collar seam".into() }).unwrap();
+        choose_stitch(&mut state, subcraft_app::stitch::find("Stitch: Zigzag"), true, 0.0);
+        settle(&mut state);
+        assert_eq!(name(&state), "Collar seam");
+        assert_eq!(stitch_of(&state, &drawn_path(&state)).map(|s| s.name), Some("Stitch: Zigzag"));
+    }
+
     #[test]
     fn the_stitch_row_is_drawn_with_and_without_a_path() {
         let mut state = UiState::new(subcraft_app::Session::sample(), None);
