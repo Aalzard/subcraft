@@ -323,3 +323,39 @@ fn weathered_materials_follow_their_wear_age_and_dirt_macros() {
         }
     }
 }
+
+/// The stylized materials paint an edge highlight, a cavity shade and a baked light, each on its
+/// own slider: at 0 it adds nothing, at 1 the composite is clearly changed.
+#[test]
+fn stylized_materials_follow_their_highlight_shade_and_light_sliders() {
+    use subcraft_doc::{ContentEffectKind, MaterialFilter};
+    fn lit(l: &Layer) -> bool {
+        l.content_effects.iter().any(|e| matches!(e.kind, ContentEffectKind::Material(MaterialFilter::BakedLighting { .. }))) || l.children().iter().any(|c| lit(c))
+    }
+    for name in ["Stylized Metal", "Stylized Wood", "Stylized Stone"] {
+        let mut s = baked_crate();
+        let id = apply(&mut s, &format!("Procedural {name}"));
+        assert!(lit(layer(&s, id)), "{name} uses the Baked Lighting filter");
+        assert!(controls(&s, id).check(layer(&s, id)).is_empty(), "{name}: every binding has a target");
+        let distance = |a: [f32; 3], b: [f32; 3]| a.iter().zip(b).map(|(x, y)| (x - y).abs()).fold(0.0f32, f32::max);
+        for m in ["highlight", "shade", "light"] {
+            set(&mut s, id, m, ParamValue::Number(0.0));
+        }
+        let plain = mean(&mut s, ChannelKind::BaseColor);
+        for m in ["highlight", "shade", "light"] {
+            set(&mut s, id, m, ParamValue::Number(1.0));
+            let on = mean(&mut s, ChannelKind::BaseColor);
+            assert!(distance(on, plain) > 0.01, "{name}: {m} changes the colour: {plain:?} -> {on:?}");
+            set(&mut s, id, m, ParamValue::Number(0.0));
+            let off = mean(&mut s, ChannelKind::BaseColor);
+            assert!(distance(off, plain) < 1e-4, "{name}: {m} back at 0 is the plain surface again");
+        }
+        // The highlight is lighter than the surface and the shade darker.
+        set(&mut s, id, "highlight", ParamValue::Number(1.0));
+        let bright = mean(&mut s, ChannelKind::BaseColor);
+        set(&mut s, id, "highlight", ParamValue::Number(0.0));
+        set(&mut s, id, "shade", ParamValue::Number(1.0));
+        let dark = mean(&mut s, ChannelKind::BaseColor);
+        assert!(bright[1] > plain[1] && dark[1] < plain[1], "{name}: highlight lightens, shade darkens: {dark:?} < {plain:?} < {bright:?}");
+    }
+}

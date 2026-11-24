@@ -8,7 +8,7 @@ use subcraft_core::EffectId;
 use subcraft_doc::{ContentEffect, ContentEffectKind, FilterSetting as S, MaskBuilder, MaterialFilter};
 
 /// Put a material filter on `layer` (a fill or a folder: it rewrites what the layer shows).
-fn filter(layer: &mut Layer, ts: &TextureSet, f: MaterialFilter) -> EffectId {
+pub(super) fn filter(layer: &mut Layer, ts: &TextureSet, f: MaterialFilter) -> EffectId {
     let effect = ContentEffect::new(ContentEffectKind::Material(f), ts);
     let id = effect.id;
     layer.content_effects.push(Arc::new(effect));
@@ -17,7 +17,7 @@ fn filter(layer: &mut Layer, ts: &TextureSet, f: MaterialFilter) -> EffectId {
 
 impl Recipe {
     /// One setting of a filter of `layer` follows a formula.
-    fn drive(&mut self, layer: &Layer, effect: EffectId, setting: S, formula: &str) {
+    pub(super) fn drive(&mut self, layer: &Layer, effect: EffectId, setting: S, formula: &str) {
         self.bindings.push(Binding::effect(layer.id, effect, Prop::Filter { setting }, formula));
     }
 
@@ -42,7 +42,7 @@ impl Recipe {
 }
 
 /// A Mask Builder generator with these contributions, seeded.
-fn builder(seed: u32, b: MaskBuilder) -> MaskEffectKind {
+pub(super) fn builder(seed: u32, b: MaskBuilder) -> MaskEffectKind {
     let mut g = Generator::new(GeneratorKind::MaskBuilder);
     g.noise.seed = seed;
     g.builder = Some(b);
@@ -52,7 +52,7 @@ fn builder(seed: u32, b: MaskBuilder) -> MaskEffectKind {
 /// A coat spread by a Mask Builder: `amount` raises the builder's Level from `none` to `full`
 /// (0.5 is the summed contributions as they are) and fades the layer in from 0.
 #[allow(clippy::too_many_arguments)]
-fn built_coat(r: &mut Recipe, ts: &TextureSet, name: &str, seed: u32, b: MaskBuilder, amount: &str, none: f32, full: f32, strength: f32) -> Layer {
+pub(super) fn built_coat(r: &mut Recipe, ts: &TextureSet, name: &str, seed: u32, b: MaskBuilder, amount: &str, none: f32, full: f32, strength: f32) -> Layer {
     let l = masked(coat(ts, name, [0.5, 0.5, 0.5], 0.5, 0.0), ts, vec![fx(builder(seed, b))]);
     r.bind_fx(&l, 0, Prop::Level, &format!("remap({amount}, {none}, {full})"));
     r.bind_fx(&l, 0, Prop::BreakupSeed, &format!("seed + {seed}"));
