@@ -38,6 +38,8 @@ so you can paint right away.
 - **Viewport and path tracer**: clear coat, sheen, anisotropy, subsurface, translucency, glass and a
   displacement preview in the viewport; better reflections, contact shadows and SSR; a path tracer with
   depth of field and an HDRI backdrop.
+- **Graph materials as layers**: load Substance archives (`.sbsar`) and MaterialCraft materials
+  (`.mcmat`, `.mcraft`, `.sbs`) as fill layers, with their exposed parameters as live sliders.
 - **Live link** to Unity, Unreal and Godot keeps the engine's textures current while you paint
   ([how it works](docs/live-link.md)).
 - **Scripting**: Rhai scripts and a Plugins menu, with the same API AI agents use ([docs](docs/scripting.md)).
@@ -121,7 +123,7 @@ GPU layer compositing for 2048 and larger sets, with automatic processor fallbac
 shortcuts preset, and English, Korean (한국어) and Traditional Chinese (繁體中文).
 
 **Import, export and automation.** OBJ, glTF / GLB, FBX, USD, Alembic, PLY and STL, with multiple UV sets.
-**Open Substance Painter `.spp` projects** and rebuild their layer stacks; read `.sbsar`. Export presets for
+**Open Substance Painter `.spp` projects** and rebuild their layer stacks; use `.sbsar` and MaterialCraft graphs as layers. Export presets for
 Unreal, Unity, Godot, glTF, Roblox and Sketchfab, live link to game engines, autosave, version history and
 crash recovery. Rhai [scripting](docs/scripting.md) and `subcraft-mcp`, a headless
 [MCP](https://modelcontextprotocol.io) server so AI agents can texture models with the same engine
