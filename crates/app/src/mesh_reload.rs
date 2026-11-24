@@ -420,7 +420,12 @@ pub fn transfer(prepared: &PreparedReload, mode: ReloadMode, old_bvh: &Bvh, old_
         };
         let mut ts = old.clone();
         ts.material_slot = slot as u32;
-        ts.udim_tile = plan.tile;
+        // A mesh that is already split per UDIM tile (the scene's own mesh, as Edit UV islands
+        // passes it) has materials named "Body.1001": its sets match without the UDIM split, so
+        // the plan carries no tile. The set keeps its own tile then; dropping it ungrouped the
+        // tiles and lost "paint across UDIM tiles" on save.
+        ts.udim_tile = plan.tile.or(old.udim_tile);
+        ts.paint_across_udims &= ts.udim_tile.is_some();
         report.matched.push(ts.name.clone());
         let (remapped, unstable) = names.apply(&mut ts.layers);
         report.part_layers_remapped += remapped;
