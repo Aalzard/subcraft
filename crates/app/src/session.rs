@@ -2052,7 +2052,7 @@ impl Session {
                     Ok(())
                 })?;
             }
-            Command::InsertMaskEffects { layer, effects, above, label } => {
+            Command::InsertMaskEffects { layer, effects, blends, above, label } => {
                 if effects.is_empty() { return Err(CommandError::Invalid("nothing to insert".into())); }
                 for kind in &effects { Self::check_mask_effect(kind)?; }
                 let last = self.edit_layer_set(layer, &label, None, |ts| {
@@ -2062,8 +2062,12 @@ impl Session {
                         None => 0,
                     };
                     let mut last = None;
-                    for kind in effects {
-                        let effect = MaskEffect::new(kind);
+                    for (i, kind) in effects.into_iter().enumerate() {
+                        let mut effect = MaskEffect::new(kind);
+                        if let Some((mode, opacity)) = blends.get(i) {
+                            effect.blend = *mode;
+                            effect.opacity = if opacity.is_finite() { opacity.clamp(0.0, 1.0) } else { 1.0 };
+                        }
                         last = Some(effect.id);
                         mask.effects.insert(at, Arc::new(effect));
                         at += 1;

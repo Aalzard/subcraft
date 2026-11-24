@@ -149,12 +149,14 @@ pub(crate) fn partner_command(cmd: &Command, source: &Layer, partner: &Layer, re
         Command::AddMaskEffect { kind, .. } if has_mask => Command::InsertMaskEffects {
             layer: l,
             effects: vec![retarget_mask_kind(kind, resolution)],
+            blends: Vec::new(),
             above: insert_above(source, partner, LayerTarget::Mask, selected_mask)?,
             label: "Add Mask Effect".into(),
         },
-        Command::InsertMaskEffects { effects, above, label, .. } if has_mask => Command::InsertMaskEffects {
+        Command::InsertMaskEffects { effects, blends, above, label, .. } if has_mask => Command::InsertMaskEffects {
             layer: l,
             effects: effects.iter().map(|k| retarget_mask_kind(k, resolution)).collect(),
+            blends: blends.clone(),
             above: match above { Some(a) => Some(m(*a)?), None => None },
             label: label.clone(),
         },
