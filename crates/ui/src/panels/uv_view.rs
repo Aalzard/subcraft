@@ -327,7 +327,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     let paints = painting_tool && !alt && !stencil_edit;
     // Tools that use a click in the view: a drag with them must not pan.
     let picking = state.picking_parts && state.session.selected_layer().is_some();
-    let clicks = paints || picking || matches!(state.tool, Tool::Pen | Tool::Eyedropper | Tool::Shape);
+    // Edit UV islands owns the clicks while its window is open.
+    let uv_editing = state.uv_edit.picking();
+    let clicks = paints || picking || uv_editing || matches!(state.tool, Tool::Pen | Tool::Eyedropper | Tool::Shape);
     // Right-click (no drag): the Properties popup at the cursor.
     if response.secondary_clicked() && !stencil_edit && crate::view_props::opens(state, mods) && let Some(p) = response.interact_pointer_pos() {
         crate::view_props::open(state, p, crate::view_props::View::View2d);
@@ -366,10 +368,12 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     };
     crate::pen::uv_input(state, ui, &response, frame);
     // The UV frame manipulator of a fill layer in UV projection takes presses on its handles.
-    let uv_grab = !picking && !stencil_edit && crate::uv_gizmo::input(state, ui, &response, frame);
+    let uv_grab = !picking && !uv_editing && !stencil_edit && crate::uv_gizmo::input(state, ui, &response, frame);
     // Picking parts for a geometry mask owns the clicks; otherwise the ID eyedropper, then tools.
-    let id_eyedropper = !picking && id_pick_input(state, ui, &response, frame, ts_id);
-    if picking {
+    let id_eyedropper = !picking && !uv_editing && id_pick_input(state, ui, &response, frame, ts_id);
+    if uv_editing {
+        crate::uv_edit::input(state, ui, &response, frame);
+    } else if picking {
         // A layer without a geometry mask gets one by UV island when it is picked here.
         if response.hovered() {
             state.session.set_new_mask_kind(subcraft_core::PartKind::UvIsland);
@@ -423,6 +427,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     parts_overlay(state, ui, &painter, frame, picking, response.hover_pos());
     let fill_hover = state.tool == Tool::PolygonFill && paints && !picking && state.uv.fill_box.is_none();
     fill_hover_overlay(state, &painter, frame, fill_hover.then(|| response.hover_pos()).flatten());
+    crate::uv_edit::overlay(state, &painter, frame);
 
     if state.uv_wireframe {
         let mesh = state.session.scene().mesh.clone();
@@ -445,7 +450,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         let bounds = Rect::from_points(&points);
         crate::shape_tool::draw_preview(&painter, points, bounds);
     }
-    for start in [state.uv.fill_box, state.uv.parts_box] {
+    for start in [state.uv.fill_box, state.uv.parts_box, state.uv_edit.box_start] {
         if let (Some(a), Some(b)) = (start, response.hover_pos().or(ui.input(|i| i.pointer.latest_pos())))
             && crate::view_props::is_box_drag(a, b)
         {
@@ -504,7 +509,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
         }
     }
-    let hint = if picking { "Geometry mask: click an island to show / hide the layer on it · drag a box to add · Ctrl+drag to remove · Esc done" } else { hint(state.tool, paints) };
+    let hint = if uv_editing {
+        "Edit UV islands: click an island to select / deselect it · drag a box to add · Ctrl+drag to remove"
+    } else if picking { "Geometry mask: click an island to show / hide the layer on it · drag a box to add · Ctrl+drag to remove · Esc done" } else { hint(state.tool, paints) };
     painter.text(rect.left_bottom() + egui::vec2(10.0, -10.0), egui::Align2::LEFT_BOTTOM, hint, crate::theme::font(11.5), crate::theme::TEXT_FAINT());
     if state.uv.painting {
         ui.ctx().request_repaint();
