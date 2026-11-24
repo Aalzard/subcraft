@@ -183,7 +183,9 @@ set the painting tool's material; fill-layer material controls live in Propertie
 
 ### Stitches along a seam
 
-Click the **Stitches** button in the tool rail (the three slanted dashes under the Pen). It
+The short version with pictures is in [Stitches](stitches.md).
+
+Click the **Stitches** button in the tool rail (the three dashes under the Pen and Shape tools). It
 switches to the Pen with a stitch chosen. **Properties** shows a row of stitch tiles: Plain line,
 Straight, Cross, Zigzag, Staggered, Saddle, Double, Whip, Blanket, Chain, Herringbone, Baseball,
 Triple, Cord and Seam Holes. Click one, then click along the seam on the model (drag while

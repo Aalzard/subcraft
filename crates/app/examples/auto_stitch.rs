@@ -74,13 +74,13 @@ fn main() -> Result<(), String> {
     // Along the UV seams of a cube: every face is its own island.
     let cube = subcraft_mesh::primitives::cube(2.0);
     let (mut s, mut pen) = session(&cube, size, &name)?;
-    let made = pen.auto_stitch(&mut s, AutoStitch { along: StitchAlong::Seams, inset }).map_err(err)?;
+    let made = pen.auto_stitch(&mut s, AutoStitch { along: StitchAlong::Seams, inset, ..Default::default() }).map_err(err)?;
     println!("seams: {} paths, {} left out", made.paths, made.skipped);
     render(&mut s, &cube, Vec3::new(1.0, 0.85, 1.25).normalize() * 4.6, &format!("{prefix}_seams.png"))?;
 
     // One row right on every seam, with a stitch tile if one was asked for.
     let (mut s, mut pen) = session(&cube, size, &name)?;
-    let made = pen.auto_stitch(&mut s, AutoStitch { along: StitchAlong::Seams, inset: 0.0 }).map_err(err)?;
+    let made = pen.auto_stitch(&mut s, AutoStitch { along: StitchAlong::Seams, inset: 0.0, ..Default::default() }).map_err(err)?;
     println!("on the seams: {} paths, {} left out", made.paths, made.skipped);
     render(&mut s, &cube, Vec3::new(1.0, 0.85, 1.25).normalize() * 4.6, &format!("{prefix}_on_seams.png"))?;
 
@@ -99,7 +99,7 @@ fn main() -> Result<(), String> {
     }).collect();
     s.execute(Command::AddMaskEffect { layer: patch, kind: MaskEffectKind::Paint { image: TiledImage::from_dense(size, size, 2, [0.0; 4], &shape) } }).map_err(err)?;
     s.execute(Command::SelectLayer(Some(patch))).map_err(err)?;
-    let made = pen.auto_stitch(&mut s, AutoStitch { along: StitchAlong::MaskEdge, inset }).map_err(err)?;
+    let made = pen.auto_stitch(&mut s, AutoStitch { along: StitchAlong::MaskEdge, inset, ..Default::default() }).map_err(err)?;
     println!("mask edge: {} paths, {} left out", made.paths, made.skipped);
     render(&mut s, &plane, Vec3::new(0.0, 3.2, 0.9), &format!("{prefix}_mask.png"))
 }

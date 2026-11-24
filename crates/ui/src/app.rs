@@ -1767,7 +1767,7 @@ impl SubcraftApp {
                 (Tool::Smudge, icons::DROP, tip(km, "Smudge: drag the paint under the brush along the stroke", Action::SmudgeTool)),
                 (Tool::Projection, icons::IMAGE, tip(km, "Projection: paint the brush material cast from the view and tiled over it", Action::ProjectionTool)),
                 (Tool::Eyedropper, icons::CURSOR, tip(km, "Eyedropper: picks the channels the brush paints (Shift+click picks the whole material). Chosen from a painting tool, it goes back to it after one pick", Action::EyedropperTool)),
-                (Tool::Pen, icons::CURVE, tip(km, "Pen paths: click points, drag for curves; edit anchors and handles in 2D View", Action::PenTool)),
+                (Tool::Pen, icons::CURVE, tip(km, "Pen paths: click points, drag for curves; edit anchors and handles in 2D View. For stitches use the Stitches button below", Action::PenTool)),
                 (Tool::Shape, icons::SQUARES, tip(km, "Shape fill: drag a rectangle or ellipse to fill it with the brush material (Shift: square / circle, Ctrl: from the centre)", Action::ShapeTool)),
             ] {
                 if tool_button(ui, icon, *tool == t, &tip).clicked() {
@@ -1777,7 +1777,7 @@ impl SubcraftApp {
             }
             // Stitches: the Pen with a stitch chosen, one click from any tool.
             let stitching = self.state.tool == Tool::Pen && self.state.pen.style.is_some();
-            if crate::pen::stitch_tool_button(ui, stitching, "Stitches: click points on the model to sew a line of stitches along them (drag for a curve, Enter finishes). Pick the stitch in Properties").clicked() {
+            if crate::pen::stitch_tool_button(ui, stitching, "Stitches: click points on the model to sew a line of stitches along them (drag for a curve, Enter finishes). Pick the stitch in Properties, or use the Auto Stitcher there to place rows along UV seams or a mask edge. Also in Edit > Stitches").clicked() {
                 let now = ui.input(|i| i.time);
                 crate::pen::start_stitching(&mut self.state, now);
             }
@@ -2002,6 +2002,7 @@ impl SubcraftApp {
                         ui.close();
                     }
                 });
+                ui.menu_button(format!("{}   Stitches", icons::CURVE), |ui| crate::pen::stitch_menu(&mut self.state, ui, now));
                 ui.separator();
                 if item(ui, icons::MAGIC_WAND, tr("Bake mesh maps…"), &sc(km, Action::Bake)) {
                     ui.close();
@@ -2178,6 +2179,7 @@ impl SubcraftApp {
                 if item(ui, icons::CURSOR, tr("Quick start"), "") { self.state.welcome.guide = Some(0); self.state.welcome.open = false; ui.close(); }
                 link(ui, tr("Release notes"), HELP_RELEASE_NOTES);
                 link(ui, tr("Documentation"), HELP_DOCUMENTATION);
+                link(ui, "Stitches guide", crate::pen::STITCH_GUIDE);
                 if item(ui, icons::KEYBOARD, tr("Keyboard shortcuts"), "") {
                     self.state.show_shortcuts = true;
                     ui.close();
