@@ -810,6 +810,15 @@ impl UiState {
 
     /// Apply finished graph-layer renders (call once per frame).
     pub fn poll_graph_layers(&mut self, now: f64) {
+        // After a bake (not while it installs maps one by one), re-render the graph layers
+        // that read the new maps.
+        if self.bake.job.is_none() {
+            match self.graph_layers.refresh_baked(&self.session) {
+                Ok(0) => {}
+                Ok(n) => self.set_status(format!("Re-rendering {n} material graph layer{} for the new bake…", if n == 1 { "" } else { "s" }), now),
+                Err(e) => self.set_status(format!("Material graph: {e}"), now),
+            }
+        }
         for event in self.graph_layers.poll(&mut self.session) {
             use subcraft_app::graph_layer::GraphEvent;
             match event {
@@ -862,6 +871,8 @@ impl UiState {
         session.brush.material = self.session.brush.material.clone();
         self.camera = OrbitCamera::framing_with(&session.scene().mesh.bounds, self.camera_view.as_ref());
         self.session = session;
+        // Renders and baked-map notes of the old project must not land on the new one.
+        self.graph_layers = subcraft_app::graph_layer::GraphLayers::new();
         self.display_loaded = false;
         self.view_loaded = false;
         self.welcome.open = false;

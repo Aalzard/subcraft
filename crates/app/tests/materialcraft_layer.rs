@@ -218,3 +218,38 @@ fn graph_parameters_drive_every_udim_tile() {
         assert!(close(texel(&s, &l, ChannelKind::BaseColor)[0], 0.6), "one undo step restores every tile");
     }
 }
+
+#[test]
+fn a_new_bake_re_renders_only_layers_that_read_it() {
+    use subcraft_core::MeshMapKind;
+    use subcraft_image::TiledImage;
+
+    let mut s = session();
+    let mut graphs = GraphLayers::new();
+    let reads = import(&mut s, &mut graphs, INPUT_FIXTURE);
+    import(&mut s, &mut graphs, FIXTURE);
+    assert_eq!(graphs.refresh_baked(&s), Ok(0), "the first call only notes the maps");
+
+    let ts = s.selection().texture_set;
+    let res = 64u32;
+    let mut curvature = TiledImage::new(res, res, 1, [0.0; 4]);
+    for y in 0..res {
+        for x in 0..res {
+            curvature.set(x, y, [x as f32 / (res - 1) as f32, 0.0, 0.0, 0.0]);
+        }
+    }
+    s.set_mesh_maps(ts, std::collections::BTreeMap::from([(MeshMapKind::Curvature, curvature)]));
+    assert_eq!(graphs.refresh_baked(&s), Ok(1), "only the layer with a curvature input re-renders");
+    let events = graphs.finish(&mut s);
+    assert!(matches!(events.as_slice(), [subcraft_app::graph_layer::GraphEvent::Applied(_)]), "{events:?}");
+    let layer = s.document().texture_sets.iter().find_map(|t| t.find(reads.id)).expect("layer").clone();
+    let row = bitmap_row(&s, &layer, ChannelKind::Roughness);
+    assert!(row[0] < 0.05 && row[row.len() - 1] > 0.95, "roughness follows the new bake without touching a control");
+    assert_eq!(layer.graph, reads.graph, "the layer keeps its values");
+
+    // Nothing new: nothing renders. A map no graph reads: nothing renders either.
+    assert_eq!(graphs.refresh_baked(&s), Ok(0));
+    s.set_mesh_maps(ts, std::collections::BTreeMap::from([(MeshMapKind::Thickness, TiledImage::new(res, res, 1, [0.5, 0.0, 0.0, 0.0]))]));
+    assert_eq!(graphs.refresh_baked(&s), Ok(0));
+    assert!(!graphs.busy());
+}

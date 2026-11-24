@@ -13,9 +13,9 @@ use std::path::Path;
 use std::sync::mpsc::{Receiver, TryRecvError, channel};
 use std::sync::{Arc, Mutex};
 
-use subcraft_core::{ChannelKind, LayerId, ResourceId, TextureSetId};
+use subcraft_core::{ChannelKind, LayerId, MeshMapKind, ResourceId, TextureSetId};
 use subcraft_doc::{FillChannel, FillSource, GraphEngine, GraphMaterial, GraphParam, Layer, LayerContent, Resource, ResourceKind};
-use subcraft_image::Bitmap;
+use subcraft_image::{Bitmap, StorageToken};
 use subcraft_materials::MeshMaps;
 
 use crate::{Command, Session};
@@ -34,6 +34,8 @@ pub struct GraphDesc {
     pub channels: Vec<ChannelKind>,
     /// Things the user should know (unconnected image inputs, ...).
     pub notes: Vec<String>,
+    /// Baked mesh maps the graph reads; a new bake of one re-renders its layers.
+    pub mesh_inputs: Vec<MeshMapKind>,
 }
 
 /// A rendered channel image. Keeps encoded values: Base Color and Emissive sRGB-encoded (like
@@ -97,6 +99,7 @@ impl SbsarBackend {
                 params: g.params.clone(),
                 channels: g.channels.clone(),
                 notes: if g.image_inputs.is_empty() { Vec::new() } else { vec![format!("image inputs not connected yet: {}", g.image_inputs.join(", "))] },
+                mesh_inputs: Vec::new(),
             })
             .collect();
         Ok(SbsarBackend { package, graphs, renderers: HashMap::new() })
@@ -134,6 +137,8 @@ enum Target {
 struct Running {
     target: Target,
     material: GraphMaterial,
+    /// Started by a new bake, not by the user (names the undo step).
+    refresh: bool,
     rx: Receiver<Result<Vec<RenderedMap>, String>>,
 }
 
@@ -153,6 +158,10 @@ pub struct GraphLayers {
     running: Vec<Running>,
     /// Newest request per layer that waits for that layer's running render.
     queued: HashMap<LayerId, GraphMaterial>,
+    /// Baked maps per texture set at the last [`Self::refresh_baked`], and the session's
+    /// maps generation then.
+    baked: HashMap<TextureSetId, BTreeMap<MeshMapKind, StorageToken>>,
+    baked_generation: Option<u64>,
 }
 
 impl GraphLayers {
@@ -246,7 +255,7 @@ impl GraphLayers {
         let material = GraphMaterial::new(engine, id, graph.graph.clone(), subcraft_sbsar::DEFAULT_SIZE_LOG2);
         let texture_set = session.selection().texture_set;
         let maps = session.mesh_maps(texture_set).cloned().unwrap_or_default();
-        self.spawn(shared, Target::New { texture_set, name: graph.label.clone() }, material, maps);
+        self.spawn(shared, Target::New { texture_set, name: graph.label.clone() }, material, maps, false);
         let mut msg = format!("Rendering {} ({})…", graph.label, engine.label());
         for n in &graph.notes {
             msg.push_str(&format!(" Note: {n}."));
@@ -257,17 +266,75 @@ impl GraphLayers {
     /// Render `layer` again with `material` (new values or size). The layer changes when the
     /// render is done.
     pub fn request(&mut self, session: &Session, layer: LayerId, material: GraphMaterial) -> Result<(), String> {
+        self.request_as(session, layer, material, false)
+    }
+
+    fn request_as(&mut self, session: &Session, layer: LayerId, material: GraphMaterial, refresh: bool) -> Result<(), String> {
         if self.running.iter().any(|r| matches!(r.target, Target::Update { layer: l } if l == layer)) {
             self.queued.insert(layer, material);
             return Ok(());
         }
         let backend = self.backend(session, material.engine, material.package)?;
         let maps = find_layer(session, layer).and_then(|(ts, _)| session.mesh_maps(ts).cloned()).unwrap_or_default();
-        self.spawn(backend, Target::Update { layer }, material, maps);
+        self.spawn(backend, Target::Update { layer }, material, maps, refresh);
         Ok(())
     }
 
-    fn spawn(&mut self, backend: SharedBackend, target: Target, material: GraphMaterial, maps: MeshMaps) {
+    /// Re-render the graph layers whose baked inputs changed since the last call (a new bake,
+    /// an imported map), with each layer's current values. Call it when no bake is running, so
+    /// a bake that installs its maps one by one renders each layer once. The first call only
+    /// takes note of the maps. Returns how many layers started rendering.
+    pub fn refresh_baked(&mut self, session: &Session) -> Result<usize, String> {
+        let generation = session.maps_generation();
+        if self.baked_generation == Some(generation) {
+            return Ok(0);
+        }
+        self.baked_generation = Some(generation);
+        let mut stale: Vec<(LayerId, GraphMaterial, Vec<MeshMapKind>)> = Vec::new();
+        let mut now_baked = HashMap::new();
+        for ts in &session.document().texture_sets {
+            let maps = session.mesh_maps(ts.id);
+            let now: BTreeMap<MeshMapKind, StorageToken> = maps.map(|m| m.as_map().iter().map(|(k, image)| (*k, image.storage_token())).collect()).unwrap_or_default();
+            // A texture set seen for the first time has nothing to compare with.
+            if let Some(before) = self.baked.get(&ts.id) {
+                let image = |k: &MeshMapKind| maps.and_then(|m| m.get(*k));
+                let mut changed: Vec<MeshMapKind> = before.iter().filter(|(k, token)| !image(k).is_some_and(|i| token.matches(i))).map(|(k, _)| *k).collect();
+                changed.extend(now.keys().filter(|k| !before.contains_key(k)));
+                if !changed.is_empty() {
+                    ts.walk(|layer, _| {
+                        if let Some(material) = layer.graph.as_deref() {
+                            stale.push((layer.id, self.shown_material(layer).unwrap_or_else(|| material.clone()), changed.clone()));
+                        }
+                    });
+                }
+            }
+            now_baked.insert(ts.id, now);
+        }
+        self.baked = now_baked;
+        let mut started = 0;
+        let mut errors = Vec::new();
+        for (layer, material, changed) in stale {
+            let reads = match self.graph(session, &material) {
+                Ok(desc) => desc.mesh_inputs.iter().any(|k| changed.contains(k)),
+                Err(e) => {
+                    errors.push(e);
+                    continue;
+                }
+            };
+            if reads {
+                match self.request_as(session, layer, material, true) {
+                    Ok(()) => started += 1,
+                    Err(e) => errors.push(e),
+                }
+            }
+        }
+        match errors.into_iter().next() {
+            Some(e) if started == 0 => Err(e),
+            _ => Ok(started),
+        }
+    }
+
+    fn spawn(&mut self, backend: SharedBackend, target: Target, material: GraphMaterial, maps: MeshMaps, refresh: bool) {
         let (tx, rx) = channel();
         let m = material.clone();
         let spawned = std::thread::Builder::new().name("graph-render".into()).spawn(move || {
@@ -283,10 +350,10 @@ impl GraphLayers {
         if let Err(e) = spawned {
             let (tx, rx) = channel();
             let _ = tx.send(Err(format!("could not start the render: {e}")));
-            self.running.push(Running { target, material, rx });
+            self.running.push(Running { target, material, refresh, rx });
             return;
         }
-        self.running.push(Running { target, material, rx });
+        self.running.push(Running { target, material, refresh, rx });
     }
 
     /// Apply finished renders and start waiting ones (call once a frame).
@@ -303,7 +370,7 @@ impl GraphLayers {
                 Err(TryRecvError::Disconnected) => Err("the render stopped without a result".into()),
             };
             let done = self.running.remove(i);
-            events.push(match result.and_then(|maps| apply(session, &done.target, &done.material, maps)) {
+            events.push(match result.and_then(|maps| apply(session, &done.target, &done.material, done.refresh, maps)) {
                 Ok(text) => GraphEvent::Applied(text),
                 Err(e) => GraphEvent::Failed(e),
             });
@@ -383,7 +450,7 @@ fn fill_with_ids(layer: &mut Layer, material: &GraphMaterial, ids: &BTreeMap<Cha
     layer.graph = Some(Arc::new(material.clone()));
 }
 
-fn apply(session: &mut Session, target: &Target, material: &GraphMaterial, maps: Vec<RenderedMap>) -> Result<String, String> {
+fn apply(session: &mut Session, target: &Target, material: &GraphMaterial, refresh: bool, maps: Vec<RenderedMap>) -> Result<String, String> {
     if maps.is_empty() {
         return Err("the render produced no image".into());
     }
@@ -414,7 +481,7 @@ fn apply(session: &mut Session, target: &Target, material: &GraphMaterial, maps:
             }
             let ids = add_maps(session, material, maps);
             fill_with_ids(&mut l, material, &ids);
-            let label = format!("Material Parameters: {}", l.name);
+            let label = if refresh { format!("Refresh After Bake: {}", l.name) } else { format!("Material Parameters: {}", l.name) };
             let name = l.name.clone();
             // Paint across UDIM tiles (issue #581): the graph layer was added on every tile of
             // the group, so the new parameters drive every tile's copy (the maps are UV-free).
@@ -437,7 +504,7 @@ fn apply(session: &mut Session, target: &Target, material: &GraphMaterial, maps:
                 })
                 .unwrap_or_default();
             session.execute_with_partner_commands(Command::ReplaceLayer { layer: *layer, replacement: Box::new(l), label }, partners).map_err(|e| e.to_string())?;
-            Ok(format!("Updated {name}"))
+            Ok(if refresh { format!("Updated {name} for the new bake") } else { format!("Updated {name}") })
         }
     }
 }
