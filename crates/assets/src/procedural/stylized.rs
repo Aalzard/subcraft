@@ -6,13 +6,26 @@
 
 use super::weathered::{built_coat, filter};
 use super::*;
-use subcraft_doc::{FilterSetting as S, MaskBuilder, MaterialFilter};
+use subcraft_doc::{ContentEffect, ContentEffectKind, Filter, FilterSetting as S, MaskBuilder, MaterialFilter};
+
+/// The stylization filters every stylized material carries, switched off: parameter id, label,
+/// tooltip and the filter at its defaults.
+fn styles() -> [(&'static str, &'static str, &'static str, Filter); 3] {
+    [
+        ("comic", "Comic Book", "Flat tones and dark ink borders over the Base Color (slow: a few seconds per texture)", Filter::ComicBook { tones: 4, paint: 5.0, color_intensity: 1.3, border_opacity: 0.85, border_tolerance: 0.5, border_smoothness: 0.5, border_width: 1.0, input_contrast: 0.0, input_luminosity: 0.0 }),
+        ("watercolor", "Watercolor", "Soft washes with darker rims and paper showing through (slow: a few seconds per texture)", Filter::Watercolor { paint_opacity: 0.9, paper_absorption: 0.5, borders_spread: 4.0, borders_density: 0.5, bleed: 5.0, hide_paper: false, seed: 1 }),
+        ("oil", "Oil Paint", "Thick brush strokes with bristle marks over the Base Color", Filter::OilPaint { effect_intensity: 1.0, stroke_size: 10.0, stroke_length: 3.0, size_random: 0.3, color_random: 0.15, bristles: 0.4, angle: 0.125, seed: 1 }),
+    ]
+}
 
 /// The three sliders every stylized material ends with.
 fn paint_params(r: &mut Recipe, highlight: f32, shade: f32, light: f32) {
     r.param(unit("highlight", "Edge highlight", highlight).group("Painting").tip("A light line painted along the edges and corners (reads the baked curvature)"));
     r.param(unit("shade", "Cavity shade", shade).group("Painting").tip("A dark tint painted into creases and corners (reads the baked ambient occlusion)"));
     r.param(unit("light", "Baked light", light).group("Painting").tip("Sun from above and a cool sky painted into the Base Color; 0 leaves the colours unlit for a lit engine"));
+    for (id, label, tip, _) in styles() {
+        r.param(Param::toggle(id, label, false).group("Style").tip(tip));
+    }
     r.pattern_params();
 }
 
@@ -50,19 +63,28 @@ fn painted(mut r: Recipe, ts: &TextureSet, name: &str, layers: Vec<Layer>, seed:
     r.drive(&surface, lit, S::SkyColor, "mix(rgb(1, 1, 1), rgb(0.78, 0.88, 1), light)");
     r.drive(&surface, lit, S::GroundColor, "mix(rgb(1, 1, 1), rgb(0.42, 0.34, 0.3), light)");
     r.drive(&surface, lit, S::AmbientOcclusion, "light * 0.8");
+    // The styles come last, over the lit colours. Hidden filters cost nothing.
+    for (id, _, _, style) in styles() {
+        let mut effect = ContentEffect::new(ContentEffectKind::Filter { channel: BaseColor, filter: style }, ts);
+        effect.visible = false;
+        r.bindings.push(Binding::effect(surface.id, effect.id, Prop::Visible, id));
+        surface.content_effects.push(Arc::new(effect));
+    }
     r.finish(surface)
 }
 
 fn stylized_metal(ts: &TextureSet) -> Layer {
-    metal(ts, "Stylized Metal", [0.34, 0.42, 0.55], 0.42, "A cool steel by default; try a brown for bronze", 0)
+    metal(ts, "Stylized Metal", [0.34, 0.42, 0.55], 0.42, "A cool steel by default; try a brown for bronze", "color * 0.45", 0)
 }
 
 fn stylized_gold(ts: &TextureSet) -> Layer {
-    metal(ts, "Stylized Gold", [0.95, 0.6, 0.12], 0.3, "A rich yellow gold by default; paler for brass", 40)
+    metal(ts, "Stylized Gold", [0.95, 0.6, 0.12], 0.3, "A rich yellow gold by default; paler for brass", "mix(color, rgb(0.6, 0.2, 0.03), 0.7)", 40)
 }
 
-/// A painted metal: `k` shifts the seeds, so two metals do not share their strokes.
-fn metal(ts: &TextureSet, name: &str, tint: [f32; 3], rough: f32, tip: &str, k: u32) -> Layer {
+/// A painted metal. `shadow` is the colour of the dark patches (a plain darker `color` turns a
+/// yellow into a muddy olive, so gold shades towards orange). `k` shifts the seeds, so two
+/// metals do not share their strokes.
+fn metal(ts: &TextureSet, name: &str, tint: [f32; 3], rough: f32, tip: &str, shadow: &str, k: u32) -> Layer {
     let mut r = Recipe::default();
     r.param(color("color", "Color", tint).group("Metal").tip(tip));
     r.param(unit("roughness", "Roughness", rough).group("Metal"));
@@ -92,7 +114,7 @@ fn metal(ts: &TextureSet, name: &str, tint: [f32; 3], rough: f32, tip: &str, k: 
     r.follow_pattern(&strokes);
 
     let dents = masked(coat(ts, "Dark Patches", [0.2, 0.22, 0.26], 0.5, 1.0), ts, vec![fx(pattern(ProceduralKind::Clouds, 2.4, 805 + k, 0.56, 0.9))]);
-    r.value(&dents, BaseColor, "color * 0.45");
+    r.value(&dents, BaseColor, shadow);
     r.value(&dents, Roughness, "clamp(roughness + 0.1, 0.02, 1)");
     r.value(&dents, Metallic, "metallic");
     r.bind(&dents, Prop::Opacity { channel: None }, "variation * 1.3");

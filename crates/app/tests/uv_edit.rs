@@ -121,3 +121,70 @@ fn every_island_can_move_together_and_bad_edits_are_refused() {
     let worst = worst_error(&s);
     assert!(worst < 0.05, "largest color error {worst} after the edit");
 }
+
+/// The edited layout is what the project file keeps: after save and reopen, the UVs are the edited
+/// ones and the paint still sits on the surface (the remembered model file is the original one).
+#[test]
+fn an_island_edit_survives_save_and_reopen() {
+    let mut s = painted_cube();
+    let islands = s.uv_islands();
+    let first = *s.uv_islands_of_texture_set(&islands).iter().next().unwrap();
+    s.edit_uv_islands(BTreeSet::from([first]), UvTransform { rotation_deg: 90.0, scale: Vec2::splat(0.7), pivot: UvPivot::EachIsland, ..Default::default() }).unwrap();
+    let edited = s.scene().mesh.clone();
+    let dir = std::env::temp_dir().join(format!("subcraft-uv-edit-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("edited.subcraft");
+    s.save(Some(&path)).unwrap();
+    let reopened = Session::open_project(&path).unwrap();
+    let mesh = reopened.scene().mesh.clone();
+    assert_eq!(mesh.triangle_count(), edited.triangle_count());
+    for tri in 0..mesh.triangle_count() {
+        assert!(mesh.tri_uvs(tri).iter().zip(edited.tri_uvs(tri)).all(|(a, b)| (*a - b).length() < 1e-5), "triangle {tri} lost its edited UVs");
+    }
+    let worst = worst_error(&reopened);
+    assert!(worst < 0.05, "largest color error {worst} after reopening");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// Two quads on UDIM tiles 1001 and 1002 of one material, "paint across UDIM tiles" on.
+fn udim_strip() -> Session {
+    let mut b = subcraft_mesh::MeshBuilder::new("Strip");
+    let m = b.material("Body");
+    for (i, shift) in [Vec2::ZERO, Vec2::new(1.0, 0.0)].into_iter().enumerate() {
+        let origin = Vec3::new(i as f32, 0.0, 0.0);
+        let c = |x: f32, z: f32| subcraft_mesh::Corner { position: origin + Vec3::new(x, 0.0, z), normal: Some(Vec3::Y), uv: Some(shift + Vec2::new(x, z) * 0.9 + Vec2::splat(0.05)) };
+        b.push_triangle(m, [c(0.0, 0.0), c(0.0, 1.0), c(1.0, 1.0)]);
+        b.push_triangle(m, [c(0.0, 0.0), c(1.0, 1.0), c(1.0, 0.0)]);
+    }
+    let settings = subcraft_app::new_project::NewProjectSettings { resolution: 128, ..Default::default() };
+    let mut s = Session::from_mesh_with(b.build().unwrap(), &settings).unwrap();
+    let first = s.document().texture_sets[0].id;
+    s.execute(Command::SetPaintAcrossUdims { texture_set: first, on: true }).unwrap();
+    s
+}
+
+/// QA fuzz (UDIM walk): editing an island of a UDIM project dropped every set's UDIM tile while
+/// "paint across UDIM tiles" stayed on, so the tiles stopped moving together and the option was
+/// lost on save + open.
+#[test]
+fn editing_an_island_of_a_udim_project_keeps_the_tiles_and_their_grouping() {
+    let mut s = udim_strip();
+    let tiles = |s: &Session| s.document().texture_sets.iter().map(|t| (t.name.clone(), t.udim_tile, t.paint_across_udims)).collect::<Vec<_>>();
+    let before = tiles(&s);
+    assert!(before.iter().all(|t| t.1.is_some() && t.2), "{before:?}");
+    let islands = s.uv_islands();
+    let mine = s.uv_islands_of_texture_set(&islands);
+    let one: BTreeSet<u32> = mine.iter().take(1).copied().collect();
+    s.edit_uv_islands(one, UvTransform { rotation_deg: 90.0, ..Default::default() }).unwrap();
+    let after = tiles(&s);
+    assert_eq!(after, before, "the island stayed on its tile: same sets, tiles and grouping");
+    let partners = s.udim_paint_partners();
+    assert_eq!(partners.len(), 1, "the other tile still paints together with the selected one");
+    let dir = std::env::temp_dir().join(format!("subcraft-uv-edit-udim-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("udim.subcraft");
+    s.save(Some(&path)).unwrap();
+    let reopened = Session::open_project(&path).unwrap();
+    assert_eq!(reopened.document(), s.document(), "save + open keeps the document");
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -205,7 +205,7 @@ Layout notes: Downward streaks from curvature and occlusion along one Position a
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Dripping Rust (generator) | Properties > Generator | used on: mask or fill | partial: `DrippingRust` kind; rust on mesh edges, baked convex curvature and occlusion, streaks carried down the surface in texture space (stop at UV seams); look not checked against Painter | crates/doc/src/mask.rs (DripSettings), crates/compositor/src/drip.rs | 2026-11-23 |
+| Dripping Rust (generator) | Properties > Generator | used on: mask or fill | partial: `DrippingRust` kind; rust on mesh edges, baked convex curvature and occlusion, streaks carried down the surface in texture space, across UV seams where the islands meet in space; look not checked against Painter | crates/doc/src/mask.rs (DripSettings), crates/compositor/src/drip.rs | 2026-11-23 |
 | Curvature | Properties > Generator > Image inputs | grayscale; baked map | partial: reads the baked Curvature when there is one; no slot to replace it | crates/compositor/src/drip.rs | 2026-11-23 |
 | Ambient occlusion | Properties > Generator > Image inputs | grayscale; baked map | partial: reads the baked Ambient Occlusion when there is one; no slot to replace it | crates/compositor/src/drip.rs | 2026-11-23 |
 | Position | Properties > Generator > Image inputs | colour; baked map | different: uses the mesh's own positions, no baked Position map needed | crates/compositor/src/drip.rs | 2026-11-23 |
