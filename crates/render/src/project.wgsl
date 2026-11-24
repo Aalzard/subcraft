@@ -4,6 +4,9 @@
 // only triangles the ray hits from the front (Ignore backface). Helpers and bindings are in
 // ray_common.wgsl. Output per texel: (t, u, v, leaf index as an exact float), t = -1 on a miss.
 
+// Part group of each triangle (leaf order); read only for rays with a group (w of the direction row).
+@group(0) @binding(5) var<storage, read> tri_group: array<u32>;
+
 // Moller-Trumbore keeping u, v; `front_only` rejects back faces (det <= 0), exactly where the CPU
 // test `dot(geometric_normal, dir) < 0` fails. vec4(t, u, v, 1) or t = -1.
 fn tri_hit_uv(ti: u32, o: vec3<f32>, d: vec3<f32>, t_max: f32, front_only: bool) -> vec4<f32> {
@@ -35,7 +38,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
     let t0 = texels[i * 3u];
     let o = t0.xyz;
     let reach = t0.w;
-    let d = texels[i * 3u + 1u].xyz;
+    let t1 = texels[i * 3u + 1u];
+    let d = t1.xyz;
+    let group = i32(t1.w);  // part group as an exact float, -1 = every triangle
     let front_only = params.mode == 1u;
 
     let inv = safe_inv(d);
@@ -53,6 +58,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
         if (slab(bitcast<vec3<f32>>(a.xyz), bitcast<vec3<f32>>(b.xyz), o, inv, t_best) < 0.0) { continue; }
         if (count > 0u) {
             for (var j = 0u; j < count; j = j + 1u) {
+                if (group >= 0 && tri_group[a.w + j] != u32(group)) { continue; }
                 let h = tri_hit_uv(a.w + j, o, d, t_best, front_only);
                 if (h.x >= 0.0) {
                     t_best = h.x;

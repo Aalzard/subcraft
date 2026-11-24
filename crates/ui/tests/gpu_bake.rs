@@ -11,7 +11,7 @@ use subcraft_bake::surface::texels;
 use subcraft_bake::{BakeInput, BakeSettings, Geometry, Progress, bake_streamed_with};
 use subcraft_core::MeshMapKind;
 use subcraft_image::TiledImage;
-use subcraft_mesh::ray_batch::{BatchControl, RayBatchBackend, RayBatchError, RayMode, RayTexel};
+use subcraft_mesh::ray_batch::{BatchControl, NO_GROUP, RayBatchBackend, RayBatchError, RayMode, RayTexel};
 use subcraft_mesh::{Bvh, Mesh, primitives};
 use subcraft_render::ray_bake::create_backend;
 
@@ -166,7 +166,7 @@ fn gpu_cancel_stops_between_chunks_and_progress_is_monotonic() {
     let Some(gpu) = backend() else { return };
     let mesh = primitives::torus(1.0, 0.35, 48, 24);
     let bvh = Bvh::build(&mesh);
-    let record = |i: usize| RayTexel { origin: [0.0, 0.0, 2.0 + (i % 7) as f32 * 0.01], rotation: 0.3, axis: [0.0, 0.0, -1.0], offset: [0.0, 0.0, -1.0] };
+    let record = |i: usize| RayTexel { origin: [0.0, 0.0, 2.0 + (i % 7) as f32 * 0.01], rotation: 0.3, axis: [0.0, 0.0, -1.0], offset: [0.0, 0.0, -1.0], group: NO_GROUP };
     // Complete run: one value per texel and progress never goes backwards.
     struct Monitor(std::sync::Mutex<Vec<f32>>);
     impl BatchControl for Monitor {
@@ -178,12 +178,12 @@ fn gpu_cancel_stops_between_chunks_and_progress_is_monotonic() {
         }
     }
     let m = Monitor(Default::default());
-    let out = gpu.run(&bvh, 150_000, &record, 8, RayMode::Occlusion { distance: 10.0 }, &m).expect("run");
+    let out = gpu.run(&bvh, None, 150_000, &record, 8, RayMode::Occlusion { distance: 10.0 }, &m).expect("run");
     assert_eq!(out.len(), 150_000);
     let seen = m.0.lock().unwrap().clone();
     assert!(seen.windows(2).all(|w| w[1] >= w[0]) && (seen.last().unwrap() - 1.0).abs() < 1e-5, "{seen:?}");
     // Cancelled after the first dispatch.
-    let r = gpu.run(&bvh, 150_000, &record, 8, RayMode::Occlusion { distance: 10.0 }, &CancelAfter(Default::default()));
+    let r = gpu.run(&bvh, None, 150_000, &record, 8, RayMode::Occlusion { distance: 10.0 }, &CancelAfter(Default::default()));
     assert_eq!(r.unwrap_err(), RayBatchError::Cancelled);
 }
 
@@ -193,10 +193,10 @@ fn gpu_refuses_a_mesh_that_does_not_fit_instead_of_panicking() {
     let Some(gpu) = backend() else { return };
     // An empty BVH has nothing to hit: AO 1, thickness 0, without touching the GPU.
     let bvh = Bvh::default();
-    let record = |_: usize| RayTexel { origin: [0.0; 3], rotation: 0.0, axis: [0.0, 1.0, 0.0], offset: [0.0, 1.0, 0.0] };
-    let ao = gpu.run(&bvh, 3, &record, 4, RayMode::Occlusion { distance: 1.0 }, &NoControl).unwrap();
+    let record = |_: usize| RayTexel { origin: [0.0; 3], rotation: 0.0, axis: [0.0, 1.0, 0.0], offset: [0.0, 1.0, 0.0], group: NO_GROUP };
+    let ao = gpu.run(&bvh, None, 3, &record, 4, RayMode::Occlusion { distance: 1.0 }, &NoControl).unwrap();
     assert_eq!(ao, [1.0; 3]);
-    let thick = gpu.run(&bvh, 3, &record, 4, RayMode::MeanDistance { max: 1.0 }, &NoControl).unwrap();
+    let thick = gpu.run(&bvh, None, 3, &record, 4, RayMode::MeanDistance { max: 1.0 }, &NoControl).unwrap();
     assert_eq!(thick, [0.0; 3]);
 }
 
@@ -304,11 +304,11 @@ fn gpu_projection_hits_match_the_bvh() {
         let target = glam::Vec3::new((f * 0.37).sin(), (f * 0.53).cos(), (f * 0.71).sin()) * 0.8;
         // Every other ray starts inside the crate and looks out: it only meets back faces.
         let (origin, dir) = if i % 2 == 1 { (target * 0.5, (origin - target).normalize()) } else { (origin, (target - origin).normalize()) };
-        ProjectionRay { origin: origin.to_array(), dir: dir.to_array(), reach: 2.0 + (i % 5) as f32 * 0.5 }
+        ProjectionRay { origin: origin.to_array(), dir: dir.to_array(), reach: 2.0 + (i % 5) as f32 * 0.5, group: NO_GROUP }
     };
     let mut counts = Vec::new();
     for front_only in [false, true] {
-        let hits = gpu.project(&bvh, n, &ray, front_only, &NoControl).expect("project");
+        let hits = gpu.project(&bvh, None, n, &ray, front_only, &NoControl).expect("project");
         assert_eq!(hits.len(), n);
         let (mut agree, mut hit_count) = (0usize, 0usize);
         for (i, h) in hits.iter().enumerate() {
@@ -331,5 +331,65 @@ fn gpu_projection_hits_match_the_bvh() {
     }
     assert!(counts[1] < counts[0], "front only must skip the back faces the inside rays meet: {counts:?}");
     // Empty tree: every ray misses without touching the GPU.
-    assert_eq!(gpu.project(&Bvh::default(), 3, &ray, false, &NoControl).unwrap(), vec![None; 3]);
+    assert_eq!(gpu.project(&Bvh::default(), None, 3, &ray, false, &NoControl).unwrap(), vec![None; 3]);
+}
+
+/// Low parts A (x < 0) and B (x > 0); B's high part overhangs A with a sloped plate just above A's
+/// cage, so without name matching A's rays meet B's plate first.
+fn overlapping_parts() -> (Mesh, Mesh) {
+    use glam::{Vec2, Vec3};
+    use subcraft_mesh::{Corner, MeshBuilder};
+    fn quad(b: &mut MeshBuilder, mat: u32, x: (f32, f32), z: (f32, f32), y: impl Fn(f32) -> f32, uv: (f32, f32)) {
+        let c = |px: f32, pz: f32| {
+            let u = uv.0 + (uv.1 - uv.0) * (px - x.0) / (x.1 - x.0);
+            let v = 0.02 + 0.96 * (pz - z.0) / (z.1 - z.0);
+            Corner { position: Vec3::new(px, y(px), pz), normal: None, uv: Some(Vec2::new(u, v)) }
+        };
+        b.push_triangle(mat, [c(x.0, z.0), c(x.0, z.1), c(x.1, z.1)]);
+        b.push_triangle(mat, [c(x.0, z.0), c(x.1, z.1), c(x.1, z.0)]);
+    }
+    let mut low = MeshBuilder::new("low");
+    let m = low.material("Parts");
+    low.object("PartA_low");
+    quad(&mut low, m, (-2., -0.1), (-1., 1.), |_| 0., (0.02, 0.48));
+    low.object("PartB_low");
+    quad(&mut low, m, (0.1, 2.), (-1., 1.), |_| 0., (0.52, 0.98));
+    let mut high = MeshBuilder::new("high");
+    let m = high.material("Parts");
+    high.object("PartA_high");
+    quad(&mut high, m, (-2., -0.1), (-1., 1.), |_| 0., (0., 1.));
+    high.object("PartB_high");
+    quad(&mut high, m, (0.1, 2.), (-1., 1.), |_| 0., (0., 1.));
+    quad(&mut high, m, (-1.5, -0.5), (-1.2, 1.2), |x| 0.1 + 0.2 * (x + 1.5), (0., 1.));
+    (low.build().unwrap(), high.build_for_baking().unwrap())
+}
+
+#[test]
+fn gpu_bakes_with_name_matching_match_the_cpu() {
+    use subcraft_core::{BakeMatch, BakeMatchMode};
+    let _g = gpu_test();
+    let Some(gpu) = backend() else { return };
+    let (low, high) = overlapping_parts();
+    let (lb, hb) = (Bvh::build(&low), Bvh::build(&high));
+    let input = BakeInput { low: Geometry { mesh: &low, bvh: &lb }, high: Some(Geometry { mesh: &high, bvh: &hb }), material_slot: 0 };
+    let maps = vec![MeshMapKind::Normal, MeshMapKind::Height, MeshMapKind::AmbientOcclusion, MeshMapKind::Thickness, MeshMapKind::BentNormal];
+    let by_name = BakeMatch { mode: BakeMatchMode::ByName, ..BakeMatch::default() };
+    let settings = BakeSettings { size: SIZE, maps: maps.clone(), cage_front: 0.1, cage_rear: 0.05, ao_samples: 32, name_match: by_name, ..BakeSettings::default() };
+    let cpu = bake_streamed_with(&input, &settings, &Progress::new(), None, |_, _| {}).expect("cpu");
+    let progress = Progress::new();
+    let fast = bake_streamed_with(&input, &settings, &progress, Some(gpu.as_ref()), |_, _| {}).expect("gpu");
+    let reports = progress.reports();
+    for r in &reports {
+        let want = if matches!(r.kind, MeshMapKind::AmbientOcclusion | MeshMapKind::Thickness | MeshMapKind::BentNormal) { "GPU" } else { "CPU, projection on GPU" };
+        assert!(r.backend.starts_with(want), "{:?} ran on {}", r.kind, r.backend);
+    }
+    // Without matching the plate bleeds into part A: the comparison would catch a missing filter.
+    let always = BakeSettings { name_match: BakeMatch::default(), ..settings.clone() };
+    let bled = bake_streamed_with(&input, &always, &Progress::new(), Some(gpu.as_ref()), |_, _| {}).expect("always");
+    assert!(compare(&low, &cpu[&MeshMapKind::Height], &bled[&MeshMapKind::Height]).mean > 0.01, "the test parts must overlap");
+    for kind in maps {
+        let s = compare(&low, &cpu[&kind], &fast[&kind]);
+        eprintln!("name matching {}: mean abs error {:.5}, p99 {:.5}", kind.display_name(), s.mean, s.p99);
+        assert!(s.mean <= MEAN_TOL && s.p99 <= P99_TOL, "{}: mean {} p99 {}", kind.display_name(), s.mean, s.p99);
+    }
 }
