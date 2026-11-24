@@ -252,6 +252,30 @@ pub fn editor(ui: &mut Ui, filter: &mut MaterialFilter) -> bool {
             changed |= unit(ui, "Hole size", radius, d_radius);
             changed |= unit(ui, "Hole depth", depth, d_depth);
         }
+        (
+            MaterialFilter::BakedLighting { sun_angle, sun_height, sun_intensity, sun_color, sky_intensity, sky_color, ground_color, ambient_occlusion },
+            MaterialFilter::BakedLighting { sun_angle: d_angle, sun_height: d_height, sun_intensity: d_sun, sun_color: d_sun_c, sky_intensity: d_sky, sky_color: d_sky_c, ground_color: d_ground_c, ambient_occlusion: d_ao },
+        ) => {
+            ui.label(egui::RichText::new("Sun").strong());
+            let mut degrees = *sun_angle * 360.0;
+            if slider_row_reset(ui, "Sun horizontal angle", &mut degrees, d_angle * 360.0, |v| egui::Slider::new(v, 0.0..=360.0).suffix("\u{00b0}")).changed() {
+                *sun_angle = (degrees / 360.0).clamp(0.0, 1.0);
+                changed = true;
+            }
+            let mut degrees = *sun_height * 90.0;
+            if slider_row_reset(ui, "Sun vertical angle", &mut degrees, d_height * 90.0, |v| egui::Slider::new(v, 0.0..=90.0).suffix("\u{00b0}")).changed() {
+                *sun_height = (degrees / 90.0).clamp(0.0, 1.0);
+                changed = true;
+            }
+            changed |= unit(ui, "Sun intensity", sun_intensity, d_sun);
+            changed |= color(ui, "Sun color", sun_color, d_sun_c);
+            ui.label(egui::RichText::new("Sky").strong());
+            changed |= unit(ui, "Sky intensity", sky_intensity, d_sky);
+            changed |= color(ui, "Sky color", sky_color, d_sky_c);
+            changed |= color(ui, "Ground color", ground_color, d_ground_c);
+            ui.label(egui::RichText::new("Material").strong());
+            changed |= unit(ui, "Ambient Occlusion intensity", ambient_occlusion, d_ao);
+        }
         _ => {}
     }
     changed

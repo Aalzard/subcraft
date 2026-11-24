@@ -814,7 +814,7 @@ Layout notes: Lighting group. Paint layer in Passthrough over the stack. Input /
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Baked Lighting Stylized (filter) | Properties > Filter | works on: content (passthrough layer) | missing | - | - |
+| Baked Lighting Stylized (filter) | Properties > Filter | works on: content (passthrough layer) | partial: `MaterialFilter::BakedLighting`: a sun (angles, intensity, colour), sky and ground colours and baked Ambient Occlusion multiplied into the Base Color from the mesh normals; no Light 1 / Light 2, specular, cavity, Input / Output selectors, and the Normal and Height detail of the stack is not lit | crates/doc/src/material_filter.rs, crates/materials/src/matfx.rs | 2026-11-23 |
 | Ambient Occlusion | Properties > Filter > Image inputs | grayscale; baked map | missing | - | - |
 | Curvature | Properties > Filter > Image inputs | grayscale; baked map | missing | - | - |
 | Normal | Properties > Filter > Image inputs | colour; baked map | missing | - | - |

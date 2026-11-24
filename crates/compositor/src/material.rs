@@ -54,7 +54,11 @@ fn occlusion(filter: &MaterialFilter, tc: &TileContext, details: Option<&[[f32; 
     if let MaterialFilter::Hbao { .. } = *filter {
         return details.map(|d| d.iter().map(|d| 1.0 - d[1]).collect());
     }
-    let MaterialFilter::RustWeathering { cavities, .. } = *filter else { return None };
+    let cavities = match *filter {
+        MaterialFilter::RustWeathering { cavities, .. } => cavities,
+        MaterialFilter::BakedLighting { ambient_occlusion, .. } => ambient_occlusion,
+        _ => return None,
+    };
     if cavities <= 0.0 || tc.sample.mesh_maps.get(MeshMapKind::AmbientOcclusion).is_none() {
         return None;
     }
@@ -146,15 +150,17 @@ pub(crate) fn apply(filter: &MaterialFilter, kind: ChannelKind, blend: ChannelBl
     };
     let occluded = occlusion(filter, tc, details);
     let faces = matches!(filter, MaterialFilter::WaterDrops { .. });
+    let lit = matches!(filter, MaterialFilter::BakedLighting { .. });
     for (i, px) in content.iter_mut().enumerate() {
-        let surface = Surface { edge: edges.as_ref().map_or(0.0, |e| e[i]), occlusion: occluded.as_ref().map_or(0.0, |o| o[i]), up: if faces { tc.geo.normal(i)[1] } else { 0.0 } };
+        let surface = Surface { edge: edges.as_ref().map_or(0.0, |e| e[i]), occlusion: occluded.as_ref().map_or(0.0, |o| o[i]), up: if faces { tc.geo.normal(i)[1] } else { 0.0 }, normal: if lit { tc.geo.normal(i) } else { [0.0; 3] } };
         let r = matfx::respond(filter, &pattern[i * PATTERN..(i + 1) * PATTERN], surface);
         let src = *px;
         // What the filter works on: the content below with its coverage scaled by `keep`.
         let kept = [src[0], src[1], src[2], src[3] * r.keep.clamp(0.0, 1.0)];
         let new = match kind {
             ChannelKind::BaseColor => {
-                let gained = [kept[0] * r.color_gain, kept[1] * r.color_gain, kept[2] * r.color_gain, kept[3]];
+                let l = r.base_color([kept[0], kept[1], kept[2]]);
+                let gained = if r.light.is_some() && r.color_alpha == 0.0 { [l[0], l[1], l[2], kept[3]] } else { [kept[0] * r.color_gain, kept[1] * r.color_gain, kept[2] * r.color_gain, kept[3]] };
                 over(gained, r.color, r.color_alpha)
             }
             ChannelKind::Roughness => {
