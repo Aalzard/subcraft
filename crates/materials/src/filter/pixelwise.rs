@@ -561,12 +561,138 @@ fn kuwahara_orientation(read: &impl Fn(i32, i32) -> [f32; 4], spread: f32, kind:
     (angle, ((l1 - l2) / (l1 + l2)).clamp(0.0, 1.0))
 }
 
+/// `c ^ power` for the sector lobes. The exponent is fixed per filter, and a whole or half
+/// exponent (every Smoothness the presets use) needs only multiplications and a square root.
+#[derive(Clone, Copy)]
+enum Lobe {
+    Halves { whole: u32, half: bool },
+    Any(f32),
+}
+
+impl Lobe {
+    fn new(power: f32) -> Self {
+        let doubled = power * 2.0;
+        if doubled.fract() == 0.0 && (2.0..=16.0).contains(&doubled) {
+            Self::Halves { whole: doubled as u32 / 2, half: doubled as u32 % 2 == 1 }
+        } else {
+            Self::Any(power)
+        }
+    }
+
+    #[inline]
+    fn raise(self, c: f32) -> f32 {
+        match self {
+            Self::Halves { whole, half } => {
+                let mut out = if half { c.sqrt() } else { 1.0 };
+                for _ in 0..whole {
+                    out *= c;
+                }
+                out
+            }
+            Self::Any(power) => c.powf(power),
+        }
+    }
+}
+
 /// Anisotropic Kuwahara at one texel (after Kyprianidis et al. 2009): the texels of an ellipse
 /// stretched along the local edge are split into 8 overlapping sectors, and the result is the
 /// sector means weighted by how calm each sector is (`1 / (1 + sigma^sharpness)`, sigma in
 /// 8-bit steps). Edges stay sharp while flat areas smooth into painterly patches. `read(dx, dy)`
 /// is relative to the texel; the texel keeps its coverage.
+///
+/// The cosine of a sample's angle to a sector axis is its unit direction dotted with the axis,
+/// so the loop needs no `atan2` or `cos`, and the lobe power is usually a few multiplications
+/// (see [`Lobe`]). The result matches the straightforward form to float rounding.
 pub fn kuwahara(read: impl Fn(i32, i32) -> [f32; 4], k: Kuwahara, kind: ChannelKind) -> [f32; 4] {
+    let here = read(0, 0);
+    let radius = if k.radius.is_finite() { k.radius.clamp(0.0, 32.0) } else { 0.0 };
+    if radius < 0.5 {
+        return here;
+    }
+    let (phi, edge) = if k.extract_direction { kuwahara_orientation(&read, k.tensor_smoothness.clamp(0.0, 8.0), kind) } else { (k.angle * std::f32::consts::TAU, 1.0) };
+    let stretch = 1.0 + k.anisotropy.clamp(0.0, 4.0) * edge;
+    let (a, b) = (radius * stretch, radius / stretch);
+    let (sin, cos) = phi.sin_cos();
+    let extent = a.max(b).ceil();
+    let step = (extent / KUWAHARA_GRID).max(1.0);
+    // Sector lobes: cos^p of the angle to the sector axis; Smoothness widens them.
+    let lobe = Lobe::new(1.0 + (1.0 - k.smoothness.clamp(0.0, 1.0)) * 7.0);
+    let mut axes = [(0.0f32, 0.0f32); KUWAHARA_SECTORS];
+    for (s, axis) in axes.iter_mut().enumerate() {
+        let (sn, cs) = (s as f32 * std::f32::consts::TAU / KUWAHARA_SECTORS as f32).sin_cos();
+        *axis = (cs, sn);
+    }
+    let mut sum = [[0.0f32; 3]; KUWAHARA_SECTORS];
+    let mut sq = [[0.0f32; 3]; KUWAHARA_SECTORS];
+    let mut weight = [0.0f32; KUWAHARA_SECTORS];
+    let n = (extent / step).ceil() as i32;
+    for iy in -n..=n {
+        for ix in -n..=n {
+            let (dx, dy) = (ix as f32 * step, iy as f32 * step);
+            // Into the ellipse frame: u along the edge, v across it.
+            // Divided exactly as before: a sample on the rim (d2 = 1) must stay on the same side.
+            let (u, v) = ((dx * cos + dy * sin) / a, (-dx * sin + dy * cos) / b);
+            let d2 = u * u + v * v;
+            if d2 > 1.0 {
+                continue;
+            }
+            let p = read(dx.round() as i32, dy.round() as i32);
+            let g = (-2.0 * d2).exp();
+            let squares = [p[0] * p[0], p[1] * p[1], p[2] * p[2]];
+            let centre = d2 < 1e-6;
+            let inv = if centre { 0.0 } else { 1.0 / d2.sqrt() };
+            let (cu, cv) = (u * inv, v * inv);
+            for s in 0..KUWAHARA_SECTORS {
+                let w = if centre {
+                    g
+                } else {
+                    let c = cu * axes[s].0 + cv * axes[s].1;
+                    if c <= 0.0 {
+                        continue;
+                    }
+                    g * lobe.raise(c)
+                };
+                if w <= 0.0 {
+                    continue;
+                }
+                weight[s] += w;
+                for c in 0..3 {
+                    sum[s][c] += w * p[c];
+                    sq[s][c] += w * squares[c];
+                }
+            }
+        }
+    }
+    let q = k.sharpness.clamp(0.0, 16.0);
+    let (mut out, mut total) = ([0.0f32; 3], 0.0f32);
+    for s in 0..KUWAHARA_SECTORS {
+        if weight[s] <= 0.0 {
+            continue;
+        }
+        let mean = sum[s].map(|v| v / weight[s]);
+        let var: f32 = (0..3).map(|c| (sq[s][c] / weight[s] - mean[c] * mean[c]).max(0.0)).sum();
+        let sigma = var.sqrt() * 255.0;
+        let alpha = 1.0 / (1.0 + sigma.powf(q));
+        total += alpha;
+        for c in 0..3 {
+            out[c] += alpha * mean[c];
+        }
+    }
+    if total <= 0.0 {
+        return here;
+    }
+    [out[0] / total, out[1] / total, out[2] / total, here[3]]
+}
+
+#[cfg(test)]
+/// The straightforward form of [`kuwahara`] (an `atan2`, eight `cos` and eight `powf` per
+/// sample), kept as the reference the fast form is tested against.
+/// Anisotropic Kuwahara at one texel (after Kyprianidis et al. 2009): the texels of an ellipse
+/// stretched along the local edge are split into 8 overlapping sectors, and the result is the
+/// sector means weighted by how calm each sector is (`1 / (1 + sigma^sharpness)`, sigma in
+/// 8-bit steps). Edges stay sharp while flat areas smooth into painterly patches. `read(dx, dy)`
+/// is relative to the texel; the texel keeps its coverage.
+fn kuwahara_reference(read: impl Fn(i32, i32) -> [f32; 4], k: Kuwahara, kind: ChannelKind) -> [f32; 4] {
     let here = read(0, 0);
     let radius = if k.radius.is_finite() { k.radius.clamp(0.0, 32.0) } else { 0.0 };
     if radius < 0.5 {
@@ -644,6 +770,46 @@ mod kuwahara_tests {
             let v = f((cx + dx).clamp(0, 63), (cy + dy).clamp(0, 63));
             [v, v, v, 1.0]
         }
+    }
+
+    #[test]
+    fn the_fast_form_matches_the_reference() {
+        // Random colour images (smooth blobs plus noise and a hard edge), many settings. The two
+        // forms differ only by float rounding in the sector weights. Where a sector is almost
+        // flat its variance is a difference of nearly equal numbers, and a high Sharpness
+        // magnifies that rounding, so the largest difference is about one 16-bit step (1.5e-5),
+        // 170 times smaller than one 8-bit step.
+        let h = |x: i32, y: i32, seed: u32| crate::noise::hash_f(x, y, seed);
+        let scene = move |x: i32, y: i32| {
+            let blob = ((x as f32 * 0.21).sin() * (y as f32 * 0.17).cos()) * 0.3 + 0.5;
+            let edge = if x + y / 3 > 40 { 0.25 } else { 0.0 };
+            [blob + edge + 0.1 * h(x, y, 1), blob * 0.7 + 0.15 * h(x, y, 2), 0.9 - blob * 0.5 + edge * 0.5 + 0.1 * h(x / 3, y / 3, 3)]
+        };
+        let colour = move |cx: i32, cy: i32| {
+            move |dx: i32, dy: i32| {
+                let v = scene((cx + dx).clamp(0, 63), (cy + dy).clamp(0, 63));
+                [v[0], v[1], v[2], 0.8]
+            }
+        };
+        let mut worst = 0.0f32;
+        let mut cases = 0;
+        for radius in [0.6, 1.0, 3.0, 5.0, 6.0, 13.5, 32.0] {
+            for (smoothness, sharpness) in [(0.5, 8.0), (1.0, 4.0), (0.0, 16.0), (0.37, 2.5), (0.86, 0.0)] {
+                for (anisotropy, extract_direction, angle) in [(1.0, true, 0.0), (0.0, true, 0.0), (4.0, true, 0.0), (2.0, false, 0.13), (1.0, false, 0.75)] {
+                    let k = Kuwahara { radius, smoothness, sharpness, tensor_smoothness: 2.0, anisotropy, angle, extract_direction };
+                    for (x, y) in [(5, 7), (31, 30), (40, 12), (62, 63), (20, 44)] {
+                        for kind in [ChannelKind::BaseColor, ChannelKind::Roughness] {
+                            let (fast, slow) = (kuwahara(colour(x, y), k, kind), kuwahara_reference(colour(x, y), k, kind));
+                            for c in 0..4 {
+                                worst = worst.max((fast[c] - slow[c]).abs());
+                            }
+                            cases += 1;
+                        }
+                    }
+                }
+            }
+        }
+        assert!(cases == 1750 && worst < 4e-5, "{cases} cases, largest difference {worst}");
     }
 
     #[test]
