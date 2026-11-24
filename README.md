@@ -136,6 +136,11 @@ Or download **`SubCraft-<version>-linux-x86_64.AppImage`**: one file that runs w
 (`chmod +x SubCraft-*.AppImage`, then double-click or run it). It cannot update itself in the app:
 download the new AppImage to update.
 
+Or install **`SubCraft-<version>-linux-x86_64.flatpak`** with `flatpak install --user SubCraft-*.flatpak`
+(it fetches the freedesktop runtime from Flathub), then start it from the menu or with
+`flatpak run io.github.aalzard.SubCraft`. To update, run `flatpak uninstall --user io.github.aalzard.SubCraft`
+(your settings in `~/.var/app` stay), then install the next release's file.
+
 Needs a Vulkan driver (Mesa or your GPU vendor's) and X11 or Wayland. Built on Ubuntu 22.04, so it
 runs on that and newer distributions.
 
@@ -156,6 +161,7 @@ notes).
 | Windows x64 | `SubCraft-<version>-setup.exe`, `...-windows-x64.zip` | Supported, in-app updates; code signing via SignPath Foundation pending |
 | Linux x86_64 | `SubCraft-<version>-linux-x86_64.tar.gz` | Supported, in-app updates |
 | Linux x86_64 AppImage | `SubCraft-<version>-linux-x86_64.AppImage` | Supported, no in-app updates |
+| Linux x86_64 Flatpak | `SubCraft-<version>-linux-x86_64.flatpak` | Supported, no in-app updates |
 | macOS, Apple Silicon and Intel | `SubCraft-<version>-macos-universal-experimental.dmg` (or `.zip`) | Experimental, not notarized, no in-app updates |
 | Linux aarch64 (Arm64) | `SubCraft-<version>-linux-aarch64.tar.gz` | Experimental, in-app updates |
 | Windows on Arm | `SubCraft-<version>-windows-arm64.zip` | Experimental, in-app updates |

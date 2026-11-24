@@ -2022,6 +2022,10 @@ impl SubcraftApp {
                     ui.close();
                     crate::auto_uv::open(&mut self.state);
                 }
+                if item(ui, icons::CUBE_WIRE, tr("Edit UV islands…"), "") {
+                    ui.close();
+                    crate::uv_edit::open(&mut self.state);
+                }
                 ui.separator();
                 if item(ui, icons::SLIDERS, tr("Settings…"), "") {
                     self.state.recovery.show_prefs = true;
@@ -2755,6 +2759,7 @@ impl eframe::App for SubcraftApp {
         crate::export_mesh::export_mesh_window(&mut self.state, &ctx, now);
         crate::mesh_reload::window(&mut self.state, &ctx, now);
         crate::auto_uv::window(&mut self.state, &ctx, now);
+        crate::uv_edit::window(&mut self.state, &ctx, now);
         crate::uv_sets::poll(&mut self.state, &ctx, now);
         crate::live_link::window(&mut self.state, &ctx, now);
         if let Some(p) = crate::versions::window(&mut self.state, &ctx) {

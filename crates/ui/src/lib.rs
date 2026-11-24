@@ -29,6 +29,7 @@ pub mod icons;
 pub mod import_resources;
 pub mod libraries;
 pub mod auto_uv;
+pub mod uv_edit;
 pub mod uv_sets;
 pub mod plugins;
 pub mod live_link;

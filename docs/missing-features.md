@@ -19,12 +19,11 @@ a planning list, not a promise.
 - Scene lights (point / spot / area).
 
 ### Workflow
-- Mesh editing such as UV edits.
+- Mesh editing beyond UVs (vertices, faces).
 - Point clouds, FBX animation.
 
 ### Platform and distribution
 - Code-signed installers (needs an enrolled signing identity).
-- Flatpak packaging.
 
 ## Done since the first list
 - Read Painter `.spp` projects and `.spsm` smart materials.
@@ -60,3 +59,5 @@ a planning list, not a promise.
 - Linux AppImage (x86_64), built and checked by the release workflow.
 - GPU Bent normal bake (same rays as AO, checked against the CPU bake).
 - GPU high-poly projection (cage rays for Normal, Height, ID, Position ...), checked against the CPU.
+- Edit UV islands: move, rotate, scale and flip islands in the 2D view; painted layers follow.
+- Linux Flatpak bundle (x86_64), built and checked by the release workflow.
