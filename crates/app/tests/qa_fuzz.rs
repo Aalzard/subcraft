@@ -308,6 +308,19 @@ fn check_set_composite(s: &mut Session, ts: &subcraft_doc::TextureSet, what: &st
             let d = if x.is_nan() && y.is_nan() { 0.0 } else if x.is_nan() || y.is_nan() { f32::INFINITY } else { (x - y).abs() };
             if d > worst { worst = d; at = i; }
         }
+        if worst > 1e-4 && std::env::var("QA_DEBUG").is_ok() {
+            let res = ts.resolution as usize;
+            let comps = da.len() / (res * res);
+            let mut tiles = std::collections::BTreeSet::new();
+            let mut n = 0;
+            for (i, (x, y)) in da.iter().zip(&db).enumerate() { if (x - y).abs() > 1e-4 { n += 1; let t = i / comps; tiles.insert((t % res / 64, t / res / 64)); } }
+            let mut fresh = subcraft_compositor::CompositeCache::new();
+            fresh.update(ts, &EvalContext { geometry: &geo, resources: s.resources(), mesh_maps: maps });
+            let fd = fresh.composite().unwrap().channel(def.kind).unwrap().to_dense();
+            let fw = fd.iter().zip(&db).map(|(x, y)| (x - y).abs()).fold(0.0f32, f32::max);
+            eprintln!("DEBUG {:?}: {n} values differ, tiles {tiles:?}, res {res}, fresh cache vs full {fw}, selected set {:?}, set {:?}", def.kind, s.selection().texture_set, ts.id);
+            for l in &ts.layers { eprintln!("  layer {:?} {} vis {} blend {:?} mask {:?} effects {}", l.id, l.name, l.visible, l.blend, l.mask.as_ref().map(|m| (m.enabled, m.effects.len())), l.content_effects.len()); }
+        }
         assert!(worst <= 1e-4, "{what}: incremental composite of {:?} differs from a full composite by {worst} at value index {at} ({} vs {})", def.kind, da[at], db[at]);
         assert!(!da.iter().any(|v| v.is_nan()), "{what}: NaN in the composite of {:?}", def.kind);
     }
@@ -363,6 +376,24 @@ fn walk_on(seed: u64, steps: usize, mut s: Session, udim: bool) {
                 what = format!("seed {seed} step {step}: {cmd:?}");
                 log.push(what.clone());
                 let _ = s.execute(cmd);
+            }
+            // Shape fill (#690): one rectangle / ellipse dab in the 2D view, degenerate boxes too.
+            5 if r.chance(0.2) => {
+                let shape = subcraft_paint::shape::Shape {
+                    kind: if r.chance(0.5) { subcraft_paint::shape::ShapeKind::Rectangle } else { subcraft_paint::shape::ShapeKind::Ellipse },
+                    corner: r.unit(),
+                    feather: r.unit(),
+                };
+                let view = subcraft_paint::UvView { origin: Vec2::splat(r.unit() * 100.0), side: 50.0 + r.unit() * 500.0, viewport: [512, 512], rotation: r.unit() * 6.3 };
+                let center = Vec2::new(r.unit() * 1.4 - 0.2, r.unit() * 1.4 - 0.2);
+                let size = Vec2::new(r.wild() * 300.0, r.wild() * 300.0);
+                if r.chance(0.3) {
+                    s.brush.target = PaintTarget::MaskBase;
+                }
+                what = format!("seed {seed} step {step}: shape fill {shape:?} at {center} size {size}");
+                log.push(what.clone());
+                let _ = s.fill_shape_uv(view, center, size, &shape);
+                s.brush.target = PaintTarget::Content;
             }
             // Procedural materials (ADR-0047): apply one, or move one of its sliders.
             4 if r.chance(0.25) => {
