@@ -1469,10 +1469,13 @@ impl ViewportRenderer {
         // Glow and glare only exist where the model has an Emissive channel to draw.
         let has_emission = self.materials.values().any(|m| m.channels.contains_key(&ChannelKind::Emissive));
         let emission_on = has_emission && params.post.wants_emission() && params.bake_map.is_none();
-        if (params.post.active() || emission_on) && !params.bake_overlay {
+        // Screen-space lighting (AO, contact shadows, reflections) belongs to the shaded material
+        // view only: channel, solo and bake map views show the data as stored (issue #730).
+        let post_params = shaded_post(&params.post, bake_map.is_none() && solo.is_none() && params.view_mode.shader_mode() == 0);
+        if (post_params.active() || emission_on) && !params.bake_overlay {
             let draw = shown_mesh.filter(|_| emission_on).map(|mesh| post::EmissionDraw { pipeline: &self.pipeline_emissive, mesh, materials: &self.materials, hidden: &self.hidden_slots });
-            let surface = shown_mesh.filter(|_| params.post.screen_space()).map(|mesh| post::EmissionDraw { pipeline: &self.pipeline_surface, mesh, materials: &self.materials, hidden: &self.hidden_slots });
-            self.post.run(device, queue, &mut encoder, target, &self.globals_bg, shown_mesh, draw.as_ref(), surface.as_ref(), params.view, params.light_dir, params.proj, &params.post);
+            let surface = shown_mesh.filter(|_| post_params.screen_space()).map(|mesh| post::EmissionDraw { pipeline: &self.pipeline_surface, mesh, materials: &self.materials, hidden: &self.hidden_slots });
+            self.post.run(device, queue, &mut encoder, target, &self.globals_bg, shown_mesh, draw.as_ref(), surface.as_ref(), params.view, params.light_dir, params.proj, &post_params);
         }
         if params.taa_frame > 0 {
             self.taa.encode(device, queue, &mut encoder, target, params.taa_frame);
@@ -1574,6 +1577,16 @@ impl ViewportRenderer {
 /// Stored components of a composite channel image (mirrors `subcraft_compositor`).
 /// Bindings 9 (Opacity texture), 10 (`MaterialParams`), 11 (Specular level), 12 (the part
 /// overlay) and 13 (the extended channels) of a material bind group.
+/// The post settings for one frame: screen-space AO, contact shadows and reflections only when
+/// the model is drawn shaded (`shaded`); the other effects stay as set.
+fn shaded_post(post: &PostParams, shaded: bool) -> PostParams {
+    if shaded {
+        *post
+    } else {
+        PostParams { ssao: 0.0, contact_shadows: 0.0, ssr: 0.0, ..*post }
+    }
+}
+
 fn alpha_entries<'a>(opacity: &'a wgpu::TextureView, params: &'a wgpu::Buffer, specular: &'a wgpu::TextureView, overlay: &'a wgpu::TextureView, extended: &'a wgpu::TextureView) -> [wgpu::BindGroupEntry<'a>; 5] {
     [
         wgpu::BindGroupEntry { binding: 13, resource: wgpu::BindingResource::TextureView(extended) },

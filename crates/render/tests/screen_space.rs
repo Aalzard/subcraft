@@ -142,3 +142,67 @@ fn contact_shadows_darken_the_floor_beside_the_box_away_from_the_light_only() {
     // Off by default, and strength 0 is exactly off.
     assert_eq!(off, s.frame(PostParams { contact_shadows: 0.0, ssr: 0.0, ..PostParams::default() }));
 }
+
+/// The redness the reflection adds along the floor row through `p`: its peak, and how many
+/// pixels lie in the transition between 20% and 80% of that peak (0 for a hard outline).
+fn reflection_profile(s: &Scene, off: &[[f32; 3]], on: &[[f32; 3]], p: Vec3) -> (f32, usize) {
+    let (_, y) = s.pixel(p);
+    let red = |c: [f32; 3]| c[0] - 0.5 * (c[1] + c[2]);
+    let added: Vec<f32> = (0..N).map(|x| red(on[(y * N + x) as usize]) - red(off[(y * N + x) as usize])).collect();
+    let peak = added.iter().copied().fold(0.0, f32::max);
+    let soft = added.iter().filter(|&&v| v > 0.2 * peak && v < 0.8 * peak).count();
+    (peak, soft)
+}
+
+#[test]
+fn rough_floors_blur_the_reflection_instead_of_showing_a_faint_mirror() {
+    // Issue #729: the reflection used to be sampled sharp at any roughness, so a rough floor
+    // showed a faint mirror image with hard outlines.
+    let mut soft = Vec::new();
+    for rough in [0.05, 0.3] {
+        let Some(mut s) = scene(
+            &[(ChannelKind::BaseColor, rgb([0.9; 3])), (ChannelKind::Metallic, [1.0; 4]), (ChannelKind::Roughness, [rough; 4])],
+            &[(ChannelKind::BaseColor, rgb([0.8, 0.05, 0.05])), (ChannelKind::Roughness, [0.8; 4])],
+        ) else {
+            eprintln!("no adapter: skipping");
+            return;
+        };
+        s.params.light_dir = Vec3::new(0.3, 1.0, 0.6).normalize();
+        let off = s.frame(PostParams::default());
+        let on = s.frame(PostParams { ssr: 1.0, ssr_distance: 2.0, ..PostParams::default() });
+        if let Ok(dir) = std::env::var("SCREEN_SPACE_DUMP") {
+            let data: Vec<f32> = on.iter().flat_map(|c| [c[0], c[1], c[2], 1.0]).collect();
+            subcraft_image::save_image(&std::path::Path::new(&dir).join(format!("ssr_rough_{rough}.png")), N, N, 4, &data, subcraft_image::FileFormat::Png8).unwrap();
+        }
+        // Far enough from the box that the reflection rays travel and the cone widens.
+        let (peak, transition) = reflection_profile(&s, &off, &on, Vec3::new(0.0, 0.0, 1.1));
+        eprintln!("roughness {rough}: peak added red {peak:.3}, {transition} soft pixels");
+        assert!(peak > 0.04, "the box is still reflected at roughness {rough}: {peak}");
+        soft.push(transition);
+    }
+    assert!(soft[0] <= 2, "the mirror keeps a sharp outline: {} soft pixels", soft[0]);
+    assert!(soft[1] >= 8, "the rough floor's reflection has a soft outline: {} soft pixels", soft[1]);
+}
+
+#[test]
+fn channel_views_get_no_screen_space_lighting() {
+    // Issue #730: contact shadows, reflections and AO darkened or tinted the unlit channel views.
+    let Some(mut s) = scene(
+        &[(ChannelKind::BaseColor, rgb([0.9; 3])), (ChannelKind::Metallic, [1.0; 4]), (ChannelKind::Roughness, [0.05; 4])],
+        &[(ChannelKind::BaseColor, rgb([0.8, 0.05, 0.05])), (ChannelKind::Roughness, [0.8; 4])],
+    ) else {
+        eprintln!("no adapter: skipping");
+        return;
+    };
+    s.params.light_dir = Vec3::new(1.0, 0.45, 0.0).normalize();
+    let all = PostParams { ssr: 1.0, ssr_distance: 2.0, contact_shadows: 1.0, contact_length: 0.6, ssao: 1.0, ..PostParams::default() };
+    for mode in [subcraft_render::ViewMode::BaseColor, subcraft_render::ViewMode::Roughness, subcraft_render::ViewMode::AmbientOcclusion] {
+        s.params.view_mode = mode;
+        let off = s.frame(PostParams::default());
+        let on = s.frame(all);
+        assert_eq!(off, on, "{mode:?} shows the data as stored");
+    }
+    // The material view still gets them.
+    s.params.view_mode = subcraft_render::ViewMode::Material;
+    assert_ne!(s.frame(PostParams::default()), s.frame(all));
+}
