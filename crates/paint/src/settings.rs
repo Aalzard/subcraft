@@ -523,6 +523,25 @@ impl Default for ImageStamp {
     }
 }
 
+/// How the images of a brush material are laid onto the surface.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MaterialMapping {
+    /// Through [`BrushMaterial::projection`] (UV / planar / tri-planar) or the view: the image is
+    /// fixed on the model and painting reveals it.
+    #[default]
+    Mesh,
+    /// Every dab carries its own copy of the images (Painter's stamp behaviour): they follow
+    /// the brush, rotate and scale with each dab, and normal maps turn with the dab's angle.
+    BrushStamp,
+}
+
+impl MaterialMapping {
+    fn is_mesh(&self) -> bool {
+        *self == MaterialMapping::Mesh
+    }
+}
+
 /// What a paint stroke deposits per channel; masks receive `mask_value`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -539,6 +558,10 @@ pub struct BrushMaterial {
     /// instead of through `projection`'s UV / planar / tri-planar mapping. `projection`'s
     /// scale, rotation and offset still place the image on the screen.
     pub camera_projection: bool,
+    /// Where the channel images sit: fixed on the mesh (default) or stamped with every dab.
+    /// Not written at its default, so older brushes and presets read and write unchanged.
+    #[serde(skip_serializing_if = "MaterialMapping::is_mesh")]
+    pub mapping: MaterialMapping,
     /// Grayscale painted into mask rasters.
     pub mask_value: f32,
     /// Normal-map (or height) stamp brush; `None` = an ordinary brush.
@@ -552,7 +575,7 @@ pub struct BrushMaterial {
 impl Default for BrushMaterial {
     fn default() -> Self {
         Self { channels: BTreeMap::new(), textures: BTreeMap::new(), projection: Projection::default(), texture_tiling: true,
-            normal_blend: NormalPaintBlend::Replace, camera_projection: false, mask_value: 1.0, stamp: None, channel_blend: BTreeMap::new() }
+            normal_blend: NormalPaintBlend::Replace, camera_projection: false, mapping: MaterialMapping::Mesh, mask_value: 1.0, stamp: None, channel_blend: BTreeMap::new() }
     }
 }
 

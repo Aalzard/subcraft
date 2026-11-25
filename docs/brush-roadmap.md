@@ -90,7 +90,7 @@ fill edits target the selected fill, with numeric composite/undo and real dock i
   channels present in the texture set), retaining flat values when cleared.
 - [x] Paint whole material from named imported maps; unmatched channels disabled. Channels absent
   from the current texture set are reported/skipped, not implicitly added by a tool setting.
-- [~] Projection modes: UV, planar, triplanar complete; camera projection added (session 96, "Project from the view": the image is cast from the stroke's starting view); per-stamp still required.
+- [x] Projection modes: UV, planar, triplanar complete; camera projection added (session 96, "Project from the view": the image is cast from the stroke's starting view); per-stamp added as Mapping "Brush stamp" (every dab carries the whole image, turned and scaled with the dab; normal maps turn into the texel's tangent space; the strongest dab owns a texel, later dabs win ties; tests in `crates/paint/tests/brush_stamp_mapping.rs`).
 - [x] Scale, rotation, offset, tiling controls, using fill-layer projection sampling.
 - [x] Reuse gloss inversion and DirectX → OpenGL normal conversion.
 - [x] Replace / detail-combine normals on paint layers; shared RNM, normalized output.

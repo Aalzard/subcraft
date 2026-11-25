@@ -31,7 +31,7 @@ pub use camera::Camera;
 pub use kernel::UvView;
 pub use depth::{DepthCache, DepthMap};
 pub use path::MAX_SMOOTHING;
-pub use settings::{Alignment, BrushChannel, BrushMaterial, BrushSettings, JitterAxis, NormalPaintBlend, StampBlend, ImageStamp, StampKind, PaintTarget, PolygonFillMode, PolygonHitTest, PolygonSelectMode, PressureCurve, RadialSymmetry, SizeContext, SizeSpace, MAX_PRESSURE_MIN, MAX_SYMMETRY_COPIES, StrokeMode, StrokeOptions, falloff, MAX_SCATTER, PenPose, PenEffect, FULL_TILT_DEG};
+pub use settings::{Alignment, BrushChannel, BrushMaterial, BrushSettings, MaterialMapping, JitterAxis, NormalPaintBlend, StampBlend, ImageStamp, StampKind, PaintTarget, PolygonFillMode, PolygonHitTest, PolygonSelectMode, PressureCurve, RadialSymmetry, SizeContext, SizeSpace, MAX_PRESSURE_MIN, MAX_SYMMETRY_COPIES, StrokeMode, StrokeOptions, falloff, MAX_SCATTER, PenPose, PenEffect, FULL_TILT_DEG};
 pub use stamp::Stamp;
 pub use stencil::{Stencil, StencilTiling, snap_rotation, MAX_STENCIL_COPIES};
 pub use stroke::{PaintContext, Stroke};

@@ -349,6 +349,35 @@ impl KernelInput<'_> {
         out
     }
 
+    /// Brush-stamp material mapping: record, per texel, where in the dab's image square it falls
+    /// and how the dab's image axes turn into the texel's tangent space. Slot layout:
+    /// `[footprint, u, v, tx_x, tx_y, ty_x, ty_y]` with `(u, v)` image coordinates (0..1, origin
+    /// top-left) and `tx` / `ty` the tangent-space slopes of the image-frame unit slopes
+    /// `(1, 0)` / `(0, 1)` (image x right, y up). The dab with the strongest footprint owns a
+    /// texel; on a tie the later dab wins, so each new dab lies on top of the older ones except
+    /// where only its soft rim reaches.
+    pub fn lay_dab(&self, samples: &[TexelSample], st: &Stamp, acc: &mut [[f32; 7]]) {
+        use crate::image_stamp::{rotate, to_local};
+        let Some(cam) = self.cameras.get(st.camera) else { return };
+        let reach = crate::stamp::reach(self.alpha.is_some());
+        let mut last: Option<(u32, Option<(Vec3, Vec3)>)> = None;
+        for s in samples {
+            if !self.visible(st.camera, s) { continue; }
+            let a = st.footprint(self.alignment, cam, s.p, s.ng, s.uv, self.alpha);
+            let slot = &mut acc[s.idx as usize];
+            if a <= 0.0 || a < slot[0] { continue; }
+            let Some(local) = st.local(self.alignment, cam, s.p, s.ng, s.uv, reach) else { continue };
+            let r = rotate(local, -st.angle);
+            let r = Vec2::new(r.x, r.y / st.roundness.clamp(0.01, 1.0));
+            let p = r * 0.5 + Vec2::splat(0.5);
+            let frame = match last { Some((t, f)) if t == s.tri => f, _ => { let f = self.tri_frame(s.tri); last = Some((s.tri, f)); f } };
+            let tx = self.local_to_tangent(st, to_local([1.0, 0.0], st.angle), s, frame);
+            let ty = self.local_to_tangent(st, to_local([0.0, 1.0], st.angle), s, frame);
+            let (Some(tx), Some(ty)) = (tx, ty) else { continue };
+            *slot = [a, p.x, p.y, tx.x, tx.y, ty.x, ty.y];
+        }
+    }
+
     /// Stencil paint factor (0..1) of a texel sample: through the 2D view for UV strokes, else
     /// through the main camera (the stencil is fixed to the view, even for mirrored stamps). 1
     /// without a stencil.

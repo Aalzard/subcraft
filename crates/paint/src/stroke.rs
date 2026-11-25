@@ -94,6 +94,10 @@ pub struct Stroke {
     stamp: Option<(ImageStamp, Arc<subcraft_image::Bitmap>)>,
     /// Per tile and texel `[sum weight*v0, sum weight*v1, sum weight]` of the stamps laid so far.
     stamp_acc: HashMap<usize, Box<[[f32; 3]]>>,
+    /// Brush-stamp material mapping: the channel images follow each dab instead of the mesh.
+    dab_mapping: bool,
+    /// Per tile and texel, the dab that owns it ([`KernelInput::lay_dab`]).
+    dab_acc: HashMap<usize, Box<[[f32; 7]]>>,
     /// Tiled stamp mode: UV origin and the UV size of one image repeat, fixed by the first stamp.
     tile_ref: Option<(Vec2, f32)>,
     /// Heal: coarse averages of each target image's snapshot, made on the first healed write.
@@ -200,6 +204,9 @@ impl Stroke {
         material: &BrushMaterial,
     ) -> Result<Self, PaintError> {
         let images = begin_targets(ts, layer, target, material)?;
+        let dab_mapping = material.mapping == crate::settings::MaterialMapping::BrushStamp
+            && mode == StrokeMode::Paint
+            && images.iter().any(|i| i.texture.is_some());
         Ok(Self {
             layer,
             mode,
@@ -241,6 +248,8 @@ impl Stroke {
             preview: LivePreview { tiles: if std::env::var_os("SUBCRAFT_NO_STROKE_PREVIEW").is_some() { 0 } else { 32 }, last_tiles: 0, deferred: Vec::new() },
             stamp: None,
             stamp_acc: HashMap::new(),
+            dab_mapping,
+            dab_acc: HashMap::new(),
             tile_ref: None,
             heal_low: std::sync::OnceLock::new(),
             heal_cells: None,
@@ -707,7 +716,9 @@ impl Stroke {
             }
             return self.smudge_stamps(ts, ctx, &cameras, &stamps, alignment);
         }
-        if self.preview.tiles > 0 && matches!(self.mode, StrokeMode::Paint | StrokeMode::Erase) {
+        // Brush-stamp mapping: the order of the dabs decides which image a texel shows, so no
+        // stamps are held back for later.
+        if self.preview.tiles > 0 && !self.dab_mapping && matches!(self.mode, StrokeMode::Paint | StrokeMode::Erase) {
             let stride = (self.preview.last_tiles / self.preview.tiles).clamp(1, PREVIEW_MAX_STRIDE) as u32;
             if stride > 1 {
                 let mut live = Vec::with_capacity(stamps.len() / stride as usize + 1);
@@ -799,18 +810,20 @@ impl Stroke {
         }
         let raster = &self.raster.tiles;
         let single_stamp = self.stamp.as_ref().filter(|(s, _)| !s.tiled).map(|(s, b)| (s.clone(), b.clone()));
-        let work: Vec<(usize, TileWork, Box<[f32]>, Option<Box<[[f32; 3]]>>)> = bins
+        let dab_mapping = self.dab_mapping;
+        let work: Vec<(usize, TileWork, Box<[f32]>, Option<Box<[[f32; 3]]>>, Option<Box<[[f32; 7]]>>)> = bins
             .into_iter()
             .map(|(t, w)| {
                 let cov = self.coverage.remove(&t).unwrap_or_else(|| vec![0.0; TILE_TEXELS].into_boxed_slice());
                 let acc = single_stamp.as_ref().map(|_| self.stamp_acc.remove(&t).unwrap_or_else(|| vec![[0.0; 3]; TILE_TEXELS].into_boxed_slice()));
-                (t, w, cov, acc)
+                let dab = dab_mapping.then(|| self.dab_acc.remove(&t).unwrap_or_else(|| vec![[0.0; 7]; TILE_TEXELS].into_boxed_slice()));
+                (t, w, cov, acc, dab)
             })
             .collect();
         let t_acc = std::time::Instant::now();
-        let done: Vec<(usize, Box<[f32]>, Option<Box<[[f32; 3]]>>, bool)> = work
+        let done: Vec<(usize, Box<[f32]>, Option<Box<[[f32; 3]]>>, Option<Box<[[f32; 7]]>>, bool)> = work
             .into_par_iter()
-            .map(|(t, w, mut cov, mut acc)| {
+            .map(|(t, w, mut cov, mut acc, mut dab)| {
                 // A stamp's bounding region covers whole triangles, so many touched tiles gain
                 // nothing; those need no rewrite, no re-composite and no GPU upload.
                 let before = cached.then(|| (cov.clone(), acc.clone()));
@@ -824,6 +837,13 @@ impl Stroke {
                             lay_stamp(&input, samples, st, bitmap, cfg, acc);
                         }
                     }
+                    if let Some(dab) = dab.as_mut() {
+                        for &si in &w.stamps {
+                            let st = &stamps[si as usize];
+                            let Some(samples) = per_camera[st.camera] else { continue };
+                            input.lay_dab(samples, st, dab);
+                        }
+                    }
                 } else {
                     let samples = input.rasterize_tile(t, w.tris.iter().copied());
                     input.accumulate(&samples, stamps, &w.stamps, &mut cov);
@@ -832,18 +852,25 @@ impl Stroke {
                             lay_stamp(&input, &samples, &stamps[si as usize], bitmap, cfg, acc);
                         }
                     }
+                    if let Some(dab) = dab.as_mut() {
+                        for &si in &w.stamps {
+                            input.lay_dab(&samples, &stamps[si as usize], dab);
+                        }
+                    }
                 }
                 self.restrict_coverage(ctx.geometry, t, &mut cov);
-                let changed = before.is_none_or(|(c, a)| c != cov || a != acc);
-                (t, cov, acc, changed)
+                // The dab image moves with every dab even where the coverage is already full.
+                let changed = dab.is_some() || before.is_none_or(|(c, a)| c != cov || a != acc);
+                (t, cov, acc, dab, changed)
             })
             .collect();
         profile::add(profile::ACCUM, t_acc);
-        let tiles: Vec<usize> = done.iter().filter(|d| d.3).map(|d| d.0).collect();
+        let tiles: Vec<usize> = done.iter().filter(|d| d.4).map(|d| d.0).collect();
         profile::count(3, tiles.len());
-        for (t, cov, acc, _) in done {
+        for (t, cov, acc, dab, _) in done {
             self.coverage.insert(t, cov);
             if let Some(acc) = acc { self.stamp_acc.insert(t, acc); }
+            if let Some(dab) = dab { self.dab_acc.insert(t, dab); }
         }
         let t_wr = std::time::Instant::now();
         let r = self.write(ts, ctx, &tiles);
@@ -884,6 +911,9 @@ impl Stroke {
                                 });
                             }
                             Some(values)
+                        }
+                        _ if self.dab_mapping && img.texture.is_some() && self.dab_acc.contains_key(&t) => {
+                            img.texture.and_then(|id| self.resources.bitmap(id)).map(|bitmap| self.dab_source(img, &bitmap, &self.dab_acc[&t], cov))
                         }
                         _ => img.texture.filter(|_| self.mode == StrokeMode::Paint).map(|id| {
                             let mut values = vec![[0.0; 4]; TILE_TEXELS];
@@ -961,6 +991,27 @@ impl Stroke {
             };
         }
         Some(values)
+    }
+
+    /// Brush-stamp material mapping: per texel, the image of `img`'s channel sampled where the
+    /// owning dab puts it. Normal maps are turned from the dab's image frame into the texel's
+    /// tangent space (the layer's Normal blend then combines them as usual); every other
+    /// channel is the plain image value. Texels no dab owns stay transparent.
+    fn dab_source(&self, img: &TargetImage, bitmap: &subcraft_image::Bitmap, acc: &[[f32; 7]], cov: &[f32]) -> Vec<[f32; 4]> {
+        let channel = img.key.channel();
+        let is_normal = channel == Some(subcraft_core::ChannelKind::Normal);
+        let linearize = channel.is_some_and(|k| k.is_color());
+        let filter = if channel == Some(subcraft_core::ChannelKind::BaseColor) { self.albedo_filter } else { subcraft_image::TextureFilter::Bilinear };
+        let mut values = vec![[0.0; 4]; TILE_TEXELS];
+        for ((out, a), &c) in values.iter_mut().zip(acc).zip(cov) {
+            if c <= 0.0 || a[0] <= 0.0 { continue; }
+            if is_normal {
+                *out = dab_normal(bitmap, a);
+            } else {
+                *out = bitmap.sample_filtered(a[1], a[2], Wrap::Clamp, linearize, filter);
+            }
+        }
+        values
     }
 
     /// Object-space position of covered texel `i` of a tile.
@@ -1392,6 +1443,19 @@ fn lay_stamp(input: &KernelInput, samples: &[TexelSample], st: &Stamp, image: &s
         slot[1] += w * v[2];
         slot[2] += w;
     }
+}
+
+/// Encoded tangent-space normal (`[x, y, z, alpha]`, 0..1 form) of a dab-mapped normal map at
+/// the texel described by `slot` ([`KernelInput::lay_dab`]): the map's slope in its own frame
+/// (x right, y up) is carried into tangent space through the slot's two axis images.
+pub(crate) fn dab_normal(bitmap: &subcraft_image::Bitmap, slot: &[f32; 7]) -> [f32; 4] {
+    let t = bitmap.sample(slot[1], slot[2], Wrap::Clamp, false);
+    let n = subcraft_core::normal::decode([t[0], t[1], t[2]]);
+    let nz = n.z.max(0.05);
+    let (sx, sy) = (n.x / nz, n.y / nz);
+    let v = Vec2::new(slot[3], slot[4]) * sx + Vec2::new(slot[5], slot[6]) * sy;
+    let e = subcraft_core::normal::encode(subcraft_core::normal::from_slope(v.x, v.y));
+    [e[0], e[1], e[2], t[3]]
 }
 
 /// Bilinear sample of a paint image at `uv` as straight `[value..., alpha]` (alpha 1 without one).
