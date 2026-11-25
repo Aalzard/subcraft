@@ -1103,6 +1103,26 @@ fn painter_controls(ui: &mut Ui, g: &mut subcraft_doc::Generator) -> bool {
 
 /// The Curvature generator's mode and detail sizes ([`subcraft_doc::CurvatureDetail`]). Untouched
 /// generators keep `curvature: None` (the baked map itself); the first change stores the settings.
+/// R, G, B toggles of a `MeshMap` generator on a color map (ID, normals, position): which
+/// channels the mask reads. Hidden for grayscale maps.
+fn map_channel_controls(ui: &mut Ui, g: &mut subcraft_doc::Generator) -> bool {
+    let GeneratorKind::MeshMap(kind) = g.kind else { return false };
+    if kind.components() != 3 {
+        return false;
+    }
+    let mut channels = g.mesh_map_channels();
+    let mut changed = false;
+    prop_row(ui, tr("Channels"), |ui| {
+        for (i, name) in ["R", "G", "B"].into_iter().enumerate() {
+            changed |= ui.checkbox(&mut channels[i], name).on_hover_text(tr("Use this color channel of the map. With several checked, the brightest one counts.")).changed();
+        }
+    });
+    if changed {
+        g.map_channels = (channels != [true, false, false]).then_some(channels);
+    }
+    changed
+}
+
 fn curvature_controls(ui: &mut Ui, g: &mut subcraft_doc::Generator) -> bool {
     use subcraft_doc::{CurvatureDetail, CurvatureDetailMode};
     let mut d = g.curvature.unwrap_or_default();
@@ -1273,6 +1293,7 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
                     if g.kind == GeneratorKind::MeshMap(MeshMapKind::Curvature) {
                         changed |= curvature_controls(ui, g);
                     }
+                    changed |= map_channel_controls(ui, g);
                     changed |= level_controls(ui, g);
                     let mut size = g.pattern_size();
                     if slider_row_reset(ui, tr("Pattern size"), &mut size, dg.pattern_size(), |v| egui::Slider::new(v, 1.0..=100.0).logarithmic(true).suffix("%")).changed() {
