@@ -173,3 +173,96 @@ pub fn ray_backend() -> Option<Arc<dyn RayBatchBackend>> {
     }
     created
 }
+
+/// Creates the accelerator on one extra device, named by a key from the application's device
+/// list (see `subcraft_render::ray_bake::bake_devices`).
+type ExtraFactory = fn(&str) -> Option<Arc<dyn RayBatchBackend>>;
+
+struct Extras {
+    factory: Option<ExtraFactory>,
+    /// Keys of the extra devices to bake on, besides the main one.
+    wanted: Vec<String>,
+    /// Devices already created (`None`: creation failed, not retried).
+    created: Vec<(String, Option<Arc<dyn RayBatchBackend>>)>,
+}
+
+static EXTRAS: Mutex<Extras> = Mutex::new(Extras { factory: None, wanted: Vec::new(), created: Vec::new() });
+
+/// Register how to create the accelerator on extra devices (multi-GPU baking, issue #731).
+pub fn register_extra_ray_backends(factory: ExtraFactory) {
+    EXTRAS.lock().expect("ray backend lock").factory = Some(factory);
+}
+
+/// Choose the extra devices bakes also use (keys of the application's device list). Devices
+/// created before stay cached; those no longer wanted are simply not used.
+pub fn set_extra_ray_devices(keys: Vec<String>) {
+    EXTRAS.lock().expect("ray backend lock").wanted = keys;
+}
+
+/// The extra devices chosen with [`set_extra_ray_devices`].
+pub fn extra_ray_devices() -> Vec<String> {
+    EXTRAS.lock().expect("ray backend lock").wanted.clone()
+}
+
+/// Every accelerator a bake may use: the main one ([`ray_backend`]) first, then the extra devices
+/// that could be created, in the order chosen.
+pub fn ray_backends() -> Vec<Arc<dyn RayBatchBackend>> {
+    let mut all: Vec<Arc<dyn RayBatchBackend>> = ray_backend().into_iter().collect();
+    let (factory, wanted) = {
+        let extras = EXTRAS.lock().expect("ray backend lock");
+        (extras.factory, extras.wanted.clone())
+    };
+    let Some(factory) = factory else { return all };
+    for key in wanted {
+        let cached = EXTRAS.lock().expect("ray backend lock").created.iter().find(|(k, _)| *k == key).map(|(_, b)| b.clone());
+        let backend = match cached {
+            Some(b) => b,
+            None => {
+                // Create outside the lock: device creation can take a while.
+                let b = factory(&key);
+                EXTRAS.lock().expect("ray backend lock").created.push((key, b.clone()));
+                b
+            }
+        };
+        all.extend(backend);
+    }
+    all
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct Fake(String);
+
+    impl RayBatchBackend for Fake {
+        fn description(&self) -> String {
+            self.0.clone()
+        }
+        fn run(&self, _: &Bvh, _: Option<&[u32]>, _: usize, _: &(dyn Fn(usize) -> RayTexel + Sync), _: u32, _: RayMode, _: &dyn BatchControl) -> Result<Vec<f32>, RayBatchError> {
+            Err(RayBatchError::Unsupported("fake".into()))
+        }
+    }
+
+    static CREATED: AtomicUsize = AtomicUsize::new(0);
+
+    fn fake(key: &str) -> Option<Arc<dyn RayBatchBackend>> {
+        CREATED.fetch_add(1, Ordering::Relaxed);
+        (key != "broken").then(|| Arc::new(Fake(key.to_string())) as Arc<dyn RayBatchBackend>)
+    }
+
+    #[test]
+    fn extra_devices_are_created_once_in_the_chosen_order_and_failures_are_skipped() {
+        register_extra_ray_backends(fake);
+        set_extra_ray_devices(vec!["b".into(), "broken".into(), "a".into()]);
+        let names = |v: Vec<Arc<dyn RayBatchBackend>>| v.iter().map(|b| b.description()).filter(|d| d.len() <= 6).collect::<Vec<_>>();
+        assert_eq!(names(ray_backends()), ["b", "a"]);
+        assert_eq!(CREATED.load(Ordering::Relaxed), 3);
+        assert_eq!(names(ray_backends()), ["b", "a"], "cached");
+        assert_eq!(CREATED.load(Ordering::Relaxed), 3, "not created again, the broken one not retried");
+        set_extra_ray_devices(vec!["a".into()]);
+        assert_eq!(names(ray_backends()), ["a"]);
+        assert_eq!(extra_ray_devices(), ["a"]);
+    }
+}

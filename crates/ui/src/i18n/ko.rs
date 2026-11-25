@@ -1205,4 +1205,7 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Unreal imports new and changed files in Content when Editor Preferences > Loading & Saving > Auto Reimport is on (the default). Maps: Base Color, Normal (DirectX), packed Occlusion / Roughness / Metallic.", "Editor Preferences > Loading & Saving > Auto Reimport가 켜져 있으면(기본값) Unreal은 Content의 새 파일과 바뀐 파일을 가져옵니다. 맵: Base Color, Normal(DirectX), Occlusion / Roughness / Metallic 패킹."),
     ("Channels", "채널"),
     ("Use this color channel of the map. With several checked, the brightest one counts.", "맵의 이 색상 채널을 사용합니다. 여러 개를 선택하면 가장 밝은 값이 적용됩니다."),
+    ("Bake on these graphics cards:", "다음 그래픽 카드에서 베이크:"),
+    ("Ambient occlusion, bent normal, thickness and curvature are shared out one map per free card while the processor bakes the other maps. A map is never split, so the slowest card still finishes its own map last.", "앰비언트 오클루전, 벤트 노멀, 두께, 곡률 맵을 비어 있는 카드마다 하나씩 나누어 베이크하고, 그동안 프로세서가 나머지 맵을 베이크합니다. 맵 하나를 나누지는 않으므로 가장 느린 카드가 맡은 맵이 마지막에 끝납니다."),
+    ("The main graphics card always bakes.", "메인 그래픽 카드는 항상 베이크합니다."),
 ];

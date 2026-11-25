@@ -71,6 +71,9 @@ pub struct Preferences {
     /// Bake ambient occlusion and thickness on the graphics card when one is available (the
     /// processor is the fallback and the reference).
     pub use_gpu_baking: bool,
+    /// Further graphics cards that bake at the same time as the main one (multi-GPU baking,
+    /// `subcraft_render::ray_bake::BakeDevice::key`). Empty: the main card only.
+    pub extra_bake_gpus: Vec<String>,
     /// Painter's "Only display the selected material when painting": the other texture sets are
     /// hidden in the 3D view while a stroke is in progress.
     pub only_selected_set_painting: bool,
@@ -170,6 +173,7 @@ impl Default for Preferences {
             show_welcome: true,
             check_updates_on_start: true,
             use_gpu_baking: true,
+            extra_bake_gpus: Vec::new(),
             only_selected_set_painting: false,
             nav_scheme: Default::default(),
             orbit_around_cursor: true,
@@ -461,6 +465,9 @@ pub fn preferences_window(state: &mut UiState, ctx: &egui::Context) {
             .on_hover_text(tr("Asks GitHub for the latest release in the background and points at the update button when there is a new one."));
         pref_check(ui, &mut rec.prefs.use_gpu_baking, PREF_DEFAULTS.use_gpu_baking, tr("Use GPU for baking"))
             .on_hover_text("Bakes ambient occlusion and thickness on the graphics card, much faster on big meshes. If it is off or fails, the processor bakes them instead. The Bake window shows which one ran.");
+        if rec.prefs.use_gpu_baking {
+            bake_gpu_list(ui, &mut rec.prefs);
+        }
         pref_check(ui, &mut rec.prefs.simplified_layer_thumbnails, PREF_DEFAULTS.simplified_layer_thumbnails, "Use simplified thumbnails")
             .on_hover_text("The layer stack shows a plain icon instead of rendering each layer, mask and effect preview: faster with heavy stacks.");
         pref_check(ui, &mut rec.prefs.only_selected_set_painting, PREF_DEFAULTS.only_selected_set_painting, "Only display the selected material when painting")
@@ -570,6 +577,43 @@ static PREF_DEFAULTS: std::sync::LazyLock<Preferences> = std::sync::LazyLock::ne
 fn pref_check(ui: &mut egui::Ui, value: &mut bool, default: bool, text: &str) -> egui::Response {
     let r = ui.checkbox(value, text);
     crate::widgets::reset_on(ui, r, value, default)
+}
+
+/// The graphics cards bakes can use, listed once per run (enumerating adapters is not free).
+fn bake_devices() -> &'static [subcraft_render::ray_bake::BakeDevice] {
+    static DEVICES: std::sync::OnceLock<Vec<subcraft_render::ray_bake::BakeDevice>> = std::sync::OnceLock::new();
+    DEVICES.get_or_init(subcraft_render::ray_bake::bake_devices)
+}
+
+/// Multi-GPU baking (issue #731): one toggle per further graphics card. Shown only when the
+/// machine has more than one.
+fn bake_gpu_list(ui: &mut egui::Ui, p: &mut Preferences) {
+    let devices = bake_devices();
+    if devices.len() < 2 {
+        return;
+    }
+    ui.indent("bake_gpus", |ui| {
+        ui.label(tr("Bake on these graphics cards:")).on_hover_text(tr("Ambient occlusion, bent normal, thickness and curvature are shared out one map per free card while the processor bakes the other maps. A map is never split, so the slowest card still finishes its own map last."));
+        let mut changed = false;
+        for d in devices {
+            let label = format!("{} ({})", d.name, d.kind);
+            if d.main {
+                ui.add_enabled(false, egui::Checkbox::new(&mut true, label)).on_disabled_hover_text(tr("The main graphics card always bakes."));
+                continue;
+            }
+            let mut on = p.extra_bake_gpus.contains(&d.key);
+            if ui.checkbox(&mut on, label).changed() {
+                p.extra_bake_gpus.retain(|k| *k != d.key);
+                if on {
+                    p.extra_bake_gpus.push(d.key.clone());
+                }
+                changed = true;
+            }
+        }
+        if changed {
+            subcraft_mesh::ray_batch::set_extra_ray_devices(p.extra_bake_gpus.clone());
+        }
+    });
 }
 
 fn general_view_settings(ui: &mut egui::Ui, p: &mut Preferences) {

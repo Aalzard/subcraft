@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use subcraft_bake::surface::texels;
-use subcraft_bake::{BakeInput, BakeSettings, Geometry, Progress, bake_streamed_with};
+use subcraft_bake::{BakeInput, BakeSettings, Geometry, Progress, bake_streamed_on, bake_streamed_with};
 use subcraft_core::MeshMapKind;
 use subcraft_image::TiledImage;
 use subcraft_mesh::ray_batch::{BatchControl, NO_GROUP, RayBatchBackend, RayBatchError, RayMode, RayTexel};
@@ -392,4 +392,61 @@ fn gpu_bakes_with_name_matching_match_the_cpu() {
         eprintln!("name matching {}: mean abs error {:.5}, p99 {:.5}", kind.display_name(), s.mean, s.p99);
         assert!(s.mean <= MEAN_TOL && s.p99 <= P99_TOL, "{}: mean {} p99 {}", kind.display_name(), s.mean, s.p99);
     }
+}
+
+/// A backend under another name, to see which device baked which map.
+struct Named(Arc<dyn RayBatchBackend>, &'static str);
+
+impl RayBatchBackend for Named {
+    fn description(&self) -> String {
+        self.1.to_string()
+    }
+    fn curvature(
+        &self, bvh: &Bvh, surface: subcraft_mesh::ray_batch::CurvatureSurface, count: usize, texel: &(dyn Fn(usize) -> subcraft_mesh::ray_batch::CurvatureTexel + Sync), radius: f32,
+        control: &dyn BatchControl,
+    ) -> Result<Vec<f32>, RayBatchError> {
+        self.0.curvature(bvh, surface, count, texel, radius, control)
+    }
+    fn project(
+        &self, bvh: &Bvh, tri_group: Option<&[u32]>, count: usize, ray: &(dyn Fn(usize) -> subcraft_mesh::ray_batch::ProjectionRay + Sync), front_only: bool,
+        control: &dyn BatchControl,
+    ) -> Result<Vec<Option<subcraft_mesh::ray_batch::ProjectionHit>>, RayBatchError> {
+        self.0.project(bvh, tri_group, count, ray, front_only, control)
+    }
+    fn run(&self, bvh: &Bvh, tri_group: Option<&[u32]>, count: usize, texel: &(dyn Fn(usize) -> RayTexel + Sync), rays: u32, mode: RayMode, control: &dyn BatchControl) -> Result<Vec<f32>, RayBatchError> {
+        self.0.run(bvh, tri_group, count, texel, rays, mode, control)
+    }
+}
+
+#[test]
+fn two_gpus_share_the_ray_maps_and_bake_what_one_gpu_bakes() {
+    // Issue #731: several GPUs take one ray map each while the CPU bakes the other maps.
+    let _g = gpu_test();
+    let Some(main) = backend() else { return };
+    let devices = subcraft_render::ray_bake::bake_devices();
+    assert!(devices.iter().filter(|d| d.main).count() == 1, "exactly one main device: {devices:?}");
+    // The test machine may have one adapter only: a second device on the same adapter stands in.
+    let Some(second) = devices.first().and_then(|d| subcraft_render::ray_bake::create_backend_on(&d.key)) else {
+        eprintln!("no second device: skipping");
+        return;
+    };
+    let (a, b) = (Named(main.clone(), "GPU A"), Named(second, "GPU B"));
+    let mesh = primitives::sample_crate();
+    let bvh = Bvh::build(&mesh);
+    let input = BakeInput { low: Geometry { mesh: &mesh, bvh: &bvh }, high: None, material_slot: 0 };
+    let mut maps = MAPS.to_vec();
+    maps.extend([MeshMapKind::Normal, MeshMapKind::Position]);
+    let settings = BakeSettings { size: SIZE, maps, ..BakeSettings::default() };
+    let one = bake_streamed_on(&input, &settings, &Progress::new(), &[&a], |_, _| {}).expect("one GPU");
+    let progress = Progress::new();
+    let mut streamed = Vec::new();
+    let two = bake_streamed_on(&input, &settings, &progress, &[&a, &b], |k, _| streamed.push(k)).expect("two GPUs");
+    assert_eq!(one, two, "the same maps whichever GPU bakes them");
+    assert_eq!(streamed, settings.maps, "maps are still published in order");
+    let reports = progress.reports();
+    let on = |name: &str| reports.iter().filter(|r| r.backend == name).map(|r| r.kind).collect::<Vec<_>>();
+    eprintln!("GPU A: {:?}, GPU B: {:?}, all: {reports:?}", on("GPU A"), on("GPU B"));
+    assert!(!on("GPU A").is_empty() && !on("GPU B").is_empty(), "both GPUs baked: {reports:?}");
+    assert_eq!(on("GPU A").len() + on("GPU B").len(), MAPS.len(), "every ray map ran on a GPU: {reports:?}");
+    assert!((progress.fraction() - 1.0).abs() < 1e-6, "progress ends full: {}", progress.fraction());
 }

@@ -64,6 +64,81 @@ pub fn create_backend() -> Option<Arc<dyn RayBatchBackend>> {
     Some(Arc::new(baker))
 }
 
+/// A graphics adapter that can bake (multi-GPU baking, issue #731).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BakeDevice {
+    /// Stable identity across runs: the adapter name and its occurrence among adapters of that
+    /// name (`"NVIDIA GeForce RTX 3090#1"` is the second such card).
+    pub key: String,
+    /// Name shown to the user (with ` #2`, ` #3` ... for repeated names).
+    pub name: String,
+    /// Discrete, integrated, virtual or software.
+    pub kind: &'static str,
+    /// The adapter the window and the main baker use.
+    pub main: bool,
+}
+
+/// Adapters of the window's graphics API, keyed as in [`BakeDevice::key`].
+fn keyed_adapters() -> (Vec<(String, String, wgpu::Adapter)>, Option<String>) {
+    let main = crate::headless::main_adapter();
+    let backends = crate::headless::secondary_backends(main.as_ref());
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends, ..wgpu::InstanceDescriptor::new_without_display_handle_from_env() });
+    let adapters = pollster::block_on(instance.enumerate_adapters(backends));
+    let mut seen: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let keyed = adapters
+        .into_iter()
+        .map(|a| {
+            let name = a.get_info().name;
+            let n = seen.entry(name.clone()).or_insert(0);
+            let key = format!("{name}#{n}");
+            let shown = if *n == 0 { name.clone() } else { format!("{name} #{}", *n + 1) };
+            *n += 1;
+            (key, shown, a)
+        })
+        .collect();
+    (keyed, main.map(|m| format!("{}#0", m.name)))
+}
+
+/// The adapters bakes can use, the main one first. Software adapters (lavapipe, WARP) are left
+/// out when a hardware one exists: they would only slow a bake down.
+pub fn bake_devices() -> Vec<BakeDevice> {
+    let (keyed, main_key) = keyed_adapters();
+    let hardware = keyed.iter().any(|(_, _, a)| a.get_info().device_type != wgpu::DeviceType::Cpu);
+    let mut devices: Vec<BakeDevice> = keyed
+        .iter()
+        .filter(|(_, _, a)| !hardware || a.get_info().device_type != wgpu::DeviceType::Cpu)
+        .enumerate()
+        .map(|(i, (key, name, a))| BakeDevice {
+            key: key.clone(),
+            name: name.clone(),
+            kind: match a.get_info().device_type {
+                wgpu::DeviceType::DiscreteGpu => "discrete",
+                wgpu::DeviceType::IntegratedGpu => "integrated",
+                wgpu::DeviceType::VirtualGpu => "virtual",
+                wgpu::DeviceType::Cpu => "software",
+                wgpu::DeviceType::Other => "other",
+            },
+            main: main_key.as_ref().map_or(i == 0, |m| m == key),
+        })
+        .collect();
+    devices.sort_by_key(|d| !d.main);
+    devices
+}
+
+/// The baker on the adapter with this [`BakeDevice::key`]; registered with
+/// `subcraft_mesh::ray_batch::register_extra_ray_backends` by the application.
+pub fn create_backend_on(key: &str) -> Option<Arc<dyn RayBatchBackend>> {
+    let (keyed, _) = keyed_adapters();
+    let (_, shown, adapter) = keyed.into_iter().find(|(k, _, _)| k == key)?;
+    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor { label: Some("subcraft extra baker"), ..Default::default() })).ok()?;
+    let lost = Arc::new(AtomicBool::new(false));
+    crate::caps::install_worker_error_handlers(&device, "baking", lost.clone());
+    let mut baker = GpuRayBaker::new(&adapter, device, queue);
+    baker.adapter_name = shown;
+    baker.lost = lost;
+    Some(Arc::new(baker))
+}
+
 /// What one chunk's dispatches iterate over.
 #[derive(Clone, Copy)]
 enum Units {

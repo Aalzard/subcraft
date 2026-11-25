@@ -1205,4 +1205,7 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Unreal imports new and changed files in Content when Editor Preferences > Loading & Saving > Auto Reimport is on (the default). Maps: Base Color, Normal (DirectX), packed Occlusion / Roughness / Metallic.", "當 Editor Preferences > Loading & Saving > Auto Reimport 開啟時（預設），Unreal 會匯入 Content 中新增與變更的檔案。貼圖：Base Color、Normal（DirectX）、封裝的 Occlusion / Roughness / Metallic。"),
     ("Channels", "通道"),
     ("Use this color channel of the map. With several checked, the brightest one counts.", "使用貼圖的這個色彩通道。勾選多個時，以最亮的通道為準。"),
+    ("Bake on these graphics cards:", "在這些顯示卡上烘焙："),
+    ("Ambient occlusion, bent normal, thickness and curvature are shared out one map per free card while the processor bakes the other maps. A map is never split, so the slowest card still finishes its own map last.", "環境光遮蔽、彎曲法線、厚度與曲率貼圖會分配給空閒的顯示卡，每張卡一次一張，同時由處理器烘焙其他貼圖。單張貼圖不會被拆分，因此最慢的顯示卡會最後完成它負責的貼圖。"),
+    ("The main graphics card always bakes.", "主顯示卡一律參與烘焙。"),
 ];

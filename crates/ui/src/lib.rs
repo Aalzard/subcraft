@@ -142,6 +142,7 @@ pub fn window_failure_message(error: &str, log: Option<&std::path::Path>) -> Str
 /// first bake). Called once at start-up.
 pub fn register_gpu_baking() {
     subcraft_mesh::ray_batch::register_ray_backend(subcraft_render::ray_bake::create_backend);
+    subcraft_mesh::ray_batch::register_extra_ray_backends(subcraft_render::ray_bake::create_backend_on);
     subcraft_compositor::gpu::register_gpu_compositor(subcraft_render::gpu_composite::create_backend);
 }
 

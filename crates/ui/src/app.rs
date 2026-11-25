@@ -1102,6 +1102,7 @@ impl SubcraftApp {
         theme::set(&cc.egui_ctx, shown_theme(state.recovery.prefs.theme, launch_theme));
         crate::i18n::sync(&cc.egui_ctx, state.recovery.prefs.language);
         subcraft_compositor::gpu::set_gpu_compositing_enabled(state.recovery.prefs.use_gpu_compositing && !subcraft_app::safe_mode::is_active());
+        subcraft_mesh::ray_batch::set_extra_ray_devices(state.recovery.prefs.extra_bake_gpus.clone());
         state.recovery.show_prefs = options.preferences;
         if options.bake_low && options.texture_set_settings { cc.egui_ctx.data_mut(|d| d.insert_temp(egui::Id::new("capture_jump_maps"), true)); }
         if options.bake_low && options.bake_high_poly.is_none() {
