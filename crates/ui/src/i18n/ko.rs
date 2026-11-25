@@ -1203,4 +1203,6 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Godot imports the files when its window gets focus. Each texture set also gets a ready StandardMaterial3D (.tres) next to the textures: drag it onto the mesh.", "Godot은 창이 포커스를 받을 때 파일을 가져옵니다. 각 텍스처 세트마다 텍스처 옆에 바로 쓸 수 있는 StandardMaterial3D(.tres)도 만들어집니다. 메시에 끌어다 놓으세요."),
     ("Unity imports the files when its window gets focus. Maps are for URP Lit: Base Map, Metallic Map (smoothness in alpha), Normal Map.", "Unity는 창이 포커스를 받을 때 파일을 가져옵니다. 맵은 URP Lit용입니다: Base Map, Metallic Map(알파에 Smoothness), Normal Map."),
     ("Unreal imports new and changed files in Content when Editor Preferences > Loading & Saving > Auto Reimport is on (the default). Maps: Base Color, Normal (DirectX), packed Occlusion / Roughness / Metallic.", "Editor Preferences > Loading & Saving > Auto Reimport가 켜져 있으면(기본값) Unreal은 Content의 새 파일과 바뀐 파일을 가져옵니다. 맵: Base Color, Normal(DirectX), Occlusion / Roughness / Metallic 패킹."),
+    ("Channels", "채널"),
+    ("Use this color channel of the map. With several checked, the brightest one counts.", "맵의 이 색상 채널을 사용합니다. 여러 개를 선택하면 가장 밝은 값이 적용됩니다."),
 ];

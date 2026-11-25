@@ -414,6 +414,11 @@ pub struct Generator {
     /// Settings of [`GeneratorKind::DrippingRust`]. Absent for every other kind.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub drip: Option<DripSettings>,
+    /// Color channels (R, G, B) of a color mesh map that a `MeshMap` generator reads; the mask is
+    /// the brightest checked one, 0 with none checked. Absent (the default, and in every older
+    /// project): red only. Grayscale maps ignore it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub map_channels: Option<[bool; 3]>,
 }
 
 /// The rust and its drips of [`GeneratorKind::DrippingRust`]. The generator's Level is Painter's
@@ -1509,7 +1514,24 @@ impl Generator {
             fiber: (kind == GeneratorKind::FiberGlass).then(FiberSettings::default),
             builder: (kind == GeneratorKind::MaskBuilder).then(MaskBuilder::default),
             drip: (kind == GeneratorKind::DrippingRust).then(DripSettings::default),
+            map_channels: None,
         }
+    }
+
+    /// The channels of the mesh map this generator reads (see [`Generator::map_channels`]):
+    /// red only for grayscale maps and when none are set.
+    pub fn mesh_map_channels(&self) -> [bool; 3] {
+        match (self.kind, self.map_channels) {
+            (GeneratorKind::MeshMap(k), Some(c)) if k.components() == 3 => c,
+            _ => [true, false, false],
+        }
+    }
+
+    /// The value a `MeshMap` generator reads from one texel of its map: the brightest of the
+    /// channels in [`Generator::mesh_map_channels`].
+    pub fn mesh_map_value(&self, texel: [f32; 3]) -> f32 {
+        let c = self.mesh_map_channels();
+        (0..3).filter(|&i| c[i]).map(|i| texel[i]).fold(None, |m: Option<f32>, v| Some(m.map_or(v, |m| m.max(v)))).unwrap_or(0.0)
     }
 
     /// The Dripping Rust settings in effect (the defaults when absent).
@@ -2395,5 +2417,22 @@ mod tests {
         assert_eq!((f.fray(1.0, 0.0), f.fray(0.0, 1.0)), (1.0, 0.0));
         assert!(f.fray(0.5, 1.0) > f.fray(0.5, 0.0));
         assert!(!FiberSettings { scale: 1.0, ..f }.valid() && !FiberSettings { amount: f32::NAN, ..f }.valid());
+    }
+
+    #[test]
+    fn mesh_map_channels_default_to_red_and_stay_out_of_older_files() {
+        let mut g = Generator::new(GeneratorKind::MeshMap(MeshMapKind::Id));
+        assert_eq!(g.mesh_map_channels(), [true, false, false]);
+        assert!(!serde_json::to_string(&g).unwrap().contains("map_channels"), "absent unless set");
+        assert_eq!(g.mesh_map_value([0.2, 0.9, 0.5]), 0.2);
+        g.map_channels = Some([false, true, true]);
+        assert_eq!(g.mesh_map_value([0.2, 0.9, 0.5]), 0.9);
+        let back: Generator = serde_json::from_str(&serde_json::to_string(&g).unwrap()).unwrap();
+        assert_eq!(back.map_channels, Some([false, true, true]));
+        g.map_channels = Some([false; 3]);
+        assert_eq!(g.mesh_map_value([0.2, 0.9, 0.5]), 0.0);
+        // Grayscale maps read their one value whatever is set.
+        g.kind = GeneratorKind::MeshMap(MeshMapKind::Thickness);
+        assert_eq!(g.mesh_map_value([0.7, 0.7, 0.7]), 0.7);
     }
 }

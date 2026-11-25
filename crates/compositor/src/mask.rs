@@ -283,7 +283,8 @@ fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]], input: 
     for (i, o) in out.iter_mut().enumerate() {
         let raw = match g.kind {
             GeneratorKind::MeshMap(_) if !detail.is_empty() => detail[i],
-            GeneratorKind::Edges | GeneratorKind::MeshMap(_) => map[i][0],
+            GeneratorKind::MeshMap(_) => g.mesh_map_value(map[i]),
+            GeneratorKind::Edges => map[i][0],
             GeneratorKind::Cavity if !curvature.is_empty() => (1.0 - map[i][0]) * (1.0 - edges_masking * ((curvature[i][0] - 0.5) * 2.0).clamp(0.0, 1.0)),
             GeneratorKind::Cavity | GeneratorKind::AmbientOcclusion => 1.0 - map[i][0],
             GeneratorKind::Directional => Vec3::from_array(geo.normal(i)).dot(dir) * 0.5 + 0.5,

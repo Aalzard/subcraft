@@ -1203,4 +1203,6 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Godot imports the files when its window gets focus. Each texture set also gets a ready StandardMaterial3D (.tres) next to the textures: drag it onto the mesh.", "Godot 會在其視窗取得焦點時匯入檔案。每個紋理集也會在紋理旁產生可直接使用的 StandardMaterial3D（.tres）：將它拖到網格上即可。"),
     ("Unity imports the files when its window gets focus. Maps are for URP Lit: Base Map, Metallic Map (smoothness in alpha), Normal Map.", "Unity 會在其視窗取得焦點時匯入檔案。貼圖適用於 URP Lit：Base Map、Metallic Map（Smoothness 在 Alpha）、Normal Map。"),
     ("Unreal imports new and changed files in Content when Editor Preferences > Loading & Saving > Auto Reimport is on (the default). Maps: Base Color, Normal (DirectX), packed Occlusion / Roughness / Metallic.", "當 Editor Preferences > Loading & Saving > Auto Reimport 開啟時（預設），Unreal 會匯入 Content 中新增與變更的檔案。貼圖：Base Color、Normal（DirectX）、封裝的 Occlusion / Roughness / Metallic。"),
+    ("Channels", "通道"),
+    ("Use this color channel of the map. With several checked, the brightest one counts.", "使用貼圖的這個色彩通道。勾選多個時，以最亮的通道為準。"),
 ];
