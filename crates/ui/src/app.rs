@@ -1084,9 +1084,12 @@ impl SubcraftApp {
         let prefs = cc.storage.and_then(|s| s.get_string(crate::recovery::PREFS_KEY)).map(|j| crate::recovery::Preferences::from_json_lenient(&j)).unwrap_or_default();
         crate::recovery::apply_cache_dir(&prefs);
         state.recovery = crate::recovery::RecoveryUi::start(&state.session, prefs, options.autosave_interval);
+        // Plugins (Plugins > Manage plugins...): their assets load with the libraries below.
+        state.load_plugins_at_start();
         // Settings > Libraries: extra library folders, and which library is the default.
         let (extra, default) = (state.recovery.prefs.extra_libraries.clone(), state.recovery.prefs.default_library.clone());
-        if !extra.is_empty() || default != crate::panels::shelf_filter::YOURS {
+        let plugin_assets = !state.plugins.active_libraries(&state.recovery.prefs.disabled_plugins).is_empty();
+        if !extra.is_empty() || default != crate::panels::shelf_filter::YOURS || plugin_assets {
             state.set_libraries(&extra, &default);
         }
         // The "SubCraft Materials" pack folder, if one is set.
@@ -2715,6 +2718,7 @@ impl eframe::App for SubcraftApp {
         crate::render_export::window(&mut self.state, &ctx);
         crate::save_template::window(&mut self.state, &ctx, now);
         crate::materials_download::window(&mut self.state, &ctx);
+        crate::plugins::window(&mut self.state, &ctx);
         panels::display_settings::sync_project(&mut self.state);
         crate::view_state::sync(&mut self.state);
         crate::new_project::window(&mut self.state, &ctx);

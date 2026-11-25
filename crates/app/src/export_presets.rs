@@ -24,7 +24,24 @@ impl ExportPresets {
     pub fn load(lib: Option<&UserLibrary>) -> Self {
         let library = lib.map(|l| PresetLibrary::new(l.folder(UserAssetKind::ExportPreset)));
         let (user, load_errors) = library.as_ref().map(PresetLibrary::load).unwrap_or_default();
-        Self { library, builtin: ExportTemplate::builtin(), user, load_errors }
+        Self { library, builtin: ExportTemplate::builtin(), user, load_errors }.with_plugin_presets(&crate::plugins::active_libraries())
+    }
+
+    /// Add the export presets of plugin libraries after the built-ins. They are read-only like
+    /// the built-ins (duplicate one to change it).
+    pub fn with_plugin_presets(mut self, libs: &[UserLibrary]) -> Self {
+        for lib in libs {
+            let (presets, errors) = PresetLibrary::new(lib.folder(UserAssetKind::ExportPreset)).load();
+            self.load_errors.extend(errors);
+            for mut p in presets {
+                // No id: the Export window treats it as built-in (read-only, keyed by its name).
+                p.id = None;
+                if !self.builtin.iter().any(|b| b.name == p.name) {
+                    self.builtin.push(p);
+                }
+            }
+        }
+        self
     }
 
     /// Built-ins first, then user presets by name.

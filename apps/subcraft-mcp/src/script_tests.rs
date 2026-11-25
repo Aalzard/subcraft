@@ -99,3 +99,28 @@ fn the_bundled_example_plugins_run_on_a_project() {
     let s = server.session.as_ref().unwrap();
     assert!(s.document().texture_sets.iter().all(|ts| ts.layers.last().is_some_and(|l| l.name == "Grime" && l.mask.is_some())), "{:?}", outcome.output);
 }
+
+/// Every script of the example plugins (docs/plugins/examples) runs on a sample project without
+/// an error and leaves a layer it promises behind.
+#[test]
+fn the_example_plugin_scripts_run_on_a_sample_project() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/plugins/examples");
+    let plugins = subcraft_app::plugins::discover(&root, env!("CARGO_PKG_VERSION"));
+    let scripts: Vec<_> = plugins.iter().flat_map(|p| p.scripts.clone()).collect();
+    assert_eq!(scripts.len(), 4, "{scripts:?}");
+    for (name, path) in scripts {
+        let source = std::fs::read_to_string(&path).unwrap();
+        let (server, outcome) = script::run(sample(), &source, &[]);
+        assert!(outcome.ok(), "{name}: {:?} {:?}", outcome.error, outcome.output);
+        let layers = layer_names(server.session.as_ref().unwrap());
+        let expected = match name.as_str() {
+            "Add edge wear" => Some("Edge Wear"),
+            "Add ground grime" => Some("Ground Grime"),
+            "Paint every texture set yellow" => Some("Hazard Yellow"),
+            _ => None,
+        };
+        if let Some(layer) = expected {
+            assert_eq!(layers[0], layer, "{name}: {:?}", outcome.output);
+        }
+    }
+}

@@ -31,6 +31,8 @@ pub struct LibraryPath {
 pub struct NamedLibrary {
     pub id: String,
     pub lib: UserLibrary,
+    /// The assets of a plugin (read-only: never the default library).
+    pub plugin: bool,
 }
 
 /// Whether two library folders are the same or one holds the other (compared as written, letter
@@ -102,9 +104,16 @@ impl UiState {
             if id.is_empty() || self.libraries.iter().any(|x| x.id.eq_ignore_ascii_case(&id)) {
                 continue;
             }
-            self.libraries.push(NamedLibrary { id, lib: UserLibrary::new(PathBuf::from(l.path.trim())) });
+            self.libraries.push(NamedLibrary { id, lib: UserLibrary::new(PathBuf::from(l.path.trim())), plugin: false });
         }
-        if let Some(d) = self.libraries.iter().find(|l| l.id == default).or_else(|| self.libraries.first()) {
+        // The assets of the plugins that are on, named after their plugin.
+        for (name, lib) in self.plugins.active_libraries(&self.recovery.prefs.disabled_plugins) {
+            let base: String = name.chars().map(|c| if matches!(c, '/' | '\\' | '"' | ',') { ' ' } else { c }).collect::<String>().trim().to_string();
+            let taken = |id: &str, libs: &[NamedLibrary]| id.is_empty() || RESERVED.iter().any(|r| r.eq_ignore_ascii_case(id)) || libs.iter().any(|x| x.id.eq_ignore_ascii_case(id));
+            let Some(id) = (1..100).map(|n| if n == 1 { base.clone() } else { format!("{base} {n}") }).find(|id| !taken(id, &self.libraries)) else { continue };
+            self.libraries.push(NamedLibrary { id, lib, plugin: true });
+        }
+        if let Some(d) = self.libraries.iter().filter(|l| !l.plugin).find(|l| l.id == default).or_else(|| self.libraries.iter().find(|l| !l.plugin)) {
             self.user_library = Some(d.lib.clone());
         }
         self.refresh_libraries();

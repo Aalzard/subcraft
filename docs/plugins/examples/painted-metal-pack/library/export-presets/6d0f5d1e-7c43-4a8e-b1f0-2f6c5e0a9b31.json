@@ -1,0 +1,107 @@
+{
+  "format": "subcraft.export-preset",
+  "version": 1,
+  "preset": {
+    "name": "Roblox SurfaceAppearance",
+    "maps": [
+      {
+        "suffix": "Color",
+        "format": "png8",
+        "components": [
+          {
+            "type": "channel",
+            "kind": "base_color",
+            "component": 0,
+            "invert": false
+          },
+          {
+            "type": "channel",
+            "kind": "base_color",
+            "component": 1,
+            "invert": false
+          },
+          {
+            "type": "channel",
+            "kind": "base_color",
+            "component": 2,
+            "invert": false
+          }
+        ],
+        "srgb": true
+      },
+      {
+        "suffix": "Normal",
+        "format": "png8",
+        "components": [
+          {
+            "type": "normal",
+            "component": 0,
+            "directx": false
+          },
+          {
+            "type": "normal",
+            "component": 1,
+            "directx": false
+          },
+          {
+            "type": "normal",
+            "component": 2,
+            "directx": false
+          }
+        ],
+        "srgb": false
+      },
+      {
+        "suffix": "Metalness",
+        "format": "png8",
+        "components": [
+          {
+            "type": "channel",
+            "kind": "metallic",
+            "component": 0,
+            "invert": false
+          },
+          {
+            "type": "channel",
+            "kind": "metallic",
+            "component": 0,
+            "invert": false
+          },
+          {
+            "type": "channel",
+            "kind": "metallic",
+            "component": 0,
+            "invert": false
+          }
+        ],
+        "srgb": false
+      },
+      {
+        "suffix": "Roughness",
+        "format": "png8",
+        "components": [
+          {
+            "type": "channel",
+            "kind": "roughness",
+            "component": 0,
+            "invert": false
+          },
+          {
+            "type": "channel",
+            "kind": "roughness",
+            "component": 0,
+            "invert": false
+          },
+          {
+            "type": "channel",
+            "kind": "roughness",
+            "component": 0,
+            "invert": false
+          }
+        ],
+        "srgb": false
+      }
+    ],
+    "id": "6d0f5d1e-7c43-4a8e-b1f0-2f6c5e0a9b31"
+  }
+}

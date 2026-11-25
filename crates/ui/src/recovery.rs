@@ -56,6 +56,8 @@ pub struct Preferences {
     pub extra_libraries: Vec<crate::libraries::LibraryPath>,
     /// The library new presets and imports go to (`your_assets` or an extra library's name).
     pub default_library: String,
+    /// Ids of the plugins switched off in the Plugins window (plugins are on when installed).
+    pub disabled_plugins: Vec<String>,
     /// Minutes between autosaves; 0 turns the timer off.
     pub autosave_minutes: u32,
     /// Recovery copies kept.
@@ -166,6 +168,7 @@ impl Default for Preferences {
             shelf_saved_searches: Vec::new(),
             extra_libraries: Vec::new(),
             default_library: crate::panels::shelf_filter::YOURS.to_string(),
+            disabled_plugins: Vec::new(),
             autosave_minutes: (recovery::DEFAULT_INTERVAL.as_secs() / 60) as u32,
             autosave_keep: recovery::DEFAULT_KEEP,
             keep_versions: subcraft_app::versions::DEFAULT_KEEP,

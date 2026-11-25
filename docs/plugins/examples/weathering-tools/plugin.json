@@ -1,0 +1,9 @@
+{
+  "format": "subcraft-plugin",
+  "schema": 1,
+  "id": "5b0e7a52-3c1d-4e8f-9a6b-7d2c4f1e8a03",
+  "name": "Weathering Tools",
+  "version": "1.0.0",
+  "author": "SubCraft",
+  "description": "One-click weathering for every texture set: edge wear and ground grime layers, plus a layer stack report."
+}

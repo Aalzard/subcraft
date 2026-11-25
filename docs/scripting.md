@@ -8,7 +8,8 @@ the same tools the MCP server offers to AI agents, so one API serves scripts, pl
 * **In the app:** put `.rhai` files in the plugins folder (`Documents/SubCraft/Plugins`, or the folder
   named by the `SUBCRAFT_PLUGINS` environment variable). They appear in the **Plugins** menu and run
   on the open project. **Plugins > Run script file...** runs any file, and **Plugins > Examples** has
-  a few to start from. A whole run is one undo step. `print` output goes to the log, and the last
+  a few to start from. To share scripts together with assets, make a plugin: see
+  [Plugins](plugins.md). A whole run is one undo step. `print` output goes to the log, and the last
   line also to the status bar.
 * **Headless (batch jobs):** `subcraft-mcp --script my_script.rhai [project.subcraft]`. The exit code is 0
   when the script finished and 1 when it failed. `print` output goes to stdout.

@@ -150,7 +150,28 @@ impl BakePresets {
             }
         }
         user.sort_by_key(|p| p.name.to_lowercase());
-        Self { dir, builtin: builtin(), user, load_errors }
+        Self { dir, builtin: builtin(), user, load_errors }.with_plugin_presets(&crate::plugins::active_libraries())
+    }
+
+    /// Add the bake presets of plugin libraries after the built-ins, read-only like them. Their
+    /// ids are `plugin:<file name>`, so they never collide with the user's own files.
+    pub fn with_plugin_presets(mut self, libs: &[UserLibrary]) -> Self {
+        for lib in libs {
+            let mut files: Vec<PathBuf> = lib.list(UserAssetKind::BakePreset);
+            files.sort();
+            for path in files {
+                match std::fs::read_to_string(&path).map_err(|e| e.to_string()).and_then(|t| from_json(&t)) {
+                    Ok(mut p) => {
+                        p.id = path.file_stem().map(|s| format!("plugin:{}", s.to_string_lossy()));
+                        if !self.builtin.iter().any(|b| b.key() == p.key()) {
+                            self.builtin.push(p);
+                        }
+                    }
+                    Err(e) => self.load_errors.push(format!("{}: {e}", path.display())),
+                }
+            }
+        }
+        self
     }
 
     /// Built-ins first, then user presets by name.
