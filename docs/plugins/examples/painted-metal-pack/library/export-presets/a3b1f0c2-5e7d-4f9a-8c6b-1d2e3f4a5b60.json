@@ -1,0 +1,107 @@
+{
+  "format": "subcraft.export-preset",
+  "version": 1,
+  "preset": {
+    "name": "Godot 4 (ORM)",
+    "maps": [
+      {
+        "suffix": "BaseColor",
+        "format": "png8",
+        "components": [
+          {
+            "type": "channel",
+            "kind": "base_color",
+            "component": 0,
+            "invert": false
+          },
+          {
+            "type": "channel",
+            "kind": "base_color",
+            "component": 1,
+            "invert": false
+          },
+          {
+            "type": "channel",
+            "kind": "base_color",
+            "component": 2,
+            "invert": false
+          }
+        ],
+        "srgb": true
+      },
+      {
+        "suffix": "Normal",
+        "format": "png8",
+        "components": [
+          {
+            "type": "normal",
+            "component": 0,
+            "directx": false
+          },
+          {
+            "type": "normal",
+            "component": 1,
+            "directx": false
+          },
+          {
+            "type": "normal",
+            "component": 2,
+            "directx": false
+          }
+        ],
+        "srgb": false
+      },
+      {
+        "suffix": "OcclusionRoughnessMetallic",
+        "format": "png8",
+        "components": [
+          {
+            "type": "channel",
+            "kind": "ambient_occlusion",
+            "component": 0,
+            "invert": false
+          },
+          {
+            "type": "channel",
+            "kind": "roughness",
+            "component": 0,
+            "invert": false
+          },
+          {
+            "type": "channel",
+            "kind": "metallic",
+            "component": 0,
+            "invert": false
+          }
+        ],
+        "srgb": false
+      },
+      {
+        "suffix": "Emissive",
+        "format": "png8",
+        "components": [
+          {
+            "type": "channel",
+            "kind": "emissive",
+            "component": 0,
+            "invert": false
+          },
+          {
+            "type": "channel",
+            "kind": "emissive",
+            "component": 1,
+            "invert": false
+          },
+          {
+            "type": "channel",
+            "kind": "emissive",
+            "component": 2,
+            "invert": false
+          }
+        ],
+        "srgb": true
+      }
+    ],
+    "id": "a3b1f0c2-5e7d-4f9a-8c6b-1d2e3f4a5b60"
+  }
+}

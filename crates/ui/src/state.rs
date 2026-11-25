@@ -430,6 +430,8 @@ pub struct UiState {
     /// The pack download (Assets > Materials > Download SubCraft Materials) and its window.
     pub materials_downloader: subcraft_app::materials_download::MaterialsDownloader,
     pub materials_download_open: bool,
+    /// Plugins found in the plugins folder, and the Plugins window.
+    pub plugins: crate::plugins::PluginsUi,
     /// Size chosen in the download window (index into the release's options).
     pub materials_download_choice: usize,
     pub shelf: crate::panels::shelf::ShelfUi,
@@ -688,6 +690,7 @@ impl UiState {
             materials_pack: Vec::new(),
             materials_downloader: Default::default(),
             materials_download_open: false,
+            plugins: Default::default(),
             materials_download_choice: 0,
             shelf: Default::default(),
             env: Default::default(),
@@ -759,7 +762,7 @@ impl UiState {
             self.env_loader = Some(rx);
         }
         log::info!("asset library: {}", lib.root().display());
-        self.libraries = vec![crate::libraries::NamedLibrary { id: crate::panels::shelf_filter::YOURS.to_string(), lib: lib.clone() }];
+        self.libraries = vec![crate::libraries::NamedLibrary { id: crate::panels::shelf_filter::YOURS.to_string(), lib: lib.clone(), plugin: false }];
         self.user_library = Some(lib);
         self
     }

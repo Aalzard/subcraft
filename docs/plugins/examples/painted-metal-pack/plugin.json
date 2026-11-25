@@ -1,0 +1,9 @@
+{
+  "format": "subcraft-plugin",
+  "schema": 1,
+  "id": "c8e4d1f6-2a9b-4c3e-8f7d-0b5a6e9c1d24",
+  "name": "Painted Metal Pack",
+  "version": "1.0.0",
+  "author": "SubCraft",
+  "description": "Two painted metal smart materials, two smart masks, Godot and Roblox export presets, and a script that paints the whole model."
+}

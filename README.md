@@ -42,7 +42,7 @@ so you can paint right away.
   (`.mcmat`, `.mcraft`, `.sbs`) as fill layers, with their exposed parameters as live sliders.
 - **Live link** to Unity, Unreal and Godot keeps the engine's textures current while you paint
   ([how it works](docs/live-link.md)).
-- **Scripting**: Rhai scripts and a Plugins menu, with the same API AI agents use ([docs](docs/scripting.md)).
+- **Plugins and scripting**: shareable plugins that add scripts, smart materials, masks, brushes and export presets ([docs](docs/plugins.md)), and Rhai scripts with the same API AI agents use ([docs](docs/scripting.md)).
 - More tools: Heal, Shape fill, Liquify push, particle trails, stencils from the shelf, pen tilt and
   rotation, UV island editing, multiple UV sets, physical size for fills, version history, bake presets
   and GPU high-poly projection when baking.
