@@ -376,6 +376,66 @@ fn scene_z(px: vec2<f32>) -> f32 {
     return view_pos(ip, d).z;
 }
 
+// Distance along `dir` from `start` to the first surface in the depth buffer, or -1 for none
+// within `dist`.
+fn trace_reflection(start: vec3<f32>, dir: vec3<f32>, dist: f32, thickness: f32, jitter: f32) -> f32 {
+    let steps = 48;
+    var prev_t = 0.0;
+    for (var i = 1; i <= steps; i = i + 1) {
+        // Denser steps near the surface, where contact matters most.
+        let f = (f32(i) - 1.0 + jitter) / f32(steps);
+        let t = dist * f * f;
+        let q = start + dir * t;
+        let s = project(q);
+        if (s.x < 0.0 || s.y < 0.0 || s.x >= p.size.x || s.y >= p.size.y || s.z <= 0.0 || s.z >= 1.0) {
+            return -1.0;
+        }
+        let gap = scene_z(s.xy) - q.z;
+        if (gap > 0.0 && gap < thickness) {
+            // Refine between the last step in front and this one.
+            var a = prev_t;
+            var b = t;
+            for (var k = 0; k < 5; k = k + 1) {
+                let m = 0.5 * (a + b);
+                let qm = start + dir * m;
+                if (scene_z(project(qm).xy) - qm.z > 0.0) { b = m; } else { a = m; }
+            }
+            return b;
+        }
+        prev_t = t;
+    }
+    return -1.0;
+}
+
+// Colour of a reflection hit at `huv`, blurred over the footprint of the reflection cone: the
+// specular lobe widens with roughness (GGX alpha = roughness squared) and the footprint with the
+// distance the ray travelled, so a rough surface shows a soft reflection that stays sharp where
+// objects touch it, not a faint mirror image (issue #729).
+fn reflected_color(huv: vec2<f32>, hit: vec3<f32>, hit_t: f32, rough: f32, jitter: f32) -> vec3<f32> {
+    let alpha = rough * rough;
+    let footprint = hit_t * alpha * 2.0;
+    let px_at_hit = select(-hit.z, 1.0, p.params.w > 0.5) * 2.0 / (p.size.y * p.misc.w);
+    let radius = min(footprint / max(px_at_hit, 1e-6), 48.0);
+    if (radius < 0.75) {
+        return textureSampleLevel(src, samp, huv, 0.0).rgb;
+    }
+    // Golden-angle spiral, rotated per pixel (TAA and the noise hide the pattern), with weights
+    // falling off towards the rim like the lobe.
+    let taps = 16;
+    let spin = jitter * 6.2831853;
+    var sum = textureSampleLevel(src, samp, huv, 0.0).rgb;
+    var total = 1.0;
+    for (var i = 0; i < taps; i = i + 1) {
+        let f = (f32(i) + 0.5) / f32(taps);
+        let a = f32(i) * 2.3999632 + spin;
+        let off = vec2<f32>(cos(a), sin(a)) * (sqrt(f) * radius) * p.size.zw;
+        let w = exp(-2.0 * f);
+        sum += textureSampleLevel(src, samp, clamp(huv + off, vec2<f32>(0.0), vec2<f32>(1.0)), 0.0).rgb * w;
+        total += w;
+    }
+    return sum / total;
+}
+
 @fragment
 fn fs_screen(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
     let px = vec2<i32>(frag.xy);
@@ -440,43 +500,42 @@ fn fs_screen(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
         let weight = p.params.z * fres * gloss * gloss;
         if (weight > 0.002) {
             let dist = p.misc.x;
-            let steps = 48;
             let thickness = max(dist * 0.03, px_size * 3.0);
             let start = pos + n * px_size * 1.5;
-            var prev_t = 0.0;
-            var hit_t = -1.0;
-            for (var i = 1; i <= steps; i = i + 1) {
-                // Denser steps near the surface, where contact matters most.
-                let f = (f32(i) - 1.0 + jitter) / f32(steps);
-                let t = dist * f * f;
-                let q = start + r * t;
-                let s = project(q);
-                if (s.x < 0.0 || s.y < 0.0 || s.x >= p.size.x || s.y >= p.size.y || s.z <= 0.0 || s.z >= 1.0) {
-                    break;
-                }
-                let gap = scene_z(s.xy) - q.z;
-                if (gap > 0.0 && gap < thickness) {
-                    // Refine between the last step in front and this one.
-                    var a = prev_t;
-                    var b = t;
-                    for (var k = 0; k < 5; k = k + 1) {
-                        let m = 0.5 * (a + b);
-                        let qm = start + r * m;
-                        if (scene_z(project(qm).xy) - qm.z > 0.0) { b = m; } else { a = m; }
+            // A rough surface reflects a cone, not a line (issue #729): several rays spread over
+            // the lobe (GGX alpha = roughness squared) soften the outline of what is reflected, and
+            // each hit is blurred over the cone's footprint. Mirrors keep one exact ray.
+            let alpha = rough * rough;
+            let spread = alpha * 2.0;
+            let rays = select(1, 6, spread > 0.01);
+            let helper = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 1.0, 0.0), abs(r.x) > 0.9);
+            let t1 = normalize(cross(r, helper));
+            let t2 = cross(r, t1);
+            var hit_sum = vec3<f32>(0.0);
+            var cover = 0.0;
+            for (var k = 0; k < rays; k = k + 1) {
+                var dir = r;
+                if (rays > 1) {
+                    let f = (f32(k) + 0.5) / f32(rays);
+                    let a = f32(k) * 2.3999632 + jitter * 6.2831853;
+                    dir = normalize(r + (t1 * cos(a) + t2 * sin(a)) * (sqrt(f) * spread));
+                    if (dot(dir, n) <= 0.0) {
+                        continue;
                     }
-                    hit_t = b;
-                    break;
                 }
-                prev_t = t;
+                let hit_t = trace_reflection(start, dir, dist, thickness, jitter);
+                if (hit_t > 0.0) {
+                    let s = project(start + dir * hit_t);
+                    let huv = s.xy * p.size.zw;
+                    // Fade near the screen border and with distance: the depth buffer ends there.
+                    let edge = min(min(huv.x, 1.0 - huv.x), min(huv.y, 1.0 - huv.y));
+                    let fade = smoothstep(0.0, 0.08, edge) * (1.0 - smoothstep(0.6, 1.0, hit_t / dist));
+                    hit_sum += reflected_color(huv, start + dir * hit_t, hit_t, rough, jitter) * fade;
+                    cover += fade;
+                }
             }
-            if (hit_t > 0.0) {
-                let s = project(start + r * hit_t);
-                let huv = s.xy * p.size.zw;
-                // Fade near the screen border and with distance: the depth buffer ends there.
-                let edge = min(min(huv.x, 1.0 - huv.x), min(huv.y, 1.0 - huv.y));
-                let fade = smoothstep(0.0, 0.08, edge) * (1.0 - smoothstep(0.6, 1.0, hit_t / dist));
-                let hit_color = textureSampleLevel(src, samp, huv, 0.0).rgb;
-                color = mix(color, hit_color, clamp(weight * fade, 0.0, 1.0));
+            if (cover > 0.0) {
+                color = mix(color, hit_sum / cover, clamp(weight * cover / f32(rays), 0.0, 1.0));
             }
         }
     }
