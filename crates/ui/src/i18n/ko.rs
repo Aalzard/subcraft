@@ -9,6 +9,7 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Paint where the cage reaches further: white pushes it out by Cage push, only there. Uses the mask of each texture set's layer with this name (the layer can be hidden)", "케이지가 더 멀리 닿을 곳을 칠합니다. 흰색 부분만 케이지 밀기만큼 케이지를 밀어냅니다. 각 텍스처 세트에서 이 이름을 가진 레이어의 마스크를 사용합니다(레이어는 숨겨도 됩니다)"),
     ("Cage push", "케이지 밀기"),
     ("How far white on the cage push map moves the cage: 1 doubles the front and rear reach", "케이지 밀기 맵의 흰색이 케이지를 얼마나 이동하는지: 1이면 앞쪽과 뒤쪽 도달 거리가 두 배가 됩니다"),
+    ("Rays pass through the back of faces, so single-sided cards and open shells do not darken what is behind them", "광선이 면의 뒷면을 통과하므로, 단면 카드와 열린 셸이 뒤에 있는 것을 어둡게 하지 않습니다"),
     ("8192 bakes slowly and needs about 8 GB of RAM (12 GB or more with a high poly). Texture sets go up to 4096: layers read the map averaged down, and Baked Mesh Maps export writes it at full size", "8192 굽기는 느리고 RAM이 약 8 GB 필요합니다(하이 폴리가 있으면 12 GB 이상). 텍스처 세트는 최대 4096입니다. 레이어는 맵을 평균해 축소해서 읽고, 구운 메시 맵 내보내기는 원래 크기로 저장합니다"),
     ("Axis views", "축 뷰"),
     ("Back view", "뒤쪽 뷰"),

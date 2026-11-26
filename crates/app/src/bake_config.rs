@@ -91,6 +91,7 @@ pub fn to_config(s: &BakeSettings, files: &BakeFilesConfig) -> BakeConfig {
         ao_distribution: distribution_name(s.ao.distribution).into(),
         ao_attenuation: attenuation_name(s.ao.attenuation).into(),
         ao_ground_plane: s.ao.ground_plane,
+        ao_ignore_backface: s.ao.ignore_backface,
         ao_ground_offset: s.ao.ground_offset,
         thickness_samples: s.thickness_samples,
         thickness_distance: s.thickness_distance,
@@ -172,6 +173,7 @@ pub fn apply(c: &BakeConfig, s: &mut BakeSettings) -> BakeFilesConfig {
     s.ao.distribution = by_name(&RayDistribution::ALL, &c.ao_distribution, distribution_name, RayDistribution::default());
     s.ao.attenuation = by_name(&AoAttenuation::ALL, &c.ao_attenuation, attenuation_name, AoAttenuation::default());
     s.ao.ground_plane = c.ao_ground_plane;
+    s.ao.ignore_backface = c.ao_ignore_backface;
     s.ao.ground_offset = c.ao_ground_offset;
     s.thickness_samples = c.thickness_samples.clamp(1, 4096);
     s.thickness_distance = c.thickness_distance;
@@ -242,6 +244,7 @@ mod tests {
         s.ao.distribution = RayDistribution::Uniform;
         s.ao.attenuation = AoAttenuation::Smooth;
         s.ao.ground_plane = true;
+        s.ao.ignore_backface = true;
         s.ao.ground_offset = 0.2;
         s.position.single_axis = Some(2);
         s.position.normalization = PositionNormalization::None;

@@ -182,6 +182,8 @@ pub struct BakeConfig {
     pub ao_distribution: String,
     pub ao_attenuation: String,
     pub ao_ground_plane: bool,
+    /// AO rays pass through the back of faces.
+    pub ao_ignore_backface: bool,
     pub ao_ground_offset: f32,
     pub thickness_samples: u32,
     pub thickness_distance: f32,
@@ -273,7 +275,7 @@ impl Default for BakeConfig {
             high_poly: String::new(), extra_high: Vec::new(), cage_file: String::new(), size: None,
             maps: subcraft_core::MeshMapKind::default_bake(), skip_sets: Vec::new(),
             ao_samples: 32, ao_distance: 0.25, ao_min_distance: 0.0, ao_spread_angle: 180.0,
-            ao_distribution: "cosine".into(), ao_attenuation: "none".into(), ao_ground_plane: false, ao_ground_offset: 0.0,
+            ao_distribution: "cosine".into(), ao_attenuation: "none".into(), ao_ground_plane: false, ao_ignore_backface: false, ao_ground_offset: 0.0,
             thickness_samples: 16, thickness_distance: 0.5, thickness_min_distance: 0.0, thickness_spread_angle: 180.0,
             thickness_distribution: "cosine".into(), curvature_radius: 0.02, curvature_from_normal: false,
             normal_curvature_width: 2.0, normal_curvature_intensity: 1.0,

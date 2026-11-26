@@ -154,7 +154,7 @@ Layout notes: a "Common settings" entry at the top (with its own sync button), t
 | Relative to bounding box | Mesh map settings > Ambient occlusion | on (unverified) | partial: always relative, no toggle | crates/bake/src/lib.rs:45 | - |
 | Spread angle | Mesh map settings > Ambient occlusion | 180 (unverified) | done: 1 to 180, default 180 | crates/ui/src/dialogs.rs (map_settings_panel) | - |
 | Distribution | Mesh map settings > Ambient occlusion | Cosine (default); Uniform (unverified) | done: Cosine (default), Uniform | crates/bake/src/lib.rs (RayDistribution) | - |
-| Ignore backface | Mesh map settings > Ambient occlusion | Never; Always; By mesh name (unverified) | missing | - | - |
+| Ignore backface | Mesh map settings > Ambient occlusion | Never; Always; By mesh name (unverified) | partial: Never or Always (a checkbox); no By mesh name | crates/bake/src/lib.rs (AoOptions::ignore_backface) | this PR |
 | Self occlusion | Mesh map settings > Ambient occlusion | Always; Only same mesh name (unverified) | partial: follows the Match mode, no own setting | crates/bake/src/lib.rs:58 | - |
 | Attenuation | Mesh map settings > Ambient occlusion | None; Smooth; Linear (unverified) | done: None (default), Smooth, Linear | crates/bake/src/lib.rs (AoAttenuation) | - |
 | Ground plane | Mesh map settings > Ambient occlusion | off (unverified) | done | crates/ui/src/dialogs.rs (map_settings_panel) | - |

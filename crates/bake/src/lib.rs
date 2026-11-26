@@ -194,11 +194,13 @@ pub struct AoOptions {
     pub ground_plane: bool,
     /// How far the floor lies under the model's lowest point, as a fraction of the diagonal.
     pub ground_offset: f32,
+    /// Rays that reach the back of a face pass through it (single-sided cards, open shells).
+    pub ignore_backface: bool,
 }
 
 impl Default for AoOptions {
     fn default() -> Self {
-        Self { min_distance: 0.0, spread_angle: 180.0, distribution: RayDistribution::Cosine, attenuation: AoAttenuation::None, ground_plane: false, ground_offset: 0.0 }
+        Self { min_distance: 0.0, spread_angle: 180.0, distribution: RayDistribution::Cosine, attenuation: AoAttenuation::None, ground_plane: false, ground_offset: 0.0, ignore_backface: false }
     }
 }
 
@@ -229,7 +231,7 @@ impl ThicknessOptions {
 impl AoOptions {
     /// The plain cosine hemisphere (what the GPU kernels and the fast CPU path compute).
     pub fn is_plain(&self) -> bool {
-        self.min_distance <= 0.0 && self.spread_angle >= 180.0 && self.distribution == RayDistribution::Cosine && self.attenuation == AoAttenuation::None && !self.ground_plane
+        self.min_distance <= 0.0 && self.spread_angle >= 180.0 && self.distribution == RayDistribution::Cosine && self.attenuation == AoAttenuation::None && !self.ground_plane && !self.ignore_backface
     }
 }
 
@@ -1055,8 +1057,10 @@ fn bake_core(
     // The nearest occluder of an occlusion ray between `min` and `max`: the detail mesh or, with
     // the ground plane on, the floor under the model.
     let ground = settings.ao.ground_plane.then(|| bounds.min.y.min(detail_geo.mesh.bounds.min.y) - settings.ao.ground_offset.max(0.0) * diag);
+    let ignore_backface = settings.ao.ignore_backface;
     let occluder = |origin: Vec3, dir: Vec3, min: f32, max: f32, group: u32| -> Option<f32> {
-        let mut nearest = detail_geo.bvh.intersect_filtered(origin, dir, min, max, |tri| accepts(group, tri)).map(|h| h.t);
+        let front = |tri: u32| !ignore_backface || detail_geo.mesh.geometric_normal(tri as usize).dot(dir) < 0.0;
+        let mut nearest = detail_geo.bvh.intersect_filtered(origin, dir, min, max, |tri| accepts(group, tri) && front(tri)).map(|h| h.t);
         if let Some(y) = ground && dir.y < -1e-6 {
             let t = (y - origin.y) / dir.y;
             if t > min && t < max {
@@ -1641,3 +1645,5 @@ mod skew_tests;
 mod opacity_tests;
 #[cfg(test)]
 mod paint_map_tests;
+#[cfg(test)]
+mod ao_backface_tests;
