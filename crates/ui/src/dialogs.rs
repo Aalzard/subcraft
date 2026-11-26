@@ -1689,6 +1689,31 @@ pub fn tick_bake_map(maps: &mut Vec<subcraft_core::MeshMapKind>, kind: subcraft_
 }
 
 /// A labelled dropdown over the options of one baker setting.
+/// Skew correction (Painter's Common settings > Skew correction), under Average normals.
+fn skew_settings(ui: &mut egui::Ui, s: &mut subcraft_bake::skew::SkewCorrection, d: &subcraft_bake::skew::SkewCorrection) {
+    use crate::widgets::slider_row_reset as slider_row;
+    use subcraft_bake::skew::SkewBase;
+    check_reset(ui, &mut s.enabled, d.enabled, tr("Skew correction"))
+        .on_hover_text(tr("Straighten the averaged rays on flat areas so round and straight details on the high poly do not bake sheared"));
+    if !s.enabled {
+        return;
+    }
+    ui.indent("bake_skew", |ui| {
+        option_row(ui, "bake_skew_base", tr("Skew base normal"), &mut s.base, d.base, &SkewBase::ALL, |b| match b {
+            SkewBase::Mesh => tr("Mesh"),
+            SkewBase::Triangle => tr("Per triangle"),
+        })
+        .on_hover_text(tr("Straight rays follow the low poly's shading normals, or each triangle's flat normal"));
+        check_reset(ui, &mut s.edge_protection, d.edge_protection, tr("Edge protection"))
+            .on_hover_text(tr("Keep the averaged rays next to hard edges, where straight rays would leave gaps"));
+        if s.edge_protection {
+            slider_row(ui, tr("Edge distance"), &mut s.edge_distance, d.edge_distance, |v| egui::Slider::new(v, 0.001..=0.2).logarithmic(true).fixed_decimals(3))
+                .on_hover_text(tr("Fraction of the model diagonal over which the rays turn straight away from a hard edge"));
+            slider_row(ui, tr("Edge contrast"), &mut s.edge_contrast, d.edge_contrast, |v| egui::Slider::new(v, 0.0..=1.0));
+        }
+    });
+}
+
 fn option_row<T: PartialEq + Copy>(ui: &mut egui::Ui, id: &str, label: &str, value: &mut T, default: T, options: &[T], name: impl Fn(T) -> &'static str) -> egui::Response {
     ui.horizontal(|ui| {
         let l = dim_label(ui, label);
@@ -1727,6 +1752,7 @@ fn reset_parameters(b: &mut BakeUi, baker: Option<subcraft_core::MeshMapKind>) {
             s.diffusion = d.diffusion;
             s.antialiasing = d.antialiasing;
             s.average_normals = d.average_normals;
+            s.skew = d.skew;
             s.ignore_backface = d.ignore_backface;
             b.size_chosen = false;
         }
@@ -2115,6 +2141,9 @@ fn common_settings(ui: &mut egui::Ui, b: &mut BakeUi, f: &BakeFrame, bake_match:
             .on_hover_text(tr("A copy of the low poly pushed outwards, with the same UVs: each ray starts on it"));
             check_reset(ui, &mut b.settings.average_normals, d.average_normals, tr("Average normals"))
                 .on_hover_text(tr("Cast rays along normals averaged across hard edges and UV seams, so no gap opens between faces"));
+            if b.settings.average_normals && b.cage_file.trim().is_empty() {
+                skew_settings(ui, &mut b.settings.skew, &d.skew);
+            }
             check_reset(ui, &mut b.settings.ignore_backface, d.ignore_backface, tr("Ignore backface"))
                 .on_hover_text(tr("Rays skip high-poly faces that face away from them"));
         }
