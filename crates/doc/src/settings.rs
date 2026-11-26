@@ -192,6 +192,12 @@ pub struct BakeConfig {
     pub curvature_from_normal: bool,
     pub normal_curvature_width: f32,
     pub normal_curvature_intensity: f32,
+    /// Curvature tonemapping: stretch each bake to the full range around 0.5.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub curvature_auto_tonemap: bool,
+    /// Raw curvature mapped to black / white when auto tonemapping is off.
+    pub curvature_tonemap_min: f32,
+    pub curvature_tonemap_max: f32,
     pub cage_front: f32,
     pub cage_rear: f32,
     pub id_source: String,
@@ -256,7 +262,8 @@ impl Default for BakeConfig {
             ao_distribution: "cosine".into(), ao_attenuation: "none".into(), ao_ground_plane: false, ao_ground_offset: 0.0,
             thickness_samples: 16, thickness_distance: 0.5, thickness_min_distance: 0.0, thickness_spread_angle: 180.0,
             thickness_distribution: "cosine".into(), curvature_radius: 0.02, curvature_from_normal: false,
-            normal_curvature_width: 2.0, normal_curvature_intensity: 1.0, cage_front: 0.01, cage_rear: 0.01,
+            normal_curvature_width: 2.0, normal_curvature_intensity: 1.0,
+            curvature_auto_tonemap: false, curvature_tonemap_min: 0.0, curvature_tonemap_max: 1.0, cage_front: 0.01, cage_rear: 0.01,
             id_source: "mesh_id".into(), id_generator: "hue_shift".into(), vertex_color_set: 0, extra_vertex_color_sets: Vec::new(), dilation: 16, diffusion: true, antialiasing: 1,
             average_normals: false, ignore_backface: false, position_axis: None, position_normalization: "bounding_box".into(), position_scale: 1.0,
             height_range: None, extra_ids: Vec::new(),

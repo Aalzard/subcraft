@@ -1130,6 +1130,70 @@ fn file_id_gives_each_high_poly_file_its_own_colour() {
     assert!(w.iter().any(|w| w.contains("File ID needs several high-poly files")), "{w:?}");
 }
 
+fn bake_curvature_with(mesh: &Mesh, tonemap: CurvatureTonemap) -> TiledImage {
+    let bvh = Bvh::build(mesh);
+    let input = BakeInput { low: Geometry { mesh, bvh: &bvh }, high: None, material_slot: 0 };
+    let s = BakeSettings { curvature_tonemap: tonemap, use_gpu: false, ..settings(&[MeshMapKind::Curvature]) };
+    bake(&input, &s, &Progress::new()).unwrap().remove(&MeshMapKind::Curvature).unwrap()
+}
+
+#[test]
+fn curvature_tonemap_default_leaves_the_map_unchanged() {
+    assert!(CurvatureTonemap::default().is_identity());
+    let mut v = vec![0.2, 0.5, 0.9];
+    CurvatureTonemap::default().apply(&mut v);
+    assert_eq!(v, [0.2, 0.5, 0.9]);
+}
+
+#[test]
+fn curvature_auto_tonemap_ignores_outliers_and_caps_the_gain() {
+    // 1000 values within 0.45..0.55 plus two spikes: the spikes clip, the band fills the range.
+    let mut v: Vec<f32> = (0..1000).map(|i| 0.45 + 0.1 * i as f32 / 999.0).collect();
+    v.extend([0.0, 1.0]);
+    let (scale, offset) = CurvatureTonemap { auto: true, ..Default::default() }.remap(&v);
+    assert!((scale - 10.0).abs() < 0.2, "gain {scale}");
+    assert!((0.5 * scale + offset - 0.5).abs() < 1e-5, "flat stays 0.5");
+    // A nearly flat tile is not blown up past the gain cap.
+    let flat = vec![0.5f32, 0.5001, 0.4999];
+    let (scale, _) = CurvatureTonemap { auto: true, ..Default::default() }.remap(&flat);
+    assert_eq!(scale, CurvatureTonemap::MAX_GAIN);
+}
+
+#[test]
+fn curvature_auto_tonemap_stretches_a_soft_shape_to_the_full_range() {
+    // A torus: gently convex outside, concave inside, so the raw map is a narrow band of greys.
+    let mesh = primitives::torus(1.0, 0.4, 48, 24);
+    let raw = bake_curvature_with(&mesh, CurvatureTonemap::default());
+    let auto = bake_curvature_with(&mesh, CurvatureTonemap { auto: true, ..Default::default() });
+    let (mut raw_dev, mut auto_dev) = (Vec::new(), Vec::new());
+    for t in texels(&mesh, 0, RES) {
+        let (r, a) = (at(&raw, &t)[0], at(&auto, &t)[0]);
+        // Convex stays bright, concave stays dark, flat stays grey.
+        assert!((r - 0.5) * (a - 0.5) >= 0.0 && (a - 0.5).abs() >= (r - 0.5).abs() - 1e-3, "raw {r} auto {a}");
+        raw_dev.push((r - 0.5).abs());
+        auto_dev.push((a - 0.5).abs());
+    }
+    let high = |v: &mut Vec<f32>| {
+        v.sort_by(f32::total_cmp);
+        v[(v.len() as f32 * 0.99) as usize]
+    };
+    let (r, a) = (high(&mut raw_dev), high(&mut auto_dev));
+    assert!(r < 0.3, "the raw torus is a narrow band ({r})");
+    assert!(a > 0.45, "auto tonemapping spreads it towards black and white ({a})");
+}
+
+#[test]
+fn curvature_manual_tonemap_remaps_min_and_max() {
+    let mesh = primitives::cube(2.0);
+    let raw = bake_curvature_with(&mesh, CurvatureTonemap::default());
+    let manual = bake_curvature_with(&mesh, CurvatureTonemap { auto: false, min: 0.4, max: 0.7 });
+    for t in texels(&mesh, 0, RES) {
+        let want = ((at(&raw, &t)[0] - 0.4) / 0.3).clamp(0.0, 1.0);
+        let got = at(&manual, &t)[0];
+        assert!((got - want).abs() < 2e-3, "{got} vs {want}");
+    }
+}
+
 /// Issue #733: additional ID map entries take the free slots in order, and each bakes as an
 /// ID-only bake with its own colour options on top of the common settings.
 #[test]
