@@ -62,7 +62,7 @@ Layout notes: a "Common settings" entry at the top (with its own sync button), t
 | Baker row: Thickness | Mesh map bakers | checked (unverified) | done | crates/ui/src/dialogs.rs:647 | - |
 | Baker row: Height | Mesh map bakers | not documented | done | crates/ui/src/dialogs.rs:647 | - |
 | Baker row: Bent normals | Mesh map bakers | not documented | done | crates/ui/src/dialogs.rs:647 | - |
-| Baker row: Opacity | Mesh map bakers | not documented | missing | - | - |
+| Baker row: Opacity | Mesh map bakers | not documented | done: Opacity map (white where the high poly covers the low poly); off in a default bake | crates/bake/src/lib.rs (MeshMapKind::Opacity) | #747 |
 | Mesh map thumbnail in the row | Mesh map bakers | not documented | partial: icon in the row, thumbnails only in Texture Set Settings | crates/ui/src/dialogs.rs (bakers_panel) | - |
 | Check / uncheck a map | Baker row | not documented | done | crates/ui/src/dialogs.rs (bakers_panel) | - |
 | Drag across check boxes to toggle several | Mesh map bakers | not documented | missing | - | - |
@@ -90,7 +90,7 @@ Layout notes: a "Common settings" entry at the top (with its own sync button), t
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Output size (width) | Common settings > Output settings | paint resolution of the project; list not documented | partial: 256 to 4096, square only | crates/ui/src/dialogs.rs:663 | - |
+| Output size (width) | Common settings > Output settings | paint resolution of the project; list not documented | partial: 256 to 8192, square only (texture sets are square; an 8192 bake on a 4096 set is read averaged, raw export keeps 8192) | crates/ui/src/dialogs.rs (common_settings) | #749 |
 | Output size lock (non-square) | Common settings > Output settings | locked | missing | - | - |
 | Output size (height) | Common settings > Output settings | same as width | missing | - | - |
 | Dilation width | Common settings > Output settings | 16 (unverified) | done: 0 to 64 texels, default 16 | crates/ui/src/dialogs.rs (common_settings) | - |
@@ -110,7 +110,7 @@ Layout notes: a "Common settings" entry at the top (with its own sync button), t
 | Max rear distance | Common settings > Cage (Distance-based) | 0.01 (unverified) | done | crates/ui/src/dialogs.rs:681 | - |
 | Relative to bounding box | Common settings > Cage | on (unverified) | partial: always relative to the model diagonal, no toggle | crates/bake/src/lib.rs:51 | - |
 | Average normals | Common settings > Cage | on (unverified) | done: on by default in the panels | crates/bake/src/lib.rs (averaged_normals) | - |
-| Paint cage | Common settings > Cage (Distance-based) | not documented | missing | - | - |
+| Paint cage | Common settings > Cage (Distance-based) | not documented | partial: a Cage push map painted as a layer mask (picked by layer name) pushes the cage out by Cage push where white; no dedicated cage painting mode | crates/bake/src/paint_maps.rs, crates/ui/src/dialogs.rs (common_settings) | #750 |
 | Ignore backface | Common settings > High-poly parameters | on (unverified) | done: on by default in the panels | crates/bake/src/lib.rs (bake_core) | - |
 | Match | Common settings > High-poly parameters | Always (default, unverified); By mesh name | done | crates/ui/src/dialogs.rs:814 | - |
 | Low poly mesh suffix | Common settings > High-poly parameters | _low (unverified) | done | crates/ui/src/dialogs.rs:820 | - |
@@ -122,18 +122,18 @@ Layout notes: a "Common settings" entry at the top (with its own sync button), t
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Paint skew correction | Common settings > Skew correction | needs high poly, Distance-based cage, Average normals | missing | - | - |
-| Edge protection | Common settings > Skew correction | not documented | missing | - | - |
-| Edge distance | Common settings > Skew correction | not documented; relative to mesh size | missing | - | - |
-| Edge contrast | Common settings > Skew correction | not documented | missing | - | - |
-| Skew base normal mode (mesh or per-triangle) | Common settings > Skew correction | (unverified) | missing | - | - |
+| Paint skew correction | Common settings > Skew correction | needs high poly, Distance-based cage, Average normals | partial: a Skew map painted as a layer mask (picked by layer name) scales the correction; no dedicated painting mode | crates/bake/src/paint_maps.rs, crates/ui/src/dialogs.rs (skew_settings) | #750 |
+| Edge protection | Common settings > Skew correction | not documented | done | crates/bake/src/skew.rs | #746 |
+| Edge distance | Common settings > Skew correction | not documented; relative to mesh size | done: fraction of the model diagonal | crates/bake/src/skew.rs | #746 |
+| Edge contrast | Common settings > Skew correction | not documented | done | crates/bake/src/skew.rs | #746 |
+| Skew base normal mode (mesh or per-triangle) | Common settings > Skew correction | (unverified) | done: Mesh or Per triangle | crates/bake/src/skew.rs | #746 |
 
 ## Mesh map settings: Normal and World space normal
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
 | Normal baker (tangent space, from high poly) | Mesh map bakers | no map-specific settings documented | done | crates/bake/src/lib.rs:40 | - |
-| Baked normal uses the project Normal Map Format | Project settings | DirectX or OpenGL | partial: always OpenGL | crates/ui/src/new_project.rs:286 | - |
+| Baked normal uses the project Normal Map Format | Project settings | DirectX or OpenGL | partial: baked and stored OpenGL; exports (textures and Baked Mesh Maps) follow the project's DirectX / OpenGL setting | crates/export/src/lib.rs (evaluate_map) | this PR |
 | World space normal baker | Mesh map bakers | no map-specific settings documented | done | crates/core/src/meshmap.rs:10 | - |
 
 ## Mesh map settings: ID
@@ -169,9 +169,9 @@ Layout notes: a "Common settings" entry at the top (with its own sync button), t
 | Sampling radius | Mesh map settings > Curvature | not documented; values above 0.01 allowed | done | crates/ui/src/dialogs.rs:692 | - |
 | Relative to Bounding box | Mesh map settings > Curvature | not documented | partial: always relative, no toggle | crates/bake/src/lib.rs:49 | - |
 | Self intersection | Mesh map settings > Curvature | not documented | missing | - | - |
-| Auto tonemapping (per UV tile) | Mesh map settings > Curvature | on | missing | - | - |
-| Tonemapping Min | Mesh map settings > Curvature (auto off) | not documented | missing | - | - |
-| Tonemapping Max | Mesh map settings > Curvature (auto off) | not documented | missing | - | - |
+| Auto tonemapping (per UV tile) | Mesh map settings > Curvature | on | done: off by default (the generators were tuned on raw curvature) | crates/bake/src/lib.rs (CurvatureTonemap) | #743 |
+| Tonemapping Min | Mesh map settings > Curvature (auto off) | not documented | done | crates/bake/src/lib.rs (CurvatureTonemap) | #743 |
+| Tonemapping Max | Mesh map settings > Curvature (auto off) | not documented | done | crates/bake/src/lib.rs (CurvatureTonemap) | #743 |
 
 ## Mesh map settings: Position
 
@@ -276,7 +276,7 @@ Layout notes: entered with Paint cage in Common settings (needs a high-poly file
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Cage painting mode | Common settings > Cage > Paint cage | off | missing | - | - |
+| Cage painting mode | Common settings > Cage > Paint cage | off | partial: painted as a layer mask (Cage push map), see Paint cage | crates/bake/src/paint_maps.rs | #750 |
 | Paintbrush tool | Cage painting toolbar | painting-mode shortcut | missing | - | - |
 | Eraser tool (back to default cage size) | Cage painting toolbar | painting-mode shortcut | missing | - | - |
 | Polygon fill tool (incl. Mesh fill mode) | Cage painting toolbar | painting-mode shortcut | missing | - | - |
@@ -295,7 +295,7 @@ Layout notes: entered with Paint cage in Common settings (needs a high-poly file
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Skew correction painting mode (stored per texture set) | Common settings > Skew correction > Paint skew correction | off | missing | - | - |
+| Skew correction painting mode (stored per texture set) | Common settings > Skew correction > Paint skew correction | off | partial: painted as a layer mask per texture set (Skew map), see Paint skew correction | crates/bake/src/paint_maps.rs | #750 |
 | Brush tool | Skew painting toolbar | painting-mode shortcut | missing | - | - |
 | Eraser tool | Skew painting toolbar | painting-mode shortcut | missing | - | - |
 | Polygon fill tool | Skew painting toolbar | painting-mode shortcut | missing | - | - |

@@ -688,11 +688,15 @@ fn evaluate_map(map: &OutputMap, dense: &mut Dense, settings: &ExportSettings, f
             Source::View2d { component } => {
                 let Some(view) = settings.view_2d else { continue };
                 let encode = map.srgb && matches!(view, View2d::Channel(k) if k.is_color()) && !format.is_float();
+                // A baked tangent-space normal map is stored OpenGL (Y+); the project's (or the
+                // map's) DirectX setting flips its green like any exported normal map.
+                let flip_green = view == View2d::MeshMap(MeshMapKind::Normal) && normal_directx(map, settings, false);
                 let (cc, data) = dense.view(view);
                 // Same as the panel: one component shows as gray, otherwise RGB; display clamps to 0..1.
                 let c = if *cc == 1 { 0 } else { (component as usize).min(*cc - 1).min(2) };
                 for i in 0..n {
                     let v = data[i * cc + c];
+                    let v = if flip_green && c == 1 { 1.0 - v } else { v };
                     let v = if format.is_float() { v } else { v.clamp(0.0, 1.0) };
                     out[i * comps + ci] = if encode { linear_to_srgb(v.clamp(0.0, 1.0)) } else { v };
                 }
