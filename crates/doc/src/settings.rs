@@ -221,6 +221,12 @@ pub struct BakeConfig {
     pub skew_edge_protection: bool,
     pub skew_edge_distance: f32,
     pub skew_edge_contrast: f32,
+    /// Layer whose mask is the skew map (empty: none).
+    pub skew_map_layer: String,
+    /// Layer whose mask is the cage push map (empty: none).
+    pub cage_push_layer: String,
+    /// How far white on the cage push map moves the cage (1: doubles the distances).
+    pub cage_push: f32,
     pub ignore_backface: bool,
     /// Position map of one axis (0 = X, 1 = Y, 2 = Z); `None`: all axes.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -274,6 +280,7 @@ impl Default for BakeConfig {
             curvature_auto_tonemap: false, curvature_tonemap_min: 0.0, curvature_tonemap_max: 1.0, cage_front: 0.01, cage_rear: 0.01,
             id_source: "mesh_id".into(), id_generator: "hue_shift".into(), vertex_color_set: 0, extra_vertex_color_sets: Vec::new(), dilation: 16, diffusion: true, antialiasing: 1,
             average_normals: false, skew_correction: false, skew_base: "mesh".into(), skew_edge_protection: true, skew_edge_distance: 0.03, skew_edge_contrast: 0.5,
+            skew_map_layer: String::new(), cage_push_layer: String::new(), cage_push: 1.0,
             ignore_backface: false, position_axis: None, position_normalization: "bounding_box".into(), position_scale: 1.0,
             height_range: None, extra_ids: Vec::new(),
         }

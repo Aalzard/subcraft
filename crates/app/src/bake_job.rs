@@ -32,6 +32,20 @@ pub struct BakeFiles {
     pub extra_high_polys: Vec<PathBuf>,
     /// A custom cage mesh: the low poly pushed outwards, with the low poly's UVs.
     pub cage: Option<PathBuf>,
+    /// Name of the layers whose masks are the skew map (empty: none). Each texture set uses the
+    /// mask of its own layer with this name.
+    pub skew_map_layer: String,
+    /// Name of the layers whose masks are the cage push map (empty: none).
+    pub cage_push_layer: String,
+    /// The painted maps per texture set, read from those layers when the bake starts.
+    pub paint: std::collections::BTreeMap<TextureSetId, BakePaintMaps>,
+}
+
+/// One texture set's painted bake masks (see [`subcraft_bake::paint_maps`]).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct BakePaintMaps {
+    pub skew: Option<subcraft_bake::paint_maps::PaintMap>,
+    pub cage_push: Option<subcraft_bake::paint_maps::PaintMap>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -262,7 +276,15 @@ impl BakeJob {
                     high: high.as_ref().map(|(m, b)| Geometry { mesh: m, bvh: b }),
                     material_slot: *slot,
                 };
-                match bake_streamed(&input, &request.settings, &p, |kind, image| {
+                let painted = files.paint.get(ts).map(|m| {
+                    let mut s = request.settings.clone();
+                    s.skew_map = m.skew.clone();
+                    s.cage_push_map = m.cage_push.clone();
+                    if m.skew.is_some() { say(BakeLogLevel::Info, format!("Skew map: layer \"{}\".", files.skew_map_layer)); }
+                    if m.cage_push.is_some() { say(BakeLogLevel::Info, format!("Cage push map: layer \"{}\" (push {}).", files.cage_push_layer, s.cage_push)); }
+                    s
+                });
+                match bake_streamed(&input, painted.as_ref().unwrap_or(&request.settings), &p, |kind, image| {
                     let _ = tx.send(Message::Map(*ts, kind, image.clone()));
                 }) {
                     Ok(_) => {

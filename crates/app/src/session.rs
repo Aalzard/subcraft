@@ -779,8 +779,39 @@ impl Session {
     }
 
     /// [`Self::start_bake_prepared`] with more high-poly files and a custom cage file.
+    /// The files' skew map and cage push layers are read here, per texture set.
     pub fn start_bake_files(&self, request: crate::bake_job::BakeRequest, high: Option<crate::bake_job::BakePreviewMesh>, files: crate::bake_job::BakeFiles) -> crate::bake_job::BakeJob {
+        let mut files = files;
+        files.paint = self.bake_paint_maps(&files.skew_map_layer, &files.cage_push_layer);
         crate::bake_job::BakeJob::start_with_files(self.scene.mesh.clone(), Arc::new(self.scene.bvh.clone()), request, high, files)
+    }
+
+    /// Painted bake masks per texture set: the mask of each set's first layer named
+    /// `skew_layer` / `push_layer` (empty names: none). Sets without such a layer are left out.
+    /// The layer may be hidden: only its mask is read.
+    pub fn bake_paint_maps(&self, skew_layer: &str, push_layer: &str) -> std::collections::BTreeMap<TextureSetId, crate::bake_job::BakePaintMaps> {
+        let map = |ts: &TextureSet, name: &str| {
+            let name = name.trim();
+            if name.is_empty() { return None; }
+            let mut found = None;
+            ts.walk(|l, _| { if found.is_none() && l.name == name && l.mask.is_some() { found = Some(l.id); } });
+            let image = self.mask_image(found?).ok()?.image;
+            Some(subcraft_bake::paint_maps::PaintMap::new(image))
+        };
+        self.doc.texture_sets.iter().filter_map(|ts| {
+            let m = crate::bake_job::BakePaintMaps { skew: map(ts, skew_layer), cage_push: map(ts, push_layer) };
+            (m.skew.is_some() || m.cage_push.is_some()).then_some((ts.id, m))
+        }).collect()
+    }
+
+    /// Names of the layers with a mask, in every texture set, sorted without repeats (the Bake
+    /// window's skew map and cage push choices).
+    pub fn masked_layer_names(&self) -> Vec<String> {
+        let mut names = std::collections::BTreeSet::new();
+        for ts in &self.doc.texture_sets {
+            ts.walk(|l, _| { if l.mask.is_some() { names.insert(l.name.clone()); } });
+        }
+        names.into_iter().collect()
     }
 
     /// Expose a high-to-low normal bake in the existing layer workflow, without changing

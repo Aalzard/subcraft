@@ -2,6 +2,13 @@
 //! Terminology follows the usual Photoshop / Blender / Windows UI words (see docs/localization.md).
 
 pub static TABLE: &[(&str, &str)] = &[
+    ("Skew map", "偏斜貼圖"),
+    ("Paint the skew amount: white keeps the full correction, black the averaged rays. Uses the mask of each texture set's layer with this name (the layer can be hidden)", "繪製偏斜量：白色保留完整校正，黑色保留平均射線。使用各紋理集中此名稱圖層的遮罩（圖層可以隱藏）"),
+    ("(no layer with a mask has this name)", "（沒有具有此名稱且帶遮罩的圖層）"),
+    ("Cage push map", "籠罩推出貼圖"),
+    ("Paint where the cage reaches further: white pushes it out by Cage push, only there. Uses the mask of each texture set's layer with this name (the layer can be hidden)", "繪製籠罩需要延伸更遠的位置：只有白色處會依籠罩推出量向外推。使用各紋理集中此名稱圖層的遮罩（圖層可以隱藏）"),
+    ("Cage push", "籠罩推出"),
+    ("How far white on the cage push map moves the cage: 1 doubles the front and rear reach", "籠罩推出貼圖上的白色將籠罩推出多遠：1 會使前方與後方距離加倍"),
     ("8192 bakes slowly and needs about 8 GB of RAM (12 GB or more with a high poly). Texture sets go up to 4096: layers read the map averaged down, and Baked Mesh Maps export writes it at full size", "8192 烘焙較慢，約需 8 GB 記憶體（有高模時需 12 GB 以上）。紋理集最大為 4096：圖層會將貼圖平均縮小後讀取，而烘焙網格貼圖匯出會以完整尺寸寫入"),
     ("Axis views", "軸向視圖"),
     ("Back view", "後視圖"),
