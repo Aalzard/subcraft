@@ -113,8 +113,8 @@ Layout notes: Filtering, UV Wrap, then the UV transformations group (Scale mode,
 | Filtering (same three options) | Properties > Fill | Bilinear &#124; HQ | done | crates/ui/src/panels/properties.rs:963 | chunk 8 |
 | UV Wrap (None / Repeat horizontally / Repeat vertically / Repeat) | Properties > Fill | Repeat | done | crates/ui/src/panels/properties.rs:963 | chunk 8 |
 | Shape crop (cropped to shape / extends outside shape) | Properties > Fill | Projection extends outside shape | done: crops to the projection box, which follows the 3D Offset / Rotation / Scale (the bounding cube until it is moved) | crates/materials/src/sample/bitmap.rs:214 | chunk 9 (part 1) |
-| Depth culling (toggle) | Properties > Fill | not documented | missing | - | - |
-| Depth culling: Hardness | Properties > Fill > Depth culling | not documented | missing | - | - |
+| Depth culling (toggle) | Properties > Fill | not documented | done: planar only; a height field of the whole mesh seen from the projector, so surfaces behind the nearest one along the projection get nothing (bitmap and procedural fills, image masks) | crates/materials/src/sample/depth_cull.rs | this PR |
+| Depth culling: Hardness | Properties > Fill > Depth culling | not documented | done: 0..1, default 0.8; below 1 the projection fades over up to 0.25 of the box depth behind the nearest surface | crates/ui/src/panels/properties.rs (backface_rows) | this PR |
 | Backface culling (toggle) | Properties > Fill | not documented | done: on bitmap and procedural fills and image masks; planar faces the side its image reads unmirrored from, cylindrical faces outward | crates/ui/src/panels/properties.rs:1649 | chunk 9 (part 2) |
 | Backface culling: Angle | Properties > Fill > Backface culling | not documented | done: 0..180 degrees, default 90 (labelled Culling angle) | crates/ui/src/panels/properties.rs:1649 | chunk 9 (part 2) |
 | Backface culling: Hardness | Properties > Fill > Backface culling | not documented | done: 0..1, default 0.5; below 1 the projection fades over up to 30 degrees before the angle (labelled Culling hardness) | crates/ui/src/panels/properties.rs:1649 | chunk 9 (part 2) |

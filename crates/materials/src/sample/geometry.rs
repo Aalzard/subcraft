@@ -79,6 +79,12 @@ impl TileGeometry {
     }
 
     #[inline]
+    /// The whole mesh and how positions are normalized (bounds minimum, divided by the largest
+    /// extent); `None` when no triangle touches the tile.
+    pub(crate) fn mesh_frame(&self) -> Option<(&Arc<Mesh>, Vec3, f32)> {
+        self.source.as_ref().map(|s| (&s.mesh, s.bounds_min, s.max_extent))
+    }
+
     fn texels(&self) -> Option<&TileTexels> {
         let source = self.source.as_ref()?;
         self.texels.get_or_init(|| Some(source.build(self.index, self.x0, self.y0))).as_ref()

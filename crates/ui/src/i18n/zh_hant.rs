@@ -2,6 +2,10 @@
 //! Terminology follows the usual Photoshop / Blender / Windows UI words (see docs/localization.md).
 
 pub static TABLE: &[(&str, &str)] = &[
+    ("Depth culling", "深度剔除"),
+    ("Project only on the surface nearest to the projection, not through the model onto what lies behind it", "只投影到最靠近投影的表面，不會穿過模型投影到後方的表面"),
+    ("Depth culling hardness", "深度剔除硬度"),
+    ("1 cuts right behind the nearest surface; lower values fade the projection out with depth", "1 在最近表面的正後方截斷；數值越低，投影隨深度逐漸淡出"),
     ("Settings per texture set", "每個紋理集各自設定"),
     ("Each texture set keeps its own bake settings: select a set to edit its settings. The model files stay shared", "每個紋理集保留自己的烘焙設定：選取紋理集即可編輯其設定。模型檔案仍為共用"),
     ("Apply checked to all texture sets", "將勾選項目套用到所有紋理集"),
