@@ -115,9 +115,15 @@ pub struct TextureSetV1 {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct IdColorEditV1 {
+    /// The ID map it edits; absent means the ID map (written only for an additional one, #733).
+    #[serde(default = "id_map_kind", skip_serializing_if = "is_id_map_kind")]
+    pub map: subcraft_core::MeshMapKind,
     pub from: [f32; 3],
     pub to: [f32; 3],
 }
+
+fn id_map_kind() -> subcraft_core::MeshMapKind { subcraft_core::MeshMapKind::Id }
+fn is_id_map_kind(k: &subcraft_core::MeshMapKind) -> bool { *k == subcraft_core::MeshMapKind::Id }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct MeshMapV1 {

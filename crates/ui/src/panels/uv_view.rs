@@ -773,7 +773,7 @@ fn id_pick_input(state: &mut UiState, ui: &Ui, response: &egui::Response, image:
             Err(e) => state.set_status(format!("ID Color Mask: {e}"), now),
         }
     } else {
-        match state.session.id_map_color(ts, uv) {
+        match state.session.id_map_color_in(ts, crate::panels::id_colors::palette_map(state, ts), uv) {
             Some(color) => crate::panels::id_colors::picked(state, ts, color, now),
             None => state.set_status("No ID map for this texture set: bake or import one.", now),
         }
