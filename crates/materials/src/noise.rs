@@ -318,6 +318,117 @@ fn gradient_block(pts: &[Vec2], freq: f32, period: i32, seed: u32, amp: f32, sum
     }
 }
 
+/// Lattice cell (`floor2(p)` as integers) and position in it (`p - floor2(p)`) of every point,
+/// branch-free for ordinary coordinates (vectorizes), exact for all.
+fn cells_of(pts: &[Vec2], cx: &mut [i32], cy: &mut [i32], f: &mut [Vec2]) {
+    let mut odd = false;
+    for (l, &p) in pts.iter().enumerate() {
+        let (ix, iy) = (lane_floor(p.x), lane_floor(p.y));
+        // Negated so NaN counts as odd too.
+        #[allow(clippy::neg_cmp_op_on_partial_ord)]
+        {
+            odd |= !(p.x.abs() < 8_388_608.0) | !(p.y.abs() < 8_388_608.0);
+        }
+        f[l] = Vec2::new(p.x - ix, p.y - iy);
+        cx[l] = ix as i32;
+        cy[l] = iy as i32;
+    }
+    if odd {
+        for (l, &p) in pts.iter().enumerate() {
+            let i = floor2(p);
+            (f[l], cx[l], cy[l]) = (p - i, i.x as i32, i.y as i32);
+        }
+    }
+}
+
+/// Calls `run(range, ix, iy)` for each run of consecutive points in the same cell.
+#[inline]
+fn for_cell_runs(cx: &[i32], cy: &[i32], mut run: impl FnMut(std::ops::Range<usize>, i32, i32)) {
+    let n = cx.len();
+    let mut j = 0;
+    while j < n {
+        let (ix, iy) = (cx[j], cy[j]);
+        let mut k = j + 1;
+        while k < n && cx[k] == ix && cy[k] == iy {
+            k += 1;
+        }
+        run(j..k, ix, iy);
+        j = k;
+    }
+}
+
+/// [`value_xy`] of every point into `out`, bit-identical: the corner hashes once per run of
+/// points in the same cell.
+pub fn value_xy_many(points: &[Vec2], period_x: i32, period_y: i32, seed: u32, out: &mut [f32]) {
+    assert_eq!(points.len(), out.len());
+    let mut cx = [0i32; FBM_BLOCK];
+    let mut cy = [0i32; FBM_BLOCK];
+    let mut f = [Vec2::ZERO; FBM_BLOCK];
+    for (pts, out) in points.chunks(FBM_BLOCK).zip(out.chunks_mut(FBM_BLOCK)) {
+        let n = pts.len();
+        cells_of(pts, &mut cx[..n], &mut cy[..n], &mut f[..n]);
+        for_cell_runs(&cx[..n], &cy[..n], |r, ix, iy| {
+            let (x0, x1) = wrap_pair(ix, period_x);
+            let (y0, y1) = wrap_pair(iy, period_y);
+            let (h00, h10, h01, h11) = (hash_f(x0, y0, seed), hash_f(x1, y0, seed), hash_f(x0, y1, seed), hash_f(x1, y1, seed));
+            for (o, f) in out[r.clone()].iter_mut().zip(&f[r]) {
+                let u = quintic(f.x);
+                let v = quintic(f.y);
+                let a = h00 + (h10 - h00) * u;
+                let b = h01 + (h11 - h01) * u;
+                *o = a + (b - a) * v;
+            }
+        });
+    }
+}
+
+/// [`worley`] of every point into `f1` and `f2`, bit-identical: the nine feature points once per
+/// run of points in the same cell.
+pub fn worley_many(points: &[Vec2], period: i32, seed: u32, f1: &mut [f32], f2: &mut [f32]) {
+    assert!(points.len() == f1.len() && points.len() == f2.len());
+    let mut cx = [0i32; FBM_BLOCK];
+    let mut cy = [0i32; FBM_BLOCK];
+    let mut f = [Vec2::ZERO; FBM_BLOCK];
+    for ((pts, f1), f2) in points.chunks(FBM_BLOCK).zip(f1.chunks_mut(FBM_BLOCK)).zip(f2.chunks_mut(FBM_BLOCK)) {
+        let n = pts.len();
+        cells_of(pts, &mut cx[..n], &mut cy[..n], &mut f[..n]);
+        for_cell_runs(&cx[..n], &cy[..n], |r, ix, iy| {
+            let fps = worley_features(ix, iy, period, seed);
+            for l in r {
+                let p = pts[l];
+                let (mut a, mut b) = (f32::MAX, f32::MAX);
+                for fp in &fps {
+                    let d = fp.distance(p);
+                    if d < a {
+                        b = a;
+                        a = d;
+                    } else if d < b {
+                        b = d;
+                    }
+                }
+                (f1[l], f2[l]) = (a, b);
+            }
+        });
+    }
+}
+
+/// The nine feature points around cell `(ix, iy)` in [`worley`]'s order.
+#[inline]
+fn worley_features(ix: i32, iy: i32, period: i32, seed: u32) -> [Vec2; 9] {
+    let wx = [wrap(ix - 1, period), wrap(ix, period), wrap(ix + 1, period)];
+    let wy = [wrap(iy - 1, period), wrap(iy, period), wrap(iy + 1, period)];
+    let mut fps = [Vec2::ZERO; 9];
+    for dy in -1..=1 {
+        for dx in -1..=1 {
+            let h = hash2(wx[(dx + 1) as usize], wy[(dy + 1) as usize], seed);
+            let jx = (h & 0xffff) as f32 / 65535.0;
+            let jy = (h >> 16) as f32 / 65535.0;
+            fps[((dy + 1) * 3 + dx + 1) as usize] = Vec2::new((ix + dx) as f32 + jx, (iy + dy) as f32 + jy);
+        }
+    }
+    fps
+}
+
 /// Periodic Worley noise: (F1, F2) distances to the nearest feature points.
 pub fn worley(p: Vec2, period: i32, seed: u32) -> (f32, f32) {
     let i = floor2(p);
@@ -376,6 +487,27 @@ mod tests {
                 fbm_many(&points[..n], period, octaves, seed, &mut out);
                 for (p, o) in points[..n].iter().zip(&out) {
                     assert_eq!(o.to_bits(), fbm(*p, period, octaves, seed).to_bits(), "{p} {period} {octaves} {seed}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn value_and_worley_many_are_bit_identical_per_point() {
+        let mut points: Vec<Vec2> = (0..900).map(|k| Vec2::new(k as f32 * 0.0137 - 3.0, (k / 37) as f32 * 0.21 - 1.0)).collect();
+        points.extend((0..300).map(|k| Vec2::new((k * 7919 % 1000) as f32 * 0.731 - 400.0, (k * 104_729 % 997) as f32 * -0.37)));
+        points.extend([Vec2::new(0.0, -0.0), Vec2::new(-0.0, 0.0), Vec2::new(9.0e6, 1.0), Vec2::new(-3.0e5, 2.5), Vec2::new(0.5, 0.25)]);
+        for n in [0, 1, 255, 256, 257, points.len()] {
+            for (px, py, seed) in [(5, 7, 9u32), (1, 1, 0), (0, 3, 3), (64, 16, u32::MAX)] {
+                let pts = &points[..n];
+                let mut v = vec![0.0; n];
+                value_xy_many(pts, px, py, seed, &mut v);
+                let (mut f1, mut f2) = (vec![0.0; n], vec![0.0; n]);
+                worley_many(pts, px, seed, &mut f1, &mut f2);
+                for (i, p) in pts.iter().enumerate() {
+                    assert_eq!(v[i].to_bits(), value_xy(*p, px, py, seed).to_bits(), "value {p} {px} {py} {seed}");
+                    let (a, b) = worley(*p, px, seed);
+                    assert_eq!((f1[i].to_bits(), f2[i].to_bits()), (a.to_bits(), b.to_bits()), "worley {p} {px} {seed}");
                 }
             }
         }

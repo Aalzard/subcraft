@@ -919,7 +919,10 @@ fn batched_procedural_tiles_are_bit_identical_to_per_texel_evaluation() {
     // exact bits of `eval_procedural` per texel, for every batched kind and projection mode.
     let mesh = Arc::new(primitives::uv_sphere(1.0, 24, 12));
     let geo = TextureSetGeometry::new(mesh, 0, 256);
-    let kinds = [ProceduralKind::Clouds, ProceduralKind::Grunge, ProceduralKind::Dirt, ProceduralKind::Cracks, ProceduralKind::Cells];
+    let kinds = [
+        ProceduralKind::Clouds, ProceduralKind::Grunge, ProceduralKind::Dirt, ProceduralKind::Cracks, ProceduralKind::Cells,
+        ProceduralKind::Pores, ProceduralKind::Brushed, ProceduralKind::Speckles, ProceduralKind::Streaks, ProceduralKind::WoodRings,
+    ];
     let projections = [
         Projection::default(),
         Projection { scale: [2.0, 3.0], rotation_deg: 30.0, offset: [0.1, -0.2], ..Projection::default() },

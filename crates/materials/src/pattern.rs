@@ -3,7 +3,7 @@
 use glam::Vec2;
 use subcraft_doc::{ProceduralKind, ProceduralParams, ScratchParams};
 
-use crate::noise::{fbm, fbm_many, hash_f, value_xy, worley};
+use crate::noise::{fbm, fbm_many, hash_f, value_xy, value_xy_many, worley, worley_many};
 
 /// Raw pattern value at `p` (pattern space: one tile = 0..1).
 pub fn raw(kind: ProceduralKind, p: Vec2, scale: f32, seed: u32) -> f32 {
@@ -92,7 +92,10 @@ pub fn eval(params: &ProceduralParams, p: Vec2) -> f32 {
 /// Whether [`eval_many`] has a batched path for these parameters (faster than [`eval`] per
 /// point); the others work too, one point at a time.
 pub fn batches(params: &ProceduralParams) -> bool {
-    matches!(params.kind, ProceduralKind::Clouds | ProceduralKind::Grunge | ProceduralKind::Dirt | ProceduralKind::Cracks)
+    matches!(
+        params.kind,
+        ProceduralKind::Clouds | ProceduralKind::Grunge | ProceduralKind::Dirt | ProceduralKind::Cracks | ProceduralKind::Cells | ProceduralKind::Pores | ProceduralKind::Brushed | ProceduralKind::Speckles | ProceduralKind::Streaks
+    )
 }
 
 /// [`eval`] at every point into `out`, bit-identical; the fractal noise of the kinds in
@@ -138,6 +141,42 @@ pub fn eval_many(params: &ProceduralParams, points: &[Vec2], out: &mut [f32]) {
                 let w = (q + warp * 0.35).rem_euclid(Vec2::splat(period as f32));
                 let (f1, f2) = worley(w, period, seed);
                 *o = 1.0 - smooth((f2 - f1) / 0.07);
+            }
+        }
+        ProceduralKind::Cells => {
+            worley_many(&q, period, seed, &mut a, &mut b);
+            for ((o, &f1), &f2) in out.iter_mut().zip(&a).zip(&b) {
+                *o = ((f2 - f1) * 1.6).clamp(0.0, 1.0);
+            }
+        }
+        ProceduralKind::Pores => {
+            worley_many(&scaled(3.0), period * 3, seed, &mut a, &mut b);
+            for (o, &f1) in out.iter_mut().zip(&a) {
+                *o = 1.0 - smooth((f1 - 0.08) / 0.12);
+            }
+        }
+        ProceduralKind::Brushed => {
+            let fine: Vec<Vec2> = q.iter().map(|q| Vec2::new(q.x, q.y * 64.0)).collect();
+            value_xy_many(&fine, period, period * 64, seed, &mut a);
+            let coarse: Vec<Vec2> = q.iter().map(|q| Vec2::new(q.x, q.y * 16.0)).collect();
+            value_xy_many(&coarse, period, period * 16, seed ^ 0x99, &mut b);
+            for ((o, &fine), &coarse) in out.iter_mut().zip(&a).zip(&b) {
+                *o = (fine * 0.6 + coarse * 0.4).clamp(0.0, 1.0);
+            }
+        }
+        ProceduralKind::Speckles => {
+            value_xy_many(&scaled(24.0), period * 24, period * 24, seed, &mut a);
+            for (o, &n) in out.iter_mut().zip(&a) {
+                *o = smooth((n - 0.72) / 0.1);
+            }
+        }
+        ProceduralKind::Streaks => {
+            let col: Vec<Vec2> = q.iter().map(|q| Vec2::new(q.x * 6.0, q.y)).collect();
+            value_xy_many(&col, period * 6, period, seed, &mut a);
+            let run: Vec<Vec2> = q.iter().map(|q| Vec2::new(q.x * 6.0 + 17.0, q.y * 2.0)).collect();
+            value_xy_many(&run, period * 6, period * 2, seed ^ 0x8a, &mut b);
+            for ((o, &col), &run) in out.iter_mut().zip(&a).zip(&b) {
+                *o = smooth((col * 0.7 + run * 0.4 - 0.55) / 0.2);
             }
         }
         _ => unreachable!("kind without a batched path"),
