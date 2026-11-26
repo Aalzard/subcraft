@@ -82,17 +82,36 @@ pub fn sample_projected_sc(
     normal: [f32; 3],
     mut f: impl FnMut([f32; 2]) -> [f32; 4],
 ) -> [f32; 4] {
+    let mut out = [0.0f32; 4];
+    projected_points(proj, sc, uv, pos, normal, |q, w| {
+        let s = f(q);
+        match w {
+            None => out = s,
+            Some(w) => {
+                for c in 0..4 {
+                    out[c] += s[c] * w;
+                }
+            }
+        }
+    });
+    out
+}
+
+/// The points [`sample_projected_sc`] reads for a texel, in its order: `emit(q, None)` once
+/// when the projection reads one point (the sample is the result), else `emit(q, Some(w))` per
+/// triplanar plane with a weight above 0 (the result is the sum of `sample * w`, starting at 0).
+#[inline]
+pub fn projected_points(proj: &Projection, sc: (f32, f32), uv: [f32; 2], pos: [f32; 3], normal: [f32; 3], mut emit: impl FnMut([f32; 2], Option<f32>)) {
     // Symmetry folds the model position (and normal), then the 3D transform brings it into the
     // projection box's frame, before a 3D projection reads it.
     let (pos, normal) = proj.local(pos, normal);
     match proj.mode {
-        ProjectionMode::Uv => f(proj.transform_2d_sc(sc, uv)),
-        ProjectionMode::Planar => f(proj.transform_2d_sc(sc, planar_coords(pos, proj.planar_axis))),
-        ProjectionMode::Spherical | ProjectionMode::Cylindrical => f(proj.transform_2d_sc(sc, proj.wrapped_coords(pos))),
-        ProjectionMode::Warp => f(proj.transform_2d_sc(sc, proj.warp_coords(pos).0)),
+        ProjectionMode::Uv => emit(proj.transform_2d_sc(sc, uv), None),
+        ProjectionMode::Planar => emit(proj.transform_2d_sc(sc, planar_coords(pos, proj.planar_axis)), None),
+        ProjectionMode::Spherical | ProjectionMode::Cylindrical => emit(proj.transform_2d_sc(sc, proj.wrapped_coords(pos)), None),
+        ProjectionMode::Warp => emit(proj.transform_2d_sc(sc, proj.warp_coords(pos).0), None),
         ProjectionMode::Triplanar => {
             let w = triplanar_weights(normal, proj.triplanar_sharpness);
-            let mut out = [0.0f32; 4];
             for axis in 0..3u8 {
                 let wa = w[axis as usize];
                 if wa <= 0.0 {
@@ -102,12 +121,8 @@ pub fn sample_projected_sc(
                 if proj.triplanar_unique {
                     q = unique_side(q, axis, normal[axis as usize] < 0.0);
                 }
-                let s = f(proj.transform_2d_sc(sc, q));
-                for c in 0..4 {
-                    out[c] += s[c] * wa;
-                }
+                emit(proj.transform_2d_sc(sc, q), Some(wa));
             }
-            out
         }
     }
 }

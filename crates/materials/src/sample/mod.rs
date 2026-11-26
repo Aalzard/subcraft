@@ -131,7 +131,39 @@ pub fn procedural_tile(params: &ProceduralParams, projection: &Projection, geo: 
 pub fn procedural_tile_at(params: &ProceduralParams, projection: &Projection, offset: [f32; 3], geo: &TileGeometry) -> std::sync::Arc<field::Field> {
     geo.fields.get_or_compute(field::FieldKey::new(params, projection).at(offset), || {
         let sc = projection.rotation_sin_cos();
-        (0..TILE_TEXELS).map(|i| eval_procedural_sc(params, projection, sc, offset, geo, i)).collect()
+        if !pattern::batches(params) {
+            return (0..TILE_TEXELS).map(|i| eval_procedural_sc(params, projection, sc, offset, geo, i)).collect();
+        }
+        // All points the projection reads, then the pattern at all of them at once
+        // (`pattern::eval_many`), then the same per-texel sums as `eval_procedural_sc`. Points
+        // are grouped by read (a triplanar plane): neighbors in a group share noise cells.
+        let mut points: [Vec<Vec2>; 3] = Default::default();
+        // (texel, weight); `None` is a direct read whose sample is the value.
+        let mut reads: [Vec<(u16, Option<f32>)>; 3] = Default::default();
+        for i in 0..TILE_TEXELS {
+            let p = geo.position(i);
+            let mut k = 0;
+            projection::projected_points(projection, sc, geo.uv(i), [p[0] + offset[0], p[1] + offset[1], p[2] + offset[2]], geo.normal(i), |q, w| {
+                points[k].push(Vec2::new(q[0], q[1]));
+                reads[k].push((i as u16, w));
+                k += 1;
+            });
+        }
+        let mut out = vec![0.0f32; TILE_TEXELS];
+        // Group 0 holds every texel's first read, group 1 its second: summing the groups in
+        // order adds each texel's samples in the order `eval_procedural_sc` does.
+        for (points, reads) in points.iter().zip(&reads) {
+            let mut values = vec![0.0f32; points.len()];
+            pattern::eval_many(params, points, &mut values);
+            for (&(i, w), &v) in reads.iter().zip(&values) {
+                let o = &mut out[i as usize];
+                match w {
+                    None => *o = v,
+                    Some(w) => *o += v * w,
+                }
+            }
+        }
+        out
     })
 }
 

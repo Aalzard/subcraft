@@ -912,3 +912,35 @@ fn mip_chain_built_inside_a_shared_once_init_never_deadlocks() {
     let got = rx.recv_timeout(Duration::from_secs(120)).expect("building mip chains inside a shared one-time init deadlocked");
     assert!(got.iter().all(|c| *c == expected), "a chain built inside the pool matches one built outside");
 }
+
+#[test]
+fn batched_procedural_tiles_are_bit_identical_to_per_texel_evaluation() {
+    // The batched path (`pattern::eval_many` over all points a projection reads) must give the
+    // exact bits of `eval_procedural` per texel, for every batched kind and projection mode.
+    let mesh = Arc::new(primitives::uv_sphere(1.0, 24, 12));
+    let geo = TextureSetGeometry::new(mesh, 0, 256);
+    let kinds = [ProceduralKind::Clouds, ProceduralKind::Grunge, ProceduralKind::Dirt, ProceduralKind::Cracks, ProceduralKind::Cells];
+    let projections = [
+        Projection::default(),
+        Projection { scale: [2.0, 3.0], rotation_deg: 30.0, offset: [0.1, -0.2], ..Projection::default() },
+        Projection { mode: ProjectionMode::Triplanar, scale: [3.0, 3.0], rotation_deg: 17.0, ..Projection::default() },
+        Projection { mode: ProjectionMode::Triplanar, triplanar_unique: true, triplanar_sharpness: 40.0, ..Projection::default() },
+        Projection { mode: ProjectionMode::Planar, planar_axis: 1, ..Projection::default() },
+        Projection { mode: ProjectionMode::Spherical, ..Projection::default() },
+    ];
+    for kind in kinds {
+        for (pi, proj) in projections.iter().enumerate() {
+            for (seed, invert) in [(7u32, false), (u32::MAX, true)] {
+                let params = ProceduralParams { scale: 3.0, seed, invert, contrast: 0.3, balance: 0.45, ..ProceduralParams::new(kind) };
+                for t in [0, geo.tile_count() / 3, geo.tile_count() - 1] {
+                    let g = geo.tile(t);
+                    let field = procedural_tile_at(&params, proj, [0.25, 0.0, -0.5], &g);
+                    for i in 0..TILE_TEXELS {
+                        let expect = eval_procedural_at(&params, proj, [0.25, 0.0, -0.5], &g, i);
+                        assert_eq!(field[i].to_bits(), expect.to_bits(), "{kind:?} projection {pi} seed {seed} tile {t} texel {i}");
+                    }
+                }
+            }
+        }
+    }
+}

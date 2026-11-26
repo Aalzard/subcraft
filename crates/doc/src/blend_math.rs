@@ -152,7 +152,9 @@ pub fn whiteout(base: [f32; 3], detail: [f32; 3]) -> [f32; 3] {
     encode_normal(Vec3::new(a.x + b.x, a.y + b.y, a.z * b.z))
 }
 
-/// `B(Cb, Cs)` for any mode (RGB; scalars are passed replicated as gray).
+/// `B(Cb, Cs)` for any mode (RGB; scalars are passed replicated as gray). Inlined so callers
+/// that pass a constant mode get the mode's arithmetic without the match.
+#[inline]
 pub fn blend_fn(mode: BlendMode, cb: [f32; 3], cs: [f32; 3], target: BlendTarget) -> [f32; 3] {
     match mode {
         BlendMode::Normal | BlendMode::Replace | BlendMode::Passthrough | BlendMode::Disable => cs,
