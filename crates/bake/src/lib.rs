@@ -112,6 +112,72 @@ impl AoAttenuation {
     }
 }
 
+/// Tonemapping of the curvature map (Painter's Curvature > Auto tonemapping / Min / Max).
+///
+/// Curvature leaves the baker with 0.5 on flat surfaces, but how far edges reach towards 0 or 1
+/// depends on the mesh and the radius, so the map is often a narrow band of greys. Auto stretches
+/// it around 0.5 until the strongest edges of this texture set (or UDIM tile) span the whole range;
+/// otherwise `min` and `max` pick the raw values that become black and white. The default (auto
+/// off, 0 to 1) leaves the map unchanged.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CurvatureTonemap {
+    pub auto: bool,
+    /// Raw curvature that becomes 0 when `auto` is off.
+    pub min: f32,
+    /// Raw curvature that becomes 1 when `auto` is off.
+    pub max: f32,
+}
+
+impl Default for CurvatureTonemap {
+    fn default() -> Self {
+        Self { auto: false, min: 0.0, max: 1.0 }
+    }
+}
+
+impl CurvatureTonemap {
+    /// Share of the strongest curvature values allowed to clip with `auto` (outliers such as
+    /// single spikes on tiny triangles must not decide the stretch).
+    pub const AUTO_CLIP: f32 = 0.005;
+    /// Largest stretch `auto` applies, so a nearly flat tile does not turn its noise into edges.
+    pub const MAX_GAIN: f32 = 16.0;
+
+    /// True when the map passes through unchanged.
+    pub fn is_identity(&self) -> bool {
+        !self.auto && self.min == 0.0 && self.max == 1.0
+    }
+
+    /// The linear remap `value * scale + offset` these settings give for `values` (raw curvature).
+    pub fn remap(&self, values: &[f32]) -> (f32, f32) {
+        if self.auto {
+            let mut dev: Vec<f32> = values.iter().filter(|v| v.is_finite()).map(|v| (v - 0.5).abs()).collect();
+            if dev.is_empty() {
+                return (1.0, 0.0);
+            }
+            let k = ((dev.len() as f32 * (1.0 - Self::AUTO_CLIP)) as usize).min(dev.len() - 1);
+            let (_, reach, _) = dev.select_nth_unstable_by(k, |a, b| a.total_cmp(b));
+            let gain = (0.5 / reach.max(1e-6)).clamp(1.0, Self::MAX_GAIN);
+            (gain, 0.5 - 0.5 * gain)
+        } else {
+            let span = self.max - self.min;
+            if span.abs() < 1e-6 {
+                return (1.0, 0.0);
+            }
+            (1.0 / span, -self.min / span)
+        }
+    }
+
+    /// Tonemap `values` in place (clamped to 0..1).
+    pub fn apply(&self, values: &mut [f32]) {
+        if self.is_identity() {
+            return;
+        }
+        let (scale, offset) = self.remap(values);
+        for v in values.iter_mut() {
+            *v = (*v * scale + offset).clamp(0.0, 1.0);
+        }
+    }
+}
+
 /// Options of the occlusion rays (ambient occlusion; the ray cone and distances also shape the
 /// bent normals). The default is the plain cosine hemisphere, which may run on the GPU.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -323,6 +389,8 @@ pub struct BakeSettings {
     /// surface, see [`normal_curvature`]) instead of from the detail geometry.
     pub curvature_from_normal: bool,
     pub normal_curvature: normal_curvature::NormalCurvatureSettings,
+    /// Contrast stretch of the finished curvature map (Painter's tonemapping).
+    pub curvature_tonemap: CurvatureTonemap,
     /// Where the ID map's colours come from.
     pub id_source: IdSource,
     /// Padding: gutter texels up to this many texels from an island copy the nearest island texel.
@@ -380,6 +448,7 @@ impl Default for BakeSettings {
             placement: subcraft_core::BakePlacement::default(),
             curvature_from_normal: false,
             normal_curvature: normal_curvature::NormalCurvatureSettings::default(),
+            curvature_tonemap: CurvatureTonemap::default(),
             id_source: IdSource::default(),
             dilation: 16,
             diffusion: true,
@@ -958,7 +1027,14 @@ fn bake_core(
                 if from_normal && kind == MeshMapKind::Curvature {
                     let started = Instant::now();
                     let normal = out.get(&MeshMapKind::Normal).or(internal_normal.as_ref()).expect("normal baked before curvature");
-                    let image = normal_curvature::curvature_from_normal_map(low, input.material_slot, normal, size, &settings.normal_curvature, Some(progress))?;
+                    let mut image = normal_curvature::curvature_from_normal_map(low, input.material_slot, normal, size, &settings.normal_curvature, Some(progress))?;
+                    if !settings.curvature_tonemap.is_identity() {
+                        // Gutters copy island texels, so the stretch measured over the whole map
+                        // follows the islands; the neutral fill beyond the islands stays flat.
+                        let mut dense = image.to_dense();
+                        settings.curvature_tonemap.apply(&mut dense);
+                        image = TiledImage::from_dense(size, size, 1, [0.5, 0.0, 0.0, 0.0], &dense);
+                    }
                     if let Ok(mut r) = progress.reports.lock() {
                         r.push(MapReport { kind, backend: "CPU (from the normal map)".into(), seconds: started.elapsed().as_secs_f32() });
                     }
@@ -1135,7 +1211,7 @@ fn bake_core(
                         None => None,
                     }
                 };
-                let values: Vec<[f32; 3]> = match gpu {
+                let mut values: Vec<[f32; 3]> = match gpu {
                     Some(v) => v,
                     None => {
                         let mut values: Vec<[f32; 3]> = Vec::with_capacity(samples.len());
@@ -1150,6 +1226,14 @@ fn bake_core(
                         values
                     }
                 };
+                if kind == MeshMapKind::Curvature && !settings.curvature_tonemap.is_identity() {
+                    // Measured over this bake's covered texels only (one texture set or UDIM tile).
+                    let mut raw: Vec<f32> = values.iter().map(|v| v[0]).collect();
+                    settings.curvature_tonemap.apply(&mut raw);
+                    for (v, r) in values.iter_mut().zip(raw) {
+                        *v = [r; 3];
+                    }
+                }
                 let neutral = kind.neutral_value();
                 let mut dense: Vec<f32> = neutral[..comps].iter().copied().cycle().take(n * comps).collect();
                 for (t, v) in samples.iter().zip(&values) {

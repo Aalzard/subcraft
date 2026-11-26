@@ -1631,6 +1631,7 @@ fn reset_parameters(b: &mut BakeUi, baker: Option<subcraft_core::MeshMapKind>) {
             s.curvature_radius = d.curvature_radius;
             s.curvature_from_normal = d.curvature_from_normal;
             s.normal_curvature = d.normal_curvature;
+            s.curvature_tonemap = d.curvature_tonemap;
         }
         Some(MeshMapKind::Position) => s.position = d.position,
         Some(MeshMapKind::Height) => s.height = d.height,
@@ -1783,6 +1784,13 @@ fn map_settings_panel(ui: &mut egui::Ui, b: &mut BakeUi) {
                 slider_row(ui, tr("Curvature intensity"), &mut s.normal_curvature.intensity, d.normal_curvature.intensity, |v| egui::Slider::new(v, 0.1..=4.0).logarithmic(true));
             } else {
                 slider_row(ui, tr("Curvature radius"), &mut s.curvature_radius, d.curvature_radius, |v| egui::Slider::new(v, 0.002..=0.1).logarithmic(true));
+            }
+            check_reset(ui, &mut s.curvature_tonemap.auto, d.curvature_tonemap.auto, tr("Auto tonemapping"))
+                .on_hover_text(tr("Stretch each texture set's or UDIM tile's curvature around flat grey so its strongest edges reach black and white"));
+            if !s.curvature_tonemap.auto {
+                let t = &mut s.curvature_tonemap;
+                slider_row(ui, tr("Tonemapping min"), &mut t.min, d.curvature_tonemap.min, |v| egui::Slider::new(v, 0.0..=0.5));
+                slider_row(ui, tr("Tonemapping max"), &mut t.max, d.curvature_tonemap.max, |v| egui::Slider::new(v, 0.5..=1.0));
             }
         }
         MeshMapKind::Position => {

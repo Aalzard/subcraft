@@ -97,6 +97,9 @@ pub fn to_config(s: &BakeSettings, files: &BakeFilesConfig) -> BakeConfig {
         curvature_from_normal: s.curvature_from_normal,
         normal_curvature_width: s.normal_curvature.radius_texels,
         normal_curvature_intensity: s.normal_curvature.intensity,
+        curvature_auto_tonemap: s.curvature_tonemap.auto,
+        curvature_tonemap_min: s.curvature_tonemap.min,
+        curvature_tonemap_max: s.curvature_tonemap.max,
         cage_front: s.cage_front,
         cage_rear: s.cage_rear,
         id_source: id_source_name(s.id_source).into(),
@@ -139,6 +142,9 @@ pub fn apply(c: &BakeConfig, s: &mut BakeSettings) -> BakeFilesConfig {
     s.curvature_from_normal = c.curvature_from_normal;
     s.normal_curvature.radius_texels = c.normal_curvature_width;
     s.normal_curvature.intensity = c.normal_curvature_intensity;
+    s.curvature_tonemap.auto = c.curvature_auto_tonemap;
+    let (min, max) = (c.curvature_tonemap_min, c.curvature_tonemap_max);
+    (s.curvature_tonemap.min, s.curvature_tonemap.max) = if min.is_finite() && max.is_finite() && max > min { (min.clamp(0.0, 1.0), max.clamp(0.0, 1.0)) } else { (0.0, 1.0) };
     s.cage_front = c.cage_front;
     s.cage_rear = c.cage_rear;
     s.id_source = by_name(&IdSource::ALL, &c.id_source, id_source_name, IdSource::default());
