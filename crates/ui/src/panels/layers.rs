@@ -856,7 +856,7 @@ Files: {}", ex.dir().display()));
                 if ui.add_enabled(have_layer_clip, egui::Button::new("Paste as instance")).on_hover_text("Adds a layer that follows the copied one: its content, effects and mask stay those of the source").clicked() {
                     aim(&mut cmds); crate::clipboard::request(ui.ctx(), crate::clipboard::Request::PasteAsInstance); ui.close();
                 }
-                if ui.add_enabled(several_sets, egui::Button::new("Instantiate across texture sets…")).on_hover_text("Adds an instance of this layer to other texture sets").on_disabled_hover_text("The project has one texture set").clicked() {
+                if ui.add_enabled(several_sets, egui::Button::new("Instantiate across texture sets…").shortcut_text("Ctrl+Shift+D")).on_hover_text("Adds an instance of this layer to other texture sets").on_disabled_hover_text("The project has one texture set").clicked() {
                     instantiate = Some(if in_multi { multi_ids.clone() } else { vec![l.id] });
                     ui.close();
                 }
@@ -1019,6 +1019,14 @@ Files: {}", ex.dir().display()));
         let targets = state.multi.targets(state.session.selection().layer);
         if targets.is_empty() { state.set_status("Select the layers or folders to flatten", now); }
         else { cmds.push(Command::FlattenLayers(targets)); }
+    }
+    // Ctrl+Shift+D: Instantiate across texture sets for the selection (Painter).
+    let mut instantiate = instantiate;
+    if !ui.ctx().egui_wants_keyboard_input() && ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::D)) {
+        let targets = state.multi.targets(state.session.selection().layer);
+        if targets.is_empty() { state.set_status("Select the layers to instantiate", now); }
+        else if state.session.document().texture_sets.len() < 2 { state.set_status("The project has one texture set", now); }
+        else { instantiate = Some(targets); }
     }
     if let Some(layers) = instantiate { state.instantiate = Some(InstantiateDialog::new(&state.session, layers)); }
     state.run(cmds, now);
@@ -1478,5 +1486,33 @@ mod instantiate_dialog_tests {
         for c in instance_jump(&links[1]) { s.execute(c).unwrap(); }
         assert_eq!(s.selection().texture_set, target);
         assert_eq!(s.selection().layer, Some(top.id));
+    }
+}
+
+#[cfg(test)]
+mod instantiate_shortcut_tests {
+    use super::*;
+
+    /// Painter's Ctrl+Shift+D opens Instantiate across texture sets for the selected layer;
+    /// with one texture set it only says why not.
+    #[test]
+    fn ctrl_shift_d_opens_instantiate_across_texture_sets() {
+        let press = |state: &mut UiState| {
+            let ctx = egui::Context::default();
+            let events = vec![egui::Event::Key { key: egui::Key::D, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::COMMAND | egui::Modifiers::SHIFT }];
+            let mut out = ctx.run_ui(egui::RawInput { events, ..Default::default() }, |ui| show(state, ui));
+            out.textures_delta.clear();
+        };
+        let mut state = UiState::new(subcraft_app::Session::new(subcraft_mesh::primitives::sample_crate(), 64), None);
+        assert!(state.session.document().texture_sets.len() >= 2);
+        state.session.execute(Command::AddLayer(subcraft_app::NewLayer::Paint)).unwrap();
+        let layer = state.session.selection().layer.unwrap();
+        press(&mut state);
+        assert_eq!(state.instantiate.as_ref().map(|d| d.layers.clone()), Some(vec![layer]));
+
+        let mut one = UiState::new(subcraft_app::Session::new(subcraft_mesh::primitives::plane(2.0, 1), 64), None);
+        one.session.execute(Command::AddLayer(subcraft_app::NewLayer::Paint)).unwrap();
+        press(&mut one);
+        assert!(one.instantiate.is_none());
     }
 }

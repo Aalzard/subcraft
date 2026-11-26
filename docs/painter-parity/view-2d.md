@@ -133,16 +133,16 @@ Layout notes: selecting a fill layer or fill effect that uses UV projection draw
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Show/Hide manipulator | Q | shown | missing | - | - |
-| Translate | LMB drag inside the frame | - | missing | - | - |
-| Translate constrained to one axis | Shift + LMB drag inside | horizontal or vertical by drag direction | missing | - | - |
-| Rotation | LMB drag outside the frame | - | missing | - | - |
+| Show/Hide manipulator | Q | shown | done | crates/ui/src/uv_gizmo.rs | - |
+| Translate | LMB drag inside the frame | - | partial: drag the centre handle | crates/ui/src/uv_gizmo.rs | - |
+| Translate constrained to one axis | Shift + LMB drag inside | horizontal or vertical by drag direction | done (centre handle) | crates/ui/src/uv_gizmo.rs | - |
+| Rotation | LMB drag outside the frame | - | partial: drag just outside a corner | crates/ui/src/uv_gizmo.rs | - |
 | Move the pivot (rotation origin) | LMB drag the pivot | centre | missing | - | - |
-| Rotation constrained | Shift + LMB drag outside | every 45 degrees | missing | - | - |
-| Scale / deform | LMB drag a handle | - | missing | - | - |
-| Scale constrained (keep ratio) | Shift + LMB drag a handle | - | missing | - | - |
-| Scale mirrored around the pivot | Ctrl + LMB drag a handle | - | missing | - | - |
-| Scale mirrored and constrained | Shift + Ctrl + LMB drag a handle | - | missing | - | - |
+| Rotation constrained | Shift + LMB drag outside | every 45 degrees | done | crates/ui/src/uv_gizmo.rs | - |
+| Scale / deform | LMB drag a handle | - | done: corner and edge handles, the opposite side stays | crates/ui/src/uv_gizmo.rs | - |
+| Scale constrained (keep ratio) | Shift + LMB drag a handle | - | done | crates/ui/src/uv_gizmo.rs | - |
+| Scale mirrored around the pivot | Ctrl + LMB drag a handle | - | done: about the centre (no movable pivot) | crates/ui/src/uv_gizmo.rs | - |
+| Scale mirrored and constrained | Shift + Ctrl + LMB drag a handle | - | done | crates/ui/src/uv_gizmo.rs | - |
 | Tiled preview of the image inside the frame | 2D view | follows UV Wrap | missing | - | - |
 
 ## Export of the 2D view

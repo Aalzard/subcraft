@@ -486,6 +486,7 @@ pub const PAINTER_REFERENCE: &[PainterEntry] = &[
     e("Layers", "Ctrl+G", "Group layer", Support::Same, Action::NewFolder, Shortcut::ctrl(Key::G), "creates a folder"),
     gesture("Layers", "Ctrl+Shift+C", "Copy layer content", "added: copies the paint or fill and the content effects, not the mask; separate from Ctrl+C"),
     gesture("Layers", "Ctrl+Shift+V", "Paste layer content", "added: replaces the content of the selected layer with the copy"),
+    gesture("Layers", "Ctrl+Shift+D", "Instantiate across texture sets", "added: opens the window for the selected layers"),
     gesture("Layers", "Alt+LMB on mask", "Display mask in viewport", "already worked: opens the mask inspector"),
     gesture("Layers", "Shift+LMB on mask", "Disable/enable mask", "already worked"),
     gesture("Layers", "Ctrl+drag & drop", "Drag material", "added: a material dropped on the model with Ctrl held shows only on the part under the cursor (geometry mask)"),
