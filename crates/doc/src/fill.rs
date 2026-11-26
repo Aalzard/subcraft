@@ -387,6 +387,41 @@ impl BackfaceCulling {
     }
 }
 
+/// Depth culling of a planar projection (Painter's Fill > Depth culling): only the surface
+/// nearest to the projector receives the image; surfaces hidden behind it along the projection
+/// direction get nothing, so a projection does not go through the model onto its far side.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct DepthCulling {
+    /// 1 cuts right behind the nearest surface; lower values fade out over a depth band.
+    pub hardness: f32,
+}
+
+impl Default for DepthCulling {
+    fn default() -> Self {
+        Self { hardness: 0.8 }
+    }
+}
+
+impl DepthCulling {
+    /// Depth band (in projection box units, the box is 1 deep) of the fade at Hardness 0.
+    pub const SOFT_BAND: f32 = 0.25;
+
+    pub fn valid(&self) -> bool {
+        self.hardness.is_finite() && (0.0..=1.0).contains(&self.hardness)
+    }
+
+    /// Coverage 0..=1 of a surface lying `depth` behind the nearest one (box units), with
+    /// `tolerance` of depth that still counts as the nearest surface.
+    pub fn weight(&self, depth: f32, tolerance: f32) -> f32 {
+        let d = depth - tolerance;
+        if d <= 0.0 {
+            return 1.0;
+        }
+        let band = (1.0 - self.hardness.clamp(0.0, 1.0)) * Self::SOFT_BAND;
+        if band <= 1e-6 { 0.0 } else { (1.0 - d / band).clamp(0.0, 1.0) }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Projection {
     pub mode: ProjectionMode,
@@ -429,6 +464,9 @@ pub struct Projection {
     /// Backface culling (planar and cylindrical). Not written when off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub backface: Option<BackfaceCulling>,
+    /// Depth culling (planar). Not written when off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub depth_culling: Option<DepthCulling>,
     /// Painter's Scale "Physical size": the width and height of one repeat on the model, in
     /// centimeters. `None` is Scale "Tiling" (the `scale` field). While set, `scale` is kept but
     /// not used, so switching back restores the old tiling. Not written when off.
@@ -472,6 +510,7 @@ impl Default for Projection {
             warp: None,
             transform3: ProjectionTransform::default(),
             backface: None,
+            depth_culling: None,
             physical_size: None,
             wrap_edges: false,
             triplanar_unique: true,
@@ -548,11 +587,24 @@ impl Projection {
         let floats = [self.scale[0], self.scale[1], self.rotation_deg, self.offset[0], self.offset[1], self.triplanar_sharpness, self.cylinder_angle];
         let (lo, hi) = Self::PHYSICAL_SIZE_RANGE;
         let size_ok = self.physical_size.is_none_or(|s| s.iter().all(|v| v.is_finite() && (lo..=hi).contains(v)));
-        size_ok && floats.iter().all(|v| v.is_finite()) && self.symmetry.valid() && self.transform3.valid() && self.backface.is_none_or(|b| b.valid())
+        size_ok && floats.iter().all(|v| v.is_finite()) && self.symmetry.valid() && self.transform3.valid() && self.backface.is_none_or(|b| b.valid()) && self.depth_culling.is_none_or(|d| d.valid())
     }
 
     /// The backface culling in effect: planar and cylindrical projections only.
     #[inline]
+    /// Depth culling in effect: planar projections only.
+    pub fn depth_culled(&self) -> Option<DepthCulling> {
+        if self.mode == ProjectionMode::Planar { self.depth_culling } else { None }
+    }
+
+    /// The position a texel has in the projection box's frame for depth culling: folded by the
+    /// symmetry and brought into the box's frame, but not unfolded by Wrap around edges, so it
+    /// is comparable with the mesh's own vertices.
+    pub fn depth_local(&self, pos: [f32; 3]) -> [f32; 3] {
+        let (p, n) = self.effective_symmetry().fold(pos, [0.0; 3]);
+        if self.has_transform3() { self.transform3.to_local(p, n).0 } else { p }
+    }
+
     pub fn backface_culling(&self) -> Option<BackfaceCulling> {
         if matches!(self.mode, ProjectionMode::Planar | ProjectionMode::Cylindrical) { self.backface } else { None }
     }
@@ -701,7 +753,7 @@ impl Projection {
     /// Whether some texels can fall outside the projected texture (UV wrap or shape crop).
     #[inline]
     pub fn clips(&self) -> bool {
-        self.effective_wrap() != UvWrap::Repeat || self.crops_to_shape() || self.mode == ProjectionMode::Warp || self.backface_culling().is_some()
+        self.effective_wrap() != UvWrap::Repeat || self.crops_to_shape() || self.mode == ProjectionMode::Warp || self.backface_culling().is_some() || self.depth_culled().is_some()
     }
 
     /// The warp grid in use: the stored one, or the flat grid of `planar_axis`.
@@ -927,6 +979,23 @@ mod tests {
         let (a, _) = planar.local([0.25, 0.5, 0.5], [0.0, 0.0, 1.0]);
         let (b, _) = flipped.local([0.25, 0.5, 0.5], [0.0, 0.0, 1.0]);
         assert!((a[0] - 0.25).abs() < 1e-6 && (b[0] - 0.75).abs() < 1e-6, "{a:?} {b:?}");
+    }
+
+    #[test]
+    fn depth_culling_is_planar_only_fades_with_hardness_and_is_not_written_when_off() {
+        let hard = DepthCulling { hardness: 1.0 };
+        assert_eq!((hard.weight(0.01, 0.02), hard.weight(0.03, 0.02)), (1.0, 0.0));
+        let soft = DepthCulling { hardness: 0.0 };
+        assert!((soft.weight(0.02 + DepthCulling::SOFT_BAND / 2.0, 0.02) - 0.5).abs() < 1e-5);
+        assert!(!DepthCulling { hardness: 1.5 }.valid());
+        let planar = Projection { mode: ProjectionMode::Planar, depth_culling: Some(hard), ..Projection::default() };
+        assert!(planar.depth_culled().is_some() && planar.clips());
+        let tri = Projection { mode: ProjectionMode::Triplanar, ..planar };
+        assert!(tri.depth_culled().is_none());
+        let json = serde_json::to_string(&Projection::default()).unwrap();
+        assert!(!json.contains("depth_culling"));
+        let back: Projection = serde_json::from_str(&serde_json::to_string(&planar).unwrap()).unwrap();
+        assert_eq!(back, planar);
     }
 
     #[test]

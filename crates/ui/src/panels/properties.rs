@@ -2119,6 +2119,7 @@ fn backface_rows(ui: &mut Ui, proj: &mut Projection) -> bool {
         return false;
     }
     let before = proj.backface;
+    let depth_before = proj.depth_culling;
     let wrapped = proj.wrap_edges;
     if proj.mode == subcraft_doc::ProjectionMode::Planar {
         check_row_reset(ui, "", "Wrap around edges", &mut proj.wrap_edges, Projection::default().wrap_edges)
@@ -2138,7 +2139,17 @@ fn backface_rows(ui: &mut Ui, proj: &mut Projection) -> bool {
         slider_row_reset(ui, tr("Culling hardness"), &mut b.hardness, db.hardness, |v| egui::Slider::new(v, 0.0..=1.0))
             .on_hover_text(tr("1 cuts at the angle; lower values fade the projection out before it"));
     }
-    proj.backface != before || proj.wrap_edges != wrapped
+    if planar {
+        let mut on = proj.depth_culling.is_some();
+        if check_row_reset(ui, "", tr("Depth culling"), &mut on, Projection::default().depth_culling.is_some()).on_hover_text(tr("Project only on the surface nearest to the projection, not through the model onto what lies behind it")).changed() {
+            proj.depth_culling = on.then(subcraft_doc::DepthCulling::default);
+        }
+        if let Some(d) = &mut proj.depth_culling {
+            slider_row_reset(ui, tr("Depth culling hardness"), &mut d.hardness, subcraft_doc::DepthCulling::default().hardness, |v| egui::Slider::new(v, 0.0..=1.0))
+                .on_hover_text(tr("1 cuts right behind the nearest surface; lower values fade the projection out with depth"));
+        }
+    }
+    proj.backface != before || proj.depth_culling != depth_before || proj.wrap_edges != wrapped
 }
 
 /// Painter's Symmetry group of a fill projection (3D projections only): Enable symmetry, the

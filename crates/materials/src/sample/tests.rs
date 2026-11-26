@@ -976,3 +976,41 @@ fn a_map_at_twice_the_set_resolution_reads_as_two_by_two_averages() {
         }
     }
 }
+
+/// Depth culling: a planar projection along +Z reaches the top of a cube but not its bottom,
+/// which lies behind the top along the projection; the sides fade with depth when soft.
+#[test]
+fn depth_culling_keeps_only_the_surface_nearest_to_the_projector() {
+    use subcraft_doc::DepthCulling;
+    let mesh = Arc::new(primitives::cube(2.0));
+    let geo = TextureSetGeometry::new(mesh, 0, 256);
+    let (res, maps) = ctx_parts();
+    let ctx = SampleContext { resources: &res, mesh_maps: &maps };
+    let src = FillSource::Procedural { params: ProceduralParams::new(ProceduralKind::Cells), low: ChannelValue::scalar(0.2), high: ChannelValue::scalar(0.9) };
+    let planar = Projection { mode: ProjectionMode::Planar, planar_axis: 2, ..Projection::default() };
+    let culled = Projection { depth_culling: Some(DepthCulling { hardness: 1.0 }), ..planar };
+    assert!(culled.clips() && culled.valid() && !planar.clips());
+    let alphas = |proj: &Projection, n: [f32; 3]| {
+        let g = tile_facing(&geo, n);
+        let mut out = vec![[0.0; 4]; TILE_TEXELS];
+        eval_fill_tile(&src, false, proj, &g, &ctx, &mut out);
+        (0..TILE_TEXELS).filter(|&i| g.coverage(i) > 0.0 && g.normal(i) == n).map(|i| out[i][3]).collect::<Vec<f32>>()
+    };
+    let (top, bottom) = ([0.0, 0.0, 1.0], [0.0, 0.0, -1.0]);
+    assert!(alphas(&planar, bottom).iter().all(|a| *a == 1.0), "without culling the projection goes through");
+    assert!(alphas(&culled, top).iter().all(|a| *a == 1.0), "the top faces the projector");
+    let b = alphas(&culled, bottom);
+    assert!(!b.is_empty() && b.iter().all(|a| *a == 0.0), "the bottom is hidden behind the top");
+    // Soft: the sides fade out with depth below the top.
+    let soft = Projection { depth_culling: Some(DepthCulling { hardness: 0.0 }), ..planar };
+    let g = tile_facing(&geo, [1.0, 0.0, 0.0]);
+    let mut out = vec![[0.0; 4]; TILE_TEXELS];
+    eval_fill_tile(&src, false, &soft, &g, &ctx, &mut out);
+    let side: Vec<(f32, f32)> = (0..TILE_TEXELS).filter(|&i| g.coverage(i) > 0.0 && g.normal(i) == [1.0, 0.0, 0.0]).map(|i| (g.position(i)[2], out[i][3])).collect();
+    assert!(side.iter().any(|(_, a)| *a > 0.0 && *a < 1.0), "a fade on the side");
+    for (z, a) in &side {
+        let depth = 1.0 - z;
+        if depth > 0.3 { assert_eq!(*a, 0.0, "deep below the top: culled (z {z})"); }
+        if depth < 0.002 { assert_eq!(*a, 1.0, "at the top edge: kept (z {z})"); }
+    }
+}

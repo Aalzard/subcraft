@@ -2,6 +2,10 @@
 //! Terminology follows the usual Photoshop / Blender / Windows UI words (see docs/localization.md).
 
 pub static TABLE: &[(&str, &str)] = &[
+    ("Depth culling", "깊이 컬링"),
+    ("Project only on the surface nearest to the projection, not through the model onto what lies behind it", "모델을 관통해 뒤쪽 표면에 투영하지 않고, 투영에 가장 가까운 표면에만 투영합니다"),
+    ("Depth culling hardness", "깊이 컬링 경도"),
+    ("1 cuts right behind the nearest surface; lower values fade the projection out with depth", "1은 가장 가까운 표면 바로 뒤에서 자르고, 값이 낮을수록 깊이에 따라 투영이 서서히 사라집니다"),
     ("Settings per texture set", "텍스처 세트별 설정"),
     ("Each texture set keeps its own bake settings: select a set to edit its settings. The model files stay shared", "각 텍스처 세트가 자체 굽기 설정을 유지합니다. 세트를 선택하면 그 설정을 편집합니다. 모델 파일은 공유됩니다"),
     ("Apply checked to all texture sets", "선택한 맵을 모든 텍스처 세트에 적용"),

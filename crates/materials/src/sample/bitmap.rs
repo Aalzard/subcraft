@@ -276,7 +276,11 @@ pub fn coverage_tile(projection: &Projection, geo: &TileGeometry) -> Option<Vec<
         return None;
     }
     let sc = projection.rotation_sin_cos();
-    Some((0..TILE_TEXELS).map(|i| projection_coverage(projection, sc, geo.uv(i), geo.position(i), geo.normal(i))).collect())
+    let depth = super::depth_cull::for_tile(projection, geo);
+    Some((0..TILE_TEXELS).map(|i| {
+        let c = projection_coverage(projection, sc, geo.uv(i), geo.position(i), geo.normal(i));
+        match &depth { Some(d) if c > 0.0 => c * d.weight(projection, geo.position(i)), _ => c }
+    }).collect())
 }
 
 /// Mip level of texel `i`: log2 of the source texels one output texel spans.
@@ -314,12 +318,16 @@ pub fn bitmap_tile(bmp: &Arc<Bitmap>, linearize: bool, projection: &Projection, 
     let sampler = BitmapSampler::new(bmp, linearize, projection, force_nearest);
     let sc = projection.rotation_sin_cos();
     let clips = projection.clips();
+    let depth = super::depth_cull::for_tile(projection, geo);
     let density = texel_density(bmp, projection);
     // UV projection: one level for the whole tile.
     let uv_lod = (sampler.uses_lod() && projection.mode == ProjectionMode::Uv).then(|| texel_lod(projection, density, geo, 0));
     for (i, o) in out.iter_mut().enumerate() {
         let (uv, pos) = (geo.uv(i), geo.position(i));
-        let cover = if clips { projection_coverage(projection, sc, uv, pos, geo.normal(i)) } else { 1.0 };
+        let mut cover = if clips { projection_coverage(projection, sc, uv, pos, geo.normal(i)) } else { 1.0 };
+        if cover > 0.0 && let Some(d) = &depth {
+            cover *= d.weight(projection, pos);
+        }
         if cover <= 0.0 {
             *o = [0.0; 4];
             continue;
