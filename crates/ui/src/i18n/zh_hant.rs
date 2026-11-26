@@ -2,6 +2,7 @@
 //! Terminology follows the usual Photoshop / Blender / Windows UI words (see docs/localization.md).
 
 pub static TABLE: &[(&str, &str)] = &[
+    ("8192 bakes slowly and needs about 8 GB of RAM (12 GB or more with a high poly). Texture sets go up to 4096: layers read the map averaged down, and Baked Mesh Maps export writes it at full size", "8192 烘焙較慢，約需 8 GB 記憶體（有高模時需 12 GB 以上）。紋理集最大為 4096：圖層會將貼圖平均縮小後讀取，而烘焙網格貼圖匯出會以完整尺寸寫入"),
     ("Axis views", "軸向視圖"),
     ("Back view", "後視圖"),
     ("Bottom view", "底視圖"),

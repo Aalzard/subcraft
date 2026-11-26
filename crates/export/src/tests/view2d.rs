@@ -122,3 +122,32 @@ fn the_view_follows_the_size_menu() {
     }
 }
 
+
+/// A mesh map baked above the set's resolution (an 8192 bake on a 4096 set) exports at its own
+/// size, texel for texel, instead of being cut down to the set's size first.
+#[test]
+fn a_mesh_map_baked_above_the_set_size_exports_at_its_own_size() {
+    let ch = channels();
+    let big = RES * 2;
+    let mut ao = TiledImage::new(big, big, 1, [0.0; 4]);
+    for y in 0..big {
+        for x in 0..big {
+            ao.set(x, y, [if (x + y) % 2 == 0 { 0.2 } else { 0.8 }; 4]);
+        }
+    }
+    let mut maps = BTreeMap::new();
+    maps.insert(MeshMapKind::AmbientOcclusion, ao);
+    let s = view_settings(View2d::MeshMap(MeshMapKind::AmbientOcclusion), Padding::None, Some(FileFormat::Png16));
+    let f = run(&ch, Some(&maps), &s, "v-mm-big");
+    let b = subcraft_image::load_bitmap(&f).unwrap();
+    assert_eq!((b.width, b.height), (big, big));
+    // The checkerboard survives: a set-size render would have kept only every other texel.
+    for (x, y, want) in [(0, 0, 0.2f32), (1, 0, 0.8), (5, 7, 0.2), (big - 1, big - 2, 0.8)] {
+        assert!((px(&f, x, y)[0] - want).abs() < 1e-3, "({x}, {y}): {:?}", px(&f, x, y));
+    }
+    // A map baked below the set's size still exports at the set's size, as before.
+    let mut small = BTreeMap::new();
+    small.insert(MeshMapKind::AmbientOcclusion, TiledImage::new(RES / 2, RES / 2, 1, [0.4; 4]));
+    let b = subcraft_image::load_bitmap(&run(&ch, Some(&small), &s, "v-mm-small")).unwrap();
+    assert_eq!((b.width, b.height), (RES, RES));
+}

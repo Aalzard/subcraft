@@ -933,7 +933,13 @@ pub(crate) fn render_maps(mesh: &Mesh, mesh_name: &str, sets: &[ExportTextureSet
     let all = settings;
     for set in sets {
         let settings = &*all.for_set(set.name);
-        let Some(size) = set.channels.values().next().map(|i| i.width()) else { continue };
+        let Some(mut size) = set.channels.values().next().map(|i| i.width()) else { continue };
+        // A raw baked map baked above the set's resolution (an 8192 bake on a 4096 set) is
+        // written at its own size: rendering it at the set's size first would throw the extra
+        // texels away before any size override.
+        if let Some(img) = settings.view_2d.filter(|v| matches!(v, View2d::MeshMap(_))).and_then(|v| set.view_source(v)) {
+            size = size.max(img.width());
+        }
         let mut covered: Option<Vec<bool>> = None;
         // Nearest island texel of every gutter texel: the same for every map of the set, so
         // infinite padding floods once per set instead of once per map.

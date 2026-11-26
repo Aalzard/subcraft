@@ -2,6 +2,7 @@
 //! Terminology follows the usual Photoshop / Blender / Windows UI words (see docs/localization.md).
 
 pub static TABLE: &[(&str, &str)] = &[
+    ("8192 bakes slowly and needs about 8 GB of RAM (12 GB or more with a high poly). Texture sets go up to 4096: layers read the map averaged down, and Baked Mesh Maps export writes it at full size", "8192 굽기는 느리고 RAM이 약 8 GB 필요합니다(하이 폴리가 있으면 12 GB 이상). 텍스처 세트는 최대 4096입니다. 레이어는 맵을 평균해 축소해서 읽고, 구운 메시 맵 내보내기는 원래 크기로 저장합니다"),
     ("Axis views", "축 뷰"),
     ("Back view", "뒤쪽 뷰"),
     ("Bottom view", "아래쪽 뷰"),
