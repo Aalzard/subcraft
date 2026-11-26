@@ -39,6 +39,10 @@ pub struct BakeFiles {
     pub cage_push_layer: String,
     /// The painted maps per texture set, read from those layers when the bake starts.
     pub paint: std::collections::BTreeMap<TextureSetId, BakePaintMaps>,
+    /// Texture sets with bake settings of their own (Painter keeps them per texture set). The
+    /// files above, the custom cage and the placement stay the request's; sets not listed use the
+    /// request's settings.
+    pub set_settings: std::collections::BTreeMap<TextureSetId, subcraft_bake::BakeSettings>,
 }
 
 /// One texture set's painted bake masks (see [`subcraft_bake::paint_maps`]).
@@ -262,14 +266,24 @@ impl BakeJob {
                 }
             }
             for (i, (ts, slot)) in request.texture_sets.iter().enumerate() {
+                let own = files.set_settings.get(ts).map(|s| {
+                    let mut s = s.clone();
+                    // Loaded once for every set: the custom cage, placement and matching.
+                    s.cage = request.settings.cage.clone();
+                    s.placement = request.settings.placement.clone();
+                    s.name_match = request.settings.name_match.clone();
+                    s.use_gpu = request.settings.use_gpu;
+                    s
+                });
+                let base = own.as_ref().unwrap_or(&request.settings);
                 // Only additional ID maps ticked: nothing else to bake for the set.
-                if request.settings.maps.is_empty() {
+                if base.maps.is_empty() {
                     let _ = tx.send(Message::Baked);
                     done.fetch_add(1, Ordering::Relaxed);
                     continue;
                 }
                 *st.lock().expect("stage lock") = format!("Baking texture set {}/{}", i + 1, request.texture_sets.len());
-                say(BakeLogLevel::Info, format!("Texture set {}/{} (material slot {slot}) started.", i + 1, request.texture_sets.len()));
+                say(BakeLogLevel::Info, format!("Texture set {}/{} (material slot {slot}) started{}.", i + 1, request.texture_sets.len(), if own.is_some() { ", with its own settings" } else { "" }));
                 let set_started = std::time::Instant::now();
                 let input = BakeInput {
                     low: Geometry { mesh: &low, bvh: &low_bvh },
@@ -277,14 +291,14 @@ impl BakeJob {
                     material_slot: *slot,
                 };
                 let painted = files.paint.get(ts).map(|m| {
-                    let mut s = request.settings.clone();
+                    let mut s = base.clone();
                     s.skew_map = m.skew.clone();
                     s.cage_push_map = m.cage_push.clone();
                     if m.skew.is_some() { say(BakeLogLevel::Info, format!("Skew map: layer \"{}\".", files.skew_map_layer)); }
                     if m.cage_push.is_some() { say(BakeLogLevel::Info, format!("Cage push map: layer \"{}\" (push {}).", files.cage_push_layer, s.cage_push)); }
                     s
                 });
-                match bake_streamed(&input, painted.as_ref().unwrap_or(&request.settings), &p, |kind, image| {
+                match bake_streamed(&input, painted.as_ref().unwrap_or(base), &p, |kind, image| {
                     let _ = tx.send(Message::Map(*ts, kind, image.clone()));
                 }) {
                     Ok(_) => {

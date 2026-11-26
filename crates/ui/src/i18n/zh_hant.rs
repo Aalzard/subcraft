@@ -2,6 +2,12 @@
 //! Terminology follows the usual Photoshop / Blender / Windows UI words (see docs/localization.md).
 
 pub static TABLE: &[(&str, &str)] = &[
+    ("Settings per texture set", "每個紋理集各自設定"),
+    ("Each texture set keeps its own bake settings: select a set to edit its settings. The model files stay shared", "每個紋理集保留自己的烘焙設定：選取紋理集即可編輯其設定。模型檔案仍為共用"),
+    ("Apply checked to all texture sets", "將勾選項目套用到所有紋理集"),
+    ("Every texture set bakes the maps checked here; their other settings stay", "所有紋理集都會烘焙此處勾選的貼圖；其他設定保持不變"),
+    ("Sync all settings to all texture sets", "將所有設定同步到所有紋理集"),
+    ("Every texture set gets this set's bake settings", "所有紋理集都會採用此紋理集的烘焙設定"),
     ("Skew map", "偏斜貼圖"),
     ("Paint the skew amount: white keeps the full correction, black the averaged rays. Uses the mask of each texture set's layer with this name (the layer can be hidden)", "繪製偏斜量：白色保留完整校正，黑色保留平均射線。使用各紋理集中此名稱圖層的遮罩（圖層可以隱藏）"),
     ("(no layer with a mask has this name)", "（沒有具有此名稱且帶遮罩的圖層）"),

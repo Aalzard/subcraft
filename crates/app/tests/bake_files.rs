@@ -158,3 +158,27 @@ fn a_layer_mask_named_as_the_cage_push_layer_pushes_the_cage() {
     assert_eq!((opacity.get(16, 16)[0], opacity.get(48, 40)[0]), (1.0, 1.0), "the pushed cage reaches the card");
     let _ = std::fs::remove_dir_all(dir);
 }
+
+/// Settings per texture set: a set with its own settings bakes its own maps at its own size;
+/// the shared settings only fill the gaps (cage, placement, matching, GPU).
+#[test]
+fn a_texture_set_with_its_own_settings_bakes_its_own_maps_and_size() {
+    let dir = std::env::temp_dir().join(format!("subcraft-per-set-{}", subcraft_core::LayerId::new()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let card = dir.join("card_high.obj");
+    std::fs::write(&card, "v -1 0.01 -1\nv -1 0.01 1\nv 1 0.01 1\nv 1 0.01 -1\nf 1 2 3\nf 1 3 4\n").unwrap();
+    let mut s = Session::new(primitives::plane(2.0, 4), 64);
+    let ts = s.selection().texture_set;
+    let shared = BakeSettings { size: 64, maps: vec![MeshMapKind::Normal], ..Default::default() };
+    let own = BakeSettings { size: 32, maps: vec![MeshMapKind::Opacity], ..Default::default() };
+    let files = BakeFiles { set_settings: [(ts, own)].into_iter().collect(), ..Default::default() };
+    let (result, log) = run(&mut s, shared, &card, files);
+    assert_eq!(result, Ok(1), "{log:?}");
+    assert!(log.iter().any(|l| l.contains("with its own settings")), "{log:?}");
+    let maps = s.mesh_maps(ts).unwrap();
+    assert!(maps.get(MeshMapKind::Normal).is_none(), "the shared maps are not baked for this set");
+    let opacity = maps.get(MeshMapKind::Opacity).expect("its own map is baked").clone();
+    assert_eq!(opacity.width(), 32, "its own size");
+    assert_eq!(opacity.get(16, 16)[0], 1.0);
+    let _ = std::fs::remove_dir_all(dir);
+}

@@ -2,6 +2,12 @@
 //! Terminology follows the usual Photoshop / Blender / Windows UI words (see docs/localization.md).
 
 pub static TABLE: &[(&str, &str)] = &[
+    ("Settings per texture set", "텍스처 세트별 설정"),
+    ("Each texture set keeps its own bake settings: select a set to edit its settings. The model files stay shared", "각 텍스처 세트가 자체 굽기 설정을 유지합니다. 세트를 선택하면 그 설정을 편집합니다. 모델 파일은 공유됩니다"),
+    ("Apply checked to all texture sets", "선택한 맵을 모든 텍스처 세트에 적용"),
+    ("Every texture set bakes the maps checked here; their other settings stay", "모든 텍스처 세트가 여기서 선택한 맵을 굽습니다. 다른 설정은 유지됩니다"),
+    ("Sync all settings to all texture sets", "모든 설정을 모든 텍스처 세트에 동기화"),
+    ("Every texture set gets this set's bake settings", "모든 텍스처 세트가 이 세트의 굽기 설정을 받습니다"),
     ("Skew map", "스큐 맵"),
     ("Paint the skew amount: white keeps the full correction, black the averaged rays. Uses the mask of each texture set's layer with this name (the layer can be hidden)", "스큐 양을 칠합니다. 흰색은 보정을 모두 유지하고, 검은색은 평균 광선을 유지합니다. 각 텍스처 세트에서 이 이름을 가진 레이어의 마스크를 사용합니다(레이어는 숨겨도 됩니다)"),
     ("(no layer with a mask has this name)", "(이 이름의 마스크가 있는 레이어가 없습니다)"),

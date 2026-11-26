@@ -71,14 +71,14 @@ Layout notes: a "Common settings" entry at the top (with its own sync button), t
 | Auto-rebake for the map | Baker row | off; turned on for Normal when cage or skew painting starts | partial: per-map toggle; rebakes after any bake setting, placement or matching change (no cage or skew painting yet) | crates/ui/src/dialogs.rs (auto_rebake_due) | - |
 | Synchronize this map's settings across texture sets | Baker row | not documented | missing | - | - |
 | Synchronize common settings (Common settings sync window) | Mesh map bakers, top | not documented | missing | - | - |
-| Per texture set baker selection and common settings | Baking mode | per texture set | missing | - | - |
+| Per texture set baker selection and common settings | Baking mode | per texture set | done: "Settings per texture set" in the Texture Set list; the panels show the selected set's settings, saved in the project; the high poly, cage file, placement and name matching stay shared | crates/ui/src/dialogs.rs (follow_set), crates/app/src/bake_job.rs | this PR |
 | Check all | Mesh map bakers dropdown | not documented | done | crates/ui/src/dialogs.rs (bakers_panel) | - |
 | Uncheck all | Mesh map bakers dropdown | not documented | done | crates/ui/src/dialogs.rs (bakers_panel) | - |
 | Invert checked mesh maps | Mesh map bakers dropdown | not documented | done | crates/ui/src/dialogs.rs (bakers_panel) | - |
 | Apply checked to more Texture sets... | Mesh map bakers dropdown | not documented | missing | - | - |
-| Apply checked to all Texture sets | Mesh map bakers dropdown | not documented | missing | - | - |
+| Apply checked to all Texture sets | Mesh map bakers dropdown | not documented | done (per-set mode) | crates/ui/src/dialogs.rs (sync_to_sets) | this PR |
 | Sync all settings to more Texture sets... | Mesh map bakers dropdown | not documented | missing | - | - |
-| Sync all settings to all Texture Sets | Mesh map bakers dropdown | not documented | missing | - | - |
+| Sync all settings to all Texture Sets | Mesh map bakers dropdown | not documented | done (per-set mode) | crates/ui/src/dialogs.rs (sync_to_sets) | this PR |
 | Reset parameters to default values | Mesh map bakers dropdown / settings | not documented | done: the selected baker, or the common settings | crates/ui/src/dialogs.rs (reset_parameters) | - |
 | Reset cage painting parameters | Mesh map bakers dropdown | (unverified) | missing | - | - |
 | Reset cage painting strokes | Mesh map bakers dropdown | (unverified) | missing | - | - |

@@ -22,6 +22,8 @@ pub struct BakeFilesConfig {
     /// Layers whose masks are the skew map and the cage push map (empty: none).
     pub skew_map_layer: String,
     pub cage_push_layer: String,
+    /// Each texture set's own settings when they are kept per texture set (empty: shared).
+    pub per_set: Vec<(subcraft_core::TextureSetId, BakeSettings)>,
 }
 
 fn id_source_name(s: IdSource) -> &'static str {
@@ -140,6 +142,10 @@ pub fn to_config(s: &BakeSettings, files: &BakeFilesConfig) -> BakeConfig {
             vertex_color_set: e.vertex_color_set,
             antialiasing: e.antialiasing.factor(),
         }).collect(),
+        per_set: files.per_set.iter().map(|(id, own)| subcraft_doc::SetBakeConfig {
+            texture_set: *id,
+            settings: to_config(own, &BakeFilesConfig { size: Some(own.size), ..Default::default() }),
+        }).collect(),
     }
 }
 
@@ -215,7 +221,13 @@ pub fn apply(c: &BakeConfig, s: &mut BakeSettings) -> BakeFilesConfig {
     if let Some(size) = c.size {
         s.size = size.clamp(16, 8192);
     }
-    BakeFilesConfig { high_poly: c.high_poly.clone(), extra_high: c.extra_high.clone(), cage_file: c.cage_file.clone(), size: c.size, skip_sets: c.skip_sets.clone(), skew_map_layer: c.skew_map_layer.clone(), cage_push_layer: c.cage_push_layer.clone() }
+    // Each set's own settings start from the shared ones, so options it does not name match them.
+    let per_set = c.per_set.iter().map(|e| {
+        let mut own = s.clone();
+        apply(&e.settings, &mut own);
+        (e.texture_set, own)
+    }).collect();
+    BakeFilesConfig { high_poly: c.high_poly.clone(), extra_high: c.extra_high.clone(), cage_file: c.cage_file.clone(), size: c.size, skip_sets: c.skip_sets.clone(), skew_map_layer: c.skew_map_layer.clone(), cage_push_layer: c.cage_push_layer.clone(), per_set }
 }
 
 #[cfg(test)]
@@ -254,7 +266,7 @@ mod tests {
         s.thickness.distribution = RayDistribution::Uniform;
         s.cage_push = 2.5;
         let set = subcraft_core::TextureSetId::new();
-        let files = BakeFilesConfig { high_poly: "/models/crate_high.glb".into(), extra_high: vec!["/models/bolts_high.glb".into()], cage_file: "/models/cage.obj".into(), size: Some(2048), skip_sets: vec![set], skew_map_layer: "Skew".into(), cage_push_layer: "Push".into() };
+        let files = BakeFilesConfig { high_poly: "/models/crate_high.glb".into(), extra_high: vec!["/models/bolts_high.glb".into()], cage_file: "/models/cage.obj".into(), size: Some(2048), skip_sets: vec![set], skew_map_layer: "Skew".into(), cage_push_layer: "Push".into(), per_set: Vec::new() };
         let config = to_config(&s, &files);
         // Through the project file's JSON and back.
         let json = serde_json::to_string(&subcraft_doc::ProjectSettings { bake: Some(config.clone()), ..Default::default() }).unwrap();
@@ -293,5 +305,28 @@ mod tests {
         apply(&config, &mut s);
         assert_eq!(s.extra_ids.len(), 1);
         assert_eq!((s.extra_ids[0].map, s.extra_ids[0].id_source, s.extra_ids[0].enabled), (MeshMapKind::Id4, IdSource::Submesh, true));
+    }
+
+    #[test]
+    fn per_texture_set_settings_survive_the_project_file() {
+        let (a, b) = (subcraft_core::TextureSetId::new(), subcraft_core::TextureSetId::new());
+        let shared = BakeSettings { ao_samples: 32, ..Default::default() };
+        let own_a = BakeSettings { size: 512, ao_samples: 200, maps: vec![MeshMapKind::AmbientOcclusion], cage_front: 0.08, ..Default::default() };
+        let own_b = BakeSettings { size: 2048, average_normals: true, maps: vec![MeshMapKind::Normal, MeshMapKind::Curvature], ..Default::default() };
+        let files = BakeFilesConfig { high_poly: "/m/high.fbx".into(), per_set: vec![(a, own_a.clone()), (b, own_b.clone())], ..Default::default() };
+        let json = serde_json::to_string(&to_config(&shared, &files)).unwrap();
+        let back: BakeConfig = serde_json::from_str(&json).unwrap();
+        let mut restored = BakeSettings::default();
+        let restored_files = apply(&back, &mut restored);
+        assert_eq!(restored.ao_samples, 32);
+        assert_eq!(restored_files.high_poly, "/m/high.fbx");
+        let got: std::collections::BTreeMap<_, _> = restored_files.per_set.into_iter().collect();
+        assert_eq!(got[&a], own_a, "set A's own settings, size included");
+        let mut want_b = own_b.clone();
+        want_b.maps.sort();
+        assert_eq!(got[&b], want_b);
+        // An older file without per-set settings: shared settings only.
+        let old: BakeConfig = serde_json::from_str(r#"{"ao_samples":32}"#).unwrap();
+        assert!(apply(&old, &mut BakeSettings::default()).per_set.is_empty());
     }
 }
