@@ -716,7 +716,7 @@ fn viewport_mode(ui: &mut Ui, state: &mut crate::state::UiState) {
 /// views, and Mesh maps. `mask`: `Some(shown)` when the selected layer has a mask (see
 /// [`crate::mask_view::dropdown_state`]). Returns a mask choice to apply: `Some(true)` show it,
 /// `Some(false)` go back from it.
-pub(crate) fn view_mode(ui: &mut Ui, prefs: &mut ViewportPrefs, channels: &[subcraft_core::ChannelKind], wide: bool, mask: Option<bool>) -> Option<bool> {
+pub(crate) fn view_mode(ui: &mut Ui, prefs: &mut ViewportPrefs, channels: &[subcraft_core::ChannelKind], wide: bool, mask: Option<bool>, extra_ids: &[subcraft_core::MeshMapKind]) -> Option<bool> {
     dim(ui, "View");
     let mode = prefs.view_mode();
     let shown_channel = prefs.shown_channel();
@@ -763,7 +763,8 @@ pub(crate) fn view_mode(ui: &mut Ui, prefs: &mut ViewportPrefs, channels: &[subc
             }
             ui.separator();
             ui.label(RichText::new(tr("Mesh maps (baked)")).color(TEXT_DIM()));
-            for k in subcraft_core::MeshMapKind::ALL {
+            // The additional ID maps the texture set has (issue #733) after the usual ones.
+            for k in subcraft_core::MeshMapKind::ALL.into_iter().chain(extra_ids.iter().copied()) {
                 if ui.selectable_label(prefs.mesh_map == Some(k), k.display_name()).clicked() {
                     prefs.mesh_map = Some(k);
                 }

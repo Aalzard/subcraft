@@ -1341,7 +1341,12 @@ pub fn bake_mode(state: &mut UiState, ui: &mut egui::Ui, now: f64) {
             ui.add_enabled_ui(!busy, |ui| {
                 bake_set_list(ui, &mut state.bake, &frame, &mut select_set);
                 ui.add_space(10.0);
-                bakers_panel(ui, &mut state.bake, &frame, &mut quick);
+                let mut removed_id = None;
+                bakers_panel(ui, &mut state.bake, &frame, &mut quick, &mut removed_id);
+                // A deleted additional ID map takes its baked map with it (issue #733).
+                if let Some(kind) = removed_id && state.session.remove_mesh_map(kind) {
+                    state.gpu_dirty = true;
+                }
                 ui.add_space(10.0);
                 map_settings_panel(ui, &mut state.bake);
             });
@@ -1357,7 +1362,7 @@ pub fn bake_mode(state: &mut UiState, ui: &mut egui::Ui, now: f64) {
     egui::Panel::bottom("bake_log").default_size(190.0).size_range(120.0..=420.0).frame(side()).show(ui, |ui| bake_log_panel(ui, &mut state.bake, &frame));
     // --- Bake / Return, over the bottom of the views -------------------------------------------
     let views = ui.available_rect_before_wrap();
-    let can = !state.bake.settings.maps.is_empty() && !frame.targets(&state.bake).is_empty();
+    let can = (!state.bake.settings.maps.is_empty() || state.bake.settings.extra_ids.iter().any(|e| e.enabled)) && !frame.targets(&state.bake).is_empty();
     let (mut go, mut leave) = (false, false);
     egui::Area::new(egui::Id::new("bake_actions")).order(egui::Order::Middle).pivot(egui::Align2::CENTER_BOTTOM)
         .fixed_pos(egui::pos2(views.center().x, views.bottom() - 16.0)).show(ui.ctx(), |ui| {
@@ -1498,7 +1503,7 @@ fn bake_set_list(ui: &mut egui::Ui, b: &mut BakeUi, f: &BakeFrame, select: &mut 
 
 /// The Common settings entry, then one row per mesh map: bake tick, name (click to edit its
 /// settings), show on the model, quick bake.
-fn bakers_panel(ui: &mut egui::Ui, b: &mut BakeUi, f: &BakeFrame, quick: &mut Option<subcraft_core::MeshMapKind>) {
+fn bakers_panel(ui: &mut egui::Ui, b: &mut BakeUi, f: &BakeFrame, quick: &mut Option<subcraft_core::MeshMapKind>, removed_id: &mut Option<subcraft_core::MeshMapKind>) {
     use crate::icons;
     use subcraft_core::MeshMapKind;
     ui.horizontal(|ui| {
@@ -1557,6 +1562,114 @@ fn bakers_panel(ui: &mut egui::Ui, b: &mut BakeUi, f: &BakeFrame, quick: &mut Op
             });
         });
     }
+    extra_id_rows(ui, b, f, removed_id);
+}
+
+/// The additional ID maps (issue #733): one row each (bake tick, name, show on the model,
+/// delete), then a button that adds one. Deleting an entry also deletes its baked map.
+fn extra_id_rows(ui: &mut egui::Ui, b: &mut BakeUi, f: &BakeFrame, removed_id: &mut Option<subcraft_core::MeshMapKind>) {
+    use crate::icons;
+    let mut delete = None;
+    for entry in b.settings.extra_ids.iter_mut() {
+        let kind = entry.map;
+        ui.horizontal(|ui| {
+            ui.checkbox(&mut entry.enabled, "").on_hover_text(tr("Bake this ID map with the others"));
+            let source = if entry.source.is_empty() { tr("main high poly").to_string() } else { file_name(&entry.source) };
+            if ui.selectable_label(b.selected_baker == Some(kind), format!("{}   {}", icons::SQUARES, tr(kind.display_name())))
+                .on_hover_text(format!("{} ({source})", tr("An additional ID map with its own source mesh and color settings")))
+                .clicked()
+            {
+                b.selected_baker = Some(kind);
+            }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if crate::widgets::icon_button(ui, icons::TRASH, tr("Delete this ID map and its baked map")).clicked() {
+                    delete = Some(kind);
+                }
+                let shown = b.displayed_map == Some(kind);
+                let baked = f.baked_maps.contains(&kind);
+                let eye = ui.add_enabled_ui(baked, |ui| crate::widgets::icon_toggle(ui, icons::EYE, shown, tr("Show this map on the model (once it is baked)"))).inner;
+                if eye.clicked() {
+                    b.displayed_map = if shown { None } else { Some(kind) };
+                    b.follow_maps = false;
+                }
+            });
+        });
+    }
+    if let Some(kind) = delete {
+        b.settings.extra_ids.retain(|e| e.map != kind);
+        if b.selected_baker == Some(kind) { b.selected_baker = None; }
+        if b.displayed_map == Some(kind) { b.displayed_map = None; }
+        *removed_id = Some(kind);
+    }
+    let free = subcraft_bake::ExtraIdBake::free_slot(&b.settings.extra_ids);
+    if ui.add_enabled(free.is_some(), egui::Button::new(format!("{}  {}", icons::PLUS, tr("Add ID map"))))
+        .on_hover_text(tr("Bakes one more ID map, from its own high-poly file or color source. It can be used wherever the ID map is."))
+        .on_disabled_hover_text(tr("All 8 additional ID maps are in use"))
+        .clicked()
+        && let Some(kind) = free
+    {
+        b.settings.extra_ids.push(subcraft_bake::ExtraIdBake::new(kind));
+        b.selected_baker = Some(kind);
+    }
+}
+
+/// Settings of an additional ID map (issue #733): its source mesh and color options.
+fn extra_id_settings(ui: &mut egui::Ui, b: &mut BakeUi, kind: subcraft_core::MeshMapKind) {
+    use crate::icons;
+    use crate::widgets::icon_button;
+    use subcraft_bake::{Antialiasing, ExtraIdBake, IdGenerator, IdSource};
+    let Some(e) = b.settings.extra_ids.iter_mut().find(|e| e.map == kind) else { return };
+    let d = ExtraIdBake::new(kind);
+    ui.spacing_mut().item_spacing.y = 6.0;
+    ui.label(dim(tr("Source mesh")));
+    ui.horizontal(|ui| {
+        ui.add(egui::TextEdit::singleline(&mut e.source).hint_text(tr("main high poly")).desired_width(170.0))
+            .on_hover_text(tr("A high-poly file with the parts this ID map should color. Empty: the main high poly (or the low poly when there is none)."));
+        if icon_button(ui, icons::FOLDER_OPEN, tr("Browse…")).clicked() {
+            crate::files::pick(ui.ctx(), crate::files::Purpose::BakeExtraIdSource { map: kind }, crate::files::MESHES, false, None);
+        }
+        if !e.source.is_empty() && icon_button(ui, icons::X, tr("Use the main high poly")).clicked() {
+            e.source.clear();
+        }
+    });
+    if !e.source.is_empty() {
+        hint(ui, tr("Placed like the main high poly. Parts missing from this file stay black."));
+    }
+    let label = |s: IdSource| match s {
+        IdSource::VertexColor => tr("Vertex color"),
+        IdSource::MaterialColor => tr("Material color"),
+        IdSource::MeshId => tr("Mesh ID / Polygroup"),
+        IdSource::Submesh => tr("Submesh (object)"),
+        IdSource::FileId => tr("File ID (high-poly file)"),
+    };
+    ui.horizontal(|ui| {
+        let l = crate::reset_row::label(ui, tr("ID colors from"));
+        let r = egui::ComboBox::from_id_salt(("bake_extra_id_source", kind)).selected_text(label(e.id_source)).show_ui(ui, |ui| {
+            for source in IdSource::ALL {
+                ui.selectable_value(&mut e.id_source, source, label(source));
+            }
+        }).response;
+        crate::reset_row::reset(ui, &l, &r, &mut e.id_source, &d.id_source);
+    });
+    if e.id_source == IdSource::VertexColor {
+        ui.horizontal(|ui| {
+            ui.label(dim(tr("Vertex color set")));
+            egui::ComboBox::from_id_salt(("bake_extra_id_color_set", kind)).selected_text(format!("{}", e.vertex_color_set + 1)).show_ui(ui, |ui| {
+                for set in 0..8u32 {
+                    ui.selectable_value(&mut e.vertex_color_set, set, format!("{} (COLOR_{set})", set + 1));
+                }
+            });
+        });
+    }
+    if matches!(e.id_source, IdSource::MeshId | IdSource::Submesh | IdSource::FileId) {
+        option_row(ui, &format!("bake_extra_id_generator_{}", kind.key()), tr("Color generator"), &mut e.id_generator, d.id_generator, &IdGenerator::ALL, IdGenerator::label);
+    }
+    option_row(ui, &format!("bake_extra_id_aa_{}", kind.key()), tr("Antialiasing"), &mut e.antialiasing, d.antialiasing, &Antialiasing::ALL, Antialiasing::label);
+}
+
+/// The file name of a path (the whole text when it has none).
+fn file_name(path: &str) -> String {
+    std::path::Path::new(path).file_name().map_or_else(|| path.to_string(), |n| n.to_string_lossy().into_owned())
 }
 
 /// A click on a map's tick box in the bake list. Plain: toggles it. Alt (Painter): only that
@@ -1642,6 +1755,13 @@ fn reset_parameters(b: &mut BakeUi, baker: Option<subcraft_core::MeshMapKind>) {
             s.extra_vertex_color_sets = d.extra_vertex_color_sets;
         }
         Some(MeshMapKind::Normal | MeshMapKind::WorldSpaceNormal) => {}
+        // An additional ID map: its options back to the defaults, its source file kept.
+        Some(kind) => {
+            if let Some(e) = s.extra_ids.iter_mut().find(|e| e.map == kind) {
+                let source = std::mem::take(&mut e.source);
+                *e = subcraft_bake::ExtraIdBake { source, ..subcraft_bake::ExtraIdBake::new(kind) };
+            }
+        }
     }
 }
 
@@ -1661,6 +1781,10 @@ fn map_settings_panel(ui: &mut egui::Ui, b: &mut BakeUi) {
     use subcraft_core::MeshMapKind;
     let Some(kind) = b.selected_baker else { return };
     panel_title(ui, &format!("{} > {}", tr("Mesh map settings"), tr(kind.display_name())));
+    if kind.extra_id_index().is_some() {
+        extra_id_settings(ui, b, kind);
+        return;
+    }
     ui.spacing_mut().item_spacing.y = 6.0;
     let d = bake_defaults();
     let s = &mut b.settings;

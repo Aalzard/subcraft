@@ -418,6 +418,60 @@ pub struct BakeSettings {
     /// The vertex colour set of each additional high-poly file, in file order (entry 0 = the
     /// second file). `None` or a missing entry: the main file's [`Self::vertex_color_set`].
     pub extra_vertex_color_sets: Vec<Option<u32>>,
+    /// Additional ID maps (issue #733). [`bake_streamed`] ignores them: the caller bakes each
+    /// one as an ID-only bake with [`ExtraIdBake::settings`] and stores it as its own map.
+    pub extra_ids: Vec<ExtraIdBake>,
+    /// ID map texels whose rays miss the high poly take the nearest baked ID (issue #466). Off
+    /// for an additional ID map baked from a file with only some parts: the rest stays black.
+    pub id_fill_misses: bool,
+}
+
+/// One additional ID map (issue #733): baked like the ID map, from its own source mesh with its
+/// own colour options, and stored as [`MeshMapKind::Id2`]..[`MeshMapKind::Id9`].
+#[derive(Clone, Debug, PartialEq)]
+pub struct ExtraIdBake {
+    /// The map it is stored as: one of [`MeshMapKind::EXTRA_IDS`].
+    pub map: MeshMapKind,
+    /// Baked with the other maps (an unticked entry keeps its settings and its baked map).
+    pub enabled: bool,
+    /// High-poly file the colours come from. Empty: the bake's high poly (all its files), or the
+    /// low poly when there is none. It is placed like the main high poly; parts it lacks read black.
+    pub source: String,
+    pub id_source: IdSource,
+    pub id_generator: IdGenerator,
+    /// Vertex colour set read with [`IdSource::VertexColor`].
+    pub vertex_color_set: u32,
+    pub antialiasing: Antialiasing,
+}
+
+impl ExtraIdBake {
+    /// A new entry for `map` with the ID baker's defaults.
+    pub fn new(map: MeshMapKind) -> Self {
+        let d = BakeSettings::default();
+        Self { map, enabled: true, source: String::new(), id_source: d.id_source, id_generator: d.id_generator, vertex_color_set: 0, antialiasing: d.antialiasing }
+    }
+
+    /// The first slot of [`MeshMapKind::EXTRA_IDS`] no entry uses (`None`: all are taken).
+    pub fn free_slot(entries: &[ExtraIdBake]) -> Option<MeshMapKind> {
+        MeshMapKind::EXTRA_IDS.into_iter().find(|k| entries.iter().all(|e| e.map != *k))
+    }
+
+    /// The settings of its ID-only bake: `base` (size, cage, matching, placement, dilation...)
+    /// with this entry's colour options, baking only [`MeshMapKind::Id`].
+    pub fn settings(&self, base: &BakeSettings) -> BakeSettings {
+        let mut s = base.clone();
+        s.maps = vec![MeshMapKind::Id];
+        s.id_source = self.id_source;
+        s.id_generator = self.id_generator;
+        s.vertex_color_set = self.vertex_color_set;
+        s.antialiasing = self.antialiasing;
+        // Its own file has its own colour sets; with the main high poly every file reads this one.
+        s.extra_vertex_color_sets = Vec::new();
+        s.extra_ids = Vec::new();
+        // A file of only some parts: what it lacks reads black (no ID), not a neighbour's ID.
+        s.id_fill_misses = self.source.is_empty();
+        s
+    }
 }
 
 impl BakeSettings {
@@ -463,6 +517,8 @@ impl Default for BakeSettings {
             id_generator: IdGenerator::default(),
             vertex_color_set: 0,
             extra_vertex_color_sets: Vec::new(),
+            extra_ids: Vec::new(),
+            id_fill_misses: true,
         }
     }
 }
@@ -1098,6 +1154,10 @@ fn bake_core(
                                 IdSource::FileId => generated(mesh.file_of(tri)),
                             }
                         }
+                        // Additional ID maps are baked as `Id` with their own settings (the caller
+                        // renames the result); asked for directly they stay neutral.
+                        MeshMapKind::Id2 | MeshMapKind::Id3 | MeshMapKind::Id4 | MeshMapKind::Id5
+                        | MeshMapKind::Id6 | MeshMapKind::Id7 | MeshMapKind::Id8 | MeshMapKind::Id9 => kind.neutral_value(),
                         MeshMapKind::AmbientOcclusion if !settings.ao.is_plain() => {
                             let o = &settings.ao;
                             let mut dirs = Vec::with_capacity(settings.ao_samples as usize);
@@ -1240,7 +1300,7 @@ fn bake_core(
                     let i = t.index as usize;
                     dense[i * comps..(i + 1) * comps].copy_from_slice(&v[..comps]);
                 }
-                if kind == MeshMapKind::Id && let Some(details) = &details {
+                if kind == MeshMapKind::Id && settings.id_fill_misses && let Some(details) = &details {
                     // A texel whose projection ray reached no high-poly surface has no ID (issue #466: the
                     // low poly's rim texels next to open edges of the high poly). Writing the empty colour
                     // there put black texels inside islands, which dilation then spread into lines: they

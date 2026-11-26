@@ -1192,4 +1192,28 @@ fn curvature_manual_tonemap_remaps_min_and_max() {
         let got = at(&manual, &t)[0];
         assert!((got - want).abs() < 2e-3, "{got} vs {want}");
     }
+/// Issue #733: additional ID map entries take the free slots in order, and each bakes as an
+/// ID-only bake with its own colour options on top of the common settings.
+#[test]
+fn extra_id_entries_take_free_slots_and_bake_as_id_only() {
+    let mut entries = Vec::new();
+    while let Some(slot) = ExtraIdBake::free_slot(&entries) {
+        entries.push(ExtraIdBake::new(slot));
+    }
+    assert_eq!(entries.iter().map(|e| e.map).collect::<Vec<_>>(), MeshMapKind::EXTRA_IDS.to_vec());
+    entries.remove(2);
+    assert_eq!(ExtraIdBake::free_slot(&entries), Some(MeshMapKind::Id4), "a deleted slot is reused first");
+    let base = BakeSettings { size: 512, dilation: 4, vertex_color_set: 3, extra_vertex_color_sets: vec![Some(1)], extra_ids: entries.clone(), ..Default::default() };
+    let mut e = ExtraIdBake::new(MeshMapKind::Id2);
+    e.id_source = IdSource::Submesh;
+    e.id_generator = IdGenerator::Grayscale;
+    e.antialiasing = Antialiasing::X4;
+    let s = e.settings(&base);
+    assert_eq!(s.maps, vec![MeshMapKind::Id]);
+    assert_eq!((s.size, s.dilation), (512, 4), "common settings carry over");
+    assert_eq!((s.id_source, s.id_generator, s.antialiasing, s.vertex_color_set), (IdSource::Submesh, IdGenerator::Grayscale, Antialiasing::X4, 0));
+    assert!(s.extra_vertex_color_sets.is_empty() && s.extra_ids.is_empty());
+    assert!(s.id_fill_misses, "the main high poly: misses take the nearest ID as usual");
+    e.source = "parts.fbx".into();
+    assert!(!e.settings(&base).id_fill_misses, "a file of some parts leaves the rest black");
 }

@@ -236,7 +236,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     let (ts_id, slot, resolution) = (ts.id, ts.material_slot, ts.resolution);
     let mut sources: Vec<PreviewSource> = ts.channel_kinds().map(PreviewSource::Channel).collect();
     if let Some(maps) = state.session.mesh_maps(ts_id) {
-        sources.extend(MeshMapKind::ALL.iter().filter(|k| maps.get(**k).is_some()).map(|k| PreviewSource::MeshMap(*k)));
+        sources.extend(MeshMapKind::all_with_extra_ids().filter(|k| maps.get(*k).is_some()).map(PreviewSource::MeshMap));
     }
     if !sources.contains(&state.uv.source) {
         state.uv.source = PreviewSource::Channel(ChannelKind::BaseColor);
