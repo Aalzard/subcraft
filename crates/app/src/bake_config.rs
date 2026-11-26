@@ -5,6 +5,7 @@
 //! stay readable and an option the program no longer knows falls back to its default instead of
 //! failing the load.
 
+use subcraft_bake::skew::SkewBase;
 use subcraft_bake::{AoAttenuation, Antialiasing, BakeSettings, ExtraIdBake, HeightNormalization, IdGenerator, IdSource, PositionNormalization, RayDistribution};
 use subcraft_doc::{BakeConfig, ExtraIdConfig};
 
@@ -110,6 +111,11 @@ pub fn to_config(s: &BakeSettings, files: &BakeFilesConfig) -> BakeConfig {
         diffusion: s.diffusion,
         antialiasing: s.antialiasing.factor(),
         average_normals: s.average_normals,
+        skew_correction: s.skew.enabled,
+        skew_base: s.skew.base.key().into(),
+        skew_edge_protection: s.skew.edge_protection,
+        skew_edge_distance: s.skew.edge_distance,
+        skew_edge_contrast: s.skew.edge_contrast,
         ignore_backface: s.ignore_backface,
         position_axis: s.position.single_axis,
         position_normalization: normalization_name(s.position.normalization).into(),
@@ -183,6 +189,11 @@ pub fn apply(c: &BakeConfig, s: &mut BakeSettings) -> BakeFilesConfig {
     s.diffusion = c.diffusion;
     s.antialiasing = Antialiasing::ALL.into_iter().find(|a| a.factor() == c.antialiasing).unwrap_or_default();
     s.average_normals = c.average_normals;
+    s.skew.enabled = c.skew_correction;
+    s.skew.base = SkewBase::ALL.into_iter().find(|b| b.key() == c.skew_base).unwrap_or_default();
+    s.skew.edge_protection = c.skew_edge_protection;
+    s.skew.edge_distance = if c.skew_edge_distance.is_finite() { c.skew_edge_distance.clamp(0.0, 1.0) } else { 0.03 };
+    s.skew.edge_contrast = if c.skew_edge_contrast.is_finite() { c.skew_edge_contrast.clamp(0.0, 1.0) } else { 0.5 };
     s.ignore_backface = c.ignore_backface;
     s.position.single_axis = c.position_axis.filter(|a| *a < 3);
     s.position.normalization = by_name(&PositionNormalization::ALL, &c.position_normalization, normalization_name, PositionNormalization::default());

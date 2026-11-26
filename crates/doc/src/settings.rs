@@ -213,6 +213,14 @@ pub struct BakeConfig {
     /// Supersampling per side: 1, 2, 4 or 8.
     pub antialiasing: u32,
     pub average_normals: bool,
+    /// Skew correction of the averaged rays (see `subcraft_bake::skew`).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub skew_correction: bool,
+    /// "mesh" or "triangle".
+    pub skew_base: String,
+    pub skew_edge_protection: bool,
+    pub skew_edge_distance: f32,
+    pub skew_edge_contrast: f32,
     pub ignore_backface: bool,
     /// Position map of one axis (0 = X, 1 = Y, 2 = Z); `None`: all axes.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -265,7 +273,8 @@ impl Default for BakeConfig {
             normal_curvature_width: 2.0, normal_curvature_intensity: 1.0,
             curvature_auto_tonemap: false, curvature_tonemap_min: 0.0, curvature_tonemap_max: 1.0, cage_front: 0.01, cage_rear: 0.01,
             id_source: "mesh_id".into(), id_generator: "hue_shift".into(), vertex_color_set: 0, extra_vertex_color_sets: Vec::new(), dilation: 16, diffusion: true, antialiasing: 1,
-            average_normals: false, ignore_backface: false, position_axis: None, position_normalization: "bounding_box".into(), position_scale: 1.0,
+            average_normals: false, skew_correction: false, skew_base: "mesh".into(), skew_edge_protection: true, skew_edge_distance: 0.03, skew_edge_contrast: 0.5,
+            ignore_backface: false, position_axis: None, position_normalization: "bounding_box".into(), position_scale: 1.0,
             height_range: None, extra_ids: Vec::new(),
         }
     }

@@ -21,6 +21,7 @@ pub mod curvature;
 pub mod name_match;
 pub mod normal_curvature;
 pub mod seam_check;
+pub mod skew;
 pub mod surface;
 
 use std::collections::BTreeMap;
@@ -403,6 +404,9 @@ pub struct BakeSettings {
     /// edges and UV seams of the low poly leave no gap between neighbouring faces' rays. The
     /// baked tangent frame stays the low poly's own.
     pub average_normals: bool,
+    /// Straighten the averaged rays away from the hard edges (needs `average_normals` and the
+    /// distance-based cage), see [`skew`].
+    pub skew: skew::SkewCorrection,
     /// Projection rays skip high-poly faces that face away from them.
     pub ignore_backface: bool,
     /// A custom cage instead of the distance-based one (texels outside its UVs use the distances).
@@ -508,6 +512,7 @@ impl Default for BakeSettings {
             diffusion: true,
             antialiasing: Antialiasing::None,
             average_normals: false,
+            skew: skew::SkewCorrection::default(),
             ignore_backface: false,
             cage: None,
             ao: AoOptions::default(),
@@ -652,6 +657,8 @@ struct Cage {
     smooth: Option<Vec<Vec3>>,
     /// Custom cage: its surface point per texel of the bake (`None` outside its UVs).
     custom: Option<Vec<Option<Vec3>>>,
+    /// Skew correction of the averaged rays.
+    skew: Option<skew::SkewField>,
 }
 
 impl Cage {
@@ -667,7 +674,8 @@ impl Cage {
             }
             at
         });
-        Self { front: settings.cage_front * diag, rear: settings.cage_rear * diag, smooth: settings.average_normals.then(|| averaged_normals(low)), custom }
+        let skew = (settings.average_normals && settings.skew.enabled).then(|| skew::SkewField::new(low, settings.skew, diag));
+        Self { front: settings.cage_front * diag, rear: settings.cage_rear * diag, smooth: settings.average_normals.then(|| averaged_normals(low)), custom, skew }
     }
 
     fn ray(&self, low: &Mesh, t: &Texel) -> CageRay {
@@ -682,7 +690,11 @@ impl Cage {
         if let Some(smooth) = &self.smooth {
             let [a, b, c] = low.tri(t.tri as usize).map(|i| i as usize);
             let l = normal_curvature::barycentric(t.position, low.positions[a], low.positions[b], low.positions[c]);
+            let own = n;
             n = (smooth[a] * l[0] + smooth[b] * l[1] + smooth[c] * l[2]).normalize_or(n);
+            if let Some(skew) = &self.skew {
+                n = skew.direction(t.position, n, own, t.geometric_normal);
+            }
         }
         CageRay { origin: t.position + n * self.front, dir: -n, front: self.front, reach: self.front + self.rear }
     }
@@ -1599,3 +1611,5 @@ mod tests;
 mod match_tests;
 #[cfg(test)]
 mod placement_tests;
+#[cfg(test)]
+mod skew_tests;
