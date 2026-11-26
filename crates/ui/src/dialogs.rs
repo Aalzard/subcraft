@@ -2111,12 +2111,15 @@ fn common_settings(ui: &mut egui::Ui, b: &mut BakeUi, f: &BakeFrame, bake_match:
             if !b.size_chosen { b.settings.size = target_res; }
             ui.label(dim(tr("Resolution")));
             egui::ComboBox::from_id_salt("bake_size").selected_text(format!("{0} × {0}", b.settings.size)).show_ui(ui, |ui| {
-                for r in [256u32, 512, 1024, 2048, 4096] {
-                    if ui.selectable_value(&mut b.settings.size, r, format!("{r} × {r}")).clicked() { b.size_chosen = true; }
+                for r in [256u32, 512, 1024, 2048, 4096, 8192] {
+                    let mut item = ui.selectable_value(&mut b.settings.size, r, format!("{r} × {r}"));
+                    if r > 4096 { item = item.on_hover_text(tr("8192 bakes slowly and needs about 8 GB of RAM (12 GB or more with a high poly). Texture sets go up to 4096: layers read the map averaged down, and Baked Mesh Maps export writes it at full size")); }
+                    if item.clicked() { b.size_chosen = true; }
                 }
             });
             ui.end_row();
         });
+        if b.settings.size > 4096 { ui.label(egui::RichText::new(tr("8192 bakes slowly and needs about 8 GB of RAM (12 GB or more with a high poly). Texture sets go up to 4096: layers read the map averaged down, and Baked Mesh Maps export writes it at full size")).color(theme::WARNING()).small()); }
         ui.add_space(6.0);
         slider_row(ui, tr("Dilation width"), &mut b.settings.dilation, d.dilation, |v| egui::Slider::new(v, 0..=64))
             .on_hover_text(tr("How many texels around each UV island copy the island edge"));

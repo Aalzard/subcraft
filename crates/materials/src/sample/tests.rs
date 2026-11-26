@@ -947,3 +947,32 @@ fn batched_procedural_tiles_are_bit_identical_to_per_texel_evaluation() {
         }
     }
 }
+
+/// A map baked at twice the set's resolution (an 8192 bake on a 4096 set) is read as the average
+/// of each 2 x 2 block: every set texel centre falls between four map texels.
+#[test]
+fn a_map_at_twice_the_set_resolution_reads_as_two_by_two_averages() {
+    let mesh = Arc::new(primitives::plane(1.0, 1));
+    let (set, map) = (128u32, 256u32);
+    let geo = TextureSetGeometry::new(mesh, 0, set);
+    let mut img = TiledImage::new(map, map, 1, [0.0; 4]);
+    let v = |x: u32, y: u32| ((x * 5 + y * 11) % 17) as f32 / 16.0;
+    for y in 0..map {
+        for x in 0..map {
+            img.set(x, y, [v(x, y); 4]);
+        }
+    }
+    let mut maps = MeshMaps::new();
+    maps.insert(MeshMapKind::Curvature, img);
+    let mut out = vec![[0.0f32; 3]; TILE_TEXELS];
+    for t in 0..geo.tile_count() {
+        let tile = geo.tile(t);
+        maps.read_tile(MeshMapKind::Curvature, &tile, &mut out);
+        for (i, o) in out.iter().enumerate() {
+            let side = subcraft_image::TILE_SIZE;
+            let (x, y) = (tile.x0 + i as u32 % side, tile.y0 + i as u32 / side);
+            let want = (v(2 * x, 2 * y) + v(2 * x + 1, 2 * y) + v(2 * x, 2 * y + 1) + v(2 * x + 1, 2 * y + 1)) / 4.0;
+            assert!((o[0] - want).abs() < 2e-3, "texel ({x}, {y}): {} vs {want}", o[0]);
+        }
+    }
+}
