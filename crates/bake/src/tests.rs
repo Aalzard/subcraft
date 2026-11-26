@@ -1192,6 +1192,8 @@ fn curvature_manual_tonemap_remaps_min_and_max() {
         let got = at(&manual, &t)[0];
         assert!((got - want).abs() < 2e-3, "{got} vs {want}");
     }
+}
+
 /// Issue #733: additional ID map entries take the free slots in order, and each bakes as an
 /// ID-only bake with its own colour options on top of the common settings.
 #[test]
