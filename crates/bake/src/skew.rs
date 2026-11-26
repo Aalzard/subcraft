@@ -146,12 +146,13 @@ impl SkewField {
     }
 
     /// The ray direction (outwards) for a texel: the averaged normal turned towards the base.
-    pub(crate) fn direction(&self, p: Vec3, averaged: Vec3, shading: Vec3, triangle: Vec3) -> Vec3 {
+    /// `painted` (0..1, from the skew map) scales the correction.
+    pub(crate) fn direction(&self, p: Vec3, averaged: Vec3, shading: Vec3, triangle: Vec3, painted: f32) -> Vec3 {
         let base = match self.settings.base {
             SkewBase::Mesh => shading,
             SkewBase::Triangle => if triangle.dot(averaged) < 0.0 { -triangle } else { triangle },
         };
-        let s = self.amount(p);
+        let s = self.amount(p) * painted.clamp(0.0, 1.0);
         averaged.lerp(base, s).normalize_or(averaged)
     }
 }

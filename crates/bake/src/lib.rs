@@ -20,6 +20,7 @@
 pub mod curvature;
 pub mod name_match;
 pub mod normal_curvature;
+pub mod paint_maps;
 pub mod seam_check;
 pub mod skew;
 pub mod surface;
@@ -407,6 +408,14 @@ pub struct BakeSettings {
     /// Straighten the averaged rays away from the hard edges (needs `average_normals` and the
     /// distance-based cage), see [`skew`].
     pub skew: skew::SkewCorrection,
+    /// Painted mask scaling the skew correction per texel (white: full correction). Per texture
+    /// set: the caller sets the map of the set it bakes.
+    pub skew_map: Option<paint_maps::PaintMap>,
+    /// Painted mask pushing the distance-based cage out per texel (white: by `cage_push`).
+    pub cage_push_map: Option<paint_maps::PaintMap>,
+    /// How far white on the cage push map moves the cage: the frontal and rear distances grow by
+    /// this many times themselves (1: doubled).
+    pub cage_push: f32,
     /// Projection rays skip high-poly faces that face away from them.
     pub ignore_backface: bool,
     /// A custom cage instead of the distance-based one (texels outside its UVs use the distances).
@@ -513,6 +522,9 @@ impl Default for BakeSettings {
             antialiasing: Antialiasing::None,
             average_normals: false,
             skew: skew::SkewCorrection::default(),
+            skew_map: None,
+            cage_push_map: None,
+            cage_push: 1.0,
             ignore_backface: false,
             cage: None,
             ao: AoOptions::default(),
@@ -659,6 +671,11 @@ struct Cage {
     custom: Option<Vec<Option<Vec3>>>,
     /// Skew correction of the averaged rays.
     skew: Option<skew::SkewField>,
+    /// Painted skew amount per texel (scales the correction).
+    skew_map: Option<paint_maps::PaintMap>,
+    /// Painted cage push per texel, and how far white pushes.
+    push: Option<(paint_maps::PaintMap, f32)>,
+    size: u32,
 }
 
 impl Cage {
@@ -675,7 +692,9 @@ impl Cage {
             at
         });
         let skew = (settings.average_normals && settings.skew.enabled).then(|| skew::SkewField::new(low, settings.skew, diag));
-        Self { front: settings.cage_front * diag, rear: settings.cage_rear * diag, smooth: settings.average_normals.then(|| averaged_normals(low)), custom, skew }
+        let push = settings.cage_push_map.clone().filter(|_| settings.cage_push > 0.0).map(|m| (m, settings.cage_push));
+        let skew_map = settings.skew_map.clone().filter(|_| skew.is_some());
+        Self { front: settings.cage_front * diag, rear: settings.cage_rear * diag, smooth: settings.average_normals.then(|| averaged_normals(low)), custom, skew, skew_map, push, size }
     }
 
     fn ray(&self, low: &Mesh, t: &Texel) -> CageRay {
@@ -693,10 +712,13 @@ impl Cage {
             let own = n;
             n = (smooth[a] * l[0] + smooth[b] * l[1] + smooth[c] * l[2]).normalize_or(n);
             if let Some(skew) = &self.skew {
-                n = skew.direction(t.position, n, own, t.geometric_normal);
+                let painted = self.skew_map.as_ref().map_or(1.0, |m| m.at_texel(t.index, self.size));
+                n = skew.direction(t.position, n, own, t.geometric_normal, painted);
             }
         }
-        CageRay { origin: t.position + n * self.front, dir: -n, front: self.front, reach: self.front + self.rear }
+        let grow = self.push.as_ref().map_or(1.0, |(m, push)| 1.0 + push * m.at_texel(t.index, self.size));
+        let (front, rear) = (self.front * grow, self.rear * grow);
+        CageRay { origin: t.position + n * front, dir: -n, front, reach: front + rear }
     }
 }
 
@@ -1617,3 +1639,5 @@ mod placement_tests;
 mod skew_tests;
 #[cfg(test)]
 mod opacity_tests;
+#[cfg(test)]
+mod paint_map_tests;
