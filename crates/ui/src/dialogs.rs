@@ -970,6 +970,9 @@ pub struct BakeUi {
     auto_due: Option<f64>,
     /// The user picked a size; until then it follows the texture set resolution.
     pub size_chosen: bool,
+    /// Layers whose masks are the skew map and the cage push map (empty: none).
+    pub skew_map_layer: String,
+    pub cage_push_layer: String,
     /// Built-in and saved bake presets (loaded when the window first shows).
     pub presets: Option<subcraft_app::bake_presets::BakePresets>,
     /// Name typed for "Save as preset", and the last save / delete outcome.
@@ -1039,7 +1042,7 @@ impl Default for BakeUi {
     fn default() -> Self {
         Self { open: false,
             settings: bake_defaults(),
-            high_poly: String::new(), extra_high: Vec::new(), cage_file: String::new(), skip_sets: Default::default(), selected_baker: None, log_tab: BakeLogTab::default(), job_maps: Vec::new(), size_chosen: false, presets: None, preset_name: String::new(), preset_message: None, job: None, result: None, report: String::new(), notices: Vec::new(), log: Vec::new(), map_rows: Vec::new(),
+            high_poly: String::new(), extra_high: Vec::new(), cage_file: String::new(), skip_sets: Default::default(), selected_baker: None, log_tab: BakeLogTab::default(), job_maps: Vec::new(), size_chosen: false, skew_map_layer: String::new(), cage_push_layer: String::new(), presets: None, preset_name: String::new(), preset_message: None, job: None, result: None, report: String::new(), notices: Vec::new(), log: Vec::new(), map_rows: Vec::new(),
             preview: true, cage: true, fit_mode: Default::default(), high_opacity: 0.55, vis: Default::default(), vis_selected_only: false, seam_edges: None, seams_uploaded: false, placement_message: None, live_maps: true, displayed_map: None, follow_maps: true, preview_mesh: None,
             preview_job: None, preview_source: None, preview_path: String::new(), preview_scene: None, preview_error: None, preview_uploaded: false, preview_checked_at: 0.,
             miss_heatmap: false, cage_job: None, cage_result: None, miss_uploaded: false, cage_normals_uploaded: None, was_open: false, synced: None, baseline: None,
@@ -1068,6 +1071,8 @@ impl BakeUi {
             cage_file: self.cage_file.trim().to_string(),
             size: self.size_chosen.then_some(self.settings.size),
             skip_sets: self.skip_sets.iter().copied().collect(),
+            skew_map_layer: self.skew_map_layer.clone(),
+            cage_push_layer: self.cage_push_layer.clone(),
         };
         subcraft_app::bake_config::to_config(&self.settings, &files)
     }
@@ -1080,6 +1085,8 @@ impl BakeUi {
         self.cage_file = files.cage_file;
         self.size_chosen = files.size.is_some();
         self.skip_sets = files.skip_sets.into_iter().collect();
+        self.skew_map_layer = files.skew_map_layer;
+        self.cage_push_layer = files.cage_push_layer;
     }
 
     /// Show preset `key`'s settings; the files and texture-set ticks stay.
@@ -1283,6 +1290,8 @@ struct BakeFrame {
     /// Maps the selected texture set already has.
     baked_maps: Vec<subcraft_core::MeshMapKind>,
     match_mode: subcraft_core::BakeMatchMode,
+    /// Layers with a mask (the skew map and cage push choices).
+    masked_layers: Vec<String>,
 }
 
 impl BakeFrame {
@@ -1319,6 +1328,7 @@ pub fn bake_mode(state: &mut UiState, ui: &mut egui::Ui, now: f64) {
             high_box: state.bake.preview_mesh.as_ref().map(|m| (m.bounds.min, m.bounds.max)),
             baked_maps: state.session.mesh_maps(selected.id).map(|m| m.iter().map(|(k, _)| k).collect()).unwrap_or_default(),
             match_mode: state.session.settings().bake_match.mode,
+            masked_layers: state.session.masked_layer_names(),
         }
     };
     state.bake.skip_sets.retain(|id| frame.sets.iter().any(|s| s.0 == *id));
@@ -1472,6 +1482,9 @@ fn start_bake(state: &mut UiState, only: Option<&[subcraft_core::MeshMapKind]>, 
     let files = subcraft_app::BakeFiles {
         extra_high_polys,
         cage: (!state.bake.cage_file.trim().is_empty()).then(|| PathBuf::from(state.bake.cage_file.trim())),
+        skew_map_layer: state.bake.skew_map_layer.clone(),
+        cage_push_layer: state.bake.cage_push_layer.clone(),
+        ..Default::default()
     };
     state.bake.job = Some(state.session.start_bake_files(request, prepared, files));
     state.set_status("Baking…", now);
@@ -1690,7 +1703,7 @@ pub fn tick_bake_map(maps: &mut Vec<subcraft_core::MeshMapKind>, kind: subcraft_
 
 /// A labelled dropdown over the options of one baker setting.
 /// Skew correction (Painter's Common settings > Skew correction), under Average normals.
-fn skew_settings(ui: &mut egui::Ui, s: &mut subcraft_bake::skew::SkewCorrection, d: &subcraft_bake::skew::SkewCorrection) {
+fn skew_settings(ui: &mut egui::Ui, s: &mut subcraft_bake::skew::SkewCorrection, d: &subcraft_bake::skew::SkewCorrection, skew_layer: &mut String, layers: &[String]) {
     use crate::widgets::slider_row_reset as slider_row;
     use subcraft_bake::skew::SkewBase;
     check_reset(ui, &mut s.enabled, d.enabled, tr("Skew correction"))
@@ -1711,7 +1724,28 @@ fn skew_settings(ui: &mut egui::Ui, s: &mut subcraft_bake::skew::SkewCorrection,
                 .on_hover_text(tr("Fraction of the model diagonal over which the rays turn straight away from a hard edge"));
             slider_row(ui, tr("Edge contrast"), &mut s.edge_contrast, d.edge_contrast, |v| egui::Slider::new(v, 0.0..=1.0));
         }
+        paint_layer_row(ui, "bake_skew_map", tr("Skew map"), skew_layer, layers)
+            .on_hover_text(tr("Paint the skew amount: white keeps the full correction, black the averaged rays. Uses the mask of each texture set's layer with this name (the layer can be hidden)"));
     });
+}
+
+/// A choice of layer (by name) whose mask a bake reads, from the layers that have a mask.
+fn paint_layer_row(ui: &mut egui::Ui, id: &str, label: &str, value: &mut String, layers: &[String]) -> egui::Response {
+    ui.horizontal(|ui| {
+        dim_label(ui, label);
+        let shown = if value.is_empty() { tr("None").to_string() } else { value.clone() };
+        egui::ComboBox::from_id_salt(id).selected_text(shown).show_ui(ui, |ui| {
+            ui.selectable_value(value, String::new(), tr("None"));
+            for name in layers {
+                ui.selectable_value(value, name.clone(), name.as_str());
+            }
+            // A saved name whose layer is gone stays chosen (the bake skips it) until changed.
+            if !value.is_empty() && !layers.contains(value) {
+                ui.label(dim(tr("(no layer with a mask has this name)")));
+            }
+        });
+    })
+    .response
 }
 
 fn option_row<T: PartialEq + Copy>(ui: &mut egui::Ui, id: &str, label: &str, value: &mut T, default: T, options: &[T], name: impl Fn(T) -> &'static str) -> egui::Response {
@@ -1753,6 +1787,7 @@ fn reset_parameters(b: &mut BakeUi, baker: Option<subcraft_core::MeshMapKind>) {
             s.antialiasing = d.antialiasing;
             s.average_normals = d.average_normals;
             s.skew = d.skew;
+            s.cage_push = d.cage_push;
             s.ignore_backface = d.ignore_backface;
             b.size_chosen = false;
         }
@@ -2145,7 +2180,7 @@ fn common_settings(ui: &mut egui::Ui, b: &mut BakeUi, f: &BakeFrame, bake_match:
             check_reset(ui, &mut b.settings.average_normals, d.average_normals, tr("Average normals"))
                 .on_hover_text(tr("Cast rays along normals averaged across hard edges and UV seams, so no gap opens between faces"));
             if b.settings.average_normals && b.cage_file.trim().is_empty() {
-                skew_settings(ui, &mut b.settings.skew, &d.skew);
+                skew_settings(ui, &mut b.settings.skew, &d.skew, &mut b.skew_map_layer, &f.masked_layers);
             }
             check_reset(ui, &mut b.settings.ignore_backface, d.ignore_backface, tr("Ignore backface"))
                 .on_hover_text(tr("Rays skip high-poly faces that face away from them"));
@@ -2157,6 +2192,15 @@ fn common_settings(ui: &mut egui::Ui, b: &mut BakeUi, f: &BakeFrame, bake_match:
             ui.add_space(6.0);
             slider_row(ui, tr("Cage rear (reach below the surface)"), &mut b.settings.cage_rear, d.cage_rear, |v| egui::Slider::new(v, 0.0..=0.25).fixed_decimals(3).clamping(egui::SliderClamping::Never))
                 .on_hover_text(tr("Fraction of the model diagonal. Raise it when parts of the high poly sink under the low poly."));
+            if b.cage_file.trim().is_empty() {
+                ui.add_space(6.0);
+                paint_layer_row(ui, "bake_cage_push_map", tr("Cage push map"), &mut b.cage_push_layer, &f.masked_layers)
+                    .on_hover_text(tr("Paint where the cage reaches further: white pushes it out by Cage push, only there. Uses the mask of each texture set's layer with this name (the layer can be hidden)"));
+                if !b.cage_push_layer.is_empty() {
+                    slider_row(ui, tr("Cage push"), &mut b.settings.cage_push, d.cage_push, |v| egui::Slider::new(v, 0.0..=4.0))
+                        .on_hover_text(tr("How far white on the cage push map moves the cage: 1 doubles the front and rear reach"));
+                }
+            }
         }
     });
     // --- Viewport -----------------------------------------------------------------
@@ -2513,6 +2557,9 @@ mod bake_tests {
         state.bake.settings.maps = vec![subcraft_core::MeshMapKind::Normal, subcraft_core::MeshMapKind::Id];
         state.bake.settings.ao_samples = 128;
         state.bake.settings.id_source = subcraft_bake::IdSource::VertexColor;
+        state.bake.skew_map_layer = "Skew".into();
+        state.bake.cage_push_layer = "Push".into();
+        state.bake.settings.cage_push = 3.0;
         poll_bake(&mut state, &ctx, 0.2);
         let saved = state.session.settings().bake.clone().expect("written to the project");
         assert_eq!(saved.high_poly, "/models/crate_high.glb");
@@ -2525,6 +2572,7 @@ mod bake_tests {
         let b = &reopened.bake;
         assert_eq!(b.high_poly, "/models/crate_high.glb");
         assert!(b.size_chosen && b.settings.size == 2048);
+        assert_eq!((b.skew_map_layer.as_str(), b.cage_push_layer.as_str(), b.settings.cage_push), ("Skew", "Push", 3.0), "the painted bake masks' layers come back");
         assert_eq!(b.settings.maps, vec![subcraft_core::MeshMapKind::Normal, subcraft_core::MeshMapKind::Id]);
         assert_eq!((b.settings.ao_samples, b.settings.id_source), (128, subcraft_bake::IdSource::VertexColor));
         // Another project without saved settings: back to the window's defaults.
@@ -2924,7 +2972,7 @@ mod bake_tests {
         let frame = BakeFrame {
             sel_id: id, sel_slot: slot, sets: vec![(id, slot, "Set".into(), 128)],
             low_name: String::new(), low_box: (glam::Vec3::ZERO, glam::Vec3::ONE), high_box: None, baked_maps: Vec::new(),
-            match_mode: subcraft_core::BakeMatchMode::Always,
+            match_mode: subcraft_core::BakeMatchMode::Always, masked_layers: Vec::new(),
         };
         assert_eq!(frame.targets(&state.bake), vec![(id, slot)], "every set is ticked at first");
         state.bake.skip_sets.insert(id);

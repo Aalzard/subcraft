@@ -19,6 +19,9 @@ pub struct BakeFilesConfig {
     pub size: Option<u32>,
     /// Texture sets unticked for baking.
     pub skip_sets: Vec<subcraft_core::TextureSetId>,
+    /// Layers whose masks are the skew map and the cage push map (empty: none).
+    pub skew_map_layer: String,
+    pub cage_push_layer: String,
 }
 
 fn id_source_name(s: IdSource) -> &'static str {
@@ -116,6 +119,9 @@ pub fn to_config(s: &BakeSettings, files: &BakeFilesConfig) -> BakeConfig {
         skew_edge_protection: s.skew.edge_protection,
         skew_edge_distance: s.skew.edge_distance,
         skew_edge_contrast: s.skew.edge_contrast,
+        skew_map_layer: files.skew_map_layer.clone(),
+        cage_push_layer: files.cage_push_layer.clone(),
+        cage_push: s.cage_push,
         ignore_backface: s.ignore_backface,
         position_axis: s.position.single_axis,
         position_normalization: normalization_name(s.position.normalization).into(),
@@ -194,6 +200,7 @@ pub fn apply(c: &BakeConfig, s: &mut BakeSettings) -> BakeFilesConfig {
     s.skew.edge_protection = c.skew_edge_protection;
     s.skew.edge_distance = if c.skew_edge_distance.is_finite() { c.skew_edge_distance.clamp(0.0, 1.0) } else { 0.03 };
     s.skew.edge_contrast = if c.skew_edge_contrast.is_finite() { c.skew_edge_contrast.clamp(0.0, 1.0) } else { 0.5 };
+    s.cage_push = if c.cage_push.is_finite() { c.cage_push.clamp(0.0, 10.0) } else { 1.0 };
     s.ignore_backface = c.ignore_backface;
     s.position.single_axis = c.position_axis.filter(|a| *a < 3);
     s.position.normalization = by_name(&PositionNormalization::ALL, &c.position_normalization, normalization_name, PositionNormalization::default());
@@ -206,7 +213,7 @@ pub fn apply(c: &BakeConfig, s: &mut BakeSettings) -> BakeFilesConfig {
     if let Some(size) = c.size {
         s.size = size.clamp(16, 8192);
     }
-    BakeFilesConfig { high_poly: c.high_poly.clone(), extra_high: c.extra_high.clone(), cage_file: c.cage_file.clone(), size: c.size, skip_sets: c.skip_sets.clone() }
+    BakeFilesConfig { high_poly: c.high_poly.clone(), extra_high: c.extra_high.clone(), cage_file: c.cage_file.clone(), size: c.size, skip_sets: c.skip_sets.clone(), skew_map_layer: c.skew_map_layer.clone(), cage_push_layer: c.cage_push_layer.clone() }
 }
 
 #[cfg(test)]
@@ -242,8 +249,9 @@ mod tests {
         s.thickness.min_distance = 0.02;
         s.thickness.spread_angle = 120.0;
         s.thickness.distribution = RayDistribution::Uniform;
+        s.cage_push = 2.5;
         let set = subcraft_core::TextureSetId::new();
-        let files = BakeFilesConfig { high_poly: "/models/crate_high.glb".into(), extra_high: vec!["/models/bolts_high.glb".into()], cage_file: "/models/cage.obj".into(), size: Some(2048), skip_sets: vec![set] };
+        let files = BakeFilesConfig { high_poly: "/models/crate_high.glb".into(), extra_high: vec!["/models/bolts_high.glb".into()], cage_file: "/models/cage.obj".into(), size: Some(2048), skip_sets: vec![set], skew_map_layer: "Skew".into(), cage_push_layer: "Push".into() };
         let config = to_config(&s, &files);
         // Through the project file's JSON and back.
         let json = serde_json::to_string(&subcraft_doc::ProjectSettings { bake: Some(config.clone()), ..Default::default() }).unwrap();
