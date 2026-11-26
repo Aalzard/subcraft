@@ -224,7 +224,7 @@ pub fn format_badge(kind: ChannelKind, format: ChannelFormat) -> String {
 
 /// The mesh-map slots of a texture set, in Painter's order: the map, the slot's name, and what
 /// a map in it is called.
-pub const MESH_MAP_SLOTS: [(MeshMapKind, &str, &str); 9] = [
+pub const MESH_MAP_SLOTS: [(MeshMapKind, &str, &str); 10] = [
     (MeshMapKind::Normal, "Normal", "Normal Map from Mesh"),
     (MeshMapKind::WorldSpaceNormal, "World space normal", "World Space Normals"),
     (MeshMapKind::Id, "ID", "Color Map from Mesh"),
@@ -234,6 +234,7 @@ pub const MESH_MAP_SLOTS: [(MeshMapKind, &str, &str); 9] = [
     (MeshMapKind::Thickness, "Thickness", "Thickness Map from Mesh"),
     (MeshMapKind::Height, "Height", "Height Map from Mesh"),
     (MeshMapKind::BentNormal, "Bent normals", "Bent Normals Map from Mesh"),
+    (MeshMapKind::Opacity, "Opacity", "Opacity Map from Mesh"),
 ];
 
 /// Text of an empty slot ("Select height map").
