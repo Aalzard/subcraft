@@ -1299,6 +1299,7 @@ fn display_corner(state: &mut UiState, ui: &Ui, rect: Rect, bake_mode: bool) {
         return;
     }
     let channels: Vec<_> = state.session.selected_texture_set().channel_kinds().collect();
+    let extra = state.session.extra_id_maps(state.session.selection().texture_set);
     egui::Area::new(ui.id().with("display_corner"))
         .pivot(egui::Align2::RIGHT_TOP)
         .fixed_pos(rect.right_top() + egui::vec2(-10.0, 40.0))
@@ -1307,7 +1308,7 @@ fn display_corner(state: &mut UiState, ui: &Ui, rect: Rect, bake_mode: bool) {
             {
             let mask = crate::mask_view::dropdown_state(state);
             let request = ui.horizontal(|ui| {
-                let request = crate::viewport_bar::view_mode(ui, &mut state.recovery.prefs.viewport, &channels, true, mask);
+                let request = crate::viewport_bar::view_mode(ui, &mut state.recovery.prefs.viewport, &channels, true, mask, &extra);
                 crate::color_lut::top_bar_toggle(ui, &mut state.recovery.prefs.viewport, state.session.resources());
                 request
             }).inner;

@@ -32,6 +32,8 @@ pub enum Purpose {
     BakeHighPolyExtra,
     /// A custom cage mesh for the bake.
     BakeCage,
+    /// The source high poly of an additional ID map (issue #733).
+    BakeExtraIdSource { map: MeshMapKind },
     Stencil,
     /// A `.ttf` / `.otf` font for the text tool.
     Font,
@@ -299,6 +301,11 @@ pub(crate) fn handle(state: &mut UiState, purpose: Purpose, paths: &[PathBuf], n
             }
         }
         Purpose::BakeCage => state.bake.cage_file = first.display().to_string(),
+        Purpose::BakeExtraIdSource { map } => {
+            if let Some(entry) = state.bake.settings.extra_ids.iter_mut().find(|e| e.map == map) {
+                entry.source = first.display().to_string();
+            }
+        }
         Purpose::Stencil => match subcraft_image::load_bitmap(first) {
             Ok(bmp) => state.session.brush.stencil = Some(std::sync::Arc::new(subcraft_paint::Stencil::new(std::sync::Arc::new(bmp)))),
             Err(e) => state.set_status(format!("Stencil: {e}"), now),

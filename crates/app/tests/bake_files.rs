@@ -76,3 +76,49 @@ fn several_high_poly_files_bake_as_one_and_a_cage_file_sets_the_ray_starts() {
     assert!(log.iter().any(|l| l.starts_with("Cage: ")), "{log:?}");
     let _ = std::fs::remove_dir_all(dir);
 }
+
+/// Issue #733: additional ID maps bake beside the ID map, each from its own source file with its
+/// own colour options, and are stored as their own maps.
+#[test]
+fn additional_id_maps_bake_from_their_own_source_and_settings() {
+    use subcraft_app::{ExtraIdBake, IdGenerator};
+    let dir = std::env::temp_dir().join(format!("subcraft-extra-ids-{}", subcraft_core::LayerId::new()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let (whole, left) = (dir.join("whole_high.obj"), dir.join("left_high.obj"));
+    // The main high poly covers the plane in two separate halves; the ID 2 source only the left one.
+    std::fs::write(&whole, "v -1 0.005 -1\nv -1 0.005 1\nv -0.02 0.005 1\nv -0.02 0.005 -1\nv 0.02 0.005 -1\nv 0.02 0.005 1\nv 1 0.005 1\nv 1 0.005 -1\nf 1 2 3\nf 1 3 4\nf 5 6 7\nf 5 7 8\n").unwrap();
+    std::fs::write(&left, "v -1 0.005 -1\nv -1 0.005 1\nv -0.02 0.005 1\nv -0.02 0.005 -1\nf 1 2 3\nf 1 3 4\n").unwrap();
+    let mut s = Session::new(primitives::plane(2.0, 4), 128);
+    let ts = s.selection().texture_set;
+    let mut from_file = ExtraIdBake::new(MeshMapKind::Id2);
+    from_file.source = left.display().to_string();
+    let mut gray = ExtraIdBake::new(MeshMapKind::Id3);
+    gray.id_generator = IdGenerator::Grayscale;
+    let mut off = ExtraIdBake::new(MeshMapKind::Id4);
+    off.enabled = false;
+    let settings = BakeSettings { size: 128, maps: vec![MeshMapKind::Id], extra_ids: vec![from_file, gray, off], ..Default::default() };
+    let (result, log) = run(&mut s, settings, &whole, BakeFiles::default());
+    assert_eq!(result, Ok(1), "{log:?}");
+    let maps = s.mesh_maps(ts).unwrap();
+    let at = |k: MeshMapKind| { let m = maps.get(k).unwrap_or_else(|| panic!("{k:?} baked")); (m.get(24, 40), m.get(104, 88)) };
+    let (a, b) = at(MeshMapKind::Id);
+    assert!(a[..3] != [0.0; 3] && b[..3] != [0.0; 3] && a[..3] != b[..3], "the ID map covers both halves: {a:?} {b:?}");
+    // ID 2: one half has its ID, the half its file lacks stays black (no neighbour's ID).
+    let (a2, b2) = at(MeshMapKind::Id2);
+    let black = |c: [f32; 4]| c[..3] == [0.0; 3];
+    assert!(black(a2) != black(b2), "only the file's half has an ID: {a2:?} {b2:?}");
+    // ID 3: the main high poly with gray IDs, so both halves differ from the colour IDs.
+    let (a3, b3) = at(MeshMapKind::Id3);
+    assert!(a3[0] == a3[1] && a3[1] == a3[2] && b3[0] == b3[1] && a3[..3] != b3[..3], "gray IDs: {a3:?} {b3:?}");
+    assert!(maps.get(MeshMapKind::Id4).is_none(), "an unticked entry is not baked");
+    assert!(log.iter().any(|l| l.contains("ID 2: source") && l.contains("left_high.obj")), "{log:?}");
+
+    // A missing source fails that map with its name; the others still bake.
+    let mut missing = ExtraIdBake::new(MeshMapKind::Id5);
+    missing.source = dir.join("nope.obj").display().to_string();
+    let settings = BakeSettings { size: 128, maps: vec![MeshMapKind::Id], extra_ids: vec![missing], ..Default::default() };
+    let (result, log) = run(&mut s, settings, &whole, BakeFiles::default());
+    assert!(result.is_err(), "{result:?}");
+    assert!(log.iter().any(|l| l.contains("ID 5") && l.contains("nope.obj") && l.contains("could not be loaded")), "{log:?}");
+    let _ = std::fs::remove_dir_all(dir);
+}

@@ -15,11 +15,22 @@ impl Session {
         self.mesh_maps(texture_set).is_some_and(|m| m.get(MeshMapKind::Id).is_some())
     }
 
+    /// The additional ID maps (issue #733) baked for this texture set, in slot order.
+    pub fn extra_id_maps(&self, texture_set: TextureSetId) -> Vec<MeshMapKind> {
+        let Some(maps) = self.mesh_maps(texture_set) else { return Vec::new() };
+        MeshMapKind::EXTRA_IDS.into_iter().filter(|k| maps.get(*k).is_some()).collect()
+    }
+
     /// ID map color at `uv` (wrapped into the 0..1 tile), point-sampled: interpolating would
     /// invent colors that belong to no element at region borders.
     pub fn id_map_color(&self, texture_set: TextureSetId, uv: Vec2) -> Option<[f32; 3]> {
+        self.id_map_color_in(texture_set, MeshMapKind::Id, uv)
+    }
+
+    /// [`Self::id_map_color`] of one ID map: the ID map or an additional one (issue #733).
+    pub fn id_map_color_in(&self, texture_set: TextureSetId, map: MeshMapKind, uv: Vec2) -> Option<[f32; 3]> {
         if !uv.is_finite() { return None; }
-        let img = self.mesh_maps(texture_set)?.get(MeshMapKind::Id)?;
+        let img = self.mesh_maps(texture_set)?.get(map)?;
         let p = uv.rem_euclid(Vec2::ONE);
         let x = ((p.x * img.width() as f32) as u32).min(img.width() - 1);
         let y = ((p.y * img.height() as f32) as u32).min(img.height() - 1);
@@ -42,7 +53,10 @@ impl Session {
         let ts = self.document().texture_sets.iter().find(|t| t.find(layer).is_some()).ok_or(CommandError::LayerNotFound)?;
         let ts_id = ts.id;
         let mut id = Self::id_color_effect(ts.find(layer), effect)?.clone();
-        let Some((hit_ts, color)) = self.id_color_under(camera, screen) else { return Ok(None) };
+        // The effect's own ID map (an additional one reads its own colors, issue #733).
+        let Some(pick) = self.pick(camera, screen) else { return Ok(None) };
+        let Some(hit_ts) = self.document().texture_set_for_slot(pick.material_slot).map(|t| t.id) else { return Ok(None) };
+        let Some(color) = self.id_map_color_in(hit_ts, id.map, pick.uv) else { return Ok(None) };
         if hit_ts != ts_id {
             return Err(CommandError::Invalid("that surface belongs to another texture set".into()));
         }
@@ -271,7 +285,7 @@ impl Session {
         let ts_id = ts.id;
         let mut id = Self::id_color_effect(ts.find(layer), effect)?.clone();
         if !(0.0..=1.0).contains(&uv.x) || !(0.0..=1.0).contains(&uv.y) { return Ok(None); }
-        let Some(color) = self.id_map_color(ts_id, uv) else { return Ok(None) };
+        let Some(color) = self.id_map_color_in(ts_id, id.map, uv) else { return Ok(None) };
         if id.colors.iter().any(|c| same_id(*c, color)) || !id.add_color(color) { return Ok(None); }
         self.execute(Command::SetIdColors { layer, effect, colors: id.colors })?;
         Ok(Some(color))

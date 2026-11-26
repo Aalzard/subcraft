@@ -177,3 +177,29 @@ fn output_value_and_background_set_what_matched_and_unmatched_texels_hold() {
     let (ts, _) = masked_fill(IdColorMask { output: 0.0, background: SelectionBackground::White, ..picked(&[RED], 0.05) });
     assert_eq!(census(&composite_full(&ts, &fx.ctx()), |x, _| x >= 64), (64 * 128, 64 * 128));
 }
+
+/// Issue #733: an ID Color Mask reads the ID map it names: an additional ID map with other
+/// regions selects those, and a missing additional map leaves the mask black.
+#[test]
+fn an_id_color_mask_reads_the_additional_id_map_it_names() {
+    let mut fx = Fixture::new(true);
+    // ID 2: red on the top half only.
+    let mut id2 = TiledImage::new(RES, RES, 3, [0.0; 4]);
+    for y in 0..RES {
+        for x in 0..RES {
+            let c = if y < 64 { RED } else { [0.0; 3] };
+            id2.set(x, y, [c[0], c[1], c[2], 1.0]);
+        }
+    }
+    let (ts, _) = masked_fill(IdColorMask { map: MeshMapKind::Id2, ..picked(&[RED], 0.05) });
+    let c = composite_full(&ts, &fx.ctx());
+    assert_eq!(census(&c, |_, _| false), (0, 128 * 128), "no ID 2 baked: black");
+    fx.maps.insert(MeshMapKind::Id2, id2);
+    let c = composite_full(&ts, &fx.ctx());
+    assert_eq!(census(&c, |_, y| y < 64), (64 * 128, 64 * 128), "the top half of ID 2, not the left half of the ID map");
+    // The same colors on the ID map still select its left half.
+    let (ts, _) = masked_fill(picked(&[RED], 0.05));
+    let c = composite_full(&ts, &fx.ctx());
+    assert_eq!(census(&c, |x, _| x < 64), (64 * 128, 64 * 128));
+    assert!(!IdColorMask { map: MeshMapKind::Normal, ..IdColorMask::default() }.valid());
+}
