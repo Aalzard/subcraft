@@ -87,6 +87,7 @@
 | Layers | `Ctrl+G` | Group layer | NewFolder | already the same | creates a folder |
 | Layers | `Ctrl+Shift+C` | Copy layer content |  | mouse / hold key | added: copies the paint or fill and the content effects, not the mask; separate from Ctrl+C |
 | Layers | `Ctrl+Shift+V` | Paste layer content |  | mouse / hold key | added: replaces the content of the selected layer with the copy |
+| Layers | `Ctrl+Shift+D` | Instantiate across texture sets |  | mouse / hold key | added: opens the window for the selected layers |
 | Layers | `Alt+LMB on mask` | Display mask in viewport |  | mouse / hold key | already worked: opens the mask inspector |
 | Layers | `Shift+LMB on mask` | Disable/enable mask |  | mouse / hold key | already worked |
 | Layers | `Ctrl+drag & drop` | Drag material |  | mouse / hold key | added: a material dropped on the model with Ctrl held shows only on the part under the cursor (geometry mask) |

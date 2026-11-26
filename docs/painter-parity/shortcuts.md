@@ -157,7 +157,7 @@ Layout notes: these act only while the pointer is over the layer stack.
 |---|---|---|---|---|---|
 | Merge selected layers | Layer stack | Ctrl+M | done | crates/ui/src/panels/layers.rs:797 | - |
 | Paste as instance | Layer stack | Ctrl+Shift+V after Ctrl+C | missing | - | - |
-| Instantiate across texture sets | Layer stack | Ctrl+Shift+D (release notes) | missing | - | - |
+| Instantiate across texture sets | Layer stack | Ctrl+Shift+D (release notes) | done: opens the window for the selected layers | crates/ui/src/panels/layers.rs | this PR |
 | Duplicate layers by dragging | Layer stack | Ctrl + drag and drop | done | crates/ui/src/panels/layers.rs:136 | - |
 | Copy / cut / paste effects | Layer stack, effect selected | Ctrl+C / Ctrl+X / Ctrl+V | done | crates/ui/src/clipboard.rs:61 | - |
 | Delete selected effect | Layer stack, effect selected | Delete | done | crates/app/src/session.rs:1914 | - |
