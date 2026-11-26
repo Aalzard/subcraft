@@ -493,7 +493,7 @@ impl Default for BakeSettings {
     fn default() -> Self {
         Self {
             size: 1024,
-            maps: MeshMapKind::ALL.to_vec(),
+            maps: MeshMapKind::default_bake(),
             ao_samples: 32,
             ao_distance: 0.25,
             thickness_samples: 16,
@@ -1207,6 +1207,8 @@ fn bake_core(
                             let ao = if counted == 0 { 1.0 } else { 1.0 - occluded as f32 / counted as f32 };
                             [ao; 3]
                         }
+                        // Covered where the cage ray reached the high poly (low on low: everywhere).
+                        MeshMapKind::Opacity => [if d.tri.is_some() { 1.0 } else { 0.0 }; 3],
                         MeshMapKind::Height => {
                             // Piecewise so the front and rear cage distances both span half the range.
                             let reach = match settings.height {
@@ -1613,3 +1615,5 @@ mod match_tests;
 mod placement_tests;
 #[cfg(test)]
 mod skew_tests;
+#[cfg(test)]
+mod opacity_tests;

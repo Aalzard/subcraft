@@ -18,6 +18,9 @@ pub enum MeshMapKind {
     Height,
     /// Average unoccluded direction, in the low poly's tangent space (like the Normal map).
     BentNormal,
+    /// Where the high poly covers the low poly: 1 where a projection ray reaches it, 0 where
+    /// it misses (cut-outs for leaves, hair cards, fences). Off in a default bake.
+    Opacity,
     /// Additional ID maps (issue #733), each baked with its own source mesh and colour source.
     /// They are not in [`MeshMapKind::ALL`]: a project lists the ones it set up.
     Id2,
@@ -31,7 +34,7 @@ pub enum MeshMapKind {
 }
 
 impl MeshMapKind {
-    pub const ALL: [MeshMapKind; 9] = [
+    pub const ALL: [MeshMapKind; 10] = [
         MeshMapKind::Normal,
         MeshMapKind::WorldSpaceNormal,
         MeshMapKind::Id,
@@ -41,7 +44,14 @@ impl MeshMapKind {
         MeshMapKind::Thickness,
         MeshMapKind::Height,
         MeshMapKind::BentNormal,
+        MeshMapKind::Opacity,
     ];
+
+    /// The maps a bake makes unless the user picks others: every map but Opacity (Painter
+    /// leaves the Opacity baker off too; it only means something with a separate high poly).
+    pub fn default_bake() -> Vec<MeshMapKind> {
+        Self::ALL.into_iter().filter(|k| *k != MeshMapKind::Opacity).collect()
+    }
 
     /// The additional ID map slots, in order (ID 2 first).
     pub const EXTRA_IDS: [MeshMapKind; 8] = [
@@ -89,6 +99,7 @@ impl MeshMapKind {
             MeshMapKind::Thickness => "Thickness",
             MeshMapKind::Height => "Height",
             MeshMapKind::BentNormal => "Bent Normal",
+            MeshMapKind::Opacity => "Opacity",
         }
     }
 
@@ -111,6 +122,7 @@ impl MeshMapKind {
             MeshMapKind::Thickness => "thickness",
             MeshMapKind::Height => "height",
             MeshMapKind::BentNormal => "bent_normal",
+            MeshMapKind::Opacity => "opacity",
         }
     }
 
@@ -158,6 +170,7 @@ impl MeshMapKind {
             MeshMapKind::Thickness => [0.0; 3],
             MeshMapKind::Height => [0.5; 3],
             MeshMapKind::BentNormal => [0.5, 0.5, 1.0],
+            MeshMapKind::Opacity => [1.0; 3],
         }
     }
 }
@@ -177,6 +190,6 @@ mod tests {
             assert_eq!((k.components(), k.neutral_value()), (MeshMapKind::Id.components(), MeshMapKind::Id.neutral_value()));
         }
         assert!(MeshMapKind::Id.is_id() && !MeshMapKind::Normal.is_id());
-        assert_eq!(MeshMapKind::all_with_extra_ids().count(), 17);
+        assert_eq!(MeshMapKind::all_with_extra_ids().count(), 18);
     }
 }

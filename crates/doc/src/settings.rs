@@ -265,7 +265,7 @@ impl Default for BakeConfig {
     fn default() -> Self {
         Self {
             high_poly: String::new(), extra_high: Vec::new(), cage_file: String::new(), size: None,
-            maps: subcraft_core::MeshMapKind::ALL.to_vec(), skip_sets: Vec::new(),
+            maps: subcraft_core::MeshMapKind::default_bake(), skip_sets: Vec::new(),
             ao_samples: 32, ao_distance: 0.25, ao_min_distance: 0.0, ao_spread_angle: 180.0,
             ao_distribution: "cosine".into(), ao_attenuation: "none".into(), ao_ground_plane: false, ao_ground_offset: 0.0,
             thickness_samples: 16, thickness_distance: 0.5, thickness_min_distance: 0.0, thickness_spread_angle: 180.0,
@@ -364,7 +364,7 @@ mod bake_config_tests {
         let partial: ProjectSettings = serde_json::from_str(r#"{"bake":{"high_poly":"a_high.fbx","ao_samples":64}}"#).unwrap();
         let bake = partial.bake.unwrap();
         assert_eq!((bake.high_poly.as_str(), bake.ao_samples, bake.dilation), ("a_high.fbx", 64, 16));
-        assert_eq!(bake.maps, subcraft_core::MeshMapKind::ALL.to_vec());
+        assert_eq!(bake.maps, subcraft_core::MeshMapKind::default_bake());
         // Issue #366: files saved before per-file vertex colour sets read as "same as the main
         // file", and the key is only written when a file has its own set.
         assert!(bake.extra_vertex_color_sets.is_empty());

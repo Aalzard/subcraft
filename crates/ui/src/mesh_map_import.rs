@@ -12,7 +12,7 @@ use crate::state::UiState;
 use crate::theme::{self, TEXT, TEXT_DIM, WARNING};
 
 /// Maps a user can import (Bent normal is baked only).
-pub const IMPORTABLE: [MeshMapKind; 9] = MeshMapKind::ALL;
+pub const IMPORTABLE: [MeshMapKind; 10] = MeshMapKind::ALL;
 
 /// The "Import mesh maps…" window (Texture Set Settings).
 #[derive(Default)]
