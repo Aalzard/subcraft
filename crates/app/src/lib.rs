@@ -98,7 +98,7 @@ pub use session::{BrushState, CloneSourceMode, CompositeUpdate, DEFAULT_RESOLUTI
 
 pub use subcraft_compositor::{Composite, composite_comps};
 pub use subcraft_assets as assets;
-pub use subcraft_bake::BakeSettings;
+pub use subcraft_bake::{BakeSettings, ExtraIdBake, IdGenerator, IdSource};
 pub use subcraft_core::{BakeMatch, BakeMatchMode, MeshMapKind};
 pub use subcraft_export::{ExportSettings, ExportTemplate, Padding};
 pub use subcraft_image::FileFormat;

@@ -703,6 +703,27 @@ impl Session {
         self.sync_id_maps();
     }
 
+    /// Remove one baked map from every texture set (an additional ID map deleted in the Bake
+    /// window, issue #733). Returns whether any set had it; layers reading it see its neutral value.
+    pub fn remove_mesh_map(&mut self, kind: subcraft_core::MeshMapKind) -> bool {
+        let mut removed = false;
+        for (ts, maps) in self.mesh_maps.iter_mut() {
+            if maps.get(kind).is_some() {
+                let mut m = maps.as_map().clone();
+                m.remove(&kind);
+                *maps = MeshMaps::from_map(m);
+                self.invalidated.insert(*ts);
+                removed = true;
+            }
+        }
+        if removed {
+            self.maps_dirty = true;
+            self.maps_generation += 1;
+            self.revision += 1;
+        }
+        removed
+    }
+
     /// Maps as they are saved: the ID map as baked / imported (its edits are in the document).
     fn stored_mesh_maps(&self, ts: TextureSetId) -> std::collections::BTreeMap<subcraft_core::MeshMapKind, subcraft_image::TiledImage> {
         let mut maps = self.mesh_maps.get(&ts).map(|m| m.as_map().clone()).unwrap_or_default();
@@ -4260,7 +4281,7 @@ impl Session {
 
     /// Baked mesh maps available for export: those at least one texture set has baked.
     pub fn baked_map_kinds(&self) -> Vec<subcraft_core::MeshMapKind> {
-        subcraft_core::MeshMapKind::ALL.into_iter().filter(|k| self.document().texture_sets.iter().any(|ts| self.mesh_maps(ts.id).is_some_and(|m| m.get(*k).is_some()))).collect()
+        subcraft_core::MeshMapKind::all_with_extra_ids().filter(|k| self.document().texture_sets.iter().any(|ts| self.mesh_maps(ts.id).is_some_and(|m| m.get(*k).is_some()))).collect()
     }
 
     /// Export textures plus a scene file (OBJ+MTL, glTF, GLB or USDA) into `dir`.

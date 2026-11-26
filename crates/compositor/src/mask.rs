@@ -1054,12 +1054,12 @@ fn eval_image(resource: subcraft_core::ResourceId, projection: &Projection, inve
 /// ID Color Mask: the baked ID map compared against the picked colors. Without a baked ID map
 /// the effect is opaque black (not inverted: nothing can be selected), and the UI says so.
 fn eval_id_color(id: &subcraft_doc::IdColorMask, tc: &TileContext, e: &mut [[f32; 4]]) {
-    if tc.sample.mesh_maps.get(MeshMapKind::Id).is_none() {
+    if tc.sample.mesh_maps.get(id.map).is_none() {
         e.fill([0.0, 1.0, 0.0, 0.0]);
         return;
     }
     let mut map = vec![[0.0f32; 3]; TILE_TEXELS];
-    tc.sample.mesh_maps.read_tile(MeshMapKind::Id, tc.geo, &mut map);
+    tc.sample.mesh_maps.read_tile(id.map, tc.geo, &mut map);
     for (o, rgb) in e.iter_mut().zip(&map) {
         let (v, a) = id.value_coverage(*rgb);
         *o = [v, a, 0.0, 0.0];

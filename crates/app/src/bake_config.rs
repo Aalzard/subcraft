@@ -5,8 +5,8 @@
 //! stay readable and an option the program no longer knows falls back to its default instead of
 //! failing the load.
 
-use subcraft_bake::{AoAttenuation, Antialiasing, BakeSettings, HeightNormalization, IdGenerator, IdSource, PositionNormalization, RayDistribution};
-use subcraft_doc::BakeConfig;
+use subcraft_bake::{AoAttenuation, Antialiasing, BakeSettings, ExtraIdBake, HeightNormalization, IdGenerator, IdSource, PositionNormalization, RayDistribution};
+use subcraft_doc::{BakeConfig, ExtraIdConfig};
 
 /// The files and choices of the Bake window that live beside [`BakeSettings`].
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -115,7 +115,35 @@ pub fn to_config(s: &BakeSettings, files: &BakeFilesConfig) -> BakeConfig {
             HeightNormalization::Cage => None,
             HeightNormalization::Manual { distance } => Some(distance),
         },
+        extra_ids: s.extra_ids.iter().map(|e| ExtraIdConfig {
+            map: e.map.key().into(),
+            enabled: e.enabled,
+            source: e.source.clone(),
+            id_source: id_source_name(e.id_source).into(),
+            id_generator: generator_name(e.id_generator).into(),
+            vertex_color_set: e.vertex_color_set,
+            antialiasing: e.antialiasing.factor(),
+        }).collect(),
     }
+}
+
+/// The additional ID maps a configuration names; an unknown or repeated slot is dropped.
+fn extra_ids_from(c: &BakeConfig) -> Vec<ExtraIdBake> {
+    let mut out: Vec<ExtraIdBake> = Vec::new();
+    for e in &c.extra_ids {
+        let Some(map) = subcraft_core::MeshMapKind::from_key(&e.map).filter(|k| k.extra_id_index().is_some()) else { continue };
+        if out.iter().any(|o| o.map == map) { continue; }
+        out.push(ExtraIdBake {
+            map,
+            enabled: e.enabled,
+            source: e.source.clone(),
+            id_source: by_name(&IdSource::ALL, &e.id_source, id_source_name, IdSource::default()),
+            id_generator: by_name(&IdGenerator::ALL, &e.id_generator, generator_name, IdGenerator::default()),
+            vertex_color_set: e.vertex_color_set.min(7),
+            antialiasing: Antialiasing::ALL.into_iter().find(|a| a.factor() == e.antialiasing).unwrap_or_default(),
+        });
+    }
+    out
 }
 
 /// Put a stored configuration into `settings` (options the file does not name keep their
@@ -157,6 +185,7 @@ pub fn apply(c: &BakeConfig, s: &mut BakeSettings) -> BakeFilesConfig {
         Some(distance) => HeightNormalization::Manual { distance },
         None => HeightNormalization::Cage,
     };
+    s.extra_ids = extra_ids_from(c);
     if let Some(size) = c.size {
         s.size = size.clamp(16, 8192);
     }
@@ -176,6 +205,10 @@ mod tests {
             cage_front: 0.03, cage_rear: 0.02, curvature_from_normal: true, id_source: IdSource::VertexColor,
             dilation: 8, diffusion: false, antialiasing: Antialiasing::X4, average_normals: true, ignore_backface: true,
             id_generator: IdGenerator::Grayscale, vertex_color_set: 2, extra_vertex_color_sets: vec![None, Some(3)], height: HeightNormalization::Manual { distance: 0.07 },
+            extra_ids: vec![
+                ExtraIdBake { map: MeshMapKind::Id3, enabled: false, source: "/models/trims_high.fbx".into(), id_source: IdSource::VertexColor, id_generator: IdGenerator::Random, vertex_color_set: 1, antialiasing: Antialiasing::X2 },
+                ExtraIdBake::new(MeshMapKind::Id2),
+            ],
             ..Default::default()
         };
         s.normal_curvature.radius_texels = 3.5;
@@ -197,7 +230,7 @@ mod tests {
         let config = to_config(&s, &files);
         // Through the project file's JSON and back.
         let json = serde_json::to_string(&subcraft_doc::ProjectSettings { bake: Some(config.clone()), ..Default::default() }).unwrap();
-        assert!(json.contains("\"vertex_color\"") && json.contains("crate_high.glb"), "{json}");
+        assert!(json.contains("\"vertex_color\"") && json.contains("crate_high.glb") && json.contains("\"id_3\"") && json.contains("trims_high.fbx"), "{json}");
         let back: subcraft_doc::ProjectSettings = serde_json::from_str(&json).unwrap();
         assert_eq!(back.bake.as_ref(), Some(&config));
         let mut restored = BakeSettings::default();
@@ -223,5 +256,14 @@ mod tests {
         let mut want = BakeSettings::default();
         want.maps.sort();
         assert_eq!(d, want);
+    }
+
+    #[test]
+    fn extra_id_maps_with_an_unknown_or_repeated_slot_are_dropped() {
+        let config: BakeConfig = serde_json::from_str(r#"{"extra_ids":[{"map":"id_4","id_source":"submesh"},{"map":"normal_base"},{"map":"id_9000"},{"map":"id_4","id_source":"file_id"}]}"#).unwrap();
+        let mut s = BakeSettings::default();
+        apply(&config, &mut s);
+        assert_eq!(s.extra_ids.len(), 1);
+        assert_eq!((s.extra_ids[0].map, s.extra_ids[0].id_source, s.extra_ids[0].enabled), (MeshMapKind::Id4, IdSource::Submesh, true));
     }
 }

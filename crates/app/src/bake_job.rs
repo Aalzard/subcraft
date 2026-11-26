@@ -232,6 +232,8 @@ impl BakeJob {
             }
             if p.is_cancelled() { say(BakeLogLevel::Warning, "Bake cancelled.".into()); let _ = tx.send(Message::Failed("bake cancelled".into())); let _ = tx.send(Message::Finished); return; }
             *st.lock().expect("stage lock") = "Building high-poly BVH".into();
+            // Additional ID maps' own sources follow the main high poly's placement (issue #733).
+            let main_bounds = high_mesh.as_ref().map(|m| (m.bounds.min, m.bounds.max));
             let high_mesh = high_mesh.map(|mesh| {
                 let placement = &request.settings.placement;
                 if !placement.is_identity() { say(BakeLogLevel::Info, format!("High-poly placement: offset {:?}, scale {} x {:?}, rotation {:?}°, pivot {:?}, anchor {:?}.", placement.offset, placement.scale, placement.axis_scale, placement.rotation_deg, placement.pivot, placement.anchor)); }
@@ -246,6 +248,12 @@ impl BakeJob {
                 }
             }
             for (i, (ts, slot)) in request.texture_sets.iter().enumerate() {
+                // Only additional ID maps ticked: nothing else to bake for the set.
+                if request.settings.maps.is_empty() {
+                    let _ = tx.send(Message::Baked);
+                    done.fetch_add(1, Ordering::Relaxed);
+                    continue;
+                }
                 *st.lock().expect("stage lock") = format!("Baking texture set {}/{}", i + 1, request.texture_sets.len());
                 say(BakeLogLevel::Info, format!("Texture set {}/{} (material slot {slot}) started.", i + 1, request.texture_sets.len()));
                 let set_started = std::time::Instant::now();
@@ -283,6 +291,52 @@ impl BakeJob {
                     }
                 }
                 done.fetch_add(1, Ordering::Relaxed);
+            }
+            // Additional ID maps (issue #733): an ID-only bake each, from its own source file or
+            // the high poly above, stored under its own map.
+            for extra in request.settings.extra_ids.iter().filter(|e| e.enabled) {
+                if p.is_cancelled() { break; }
+                let name = extra.map.display_name();
+                let own = if extra.source.is_empty() {
+                    None
+                } else {
+                    let path = PathBuf::from(&extra.source);
+                    *st.lock().expect("stage lock") = format!("Loading {name} source {}", path.display());
+                    match import_mesh_for_baking(&path) {
+                        Ok(r) => {
+                            say(BakeLogLevel::Info, format!("{name}: source {}", path.display()));
+                            let mesh = place_extra_id_source(&low, Arc::new(r.mesh), &request.settings.placement, main_bounds);
+                            let bvh = Bvh::build(&mesh);
+                            Some((mesh, bvh))
+                        }
+                        Err(e) => {
+                            say(BakeLogLevel::Error, format!("{name}: source {} could not be loaded: {e}", path.display()));
+                            let _ = tx.send(Message::Failed(format!("{name} source: {e}")));
+                            continue;
+                        }
+                    }
+                };
+                let source = own.as_ref().or(high.as_ref());
+                let settings = extra.settings(&request.settings);
+                for (i, (ts, slot)) in request.texture_sets.iter().enumerate() {
+                    if p.is_cancelled() { break; }
+                    *st.lock().expect("stage lock") = format!("Baking {name}, texture set {}/{}", i + 1, request.texture_sets.len());
+                    let input = BakeInput {
+                        low: Geometry { mesh: &low, bvh: &low_bvh },
+                        high: source.map(|(m, b)| Geometry { mesh: m, bvh: b }),
+                        material_slot: *slot,
+                    };
+                    match bake_streamed(&input, &settings, &p, |kind, image| {
+                        if kind == MeshMapKind::Id { let _ = tx.send(Message::Map(*ts, extra.map, image.clone())); }
+                    }) {
+                        Ok(_) => say(BakeLogLevel::Info, format!("{name}: texture set {}/{} done.", i + 1, request.texture_sets.len())),
+                        Err(subcraft_bake::BakeError::NoTexels) => say(BakeLogLevel::Warning, format!("{name}: texture set {}/{} (material slot {slot}) skipped: no texels.", i + 1, request.texture_sets.len())),
+                        Err(e) => {
+                            say(BakeLogLevel::Error, format!("{name}: texture set {}/{} (material slot {slot}) failed: {e}", i + 1, request.texture_sets.len()));
+                            let _ = tx.send(Message::Failed(format!("{name}: {e}")));
+                        }
+                    }
+                }
             }
             say(BakeLogLevel::Info, format!("Finished in {:.1} s.", started.elapsed().as_secs_f32()));
             let _ = tx.send(Message::Finished);
@@ -385,6 +439,15 @@ impl BakeJob {
             }
         }
     }
+}
+
+/// An additional ID map's own source mesh, placed with the main high poly's placement: the
+/// matrix comes from the main high poly's bounds (`main_bounds`), so a file holding only some
+/// parts lines up with the rest instead of being fitted to the low poly on its own.
+pub(crate) fn place_extra_id_source(low: &Mesh, mesh: Arc<Mesh>, placement: &subcraft_core::BakePlacement, main_bounds: Option<(glam::Vec3, glam::Vec3)>) -> Arc<Mesh> {
+    if placement.is_identity() { return mesh; }
+    let m = placement.matrix((low.bounds.min, low.bounds.max), main_bounds.unwrap_or((mesh.bounds.min, mesh.bounds.max)));
+    Arc::new(mesh.transformed(&m))
 }
 
 #[cfg(test)]

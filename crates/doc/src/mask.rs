@@ -1664,6 +1664,16 @@ pub struct IdColorMask {
     /// Painter's Background color: what unmatched texels hold.
     #[serde(default, skip_serializing_if = "SelectionBackground::is_default")]
     pub background: SelectionBackground,
+    /// The ID map compared: the ID map or one of the additional ones (issue #733).
+    #[serde(default = "id_map", skip_serializing_if = "is_id_map")]
+    pub map: MeshMapKind,
+}
+
+fn id_map() -> MeshMapKind {
+    MeshMapKind::Id
+}
+fn is_id_map(m: &MeshMapKind) -> bool {
+    *m == MeshMapKind::Id
 }
 
 fn one() -> f32 {
@@ -1711,7 +1721,7 @@ impl SelectionBackground {
 
 impl Default for IdColorMask {
     fn default() -> Self {
-        Self { colors: Vec::new(), tolerance: Self::DEFAULT_TOLERANCE, softness: 0.0, invert: false, output: 1.0, background: SelectionBackground::Black }
+        Self { colors: Vec::new(), tolerance: Self::DEFAULT_TOLERANCE, softness: 0.0, invert: false, output: 1.0, background: SelectionBackground::Black, map: MeshMapKind::Id }
     }
 }
 
@@ -1727,6 +1737,7 @@ impl IdColorMask {
             && (0.0..=1.0).contains(&self.tolerance)
             && (0.0..=1.0).contains(&self.softness)
             && (0.0..=1.0).contains(&self.output)
+            && self.map.is_id()
     }
 
     /// Adds a color unless an identical one is already picked. Returns whether it was added.
@@ -2145,8 +2156,14 @@ mod tests {
         // Older files (no output / background) read as before; defaults are not written.
         let json = r#"{"colors":[[1.0,0.0,0.0]],"tolerance":0.05,"softness":0.0,"invert":false}"#;
         let back: IdColorMask = serde_json::from_str(json).unwrap();
-        assert_eq!((back.output, back.background), (1.0, SelectionBackground::Black));
+        assert_eq!((back.output, back.background, back.map), (1.0, SelectionBackground::Black, MeshMapKind::Id));
         assert_eq!(serde_json::to_string(&back).unwrap(), json);
+        // An additional ID map (issue #733) is written by name; another map kind is invalid.
+        let id2 = IdColorMask { map: MeshMapKind::Id2, ..back.clone() };
+        let text = serde_json::to_string(&id2).unwrap();
+        assert!(text.contains("\"map\":\"id2\""), "{text}");
+        assert_eq!(serde_json::from_str::<IdColorMask>(&text).unwrap(), id2);
+        assert!(id2.valid() && !IdColorMask { map: MeshMapKind::Normal, ..back }.valid());
     }
 
     #[test]

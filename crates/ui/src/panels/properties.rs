@@ -1462,7 +1462,23 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
 fn id_color_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_core::LayerId, effect: subcraft_core::EffectId, id: &mut subcraft_doc::IdColorMask, cmds: &mut Vec<Command>) -> bool {
     let mut changed = false;
     let texture_set = state.session.selection().texture_set;
-    if !state.session.has_id_map(texture_set) {
+    // Issue #733: which ID map to compare, once the set has additional ones.
+    let extra: Vec<subcraft_core::MeshMapKind> = subcraft_core::MeshMapKind::EXTRA_IDS.into_iter()
+        .filter(|k| *k == id.map || state.session.mesh_maps(texture_set).is_some_and(|m| m.get(*k).is_some()))
+        .collect();
+    if !extra.is_empty() {
+        let before = id.map;
+        prop_row(ui, tr("ID map"), |ui| {
+            egui::ComboBox::from_id_salt(("id_color_map", effect)).selected_text(tr(id.map.display_name())).show_ui(ui, |ui| {
+                for k in std::iter::once(subcraft_core::MeshMapKind::Id).chain(extra.iter().copied()) {
+                    ui.selectable_value(&mut id.map, k, tr(k.display_name()));
+                }
+            }).response
+        }).on_hover_text(tr("The baked ID map whose colors this mask selects"));
+        changed |= id.map != before;
+    }
+    let has_map = state.session.mesh_maps(texture_set).is_some_and(|m| m.get(id.map).is_some());
+    if !has_map {
         hint(ui, tr("No ID map baked: this mask stays black. Bake an ID map in Bake Mesh Maps."));
     }
     ui.horizontal_wrapped(|ui| {
@@ -1790,7 +1806,10 @@ pub(crate) fn source_controls(ui: &mut Ui, state: &mut UiState, kind: ChannelKin
             FillSource::MeshMap { map } => {
                 prop_row(ui, tr("Map"), |ui| {
                     egui::ComboBox::from_id_salt(("map", *kind)).selected_text(map.display_name()).show_ui(ui, |ui| {
-                        for m in MeshMapKind::ALL {
+                        // The additional ID maps (issue #733) once one is set up or chosen.
+                        let (current, baked) = (*map, state.session.extra_id_maps(state.session.selection().texture_set));
+                        let extra: Vec<MeshMapKind> = MeshMapKind::EXTRA_IDS.into_iter().filter(|k| *k == current || baked.contains(k)).collect();
+                        for m in MeshMapKind::ALL.into_iter().chain(extra) {
                             changed |= ui.selectable_value(map, m, m.display_name()).changed();
                         }
                     });

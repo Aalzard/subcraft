@@ -217,6 +217,33 @@ pub struct BakeConfig {
     /// Height map range as a fraction of the diagonal; `None`: the cage distances.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub height_range: Option<f32>,
+    /// Additional ID maps (issue #733), in the Bake window's order.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub extra_ids: Vec<ExtraIdConfig>,
+}
+
+/// One additional ID map of the Bake window (see `subcraft_bake::ExtraIdBake`). Options are
+/// named in words like the rest of [`BakeConfig`].
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ExtraIdConfig {
+    /// Mesh map key of the slot (`"id_2"` .. `"id_9"`).
+    pub map: String,
+    pub enabled: bool,
+    /// High-poly file; empty: the bake's high poly.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub source: String,
+    pub id_source: String,
+    pub id_generator: String,
+    #[serde(skip_serializing_if = "is_zero")]
+    pub vertex_color_set: u32,
+    pub antialiasing: u32,
+}
+
+impl Default for ExtraIdConfig {
+    fn default() -> Self {
+        Self { map: String::new(), enabled: true, source: String::new(), id_source: "mesh_id".into(), id_generator: "hue_shift".into(), vertex_color_set: 0, antialiasing: 1 }
+    }
 }
 
 impl Default for BakeConfig {
@@ -232,7 +259,7 @@ impl Default for BakeConfig {
             normal_curvature_width: 2.0, normal_curvature_intensity: 1.0, cage_front: 0.01, cage_rear: 0.01,
             id_source: "mesh_id".into(), id_generator: "hue_shift".into(), vertex_color_set: 0, extra_vertex_color_sets: Vec::new(), dilation: 16, diffusion: true, antialiasing: 1,
             average_normals: false, ignore_backface: false, position_axis: None, position_normalization: "bounding_box".into(), position_scale: 1.0,
-            height_range: None,
+            height_range: None, extra_ids: Vec::new(),
         }
     }
 }

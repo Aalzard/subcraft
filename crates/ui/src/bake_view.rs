@@ -27,6 +27,8 @@ pub fn map_info(kind: MeshMapKind) -> (&'static str, &'static str) {
         MeshMapKind::Thickness => (icons::DROP, "How thick the model is behind each point (scattering, wear)"),
         MeshMapKind::Height => (icons::FIT, "How far the high poly stands above or below the low poly"),
         MeshMapKind::BentNormal => (icons::CURSOR, "Average open direction, for better ambient light"),
+        MeshMapKind::Id2 | MeshMapKind::Id3 | MeshMapKind::Id4 | MeshMapKind::Id5
+        | MeshMapKind::Id6 | MeshMapKind::Id7 | MeshMapKind::Id8 | MeshMapKind::Id9 => (icons::SQUARES, "An additional ID map with its own source mesh and color settings"),
     }
 }
 
