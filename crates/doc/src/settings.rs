@@ -242,6 +242,18 @@ pub struct BakeConfig {
     /// Additional ID maps (issue #733), in the Bake window's order.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub extra_ids: Vec<ExtraIdConfig>,
+    /// Bake settings of each texture set, when they are kept per texture set (Painter's way).
+    /// Empty: one set of settings (the fields above) for every texture set. The files above stay
+    /// shared; an entry's own files are ignored.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub per_set: Vec<SetBakeConfig>,
+}
+
+/// One texture set's own bake settings (see [`BakeConfig::per_set`]).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SetBakeConfig {
+    pub texture_set: subcraft_core::TextureSetId,
+    pub settings: BakeConfig,
 }
 
 /// One additional ID map of the Bake window (see `subcraft_bake::ExtraIdBake`). Options are
@@ -284,7 +296,7 @@ impl Default for BakeConfig {
             average_normals: false, skew_correction: false, skew_base: "mesh".into(), skew_edge_protection: true, skew_edge_distance: 0.03, skew_edge_contrast: 0.5,
             skew_map_layer: String::new(), cage_push_layer: String::new(), cage_push: 1.0,
             ignore_backface: false, position_axis: None, position_normalization: "bounding_box".into(), position_scale: 1.0,
-            height_range: None, extra_ids: Vec::new(),
+            height_range: None, extra_ids: Vec::new(), per_set: Vec::new(),
         }
     }
 }

@@ -973,6 +973,12 @@ pub struct BakeUi {
     /// Layers whose masks are the skew map and the cage push map (empty: none).
     pub skew_map_layer: String,
     pub cage_push_layer: String,
+    /// Bake settings kept per texture set (Painter's way): `settings` is the edited set's, the
+    /// other sets' are in `set_settings`.
+    pub per_set: bool,
+    pub set_settings: std::collections::BTreeMap<subcraft_core::TextureSetId, subcraft_app::BakeSettings>,
+    /// The texture set whose settings `settings` holds (per-set mode).
+    pub editing_set: Option<subcraft_core::TextureSetId>,
     /// Built-in and saved bake presets (loaded when the window first shows).
     pub presets: Option<subcraft_app::bake_presets::BakePresets>,
     /// Name typed for "Save as preset", and the last save / delete outcome.
@@ -1042,7 +1048,7 @@ impl Default for BakeUi {
     fn default() -> Self {
         Self { open: false,
             settings: bake_defaults(),
-            high_poly: String::new(), extra_high: Vec::new(), cage_file: String::new(), skip_sets: Default::default(), selected_baker: None, log_tab: BakeLogTab::default(), job_maps: Vec::new(), size_chosen: false, skew_map_layer: String::new(), cage_push_layer: String::new(), presets: None, preset_name: String::new(), preset_message: None, job: None, result: None, report: String::new(), notices: Vec::new(), log: Vec::new(), map_rows: Vec::new(),
+            high_poly: String::new(), extra_high: Vec::new(), cage_file: String::new(), skip_sets: Default::default(), selected_baker: None, log_tab: BakeLogTab::default(), job_maps: Vec::new(), size_chosen: false, skew_map_layer: String::new(), cage_push_layer: String::new(), per_set: false, set_settings: Default::default(), editing_set: None, presets: None, preset_name: String::new(), preset_message: None, job: None, result: None, report: String::new(), notices: Vec::new(), log: Vec::new(), map_rows: Vec::new(),
             preview: true, cage: true, fit_mode: Default::default(), high_opacity: 0.55, vis: Default::default(), vis_selected_only: false, seam_edges: None, seams_uploaded: false, placement_message: None, live_maps: true, displayed_map: None, follow_maps: true, preview_mesh: None,
             preview_job: None, preview_source: None, preview_path: String::new(), preview_scene: None, preview_error: None, preview_uploaded: false, preview_checked_at: 0.,
             miss_heatmap: false, cage_job: None, cage_result: None, miss_uploaded: false, cage_normals_uploaded: None, was_open: false, synced: None, baseline: None,
@@ -1073,8 +1079,57 @@ impl BakeUi {
             skip_sets: self.skip_sets.iter().copied().collect(),
             skew_map_layer: self.skew_map_layer.clone(),
             cage_push_layer: self.cage_push_layer.clone(),
+            per_set: if self.per_set { self.all_set_settings().into_iter().collect() } else { Vec::new() },
         };
         subcraft_app::bake_config::to_config(&self.settings, &files)
+    }
+
+    /// Every texture set's own settings (per-set mode), the edited one's included.
+    pub fn all_set_settings(&self) -> std::collections::BTreeMap<subcraft_core::TextureSetId, subcraft_app::BakeSettings> {
+        let mut all = self.set_settings.clone();
+        if let Some(id) = self.editing_set {
+            all.insert(id, self.settings.clone());
+        }
+        all
+    }
+
+    /// Keep bake settings per texture set (`on`) or one set of settings for all. Turning it on
+    /// gives every set a copy of the current settings; turning it off keeps the edited set's.
+    pub fn set_per_set(&mut self, on: bool, sets: &[subcraft_core::TextureSetId], selected: subcraft_core::TextureSetId) {
+        self.per_set = on;
+        self.set_settings.clear();
+        self.editing_set = None;
+        if on {
+            for id in sets {
+                self.set_settings.insert(*id, self.settings.clone());
+            }
+            self.editing_set = Some(selected);
+        }
+    }
+
+    /// Per-set mode: show the settings of `selected` (the selected texture set), keeping the
+    /// edited set's.
+    pub fn follow_set(&mut self, selected: subcraft_core::TextureSetId) {
+        if !self.per_set || self.editing_set == Some(selected) {
+            return;
+        }
+        if let Some(previous) = self.editing_set {
+            self.set_settings.insert(previous, self.settings.clone());
+        }
+        if let Some(own) = self.set_settings.get(&selected) {
+            self.settings = own.clone();
+        }
+        self.editing_set = Some(selected);
+    }
+
+    /// Copy the edited set's settings to every texture set in `sets`: all of them, or only
+    /// which maps are checked (`maps_only`).
+    pub fn sync_to_sets(&mut self, sets: &[subcraft_core::TextureSetId], maps_only: bool) {
+        for id in sets {
+            if Some(*id) == self.editing_set { continue; }
+            let entry = self.set_settings.entry(*id).or_insert_with(|| self.settings.clone());
+            if maps_only { entry.maps = self.settings.maps.clone(); } else { *entry = self.settings.clone(); }
+        }
     }
 
     /// Show a saved configuration in the window.
@@ -1087,6 +1142,9 @@ impl BakeUi {
         self.skip_sets = files.skip_sets.into_iter().collect();
         self.skew_map_layer = files.skew_map_layer;
         self.cage_push_layer = files.cage_push_layer;
+        self.per_set = !files.per_set.is_empty();
+        self.set_settings = files.per_set.into_iter().collect();
+        self.editing_set = None;
     }
 
     /// Show preset `key`'s settings; the files and texture-set ticks stay.
@@ -1332,6 +1390,7 @@ pub fn bake_mode(state: &mut UiState, ui: &mut egui::Ui, now: f64) {
         }
     };
     state.bake.skip_sets.retain(|id| frame.sets.iter().any(|s| s.0 == *id));
+    state.bake.follow_set(frame.sel_id);
     if state.bake.presets.is_none() {
         let presets = subcraft_app::bake_presets::BakePresets::load(state.user_library.as_ref());
         for e in &presets.load_errors {
@@ -1467,10 +1526,31 @@ fn start_bake(state: &mut UiState, only: Option<&[subcraft_core::MeshMapKind]>, 
     settings.use_gpu = state.recovery.prefs.use_gpu_baking;
     settings.name_match = state.session.settings().bake_match.clone();
     settings.placement = state.session.settings().bake_placement.clone();
-    state.bake.job_maps = settings.maps.clone();
-    state.bake.map_rows = settings.maps.iter().map(|&kind| subcraft_app::MapProgress { kind, state: subcraft_app::MapState::Waiting, seconds: 0. }).collect();
     let (extra_high_polys, extra_sets) = extra_high_files(&state.bake.extra_high, &settings.extra_vertex_color_sets);
     settings.extra_vertex_color_sets = extra_sets;
+    // Per-set mode: each ticked set bakes with its own settings, adjusted like the shared ones.
+    let set_settings: std::collections::BTreeMap<_, _> = if state.bake.per_set {
+        let all = state.bake.all_set_settings();
+        texture_sets.iter().filter_map(|(id, _)| all.get(id).map(|own| {
+            let mut own = own.clone();
+            if let Some(maps) = only { own.maps = maps.to_vec(); }
+            own.maps.sort();
+            own.use_gpu = settings.use_gpu;
+            own.name_match = settings.name_match.clone();
+            own.placement = settings.placement.clone();
+            own.extra_vertex_color_sets = settings.extra_vertex_color_sets.clone();
+            (*id, own)
+        })).collect()
+    } else {
+        Default::default()
+    };
+    // The progress rows list every map some set bakes.
+    let mut job_maps = settings.maps.clone();
+    for own in set_settings.values() { job_maps.extend(own.maps.iter().copied()); }
+    job_maps.sort();
+    job_maps.dedup();
+    state.bake.job_maps = job_maps.clone();
+    state.bake.map_rows = job_maps.iter().map(|&kind| subcraft_app::MapProgress { kind, state: subcraft_app::MapState::Waiting, seconds: 0. }).collect();
     let request = subcraft_app::BakeRequest {
         settings,
         high_poly: (!state.bake.high_poly.trim().is_empty()).then(|| PathBuf::from(state.bake.high_poly.trim())),
@@ -1484,6 +1564,7 @@ fn start_bake(state: &mut UiState, only: Option<&[subcraft_core::MeshMapKind]>, 
         cage: (!state.bake.cage_file.trim().is_empty()).then(|| PathBuf::from(state.bake.cage_file.trim())),
         skew_map_layer: state.bake.skew_map_layer.clone(),
         cage_push_layer: state.bake.cage_push_layer.clone(),
+        set_settings,
         ..Default::default()
     };
     state.bake.job = Some(state.session.start_bake_files(request, prepared, files));
@@ -1512,6 +1593,16 @@ fn bake_set_list(ui: &mut egui::Ui, b: &mut BakeUi, f: &BakeFrame, select: &mut 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| ui.label(dim(&resolution.to_string())));
         });
     }
+    if f.sets.len() > 1 {
+        let mut per_set = b.per_set;
+        if ui.checkbox(&mut per_set, tr("Settings per texture set"))
+            .on_hover_text(tr("Each texture set keeps its own bake settings: select a set to edit its settings. The model files stay shared"))
+            .changed()
+        {
+            let ids: Vec<_> = f.sets.iter().map(|s| s.0).collect();
+            b.set_per_set(per_set, &ids, f.sel_id);
+        }
+    }
 }
 
 /// The Common settings entry, then one row per mesh map: bake tick, name (click to edit its
@@ -1528,6 +1619,18 @@ fn bakers_panel(ui: &mut egui::Ui, b: &mut BakeUi, f: &BakeFrame, quick: &mut Op
                 if ui.button(tr("Invert checked mesh maps")).clicked() {
                     b.settings.maps = MeshMapKind::ALL.into_iter().filter(|k| !b.settings.maps.contains(k)).collect();
                     ui.close();
+                }
+                if b.per_set {
+                    ui.separator();
+                    let ids: Vec<_> = f.sets.iter().map(|s| s.0).collect();
+                    if ui.button(tr("Apply checked to all texture sets")).on_hover_text(tr("Every texture set bakes the maps checked here; their other settings stay")).clicked() {
+                        b.sync_to_sets(&ids, true);
+                        ui.close();
+                    }
+                    if ui.button(tr("Sync all settings to all texture sets")).on_hover_text(tr("Every texture set gets this set's bake settings")).clicked() {
+                        b.sync_to_sets(&ids, false);
+                        ui.close();
+                    }
                 }
                 ui.separator();
                 let which = b.selected_baker.map_or(tr("Common settings"), |k| tr(k.display_name()));
@@ -1833,6 +1936,10 @@ fn reset_all(b: &mut BakeUi) {
     b.size_chosen = false;
     b.skip_sets.clear();
     b.auto_rebake.clear();
+    // Back to one set of settings for every texture set.
+    b.per_set = false;
+    b.set_settings.clear();
+    b.editing_set = None;
 }
 
 /// Settings of the baker selected in the list (nothing while Common settings is selected).
@@ -2084,7 +2191,9 @@ fn common_settings(ui: &mut egui::Ui, b: &mut BakeUi, f: &BakeFrame, bake_match:
     let d = bake_defaults();
     let has_high = !b.high_poly.trim().is_empty();
     // Maps below the texture set's resolution look blocky: default to the largest ticked set.
-    let target_res = f.sets.iter().filter(|s| !b.skip_sets.contains(&s.0)).map(|s| s.3).max().unwrap_or(1024).clamp(256, 4096);
+    // Per-set settings follow the edited set's resolution; shared ones the largest ticked set's.
+    let target_res = if b.per_set { f.sets.iter().find(|s| s.0 == f.sel_id).map(|s| s.3) } else { f.sets.iter().filter(|s| !b.skip_sets.contains(&s.0)).map(|s| s.3).max() }
+        .unwrap_or(1024).clamp(256, 4096);
     bake_presets_card(ui, b);
     // --- Models -------------------------------------------------------------------
     card(ui, theme::ACCENT_DIM(), |ui| {
@@ -2429,6 +2538,41 @@ fn bake_match_rows(ui: &mut egui::Ui, m: &mut subcraft_core::BakeMatch) {
 #[cfg(test)]
 mod bake_tests {
     use super::*;
+
+    #[test]
+    fn settings_per_texture_set_follow_the_selection_sync_and_survive_the_config() {
+        use subcraft_core::{MeshMapKind, TextureSetId};
+        let (a, b) = (TextureSetId::new(), TextureSetId::new());
+        let mut ui = BakeUi::default();
+        ui.settings.size = 512;
+        ui.settings.maps = vec![MeshMapKind::Normal];
+        ui.set_per_set(true, &[a, b], a);
+        // Edit set A, then switch to B: B still has the copy made when per-set was turned on.
+        ui.settings.size = 2048;
+        ui.settings.maps = vec![MeshMapKind::AmbientOcclusion];
+        ui.follow_set(b);
+        assert_eq!((ui.settings.size, ui.settings.maps.clone()), (512, vec![MeshMapKind::Normal]));
+        ui.follow_set(a);
+        assert_eq!(ui.settings.size, 2048, "A kept its own edits");
+        // Apply checked: only the maps go to B.
+        ui.sync_to_sets(&[a, b], true);
+        let all = ui.all_set_settings();
+        assert_eq!((all[&b].size, all[&b].maps.clone()), (512, vec![MeshMapKind::AmbientOcclusion]));
+        // The project file keeps every set's settings.
+        let config = ui.config();
+        let mut back = BakeUi::default();
+        back.apply_config(&config);
+        assert!(back.per_set);
+        assert_eq!((back.set_settings[&a].size, back.set_settings[&b].size), (2048, 512));
+        // Sync all: B becomes A.
+        ui.sync_to_sets(&[a, b], false);
+        assert_eq!(ui.all_set_settings()[&b].size, 2048);
+        // Turning it off keeps the edited set's settings for everything.
+        ui.set_per_set(false, &[a, b], a);
+        assert!(ui.all_set_settings().is_empty());
+        assert_eq!(ui.settings.size, 2048);
+        assert!(ui.config().per_set.is_empty());
+    }
 
     #[test]
     fn alt_click_bakes_only_one_map_and_again_all_of_them() {

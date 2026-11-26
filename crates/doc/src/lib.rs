@@ -47,6 +47,6 @@ pub use mask::{CompareMask, CompareOp, CompareOperand, LevelsHandle, LevelsRange
 pub use pen::{PathKind, PathRibbon, PathStamp, PenAnchor, PenPath, RibbonAlign, RibbonMode, RibbonRatio, RibbonTiling};
 pub use resources::{Resource, ResourceKind, ResourceStore};
 pub use text::TextDecal;
-pub use settings::{BakeConfig, ExportConfig, ExtraIdConfig, ExportOverrides, GameEngine, LiveLinkTarget, MapFormat, NormalFormat, ProjectSettings};
+pub use settings::{BakeConfig, ExportConfig, ExtraIdConfig, SetBakeConfig, ExportOverrides, GameEngine, LiveLinkTarget, MapFormat, NormalFormat, ProjectSettings};
 pub use shader::{MAIN_SHADER, ShaderAssignment, ShaderInstance, ShaderInstanceId, ShaderParams};
 pub use texture_set::{AlphaMode, AlphaSettings, AoMixing, ChannelDef, ChannelFormat, HeightToNormal, IdColorEdit, LayerLocation, LayerOpError, MixingSettings, NormalMixing, RESOLUTIONS, TextureSet, UvPadding};
