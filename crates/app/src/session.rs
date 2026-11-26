@@ -2806,6 +2806,24 @@ impl Session {
                     Ok(())
                 })?;
             }
+            Command::ClearLayerContent(layer) => {
+                self.edit_layer_set_if_changed(layer, "Clear Layer Content", |ts| {
+                    let LayerContent::Paint(paint) = &mut Self::layer_mut(ts, layer)?.content else {
+                        return Err(CommandError::Invalid("only paint layers can be cleared".into()));
+                    };
+                    if paint.path.is_some() || paint.text.is_some() {
+                        return Err(CommandError::Invalid("path and text layers redraw from their path or text: edit or remove that instead".into()));
+                    }
+                    for (kind, image) in paint.channels.iter_mut() {
+                        let comps = image.comps();
+                        let mut fill = [0.0f32; 4];
+                        let d = kind.default_value().0;
+                        fill[..comps - 1].copy_from_slice(&d[..comps - 1]);
+                        *image = subcraft_image::TiledImage::new(image.width(), image.height(), comps, fill);
+                    }
+                    Ok(())
+                })?;
+            }
             Command::SetMaskEnabled { layer, enabled } => {
                 self.edit_layer_set(layer, "Mask Enabled", None, |ts| {
                     Self::layer_mut(ts, layer)?.mask.as_mut().ok_or(CommandError::NoMask)?.enabled = enabled;
@@ -3046,7 +3064,8 @@ impl Session {
             Action::PenTool | Action::PolygonFillTool | Action::SmudgeTool | Action::CloneTool | Action::EyedropperTool | Action::ProjectionTool | Action::ResetCamera
             | Action::PerspectiveCamera | Action::OrthographicCamera | Action::NextChannel | Action::PrevChannel | Action::DisplayMaterial
             | Action::NewProject | Action::Quit | Action::Save | Action::SaveAs | Action::OpenProject | Action::Export | Action::Bake
-            | Action::TogglePathTracing | Action::SelectAllLayers | Action::ReimportMesh | Action::CloneToolAbsolute | Action::ShapeTool => return Ok(false),
+            | Action::TogglePathTracing | Action::SelectAllLayers | Action::ReimportMesh | Action::CloneToolAbsolute | Action::ShapeTool
+            | Action::ViewFront | Action::ViewBack | Action::ViewRight | Action::ViewLeft | Action::ViewTop | Action::ViewBottom => return Ok(false),
         }
         Ok(true)
     }

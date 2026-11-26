@@ -231,6 +231,10 @@ pub enum Command {
     /// Painter's "Clear mask": remove what was painted into the mask's base, back to its plain
     /// background value; its effects stay.
     ClearMask(LayerId),
+    /// Clear a paint layer's content: every channel back to empty (transparent); its mask,
+    /// effects, blending and opacity stay. Path and text layers are refused (their rasters are
+    /// drawn from the path / text). One undo step, none when there was nothing painted.
+    ClearLayerContent(LayerId),
     /// Destination is a bottom-to-top index in this mask's own effect stack.
     MoveMaskEffect { layer: LayerId, effect: EffectId, index: usize },
     DuplicateMaskEffect { layer: LayerId, effect: EffectId },

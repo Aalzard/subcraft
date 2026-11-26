@@ -315,6 +315,20 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     let gizmo_grab = !bake_mode && !alt && !stencil_edit
         && crate::projection_gizmo::manipulate(state, ui, &response, rect, pixel_scale, &camera, primary_pressed, primary_down, pointer);
     let primary_pressed = primary_pressed && !gizmo_grab;
+    // Issue #740: a click on the axis indicator looks straight down that axis (Ctrl: from the
+    // other end; clicking the axis already looked down turns to the opposite side).
+    let axis_hit = (!bake_mode && !stencil_edit && !state.painting && state.recovery.prefs.viewport.axis_indicator && response.hovered())
+        .then_some(pointer).flatten()
+        .and_then(|p| axis_indicator_hit(state.camera.view(), axis_indicator_centre(rect), p));
+    if let Some((axis, negative)) = axis_hit {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        if primary_pressed && !alt {
+            let view = crate::orbit::AxisView::clicked(axis, negative != (mods.ctrl || mods.command), state.camera.axis_view());
+            state.camera.set_axis_view(view);
+            state.set_status(axis_view_name(view), now);
+        }
+    }
+    let primary_pressed = primary_pressed && axis_hit.is_none();
     let parts_picking = !bake_mode && state.picking_parts && state.session.selected_layer().is_some() && !state.painting;
     // ----- ID Color Mask eyedropper: clicks add the ID map color under the cursor ------------
     let id_picking = !bake_mode && !state.painting
@@ -1582,7 +1596,9 @@ fn visualization_overlays(state: &UiState, painter: &egui::Painter, rect: Rect, 
     }
     // Axis indicator above the Render toggle in the bottom-right corner.
     if prefs.axis_indicator {
-        draw_axis_indicator(painter, rect.right_bottom() + egui::vec2(-44.0, -78.0), state.camera.view());
+        let hover = painter.ctx().pointer_hover_pos().filter(|p| rect.contains(*p));
+        let centre = axis_indicator_centre(rect);
+        draw_axis_indicator(painter, centre, state.camera.view(), hover.and_then(|p| axis_indicator_hit(state.camera.view(), centre, p)));
     }
 }
 
@@ -1631,15 +1647,68 @@ pub fn mirror_plane_corners(bounds: &subcraft_mesh::Aabb, axis: usize) -> [glam:
     })
 }
 
-/// Painter's orientation indicator: red X, green Y, blue Z from a common centre.
-fn draw_axis_indicator(painter: &egui::Painter, centre: Pos2, view: glam::Mat4) {
-    painter.circle_filled(centre, 32.0, Color32::from_black_alpha(60));
+/// The menu / status text of an axis view.
+pub fn axis_view_name(view: crate::orbit::AxisView) -> &'static str {
+    use crate::i18n::tr;
+    use crate::orbit::AxisView as V;
+    match view {
+        V::Front => tr("Front view"),
+        V::Back => tr("Back view"),
+        V::Right => tr("Right view"),
+        V::Left => tr("Left view"),
+        V::Top => tr("Top view"),
+        V::Bottom => tr("Bottom view"),
+    }
+}
+
+/// Centre of the axis indicator: above the Render toggle in the bottom-right corner.
+pub fn axis_indicator_centre(view: Rect) -> Pos2 {
+    view.right_bottom() + egui::vec2(-44.0, -78.0)
+}
+
+/// Screen length of an indicator axis, and the click radius of its dots.
+const AXIS_LENGTH: f32 = 22.0;
+const AXIS_DOT: f32 = 7.0;
+const AXIS_NEG_DOT: f32 = 5.0;
+
+/// The indicator dot under `pos` (indicator centred at `centre`): the axis and whether it is the
+/// dot of its negative end. Where dots overlap the one nearer the viewer wins, as drawn.
+pub fn axis_indicator_hit(view: glam::Mat4, centre: Pos2, pos: Pos2) -> Option<(usize, bool)> {
+    let mut best: Option<(f32, usize, bool)> = None;
     for (i, d, depth) in axis_indicator(view) {
-        let tip = centre + d * 22.0;
+        for (negative, tip, r, z) in [(false, centre + d * AXIS_LENGTH, AXIS_DOT + 1.5, depth), (true, centre - d * AXIS_LENGTH, AXIS_NEG_DOT + 1.5, -depth)] {
+            if (pos - tip).length() <= r && best.is_none_or(|b| z > b.0) {
+                best = Some((z, i, negative));
+            }
+        }
+    }
+    best.map(|(_, i, negative)| (i, negative))
+}
+
+/// Painter's orientation indicator: red X, green Y, blue Z from a common centre, with a small
+/// ring at each axis' negative end (as Blender's gizmo). Every dot is a button (issue #740).
+fn draw_axis_indicator(painter: &egui::Painter, centre: Pos2, view: glam::Mat4, hovered: Option<(usize, bool)>) {
+    painter.circle_filled(centre, 32.0, Color32::from_black_alpha(60));
+    let axes = axis_indicator(view);
+    // Negative ends first: they sit behind the positive dots where they overlap.
+    for (i, d, depth) in axes {
+        let tip = centre - d * AXIS_LENGTH;
+        let color = if depth > 0.05 { AXIS_COLORS[i].gamma_multiply(0.45) } else { AXIS_COLORS[i].gamma_multiply(0.75) };
+        painter.circle_filled(tip, AXIS_NEG_DOT, Color32::from_black_alpha(90));
+        painter.circle_stroke(tip, AXIS_NEG_DOT, Stroke::new(1.5, color));
+        if hovered == Some((i, true)) {
+            painter.circle_stroke(tip, AXIS_NEG_DOT + 2.0, Stroke::new(1.5, Color32::WHITE));
+        }
+    }
+    for (i, d, depth) in axes {
+        let tip = centre + d * AXIS_LENGTH;
         // Axes pointing away are drawn dimmer.
         let color = if depth < -0.05 { AXIS_COLORS[i].gamma_multiply(0.55) } else { AXIS_COLORS[i] };
         painter.line_segment([centre, tip], Stroke::new(2.0, color));
-        painter.circle_filled(tip, 7.0, color);
+        painter.circle_filled(tip, AXIS_DOT, color);
+        if hovered == Some((i, false)) {
+            painter.circle_stroke(tip, AXIS_DOT + 1.5, Stroke::new(1.5, Color32::WHITE));
+        }
         painter.text(tip, egui::Align2::CENTER_CENTER, ["X", "Y", "Z"][i], egui::FontId::proportional(9.5), Color32::from_gray(20));
     }
 }
@@ -2219,6 +2288,36 @@ mod tests {
         let axes = axis_indicator(crate::orbit::OrbitCamera::framing(&b).view());
         assert!(axes.windows(2).all(|w| w[0].2 <= w[1].2));
         assert!(axes.iter().all(|a| a.1.length() > 0.2 && a.1.length() <= 1.0 + 1e-5));
+    }
+
+    #[test]
+    fn clicks_on_the_axis_indicator_find_the_nearest_dot() {
+        let c = egui::pos2(100.0, 100.0);
+        // Looking down -Z: X right, Y up, +Z dot on the centre over the -Z ring.
+        let front = glam::Mat4::look_at_rh(glam::Vec3::new(0.0, 0.0, 5.0), glam::Vec3::ZERO, glam::Vec3::Y);
+        assert_eq!(axis_indicator_hit(front, c, c + egui::vec2(AXIS_LENGTH, 0.0)), Some((0, false)));
+        assert_eq!(axis_indicator_hit(front, c, c + egui::vec2(-AXIS_LENGTH, 0.0)), Some((0, true)));
+        assert_eq!(axis_indicator_hit(front, c, c + egui::vec2(0.0, -AXIS_LENGTH)), Some((1, false)), "screen up is +Y");
+        assert_eq!(axis_indicator_hit(front, c, c + egui::vec2(0.0, AXIS_LENGTH)), Some((1, true)));
+        assert_eq!(axis_indicator_hit(front, c, c), Some((2, false)), "the dot facing the viewer wins over the ring behind it");
+        assert_eq!(axis_indicator_hit(front, c, c + egui::vec2(12.0, 12.0)), None, "between dots");
+        assert_eq!(axis_indicator_hit(front, c, c + egui::vec2(AXIS_LENGTH + 9.0, 0.0)), None);
+        // From the back the -Z ring faces the viewer and wins.
+        let back = glam::Mat4::look_at_rh(glam::Vec3::new(0.0, 0.0, -5.0), glam::Vec3::ZERO, glam::Vec3::Y);
+        assert_eq!(axis_indicator_hit(back, c, c), Some((2, true)));
+        // End to end: clicking Z from the three-quarter view gives Front, again gives Back.
+        let b = subcraft_mesh::Aabb { min: glam::Vec3::splat(-1.0), max: glam::Vec3::splat(1.0) };
+        let mut cam = crate::orbit::OrbitCamera::framing(&b);
+        let z_tip = |cam: &crate::orbit::OrbitCamera| {
+            let (_, d, _) = axis_indicator(cam.view()).into_iter().find(|a| a.0 == 2).unwrap();
+            c + d * AXIS_LENGTH
+        };
+        let (axis, neg) = axis_indicator_hit(cam.view(), c, z_tip(&cam)).unwrap();
+        cam.set_axis_view(crate::orbit::AxisView::clicked(axis, neg, cam.axis_view()));
+        assert_eq!(cam.axis_view(), Some(crate::orbit::AxisView::Front));
+        let (axis, neg) = axis_indicator_hit(cam.view(), c, z_tip(&cam)).unwrap();
+        cam.set_axis_view(crate::orbit::AxisView::clicked(axis, neg, cam.axis_view()));
+        assert_eq!(cam.axis_view(), Some(crate::orbit::AxisView::Back));
     }
 
     #[test]

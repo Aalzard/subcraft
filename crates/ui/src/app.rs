@@ -1616,6 +1616,19 @@ impl SubcraftApp {
             Action::EyedropperTool => self.state.tool = Tool::Eyedropper,
             Action::NextCamera => crate::view_extras::cycle_camera(&mut self.state, 1),
             Action::PrevCamera => crate::view_extras::cycle_camera(&mut self.state, -1),
+            Action::ViewFront | Action::ViewBack | Action::ViewRight | Action::ViewLeft | Action::ViewTop | Action::ViewBottom => {
+                use crate::orbit::AxisView as V;
+                let view = match action {
+                    Action::ViewFront => V::Front,
+                    Action::ViewBack => V::Back,
+                    Action::ViewRight => V::Right,
+                    Action::ViewLeft => V::Left,
+                    Action::ViewTop => V::Top,
+                    _ => V::Bottom,
+                };
+                self.state.camera.set_axis_view(view);
+                self.state.set_status(crate::viewport::axis_view_name(view), now);
+            }
             Action::PerspectiveCamera => self.state.recovery.prefs.viewport.orthographic = false,
             Action::OrthographicCamera => self.state.recovery.prefs.viewport.orthographic = true,
             Action::NextChannel | Action::PrevChannel => {
@@ -2158,6 +2171,20 @@ impl SubcraftApp {
                 let ortho = self.state.recovery.prefs.viewport.orthographic;
                 if ui.add(egui::Button::new(format!("{}   {}", icons::CUBE, tr("Perspective"))).selected(!ortho).shortcut_text(sc(km, Action::PerspectiveCamera))).clicked() { self.perform(Action::PerspectiveCamera, now); ui.close(); }
                 if ui.add(egui::Button::new(format!("{}   {}", icons::CUBE_WIRE, tr("Orthographic"))).selected(ortho).shortcut_text(sc(km, Action::OrthographicCamera))).clicked() { self.perform(Action::OrthographicCamera, now); ui.close(); }
+                // Issue #740: look straight down an axis (the axis indicator's dots do the same).
+                ui.menu_button(format!("{}   {}", icons::CAMERA, tr("Axis views")), |ui| {
+                    let current = self.state.camera.axis_view();
+                    for (a, view) in [
+                        (Action::ViewFront, crate::orbit::AxisView::Front), (Action::ViewBack, crate::orbit::AxisView::Back),
+                        (Action::ViewRight, crate::orbit::AxisView::Right), (Action::ViewLeft, crate::orbit::AxisView::Left),
+                        (Action::ViewTop, crate::orbit::AxisView::Top), (Action::ViewBottom, crate::orbit::AxisView::Bottom),
+                    ] {
+                        if ui.add(egui::Button::new(crate::viewport::axis_view_name(view)).selected(current == Some(view)).shortcut_text(sc(km, a))).clicked() {
+                            self.perform(a, now);
+                            ui.close();
+                        }
+                    }
+                }).response.on_hover_text(tr("Click a dot of the axis indicator for the same views (Ctrl+click: from the other side)"));
                 if item(ui, icons::CUBE_WIRE, tr("Isolate the texture set"), &sc(km, Action::IsolateTextureSet)) { self.perform(Action::IsolateTextureSet, now); ui.close(); }
                 ui.separator();
                 if item(ui, icons::SUN, tr("Render quality…"), "") {

@@ -113,11 +113,20 @@ pub enum Action {
     CloneToolAbsolute,
     /// Shape fill (7): drag a rectangle or ellipse and fill it with the brush material.
     ShapeTool,
+    /// Look straight down a world axis (issue #740). Blender's numpad 1 / 3 / 7 (Ctrl: the
+    /// opposite side) become Alt+1 / 3 / 7 (Ctrl+Alt: opposite): the plain number row picks tools
+    /// and the numpad cannot be told apart from it. The axis indicator's dots do the same.
+    ViewFront,
+    ViewBack,
+    ViewRight,
+    ViewLeft,
+    ViewTop,
+    ViewBottom,
 }
 
 impl Action {
     /// Every action, in declaration order (the tests check [`ACTIONS`] against it).
-    pub const ALL: [Action; 57] = [
+    pub const ALL: [Action; 63] = [
         Action::Undo, Action::Redo, Action::NewPaintLayer, Action::NewFillLayer, Action::NewFolder, Action::NewTextLayer, Action::DeleteLayer, Action::DuplicateLayer,
         Action::BrushTool, Action::EraserTool, Action::PenTool, Action::PolygonFillTool, Action::SmudgeTool, Action::CloneTool, Action::EyedropperTool,
         Action::BrushSmaller, Action::BrushLarger, Action::ToggleSymmetryX, Action::ToggleLazyMouse, Action::ResetCamera, Action::PerspectiveCamera,
@@ -129,6 +138,7 @@ impl Action {
         Action::HideExcludedGeometry, Action::QuickMaskToggle, Action::QuickMaskClear, Action::QuickMaskInvert,
         Action::ToggleSymmetry, Action::PauseEngine, Action::ProjectionTool, Action::ReimportMesh,
         Action::CloneToolAbsolute, Action::ShapeTool,
+        Action::ViewFront, Action::ViewBack, Action::ViewRight, Action::ViewLeft, Action::ViewTop, Action::ViewBottom,
     ];
 }
 
@@ -271,6 +281,12 @@ pub const ACTIONS: &[ActionInfo] = &[
     a(Action::ShapeTool, "Shape Fill (rectangle / ellipse)", &[Shortcut::key(Key::Num7)]),
     a(Action::ToggleLazyMouse, "Toggle Lazy Mouse", &[Shortcut::key(Key::D)]),
     a(Action::ResetCamera, "Frame Model / Reset Camera", &[Shortcut::key(Key::Home), Shortcut::key(Key::F)]),
+    a(Action::ViewFront, "Front View", &[Shortcut::alt(Key::Num1)]),
+    a(Action::ViewBack, "Back View", &[Shortcut::new(true, false, true, Key::Num1)]),
+    a(Action::ViewRight, "Right View", &[Shortcut::alt(Key::Num3)]),
+    a(Action::ViewLeft, "Left View", &[Shortcut::new(true, false, true, Key::Num3)]),
+    a(Action::ViewTop, "Top View", &[Shortcut::alt(Key::Num7)]),
+    a(Action::ViewBottom, "Bottom View", &[Shortcut::new(true, false, true, Key::Num7)]),
     a(Action::PerspectiveCamera, "Perspective Camera", &[Shortcut::key(Key::F5)]),
     a(Action::OrthographicCamera, "Orthographic Camera", &[Shortcut::key(Key::F6)]),
     a(Action::NextChannel, "Display Next Channel", &[Shortcut::key(Key::C)]),
