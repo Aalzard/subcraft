@@ -1,10 +1,11 @@
-//! ID color editor (Texture Set Settings): the colors of the selected set's ID map, an
-//! eyedropper for the 3D and 2D views, and editing a color (every ID Color mask using it follows).
-//! All changes go through `subcraft_app` (`Session::edit_id_color`, `Session::feed_id_color`).
+//! ID color editor (Texture Set Settings): the colors of the selected set's ID map (or one of its
+//! additional ID maps, issue #733), an eyedropper for the 3D and 2D views, and editing a color
+//! (every ID Color mask reading that map and using it follows). All changes go through
+//! `subcraft_app` (`Session::edit_id_color_in`, `Session::feed_id_color_in`).
 
 use egui::{Color32, RichText, Sense, Ui, vec2};
 use subcraft_app::id_color::{IdPaletteEntry, same_id};
-use subcraft_core::TextureSetId;
+use subcraft_core::{MeshMapKind, TextureSetId};
 
 use crate::state::UiState;
 use crate::theme::{self, ACCENT, TEXT, TEXT_DIM, TEXT_FAINT};
@@ -24,17 +25,24 @@ pub fn hex(c: [f32; 3]) -> String {
 /// the maps change; the mask counts when the document changes. Keyed on the document revision as a
 /// whole, the full pass ran on every brush dab while the panel was open.
 pub fn palette(state: &mut UiState, ts: TextureSetId) -> Option<Vec<IdPaletteEntry>> {
+    let map = palette_map(state, ts);
     let (generation, revision) = (state.session.maps_generation(), state.session.revision());
-    if !state.id_palette_cache.as_ref().is_some_and(|((t, g, _), _)| *t == ts && *g == generation) {
-        let colors = state.session.id_map_colors(ts)?;
-        state.id_palette_cache = Some(((ts, generation, u64::MAX), colors));
+    if !state.id_palette_cache.as_ref().is_some_and(|((t, m, g, _), _)| *t == ts && *m == map && *g == generation) {
+        let colors = state.session.id_map_colors_in(ts, map)?;
+        state.id_palette_cache = Some(((ts, map, generation, u64::MAX), colors));
     }
-    let ((_, _, counted), p) = state.id_palette_cache.as_mut()?;
+    let ((_, _, _, counted), p) = state.id_palette_cache.as_mut()?;
     if *counted != revision {
-        state.session.count_id_masks(ts, p);
+        state.session.count_id_masks_in(ts, map, p);
         *counted = revision;
     }
     Some(p.clone())
+}
+
+/// The ID map the editor works on in `ts`: the chosen one when `ts` has it baked, else the ID map.
+pub fn palette_map(state: &UiState, ts: TextureSetId) -> MeshMapKind {
+    let m = state.id_palette_map;
+    if m != MeshMapKind::Id && state.session.mesh_maps(ts).is_some_and(|maps| maps.get(m).is_some()) { m } else { MeshMapKind::Id }
 }
 
 /// A color picked in the 3D / 2D view with the editor's eyedropper: select it and feed it to the
@@ -42,7 +50,7 @@ pub fn palette(state: &mut UiState, ts: TextureSetId) -> Option<Vec<IdPaletteEnt
 pub fn picked(state: &mut UiState, ts: TextureSetId, color: [f32; 3], now: f64) {
     state.id_palette_selected = Some(color);
     state.id_palette_new = color;
-    match state.session.feed_id_color(ts, color) {
+    match state.session.feed_id_color_in(ts, palette_map(state, ts), color) {
         Ok(what) => state.set_status(format!("ID color {} picked. {what}", hex(color)), now),
         Err(e) => state.set_status(format!("ID color {} picked (not added to a mask: {e})", hex(color)), now),
     }
@@ -53,6 +61,24 @@ pub fn section(state: &mut UiState, ui: &mut Ui) {
     ui.label(RichText::new("ID COLORS").font(theme::font_strong(12.0)).color(TEXT()));
     ui.add_space(2.0);
     let ts = state.session.selected_texture_set().id;
+    // Which ID map: shown once the set has an additional one (issue #733).
+    let extra = state.session.extra_id_maps(ts);
+    let map = palette_map(state, ts);
+    if !extra.is_empty() {
+        ui.horizontal(|ui| {
+            ui.label(RichText::new(crate::i18n::tr("ID map")).small().color(TEXT_DIM()));
+            egui::ComboBox::from_id_salt("id_palette_map").selected_text(map.display_name()).show_ui(ui, |ui| {
+                for m in std::iter::once(MeshMapKind::Id).chain(extra.iter().copied()) {
+                    if ui.selectable_label(m == map, m.display_name()).clicked() && m != map {
+                        state.id_palette_map = m;
+                        // A color of one map is not an ID of another.
+                        state.id_palette_selected = None;
+                    }
+                }
+            });
+        });
+    }
+    let map = palette_map(state, ts);
     let Some(entries) = palette(state, ts) else {
         state.picking_id_palette = false;
         ui.label(RichText::new("No ID map yet: bake one (Bake Mesh Maps) or import one (Import mesh maps…).").small().color(TEXT_FAINT()));
@@ -126,7 +152,7 @@ pub fn section(state: &mut UiState, ui: &mut Ui) {
     }
     ui.horizontal(|ui| {
         if ui.button("Mask selected layer by this color").on_hover_text("Add it to the selected layer's ID Color mask, or give the layer one").clicked() {
-            match state.session.feed_id_color(ts, sel) {
+            match state.session.feed_id_color_in(ts, map, sel) {
                 Ok(what) => state.set_status(what, now),
                 Err(e) => state.set_status(format!("ID color: {e}"), now),
             }
@@ -134,7 +160,7 @@ pub fn section(state: &mut UiState, ui: &mut Ui) {
     });
     if apply {
         let to = state.id_palette_new;
-        match state.session.edit_id_color(ts, sel, to) {
+        match state.session.edit_id_color_in(ts, map, sel, to) {
             Ok(()) => {
                 state.id_palette_selected = Some(to);
                 state.set_status(format!("ID color {} → {} ({} mask{} updated)", hex(sel), hex(to), entry.masks, if entry.masks == 1 { "" } else { "s" }), now);
@@ -160,25 +186,39 @@ pub fn parse_hex(text: &str) -> Option<[f32; 3]> {
     Some([((v >> 16) & 255) as f32 / 255.0, ((v >> 8) & 255) as f32 / 255.0, (v & 255) as f32 / 255.0])
 }
 
+/// The ID map an ID Color mask effect reads (`None` when it is not one).
+fn mask_id_map(state: &UiState, layer: subcraft_core::LayerId, effect: subcraft_core::EffectId) -> Option<MeshMapKind> {
+    let mask = state.session.selected_texture_set().find(layer)?.mask.as_ref()?;
+    match &mask.effects.iter().find(|e| e.id == effect)?.kind {
+        subcraft_doc::MaskEffectKind::IdColor(id) => Some(id.map),
+        _ => None,
+    }
+}
+
 /// Issue #333: while an ID eyedropper is armed (an ID Color mask's "Pick from model", or the ID
 /// color editor's), the 3D view shows the ID map; when the pick ends (the button again, Esc, or
 /// another layer) the view goes back to the mode it was in. Call once per frame.
 pub fn sync_pick_view(state: &mut UiState) {
-    use subcraft_core::MeshMapKind;
     let picking = state.picking_id_color.is_some() || state.picking_id_palette;
+    // The map being picked from: the ID Color mask's own, or the editor's (issue #733).
+    let ts = state.session.selected_texture_set().id;
+    let shown = match state.picking_id_color {
+        Some((layer, effect)) => mask_id_map(state, layer, effect).filter(|m| state.session.mesh_maps(ts).is_some_and(|maps| maps.get(*m).is_some())).unwrap_or(MeshMapKind::Id),
+        None => palette_map(state, ts),
+    };
     let view = &mut state.recovery.prefs.viewport.mesh_map;
     match (picking, state.id_pick_view) {
         (true, None) => {
             // Only when there is an ID map to look at.
-            if state.session.has_id_map(state.session.selected_texture_set().id) {
+            if state.session.has_id_map(ts) {
                 state.id_pick_view = Some(*view);
-                *view = Some(MeshMapKind::Id);
+                *view = Some(shown);
             }
         }
         (false, Some(before)) => {
             state.id_pick_view = None;
             // A mode the owner picked during the pick stays.
-            if *view == Some(MeshMapKind::Id) { *view = before; }
+            if view.is_some_and(|m| m.is_id()) { *view = before; }
         }
         _ => {}
     }
@@ -314,5 +354,50 @@ mod palette_cache_tests {
         let after_map = palette(&mut state, ts).unwrap();
         assert_eq!(after_map.len(), 1);
         assert!(after_map.iter().all(|e| e.color != marked));
+    }
+}
+
+#[cfg(test)]
+mod extra_id_map_tests {
+    use super::*;
+
+    /// Issue #733 follow-up: the editor shows the chosen additional ID map's colors, and falls
+    /// back to the ID map in a set that doesn't have it.
+    #[test]
+    fn the_editor_shows_the_chosen_id_map_and_falls_back_without_it() {
+        let mut state = UiState::new(subcraft_app::Session::new(subcraft_mesh::primitives::plane(2.0, 2), 64), None);
+        let ts = state.session.selected_texture_set().id;
+        let mut id = subcraft_image::TiledImage::new(64, 64, 3, [0.0; 4]);
+        for y in 0..64 { for x in 0..64 { id.set(x, y, if x < 16 { [0.2, 0.6, 0.9, 1.0] } else { [0.9, 0.3, 0.3, 1.0] }); } }
+        let id2 = subcraft_image::TiledImage::new(64, 64, 3, [0.1, 0.8, 0.1, 1.0]);
+        state.session.set_mesh_maps(ts, std::collections::BTreeMap::from([(MeshMapKind::Id, id), (MeshMapKind::Id2, id2)]));
+        assert_eq!(palette(&mut state, ts).unwrap().len(), 2, "the ID map by default");
+        state.id_palette_map = MeshMapKind::Id2;
+        assert_eq!(palette_map(&state, ts), MeshMapKind::Id2);
+        let p = palette(&mut state, ts).unwrap();
+        assert_eq!(p.len(), 1, "ID 2's colors (the cache follows the map)");
+        assert!(same_id(p[0].color, [0.1, 0.8, 0.1]));
+        state.id_palette_map = MeshMapKind::Id4;
+        assert_eq!(palette_map(&state, ts), MeshMapKind::Id, "not baked: the ID map");
+        assert_eq!(palette(&mut state, ts).unwrap().len(), 2);
+        // Picking from the editor while ID 2 is shown, the 3D view shows ID 2.
+        state.id_palette_map = MeshMapKind::Id2;
+        state.recovery.prefs.viewport.mesh_map = None;
+        state.picking_id_palette = true;
+        sync_pick_view(&mut state);
+        assert_eq!(state.recovery.prefs.viewport.mesh_map, Some(MeshMapKind::Id2));
+        state.picking_id_palette = false;
+        sync_pick_view(&mut state);
+        assert_eq!(state.recovery.prefs.viewport.mesh_map, None);
+        // The section draws the ID map dropdown.
+        let ctx = egui::Context::default();
+        crate::theme::apply(&ctx);
+        let mut texts = Vec::new();
+        for _ in 0..2 {
+            let mut out = ctx.run_ui(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 600.0))), ..Default::default() }, |ui| section(&mut state, ui));
+            out.textures_delta.clear();
+            texts = out.shapes.iter().filter_map(|s| if let egui::Shape::Text(t) = &s.shape { Some(t.galley.text().to_string()) } else { None }).collect::<Vec<_>>();
+        }
+        assert!(texts.iter().any(|t| t == "ID map") && texts.iter().any(|t| t == "1 color"), "{texts:?}");
     }
 }

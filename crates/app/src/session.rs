@@ -324,7 +324,7 @@ pub struct Session {
     mesh_maps: HashMap<TextureSetId, MeshMaps>,
     /// ID maps as baked / imported, with the document edits currently applied over them in
     /// `mesh_maps` (see `crate::id_color`).
-    id_baked: HashMap<TextureSetId, (subcraft_image::TiledImage, Vec<subcraft_doc::IdColorEdit>)>,
+    id_baked: HashMap<(TextureSetId, subcraft_core::MeshMapKind), (subcraft_image::TiledImage, Vec<subcraft_doc::IdColorEdit>)>,
     no_maps: MeshMaps,
     pub(crate) history: History,
     /// Which instances are in step with their sources (see `subcraft_doc::instance`).
@@ -688,8 +688,8 @@ impl Session {
     /// Install baked maps (merged over existing ones) and refresh that set's composite.
     pub fn set_mesh_maps(&mut self, ts: TextureSetId, maps: std::collections::BTreeMap<subcraft_core::MeshMapKind, subcraft_image::TiledImage>) {
         self.settings.stale_mesh_maps.retain(|id| *id != ts);
-        if let Some(id) = maps.get(&subcraft_core::MeshMapKind::Id) {
-            self.id_baked.insert(ts, (id.clone(), Vec::new()));
+        for (kind, id) in maps.iter().filter(|(k, _)| k.is_id()) {
+            self.id_baked.insert((ts, *kind), (id.clone(), Vec::new()));
         }
         let entry = self.mesh_maps.entry(ts).or_default();
         let mut merged = entry.as_map().clone();
@@ -707,6 +707,7 @@ impl Session {
     /// window, issue #733). Returns whether any set had it; layers reading it see its neutral value.
     pub fn remove_mesh_map(&mut self, kind: subcraft_core::MeshMapKind) -> bool {
         let mut removed = false;
+        self.id_baked.retain(|(_, k), _| *k != kind);
         for (ts, maps) in self.mesh_maps.iter_mut() {
             if maps.get(kind).is_some() {
                 let mut m = maps.as_map().clone();
@@ -724,11 +725,13 @@ impl Session {
         removed
     }
 
-    /// Maps as they are saved: the ID map as baked / imported (its edits are in the document).
+    /// Maps as they are saved: the ID maps as baked / imported (their edits are in the document).
     fn stored_mesh_maps(&self, ts: TextureSetId) -> std::collections::BTreeMap<subcraft_core::MeshMapKind, subcraft_image::TiledImage> {
         let mut maps = self.mesh_maps.get(&ts).map(|m| m.as_map().clone()).unwrap_or_default();
-        if let Some((baked, _)) = self.id_baked.get(&ts) && maps.contains_key(&subcraft_core::MeshMapKind::Id) {
-            maps.insert(subcraft_core::MeshMapKind::Id, baked.clone());
+        for ((t, kind), (baked, _)) in &self.id_baked {
+            if *t == ts && maps.contains_key(kind) {
+                maps.insert(*kind, baked.clone());
+            }
         }
         maps
     }
@@ -736,23 +739,27 @@ impl Session {
     /// Take the installed ID maps as the baked ones (after loading or replacing all maps).
     fn capture_baked_ids(&mut self) {
         self.id_baked = self.mesh_maps.iter()
-            .filter_map(|(ts, m)| Some((*ts, (m.get(subcraft_core::MeshMapKind::Id)?.clone(), Vec::new()))))
+            .flat_map(|(ts, m)| std::iter::once(subcraft_core::MeshMapKind::Id).chain(subcraft_core::MeshMapKind::EXTRA_IDS)
+                .filter_map(move |k| Some(((*ts, k), (m.get(k)?.clone(), Vec::new())))))
             .collect();
     }
 
-    /// Show each set's ID map with the document's ID color edits (after edits, undo and redo).
+    /// Show each set's ID maps with the document's ID color edits (after edits, undo and redo).
+    /// Each ID map (the ID map and the additional ones, issue #733) takes only its own edits.
     pub(crate) fn sync_id_maps(&mut self) {
         let mut changed = Vec::new();
-        for ts in &self.doc.texture_sets {
-            if let Some((baked, applied)) = self.id_baked.get(&ts.id) && *applied != ts.id_color_edits {
-                changed.push((ts.id, crate::id_color::apply_id_edits(baked, &ts.id_color_edits), ts.id_color_edits.clone()));
+        for ((ts_id, kind), (baked, applied)) in &self.id_baked {
+            let Some(ts) = self.doc.texture_set(*ts_id) else { continue };
+            let edits: Vec<subcraft_doc::IdColorEdit> = ts.id_color_edits.iter().filter(|e| e.map == *kind).copied().collect();
+            if *applied != edits {
+                changed.push((*ts_id, *kind, crate::id_color::apply_id_edits(baked, &edits), edits));
             }
         }
-        for (ts, image, edits) in changed {
-            if let Some(entry) = self.id_baked.get_mut(&ts) { entry.1 = edits; }
+        for (ts, kind, image, edits) in changed {
+            if let Some(entry) = self.id_baked.get_mut(&(ts, kind)) { entry.1 = edits; }
             let entry = self.mesh_maps.entry(ts).or_default();
             let mut maps = entry.as_map().clone();
-            maps.insert(subcraft_core::MeshMapKind::Id, image);
+            maps.insert(kind, image);
             *entry = MeshMaps::from_map(maps);
             self.invalidated.insert(ts);
             self.maps_dirty = true;
@@ -2387,7 +2394,7 @@ impl Session {
             }
             Command::ClearMeshMap { texture_set, kind } => {
                 if self.doc.texture_set(texture_set).is_none() { return Err(CommandError::TextureSetNotFound); }
-                if kind == subcraft_core::MeshMapKind::Id { self.id_baked.remove(&texture_set); }
+                self.id_baked.remove(&(texture_set, kind));
                 if self.mesh_maps.get_mut(&texture_set).is_some_and(|m| m.remove(kind).is_some()) {
                     self.invalidated.insert(texture_set);
                     self.maps_dirty = true;
@@ -2886,12 +2893,13 @@ impl Session {
                     Ok(())
                 })?;
             }
-            Command::EditIdColor { texture_set, from, to } => {
+            Command::EditIdColor { texture_set, map, from, to } => {
                 if from.iter().chain(&to).any(|v| !v.is_finite()) { return Err(CommandError::Invalid("invalid ID color".into())); }
-                let baked_has_from = self.id_baked.get(&texture_set).is_some_and(|(baked, _)| crate::id_color::image_has_color(baked, from));
+                if !map.is_id() { return Err(CommandError::Invalid("not an ID map".into())); }
+                let baked_has_from = self.id_baked.get(&(texture_set, map)).is_some_and(|(baked, _)| crate::id_color::image_has_color(baked, from));
                 let ts = self.doc.texture_set_mut(texture_set).ok_or(CommandError::TextureSetNotFound)?;
                 let before = ts.clone();
-                crate::id_color::edit_id_color(ts, from, to, baked_has_from);
+                crate::id_color::edit_id_color(ts, map, from, to, baked_has_from);
                 // An edit that changes nothing adds no undo step (it used to, and wiped redo).
                 if *ts != before {
                     self.commit("Edit ID Color", None);

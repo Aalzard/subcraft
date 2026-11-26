@@ -246,9 +246,11 @@ pub struct TextureSet {
     pub id_color_edits: Vec<IdColorEdit>,
 }
 
-/// One edited ID color: texels of `from` in the baked ID map show `to`.
+/// One edited ID color: texels of `from` in the baked ID map `map` show `to`.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct IdColorEdit {
+    /// The ID map it edits: the ID map, or an additional one (issue #733).
+    pub map: subcraft_core::MeshMapKind,
     pub from: [f32; 3],
     pub to: [f32; 3],
 }

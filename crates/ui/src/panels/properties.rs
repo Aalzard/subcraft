@@ -620,7 +620,7 @@ pub(crate) fn random_seed() -> u32 {
 /// Controls of a generator in a layer's content stack: kind, level and contrast, the breakup
 /// seed and Invert.
 pub(crate) fn content_generator_controls(ui: &mut Ui, state: &mut UiState, g: &mut subcraft_doc::Generator) -> bool {
-    let mut changed = generator_kind_row(ui, g);
+    let mut changed = generator_kind_row(ui, state, g);
     if g.kind.uses_shape() {
         // The position, UV and conversion kinds have their own settings (an image for Grayscale
         // Conversion is picked on a mask generator; here it shows the one it has).
@@ -654,11 +654,22 @@ pub fn all_generator_kinds() -> Vec<GeneratorKind> {
         .into_iter().chain(MeshMapKind::ALL.into_iter().map(GeneratorKind::MeshMap)).collect()
 }
 
-/// The Generator dropdown of a generator mask effect.
-fn generator_kind_row(ui: &mut Ui, g: &mut subcraft_doc::Generator) -> bool {
+/// The Generator dropdown entries: every kind, plus a "Mesh Map: ID n" for each additional ID
+/// map (issue #733) that is baked in `extra_ids` or already chosen by `current`.
+fn generator_kind_choices(current: GeneratorKind, extra_ids: &[MeshMapKind]) -> Vec<GeneratorKind> {
+    let extra = MeshMapKind::EXTRA_IDS.into_iter()
+        .filter(|k| extra_ids.contains(k) || current == GeneratorKind::MeshMap(*k))
+        .map(GeneratorKind::MeshMap);
+    all_generator_kinds().into_iter().chain(extra).collect()
+}
+
+/// The Generator dropdown of a generator mask effect. `state` gives the selected texture set's
+/// additional ID maps.
+fn generator_kind_row(ui: &mut Ui, state: &UiState, g: &mut subcraft_doc::Generator) -> bool {
+    let extra_ids = state.session.extra_id_maps(state.session.selection().texture_set);
     let mut picked = None;
     prop_row(ui, tr("Generator"), |ui| egui::ComboBox::from_id_salt("generator_kind").selected_text(g.kind.label()).show_ui(ui, |ui| {
-        for kind in all_generator_kinds() {
+        for kind in generator_kind_choices(g.kind, &extra_ids) {
             if ui.selectable_label(g.kind == kind, kind.label()).clicked() && g.kind != kind { picked = Some(kind); }
         }
     }));
@@ -1219,7 +1230,7 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
                     hint(ui, tr("Gray value of the anchor (color channels by luminance), times its coverage. Stack Levels or Invert above it to remap."));
                 }
                 MaskEffectKind::Generator(g) if g.kind == GeneratorKind::MaskEditor => {
-                    changed |= generator_kind_row(ui, g);
+                    changed |= generator_kind_row(ui, state, g);
                     let (edited, pick) = mask_editor_controls(ui, state, g);
                     changed |= edited;
                     if let Some(slot) = pick {
@@ -1227,11 +1238,11 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
                     }
                 }
                 MaskEffectKind::Generator(g) if g.kind == GeneratorKind::MaskBuilder => {
-                    changed |= generator_kind_row(ui, g);
+                    changed |= generator_kind_row(ui, state, g);
                     changed |= mask_builder_controls(ui, g);
                 }
                 MaskEffectKind::Generator(g) if g.kind.uses_shape() => {
-                    changed |= generator_kind_row(ui, g);
+                    changed |= generator_kind_row(ui, state, g);
                     let (edited, pick) = shape_generator_controls(ui, state, g);
                     changed |= edited;
                     if pick {
@@ -1239,7 +1250,7 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
                     }
                 }
                 MaskEffectKind::Generator(g) => {
-                    changed |= generator_kind_row(ui, g);
+                    changed |= generator_kind_row(ui, state, g);
                     // Defaults: what a new generator of this kind starts with.
                     let dg = subcraft_doc::Generator::new(g.kind);
                     if g.accepts_input() {
@@ -2674,5 +2685,24 @@ mod warp_mode_tests {
         let source = include_str!("properties.rs");
         let fill = &source[source.find("pub(crate) fn fill_properties").unwrap()..];
         assert!(fill[..fill.find("\n}").unwrap()].contains("(ProjectionMode::Warp, \"Warp projection\")"), "fill layers keep Warp");
+    }
+}
+
+#[cfg(test)]
+mod generator_choice_tests {
+    use super::*;
+
+    /// Issue #733 follow-up: the Generator dropdown lists the additional ID maps that are baked,
+    /// keeps one that is chosen but no longer baked, and adds nothing when there are none.
+    #[test]
+    fn generator_dropdown_lists_baked_extra_id_maps() {
+        let base = all_generator_kinds();
+        assert_eq!(generator_kind_choices(GeneratorKind::Edges, &[]), base);
+        let with = generator_kind_choices(GeneratorKind::Edges, &[MeshMapKind::Id3, MeshMapKind::Id2]);
+        assert_eq!(with.len(), base.len() + 2);
+        assert_eq!(&with[base.len()..], &[GeneratorKind::MeshMap(MeshMapKind::Id2), GeneratorKind::MeshMap(MeshMapKind::Id3)], "slot order");
+        let kept = generator_kind_choices(GeneratorKind::MeshMap(MeshMapKind::Id5), &[]);
+        assert_eq!(kept.last(), Some(&GeneratorKind::MeshMap(MeshMapKind::Id5)), "the chosen map stays listed");
+        assert!(!base.iter().any(|k| matches!(k, GeneratorKind::MeshMap(m) if m.extra_id_index().is_some())));
     }
 }

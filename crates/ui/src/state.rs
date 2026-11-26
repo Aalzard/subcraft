@@ -320,9 +320,12 @@ pub struct UiState {
     pub id_pick_view: Option<Option<subcraft_core::MeshMapKind>>,
     /// Color selected in the ID color editor (as shown in the ID map).
     pub id_palette_selected: Option<[f32; 3]>,
-    /// The editor's palette: (texture set, maps generation its colors come from, document
+    /// The ID map the editor shows and edits: the ID map or an additional one (issue #733). A set
+    /// without that map shows its ID map (`id_colors::palette_map`).
+    pub id_palette_map: subcraft_core::MeshMapKind,
+    /// The editor's palette: (texture set, ID map, maps generation its colors come from, document
     /// revision its mask counts come from).
-    pub id_palette_cache: Option<((subcraft_core::TextureSetId, u64, u64), Vec<subcraft_app::id_color::IdPaletteEntry>)>,
+    pub id_palette_cache: Option<((subcraft_core::TextureSetId, subcraft_core::MeshMapKind, u64, u64), Vec<subcraft_app::id_color::IdPaletteEntry>)>,
     /// The color being typed / picked as the replacement of `id_palette_selected`.
     pub id_palette_new: [f32; 3],
     /// "Import mesh maps…" from Texture Set Settings.
@@ -634,6 +637,7 @@ impl UiState {
             picking_id_palette: false,
             id_pick_view: None,
             id_palette_selected: None,
+            id_palette_map: subcraft_core::MeshMapKind::Id,
             id_palette_cache: None,
             id_palette_new: [1.0, 1.0, 1.0],
             mesh_map_import: Default::default(),

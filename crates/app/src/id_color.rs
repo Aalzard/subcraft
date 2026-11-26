@@ -40,9 +40,16 @@ impl Session {
 
     /// ID color under a screen position, with the texture set it belongs to.
     pub fn id_color_under(&self, camera: &Camera, screen: Vec2) -> Option<(TextureSetId, [f32; 3])> {
+        let (ts, uv) = self.texture_uv_under(camera, screen)?;
+        Some((ts, self.id_map_color(ts, uv)?))
+    }
+
+    /// The texture set and texture UV under a screen position (`None` off the model), for
+    /// reading any ID map there with [`Self::id_map_color_in`].
+    pub fn texture_uv_under(&self, camera: &Camera, screen: Vec2) -> Option<(TextureSetId, Vec2)> {
         let pick = self.pick(camera, screen)?;
         let ts = self.document().texture_set_for_slot(pick.material_slot)?.id;
-        Some((ts, self.id_map_color(ts, pick.uv)?))
+        Some((ts, pick.uv))
     }
 
     /// Eyedropper for an ID Color Mask: adds the ID color under the cursor to the effect as one
@@ -146,15 +153,18 @@ pub(crate) fn image_has_color(img: &subcraft_image::TiledImage, c: [f32; 3]) -> 
 /// or both after two colors were merged. QA 2026-11: only the first edit showing `from` was
 /// rewritten, so after merging A into B, editing B changed the former A region alone while the
 /// masks switched to the new color and lost the original B region.
-pub(crate) fn edit_id_color(ts: &mut subcraft_doc::TextureSet, from: [f32; 3], to: [f32; 3], baked_has_from: bool) {
+///
+/// Only edits of `map` and ID Color masks reading `map` are touched: the same color in another ID
+/// map is another ID (issue #733).
+pub(crate) fn edit_id_color(ts: &mut subcraft_doc::TextureSet, map: MeshMapKind, from: [f32; 3], to: [f32; 3], baked_has_from: bool) {
     // Baked texels of `from` show `from` unless an edit already maps them elsewhere.
-    let baked_shown = baked_has_from && !ts.id_color_edits.iter().any(|e| same_id(e.from, from));
-    for e in ts.id_color_edits.iter_mut().filter(|e| same_id(e.to, from)) {
+    let baked_shown = baked_has_from && !ts.id_color_edits.iter().any(|e| e.map == map && same_id(e.from, from));
+    for e in ts.id_color_edits.iter_mut().filter(|e| e.map == map && same_id(e.to, from)) {
         e.to = to;
     }
     ts.id_color_edits.retain(|e| !same_id(e.from, e.to));
     if baked_shown && !same_id(from, to) {
-        ts.id_color_edits.push(subcraft_doc::IdColorEdit { from, to });
+        ts.id_color_edits.push(subcraft_doc::IdColorEdit { map, from, to });
     }
     let mut ids = Vec::new();
     ts.walk(|l, _| ids.push(l.id));
@@ -163,7 +173,7 @@ pub(crate) fn edit_id_color(ts: &mut subcraft_doc::TextureSet, from: [f32; 3], t
         let Some(mask) = layer.mask.as_mut() else { continue };
         for effect in &mut mask.effects {
             let MaskEffectKind::IdColor(m) = &effect.kind else { continue };
-            if !m.colors.iter().any(|c| same_id(*c, from)) { continue; }
+            if m.map != map || !m.colors.iter().any(|c| same_id(*c, from)) { continue; }
             let MaskEffectKind::IdColor(m) = &mut Arc::make_mut(effect).kind else { continue };
             let mut colors: Vec<[f32; 3]> = Vec::with_capacity(m.colors.len());
             for c in m.colors.iter().map(|c| if same_id(*c, from) { to } else { *c }) {
@@ -192,8 +202,13 @@ impl Session {
     /// The colors of the set's ID map, most common first (`None` without an ID map). Colors are
     /// grouped by 8-bit value; at most [`MAX_PALETTE`].
     pub fn id_palette(&self, texture_set: TextureSetId) -> Option<Vec<IdPaletteEntry>> {
-        let mut palette = self.id_map_colors(texture_set)?;
-        self.count_id_masks(texture_set, &mut palette);
+        self.id_palette_in(texture_set, MeshMapKind::Id)
+    }
+
+    /// [`Self::id_palette`] of one ID map: the ID map or an additional one (issue #733).
+    pub fn id_palette_in(&self, texture_set: TextureSetId, map: MeshMapKind) -> Option<Vec<IdPaletteEntry>> {
+        let mut palette = self.id_map_colors_in(texture_set, map)?;
+        self.count_id_masks_in(texture_set, map, &mut palette);
         Some(palette)
     }
 
@@ -201,7 +216,13 @@ impl Session {
     /// of the ID map, and depends only on the shown map: it changes with
     /// [`Session::maps_generation`], not with every document edit.
     pub fn id_map_colors(&self, texture_set: TextureSetId) -> Option<Vec<IdPaletteEntry>> {
-        let img = self.mesh_maps(texture_set)?.get(MeshMapKind::Id)?;
+        self.id_map_colors_in(texture_set, MeshMapKind::Id)
+    }
+
+    /// [`Self::id_map_colors`] of one ID map (`None` when it is not baked or not an ID map).
+    pub fn id_map_colors_in(&self, texture_set: TextureSetId, map: MeshMapKind) -> Option<Vec<IdPaletteEntry>> {
+        if !map.is_id() { return None; }
+        let img = self.mesh_maps(texture_set)?.get(map)?;
         let comps = img.comps();
         let dense = img.to_dense();
         let mut counts: std::collections::HashMap<[u8; 3], (usize, [f32; 3])> = std::collections::HashMap::new();
@@ -221,12 +242,17 @@ impl Session {
     /// Set `masks` of each palette entry: how many ID Color mask effects of the set use it (cheap,
     /// follows the document).
     pub fn count_id_masks(&self, texture_set: TextureSetId, palette: &mut [IdPaletteEntry]) {
+        self.count_id_masks_in(texture_set, MeshMapKind::Id, palette);
+    }
+
+    /// [`Self::count_id_masks`] counting only the masks that read ID map `map`.
+    pub fn count_id_masks_in(&self, texture_set: TextureSetId, map: MeshMapKind, palette: &mut [IdPaletteEntry]) {
         let Some(ts) = self.document().texture_set(texture_set) else { return };
         let mut used: Vec<[f32; 3]> = Vec::new();
         ts.walk(|l, _| {
             if let Some(m) = &l.mask {
                 for e in &m.effects {
-                    if let MaskEffectKind::IdColor(id) = &e.kind { used.extend(id.colors.iter().copied()); }
+                    if let MaskEffectKind::IdColor(id) = &e.kind && id.map == map { used.extend(id.colors.iter().copied()); }
                 }
             }
         });
@@ -238,18 +264,29 @@ impl Session {
     /// Change one ID map color (as shown) to `to`, updating every ID Color mask of the set that
     /// uses it. One undo step; undo restores the map color and the masks together.
     pub fn edit_id_color(&mut self, texture_set: TextureSetId, from: [f32; 3], to: [f32; 3]) -> Result<(), CommandError> {
-        if !self.has_id_map(texture_set) {
-            return Err(CommandError::Invalid("bake or import an ID map first".into()));
+        self.edit_id_color_in(texture_set, MeshMapKind::Id, from, to)
+    }
+
+    /// [`Self::edit_id_color`] in one ID map: the ID map or an additional one (issue #733). Only
+    /// ID Color masks reading that map follow.
+    pub fn edit_id_color_in(&mut self, texture_set: TextureSetId, map: MeshMapKind, from: [f32; 3], to: [f32; 3]) -> Result<(), CommandError> {
+        if !map.is_id() || self.mesh_maps(texture_set).and_then(|m| m.get(map)).is_none() {
+            return Err(CommandError::Invalid(if map == MeshMapKind::Id { "bake or import an ID map first".into() } else { format!("bake {} first", map.display_name()) }));
         }
-        self.execute(Command::EditIdColor { texture_set, from, to })
+        self.execute(Command::EditIdColor { texture_set, map, from, to })
     }
 
     /// The selected layer's ID Color mask effect: the selected effect when it is one, else the
     /// first in the mask.
     pub fn selected_id_color_effect(&self) -> Option<(LayerId, EffectId)> {
+        self.selected_id_color_effect_in(None)
+    }
+
+    /// [`Self::selected_id_color_effect`] limited to effects reading ID map `map` when given.
+    pub fn selected_id_color_effect_in(&self, map: Option<MeshMapKind>) -> Option<(LayerId, EffectId)> {
         let layer = self.selected_layer()?;
         let mask = layer.mask.as_ref()?;
-        let is_id = |e: &subcraft_doc::MaskEffect| matches!(e.kind, MaskEffectKind::IdColor(_));
+        let is_id = |e: &subcraft_doc::MaskEffect| matches!(&e.kind, MaskEffectKind::IdColor(id) if map.is_none_or(|m| id.map == m));
         let effect = self.selected_effect().filter(|id| mask.effects.iter().any(|e| e.id == *id && is_id(e)))
             .or_else(|| mask.effects.iter().find(|e| is_id(e)).map(|e| e.id))?;
         Some((layer.id, effect))
@@ -259,10 +296,17 @@ impl Session {
     /// layer's ID Color mask, or give the selected layer an ID Color mask selecting it. Returns
     /// what was done, for the status line.
     pub fn feed_id_color(&mut self, texture_set: TextureSetId, color: [f32; 3]) -> Result<String, CommandError> {
+        self.feed_id_color_in(texture_set, MeshMapKind::Id, color)
+    }
+
+    /// [`Self::feed_id_color`] for a color of ID map `map`: it goes to an ID Color mask reading
+    /// that map, or to a new one set to read it (issue #733).
+    pub fn feed_id_color_in(&mut self, texture_set: TextureSetId, map: MeshMapKind, color: [f32; 3]) -> Result<String, CommandError> {
         if self.selection().texture_set != texture_set {
             return Err(CommandError::Invalid("select a layer in this part's texture set first".into()));
         }
-        if let Some((layer, effect)) = self.selected_id_color_effect() {
+        if !map.is_id() { return Err(CommandError::Invalid("not an ID map".into())); }
+        if let Some((layer, effect)) = self.selected_id_color_effect_in(Some(map)) {
             let layer_ref = self.document().texture_sets.iter().find_map(|t| t.find(layer));
             let mut id = Self::id_color_effect(layer_ref, effect)?.clone();
             if id.colors.iter().any(|c| same_id(*c, color)) { return Ok("That ID color is already in the mask.".into()); }
@@ -271,7 +315,7 @@ impl Session {
             return Ok("ID color added to the layer's ID Color mask.".into());
         }
         let layer = self.selection().layer.ok_or_else(|| CommandError::Invalid("select a layer to mask by this ID color".into()))?;
-        let mut id = IdColorMask::default();
+        let mut id = IdColorMask { map, ..IdColorMask::default() };
         id.add_color(color);
         self.execute(Command::ApplyMaskEffects { layer, effects: vec![MaskEffectKind::IdColor(id)], label: "Mask by ID Color".into() })?;
         Ok("The selected layer is now masked by this ID color.".into())

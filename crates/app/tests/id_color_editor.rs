@@ -201,3 +201,74 @@ fn feeding_a_picked_color_creates_or_extends_the_selected_layers_id_mask() {
     s.feed_id_color(ts, blue).unwrap();
     assert_eq!(s.history().entries().len(), entries, "a repeated color adds no history entry");
 }
+
+/// Top half RED, bottom half BLUE: the same colors as [`id_map`] in another layout, as an
+/// additional ID map baked from another grouping would have.
+fn id2_map() -> TiledImage {
+    let mut img = TiledImage::new(RES, RES, 3, [0.0; 4]);
+    for y in 0..RES {
+        for x in 0..RES {
+            let c = if y < RES / 2 { RED } else { BLUE };
+            img.set(x, y, [c[0], c[1], c[2], 1.0]);
+        }
+    }
+    img
+}
+
+fn id_effects(s: &Session, layer: subcraft_core::LayerId) -> Vec<subcraft_doc::IdColorMask> {
+    s.selected_texture_set().find(layer).unwrap().mask.as_ref().unwrap().effects.iter()
+        .filter_map(|e| match &e.kind { MaskEffectKind::IdColor(id) => Some(id.clone()), _ => None }).collect()
+}
+
+/// Issue #733 follow-up: the ID color editor works on an additional ID map. A color of ID 2 is
+/// its own ID: editing it changes only ID 2 and the masks reading ID 2, picks feed a mask reading
+/// ID 2, and the edit is saved over the baked ID 2 like the ID map's edits.
+#[test]
+fn the_editor_edits_an_additional_id_map_on_its_own() {
+    let (mut s, layer, effect) = setup();
+    let ts = s.selection().texture_set;
+    s.set_mesh_maps(ts, BTreeMap::from([(MeshMapKind::Id2, id2_map())]));
+    // The layer's ID map mask selects RED; feeding an ID 2 color gives it a second mask reading ID 2.
+    let red = s.pick_id_color_uv(layer, effect, Vec2::new(0.25, 0.5)).unwrap().unwrap();
+    let red2 = s.id_map_color_in(ts, MeshMapKind::Id2, Vec2::new(0.5, 0.25)).unwrap();
+    s.feed_id_color_in(ts, MeshMapKind::Id2, red2).unwrap();
+    let ids = id_effects(&s, layer);
+    assert_eq!(ids.len(), 2, "a second ID Color mask, reading ID 2");
+    assert_eq!((ids[0].map, ids[1].map), (MeshMapKind::Id, MeshMapKind::Id2));
+    // Mask counts are per map.
+    let p1 = s.id_palette_in(ts, MeshMapKind::Id).unwrap();
+    let p2 = s.id_palette_in(ts, MeshMapKind::Id2).unwrap();
+    assert_eq!(p1.iter().find(|e| same_id(e.color, red)).unwrap().masks, 1);
+    assert_eq!(p2.iter().find(|e| same_id(e.color, red2)).unwrap().masks, 1);
+    assert!(s.id_palette_in(ts, MeshMapKind::Id3).is_none(), "not baked");
+
+    let steps = s.history().entries().len();
+    s.edit_id_color_in(ts, MeshMapKind::Id2, red2, GOLD).unwrap();
+    assert_eq!(s.history().entries().len(), steps + 1, "one undo step");
+    let at = |s: &Session, k: MeshMapKind, x: u32, y: u32| { let c = s.mesh_maps(ts).unwrap().get(k).unwrap().get(x, y); [c[0], c[1], c[2]] };
+    assert!(same_id(at(&s, MeshMapKind::Id2, 10, 10), GOLD), "ID 2 recolored");
+    assert!(same_id(at(&s, MeshMapKind::Id, 10, 10), RED), "the ID map keeps its RED");
+    let ids = id_effects(&s, layer);
+    assert!(same_id(ids[0].colors[0], RED), "the ID map's mask keeps RED");
+    assert!(same_id(ids[1].colors[0], GOLD), "the ID 2 mask follows");
+    assert!(s.edit_id_color_in(ts, MeshMapKind::Id3, RED, GOLD).is_err(), "ID 3 is not baked");
+
+    // Saved over the baked ID 2, shown again on reopening.
+    let dir = std::env::temp_dir().join(format!("subcraft-id2-editor-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("ids.subcraft");
+    s.save(Some(&path)).unwrap();
+    let data = subcraft_project::load_project(&path).unwrap();
+    let stored = data.mesh_maps[&ts][&MeshMapKind::Id2].get(10, 10);
+    assert!(same_id([stored[0], stored[1], stored[2]], RED), "baked ID 2 saved unchanged: {stored:?}");
+    let reopened = Session::open_project(&path).unwrap();
+    assert_eq!(reopened.document(), s.document());
+    assert!(same_id(at(&reopened, MeshMapKind::Id2, 10, 10), GOLD));
+    assert!(same_id(at(&reopened, MeshMapKind::Id, 10, 10), RED));
+    std::fs::remove_dir_all(&dir).ok();
+
+    // Undo puts ID 2 and its mask back together.
+    s.execute(Command::Undo).unwrap();
+    assert!(same_id(at(&s, MeshMapKind::Id2, 10, 10), RED));
+    assert!(same_id(id_effects(&s, layer)[1].colors[0], RED));
+}

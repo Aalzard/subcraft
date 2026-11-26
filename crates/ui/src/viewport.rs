@@ -353,7 +353,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         state.picking_id_palette = false;
     }
     if palette_picking && primary_pressed && response.hovered() && !alt && !stencil_edit && let Some(p) = pointer {
-        match state.session.id_color_under(&camera, to_screen(p)) {
+        // The color of the ID map the editor shows (an additional one, issue #733).
+        let hit = state.session.texture_uv_under(&camera, to_screen(p))
+            .and_then(|(ts, uv)| Some((ts, state.session.id_map_color_in(ts, crate::panels::id_colors::palette_map(state, ts), uv)?)));
+        match hit {
             Some((ts, color)) => {
                 if state.session.selection().texture_set != ts { let _ = state.session.execute(subcraft_app::Command::SelectTextureSet(ts)); }
                 crate::panels::id_colors::picked(state, ts, color, now);

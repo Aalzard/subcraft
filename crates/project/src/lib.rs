@@ -251,7 +251,7 @@ pub fn write_project_with<W: Write + Seek>(
                 .get(&ts.id)
                 .map(|m| m.iter().map(|(&kind, img)| MeshMapV1 { kind, raster: writer.raster(img) }).collect())
                 .unwrap_or_default(),
-            id_color_edits: ts.id_color_edits.iter().map(|e| crate::schema::IdColorEditV1 { from: e.from, to: e.to }).collect(),
+            id_color_edits: ts.id_color_edits.iter().map(|e| crate::schema::IdColorEditV1 { map: e.map, from: e.from, to: e.to }).collect(),
         })
         .collect();
     let (res_entries, res_files) = pack_resources(&referenced_resources(doc, settings), resources);
@@ -831,8 +831,8 @@ fn read_project_checked<R: Read + Seek>(r: R, trusted: bool, decoded: BTreeMap<S
             user_channel_names: t.user_channel_names.iter().filter(|(k, n)| k.is_user() && !n.trim().is_empty()).map(|(k, n)| (*k, n.clone())).collect(),
             layers: Vec::new(),
             id_color_edits: t.id_color_edits.iter()
-                .filter(|e| e.from.iter().chain(&e.to).all(|v| v.is_finite()))
-                .map(|e| subcraft_doc::IdColorEdit { from: e.from, to: e.to }).collect(),
+                .filter(|e| e.map.is_id() && e.from.iter().chain(&e.to).all(|v| v.is_finite()))
+                .map(|e| subcraft_doc::IdColorEdit { map: e.map, from: e.from, to: e.to }).collect(),
         };
         let layers = t.layers.iter().map(|l| loader.layer(l, ts.resolution).map(Arc::new)).collect::<Result<Vec<_>, _>>()?;
         ts.layers = layers;
