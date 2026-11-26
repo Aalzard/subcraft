@@ -917,6 +917,12 @@ Files: {}", ex.dir().display()));
                         crate::clipboard::request(ui.ctx(), crate::clipboard::Request::PasteContent { layer: Some(l.id) });
                         ui.close();
                     }
+                    // Issue #739: wipe what was painted, keeping the mask, effects and blending.
+                    let plain_paint = l.instance_of.is_none() && matches!(&l.content, LayerContent::Paint(p) if p.path.is_none() && p.text.is_none());
+                    if plain_paint && ui.button(tr("Clear layer content")).on_hover_text(tr("Removes everything painted on this layer; its mask, effects, blending and opacity stay")).clicked() {
+                        cmds.push(Command::ClearLayerContent(l.id));
+                        ui.close();
+                    }
                 }
                 ui.separator();
                 if ui.button(format!("{}  Create smart material", icons::SAVE)).clicked() {

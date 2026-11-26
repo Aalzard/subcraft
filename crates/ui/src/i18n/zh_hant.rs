@@ -2,6 +2,16 @@
 //! Terminology follows the usual Photoshop / Blender / Windows UI words (see docs/localization.md).
 
 pub static TABLE: &[(&str, &str)] = &[
+    ("Axis views", "軸向視圖"),
+    ("Back view", "後視圖"),
+    ("Bottom view", "底視圖"),
+    ("Clear layer content", "清除圖層內容"),
+    ("Click a dot of the axis indicator for the same views (Ctrl+click: from the other side)", "點擊軸向指示器上的圓點也可切換到這些視圖（Ctrl+點擊：從另一側）"),
+    ("Front view", "前視圖"),
+    ("Left view", "左視圖"),
+    ("Removes everything painted on this layer; its mask, effects, blending and opacity stay", "移除此圖層上繪製的所有內容；遮罩、效果、混合與不透明度保持不變"),
+    ("Right view", "右視圖"),
+    ("Top view", "頂視圖"),
     ("2D View", "2D 檢視"),
     ("2x supersampling", "2 倍超取樣"),
     ("3D View", "3D 檢視"),

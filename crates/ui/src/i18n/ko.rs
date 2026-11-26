@@ -2,6 +2,16 @@
 //! Terminology follows the usual Photoshop / Blender / Windows UI words (see docs/localization.md).
 
 pub static TABLE: &[(&str, &str)] = &[
+    ("Axis views", "축 뷰"),
+    ("Back view", "뒤쪽 뷰"),
+    ("Bottom view", "아래쪽 뷰"),
+    ("Clear layer content", "레이어 내용 지우기"),
+    ("Click a dot of the axis indicator for the same views (Ctrl+click: from the other side)", "축 표시기의 점을 클릭해도 같은 뷰가 됩니다(Ctrl+클릭: 반대쪽에서)"),
+    ("Front view", "앞쪽 뷰"),
+    ("Left view", "왼쪽 뷰"),
+    ("Removes everything painted on this layer; its mask, effects, blending and opacity stay", "이 레이어에 칠한 내용을 모두 지웁니다. 마스크, 효과, 블렌딩, 불투명도는 그대로 유지됩니다"),
+    ("Right view", "오른쪽 뷰"),
+    ("Top view", "위쪽 뷰"),
     ("2D View", "2D 뷰"),
     ("2x supersampling", "2배 슈퍼샘플링"),
     ("3D View", "3D 뷰"),

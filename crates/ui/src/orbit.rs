@@ -43,7 +43,97 @@ impl CameraView {
     }
 }
 
+/// A view straight down a world axis (Blender's numpad views, issue #740). The model's front
+/// faces +Z and its top +Y: Front looks from +Z, Right from +X, Top from +Y.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AxisView {
+    Front,
+    Back,
+    Right,
+    Left,
+    Top,
+    Bottom,
+}
+
+impl AxisView {
+    pub const ALL: [AxisView; 6] = [AxisView::Front, AxisView::Back, AxisView::Right, AxisView::Left, AxisView::Top, AxisView::Bottom];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            AxisView::Front => "Front",
+            AxisView::Back => "Back",
+            AxisView::Right => "Right",
+            AxisView::Left => "Left",
+            AxisView::Top => "Top",
+            AxisView::Bottom => "Bottom",
+        }
+    }
+
+    pub fn opposite(self) -> Self {
+        match self {
+            AxisView::Front => AxisView::Back,
+            AxisView::Back => AxisView::Front,
+            AxisView::Right => AxisView::Left,
+            AxisView::Left => AxisView::Right,
+            AxisView::Top => AxisView::Bottom,
+            AxisView::Bottom => AxisView::Top,
+        }
+    }
+
+    /// The view from the positive end of world axis `axis` (0 = X, 1 = Y, 2 = Z), or from its
+    /// negative end.
+    pub fn from_axis(axis: usize, negative: bool) -> Self {
+        let v = match axis {
+            0 => AxisView::Right,
+            1 => AxisView::Top,
+            _ => AxisView::Front,
+        };
+        if negative { v.opposite() } else { v }
+    }
+
+    /// What a click on an axis of the indicator shows: the view from that end of the axis, or the
+    /// opposite one when the camera already looks from there (as Blender's navigation gizmo).
+    pub fn clicked(axis: usize, negative: bool, current: Option<AxisView>) -> Self {
+        let v = Self::from_axis(axis, negative);
+        if current == Some(v) { v.opposite() } else { v }
+    }
+
+    /// Camera (yaw, pitch) in radians.
+    pub fn angles(self) -> (f32, f32) {
+        use std::f32::consts::{FRAC_PI_2, PI};
+        match self {
+            AxisView::Front => (0.0, 0.0),
+            AxisView::Back => (PI, 0.0),
+            AxisView::Right => (FRAC_PI_2, 0.0),
+            AxisView::Left => (-FRAC_PI_2, 0.0),
+            AxisView::Top => (0.0, FRAC_PI_2),
+            AxisView::Bottom => (0.0, -FRAC_PI_2),
+        }
+    }
+}
+
 impl OrbitCamera {
+    /// Look straight down a world axis: the target (pivot), distance and projection stay, the
+    /// roll is undone. Top and Bottom keep +X to the right, as in Blender.
+    pub fn set_axis_view(&mut self, view: AxisView) {
+        let (yaw, pitch) = view.angles();
+        self.yaw = yaw;
+        self.pitch = pitch;
+        self.roll = 0.0;
+    }
+
+    /// The axis view the camera shows now, if any (within a tenth of a degree).
+    pub fn axis_view(&self) -> Option<AxisView> {
+        let back = self.back();
+        let up = glam::Mat3::from_mat4(self.view()).transpose() * Vec3::Y;
+        AxisView::ALL.into_iter().find(|v| {
+            let mut c = *self;
+            c.set_axis_view(*v);
+            let c_up = glam::Mat3::from_mat4(c.view()).transpose() * Vec3::Y;
+            back.dot(c.back()) > 0.999_998 && up.dot(c_up) > 0.999_998
+        })
+    }
+
     /// [`OrbitCamera::framing`], then `view` applied when given.
     pub fn framing_with(bounds: &Aabb, view: Option<&CameraView>) -> Self {
         let mut c = Self::framing(bounds);
@@ -459,5 +549,55 @@ mod tests {
         let vp = close.view_params([800, 600]);
         // Same matrix up to rounding (sin/cos of constant angles may be folded at compile time on one path).
         assert!((vp.proj * vp.view).abs_diff_eq(pc.view_proj(), 1e-5));
+    }
+
+    #[test]
+    fn axis_views_look_straight_down_each_axis_and_are_recognised() {
+        let b = Aabb { min: Vec3::splat(-1.0), max: Vec3::splat(1.0) };
+        let mut c = OrbitCamera::framing(&b);
+        c.target = Vec3::new(0.3, 0.2, 0.1);
+        let (target, distance) = (c.target, c.distance);
+        assert_eq!(c.axis_view(), None, "the three-quarter view is no axis view");
+        for (view, eye_dir, right) in [
+            (AxisView::Front, Vec3::Z, Vec3::X),
+            (AxisView::Back, -Vec3::Z, -Vec3::X),
+            (AxisView::Right, Vec3::X, -Vec3::Z),
+            (AxisView::Left, -Vec3::X, Vec3::Z),
+            (AxisView::Top, Vec3::Y, Vec3::X),
+            (AxisView::Bottom, -Vec3::Y, Vec3::X),
+        ] {
+            c.roll = 0.3;
+            c.set_axis_view(view);
+            assert_eq!((c.target, c.distance, c.roll), (target, distance, 0.0), "{view:?} keeps the pivot and zoom");
+            let dir = (c.eye() - c.target).normalize();
+            assert!(dir.abs_diff_eq(eye_dir, 1e-5), "{view:?}: eye towards {dir:?}");
+            let cam = glam::Mat3::from_mat4(c.view()).transpose();
+            assert!((cam * Vec3::X).abs_diff_eq(right, 1e-5), "{view:?}: screen right is {:?}", cam * Vec3::X);
+            assert!(c.view().is_finite() && c.proj(1.5).is_finite());
+            assert_eq!(c.axis_view(), Some(view));
+        }
+        // Top shows the back of the model at the top of the screen, Bottom the front (Blender).
+        c.set_axis_view(AxisView::Top);
+        assert!((glam::Mat3::from_mat4(c.view()).transpose() * Vec3::Y).abs_diff_eq(-Vec3::Z, 1e-5));
+        c.set_axis_view(AxisView::Bottom);
+        assert!((glam::Mat3::from_mat4(c.view()).transpose() * Vec3::Y).abs_diff_eq(Vec3::Z, 1e-5));
+        // A small orbit leaves the axis view.
+        c.set_axis_view(AxisView::Front);
+        c.orbit(5.0, 0.0);
+        assert_eq!(c.axis_view(), None);
+    }
+
+    #[test]
+    fn clicking_an_axis_turns_to_it_and_again_to_its_opposite() {
+        assert_eq!(AxisView::from_axis(0, false), AxisView::Right);
+        assert_eq!(AxisView::from_axis(1, false), AxisView::Top);
+        assert_eq!(AxisView::from_axis(2, false), AxisView::Front);
+        assert_eq!(AxisView::from_axis(2, true), AxisView::Back);
+        assert_eq!(AxisView::clicked(2, false, None), AxisView::Front);
+        assert_eq!(AxisView::clicked(2, false, Some(AxisView::Front)), AxisView::Back);
+        assert_eq!(AxisView::clicked(0, true, Some(AxisView::Front)), AxisView::Left);
+        for v in AxisView::ALL {
+            assert_eq!(v.opposite().opposite(), v);
+        }
     }
 }
