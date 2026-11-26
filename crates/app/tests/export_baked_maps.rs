@@ -85,3 +85,30 @@ fn selected_set_only_unbaked_maps_and_the_format_override() {
     assert!(fresh.export_baked_maps(&dir, &MeshMapKind::ALL, false, &ExportSettings::default()).unwrap().is_empty());
     let _ = std::fs::remove_dir_all(dir);
 }
+
+/// A project set to DirectX normals exports its baked normal map with green flipped (the map is
+/// stored OpenGL); the other baked maps are written as baked.
+#[test]
+fn the_baked_normal_map_follows_the_projects_normal_format() {
+    let mut s = baked();
+    let body = s.document().texture_sets.iter().find(|ts| ts.name == "Body").unwrap().id;
+    // A low-on-low bake is flat (green 0.5 either way): put in a tilted normal map instead.
+    let nm = subcraft_image::TiledImage::new(64, 64, 3, [0.5, 0.8, 0.6, 1.0]);
+    s.set_mesh_maps(body, std::collections::BTreeMap::from([(MeshMapKind::Normal, nm.clone())]));
+    let settings = ExportSettings { padding: Padding::None, format_override: Some(FileFormat::Png16), ..Default::default() };
+    let green = |s: &mut Session, name: &str| {
+        let dir = temp(name);
+        let files = s.export_baked_maps(&dir, &[MeshMapKind::Normal], true, &settings).unwrap();
+        let out = subcraft_image::load_bitmap(&files[0]).unwrap();
+        out.texel(20, 33, false)
+    };
+    let gl = green(&mut s, "nm-gl");
+    let mut project = s.settings().clone();
+    project.normal_format = Some(subcraft_doc::NormalFormat::DirectX);
+    s.set_settings(project);
+    let dx = green(&mut s, "nm-dx");
+    let baked = nm.get(20, 33);
+    assert!((gl[1] - baked[1]).abs() < 2e-3, "OpenGL keeps the baked green: {gl:?} vs {baked:?}");
+    assert!((dx[1] - (1.0 - baked[1])).abs() < 2e-3, "DirectX flips it: {dx:?} vs {baked:?}");
+    assert!((dx[0] - gl[0]).abs() < 2e-3 && (dx[2] - gl[2]).abs() < 2e-3);
+}

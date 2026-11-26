@@ -151,3 +151,24 @@ fn a_mesh_map_baked_above_the_set_size_exports_at_its_own_size() {
     let b = subcraft_image::load_bitmap(&run(&ch, Some(&small), &s, "v-mm-small")).unwrap();
     assert_eq!((b.width, b.height), (RES, RES));
 }
+
+/// A baked normal map is stored OpenGL (Y+): exported with DirectX normals (the project's Normal
+/// map format) its green is flipped like any exported normal map. Other baked maps stay as stored.
+#[test]
+fn a_baked_normal_map_exports_in_the_projects_normal_format() {
+    let ch = channels();
+    let mut maps = BTreeMap::new();
+    maps.insert(MeshMapKind::Normal, TiledImage::new(RES, RES, 3, [0.5, 0.7, 0.9, 1.0]));
+    maps.insert(MeshMapKind::WorldSpaceNormal, TiledImage::new(RES, RES, 3, [0.5, 0.7, 0.9, 1.0]));
+    let normal = |view: MeshMapKind, directx: Option<bool>, name: &str| {
+        let s = ExportSettings { normal_directx: directx, ..view_settings(View2d::MeshMap(view), Padding::None, Some(FileFormat::Png16)) };
+        px(&run(&ch, Some(&maps), &s, name), 3, 3)
+    };
+    let gl = normal(MeshMapKind::Normal, None, "v-nm-gl");
+    let dx = normal(MeshMapKind::Normal, Some(true), "v-nm-dx");
+    assert!((gl[1] - 0.7).abs() < 1e-3 && (dx[1] - 0.3).abs() < 1e-3, "green: OpenGL {gl:?}, DirectX {dx:?}");
+    assert!((gl[0] - dx[0]).abs() < 1e-4 && (gl[2] - dx[2]).abs() < 1e-4, "red and blue stay");
+    assert!((normal(MeshMapKind::Normal, Some(false), "v-nm-gl2")[1] - 0.7).abs() < 1e-3);
+    // World-space normals are not tangent-space: no flip.
+    assert!((normal(MeshMapKind::WorldSpaceNormal, Some(true), "v-ws-dx")[1] - 0.7).abs() < 1e-3);
+}

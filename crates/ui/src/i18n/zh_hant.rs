@@ -9,6 +9,7 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Paint where the cage reaches further: white pushes it out by Cage push, only there. Uses the mask of each texture set's layer with this name (the layer can be hidden)", "繪製籠罩需要延伸更遠的位置：只有白色處會依籠罩推出量向外推。使用各紋理集中此名稱圖層的遮罩（圖層可以隱藏）"),
     ("Cage push", "籠罩推出"),
     ("How far white on the cage push map moves the cage: 1 doubles the front and rear reach", "籠罩推出貼圖上的白色將籠罩推出多遠：1 會使前方與後方距離加倍"),
+    ("Rays pass through the back of faces, so single-sided cards and open shells do not darken what is behind them", "射線會穿過面的背面，因此單面卡片與開放殼體不會使其後方變暗"),
     ("8192 bakes slowly and needs about 8 GB of RAM (12 GB or more with a high poly). Texture sets go up to 4096: layers read the map averaged down, and Baked Mesh Maps export writes it at full size", "8192 烘焙較慢，約需 8 GB 記憶體（有高模時需 12 GB 以上）。紋理集最大為 4096：圖層會將貼圖平均縮小後讀取，而烘焙網格貼圖匯出會以完整尺寸寫入"),
     ("Axis views", "軸向視圖"),
     ("Back view", "後視圖"),

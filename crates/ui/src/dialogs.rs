@@ -1863,6 +1863,8 @@ fn map_settings_panel(ui: &mut egui::Ui, b: &mut BakeUi) {
             if kind == MeshMapKind::AmbientOcclusion {
                 option_row(ui, "bake_ao_attenuation", tr("Attenuation"), &mut s.ao.attenuation, d.ao.attenuation, &AoAttenuation::ALL, AoAttenuation::label);
             }
+            check_reset(ui, &mut s.ao.ignore_backface, d.ao.ignore_backface, tr("Ignore backface"))
+                .on_hover_text(tr("Rays pass through the back of faces, so single-sided cards and open shells do not darken what is behind them"));
             check_reset(ui, &mut s.ao.ground_plane, d.ao.ground_plane, tr("Ground plane")).on_hover_text(tr("A floor under the model occludes too"));
             if s.ao.ground_plane {
                 slider_row(ui, tr("Ground plane offset"), &mut s.ao.ground_offset, d.ao.ground_offset, |v| egui::Slider::new(v, 0.0..=0.5).fixed_decimals(3))
@@ -2584,7 +2586,8 @@ mod bake_tests {
 
     fn draw(state: &mut UiState, ctx: &egui::Context, events: Vec<egui::Event>) -> egui::FullOutput {
         let mut output = ctx.run_ui(egui::RawInput {
-            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1600., 940.))), events,
+            // A 1080p window: the AO settings with every option shown reach below 940 px.
+            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1600., 1040.))), events,
             ..Default::default()
         }, |ui| bake_mode(state, ui, 0.));
         output.textures_delta.clear();
