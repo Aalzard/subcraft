@@ -59,18 +59,18 @@ Layout notes: Filtering, UV Wrap, then the UV transformations group (Scale mode,
 | UV transformations group (collapsible) | Properties > Fill | open | done | crates/ui/src/panels/properties.rs:971 | - |
 | Scale mode (dropdown) | Properties > Fill > UV transformations > Scale | Tiling | partial: row shown but disabled with one entry | crates/ui/src/panels/properties.rs:973 | - |
 | Scale mode: Tiling | UV transformations > Scale | default | done | crates/ui/src/panels/properties.rs:973 | - |
-| Scale mode: Physical Size | UV transformations > Scale | option | missing | - | - |
+| Scale mode: Physical Size | UV transformations > Scale | option | done: Scale dropdown Tiling / Physical size | crates/ui/src/panels/properties.rs (physical_size_rows) | #666 |
 | Tiling (two values, horizontal and vertical) | UV transformations | 1 (unverified); range not documented | partial: sliders 0.01-16, typed values unclamped, default 1 | crates/ui/src/panels/properties.rs:983 | - |
 | Tiling lock (link the two values) | UV transformations | linked (unverified) | done | crates/ui/src/panels/properties.rs:976 | - |
 | Rotation | UV transformations | 0 (unverified); range not documented | done | crates/ui/src/panels/properties.rs:1001 | - |
 | Offset (two values) | UV transformations | 0, 0 = texture centred on the UVs | partial: sliders -1 to 1, typed values unclamped | crates/ui/src/panels/properties.rs:1007 | - |
 | Offset hidden for Tri-planar projection | UV transformations | n/a | done | crates/ui/src/panels/properties.rs:991 | chunk 8 |
-| Physical Size: automatic scale from the mesh size and the material's embedded size (X and Y only) | UV transformations (Physical Size) | n/a | missing | - | - |
-| Custom Size (toggle; forced on when no size is embedded or when resources disagree) | UV transformations (Physical Size) | off | missing | - | - |
-| Size (cm), two values | UV transformations (Physical Size) | from the asset | missing | - | - |
-| Rotation (Physical Size mode) | UV transformations (Physical Size) | not documented | missing | - | - |
-| Offset (Physical Size mode) | UV transformations (Physical Size) | not documented | missing | - | - |
-| Physical size available with every projection type | UV transformations | n/a | missing | - | - |
+| Physical Size: automatic scale from the mesh size and the material's embedded size (X and Y only) | UV transformations (Physical Size) | n/a | partial: the tiling follows the model's real size; materials carry no embedded size, so the size is always typed | crates/doc/src/fill.rs (effective_physical_size) | #666 |
+| Custom Size (toggle; forced on when no size is embedded or when resources disagree) | UV transformations (Physical Size) | off | partial: always custom (no embedded sizes) | crates/ui/src/panels/properties.rs (physical_size_rows) | #666 |
+| Size (cm), two values | UV transformations (Physical Size) | from the asset | done: linked X/Y, click to unlink | crates/ui/src/panels/properties.rs (physical_size_rows) | #666 |
+| Rotation (Physical Size mode) | UV transformations (Physical Size) | not documented | done | crates/ui/src/panels/properties.rs | #666 |
+| Offset (Physical Size mode) | UV transformations (Physical Size) | not documented | done | crates/ui/src/panels/properties.rs | #666 |
+| Physical size available with every projection type | UV transformations | n/a | partial: UV, Planar, Tri-planar and Warp; Spherical and Cylindrical repeat by angle and keep Tiling | crates/doc/src/fill.rs (supports_physical_size) | #666 |
 
 ## UV projection: contextual toolbar and 2D manipulator
 
