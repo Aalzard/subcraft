@@ -1105,7 +1105,7 @@ impl UiState {
         self.gpu_changed |= full || self.last_sync_tiles > 0;
         let upload_start = web_time::Instant::now();
         let session = &self.session;
-        for ts in &session.document().texture_sets { renderer.set_albedo_filter(ts.material_slot, ts.albedo_filter); renderer.set_alpha(ts.material_slot, ts.alpha); renderer.set_shader(ts.material_slot, session.shader_params_of(ts.id)); }
+        for ts in &session.document().texture_sets { renderer.set_albedo_filter(ts.material_slot, ts.albedo_filter); renderer.set_alpha(ts.material_slot, ts.alpha); renderer.set_shader(ts.material_slot, session.shader_params_of(ts.id)); renderer.set_mixing(ts.material_slot, ts.mixing, ts.has_channel(ChannelKind::AmbientOcclusion)); }
         let isolate = paint_isolates(self.recovery.prefs.only_selected_set_painting, self.painting || self.uv.painting);
         let selected = session.selection().texture_set;
         renderer.set_hidden_slots(session.document().texture_sets.iter().filter(|ts| session.is_set_hidden(ts.id) || (isolate && ts.id != selected)).map(|ts| ts.material_slot));

@@ -549,6 +549,18 @@ impl ViewportRenderer {
             },
             count: None,
         });
+        // The baked ambient occlusion map (14), multiplied with the AO channel when the texture
+        // set's AO mixing is Multiply.
+        entries.push(wgpu::BindGroupLayoutEntry {
+            binding: 14,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                view_dimension: wgpu::TextureViewDimension::D2,
+                multisampled: false,
+            },
+            count: None,
+        });
         // The part overlay (12): geometry mask and Polygon Fill feedback over the surface.
         entries.push(wgpu::BindGroupLayoutEntry {
             binding: 12,
@@ -1002,6 +1014,10 @@ impl ViewportRenderer {
         tex.upload(queue, image, &(0..image.tile_count()).collect::<Vec<_>>());
         mat.mesh_maps.insert(kind, tex);
         mat.bake_bind_groups.remove(&kind);
+        if kind == MeshMapKind::AmbientOcclusion {
+            // Bound in the material (binding 14) for AO mixing Multiply.
+            mat.bind_group = None;
+        }
         self.texture_generation += 1;
         self.scene_generation += 1;
     }
@@ -1115,6 +1131,21 @@ impl ViewportRenderer {
         }
     }
 
+    /// A texture set's mixing settings (Texture Set Settings): whether the Height channel is
+    /// folded into the normal (Normal mixing Combine) and how (Height to normal method), and
+    /// whether its AO channel is multiplied with the baked AO map (AO mixing Multiply, only
+    /// when `has_ao_channel`, otherwise the baked map stands in for the channel).
+    pub fn set_mixing(&mut self, material_slot: u32, mixing: subcraft_doc::MixingSettings, has_ao_channel: bool) {
+        let mat = self.materials.entry(material_slot).or_default();
+        if mat.mixing != mixing || mat.has_ao_channel != has_ao_channel {
+            self.scene_generation += 1;
+            mat.mixing = mixing;
+            mat.has_ao_channel = has_ao_channel;
+            mat.params = None;
+            mat.bind_group = None;
+        }
+    }
+
     fn ensure_bind_groups(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
         for mat in self.materials.values_mut() {
             if self.pack.update(device, queue, mat) {
@@ -1125,7 +1156,7 @@ impl ViewportRenderer {
                 continue;
             }
             let ext = mat.extended.params(mat);
-            let params = mat.params.get_or_insert_with(|| material::params_buffer(device, &material::MaterialParams::new(&mat.alpha, &mat.shader, mat.highlight).with_extended(ext)));
+            let params = mat.params.get_or_insert_with(|| material::params_buffer(device, &material::MaterialParams::new(&mat.alpha, &mat.shader, mat.highlight).with_extended(ext).with_mixing(&mat.mixing, mat.has_ao_channel)));
             let mut entries = vec![wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::Sampler(&self.sampler) }];
             let albedo_sampler = if mat.albedo_filter == subcraft_image::TextureFilter::Nearest { &self.nearest_sampler } else { &self.sampler };
             entries.push(wgpu::BindGroupEntry { binding: 8, resource: wgpu::BindingResource::Sampler(albedo_sampler) });
@@ -1137,7 +1168,8 @@ impl ViewportRenderer {
             let specular = mat.channels.get(&ChannelKind::Specular).map_or(&self.defaults[&ChannelKind::Specular].view, |t| &t.view);
             let overlay = mat.overlay.as_ref().map_or(&self.no_overlay.view, |t| &t.view);
             let ext_view = mat.extended.texture.as_ref().map_or(&self.pack.empty, |t| &t.1);
-            entries.extend(alpha_entries(opacity, params, specular, overlay, ext_view));
+            let baked_ao = mat.mesh_maps.get(&MeshMapKind::AmbientOcclusion).map_or(&self.defaults[&ChannelKind::AmbientOcclusion].view, |t| &t.view);
+            entries.extend(alpha_entries(opacity, params, specular, overlay, ext_view, baked_ao));
             mat.bind_group = Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("material"),
                 layout: &self.material_layout,
@@ -1201,7 +1233,7 @@ impl ViewportRenderer {
                     };
                     entries.push(wgpu::BindGroupEntry { binding: i as u32 + 1, resource: wgpu::BindingResource::TextureView(view) });
                 }
-                entries.extend(alpha_entries(&self.defaults[&ChannelKind::Opacity].view, &self.opaque_params, &self.defaults[&ChannelKind::Specular].view, &self.no_overlay.view, &self.pack.empty));
+                entries.extend(alpha_entries(&self.defaults[&ChannelKind::Opacity].view, &self.opaque_params, &self.defaults[&ChannelKind::Specular].view, &self.no_overlay.view, &self.pack.empty, &self.defaults[&ChannelKind::AmbientOcclusion].view));
                 baked_normal_groups.insert(*slot, device.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("neutral material"), layout: &self.material_layout, entries: &entries }));
             }
         } else if params.view_mode == ViewMode::BakedNormal && bake_map.is_none() {
@@ -1223,7 +1255,8 @@ impl ViewportRenderer {
                 let specular = mat.channels.get(&ChannelKind::Specular).map_or(&self.defaults[&ChannelKind::Specular].view, |t| &t.view);
                 let overlay = mat.overlay.as_ref().map_or(&self.no_overlay.view, |t| &t.view);
                 let ext_view = mat.extended.texture.as_ref().map_or(&self.pack.empty, |t| &t.1);
-                entries.extend(alpha_entries(opacity, mat.params.as_ref().unwrap_or(&self.opaque_params), specular, overlay, ext_view));
+                let baked_ao = mat.mesh_maps.get(&MeshMapKind::AmbientOcclusion).map_or(&self.defaults[&ChannelKind::AmbientOcclusion].view, |t| &t.view);
+                entries.extend(alpha_entries(opacity, mat.params.as_ref().unwrap_or(&self.opaque_params), specular, overlay, ext_view, baked_ao));
                 baked_normal_groups.insert(*slot, device.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("baked normal material"), layout: &self.material_layout, entries: &entries }));
             }
         }
@@ -1248,7 +1281,7 @@ impl ViewportRenderer {
                     entries.push(wgpu::BindGroupEntry { binding: i as u32 + 1, resource: wgpu::BindingResource::TextureView(view) });
                 }
                 let overlay = mat.overlay.as_ref().map_or(&self.no_overlay.view, |t| &t.view);
-                entries.extend(alpha_entries(&self.defaults[&ChannelKind::Opacity].view, &self.opaque_params, &self.defaults[&ChannelKind::Specular].view, overlay, &self.pack.empty));
+                entries.extend(alpha_entries(&self.defaults[&ChannelKind::Opacity].view, &self.opaque_params, &self.defaults[&ChannelKind::Specular].view, overlay, &self.pack.empty, &self.defaults[&ChannelKind::AmbientOcclusion].view));
                 solo_groups.insert(*slot, device.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("solo channel"), layout: &self.material_layout, entries: &entries }));
             }
         }
@@ -1269,7 +1302,7 @@ impl ViewportRenderer {
                     let view = if i == 0 { &tex.view } else { &self.defaults[k].view };
                     entries.push(wgpu::BindGroupEntry { binding: i as u32 + 1, resource: wgpu::BindingResource::TextureView(view) });
                 }
-                entries.extend(alpha_entries(&self.defaults[&ChannelKind::Opacity].view, &self.opaque_params, &self.defaults[&ChannelKind::Specular].view, &self.no_overlay.view, &self.pack.empty));
+                entries.extend(alpha_entries(&self.defaults[&ChannelKind::Opacity].view, &self.opaque_params, &self.defaults[&ChannelKind::Specular].view, &self.no_overlay.view, &self.pack.empty, &self.defaults[&ChannelKind::AmbientOcclusion].view));
                 mat.bake_bind_groups.insert(kind, device.create_bind_group(&wgpu::BindGroupDescriptor {
                     label: Some("bake map preview"), layout: &self.material_layout, entries: &entries,
                 }));
@@ -1587,8 +1620,9 @@ fn shaded_post(post: &PostParams, shaded: bool) -> PostParams {
     }
 }
 
-fn alpha_entries<'a>(opacity: &'a wgpu::TextureView, params: &'a wgpu::Buffer, specular: &'a wgpu::TextureView, overlay: &'a wgpu::TextureView, extended: &'a wgpu::TextureView) -> [wgpu::BindGroupEntry<'a>; 5] {
+fn alpha_entries<'a>(opacity: &'a wgpu::TextureView, params: &'a wgpu::Buffer, specular: &'a wgpu::TextureView, overlay: &'a wgpu::TextureView, extended: &'a wgpu::TextureView, baked_ao: &'a wgpu::TextureView) -> [wgpu::BindGroupEntry<'a>; 6] {
     [
+        wgpu::BindGroupEntry { binding: 14, resource: wgpu::BindingResource::TextureView(baked_ao) },
         wgpu::BindGroupEntry { binding: 13, resource: wgpu::BindingResource::TextureView(extended) },
         wgpu::BindGroupEntry { binding: 12, resource: wgpu::BindingResource::TextureView(overlay) },
         wgpu::BindGroupEntry { binding: 9, resource: wgpu::BindingResource::TextureView(opacity) },

@@ -158,9 +158,9 @@ Layout notes: the names below are the channel types Painter offers (from the col
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Normal mixing | Texture Set Settings > Channels | Combine (default); Replace | partial: applied at export; the viewport always combines | crates/export/src/lib.rs (Dense); crates/ui/src/panels/texture_sets.rs (mixing_rows) | - |
-| Height to normal method | Texture Set Settings > Channels | Smooth (Sobel) (default); Sharp | partial: applied at export; the viewport uses the sharp method | crates/export/src/lib.rs (Dense); crates/ui/src/panels/texture_sets.rs (mixing_rows) | - |
-| Ambient occlusion mixing | Texture Set Settings > Channels | Multiply (default); Replace | partial: applied at export; the viewport uses the baked map only when there is no AO channel | crates/export/src/lib.rs (Dense); crates/ui/src/panels/texture_sets.rs (mixing_rows) | - |
+| Normal mixing | Texture Set Settings > Channels | Combine (default); Replace | done: export and viewport | crates/export/src/lib.rs (Dense); crates/render/src/viewport.wgsl (combined_normal); crates/ui/src/panels/texture_sets.rs (mixing_rows) | this PR |
+| Height to normal method | Texture Set Settings > Channels | Smooth (Sobel) (default); Sharp | done: export and viewport | crates/export/src/lib.rs (Dense); crates/render/src/viewport.wgsl (height_bump); crates/ui/src/panels/texture_sets.rs (mixing_rows) | this PR |
+| Ambient occlusion mixing | Texture Set Settings > Channels | Multiply (default); Replace | done: export and viewport (with no AO channel the baked map is used alone) | crates/export/src/lib.rs (Dense); crates/render/src/viewport.wgsl (shaded_ao); crates/ui/src/panels/texture_sets.rs (mixing_rows) | this PR |
 | UV padding | Texture Set Settings > Channels | 3D Space Neighbor (default); 2D Space Neighbor | partial: setting stored; 3D Space Neighbor not implemented, export pads from 2D neighbours | crates/ui/src/panels/texture_sets.rs (mixing_rows) | - |
 
 ## Texture Set Settings: Mesh maps

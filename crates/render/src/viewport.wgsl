@@ -69,8 +69,13 @@ struct MaterialParams {
     ext_b: vec4<f32>,
     // x: anisotropy, y: subsurface scattering, z: translucency (1 = the set has the channel)
     ext_flags: vec4<f32>,
+    // Mixing settings: x 1 = Normal mixing Replace (no height in the normal), y 1 = Smooth
+    // (Sobel) height to normal, z 1 = AO channel times the baked AO map (binding 14)
+    mixing: vec4<f32>,
 };
 @group(1) @binding(10) var<uniform> mat: MaterialParams;
+// Baked ambient occlusion map (white when not baked), for AO mixing Multiply.
+@group(1) @binding(14) var t_baked_ao: texture_2d<f32>;
 // Extended channels packed into array layers (`extended.wgsl`): 0 coat colour + opacity,
 // 1 coat roughness, specular level, normal XY, 2 sheen colour + opacity, 3 sheen roughness,
 // anisotropy vector (level at twice the angle), translucency, 4 scattering colour + amount,
@@ -282,18 +287,41 @@ fn as_stored(c: vec3<f32>) -> vec4<f32> {
 // (OpenGL convention), hence +dh/dv for y.
 fn height_bump(uv: vec2<f32>) -> vec3<f32> {
     let texel = 1.0 / vec2<f32>(textureDimensions(t_height));
-    let h_l = textureSample(t_height, samp, uv - vec2<f32>(texel.x, 0.0)).r;
-    let h_r = textureSample(t_height, samp, uv + vec2<f32>(texel.x, 0.0)).r;
-    let h_u = textureSample(t_height, samp, uv - vec2<f32>(0.0, texel.y)).r;
-    let h_d = textureSample(t_height, samp, uv + vec2<f32>(0.0, texel.y)).r;
-    let dhdu = (h_r - h_l) / (2.0 * texel.x);
-    let dhdv = (h_d - h_u) / (2.0 * texel.y);
+    let dx = vec2<f32>(texel.x, 0.0);
+    let dy = vec2<f32>(0.0, texel.y);
+    let h_l = textureSample(t_height, samp, uv - dx).r;
+    let h_r = textureSample(t_height, samp, uv + dx).r;
+    let h_u = textureSample(t_height, samp, uv - dy).r;
+    let h_d = textureSample(t_height, samp, uv + dy).r;
+    // The corners, for Smooth (Sobel): the difference averaged over three rows, weights 1-2-1,
+    // the same slope scale as the export.
+    let h_lu = textureSample(t_height, samp, uv - dx - dy).r;
+    let h_ru = textureSample(t_height, samp, uv + dx - dy).r;
+    let h_ld = textureSample(t_height, samp, uv - dx + dy).r;
+    let h_rd = textureSample(t_height, samp, uv + dx + dy).r;
+    var dhdu = (h_r - h_l) / (2.0 * texel.x);
+    var dhdv = (h_d - h_u) / (2.0 * texel.y);
+    if mat.mixing.y > 0.5 {
+        dhdu = ((h_ru + 2.0 * h_r + h_rd) - (h_lu + 2.0 * h_l + h_ld)) * 0.125 / texel.x;
+        dhdv = ((h_ld + 2.0 * h_d + h_rd) - (h_lu + 2.0 * h_u + h_ru)) * 0.125 / texel.y;
+    }
     return normalize(vec3<f32>(-dhdu * g.params.w, dhdv * g.params.w, 1.0));
 }
 
 // The Normal channel combined with the height bump (whiteout), as the shading combines them.
+// Normal mixing Replace: the Normal channel alone.
 fn combined_normal(ntex: vec3<f32>, bump: vec3<f32>) -> vec3<f32> {
+    if mat.mixing.x > 0.5 {
+        return normalize(vec3<f32>(ntex.xy, max(ntex.z, 1e-3)));
+    }
     return normalize(vec3<f32>(ntex.xy + bump.xy, max(ntex.z, 1e-3) * bump.z));
+}
+
+// Ambient occlusion as shaded: the AO channel, times the baked map with AO mixing Multiply,
+// blended toward no occlusion by the AO intensity.
+fn shaded_ao(uv: vec2<f32>) -> f32 {
+    let baked = select(1.0, clamp(textureSample(t_baked_ao, samp, uv).r, 0.0, 1.0), mat.mixing.z > 0.5);
+    return mix(1.0, clamp(material_sample(t_ao, samp, uv).r, 0.0, 1.0) * baked, clamp(mat.shader.x, 0.0, 1.0));
 }
 
 fn channel_raw(mode: i32, uv: vec2<f32>) -> vec4<f32> {
@@ -489,7 +517,7 @@ fn shade(in: VsOut, front: bool) -> vec4<f32> {
     let ntex = material_sample(t_normal, samp, in.uv).rgb * 2.0 - 1.0;
     let emissive = material_sample(t_emissive, samp, in.uv).rgb * mat.shader.y;
     // AO intensity blends the map toward no occlusion.
-    let ao = mix(1.0, clamp(material_sample(t_ao, samp, in.uv).r, 0.0, 1.0), clamp(mat.shader.x, 0.0, 1.0));
+    let ao = shaded_ao(in.uv);
 
     // Height bump combined with the normal map (whiteout): the same helpers as the "Normal +
     // Height" view, so that view always shows what the shading uses.
@@ -774,7 +802,7 @@ fn fs_surface(in: VsOut, @builtin(front_facing) front: bool) -> SurfaceOut {
     let l = normalize(g.light_dir.xyz);
     let nol = max(dot(n, l), 0.0);
     let nov = max(dot(n, v), 1e-4);
-    let ao = mix(1.0, clamp(material_sample(t_ao, samp, in.uv).r, 0.0, 1.0), clamp(mat.shader.x, 0.0, 1.0));
+    let ao = shaded_ao(in.uv);
     let direct = (diffuse + f0) / PI * g.light_color.rgb * g.params.z * nol * shadow_visibility(in.world, n0, in.clip.xy);
     let ambient = (diffuse * irradiance(n) * ao + env_brdf(f0, rough, nov) * environment(reflect(-v, n), l, rough)) * g.params.y;
     let lum = vec3<f32>(0.2126, 0.7152, 0.0722);

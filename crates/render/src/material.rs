@@ -168,6 +168,10 @@ pub struct GpuMaterial {
     pub alpha: subcraft_doc::AlphaSettings,
     /// Its shader instance's parameters (Shader Settings).
     pub shader: subcraft_doc::ShaderParams,
+    /// Its mixing settings (Texture Set Settings), see `Renderer::set_mixing`.
+    pub mixing: subcraft_doc::MixingSettings,
+    /// The texture set has an AO channel of its own (not the baked map standing in).
+    pub has_ao_channel: bool,
     /// Drawn tinted: the texture set under the cursor or hovered in the Texture Set List.
     pub highlight: bool,
     /// `MaterialParams` uniform (binding 10), created with the bind group.
@@ -226,6 +230,8 @@ impl GpuMaterial {
             bake_bind_groups: BTreeMap::new(),
             alpha: Default::default(),
             shader: Default::default(),
+            mixing: subcraft_doc::MixingSettings::LEGACY,
+            has_ao_channel: false,
             highlight: false,
             params: None,
             mask_view: None,
@@ -253,6 +259,9 @@ pub struct MaterialParams {
     pub ext_layers_a: [f32; 4],
     pub ext_layers_b: [f32; 4],
     pub ext_flags: [f32; 4],
+    /// Mixing settings: x 1 = Normal mixing Replace (the Height channel is not folded into the
+    /// normal), y 1 = Smooth (Sobel) height to normal, z 1 = AO channel times the baked AO map.
+    pub mixing: [f32; 4],
 }
 
 impl MaterialParams {
@@ -271,6 +280,22 @@ impl MaterialParams {
             ext_layers_a: [-1.0; 4],
             ext_layers_b: [-1.0, -1.0, -1.0, 0.0],
             ext_flags: [0.0; 4],
+            mixing: [0.0; 4],
+        }
+    }
+
+    /// With the texture set's mixing settings; the AO multiply needs an AO channel of its own.
+    pub fn with_mixing(self, mixing: &subcraft_doc::MixingSettings, has_ao_channel: bool) -> Self {
+        use subcraft_doc::{AoMixing, HeightToNormal, NormalMixing};
+        let flag = |b: bool| if b { 1.0 } else { 0.0 };
+        Self {
+            mixing: [
+                flag(mixing.normal == NormalMixing::Replace),
+                flag(mixing.height_to_normal == HeightToNormal::Smooth),
+                flag(has_ao_channel && mixing.ao == AoMixing::Multiply),
+                0.0,
+            ],
+            ..self
         }
     }
 
