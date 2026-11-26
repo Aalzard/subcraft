@@ -3,7 +3,7 @@
 use glam::Vec2;
 use subcraft_doc::{ProceduralKind, ProceduralParams, ScratchParams};
 
-use crate::noise::{fbm, hash_f, value_xy, worley};
+use crate::noise::{fbm, fbm_many, hash_f, value_xy, worley};
 
 /// Raw pattern value at `p` (pattern space: one tile = 0..1).
 pub fn raw(kind: ProceduralKind, p: Vec2, scale: f32, seed: u32) -> f32 {
@@ -87,6 +87,65 @@ pub fn eval(params: &ProceduralParams, p: Vec2) -> f32 {
     };
     let v = remap(v, params.balance, params.contrast);
     if params.invert { 1.0 - v } else { v }
+}
+
+/// Whether [`eval_many`] has a batched path for these parameters (faster than [`eval`] per
+/// point); the others work too, one point at a time.
+pub fn batches(params: &ProceduralParams) -> bool {
+    matches!(params.kind, ProceduralKind::Clouds | ProceduralKind::Grunge | ProceduralKind::Dirt | ProceduralKind::Cracks)
+}
+
+/// [`eval`] at every point into `out`, bit-identical; the fractal noise of the kinds in
+/// [`batches`] runs over all points at once ([`crate::noise::fbm_many`]).
+pub fn eval_many(params: &ProceduralParams, points: &[Vec2], out: &mut [f32]) {
+    assert_eq!(points.len(), out.len());
+    if !batches(params) {
+        for (o, &p) in out.iter_mut().zip(points) {
+            *o = eval(params, p);
+        }
+        return;
+    }
+    let seed = params.seed;
+    let period = params.scale.round().max(1.0) as i32;
+    let q: Vec<Vec2> = points.iter().map(|&p| p * period as f32).collect();
+    let scaled = |k: f32| -> Vec<Vec2> { q.iter().map(|&q| q * k).collect() };
+    let mut a = vec![0.0f32; q.len()];
+    let mut b = vec![0.0f32; q.len()];
+    match params.kind {
+        ProceduralKind::Clouds => fbm_many(&q, period, 6, seed, out),
+        ProceduralKind::Grunge => {
+            fbm_many(&q, period, 6, seed, &mut a);
+            fbm_many(&scaled(4.0), period * 4, 3, seed ^ 0x5bd1, &mut b);
+            for ((o, &base), &detail) in out.iter_mut().zip(&a).zip(&b) {
+                let v = base * 0.75 + detail * 0.25;
+                *o = smooth((v - 0.42) / 0.18);
+            }
+        }
+        ProceduralKind::Dirt => {
+            fbm_many(&q, period, 5, seed, &mut a);
+            fbm_many(&scaled(5.0), period * 5, 2, seed ^ 0x2f1, &mut b);
+            for ((o, &blotch), &specks) in out.iter_mut().zip(&a).zip(&b) {
+                *o = smooth((blotch * 0.8 + specks * 0.35 - 0.5) / 0.22);
+            }
+        }
+        ProceduralKind::Cracks => {
+            let q2 = scaled(2.0);
+            fbm_many(&q2, period * 2, 3, seed ^ 0x51, &mut a);
+            let q2b: Vec<Vec2> = q2.iter().map(|&p| p + Vec2::splat(31.0)).collect();
+            fbm_many(&q2b, period * 2, 3, seed ^ 0x52, &mut b);
+            for (((o, &q), &wx), &wy) in out.iter_mut().zip(&q).zip(&a).zip(&b) {
+                let warp = Vec2::new(wx - 0.5, wy - 0.5);
+                let w = (q + warp * 0.35).rem_euclid(Vec2::splat(period as f32));
+                let (f1, f2) = worley(w, period, seed);
+                *o = 1.0 - smooth((f2 - f1) / 0.07);
+            }
+        }
+        _ => unreachable!("kind without a batched path"),
+    }
+    for v in out.iter_mut() {
+        let r = remap(*v, params.balance, params.contrast);
+        *v = if params.invert { 1.0 - r } else { r };
+    }
 }
 
 /// Linear remap: contrast 0 = identity around balance 0.5; contrast 1 = hard threshold.

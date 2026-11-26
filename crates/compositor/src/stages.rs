@@ -1654,12 +1654,12 @@ impl<'a> Graph<'a> {
             } => {
                 let mut out = self.get(*below, tile).as_ref().clone();
                 let mask = mask.map(|m| self.get(m, tile));
-                let mut coverage = vec![1.0; TILE_TEXELS];
-                for (i, m) in coverage.iter_mut().enumerate() {
-                    if let Some(mask) = &mask {
-                        *m = mask[i][0].clamp(0.0, 1.0);
-                    }
-                    if let Some(parts) = layer.parts.as_ref().filter(|p| p.enabled) {
+                let mut coverage: Vec<f32> = match &mask {
+                    Some(mask) => mask.iter().map(|m| m[0].clamp(0.0, 1.0)).collect(),
+                    None => vec![1.0; TILE_TEXELS],
+                };
+                if let Some(parts) = layer.parts.as_ref().filter(|p| p.enabled) {
+                    for (i, m) in coverage.iter_mut().enumerate() {
                         *m *= parts.factor(geo.region(i, parts.kind));
                     }
                 }

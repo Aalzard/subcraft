@@ -60,11 +60,24 @@ pub fn composite_run(dst: &mut [[f32; 4]], src: &[[f32; 4]], mode: BlendMode, ta
             composite_with(d, [s[0], s[1], s[2]], alpha(i, s), &b);
         }
     }
+    // One loop per mode and range (`blend_fn` with a constant mode and target sign): no match
+    // per texel and channel, the same arithmetic.
+    macro_rules! per_mode {
+        ($($m:ident),*) => {
+            match (mode, target.signed) {
+                $(
+                    (BlendMode::$m, false) => run(dst, src, alpha, |cb, cs| blend_fn(BlendMode::$m, cb, cs, BlendTarget { signed: false, ..target })),
+                    (BlendMode::$m, true) => run(dst, src, alpha, |cb, cs| blend_fn(BlendMode::$m, cb, cs, BlendTarget { signed: true, ..target })),
+                )*
+                _ => run(dst, src, alpha, |cb, cs| blend_fn(mode, cb, cs, target)),
+            }
+        };
+    }
     match mode {
         BlendMode::Disable => {}
         BlendMode::Normal | BlendMode::Replace | BlendMode::Passthrough => run(dst, src, alpha, |_, cs| cs),
         BlendMode::Multiply if !target.signed => run(dst, src, alpha, |cb, cs| std::array::from_fn(|c| (cb[c] * cs[c]).clamp(0.0, 1.0))),
-        _ => run(dst, src, alpha, |cb, cs| blend_fn(mode, cb, cs, target)),
+        _ => per_mode!(Multiply, Divide, InverseDivide, Darken, Lighten, LinearDodge, Subtract, InverseSubtract, Difference, Exclusion, SignedAddition, Overlay, Screen, LinearBurn, ColorBurn, ColorDodge, SoftLight, HardLight, VividLight, LinearLight, PinLight),
     }
 }
 
@@ -79,12 +92,21 @@ pub fn composite_mask_run(m: &mut [f32], e: &[[f32; 4]], opacity: f32, mode: Ble
             *mv = dst[0];
         }
     }
-    let t = BlendTarget::MASK;
+    const T: BlendTarget = BlendTarget::MASK;
+    // One loop per mode, as in `composite_run`.
+    macro_rules! per_mode {
+        ($($m:ident),*) => {
+            match mode {
+                $(BlendMode::$m => run(m, e, opacity, |cb, cs| blend_fn(BlendMode::$m, cb, cs, T)),)*
+                _ => run(m, e, opacity, |cb, cs| blend_fn(mode, cb, cs, T)),
+            }
+        };
+    }
     match mode {
         BlendMode::Disable => {}
         BlendMode::Normal | BlendMode::Replace | BlendMode::Passthrough => run(m, e, opacity, |_, cs| cs),
         BlendMode::Multiply => run(m, e, opacity, |cb, cs| std::array::from_fn(|c| (cb[c] * cs[c]).clamp(0.0, 1.0))),
-        _ => run(m, e, opacity, |cb, cs| blend_fn(mode, cb, cs, t)),
+        _ => per_mode!(Divide, InverseDivide, Darken, Lighten, LinearDodge, Subtract, InverseSubtract, Difference, Exclusion, SignedAddition, Overlay, Screen, LinearBurn, ColorBurn, ColorDodge, SoftLight, HardLight, VividLight, LinearLight, PinLight),
     }
 }
 

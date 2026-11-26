@@ -209,6 +209,115 @@ pub fn fbm(p: Vec2, period: i32, octaves: u32, seed: u32) -> f32 {
     (sum / norm * 0.5 + 0.5).clamp(0.0, 1.0)
 }
 
+/// Points per block of [`fbm_many`]: the running sums of a block stay in L1 across octaves.
+const FBM_BLOCK: usize = 256;
+
+/// [`fbm`] of every point of `points` into `out`, bit-identical to calling [`fbm`] per point.
+///
+/// Runs octave by octave over blocks of points: neighboring points share their lattice cell,
+/// so a run of them needs one cell lookup and its arithmetic runs side by side (vectorized),
+/// without a call per point and octave. Every texel
+/// still sums its octaves in the same order with the same operations as [`fbm`].
+pub fn fbm_many(points: &[Vec2], period: i32, octaves: u32, seed: u32, out: &mut [f32]) {
+    assert_eq!(points.len(), out.len());
+    let mut norm = 0.0f32;
+    let mut amp = 0.5f32;
+    for _ in 0..octaves {
+        norm += amp;
+        amp *= 0.5;
+    }
+    CACHE.with(|c| {
+        let cache = &mut c.borrow_mut();
+        for (pts, out) in points.chunks(FBM_BLOCK).zip(out.chunks_mut(FBM_BLOCK)) {
+            let mut sum = [0.0f32; FBM_BLOCK];
+            let sum = &mut sum[..pts.len()];
+            let mut amp = 0.5f32;
+            let mut freq = 1.0f32;
+            let mut per = period;
+            for o in 0..octaves {
+                gradient_block(pts, freq, per, seed.wrapping_add(o * 1013), amp, sum, cache);
+                amp *= 0.5;
+                freq *= 2.0;
+                per *= 2;
+            }
+            for (o, &s) in out.iter_mut().zip(sum.iter()) {
+                *o = (s / norm * 0.5 + 0.5).clamp(0.0, 1.0);
+            }
+        }
+    });
+}
+
+/// `floor(x)` for `|x| < 2^23` without branches (vectorizes); other values are fixed up by the
+/// caller with [`floor`].
+#[inline(always)]
+fn lane_floor(x: f32) -> f32 {
+    let t = x as i32 as f32;
+    let r = if t > x { t - 1.0 } else { t };
+    // `floor(-0.0)` is -0.0.
+    if x == 0.0 { x } else { r }
+}
+
+/// `sum[i] += amp * gradient(pts[i] * freq, period, seed)` for every point (same bits).
+///
+/// First the lattice cell and the position in it of every point (branch-free, vectorized),
+/// then runs of consecutive points in the same cell: one gradient lookup per run, and the
+/// arithmetic of a run is a plain loop over its points with the corner gradients fixed.
+#[inline]
+fn gradient_block(pts: &[Vec2], freq: f32, period: i32, seed: u32, amp: f32, sum: &mut [f32], cache: &mut NoiseCache) {
+    let n = pts.len();
+    debug_assert!(n <= FBM_BLOCK && sum.len() == n);
+    let mut fx = [0.0f32; FBM_BLOCK];
+    let mut fy = [0.0f32; FBM_BLOCK];
+    let mut cx = [0i32; FBM_BLOCK];
+    let mut cy = [0i32; FBM_BLOCK];
+    // `floor2`, `p - i` and `i as i32` of `gradient_with`.
+    let mut odd = false;
+    for (l, &p) in pts.iter().enumerate() {
+        let (x, y) = (p.x * freq, p.y * freq);
+        let (ix, iy) = (lane_floor(x), lane_floor(y));
+        // Negated so NaN counts as odd too.
+        #[allow(clippy::neg_cmp_op_on_partial_ord)]
+        {
+            odd |= !(x.abs() < 8_388_608.0) | !(y.abs() < 8_388_608.0);
+        }
+        fx[l] = x - ix;
+        fy[l] = y - iy;
+        cx[l] = ix as i32;
+        cy[l] = iy as i32;
+    }
+    if odd {
+        // Huge, infinite or NaN coordinates: the exact scalar path.
+        for (l, &p) in pts.iter().enumerate() {
+            let p = p * freq;
+            let i = floor2(p);
+            let f = p - i;
+            (fx[l], fy[l], cx[l], cy[l]) = (f.x, f.y, i.x as i32, i.y as i32);
+        }
+    }
+    let mut j = 0;
+    while j < n {
+        let (ix, iy) = (cx[j], cy[j]);
+        let mut k = j + 1;
+        while k < n && cx[k] == ix && cy[k] == iy {
+            k += 1;
+        }
+        let [g00, g10, g01, g11] = cell_gradients(ix, iy, period, seed, cache);
+        for ((s, &x), &y) in sum[j..k].iter_mut().zip(&fx[j..k]).zip(&fy[j..k]) {
+            // The operations of `gradient_with`, in its order (`Vec2::dot` is x*x' + y*y').
+            let n00 = g00.x * x + g00.y * y;
+            let n10 = g10.x * (x - 1.0) + g10.y * y;
+            let n01 = g01.x * x + g01.y * (y - 1.0);
+            let n11 = g11.x * (x - 1.0) + g11.y * (y - 1.0);
+            let u = quintic(x);
+            let v = quintic(y);
+            let nx0 = n00 + (n10 - n00) * u;
+            let nx1 = n01 + (n11 - n01) * u;
+            *s += amp * ((nx0 + (nx1 - nx0) * v) * std::f32::consts::SQRT_2);
+        }
+        j = k;
+    }
+}
+
 /// Periodic Worley noise: (F1, F2) distances to the nearest feature points.
 pub fn worley(p: Vec2, period: i32, seed: u32) -> (f32, f32) {
     let i = floor2(p);
@@ -250,6 +359,25 @@ mod tests {
             assert!((gradient(p, period, 7) - gradient(shifted, period, 7)).abs() < 1e-4);
             assert!((value(p, period, 7) - value(shifted, period, 7)).abs() < 1e-5);
             assert!((fbm(p, period, 4, 7) - fbm(shifted, period, 4, 7)).abs() < 1e-4);
+        }
+    }
+
+    #[test]
+    fn fbm_many_is_bit_identical_to_fbm_per_point() {
+        // Runs of points in one cell, jumps between cells, negative coordinates, every block
+        // and lane remainder, period 0 and seeds that wrap.
+        let mut points: Vec<Vec2> = (0..1000).map(|k| Vec2::new(k as f32 * 0.0137 - 3.0, (k / 37) as f32 * 0.21 - 1.0)).collect();
+        points.extend((0..300).map(|k| Vec2::new((k * 7919 % 1000) as f32 * 0.731 - 400.0, (k * 104_729 % 997) as f32 * -0.37)));
+        // Coordinates past 2^23 (at the higher octaves too), zeros of both signs, infinities, NaN.
+        points.extend([Vec2::new(0.0, -0.0), Vec2::new(-0.0, 0.0), Vec2::new(9.0e6, 1.0), Vec2::new(-3.0e5, 2.5), Vec2::new(1.0e30, -1.0e30), Vec2::new(f32::INFINITY, 1.0), Vec2::new(1.0, f32::NEG_INFINITY), Vec2::new(f32::NAN, 0.5), Vec2::new(0.5, 0.25)]);
+        for n in [0, 1, 7, 8, 9, 255, 256, 257, points.len()] {
+            for (period, octaves, seed) in [(5, 6, 9u32), (1, 3, 0), (0, 2, 3), (12, 9, u32::MAX)] {
+                let mut out = vec![0.0; n];
+                fbm_many(&points[..n], period, octaves, seed, &mut out);
+                for (p, o) in points[..n].iter().zip(&out) {
+                    assert_eq!(o.to_bits(), fbm(*p, period, octaves, seed).to_bits(), "{p} {period} {octaves} {seed}");
+                }
+            }
         }
     }
 
