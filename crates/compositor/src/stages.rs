@@ -2234,14 +2234,22 @@ impl<'a> Graph<'a> {
                             let src = fetch(lo - r + k as i32, row);
                             *l = [src[0] * src[3], src[1] * src[3], src[2] * src[3], src[3]];
                         }
-                        for (x, dst) in out[row * ts..(row + 1) * ts].iter_mut().enumerate() {
+                        // Eight texels at a time: each still adds its taps in order, but the eight
+                        // sums are independent, so the adds overlap instead of waiting in a chain.
+                        let dst_row = &mut out[row * ts..(row + 1) * ts];
+                        for (x8, dst8) in dst_row.chunks_exact_mut(8).enumerate() {
+                            let x = x8 * 8;
+                            let mut acc = [[0.0f32; 4]; 8];
                             for &(w, weight) in &taps {
-                                let p = line[x + w];
-                                for c in 0..3 {
-                                    dst[c] += p[c] * weight;
+                                for (k, a) in acc.iter_mut().enumerate() {
+                                    let p = line[x + k + w];
+                                    for c in 0..3 {
+                                        a[c] += p[c] * weight;
+                                    }
+                                    a[3] += p[3] * weight;
                                 }
-                                dst[3] += p[3] * weight;
                             }
+                            dst8.copy_from_slice(&acc);
                         }
                     }
                 } else {
@@ -2250,13 +2258,19 @@ impl<'a> Graph<'a> {
                         .map(|k| (0..ts).map(|x| fetch(lo - r + k as i32, x)).collect())
                         .collect();
                     for (y, dst_row) in out.chunks_exact_mut(ts).enumerate() {
-                        for &(w, weight) in &taps {
-                            for (dst, src) in dst_row.iter_mut().zip(&rows[y + w]) {
-                                for c in 0..3 {
-                                    dst[c] += src[c] * 1.0 * weight;
+                        // Eight texels at a time, summed in registers (taps in order per texel).
+                        for (x8, dst8) in dst_row.chunks_exact_mut(8).enumerate() {
+                            let x = x8 * 8;
+                            let mut acc = [[0.0f32; 4]; 8];
+                            for &(w, weight) in &taps {
+                                for (a, src) in acc.iter_mut().zip(&rows[y + w][x..x + 8]) {
+                                    for c in 0..3 {
+                                        a[c] += src[c] * 1.0 * weight;
+                                    }
+                                    a[3] += src[3] * weight;
                                 }
-                                dst[3] += src[3] * weight;
                             }
+                            dst8.copy_from_slice(&acc);
                         }
                         for dst in dst_row.iter_mut() {
                             if dst[3] > 1e-12 {
