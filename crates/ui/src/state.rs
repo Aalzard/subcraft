@@ -484,6 +484,8 @@ pub struct UiState {
     pub stencil_display: StencilDisplay,
     /// Image textures shown in Shelf → Textures (the library's `textures/` folder).
     pub textures: crate::panels::textures::TextureLibrary,
+    /// Substance archives of the libraries (Shelf → Materials / Generators).
+    pub substances: crate::panels::substances::SubstanceLibrary,
     /// Autosave, crash recovery and preferences.
     pub recovery: crate::recovery::RecoveryUi,
     /// Help → Report a bug and crash reports of earlier runs.
@@ -719,6 +721,7 @@ impl UiState {
             projection_tex: None,
             stencil_display: StencilDisplay::default(),
             textures: Default::default(),
+            substances: Default::default(),
             recovery: crate::recovery::RecoveryUi::disabled(),
             bug_report: Default::default(),
         };
@@ -753,6 +756,8 @@ impl UiState {
         self.favorites = subcraft_app::brush_preset::Favorites::load(&lib);
         // The shelf keeps opening on Smart Materials (Painter's default), even with user textures.
         self.textures = crate::panels::textures::TextureLibrary::load(&lib);
+        self.substances = Default::default();
+        self.substances.add_listed(&lib.list(UserAssetKind::Substance));
         let files = lib.list(UserAssetKind::Environment);
         if !files.is_empty() {
             let (tx, rx) = std::sync::mpsc::channel();

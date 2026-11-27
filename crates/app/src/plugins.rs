@@ -9,7 +9,7 @@
 //!   scripts/*.rhai       entries of the Plugins menu (Rhai scripts over the tool catalog)
 //!   library/             assets, laid out like the user library: smart-materials/,
 //!                        smart-masks/, brush-presets/, alphas/, textures/, environments/,
-//!                        export-presets/, bake-presets/
+//!                        export-presets/, bake-presets/, substances/
 //! ```
 //!
 //! Plugins hold no native code: scripts run in the Rhai engine and assets go through the same
@@ -41,7 +41,7 @@ const MAX_ZIP_ENTRIES: usize = 5000;
 const MAX_ZIP_BYTES: u64 = 2 << 30;
 
 /// Asset kinds a plugin's library can hold, with their names for people.
-pub const ASSET_KINDS: [(UserAssetKind, &str, &str); 8] = [
+pub const ASSET_KINDS: [(UserAssetKind, &str, &str); 9] = [
     (UserAssetKind::SmartMaterial, "smart material", "smart materials"),
     (UserAssetKind::SmartMask, "smart mask", "smart masks"),
     (UserAssetKind::BrushPreset, "brush preset", "brush presets"),
@@ -50,6 +50,7 @@ pub const ASSET_KINDS: [(UserAssetKind, &str, &str); 8] = [
     (UserAssetKind::Environment, "environment", "environments"),
     (UserAssetKind::ExportPreset, "export preset", "export presets"),
     (UserAssetKind::BakePreset, "bake preset", "bake presets"),
+    (UserAssetKind::Substance, "Substance material", "Substance materials"),
 ];
 
 /// `plugin.json`.

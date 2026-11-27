@@ -26,6 +26,8 @@ pub enum UserAssetKind {
     ExportPreset,
     /// Bake window presets (`subcraft_app::bake_presets` JSON files).
     BakePreset,
+    /// Substance archives (`.sbsar`): materials become fill layers, generators mask effects.
+    Substance,
 }
 
 impl UserAssetKind {
@@ -39,6 +41,7 @@ impl UserAssetKind {
             UserAssetKind::Texture => "textures",
             UserAssetKind::ExportPreset => "export-presets",
             UserAssetKind::BakePreset => "bake-presets",
+            UserAssetKind::Substance => "substances",
         }
     }
 
@@ -51,6 +54,7 @@ impl UserAssetKind {
             UserAssetKind::BrushPreset => &["scbrush"],
             UserAssetKind::Texture => &subcraft_image::IMAGE_EXTENSIONS,
             UserAssetKind::ExportPreset | UserAssetKind::BakePreset => &["json"],
+            UserAssetKind::Substance => &["sbsar"],
         }
     }
 }
