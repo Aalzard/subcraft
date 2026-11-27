@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-11-24 (0.6.0 release candidate: batch changelog and progress notes)
+Last updated: 2026-11-27 (0.7.0 release: batch changelog and progress notes)
 
 ## Decisions
 
@@ -6402,3 +6402,26 @@ the PR descriptions. The user-facing list is the 0.6.0 section of `CHANGELOG.md`
   deadlock fix), #717 (README rewrite), #722 (.sbsar layers, open-sbsar engine, project schema 19, ADR-0048), #716 (name-matched GPU bakes, lavapipe test against the CPU and a real-app bake; Edit UV islands and
   Heal used in the real app).
 * Left out: #677 (screen-space SSS, draft).
+
+## Release 0.7.0 (2026-11-27, branch `claude/project-thread-jdk4hf`)
+
+Batch update, as for 0.6.0: feature PRs leave `CHANGELOG.md` and this file alone, so this entry lists what
+merged after the v0.6.0 tag (#728) and how each part was checked, taken from the PR descriptions and the
+pre-release smoke test. The user-facing list is the 0.7.0 section of `CHANGELOG.md`; release notes are
+`docs/release-notes-0.7.0.md`. Version bumped to 0.7.0 (workspace `Cargo.toml` + `Cargo.lock`). #725 and
+#727 shipped in the 0.6.0 tag without a changelog line; they were added to the 0.6.0 section.
+
+* Pre-release smoke test in the real app (2026-11-27, Xvfb + lavapipe, release build, screenshots in the
+  project files `smoke-test-2026-11-27/`): axis views (#741), 4K bake with skew correction and Opacity (#746,
+  #747), curvature auto tonemapping (#743), extra ID 2 bake (#742), stacked tab rows, dock split and resize
+  (#756), the example grime plugin (#737), save and reopen, and .sbsar image inputs on a baked crate (#757). It
+  found the quick-bake re-baking ID 2..9 bug, fixed in #758. Result: GO.
+* Also checked in the real app by the PRs: ID colors editor and Generator dropdown on ID 2 (#744).
+* Checked by tests only: Brush stamp mapping (#738), planar Depth culling (#754), Instantiate shortcut (#755),
+  bake settings per texture set (#752), baked normal format at export and AO Ignore backface (#751), skew and
+  cage push masks (#750), 8192 bakes (#749), Mesh Map R/G/B toggles (#735), mixing in the 3D view (#753,
+  lavapipe GPU test), SSR roughness (#734, lavapipe GPU test), multi-GPU bake (#736, two devices on one
+  lavapipe adapter; not on real multi-GPU hardware).
+* Speedups (#745, #748) are bit-identical to the old output by test.
+* Unsigned RC: `release.yml` dispatch on main was green on Windows and Linux before this entry.
+* Left out: #677 (screen-space SSS, draft), #644, #641, #432, #428 (older open PRs).
