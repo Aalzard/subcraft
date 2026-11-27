@@ -1521,6 +1521,8 @@ fn start_bake(state: &mut UiState, only: Option<&[subcraft_core::MeshMapKind]>, 
     let mut settings = state.bake.settings.clone();
     if let Some(maps) = only {
         settings.maps = maps.to_vec();
+        // A quick bake or auto-rebake of one map leaves the additional ID maps alone.
+        settings.extra_ids.clear();
     }
     settings.maps.sort();
     settings.use_gpu = state.recovery.prefs.use_gpu_baking;
@@ -1533,7 +1535,7 @@ fn start_bake(state: &mut UiState, only: Option<&[subcraft_core::MeshMapKind]>, 
         let all = state.bake.all_set_settings();
         texture_sets.iter().filter_map(|(id, _)| all.get(id).map(|own| {
             let mut own = own.clone();
-            if let Some(maps) = only { own.maps = maps.to_vec(); }
+            if let Some(maps) = only { own.maps = maps.to_vec(); own.extra_ids.clear(); }
             own.maps.sort();
             own.use_gpu = settings.use_gpu;
             own.name_match = settings.name_match.clone();
@@ -3125,8 +3127,9 @@ mod bake_tests {
         state.bake.skip_sets.insert(id);
         assert!(frame.targets(&state.bake).is_empty());
         // A quick bake bakes only its map, for the selected set when none is ticked, and leaves
-        // the ticked maps as they were.
+        // the ticked maps as they were. An enabled additional ID map is not baked with it.
         state.bake.settings.size = 128;
+        state.bake.settings.extra_ids.push(subcraft_bake::ExtraIdBake::new(subcraft_core::MeshMapKind::Id2));
         let ticked = state.bake.settings.maps.clone();
         start_bake(&mut state, Some(&[subcraft_core::MeshMapKind::Position]), &frame, 0.);
         assert_eq!(state.bake.job_maps, vec![subcraft_core::MeshMapKind::Position]);
