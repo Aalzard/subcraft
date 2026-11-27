@@ -1244,6 +1244,7 @@ pub static TABLE: &[(&str, &str)] = &[
     ("This cannot be undone: the undo history is cleared and baked mesh maps are marked for rebaking. Save first to keep this version.", "此操作無法復原：復原記錄會被清除，已烘焙的網格貼圖會標記為需要重新烘焙。若要保留此版本，請先儲存。"),
     ("Apply", "套用"),
     ("Graph material", "圖形材質"),
+    ("Substance generator", "Substance 產生器"),
     ("Rendering the material with the new values", "正在以新數值算繪材質"),
     ("This material cannot be rendered: {}", "無法算繪此材質：{}"),
     ("Larger sizes take much longer to render.", "尺寸越大，算繪所需時間越長。"),

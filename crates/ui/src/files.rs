@@ -61,6 +61,8 @@ pub enum Purpose {
     GeneratorTexture { layer: LayerId, effect: EffectId, slot: u8 },
     /// Material graph files (`.sbsar`, ...) to add as layers with their parameters.
     GraphMaterial,
+    /// A Substance generator (`.sbsar` with a mask output) for the layer's mask.
+    AddMaskGenerator { layer: LayerId },
 }
 
 pub const SMART_MATERIALS: (&str, &[&str]) = ("Smart materials and textures", &["scsmart", "png", "jpg", "jpeg", "tga", "tif", "tiff", "exr", "bmp"]);
@@ -73,6 +75,8 @@ pub const PAINTER_PROJECTS: (&str, &[&str]) = ("Substance Painter project \u{201
 pub const OPEN_FILTERS: [(&str, &[&str]); 3] =
     [("All supported projects", &[subcraft_app::PROJECT_EXTENSION, "spp"]), PROJECTS, PAINTER_PROJECTS];
 pub const GRAPH_MATERIALS: (&str, &[&str]) = ("Material graphs", subcraft_app::graph_layer::GRAPH_EXTENSIONS);
+/// Substance generators: only archives have mask outputs.
+pub const GENERATOR_ARCHIVES: (&str, &[&str]) = ("Substance archives", &["sbsar"]);
 pub const FONTS: (&str, &[&str]) = ("Fonts", &["ttf", "otf", "ttc"]);
 pub const ALPHAS: (&str, &[&str]) = ("Images", &["png", "jpg", "jpeg", "tga", "tif", "tiff", "exr"]);
 pub const PANORAMAS: (&str, &[&str]) = ("Panoramas", &["hdr", "exr", "png", "jpg", "jpeg"]);
@@ -335,6 +339,13 @@ pub(crate) fn handle(state: &mut UiState, purpose: Purpose, paths: &[PathBuf], n
         },
         Purpose::SmartMaterials | Purpose::SmartMaterialFolder => import_smart_materials(state, paths, now),
         Purpose::GraphMaterial => import_graph_materials(state, paths, now),
+        Purpose::AddMaskGenerator { layer } => {
+            let text = match state.graph_layers.import_generator_file(&mut state.session, layer, first) {
+                Ok(t) => t,
+                Err(e) => format!("Substance generator: {e}"),
+            };
+            state.set_status(text, now);
+        }
         Purpose::ShelfTextures => import_shelf_textures(state, paths, now),
         Purpose::Alpha => {
             // Copied into the library so it is still there next time.

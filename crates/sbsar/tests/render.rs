@@ -81,3 +81,33 @@ fn the_size_is_clamped_to_the_supported_range() {
     let out = GraphRenderer::new(p, &path).render(&BTreeMap::new(), 0).expect("renders");
     assert_eq!(out.maps[0].bitmap.width, 1 << subcraft_sbsar::MIN_SIZE_LOG2);
 }
+
+#[test]
+fn a_generator_archive_renders_its_mask_output_from_mesh_map_inputs() {
+    let p = inspect(include_bytes!("data/EdgeGenerator.sbsar")).expect("a generator-only archive opens");
+    let g = &p.graphs()[0];
+    assert!(g.channels.is_empty(), "no material channel");
+    assert_eq!(g.mask_output.as_deref(), Some("mask"));
+    let ids: Vec<&str> = g.image_inputs.iter().map(|i| i.identifier.as_str()).collect();
+    assert_eq!(ids, ["curvature", "ambient_occlusion"]);
+    let mut r = GraphRenderer::new(p.clone(), &g.path);
+    // Curvature ramps left to right; no occlusion. The mask follows the curvature levels.
+    let n = 64usize;
+    let ramp: Vec<f32> = (0..n * n).map(|i| (i % n) as f32 / (n - 1) as f32).collect();
+    let images = BTreeMap::from([
+        ("curvature".to_string(), subcraft_sbsar::InputImage { width: n as u32, height: n as u32, channels: 1, data: ramp, normal: false }),
+        ("ambient_occlusion".to_string(), subcraft_sbsar::InputImage { width: 1, height: 1, channels: 1, data: vec![1.0], normal: false }),
+    ]);
+    let (mask, _) = r.render_mask(&BTreeMap::new(), 6, &images).unwrap();
+    // (This archive has no $outputsize input: it renders at its own 256 px.)
+    assert_eq!((mask.width, mask.channels), (mask.height, 1));
+    let w = mask.width;
+    let row: Vec<f32> = (0..w).map(|x| mask.texel(x, w / 2, false)[0]).collect();
+    assert!(row[0] < 0.05 && row[w as usize - 1] > 0.95, "dark on flat, white on edges: {row:?}");
+    assert!(row.windows(2).all(|w| w[1] >= w[0] - 1e-3), "monotonic along the ramp");
+    // A material archive has no mask output, and rendering one fails cleanly.
+    let card = cardboard();
+    assert_eq!(card.graphs()[0].mask_output, None);
+    let mut r = GraphRenderer::new(card.clone(), &card.graphs()[0].path.clone());
+    assert!(r.render_mask(&BTreeMap::new(), 5, &BTreeMap::new()).is_err());
+}

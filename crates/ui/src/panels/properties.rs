@@ -1445,15 +1445,21 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
                     hint(ui, tr("Filters the mask below this effect; opacity mixes the result with that input."));
                 }
                 MaskEffectKind::Image { resource, projection, invert, balance, contrast } => {
-                    if image_row(ui, state, *resource) {
+                    // A Substance generator: its graph renders the image in UV space.
+                    if let Some(graph) = e.graph.clone() {
+                        let now = ui.input(|i| i.time);
+                        super::graph_params::generator_section(state, ui, layer, e.id, &graph, now);
+                    } else if image_row(ui, state, *resource) {
                         crate::files::pick(ui.ctx(), crate::files::Purpose::MaskImage { layer, effect: e.id }, crate::files::IMAGES, false, None);
                     }
                     changed |= slider_row_reset(ui, tr("Balance"), balance, 0.5, |v| egui::Slider::new(v, 0.0..=1.0)).changed();
                     changed |= slider_row_reset(ui, tr("Contrast"), contrast, 0.0, |v| egui::Slider::new(v, 0.0..=1.0)).changed();
                     changed |= check_row_reset(ui, "", tr("Invert"), invert, false).changed();
-                    changed |= projection_editor(ui, projection);
-                    changed |= projection_options(ui, projection);
-                    hint(ui, tr("Uses the image's transparency if it has any, otherwise its brightness."));
+                    if e.graph.is_none() {
+                        changed |= projection_editor(ui, projection);
+                        changed |= projection_options(ui, projection);
+                        hint(ui, tr("Uses the image's transparency if it has any, otherwise its brightness."));
+                    }
                 }
                 MaskEffectKind::IdColor(id) => changed |= id_color_editor(ui, state, layer, e.id, id, cmds),
                 _ => {}

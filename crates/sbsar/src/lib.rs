@@ -71,6 +71,10 @@ pub struct GraphInfo {
     pub channels: Vec<ChannelKind>,
     /// Image inputs (mesh maps and such) the graph has, in input order.
     pub image_inputs: Vec<ImageInputInfo>,
+    /// The grayscale output a mask generator uses (Painter's custom generators): an output
+    /// named or tagged `mask` / `output`, else the only image output of a graph that fills no
+    /// channel. `None`: the graph cannot be a generator.
+    pub mask_output: Option<String>,
 }
 
 /// An image input of a graph.
@@ -146,6 +150,19 @@ fn output_plan(graph: &open_sbsar::Graph) -> Vec<(ChannelKind, String, u8)> {
     plan.into_iter().map(|(_, ch, id, rank)| (ch, id, rank)).collect()
 }
 
+/// The output a mask generator reads (see [`GraphInfo::mask_output`]).
+fn mask_output(graph: &open_sbsar::Graph, has_channels: bool) -> Option<String> {
+    let images: Vec<&open_sbsar::OutputInfo> = graph.outputs().iter().filter(|o| o.is_image).collect();
+    let tagged = images.iter().find(|o| {
+        o.usages.iter().map(String::as_str).chain([o.identifier.as_str()]).any(|u| matches!(u.to_ascii_lowercase().as_str(), "mask" | "output" | "generator"))
+    });
+    match tagged {
+        Some(o) => Some(o.identifier.clone()),
+        None if !has_channels => images.first().map(|o| o.identifier.clone()),
+        None => None,
+    }
+}
+
 fn nums(s: &str) -> Vec<f64> {
     s.split(',').filter_map(|x| x.trim().parse().ok()).collect()
 }
@@ -204,7 +221,9 @@ fn describe(graph: &open_sbsar::Graph) -> GraphInfo {
         let file = graph.path().rsplit('/').next().unwrap_or(graph.path());
         file.trim_end_matches(".sbsasm").to_string()
     });
-    GraphInfo { path: graph.path().to_string(), label, params, channels: output_plan(graph).into_iter().map(|p| p.0).collect(), image_inputs }
+    let channels: Vec<ChannelKind> = output_plan(graph).into_iter().map(|p| p.0).collect();
+    let mask_output = mask_output(graph, !channels.is_empty());
+    GraphInfo { path: graph.path().to_string(), label, params, channels, image_inputs, mask_output }
 }
 
 impl Package {
@@ -288,6 +307,38 @@ impl GraphRenderer {
     /// ignored.
     pub fn render_with_images(&mut self, values: &Values, size_log2: u32, images: &BTreeMap<String, InputImage>) -> Result<Rendered, SbsarError> {
         let graph = self.package.engine_graph(&self.path);
+        let nf = normal_format(graph);
+        let params = self.parameters(values, size_log2, images);
+        let plan = output_plan(graph);
+        let wanted: Vec<&str> = plan.iter().map(|p| p.1.as_str()).collect();
+        if wanted.is_empty() {
+            return Err(SbsarError("the graph has no output SubCraft can use (base color, normal, roughness, ...)".into()));
+        }
+        let outputs = self.instance.render(&mut self.renderer, graph, &params, Some(&wanted))?;
+        let mut maps = Vec::new();
+        for (channel, id, rank) in plan {
+            let Some(out) = outputs.iter().find(|o| o.identifier == id) else { continue };
+            let invert = usage_inverts(channel, rank);
+            let flip_green = channel == ChannelKind::Normal && nf.is_none();
+            maps.push(Map { channel, output: id, bitmap: to_bitmap(out, invert, flip_green) });
+        }
+        Ok(Rendered { maps, warnings: self.renderer.warnings.clone() })
+    }
+
+    /// Render the graph's mask output ([`GraphInfo::mask_output`]) as a one-channel bitmap
+    /// (a color output becomes the average of red, green and blue).
+    pub fn render_mask(&mut self, values: &Values, size_log2: u32, images: &BTreeMap<String, InputImage>) -> Result<(Bitmap, Vec<String>), SbsarError> {
+        let graph = self.package.engine_graph(&self.path);
+        let id = self.package.graph(&self.path).mask_output.clone().ok_or_else(|| SbsarError("the graph has no mask output (name one output \"mask\")".into()))?;
+        let params = self.parameters(values, size_log2, images);
+        let outputs = self.instance.render(&mut self.renderer, graph, &params, Some(&[id.as_str()]))?;
+        let out = outputs.iter().find(|o| o.identifier == id).ok_or_else(|| SbsarError(format!("the graph did not render its output {id}")))?;
+        Ok((to_gray(out), self.renderer.warnings.clone()))
+    }
+
+    /// The engine parameters for `values` at `2^size_log2`, with the image inputs set.
+    fn parameters(&self, values: &Values, size_log2: u32, images: &BTreeMap<String, InputImage>) -> open_sbsar::Parameters {
+        let graph = self.package.engine_graph(&self.path);
         let info = self.package.graph(&self.path);
         let size = size_log2.clamp(MIN_SIZE_LOG2, MAX_SIZE_LOG2) as i32;
         let mut params = open_sbsar::Parameters::new();
@@ -313,21 +364,18 @@ impl GraphRenderer {
                 params.set_image(&input.identifier, image);
             }
         }
-        let plan = output_plan(graph);
-        let wanted: Vec<&str> = plan.iter().map(|p| p.1.as_str()).collect();
-        if wanted.is_empty() {
-            return Err(SbsarError("the graph has no output SubCraft can use (base color, normal, roughness, ...)".into()));
-        }
-        let outputs = self.instance.render(&mut self.renderer, graph, &params, Some(&wanted))?;
-        let mut maps = Vec::new();
-        for (channel, id, rank) in plan {
-            let Some(out) = outputs.iter().find(|o| o.identifier == id) else { continue };
-            let invert = usage_inverts(channel, rank);
-            let flip_green = channel == ChannelKind::Normal && nf.is_none();
-            maps.push(Map { channel, output: id, bitmap: to_bitmap(out, invert, flip_green) });
-        }
-        Ok(Rendered { maps, warnings: self.renderer.warnings.clone() })
+        params
     }
+}
+
+/// An engine output as a one-channel 16-bit bitmap: gray stays, color is averaged (alpha
+/// ignored). Mask values are data, never color-transformed.
+fn to_gray(out: &open_sbsar::OutputImage) -> Bitmap {
+    let ch = out.channels.max(1);
+    let vals = out.as_f32();
+    let take = ch.min(3);
+    let data = vals.chunks_exact(ch).map(|px| ((px[..take].iter().sum::<f32>() / take as f32).clamp(0.0, 1.0) * 65535.0).round() as u16).collect();
+    Bitmap { width: out.width as u32, height: out.height as u32, channels: 1, data: BitmapData::U16(data) }
 }
 
 /// An engine output as a bitmap that keeps its encoded values. 8-bit outputs stay 8-bit, all
@@ -361,8 +409,8 @@ fn to_bitmap(out: &open_sbsar::OutputImage, invert: bool, flip_green: bool) -> B
 /// Check that `bytes` is an archive SubCraft can use, and describe it.
 pub fn inspect(bytes: &[u8]) -> Result<Package, SbsarError> {
     let p = Package::from_bytes(bytes)?;
-    if p.graphs().iter().all(|g| g.channels.is_empty()) {
-        return Err(SbsarError("no graph in the archive has an output SubCraft can use (base color, normal, roughness, ...)".into()));
+    if p.graphs().iter().all(|g| g.channels.is_empty() && g.mask_output.is_none()) {
+        return Err(SbsarError("no graph in the archive has an output SubCraft can use (base color, normal, roughness, mask, ...)".into()));
     }
     Ok(p)
 }
