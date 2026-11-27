@@ -84,7 +84,7 @@ fn add_content_menu(ui: &mut Ui, layer: &Layer, channels: &[ChannelKind], active
     }
     ui.menu_button(format!("{}  Add filter", icons::SLIDERS), |ui| {
         // Type to narrow the list, Enter adds the first usable match (issue #760).
-        let (query, enter) = menu_search(ui, ui.id().with("add_content_filter_search"), "Search filters");
+        let (query, enter) = menu_search(ui, egui::Id::new("add_content_filter_search"), "Search filters");
         let mut first = None;
         searchable_menu_list(ui, |ui| {
             for filter in subcraft_doc::Filter::ALL.into_iter().filter(|f| matches_search(f.label(), &query)) {
@@ -104,7 +104,7 @@ fn add_content_menu(ui: &mut Ui, layer: &Layer, channels: &[ChannelKind], active
         }
     });
     ui.menu_button(format!("{}  Add material filter", icons::SLIDERS), |ui| {
-        let (query, enter) = menu_search(ui, ui.id().with("add_material_filter_search"), "Search material filters");
+        let (query, enter) = menu_search(ui, egui::Id::new("add_material_filter_search"), "Search material filters");
         let found: Vec<_> = subcraft_doc::MaterialFilter::ALL.into_iter().filter(|f| matches_search(f.label(), &query)).collect();
         searchable_menu_list(ui, |ui| {
             if found.is_empty() { ui.weak("No material filter matches"); }
@@ -128,12 +128,12 @@ fn add_content_menu(ui: &mut Ui, layer: &Layer, channels: &[ChannelKind], active
 
 /// The scrolling list under a menu's search field: long filter lists stay on screen.
 fn searchable_menu_list(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
-    egui::ScrollArea::vertical().max_height(480.0).auto_shrink([false, true]).show(ui, add);
+    egui::ScrollArea::vertical().max_height(480.0).show(ui, add);
 }
 
 pub(crate) fn add_mask_filters(ui: &mut Ui, layer: LayerId, cmds: &mut Vec<Command>) {
     ui.menu_button(format!("{}  Add filter", icons::SLIDERS), |ui| {
-        let (query, enter) = menu_search(ui, ui.id().with("add_mask_filter_search"), "Search filters");
+        let (query, enter) = menu_search(ui, egui::Id::new("add_mask_filter_search"), "Search filters");
         let found: Vec<_> = subcraft_doc::Filter::ALL.into_iter().filter(|f| f.supports_mask() && matches_search(f.label(), &query)).collect();
         searchable_menu_list(ui, |ui| {
             if found.is_empty() { ui.weak("No filter matches"); }

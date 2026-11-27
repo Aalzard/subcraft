@@ -21,7 +21,7 @@ pub fn search(query: &str, usable: impl Fn(&Filter) -> bool) -> Vec<Filter> {
 /// Painter's filter mini shelf: a button with the current filter that opens a searchable list.
 /// Returns the picked filter (with its default parameters).
 pub fn picker(ui: &mut Ui, current: &str, usable: impl Fn(&Filter) -> bool) -> Option<Filter> {
-    let button = ui.button(format!("{current}  \u{25be}")).on_hover_text("Pick another filter (type to search)");
+    let button = ui.button(format!("{current}  {}", crate::icons::CARET_DOWN)).on_hover_text("Pick another filter (type to search)");
     let query_id = button.id.with("filter_search");
     let mut picked = None;
     egui::Popup::menu(&button).id(button.id.with("filter_picker")).show(|ui| {

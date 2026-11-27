@@ -596,7 +596,7 @@ pub fn matches_search(name: &str, query: &str) -> bool {
 pub fn menu_search(ui: &mut Ui, id: egui::Id, hint: &str) -> (String, bool) {
     let mut query = ui.data(|d| d.get_temp::<String>(id)).unwrap_or_default();
     let opened = ui.data(|d| d.get_temp::<u64>(id.with("frame"))).is_none_or(|f| f + 1 < ui.ctx().cumulative_frame_nr());
-    let field = ui.add(egui::TextEdit::singleline(&mut query).hint_text(hint).desired_width(200.0));
+    let field = ui.add(egui::TextEdit::singleline(&mut query).id(id.with("field")).hint_text(hint).desired_width(200.0));
     if opened {
         // First frame of this opening: start typing straight away, with an empty query.
         query.clear();
@@ -615,7 +615,7 @@ pub fn menu_search(ui: &mut Ui, id: egui::Id, hint: &str) -> (String, bool) {
 /// Painter's resource picker (issue #760). Type to narrow the list; Enter takes the first match.
 /// Returns the picked value when it differs from the current one.
 pub fn search_picker<T: Clone>(ui: &mut Ui, id_salt: &str, current: &str, search_hint: &str, items: &[(String, T)]) -> Option<T> {
-    let button = ui.button(format!("{current}  \u{25be}")).on_hover_text("Click, then type to search");
+    let button = ui.button(format!("{current}  {}", crate::icons::CARET_DOWN)).on_hover_text("Click, then type to search");
     let id = button.id.with(id_salt);
     let mut picked = None;
     egui::Popup::menu(&button).id(id.with("popup")).show(|ui| {
