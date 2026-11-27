@@ -29,7 +29,7 @@ pub fn picker(ui: &mut Ui, current: &str, usable: impl Fn(&Filter) -> bool) -> O
         let mut query = ui.data(|d| d.get_temp::<String>(query_id)).unwrap_or_default();
         // Read before the field: the text field takes the Enter key event for itself.
         let enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
-        let field = ui.add(egui::TextEdit::singleline(&mut query).hint_text("Search filters").desired_width(190.0));
+        let field = ui.add(egui::TextEdit::singleline(&mut query).id(query_id.with("field")).hint_text("Search filters").desired_width(190.0));
         if button.clicked() { field.request_focus(); }
         let found = search(&query, &usable);
         egui::ScrollArea::vertical().max_height(560.0).show(ui, |ui| {

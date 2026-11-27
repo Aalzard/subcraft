@@ -25,7 +25,7 @@ pub fn picker<T: Clone>(ui: &mut Ui, id_salt: &str, current: &str, hint: &str, i
         let mut query = ui.data(|d| d.get_temp::<String>(query_id)).unwrap_or_default();
         // Read before the field: the text field takes the Enter key event for itself.
         let enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
-        let field = ui.add(egui::TextEdit::singleline(&mut query).hint_text(hint).desired_width(210.0));
+        let field = ui.add(egui::TextEdit::singleline(&mut query).id(query_id.with("field")).hint_text(hint).desired_width(210.0));
         if button.clicked() {
             query.clear();
             field.request_focus();
