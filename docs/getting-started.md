@@ -76,6 +76,17 @@ If you dock the panel in a narrow sidebar, the same controls switch back to a ve
 
 ![Bottom-center Texture Sets with horizontal controls](screenshots/bottom-texture-sets-layout.png)
 
+### Portable mode
+
+Create an empty folder named `portable` next to the SubCraft executable (for example inside the
+unzipped Windows portable zip or the Linux tarball). SubCraft then keeps its settings, window
+layout, logs, crash reports, recovery copies, caches, your library and your plugins in that folder
+instead of the system's user folders. Move the whole folder to another computer and your setup
+comes with it, or keep several SubCraft versions side by side with their own settings. Delete or
+rename the folder to go back to normal mode. The environment variables `SUBCRAFT_DATA` and
+`SUBCRAFT_LIBRARY` still win over it. The AppImage and Flatpak run from a read-only image, so
+portable mode does not apply to them.
+
 ## 1. Open a model
 
 Choose **New project from a model…** on the welcome screen or in the **File** menu and pick an

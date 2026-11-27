@@ -248,7 +248,9 @@ fn run_with_graphics(mut options: LaunchOptions, graphics: graphics::GraphicsUi,
         persistence_path: options
             .screenshot
             .as_ref()
-            .map(|_| std::env::temp_dir().join(format!("subcraft-screenshot-state-{}", std::process::id()))),
+            .map(|_| std::env::temp_dir().join(format!("subcraft-screenshot-state-{}", std::process::id())))
+            // Portable mode (issue #759): settings and layout live in the `portable` folder.
+            .or_else(|| subcraft_core::portable::dir().map(|d| d.join("app.ron"))),
         ..Default::default()
     };
     // Pen tablets on Wayland (issue #82): run under XWayland when asked and an X server exists.

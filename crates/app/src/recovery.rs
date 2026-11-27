@@ -34,13 +34,18 @@ const INFO_FILE: &str = "session.json";
 const LOCK_FILE: &str = "running.lock";
 const PREFIX: &str = "autosave-";
 
-/// SubCraft's per-user data folder: `$SUBCRAFT_DATA`, else the platform's local data folder
+/// SubCraft's per-user data folder: `$SUBCRAFT_DATA`, else the `portable` folder next to the
+/// executable when it exists (portable mode, issue #759), else the platform's local data folder
 /// (`%LOCALAPPDATA%\SubCraft` on Windows).
 pub fn data_dir() -> Option<PathBuf> {
-    if let Some(v) = std::env::var_os(DATA_DIR_ENV).filter(|v| !v.is_empty()) {
+    resolve_data_dir(std::env::var_os(DATA_DIR_ENV), subcraft_core::portable::dir(), dirs::data_local_dir())
+}
+
+fn resolve_data_dir(env: Option<std::ffi::OsString>, portable: Option<PathBuf>, data_local: Option<PathBuf>) -> Option<PathBuf> {
+    if let Some(v) = env.filter(|v| !v.is_empty()) {
         return Some(PathBuf::from(v));
     }
-    dirs::data_local_dir().map(|d| d.join("SubCraft"))
+    portable.or_else(|| data_local.map(|d| d.join("SubCraft")))
 }
 
 static CACHE_DIR: std::sync::RwLock<Option<PathBuf>> = std::sync::RwLock::new(None);
@@ -556,6 +561,17 @@ mod tests {
         let p = dir.join(name);
         std::fs::write(&p, b"x").unwrap();
         p
+    }
+
+    #[test]
+    fn data_dir_order_is_env_then_portable_then_system() {
+        let portable = Some(PathBuf::from("/opt/SubCraft/portable"));
+        let system = Some(PathBuf::from("/home/me/.local/share"));
+        assert_eq!(resolve_data_dir(Some("/tmp/d".into()), portable.clone(), system.clone()), Some(PathBuf::from("/tmp/d")));
+        assert_eq!(resolve_data_dir(Some("".into()), portable.clone(), system.clone()), portable, "empty env falls through");
+        assert_eq!(resolve_data_dir(None, portable.clone(), system.clone()), portable);
+        assert_eq!(resolve_data_dir(None, None, system), Some(PathBuf::from("/home/me/.local/share/SubCraft")));
+        assert_eq!(resolve_data_dir(None, None, None), None);
     }
 
     #[test]

@@ -61,11 +61,16 @@ pub struct UserLibrary {
 }
 
 impl UserLibrary {
-    /// `$SUBCRAFT_LIBRARY`, else `Documents/SubCraft/Library`. On a Linux account without
+    /// `$SUBCRAFT_LIBRARY`, else `portable/Library` in portable mode, else `Documents/SubCraft/Library`. On a Linux account without
     /// `xdg-user-dirs` there is no Documents folder; the library then lives in the data folder
     /// (`~/.local/share/SubCraft/Library`) instead of not existing at all.
     pub fn default_root() -> Option<PathBuf> {
-        resolve_root(std::env::var_os(ENV_VAR), dirs::document_dir(), dirs::data_local_dir())
+        match subcraft_core::portable::dir() {
+            // Portable mode (issue #759): the library (and the Plugins folder beside it) lives in
+            // the `portable` folder unless SUBCRAFT_LIBRARY says otherwise.
+            Some(portable) => std::env::var_os(ENV_VAR).filter(|p| !p.is_empty()).map(PathBuf::from).or(Some(portable.join("Library"))),
+            None => resolve_root(std::env::var_os(ENV_VAR), dirs::document_dir(), dirs::data_local_dir()),
+        }
     }
 
     pub fn new(root: impl Into<PathBuf>) -> Self {
