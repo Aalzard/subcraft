@@ -245,10 +245,13 @@ fn run_with_graphics(mut options: LaunchOptions, graphics: graphics::GraphicsUi,
         // window size) and never touch the user's saved settings.
         // --reset-layout also ignores the saved window position and size.
         persist_window: !options.reset_layout && !subcraft_app::safe_mode::is_active(),
+        // Portable mode (issue #759): preferences and layout live in the portable folder
+        // (eframe takes the .ron file path here, not a folder).
         persistence_path: options
             .screenshot
             .as_ref()
-            .map(|_| std::env::temp_dir().join(format!("subcraft-screenshot-state-{}", std::process::id()))),
+            .map(|_| std::env::temp_dir().join(format!("subcraft-screenshot-state-{}", std::process::id())))
+            .or_else(|| subcraft_core::portable::dir().map(|d| d.join("settings").join("app.ron"))),
         ..Default::default()
     };
     // Pen tablets on Wayland (issue #82): run under XWayland when asked and an X server exists.

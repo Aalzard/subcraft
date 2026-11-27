@@ -159,9 +159,110 @@ fn add_mask_menu(ui: &mut Ui, layer: &Layer, resolution: u32, index: &subcraft_d
     add_mask_anchor_items(ui, layer.id, index, cmds);
 }
 
+/// Every content effect the Add menu can add to `layer`, filters, material filters and generator
+/// kinds included, as (search label, kind). Folders take adjustments only.
+pub(crate) fn content_search_entries(layer: &Layer, channels: &[ChannelKind], active: ChannelKind) -> Vec<(String, ContentEffectKind)> {
+    let levels_channel = if active == ChannelKind::Normal { ChannelKind::Roughness } else { active };
+    let mut out: Vec<(String, ContentEffectKind)> = vec![
+        ("Paint".into(), ContentEffectKind::Paint { channels: BTreeMap::new() }),
+        ("Fill".into(), new_fill(channels.iter().copied())),
+        ("Levels".into(), ContentEffectKind::Levels { channel: levels_channel, levels: Levels::default() }),
+        ("Anchor point".into(), ContentEffectKind::Anchor),
+    ];
+    for filter in subcraft_doc::Filter::ALL {
+        let channel = if filter.supports_channel(active) { Some(active) } else { channels.iter().copied().find(|k| filter.supports_channel(*k)) };
+        if let Some(channel) = channel {
+            out.push((format!("{}  (filter)", filter.label()), ContentEffectKind::Filter { channel, filter }));
+        }
+    }
+    for filter in subcraft_doc::MaterialFilter::ALL {
+        out.push((format!("{}  (material filter)", filter.label()), ContentEffectKind::Material(filter)));
+    }
+    for kind in super::properties::all_generator_kinds() {
+        out.push((format!("{}  (generator)", kind.label()), ContentEffectKind::Generator(Generator::new(kind))));
+    }
+    out.retain(|(_, k)| !layer.is_folder() || k.is_adjustment());
+    out
+}
+
+/// Every mask effect the Add menu can add, generator kinds and mask filters included.
+pub(crate) fn mask_search_entries(resolution: u32) -> Vec<(String, MaskEffectKind)> {
+    let mut out: Vec<(String, MaskEffectKind)> = vec![
+        ("Paint".into(), MaskEffectKind::Paint { image: TiledImage::new(resolution, resolution, 2, [0.0; 4]) }),
+        ("Fill".into(), MaskEffectKind::Fill { value: 1.0, procedural: None, projection: Default::default() }),
+        ("Levels".into(), MaskEffectKind::Levels(Levels::default())),
+        ("Compare mask".into(), MaskEffectKind::Compare(Default::default())),
+        ("Color selection".into(), MaskEffectKind::IdColor(Default::default())),
+        ("Invert".into(), MaskEffectKind::Invert),
+        ("Anchor point".into(), MaskEffectKind::Anchor),
+    ];
+    for kind in super::properties::all_generator_kinds() {
+        out.push((format!("{}  (generator)", kind.label()), MaskEffectKind::Generator(Generator::new(kind))));
+    }
+    for filter in subcraft_doc::Filter::ALL.into_iter().filter(|f| f.supports_mask()) {
+        out.push((format!("{}  (filter)", filter.label()), MaskEffectKind::Filter(filter)));
+    }
+    out
+}
+
+/// The search field at the top of the Add menu (issue #760): type part of a name, then click a
+/// match or press Enter for the first one. Returns true while a search is typed (the caller then
+/// hides the regular entries).
+fn add_menu_search<T: Clone>(ui: &mut Ui, id: egui::Id, entries: impl FnOnce() -> Vec<(String, T)>, mut add: impl FnMut(T)) -> bool {
+    let query_id = id.with("add_effect_search");
+    let mut query = ui.data(|d| d.get_temp::<String>(query_id)).unwrap_or_default();
+    // Read before the field: the text field takes the Enter key event for itself.
+    let enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
+    let field = ui.add(egui::TextEdit::singleline(&mut query).hint_text("Search effects…").desired_width(220.0));
+    // Typing starts at once when the menu opens.
+    if ui.memory(|m| m.focused().is_none()) {
+        field.request_focus();
+    }
+    let searching = !query.trim().is_empty();
+    let mut done = false;
+    if searching {
+        let entries = entries();
+        let found = super::search_picker::filter(&query, &entries);
+        ui.separator();
+        ui.set_min_width(280.0);
+        egui::ScrollArea::vertical().max_height(420.0).show(ui, |ui| {
+            if found.is_empty() {
+                ui.weak("No effect matches");
+            }
+            for (label, value) in &found {
+                if ui.button(label.as_str()).clicked() {
+                    add(value.clone());
+                    done = true;
+                }
+            }
+        });
+        if !done && enter && (field.has_focus() || field.lost_focus()) && let Some((_, value)) = found.first() {
+            add(value.clone());
+            done = true;
+        }
+    } else {
+        ui.separator();
+    }
+    if done {
+        query.clear();
+        ui.close();
+    }
+    ui.data_mut(|d| d.insert_temp(query_id, query));
+    searching && !done
+}
+
 /// Painter's Add Effect menu for one of a layer's stacks: the Layers header button, the stack's
 /// own header and the layer's right-click menu all show it. The mask menu needs a mask.
 pub(crate) fn add_effect_menu(ui: &mut Ui, layer: &Layer, mask_domain: bool, channels: &[ChannelKind], active: ChannelKind, resolution: u32, session: &subcraft_app::Session, cmds: &mut Vec<Command>) {
+    let id = egui::Id::new(("add_effect_menu", layer.id, mask_domain));
+    let searching = if mask_domain && layer.mask.is_some() {
+        add_menu_search(ui, id, || mask_search_entries(resolution), |kind| cmds.push(Command::AddMaskEffect { layer: layer.id, kind }))
+    } else {
+        add_menu_search(ui, id, || content_search_entries(layer, channels, active), |kind| cmds.push(Command::AddContentEffect { layer: layer.id, kind }))
+    };
+    if searching {
+        return;
+    }
     if mask_domain && layer.mask.is_some() {
         let index = subcraft_doc::AnchorIndex::build(&session.selected_texture_set().layers);
         add_mask_menu(ui, layer, resolution, &index, cmds)
@@ -889,5 +990,33 @@ mod filter_channel_tests {
         assert_eq!(filter_channels_after_toggle(&states, R, true), [R], "Alt: only this one");
         let one = [(C, false), (R, true), (M, false)];
         assert_eq!(filter_channels_after_toggle(&one, R, false), [R], "the last channel stays on");
+    }
+}
+
+#[cfg(test)]
+mod search_entry_tests {
+    use super::*;
+    use subcraft_doc::TextureSet;
+
+    #[test]
+    fn add_menu_search_finds_filters_material_filters_and_generators() {
+        let ts = TextureSet::new("Body", 0, 64);
+        let channels: Vec<ChannelKind> = ts.channels.iter().map(|c| c.kind).collect();
+        let paint = Layer::new_paint("Paint", &ts);
+        let entries = content_search_entries(&paint, &channels, ChannelKind::BaseColor);
+        let find = |q: &str| super::super::search_picker::filter(q, &entries).into_iter().map(|(l, _)| l.clone()).collect::<Vec<_>>();
+        assert_eq!(find("galvanized"), vec!["MatFinish Galvanized  (material filter)".to_string()]);
+        assert!(find("blur slope").iter().any(|l| l.starts_with("Blur Slope")), "{:?}", find("blur slope"));
+        assert!(find("baked lighting").iter().any(|l| l.contains("Baked Lighting")));
+        assert!(find("dirt").iter().any(|l| l.ends_with("(generator)")), "{:?}", find("dirt"));
+        assert!(find("paint").iter().any(|l| l == "Paint"));
+        // A folder takes adjustments only: no paint, fill or generator.
+        let folder = Layer::new_folder("Folder", &ts);
+        let entries = content_search_entries(&folder, &channels, ChannelKind::BaseColor);
+        assert!(!entries.is_empty() && entries.iter().all(|(_, k)| k.is_adjustment()));
+        // A mask lists only what a mask can take.
+        let mask = mask_search_entries(64);
+        assert!(mask.iter().all(|(_, k)| !matches!(k, MaskEffectKind::Filter(f) if !f.supports_mask())));
+        assert!(mask.iter().any(|(l, _)| l.starts_with("Dirt")));
     }
 }

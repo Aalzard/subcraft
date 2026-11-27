@@ -668,11 +668,10 @@ fn generator_kind_choices(current: GeneratorKind, extra_ids: &[MeshMapKind]) -> 
 fn generator_kind_row(ui: &mut Ui, state: &UiState, g: &mut subcraft_doc::Generator) -> bool {
     let extra_ids = state.session.extra_id_maps(state.session.selection().texture_set);
     let mut picked = None;
-    prop_row(ui, tr("Generator"), |ui| egui::ComboBox::from_id_salt("generator_kind").selected_text(g.kind.label()).show_ui(ui, |ui| {
-        for kind in generator_kind_choices(g.kind, &extra_ids) {
-            if ui.selectable_label(g.kind == kind, kind.label()).clicked() && g.kind != kind { picked = Some(kind); }
-        }
-    }));
+    prop_row(ui, tr("Generator"), |ui| {
+        let items: Vec<(String, GeneratorKind)> = generator_kind_choices(g.kind, &extra_ids).into_iter().map(|k| (k.label().to_string(), k)).collect();
+        picked = super::search_picker::picker(ui, "generator_kind", &g.kind.label(), "Search generators", &items).filter(|k| *k != g.kind);
+    });
     if let Some(kind) = picked { g.set_kind(kind); }
     picked.is_some()
 }

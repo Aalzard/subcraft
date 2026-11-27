@@ -21,12 +21,14 @@ pub fn search(query: &str, usable: impl Fn(&Filter) -> bool) -> Vec<Filter> {
 /// Painter's filter mini shelf: a button with the current filter that opens a searchable list.
 /// Returns the picked filter (with its default parameters).
 pub fn picker(ui: &mut Ui, current: &str, usable: impl Fn(&Filter) -> bool) -> Option<Filter> {
-    let button = ui.button(format!("{current}  \u{25be}")).on_hover_text("Pick another filter (type to search)");
+    let button = ui.button(format!("{current}  {}", crate::icons::CARET_DOWN)).on_hover_text("Pick another filter (type to search)");
     let query_id = button.id.with("filter_search");
     let mut picked = None;
     egui::Popup::menu(&button).id(button.id.with("filter_picker")).show(|ui| {
         ui.set_min_width(200.0);
         let mut query = ui.data(|d| d.get_temp::<String>(query_id)).unwrap_or_default();
+        // Read before the field: the text field takes the Enter key event for itself.
+        let enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
         let field = ui.add(egui::TextEdit::singleline(&mut query).hint_text("Search filters").desired_width(190.0));
         if button.clicked() { field.request_focus(); }
         let found = search(&query, &usable);
@@ -47,7 +49,7 @@ pub fn picker(ui: &mut Ui, current: &str, usable: impl Fn(&Filter) -> bool) -> O
             }
         });
         // Enter takes the first match.
-        if field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) && let Some(f) = search(&query, &usable).into_iter().next() {
+        if enter && (field.has_focus() || field.lost_focus()) && let Some(f) = search(&query, &usable).into_iter().next() {
             picked = Some(f);
             ui.close();
         }

@@ -34,11 +34,15 @@ const INFO_FILE: &str = "session.json";
 const LOCK_FILE: &str = "running.lock";
 const PREFIX: &str = "autosave-";
 
-/// SubCraft's per-user data folder: `$SUBCRAFT_DATA`, else the platform's local data folder
+/// SubCraft's per-user data folder: `$SUBCRAFT_DATA`, else the `portable` folder next to the
+/// executable when there is one (issue #759), else the platform's local data folder
 /// (`%LOCALAPPDATA%\SubCraft` on Windows).
 pub fn data_dir() -> Option<PathBuf> {
     if let Some(v) = std::env::var_os(DATA_DIR_ENV).filter(|v| !v.is_empty()) {
         return Some(PathBuf::from(v));
+    }
+    if let Some(p) = subcraft_core::portable::dir() {
+        return Some(p);
     }
     dirs::data_local_dir().map(|d| d.join("SubCraft"))
 }
