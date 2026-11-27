@@ -1245,7 +1245,6 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Apply", "套用"),
     ("Graph material", "圖形材質"),
     ("Substance generator", "Substance 產生器"),
-    ("Substance material", "Substance 材質"),
     ("Rendering the material with the new values", "正在以新數值算繪材質"),
     ("This material cannot be rendered: {}", "無法算繪此材質：{}"),
     ("Larger sizes take much longer to render.", "尺寸越大，算繪所需時間越長。"),

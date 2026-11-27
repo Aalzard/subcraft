@@ -22,8 +22,6 @@ pub enum Usage {
     SmartMaterial,
     SmartMask,
     BrushPreset,
-    /// A Substance archive (`.sbsar`): a material or a generator.
-    Substance,
     /// Painter's "colorlut": a colour profile LUT, added to the project (not a library) and
     /// used by Display Settings > Color profile.
     ColorLut,
@@ -33,7 +31,7 @@ pub enum Usage {
 const COLOR_LUT_EXTENSIONS: [&str; 5] = ["exr", "hdr", "tif", "tiff", "png"];
 
 impl Usage {
-    pub const ALL: [Usage; 9] = [Usage::Undefined, Usage::Texture, Usage::Alpha, Usage::Environment, Usage::SmartMaterial, Usage::SmartMask, Usage::BrushPreset, Usage::Substance, Usage::ColorLut];
+    pub const ALL: [Usage; 8] = [Usage::Undefined, Usage::Texture, Usage::Alpha, Usage::Environment, Usage::SmartMaterial, Usage::SmartMask, Usage::BrushPreset, Usage::ColorLut];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -44,7 +42,6 @@ impl Usage {
             Usage::SmartMaterial => tr("smart material"),
             Usage::SmartMask => tr("smart mask"),
             Usage::BrushPreset => tr("brush preset"),
-            Usage::Substance => tr("Substance material"),
             Usage::ColorLut => tr("color LUT"),
         }
     }
@@ -58,7 +55,6 @@ impl Usage {
             Usage::SmartMaterial => Some(UserAssetKind::SmartMaterial),
             Usage::SmartMask => Some(UserAssetKind::SmartMask),
             Usage::BrushPreset => Some(UserAssetKind::BrushPreset),
-            Usage::Substance => Some(UserAssetKind::Substance),
             // Goes into the project, not a library.
             Usage::ColorLut => None,
         }
@@ -75,7 +71,6 @@ impl Usage {
             Usage::SmartMaterial => ShelfTab::SmartMaterials,
             Usage::SmartMask => ShelfTab::SmartMasks,
             Usage::BrushPreset => ShelfTab::Brushes,
-            Usage::Substance => ShelfTab::Materials,
         })
     }
 
@@ -96,7 +91,6 @@ impl Usage {
             "scsmart" => Usage::SmartMaterial,
             "scmask" => Usage::SmartMask,
             "scbrush" => Usage::BrushPreset,
-            "sbsar" => Usage::Substance,
             "hdr" => Usage::Environment,
             _ => Usage::Undefined,
         }
@@ -560,53 +554,6 @@ mod tests {
         assert_eq!(w.visible(), [0]);
         w.remove_selected();
         assert_eq!(w.rows.len(), 1);
-        std::fs::remove_dir_all(&root).ok();
-    }
-
-    #[test]
-    fn substance_archives_go_into_the_library_and_the_assets_panel_adds_them() {
-        use crate::panels::shelf::{ShelfDrag, ShelfTab, SUBSTANCE_INDEX, apply_shelf_item_with, ghost_mask_accepts, items};
-        let root = temp_root("sbsar");
-        let yours = root.join("yours");
-        let data = Path::new(env!("CARGO_MANIFEST_DIR")).join("../sbsar/tests/data");
-        let mut s = state_with(&yours);
-        assert_eq!(Usage::guess(Path::new("Rust.SBSAR")), Usage::Substance);
-        open_with(&mut s, &[data.join("CardBoard.sbsar"), data.join("EdgeGenerator.sbsar")]);
-        assert!(s.import.rows.iter().all(|r| r.importable()), "an .sbsar has a single use");
-        let r = import(&mut s);
-        assert_eq!((r.imported.len(), r.errors), (2, Vec::<String>::new()));
-        let folder = subcraft_app::assets::UserLibrary::new(&yours).folder(UserAssetKind::Substance);
-        assert!(folder.join("CardBoard.sbsar").is_file() && folder.join("EdgeGenerator.sbsar").is_file());
-        s.substances.wait();
-        let names = |s: &UiState, tab| items(s, tab).into_iter().filter(|i| i.index >= SUBSTANCE_INDEX).map(|i| (i.name, i.library)).collect::<Vec<_>>();
-        assert_eq!(names(&s, ShelfTab::Materials), vec![("CardBoard".to_string(), crate::panels::shelf_filter::YOURS.to_string())]);
-        assert_eq!(names(&s, ShelfTab::Generators), vec![("EdgeGenerator".to_string(), crate::panels::shelf_filter::YOURS.to_string())]);
-        // Library files stay listed when the libraries are read again.
-        s.refresh_libraries();
-        s.substances.wait();
-        assert_eq!(names(&s, ShelfTab::Generators).len(), 1);
-        let index = |name: &str| s.substances.items.iter().position(|i| i.name == name).unwrap();
-        let (material, generator) = (index("CardBoard"), index("EdgeGenerator"));
-        assert!(ghost_mask_accepts(ShelfDrag::SubstanceGenerator(generator)) && !ghost_mask_accepts(ShelfDrag::SubstanceMaterial(material)));
-        assert!(crate::panels::effects::shelf_item_fits(ShelfDrag::SubstanceGenerator(generator), true));
-        assert!(!crate::panels::effects::shelf_item_fits(ShelfDrag::SubstanceGenerator(generator), false), "masks only");
-
-        // A click on the generator: rendered, then the selected layer's mask gets it.
-        let layer = s.session.document().texture_sets[0].layers[0].id;
-        s.session.execute(subcraft_app::Command::SelectLayer(Some(layer))).unwrap();
-        apply_shelf_item_with(&mut s, ShelfDrag::SubstanceGenerator(generator), false, 0.0);
-        assert!(s.graph_layers.busy(), "{:?}", s.status);
-        s.graph_layers.finish(&mut s.session);
-        let l = s.session.document().texture_sets[0].find(layer).unwrap();
-        assert!(l.mask.as_ref().is_some_and(|m| m.effects.iter().any(|e| e.graph.is_some())), "the generator is in the mask");
-        // A click on the material: a new layer.
-        let before = s.session.document().texture_sets[0].layers.len();
-        apply_shelf_item_with(&mut s, ShelfDrag::SubstanceMaterial(material), false, 0.0);
-        s.graph_layers.finish(&mut s.session);
-        assert_eq!(s.session.document().texture_sets[0].layers.len(), before + 1);
-        // Alt has no in-place form and says so; a generator wants a layer.
-        apply_shelf_item_with(&mut s, ShelfDrag::SubstanceMaterial(material), true, 0.0);
-        assert!(!s.graph_layers.busy());
         std::fs::remove_dir_all(&root).ok();
     }
 

@@ -1245,7 +1245,6 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Apply", "적용"),
     ("Graph material", "그래프 머티리얼"),
     ("Substance generator", "Substance 제너레이터"),
-    ("Substance material", "Substance 머티리얼"),
     ("Rendering the material with the new values", "새 값으로 머티리얼을 렌더링하는 중"),
     ("This material cannot be rendered: {}", "이 머티리얼을 렌더링할 수 없습니다: {}"),
     ("Larger sizes take much longer to render.", "크기가 클수록 렌더링 시간이 훨씬 오래 걸립니다."),

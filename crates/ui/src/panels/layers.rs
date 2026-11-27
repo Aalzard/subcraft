@@ -1139,7 +1139,7 @@ pub fn ghost_mask_label(item: ShelfDrag, layer: &str) -> String {
         ShelfDrag::Alpha(_) => "this alpha",
         ShelfDrag::Texture(_) => "this image",
         ShelfDrag::Filter(_) | ShelfDrag::MaterialFilter(_) => "this filter",
-        ShelfDrag::Generator(_) | ShelfDrag::SubstanceGenerator(_) => "this generator",
+        ShelfDrag::Generator(_) => "this generator",
         ShelfDrag::SmartMask(_) => "this smart mask",
         _ => "it",
     };
