@@ -165,6 +165,7 @@ impl UiState {
         }
         self.brush_presets.retain(|p| keep(p.user_file.as_deref(), &session));
         self.textures.items.retain(|t| session.contains(&t.path));
+        self.substances.items.retain(|t| session.contains(&t.path));
         for l in &libraries {
             self.load_library_content(&l.lib);
         }
@@ -210,6 +211,7 @@ impl UiState {
         }
         self.brush_presets.extend(presets);
         self.textures.add_listed(&lib.list(UserAssetKind::Texture));
+        self.substances.add_listed(&lib.list(UserAssetKind::Substance));
     }
 
     /// Prefilter `files` (HDRIs) on a background thread; [`Self::poll_library`] picks them up.
@@ -280,6 +282,10 @@ impl UiState {
             }
             UserAssetKind::ExportPreset => Err("export presets are imported from the Export window".into()),
             UserAssetKind::BakePreset => Err("bake presets are saved from the Bake window".into()),
+            UserAssetKind::Substance => {
+                self.substances.add_listed(&[file.to_path_buf()]);
+                Ok(file.file_stem().and_then(|s| s.to_str()).unwrap_or_default().to_string())
+            }
         }
     }
 }

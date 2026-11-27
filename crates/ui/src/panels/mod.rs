@@ -24,5 +24,6 @@ pub mod shelf;
 pub mod shelf_filter;
 pub mod stamp_brush;
 pub mod texture_sets;
+pub mod substances;
 pub mod textures;
 pub mod uv_view;

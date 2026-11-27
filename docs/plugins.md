@@ -53,6 +53,7 @@ My Plugin/
     environments/           HDR / EXR / PNG / JPEG
     export-presets/         export preset .json files
     bake-presets/           bake preset .json files
+    substances/             Substance archives (.sbsar): materials and generators
   README.md                 optional, for people browsing the folder
 ```
 
@@ -105,6 +106,7 @@ Make the assets in SubCraft and copy the files from your library into the plugin
 * Export presets: Export Textures window > Output templates (`export-presets`).
 * Bake presets: Bake window > save a preset (`bake-presets`).
 * Images (alphas, textures, environments) are plain image files.
+* Substance materials and generators are `.sbsar` files (`substances`).
 
 Export and bake presets from a plugin are read-only in SubCraft: duplicate one to change it.
 
