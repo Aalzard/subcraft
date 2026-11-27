@@ -584,9 +584,110 @@ pub fn window_limits(screen: Vec2) -> (f32, f32) {
     ((screen.x - 24.0).max(280.0), (screen.y - 48.0).max(200.0))
 }
 
+/// Whether `name` contains every word of `query`, ignoring case (an empty query matches all).
+pub fn matches_search(name: &str, query: &str) -> bool {
+    let name = name.to_lowercase();
+    query.split_whitespace().all(|w| name.contains(&w.to_lowercase()))
+}
+
+/// A search field for the top of a menu or popup (issue #760). It takes the keyboard focus when
+/// the menu opens, so the user can type at once. Returns the query and whether Enter was pressed
+/// in it. The query is kept per `id` while the menu is open and cleared when it closes.
+pub fn menu_search(ui: &mut Ui, id: egui::Id, hint: &str) -> (String, bool) {
+    let mut query = ui.data(|d| d.get_temp::<String>(id)).unwrap_or_default();
+    let opened = ui.data(|d| d.get_temp::<u64>(id.with("frame"))).is_none_or(|f| f + 1 < ui.ctx().cumulative_frame_nr());
+    let field = ui.add(egui::TextEdit::singleline(&mut query).hint_text(hint).desired_width(200.0));
+    if opened {
+        // First frame of this opening: start typing straight away, with an empty query.
+        query.clear();
+        field.request_focus();
+    }
+    let enter = field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+    let frame = ui.ctx().cumulative_frame_nr();
+    ui.data_mut(|d| {
+        d.insert_temp(id, query.clone());
+        d.insert_temp(id.with("frame"), frame);
+    });
+    (query, enter)
+}
+
+/// A button showing `current` that opens a searchable list of `items` (label, value), like
+/// Painter's resource picker (issue #760). Type to narrow the list; Enter takes the first match.
+/// Returns the picked value when it differs from the current one.
+pub fn search_picker<T: Clone>(ui: &mut Ui, id_salt: &str, current: &str, search_hint: &str, items: &[(String, T)]) -> Option<T> {
+    let button = ui.button(format!("{current}  \u{25be}")).on_hover_text("Click, then type to search");
+    let id = button.id.with(id_salt);
+    let mut picked = None;
+    egui::Popup::menu(&button).id(id.with("popup")).show(|ui| {
+        ui.set_min_width(210.0);
+        let (query, enter) = menu_search(ui, id.with("search"), search_hint);
+        let found: Vec<&(String, T)> = items.iter().filter(|(label, _)| matches_search(label, &query)).collect();
+        egui::ScrollArea::vertical().max_height(480.0).show(ui, |ui| {
+            if found.is_empty() { ui.weak("No match"); }
+            for (label, value) in &found {
+                if ui.selectable_label(label == current, label.as_str()).clicked() {
+                    if label != current { picked = Some(value.clone()); }
+                    ui.close();
+                }
+            }
+        });
+        if enter && let Some((label, value)) = found.first() {
+            if label != current { picked = Some(value.clone()); }
+            ui.close();
+        }
+    });
+    picked
+}
+
 #[cfg(test)]
 mod tests {
-    use super::parse_number;
+    use super::{matches_search, parse_number};
+
+    /// Click the picker, type "slo", press Enter: the first match is picked (issue #760).
+    #[test]
+    fn search_picker_takes_typed_text_and_enter_picks_the_first_match() {
+        let ctx = egui::Context::default();
+        let items: Vec<(String, u32)> = vec![("Blur".into(), 1), ("Blur Slope".into(), 2), ("Sharpen".into(), 3)];
+        let mut picked = None;
+        let mut button = egui::Rect::NOTHING;
+        let mut list_has_sharpen = true;
+        let frame = |events: Vec<egui::Event>, picked: &mut Option<u32>, button: &mut egui::Rect, sharpen: &mut bool| {
+            let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(600.0, 800.0))), events, ..Default::default() };
+            let mut out = ctx.run_ui(input, |ui| {
+                egui::CentralPanel::default().show(ui, |ui| {
+                    if let Some(v) = super::search_picker(ui, "t", "Blur", "Search", &items) { *picked = Some(v); }
+                });
+            });
+            *sharpen = out.shapes.iter().any(|s| matches!(&s.shape, egui::epaint::Shape::Text(t) if t.galley.job.text == "Sharpen"));
+            if let Some(r) = out.shapes.iter().find_map(|s| match &s.shape { egui::epaint::Shape::Text(t) if t.galley.job.text.starts_with("Blur  ") => Some(t.visual_bounding_rect()), _ => None }) { *button = r; }
+            out.textures_delta.clear();
+        };
+        frame(vec![], &mut picked, &mut button, &mut list_has_sharpen);
+        frame(vec![], &mut picked, &mut button, &mut list_has_sharpen);
+        let at = button.center();
+        let m = egui::Modifiers::NONE;
+        frame(vec![egui::Event::PointerMoved(at)], &mut picked, &mut button, &mut list_has_sharpen);
+        frame(vec![egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed: true, modifiers: m }], &mut picked, &mut button, &mut list_has_sharpen);
+        frame(vec![egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed: false, modifiers: m }], &mut picked, &mut button, &mut list_has_sharpen);
+        frame(vec![], &mut picked, &mut button, &mut list_has_sharpen);
+        assert!(list_has_sharpen, "the open list shows every item");
+        frame(vec![egui::Event::Text("slo".into())], &mut picked, &mut button, &mut list_has_sharpen);
+        frame(vec![], &mut picked, &mut button, &mut list_has_sharpen);
+        assert!(!list_has_sharpen, "typing narrows the list");
+        assert_eq!(picked, None);
+        frame(vec![egui::Event::Key { key: egui::Key::Enter, physical_key: None, pressed: true, repeat: false, modifiers: m }], &mut picked, &mut button, &mut list_has_sharpen);
+        frame(vec![], &mut picked, &mut button, &mut list_has_sharpen);
+        assert_eq!(picked, Some(2), "Enter picks Blur Slope, the first match that is not the current item");
+    }
+
+    #[test]
+    fn search_matches_every_word_in_any_order_and_case() {
+        assert!(matches_search("Blur Slope", ""));
+        assert!(matches_search("Blur Slope", "slope"));
+        assert!(matches_search("Blur Slope", "SLO blu"));
+        assert!(!matches_search("Blur Slope", "blur x"));
+        assert!(matches_search("Baked Lighting Stylized", "  baked   light "));
+    }
 
     #[test]
     fn parses_typed_numbers() {

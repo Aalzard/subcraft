@@ -14,7 +14,7 @@ use subcraft_doc::{
 use crate::icons;
 use crate::state::UiState;
 use crate::theme::{self, ACCENT, TEXT_DIM, TEXT_FAINT, VALUE_W};
-use crate::widgets::{channel_value, empty_state, fill_width, hint, icon_button, panel, primary_button, prop_row, prop_row_reset, check_row_reset, secondary_button, section, section_with, segmented_response, slider_row_reset};
+use crate::widgets::{channel_value, empty_state, fill_width, hint, icon_button, panel, primary_button, prop_row, prop_row_reset, check_row_reset, secondary_button, section, section_with, segmented_response, slider_row_reset, search_picker};
 
 /// Properties is context-sensitive like Substance Painter's: while a paint layer (or a paint
 /// effect) is the target, or the brush settings were asked for, it shows the brush settings; any
@@ -668,11 +668,11 @@ fn generator_kind_choices(current: GeneratorKind, extra_ids: &[MeshMapKind]) -> 
 fn generator_kind_row(ui: &mut Ui, state: &UiState, g: &mut subcraft_doc::Generator) -> bool {
     let extra_ids = state.session.extra_id_maps(state.session.selection().texture_set);
     let mut picked = None;
-    prop_row(ui, tr("Generator"), |ui| egui::ComboBox::from_id_salt("generator_kind").selected_text(g.kind.label()).show_ui(ui, |ui| {
-        for kind in generator_kind_choices(g.kind, &extra_ids) {
-            if ui.selectable_label(g.kind == kind, kind.label()).clicked() && g.kind != kind { picked = Some(kind); }
-        }
-    }));
+    // Searchable, as Painter's generator picker (issue #760): click, type "dirt", Enter.
+    let items: Vec<(String, GeneratorKind)> = generator_kind_choices(g.kind, &extra_ids).into_iter().map(|k| (k.label().to_string(), k)).collect();
+    prop_row(ui, tr("Generator"), |ui| {
+        picked = search_picker(ui, "generator_kind", &g.kind.label(), "Search generators", &items).filter(|k| *k != g.kind);
+    });
     if let Some(kind) = picked { g.set_kind(kind); }
     picked.is_some()
 }

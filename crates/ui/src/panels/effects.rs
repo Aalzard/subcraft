@@ -83,21 +83,41 @@ fn add_content_menu(ui: &mut Ui, layer: &Layer, channels: &[ChannelKind], active
         }
     }
     ui.menu_button(format!("{}  Add filter", icons::SLIDERS), |ui| {
-        for filter in subcraft_doc::Filter::ALL {
-            let channel = if filter.supports_channel(active) { Some(active) }
-                else { channels.iter().copied().find(|k| filter.supports_channel(*k)) };
-            if ui.add_enabled(channel.is_some(), egui::Button::new(filter.label())).clicked() {
-                cmds.push(Command::AddContentEffect { layer: layer.id, kind: ContentEffectKind::Filter { channel: channel.unwrap(), filter } });
-                ui.close();
+        // Type to narrow the list, Enter adds the first usable match (issue #760).
+        let (query, enter) = menu_search(ui, ui.id().with("add_content_filter_search"), "Search filters");
+        let mut first = None;
+        searchable_menu_list(ui, |ui| {
+            for filter in subcraft_doc::Filter::ALL.into_iter().filter(|f| matches_search(f.label(), &query)) {
+                let channel = if filter.supports_channel(active) { Some(active) }
+                    else { channels.iter().copied().find(|k| filter.supports_channel(*k)) };
+                if first.is_none() && let Some(channel) = channel { first = Some((channel, filter)); }
+                if ui.add_enabled(channel.is_some(), egui::Button::new(filter.label())).clicked() && let Some(channel) = channel {
+                    cmds.push(Command::AddContentEffect { layer: layer.id, kind: ContentEffectKind::Filter { channel, filter } });
+                    ui.close();
+                }
             }
+            if first.is_none() { ui.weak("No filter matches"); }
+        });
+        if enter && let Some((channel, filter)) = first {
+            cmds.push(Command::AddContentEffect { layer: layer.id, kind: ContentEffectKind::Filter { channel, filter } });
+            ui.close();
         }
     });
     ui.menu_button(format!("{}  Add material filter", icons::SLIDERS), |ui| {
-        for filter in subcraft_doc::MaterialFilter::ALL {
-            if ui.button(filter.label()).on_hover_text(filter.hint()).clicked() {
-                cmds.push(Command::AddContentEffect { layer: layer.id, kind: ContentEffectKind::Material(filter) });
-                ui.close();
+        let (query, enter) = menu_search(ui, ui.id().with("add_material_filter_search"), "Search material filters");
+        let found: Vec<_> = subcraft_doc::MaterialFilter::ALL.into_iter().filter(|f| matches_search(f.label(), &query)).collect();
+        searchable_menu_list(ui, |ui| {
+            if found.is_empty() { ui.weak("No material filter matches"); }
+            for filter in &found {
+                if ui.button(filter.label()).on_hover_text(filter.hint()).clicked() {
+                    cmds.push(Command::AddContentEffect { layer: layer.id, kind: ContentEffectKind::Material(*filter) });
+                    ui.close();
+                }
             }
+        });
+        if enter && let Some(filter) = found.first() {
+            cmds.push(Command::AddContentEffect { layer: layer.id, kind: ContentEffectKind::Material(*filter) });
+            ui.close();
         }
     });
     if ui.button(format!("{}  Add anchor point", icons::CROSSHAIR)).on_hover_text("Captures this layer's content at this point, so layers above can read it").clicked() {
@@ -106,12 +126,26 @@ fn add_content_menu(ui: &mut Ui, layer: &Layer, channels: &[ChannelKind], active
     }
 }
 
+/// The scrolling list under a menu's search field: long filter lists stay on screen.
+fn searchable_menu_list(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
+    egui::ScrollArea::vertical().max_height(480.0).auto_shrink([false, true]).show(ui, add);
+}
+
 pub(crate) fn add_mask_filters(ui: &mut Ui, layer: LayerId, cmds: &mut Vec<Command>) {
     ui.menu_button(format!("{}  Add filter", icons::SLIDERS), |ui| {
-        for filter in subcraft_doc::Filter::ALL.into_iter().filter(|f| f.supports_mask()) {
-            if ui.button(filter.label()).clicked() {
-                cmds.push(Command::AddMaskEffect { layer, kind: MaskEffectKind::Filter(filter) }); ui.close();
+        let (query, enter) = menu_search(ui, ui.id().with("add_mask_filter_search"), "Search filters");
+        let found: Vec<_> = subcraft_doc::Filter::ALL.into_iter().filter(|f| f.supports_mask() && matches_search(f.label(), &query)).collect();
+        searchable_menu_list(ui, |ui| {
+            if found.is_empty() { ui.weak("No filter matches"); }
+            for filter in &found {
+                if ui.button(filter.label()).clicked() {
+                    cmds.push(Command::AddMaskEffect { layer, kind: MaskEffectKind::Filter(*filter) }); ui.close();
+                }
             }
+        });
+        if enter && let Some(filter) = found.first() {
+            cmds.push(Command::AddMaskEffect { layer, kind: MaskEffectKind::Filter(*filter) });
+            ui.close();
         }
     });
 }
