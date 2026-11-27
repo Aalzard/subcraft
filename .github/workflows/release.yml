@@ -324,6 +324,22 @@ jobs:
         uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
         with:
           subject-path: dist/SHA256SUMS.txt
+      # A manual run with a pushed tag may come before the GitHub release exists: create it from
+      # docs/release-notes-<version>.md so the packages below have a release to go to.
+      - name: Create the release for a manual run when it does not exist yet
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "Release $TAG already exists."
+          else
+            version="${TAG#v}"
+            notes="docs/release-notes-$version.md"
+            test -f "$notes" || { echo "::error::$notes is missing"; exit 1; }
+            gh release create "$TAG" --repo "${{ github.repository }}" --verify-tag --title "SubCraft $version" --notes-file "$notes" --latest
+          fi
       - name: Publish verified packages without replacing existing assets
         env:
           GH_TOKEN: ${{ github.token }}
