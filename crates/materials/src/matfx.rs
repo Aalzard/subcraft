@@ -26,10 +26,13 @@ pub const PATTERN: usize = 4;
 const DIMPLE_HEIGHT: f32 = 0.30;
 const FILM_HEIGHT: f32 = 0.04;
 const PEEL_HEIGHT: f32 = 0.03;
-/// Fine finish grain (Galvanized, Powder Coated grain, Grinded, Rough, Raw, Brushed, Grainy). Was
-/// 0.012 until issue #760: that tilted the normals by about half a degree, so the finishes showed
-/// no relief in the 3D view or the exported normal map.
+/// Fine finish grain (Powder Coated grain, Grinded, Rough, Raw, Brushed, Grainy). Was 0.012 until
+/// issue #760: that tilted the normals by about half a degree, so the finishes showed no relief in
+/// the 3D view or the exported normal map.
 const GRAIN_HEIGHT: f32 = 0.036;
+/// Galvanized grooves keep the old fine height: its relief comes from the spangle facets
+/// (`SPANGLE_TILT`), and deeper grooves would drown them.
+const GROOVE_HEIGHT: f32 = 0.012;
 const DROP_HEIGHT: f32 = 0.10;
 const SHUT_HEIGHT: f32 = 0.08;
 const PERFORATION_HEIGHT: f32 = 0.12;
@@ -496,7 +499,7 @@ pub fn respond(filter: &MaterialFilter, pat: &[f32], s: Surface) -> Response {
             let groove = 1.0 - smoothstep(0.0, 0.08, border);
             // Facets level out towards the borders: neighbours meet without a cliff.
             let facet = (pat[3] - 0.5) * 2.0 * smoothstep(0.0, 0.5, border);
-            r.height = ((-groove * 0.6 + z(streak) * 0.08) * GRAIN_HEIGHT + facet * SPANGLE_TILT) * relief;
+            r.height = ((-groove * 0.6 + z(streak) * 0.08) * GROOVE_HEIGHT + facet * SPANGLE_TILT) * relief;
         }
         MaterialFilter::Hammered { depth, roughness_variation, .. } => {
             let (h, cell, fine) = (pat[0], pat[1], pat[2]);
