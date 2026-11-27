@@ -204,6 +204,17 @@ pub fn import_painter_smart_material(state: &mut UiState, path: &std::path::Path
 /// appears when its first render is done.
 pub fn import_graph_materials(state: &mut UiState, paths: &[PathBuf], now: f64) {
     for p in paths {
+        // A generator (mask output only) goes into the selected layer's mask instead.
+        if subcraft_app::graph_layer::is_generator_file(p)
+            && let Some(layer) = state.session.selection().layer
+        {
+            let text = match state.graph_layers.import_generator_file(&mut state.session, layer, p) {
+                Ok(t) => t,
+                Err(e) => format!("Substance generator: {e}"),
+            };
+            state.set_status(text, now);
+            continue;
+        }
         let text = match state.graph_layers.import_file(&mut state.session, p) {
             Ok(t) => t,
             Err(e) => format!("Material graph: {e}"),

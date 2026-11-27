@@ -116,3 +116,18 @@ fn materials_and_generators_go_where_they_belong() {
     assert!(e.contains("generator"), "{e}");
     assert!(!g.busy());
 }
+
+#[test]
+fn generator_files_are_told_apart_from_materials() {
+    let dir = std::env::temp_dir().join(format!("subcraft-sbsar-kind-test-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let (generator, mat, junk) = (dir.join("g.sbsar"), dir.join("m.sbsar"), dir.join("j.sbsar"));
+    std::fs::write(&generator, GENERATOR).unwrap();
+    std::fs::write(&mat, CARDBOARD).unwrap();
+    std::fs::write(&junk, b"nope").unwrap();
+    assert!(subcraft_app::graph_layer::is_generator_file(&generator));
+    assert!(!subcraft_app::graph_layer::is_generator_file(&mat));
+    assert!(!subcraft_app::graph_layer::is_generator_file(&junk));
+    assert!(!subcraft_app::graph_layer::is_generator_file(&dir.join("missing.sbsar")));
+    let _ = std::fs::remove_dir_all(&dir);
+}

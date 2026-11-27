@@ -84,6 +84,18 @@ pub fn engine_for_file(name: &str) -> Option<GraphEngine> {
     }
 }
 
+/// True for a Substance archive whose graphs only offer a mask output (a generator, not a
+/// material): it belongs in a layer's mask. Unreadable files are not generators.
+pub fn is_generator_file(path: &Path) -> bool {
+    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+    if engine_for_file(name) != Some(GraphEngine::Sbsar) || std::fs::metadata(path).map_or(true, |m| m.len() > MAX_PACKAGE_BYTES) {
+        return false;
+    }
+    std::fs::read(path).ok().and_then(|b| subcraft_sbsar::inspect(&b).ok()).is_some_and(|p| {
+        p.graphs().iter().all(|g| g.channels.is_empty()) && p.graphs().iter().any(|g| g.mask_output.is_some())
+    })
+}
+
 /// File extensions graph layers are made from (for file dialogs and drops).
 pub const GRAPH_EXTENSIONS: &[&str] = &["sbsar", "mcmat", "mcraft", "sbs"];
 
