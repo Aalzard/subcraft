@@ -461,6 +461,8 @@ Time: {}
 ", std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_else(|_| "unknown".into())));
     out.push_str(&format!("Data folder: {}
 ", crate::recovery::data_dir().map(|p| p.display().to_string()).unwrap_or_else(|| "unavailable".into())));
+    out.push_str(&format!("Portable mode: {}
+", if subcraft_core::portable::is_active() { "on" } else { "off" }));
     out.push_str(&format!("Safe mode: {}
 ", crate::safe_mode::active().map(|r| r.text()).unwrap_or("off")));
     out.push_str(&format!("CPU threads: {}
