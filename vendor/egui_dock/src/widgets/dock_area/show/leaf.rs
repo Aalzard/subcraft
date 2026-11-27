@@ -1,4 +1,4 @@
-use std::ops::RangeInclusive;
+use std::ops::{Range, RangeInclusive};
 
 use egui::{
     Align, Align2, Button, Color32, CornerRadius, CursorIcon, Frame, Id, Key, LayerId, Layout,
@@ -19,6 +19,30 @@ use crate::{
     },
     utils::{fade_visuals, rect_set_size_centered, rect_stroke_box},
 };
+
+/// Padding left and right of a tab title's text.
+const TAB_TITLE_X_SPACING: f32 = 8.0;
+
+/// SubCraft: greedy row split of tab widths (with the spacing before each tab but the first
+/// of a row) into rows no wider than `width`. Always at least one row; a tab wider than
+/// `width` gets a row of its own.
+pub(crate) fn wrap_rows(widths: &[f32], spacings: &[f32], width: f32) -> Vec<Range<usize>> {
+    let mut rows = Vec::new();
+    let mut start = 0;
+    let mut used = 0.0;
+    for (i, &w) in widths.iter().enumerate() {
+        let spacing = spacings.get(i).copied().unwrap_or(0.0);
+        if i > start && used + spacing + w > width + 0.5 {
+            rows.push(start..i);
+            start = i;
+            used = w;
+        } else {
+            used += if i > start { spacing + w } else { w };
+        }
+    }
+    rows.push(start..widths.len());
+    rows
+}
 
 fn tab_body_id(dock_area_id: Id, path: NodePath, tab_id: Id) -> Id {
     dock_area_id.with((path.surface, "surface")).with(tab_id)
@@ -220,9 +244,22 @@ impl<Tab> DockArea<'_, Tab> {
     ) -> Rect {
         assert!(self.dock_state[path].is_leaf());
 
+        // SubCraft: the tabs that don't fit wrap onto more rows (TabBarStyle::wrap).
+        let tabs_len = self.dock_state[path].tabs_count();
+        let (wrap, margin_x) = {
+            let style = fade_style.unwrap_or_else(|| self.style.as_ref().unwrap());
+            (style.tab_bar.wrap && !style.tab_bar.fill_tab_bar, style.tab_bar.inner_margin.sum().x)
+        };
+        let rows = if wrap {
+            let width = ui.available_width() - margin_x - self.tab_bar_buttons_width();
+            self.wrap_rows(ui, path, tab_viewer, fade_style, width)
+        } else {
+            vec![0..tabs_len]
+        };
+        let wrapped = rows.len() > 1;
         let style = fade_style.unwrap_or_else(|| self.style.as_ref().unwrap());
         let (tabbar_outer_rect, tabbar_response) = ui.allocate_exact_size(
-            vec2(ui.available_width(), style.tab_bar.height),
+            vec2(ui.available_width(), style.tab_bar.height * rows.len() as f32),
             Sense::hover(),
         );
         ui.painter().rect_filled(
@@ -231,7 +268,12 @@ impl<Tab> DockArea<'_, Tab> {
             style.tab_bar.bg_fill,
         );
 
-        let tabbar_outer_rect = tabbar_outer_rect - style.tab_bar.inner_margin;
+        let tabbar_full_rect = tabbar_outer_rect - style.tab_bar.inner_margin;
+        // The first row holds the buttons; each row is one tab bar height.
+        let row_height = tabbar_full_rect.height() / rows.len() as f32;
+        let row_rect =
+            |row: usize| tabbar_full_rect.with_min_y(tabbar_full_rect.min.y + row_height * row as f32).with_max_y(tabbar_full_rect.min.y + row_height * (row + 1) as f32);
+        let tabbar_outer_rect = row_rect(0);
 
         let mut available_width = tabbar_outer_rect.width();
         let scroll_bar_width = available_width;
@@ -254,71 +296,92 @@ impl<Tab> DockArea<'_, Tab> {
         }
 
         let (actual_width, tab_hovered) = {
-            let leaf = self
-                .dock_state
-                .leaf_mut(path)
-                .expect("This node must be a leaf");
-
-            let tabbar_inner_rect = Rect::from_min_size(
-                (tabbar_outer_rect.min - pos2(-leaf.scroll, 0.0)
-                    + vec2(
-                        if self.show_leaf_collapse_buttons {
-                            Style::TAB_COLLAPSE_BUTTON_SIZE
-                        } else {
-                            0.0
-                        },
-                        0.0,
-                    ))
-                .to_pos2(),
-                vec2(tabbar_outer_rect.width(), tabbar_outer_rect.height()),
-            );
-
-            let tabs_ui = &mut ui.new_child(
-                UiBuilder::new()
-                    .max_rect(tabbar_inner_rect)
-                    .layout(Layout::left_to_right(Align::Center))
-                    .id_salt("tabs"),
-            );
-
-            let mut clip_rect = tabbar_outer_rect;
-            clip_rect.set_width(available_width);
-            if self.show_leaf_collapse_buttons {
-                clip_rect = clip_rect.translate(vec2(Style::TAB_COLLAPSE_BUTTON_SIZE, 0.0));
+            if wrapped {
+                // A wrapped bar never scrolls.
+                self.dock_state.leaf_mut(path).expect("This node must be a leaf").scroll = 0.0;
             }
-            tabs_ui.set_clip_rect(clip_rect);
+            let mut tab_hovered = false;
+            let mut last_row_width = 0.0;
+            let mut first_row_end = tabbar_outer_rect.left();
+            let mut clip_rect = tabbar_outer_rect;
+            for (row, indices) in rows.iter().enumerate() {
+                let style = fade_style.unwrap_or_else(|| self.style.as_ref().unwrap());
+                let row_outer_rect = row_rect(row);
+                let leaf = self
+                    .dock_state
+                    .leaf_mut(path)
+                    .expect("This node must be a leaf");
 
-            // Desired size for tabs in "expanded" mode.
-            let prefered_width = style
-                .tab_bar
-                .fill_tab_bar
-                .then_some(available_width / (leaf.tabs.len() as f32));
+                let tabbar_inner_rect = Rect::from_min_size(
+                    (row_outer_rect.min - pos2(-leaf.scroll, 0.0)
+                        + vec2(
+                            if self.show_leaf_collapse_buttons {
+                                Style::TAB_COLLAPSE_BUTTON_SIZE
+                            } else {
+                                0.0
+                            },
+                            0.0,
+                        ))
+                    .to_pos2(),
+                    vec2(row_outer_rect.width(), row_outer_rect.height()),
+                );
 
-            let tab_hovered = self.tabs(
-                tabs_ui,
-                state,
-                path,
-                tab_viewer,
-                tabbar_outer_rect,
-                prefered_width,
-                fade_style,
-            );
+                let tabs_ui = &mut ui.new_child(
+                    UiBuilder::new()
+                        .max_rect(tabbar_inner_rect)
+                        .layout(Layout::left_to_right(Align::Center))
+                        .id_salt(("tabs", row)),
+                );
 
-            // Draw hline from tab end to edge of tab bar.
-            let px = ui.ctx().pixels_per_point().recip();
+                clip_rect = row_outer_rect;
+                clip_rect.set_width(available_width);
+                if self.show_leaf_collapse_buttons {
+                    clip_rect = clip_rect.translate(vec2(Style::TAB_COLLAPSE_BUTTON_SIZE, 0.0));
+                }
+                tabs_ui.set_clip_rect(clip_rect);
+
+                // Desired size for tabs in "expanded" mode.
+                let prefered_width = style
+                    .tab_bar
+                    .fill_tab_bar
+                    .then_some(available_width / (leaf.tabs.len() as f32));
+
+                tab_hovered |= self.tabs(
+                    tabs_ui,
+                    state,
+                    path,
+                    tab_viewer,
+                    row_outer_rect,
+                    prefered_width,
+                    fade_style,
+                    indices.clone(),
+                );
+
+                // Draw hline from tab end to edge of tab bar.
+                let px = ui.ctx().pixels_per_point().recip();
+                let style = fade_style.unwrap_or_else(|| self.style.as_ref().unwrap());
+
+                ui.painter().hline(
+                    tabs_ui.min_rect().right().min(clip_rect.right())..=row_outer_rect.right(),
+                    row_outer_rect.bottom() - px,
+                    (px, style.tab_bar.hline_color),
+                );
+                if row == 0 {
+                    first_row_end = tabs_ui.min_rect().right();
+                }
+                last_row_width = tabs_ui.min_rect().width();
+            }
+            // The buttons sit on the first row.
+            let mut clip_rect = clip_rect;
+            clip_rect.set_top(tabbar_outer_rect.top());
+            clip_rect.set_bottom(tabbar_outer_rect.bottom());
+            let first_row_width = first_row_end - clip_rect.left();
             let style = fade_style.unwrap_or_else(|| self.style.as_ref().unwrap());
-
-            ui.painter().hline(
-                tabs_ui.min_rect().right().min(clip_rect.right())..=tabbar_outer_rect.right(),
-                tabbar_outer_rect.bottom() - px,
-                (px, style.tab_bar.hline_color),
-            );
 
             // Add button at the ends of the tab bar.
             if self.show_add_buttons {
                 let offset = match style.buttons.add_tab_align {
-                    TabAddAlign::Left => {
-                        (clip_rect.width() - tabs_ui.min_rect().width()).at_least(0.0)
-                    }
+                    TabAddAlign::Left => (clip_rect.width() - first_row_width).at_least(0.0),
                     TabAddAlign::Right => 0.0,
                 } + if self.show_leaf_close_all_buttons {
                     Style::TAB_CLOSE_ALL_BUTTON_SIZE
@@ -358,7 +421,8 @@ impl<Tab> DockArea<'_, Tab> {
                 self.tab_collapse(ui, path, tabbar_outer_rect, fade_style, collapsed)
             }
 
-            (tabs_ui.min_rect().width(), tab_hovered)
+            // A wrapped bar never overflows (rows were cut to fit).
+            (if wrapped { last_row_width.min(available_width) } else { last_row_width }, tab_hovered)
         };
 
         self.tab_bar_scroll(
@@ -373,7 +437,74 @@ impl<Tab> DockArea<'_, Tab> {
             fade_style,
         );
 
-        tabbar_outer_rect
+        tabbar_full_rect
+    }
+
+    /// SubCraft: width taken by the add / close all / collapse buttons of a tab bar.
+    fn tab_bar_buttons_width(&self) -> f32 {
+        let mut width = 0.0;
+        if self.show_add_buttons {
+            width += Style::TAB_ADD_BUTTON_SIZE;
+        }
+        if self.show_leaf_close_all_buttons {
+            width += Style::TAB_CLOSE_ALL_BUTTON_SIZE;
+        }
+        if self.show_leaf_collapse_buttons {
+            width += Style::TAB_COLLAPSE_BUTTON_SIZE;
+        }
+        width
+    }
+
+    /// SubCraft: splits the leaf's tabs into rows that each fit `width` (a tab wider than
+    /// the bar gets a row of its own). Always at least one row.
+    fn wrap_rows(
+        &mut self,
+        ui: &Ui,
+        path: NodePath,
+        tab_viewer: &mut impl TabViewer<Tab = Tab>,
+        fade: Option<&Style>,
+        width: f32,
+    ) -> Vec<Range<usize>> {
+        let style = fade.unwrap_or_else(|| self.style.as_ref().unwrap());
+        let show_close_buttons = self.show_close_buttons;
+        let leaf = self.dock_state[path]
+            .get_leaf_mut()
+            .expect("This node must be a leaf");
+        let mut widths = Vec::with_capacity(leaf.tabs.len());
+        let mut spacings = Vec::with_capacity(leaf.tabs.len());
+        for tab in leaf.tabs.iter_mut() {
+            let tab_style = tab_viewer
+                .tab_style_override(tab, &style.tab)
+                .unwrap_or_else(|| style.tab.clone());
+            let show_close_button = show_close_buttons && tab_viewer.is_closeable(tab);
+            let label = tab_viewer.title(tab);
+            widths.push(Self::tab_title_width(ui, style, &tab_style, label, None, show_close_button));
+            spacings.push(tab_style.spacing);
+        }
+        wrap_rows(&widths, &spacings, width)
+    }
+
+    /// Width of a tab title button (shared by [`Self::tab_title`] and the row wrapping).
+    fn tab_title_width(
+        ui: &Ui,
+        style: &Style,
+        tab_style: &TabStyle,
+        label: WidgetText,
+        preferred_width: Option<f32>,
+        show_close_button: bool,
+    ) -> f32 {
+        let galley = label.into_galley(ui, None, f32::INFINITY, TextStyle::Button);
+        let text_width = galley.size().x + 2.0 * TAB_TITLE_X_SPACING;
+        let close_button_size = if show_close_button {
+            Style::TAB_CLOSE_BUTTON_SIZE.min(style.tab_bar.height)
+        } else {
+            0.0
+        };
+        let minimum_width = tab_style
+            .minimum_width
+            .unwrap_or(0.0)
+            .at_least(text_width + close_button_size);
+        preferred_width.unwrap_or(0.0).at_least(minimum_width)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -386,20 +517,16 @@ impl<Tab> DockArea<'_, Tab> {
         tabbar_outer_rect: Rect,
         preferred_width: Option<f32>,
         fade: Option<&Style>,
+        indices: Range<usize>,
     ) -> bool {
         let mut tab_hovered = false;
 
         assert!(self.dock_state[path].is_leaf());
 
         let focused = self.dock_state.focused_leaf();
-        let tabs_len = {
-            let tabs = self.dock_state[path]
-                .tabs()
-                .expect("This node must be a leaf here");
-            tabs.len()
-        };
+        let first_in_row = indices.start;
 
-        for tab_index in 0..tabs_len {
+        for tab_index in indices {
             let id = self
                 .id
                 .with((path.surface, "surface"))
@@ -461,7 +588,7 @@ impl<Tab> DockArea<'_, Tab> {
 
                 (response, title_id)
             } else {
-                if tab_index.0 != 0 {
+                if tab_index.0 != first_in_row {
                     tabs_ui.allocate_space(vec2(tab_style.spacing, 0.0));
                 }
                 let (mut response, close_response) = self.tab_title(
@@ -1090,21 +1217,21 @@ impl<Tab> DockArea<'_, Tab> {
         fade: Option<&Style>,
     ) -> (Response, Option<Response>) {
         let style = fade.unwrap_or_else(|| self.style.as_ref().unwrap());
-        let galley = label.into_galley(ui, None, f32::INFINITY, TextStyle::Button);
-        let x_spacing = 8.0;
-        let text_width = galley.size().x + 2.0 * x_spacing;
+        let x_spacing = TAB_TITLE_X_SPACING;
         let close_button_size = if show_close_button {
             Style::TAB_CLOSE_BUTTON_SIZE.min(style.tab_bar.height)
         } else {
             0.0
         };
-
-        // Compute total width of the tab bar.
-        let minimum_width = tab_style
-            .minimum_width
-            .unwrap_or(0.0)
-            .at_least(text_width + close_button_size);
-        let tab_width = preferred_width.unwrap_or(0.0).at_least(minimum_width);
+        let tab_width = Self::tab_title_width(
+            ui,
+            style,
+            tab_style,
+            label.clone(),
+            preferred_width,
+            show_close_button,
+        );
+        let galley = label.into_galley(ui, None, f32::INFINITY, TextStyle::Button);
 
         let (_, tab_rect) = ui.allocate_space(vec2(tab_width, ui.available_height()));
         let mut response = ui.interact(tab_rect, id, Sense::click_and_drag());

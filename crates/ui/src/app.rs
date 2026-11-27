@@ -1420,7 +1420,8 @@ impl SubcraftApp {
         self.follow_layer_selection();
         self.open_requested_brush_editor();
         sync_sub_libraries(&mut self.dock, &mut self.state.shelf);
-        let style = theme::dock_style(ui.style());
+        let mut style = theme::dock_style(ui.style());
+        style.tab_bar.wrap = self.state.recovery.prefs.stacked_tabs;
         // Tab and Baking mode show the views alone (Baking mode adds its own panels around them).
         let hidden = self.state.hide_ui || self.state.bake.open;
         let mut viewer = Viewer { state: &mut self.state, was_active: &self.active_tabs, active: HashSet::new() };

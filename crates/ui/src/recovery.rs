@@ -48,6 +48,9 @@ pub struct Preferences {
     pub auto_update_minutes: u32,
     /// Painter's "Use simplified thumbnails" (Settings > General > Layer stack).
     pub simplified_layer_thumbnails: bool,
+    /// Panel tabs that don't fit their panel's width wrap onto more rows instead of
+    /// scrolling (issue #637, "stacked tabs").
+    pub stacked_tabs: bool,
     /// Assets panel in List view (one row per asset) instead of thumbnails.
     pub shelf_list_view: bool,
     /// Assets panel saved searches (Painter keeps them in Shelf.ini).
@@ -164,6 +167,7 @@ impl Default for Preferences {
             auto_update_assets: false,
             auto_update_minutes: 5,
             simplified_layer_thumbnails: false,
+            stacked_tabs: true,
             shelf_list_view: false,
             shelf_saved_searches: Vec::new(),
             extra_libraries: Vec::new(),
@@ -473,6 +477,8 @@ pub fn preferences_window(state: &mut UiState, ctx: &egui::Context) {
         }
         pref_check(ui, &mut rec.prefs.simplified_layer_thumbnails, PREF_DEFAULTS.simplified_layer_thumbnails, "Use simplified thumbnails")
             .on_hover_text("The layer stack shows a plain icon instead of rendering each layer, mask and effect preview: faster with heavy stacks.");
+        pref_check(ui, &mut rec.prefs.stacked_tabs, PREF_DEFAULTS.stacked_tabs, "Stack panel tabs on more rows")
+            .on_hover_text("When a panel has more tabs than fit its width, they wrap onto a second row (and more) so every tab stays visible. Off: one row that scrolls with the mouse wheel.");
         pref_check(ui, &mut rec.prefs.only_selected_set_painting, PREF_DEFAULTS.only_selected_set_painting, "Only display the selected material when painting")
             .on_hover_text("While a stroke is in progress the 3D view shows only the texture set being painted, so nothing in front of it gets in the way.");
         ui.horizontal(|ui| {

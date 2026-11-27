@@ -211,6 +211,11 @@ pub struct TabBarStyle {
     /// Whether tab titles expand to fill the width of their tab bars.
     /// By `Default` it's `false`.
     pub fill_tab_bar: bool,
+
+    /// SubCraft: when the tabs don't fit the width of their tab bar, wrap them onto more
+    /// rows (each [`TabBarStyle::height`] tall) instead of scrolling. Ignored while
+    /// [`TabBarStyle::fill_tab_bar`] is on. By `Default` it's `false`.
+    pub wrap: bool,
 }
 
 /// Specifies the look and feel of an individual tab.
@@ -487,6 +492,7 @@ impl Default for TabBarStyle {
             corner_radius: CornerRadius::default(),
             hline_color: Color32::BLACK,
             fill_tab_bar: false,
+            wrap: false,
         }
     }
 }
