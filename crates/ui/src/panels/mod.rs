@@ -16,6 +16,7 @@ pub mod material_params;
 pub mod parts;
 pub mod pen;
 pub mod properties;
+pub mod search_picker;
 pub mod channels;
 pub mod display_settings;
 pub mod shader_settings;

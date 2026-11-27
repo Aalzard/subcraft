@@ -33,6 +33,10 @@ const GRAIN_HEIGHT: f32 = 0.036;
 const DROP_HEIGHT: f32 = 0.10;
 const SHUT_HEIGHT: f32 = 0.08;
 const PERFORATION_HEIGHT: f32 = 0.12;
+/// Galvanized spangle facets: height change per cell width at full relief. At the default scale
+/// (40 cells across) and relief (0.25) the facets tilt the normal by a few degrees, the visible
+/// spangle sparkle; the grooves alone were too fine to show (issue #760).
+const SPANGLE_TILT: f32 = 0.15;
 /// Baked Lighting at full intensity: a surface facing the sun is lit 1.4 times, the sky adds 1.
 const SUN_GAIN: f32 = 1.4;
 const SKY_GAIN: f32 = 1.0;
@@ -182,7 +186,10 @@ pub fn pattern_on(filter: &MaterialFilter, position: [f32; 3], normal: [f32; 3])
             // Feathery crystal growth: long streaks along the spangle's own direction.
             let local = q - cell.center;
             let streak = fbm(Vec3::new(local.dot(d) * 1.4, local.dot(e1) * 9.0, local.dot(e2) * 9.0) + Vec3::splat(unit(cell.id) * 64.0), 3, seed ^ 0x6a1);
-            [unit(cell.id.wrapping_mul(0x2545_f491) ^ 0x9e37_79b9), streak, cell.f2 - cell.f1, 0.0]
+            // Each spangle is a crystal facet tilted its own way (issue #760): a plane through the
+            // cell centre, in cell units, so neighbouring spangles catch the light differently.
+            let tilt = 0.35 + 0.65 * unit(cell.id.rotate_left(5) ^ 0x1b87_3593);
+            [unit(cell.id.wrapping_mul(0x2545_f491) ^ 0x9e37_79b9), streak, cell.f2 - cell.f1, 0.5 + 0.5 * (local.dot(e1) * tilt).clamp(-1.0, 1.0)]
         }
         MaterialFilter::Hammered { scale, irregularity, seed, .. } => {
             let q = p * scale;
@@ -487,7 +494,9 @@ pub fn respond(filter: &MaterialFilter, pat: &[f32], s: Surface) -> Response {
             r.metallic = 1.0;
             r.metallic_alpha = 1.0;
             let groove = 1.0 - smoothstep(0.0, 0.08, border);
-            r.height = (-groove * 0.6 + z(streak) * 0.08) * relief * GRAIN_HEIGHT;
+            // Facets level out towards the borders: neighbours meet without a cliff.
+            let facet = (pat[3] - 0.5) * 2.0 * smoothstep(0.0, 0.5, border);
+            r.height = ((-groove * 0.6 + z(streak) * 0.08) * GRAIN_HEIGHT + facet * SPANGLE_TILT) * relief;
         }
         MaterialFilter::Hammered { depth, roughness_variation, .. } => {
             let (h, cell, fine) = (pat[0], pat[1], pat[2]);
@@ -760,6 +769,29 @@ mod tests {
 
     fn points() -> impl Iterator<Item = [f32; 3]> {
         (0..4000).map(|k| [(k % 61) as f32 / 61.0, (k % 37) as f32 / 37.0 + k as f32 * 1e-4, (k % 17) as f32 / 17.0])
+    }
+
+    #[test]
+    fn galvanized_spangles_are_tilted_facets_with_a_visible_slope() {
+        // Issue #760: the relief must tilt the normal enough to see, not only carve fine grooves.
+        let f = MaterialFilter::Galvanized { scale: 40.0, spangle: 0.6, tint: 0.7, roughness: 0.32, roughness_variation: 0.5, relief: 0.25, seed: 1 };
+        // Height along a line; `facets: false` neutralizes the facet slot (the old grooves-only relief).
+        let h = |x: f32, facets: bool| {
+            let mut pat = pattern(&f, [x, 0.31, 0.47]);
+            if !facets { pat[3] = 0.5; }
+            respond(&f, &pat, Surface::default()).height
+        };
+        // Mean slope at a tenth of a spangle, in degrees of bump (slope x 0.02, the viewport's).
+        let tilt = |facets: bool| {
+            let step = 1.0 / 400.0;
+            let mean = (0..400).map(|i| ((h((i + 1) as f32 * step, facets) - h(i as f32 * step, facets)) / step).abs()).sum::<f32>() / 400.0;
+            (mean * 0.02).atan().to_degrees()
+        };
+        let (with, without) = (tilt(true), tilt(false));
+        assert!(with > 1.5 * without && with > 0.3 && with < 6.0, "facets {with} degrees, grooves only {without}");
+        // No relief: flat.
+        let flat = MaterialFilter::Galvanized { scale: 40.0, spangle: 0.6, tint: 0.7, roughness: 0.32, roughness_variation: 0.5, relief: 0.0, seed: 1 };
+        assert!(points().take(200).all(|p| respond(&flat, &pattern(&flat, p), Surface::default()).height == 0.0));
     }
 
     #[test]

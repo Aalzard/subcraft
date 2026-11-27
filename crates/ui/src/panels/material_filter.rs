@@ -51,14 +51,11 @@ fn color(ui: &mut Ui, label: &str, value: &mut [f32; 3], default: [f32; 3]) -> b
 pub fn editor(ui: &mut Ui, filter: &mut MaterialFilter) -> bool {
     let mut changed = false;
     prop_row(ui, "Filter", |ui| {
-        egui::ComboBox::from_id_salt("material_filter_kind").selected_text(filter.label()).show_ui(ui, |ui| {
-            for choice in MaterialFilter::ALL {
-                if ui.selectable_label(choice.label() == filter.label(), choice.label()).clicked() && choice.label() != filter.label() {
-                    *filter = choice;
-                    changed = true;
-                }
-            }
-        });
+        let items: Vec<(String, MaterialFilter)> = MaterialFilter::ALL.into_iter().map(|f| (f.label().to_string(), f)).collect();
+        if let Some(choice) = super::search_picker::picker(ui, "material_filter_kind", filter.label(), "Search material filters", &items) {
+            *filter = choice;
+            changed = true;
+        }
     });
     ui.weak(filter.hint());
     let def = filter.default_like();

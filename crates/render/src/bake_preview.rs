@@ -167,16 +167,25 @@ impl BakePreviewPass {
     pub fn set_meshes(&mut self, device: &wgpu::Device, meshes: Option<(&Mesh, &Mesh)>) {
         self.vertices = None; self.indices = None; self.cage = None; self.cage_surface = None; self.count = 0; self.low_ranges.clear(); self.miss_groups.clear();
         let Some((low, high)) = meshes else { return };
-        let mut vertices = Vec::with_capacity(low.vertex_count() + high.vertex_count());
+        // A dense sculpt can outgrow the GPU's largest buffer; drawing it then would panic (#634).
+        let vertex_size = std::mem::size_of::<Vertex>() as u64;
+        let fit = preview_fit(vertex_size, [low.vertex_count(), high.vertex_count()], [low.indices.len(), high.indices.len()], device.limits().max_buffer_size);
+        let with_high = match fit {
+            PreviewFit::Both => true,
+            PreviewFit::LowOnly => { log::warn!("bake preview: the high poly ({} vertices) is too big for one GPU buffer; showing the low poly only", high.vertex_count()); false }
+            PreviewFit::Nothing => { log::warn!("bake preview: the meshes are too big for one GPU buffer; preview off"); return }
+        };
+        let mut vertices = Vec::with_capacity(low.vertex_count() + if with_high { high.vertex_count() } else { 0 });
         let mut indices = low.indices.clone();
-        for (mesh, color, is_low) in [(low, [0.65, 0.035, 0.025, 0.], 1.0), (high, [0.035, 0.23, 0.65, 0.], 0.0)] {
+        let parts: &[(&Mesh, [f32; 4], f32)] = if with_high { &[(low, [0.65, 0.035, 0.025, 0.], 1.0), (high, [0.035, 0.23, 0.65, 0.], 0.0)] } else { &[(low, [0.65, 0.035, 0.025, 0.], 1.0)] };
+        for &(mesh, color, is_low) in parts {
             vertices.extend(mesh.positions.iter().zip(&mesh.normals).enumerate().map(|(i, (p, n))| {
                 let uv = mesh.uvs.get(i).copied().unwrap_or_default();
                 Vertex { position: p.to_array(), normal: n.to_array(), color, uv_low: [uv.x, uv.y, is_low] }
             }));
         }
         self.low_ranges = low.submeshes.iter().map(|s| (s.first_triangle * 3..(s.first_triangle + s.triangle_count) * 3, s.material)).collect();
-        indices.extend(high.indices.iter().map(|i| i + low.vertex_count() as u32));
+        if with_high { indices.extend(high.indices.iter().map(|i| i + low.vertex_count() as u32)); }
         // Front and rear bounds, sharing the same normal and diagonal convention as the baker.
         let buffer = |label, bytes, usage| device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some(label), contents: bytes, usage });
         self.vertices = Some(buffer("bake surfaces", bytemuck::cast_slice(&vertices), wgpu::BufferUsages::VERTEX));
@@ -199,6 +208,13 @@ impl BakePreviewPass {
     fn upload_cage(&mut self, device: &wgpu::Device, low: &Mesh, normals: &[glam::Vec3]) {
         let buffer = |label, bytes: &[u8]| device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some(label), contents: bytes, usage: wgpu::BufferUsages::VERTEX });
         let (lines, surface) = cage_vertices(low, normals);
+        let max = device.limits().max_buffer_size;
+        let bytes = |n: usize| n as u64 * std::mem::size_of::<Vertex>() as u64;
+        if bytes(lines.len()) > max || bytes(surface.len()) > max {
+            log::warn!("bake preview: the cage is too big for one GPU buffer; cage preview off");
+            self.cage = None; self.cage_surface = None; self.cage_count = 0;
+            return;
+        }
         self.cage = Some(buffer("bake cage", bytemuck::cast_slice(&lines)));
         self.cage_surface = Some(buffer("bake cage surface", bytemuck::cast_slice(&surface)));
         self.cage_count = lines.len() as u32;
@@ -341,8 +357,36 @@ fn bind_group(device: &wgpu::Device, layout: &wgpu::BindGroupLayout, uniform: &w
     })
 }
 
+/// What of the bake preview fits in the device's largest buffer (`max_buffer`, bytes).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PreviewFit { Both, LowOnly, Nothing }
+
+/// `vertices` and `indices` are the low and high poly counts; low and high share one vertex and one
+/// index buffer (u32 indices), so the sums must each fit, or else the low poly's alone.
+fn preview_fit(vertex_size: u64, vertices: [usize; 2], indices: [usize; 2], max_buffer: u64) -> PreviewFit {
+    let fits = |v: usize, i: usize| v as u64 * vertex_size <= max_buffer && i as u64 * 4 <= max_buffer;
+    if fits(vertices[0] + vertices[1], indices[0] + indices[1]) { PreviewFit::Both }
+    else if fits(vertices[0], indices[0]) { PreviewFit::LowOnly }
+    else { PreviewFit::Nothing }
+}
+
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn preview_drops_the_high_poly_when_it_outgrows_the_largest_buffer() {
+        let size = std::mem::size_of::<super::Vertex>() as u64;
+        assert_eq!(size, 52);
+        let limit = 256 << 20; // wgpu's default max_buffer_size
+        // The #634 case: ~5 million vertices in all is over 256 MiB at 52 bytes each.
+        assert_eq!(super::preview_fit(size, [50_000, 5_200_000], [300_000, 31_000_000], limit), super::PreviewFit::LowOnly);
+        assert_eq!(super::preview_fit(size, [50_000, 1_000_000], [300_000, 6_000_000], limit), super::PreviewFit::Both);
+        // Indices alone can also be the part that does not fit.
+        assert_eq!(super::preview_fit(size, [50_000, 1_000_000], [300_000, 70_000_000], limit), super::PreviewFit::LowOnly);
+        assert_eq!(super::preview_fit(size, [6_000_000, 10], [3, 3], limit), super::PreviewFit::Nothing);
+        // Exactly at the limit still fits.
+        assert_eq!(super::preview_fit(4, [limit as usize / 4, 0], [0, 0], limit), super::PreviewFit::Both);
+    }
     use super::*;
     use subcraft_mesh::primitives;
 

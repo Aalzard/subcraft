@@ -3,6 +3,47 @@
 What changed in SubCraft, newest first. Download the latest build from the
 [Releases page](https://github.com/Aalzard/subcraft/releases/latest).
 
+## 0.7.0 - 2026-11-27
+
+### Added
+
+#### Baking
+- Additional ID maps (ID 2 to ID 9), each baked from its own high-poly file or colour source. Use them in ID Color Masks, the mesh map views, fill inputs, the Generator dropdown, the ID colors editor and export.
+- Skew correction with edge protection (Average normals > Skew correction), and paint a skew map or a cage push map as layer masks (Bake window > Skew map / Cage push map).
+- Opacity map (high-poly coverage, for cut-outs).
+- Curvature auto tonemapping per texture set and UDIM tile, plus manual Min / Max.
+- 8192 bake size, with a RAM warning. The Baked Mesh Maps export keeps maps baked above the texture set size at full size.
+- Bake settings per texture set, with Apply checked and Sync all settings to all texture sets.
+- AO "Ignore backface".
+- Baking can use several graphics cards at once: pick them in Preferences (issue #731).
+
+#### Painting and layers
+- Brush material images can be stamped with each dab ("Mapping: Brush stamp"), so normal, height and colour details follow the brush like in Painter.
+- Planar fill projections get Depth culling (with Hardness), so the image no longer prints through the model onto hidden surfaces.
+- Clear layer content in the layer right-click menu (issue #739).
+- Ctrl+Shift+D opens Instantiate across texture sets.
+- Mesh Map generator: pick which R, G, B channels of a colour mesh map drive the mask (issue #732).
+- .sbsar layers read the texture set's baked mesh maps (AO, curvature, normals, position, thickness and more) through their image inputs (issue #682).
+
+#### Viewport and workspace
+- Click the axis indicator, or press Alt+1 / 3 / 7 (Ctrl+Alt for the opposite side), for Front, Back, Right, Left, Top and Bottom views (issue #740).
+- Normal mixing, Height to normal method and AO mixing now show in the 3D view, not only at export.
+- Panel tabs that don't fit wrap onto more rows instead of scrolling (Settings > General > Stack panel tabs on more rows, on by default) (issue #637).
+
+#### Plugins
+- Plugins are folders with scripts and assets. Install one from a .zip, switch it on or off in Plugins > Manage plugins..., and share it. Two example plugins are included.
+
+### Changed
+- Exported baked normal maps follow the project's DirectX / OpenGL setting.
+- Screen-space reflections blur with roughness, and SSR, contact shadows and SSAO no longer appear in channel and bake map views (issues #729, #730).
+
+### Faster
+- Smart materials and project opening: procedural noise is evaluated per tile (about 40% faster), and non-Normal blend modes blend about 2.8 times faster.
+- Cells, Pores, Brushed, Speckles and Streaks patterns compute 1.6 to 2.6 times faster, and blur filters in layer stacks run about 30% faster. Results are bit-identical.
+
+### Fixed
+- A quick bake or auto-rebake of one map no longer re-bakes the additional ID maps.
+
 ## 0.6.0 - 2026-11-24
 
 ### Added
@@ -91,6 +132,8 @@ What changed in SubCraft, newest first. Download the latest build from the
 - Edit UV islands keeps the chosen pivot after Apply, and keeps each UDIM tile's number and grouping.
 - The orange line on the active tab no longer slides out of its panel when a crowded tab row is scrolled (issue #637).
 - A stitch row's layer is renamed when its stitch is changed (names you typed stay).
+- UDIM: changing a Substance or MaterialCraft graph layer's parameters updates it on every tile when "Paint across UDIM tiles" is on.
+- MatFX Oil Paint and MatFX Watercolor no longer show a tile-repeated result in the viewport when the layers under them are flat.
 
 ## 0.5.0 - 2026-11-22
 

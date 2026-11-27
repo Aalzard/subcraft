@@ -26,10 +26,29 @@ env:
 jobs:
   checks:
     runs-on: windows-2025
+    permissions:
+      # Only the manual-run tag step below writes (it creates the release tag).
+      contents: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
+      # A manual run with a tag that does not exist yet tags the commit it runs on, after checking
+      # that the tag names this commit's Cargo.toml version. The jobs below then build that tag.
+      - name: Create the requested tag at this commit when it does not exist yet
+        if: github.event_name == 'workflow_dispatch' && inputs.tag != ''
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          $version = (Select-String '^version\s*=\s*"([^"]+)"' Cargo.toml | Select-Object -First 1).Matches[0].Groups[1].Value
+          if ($env:TAG -ne "v$version") { throw "Tag $env:TAG does not match the Cargo.toml version $version of this commit." }
+          gh api "repos/$env:GITHUB_REPOSITORY/git/ref/tags/$env:TAG" *> $null
+          if ($LASTEXITCODE -eq 0) { Write-Host "Tag $env:TAG already exists."; exit 0 }
+          gh api -X POST "repos/$env:GITHUB_REPOSITORY/git/refs" -f "ref=refs/tags/$env:TAG" -f "sha=$env:GITHUB_SHA" | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "Could not create tag $env:TAG." }
+          Write-Host "Created tag $env:TAG at $env:GITHUB_SHA."
       - name: Test release scripts
         shell: pwsh
         run: |
@@ -324,6 +343,22 @@ jobs:
         uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
         with:
           subject-path: dist/SHA256SUMS.txt
+      # A manual run with a pushed tag may come before the GitHub release exists: create it from
+      # docs/release-notes-<version>.md so the packages below have a release to go to.
+      - name: Create the release for a manual run when it does not exist yet
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "Release $TAG already exists."
+          else
+            version="${TAG#v}"
+            notes="docs/release-notes-$version.md"
+            test -f "$notes" || { echo "::error::$notes is missing"; exit 1; }
+            gh release create "$TAG" --repo "${{ github.repository }}" --verify-tag --title "SubCraft $version" --notes-file "$notes" --latest
+          fi
       - name: Publish verified packages without replacing existing assets
         env:
           GH_TOKEN: ${{ github.token }}

@@ -63,9 +63,16 @@ pub struct UserLibrary {
 impl UserLibrary {
     /// `$SUBCRAFT_LIBRARY`, else `Documents/SubCraft/Library`. On a Linux account without
     /// `xdg-user-dirs` there is no Documents folder; the library then lives in the data folder
-    /// (`~/.local/share/SubCraft/Library`) instead of not existing at all.
+    /// (`~/.local/share/SubCraft/Library`) instead of not existing at all. In portable mode
+    /// (issue #759) it is `portable/Library` next to the executable.
     pub fn default_root() -> Option<PathBuf> {
-        resolve_root(std::env::var_os(ENV_VAR), dirs::document_dir(), dirs::data_local_dir())
+        let override_var = std::env::var_os(ENV_VAR).filter(|p| !p.is_empty());
+        if override_var.is_none() {
+            if let Some(p) = subcraft_core::portable::dir() {
+                return Some(p.join("Library"));
+            }
+        }
+        resolve_root(override_var, dirs::document_dir(), dirs::data_local_dir())
     }
 
     pub fn new(root: impl Into<PathBuf>) -> Self {

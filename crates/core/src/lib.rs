@@ -13,6 +13,7 @@ pub mod ids;
 pub mod meshmap;
 pub mod normal;
 pub mod part;
+pub mod portable;
 pub mod rect;
 pub mod task;
 pub mod vfs;
