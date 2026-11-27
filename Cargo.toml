@@ -1,6 +1,8 @@
 [workspace]
 resolver = "3"
 members = ["crates/*", "apps/*", "tools/*"]
+# Third-party crates patched for SubCraft (see vendor/README.md); not workspace members.
+exclude = ["vendor/*"]
 default-members = ["apps/subcraft"]
 
 [workspace.package]
@@ -106,3 +108,7 @@ debug = 1
 inherits = "release"
 debug = false
 strip = true
+
+[patch.crates-io]
+# egui_dock 0.21.1 plus wrapped (stacked) tab rows, issue #637. See vendor/README.md.
+egui_dock = { path = "vendor/egui_dock" }
