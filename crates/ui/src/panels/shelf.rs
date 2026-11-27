@@ -369,6 +369,17 @@ pub fn apply_effect_drop(s: &mut UiState, drop: crate::panels::effects::ShelfEff
             None => Ok(Vec::new()),
         },
         ShelfDrag::Starter(i) if mask && is_starter_texture(item) => starter_texture_resource(s, i).map(|r| vec![image(r)]),
+        // Substance generators keep their graph only as a whole stack: added at the end.
+        ShelfDrag::SmartMask(i) if mask && s.library.smart_masks.get(i).is_some_and(|m| m.has_graphs()) => {
+            let m = s.library.smart_masks[i].clone();
+            for r in &m.resources { s.session.share_resource(r.clone()); }
+            let result = s.session.execute(Command::ApplyMaskStack { layer, effects: m.stack(), replace: false, label: format!("Smart Mask: {}", m.name) }).map_err(|e| e.to_string());
+            match result {
+                Ok(()) => s.recovery.autosaver.request_soon(),
+                Err(e) => s.set_status(e, now),
+            }
+            return;
+        }
         ShelfDrag::SmartMask(i) if mask => match s.library.smart_masks.get(i).cloned() {
             Some(m) => {
                 for r in &m.resources { s.session.share_resource(r.clone()); }

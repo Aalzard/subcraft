@@ -4551,7 +4551,7 @@ impl Session {
             self.resources.insert_shared(r.clone());
         }
         let label = format!("Smart Mask: {}", mask.name);
-        if mask.is_stacked() {
+        if mask.is_stacked() || mask.has_graphs() {
             return self.execute(Command::ApplyMaskStack { layer, effects: mask.stack(), replace, label });
         }
         let effects = mask.effects.clone();

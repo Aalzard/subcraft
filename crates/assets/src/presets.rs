@@ -217,6 +217,9 @@ pub struct SmartMask {
     pub blends: Vec<(BlendMode, f32)>,
     /// Images used by image mask effects (saved smart masks).
     pub resources: Vec<std::sync::Arc<subcraft_doc::Resource>>,
+    /// Substance generators, in the order of `effects`: the effect's name and graph (its package
+    /// is in `resources`). Empty for masks without one.
+    pub graphs: Vec<Option<(String, std::sync::Arc<subcraft_doc::GraphMaterial>)>>,
     /// File in the user library (`None` for built-in smart masks).
     pub user_file: Option<std::path::PathBuf>,
 }
@@ -247,7 +250,7 @@ pub(crate) fn dirt_generator() -> MaskEffectKind { MaskEffectKind::Generator(Gen
 pub(crate) fn ambient_occlusion() -> MaskEffectKind { MaskEffectKind::Generator(Generator::new(GeneratorKind::AmbientOcclusion)) }
 
 pub(crate) fn mask(name: &str, effects: Vec<MaskEffectKind>) -> SmartMask {
-    SmartMask { id: AssetId::from_name(&format!("smart_mask/{name}")), name: name.into(), effects, blends: Vec::new(), resources: Vec::new(), user_file: None }
+    SmartMask { id: AssetId::from_name(&format!("smart_mask/{name}")), name: name.into(), effects, blends: Vec::new(), resources: Vec::new(), graphs: Vec::new(), user_file: None }
 }
 
 /// A smart mask of several effects, bottom to top, each with its blend mode over the ones below.
@@ -265,8 +268,16 @@ impl SmartMask {
             if let Some(&(blend, opacity)) = self.blends.get(i) {
                 (e.blend, e.opacity) = (blend, opacity);
             }
+            if let Some(Some((name, graph))) = self.graphs.get(i) {
+                (e.name, e.graph) = (name.clone(), Some(graph.clone()));
+            }
             e
         }).collect()
+    }
+
+    /// Any effect is a Substance generator (it must be applied as a stack to keep its graph).
+    pub fn has_graphs(&self) -> bool {
+        self.graphs.iter().any(Option::is_some)
     }
 
     /// Any effect blends other than Normal at full opacity.

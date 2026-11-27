@@ -131,3 +131,39 @@ fn generator_files_are_told_apart_from_materials() {
     assert!(!subcraft_app::graph_layer::is_generator_file(&dir.join("missing.sbsar")));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn a_smart_mask_keeps_its_generator_live() {
+    let mut s = Session::new(subcraft_mesh::primitives::cube(2.0), RES);
+    let layer = first_layer(&s);
+    let mut g = GraphLayers::new();
+    g.import_generator_bytes(&mut s, layer, GraphEngine::Sbsar, GENERATOR.to_vec(), "EdgeGenerator.sbsar").unwrap();
+    g.finish(&mut s);
+    let before = generator(&s, layer);
+    let dir = std::env::temp_dir().join(format!("subcraft-sbsar-smart-mask-test-{}", std::process::id()));
+    let lib = subcraft_app::assets::UserLibrary::new(&dir);
+    let saved = s.save_smart_mask(layer, &lib).unwrap();
+    // Read back from the file: the graph, its name and its package come along.
+    let mask = subcraft_app::library::load_smart_mask_file(saved.user_file.as_deref().unwrap()).unwrap();
+    assert!(mask.has_graphs());
+    let package = before.graph.as_deref().unwrap().package;
+    assert!(mask.resources.iter().any(|r| r.id == package), "the package is in the smart mask file");
+
+    // Applied to another layer of a new project: a live generator again.
+    let mut other = Session::new(subcraft_mesh::primitives::cube(2.0), RES);
+    let target_layer = first_layer(&other);
+    other.execute(subcraft_app::Command::SelectLayer(Some(target_layer))).unwrap();
+    other.apply_smart_mask(&mask).unwrap();
+    let applied = generator(&other, target_layer);
+    assert_eq!((applied.name.as_str(), applied.graph.clone()), ("Edge Generator", before.graph.clone()));
+    // It re-renders after a bake, from the package the smart mask brought.
+    let mut g = GraphLayers::new();
+    assert_eq!(g.refresh_baked(&other), Ok(0));
+    let ts = other.selection().texture_set;
+    other.set_mesh_maps(ts, BTreeMap::from([(MeshMapKind::Curvature, curvature_ramp())]));
+    assert_eq!(g.refresh_baked(&other), Ok(1));
+    assert!(matches!(g.finish(&mut other).as_slice(), [GraphEvent::Applied(_)]));
+    let row = mask_row(&other, &generator(&other, target_layer));
+    assert!(row[row.len() - 1] > 0.95, "edges are white after the bake: {row:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
