@@ -98,12 +98,52 @@ impl SbsarBackend {
                 label: g.label.clone(),
                 params: g.params.clone(),
                 channels: g.channels.clone(),
-                notes: if g.image_inputs.is_empty() { Vec::new() } else { vec![format!("image inputs not connected yet: {}", g.image_inputs.join(", "))] },
-                mesh_inputs: Vec::new(),
+                notes: sbsar_input_notes(&g.image_inputs),
+                mesh_inputs: {
+                    let mut kinds: Vec<MeshMapKind> = g.image_inputs.iter().filter_map(sbsar_mesh_map).collect();
+                    kinds.sort();
+                    kinds.dedup();
+                    kinds
+                },
             })
             .collect();
         Ok(SbsarBackend { package, graphs, renderers: HashMap::new() })
     }
+}
+
+/// The baked mesh map an archive's image input reads: by identifier, then by label.
+pub fn sbsar_mesh_map(input: &subcraft_sbsar::ImageInputInfo) -> Option<MeshMapKind> {
+    crate::materialcraft::mesh_map_for_name(&input.identifier).or_else(|| crate::materialcraft::mesh_map_for_name(&input.label))
+}
+
+fn sbsar_input_notes(inputs: &[subcraft_sbsar::ImageInputInfo]) -> Vec<String> {
+    let unmatched: Vec<&str> = inputs.iter().filter(|i| sbsar_mesh_map(i).is_none()).map(|i| i.label.as_str()).collect();
+    let mut notes = Vec::new();
+    if inputs.len() > unmatched.len() {
+        notes.push("baked mesh maps feed the graph's inputs; bake the texture set for them to show".to_string());
+    }
+    if !unmatched.is_empty() {
+        notes.push(format!("image inputs with no mesh map (they keep the archive's default): {}", unmatched.join(", ")));
+    }
+    notes
+}
+
+/// Baked maps for an archive's image inputs, by identifier, as raw values (mesh maps are data,
+/// never color-transformed). A map that is not baked yet gives its neutral value (no
+/// occlusion, flat curvature, flat normal), as SubCraft's own generators read it.
+pub fn sbsar_input_images(inputs: &[subcraft_sbsar::ImageInputInfo], maps: &MeshMaps) -> BTreeMap<String, subcraft_sbsar::InputImage> {
+    inputs
+        .iter()
+        .filter_map(|input| {
+            let kind = sbsar_mesh_map(input)?;
+            let normal = matches!(kind, MeshMapKind::Normal | MeshMapKind::BentNormal);
+            let image = match maps.get(kind) {
+                Some(image) if matches!(image.comps(), 1 | 3 | 4) => subcraft_sbsar::InputImage { width: image.width(), height: image.height(), channels: image.comps() as u32, data: image.to_dense(), normal },
+                _ => subcraft_sbsar::InputImage { width: 1, height: 1, channels: 3, data: kind.neutral_value().to_vec(), normal },
+            };
+            Some((input.identifier.clone(), image))
+        })
+        .collect()
 }
 
 impl GraphBackend for SbsarBackend {
@@ -112,10 +152,16 @@ impl GraphBackend for SbsarBackend {
     }
 
     fn render(&mut self, graph: &str, values: &BTreeMap<String, Vec<f64>>, size_log2: u32) -> Result<Vec<RenderedMap>, String> {
-        let path = self.package.graph(graph).path.clone();
+        self.render_with_maps(graph, values, size_log2, &MeshMaps::new())
+    }
+
+    fn render_with_maps(&mut self, graph: &str, values: &BTreeMap<String, Vec<f64>>, size_log2: u32, maps: &MeshMaps) -> Result<Vec<RenderedMap>, String> {
+        let info = self.package.graph(graph);
+        let path = info.path.clone();
+        let images = sbsar_input_images(&info.image_inputs, maps);
         let package = self.package.clone();
         let r = self.renderers.entry(path.clone()).or_insert_with(|| subcraft_sbsar::GraphRenderer::new(package, &path));
-        let out = r.render(values, size_log2).map_err(|e| e.to_string())?;
+        let out = r.render_with_images(values, size_log2, &images).map_err(|e| e.to_string())?;
         for w in &out.warnings {
             log::info!("sbsar {path}: {w}");
         }
@@ -508,5 +554,47 @@ fn apply(session: &mut Session, target: &Target, material: &GraphMaterial, refre
             session.execute_with_partner_commands(Command::ReplaceLayer { layer: *layer, replacement: Box::new(l), label }, partners).map_err(|e| e.to_string())?;
             Ok(if refresh { format!("Updated {name} for the new bake") } else { format!("Updated {name}") })
         }
+    }
+}
+
+#[cfg(test)]
+mod sbsar_input_tests {
+    use super::*;
+    use subcraft_sbsar::ImageInputInfo;
+
+    fn input(identifier: &str, label: &str) -> ImageInputInfo {
+        ImageInputInfo { identifier: identifier.into(), label: label.into() }
+    }
+
+    #[test]
+    fn archive_inputs_find_their_mesh_maps_by_identifier_or_label() {
+        for (id, label, kind) in [
+            ("ambient_occlusion", "Ambient Occlusion", Some(MeshMapKind::AmbientOcclusion)),
+            ("curvature_map", "", Some(MeshMapKind::Curvature)),
+            ("world_space_normals", "", Some(MeshMapKind::WorldSpaceNormal)),
+            ("position_input", "", Some(MeshMapKind::Position)),
+            ("input_3", "Thickness Map", Some(MeshMapKind::Thickness)),
+            ("normal", "Normal", Some(MeshMapKind::Normal)),
+            ("input", "Input", None),
+            ("basecolor_input", "Base Color", None),
+        ] {
+            assert_eq!(sbsar_mesh_map(&input(id, label)), kind, "{id} / {label}");
+        }
+    }
+
+    #[test]
+    fn baked_maps_feed_archive_inputs_and_unbaked_ones_are_neutral() {
+        let mut maps = MeshMaps::new();
+        maps.insert(MeshMapKind::Curvature, subcraft_image::TiledImage::new(4, 4, 1, [0.75, 0.0, 0.0, 0.0]));
+        let inputs = [input("curvature", "Curvature"), input("ao", "AO"), input("normal", "Normal"), input("mask", "Mask")];
+        let images = sbsar_input_images(&inputs, &maps);
+        assert_eq!((images["curvature"].width, images["curvature"].channels, &images["curvature"].data), (4, 1, &vec![0.75; 16]));
+        assert!(!images["curvature"].normal);
+        assert_eq!(images["ao"].data, MeshMapKind::AmbientOcclusion.neutral_value().to_vec(), "unbaked AO: no occlusion");
+        assert!(images["normal"].normal, "normal inputs are marked so DirectX graphs get green flipped");
+        assert!(!images.contains_key("mask"), "inputs that are not mesh maps keep the archive's default");
+        let notes = sbsar_input_notes(&inputs);
+        assert!(notes.iter().any(|n| n.contains("Mask")) && notes.iter().any(|n| n.contains("bake")), "{notes:?}");
+        assert!(sbsar_input_notes(&[]).is_empty());
     }
 }
