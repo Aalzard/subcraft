@@ -157,14 +157,26 @@ pub fn channel_maps(outputs: &[Output]) -> Vec<RenderedMap> {
 /// MaterialCraft: `ambientOcclusion`, `curvature`, `worldNormal`...) or, failing that, its usage.
 /// Case, `_`, `-` and spaces are ignored, and the common Substance spellings are accepted.
 pub fn mesh_map_for_input(input: &ImageInput) -> Option<MeshMapKind> {
-    let by_name = |name: &str| {
-        let key: String = name.chars().filter(|c| c.is_ascii_alphanumeric()).collect::<String>().to_ascii_lowercase();
-        Some(match key.as_str() {
+    mesh_map_for_name(&input.identifier).or(match input.usage.as_str() {
+        "ambientOcclusion" => Some(MeshMapKind::AmbientOcclusion),
+        "normal" => Some(MeshMapKind::Normal),
+        "height" => Some(MeshMapKind::Height),
+        _ => None,
+    })
+}
+
+/// The baked mesh map an image input named `name` wants (`ambient_occlusion`, `curvature`,
+/// `world_space_normals`, `Position map`...). Case, `_`, `-` and spaces are ignored, and a
+/// trailing "map" or "input" is too.
+pub fn mesh_map_for_name(name: &str) -> Option<MeshMapKind> {
+    let key: String = name.chars().filter(|c| c.is_ascii_alphanumeric()).collect::<String>().to_ascii_lowercase();
+    let by_key = |key: &str| {
+        Some(match key {
             "ambientocclusion" | "ao" | "occlusion" => MeshMapKind::AmbientOcclusion,
             "curvature" | "curv" => MeshMapKind::Curvature,
             "thickness" => MeshMapKind::Thickness,
             "position" | "pos" => MeshMapKind::Position,
-            "worldnormal" | "worldnormals" | "worldspacenormal" | "worldspacenormals" | "wsnormal" => MeshMapKind::WorldSpaceNormal,
+            "worldnormal" | "worldnormals" | "worldspacenormal" | "worldspacenormals" | "wsnormal" | "wsnormals" => MeshMapKind::WorldSpaceNormal,
             "normal" | "normals" | "tangentnormal" | "normalmap" => MeshMapKind::Normal,
             "height" | "heightmap" => MeshMapKind::Height,
             "id" | "idmap" | "colorid" | "materialid" => MeshMapKind::Id,
@@ -172,12 +184,7 @@ pub fn mesh_map_for_input(input: &ImageInput) -> Option<MeshMapKind> {
             _ => return None,
         })
     };
-    by_name(&input.identifier).or(match input.usage.as_str() {
-        "ambientOcclusion" => Some(MeshMapKind::AmbientOcclusion),
-        "normal" => Some(MeshMapKind::Normal),
-        "height" => Some(MeshMapKind::Height),
-        _ => None,
-    })
+    by_key(&key).or_else(|| ["map", "input"].iter().find_map(|suffix| key.strip_suffix(suffix).filter(|k| !k.is_empty()).and_then(by_key)))
 }
 
 /// Baked maps for the graph's image inputs, as raw values (mesh maps are data, never

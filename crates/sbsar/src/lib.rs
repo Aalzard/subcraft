@@ -69,8 +69,50 @@ pub struct GraphInfo {
     pub params: Vec<GraphParam>,
     /// Channels it can fill, in output order.
     pub channels: Vec<ChannelKind>,
-    /// Image inputs (mesh maps and such) the graph has; not connected yet.
-    pub image_inputs: Vec<String>,
+    /// Image inputs (mesh maps and such) the graph has, in input order.
+    pub image_inputs: Vec<ImageInputInfo>,
+}
+
+/// An image input of a graph.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ImageInputInfo {
+    pub identifier: String,
+    /// The label the author gave it (the identifier when there is none).
+    pub label: String,
+}
+
+/// An image for an image input: raw values (data, never color-transformed), row-major,
+/// `width * height * channels` of them. 1, 3 or 4 channels; normals OpenGL-style (green up),
+/// as SubCraft bakes them.
+#[derive(Clone, Debug, PartialEq)]
+pub struct InputImage {
+    pub width: u32,
+    pub height: u32,
+    pub channels: u32,
+    pub data: Vec<f32>,
+    /// A tangent-space normal map: green is flipped for graphs that take DirectX normals.
+    pub normal: bool,
+}
+
+impl InputImage {
+    /// The engine's form: gray stays gray, anything else becomes RGBA (alpha 1 when missing).
+    fn to_engine(&self, flip_green: bool) -> Option<open_sbsar::InputImage> {
+        let (w, h, ch) = (self.width as usize, self.height as usize, self.channels as usize);
+        if w == 0 || h == 0 || !matches!(ch, 1 | 3 | 4) || self.data.len() != w * h * ch {
+            return None;
+        }
+        let flip = flip_green && self.normal && ch >= 3;
+        let data = if ch == 1 {
+            self.data.clone()
+        } else {
+            let mut out = Vec::with_capacity(w * h * 4);
+            for px in self.data.chunks_exact(ch) {
+                out.extend_from_slice(&[px[0], if flip { 1.0 - px[1] } else { px[1] }, px[2], if ch == 4 { px[3] } else { 1.0 }]);
+            }
+            out
+        };
+        Some(open_sbsar::InputImage { width: w, height: h, channels: if ch == 1 { 1 } else { 4 }, data, storage: open_sbsar::PixelFormat::F32 })
+    }
 }
 
 /// An opened archive. Cheap to share.
@@ -144,7 +186,7 @@ fn describe(graph: &open_sbsar::Graph) -> GraphInfo {
         let group = i.group.clone().unwrap_or_default();
         let (control, n) = match (&i.kind, i.widget.as_deref()) {
             (InputKind::Image, _) => {
-                image_inputs.push(i.identifier.clone());
+                image_inputs.push(ImageInputInfo { identifier: i.identifier.clone(), label: label.clone() });
                 continue;
             }
             (InputKind::String, _) | (InputKind::Other(_), _) => continue,
@@ -238,6 +280,13 @@ impl GraphRenderer {
     /// the graph's own aspect). Values not in `values` use the graph's defaults; unknown
     /// identifiers are ignored.
     pub fn render(&mut self, values: &Values, size_log2: u32) -> Result<Rendered, SbsarError> {
+        self.render_with_images(values, size_log2, &BTreeMap::new())
+    }
+
+    /// [`Self::render`] with images for the graph's image inputs, by input identifier. Inputs
+    /// with no image (or an unusable one) keep the graph's default; unknown identifiers are
+    /// ignored.
+    pub fn render_with_images(&mut self, values: &Values, size_log2: u32, images: &BTreeMap<String, InputImage>) -> Result<Rendered, SbsarError> {
         let graph = self.package.engine_graph(&self.path);
         let info = self.package.graph(&self.path);
         let size = size_log2.clamp(MIN_SIZE_LOG2, MAX_SIZE_LOG2) as i32;
@@ -257,6 +306,12 @@ impl GraphRenderer {
         let nf = normal_format(graph);
         if let Some((id, v)) = &nf {
             params.set(id, open_sbsar::Value::Int(vec![*v]));
+        }
+        for input in &info.image_inputs {
+            // A graph with no normal format switch takes DirectX normals (as it outputs them).
+            if let Some(image) = images.get(&input.identifier).and_then(|i| i.to_engine(nf.is_none())) {
+                params.set_image(&input.identifier, image);
+            }
         }
         let plan = output_plan(graph);
         let wanted: Vec<&str> = plan.iter().map(|p| p.1.as_str()).collect();
@@ -315,6 +370,24 @@ pub fn inspect(bytes: &[u8]) -> Result<Package, SbsarError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn input_images_become_gray_or_rgba_and_normals_follow_the_graph() {
+        let gray = InputImage { width: 2, height: 1, channels: 1, data: vec![0.25, 0.75], normal: false };
+        let e = gray.to_engine(true).unwrap();
+        assert_eq!((e.channels, e.data.clone(), e.storage), (1, vec![0.25, 0.75], open_sbsar::PixelFormat::F32));
+        let normal = InputImage { width: 1, height: 1, channels: 3, data: vec![0.5, 0.8, 1.0], normal: true };
+        // OpenGL graph: kept; DirectX graph: green flipped. Alpha is added.
+        assert_eq!(normal.to_engine(false).unwrap().data, vec![0.5, 0.8, 1.0, 1.0]);
+        let dx = normal.to_engine(true).unwrap().data;
+        assert!((dx[1] - 0.2).abs() < 1e-6 && dx[3] == 1.0);
+        // Data maps are never flipped.
+        let pos = InputImage { normal: false, ..normal.clone() };
+        assert_eq!(pos.to_engine(true).unwrap().data, vec![0.5, 0.8, 1.0, 1.0]);
+        // Broken sizes are skipped, not passed on.
+        assert!(InputImage { width: 3, ..gray.clone() }.to_engine(false).is_none());
+        assert!(InputImage { channels: 2, data: vec![0.0; 4], ..gray }.to_engine(false).is_none());
+    }
 
     #[test]
     fn garbage_is_an_error_not_a_panic() {
