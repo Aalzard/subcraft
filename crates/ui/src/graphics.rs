@@ -115,6 +115,8 @@ pub fn wgpu_options(api: GraphicsApi, environment_override: bool, gpu: GpuChoice
     setup.device_descriptor = std::sync::Arc::new(move |adapter| {
         let mut desc = egui_default(adapter);
         desc.required_limits.max_texture_dimension_2d = adapter.limits().max_texture_dimension_2d;
+        // Big bake meshes need more than wgpu's 256 MiB default buffer (#634).
+        desc.required_limits.max_buffer_size = desc.required_limits.max_buffer_size.max(adapter.limits().max_buffer_size);
         desc
     });
     egui_wgpu::WgpuConfiguration { wgpu_setup: setup.into(), ..Default::default() }
