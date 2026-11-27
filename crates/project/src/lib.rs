@@ -120,6 +120,7 @@ impl Writer {
                 MaskEffectKind::AnchorRef { input, levels } => MaskEffectKindV1::AnchorRef { input: *input, levels: *levels },
                 MaskEffectKind::Compare(c) => MaskEffectKindV1::Compare { compare: *c },
             },
+            graph: e.graph.as_deref().filter(|_| matches!(e.kind, MaskEffectKind::Image { .. })).map(schema::GraphV19::from_doc),
         }
     }
 
@@ -608,7 +609,8 @@ impl<R: Read + Seek> Loader<'_, R> {
                 MaskEffectKind::Compare(*compare)
             }
         };
-        Ok(MaskEffect { id: EffectId(e.id), name: e.name.clone(), visible: e.visible, blend: e.blend, opacity: e.opacity, kind })
+        let graph = e.graph.as_ref().filter(|_| matches!(kind, MaskEffectKind::Image { .. })).map(|g| Arc::new(g.to_doc()));
+        Ok(MaskEffect { id: EffectId(e.id), name: e.name.clone(), visible: e.visible, blend: e.blend, opacity: e.opacity, kind, graph })
     }
 
     fn paint_channels(&mut self, channels: &[PaintChannelV1], res: u32) -> Result<BTreeMap<subcraft_core::ChannelKind, TiledImage>, ProjectError> {

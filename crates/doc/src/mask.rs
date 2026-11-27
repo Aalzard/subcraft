@@ -1841,11 +1841,15 @@ pub struct MaskEffect {
     pub blend: BlendMode,
     pub opacity: f32,
     pub kind: MaskEffectKind,
+    /// Substance generator (Painter's custom generators): the graph whose mask output the
+    /// effect's image is. Only on [`MaskEffectKind::Image`]; the image is re-rendered when the
+    /// values or the baked mesh maps change. `None` for every other effect.
+    pub graph: Option<Arc<crate::graph_material::GraphMaterial>>,
 }
 
 impl MaskEffect {
     pub fn new(kind: MaskEffectKind) -> Self {
-        Self { id: EffectId::new(), name: kind.label(), visible: true, blend: BlendMode::Normal, opacity: 1.0, kind }
+        Self { id: EffectId::new(), name: kind.label(), visible: true, blend: BlendMode::Normal, opacity: 1.0, kind, graph: None }
     }
 
     /// Equality ignoring paint texels (dirty-region diffing: painted tiles are diffed instead).
@@ -1854,7 +1858,7 @@ impl MaskEffect {
             (MaskEffectKind::Paint { image: a }, MaskEffectKind::Paint { image: b }) => a.same_layout(b) && a.fill() == b.fill(),
             (a, b) => a == b,
         };
-        kinds && self.id == other.id && self.visible == other.visible && self.blend == other.blend && self.opacity == other.opacity
+        kinds && self.id == other.id && self.visible == other.visible && self.blend == other.blend && self.opacity == other.opacity && self.graph == other.graph
     }
 }
 

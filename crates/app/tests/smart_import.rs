@@ -218,7 +218,10 @@ fn bad_files_are_reported_never_fatal_and_leave_the_library_alone() {
     // Saved by a newer SubCraft.
     rewrite_zip(&valid, &bad.join("future.scsmart"), |name, b| {
         if name == "fragment.json" {
-            String::from_utf8(b).unwrap().replace("\"schema_version\": 1", "\"schema_version\": 999").into_bytes()
+            // Any current version (the project schema's) becomes one far in the future.
+            let mut json: serde_json::Value = serde_json::from_slice(&b).unwrap();
+            json["schema_version"] = 999.into();
+            serde_json::to_vec_pretty(&json).unwrap()
         } else {
             b
         }

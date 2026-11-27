@@ -184,6 +184,10 @@ impl EffectClip {
             if let MaskEffectKind::Image { resource, .. } = e.kind && !wanted.contains(&resource) {
                 wanted.push(resource);
             }
+            // A Substance generator brings its package, so it renders again after a paste.
+            if let Some(g) = &e.graph && !wanted.contains(&g.package) {
+                wanted.push(g.package);
+            }
             if let MaskEffectKind::Generator(g) = &e.kind {
                 for resource in g.resources() {
                     if !wanted.contains(&resource) { wanted.push(resource); }

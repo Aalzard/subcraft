@@ -822,7 +822,7 @@ impl UiState {
         if self.bake.job.is_none() {
             match self.graph_layers.refresh_baked(&self.session) {
                 Ok(0) => {}
-                Ok(n) => self.set_status(format!("Re-rendering {n} material graph layer{} for the new bake…", if n == 1 { "" } else { "s" }), now),
+                Ok(n) => self.set_status(format!("Re-rendering {n} material graph{} for the new bake…", if n == 1 { "" } else { "s" }), now),
                 Err(e) => self.set_status(format!("Material graph: {e}"), now),
             }
         }

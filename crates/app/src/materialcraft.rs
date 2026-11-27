@@ -254,6 +254,7 @@ impl MaterialCraftBackend {
                     kinds.dedup();
                     kinds
                 },
+                mask: false,
             });
         }
         if graphs.is_empty() {

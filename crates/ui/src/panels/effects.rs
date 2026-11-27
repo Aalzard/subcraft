@@ -157,6 +157,10 @@ fn add_mask_menu(ui: &mut Ui, layer: &Layer, resolution: u32, index: &subcraft_d
     add(ui, "Add color selection", MaskEffectKind::IdColor(Default::default()));
     add(ui, "Add invert", MaskEffectKind::Invert);
     add_mask_anchor_items(ui, layer.id, index, cmds);
+    if ui.button(format!("{}  Add Substance generator…", icons::MAGIC_WAND)).on_hover_text("A Substance archive (.sbsar) with a mask output; baked mesh maps feed its inputs").clicked() {
+        crate::files::pick(ui.ctx(), crate::files::Purpose::AddMaskGenerator { layer: layer.id }, crate::files::GENERATOR_ARCHIVES, false, Some("Add a Substance generator (.sbsar)"));
+        ui.close();
+    }
 }
 
 /// Every content effect the Add menu can add to `layer`, filters, material filters and generator

@@ -39,7 +39,10 @@ use uuid::Uuid;
 //     of kind `graph_package` (the package file, e.g. an `.sbsar`). Schemas 1-18 migrate
 //     unchanged (they cannot contain them); older SubCraft versions refuse schema-19 files
 //     rather than fail on the unknown resource kind.
-pub const SCHEMA_VERSION: u32 = 19;
+// 20: Substance generators: an `image` mask effect may carry the `graph` that renders it.
+//     Omitted when absent; schemas 1-19 migrate unchanged. Older SubCraft versions refuse
+//     schema-20 files rather than drop the graph and leave a frozen image.
+pub const SCHEMA_VERSION: u32 = 20;
 pub const FORMAT_NAME: &str = "subcraft-project";
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -385,6 +388,9 @@ pub struct MaskEffectV1 {
     pub blend: BlendMode,
     pub opacity: f32,
     pub kind: MaskEffectKindV1,
+    /// Schema 20: the Substance generator graph behind an `image` effect.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub graph: Option<GraphV19>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

@@ -4,6 +4,7 @@
 //! step) when that render is done.
 
 use egui::Ui;
+use subcraft_app::graph_layer::GraphTarget;
 use subcraft_doc::{GraphMaterial, GraphParam, GraphParamKind, Layer};
 
 use crate::i18n::{tr, trf};
@@ -18,11 +19,21 @@ const SETTLE: f64 = 0.35;
 const SIZES: [u32; 6] = [7, 8, 9, 10, 11, 12];
 
 pub(crate) fn section(state: &mut UiState, ui: &mut Ui, layer: &Layer, now: f64) {
-    let Some(shown) = state.graph_layers.shown_material(layer) else { return };
-    let pending_id = egui::Id::new(("graph-params-pending", layer.id));
+    section_for(state, ui, GraphTarget::Layer(layer.id), layer.graph.as_deref(), tr("Graph material"), now);
+}
+
+/// The parameters of a Substance generator (an image mask effect with a graph).
+pub(crate) fn generator_section(state: &mut UiState, ui: &mut Ui, layer: subcraft_core::LayerId, effect: subcraft_core::EffectId, graph: &GraphMaterial, now: f64) {
+    section_for(state, ui, GraphTarget::Mask { layer, effect }, Some(graph), tr("Substance generator"), now);
+}
+
+/// [`section`] for any graph target whose current material is `current`.
+fn section_for(state: &mut UiState, ui: &mut Ui, target: GraphTarget, current: Option<&GraphMaterial>, title: &str, now: f64) {
+    let Some(shown) = state.graph_layers.shown_for(target, current) else { return };
+    let pending_id = egui::Id::new(("graph-params-pending", target));
     let pending: Option<(GraphMaterial, f64)> = ui.data(|d| d.get_temp(pending_id));
     let mut m = pending.as_ref().map(|p| p.0.clone()).unwrap_or_else(|| shown.clone());
-    let rendering = state.graph_layers.is_rendering(layer.id);
+    let rendering = state.graph_layers.is_rendering_target(target);
     let desc = state.graph_layers.graph(&state.session, &m);
     let mut changed = false;
     let mut send_now = false;
@@ -31,7 +42,7 @@ pub(crate) fn section(state: &mut UiState, ui: &mut Ui, layer: &Layer, now: f64)
     section_with(
         ui,
         "graph-params",
-        tr("Graph material"),
+        title,
         true,
         |ui| {
             if rendering || pending.is_some() {
@@ -52,7 +63,7 @@ pub(crate) fn section(state: &mut UiState, ui: &mut Ui, layer: &Layer, now: f64)
             // Size: the CPU engine takes seconds at 512 px and much longer above.
             let mut size = m.size_log2;
             let r = prop_row_reset(ui, tr("Resolution"), &mut size, subcraft_sbsar::DEFAULT_SIZE_LOG2, |ui, size| {
-                let mut r = egui::ComboBox::from_id_salt(("graph-size", layer.id)).selected_text(format!("{0} x {0}", 1u32 << *size)).show_ui(ui, |ui| {
+                let mut r = egui::ComboBox::from_id_salt(("graph-size", target)).selected_text(format!("{0} x {0}", 1u32 << *size)).show_ui(ui, |ui| {
                     for s in SIZES {
                         ui.selectable_value(size, s, format!("{0} x {0}", 1u32 << s));
                     }
@@ -76,7 +87,7 @@ pub(crate) fn section(state: &mut UiState, ui: &mut Ui, layer: &Layer, now: f64)
                     }
                 }
                 let mut v = m.value_of(p);
-                if row(ui, layer.id, p, &mut v) {
+                if row(ui, target, p, &mut v) {
                     m.set_value(p, &v);
                     changed = true;
                 }
@@ -93,31 +104,31 @@ pub(crate) fn section(state: &mut UiState, ui: &mut Ui, layer: &Layer, now: f64)
     let held = ui.input(|i| i.pointer.any_down());
     if send_now {
         ui.data_mut(|d| d.remove::<(GraphMaterial, f64)>(pending_id));
-        request(state, layer, m, now);
+        request(state, target, current, m, now);
     } else if changed {
         ui.data_mut(|d| d.insert_temp(pending_id, (m, now)));
         ui.ctx().request_repaint_after(std::time::Duration::from_secs_f64(SETTLE));
     } else if let Some((p, t)) = pending {
         if now - t >= SETTLE && !held {
             ui.data_mut(|d| d.remove::<(GraphMaterial, f64)>(pending_id));
-            request(state, layer, p, now);
+            request(state, target, current, p, now);
         } else {
             ui.ctx().request_repaint_after(std::time::Duration::from_secs_f64(SETTLE));
         }
     }
 }
 
-fn request(state: &mut UiState, layer: &Layer, m: GraphMaterial, now: f64) {
-    if layer.graph.as_deref() == Some(&m) && !state.graph_layers.is_rendering(layer.id) {
+fn request(state: &mut UiState, target: GraphTarget, current: Option<&GraphMaterial>, m: GraphMaterial, now: f64) {
+    if current == Some(&m) && !state.graph_layers.is_rendering_target(target) {
         return;
     }
-    if let Err(e) = state.graph_layers.request(&state.session, layer.id, m) {
+    if let Err(e) = state.graph_layers.request_target(&state.session, target, m) {
         state.set_status(format!("Material graph: {e}"), now);
     }
 }
 
 /// One parameter's control(s); true when the user changed `v`. Labels are the material's own.
-fn row(ui: &mut Ui, layer: subcraft_core::LayerId, p: &GraphParam, v: &mut Vec<f64>) -> bool {
+fn row(ui: &mut Ui, layer: GraphTarget, p: &GraphParam, v: &mut Vec<f64>) -> bool {
     let before = v.clone();
     let default = p.default.clone();
     match &p.kind {

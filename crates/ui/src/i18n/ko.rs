@@ -1244,6 +1244,7 @@ pub static TABLE: &[(&str, &str)] = &[
     ("This cannot be undone: the undo history is cleared and baked mesh maps are marked for rebaking. Save first to keep this version.", "되돌릴 수 없습니다. 실행 취소 기록이 지워지고 베이크된 메시 맵은 다시 베이크하도록 표시됩니다. 이 버전을 남기려면 먼저 저장하세요."),
     ("Apply", "적용"),
     ("Graph material", "그래프 머티리얼"),
+    ("Substance generator", "Substance 제너레이터"),
     ("Rendering the material with the new values", "새 값으로 머티리얼을 렌더링하는 중"),
     ("This material cannot be rendered: {}", "이 머티리얼을 렌더링할 수 없습니다: {}"),
     ("Larger sizes take much longer to render.", "크기가 클수록 렌더링 시간이 훨씬 오래 걸립니다."),

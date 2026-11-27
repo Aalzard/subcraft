@@ -2170,7 +2170,13 @@ impl Session {
                     let l = Self::layer_mut(ts, layer)?;
                     let mask = l.mask.get_or_insert_with(|| Mask::new(res, false));
                     if replace { mask.effects.clear(); }
-                    mask.effects.extend(effects.into_iter().map(|e| Arc::new(MaskEffect { blend: e.blend, opacity: e.opacity.clamp(0.0, 1.0), ..MaskEffect::new(e.kind) })));
+                    // A Substance generator keeps its graph and name (its name is the graph's).
+                    mask.effects.extend(effects.into_iter().map(|e| {
+                        let (name, graph) = if e.graph.is_some() { (Some(e.name), e.graph) } else { (None, None) };
+                        let mut new = MaskEffect { blend: e.blend, opacity: e.opacity.clamp(0.0, 1.0), graph, ..MaskEffect::new(e.kind) };
+                        if let Some(name) = name { new.name = name; }
+                        Arc::new(new)
+                    }));
                     Ok(())
                 })?;
             }

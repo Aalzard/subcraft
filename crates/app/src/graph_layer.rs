@@ -13,8 +13,8 @@ use std::path::Path;
 use std::sync::mpsc::{Receiver, TryRecvError, channel};
 use std::sync::{Arc, Mutex};
 
-use subcraft_core::{ChannelKind, LayerId, MeshMapKind, ResourceId, TextureSetId};
-use subcraft_doc::{FillChannel, FillSource, GraphEngine, GraphMaterial, GraphParam, Layer, LayerContent, Resource, ResourceKind};
+use subcraft_core::{ChannelKind, EffectId, LayerId, MeshMapKind, ResourceId, TextureSetId};
+use subcraft_doc::{FillChannel, FillSource, GraphEngine, GraphMaterial, GraphParam, Layer, LayerContent, MaskEffect, MaskEffectKind, Projection, Resource, ResourceKind};
 use subcraft_image::{Bitmap, StorageToken};
 use subcraft_materials::MeshMaps;
 
@@ -36,6 +36,16 @@ pub struct GraphDesc {
     pub notes: Vec<String>,
     /// Baked mesh maps the graph reads; a new bake of one re-renders its layers.
     pub mesh_inputs: Vec<MeshMapKind>,
+    /// The graph has a grayscale output a mask generator can use (Substance generators).
+    pub mask: bool,
+}
+
+/// What a graph renders into: a graph layer's fill channels, or a Substance generator's mask
+/// image (an image mask effect with a graph).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum GraphTarget {
+    Layer(LayerId),
+    Mask { layer: LayerId, effect: EffectId },
 }
 
 /// A rendered channel image. Keeps encoded values: Base Color and Emissive sRGB-encoded (like
@@ -57,6 +67,11 @@ pub trait GraphBackend: Send {
         let _ = maps;
         self.render(graph, values, size_log2)
     }
+    /// Render the graph's mask output as a one-channel bitmap (Substance generators).
+    fn render_mask(&mut self, graph: &str, values: &BTreeMap<String, Vec<f64>>, size_log2: u32, maps: &MeshMaps) -> Result<Bitmap, String> {
+        let _ = (graph, values, size_log2, maps);
+        Err("this kind of material graph cannot be a generator".into())
+    }
 }
 
 /// The engine that opens a file, by extension.
@@ -67,6 +82,18 @@ pub fn engine_for_file(name: &str) -> Option<GraphEngine> {
         "mcmat" | "mcraft" | "sbs" => Some(GraphEngine::MaterialCraft),
         _ => None,
     }
+}
+
+/// True for a Substance archive whose graphs only offer a mask output (a generator, not a
+/// material): it belongs in a layer's mask. Unreadable files are not generators.
+pub fn is_generator_file(path: &Path) -> bool {
+    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+    if engine_for_file(name) != Some(GraphEngine::Sbsar) || std::fs::metadata(path).map_or(true, |m| m.len() > MAX_PACKAGE_BYTES) {
+        return false;
+    }
+    std::fs::read(path).ok().and_then(|b| subcraft_sbsar::inspect(&b).ok()).is_some_and(|p| {
+        p.graphs().iter().all(|g| g.channels.is_empty()) && p.graphs().iter().any(|g| g.mask_output.is_some())
+    })
 }
 
 /// File extensions graph layers are made from (for file dialogs and drops).
@@ -92,7 +119,7 @@ impl SbsarBackend {
         let graphs = package
             .graphs()
             .iter()
-            .filter(|g| !g.channels.is_empty())
+            .filter(|g| !g.channels.is_empty() || g.mask_output.is_some())
             .map(|g| GraphDesc {
                 graph: g.path.clone(),
                 label: g.label.clone(),
@@ -105,6 +132,7 @@ impl SbsarBackend {
                     kinds.dedup();
                     kinds
                 },
+                mask: g.mask_output.is_some(),
             })
             .collect();
         Ok(SbsarBackend { package, graphs, renderers: HashMap::new() })
@@ -167,6 +195,19 @@ impl GraphBackend for SbsarBackend {
         }
         Ok(out.maps.into_iter().map(|m| RenderedMap { channel: m.channel, bitmap: m.bitmap }).collect())
     }
+
+    fn render_mask(&mut self, graph: &str, values: &BTreeMap<String, Vec<f64>>, size_log2: u32, maps: &MeshMaps) -> Result<Bitmap, String> {
+        let info = self.package.graph(graph);
+        let path = info.path.clone();
+        let images = sbsar_input_images(&info.image_inputs, maps);
+        let package = self.package.clone();
+        let r = self.renderers.entry(path.clone()).or_insert_with(|| subcraft_sbsar::GraphRenderer::new(package, &path));
+        let (bitmap, warnings) = r.render_mask(values, size_log2, &images).map_err(|e| e.to_string())?;
+        for w in &warnings {
+            log::info!("sbsar {path}: {w}");
+        }
+        Ok(bitmap)
+    }
 }
 
 type SharedBackend = Arc<Mutex<Box<dyn GraphBackend>>>;
@@ -176,8 +217,25 @@ type SharedBackend = Arc<Mutex<Box<dyn GraphBackend>>>;
 enum Target {
     /// Add a new layer to this texture set.
     New { texture_set: TextureSetId, name: String },
-    /// Swap the images of this layer.
-    Update { layer: LayerId },
+    /// Add a Substance generator to this layer's mask (the mask is made if there is none).
+    NewMask { layer: LayerId, name: String },
+    /// Swap the images of this layer or generator.
+    Update(GraphTarget),
+}
+
+impl Target {
+    fn updates(&self) -> Option<GraphTarget> {
+        match self {
+            Target::Update(t) => Some(*t),
+            _ => None,
+        }
+    }
+}
+
+/// What a render made.
+enum Output {
+    Maps(Vec<RenderedMap>),
+    Mask(Bitmap),
 }
 
 struct Running {
@@ -185,7 +243,7 @@ struct Running {
     material: GraphMaterial,
     /// Started by a new bake, not by the user (names the undo step).
     refresh: bool,
-    rx: Receiver<Result<Vec<RenderedMap>, String>>,
+    rx: Receiver<Result<Output, String>>,
 }
 
 /// What [`GraphLayers::poll`] reports.
@@ -202,8 +260,8 @@ pub struct GraphLayers {
     backends: HashMap<ResourceId, Result<SharedBackend, String>>,
     descs: HashMap<ResourceId, Arc<Vec<GraphDesc>>>,
     running: Vec<Running>,
-    /// Newest request per layer that waits for that layer's running render.
-    queued: HashMap<LayerId, GraphMaterial>,
+    /// Newest request per target that waits for that target's running render.
+    queued: HashMap<GraphTarget, GraphMaterial>,
     /// Baked maps per texture set at the last [`Self::refresh_baked`], and the session's
     /// maps generation then.
     baked: HashMap<TextureSetId, BTreeMap<MeshMapKind, StorageToken>>,
@@ -249,18 +307,28 @@ impl GraphLayers {
     /// The values a layer's controls should show: a waiting or running request's, else the
     /// layer's own.
     pub fn shown_material(&self, layer: &Layer) -> Option<GraphMaterial> {
-        if let Some(m) = self.queued.get(&layer.id) {
+        self.shown_for(GraphTarget::Layer(layer.id), layer.graph.as_deref())
+    }
+
+    /// [`Self::shown_material`] for any target, whose own material is `current`.
+    pub fn shown_for(&self, target: GraphTarget, current: Option<&GraphMaterial>) -> Option<GraphMaterial> {
+        if let Some(m) = self.queued.get(&target) {
             return Some(m.clone());
         }
-        if let Some(r) = self.running.iter().rev().find(|r| matches!(r.target, Target::Update { layer: l } if l == layer.id)) {
+        if let Some(r) = self.running.iter().rev().find(|r| r.target.updates() == Some(target)) {
             return Some(r.material.clone());
         }
-        layer.graph.as_deref().cloned()
+        current.cloned()
     }
 
     /// True while a render for `layer` runs or waits.
     pub fn is_rendering(&self, layer: LayerId) -> bool {
-        self.queued.contains_key(&layer) || self.running.iter().any(|r| matches!(r.target, Target::Update { layer: l } if l == layer))
+        self.is_rendering_target(GraphTarget::Layer(layer))
+    }
+
+    /// True while a render for `target` runs or waits.
+    pub fn is_rendering_target(&self, target: GraphTarget) -> bool {
+        self.queued.contains_key(&target) || self.running.iter().any(|r| r.target.updates() == Some(target))
     }
 
     /// True while any render runs (call [`Self::poll`] every frame while it does).
@@ -284,8 +352,25 @@ impl GraphLayers {
     /// [`Self::import_file`] for bytes already read.
     pub fn import_bytes(&mut self, session: &mut Session, engine: GraphEngine, bytes: Vec<u8>, name: &str) -> Result<String, String> {
         let backend = open_backend(engine, &bytes, name).map_err(|e| format!("{name}: {e}"))?;
-        let graph = backend.graphs().first().cloned().ok_or_else(|| format!("{name}: no graph has an output SubCraft can use"))?;
-        // The same file again shares one package resource (saved once).
+        let graph = backend.graphs().iter().find(|g| !g.channels.is_empty()).cloned().ok_or_else(|| {
+            if backend.graphs().iter().any(|g| g.mask) { format!("{name}: this is a generator (it outputs a mask, not material channels); add it to a layer's mask instead") } else { format!("{name}: no graph has an output SubCraft can use") }
+        })?;
+        let (id, shared) = self.add_package(session, engine, backend, bytes, name);
+        let material = GraphMaterial::new(engine, id, graph.graph.clone(), subcraft_sbsar::DEFAULT_SIZE_LOG2);
+        let texture_set = session.selection().texture_set;
+        let maps = session.mesh_maps(texture_set).cloned().unwrap_or_default();
+        self.spawn(shared, Target::New { texture_set, name: graph.label.clone() }, material, maps, false);
+        let mut msg = format!("Rendering {} ({})…", graph.label, engine.label());
+        for n in &graph.notes {
+            msg.push_str(&format!(" Note: {n}."));
+        }
+        Ok(msg)
+    }
+
+    /// The package resource for `bytes` (the same file again shares one resource, saved once)
+    /// and its opened backend.
+    fn add_package(&mut self, session: &mut Session, engine: GraphEngine, backend: Box<dyn GraphBackend>, bytes: Vec<u8>, name: &str) -> (ResourceId, SharedBackend) {
+        let _ = engine;
         let existing = session.resources().iter().find(|r| r.kind == ResourceKind::GraphPackage && r.encoded.as_deref().is_some_and(|e| *e == bytes)).map(|r| r.id);
         let id = existing.unwrap_or_else(|| session.add_resource(Resource {
             id: ResourceId::new(),
@@ -298,11 +383,34 @@ impl GraphLayers {
         self.descs.insert(id, Arc::new(backend.graphs().to_vec()));
         let shared: SharedBackend = Arc::new(Mutex::new(backend));
         self.backends.insert(id, Ok(shared.clone()));
+        (id, shared)
+    }
+
+    /// Add a Substance generator (an `.sbsar` with a mask output) to `layer`'s mask. The effect
+    /// appears when its first render is done; baked mesh maps feed the graph's inputs.
+    pub fn import_generator_file(&mut self, session: &mut Session, layer: LayerId, path: &Path) -> Result<String, String> {
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("generator").to_string();
+        let engine = engine_for_file(&name).ok_or_else(|| format!("{name}: not a material graph SubCraft can open"))?;
+        let len = std::fs::metadata(path).map_err(|e| format!("{name}: {e}"))?.len();
+        if len > MAX_PACKAGE_BYTES {
+            return Err(format!("{name}: {} MB is larger than the {} MB limit", len >> 20, MAX_PACKAGE_BYTES >> 20));
+        }
+        let bytes = std::fs::read(path).map_err(|e| format!("{name}: {e}"))?;
+        self.import_generator_bytes(session, layer, engine, bytes, &name)
+    }
+
+    /// [`Self::import_generator_file`] for bytes already read.
+    pub fn import_generator_bytes(&mut self, session: &mut Session, layer: LayerId, engine: GraphEngine, bytes: Vec<u8>, name: &str) -> Result<String, String> {
+        if find_layer(session, layer).is_none() {
+            return Err("select a layer first".into());
+        }
+        let backend = open_backend(engine, &bytes, name).map_err(|e| format!("{name}: {e}"))?;
+        let graph = backend.graphs().iter().find(|g| g.mask).cloned().ok_or_else(|| format!("{name}: no graph has a mask output (an output named or tagged \"mask\")"))?;
+        let (id, shared) = self.add_package(session, engine, backend, bytes, name);
         let material = GraphMaterial::new(engine, id, graph.graph.clone(), subcraft_sbsar::DEFAULT_SIZE_LOG2);
-        let texture_set = session.selection().texture_set;
-        let maps = session.mesh_maps(texture_set).cloned().unwrap_or_default();
-        self.spawn(shared, Target::New { texture_set, name: graph.label.clone() }, material, maps, false);
-        let mut msg = format!("Rendering {} ({})…", graph.label, engine.label());
+        let maps = find_layer(session, layer).and_then(|(ts, _)| session.mesh_maps(ts).cloned()).unwrap_or_default();
+        self.spawn(shared, Target::NewMask { layer, name: graph.label.clone() }, material, maps, false);
+        let mut msg = format!("Rendering generator {}…", graph.label);
         for n in &graph.notes {
             msg.push_str(&format!(" Note: {n}."));
         }
@@ -312,17 +420,25 @@ impl GraphLayers {
     /// Render `layer` again with `material` (new values or size). The layer changes when the
     /// render is done.
     pub fn request(&mut self, session: &Session, layer: LayerId, material: GraphMaterial) -> Result<(), String> {
-        self.request_as(session, layer, material, false)
+        self.request_as(session, GraphTarget::Layer(layer), material, false)
     }
 
-    fn request_as(&mut self, session: &Session, layer: LayerId, material: GraphMaterial, refresh: bool) -> Result<(), String> {
-        if self.running.iter().any(|r| matches!(r.target, Target::Update { layer: l } if l == layer)) {
-            self.queued.insert(layer, material);
+    /// [`Self::request`] for any target (a Substance generator's mask image too).
+    pub fn request_target(&mut self, session: &Session, target: GraphTarget, material: GraphMaterial) -> Result<(), String> {
+        self.request_as(session, target, material, false)
+    }
+
+    fn request_as(&mut self, session: &Session, target: GraphTarget, material: GraphMaterial, refresh: bool) -> Result<(), String> {
+        if self.running.iter().any(|r| r.target.updates() == Some(target)) {
+            self.queued.insert(target, material);
             return Ok(());
         }
         let backend = self.backend(session, material.engine, material.package)?;
+        let layer = match target {
+            GraphTarget::Layer(l) | GraphTarget::Mask { layer: l, .. } => l,
+        };
         let maps = find_layer(session, layer).and_then(|(ts, _)| session.mesh_maps(ts).cloned()).unwrap_or_default();
-        self.spawn(backend, Target::Update { layer }, material, maps, refresh);
+        self.spawn(backend, Target::Update(target), material, maps, refresh);
         Ok(())
     }
 
@@ -336,7 +452,7 @@ impl GraphLayers {
             return Ok(0);
         }
         self.baked_generation = Some(generation);
-        let mut stale: Vec<(LayerId, GraphMaterial, Vec<MeshMapKind>)> = Vec::new();
+        let mut stale: Vec<(GraphTarget, GraphMaterial, Vec<MeshMapKind>)> = Vec::new();
         let mut now_baked = HashMap::new();
         for ts in &session.document().texture_sets {
             let maps = session.mesh_maps(ts.id);
@@ -349,7 +465,13 @@ impl GraphLayers {
                 if !changed.is_empty() {
                     ts.walk(|layer, _| {
                         if let Some(material) = layer.graph.as_deref() {
-                            stale.push((layer.id, self.shown_material(layer).unwrap_or_else(|| material.clone()), changed.clone()));
+                            stale.push((GraphTarget::Layer(layer.id), self.shown_material(layer).unwrap_or_else(|| material.clone()), changed.clone()));
+                        }
+                        for e in layer.mask.iter().flat_map(|m| &m.effects) {
+                            if let Some(material) = e.graph.as_deref() {
+                                let target = GraphTarget::Mask { layer: layer.id, effect: e.id };
+                                stale.push((target, self.shown_for(target, Some(material)).unwrap_or_else(|| material.clone()), changed.clone()));
+                            }
                         }
                     });
                 }
@@ -383,11 +505,15 @@ impl GraphLayers {
     fn spawn(&mut self, backend: SharedBackend, target: Target, material: GraphMaterial, maps: MeshMaps, refresh: bool) {
         let (tx, rx) = channel();
         let m = material.clone();
+        let mask = matches!(target, Target::NewMask { .. } | Target::Update(GraphTarget::Mask { .. }));
         let spawned = std::thread::Builder::new().name("graph-render".into()).spawn(move || {
             let result = match backend.lock() {
                 Ok(mut b) => {
                     let graph = m.graph.clone();
-                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| b.render_with_maps(&graph, &m.values, m.size_log2, &maps))).unwrap_or_else(|_| Err("the renderer crashed on this material".into()))
+                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        if mask { b.render_mask(&graph, &m.values, m.size_log2, &maps).map(Output::Mask) } else { b.render_with_maps(&graph, &m.values, m.size_log2, &maps).map(Output::Maps) }
+                    }))
+                    .unwrap_or_else(|_| Err("the renderer crashed on this material".into()))
                 }
                 Err(_) => Err("the renderer crashed earlier on this material".into()),
             };
@@ -420,9 +546,9 @@ impl GraphLayers {
                 Ok(text) => GraphEvent::Applied(text),
                 Err(e) => GraphEvent::Failed(e),
             });
-            if let Target::Update { layer } = done.target
-                && let Some(next) = self.queued.remove(&layer)
-                && let Err(e) = self.request(session, layer, next)
+            if let Some(target) = done.target.updates()
+                && let Some(next) = self.queued.remove(&target)
+                && let Err(e) = self.request_target(session, target, next)
             {
                 events.push(GraphEvent::Failed(e));
             }
@@ -496,7 +622,48 @@ fn fill_with_ids(layer: &mut Layer, material: &GraphMaterial, ids: &BTreeMap<Cha
     layer.graph = Some(Arc::new(material.clone()));
 }
 
-fn apply(session: &mut Session, target: &Target, material: &GraphMaterial, refresh: bool, maps: Vec<RenderedMap>) -> Result<String, String> {
+/// The rendered mask as a texture resource of the project.
+fn add_mask_image(session: &mut Session, material: &GraphMaterial, bitmap: Bitmap) -> ResourceId {
+    let name = session.resources().get(material.package).map(|r| r.name.clone()).unwrap_or_default();
+    session.add_resource(Resource { id: ResourceId::new(), name: format!("{name} mask"), kind: ResourceKind::Texture, bitmap: Arc::new(bitmap), source_path: None, encoded: None })
+}
+
+/// A Substance generator's image mask effect: the rendered image in UV space.
+fn generator_kind(resource: ResourceId) -> MaskEffectKind {
+    MaskEffectKind::Image { resource, projection: Projection::default(), invert: false, balance: 0.5, contrast: 0.0 }
+}
+
+fn apply_mask(session: &mut Session, target: &Target, material: &GraphMaterial, refresh: bool, bitmap: Bitmap) -> Result<String, String> {
+    match target {
+        Target::NewMask { layer, name } => {
+            find_layer(session, *layer).ok_or("the layer was deleted while rendering")?;
+            let resource = add_mask_image(session, material, bitmap);
+            let effect = MaskEffect { name: name.clone(), graph: Some(Arc::new(material.clone())), ..MaskEffect::new(generator_kind(resource)) };
+            session.execute(Command::ApplyMaskStack { layer: *layer, effects: vec![effect], replace: false, label: format!("Add Generator: {name}") }).map_err(|e| e.to_string())?;
+            Ok(format!("Added generator {name}"))
+        }
+        Target::Update(GraphTarget::Mask { layer, effect }) => {
+            let (_, l) = find_layer(session, *layer).ok_or("the layer was deleted while rendering")?;
+            let mut e = (**l.mask.as_ref().and_then(|m| m.effects.iter().find(|e| e.id == *effect)).ok_or("the generator was deleted while rendering")?).clone();
+            let resource = add_mask_image(session, material, bitmap);
+            match &mut e.kind {
+                MaskEffectKind::Image { resource: r, .. } => *r = resource,
+                _ => return Err("the effect is no longer a generator".into()),
+            }
+            e.graph = Some(Arc::new(material.clone()));
+            let name = e.name.clone();
+            session.execute(Command::SetMaskEffect { layer: *layer, effect: e }).map_err(|e| e.to_string())?;
+            Ok(if refresh { format!("Updated {name} for the new bake") } else { format!("Updated {name}") })
+        }
+        _ => Err("a mask render for a layer".into()),
+    }
+}
+
+fn apply(session: &mut Session, target: &Target, material: &GraphMaterial, refresh: bool, output: Output) -> Result<String, String> {
+    let maps = match output {
+        Output::Mask(bitmap) => return apply_mask(session, target, material, refresh, bitmap),
+        Output::Maps(maps) => maps,
+    };
     if maps.is_empty() {
         return Err("the render produced no image".into());
     }
@@ -520,7 +687,8 @@ fn apply(session: &mut Session, target: &Target, material: &GraphMaterial, refre
             session.execute(cmd).map_err(|e| e.to_string())?;
             Ok(format!("Added {name}"))
         }
-        Target::Update { layer } => {
+        Target::NewMask { .. } | Target::Update(GraphTarget::Mask { .. }) => Err("material channels for a generator".into()),
+        Target::Update(GraphTarget::Layer(layer)) => {
             let (ts_id, mut l) = find_layer(session, *layer).ok_or("the layer was deleted while rendering")?;
             if !matches!(l.content, LayerContent::Fill(_)) {
                 return Err("the layer is no longer a fill layer".into());
