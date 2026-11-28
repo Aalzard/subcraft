@@ -3804,6 +3804,22 @@ impl Session {
         layers.first().is_some_and(|&l| self.has_udim_partners(l))
     }
 
+    /// The same mask effect on the matching layer of every partner UDIM tile ("paint across UDIM
+    /// tiles"), where the stacks line up.
+    pub fn udim_partner_mask_effects(&self, layer: LayerId, effect: subcraft_core::EffectId) -> Vec<(LayerId, subcraft_core::EffectId)> {
+        let Some(source_ts) = self.texture_set_of(layer).and_then(|id| self.doc.texture_set(id)) else { return Vec::new() };
+        let Some(source) = source_ts.find(layer) else { return Vec::new() };
+        self.doc
+            .udim_paint_partners(source_ts.id)
+            .into_iter()
+            .filter_map(|id| {
+                let ts = self.doc.texture_set(id)?;
+                let partner = ts.find(ts.corresponding_layer(source_ts, layer)?)?;
+                Some((partner.id, crate::udim_mirror::map_effect(source, partner, LayerTarget::Mask, effect)?))
+            })
+            .collect()
+    }
+
     fn has_udim_partners(&self, layer: LayerId) -> bool {
         self.texture_set_of(layer).is_some_and(|ts| !self.doc.udim_paint_partners(ts).is_empty())
     }

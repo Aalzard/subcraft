@@ -542,7 +542,19 @@ impl GraphLayers {
                 Err(TryRecvError::Disconnected) => Err("the render stopped without a result".into()),
             };
             let done = self.running.remove(i);
-            events.push(match result.and_then(|maps| apply(session, &done.target, &done.material, done.refresh, maps)) {
+            let applied = result.and_then(|maps| apply(session, &done.target, &done.material, done.refresh, maps));
+            // A graph copied to partner UDIM tiles carries this tile's render. When the graph
+            // reads baked maps, each partner renders its own from its tile's maps (as a refresh,
+            // so this does not repeat).
+            let reads_maps = |g: &mut Self| g.graph(session, &done.material).is_ok_and(|d| !d.mesh_inputs.is_empty());
+            if applied.is_ok() && !done.refresh && reads_maps(self) {
+                for (target, material) in udim_partner_targets(session, &done.target) {
+                    if let Err(e) = self.request_as(session, target, material, true) {
+                        events.push(GraphEvent::Failed(e));
+                    }
+                }
+            }
+            events.push(match applied {
                 Ok(text) => GraphEvent::Applied(text),
                 Err(e) => GraphEvent::Failed(e),
             });
@@ -572,6 +584,41 @@ impl GraphLayers {
 /// Channels a graph may bring that the texture set might not have yet; they are added with the
 /// layer (like an imported texture material's).
 const ADDED_WITH_LAYER: [ChannelKind; 3] = [ChannelKind::AmbientOcclusion, ChannelKind::Emissive, ChannelKind::Opacity];
+
+/// The graph layers or generators on partner UDIM tiles that mirror the one `target` just
+/// rendered, with their graphs (a new generator is the last effect of its mask).
+fn udim_partner_targets(session: &Session, target: &Target) -> Vec<(GraphTarget, GraphMaterial)> {
+    if let Target::Update(GraphTarget::Layer(layer)) = target {
+        let Some(source_ts) = session.texture_set_of(*layer).and_then(|id| session.document().texture_set(id)) else { return Vec::new() };
+        let doc = session.document();
+        return doc
+            .udim_paint_partners(source_ts.id)
+            .into_iter()
+            .filter_map(|id| {
+                let ts = doc.texture_set(id)?;
+                let other = ts.find(ts.corresponding_layer(source_ts, *layer)?)?;
+                Some((GraphTarget::Layer(other.id), (**other.graph.as_ref()?).clone()))
+            })
+            .collect();
+    }
+    let (layer, effect) = match target {
+        Target::Update(GraphTarget::Mask { layer, effect }) => (*layer, *effect),
+        Target::NewMask { layer, .. } => match find_layer(session, *layer).and_then(|(_, l)| l.mask.as_ref().and_then(|m| m.effects.last().map(|e| e.id))) {
+            Some(effect) => (*layer, effect),
+            None => return Vec::new(),
+        },
+        _ => return Vec::new(),
+    };
+    session
+        .udim_partner_mask_effects(layer, effect)
+        .into_iter()
+        .filter_map(|(layer, effect)| {
+            let (_, l) = find_layer(session, layer)?;
+            let graph = l.mask.as_ref()?.effects.iter().find(|e| e.id == effect)?.graph.clone()?;
+            Some((GraphTarget::Mask { layer, effect }, (*graph).clone()))
+        })
+        .collect()
+}
 
 fn find_layer(session: &Session, id: LayerId) -> Option<(TextureSetId, Layer)> {
     session.document().texture_sets.iter().find_map(|ts| ts.find(id).map(|l| (ts.id, l.clone())))
