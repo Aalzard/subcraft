@@ -42,7 +42,9 @@ use uuid::Uuid;
 // 20: Substance generators: an `image` mask effect may carry the `graph` that renders it.
 //     Omitted when absent; schemas 1-19 migrate unchanged. Older SubCraft versions refuse
 //     schema-20 files rather than drop the graph and leave a frozen image.
-pub const SCHEMA_VERSION: u32 = 20;
+// 21: Substance filters: a `fill` content effect may carry the `graph` that renders its images
+//     from the stack below. Omitted when absent; older schemas migrate unchanged.
+pub const SCHEMA_VERSION: u32 = 21;
 pub const FORMAT_NAME: &str = "subcraft-project";
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -244,6 +246,9 @@ pub struct ContentEffectV5 {
     /// ignore it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub extra_channels: Vec<ChannelKind>,
+    /// Substance filters (schema 21): the graph that renders a `fill` effect's images.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub graph: Option<GraphV19>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

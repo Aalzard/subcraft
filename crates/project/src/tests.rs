@@ -590,7 +590,7 @@ fn content_effects_roundtrip_exactly_with_schema_5() {
     let mut json = String::new();
     zip.by_name("document.json").unwrap().read_to_string(&mut json).unwrap();
     assert!(json.contains("\"content_effects\"") && json.contains("\"type\": \"levels\""), "{json}");
-    assert_eq!(SCHEMA_VERSION, 20);
+    assert_eq!(SCHEMA_VERSION, 21);
     assert_eq!(read_project(Cursor::new(bytes)).unwrap().document, doc, "effect ids, order, blends, rasters survive");
 }
 
@@ -720,7 +720,7 @@ fn loader_rejects_filters_with_invalid_domains_or_parameters() {
 #[test]
 fn neighborhood_filters_keep_their_original_json() {
     use subcraft_doc::Filter;
-    assert_eq!(SCHEMA_VERSION,20);
+    assert_eq!(SCHEMA_VERSION,21);
     assert_eq!(serde_json::to_string(&Filter::Blur {radius:4.0}).unwrap(),r#"{"kind":"blur","radius":4.0}"#);
     assert_eq!(serde_json::to_string(&Filter::Sharpen {radius:2.0,amount:1.5}).unwrap(),r#"{"kind":"sharpen","radius":2.0,"amount":1.5}"#);
 }
@@ -1133,7 +1133,7 @@ fn schema_17_anchors_roundtrip_have_stable_json_and_older_projects_migrate() {
     let old = effect_document();
     let bytes = with_manifest(save(&old), |m| m.replace(&format!("\"schema_version\": {SCHEMA_VERSION}"), "\"schema_version\": 16"));
     assert_eq!(read_project(Cursor::new(bytes)).unwrap().document, old);
-    assert_eq!(SCHEMA_VERSION, 20);
+    assert_eq!(SCHEMA_VERSION, 21);
 }
 
 #[test]

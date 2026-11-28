@@ -9,3 +9,7 @@ which is licensed under the Apache License 2.0. It is used only by the tests of 
 [open-sbsar](https://github.com/wtfmydarling/open-sbsar)'s `tools/write.py` (MIT / Apache 2.0) by
 `make_edge_generator.py`: image inputs `curvature` and `ambient_occlusion`, one grayscale output
 `mask` (curvature levels, combined with the ambient occlusion).
+
+`InvertFilter.sbsar` is a tiny Substance filter made the same way by `make_invert_filter.py`:
+image inputs `basecolor` and `roughness`, outputs `basecolor` (usage `baseColor`) and `roughness`,
+each the input inverted.

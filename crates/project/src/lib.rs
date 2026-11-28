@@ -144,6 +144,7 @@ impl Writer {
                 ContentEffectKind::Material(m) => ContentEffectKindV5::Material { filter: *m },
             },
             extra_channels: e.extra_channels.iter().copied().collect(),
+            graph: e.graph.as_deref().filter(|_| matches!(e.kind, ContentEffectKind::Fill(_))).map(schema::GraphV19::from_doc),
         }
     }
 
@@ -656,7 +657,8 @@ impl<R: Read + Seek> Loader<'_, R> {
         };
         let blend = e.blend.iter().map(|b| (b.channel, ChannelBlend { mode: b.mode, opacity: b.opacity })).collect();
         let extra_channels = if matches!(kind, ContentEffectKind::Filter { .. }) { e.extra_channels.iter().copied().collect() } else { Default::default() };
-        Ok(ContentEffect { id: EffectId(e.id), name: e.name.clone(), visible: e.visible, blend, kind, extra_channels })
+        let graph = e.graph.as_ref().filter(|_| matches!(kind, ContentEffectKind::Fill(_))).map(|g| Arc::new(g.to_doc()));
+        Ok(ContentEffect { id: EffectId(e.id), name: e.name.clone(), visible: e.visible, blend, kind, extra_channels, graph })
     }
 
     fn layer(&mut self, l: &LayerV1, res: u32) -> Result<Layer, ProjectError> {

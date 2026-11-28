@@ -104,6 +104,10 @@ fn add_content_menu(ui: &mut Ui, layer: &Layer, channels: &[ChannelKind], active
         cmds.push(Command::AddContentEffect { layer: layer.id, kind: ContentEffectKind::Anchor });
         ui.close();
     }
+    if !layer.is_folder() && ui.button(format!("{}  Add Substance filter…", icons::MAGIC_WAND)).on_hover_text("A Substance archive (.sbsar) whose inputs read the channels it outputs; it renders from the layers below").clicked() {
+        crate::files::pick(ui.ctx(), crate::files::Purpose::AddContentFilter { layer: layer.id }, crate::files::GENERATOR_ARCHIVES, false, Some("Add a Substance filter (.sbsar)"));
+        ui.close();
+    }
 }
 
 pub(crate) fn add_mask_filters(ui: &mut Ui, layer: LayerId, cmds: &mut Vec<Command>) {
@@ -837,6 +841,16 @@ fn content_editor(ui: &mut Ui, state: &mut UiState, layer: &Layer, e: &ContentEf
                         badge(ui, k.display_name(), TEXT_DIM());
                     }
                 });
+            }
+            ContentEffectKind::Fill(fill) if eff.graph.is_some() => {
+                // A Substance filter: its graph renders the channels from the stack below.
+                let graph = eff.graph.clone().expect("checked");
+                let now = ui.input(|i| i.time);
+                super::graph_params::filter_section(state, ui, layer.id, eff.id, &graph, now);
+                let states: Vec<_> = channels.iter().map(|k| (*k, fill.channels.get(k).is_some_and(|c| c.enabled))).collect();
+                if let Some((channel, solo)) = super::properties::channel_toggles(ui, &states) {
+                    cmds.push(Command::ToggleFillChannel { layer: layer.id, effect: Some(eff.id), channel, solo });
+                }
             }
             ContentEffectKind::Fill(fill) => {
                 hint(ui, "A material on top of the layer's content. Enable the channels it should change.");

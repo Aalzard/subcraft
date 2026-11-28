@@ -3807,6 +3807,15 @@ impl Session {
     /// The same mask effect on the matching layer of every partner UDIM tile ("paint across UDIM
     /// tiles"), where the stacks line up.
     pub fn udim_partner_mask_effects(&self, layer: LayerId, effect: subcraft_core::EffectId) -> Vec<(LayerId, subcraft_core::EffectId)> {
+        self.udim_partner_effects(layer, LayerTarget::Mask, effect)
+    }
+
+    /// [`Self::udim_partner_mask_effects`] for a content effect.
+    pub fn udim_partner_content_effects(&self, layer: LayerId, effect: subcraft_core::EffectId) -> Vec<(LayerId, subcraft_core::EffectId)> {
+        self.udim_partner_effects(layer, LayerTarget::Content, effect)
+    }
+
+    fn udim_partner_effects(&self, layer: LayerId, target: LayerTarget, effect: subcraft_core::EffectId) -> Vec<(LayerId, subcraft_core::EffectId)> {
         let Some(source_ts) = self.texture_set_of(layer).and_then(|id| self.doc.texture_set(id)) else { return Vec::new() };
         let Some(source) = source_ts.find(layer) else { return Vec::new() };
         self.doc
@@ -3815,7 +3824,7 @@ impl Session {
             .filter_map(|id| {
                 let ts = self.doc.texture_set(id)?;
                 let partner = ts.find(ts.corresponding_layer(source_ts, layer)?)?;
-                Some((partner.id, crate::udim_mirror::map_effect(source, partner, LayerTarget::Mask, effect)?))
+                Some((partner.id, crate::udim_mirror::map_effect(source, partner, target, effect)?))
             })
             .collect()
     }
@@ -4370,6 +4379,51 @@ impl Session {
         let maps = self.mesh_maps.get(&ts.id).unwrap_or(&self.no_maps);
         let ctx = EvalContext { geometry: &geo, resources: &self.resources, mesh_maps: maps };
         subcraft_compositor::composite_full(stack, &ctx)
+    }
+
+    /// What a Substance filter on `layer` reads: the texture set composited up to that point.
+    /// Layers drawn above `layer` are hidden; `layer` keeps its content and the content effects
+    /// below `effect` (all of them for `None`), with its mask off so the filter sees the full
+    /// stack. Folders around the layer keep their own settings.
+    pub fn composite_below(&self, layer: LayerId, effect: Option<EffectId>) -> Option<Composite> {
+        let ts = self.doc.texture_sets.iter().find(|ts| ts.find(layer).is_some())?;
+        fn contains(list: &[Arc<Layer>], id: LayerId) -> bool {
+            list.iter().any(|l| l.id == id || contains(l.children(), id))
+        }
+        // Returns true once the target is found; everything after it at its level and above is hidden.
+        fn walk(layers: &mut [Arc<Layer>], target: LayerId, effect: Option<EffectId>) -> bool {
+            let mut found = false;
+            for l in layers.iter_mut() {
+                if found {
+                    if l.visible {
+                        Arc::make_mut(l).visible = false;
+                    }
+                    continue;
+                }
+                if l.id == target {
+                    let l = Arc::make_mut(l);
+                    l.visible = true;
+                    if let Some(m) = l.mask.as_mut() {
+                        m.enabled = false;
+                    }
+                    if let Some(e) = effect
+                        && let Some(i) = l.content_effects.iter().position(|x| x.id == e)
+                    {
+                        l.content_effects.truncate(i);
+                    }
+                    found = true;
+                } else if contains(l.children(), target) {
+                    if let LayerContent::Group(g) = &mut Arc::make_mut(l).content {
+                        walk(&mut g.children, target, effect);
+                    }
+                    found = true;
+                }
+            }
+            found
+        }
+        let mut stack = ts.clone();
+        walk(&mut stack.layers, layer, effect);
+        Some(self.composite_of(ts, &stack))
     }
 
     /// Painter's Export flattened: each layer (a folder with its content) composited on its own,

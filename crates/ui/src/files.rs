@@ -63,6 +63,8 @@ pub enum Purpose {
     GraphMaterial,
     /// A Substance generator (`.sbsar` with a mask output) for the layer's mask.
     AddMaskGenerator { layer: LayerId },
+    /// A Substance filter (`.sbsar`) on top of this layer's content.
+    AddContentFilter { layer: LayerId },
 }
 
 pub const SMART_MATERIALS: (&str, &[&str]) = ("Smart materials and textures", &["scsmart", "png", "jpg", "jpeg", "tga", "tif", "tiff", "exr", "bmp"]);
@@ -215,6 +217,17 @@ pub fn import_graph_materials(state: &mut UiState, paths: &[PathBuf], now: f64) 
             state.set_status(text, now);
             continue;
         }
+        // A filter (reads the channels it outputs) goes on top of the selected layer's content.
+        if subcraft_app::graph_layer::is_filter_file(p)
+            && let Some(layer) = state.session.selection().layer
+        {
+            let text = match state.graph_layers.import_filter_file(&mut state.session, layer, p) {
+                Ok(t) => t,
+                Err(e) => format!("Substance filter: {e}"),
+            };
+            state.set_status(text, now);
+            continue;
+        }
         let text = match state.graph_layers.import_file(&mut state.session, p) {
             Ok(t) => t,
             Err(e) => format!("Material graph: {e}"),
@@ -354,6 +367,13 @@ pub(crate) fn handle(state: &mut UiState, purpose: Purpose, paths: &[PathBuf], n
             let text = match state.graph_layers.import_generator_file(&mut state.session, layer, first) {
                 Ok(t) => t,
                 Err(e) => format!("Substance generator: {e}"),
+            };
+            state.set_status(text, now);
+        }
+        Purpose::AddContentFilter { layer } => {
+            let text = match state.graph_layers.import_filter_file(&mut state.session, layer, first) {
+                Ok(t) => t,
+                Err(e) => format!("Substance filter: {e}"),
             };
             state.set_status(text, now);
         }

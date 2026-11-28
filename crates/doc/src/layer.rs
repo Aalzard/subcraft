@@ -487,6 +487,9 @@ impl Layer {
             }
         }
         for e in &self.content_effects {
+            if let Some(g) = &e.graph {
+                add(g.package);
+            }
             if let ContentEffectKind::Filter { filter, .. } = e.kind {
                 filter.resources().into_iter().for_each(&mut add);
             }
