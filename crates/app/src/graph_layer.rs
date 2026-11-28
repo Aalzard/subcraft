@@ -160,10 +160,7 @@ impl SbsarBackend {
             .map(|g| {
                 let filter_inputs: Vec<(String, ChannelKind)> = g.image_inputs.iter().filter_map(|i| Some((i.identifier.clone(), sbsar_filter_channel(i, &g.channels)?))).collect();
                 let others = mesh_image_inputs(&g.image_inputs, &filter_inputs);
-                let mut notes = sbsar_input_notes(&others);
-                if !filter_inputs.is_empty() {
-                    notes.insert(0, "a filter: add it to a layer's content; it reads the layers below".to_string());
-                }
+                let notes = sbsar_input_notes(&others);
                 GraphDesc {
                     graph: g.path.clone(),
                     label: g.label.clone(),
@@ -555,7 +552,7 @@ impl GraphLayers {
         let below = session.composite_below(layer, None).map(|c| Arc::new(c.channels)).ok_or("select a layer first")?;
         self.spawn(shared, Target::NewContent { layer, name: graph.label.clone() }, material, maps, Some(below), false);
         let mut msg = format!("Rendering filter {}…", graph.label);
-        for n in graph.notes.iter().skip(1) {
+        for n in &graph.notes {
             msg.push_str(&format!(" Note: {n}."));
         }
         Ok(msg)
