@@ -151,3 +151,23 @@ fn filters_survive_save_and_load_and_are_kept_out_of_materials() {
     let err = g.import_filter_bytes(&mut loaded, layer, GraphEngine::Sbsar, CARDBOARD.to_vec(), "CardBoard.sbsar").unwrap_err();
     assert!(err.contains("not a filter"), "{err}");
 }
+
+#[test]
+fn a_smart_material_keeps_its_filter_and_package() {
+    let mut s = Session::new(subcraft_mesh::primitives::cube(2.0), RES);
+    let layer = add_fill(&mut s, "Base", [0.3, 0.3, 0.3], 0.4);
+    let mut g = GraphLayers::new();
+    g.import_filter_bytes(&mut s, layer, GraphEngine::Sbsar, FILTER.to_vec(), "InvertFilter.sbsar").unwrap();
+    g.finish(&mut s);
+    let before = filter(&s, layer).unwrap();
+    let dir = std::env::temp_dir().join(format!("subcraft-sbsar-filter-smart-{}", std::process::id()));
+    let lib = subcraft_app::assets::UserLibrary::new(&dir);
+    let saved = s.save_smart_material(layer, &lib).unwrap();
+    let fragment = subcraft_project::fragment::load_fragment(saved.user_file.as_deref().unwrap()).unwrap();
+    let e = fragment.layers[0].content_effects.iter().find(|e| e.graph.is_some()).expect("the filter is in the smart material");
+    assert_eq!(e.graph, before.graph);
+    let package = before.graph.as_deref().unwrap().package;
+    let stored = fragment.resources.get(package).expect("the package travels with it");
+    assert_eq!(stored.encoded.as_deref().map(|v| v.as_slice()), Some(FILTER));
+    let _ = std::fs::remove_dir_all(&dir);
+}
