@@ -88,7 +88,7 @@ fn content_tag(k: &ContentEffectKind) -> u8 {
 }
 
 /// The partner's effect at the same position of the same stack, when it is the same kind.
-fn map_effect(source: &Layer, partner: &Layer, target: LayerTarget, id: EffectId) -> Option<EffectId> {
+pub(crate) fn map_effect(source: &Layer, partner: &Layer, target: LayerTarget, id: EffectId) -> Option<EffectId> {
     let (s, p) = (stack(source, target), stack(partner, target));
     let i = s.iter().position(|e| e.0 == id)?;
     p.get(i).filter(|e| e.1 == s[i].1).map(|e| e.0)
@@ -181,6 +181,14 @@ pub(crate) fn partner_command(cmd: &Command, source: &Layer, partner: &Layer, re
             if let MaskEffectKind::Paint { .. } = e.kind {
                 let own = partner.mask.as_ref()?.effects.iter().find(|x| x.id == id)?;
                 e.kind = own.kind.clone();
+            }
+            // A Substance generator's image is rendered from each tile's own baked maps: the
+            // partner takes the settings and keeps its own render (it re-renders itself).
+            if e.graph.is_some()
+                && let MaskEffectKind::Image { resource, .. } = &mut e.kind
+                && let Some(MaskEffectKind::Image { resource: own, .. }) = partner.mask.as_ref()?.effects.iter().find(|x| x.id == id).map(|x| &x.kind)
+            {
+                *resource = *own;
             }
             Command::SetMaskEffect { layer: l, effect: e }
         }

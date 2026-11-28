@@ -167,3 +167,60 @@ fn a_smart_mask_keeps_its_generator_live() {
     assert!(row[row.len() - 1] > 0.95, "edges are white after the bake: {row:?}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Two quads on UDIM tiles 1001 and 1002 (two texture sets of one group).
+fn udim_mesh() -> subcraft_mesh::Mesh {
+    use glam::{Vec2, Vec3};
+    use subcraft_mesh::{Corner, MeshBuilder};
+    let mut b = MeshBuilder::new("Strip");
+    let m = b.material("Body");
+    for (i, shift) in [Vec2::ZERO, Vec2::new(1.0, 0.0)].into_iter().enumerate() {
+        let origin = Vec3::new(i as f32, 0.0, 0.0);
+        let c = |x: f32, z: f32| Corner { position: origin + Vec3::new(x, 0.0, z), normal: Some(Vec3::Y), uv: Some(shift + Vec2::new(x, z) * 0.9 + Vec2::splat(0.05)) };
+        b.push_triangle(m, [c(0.0, 0.0), c(0.0, 1.0), c(1.0, 1.0)]);
+        b.push_triangle(m, [c(0.0, 0.0), c(1.0, 1.0), c(1.0, 0.0)]);
+    }
+    b.build().unwrap()
+}
+
+#[test]
+fn each_udim_tile_renders_its_own_generator() {
+    use subcraft_app::new_project::NewProjectSettings;
+    use subcraft_app::{Command, NewLayer};
+    let mut s = Session::from_mesh_with(udim_mesh(), &NewProjectSettings { resolution: RES, ..Default::default() }).unwrap();
+    let (t0, t1) = (s.document().texture_sets[0].id, s.document().texture_sets[1].id);
+    s.execute(Command::SetPaintAcrossUdims { texture_set: t0, on: true }).unwrap();
+    s.execute(Command::AddLayer(NewLayer::Fill)).unwrap();
+    let layer = s.selection().layer.unwrap();
+    // Tile 1001: a curvature ramp (edges only on its right side); tile 1002: all edges.
+    s.set_mesh_maps(t0, BTreeMap::from([(MeshMapKind::Curvature, curvature_ramp())]));
+    s.set_mesh_maps(t1, BTreeMap::from([(MeshMapKind::Curvature, TiledImage::new(RES, RES, 1, [1.0, 0.0, 0.0, 0.0]))]));
+    let partner = s.document().texture_sets[1].layers.last().unwrap().id;
+    assert_ne!(partner, layer);
+
+    let mut g = GraphLayers::new();
+    g.refresh_baked(&s).unwrap();
+    g.import_generator_bytes(&mut s, layer, GraphEngine::Sbsar, GENERATOR.to_vec(), "EdgeGenerator.sbsar").unwrap();
+    g.finish(&mut s);
+    let gen_of = |s: &Session, set: usize, l: LayerId| {
+        let l = s.document().texture_sets[set].find(l).unwrap();
+        (**l.mask.as_ref().unwrap().effects.iter().find(|e| e.graph.is_some()).expect("a generator on this tile")).clone()
+    };
+    let check = |s: &Session| {
+        let (a, b) = (gen_of(s, 0, layer), gen_of(s, 1, partner));
+        assert_eq!(a.graph, b.graph, "same settings on both tiles");
+        let (ra, rb) = (mask_row(s, &a), mask_row(s, &b));
+        assert!(ra[0] < 0.05, "tile 1001 is black where its curvature is flat: {ra:?}");
+        assert!(rb[0] > 0.95, "tile 1002 renders from its own maps, not tile 1001's: {rb:?}");
+    };
+    check(&s);
+
+    // New values on tile 1001: tile 1002 takes them and renders again from its own maps.
+    let e = gen_of(&s, 0, layer);
+    let mut m = e.graph.as_deref().unwrap().clone();
+    m.size_log2 = 6;
+    g.request_target(&s, GraphTarget::Mask { layer, effect: e.id }, m.clone()).unwrap();
+    g.finish(&mut s);
+    assert_eq!(gen_of(&s, 1, partner).graph.as_deref(), Some(&m));
+    check(&s);
+}
