@@ -26,7 +26,13 @@ pub const PATTERN: usize = 4;
 const DIMPLE_HEIGHT: f32 = 0.30;
 const FILM_HEIGHT: f32 = 0.04;
 const PEEL_HEIGHT: f32 = 0.03;
-const GRAIN_HEIGHT: f32 = 0.012;
+/// Fine finish grain (Powder Coated grain, Grinded, Rough, Raw, Brushed, Grainy). Was 0.012 until
+/// issue #760: that tilted the normals by about half a degree, so the finishes showed no relief in
+/// the 3D view or the exported normal map.
+const GRAIN_HEIGHT: f32 = 0.036;
+/// Galvanized grooves keep the old fine height: its relief comes from the spangle facets
+/// (`SPANGLE_TILT`), and deeper grooves would drown them.
+const GROOVE_HEIGHT: f32 = 0.012;
 const DROP_HEIGHT: f32 = 0.10;
 const SHUT_HEIGHT: f32 = 0.08;
 const PERFORATION_HEIGHT: f32 = 0.12;
@@ -493,7 +499,7 @@ pub fn respond(filter: &MaterialFilter, pat: &[f32], s: Surface) -> Response {
             let groove = 1.0 - smoothstep(0.0, 0.08, border);
             // Facets level out towards the borders: neighbours meet without a cliff.
             let facet = (pat[3] - 0.5) * 2.0 * smoothstep(0.0, 0.5, border);
-            r.height = ((-groove * 0.6 + z(streak) * 0.08) * GRAIN_HEIGHT + facet * SPANGLE_TILT) * relief;
+            r.height = ((-groove * 0.6 + z(streak) * 0.08) * GROOVE_HEIGHT + facet * SPANGLE_TILT) * relief;
         }
         MaterialFilter::Hammered { depth, roughness_variation, .. } => {
             let (h, cell, fine) = (pat[0], pat[1], pat[2]);
@@ -511,7 +517,7 @@ pub fn respond(filter: &MaterialFilter, pat: &[f32], s: Surface) -> Response {
             r.roughness_alpha = 1.0;
             r.metallic = 0.0;
             r.metallic_alpha = 1.0;
-            r.height = (peel - 0.5) * orange_peel * FILM_HEIGHT * 0.45 + (g - 0.5) * grain * GRAIN_HEIGHT * 0.15;
+            r.height = (peel - 0.5) * orange_peel * FILM_HEIGHT * 1.2 + (g - 0.5) * grain * GRAIN_HEIGHT * 0.15;
         }
         MaterialFilter::EdgeDamages { depth, color, roughness, metallic, contrast, .. } => {
             let (var, fine) = (pat[0], pat[1]);
@@ -617,7 +623,7 @@ pub fn respond(filter: &MaterialFilter, pat: &[f32], s: Surface) -> Response {
         }
         MaterialFilter::Rough { brushing, grunge, .. } => {
             let (brush, patch, fine) = (zc(pat[0]), smoothstep(-0.4, 1.4, z(pat[1])), pat[2] - 0.5);
-            r.height = (brush * 0.4 + fine * 0.1) * brushing * GRAIN_HEIGHT;
+            r.height = (brush * 0.27 + fine * 0.07) * brushing * GRAIN_HEIGHT;
             r.roughness_add = (0.06 + brush * 0.08 + fine * 0.03) * brushing + (patch - 0.25) * 0.24 * grunge;
             r.color_gain = (1.0 + (brush * 0.035 + fine * 0.03) * brushing - patch * 0.22 * grunge).max(0.0);
         }
@@ -1332,5 +1338,49 @@ mod tests {
         // The flag colours are told apart by their dominant channel.
         assert!(validate_color(gray(128.0), Verdict::Ok)[1] > validate_color(gray(128.0), Verdict::Ok)[0]);
         assert!(validate_color(gray(20.0), Verdict::TooDark)[0] > validate_color(gray(20.0), Verdict::TooDark)[1]);
+    }
+}
+
+#[cfg(test)]
+mod relief_tests {
+    use super::*;
+
+    /// RMS tilt in degrees of the normals a filter's Height makes on a flat 1024² patch, with the
+    /// viewport's and export's bump scale (0.02 per unit of UV slope).
+    fn rms_tilt(f: &MaterialFilter) -> f32 {
+        let n = 1024usize;
+        let mut h = vec![0f32; n * n];
+        for y in 0..n {
+            for x in 0..n {
+                let p = [(x as f32 + 0.5) / n as f32, (y as f32 + 0.5) / n as f32, 0.5];
+                let pat = pattern_on(f, p, [0.0, 0.0, 1.0]);
+                h[y * n + x] = respond(f, &pat, Surface { edge: 0.5, occlusion: 0.5, up: 0.0, normal: [0.0, 0.0, 1.0] }).height;
+            }
+        }
+        let (mut sum, mut cnt) = (0f64, 0usize);
+        for y in 1..n - 1 {
+            for x in 1..n - 1 {
+                let du = (h[y * n + x + 1] - h[y * n + x - 1]) * 0.5 * n as f32;
+                let dv = (h[(y + 1) * n + x] - h[(y - 1) * n + x]) * 0.5 * n as f32;
+                let t = ((du * du + dv * dv).sqrt() * 0.02).atan().to_degrees();
+                sum += (t * t) as f64;
+                cnt += 1;
+            }
+        }
+        (sum / cnt as f64).sqrt() as f32
+    }
+
+    /// Issue #760: the finishes must show relief in the 3D view and the exported normal map, not
+    /// only change Base Color / Roughness. Before the fix Galvanized tilted normals by 0.5 degrees.
+    #[test]
+    fn finishes_write_visible_relief_at_their_defaults() {
+        for f in MaterialFilter::ALL {
+            let finish = matches!(f, MaterialFilter::Galvanized { .. } | MaterialFilter::Hammered { .. } | MaterialFilter::PowderCoated { .. }
+                | MaterialFilter::Grinded { .. } | MaterialFilter::Rough { .. } | MaterialFilter::Raw { .. } | MaterialFilter::BrushedLinear { .. }
+                | MaterialFilter::Grainy { .. } | MaterialFilter::PerforatedCircles { .. });
+            if !finish { continue; }
+            let t = rms_tilt(&f);
+            assert!(t >= 1.0 && t < 15.0, "{}: RMS normal tilt {t:.2} degrees", f.label());
+        }
     }
 }
