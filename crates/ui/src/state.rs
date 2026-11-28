@@ -831,6 +831,11 @@ impl UiState {
                 Err(e) => self.set_status(format!("Material graph: {e}"), now),
             }
         }
+        // Filters that arrived with a smart material or a pasted layer render from their new stack.
+        let n = self.graph_layers.refresh_new_filters(&self.session);
+        if n > 0 {
+            self.set_status(format!("Rendering {n} Substance filter{} from the layers below…", if n == 1 { "" } else { "s" }), now);
+        }
         for event in self.graph_layers.poll(&mut self.session) {
             use subcraft_app::graph_layer::GraphEvent;
             match event {

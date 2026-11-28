@@ -171,3 +171,37 @@ fn a_smart_material_keeps_its_filter_and_package() {
     assert_eq!(stored.encoded.as_deref().map(|v| v.as_slice()), Some(FILTER));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn a_filter_brought_in_by_a_smart_material_renders_from_its_new_stack() {
+    let mut s = Session::new(subcraft_mesh::primitives::cube(2.0), RES);
+    let layer = add_fill(&mut s, "Base", [0.3, 0.3, 0.3], 0.2);
+    let mut g = GraphLayers::new();
+    g.import_filter_bytes(&mut s, layer, GraphEngine::Sbsar, FILTER.to_vec(), "InvertFilter.sbsar").unwrap();
+    g.finish(&mut s);
+    let dir = std::env::temp_dir().join(format!("subcraft-sbsar-filter-new-stack-{}", std::process::id()));
+    let lib = subcraft_app::assets::UserLibrary::new(&dir);
+    let saved = s.save_smart_material(layer, &lib).unwrap();
+    let smart = subcraft_app::library::load_smart_material_file(saved.user_file.as_deref().unwrap()).unwrap();
+
+    // Another project: its own layer below has roughness 0.6, and the smart material's layer
+    // sets none (so the filter reads 0.6 there, not the 0.2 it was rendered from).
+    let mut other = Session::new(subcraft_mesh::primitives::cube(2.0), RES);
+    add_fill(&mut other, "Below", [0.5, 0.5, 0.5], 0.6);
+    let mut g = GraphLayers::new();
+    assert_eq!(g.refresh_new_filters(&other), 0, "the first call only takes note");
+    other.add_smart_material(&smart).unwrap();
+    let added = other.document().texture_sets[0].layers.last().unwrap().id;
+    let mut l = other.document().texture_sets[0].find(added).unwrap().clone();
+    if let LayerContent::Fill(f) = &mut l.content {
+        f.channels.values_mut().for_each(|c| c.enabled = false);
+    }
+    other.execute(Command::ReplaceLayer { layer: added, replacement: Box::new(l), label: "Empty".into() }).unwrap();
+    assert!(close(common(&other, added, ChannelKind::Roughness)[0], 0.8), "it still shows the old render");
+    assert_eq!(g.refresh_new_filters(&other), 1);
+    assert!(matches!(g.finish(&mut other).as_slice(), [GraphEvent::Applied(_)]));
+    let rough = common(&other, added, ChannelKind::Roughness)[0];
+    assert!(close(rough, 0.4), "rendered from the new stack: {rough}");
+    assert_eq!(g.refresh_new_filters(&other), 0, "known filters are left alone");
+    let _ = std::fs::remove_dir_all(&dir);
+}
