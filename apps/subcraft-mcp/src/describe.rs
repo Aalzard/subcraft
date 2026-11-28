@@ -84,6 +84,9 @@ fn node(res: &ResourceStore, ts: &TextureSet, l: &Layer, index: usize, detail: b
         "blend": blend(ts, &l.blend),
     });
     let o = v.as_object_mut().expect("object");
+    if let Some(g) = &l.graph {
+        o.insert("substance".into(), graph(g));
+    }
     if let Some(m) = &l.mask {
         o.insert("mask".into(), json!({
             "enabled": m.enabled,
@@ -246,8 +249,19 @@ pub fn mask_effect_type(k: &MaskEffectKind) -> &'static str {
     }
 }
 
+/// A Substance (or other graph) material or generator: which graph, the values the user
+/// changed and the render size. Its controls are in the app's Properties panel.
+pub fn graph(g: &subcraft_doc::GraphMaterial) -> Value {
+    json!({ "engine": name_of(&g.engine), "package": g.package.to_string(), "graph": g.graph, "values": g.values, "size": 1u32 << g.size_log2 })
+}
+
 pub fn mask_effect(e: &MaskEffect, detail: bool) -> Value {
     let mut v = json!({ "id": e.id.to_string(), "name": e.name, "type": mask_effect_type(&e.kind), "visible": e.visible, "blend": name_of(&e.blend), "opacity": round(e.opacity) });
+    // A Substance generator is an image effect that re-renders its graph.
+    if let Some(g) = &e.graph {
+        v["type"] = json!("substance_generator");
+        v["substance"] = graph(g);
+    }
     if detail {
         v["params"] = match &e.kind {
             MaskEffectKind::Paint { image } => json!({ "painted": image.allocated_tiles() > 0 }),
@@ -290,5 +304,32 @@ fn content_effect_params(res: &ResourceStore, k: &ContentEffectKind) -> Value {
         ContentEffectKind::Anchor => json!({}),
         ContentEffectKind::Generator(g) => serde_json::to_value(g).unwrap_or(Value::Null),
         ContentEffectKind::Material(m) => json!({ "filter": m }),
+    }
+}
+
+#[cfg(test)]
+mod graph_tests {
+    use std::collections::BTreeMap;
+    use std::sync::Arc;
+
+    use subcraft_core::ResourceId;
+    use subcraft_doc::{GraphEngine, GraphMaterial, MaskEffect, MaskEffectKind, Projection};
+
+    #[test]
+    fn a_substance_generator_says_what_it_is() {
+        let package = ResourceId::new();
+        let mut g = GraphMaterial::new(GraphEngine::Sbsar, package, "edge_generator", 8);
+        g.values = BTreeMap::from([("level".to_string(), vec![0.25])]);
+        let image = MaskEffectKind::Image { resource: ResourceId::new(), projection: Projection::default(), invert: false, balance: 0.5, contrast: 0.0 };
+        let plain = super::mask_effect(&MaskEffect::new(image.clone()), true);
+        assert_eq!(plain["type"], "image");
+        assert!(plain.get("substance").is_none());
+        let e = MaskEffect { name: "Edge Generator".into(), graph: Some(Arc::new(g)), ..MaskEffect::new(image) };
+        let v = super::mask_effect(&e, false);
+        assert_eq!(v["type"], "substance_generator");
+        assert_eq!(v["substance"]["graph"], "edge_generator");
+        assert_eq!(v["substance"]["size"], 256);
+        assert_eq!(v["substance"]["values"]["level"][0], 0.25);
+        assert_eq!(v["substance"]["package"], package.to_string());
     }
 }
