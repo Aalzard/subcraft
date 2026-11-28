@@ -111,3 +111,27 @@ fn a_generator_archive_renders_its_mask_output_from_mesh_map_inputs() {
     let mut r = GraphRenderer::new(card.clone(), &card.graphs()[0].path.clone());
     assert!(r.render_mask(&BTreeMap::new(), 5, &BTreeMap::new()).is_err());
 }
+
+#[test]
+fn a_filter_archive_renders_its_channels_from_channel_inputs() {
+    let p = inspect(include_bytes!("data/InvertFilter.sbsar")).expect("the filter archive opens");
+    let g = &p.graphs()[0];
+    assert_eq!(g.channels, [ChannelKind::BaseColor, ChannelKind::Roughness]);
+    let ids: Vec<&str> = g.image_inputs.iter().map(|i| i.identifier.as_str()).collect();
+    assert_eq!(ids, ["basecolor", "roughness"]);
+    let mut r = GraphRenderer::new(p.clone(), &g.path);
+    let n = 16u32;
+    let images = BTreeMap::from([
+        ("basecolor".to_string(), subcraft_sbsar::InputImage { width: n, height: n, channels: 4, data: [0.8f32, 0.2, 0.1, 1.0].repeat((n * n) as usize), normal: false }),
+        ("roughness".to_string(), subcraft_sbsar::InputImage { width: n, height: n, channels: 1, data: vec![0.25; (n * n) as usize], normal: false }),
+    ]);
+    let out = r.render_with_images(&BTreeMap::new(), 6, &images).unwrap();
+    let by = |k: ChannelKind| out.maps.iter().find(|m| m.channel == k).map(|m| mean(&m.bitmap)).unwrap();
+    let base = by(ChannelKind::BaseColor);
+    let rough = by(ChannelKind::Roughness);
+    // Base color is a color input (encoded values in, encoded values out): each inverted.
+    for (got, want) in base.iter().zip([0.2, 0.8, 0.9]) {
+        assert!((got - want).abs() < 0.01, "inverted base color: {base:?}");
+    }
+    assert!((rough[0] - 0.75).abs() < 0.01, "inverted roughness: {rough:?}");
+}

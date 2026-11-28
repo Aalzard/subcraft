@@ -218,6 +218,13 @@ fn substance_path(s: &UiState, index: usize) -> Result<std::path::PathBuf, Strin
 /// its first render is done.
 fn add_substance_material(s: &mut UiState, index: usize, now: f64) -> Result<(), String> {
     let path = substance_path(s, index)?;
+    // A filter goes on top of the selected layer's content (it reads the layers below).
+    if subcraft_app::graph_layer::is_filter_file(&path) {
+        let layer = s.session.selection().layer.ok_or("Substance filter: select a layer first")?;
+        let text = s.graph_layers.import_filter_file(&mut s.session, layer, &path).map_err(|e| format!("Substance filter: {e}"))?;
+        s.set_status(text, now);
+        return Ok(());
+    }
     let text = s.graph_layers.import_file(&mut s.session, &path).map_err(|e| format!("Substance material: {e}"))?;
     s.set_status(text, now);
     Ok(())

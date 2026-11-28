@@ -76,6 +76,9 @@ pub struct ContentEffect {
     /// Filters only: further channels the filter processes besides its own `channel` (Painter's
     /// per-channel toggles). Channels the filter cannot process are ignored.
     pub extra_channels: std::collections::BTreeSet<ChannelKind>,
+    /// A Substance filter (Painter's custom filters): the graph that renders this `Fill` effect's
+    /// channel images from the stack below it. `None` for every other effect.
+    pub graph: Option<std::sync::Arc<crate::graph_material::GraphMaterial>>,
 }
 
 impl ContentEffect {
@@ -89,7 +92,7 @@ impl ContentEffect {
                 (c.kind, ChannelBlend::new(mode))
             })
             .collect();
-        Self { id: EffectId::new(), name: kind.label(), visible: true, blend, kind, extra_channels: Default::default() }
+        Self { id: EffectId::new(), name: kind.label(), visible: true, blend, kind, extra_channels: Default::default(), graph: None }
     }
 
     /// Equality ignoring paint texels (dirty-region diffing: painted tiles are diffed instead).

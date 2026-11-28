@@ -99,6 +99,11 @@ fn node(res: &ResourceStore, ts: &TextureSet, l: &Layer, index: usize, detail: b
         o.insert("content_effects".into(), Value::Array(l.content_effects.iter().rev().map(|e| {
             let mut ev = json!({ "id": e.id.to_string(), "name": e.name, "visible": e.visible, "type": content_effect_type(&e.kind) });
             if detail { ev["params"] = content_effect_params(res, &e.kind); }
+            // A Substance filter: a fill whose channels its graph renders from the stack below.
+            if let Some(g) = e.graph.as_deref() {
+                ev["type"] = json!("substance_filter");
+                ev["substance"] = graph(g);
+            }
             ev
         }).collect()));
     }

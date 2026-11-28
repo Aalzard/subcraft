@@ -255,6 +255,7 @@ impl MaterialCraftBackend {
                     kinds
                 },
                 mask: false,
+                filter_inputs: Vec::new(),
             });
         }
         if graphs.is_empty() {

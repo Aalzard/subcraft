@@ -27,6 +27,20 @@ pub(crate) fn generator_section(state: &mut UiState, ui: &mut Ui, layer: subcraf
     section_for(state, ui, GraphTarget::Mask { layer, effect }, Some(graph), tr("Substance generator"), now);
 }
 
+/// The parameters of a Substance filter (a fill content effect with a graph), and a button that
+/// renders it again from the layers below as they are now.
+pub(crate) fn filter_section(state: &mut UiState, ui: &mut Ui, layer: subcraft_core::LayerId, effect: subcraft_core::EffectId, graph: &GraphMaterial, now: f64) {
+    let target = GraphTarget::Content { layer, effect };
+    hint(ui, tr("A Substance filter renders from the layers below it as they were at its last render."));
+    if ui.add_enabled(!state.graph_layers.is_rendering_target(target), egui::Button::new(tr("Update from layers below"))).on_hover_text(tr("Render the filter again from the layers below as they are now")).clicked() {
+        let m = state.graph_layers.shown_for(target, Some(graph)).unwrap_or_else(|| graph.clone());
+        if let Err(e) = state.graph_layers.update_filter_input(&state.session, layer, effect, m) {
+            state.set_status(format!("Substance filter: {e}"), now);
+        }
+    }
+    section_for(state, ui, target, Some(graph), tr("Substance filter"), now);
+}
+
 /// [`section`] for any graph target whose current material is `current`.
 fn section_for(state: &mut UiState, ui: &mut Ui, target: GraphTarget, current: Option<&GraphMaterial>, title: &str, now: f64) {
     let Some(shown) = state.graph_layers.shown_for(target, current) else { return };

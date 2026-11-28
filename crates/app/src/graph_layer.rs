@@ -14,8 +14,8 @@ use std::sync::mpsc::{Receiver, TryRecvError, channel};
 use std::sync::{Arc, Mutex};
 
 use subcraft_core::{ChannelKind, EffectId, LayerId, MeshMapKind, ResourceId, TextureSetId};
-use subcraft_doc::{FillChannel, FillSource, GraphEngine, GraphMaterial, GraphParam, Layer, LayerContent, MaskEffect, MaskEffectKind, Projection, Resource, ResourceKind};
-use subcraft_image::{Bitmap, StorageToken};
+use subcraft_doc::{ContentEffect, ContentEffectKind, FillChannel, FillSource, GraphEngine, GraphMaterial, GraphParam, Layer, LayerContent, MaskEffect, MaskEffectKind, Projection, Resource, ResourceKind};
+use subcraft_image::{Bitmap, StorageToken, TiledImage};
 use subcraft_materials::MeshMaps;
 
 use crate::{Command, Session};
@@ -38,6 +38,16 @@ pub struct GraphDesc {
     pub mesh_inputs: Vec<MeshMapKind>,
     /// The graph has a grayscale output a mask generator can use (Substance generators).
     pub mask: bool,
+    /// Image inputs that read a channel of the layer stack below (Substance filters), by
+    /// identifier. A graph with any is a filter: it goes into a layer's content.
+    pub filter_inputs: Vec<(String, ChannelKind)>,
+}
+
+impl GraphDesc {
+    /// A Substance filter: material channels made from the channels of the stack below.
+    pub fn is_filter(&self) -> bool {
+        !self.filter_inputs.is_empty()
+    }
 }
 
 /// What a graph renders into: a graph layer's fill channels, or a Substance generator's mask
@@ -46,6 +56,17 @@ pub struct GraphDesc {
 pub enum GraphTarget {
     Layer(LayerId),
     Mask { layer: LayerId, effect: EffectId },
+    /// A Substance filter: a fill content effect whose channels the graph renders from the
+    /// layer stack below it.
+    Content { layer: LayerId, effect: EffectId },
+}
+
+impl GraphTarget {
+    pub fn layer(self) -> LayerId {
+        match self {
+            GraphTarget::Layer(l) | GraphTarget::Mask { layer: l, .. } | GraphTarget::Content { layer: l, .. } => l,
+        }
+    }
 }
 
 /// A rendered channel image. Keeps encoded values: Base Color and Emissive sRGB-encoded (like
@@ -72,6 +93,12 @@ pub trait GraphBackend: Send {
         let _ = (graph, values, size_log2, maps);
         Err("this kind of material graph cannot be a generator".into())
     }
+    /// Render a filter graph with the stack below (`below`, linear channels as the compositor
+    /// keeps them) for its channel inputs.
+    fn render_filter(&mut self, graph: &str, values: &BTreeMap<String, Vec<f64>>, size_log2: u32, maps: &MeshMaps, below: &BTreeMap<ChannelKind, TiledImage>) -> Result<Vec<RenderedMap>, String> {
+        let _ = (graph, values, size_log2, maps, below);
+        Err("this kind of material graph cannot be a filter".into())
+    }
 }
 
 /// The engine that opens a file, by extension.
@@ -94,6 +121,16 @@ pub fn is_generator_file(path: &Path) -> bool {
     std::fs::read(path).ok().and_then(|b| subcraft_sbsar::inspect(&b).ok()).is_some_and(|p| {
         p.graphs().iter().all(|g| g.channels.is_empty()) && p.graphs().iter().any(|g| g.mask_output.is_some())
     })
+}
+
+/// True for a Substance archive with a filter graph (image inputs named after the channels it
+/// outputs): it belongs on top of a layer's content. Unreadable files are not filters.
+pub fn is_filter_file(path: &Path) -> bool {
+    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+    if engine_for_file(name) != Some(GraphEngine::Sbsar) || std::fs::metadata(path).map_or(true, |m| m.len() > MAX_PACKAGE_BYTES) {
+        return false;
+    }
+    std::fs::read(path).ok().and_then(|b| SbsarBackend::open(&b).ok()).is_some_and(|b| b.graphs.iter().any(|g| g.is_filter()) && !b.graphs.iter().any(|g| !g.channels.is_empty() && !g.is_filter()))
 }
 
 /// File extensions graph layers are made from (for file dialogs and drops).
@@ -120,19 +157,28 @@ impl SbsarBackend {
             .graphs()
             .iter()
             .filter(|g| !g.channels.is_empty() || g.mask_output.is_some())
-            .map(|g| GraphDesc {
-                graph: g.path.clone(),
-                label: g.label.clone(),
-                params: g.params.clone(),
-                channels: g.channels.clone(),
-                notes: sbsar_input_notes(&g.image_inputs),
-                mesh_inputs: {
-                    let mut kinds: Vec<MeshMapKind> = g.image_inputs.iter().filter_map(sbsar_mesh_map).collect();
-                    kinds.sort();
-                    kinds.dedup();
-                    kinds
-                },
-                mask: g.mask_output.is_some(),
+            .map(|g| {
+                let filter_inputs: Vec<(String, ChannelKind)> = g.image_inputs.iter().filter_map(|i| Some((i.identifier.clone(), sbsar_filter_channel(i, &g.channels)?))).collect();
+                let others = mesh_image_inputs(&g.image_inputs, &filter_inputs);
+                let mut notes = sbsar_input_notes(&others);
+                if !filter_inputs.is_empty() {
+                    notes.insert(0, "a filter: add it to a layer's content; it reads the layers below".to_string());
+                }
+                GraphDesc {
+                    graph: g.path.clone(),
+                    label: g.label.clone(),
+                    params: g.params.clone(),
+                    channels: g.channels.clone(),
+                    notes,
+                    mesh_inputs: {
+                        let mut kinds: Vec<MeshMapKind> = others.iter().filter_map(sbsar_mesh_map).collect();
+                        kinds.sort();
+                        kinds.dedup();
+                        kinds
+                    },
+                    mask: g.mask_output.is_some(),
+                    filter_inputs,
+                }
             })
             .collect();
         Ok(SbsarBackend { package, graphs, renderers: HashMap::new() })
@@ -142,6 +188,51 @@ impl SbsarBackend {
 /// The baked mesh map an archive's image input reads: by identifier, then by label.
 pub fn sbsar_mesh_map(input: &subcraft_sbsar::ImageInputInfo) -> Option<MeshMapKind> {
     crate::materialcraft::mesh_map_for_name(&input.identifier).or_else(|| crate::materialcraft::mesh_map_for_name(&input.label))
+}
+
+/// The channel of the stack below that an archive's image input reads, when the graph also
+/// outputs that channel (a Substance filter: "basecolor" in, "basecolor" out). Names that are
+/// also baked mesh maps ("normal", "height", "ambient_occlusion") read the baked map unless
+/// they say "input" ("input_normal", "normal_input").
+pub fn sbsar_filter_channel(input: &subcraft_sbsar::ImageInputInfo, outputs: &[ChannelKind]) -> Option<ChannelKind> {
+    let key: String = input.identifier.chars().filter(|c| c.is_ascii_alphanumeric()).collect::<String>().to_ascii_lowercase();
+    let explicit = key.strip_prefix("input").or_else(|| key.strip_suffix("input")).filter(|k| !k.is_empty());
+    let kind = match explicit {
+        Some(k) => subcraft_doc::graph_material::channel_for_usage(k)?.0,
+        None if crate::materialcraft::mesh_map_for_name(&key).is_some() => return None,
+        None => subcraft_doc::graph_material::channel_for_usage(&key)?.0,
+    };
+    outputs.contains(&kind).then_some(kind)
+}
+
+/// The image inputs that are not filter inputs (they read baked mesh maps).
+fn mesh_image_inputs(inputs: &[subcraft_sbsar::ImageInputInfo], filter: &[(String, ChannelKind)]) -> Vec<subcraft_sbsar::ImageInputInfo> {
+    inputs.iter().filter(|i| !filter.iter().any(|(id, _)| *id == i.identifier)).cloned().collect()
+}
+
+/// The stack's channels for a filter's inputs. Color channels go in sRGB-encoded (as the
+/// archive's base color input expects, like an image file), data channels raw, normals as
+/// OpenGL-style normal maps.
+pub fn sbsar_filter_images(filter: &[(String, ChannelKind)], below: &BTreeMap<ChannelKind, TiledImage>) -> BTreeMap<String, subcraft_sbsar::InputImage> {
+    filter
+        .iter()
+        .filter_map(|(id, kind)| {
+            let image = below.get(kind)?;
+            let comps = image.comps();
+            if !matches!(comps, 1 | 3 | 4) {
+                return None;
+            }
+            let mut data = image.to_dense();
+            if kind.is_color() {
+                for px in data.chunks_mut(comps) {
+                    for v in px.iter_mut().take(comps.min(3)) {
+                        *v = subcraft_core::color::linear_to_srgb(*v);
+                    }
+                }
+            }
+            Some((id.clone(), subcraft_sbsar::InputImage { width: image.width(), height: image.height(), channels: comps as u32, data, normal: *kind == ChannelKind::Normal }))
+        })
+        .collect()
 }
 
 fn sbsar_input_notes(inputs: &[subcraft_sbsar::ImageInputInfo]) -> Vec<String> {
@@ -184,9 +275,15 @@ impl GraphBackend for SbsarBackend {
     }
 
     fn render_with_maps(&mut self, graph: &str, values: &BTreeMap<String, Vec<f64>>, size_log2: u32, maps: &MeshMaps) -> Result<Vec<RenderedMap>, String> {
+        self.render_filter(graph, values, size_log2, maps, &BTreeMap::new())
+    }
+
+    fn render_filter(&mut self, graph: &str, values: &BTreeMap<String, Vec<f64>>, size_log2: u32, maps: &MeshMaps, below: &BTreeMap<ChannelKind, TiledImage>) -> Result<Vec<RenderedMap>, String> {
         let info = self.package.graph(graph);
         let path = info.path.clone();
-        let images = sbsar_input_images(&info.image_inputs, maps);
+        let filter = self.graphs.iter().find(|g| g.graph == path).map(|g| g.filter_inputs.clone()).unwrap_or_default();
+        let mut images = sbsar_input_images(&mesh_image_inputs(&info.image_inputs, &filter), maps);
+        images.extend(sbsar_filter_images(&filter, below));
         let package = self.package.clone();
         let r = self.renderers.entry(path.clone()).or_insert_with(|| subcraft_sbsar::GraphRenderer::new(package, &path));
         let out = r.render_with_images(values, size_log2, &images).map_err(|e| e.to_string())?;
@@ -219,6 +316,8 @@ enum Target {
     New { texture_set: TextureSetId, name: String },
     /// Add a Substance generator to this layer's mask (the mask is made if there is none).
     NewMask { layer: LayerId, name: String },
+    /// Add a Substance filter to the top of this layer's content effects.
+    NewContent { layer: LayerId, name: String },
     /// Swap the images of this layer or generator.
     Update(GraphTarget),
 }
@@ -243,8 +342,13 @@ struct Running {
     material: GraphMaterial,
     /// Started by a new bake, not by the user (names the undo step).
     refresh: bool,
+    /// The stack a filter read (kept for the next render of the same filter).
+    below: Option<Below>,
     rx: Receiver<Result<Output, String>>,
 }
+
+/// The layer stack below a Substance filter: linear channels as the compositor keeps them.
+type Below = Arc<BTreeMap<ChannelKind, TiledImage>>;
 
 /// What [`GraphLayers::poll`] reports.
 #[derive(Clone, Debug, PartialEq)]
@@ -266,6 +370,9 @@ pub struct GraphLayers {
     /// maps generation then.
     baked: HashMap<TextureSetId, BTreeMap<MeshMapKind, StorageToken>>,
     baked_generation: Option<u64>,
+    /// The stack below the filter rendered last, so dragging its sliders does not composite the
+    /// texture set again for every render. One entry: a composite is large.
+    below: Option<(GraphTarget, Below)>,
 }
 
 impl GraphLayers {
@@ -352,14 +459,16 @@ impl GraphLayers {
     /// [`Self::import_file`] for bytes already read.
     pub fn import_bytes(&mut self, session: &mut Session, engine: GraphEngine, bytes: Vec<u8>, name: &str) -> Result<String, String> {
         let backend = open_backend(engine, &bytes, name).map_err(|e| format!("{name}: {e}"))?;
-        let graph = backend.graphs().iter().find(|g| !g.channels.is_empty()).cloned().ok_or_else(|| {
-            if backend.graphs().iter().any(|g| g.mask) { format!("{name}: this is a generator (it outputs a mask, not material channels); add it to a layer's mask instead") } else { format!("{name}: no graph has an output SubCraft can use") }
+        let graph = backend.graphs().iter().find(|g| !g.channels.is_empty() && !g.is_filter()).cloned().ok_or_else(|| {
+            if backend.graphs().iter().any(|g| g.is_filter()) {
+                format!("{name}: this is a filter (it reads the channels below it); add it to a layer's content instead")
+            } else if backend.graphs().iter().any(|g| g.mask) { format!("{name}: this is a generator (it outputs a mask, not material channels); add it to a layer's mask instead") } else { format!("{name}: no graph has an output SubCraft can use") }
         })?;
         let (id, shared) = self.add_package(session, engine, backend, bytes, name);
         let material = GraphMaterial::new(engine, id, graph.graph.clone(), subcraft_sbsar::DEFAULT_SIZE_LOG2);
         let texture_set = session.selection().texture_set;
         let maps = session.mesh_maps(texture_set).cloned().unwrap_or_default();
-        self.spawn(shared, Target::New { texture_set, name: graph.label.clone() }, material, maps, false);
+        self.spawn(shared, Target::New { texture_set, name: graph.label.clone() }, material, maps, None, false);
         let mut msg = format!("Rendering {} ({})…", graph.label, engine.label());
         for n in &graph.notes {
             msg.push_str(&format!(" Note: {n}."));
@@ -409,12 +518,57 @@ impl GraphLayers {
         let (id, shared) = self.add_package(session, engine, backend, bytes, name);
         let material = GraphMaterial::new(engine, id, graph.graph.clone(), subcraft_sbsar::DEFAULT_SIZE_LOG2);
         let maps = find_layer(session, layer).and_then(|(ts, _)| session.mesh_maps(ts).cloned()).unwrap_or_default();
-        self.spawn(shared, Target::NewMask { layer, name: graph.label.clone() }, material, maps, false);
+        self.spawn(shared, Target::NewMask { layer, name: graph.label.clone() }, material, maps, None, false);
         let mut msg = format!("Rendering generator {}…", graph.label);
         for n in &graph.notes {
             msg.push_str(&format!(" Note: {n}."));
         }
         Ok(msg)
+    }
+
+    /// Add a Substance filter (an `.sbsar` whose image inputs read the channels it outputs) on top
+    /// of `layer`'s content. It renders from the stack below as it is now; the effect appears when
+    /// the render is done.
+    pub fn import_filter_file(&mut self, session: &mut Session, layer: LayerId, path: &Path) -> Result<String, String> {
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("filter").to_string();
+        let engine = engine_for_file(&name).ok_or_else(|| format!("{name}: not a material graph SubCraft can open"))?;
+        let len = std::fs::metadata(path).map_err(|e| format!("{name}: {e}"))?.len();
+        if len > MAX_PACKAGE_BYTES {
+            return Err(format!("{name}: {} MB is larger than the {} MB limit", len >> 20, MAX_PACKAGE_BYTES >> 20));
+        }
+        let bytes = std::fs::read(path).map_err(|e| format!("{name}: {e}"))?;
+        self.import_filter_bytes(session, layer, engine, bytes, &name)
+    }
+
+    /// [`Self::import_filter_file`] for bytes already read.
+    pub fn import_filter_bytes(&mut self, session: &mut Session, layer: LayerId, engine: GraphEngine, bytes: Vec<u8>, name: &str) -> Result<String, String> {
+        if find_layer(session, layer).is_none() {
+            return Err("select a layer first".into());
+        }
+        let backend = open_backend(engine, &bytes, name).map_err(|e| format!("{name}: {e}"))?;
+        let graph = backend.graphs().iter().find(|g| g.is_filter()).cloned().ok_or_else(|| {
+            format!("{name}: not a filter (a filter has image inputs named after the channels it outputs, like \"basecolor\" in and out)")
+        })?;
+        let (id, shared) = self.add_package(session, engine, backend, bytes, name);
+        let material = GraphMaterial::new(engine, id, graph.graph.clone(), subcraft_sbsar::DEFAULT_SIZE_LOG2);
+        let maps = find_layer(session, layer).and_then(|(ts, _)| session.mesh_maps(ts).cloned()).unwrap_or_default();
+        let below = session.composite_below(layer, None).map(|c| Arc::new(c.channels)).ok_or("select a layer first")?;
+        self.spawn(shared, Target::NewContent { layer, name: graph.label.clone() }, material, maps, Some(below), false);
+        let mut msg = format!("Rendering filter {}…", graph.label);
+        for n in graph.notes.iter().skip(1) {
+            msg.push_str(&format!(" Note: {n}."));
+        }
+        Ok(msg)
+    }
+
+    /// Render a Substance filter again from the stack below it as it is now (after the layers
+    /// below changed), with `material` (its current values).
+    pub fn update_filter_input(&mut self, session: &Session, layer: LayerId, effect: EffectId, material: GraphMaterial) -> Result<(), String> {
+        let target = GraphTarget::Content { layer, effect };
+        if self.below.as_ref().is_some_and(|(t, _)| *t == target) {
+            self.below = None;
+        }
+        self.request_as(session, target, material, false)
     }
 
     /// Render `layer` again with `material` (new values or size). The layer changes when the
@@ -434,11 +588,17 @@ impl GraphLayers {
             return Ok(());
         }
         let backend = self.backend(session, material.engine, material.package)?;
-        let layer = match target {
-            GraphTarget::Layer(l) | GraphTarget::Mask { layer: l, .. } => l,
-        };
+        let layer = target.layer();
         let maps = find_layer(session, layer).and_then(|(ts, _)| session.mesh_maps(ts).cloned()).unwrap_or_default();
-        self.spawn(backend, Target::Update(target), material, maps, refresh);
+        let below = match target {
+            GraphTarget::Content { layer, effect } => Some(match &self.below {
+                // A refresh after a bake reads the stack again (the maps below may have changed too).
+                Some((t, b)) if *t == target && !refresh => b.clone(),
+                _ => session.composite_below(layer, Some(effect)).map(|c| Arc::new(c.channels)).ok_or("the layer was deleted")?,
+            }),
+            _ => None,
+        };
+        self.spawn(backend, Target::Update(target), material, maps, below, refresh);
         Ok(())
     }
 
@@ -473,6 +633,12 @@ impl GraphLayers {
                                 stale.push((target, self.shown_for(target, Some(material)).unwrap_or_else(|| material.clone()), changed.clone()));
                             }
                         }
+                        for e in &layer.content_effects {
+                            if let Some(material) = e.graph.as_deref() {
+                                let target = GraphTarget::Content { layer: layer.id, effect: e.id };
+                                stale.push((target, self.shown_for(target, Some(material)).unwrap_or_else(|| material.clone()), changed.clone()));
+                            }
+                        }
                     });
                 }
             }
@@ -502,16 +668,23 @@ impl GraphLayers {
         }
     }
 
-    fn spawn(&mut self, backend: SharedBackend, target: Target, material: GraphMaterial, maps: MeshMaps, refresh: bool) {
+    fn spawn(&mut self, backend: SharedBackend, target: Target, material: GraphMaterial, maps: MeshMaps, below: Option<Below>, refresh: bool) {
         let (tx, rx) = channel();
         let m = material.clone();
         let mask = matches!(target, Target::NewMask { .. } | Target::Update(GraphTarget::Mask { .. }));
+        let filter = below.clone();
         let spawned = std::thread::Builder::new().name("graph-render".into()).spawn(move || {
             let result = match backend.lock() {
                 Ok(mut b) => {
                     let graph = m.graph.clone();
                     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        if mask { b.render_mask(&graph, &m.values, m.size_log2, &maps).map(Output::Mask) } else { b.render_with_maps(&graph, &m.values, m.size_log2, &maps).map(Output::Maps) }
+                        if mask {
+                            b.render_mask(&graph, &m.values, m.size_log2, &maps).map(Output::Mask)
+                        } else if let Some(below) = &filter {
+                            b.render_filter(&graph, &m.values, m.size_log2, &maps, below).map(Output::Maps)
+                        } else {
+                            b.render_with_maps(&graph, &m.values, m.size_log2, &maps).map(Output::Maps)
+                        }
                     }))
                     .unwrap_or_else(|_| Err("the renderer crashed on this material".into()))
                 }
@@ -522,10 +695,10 @@ impl GraphLayers {
         if let Err(e) = spawned {
             let (tx, rx) = channel();
             let _ = tx.send(Err(format!("could not start the render: {e}")));
-            self.running.push(Running { target, material, refresh, rx });
+            self.running.push(Running { target, material, refresh, below, rx });
             return;
         }
-        self.running.push(Running { target, material, refresh, rx });
+        self.running.push(Running { target, material, refresh, below, rx });
     }
 
     /// Apply finished renders and start waiting ones (call once a frame).
@@ -543,11 +716,24 @@ impl GraphLayers {
             };
             let done = self.running.remove(i);
             let applied = result.and_then(|maps| apply(session, &done.target, &done.material, done.refresh, maps));
+            // Keep the stack the filter read for its next render (slider drags).
+            if applied.is_ok()
+                && let Some(below) = done.below.clone()
+            {
+                let target = match &done.target {
+                    Target::Update(t) => Some(*t),
+                    Target::NewContent { layer, .. } => find_layer(session, *layer).and_then(|(_, l)| l.content_effects.last().map(|e| GraphTarget::Content { layer: *layer, effect: e.id })),
+                    _ => None,
+                };
+                self.below = target.map(|t| (t, below));
+            }
             // A graph copied to partner UDIM tiles carries this tile's render. When the graph
             // reads baked maps, each partner renders its own from its tile's maps (as a refresh,
             // so this does not repeat).
             let reads_maps = |g: &mut Self| g.graph(session, &done.material).is_ok_and(|d| !d.mesh_inputs.is_empty());
-            if applied.is_ok() && !done.refresh && reads_maps(self) {
+            // A filter reads its own tile's stack, so its partners always render their own.
+            let filter = matches!(done.target, Target::Update(GraphTarget::Content { .. }));
+            if applied.is_ok() && !done.refresh && (filter || reads_maps(self)) {
                 for (target, material) in udim_partner_targets(session, &done.target) {
                     if let Err(e) = self.request_as(session, target, material, true) {
                         events.push(GraphEvent::Failed(e));
@@ -598,6 +784,17 @@ fn udim_partner_targets(session: &Session, target: &Target) -> Vec<(GraphTarget,
                 let ts = doc.texture_set(id)?;
                 let other = ts.find(ts.corresponding_layer(source_ts, *layer)?)?;
                 Some((GraphTarget::Layer(other.id), (**other.graph.as_ref()?).clone()))
+            })
+            .collect();
+    }
+    if let Target::Update(GraphTarget::Content { layer, effect }) = target {
+        return session
+            .udim_partner_content_effects(*layer, *effect)
+            .into_iter()
+            .filter_map(|(layer, effect)| {
+                let (_, l) = find_layer(session, layer)?;
+                let graph = l.content_effects.iter().find(|e| e.id == effect)?.graph.clone()?;
+                Some((GraphTarget::Content { layer, effect }, (*graph).clone()))
             })
             .collect();
     }
@@ -706,6 +903,51 @@ fn apply_mask(session: &mut Session, target: &Target, material: &GraphMaterial, 
     }
 }
 
+/// A Substance filter's fill: the rendered channels the texture set has, each replacing the stack
+/// below (Normal blend, normals too: the filter read them).
+fn filter_fill(ts: &subcraft_doc::TextureSet, ids: &BTreeMap<ChannelKind, ResourceId>) -> (ContentEffectKind, BTreeMap<ChannelKind, subcraft_doc::ChannelBlend>) {
+    let channels = ids.iter().filter(|(k, _)| ts.has_channel(**k)).map(|(k, &resource)| (*k, FillChannel::new(FillSource::Bitmap { resource }))).collect();
+    let blend = ts.channels.iter().map(|c| (c.kind, subcraft_doc::ChannelBlend::new(subcraft_doc::BlendMode::Normal))).collect();
+    (ContentEffectKind::Fill(subcraft_doc::FillContent { projection: Projection::default(), channels }), blend)
+}
+
+fn apply_filter(session: &mut Session, target: &Target, material: &GraphMaterial, refresh: bool, maps: Vec<RenderedMap>) -> Result<String, String> {
+    match target {
+        Target::NewContent { layer, name } => {
+            let (ts_id, mut l) = find_layer(session, *layer).ok_or("the layer was deleted while rendering")?;
+            let ts = session.document().texture_set(ts_id).ok_or("the texture set is gone")?.clone();
+            let ids = add_maps(session, material, maps);
+            let (kind, blend) = filter_fill(&ts, &ids);
+            let effect = ContentEffect { name: name.clone(), blend, graph: Some(Arc::new(material.clone())), ..ContentEffect::new(kind, &ts) };
+            l.content_effects.push(Arc::new(effect));
+            session.execute(Command::ReplaceLayer { layer: *layer, replacement: Box::new(l), label: format!("Add Filter: {name}") }).map_err(|e| e.to_string())?;
+            Ok(format!("Added filter {name}"))
+        }
+        Target::Update(GraphTarget::Content { layer, effect }) => {
+            let (ts_id, l) = find_layer(session, *layer).ok_or("the layer was deleted while rendering")?;
+            let ts = session.document().texture_set(ts_id).ok_or("the texture set is gone")?.clone();
+            let mut e = (**l.content_effects.iter().find(|e| e.id == *effect).ok_or("the filter was deleted while rendering")?).clone();
+            let ContentEffectKind::Fill(fill) = &mut e.kind else { return Err("the effect is no longer a filter".into()) };
+            let ids = add_maps(session, material, maps);
+            let (ContentEffectKind::Fill(new), _) = filter_fill(&ts, &ids) else { unreachable!("filter_fill makes a fill") };
+            // Keep the user's strength / adjustments per channel.
+            for (k, mut c) in new.channels {
+                if let Some(old) = fill.channels.get(&k) {
+                    c.strength = old.strength;
+                    c.adjust = old.adjust;
+                    c.enabled = old.enabled;
+                }
+                fill.channels.insert(k, c);
+            }
+            e.graph = Some(Arc::new(material.clone()));
+            let name = e.name.clone();
+            session.execute(Command::SetContentEffect { layer: *layer, effect: e }).map_err(|e| e.to_string())?;
+            Ok(if refresh { format!("Updated {name} for the new bake") } else { format!("Updated {name}") })
+        }
+        _ => Err("a filter render for a layer".into()),
+    }
+}
+
 fn apply(session: &mut Session, target: &Target, material: &GraphMaterial, refresh: bool, output: Output) -> Result<String, String> {
     let maps = match output {
         Output::Mask(bitmap) => return apply_mask(session, target, material, refresh, bitmap),
@@ -715,6 +957,7 @@ fn apply(session: &mut Session, target: &Target, material: &GraphMaterial, refre
         return Err("the render produced no image".into());
     }
     match target {
+        Target::NewContent { .. } | Target::Update(GraphTarget::Content { .. }) => apply_filter(session, target, material, refresh, maps),
         Target::New { texture_set, name } => {
             let ts = session.document().texture_set(*texture_set).ok_or("the texture set is gone")?.clone();
             let mut wide = ts.clone();

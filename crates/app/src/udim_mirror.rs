@@ -210,7 +210,9 @@ pub(crate) fn partner_command(cmd: &Command, source: &Layer, partner: &Layer, re
             let id = c(effect.id)?;
             let mut e = effect.clone();
             e.id = id;
-            if let ContentEffectKind::Paint { .. } = e.kind {
+            // Painted texels and a Substance filter's render are each tile's own (a filter reads
+            // that tile's stack).
+            if matches!(e.kind, ContentEffectKind::Paint { .. }) || e.graph.is_some() {
                 let own = partner.content_effects.iter().find(|x| x.id == id)?;
                 e.kind = own.kind.clone();
             }
