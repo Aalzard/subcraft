@@ -370,6 +370,10 @@ pub struct GraphLayers {
     /// The stack below the filter rendered last, so dragging its sliders does not composite the
     /// texture set again for every render. One entry: a composite is large.
     below: Option<(GraphTarget, Below)>,
+    /// Substance filters known so far (see [`Self::refresh_new_filters`]) and the stacks they
+    /// were collected from.
+    filters_seen: Option<std::collections::HashSet<GraphTarget>>,
+    filters_stacks: Vec<usize>,
 }
 
 impl GraphLayers {
@@ -665,6 +669,40 @@ impl GraphLayers {
         }
     }
 
+    /// Render the Substance filters that appeared since the last call by any other way than
+    /// this object adding them (a smart material, a pasted or duplicated layer): they carry
+    /// images rendered from another stack. The first call only takes note. Returns how many
+    /// started rendering.
+    pub fn refresh_new_filters(&mut self, session: &Session) -> usize {
+        let stacks: Vec<usize> = session.document().texture_sets.iter().flat_map(|ts| ts.layers.iter().map(|l| Arc::as_ptr(l) as usize)).collect();
+        if self.filters_seen.is_some() && stacks == self.filters_stacks {
+            return 0;
+        }
+        self.filters_stacks = stacks;
+        let mut now: Vec<(GraphTarget, GraphMaterial)> = Vec::new();
+        for ts in &session.document().texture_sets {
+            ts.walk(|layer, _| {
+                for e in &layer.content_effects {
+                    if let Some(g) = e.graph.as_deref() {
+                        now.push((GraphTarget::Content { layer: layer.id, effect: e.id }, g.clone()));
+                    }
+                }
+            });
+        }
+        let Some(seen) = self.filters_seen.as_mut() else {
+            self.filters_seen = Some(now.into_iter().map(|(t, _)| t).collect());
+            return 0;
+        };
+        let fresh: Vec<(GraphTarget, GraphMaterial)> = now.into_iter().filter(|(t, _)| seen.insert(*t)).collect();
+        let mut started = 0;
+        for (target, material) in fresh {
+            if !self.is_rendering_target(target) && self.request_as(session, target, material, true).is_ok() {
+                started += 1;
+            }
+        }
+        started
+    }
+
     fn spawn(&mut self, backend: SharedBackend, target: Target, material: GraphMaterial, maps: MeshMaps, below: Option<Below>, refresh: bool) {
         let (tx, rx) = channel();
         let m = material.clone();
@@ -723,6 +761,10 @@ impl GraphLayers {
                     _ => None,
                 };
                 self.below = target.map(|t| (t, below));
+                // A filter this object added is not "new" to [`Self::refresh_new_filters`].
+                if let (Some(t), Some(seen)) = (target, self.filters_seen.as_mut()) {
+                    seen.insert(t);
+                }
             }
             // A graph copied to partner UDIM tiles carries this tile's render. When the graph
             // reads baked maps, each partner renders its own from its tile's maps (as a refresh,
@@ -939,7 +981,7 @@ fn apply_filter(session: &mut Session, target: &Target, material: &GraphMaterial
             e.graph = Some(Arc::new(material.clone()));
             let name = e.name.clone();
             session.execute(Command::SetContentEffect { layer: *layer, effect: e }).map_err(|e| e.to_string())?;
-            Ok(if refresh { format!("Updated {name} for the new bake") } else { format!("Updated {name}") })
+            Ok(if refresh { format!("Updated {name} from the layers below") } else { format!("Updated {name}") })
         }
         _ => Err("a filter render for a layer".into()),
     }
