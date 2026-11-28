@@ -37,6 +37,12 @@ pub enum ShelfDrag {
     PackMaterial(usize),
     /// A generator (index into [`crate::panels::layers::shelf_generators`]): into a layer's mask.
     Generator(usize),
+    /// A Substance material of the libraries (index into `UiState::substances`): a new layer
+    /// once its first render is done.
+    SubstanceMaterial(usize),
+    /// A Substance generator of the libraries (index into `UiState::substances`): into a
+    /// layer's mask once rendered.
+    SubstanceGenerator(usize),
 }
 
 /// An environment tile being dragged onto the 3D view or the Display Settings panel's
@@ -91,7 +97,9 @@ pub fn drop_label(item: ShelfDrag, alt: bool, target: Option<&str>, on_mask: boo
         ShelfDrag::MaterialFilter(_) => format!("Add a material filter layer (Passthrough) above{t}"),
         ShelfDrag::PackMaterial(_) if alt => "Pack materials are added as a new layer: release Alt".to_string(),
         ShelfDrag::PackMaterial(_) => format!("Add material layer above{t} (Ctrl: with a black mask)"),
-        ShelfDrag::Generator(_) => format!("Add this generator to the mask of{t} (a black mask is created if needed)"),
+        ShelfDrag::Generator(_) | ShelfDrag::SubstanceGenerator(_) => format!("Add this generator to the mask of{t} (a black mask is created if needed)"),
+        ShelfDrag::SubstanceMaterial(_) if alt => "Substance materials are added as a new layer: release Alt".to_string(),
+        ShelfDrag::SubstanceMaterial(_) => format!("Add material layer above{t}"),
     }
 }
 
@@ -177,6 +185,12 @@ pub fn apply_shelf_item_with(s: &mut UiState, item: ShelfDrag, alt: bool, now: f
             (Some(_), None) => Err("Select a layer first: the generator goes into its mask".to_string()),
             (None, _) => Ok(()),
         },
+        ShelfDrag::SubstanceMaterial(_) if alt => Err("A Substance material is added as a new layer: click without Alt".to_string()),
+        ShelfDrag::SubstanceMaterial(i) => add_substance_material(s, i, now),
+        ShelfDrag::SubstanceGenerator(i) => match layer {
+            Some(l) => add_substance_generator(s, l, i, now),
+            None => Err("Select a layer first: the generator goes into its mask".to_string()),
+        },
     };
     match result {
         Ok(()) => s.recovery.autosaver.request_soon(),
@@ -188,11 +202,34 @@ pub fn apply_shelf_item_with(s: &mut UiState, item: ShelfDrag, alt: bool, now: f
 /// it is dragged.
 pub fn ghost_mask_accepts(item: ShelfDrag) -> bool {
     match item {
-        ShelfDrag::Alpha(_) | ShelfDrag::SmartMask(_) | ShelfDrag::Texture(_) | ShelfDrag::Generator(_) => true,
+        ShelfDrag::Alpha(_) | ShelfDrag::SmartMask(_) | ShelfDrag::Texture(_) | ShelfDrag::Generator(_) | ShelfDrag::SubstanceGenerator(_) => true,
         ShelfDrag::Filter(i) => subcraft_doc::Filter::ALL.get(i).is_some_and(|f| f.supports_mask()),
         ShelfDrag::Starter(_) => is_starter_texture(item),
-        ShelfDrag::Material(_) | ShelfDrag::SmartMaterial(_) | ShelfDrag::PackMaterial(_) | ShelfDrag::MaterialFilter(_) => false,
+        ShelfDrag::Material(_) | ShelfDrag::SmartMaterial(_) | ShelfDrag::PackMaterial(_) | ShelfDrag::MaterialFilter(_) | ShelfDrag::SubstanceMaterial(_) => false,
     }
+}
+
+/// Library file of Substance archive `index`.
+fn substance_path(s: &UiState, index: usize) -> Result<std::path::PathBuf, String> {
+    s.substances.items.get(index).map(|i| i.path.clone()).ok_or_else(|| "That Substance archive is no longer in the library".to_string())
+}
+
+/// A Substance material from the Assets panel: a layer of the selected texture set, added when
+/// its first render is done.
+fn add_substance_material(s: &mut UiState, index: usize, now: f64) -> Result<(), String> {
+    let path = substance_path(s, index)?;
+    let text = s.graph_layers.import_file(&mut s.session, &path).map_err(|e| format!("Substance material: {e}"))?;
+    s.set_status(text, now);
+    Ok(())
+}
+
+/// A Substance generator from the Assets panel: an effect at the end of `layer`'s mask (a black
+/// mask is made when it has none), added when its first render is done.
+fn add_substance_generator(s: &mut UiState, layer: subcraft_core::LayerId, index: usize, now: f64) -> Result<(), String> {
+    let path = substance_path(s, index)?;
+    let text = s.graph_layers.import_generator_file(&mut s.session, layer, &path).map_err(|e| format!("Substance generator: {e}"))?;
+    s.set_status(text, now);
+    Ok(())
 }
 
 /// Whether `item` is a built-in texture (a grunge): it goes into masks and onto any channel row,
@@ -215,6 +252,14 @@ pub fn apply_ghost_mask_drop(s: &mut UiState, layer: subcraft_core::LayerId, ite
     use subcraft_app::{Command, LayerTarget};
     use subcraft_doc::{MaskEffectKind, Projection};
     let image = |resource| MaskEffectKind::Image { resource, projection: Projection::default(), invert: false, balance: 0.5, contrast: 0.0 };
+    // Rendered in the background: the mask (and the effect) appear when the render is done.
+    if let ShelfDrag::SubstanceGenerator(i) = item {
+        match add_substance_generator(s, layer, i, now) {
+            Ok(()) => s.recovery.autosaver.request_soon(),
+            Err(e) => s.set_status(e, now),
+        }
+        return;
+    }
     let result: Result<(), String> = match item {
         ShelfDrag::Alpha(i) => match s.library.alphas.get(i).cloned() {
             Some(a) => s.session.apply_alpha_to_mask(layer, &a).map_err(|e| e.to_string()),
@@ -246,7 +291,8 @@ pub fn apply_ghost_mask_drop(s: &mut UiState, layer: subcraft_core::LayerId, ite
         }),
         ShelfDrag::Starter(_) => Err("A normal map does not go into a mask: drop it on the row".to_string()),
         ShelfDrag::MaterialFilter(_) => Err("Material filters do not work on masks: drop it on the row".to_string()),
-        ShelfDrag::Material(_) | ShelfDrag::SmartMaterial(_) | ShelfDrag::PackMaterial(_) => Err("Materials do not go into a mask: drop them on the row".to_string()),
+        ShelfDrag::SubstanceGenerator(_) => Ok(()),
+        ShelfDrag::Material(_) | ShelfDrag::SmartMaterial(_) | ShelfDrag::PackMaterial(_) | ShelfDrag::SubstanceMaterial(_) => Err("Materials do not go into a mask: drop them on the row".to_string()),
     };
     match result {
         Ok(()) => {
@@ -267,6 +313,15 @@ pub fn apply_effect_drop(s: &mut UiState, drop: crate::panels::effects::ShelfEff
     let image = |resource| MaskEffectKind::Image { resource, projection: Projection::default(), invert: false, balance: 0.5, contrast: 0.0 };
     let mask = domain == LayerTarget::Mask;
     let mut blends = Vec::new();
+    // Rendered in the background, so it lands at the end of the mask, not between the rows.
+    if let ShelfDrag::SubstanceGenerator(i) = item {
+        let result = if mask { add_substance_generator(s, layer, i, now) } else { Err("Generators go into a mask".to_string()) };
+        match result {
+            Ok(()) => s.recovery.autosaver.request_soon(),
+            Err(e) => s.set_status(e, now),
+        }
+        return;
+    }
     let effects: Result<Vec<MaskEffectKind>, String> = match item {
         ShelfDrag::Filter(i) if !mask => {
             let result = match subcraft_doc::Filter::ALL.get(i).copied() {
@@ -314,6 +369,17 @@ pub fn apply_effect_drop(s: &mut UiState, drop: crate::panels::effects::ShelfEff
             None => Ok(Vec::new()),
         },
         ShelfDrag::Starter(i) if mask && is_starter_texture(item) => starter_texture_resource(s, i).map(|r| vec![image(r)]),
+        // Substance generators keep their graph only as a whole stack: added at the end.
+        ShelfDrag::SmartMask(i) if mask && s.library.smart_masks.get(i).is_some_and(|m| m.has_graphs()) => {
+            let m = s.library.smart_masks[i].clone();
+            for r in &m.resources { s.session.share_resource(r.clone()); }
+            let result = s.session.execute(Command::ApplyMaskStack { layer, effects: m.stack(), replace: false, label: format!("Smart Mask: {}", m.name) }).map_err(|e| e.to_string());
+            match result {
+                Ok(()) => s.recovery.autosaver.request_soon(),
+                Err(e) => s.set_status(e, now),
+            }
+            return;
+        }
         ShelfDrag::SmartMask(i) if mask => match s.library.smart_masks.get(i).cloned() {
             Some(m) => {
                 for r in &m.resources { s.session.share_resource(r.clone()); }
@@ -709,6 +775,10 @@ pub const MATERIALS_PACK: &str = "SubCraft Materials";
 /// Item indices of the pack's materials start here, apart from the built-in materials'.
 pub const PACK_INDEX: usize = 1_000_000;
 
+/// Item indices of the libraries' Substance archives (`UiState::substances`) start here, in
+/// Shelf → Materials and Shelf → Generators.
+pub const SUBSTANCE_INDEX: usize = 2_000_000;
+
 /// Every asset of type `tab`, in the order the Shelf draws them.
 pub fn items(state: &UiState, tab: ShelfTab) -> Vec<Item> {
     use crate::panels::shelf_filter::STARTER;
@@ -718,6 +788,13 @@ pub fn items(state: &UiState, tab: ShelfTab) -> Vec<Item> {
     // A library file's sub-folder is its folder; otherwise its category.
     let folder = |kind: K, file: Option<&std::path::Path>, category: Option<&str>| state.library_subfolder(kind, file).or_else(|| category.map(String::from));
     let item = |index, name: &str, library: String, folder: Option<String>, tags: Vec<String>| Item { index, starter: false, name: name.to_string(), usage, library, folder, tags, tileable: false };
+    let substance_items = |generators: bool| {
+        state.substances.indices(generators).map(|i| {
+            let t = &state.substances.items[i];
+            let file = Some(t.path.as_path());
+            item(SUBSTANCE_INDEX + i, &t.name, lib(file), folder(K::Substance, file, None), vec!["substance".into(), "sbsar".into()])
+        }).collect::<Vec<_>>()
+    };
     let starters = |kind: subcraft_assets::starter::Kind| {
         subcraft_assets::starter::ENTRIES.iter().enumerate().filter(move |(_, e)| e.kind == kind).map(move |(i, e)| Item {
             index: i,
@@ -746,6 +823,7 @@ pub fn items(state: &UiState, tab: ShelfTab) -> Vec<Item> {
                 tags.push(m.category.clone());
                 Item { tileable: true, ..item(PACK_INDEX + i, &m.name, MATERIALS_PACK.to_string(), Some(m.category.clone()), tags) }
             }));
+            out.extend(substance_items(false));
             out
         }
         ShelfTab::SmartMaterials => state.library.smart_materials.iter().enumerate().map(|(i, m)| {
@@ -776,7 +854,11 @@ pub fn items(state: &UiState, tab: ShelfTab) -> Vec<Item> {
             .enumerate()
             .map(|(i, (label, tags))| item(i, label, STARTER.to_string(), None, tags))
             .collect(),
-        ShelfTab::Generators => crate::panels::layers::shelf_generators().iter().enumerate().map(|(i, (name, _))| item(i, name, STARTER.to_string(), None, Vec::new())).collect(),
+        ShelfTab::Generators => {
+            let mut out: Vec<Item> = crate::panels::layers::shelf_generators().iter().enumerate().map(|(i, (name, _))| item(i, name, STARTER.to_string(), None, Vec::new())).collect();
+            out.extend(substance_items(true));
+            out
+        }
         ShelfTab::Environments => state.library.environments.iter().enumerate().map(|(i, e)| item(i, &e.name, lib(e.user_file.as_deref()), folder(K::Environment, e.user_file.as_deref(), None), Vec::new())).collect(),
     }
 }
@@ -1266,10 +1348,15 @@ fn handle_drops(state: &mut UiState, ui: &Ui, now: f64) {
     state.drops_taken = true;
     let paths: Vec<std::path::PathBuf> = dropped
         .into_iter()
-        .filter(|p| !p.extension().is_some_and(|e| e.eq_ignore_ascii_case("spsm")) && !crate::files::is_graph_material(p))
+        .filter(|p| !p.extension().is_some_and(|e| e.eq_ignore_ascii_case("spsm")) && (is_sbsar(p) || !crate::files::is_graph_material(p)))
         .collect();
+    let on_smart = state.shelf.tab == ShelfTab::SmartMaterials && state.shelf.extra_tabs.is_empty();
+    let (sbsar, paths): (Vec<_>, Vec<_>) = if on_smart { paths.into_iter().partition(|p| is_sbsar(p)) } else { (Vec::new(), paths) };
+    if !sbsar.is_empty() {
+        crate::import_resources::open_with(state, &sbsar);
+    }
     if paths.is_empty() {
-    } else if state.shelf.tab == ShelfTab::SmartMaterials && state.shelf.extra_tabs.is_empty() {
+    } else if on_smart {
         // On Smart Materials, .scsmart files, folders and PBR texture sets become smart materials.
         crate::files::import_smart_materials(state, &paths, now);
     } else {
@@ -1280,10 +1367,17 @@ fn handle_drops(state: &mut UiState, ui: &Ui, now: f64) {
     for path in ui.ctx().input(|i| i.raw.dropped_files.iter().map(|f| f.path().to_path_buf()).collect::<Vec<_>>()) {
         if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("spsm")) {
             crate::files::import_painter_smart_material(state, &path, now);
-        } else if crate::files::is_graph_material(&path) {
+        } else if crate::files::is_graph_material(&path) && !is_sbsar(&path) {
+            // Other graph formats are not library assets: straight into the project.
             crate::files::import_graph_materials(state, &[path], now);
         }
     }
+}
+
+/// A Substance archive: dropped on the Assets panel it goes to Import resources (Painter) and
+/// then into the library, apart from being added to the project straight away.
+fn is_sbsar(p: &std::path::Path) -> bool {
+    p.extension().is_some_and(|e| e.eq_ignore_ascii_case("sbsar"))
 }
 
 /// Open the system file browser at `path` (selecting it when it is a file).
@@ -1655,6 +1749,23 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                             action = Some(Box::new(move |s: &mut UiState| apply_pack_material(s, &material, now)));
                         }
                     }
+                    // The libraries' Substance materials: each one a graph layer.
+                    for i in state.substances.indices(false).collect::<Vec<_>>() {
+                        if !pass(SUBSTANCE_INDEX + i) {
+                            continue;
+                        }
+                        shown += 1;
+                        let t = &state.substances.items[i];
+                        let tip = format!("{} (Substance material): click or drag onto the model / a layer to add it as a layer; its parameters are in Properties", t.name);
+                        let resp = tile(ui, tile_size, None, &t.name, false, &tip);
+                        resp.dnd_set_drag_payload(ShelfDrag::SubstanceMaterial(i));
+                        if library_menu(&resp, state.user_library.as_ref(), &t.path, &mut lib_status, None) {
+                            let path = t.path.clone();
+                            action = Some(Box::new(move |s: &mut UiState| s.substances.remove(&path)));
+                        } else if resp.clicked() {
+                            action = Some(Box::new(move |s: &mut UiState| apply_shelf_item_with(s, ShelfDrag::SubstanceMaterial(i), alt, now)));
+                        }
+                    }
                 }
                 ShelfTab::SmartMaterials => {
                     for (i, m) in state.library.smart_materials.iter().enumerate() {
@@ -1826,6 +1937,23 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         resp.dnd_set_drag_payload(ShelfDrag::Generator(i));
                         if resp.clicked() && has_layer {
                             action = Some(Box::new(move |s: &mut UiState| apply_shelf_item_with(s, ShelfDrag::Generator(i), false, now)));
+                        }
+                    }
+                    // The libraries' Substance generators: rendered, then added to the mask.
+                    for i in state.substances.indices(true).collect::<Vec<_>>() {
+                        if !pass(SUBSTANCE_INDEX + i) {
+                            continue;
+                        }
+                        shown += 1;
+                        let t = &state.substances.items[i];
+                        let tip = if has_layer { format!("{} (Substance generator): click to add it to the selected layer's mask (a black mask is created if it has none). Drag onto a layer or a mask", t.name) } else { format!("{} (Substance generator): select a layer first, or drag onto a layer in the stack", t.name) };
+                        let resp = tile(ui, tile_size, None, &t.name, false, &tip);
+                        resp.dnd_set_drag_payload(ShelfDrag::SubstanceGenerator(i));
+                        if library_menu(&resp, state.user_library.as_ref(), &t.path, &mut lib_status, None) {
+                            let path = t.path.clone();
+                            action = Some(Box::new(move |s: &mut UiState| s.substances.remove(&path)));
+                        } else if resp.clicked() && has_layer {
+                            action = Some(Box::new(move |s: &mut UiState| apply_shelf_item_with(s, ShelfDrag::SubstanceGenerator(i), false, now)));
                         }
                     }
                 }

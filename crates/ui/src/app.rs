@@ -2691,6 +2691,7 @@ impl eframe::App for SubcraftApp {
         }
         self.state.layer_previews.poll(&ctx);
         self.state.textures.poll(&ctx);
+        self.state.substances.poll(Some(&ctx));
         self.mark("sync+polls");
         if self.state.env_loader.is_some() {
             ctx.request_repaint_after(std::time::Duration::from_millis(200));

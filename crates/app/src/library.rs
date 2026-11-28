@@ -94,6 +94,7 @@ fn smart_mask_from(f: Fragment, path: PathBuf) -> Result<SmartMask, String> {
         name: display_name(&path, &f.name),
         resources: resources_of(&f),
         blends: f.mask_effects.iter().map(|e| (e.blend, e.opacity)).collect(),
+        graphs: f.mask_effects.iter().map(|e| e.graph.clone().map(|g| (e.name.clone(), g))).collect(),
         effects: f.mask_effects.into_iter().map(|e| e.kind).collect(),
         user_file: Some(path),
     })

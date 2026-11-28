@@ -88,6 +88,12 @@ impl Fragment {
                     }
                 }
             }
+            // A Substance generator's package travels with it.
+            if let Some(g) = &e.graph
+                && !out.contains(&g.package)
+            {
+                out.push(g.package);
+            }
             if let MaskEffectKind::Filter(f) = e.kind {
                 for resource in f.resources() {
                     if !out.contains(&resource) {
